@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>the-one</title>
+<style>
+  :root { --bg: #0a0a0a; --fg: #e0e0e0; --accent: #4a9eff; --surface: #1a1a1a; --border: #2a2a2a; --tool: #2d2d2d; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'SF Mono', 'Fira Code', monospace; background: var(--bg); color: var(--fg); height: 100vh; display: flex; flex-direction: column; }
+  #header { padding: 12px 20px; border-bottom: 1px solid var(--border); font-size: 14px; display: flex; align-items: center; gap: 12px; }
+  #header .title { font-weight: 700; color: var(--accent); }
+  #header .info { color: #666; font-size: 12px; }
+  #messages { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+  .msg { max-width: 85%; padding: 10px 14px; border-radius: 8px; font-size: 14px; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word; }
+  .msg.user { align-self: flex-end; background: var(--accent); color: #000; }
+  .msg.assistant { align-self: flex-start; background: var(--surface); border: 1px solid var(--border); }
+  .msg.tool { align-self: flex-start; background: var(--tool); font-size: 12px; color: #999; border-left: 3px solid var(--accent); }
+  .msg.tool.error { border-left-color: #ff4a4a; }
+  .msg.system { align-self: center; color: #666; font-size: 12px; }
+  #input-area { padding: 16px 20px; border-top: 1px solid var(--border); display: flex; gap: 10px; }
+  #input { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; color: var(--fg); font-family: inherit; font-size: 14px; outline: none; }
+  #input:focus { border-color: var(--accent); }
+  #send { background: var(--accent); border: none; border-radius: 8px; padding: 10px 20px; color: #000; font-weight: 600; cursor: pointer; font-family: inherit; }
+  #send:disabled { opacity: 0.4; cursor: not-allowed; }
+</style>
+</head>
+<body>
+<div id="header">
+  <span class="title">the-one</span>
+  <span class="info" id="status">connecting...</span>
+</div>
+<div id="messages"></div>
+<div id="input-area">
+  <input id="input" placeholder="Type a message..." autocomplete="off" />
+  <button id="send">Send</button>
+</div>
+<script>
+const messages = document.getElementById('messages');
+const input = document.getElementById('input');
+const sendBtn = document.getElementById('send');
+const status = document.getElementById('status');
+let ws;
+let busy = false;
+
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws`);
+  ws.onopen = () => { status.textContent = 'connected'; };
+  ws.onclose = () => { status.textContent = 'disconnected'; setTimeout(connect, 2000); };
+  ws.onmessage = (e) => {
+    const data = JSON.parse(e.data);
+    if (data.type === 'assistant') addMsg('assistant', data.content);
+    else if (data.type === 'tool_call') addMsg('tool', `> ${data.name}(${Object.entries(data.arguments).map(([k,v]) => `${k}=${JSON.stringify(v)}`).join(', ')})`);
+    else if (data.type === 'tool_result') addMsg(data.is_error ? 'tool error' : 'tool', data.content);
+    else if (data.type === 'system') addMsg('system', data.content);
+    else if (data.type === 'done') { busy = false; sendBtn.disabled = false; }
+  };
+}
+
+function addMsg(cls, text) {
+  const el = document.createElement('div');
+  el.className = 'msg ' + cls;
+  el.textContent = text;
+  messages.appendChild(el);
+  messages.scrollTop = messages.scrollHeight;
+}
+
+function send() {
+  const text = input.value.trim();
+  if (!text || busy) return;
+  addMsg('user', text);
+  ws.send(JSON.stringify({ message: text }));
+  input.value = '';
+  busy = true;
+  sendBtn.disabled = true;
+}
+
+input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
+sendBtn.addEventListener('click', send);
+connect();
+</script>
+</body>
+</html>
