@@ -186,7 +186,8 @@ if __name__ == "__main__":
     test("context reset", test_reset)
     test("run tests", test_run_tests)
     test("self-awareness", test_self_awareness)
-    test("direct-action: restart", test_direct_action_restart)
+    # restart pattern test last — doesn't hit the live agent
+    test("direct-action: no false positive", test_direct_action_restart)
 
     print(f"\n{'='*50}")
     print(f"  {passed} passed, {failed} failed, {skipped} skipped")
