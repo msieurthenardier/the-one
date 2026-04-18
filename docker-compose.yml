@@ -21,3 +21,12 @@ services:
       - THE_ONE_CONCOURSE_TEAM=the-one
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    networks:
+      - default
+      - concourse
+
+networks:
+  default:
+  concourse:
+    external: true
+    name: concourse-local_default
