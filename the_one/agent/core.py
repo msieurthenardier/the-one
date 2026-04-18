@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import re
+import uuid
 from typing import AsyncIterator
 
 from the_one.llm.base import LLMProvider, Message, ToolCall, ToolResult
@@ -99,6 +101,13 @@ class Agent:
             self.messages.append(response)
             yield response
 
+            # If the LLM didn't produce formal tool calls, try to extract
+            # JSON tool calls embedded in the text (common with smaller models).
+            if not response.tool_calls and response.content:
+                extracted = self._extract_tool_calls(response.content)
+                if extracted:
+                    response.tool_calls = extracted
+
             if not response.tool_calls:
                 break
 
@@ -120,6 +129,38 @@ class Agent:
                 content=f"[error] Tool execution failed: {e}",
                 is_error=True,
             )
+
+    def _extract_tool_calls(self, text: str) -> list[ToolCall]:
+        """Extract tool calls from JSON embedded in assistant text.
+
+        Looks for patterns like:
+          {"name": "tool_name", "arguments": {...}}
+          {"name": "tool_name", "arguments": "string_arg"}
+        Only extracts calls for tools that actually exist in the registry.
+        """
+        calls: list[ToolCall] = []
+        # Match JSON objects that have "name" and "arguments" keys
+        for match in re.finditer(r'\{[^{}]*"name"\s*:\s*"[^"]+"\s*,\s*"arguments"\s*:[^}]+\}', text):
+            try:
+                obj = json.loads(match.group())
+            except json.JSONDecodeError:
+                continue
+            name = obj.get("name", "")
+            args = obj.get("arguments", {})
+            # Skip if tool doesn't exist
+            if name not in self.tools.tool_names:
+                continue
+            # Normalize: if arguments is a string, wrap it
+            if isinstance(args, str):
+                args = {"args": args}
+            if not isinstance(args, dict):
+                continue
+            calls.append(ToolCall(
+                id=f"extracted-{uuid.uuid4().hex[:8]}",
+                name=name,
+                arguments=args,
+            ))
+        return calls
 
     @staticmethod
     def _match_direct_action(user_input: str) -> tuple[str, dict] | None:
