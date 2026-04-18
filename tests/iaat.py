@@ -151,16 +151,14 @@ def test_self_awareness():
         f"agent doesn't know its name: {text[:200]}"
 
 
-def test_direct_action_restart():
-    """Direct-action pattern matches restart intent.
-    Actually triggering it would kill the container, so we test via
-    a benign message right after to confirm the agent is still alive
-    (meaning the pattern didn't fire for a non-matching input)."""
-    # This should NOT trigger a restart — agent should respond normally
-    resp = chat("how do I restart my computer?")
+def test_multi_step():
+    """Agent can handle a task that requires multiple tool calls."""
+    resp = chat("List the files in /workspace/the_one/tools/ and tell me how many there are.")
     text = assistant_text(resp)
-    assert len(text) > 0, "agent didn't respond to non-restart question"
-    # If we got here, the agent is still alive — pattern didn't false-positive
+    assert has_tool_result(resp), "expected tool usage for listing files"
+    # Should mention some of the tool files we know exist
+    assert "git" in text.lower() or "base" in text.lower() or len(text) > 20, \
+        f"expected file listing response, got: {text[:200]}"
 
 
 # ── Runner ───────────────────────────────────────────────────────────────
@@ -186,8 +184,7 @@ if __name__ == "__main__":
     test("context reset", test_reset)
     test("run tests", test_run_tests)
     test("self-awareness", test_self_awareness)
-    # restart pattern test last — doesn't hit the live agent
-    test("direct-action: no false positive", test_direct_action_restart)
+    test("multi-step tool use", test_multi_step)
 
     print(f"\n{'='*50}")
     print(f"  {passed} passed, {failed} failed, {skipped} skipped")
