@@ -49,6 +49,11 @@ class ToolRegistry:
         from the_one.tools.filesystem import ReadFileTool, WriteFileTool, ListDirTool
         from the_one.tools.web import HttpRequestTool, WebSearchTool
         from the_one.tools.python_exec import PythonExecTool
+        from the_one.tools.git import GitTool
+        from the_one.tools.test_runner import TestRunnerTool
+        from the_one.tools.self_deploy import SelfDeployTool
+        from the_one.tools.rollback import RollbackTool
+        from the_one.tools.restart import RestartTool
 
         for tool_cls in [
             ShellTool,
@@ -58,5 +63,10 @@ class ToolRegistry:
             HttpRequestTool,
             WebSearchTool,
             PythonExecTool,
+            GitTool,
+            TestRunnerTool,
+            SelfDeployTool,
+            RollbackTool,
+            RestartTool,
         ]:
             self.register(tool_cls())

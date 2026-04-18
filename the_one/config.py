@@ -9,8 +9,9 @@ class Settings(BaseSettings):
     model_config = {"env_prefix": "THE_ONE_", "env_file": ".env", "extra": "ignore"}
 
     # LLM
-    llm_provider: str = "openai"
-    llm_model: str = "gpt-4o"
+    llm_provider: str = "ollama"
+    llm_model: str = "qwen2.5:7b"
+    llm_base_url: str = "http://localhost:11434/v1"
 
     # Web
     host: str = "127.0.0.1"
@@ -18,6 +19,11 @@ class Settings(BaseSettings):
 
     # Paths
     data_dir: Path = Path.home() / ".the-one"
+    workspace_dir: Path = Path("/workspace")
+
+    # Concourse CI
+    concourse_target: str = "local"
+    concourse_pipeline: str = "the-one"
 
     def ensure_dirs(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)

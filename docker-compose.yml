@@ -1,0 +1,23 @@
+services:
+  the-one:
+    build: .
+    container_name: the-one
+    restart: unless-stopped
+    ports:
+      - "8484:8484"
+    volumes:
+      - .:/workspace
+    environment:
+      - THE_ONE_LLM_PROVIDER=ollama
+      - THE_ONE_LLM_MODEL=qwen2.5:7b
+      - THE_ONE_LLM_BASE_URL=http://host.docker.internal:11434/v1
+      - THE_ONE_HOST=0.0.0.0
+      - THE_ONE_WORKSPACE_DIR=/workspace
+      - THE_ONE_CONCOURSE_TARGET=local
+      - THE_ONE_CONCOURSE_PIPELINE=the-one
+      - THE_ONE_CONCOURSE_URL=http://host.docker.internal:8080
+      - THE_ONE_CONCOURSE_USER=the-one
+      - THE_ONE_CONCOURSE_PASS=${THE_ONE_CONCOURSE_PASS}
+      - THE_ONE_CONCOURSE_TEAM=the-one
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

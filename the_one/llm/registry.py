@@ -25,6 +25,7 @@ def _try_load_builtin(name: str) -> None:
     loaders = {
         "openai": lambda: __import__("the_one.llm.openai_provider", fromlist=["_"]),
         "anthropic": lambda: __import__("the_one.llm.anthropic_provider", fromlist=["_"]),
+        "ollama": lambda: __import__("the_one.llm.ollama_provider", fromlist=["_"]),
     }
     if name in loaders:
         try:

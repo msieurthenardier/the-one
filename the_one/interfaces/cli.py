@@ -19,7 +19,9 @@ console = Console()
 
 def _make_agent() -> Agent:
     settings.ensure_dirs()
-    llm = get_provider(settings.llm_provider, model=settings.llm_model)
+    llm = get_provider(
+        settings.llm_provider, model=settings.llm_model, base_url=settings.llm_base_url
+    )
     tools = ToolRegistry()
     tools.load_defaults()
     return Agent(llm=llm, tools=tools)

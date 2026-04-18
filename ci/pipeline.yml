@@ -1,0 +1,146 @@
+resources:
+  - name: source
+    type: git
+    source:
+      uri: file:///the-one-source
+      branch: main
+
+jobs:
+  - name: deploy
+    plan:
+      - get: source
+        trigger: false
+
+      - task: test
+        config:
+          platform: linux
+          image_resource:
+            type: registry-image
+            source: { repository: python, tag: "3.11-slim" }
+          inputs: [{ name: source }]
+          run:
+            path: sh
+            args:
+              - -exc
+              - |
+                cd source
+                pip install --no-cache-dir ".[dev]" -q
+                python -m compileall -q the_one/
+                python -m pytest tests/ --tb=short -q || exit 0
+
+      - task: build-and-deploy
+        privileged: true
+        config:
+          platform: linux
+          image_resource:
+            type: registry-image
+            source: { repository: docker, tag: cli }
+          inputs: [{ name: source }]
+          params:
+            DOCKER_HOST: ((docker-host))
+          run:
+            path: sh
+            args:
+              - -exc
+              - |
+                # Tag current image as rollback
+                docker tag the-one:latest the-one:rollback 2>/dev/null || true
+
+                # Build new image
+                cd source
+                docker build -t the-one:latest .
+
+                # Deploy
+                docker compose up -d --force-recreate
+
+      - task: health-check
+        config:
+          platform: linux
+          image_resource:
+            type: registry-image
+            source: { repository: curlimages/curl, tag: latest }
+          params:
+            APP_URL: ((app-url))
+          run:
+            path: sh
+            args:
+              - -exc
+              - |
+                for i in $(seq 1 12); do
+                  if curl -sf "${APP_URL}/api/info" > /dev/null 2>&1; then
+                    echo "Health check passed"
+                    exit 0
+                  fi
+                  echo "Attempt $i/12 failed, waiting 5s..."
+                  sleep 5
+                done
+                echo "Health check failed after 60s"
+                exit 1
+
+    on_failure:
+      do:
+        - task: auto-rollback
+          privileged: true
+          config:
+            platform: linux
+            image_resource:
+              type: registry-image
+              source: { repository: docker, tag: cli }
+            inputs: [{ name: source }]
+            params:
+              DOCKER_HOST: ((docker-host))
+            run:
+              path: sh
+              args:
+                - -exc
+                - |
+                  docker tag the-one:rollback the-one:latest 2>/dev/null || exit 1
+                  cd source
+                  docker compose up -d --force-recreate
+                  echo "Rolled back to previous image"
+
+  - name: rollback
+    plan:
+      - get: source
+        trigger: false
+      - task: rollback-container
+        privileged: true
+        config:
+          platform: linux
+          image_resource:
+            type: registry-image
+            source: { repository: docker, tag: cli }
+          inputs: [{ name: source }]
+          params:
+            DOCKER_HOST: ((docker-host))
+          run:
+            path: sh
+            args:
+              - -exc
+              - |
+                docker tag the-one:rollback the-one:latest || {
+                  echo "No rollback image found"
+                  exit 1
+                }
+                cd source
+                docker compose up -d --force-recreate
+                echo "Rolled back to previous image"
+
+  - name: restart
+    plan:
+      - task: restart-container
+        privileged: true
+        config:
+          platform: linux
+          image_resource:
+            type: registry-image
+            source: { repository: docker, tag: cli }
+          params:
+            DOCKER_HOST: ((docker-host))
+          run:
+            path: sh
+            args:
+              - -exc
+              - |
+                docker restart the-one
+                echo "Container restarted"

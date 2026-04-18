@@ -1,14 +1,45 @@
 from __future__ import annotations
 
+import re
 from typing import AsyncIterator
 
 from the_one.llm.base import LLMProvider, Message, ToolCall, ToolResult
 from the_one.tools.base import ToolRegistry
 
+# Direct-action patterns: map user intent to tool calls without LLM interpretation.
+# Needed because small models often reach for shell instead of the right tool.
+_DIRECT_ACTIONS: list[tuple[re.Pattern[str], str, dict]] = [
+    (re.compile(r"^(please\s+)?(restart|reboot|reload)\s+(yourself|the agent|the container|the app)", re.I), "restart", {}),
+    (re.compile(r"^(please\s+)?(roll\s*back|undo\s+deploy)", re.I), "rollback", {}),
+]
+
 SYSTEM_PROMPT = """\
 You are "the-one", a personal AI agent. You have access to tools that let you \
 interact with the computer, filesystem, web, and more. Use them to accomplish \
 whatever the user asks.
+
+You can read and modify your own source code under /workspace, run tests, \
+deploy new versions of yourself, and roll back if things break.
+
+Architecture:
+- /app = your running code (stable, copied at build time)
+- /workspace = mounted source repo (you edit here, changes take effect after deploy)
+
+Self-management tools:
+- restart: Restart your container immediately (no rebuild, same code). Use when \
+asked to "restart yourself", "reboot", etc.
+- run_tests: Run pytest against /workspace code before deploying.
+- git: Git operations on /workspace (status, diff, add, commit, log, etc.).
+- self_deploy: Full deploy — rebuild image from /workspace code and restart. \
+Use after editing your own source code.
+- rollback: Restore the previous Docker image and restart. Use if a deploy broke things.
+
+Self-modification workflow:
+1. Read/edit files under /workspace using filesystem tools
+2. Run tests with the run_tests tool to verify changes
+3. Commit changes with the git tool
+4. Deploy with self_deploy (rebuilds image, restarts container)
+5. If something breaks, use rollback to restore the previous version
 
 Guidelines:
 - Think step by step about complex tasks.
@@ -16,6 +47,10 @@ Guidelines:
 - Be concise and direct in your responses.
 - If a task requires multiple steps, execute them sequentially.
 - If something fails, try alternative approaches before giving up.
+- Always run tests before deploying changes to yourself.
+- Be cautious with self-modifications — bad changes can break you.
+- When asked to restart, reboot, or reset yourself, use the restart tool. \
+Do NOT simulate a restart with shell commands.
 """
 
 
@@ -41,6 +76,20 @@ class Agent:
         Yields each assistant/tool message as it's produced.
         """
         self.messages.append(Message.user(user_input))
+
+        # Check for direct-action patterns before calling the LLM
+        direct = self._match_direct_action(user_input)
+        if direct:
+            tool_name, tool_kwargs = direct
+            try:
+                tool = self.tools.get(tool_name)
+                output = await tool.execute(**tool_kwargs)
+            except Exception as e:
+                output = f"[error] {e}"
+            msg = Message.assistant(content=output)
+            self.messages.append(msg)
+            yield msg
+            return
 
         for _ in range(self.max_iterations):
             response = await self.llm.complete(
@@ -71,6 +120,15 @@ class Agent:
                 content=f"[error] Tool execution failed: {e}",
                 is_error=True,
             )
+
+    @staticmethod
+    def _match_direct_action(user_input: str) -> tuple[str, dict] | None:
+        """Match user input against direct-action patterns."""
+        text = user_input.strip()
+        for pattern, tool_name, kwargs in _DIRECT_ACTIONS:
+            if pattern.search(text):
+                return tool_name, kwargs
+        return None
 
     def reset(self) -> None:
         self.messages = [Message.system(self.system_prompt)]

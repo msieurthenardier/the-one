@@ -22,7 +22,9 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 def _make_agent() -> Agent:
     settings.ensure_dirs()
-    llm = get_provider(settings.llm_provider, model=settings.llm_model)
+    llm = get_provider(
+        settings.llm_provider, model=settings.llm_model, base_url=settings.llm_base_url
+    )
     tools = ToolRegistry()
     tools.load_defaults()
     return Agent(llm=llm, tools=tools)
@@ -35,11 +37,23 @@ async def index() -> str:
 
 @app.get("/api/info")
 async def info() -> dict[str, Any]:
-    return {
+    import json as _json
+
+    result: dict[str, Any] = {
         "version": "0.1.0",
         "provider": settings.llm_provider,
         "model": settings.llm_model,
     }
+
+    # Include deploy status if available
+    status_file = settings.workspace_dir / ".deploy-status.json"
+    if status_file.exists():
+        try:
+            result["deploy"] = _json.loads(status_file.read_text())
+        except Exception:
+            pass
+
+    return result
 
 
 @app.websocket("/ws")
