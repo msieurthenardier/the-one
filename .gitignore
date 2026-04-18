@@ -9,3 +9,4 @@ build/
 *.sqlite3
 .ruff_cache/
 .pytest_cache/
+.deploy-status.json
