@@ -9,6 +9,7 @@ build/
 *.sqlite3
 .ruff_cache/
 .pytest_cache/
+.claude/
 .deploy-status.json
 .memory/
 .flightops/
