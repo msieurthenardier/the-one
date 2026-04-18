@@ -37,13 +37,34 @@ jobs:
               - |
                 docker tag the-one:latest the-one:rollback 2>/dev/null || true
 
-                # Build and deploy via a temp container with host source + socket access
+                # Build: run docker build inside a container that has host source access
                 docker run --rm \
                   -v /home/cprch/projects/the-one:/src \
                   -v /var/run/docker.sock:/var/run/docker.sock \
                   -w /src \
                   docker:cli \
-                  sh -c "docker build -t the-one:latest . && docker compose up -d --force-recreate"
+                  docker build -t the-one:latest .
+
+                # Deploy: stop old container, start new one
+                docker rm -f the-one 2>/dev/null || true
+                docker run -d \
+                  --name the-one \
+                  --restart unless-stopped \
+                  -p 8484:8484 \
+                  -v /home/cprch/projects/the-one:/workspace \
+                  -e THE_ONE_LLM_PROVIDER=ollama \
+                  -e THE_ONE_LLM_MODEL=qwen2.5:7b \
+                  -e THE_ONE_LLM_BASE_URL=http://host.docker.internal:11434/v1 \
+                  -e THE_ONE_HOST=0.0.0.0 \
+                  -e THE_ONE_WORKSPACE_DIR=/workspace \
+                  -e THE_ONE_CONCOURSE_TARGET=local \
+                  -e THE_ONE_CONCOURSE_PIPELINE=the-one \
+                  -e THE_ONE_CONCOURSE_URL=http://host.docker.internal:8080 \
+                  -e THE_ONE_CONCOURSE_USER=the-one \
+                  -e THE_ONE_CONCOURSE_PASS=((concourse-pass)) \
+                  -e THE_ONE_CONCOURSE_TEAM=the-one \
+                  --add-host host.docker.internal:host-gateway \
+                  the-one:latest
 
       - task: health-check
         config:
@@ -86,12 +107,25 @@ jobs:
                 - -exc
                 - |
                   docker tag the-one:rollback the-one:latest 2>/dev/null || exit 1
-                  docker run --rm \
-                    -v /home/cprch/projects/the-one:/src \
-                    -v /var/run/docker.sock:/var/run/docker.sock \
-                    -w /src \
-                    docker:cli \
-                    sh -c "docker compose up -d --force-recreate"
+                  docker rm -f the-one 2>/dev/null || true
+                  docker run -d \
+                    --name the-one \
+                    --restart unless-stopped \
+                    -p 8484:8484 \
+                    -v /home/cprch/projects/the-one:/workspace \
+                    -e THE_ONE_LLM_PROVIDER=ollama \
+                    -e THE_ONE_LLM_MODEL=qwen2.5:7b \
+                    -e THE_ONE_LLM_BASE_URL=http://host.docker.internal:11434/v1 \
+                    -e THE_ONE_HOST=0.0.0.0 \
+                    -e THE_ONE_WORKSPACE_DIR=/workspace \
+                    -e THE_ONE_CONCOURSE_TARGET=local \
+                    -e THE_ONE_CONCOURSE_PIPELINE=the-one \
+                    -e THE_ONE_CONCOURSE_URL=http://host.docker.internal:8080 \
+                    -e THE_ONE_CONCOURSE_USER=the-one \
+                    -e THE_ONE_CONCOURSE_PASS=((concourse-pass)) \
+                    -e THE_ONE_CONCOURSE_TEAM=the-one \
+                    --add-host host.docker.internal:host-gateway \
+                    the-one:latest
                   echo "Rolled back to previous image"
 
   - name: rollback
@@ -114,12 +148,25 @@ jobs:
                   echo "No rollback image found"
                   exit 1
                 }
-                docker run --rm \
-                  -v /home/cprch/projects/the-one:/src \
-                  -v /var/run/docker.sock:/var/run/docker.sock \
-                  -w /src \
-                  docker:cli \
-                  sh -c "docker compose up -d --force-recreate"
+                docker rm -f the-one 2>/dev/null || true
+                docker run -d \
+                  --name the-one \
+                  --restart unless-stopped \
+                  -p 8484:8484 \
+                  -v /home/cprch/projects/the-one:/workspace \
+                  -e THE_ONE_LLM_PROVIDER=ollama \
+                  -e THE_ONE_LLM_MODEL=qwen2.5:7b \
+                  -e THE_ONE_LLM_BASE_URL=http://host.docker.internal:11434/v1 \
+                  -e THE_ONE_HOST=0.0.0.0 \
+                  -e THE_ONE_WORKSPACE_DIR=/workspace \
+                  -e THE_ONE_CONCOURSE_TARGET=local \
+                  -e THE_ONE_CONCOURSE_PIPELINE=the-one \
+                  -e THE_ONE_CONCOURSE_URL=http://host.docker.internal:8080 \
+                  -e THE_ONE_CONCOURSE_USER=the-one \
+                  -e THE_ONE_CONCOURSE_PASS=((concourse-pass)) \
+                  -e THE_ONE_CONCOURSE_TEAM=the-one \
+                  --add-host host.docker.internal:host-gateway \
+                  the-one:latest
                 echo "Rolled back to previous image"
 
   - name: restart
