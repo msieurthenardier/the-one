@@ -1,14 +1,11 @@
 FROM python:3.11-slim
 
-# Install git, curl (health check), and fly CLI (Concourse)
+# Install git and curl (health check + fly CLI download at runtime)
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
         ca-certificates \
         curl \
-    && rm -rf /var/lib/apt/lists/* \
-    && curl -fsSL "http://host.docker.internal:8080/api/v1/cli?arch=amd64&platform=linux" \
-       -o /usr/local/bin/fly \
-    && chmod +x /usr/local/bin/fly
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 

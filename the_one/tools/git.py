@@ -8,10 +8,10 @@ from the_one.config import settings
 
 ALLOWED_COMMANDS = {
     "status", "log", "diff", "add", "commit", "branch", "checkout",
-    "revert", "tag", "show", "stash", "merge",
+    "revert", "tag", "show", "stash", "merge", "push",
 }
 
-DENIED_PATTERNS = {"--force", "-f", "push", "reset --hard", "clean -f"}
+DENIED_PATTERNS = {"push --force", "push -f", "reset --hard", "clean -f", "clean -fd"}
 
 
 class GitTool(Tool):

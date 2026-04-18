@@ -23,12 +23,15 @@
   #input:focus { border-color: var(--accent); }
   #send { background: var(--accent); border: none; border-radius: 8px; padding: 10px 20px; color: #000; font-weight: 600; cursor: pointer; font-family: inherit; }
   #send:disabled { opacity: 0.4; cursor: not-allowed; }
+  #clear { background: none; border: 1px solid var(--border); border-radius: 6px; padding: 4px 12px; color: #666; font-size: 12px; cursor: pointer; font-family: inherit; margin-left: auto; }
+  #clear:hover { color: var(--fg); border-color: #666; }
 </style>
 </head>
 <body>
 <div id="header">
   <span class="title">the-one</span>
   <span class="info" id="status">connecting...</span>
+  <button id="clear" title="Clear context">New chat</button>
 </div>
 <div id="messages"></div>
 <div id="input-area">
@@ -78,6 +81,10 @@ function send() {
 
 input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
 sendBtn.addEventListener('click', send);
+document.getElementById('clear').addEventListener('click', () => {
+  ws.send(JSON.stringify({ message: '/reset' }));
+  messages.innerHTML = '';
+});
 connect();
 </script>
 </body>

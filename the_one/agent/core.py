@@ -93,6 +93,7 @@ class Agent:
             yield msg
             return
 
+        nudge_count = 0
         for _ in range(self.max_iterations):
             response = await self.llm.complete(
                 messages=self.messages,
@@ -109,6 +110,15 @@ class Agent:
                     response.tool_calls = extracted
 
             if not response.tool_calls:
+                # If the model mentioned a tool but didn't call it, nudge it (max 2 times)
+                if nudge_count < 2 and response.content and self._mentions_tool(response.content):
+                    nudge = Message.system(
+                        "You described using a tool but didn't call it. "
+                        "Actually invoke the tool now — don't just describe what you would do."
+                    )
+                    self.messages.append(nudge)
+                    nudge_count += 1
+                    continue
                 break
 
             # Execute all tool calls
@@ -161,6 +171,15 @@ class Agent:
                 arguments=args,
             ))
         return calls
+
+    def _mentions_tool(self, text: str) -> bool:
+        """Check if text mentions a tool by name without actually calling it."""
+        text_lower = text.lower()
+        for name in self.tools.tool_names:
+            # Look for patterns like "use the git tool", "call run_tests", "I'll run_tests"
+            if name in text_lower:
+                return True
+        return False
 
     @staticmethod
     def _match_direct_action(user_input: str) -> tuple[str, dict] | None:
