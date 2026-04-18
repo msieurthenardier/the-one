@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
@@ -54,6 +54,60 @@ async def info() -> dict[str, Any]:
             pass
 
     return result
+
+
+_chat_agent: Agent | None = None
+
+
+def _get_chat_agent() -> Agent:
+    global _chat_agent
+    if _chat_agent is None:
+        _chat_agent = _make_agent()
+    return _chat_agent
+
+
+@app.post("/api/chat")
+async def chat(request: Request) -> dict[str, Any]:
+    """Synchronous chat endpoint for programmatic access (e.g. Claude Code)."""
+    payload = await request.json()
+    user_input = payload.get("message", "")
+    if not user_input:
+        return {"error": "no message provided"}
+
+    agent = _get_chat_agent()
+
+    if user_input == "/reset":
+        agent.reset()
+        return {"messages": [{"role": "system", "content": "Context cleared."}]}
+
+    result_messages: list[dict[str, Any]] = []
+    async for msg in agent.step(user_input):
+        if msg.role == Role.ASSISTANT:
+            entry: dict[str, Any] = {"role": "assistant"}
+            if msg.content:
+                entry["content"] = msg.content
+            if msg.tool_calls:
+                entry["tool_calls"] = [
+                    {"name": tc.name, "arguments": tc.arguments}
+                    for tc in msg.tool_calls
+                ]
+            result_messages.append(entry)
+        elif msg.role == Role.TOOL and msg.tool_result:
+            result_messages.append({
+                "role": "tool",
+                "content": msg.tool_result.content[:4000],
+                "is_error": msg.tool_result.is_error,
+            })
+
+    return {"messages": result_messages}
+
+
+@app.post("/api/chat/reset")
+async def chat_reset() -> dict[str, str]:
+    """Reset the persistent chat agent's context."""
+    agent = _get_chat_agent()
+    agent.reset()
+    return {"status": "ok"}
 
 
 @app.websocket("/ws")

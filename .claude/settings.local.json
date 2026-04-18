@@ -58,7 +58,8 @@
       "Bash(fly -t local builds -j the-one/deploy -c 1 2>&1)",
       "Bash(fly -t local watch -b 188576 2>&1 | grep -v '^\\\\[90m' | grep -v '^\\\\[10A' | grep -v '^\\\\[1A' | grep -v '^\\\\[0G' | grep -v '^\\\\[?25' | tail -20)",
       "Bash(docker compose up -d 2>&1)",
-      "Bash(docker build -t the-one:latest . 2>&1)"
+      "Bash(docker build -t the-one:latest . 2>&1)",
+      "Bash(python tests/iaat.py 2>&1)"
     ]
   }
 }
