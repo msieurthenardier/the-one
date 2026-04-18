@@ -36,8 +36,14 @@ jobs:
               - -exc
               - |
                 docker tag the-one:latest the-one:rollback 2>/dev/null || true
-                docker build -t the-one:latest /home/cprch/projects/the-one
-                docker compose -f /home/cprch/projects/the-one/docker-compose.yml up -d --force-recreate
+
+                # Build and deploy via a temp container with host source + socket access
+                docker run --rm \
+                  -v /home/cprch/projects/the-one:/src \
+                  -v /var/run/docker.sock:/var/run/docker.sock \
+                  -w /src \
+                  docker:cli \
+                  sh -c "docker build -t the-one:latest . && docker compose up -d --force-recreate"
 
       - task: health-check
         config:
@@ -80,7 +86,12 @@ jobs:
                 - -exc
                 - |
                   docker tag the-one:rollback the-one:latest 2>/dev/null || exit 1
-                  docker compose -f /home/cprch/projects/the-one/docker-compose.yml up -d --force-recreate
+                  docker run --rm \
+                    -v /home/cprch/projects/the-one:/src \
+                    -v /var/run/docker.sock:/var/run/docker.sock \
+                    -w /src \
+                    docker:cli \
+                    sh -c "docker compose up -d --force-recreate"
                   echo "Rolled back to previous image"
 
   - name: rollback
@@ -103,7 +114,12 @@ jobs:
                   echo "No rollback image found"
                   exit 1
                 }
-                docker compose -f /home/cprch/projects/the-one/docker-compose.yml up -d --force-recreate
+                docker run --rm \
+                  -v /home/cprch/projects/the-one:/src \
+                  -v /var/run/docker.sock:/var/run/docker.sock \
+                  -w /src \
+                  docker:cli \
+                  sh -c "docker compose up -d --force-recreate"
                 echo "Rolled back to previous image"
 
   - name: restart
