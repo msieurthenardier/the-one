@@ -5,15 +5,34 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>the-one</title>
 <style>
-  :root { --bg: #0a0a0a; --fg: #e0e0e0; --accent: #4a9eff; --surface: #1a1a1a; --border: #2a2a2a; --tool: #2d2d2d; }
+  :root { --bg: #0a0a0a; --fg: #e0e0e0; --accent: #4a9eff; --surface: #1a1a1a; --border: #2a2a2a; --tool: #2d2d2d; --sidebar-w: 240px; }
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: 'SF Mono', 'Fira Code', monospace; background: var(--bg); color: var(--fg); height: 100vh; display: flex; flex-direction: column; }
-  #header { padding: 12px 20px; border-bottom: 1px solid var(--border); font-size: 14px; display: flex; align-items: center; gap: 12px; }
-  #header .title { font-weight: 700; color: var(--accent); }
-  #header .info { color: #666; font-size: 12px; }
+  body { font-family: 'SF Mono', 'Fira Code', monospace; background: var(--bg); color: var(--fg); height: 100vh; display: flex; }
+
+  /* Sidebar */
+  #sidebar { width: var(--sidebar-w); border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; }
+  #sidebar-header { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  #sidebar-header .title { font-weight: 700; color: var(--accent); font-size: 14px; }
+  #new-chat { background: none; border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; color: #888; font-size: 12px; cursor: pointer; font-family: inherit; }
+  #new-chat:hover { color: var(--fg); border-color: #666; }
+  #session-list { flex: 1; overflow-y: auto; padding: 8px; }
+  .session-item { padding: 8px 10px; border-radius: 6px; font-size: 12px; cursor: pointer; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 6px; }
+  .session-item:hover { background: var(--surface); color: var(--fg); }
+  .session-item.active { background: var(--surface); color: var(--fg); border: 1px solid var(--border); }
+  .session-item .delete { display: none; margin-left: auto; color: #555; font-size: 10px; padding: 2px 4px; flex-shrink: 0; }
+  .session-item:hover .delete { display: block; }
+  .session-item .delete:hover { color: #ff4a4a; }
+  .session-group { padding: 8px 10px 4px; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #555; }
+  .session-group:not(:first-child) { margin-top: 8px; border-top: 1px solid var(--border); padding-top: 12px; }
+
+  /* Main area */
+  #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  #header { padding: 12px 20px; border-bottom: 1px solid var(--border); font-size: 12px; color: #666; display: flex; align-items: center; gap: 12px; }
+  #header #status { }
   #messages { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 12px; }
   .msg { max-width: 85%; padding: 10px 14px; border-radius: 8px; font-size: 14px; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word; }
   .msg.user { align-self: flex-end; background: var(--accent); color: #000; }
+  .msg.user.api { background: #7c4dff; }
   .msg.assistant { align-self: flex-start; background: var(--surface); border: 1px solid var(--border); }
   .msg.tool { align-self: flex-start; background: var(--tool); font-size: 12px; color: #999; border-left: 3px solid var(--accent); }
   .msg.tool.error { border-left-color: #ff4a4a; }
@@ -23,67 +42,204 @@
   #input:focus { border-color: var(--accent); }
   #send { background: var(--accent); border: none; border-radius: 8px; padding: 10px 20px; color: #000; font-weight: 600; cursor: pointer; font-family: inherit; }
   #send:disabled { opacity: 0.4; cursor: not-allowed; }
-  #clear { background: none; border: 1px solid var(--border); border-radius: 6px; padding: 4px 12px; color: #666; font-size: 12px; cursor: pointer; font-family: inherit; margin-left: auto; }
-  #clear:hover { color: var(--fg); border-color: #666; }
 </style>
 </head>
 <body>
-<div id="header">
-  <span class="title">the-one</span>
-  <span class="info" id="status">connecting...</span>
-  <button id="clear" title="Clear context">New chat</button>
+
+<div id="sidebar">
+  <div id="sidebar-header">
+    <span class="title">the-one</span>
+    <button id="new-chat">+ new</button>
+  </div>
+  <div id="session-list"></div>
 </div>
-<div id="messages"></div>
-<div id="input-area">
-  <input id="input" placeholder="Type a message..." autocomplete="off" />
-  <button id="send">Send</button>
+
+<div id="main">
+  <div id="header">
+    <span id="status">connecting...</span>
+  </div>
+  <div id="messages"></div>
+  <div id="input-area">
+    <input id="input" placeholder="Type a message..." autocomplete="off" />
+    <button id="send">Send</button>
+  </div>
 </div>
+
 <script>
-const messages = document.getElementById('messages');
-const input = document.getElementById('input');
+const messagesEl = document.getElementById('messages');
+const inputEl = document.getElementById('input');
 const sendBtn = document.getElementById('send');
-const status = document.getElementById('status');
+const statusEl = document.getElementById('status');
+const sessionListEl = document.getElementById('session-list');
 let ws;
 let busy = false;
+let currentSessionId = null;
 
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${proto}://${location.host}/ws`);
-  ws.onopen = () => { status.textContent = 'connected'; };
-  ws.onclose = () => { status.textContent = 'disconnected'; setTimeout(connect, 2000); };
+
+  ws.onopen = () => {
+    statusEl.textContent = 'connected';
+    // Request session list, then join or create
+    ws.send(JSON.stringify({ action: 'list_sessions' }));
+  };
+
+  ws.onclose = () => {
+    statusEl.textContent = 'disconnected';
+    setTimeout(connect, 2000);
+  };
+
   ws.onmessage = (e) => {
     const data = JSON.parse(e.data);
-    if (data.type === 'assistant') addMsg('assistant', data.content);
+
+    if (data.type === 'session_list') {
+      renderSessionList(data.sessions);
+      // Auto-join first session or create new
+      if (data.sessions.length > 0 && !currentSessionId) {
+        joinSession(data.sessions[0].id);
+      } else if (!currentSessionId) {
+        ws.send(JSON.stringify({ action: 'new_session' }));
+      }
+      return;
+    }
+
+    if (data.type === 'session_joined') {
+      currentSessionId = data.session_id;
+      renderHistory(data.history);
+      refreshSessionList();
+      return;
+    }
+
+    if (data.type === 'session_deleted') {
+      if (currentSessionId === data.session_id) {
+        currentSessionId = null;
+        messagesEl.innerHTML = '';
+        ws.send(JSON.stringify({ action: 'new_session' }));
+      }
+      refreshSessionList();
+      return;
+    }
+
+    // Chat messages
+    if (data.type === 'user') {
+      const cls = data.source === 'api' ? 'user api' : 'user';
+      addMsg(cls, (data.source && data.source !== 'web' ? `[${data.source}] ` : '') + data.content);
+    }
+    else if (data.type === 'assistant') addMsg('assistant', data.content);
     else if (data.type === 'tool_call') addMsg('tool', `> ${data.name}(${Object.entries(data.arguments).map(([k,v]) => `${k}=${JSON.stringify(v)}`).join(', ')})`);
     else if (data.type === 'tool_result') addMsg(data.is_error ? 'tool error' : 'tool', data.content);
     else if (data.type === 'system') addMsg('system', data.content);
-    else if (data.type === 'done') { busy = false; sendBtn.disabled = false; }
+    else if (data.type === 'done') {
+      busy = false;
+      sendBtn.disabled = false;
+      refreshSessionList();
+    }
   };
+}
+
+function joinSession(id) {
+  currentSessionId = id;
+  ws.send(JSON.stringify({ action: 'join', session_id: id }));
+  highlightActiveSession();
+}
+
+function refreshSessionList() {
+  ws.send(JSON.stringify({ action: 'list_sessions' }));
+}
+
+function renderSessionList(sessions) {
+  sessionListEl.innerHTML = '';
+
+  // Group by source
+  const groups = {};
+  for (const s of sessions) {
+    const src = s.source || 'web';
+    if (!groups[src]) groups[src] = [];
+    groups[src].push(s);
+  }
+
+  // Render order: web first, then alphabetical
+  const order = Object.keys(groups).sort((a, b) => {
+    if (a === 'web') return -1;
+    if (b === 'web') return 1;
+    return a.localeCompare(b);
+  });
+
+  for (const src of order) {
+    const label = document.createElement('div');
+    label.className = 'session-group';
+    label.textContent = src;
+    sessionListEl.appendChild(label);
+
+    for (const s of groups[src]) {
+      const el = document.createElement('div');
+      el.className = 'session-item' + (s.id === currentSessionId ? ' active' : '');
+      el.dataset.id = s.id;
+
+      const titleSpan = document.createElement('span');
+      titleSpan.textContent = s.title;
+      titleSpan.style.overflow = 'hidden';
+      titleSpan.style.textOverflow = 'ellipsis';
+      el.appendChild(titleSpan);
+
+      const delBtn = document.createElement('span');
+      delBtn.className = 'delete';
+      delBtn.textContent = '\u2715';
+      delBtn.onclick = (e) => {
+        e.stopPropagation();
+        ws.send(JSON.stringify({ action: 'delete_session', session_id: s.id }));
+      };
+      el.appendChild(delBtn);
+
+      el.onclick = () => joinSession(s.id);
+      sessionListEl.appendChild(el);
+    }
+  }
+}
+
+function highlightActiveSession() {
+  document.querySelectorAll('.session-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.id === currentSessionId);
+  });
+}
+
+function renderHistory(history) {
+  messagesEl.innerHTML = '';
+  for (const ev of history) {
+    if (ev.type === 'user') {
+      const cls = ev.source === 'api' ? 'user api' : 'user';
+      addMsg(cls, (ev.source && ev.source !== 'web' ? `[${ev.source}] ` : '') + ev.content);
+    }
+    else if (ev.type === 'assistant') addMsg('assistant', ev.content);
+    else if (ev.type === 'tool_call') addMsg('tool', `> ${ev.name}(${Object.entries(ev.arguments).map(([k,v]) => `${k}=${JSON.stringify(v)}`).join(', ')})`);
+    else if (ev.type === 'tool_result') addMsg(ev.is_error ? 'tool error' : 'tool', ev.content);
+    else if (ev.type === 'system') addMsg('system', ev.content);
+  }
 }
 
 function addMsg(cls, text) {
   const el = document.createElement('div');
   el.className = 'msg ' + cls;
   el.textContent = text;
-  messages.appendChild(el);
-  messages.scrollTop = messages.scrollHeight;
+  messagesEl.appendChild(el);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
 function send() {
-  const text = input.value.trim();
+  const text = inputEl.value.trim();
   if (!text || busy) return;
   addMsg('user', text);
   ws.send(JSON.stringify({ message: text }));
-  input.value = '';
+  inputEl.value = '';
   busy = true;
   sendBtn.disabled = true;
 }
 
-input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
+inputEl.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } });
 sendBtn.addEventListener('click', send);
-document.getElementById('clear').addEventListener('click', () => {
-  ws.send(JSON.stringify({ message: '/reset' }));
-  messages.innerHTML = '';
+document.getElementById('new-chat').addEventListener('click', () => {
+  ws.send(JSON.stringify({ action: 'new_session' }));
 });
 connect();
 </script>

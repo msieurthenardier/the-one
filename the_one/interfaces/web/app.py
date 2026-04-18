@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import uuid
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
@@ -11,13 +14,45 @@ from pathlib import Path
 from the_one.agent import Agent
 from the_one.config import settings
 from the_one.llm import get_provider
-from the_one.llm.base import Role
+from the_one.llm.base import Message, Role
 from the_one.tools.base import ToolRegistry
 
 app = FastAPI(title="the-one")
 
 STATIC_DIR = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+
+# ── Sessions ─────────────────────────────────────────────────────────────
+
+
+@dataclass
+class Session:
+    id: str
+    agent: Agent
+    created: str
+    source: str = "web"
+    title: str = "New chat"
+    history: list[dict[str, Any]] = field(default_factory=list)
+    subscribers: set[WebSocket] = field(default_factory=set, repr=False)
+
+    def add_event(self, event: dict[str, Any]) -> None:
+        self.history.append(event)
+        # Update title from first user message
+        if self.title == "New chat" and event.get("type") == "user":
+            self.title = event["content"][:50]
+
+    def summary(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "title": self.title,
+            "created": self.created,
+            "source": self.source,
+            "message_count": len(self.history),
+        }
+
+
+_sessions: dict[str, Session] = {}
 
 
 def _make_agent() -> Agent:
@@ -28,6 +63,88 @@ def _make_agent() -> Agent:
     tools = ToolRegistry()
     tools.load_defaults()
     return Agent(llm=llm, tools=tools)
+
+
+def _get_session(session_id: str | None = None, source: str = "web") -> Session:
+    if session_id and session_id in _sessions:
+        return _sessions[session_id]
+    # Create new session
+    sid = session_id or uuid.uuid4().hex[:12]
+    session = Session(
+        id=sid,
+        agent=_make_agent(),
+        created=datetime.now(timezone.utc).isoformat(),
+        source=source,
+    )
+    _sessions[sid] = session
+    return session
+
+
+async def _send_to_session(session: Session, payload: dict[str, Any], exclude: WebSocket | None = None) -> None:
+    """Send a JSON payload to all websocket subscribers of a session."""
+    dead: list[WebSocket] = []
+    for ws in session.subscribers:
+        if ws is exclude:
+            continue
+        try:
+            await ws.send_json(payload)
+        except Exception:
+            dead.append(ws)
+    for ws in dead:
+        session.subscribers.discard(ws)
+
+
+async def _process_and_broadcast(
+    session: Session,
+    user_input: str,
+    source: str = "web",
+    exclude_user_echo: WebSocket | None = None,
+) -> list[dict[str, Any]]:
+    """Run agent step, broadcast all events, return message list for API."""
+    # Broadcast user message
+    user_event = {"type": "user", "content": user_input, "source": source}
+    session.add_event(user_event)
+    await _send_to_session(session, user_event, exclude=exclude_user_echo)
+
+    result_messages: list[dict[str, Any]] = []
+    async for msg in session.agent.step(user_input):
+        if msg.role == Role.ASSISTANT:
+            if msg.content:
+                event: dict[str, Any] = {"type": "assistant", "content": msg.content}
+                session.add_event(event)
+                await _send_to_session(session, event)
+            if msg.tool_calls:
+                for tc in msg.tool_calls:
+                    tc_event = {"type": "tool_call", "name": tc.name, "arguments": tc.arguments}
+                    session.add_event(tc_event)
+                    await _send_to_session(session, tc_event)
+
+            entry: dict[str, Any] = {"role": "assistant"}
+            if msg.content:
+                entry["content"] = msg.content
+            if msg.tool_calls:
+                entry["tool_calls"] = [{"name": tc.name, "arguments": tc.arguments} for tc in msg.tool_calls]
+            result_messages.append(entry)
+
+        elif msg.role == Role.TOOL and msg.tool_result:
+            tr_event = {
+                "type": "tool_result",
+                "content": msg.tool_result.content[:2000],
+                "is_error": msg.tool_result.is_error,
+            }
+            session.add_event(tr_event)
+            await _send_to_session(session, tr_event)
+            result_messages.append({
+                "role": "tool",
+                "content": msg.tool_result.content[:4000],
+                "is_error": msg.tool_result.is_error,
+            })
+
+    await _send_to_session(session, {"type": "done"})
+    return result_messages
+
+
+# ── Routes ───────────────────────────────────────────────────────────────
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -45,7 +162,6 @@ async def info() -> dict[str, Any]:
         "model": settings.llm_model,
     }
 
-    # Include deploy status if available
     status_file = settings.workspace_dir / ".deploy-status.json"
     if status_file.exists():
         try:
@@ -56,97 +172,145 @@ async def info() -> dict[str, Any]:
     return result
 
 
-_chat_agent: Agent | None = None
+@app.get("/api/sessions")
+async def list_sessions() -> list[dict[str, Any]]:
+    return [s.summary() for s in sorted(_sessions.values(), key=lambda s: s.created, reverse=True)]
 
 
-def _get_chat_agent() -> Agent:
-    global _chat_agent
-    if _chat_agent is None:
-        _chat_agent = _make_agent()
-    return _chat_agent
+@app.get("/api/sessions/{session_id}")
+async def get_session(session_id: str) -> dict[str, Any]:
+    if session_id not in _sessions:
+        return {"error": "session not found"}
+    s = _sessions[session_id]
+    return {**s.summary(), "history": s.history}
+
+
+@app.delete("/api/sessions/{session_id}")
+async def delete_session(session_id: str) -> dict[str, str]:
+    if session_id in _sessions:
+        del _sessions[session_id]
+    return {"status": "ok"}
 
 
 @app.post("/api/chat")
 async def chat(request: Request) -> dict[str, Any]:
-    """Synchronous chat endpoint for programmatic access (e.g. Claude Code)."""
+    """Chat endpoint for programmatic access."""
     payload = await request.json()
     user_input = payload.get("message", "")
+    source = payload.get("source", "api")
+    session_id = payload.get("session_id")
+
     if not user_input:
         return {"error": "no message provided"}
 
-    agent = _get_chat_agent()
+    session = _get_session(session_id, source=source)
 
     if user_input == "/reset":
-        agent.reset()
-        return {"messages": [{"role": "system", "content": "Context cleared."}]}
+        session.agent.reset()
+        session.history.clear()
+        session.title = "New chat"
+        await _send_to_session(session, {"type": "system", "content": "Context cleared."})
+        return {"session_id": session.id, "messages": [{"role": "system", "content": "Context cleared."}]}
 
-    result_messages: list[dict[str, Any]] = []
-    async for msg in agent.step(user_input):
-        if msg.role == Role.ASSISTANT:
-            entry: dict[str, Any] = {"role": "assistant"}
-            if msg.content:
-                entry["content"] = msg.content
-            if msg.tool_calls:
-                entry["tool_calls"] = [
-                    {"name": tc.name, "arguments": tc.arguments}
-                    for tc in msg.tool_calls
-                ]
-            result_messages.append(entry)
-        elif msg.role == Role.TOOL and msg.tool_result:
-            result_messages.append({
-                "role": "tool",
-                "content": msg.tool_result.content[:4000],
-                "is_error": msg.tool_result.is_error,
-            })
-
-    return {"messages": result_messages}
+    result = await _process_and_broadcast(session, user_input, source=source)
+    return {"session_id": session.id, "messages": result}
 
 
 @app.post("/api/chat/reset")
-async def chat_reset() -> dict[str, str]:
-    """Reset the persistent chat agent's context."""
-    agent = _get_chat_agent()
-    agent.reset()
+async def chat_reset(request: Request) -> dict[str, str]:
+    payload = await request.json() if request.headers.get("content-type") == "application/json" else {}
+    session_id = payload.get("session_id")
+    if session_id and session_id in _sessions:
+        s = _sessions[session_id]
+        s.agent.reset()
+        s.history.clear()
+        s.title = "New chat"
+        await _send_to_session(s, {"type": "system", "content": "Context cleared."})
     return {"status": "ok"}
 
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket) -> None:
     await ws.accept()
-    agent = _make_agent()
+    session: Session | None = None
 
     try:
         while True:
             data = await ws.receive_text()
             payload = json.loads(data)
-            user_input = payload.get("message", "")
+            action = payload.get("action", "message")
 
+            # Session management actions
+            if action == "join":
+                session_id = payload.get("session_id")
+                session = _get_session(session_id)
+                if ws not in session.subscribers:
+                    session.subscribers.add(ws)
+                await ws.send_json({
+                    "type": "session_joined",
+                    "session_id": session.id,
+                    "title": session.title,
+                    "history": session.history,
+                })
+                continue
+
+            if action == "list_sessions":
+                await ws.send_json({
+                    "type": "session_list",
+                    "sessions": [s.summary() for s in sorted(_sessions.values(), key=lambda s: s.created, reverse=True)],
+                })
+                continue
+
+            if action == "new_session":
+                # Leave current session
+                if session:
+                    session.subscribers.discard(ws)
+                session = _get_session()
+                session.subscribers.add(ws)
+                await ws.send_json({
+                    "type": "session_joined",
+                    "session_id": session.id,
+                    "title": session.title,
+                    "history": [],
+                })
+                continue
+
+            if action == "delete_session":
+                sid = payload.get("session_id")
+                if sid and sid in _sessions:
+                    if session and session.id == sid:
+                        session.subscribers.discard(ws)
+                        session = None
+                    del _sessions[sid]
+                await ws.send_json({"type": "session_deleted", "session_id": sid})
+                continue
+
+            # Regular message
+            user_input = payload.get("message", "")
             if not user_input:
                 continue
 
+            # Auto-join a session if none active
+            if not session:
+                session = _get_session()
+                session.subscribers.add(ws)
+                await ws.send_json({
+                    "type": "session_joined",
+                    "session_id": session.id,
+                    "title": session.title,
+                    "history": [],
+                })
+
             if user_input == "/reset":
-                agent.reset()
-                await ws.send_json({"type": "system", "content": "Context cleared."})
+                session.agent.reset()
+                session.history.clear()
+                session.title = "New chat"
+                await _send_to_session(session, {"type": "system", "content": "Context cleared."})
                 continue
 
-            async for msg in agent.step(user_input):
-                if msg.role == Role.ASSISTANT:
-                    if msg.content:
-                        await ws.send_json({"type": "assistant", "content": msg.content})
-                    if msg.tool_calls:
-                        for tc in msg.tool_calls:
-                            await ws.send_json({
-                                "type": "tool_call",
-                                "name": tc.name,
-                                "arguments": tc.arguments,
-                            })
-                elif msg.role == Role.TOOL and msg.tool_result:
-                    await ws.send_json({
-                        "type": "tool_result",
-                        "content": msg.tool_result.content[:2000],
-                        "is_error": msg.tool_result.is_error,
-                    })
+            # Process message — exclude echoing user msg back to sender
+            await _process_and_broadcast(session, user_input, source="web", exclude_user_echo=ws)
 
-            await ws.send_json({"type": "done"})
     except WebSocketDisconnect:
-        pass
+        if session:
+            session.subscribers.discard(ws)

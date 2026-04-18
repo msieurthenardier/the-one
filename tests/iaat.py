@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import sys
 import time
+import uuid
 import requests
 
 BASE_URL = sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8484"
@@ -26,18 +27,24 @@ TIMEOUT = 120  # some tool calls are slow
 passed = 0
 failed = 0
 skipped = 0
+session_id = None  # set per test run
 
 
 def chat(message: str) -> dict:
     """Send a message and return the full response."""
-    r = requests.post(CHAT_URL, json={"message": message}, timeout=TIMEOUT)
+    r = requests.post(CHAT_URL, json={
+        "message": message,
+        "source": "iaat",
+        "session_id": session_id,
+    }, timeout=TIMEOUT)
     r.raise_for_status()
     return r.json()
 
 
 def reset():
     """Reset agent context between tests."""
-    requests.post(RESET_URL, timeout=10)
+    requests.post(RESET_URL, json={"session_id": session_id}, timeout=10,
+                  headers={"Content-Type": "application/json"})
     time.sleep(0.5)
 
 
@@ -69,8 +76,9 @@ def has_tool_result(resp: dict, substring: str | None = None) -> bool:
 
 
 def test(name: str, fn):
-    global passed, failed, skipped
-    reset()
+    global passed, failed, skipped, session_id
+    # Each test gets its own session
+    session_id = f"iaat-{uuid.uuid4().hex[:8]}"
     print(f"  {name} ... ", end="", flush=True)
     try:
         fn()
