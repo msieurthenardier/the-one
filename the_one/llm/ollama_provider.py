@@ -5,7 +5,7 @@ from typing import Any
 
 import httpx
 
-from the_one.llm.base import LLMProvider, Message, Role, ToolCall
+from the_one.llm.base import LLMProvider, Message, Role, TokenUsage, ToolCall
 from the_one.llm.registry import register_provider
 
 
@@ -70,7 +70,15 @@ class OllamaProvider(LLMProvider):
                     )
                 )
 
-        return Message.assistant(content=msg.get("content") or "", tool_calls=tool_calls)
+        usage = None
+        if "usage" in data:
+            u = data["usage"]
+            usage = TokenUsage(
+                input_tokens=u.get("prompt_tokens", 0),
+                output_tokens=u.get("completion_tokens", 0),
+            )
+
+        return Message.assistant(content=msg.get("content") or "", tool_calls=tool_calls, usage=usage)
 
     def _to_api_message(self, msg: Message) -> dict[str, Any]:
         if msg.role == Role.TOOL and msg.tool_result:

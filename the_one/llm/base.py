@@ -29,11 +29,18 @@ class ToolResult:
 
 
 @dataclass
+class TokenUsage:
+    input_tokens: int = 0
+    output_tokens: int = 0
+
+
+@dataclass
 class Message:
     role: Role
     content: str = ""
     tool_calls: list[ToolCall] = field(default_factory=list)
     tool_result: ToolResult | None = None
+    usage: TokenUsage | None = None
 
     @classmethod
     def system(cls, content: str) -> Message:
@@ -44,8 +51,10 @@ class Message:
         return cls(role=Role.USER, content=content)
 
     @classmethod
-    def assistant(cls, content: str, tool_calls: list[ToolCall] | None = None) -> Message:
-        return cls(role=Role.ASSISTANT, content=content, tool_calls=tool_calls or [])
+    def assistant(
+        cls, content: str, tool_calls: list[ToolCall] | None = None, usage: TokenUsage | None = None
+    ) -> Message:
+        return cls(role=Role.ASSISTANT, content=content, tool_calls=tool_calls or [], usage=usage)
 
     @classmethod
     def tool(cls, result: ToolResult) -> Message:
@@ -56,6 +65,7 @@ class LLMProvider(ABC):
     """Abstract base for all LLM providers."""
 
     name: str
+    max_context_tokens: int = 128_000
 
     @abstractmethod
     async def complete(

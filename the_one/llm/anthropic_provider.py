@@ -6,12 +6,13 @@ from typing import Any
 
 import anthropic
 
-from the_one.llm.base import LLMProvider, Message, Role, ToolCall
+from the_one.llm.base import LLMProvider, Message, Role, TokenUsage, ToolCall
 from the_one.llm.registry import register_provider
 
 
 class AnthropicProvider(LLMProvider):
     name = "anthropic"
+    max_context_tokens = 200_000
 
     def __init__(self, model: str = "claude-sonnet-4-6", api_key: str | None = None, **kwargs: Any):
         self.model = model
@@ -57,7 +58,14 @@ class AnthropicProvider(LLMProvider):
                     ToolCall(id=block.id, name=block.name, arguments=block.input)
                 )
 
-        return Message.assistant(content=content, tool_calls=tool_calls)
+        usage = None
+        if response.usage:
+            usage = TokenUsage(
+                input_tokens=response.usage.input_tokens,
+                output_tokens=response.usage.output_tokens,
+            )
+
+        return Message.assistant(content=content, tool_calls=tool_calls, usage=usage)
 
     def _to_anthropic_tool(self, tool_def: dict[str, Any]) -> dict[str, Any]:
         return {

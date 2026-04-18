@@ -106,9 +106,27 @@ async def _process_and_broadcast(
     session.add_event(user_event)
     await _send_to_session(session, user_event, exclude=exclude_user_echo)
 
+    total_input = 0
+    total_output = 0
+    last_input = 0
+    max_context = session.agent.llm.max_context_tokens
+
     result_messages: list[dict[str, Any]] = []
     async for msg in session.agent.step(user_input):
         if msg.role == Role.ASSISTANT:
+            if msg.usage:
+                total_input += msg.usage.input_tokens
+                total_output += msg.usage.output_tokens
+                last_input = msg.usage.input_tokens
+                usage_event = {
+                    "type": "usage",
+                    "input_tokens": total_input,
+                    "output_tokens": total_output,
+                    "context_tokens": last_input,
+                    "max_context_tokens": max_context,
+                }
+                await _send_to_session(session, usage_event)
+
             if msg.content:
                 event: dict[str, Any] = {"type": "assistant", "content": msg.content}
                 session.add_event(event)

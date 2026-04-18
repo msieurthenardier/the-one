@@ -6,7 +6,7 @@ from typing import Any
 
 import openai
 
-from the_one.llm.base import LLMProvider, Message, Role, ToolCall
+from the_one.llm.base import LLMProvider, Message, Role, TokenUsage, ToolCall
 from the_one.llm.registry import register_provider
 
 
@@ -49,7 +49,14 @@ class OpenAIProvider(LLMProvider):
                     )
                 )
 
-        return Message.assistant(content=msg.content or "", tool_calls=tool_calls)
+        usage = None
+        if response.usage:
+            usage = TokenUsage(
+                input_tokens=response.usage.prompt_tokens,
+                output_tokens=response.usage.completion_tokens,
+            )
+
+        return Message.assistant(content=msg.content or "", tool_calls=tool_calls, usage=usage)
 
     def _to_api_message(self, msg: Message) -> dict[str, Any]:
         if msg.role == Role.TOOL and msg.tool_result:
