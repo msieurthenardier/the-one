@@ -9,7 +9,7 @@ build/
 *.sqlite3
 .ruff_cache/
 .pytest_cache/
-.claude/
+.claude/settings.local.json
 .deploy-status.json
 .memory/
 .flightops/

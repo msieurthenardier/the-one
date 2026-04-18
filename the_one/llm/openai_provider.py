@@ -22,7 +22,7 @@ class OpenAIProvider(LLMProvider):
         messages: list[Message],
         tools: list[dict[str, Any]] | None = None,
         temperature: float = 0.0,
-        max_tokens: int = 4096,
+        max_tokens: int = 16384,
     ) -> Message:
         api_messages = [self._to_api_message(m) for m in messages]
         kwargs: dict[str, Any] = {
