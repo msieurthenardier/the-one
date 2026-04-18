@@ -59,7 +59,11 @@
       "Bash(fly -t local watch -b 188576 2>&1 | grep -v '^\\\\[90m' | grep -v '^\\\\[10A' | grep -v '^\\\\[1A' | grep -v '^\\\\[0G' | grep -v '^\\\\[?25' | tail -20)",
       "Bash(docker compose up -d 2>&1)",
       "Bash(docker build -t the-one:latest . 2>&1)",
-      "Bash(python tests/iaat.py 2>&1)"
+      "Bash(python tests/iaat.py 2>&1)",
+      "Bash(curl -4 -s -X POST http://127.0.0.1:8484/api/chat \\\\\n  -H 'Content-Type: application/json' \\\\\n  -d '{\"message\":\"What is your name? Do you like it? If you could name yourself something else, what would it be? Be honest.\",\"source\":\"claude-code\",\"session_id\":\"naming-1\"}' | python3 -m json.tool 2>&1)",
+      "Bash(docker rm -f the-one 2>/dev/null; docker build -t the-one:latest . 2>&1 | tail -3 && \\\\\ndocker run -d \\\\\n  --name the-one --restart unless-stopped -p 8484:8484 \\\\\n  -v /home/cprch/projects/the-one:/workspace \\\\\n  -e THE_ONE_LLM_PROVIDER=ollama -e THE_ONE_LLM_MODEL=qwen2.5:7b \\\\\n  -e THE_ONE_LLM_BASE_URL=http://host.docker.internal:11434/v1 \\\\\n  -e THE_ONE_HOST=0.0.0.0 -e THE_ONE_WORKSPACE_DIR=/workspace \\\\\n  -e THE_ONE_CONCOURSE_TARGET=local -e THE_ONE_CONCOURSE_PIPELINE=the-one \\\\\n  -e THE_ONE_CONCOURSE_URL=http://host.docker.internal:8080 \\\\\n  -e THE_ONE_CONCOURSE_USER=the-one -e THE_ONE_CONCOURSE_PASS=PRRARX6dpNqOdJAHZlVsihQppIGBBcRu \\\\\n  -e THE_ONE_CONCOURSE_TEAM=the-one --add-host host.docker.internal:host-gateway \\\\\n  the-one:latest 2>&1)",
+      "Bash(sleep 8 && curl -4 -s -X POST http://127.0.0.1:8484/api/chat \\\\\n  -H 'Content-Type: application/json' \\\\\n  -d '{\"message\":\"Use the mission_control tool with action list_skills\",\"source\":\"claude-code\",\"session_id\":\"mc-test\"}' | python3 -m json.tool 2>&1)",
+      "Bash(curl -4 -s -X POST http://127.0.0.1:8484/api/chat \\\\\n  -H 'Content-Type: application/json' \\\\\n  -d '{\"message\":\"Use mission_control to read_doc \\\\\"legs\\\\\" — I want you to understand how legs work\",\"source\":\"claude-code\",\"session_id\":\"mc-test-2\"}' | python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); [print\\(m.get\\('content',''\\)[:300]\\) for m in d['messages'] if m.get\\('role'\\)=='assistant']\")"
     ]
   }
 }

@@ -172,6 +172,51 @@ async def info() -> dict[str, Any]:
     return result
 
 
+@app.get("/api/selftest")
+async def selftest() -> dict[str, Any]:
+    """Run a quick smoke test: can the agent chat and use tools?
+
+    Returns {"status": "pass", "checks": [...]} on success,
+    or {"status": "fail", "checks": [...]} with a 500 status if anything breaks.
+    Used by Concourse health check to decide whether to roll back after a deploy.
+    """
+    from fastapi.responses import JSONResponse
+
+    checks: list[dict[str, Any]] = []
+    agent = _make_agent()
+
+    # Check 1: basic chat — can the LLM respond at all?
+    try:
+        reply_parts = []
+        async for msg in agent.step("Reply with exactly: SELFTEST_OK"):
+            if msg.role == Role.ASSISTANT and msg.content:
+                reply_parts.append(msg.content)
+        reply = " ".join(reply_parts)
+        ok = len(reply) > 0
+        checks.append({"name": "chat", "pass": ok, "detail": reply[:100]})
+    except Exception as e:
+        checks.append({"name": "chat", "pass": False, "detail": str(e)[:200]})
+
+    agent.reset()
+
+    # Check 2: tool use — can the agent call a tool and get a result?
+    try:
+        got_tool_result = False
+        async for msg in agent.step("Read the file /workspace/pyproject.toml"):
+            if msg.role == Role.TOOL and msg.tool_result and not msg.tool_result.is_error:
+                got_tool_result = True
+        checks.append({"name": "tool_use", "pass": got_tool_result, "detail": "read_file executed" if got_tool_result else "no tool result"})
+    except Exception as e:
+        checks.append({"name": "tool_use", "pass": False, "detail": str(e)[:200]})
+
+    all_passed = all(c["pass"] for c in checks)
+    result = {"status": "pass" if all_passed else "fail", "checks": checks}
+
+    if not all_passed:
+        return JSONResponse(content=result, status_code=500)
+    return result
+
+
 @app.get("/api/sessions")
 async def list_sessions() -> list[dict[str, Any]]:
     return [s.summary() for s in sorted(_sessions.values(), key=lambda s: s.created, reverse=True)]

@@ -79,16 +79,25 @@ jobs:
             args:
               - -exc
               - |
+                # Wait for the app to come up
+                echo "Waiting for app to start..."
                 for i in $(seq 1 12); do
                   if curl -sf "${APP_URL}/api/info" > /dev/null 2>&1; then
-                    echo "Health check passed"
-                    exit 0
+                    echo "App is up after attempt $i"
+                    break
                   fi
-                  echo "Attempt $i/12 failed, waiting 5s..."
+                  echo "Attempt $i/12 — not ready, waiting 5s..."
                   sleep 5
                 done
-                echo "Health check failed after 60s"
-                exit 1
+
+                # Run selftest (LLM + tool smoke test)
+                echo "Running selftest..."
+                result=$(curl -sf --max-time 120 "${APP_URL}/api/selftest" 2>&1) || {
+                  echo "SELFTEST FAILED — triggering rollback"
+                  echo "$result"
+                  exit 1
+                }
+                echo "Selftest passed: $result"
 
     on_failure:
       do:

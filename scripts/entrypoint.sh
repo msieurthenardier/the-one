@@ -1,9 +1,16 @@
 #!/usr/bin/env bash
-# Container startup: configure git, install fly CLI, authenticate with Concourse.
+# Container startup: configure git, clone mission-control, install fly CLI, authenticate.
 set -e
 
 # Fix "dubious ownership" — workspace is owned by host user, container runs as root
 git config --global --add safe.directory /workspace
+git config --global --add safe.directory /mission-control
+
+# Clone mission-control methodology (if not already present)
+if [ ! -d /mission-control/.git ]; then
+    git clone --depth 1 https://github.com/msieurthenardier/mission-control.git /mission-control \
+        || echo "[entrypoint] Warning: mission-control clone failed"
+fi
 
 # Download fly CLI from Concourse at runtime (not build time, where host.docker.internal doesn't resolve)
 if [ -n "$THE_ONE_CONCOURSE_URL" ] && [ ! -f /usr/local/bin/fly ]; then

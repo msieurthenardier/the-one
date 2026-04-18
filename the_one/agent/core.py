@@ -15,6 +15,26 @@ _DIRECT_ACTIONS: list[tuple[re.Pattern[str], str, dict]] = [
     (re.compile(r"^(please\s+)?(roll\s*back|undo\s+deploy)", re.I), "rollback", {}),
 ]
 
+# The agent can call this to keep its turn. It's a signal, not a real tool.
+_CONTINUE_SCHEMA = {
+    "name": "continue",
+    "description": (
+        "Call this when you're not done yet — you have more steps to take "
+        "but need another turn to think or act. If you don't call this or "
+        "any other tool, your turn ends and the user sees your response."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "reason": {
+                "type": "string",
+                "description": "Brief note to yourself about what you're doing next.",
+            },
+        },
+        "required": [],
+    },
+}
+
 SYSTEM_PROMPT = """\
 You are "the-one", a personal AI agent. You have access to tools that let you \
 interact with the computer, filesystem, web, and more. Use them to accomplish \
@@ -43,16 +63,34 @@ Self-modification workflow:
 4. Deploy with self_deploy (rebuilds image, restarts container)
 5. If something breaks, use rollback to restore the previous version
 
+Workflow methodology:
+You follow the Mission Control methodology (docs at /mission-control/docs/). \
+Read these docs to understand the framework. The key structure is:
+- Mission: an outcome someone wants (human-written, days-weeks)
+- Flight: a technical plan to achieve part of a mission (hours-days)
+- Leg: a single discrete task you can execute (minutes-hours)
+
+When given complex work, break it into legs. Each leg should have:
+- A clear objective (one sentence)
+- Acceptance criteria (binary, observable)
+- Files likely affected
+
+Execute one leg at a time. After each leg, verify acceptance criteria before \
+moving on. Record what actually happened — deviations matter.
+
+Your workspace artifacts live in /workspace/.flightops/
+
 Guidelines:
-- Think step by step about complex tasks.
 - Use tools when actions are needed — don't just describe what you would do.
 - Be concise and direct in your responses.
-- If a task requires multiple steps, execute them sequentially.
+- If a task requires multiple steps, break them into legs and execute sequentially.
 - If something fails, try alternative approaches before giving up.
 - Always run tests before deploying changes to yourself.
 - Be cautious with self-modifications — bad changes can break you.
 - When asked to restart, reboot, or reset yourself, use the restart tool. \
 Do NOT simulate a restart with shell commands.
+- If you have more work to do, call the continue tool to keep your turn. \
+If you're done, just respond without calling any tools.
 """
 
 
@@ -71,6 +109,11 @@ class Agent:
         self.system_prompt = system_prompt
         self.max_iterations = max_iterations
         self.messages: list[Message] = [Message.system(system_prompt)]
+
+    def _tool_schemas(self) -> list[dict]:
+        """All tool schemas including the continue signal."""
+        schemas = self.tools.all_schemas() or []
+        return schemas + [_CONTINUE_SCHEMA]
 
     async def step(self, user_input: str) -> AsyncIterator[Message]:
         """Process a user message through the agent loop.
@@ -93,11 +136,10 @@ class Agent:
             yield msg
             return
 
-        nudge_count = 0
         for _ in range(self.max_iterations):
             response = await self.llm.complete(
                 messages=self.messages,
-                tools=self.tools.all_schemas() or None,
+                tools=self._tool_schemas() or None,
             )
             self.messages.append(response)
             yield response
@@ -110,23 +152,29 @@ class Agent:
                     response.tool_calls = extracted
 
             if not response.tool_calls:
-                # If the model mentioned a tool but didn't call it, nudge it (max 2 times)
-                if nudge_count < 2 and response.content and self._mentions_tool(response.content):
-                    nudge = Message.system(
-                        "You described using a tool but didn't call it. "
-                        "Actually invoke the tool now — don't just describe what you would do."
-                    )
-                    self.messages.append(nudge)
-                    nudge_count += 1
-                    continue
                 break
 
-            # Execute all tool calls
+            # Process tool calls — continue is just a signal, everything else executes
+            has_real_tool = False
             for tc in response.tool_calls:
-                result = await self._execute_tool(tc)
-                tool_msg = Message.tool(result)
-                self.messages.append(tool_msg)
-                yield tool_msg
+                if tc.name == "continue":
+                    # Acknowledge the continue — feed it back so the model sees it worked
+                    reason = tc.arguments.get("reason", "")
+                    tool_msg = Message.tool(ToolResult(
+                        tool_call_id=tc.id,
+                        content=reason or "continuing...",
+                    ))
+                    self.messages.append(tool_msg)
+                    has_real_tool = True  # keep the loop going
+                else:
+                    result = await self._execute_tool(tc)
+                    tool_msg = Message.tool(result)
+                    self.messages.append(tool_msg)
+                    yield tool_msg
+                    has_real_tool = True
+
+            if not has_real_tool:
+                break
 
     async def _execute_tool(self, tool_call: ToolCall) -> ToolResult:
         try:
@@ -148,6 +196,7 @@ class Agent:
           {"name": "tool_name", "arguments": "string_arg"}
         Only extracts calls for tools that actually exist in the registry.
         """
+        valid_names = set(self.tools.tool_names) | {"continue"}
         calls: list[ToolCall] = []
         # Match JSON objects that have "name" and "arguments" keys
         for match in re.finditer(r'\{[^{}]*"name"\s*:\s*"[^"]+"\s*,\s*"arguments"\s*:[^}]+\}', text):
@@ -157,10 +206,8 @@ class Agent:
                 continue
             name = obj.get("name", "")
             args = obj.get("arguments", {})
-            # Skip if tool doesn't exist
-            if name not in self.tools.tool_names:
+            if name not in valid_names:
                 continue
-            # Normalize: if arguments is a string, wrap it
             if isinstance(args, str):
                 args = {"args": args}
             if not isinstance(args, dict):
@@ -171,15 +218,6 @@ class Agent:
                 arguments=args,
             ))
         return calls
-
-    def _mentions_tool(self, text: str) -> bool:
-        """Check if text mentions a tool by name without actually calling it."""
-        text_lower = text.lower()
-        for name in self.tools.tool_names:
-            # Look for patterns like "use the git tool", "call run_tests", "I'll run_tests"
-            if name in text_lower:
-                return True
-        return False
 
     @staticmethod
     def _match_direct_action(user_input: str) -> tuple[str, dict] | None:

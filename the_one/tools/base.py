@@ -54,6 +54,8 @@ class ToolRegistry:
         from the_one.tools.self_deploy import SelfDeployTool
         from the_one.tools.rollback import RollbackTool
         from the_one.tools.restart import RestartTool
+        from the_one.tools.mission_control import MissionControlTool
+        from the_one.tools.memory import MemoryTool
 
         for tool_cls in [
             ShellTool,
@@ -68,5 +70,7 @@ class ToolRegistry:
             SelfDeployTool,
             RollbackTool,
             RestartTool,
+            MissionControlTool,
+            MemoryTool,
         ]:
             self.register(tool_cls())
