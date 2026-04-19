@@ -88,16 +88,17 @@ jobs:
             source: { repository: docker, tag: cli }
           params:
             DOCKER_HOST: ((docker-host))
+            WORKSPACE_PATH: ((workspace-path))
           run:
             path: sh
             args:
               - -exc
               - |
                 docker run --rm \
-                  -v /home/cprch/projects/the-one:/src:ro \
+                  -v "${WORKSPACE_PATH}:/src:ro" \
                   -w /src \
                   python:3.11-slim \
-                  sh -c "pip install --no-cache-dir '.[dev]' -q && python -m compileall -q the_one/ && python -m pytest tests/ --tb=short -q || true"
+                  sh -c "pip install --no-cache-dir '.[dev]' -q && python -m pytest tests/ --tb=short -q"
 
       - task: build-and-deploy
         privileged: true
@@ -108,6 +109,8 @@ jobs:
             source: { repository: docker, tag: cli }
           params:
             DOCKER_HOST: ((docker-host))
+            WORKSPACE_PATH: ((workspace-path))
+            CONCOURSE_PASS: ((concourse-pass))
           run:
             path: sh
             args:
@@ -117,33 +120,14 @@ jobs:
 
                 # Build: run docker build inside a container that has host source access
                 docker run --rm \
-                  -v /home/cprch/projects/the-one:/src \
+                  -v "${WORKSPACE_PATH}:/src" \
                   -v /var/run/docker.sock:/var/run/docker.sock \
                   -w /src \
                   docker:cli \
                   docker build -t the-one:latest .
 
-                # Deploy: stop old container, start new one
-                docker rm -f the-one 2>/dev/null || true
-                docker run -d \
-                  --name the-one \
-                  --restart unless-stopped \
-                  -p 8484:8484 \
-                  -v /home/cprch/projects/the-one:/workspace \
-                  -e THE_ONE_LLM_PROVIDER=ollama \
-                  -e THE_ONE_LLM_MODEL=qwen2.5:7b \
-                  -e THE_ONE_LLM_BASE_URL=http://host.docker.internal:11434/v1 \
-                  -e THE_ONE_HOST=0.0.0.0 \
-                  -e THE_ONE_WORKSPACE_DIR=/workspace \
-                  -e THE_ONE_CONCOURSE_TARGET=local \
-                  -e THE_ONE_CONCOURSE_PIPELINE=the-one \
-                  -e THE_ONE_CONCOURSE_URL=http://host.docker.internal:8080 \
-                  -e THE_ONE_CONCOURSE_USER=the-one \
-                  -e THE_ONE_CONCOURSE_PASS=((concourse-pass)) \
-                  -e THE_ONE_CONCOURSE_TEAM=the-one \
-                  --network concourse-local_default \
-                  --add-host host.docker.internal:host-gateway \
-                  the-one:latest
+                # Deploy
+                ${WORKSPACE_PATH}/ci/deploy.sh latest
 
       - task: health-check
         config:
@@ -189,31 +173,14 @@ jobs:
               source: { repository: docker, tag: cli }
             params:
               DOCKER_HOST: ((docker-host))
+              WORKSPACE_PATH: ((workspace-path))
+              CONCOURSE_PASS: ((concourse-pass))
             run:
               path: sh
               args:
                 - -exc
                 - |
-                  docker tag the-one:rollback the-one:latest 2>/dev/null || exit 1
-                  docker rm -f the-one 2>/dev/null || true
-                  docker run -d \
-                    --name the-one \
-                    --restart unless-stopped \
-                    -p 8484:8484 \
-                    -v /home/cprch/projects/the-one:/workspace \
-                    -e THE_ONE_LLM_PROVIDER=ollama \
-                    -e THE_ONE_LLM_MODEL=qwen2.5:7b \
-                    -e THE_ONE_LLM_BASE_URL=http://host.docker.internal:11434/v1 \
-                    -e THE_ONE_HOST=0.0.0.0 \
-                    -e THE_ONE_WORKSPACE_DIR=/workspace \
-                    -e THE_ONE_CONCOURSE_TARGET=local \
-                    -e THE_ONE_CONCOURSE_PIPELINE=the-one \
-                    -e THE_ONE_CONCOURSE_URL=http://host.docker.internal:8080 \
-                    -e THE_ONE_CONCOURSE_USER=the-one \
-                    -e THE_ONE_CONCOURSE_PASS=((concourse-pass)) \
-                    -e THE_ONE_CONCOURSE_TEAM=the-one \
-                    --add-host host.docker.internal:host-gateway \
-                    the-one:latest
+                  ${WORKSPACE_PATH}/ci/deploy.sh rollback
                   echo "Rolled back to previous image"
 
   - name: rollback
@@ -227,35 +194,14 @@ jobs:
             source: { repository: docker, tag: cli }
           params:
             DOCKER_HOST: ((docker-host))
+            WORKSPACE_PATH: ((workspace-path))
+            CONCOURSE_PASS: ((concourse-pass))
           run:
             path: sh
             args:
               - -exc
               - |
-                docker tag the-one:rollback the-one:latest || {
-                  echo "No rollback image found"
-                  exit 1
-                }
-                docker rm -f the-one 2>/dev/null || true
-                docker run -d \
-                  --name the-one \
-                  --restart unless-stopped \
-                  -p 8484:8484 \
-                  -v /home/cprch/projects/the-one:/workspace \
-                  -e THE_ONE_LLM_PROVIDER=ollama \
-                  -e THE_ONE_LLM_MODEL=qwen2.5:7b \
-                  -e THE_ONE_LLM_BASE_URL=http://host.docker.internal:11434/v1 \
-                  -e THE_ONE_HOST=0.0.0.0 \
-                  -e THE_ONE_WORKSPACE_DIR=/workspace \
-                  -e THE_ONE_CONCOURSE_TARGET=local \
-                  -e THE_ONE_CONCOURSE_PIPELINE=the-one \
-                  -e THE_ONE_CONCOURSE_URL=http://host.docker.internal:8080 \
-                  -e THE_ONE_CONCOURSE_USER=the-one \
-                  -e THE_ONE_CONCOURSE_PASS=((concourse-pass)) \
-                  -e THE_ONE_CONCOURSE_TEAM=the-one \
-                  --network concourse-local_default \
-                  --add-host host.docker.internal:host-gateway \
-                  the-one:latest
+                ${WORKSPACE_PATH}/ci/deploy.sh rollback
                 echo "Rolled back to previous image"
 
   - name: pause-autopilot

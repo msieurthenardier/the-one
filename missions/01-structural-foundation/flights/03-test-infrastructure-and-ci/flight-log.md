@@ -36,6 +36,18 @@ _(In progress)_
 - All design review notes applied: patched `the_one.agent.factory.get_provider` and `the_one.agent.factory.settings`, fresh ToolRegistry per test, async `for msg in agent.step()` collection, exact FakeLLM response counts
 - **17 new tests, 76 total passing**, ruff clean
 
+### Leg 05: ci-pipeline-hardening — IN PROGRESS
+
+- Created `ci/deploy.sh` — shared deploy script accepting image tag argument (`latest` or `rollback`), reads `$WORKSPACE_PATH` and `$CONCOURSE_PASS` from environment, single `docker run` command with all env vars, network, volume, restart policy
+- Removed `|| true` from test step (pipeline now fails on test failures)
+- Removed `compileall` from test step (unnecessary, pytest imports modules)
+- Replaced all 5 hardcoded `/home/cprch/projects/the-one` paths with `$WORKSPACE_PATH`
+- Added `WORKSPACE_PATH: ((workspace-path))` param to test, build-and-deploy, auto-rollback, and rollback steps
+- Added `CONCOURSE_PASS: ((concourse-pass))` param to build-and-deploy, auto-rollback, and rollback steps (deploy.sh needs it as env var)
+- Replaced inline docker run deploy blocks in build-and-deploy, auto-rollback, and rollback steps with calls to `ci/deploy.sh`
+- Auto-rollback `--network concourse-local_default` bug fixed (deploy.sh includes it)
+- `fly validate-pipeline` passes, no hardcoded paths remain
+
 ### Leg 04: aiat-conversion — COMPLETE
 
 - Deleted `tests/iaat.py` (standalone script using `requests` with custom test runner)
