@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     concourse_target: str = "local"
     concourse_pipeline: str = "the-one"
 
+    @property
+    def agents_dir(self) -> Path:
+        return self.data_dir / "agents"
+
     def ensure_dirs(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
