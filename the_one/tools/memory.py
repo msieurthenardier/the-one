@@ -5,10 +5,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from the_one.tools.base import Tool
 from the_one.config import settings
-
-MEMORY_DIR = settings.workspace_dir / ".memory"
+from the_one.tools.base import Tool
 
 
 class MemoryTool(Tool):
@@ -47,13 +45,16 @@ class MemoryTool(Tool):
         "required": ["action"],
     }
 
+    def __init__(self, memory_dir: Path | None = None) -> None:
+        self.memory_dir = memory_dir or (settings.workspace_dir / ".memory")
+
     async def execute(self, **kwargs: Any) -> str:
         action = kwargs.get("action", "")
         key = kwargs.get("key", "")
         content = kwargs.get("content", "")
         query = kwargs.get("query", "")
 
-        MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+        self.memory_dir.mkdir(parents=True, exist_ok=True)
 
         if action == "save":
             return self._save(key, content)
@@ -77,7 +78,7 @@ class MemoryTool(Tool):
         if not content:
             return "[error] Provide content to save."
         slug = self._slugify(key)
-        path = MEMORY_DIR / f"{slug}.md"
+        path = self.memory_dir / f"{slug}.md"
         timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
         # Prepend metadata
         text = f"# {key}\n_saved: {timestamp}_\n\n{content}\n"
@@ -88,10 +89,10 @@ class MemoryTool(Tool):
         if not key:
             return "[error] Provide a key to read."
         slug = self._slugify(key)
-        path = MEMORY_DIR / f"{slug}.md"
+        path = self.memory_dir / f"{slug}.md"
         if not path.exists():
             # Try fuzzy match
-            matches = [f for f in MEMORY_DIR.glob("*.md") if slug in f.stem]
+            matches = [f for f in self.memory_dir.glob("*.md") if slug in f.stem]
             if matches:
                 path = matches[0]
             else:
@@ -99,7 +100,7 @@ class MemoryTool(Tool):
         return path.read_text()
 
     def _list(self) -> str:
-        files = sorted(MEMORY_DIR.glob("*.md"))
+        files = sorted(self.memory_dir.glob("*.md"))
         if not files:
             return "No memories saved yet."
         lines = []
@@ -114,7 +115,7 @@ class MemoryTool(Tool):
             return "[error] Provide a search query."
         query_lower = query.lower()
         results = []
-        for f in sorted(MEMORY_DIR.glob("*.md")):
+        for f in sorted(self.memory_dir.glob("*.md")):
             text = f.read_text()
             if query_lower in text.lower():
                 # Show matching context
@@ -130,7 +131,7 @@ class MemoryTool(Tool):
         if not key:
             return "[error] Provide a key to delete."
         slug = self._slugify(key)
-        path = MEMORY_DIR / f"{slug}.md"
+        path = self.memory_dir / f"{slug}.md"
         if not path.exists():
             return f"[error] No memory found for '{key}'."
         path.unlink()

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import asyncio
-import json
+from pathlib import Path
 from typing import Any
 
-from the_one.tools.base import Tool
 from the_one.config import settings
+from the_one.tools.base import Tool
 
 
 class SelfDeployTool(Tool):
@@ -30,12 +30,22 @@ class SelfDeployTool(Tool):
         "required": [],
     }
 
+    def __init__(
+        self,
+        workspace_dir: Path | None = None,
+        concourse_target: str | None = None,
+        concourse_pipeline: str | None = None,
+    ) -> None:
+        self.workspace_dir = workspace_dir or settings.workspace_dir
+        self.concourse_target = concourse_target or settings.concourse_target
+        self.concourse_pipeline = concourse_pipeline or settings.concourse_pipeline
+
     async def execute(self, **kwargs: Any) -> str:
         message = kwargs.get("message", "self-deploy")
         skip_tests = kwargs.get("skip_tests", False)
-        workspace = settings.workspace_dir
-        concourse = settings.concourse_target
-        pipeline = settings.concourse_pipeline
+        workspace = self.workspace_dir
+        concourse = self.concourse_target
+        pipeline = self.concourse_pipeline
         steps: list[str] = []
 
         # Step 1: Check for uncommitted changes

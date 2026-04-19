@@ -39,6 +39,23 @@ Changes applied:
 
 Verification: All 4 import checks pass. Ruff clean on all modified files (45 pre-existing errors in other files remain untouched).
 
+### Leg 3: tool-provider-and-decoupling (completed)
+
+**Started**: 2026-04-18
+
+Changes applied:
+
+1. **the_one/tools/provider.py** — Created. `ToolProvider` as `@runtime_checkable` Protocol with `name` property and `get_tools() -> list[Tool]` method.
+2. **the_one/tools/builtins.py** — Created. `BuiltinToolProvider` with `name` property returning `"builtin"` and `get_tools()` lazy-importing and instantiating all 14 built-in tools.
+3. **the_one/tools/base.py** — Removed `load_defaults()` method from `ToolRegistry` (lines 46-76 deleted).
+4. **the_one/tools/memory.py** — Removed module-level `MEMORY_DIR` binding. Added `__init__` with `memory_dir: Path | None = None` defaulting to `settings.workspace_dir / ".memory"`. All 7 internal references replaced with `self.memory_dir`.
+5. **the_one/tools/self_deploy.py** — Added `__init__` with `workspace_dir`, `concourse_target`, `concourse_pipeline` params defaulting from settings. `execute()` uses `self.*` instead of direct settings access. Removed unused `json` import.
+6. **the_one/tools/__init__.py** — Added `ToolProvider` to imports and `__all__`.
+7. **the_one/interfaces/cli.py** — `_make_agent()` now uses `BuiltinToolProvider().get_tools()` loop instead of `tools.load_defaults()`.
+8. **the_one/interfaces/web/app.py** — Same `BuiltinToolProvider` replacement. Ruff auto-fixed unused `Message` import and `pathlib` import ordering.
+
+Verification: All 7 verification commands pass. `BuiltinToolProvider` returns 14 tools, satisfies `isinstance(b, ToolProvider)` check. Agent import OK. Ruff clean on all modified/new files (pre-existing E501 errors in cli.py and web/app.py remain untouched).
+
 ---
 
 ## Decisions

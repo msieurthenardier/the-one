@@ -4,18 +4,19 @@ import json
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
-from pathlib import Path
 
 from the_one.agent import Agent
 from the_one.config import settings
 from the_one.llm import get_provider
-from the_one.llm.base import Message, Role
+from the_one.llm.base import Role
 from the_one.tools.base import ToolRegistry
+from the_one.tools.builtins import BuiltinToolProvider
 
 app = FastAPI(title="the-one")
 
@@ -61,7 +62,8 @@ def _make_agent() -> Agent:
         settings.llm_provider, model=settings.llm_model, base_url=settings.llm_base_url
     )
     tools = ToolRegistry()
-    tools.load_defaults()
+    for tool in BuiltinToolProvider().get_tools():
+        tools.register(tool)
     return Agent(llm=llm, tools=tools)
 
 

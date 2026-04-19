@@ -43,34 +43,3 @@ class ToolRegistry:
     def tool_names(self) -> list[str]:
         return list(self._tools)
 
-    def load_defaults(self) -> None:
-        """Load all built-in tools."""
-        from the_one.tools.shell import ShellTool
-        from the_one.tools.filesystem import ReadFileTool, WriteFileTool, ListDirTool
-        from the_one.tools.web import HttpRequestTool, WebSearchTool
-        from the_one.tools.python_exec import PythonExecTool
-        from the_one.tools.git import GitTool
-        from the_one.tools.test_runner import TestRunnerTool
-        from the_one.tools.self_deploy import SelfDeployTool
-        from the_one.tools.rollback import RollbackTool
-        from the_one.tools.restart import RestartTool
-        from the_one.tools.mission_control import MissionControlTool
-        from the_one.tools.memory import MemoryTool
-
-        for tool_cls in [
-            ShellTool,
-            ReadFileTool,
-            WriteFileTool,
-            ListDirTool,
-            HttpRequestTool,
-            WebSearchTool,
-            PythonExecTool,
-            GitTool,
-            TestRunnerTool,
-            SelfDeployTool,
-            RollbackTool,
-            RestartTool,
-            MissionControlTool,
-            MemoryTool,
-        ]:
-            self.register(tool_cls())

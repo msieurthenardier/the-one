@@ -2,17 +2,18 @@ from __future__ import annotations
 
 import asyncio
 
+from prompt_toolkit import PromptSession
+from prompt_toolkit.history import FileHistory
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
-from prompt_toolkit import PromptSession
-from prompt_toolkit.history import FileHistory
 
 from the_one.agent import Agent
 from the_one.config import settings
 from the_one.llm import get_provider
 from the_one.llm.base import Role
 from the_one.tools.base import ToolRegistry
+from the_one.tools.builtins import BuiltinToolProvider
 
 console = Console()
 
@@ -23,7 +24,8 @@ def _make_agent() -> Agent:
         settings.llm_provider, model=settings.llm_model, base_url=settings.llm_base_url
     )
     tools = ToolRegistry()
-    tools.load_defaults()
+    for tool in BuiltinToolProvider().get_tools():
+        tools.register(tool)
     return Agent(llm=llm, tools=tools)
 
 
