@@ -24,6 +24,9 @@ dev = ["pytest>=8.0", "pytest-asyncio>=0.24", "ruff>=0.6"]
 [project.scripts]
 the-one = "the_one.main:cli_entry"
 
+[tool.setuptools.packages.find]
+include = ["the_one*"]
+
 [tool.setuptools.package-data]
 the_one = ["interfaces/web/static/**/*"]
 

@@ -96,9 +96,8 @@ jobs:
               - |
                 docker run --rm \
                   -v "${WORKSPACE_PATH}:/src:ro" \
-                  -w /src \
                   python:3.11-slim \
-                  sh -c "pip install --no-cache-dir '.[dev]' -q && python -m pytest tests/ --tb=short -q"
+                  sh -c "cp -r /src /work && cd /work && pip install --no-cache-dir '.[dev]' -q && python -m pytest tests/ --tb=short -q"
 
       - task: build-and-deploy
         privileged: true
@@ -126,8 +125,14 @@ jobs:
                   docker:cli \
                   docker build -t the-one:latest .
 
-                # Deploy
-                ${WORKSPACE_PATH}/ci/deploy.sh latest
+                # Deploy: run deploy.sh from the host workspace via docker
+                docker run --rm \
+                  -v "${WORKSPACE_PATH}:/src:ro" \
+                  -v /var/run/docker.sock:/var/run/docker.sock \
+                  -e WORKSPACE_PATH="${WORKSPACE_PATH}" \
+                  -e CONCOURSE_PASS="${CONCOURSE_PASS}" \
+                  docker:cli \
+                  sh /src/ci/deploy.sh latest
 
       - task: health-check
         config:
@@ -180,7 +185,13 @@ jobs:
               args:
                 - -exc
                 - |
-                  ${WORKSPACE_PATH}/ci/deploy.sh rollback
+                  docker run --rm \
+                    -v "${WORKSPACE_PATH}:/src:ro" \
+                    -v /var/run/docker.sock:/var/run/docker.sock \
+                    -e WORKSPACE_PATH="${WORKSPACE_PATH}" \
+                    -e CONCOURSE_PASS="${CONCOURSE_PASS}" \
+                    docker:cli \
+                    sh /src/ci/deploy.sh rollback
                   echo "Rolled back to previous image"
 
   - name: rollback
