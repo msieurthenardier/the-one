@@ -8,29 +8,16 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 
-from the_one.agent import Agent
+from the_one.agent.factory import AgentFactory
 from the_one.config import settings
-from the_one.llm import get_provider
 from the_one.llm.base import Role
-from the_one.tools.base import ToolRegistry
-from the_one.tools.builtins import BuiltinToolProvider
 
 console = Console()
 
 
-def _make_agent() -> Agent:
-    settings.ensure_dirs()
-    llm = get_provider(
-        settings.llm_provider, model=settings.llm_model, base_url=settings.llm_base_url
-    )
-    tools = ToolRegistry()
-    for tool in BuiltinToolProvider().get_tools():
-        tools.register(tool)
-    return Agent(llm=llm, tools=tools)
-
-
 async def _run_cli() -> None:
-    agent = _make_agent()
+    factory = AgentFactory()
+    agent = factory.create()
     session: PromptSession[str] = PromptSession(
         history=FileHistory(str(settings.data_dir / "cli_history"))
     )

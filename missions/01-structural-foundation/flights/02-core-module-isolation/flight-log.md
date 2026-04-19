@@ -56,6 +56,20 @@ Changes applied:
 
 Verification: All 7 verification commands pass. `BuiltinToolProvider` returns 14 tools, satisfies `isinstance(b, ToolProvider)` check. Agent import OK. Ruff clean on all modified/new files (pre-existing E501 errors in cli.py and web/app.py remain untouched).
 
+### Leg 4: agent-store-and-factory (in-flight)
+
+**Started**: 2026-04-18
+
+Changes applied:
+
+1. **the_one/agent/store.py** — Created. `AgentConfigStore` as `@runtime_checkable` Protocol with 5 methods (`list_agents`, `load`, `save`, `delete`, `exists`). `FilesystemConfigStore` implementation using `model_validate()` for load and `model_dump()` for save, JSON storage in `agents_dir`.
+2. **the_one/agent/factory.py** — Created. `AgentFactory` with `create()`, `list_agents()`, `_load_config()`, `_default_config()`. Always passes `base_url` unconditionally to `get_provider()`. Calls `settings.ensure_dirs()` in `create()`. Default config synthesized from settings including `llm_base_url`.
+3. **the_one/interfaces/cli.py** — Removed `_make_agent()` function. Replaced with `AgentFactory().create()` in `_run_cli()`. Removed unused imports (`get_provider`, `ToolRegistry`, `BuiltinToolProvider`, `Agent`). Added `AgentFactory` import.
+4. **the_one/interfaces/web/app.py** — Removed `_make_agent()` function. Added module-level `_factory = AgentFactory()`. Replaced usage in `_get_session()` and `selftest()` endpoint with `_factory.create()`. Removed unused imports (`get_provider`, `ToolRegistry`, `BuiltinToolProvider`). Retained `Agent` import for `Session` type annotation.
+5. **the_one/agent/__init__.py** — Updated exports to include `Agent`, `AgentConfig`, `AgentFactory` in `__all__`.
+
+Verification: Store imports OK. Factory creates agent with 14 tools and correct system prompt. All 3 exports from `the_one.agent` succeed. Ruff clean on all new/modified files (pre-existing E501 errors in cli.py and web/app.py remain untouched).
+
 ---
 
 ## Decisions

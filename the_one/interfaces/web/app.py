@@ -12,11 +12,9 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from the_one.agent import Agent
+from the_one.agent.factory import AgentFactory
 from the_one.config import settings
-from the_one.llm import get_provider
 from the_one.llm.base import Role
-from the_one.tools.base import ToolRegistry
-from the_one.tools.builtins import BuiltinToolProvider
 
 app = FastAPI(title="the-one")
 
@@ -54,17 +52,7 @@ class Session:
 
 
 _sessions: dict[str, Session] = {}
-
-
-def _make_agent() -> Agent:
-    settings.ensure_dirs()
-    llm = get_provider(
-        settings.llm_provider, model=settings.llm_model, base_url=settings.llm_base_url
-    )
-    tools = ToolRegistry()
-    for tool in BuiltinToolProvider().get_tools():
-        tools.register(tool)
-    return Agent(llm=llm, tools=tools)
+_factory = AgentFactory()
 
 
 def _get_session(session_id: str | None = None, source: str = "web") -> Session:
@@ -74,7 +62,7 @@ def _get_session(session_id: str | None = None, source: str = "web") -> Session:
     sid = session_id or uuid.uuid4().hex[:12]
     session = Session(
         id=sid,
-        agent=_make_agent(),
+        agent=_factory.create(),
         created=datetime.now(timezone.utc).isoformat(),
         source=source,
     )
@@ -203,7 +191,7 @@ async def selftest() -> dict[str, Any]:
     from fastapi.responses import JSONResponse
 
     checks: list[dict[str, Any]] = []
-    agent = _make_agent()
+    agent = _factory.create()
 
     # Check 1: basic chat — can the LLM respond at all?
     try:
