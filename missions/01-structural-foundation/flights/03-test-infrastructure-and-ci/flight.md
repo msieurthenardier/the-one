@@ -1,6 +1,6 @@
 # Flight: Test Infrastructure & CI Hardening
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Structural Foundation](../../mission.md)
 
 ## Contributing to Criteria
