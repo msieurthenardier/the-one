@@ -89,7 +89,7 @@ A `conftest.py` provides shared fixtures: `tmp_path` for filesystem tests, `Fake
 - [x] Unit tests for `store.py`, `builtins.py`, `provider.py` exist and pass
 - [x] Unit tests for `factory.py` exist and pass (uses FakeLLM)
 - [x] Agent loop tests exist and pass (iteration, tool execution, direct actions, continue, errors)
-- [ ] AIAT converted to pytest with `live` marker
+- [x] AIAT converted to pytest with `live` marker
 - [ ] CI pipeline: `|| true` removed, paths de-hardcoded, docker run blocks DRYed
 - [ ] All tests pass, lint clean
 
@@ -110,7 +110,7 @@ A `conftest.py` provides shared fixtures: `tmp_path` for filesystem tests, `Fake
 - [x] `test-fixtures-and-behaviors` — Create `conftest.py` with FakeLLM, stub tools, and shared fixtures. Write unit tests for `behaviors.py` (extract_tool_calls, match_direct_action) and `config.py` (AgentConfig model, is_tool_enabled, get_system_prompt).
 - [x] `test-registries-and-store` — Unit tests for `ToolRegistry` (register, get, schemas, unknown tool), LLM registry (register_provider, get_provider, lazy loading, unknown provider), `FilesystemConfigStore` (CRUD, missing files, invalid JSON), and `BuiltinToolProvider` (tool count, protocol compliance).
 - [x] `test-factory-and-agent-loop` — Unit tests for `AgentFactory` (default agent, named agent, unknown agent, tool filtering) and `Agent.step()` (normal flow, direct action bypass, continue signal, max iterations, tool execution, tool errors, text-embedded tool call extraction).
-- [ ] `aiat-conversion` — Rename `tests/iaat.py` to `tests/test_aiat.py`. Convert to pytest functions with `@pytest.mark.live`. Register the `live` marker in `conftest.py` or `pyproject.toml`. Verify AIAT tests are skipped by default and runnable with `pytest -m live`.
+- [x] `aiat-conversion` — Rename `tests/iaat.py` to `tests/test_aiat.py`. Convert to pytest functions with `@pytest.mark.live`. Register the `live` marker in `conftest.py` or `pyproject.toml`. Verify AIAT tests are skipped by default and runnable with `pytest -m live`.
 - [ ] `ci-pipeline-hardening` — Remove `|| true` from test step. Replace hardcoded `/home/cprch/projects/the-one` with `((workspace-path))`. Extract shared docker run env block into `ci/deploy.sh`. Update deploy, rollback, and auto-rollback jobs to use the script.
 - [ ] `verify-integration` — Run full test suite locally, verify CI pipeline syntax with `fly validate-pipeline`, deploy and confirm the test gate actually blocks on failure.
 

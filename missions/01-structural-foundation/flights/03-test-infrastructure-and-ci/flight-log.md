@@ -36,6 +36,16 @@ _(In progress)_
 - All design review notes applied: patched `the_one.agent.factory.get_provider` and `the_one.agent.factory.settings`, fresh ToolRegistry per test, async `for msg in agent.step()` collection, exact FakeLLM response counts
 - **17 new tests, 76 total passing**, ruff clean
 
+### Leg 04: aiat-conversion — COMPLETE
+
+- Deleted `tests/iaat.py` (standalone script using `requests` with custom test runner)
+- Created `tests/test_aiat.py` — 8 AIAT tests converted to pytest with `@pytest.mark.live` decorator: health, basic_chat, tool_use_file_read, git_status, reset, run_tests, self_awareness, multi_step
+- Uses `httpx` instead of `requests` (already a project dependency)
+- Pytest fixtures for `base_url` (from `THE_ONE_TEST_URL` env var, default `http://localhost:8484`) and `session_id` (unique per test)
+- Helper functions preserved as module-level: `chat()`, `reset()`, `assistant_text()`, `has_tool_call()`, `has_tool_result()`
+- Added `addopts = "-m 'not live'"` to `pyproject.toml` `[tool.pytest.ini_options]` to exclude AIAT tests from default `pytest tests/` runs
+- **76 unit tests still passing**, AIAT tests correctly excluded by default, ruff clean
+
 ---
 
 ## Decisions
