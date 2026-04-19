@@ -28,6 +28,14 @@ _(In progress)_
 - Created `tests/test_builtins.py` — 4 tests covering BuiltinToolProvider name, tool count (14), ToolProvider protocol compliance via isinstance, and required attribute presence on all tools
 - **27 new tests, 59 total passing**, ruff clean
 
+### Leg 03: test-factory-and-agent-loop — COMPLETE
+
+- Created `tests/test_factory.py` — 7 tests covering AgentFactory: default agent creation with tools and system prompt, named agent from stored config, unknown agent KeyError, disabled_tools exclusion, enabled_tools whitelist, list_agents includes "default", list_agents includes stored agents. Uses patched `settings` and `get_provider` to isolate from real LLM/filesystem.
+- Created `tests/test_agent.py` — 8 tests covering Agent.step() loop: normal text-only response, tool call execution with result yielded, direct action bypass ("restart yourself" without LLM), continue signal not yielded to caller but present in internal messages, max_iterations enforcement (stops after 2), tool exception yields is_error=True ToolResult, text-embedded JSON tool call extraction and execution, and reset() clearing messages to system prompt only.
+- Used `StubToolProvider` implementing ToolProvider protocol for factory tests; `ErrorTool` subclass for error path testing
+- All design review notes applied: patched `the_one.agent.factory.get_provider` and `the_one.agent.factory.settings`, fresh ToolRegistry per test, async `for msg in agent.step()` collection, exact FakeLLM response counts
+- **17 new tests, 76 total passing**, ruff clean
+
 ---
 
 ## Decisions
