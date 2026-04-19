@@ -95,8 +95,8 @@ All implementation follows these Flight 1 artifacts:
 - [x] `memory.py` and `self_deploy.py` decoupled from module-level settings
 - [x] `agent/store.py` and `agent/factory.py` exist; `_make_agent()` replaced in both interfaces
 - [x] `config.py` has `agents_dir` property
-- [ ] CLAUDE.md updated to reflect new structure
-- [ ] `agents.md` verified against actual implementation
+- [x] CLAUDE.md updated to reflect new structure
+- [x] `agents.md` verified against actual implementation
 - [ ] All tests pass, lint clean
 - [ ] UAT confirms CLI chat, web chat, and tool execution work
 
@@ -119,7 +119,7 @@ All implementation follows these Flight 1 artifacts:
 - [x] `extract-behaviors-and-config` — Create `agent/behaviors.py` (DIRECT_ACTIONS, CONTINUE_SCHEMA, extract_tool_calls with valid_names param, match_direct_action). Update `core.py` to import from behaviors.py and call `extract_tool_calls(text, set(self.tools.tool_names) | {"continue"})`. Create `agent/config.py` (AgentConfig Pydantic model, DEFAULT_SYSTEM_PROMPT). Update `Agent.__init__` default to `DEFAULT_SYSTEM_PROMPT`. Add `agents_dir` property to Settings.
 - [x] `tool-provider-and-decoupling` — Create `tools/provider.py` (ToolProvider protocol) and `tools/builtins.py` (BuiltinToolProvider). Decouple `memory.py` (constructor injection for memory_dir) and `self_deploy.py` (constructor injection for workspace/concourse settings). Remove `load_defaults()` from ToolRegistry. Update `tools/__init__.py`.
 - [x] `agent-store-and-factory` — Create `agent/store.py` (AgentConfigStore protocol, FilesystemConfigStore using `model_validate()`) and `agent/factory.py` (AgentFactory — always passes `base_url` to `get_provider()`). Replace `_make_agent()` in `cli.py` and `web/app.py` with `AgentFactory.create()`. Update `agent/__init__.py`.
-- [ ] `update-docs` — Update CLAUDE.md architecture section to reflect new module structure. Verify `agents.md` accuracy against actual implementation, fix any discrepancies.
+- [x] `update-docs` — Update CLAUDE.md architecture section to reflect new module structure. Verify `agents.md` accuracy against actual implementation, fix any discrepancies.
 - [ ] `uat-and-alignment` *(optional)* — Guided UAT session: verify CLI chat, web server, tool execution, and factory behavior. Walk through extension guide recipes against actual code. Fix issues iteratively until satisfied.
 
 ---

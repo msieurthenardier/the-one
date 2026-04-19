@@ -37,15 +37,19 @@ The system has four layers that compose bottom-up:
 
 **LLM layer** (`the_one/llm/`) — Abstract `LLMProvider` base with `complete()` method. Three implementations (ollama, openai, anthropic) lazy-loaded via a registry (`get_provider(name)`). All share the `Message`/`ToolCall`/`ToolResult` dataclasses from `base.py`. Provider is selected by `THE_ONE_LLM_PROVIDER` env var.
 
-**Tool layer** (`the_one/tools/`) — Abstract `Tool` base class with `execute(**kwargs) -> str`. `ToolRegistry` holds all tools and generates JSON schemas for the LLM. `load_defaults()` registers all 14 built-in tools. Tools are the agent's only way to affect the outside world.
+**Tool layer** (`the_one/tools/`) — Abstract `Tool` base class with `execute(**kwargs) -> str`. `ToolRegistry` holds all tools and generates JSON schemas for the LLM. `BuiltinToolProvider` (`builtins.py`) provides all 14 built-in tools via lazy import, implementing the `ToolProvider` protocol (`provider.py`). Tools are the agent's only way to affect the outside world.
 
-**Agent loop** (`the_one/agent/core.py`) — The `Agent` class runs: user input → LLM call → tool execution → repeat until no tool calls remain. Key mechanisms:
-- *Direct actions*: regex patterns that bypass the LLM for known commands (restart, rollback)
-- *Tool call extraction*: parses JSON tool calls from text output (for models without native tool use)
-- *Continue signal*: a virtual tool that keeps the agent's turn going
+**Agent loop** (`the_one/agent/core.py`) — The `Agent` class runs: user input → LLM call → tool execution → repeat until no tool calls remain. Behavioral constants and helpers live in `behaviors.py`:
+- *Direct actions*: regex patterns that bypass the LLM for known commands (restart, rollback) — `match_direct_action()`
+- *Tool call extraction*: parses JSON tool calls from text output (for models without native tool use) — `extract_tool_calls()`
+- *Continue signal*: a virtual tool (`CONTINUE_SCHEMA`) that keeps the agent's turn going
 - Max 20 iterations per step as a safety limit
 
-**Interfaces** (`the_one/interfaces/`) — CLI (Rich + prompt-toolkit) and Web (FastAPI + WebSocket). Both create an Agent with an LLM provider and tool registry, then call `agent.step(user_input)` which yields messages. The web app adds session management and broadcasts events to WebSocket subscribers.
+Agent configuration (`agent/config.py`) defines `AgentConfig` (Pydantic model) with LLM, prompt, tool filtering, and behavior settings. `AgentFactory` (`agent/factory.py`) wires config + LLM + tools into a ready-to-use Agent. Agent configs persist as JSON files via `AgentConfigStore` (`agent/store.py`).
+
+**Interfaces** (`the_one/interfaces/`) — CLI (Rich + prompt-toolkit) and Web (FastAPI + WebSocket). Both use `AgentFactory.create()` to get configured agents, then call `agent.step(user_input)` which yields messages. The web app adds session management and broadcasts events to WebSocket subscribers.
+
+For architecture internals, see `the_one/agents.md`.
 
 ## Self-Deployment
 
@@ -58,7 +62,7 @@ The container runs from `/app` (built code) but mounts the source repo at `/work
 
 ## Configuration
 
-All config via env vars prefixed `THE_ONE_` (see `.env.example`). Managed by pydantic-settings in `the_one/config.py`. The `settings` singleton is imported directly.
+All config via env vars prefixed `THE_ONE_` (see `.env.example`). Managed by pydantic-settings in `the_one/config.py`. The `settings` singleton is imported directly. The `agents_dir` property (`settings.data_dir / "agents"`) provides the path for stored agent configurations.
 
 ## Conventions
 

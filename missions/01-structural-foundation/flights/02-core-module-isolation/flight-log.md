@@ -56,7 +56,7 @@ Changes applied:
 
 Verification: All 7 verification commands pass. `BuiltinToolProvider` returns 14 tools, satisfies `isinstance(b, ToolProvider)` check. Agent import OK. Ruff clean on all modified/new files (pre-existing E501 errors in cli.py and web/app.py remain untouched).
 
-### Leg 4: agent-store-and-factory (in-flight)
+### Leg 4: agent-store-and-factory (completed)
 
 **Started**: 2026-04-18
 
@@ -69,6 +69,28 @@ Changes applied:
 5. **the_one/agent/__init__.py** — Updated exports to include `Agent`, `AgentConfig`, `AgentFactory` in `__all__`.
 
 Verification: Store imports OK. Factory creates agent with 14 tools and correct system prompt. All 3 exports from `the_one.agent` succeed. Ruff clean on all new/modified files (pre-existing E501 errors in cli.py and web/app.py remain untouched).
+
+### Leg 5: update-docs (completed)
+
+**Started**: 2026-04-18
+
+Changes applied:
+
+1. **CLAUDE.md** — Updated architecture section:
+   - Tool layer: replaced `load_defaults()` reference with `BuiltinToolProvider` and `ToolProvider` protocol description.
+   - Agent loop: noted that behavioral constants and helpers (`match_direct_action()`, `extract_tool_calls()`, `CONTINUE_SCHEMA`) live in `behaviors.py`.
+   - Added new paragraph describing `AgentConfig` (Pydantic model), `AgentFactory`, and `AgentConfigStore`.
+   - Interfaces: updated to say both use `AgentFactory.create()` instead of creating agents directly.
+   - Added `agents.md` reference: "For architecture internals, see `the_one/agents.md`".
+   - Configuration: added `agents_dir` property mention.
+2. **the_one/agents.md** — Verified and fixed discrepancies:
+   - `config.py` entry: changed "dataclass" to "Pydantic model" (line 49).
+   - `behaviors.py` entry: added `match_direct_action()` to exports list (line 52).
+   - Verified module map matches actual file exports (all accurate).
+   - Verified dependency graph matches actual import structure (all accurate).
+   - Verified key patterns descriptions match actual behavior (all accurate).
+
+Verification: `ruff check the_one/` shows 36 pre-existing errors only — no new issues from docs changes.
 
 ---
 
