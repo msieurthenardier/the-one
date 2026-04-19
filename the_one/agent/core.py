@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import AsyncIterator
 
-from the_one.agent.behaviors import CONTINUE_SCHEMA, extract_tool_calls, match_direct_action
+from the_one.agent.behaviors import CONTINUE_SCHEMA, match_direct_action
 from the_one.agent.config import DEFAULT_SYSTEM_PROMPT
 from the_one.llm.base import LLMProvider, Message, ToolCall, ToolResult
 from the_one.tools.base import ToolRegistry
@@ -58,13 +58,6 @@ class Agent:
             self.messages.append(response)
             yield response
 
-            # If the LLM didn't produce formal tool calls, try to extract
-            # JSON tool calls embedded in the text (common with smaller models).
-            if not response.tool_calls and response.content:
-                extracted = self._extract_tool_calls(response.content)
-                if extracted:
-                    response.tool_calls = extracted
-
             if not response.tool_calls:
                 break
 
@@ -101,10 +94,6 @@ class Agent:
                 content=f"[error] Tool execution failed: {e}",
                 is_error=True,
             )
-
-    def _extract_tool_calls(self, text: str) -> list[ToolCall]:
-        """Delegate to standalone extract_tool_calls function."""
-        return extract_tool_calls(text, set(self.tools.tool_names) | {"continue"})
 
     @staticmethod
     def _match_direct_action(user_input: str) -> tuple[str, dict] | None:

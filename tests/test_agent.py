@@ -182,31 +182,6 @@ class TestToolError:
         assert "kaboom" in msgs[1].content
 
 
-class TestTextEmbeddedToolCalls:
-    async def test_json_in_text_extracted_and_executed(self) -> None:
-        """LLM returns text with JSON tool call — extracted and executed."""
-        tool_a = StubTool("tool_a")
-        llm = FakeLLM([
-            # First response: text with embedded JSON, no formal tool_calls
-            Message.assistant('I will use the tool {"name": "tool_a", "arguments": "hello"}'),
-            # Second response: after tool execution
-            Message.assistant("done"),
-        ])
-        agent = Agent(llm=llm, tools=_make_registry(tool_a))
-        msgs = await _collect(agent, "use tool_a via text")
-
-        # assistant (with embedded call), tool result, final assistant
-        assert len(msgs) == 3
-        assert msgs[0].role == Role.ASSISTANT
-        assert msgs[1].role == Role.TOOL
-        assert msgs[1].content == "stub: tool_a"
-        assert msgs[2].role == Role.ASSISTANT
-        assert msgs[2].content == "done"
-        # Tool was called with extracted args
-        assert len(tool_a.calls) == 1
-        assert tool_a.calls[0] == {"args": "hello"}
-
-
 class TestReset:
     async def test_reset_clears_to_system_prompt(self) -> None:
         """After step, reset() leaves only the system prompt."""

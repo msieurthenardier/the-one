@@ -49,9 +49,9 @@ Key properties: `data_dir` (`~/.the-one`), `workspace_dir` (`/workspace`), `agen
 | `config.py` | `AgentConfig`, `DEFAULT_SYSTEM_PROMPT` | Agent definition Pydantic model and fallback prompt |
 | `factory.py` | `AgentFactory` | `create(name)` → configured Agent; `list_agents()` |
 | `store.py` | `AgentConfigStore`, `FilesystemConfigStore` | CRUD for agent configs (`~/.the-one/agents/*.json`) |
-| `behaviors.py` | `DIRECT_ACTIONS`, `CONTINUE_SCHEMA`, `extract_tool_calls()`, `match_direct_action()` | Behavioral patterns extracted from core |
+| `behaviors.py` | `DIRECT_ACTIONS`, `CONTINUE_SCHEMA`, `match_direct_action()` | Behavioral patterns extracted from core |
 
-**Agent.step() flow**: user input → check direct actions → LLM call → extract tool calls → execute tools → repeat until no tool calls or max iterations.
+**Agent.step() flow**: user input → check direct actions → LLM call → execute tools → repeat until no tool calls or max iterations.
 
 ### `the_one/llm/`
 
@@ -143,6 +143,3 @@ Regex patterns in `behaviors.py` that bypass the LLM for known commands (restart
 
 A virtual tool (`CONTINUE_SCHEMA`) that the LLM calls to indicate it needs another iteration. Not a real tool — the agent loop intercepts it and loops.
 
-### Tool Call Extraction
-
-`extract_tool_calls()` in `behaviors.py` parses JSON tool calls from text output. This handles models that embed tool calls in prose instead of using native function calling.

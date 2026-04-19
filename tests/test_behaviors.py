@@ -7,88 +7,8 @@ import re
 from the_one.agent.behaviors import (
     CONTINUE_SCHEMA,
     DIRECT_ACTIONS,
-    extract_tool_calls,
     match_direct_action,
 )
-
-# ---- valid_names helper used across tests ----
-VALID = {"tool_a", "tool_b", "tool_c"}
-
-
-# ===================================================================
-# extract_tool_calls
-# ===================================================================
-
-class TestExtractToolCalls:
-    """Tests for extract_tool_calls()."""
-
-    def test_valid_json_string_argument(self):
-        text = 'Here is a call: {"name": "tool_a", "arguments": "hello"}'
-        calls = extract_tool_calls(text, VALID)
-        assert len(calls) == 1
-        assert calls[0].name == "tool_a"
-        assert calls[0].arguments == {"args": "hello"}
-
-    def test_non_dict_non_string_arguments_skipped(self):
-        """Numeric arguments are parsed but filtered (not str or dict)."""
-        text = '{"name": "tool_a", "arguments": 42}'
-        calls = extract_tool_calls(text, VALID)
-        assert calls == []
-
-    def test_multiple_calls(self):
-        text = (
-            'First: {"name": "tool_a", "arguments": "x"} '
-            'Second: {"name": "tool_b", "arguments": "y"}'
-        )
-        calls = extract_tool_calls(text, VALID)
-        assert len(calls) == 2
-        assert calls[0].name == "tool_a"
-        assert calls[1].name == "tool_b"
-
-    def test_invalid_json_skipped(self):
-        text = '{"name": "tool_a", "arguments": {bad json}}'
-        calls = extract_tool_calls(text, VALID)
-        assert calls == []
-
-    def test_unknown_tool_filtered(self):
-        text = '{"name": "unknown_tool", "arguments": "x"}'
-        calls = extract_tool_calls(text, VALID)
-        assert calls == []
-
-    def test_string_arguments_wrapped_in_dict(self):
-        text = '{"name": "tool_a", "arguments": "hello"}'
-        calls = extract_tool_calls(text, VALID)
-        assert len(calls) == 1
-        assert calls[0].arguments == {"args": "hello"}
-
-    def test_dict_arguments_not_matched(self):
-        """Regex can't handle dict arguments (inner braces break the match)."""
-        text = '{"name": "tool_a", "arguments": {"x": 1}}'
-        calls = extract_tool_calls(text, VALID)
-        # The regex [^}]+ consumes up to the first }, producing invalid JSON
-        assert calls == []
-
-    def test_nested_arguments_not_matched(self):
-        """Regex can't handle nested braces — verify it returns empty list."""
-        text = '{"name": "tool_a", "arguments": {"outer": {"inner": 1}}}'
-        calls = extract_tool_calls(text, VALID)
-        assert calls == []
-
-    def test_no_matches_in_plain_text(self):
-        text = "Just a regular message with no tool calls."
-        calls = extract_tool_calls(text, VALID)
-        assert calls == []
-
-    def test_extracted_ids_are_unique(self):
-        text = (
-            '{"name": "tool_a", "arguments": "x"} '
-            '{"name": "tool_b", "arguments": "y"}'
-        )
-        calls = extract_tool_calls(text, VALID)
-        ids = [c.id for c in calls]
-        assert len(set(ids)) == len(ids)
-        assert all(id_.startswith("extracted-") for id_ in ids)
-
 
 # ===================================================================
 # match_direct_action

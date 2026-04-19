@@ -41,7 +41,6 @@ The system has four layers that compose bottom-up:
 
 **Agent loop** (`the_one/agent/core.py`) — The `Agent` class runs: user input → LLM call → tool execution → repeat until no tool calls remain. Behavioral constants and helpers live in `behaviors.py`:
 - *Direct actions*: regex patterns that bypass the LLM for known commands (restart, rollback) — `match_direct_action()`
-- *Tool call extraction*: parses JSON tool calls from text output (for models without native tool use) — `extract_tool_calls()`
 - *Continue signal*: a virtual tool (`CONTINUE_SCHEMA`) that keeps the agent's turn going
 - Max 20 iterations per step as a safety limit
 
