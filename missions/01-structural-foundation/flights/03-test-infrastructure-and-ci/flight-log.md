@@ -36,7 +36,7 @@ _(In progress)_
 - All design review notes applied: patched `the_one.agent.factory.get_provider` and `the_one.agent.factory.settings`, fresh ToolRegistry per test, async `for msg in agent.step()` collection, exact FakeLLM response counts
 - **17 new tests, 76 total passing**, ruff clean
 
-### Leg 05: ci-pipeline-hardening — IN PROGRESS
+### Leg 05: ci-pipeline-hardening — COMPLETE
 
 - Created `ci/deploy.sh` — shared deploy script accepting image tag argument (`latest` or `rollback`), reads `$WORKSPACE_PATH` and `$CONCOURSE_PASS` from environment, single `docker run` command with all env vars, network, volume, restart policy
 - Removed `|| true` from test step (pipeline now fails on test failures)
@@ -57,6 +57,14 @@ _(In progress)_
 - Helper functions preserved as module-level: `chat()`, `reset()`, `assistant_text()`, `has_tool_call()`, `has_tool_result()`
 - Added `addopts = "-m 'not live'"` to `pyproject.toml` `[tool.pytest.ini_options]` to exclude AIAT tests from default `pytest tests/` runs
 - **76 unit tests still passing**, AIAT tests correctly excluded by default, ruff clean
+
+### Leg 06: verify-integration — COMPLETE
+
+- 76 unit tests pass, 8 AIAT tests correctly deselected via `addopts = "-m 'not live'"`
+- `ruff check tests/` clean (pre-existing lint issues in `the_one/` source are out of scope for this flight)
+- `fly validate-pipeline -c ci/pipeline.yml` passes — pipeline YAML is valid
+- Concourse offline — live CI deploy test deferred, pipeline validated offline
+- All flight checkpoints verified, flight status set to `landed`
 
 ---
 

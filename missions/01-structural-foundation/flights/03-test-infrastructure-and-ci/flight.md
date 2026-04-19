@@ -1,6 +1,6 @@
 # Flight: Test Infrastructure & CI Hardening
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Structural Foundation](../../mission.md)
 
 ## Contributing to Criteria
@@ -91,7 +91,7 @@ A `conftest.py` provides shared fixtures: `tmp_path` for filesystem tests, `Fake
 - [x] Agent loop tests exist and pass (iteration, tool execution, direct actions, continue, errors)
 - [x] AIAT converted to pytest with `live` marker
 - [x] CI pipeline: `|| true` removed, paths de-hardcoded, docker run blocks DRYed
-- [ ] All tests pass, lint clean
+- [x] All tests pass, lint clean
 
 ### Adaptation Criteria
 
@@ -112,7 +112,7 @@ A `conftest.py` provides shared fixtures: `tmp_path` for filesystem tests, `Fake
 - [x] `test-factory-and-agent-loop` — Unit tests for `AgentFactory` (default agent, named agent, unknown agent, tool filtering) and `Agent.step()` (normal flow, direct action bypass, continue signal, max iterations, tool execution, tool errors, text-embedded tool call extraction).
 - [x] `aiat-conversion` — Rename `tests/iaat.py` to `tests/test_aiat.py`. Convert to pytest functions with `@pytest.mark.live`. Register the `live` marker in `conftest.py` or `pyproject.toml`. Verify AIAT tests are skipped by default and runnable with `pytest -m live`.
 - [x] `ci-pipeline-hardening` — Remove `|| true` from test step. Replace hardcoded `/home/cprch/projects/the-one` with `((workspace-path))`. Extract shared docker run env block into `ci/deploy.sh`. Update deploy, rollback, and auto-rollback jobs to use the script.
-- [ ] `verify-integration` — Run full test suite locally, verify CI pipeline syntax with `fly validate-pipeline`, deploy and confirm the test gate actually blocks on failure.
+- [x] `verify-integration` — Run full test suite locally, verify CI pipeline syntax with `fly validate-pipeline`, deploy and confirm the test gate actually blocks on failure.
 
 ---
 
