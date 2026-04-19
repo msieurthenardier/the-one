@@ -1,6 +1,6 @@
 # Flight: Core Module Isolation
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Structural Foundation](../../mission.md)
 
 ## Contributing to Criteria
