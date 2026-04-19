@@ -73,7 +73,7 @@ _(none yet — this is the first mission)_
 > **Note:** These are tentative suggestions, not commitments. Flights are planned and created one at a time as work progresses. This list will evolve based on discoveries during implementation.
 
 - [ ] Flight 1: **Architecture Blueprint** — Define the target module structure, public interfaces, extension points, multi-agent model, persistence strategy, and `agents.md` specification. Resolve all open questions. No code changes — pure design artifact.
-- [ ] Flight 2: **Core Module Isolation** — Restructure the existing code into the defined module boundaries. Extract clean interfaces, establish module-level exports, and ensure each module is independently importable. Verify the agent still works end-to-end (CLI, web, deploy).
+- [x] Flight 2: **Core Module Isolation** — Restructure the existing code into the defined module boundaries. Extract clean interfaces, establish module-level exports, and ensure each module is independently importable. Verify the agent still works end-to-end (CLI, web, deploy).
 - [ ] Flight 3: **Plugin & Agent Architecture** — Build the `ToolProvider` protocol and tool registry with runtime enable/disable. Implement agent definition model and persistence layer. Implement `agents.md` for development self-awareness.
 - [ ] Flight 4: **Test Infrastructure & CI Hardening** — Unit tests for core modules (agent loop, tool registry, LLM registry), integration test harness for the agent step cycle, and Concourse pipeline fixes (remove `|| true`, de-hardcode paths, add real test gating).
 - [ ] Flight 5: **Validation & Hardening** — End-to-end verification: CLI, web, deploy, rollback, autopilot. Fix regressions, clean up dead code, verify all tests pass in pipeline. Unpause autopilot.

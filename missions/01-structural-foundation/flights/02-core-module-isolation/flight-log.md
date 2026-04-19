@@ -4,7 +4,7 @@
 
 ## Summary
 
-Flight 2 in progress. Design artifact patches applied in Leg 1.
+Flight 2 landed. All 6 legs completed. Codebase restructured into clean module boundaries per Flight 1 blueprint. UAT verified CLI chat, web chat, tool execution, and selftest all working. AgentFactory/AgentConfig/ToolProvider architecture in place.
 
 ---
 
@@ -103,6 +103,25 @@ Verification: `ruff check the_one/` shows 36 pre-existing errors only — no new
 ---
 
 ## Anomalies
+
+---
+
+### Leg 6: uat-and-alignment (completed)
+
+**Started**: 2026-04-19
+
+UAT verification performed across all acceptance criteria:
+
+1. **CLI chat** — `the-one chat` launches without errors, interactive conversation works
+2. **Web chat** — `the-one serve` starts web server, chat and selftest endpoints functional
+3. **AgentFactory** — `AgentFactory().create()` returns agent with 14 tools and correct system prompt
+4. **BuiltinToolProvider** — `BuiltinToolProvider().get_tools()` returns 14 tools
+5. **No circular imports** — All key modules importable independently
+6. **Lint clean** — `ruff check the_one/` has no new errors
+7. **Tests pass** — `python -m pytest tests/` passes
+8. **Extension guide** — File paths verified against restructured codebase
+
+All acceptance criteria met. Flight 02 marked as landed.
 
 ---
 

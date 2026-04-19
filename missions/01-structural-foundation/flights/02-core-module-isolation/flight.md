@@ -1,16 +1,16 @@
 # Flight: Core Module Isolation
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Structural Foundation](../../mission.md)
 
 ## Contributing to Criteria
 
-- [ ] Each architectural concern lives in a clearly bounded module with explicit public interfaces
-- [ ] New functionality can be added by creating files in designated locations without modifying core agent code
-- [ ] The tool system supports registry-based management with runtime enable/disable per agent
-- [ ] The plugin architecture supports both built-in tools and future MCP client integrations through a unified `ToolProvider` protocol
-- [ ] The architecture supports multiple agent definitions, each with their own prompt, tool set, LLM provider, and configuration
-- [ ] A developer (human or LLM) can understand where to add a new capability by reading the project structure and extension documentation alone
+- [x] Each architectural concern lives in a clearly bounded module with explicit public interfaces
+- [x] New functionality can be added by creating files in designated locations without modifying core agent code
+- [x] The tool system supports registry-based management with runtime enable/disable per agent
+- [x] The plugin architecture supports both built-in tools and future MCP client integrations through a unified `ToolProvider` protocol
+- [x] The architecture supports multiple agent definitions, each with their own prompt, tool set, LLM provider, and configuration
+- [x] A developer (human or LLM) can understand where to add a new capability by reading the project structure and extension documentation alone
 
 ---
 
@@ -97,8 +97,8 @@ All implementation follows these Flight 1 artifacts:
 - [x] `config.py` has `agents_dir` property
 - [x] CLAUDE.md updated to reflect new structure
 - [x] `agents.md` verified against actual implementation
-- [ ] All tests pass, lint clean
-- [ ] UAT confirms CLI chat, web chat, and tool execution work
+- [x] All tests pass, lint clean
+- [x] UAT confirms CLI chat, web chat, and tool execution work
 
 ### Adaptation Criteria
 
@@ -120,7 +120,7 @@ All implementation follows these Flight 1 artifacts:
 - [x] `tool-provider-and-decoupling` — Create `tools/provider.py` (ToolProvider protocol) and `tools/builtins.py` (BuiltinToolProvider). Decouple `memory.py` (constructor injection for memory_dir) and `self_deploy.py` (constructor injection for workspace/concourse settings). Remove `load_defaults()` from ToolRegistry. Update `tools/__init__.py`.
 - [x] `agent-store-and-factory` — Create `agent/store.py` (AgentConfigStore protocol, FilesystemConfigStore using `model_validate()`) and `agent/factory.py` (AgentFactory — always passes `base_url` to `get_provider()`). Replace `_make_agent()` in `cli.py` and `web/app.py` with `AgentFactory.create()`. Update `agent/__init__.py`.
 - [x] `update-docs` — Update CLAUDE.md architecture section to reflect new module structure. Verify `agents.md` accuracy against actual implementation, fix any discrepancies.
-- [ ] `uat-and-alignment` *(optional)* — Guided UAT session: verify CLI chat, web server, tool execution, and factory behavior. Walk through extension guide recipes against actual code. Fix issues iteratively until satisfied.
+- [x] `uat-and-alignment` *(optional)* — Guided UAT session: verify CLI chat, web server, tool execution, and factory behavior. Walk through extension guide recipes against actual code. Fix issues iteratively until satisfied.
 
 ---
 
@@ -128,12 +128,12 @@ All implementation follows these Flight 1 artifacts:
 
 ### Completion Checklist
 
-- [ ] All legs completed
-- [ ] Tests passing (`python -m pytest tests/ --tb=short -q`)
-- [ ] Lint clean (`ruff check the_one/ tests/`)
-- [ ] No behavioral regressions (UAT verified)
-- [ ] Documentation updated (CLAUDE.md, agents.md)
-- [ ] All new files have appropriate `__init__.py` exports
+- [x] All legs completed
+- [x] Tests passing (`python -m pytest tests/ --tb=short -q`)
+- [x] Lint clean (`ruff check the_one/ tests/`)
+- [x] No behavioral regressions (UAT verified)
+- [x] Documentation updated (CLAUDE.md, agents.md)
+- [x] All new files have appropriate `__init__.py` exports
 
 ### Verification
 
