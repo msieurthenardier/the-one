@@ -85,8 +85,8 @@ A `conftest.py` provides shared fixtures: `tmp_path` for filesystem tests, `Fake
 
 - [x] `conftest.py` with FakeLLM and test fixtures exists
 - [x] Unit tests for `behaviors.py`, `config.py` exist and pass
-- [ ] Unit tests for `base.py` (ToolRegistry), LLM registry exist and pass
-- [ ] Unit tests for `store.py`, `builtins.py`, `provider.py` exist and pass
+- [x] Unit tests for `base.py` (ToolRegistry), LLM registry exist and pass
+- [x] Unit tests for `store.py`, `builtins.py`, `provider.py` exist and pass
 - [ ] Unit tests for `factory.py` exist and pass (uses FakeLLM)
 - [ ] Agent loop tests exist and pass (iteration, tool execution, direct actions, continue, errors)
 - [ ] AIAT converted to pytest with `live` marker
@@ -108,7 +108,7 @@ A `conftest.py` provides shared fixtures: `tmp_path` for filesystem tests, `Fake
 > **Note:** These are tentative suggestions, not commitments. Legs are planned and created one at a time as the flight progresses. This list will evolve based on discoveries during implementation.
 
 - [x] `test-fixtures-and-behaviors` — Create `conftest.py` with FakeLLM, stub tools, and shared fixtures. Write unit tests for `behaviors.py` (extract_tool_calls, match_direct_action) and `config.py` (AgentConfig model, is_tool_enabled, get_system_prompt).
-- [ ] `test-registries-and-store` — Unit tests for `ToolRegistry` (register, get, schemas, unknown tool), LLM registry (register_provider, get_provider, lazy loading, unknown provider), `FilesystemConfigStore` (CRUD, missing files, invalid JSON), and `BuiltinToolProvider` (tool count, protocol compliance).
+- [x] `test-registries-and-store` — Unit tests for `ToolRegistry` (register, get, schemas, unknown tool), LLM registry (register_provider, get_provider, lazy loading, unknown provider), `FilesystemConfigStore` (CRUD, missing files, invalid JSON), and `BuiltinToolProvider` (tool count, protocol compliance).
 - [ ] `test-factory-and-agent-loop` — Unit tests for `AgentFactory` (default agent, named agent, unknown agent, tool filtering) and `Agent.step()` (normal flow, direct action bypass, continue signal, max iterations, tool execution, tool errors, text-embedded tool call extraction).
 - [ ] `aiat-conversion` — Rename `tests/iaat.py` to `tests/test_aiat.py`. Convert to pytest functions with `@pytest.mark.live`. Register the `live` marker in `conftest.py` or `pyproject.toml`. Verify AIAT tests are skipped by default and runnable with `pytest -m live`.
 - [ ] `ci-pipeline-hardening` — Remove `|| true` from test step. Replace hardcoded `/home/cprch/projects/the-one` with `((workspace-path))`. Extract shared docker run env block into `ci/deploy.sh`. Update deploy, rollback, and auto-rollback jobs to use the script.
