@@ -13,7 +13,11 @@ class PythonExecTool(Tool):
         "type": "object",
         "properties": {
             "code": {"type": "string", "description": "Python code to execute."},
-            "timeout": {"type": "integer", "description": "Timeout in seconds (default 60).", "default": 60},
+            "timeout": {
+                "type": "integer",
+                "description": "Timeout in seconds (default 60).",
+                "default": 60,
+            },
         },
         "required": ["code"],
     }

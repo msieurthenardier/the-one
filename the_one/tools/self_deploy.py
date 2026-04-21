@@ -41,7 +41,7 @@ class SelfDeployTool(Tool):
         self.concourse_pipeline = concourse_pipeline or settings.concourse_pipeline
 
     async def execute(self, **kwargs: Any) -> str:
-        message = kwargs.get("message", "self-deploy")
+        kwargs.get("message", "self-deploy")
         skip_tests = kwargs.get("skip_tests", False)
         workspace = self.workspace_dir
         concourse = self.concourse_target
@@ -76,7 +76,10 @@ class SelfDeployTool(Tool):
             return "[DEPLOY FAILED]\n" + "\n".join(f"  {i+1}. {s}" for i, s in enumerate(steps)) + \
                 "\n\nCheck Concourse UI for details. Auto-rollback may have triggered."
         else:
-            return "[DEPLOY STATUS UNKNOWN]\n" + "\n".join(f"  {i+1}. {s}" for i, s in enumerate(steps))
+            step_list = "\n".join(
+                f"  {i+1}. {s}" for i, s in enumerate(steps)
+            )
+            return f"[DEPLOY STATUS UNKNOWN]\n{step_list}"
 
 
 async def _run(cmd: str, timeout: int = 60) -> str:

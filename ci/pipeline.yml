@@ -212,7 +212,13 @@ jobs:
             args:
               - -exc
               - |
-                ${WORKSPACE_PATH}/ci/deploy.sh rollback
+                docker run --rm \
+                  -v "${WORKSPACE_PATH}:/src:ro" \
+                  -v /var/run/docker.sock:/var/run/docker.sock \
+                  -e WORKSPACE_PATH="${WORKSPACE_PATH}" \
+                  -e CONCOURSE_PASS="${CONCOURSE_PASS}" \
+                  docker:cli \
+                  sh /src/ci/deploy.sh rollback
                 echo "Rolled back to previous image"
 
   - name: pause-autopilot

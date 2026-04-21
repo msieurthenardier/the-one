@@ -8,7 +8,11 @@ from the_one.tools.base import Tool
 
 class ShellTool(Tool):
     name = "shell"
-    description = "Execute a shell command and return its output. Use for system commands, scripts, git, package managers, etc."
+    description = (
+        "Execute a shell command and return its output. "
+        "Use for system commands, scripts, git, "
+        "package managers, etc."
+    )
     parameters = {
         "type": "object",
         "properties": {

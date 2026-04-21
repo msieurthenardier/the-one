@@ -78,7 +78,11 @@ class OllamaProvider(LLMProvider):
                 output_tokens=u.get("completion_tokens", 0),
             )
 
-        return Message.assistant(content=msg.get("content") or "", tool_calls=tool_calls, usage=usage)
+        return Message.assistant(
+            content=msg.get("content") or "",
+            tool_calls=tool_calls,
+            usage=usage,
+        )
 
     def _to_api_message(self, msg: Message) -> dict[str, Any]:
         if msg.role == Role.TOOL and msg.tool_result:
