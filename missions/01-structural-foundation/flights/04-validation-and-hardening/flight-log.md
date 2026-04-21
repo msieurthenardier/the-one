@@ -19,6 +19,13 @@ Flight 04 in progress — fixing code quality violations, brittle tests, and bro
 - **Verification**: `ruff check` clean, 65 tests passing, `fly validate-pipeline` valid
 - **Note**: pytest-timeout not installed; used OS-level `timeout` for test execution safety
 
+### Leg 02: documentation-updates (in-flight)
+- **Started**: 2026-04-20
+- Added Testing section to CLAUDE.md: `THE_ONE_TEST_URL`, `@pytest.mark.live`, `pytest -m live`, unit/AIAT separation, FakeLLM/StubTool patterns; added live test command to Commands section
+- Backfilled flight 03 log: Decisions (leg reordering), Deviations (4 entries from debrief), Anomalies (regex bug, Concourse offline)
+- Audited all 11 mission success criteria against codebase — all 11 checked off with inline evidence notes
+- Verified only `.md` files modified
+
 ---
 
 ## Decisions

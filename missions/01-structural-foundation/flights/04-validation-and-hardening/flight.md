@@ -95,7 +95,7 @@ This flight is a series of small, independent fixes followed by a verification s
 > **Note:** These are tentative suggestions, not commitments. Legs are planned and created one at a time as the flight progresses.
 
 - [x] `code-fixes` — Fix all 36 ruff violations (E501, F401, F541, I001, F841), replace hardcoded tool count in test_builtins.py, fix rollback job in pipeline.yml
-- [ ] `documentation-updates` — Add test conventions to CLAUDE.md, backfill flight 03 log sections, audit and check off mission success criteria
+- [x] `documentation-updates` — Add test conventions to CLAUDE.md, backfill flight 03 log sections, audit and check off mission success criteria
 - [ ] `verify-and-deploy` — Deploy to verify all changes, run AIAT tests against live agent, trigger rollback job to verify it works
 
 ---

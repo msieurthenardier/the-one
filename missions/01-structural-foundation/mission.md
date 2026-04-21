@@ -16,17 +16,17 @@ This mission establishes the structural foundation that all future capabilities 
 
 ## Success Criteria
 
-- [ ] Each architectural concern (LLM providers, tools, agent loop, interfaces, configuration, persistence) lives in a clearly bounded module with explicit public interfaces
-- [ ] New functionality can be added by creating files in designated locations without modifying core agent code
-- [ ] The tool system supports registry-based management with runtime enable/disable per agent — a problematic tool can be disabled without rolling back code
-- [ ] The plugin architecture supports both built-in tools (zero overhead, no external process) and future MCP client integrations (external tool servers) through a unified `ToolProvider` protocol
-- [ ] The architecture supports multiple agent definitions, each with their own prompt, tool set, LLM provider, and configuration, managed through a persistence layer
-- [ ] An `agents.md` file provides development-facing self-awareness context (like CLAUDE.md for the project's own architecture), distinct from runtime agent prompts/configuration
-- [ ] The extension model is documented with clear patterns for adding tools, providers, and future extension types (skills, behaviors, integrations)
-- [ ] Core modules (agent loop, tool registry, LLM registry) have unit tests that run in isolation; integration tests validate the agent step cycle end-to-end
-- [ ] The Concourse pipeline runs the full test suite as a hard gate before deployment (no swallowed failures)
-- [ ] The codebase has minimal external dependencies — functionality is hand-written where the alternative is a library that adds transitive dependency risk
-- [ ] A developer (human or LLM) can understand where to add a new capability by reading the project structure and extension documentation alone
+- [x] Each architectural concern (LLM providers, tools, agent loop, interfaces, configuration, persistence) lives in a clearly bounded module with explicit public interfaces — met via Flight 02 (`llm/`, `tools/`, `agent/`, `interfaces/`, `config.py` all cleanly separated with `__init__.py` exports)
+- [x] New functionality can be added by creating files in designated locations without modifying core agent code — met via Flight 02 (new tools added as files in `tools/`, new LLM providers in `llm/`, registered via lazy import in `builtins.py`/`registry.py`)
+- [x] The tool system supports registry-based management with runtime enable/disable per agent — a problematic tool can be disabled without rolling back code — met via Flight 02 (`AgentConfig.enabled_tools`/`disabled_tools`, `is_tool_enabled()`, filtering in `AgentFactory`)
+- [x] The plugin architecture supports both built-in tools (zero overhead, no external process) and future MCP client integrations (external tool servers) through a unified `ToolProvider` protocol — met via Flight 02 (`ToolProvider` protocol in `tools/provider.py`, `BuiltinToolProvider` in `tools/builtins.py`)
+- [x] The architecture supports multiple agent definitions, each with their own prompt, tool set, LLM provider, and configuration, managed through a persistence layer — met via Flight 02 (`AgentConfig` pydantic model, `AgentFactory.create(name)`, `FilesystemConfigStore` with JSON persistence in `~/.the-one/agents/`)
+- [x] An `agents.md` file provides development-facing self-awareness context (like CLAUDE.md for the project's own architecture), distinct from runtime agent prompts/configuration — met via Flight 02 (`the_one/agents.md` with module map, dependency graph, and key patterns)
+- [x] The extension model is documented with clear patterns for adding tools, providers, and future extension types (skills, behaviors, integrations) — met via Flight 02 (`agents.md` module map and key patterns sections document ToolProvider, tool filtering, AgentFactory; `CLAUDE.md` architecture section covers all layers). Note: no explicit step-by-step "how to add a tool" guide, but the module map and patterns make it clear.
+- [x] Core modules (agent loop, tool registry, LLM registry) have unit tests that run in isolation; integration tests validate the agent step cycle end-to-end — met via Flight 03 (65 unit tests covering behaviors, config, tool registry, LLM registry, store, builtins, factory, and agent loop; 8 AIAT integration tests with `@pytest.mark.live`)
+- [x] The Concourse pipeline runs the full test suite as a hard gate before deployment (no swallowed failures) — met via Flight 03 Leg 05 (`|| true` removed from test step; remaining `|| true` is benign `docker tag` for rollback image)
+- [x] The codebase has minimal external dependencies — functionality is hand-written where the alternative is a library that adds transitive dependency risk — met (core deps: httpx, pydantic, rich, prompt-toolkit, fastapi, uvicorn, websockets, jinja2; no agent frameworks)
+- [x] A developer (human or LLM) can understand where to add a new capability by reading the project structure and extension documentation alone — met via Flight 02 (`agents.md` module map with dependency graph + `CLAUDE.md` architecture overview provide complete orientation)
 
 ## Stakeholders
 

@@ -70,13 +70,49 @@ _(In progress)_
 
 ## Decisions
 
+### Leg 4/5 execution order
+
+Legs 4 (aiat-conversion) and 5 (ci-pipeline-hardening) were executed out of order (5 before 4). Both legs were independent with no shared inputs or outputs, so reordering had no impact on correctness. This flexibility is worth standardizing — independent legs should be executable in any order.
+
 ---
 
 ## Deviations
 
+### Leg execution reordering
+
+- **Planned**: Execute legs 1–6 in numeric order
+- **Actual**: Legs 4 and 5 executed out of order (5 before 4)
+- **Reason**: They were independent; no impact on correctness
+
+### addopts added outside original leg scope
+
+- **Planned**: Leg 04 (aiat-conversion) converts AIAT tests to pytest with `@pytest.mark.live`
+- **Actual**: Also added `addopts = "-m 'not live'"` to `pyproject.toml` to exclude live tests from default runs
+- **Reason**: Reviewer caught AIAT tests running in the default test suite — this was a spec gap, not a deliberate scope change
+
+### CI verification deferred
+
+- **Planned**: Leg 06 verifies CI pipeline end-to-end with a live Concourse deploy
+- **Actual**: Verified syntactically only (`fly validate-pipeline`); live deploy test deferred
+- **Reason**: Concourse instance was offline during leg 06 execution
+
+### setuptools packages.find added to pyproject.toml
+
+- **Planned**: No changes to project packaging configuration
+- **Actual**: Added `[tool.setuptools.packages.find]` to `pyproject.toml`
+- **Reason**: `pip install -e .` failed in Concourse containers due to flat-layout detection of non-package directories — environment-specific fix
+
 ---
 
 ## Anomalies
+
+### extract_tool_calls() regex bug
+
+Discovered during leg 01 testing: the `extract_tool_calls()` regex in `behaviors.py` could not parse dict arguments at all — `[^}]+` consumes up to the first `}`, producing invalid JSON for any dict value. The function was effectively dead code since all supported LLM providers return structured tool calls natively. Resolved by removal (recommendation from debrief, implemented in Flight 04 Leg 01).
+
+### Concourse offline during leg 06
+
+The Concourse CI instance was offline when leg 06 (verify-integration) attempted live pipeline verification. Pipeline was validated syntactically with `fly validate-pipeline`, but functional CI deploy testing was deferred.
 
 ---
 
