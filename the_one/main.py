@@ -21,10 +21,10 @@ def cli_entry() -> None:
         from the_one import __version__
         print(f"the-one v{__version__}")
     else:
-        print(f"Usage: the-one [chat|serve|version]")
-        print(f"  chat   - Interactive CLI (default)")
+        print("Usage: the-one [chat|serve|version]")
+        print("  chat   - Interactive CLI (default)")
         print(f"  serve  - Start web UI on {settings.host}:{settings.port}")
-        print(f"  version - Show version")
+        print("  version - Show version")
         sys.exit(1)
 
 

@@ -55,7 +55,11 @@ class WebSearchTool(Tool):
         "type": "object",
         "properties": {
             "query": {"type": "string", "description": "Search query."},
-            "max_results": {"type": "integer", "description": "Max results (default 5).", "default": 5},
+            "max_results": {
+                "type": "integer",
+                "description": "Max results (default 5).",
+                "default": 5,
+            },
         },
         "required": ["query"],
     }

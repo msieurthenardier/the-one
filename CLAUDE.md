@@ -22,6 +22,7 @@ the-one serve
 python -m pytest tests/ --tb=short -q
 python -m pytest tests/test_example.py -q          # single file
 python -m pytest tests/test_example.py::test_name   # single test
+pytest -m live tests/test_aiat.py                   # AIAT (needs running instance)
 
 # Lint & format
 ruff check the_one/ tests/
@@ -69,3 +70,19 @@ All config via env vars prefixed `THE_ONE_` (see `.env.example`). Managed by pyd
 - ruff for linting (rules: E, F, I, N, W) and formatting, line length 100
 - Tools return strings, errors are caught and wrapped by the agent loop
 - LLM provider schemas default to OpenAI function-calling format; override `tool_schema()` for others
+
+## Testing
+
+**Unit tests** run by default with `pytest tests/` — fast, no external dependencies, ~65 tests in <1s.
+
+**AIAT tests** (Agent-in-a-Test) are live integration tests that hit a running instance. They are excluded from default runs via `addopts = "-m 'not live'"` in `pyproject.toml`.
+
+- **`THE_ONE_TEST_URL`** env var sets the target URL (default `http://localhost:8484`)
+- **`@pytest.mark.live`** decorator marks AIAT tests — all live in `tests/test_aiat.py`
+- Run live tests: `pytest -m live tests/test_aiat.py`
+
+**Test patterns** (no mock libraries):
+
+- **`FakeLLM`** (`tests/conftest.py`): An `LLMProvider` subclass that returns pre-scripted `Message` responses in order. Records all calls for assertion. Enables deterministic agent loop testing.
+- **`StubTool`** (`tests/conftest.py`): A `Tool` subclass that records calls and returns a canned string. Used to verify the agent executes tools correctly without side effects.
+- **`make_registry`** fixture: Creates a `ToolRegistry` pre-loaded with StubTools for quick test setup.

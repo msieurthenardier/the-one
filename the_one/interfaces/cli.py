@@ -58,7 +58,9 @@ async def _run_cli() -> None:
                     if msg.tool_calls:
                         for tc in msg.tool_calls:
                             console.print(
-                                f"  [dim]-> {tc.name}({', '.join(f'{k}={v!r}' for k, v in tc.arguments.items())})[/dim]"
+                                f"  [dim]-> {tc.name}("
+                                f"{', '.join(f'{k}={v!r}' for k, v in tc.arguments.items())})"
+                                f"[/dim]"
                             )
                 elif msg.role == Role.TOOL and msg.tool_result:
                     output = msg.tool_result.content

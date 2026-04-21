@@ -3,8 +3,8 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from the_one.tools.base import Tool
 from the_one.config import settings
+from the_one.tools.base import Tool
 
 ALLOWED_COMMANDS = {
     "status", "log", "diff", "add", "commit", "branch", "checkout",
@@ -18,7 +18,8 @@ class GitTool(Tool):
     name = "git"
     description = (
         "Run git operations on the workspace repository. "
-        "Supports: status, log, diff, add, commit, branch, checkout, revert, tag, show, stash, merge. "
+        "Supports: status, log, diff, add, commit, branch, "
+        "checkout, revert, tag, show, stash, merge. "
         "Dangerous operations (force push, reset --hard) are blocked."
     )
     parameters = {
@@ -26,7 +27,10 @@ class GitTool(Tool):
         "properties": {
             "args": {
                 "type": "string",
-                "description": "Git subcommand and arguments, e.g. 'status', 'commit -m \"fix bug\"', 'log --oneline -10'",
+                "description": (
+                    "Git subcommand and arguments, e.g. 'status', "
+                    "'commit -m \"fix bug\"', 'log --oneline -10'"
+                ),
             },
         },
         "required": ["args"],
@@ -41,7 +45,11 @@ class GitTool(Tool):
 
         subcommand = parts[0]
         if subcommand not in ALLOWED_COMMANDS:
-            return f"[error] Git subcommand '{subcommand}' is not allowed. Allowed: {', '.join(sorted(ALLOWED_COMMANDS))}"
+            allowed = ', '.join(sorted(ALLOWED_COMMANDS))
+            return (
+                f"[error] Git subcommand '{subcommand}' "
+                f"is not allowed. Allowed: {allowed}"
+            )
 
         for pattern in DENIED_PATTERNS:
             if pattern in args:

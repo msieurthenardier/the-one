@@ -19,7 +19,10 @@ class ReadFileTool(Tool):
         "required": ["path"],
     }
 
-    async def execute(self, path: str, offset: int = 0, limit: int | None = None, **kwargs: Any) -> str:
+    async def execute(
+        self, path: str, offset: int = 0,
+        limit: int | None = None, **kwargs: Any,
+    ) -> str:
         try:
             p = Path(path).expanduser().resolve()
             text = p.read_text(errors="replace")

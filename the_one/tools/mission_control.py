@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +18,8 @@ class MissionControlTool(Tool):
         "Access the Mission Control methodology. Actions:\n"
         "- list_skills: Show available workflow skills\n"
         "- read_skill: Read a skill's prompt template (e.g. 'leg', 'mission', 'flight')\n"
-        "- read_doc: Read a methodology doc (e.g. 'overview', 'missions', 'flights', 'legs', 'workflow')\n"
+        "- read_doc: Read a methodology doc "
+        "(e.g. 'overview', 'missions', 'flights', 'legs', 'workflow')\n"
         "- list_docs: Show available methodology docs\n"
         "Use this to understand the Mission Control workflow and execute structured tasks."
     )
@@ -28,11 +28,17 @@ class MissionControlTool(Tool):
         "properties": {
             "action": {
                 "type": "string",
-                "description": "One of: list_skills, read_skill, read_doc, list_docs",
+                "description": (
+                    "One of: list_skills, read_skill, "
+                    "read_doc, list_docs"
+                ),
             },
             "name": {
                 "type": "string",
-                "description": "Skill or doc name (e.g. 'leg', 'overview'). Required for read_skill and read_doc.",
+                "description": (
+                    "Skill or doc name (e.g. 'leg', 'overview'). "
+                    "Required for read_skill and read_doc."
+                ),
             },
         },
         "required": ["action"],
@@ -43,7 +49,10 @@ class MissionControlTool(Tool):
         name = kwargs.get("name", "")
 
         if not MC_DIR.exists():
-            return "[error] Mission Control not found at /mission-control. It may not have been cloned yet."
+            return (
+                "[error] Mission Control not found at "
+                "/mission-control. It may not have been cloned yet."
+            )
 
         if action == "list_skills":
             return self._list_skills()
@@ -54,7 +63,10 @@ class MissionControlTool(Tool):
         elif action == "read_doc":
             return self._read_doc(name)
         else:
-            return f"[error] Unknown action '{action}'. Use: list_skills, read_skill, list_docs, read_doc"
+            return (
+                f"[error] Unknown action '{action}'. "
+                "Use: list_skills, read_skill, list_docs, read_doc"
+            )
 
     def _list_skills(self) -> str:
         if not SKILLS_DIR.exists():

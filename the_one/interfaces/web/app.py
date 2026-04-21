@@ -70,7 +70,11 @@ def _get_session(session_id: str | None = None, source: str = "web") -> Session:
     return session
 
 
-async def _send_to_session(session: Session, payload: dict[str, Any], exclude: WebSocket | None = None) -> None:
+async def _send_to_session(
+    session: Session,
+    payload: dict[str, Any],
+    exclude: WebSocket | None = None,
+) -> None:
     """Send a JSON payload to all websocket subscribers of a session."""
     dead: list[WebSocket] = []
     for ws in session.subscribers:
@@ -131,7 +135,10 @@ async def _process_and_broadcast(
             if msg.content:
                 entry["content"] = msg.content
             if msg.tool_calls:
-                entry["tool_calls"] = [{"name": tc.name, "arguments": tc.arguments} for tc in msg.tool_calls]
+                entry["tool_calls"] = [
+                    {"name": tc.name, "arguments": tc.arguments}
+                    for tc in msg.tool_calls
+                ]
             result_messages.append(entry)
 
         elif msg.role == Role.TOOL and msg.tool_result:
@@ -213,7 +220,15 @@ async def selftest() -> dict[str, Any]:
         async for msg in agent.step("Read the file /workspace/pyproject.toml"):
             if msg.role == Role.TOOL and msg.tool_result and not msg.tool_result.is_error:
                 got_tool_result = True
-        checks.append({"name": "tool_use", "pass": got_tool_result, "detail": "read_file executed" if got_tool_result else "no tool result"})
+        detail = (
+            "read_file executed" if got_tool_result
+            else "no tool result"
+        )
+        checks.append({
+            "name": "tool_use",
+            "pass": got_tool_result,
+            "detail": detail,
+        })
     except Exception as e:
         checks.append({"name": "tool_use", "pass": False, "detail": str(e)[:200]})
 
@@ -263,7 +278,12 @@ async def chat(request: Request) -> dict[str, Any]:
         session.history.clear()
         session.title = "New chat"
         await _send_to_session(session, {"type": "system", "content": "Context cleared."})
-        return {"session_id": session.id, "messages": [{"role": "system", "content": "Context cleared."}]}
+        return {
+            "session_id": session.id,
+            "messages": [
+                {"role": "system", "content": "Context cleared."}
+            ],
+        }
 
     result = await _process_and_broadcast(session, user_input, source=source)
     return {"session_id": session.id, "messages": result}
@@ -271,7 +291,12 @@ async def chat(request: Request) -> dict[str, Any]:
 
 @app.post("/api/chat/reset")
 async def chat_reset(request: Request) -> dict[str, str]:
-    payload = await request.json() if request.headers.get("content-type") == "application/json" else {}
+    content_type = request.headers.get("content-type")
+    payload = (
+        await request.json()
+        if content_type == "application/json"
+        else {}
+    )
     session_id = payload.get("session_id")
     if session_id and session_id in _sessions:
         s = _sessions[session_id]
@@ -310,7 +335,14 @@ async def websocket_endpoint(ws: WebSocket) -> None:
             if action == "list_sessions":
                 await ws.send_json({
                     "type": "session_list",
-                    "sessions": [s.summary() for s in sorted(_sessions.values(), key=lambda s: s.created, reverse=True)],
+                    "sessions": [
+                        s.summary()
+                        for s in sorted(
+                            _sessions.values(),
+                            key=lambda s: s.created,
+                            reverse=True,
+                        )
+                    ],
                 })
                 continue
 
