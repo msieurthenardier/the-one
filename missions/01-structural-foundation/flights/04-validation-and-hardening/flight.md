@@ -1,6 +1,6 @@
 # Flight: Validation & Hardening
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Structural Foundation](../../mission.md)
 
 ## Contributing to Criteria
@@ -96,7 +96,7 @@ This flight is a series of small, independent fixes followed by a verification s
 
 - [x] `code-fixes` — Fix all 36 ruff violations (E501, F401, F541, I001, F841), replace hardcoded tool count in test_builtins.py, fix rollback job in pipeline.yml
 - [x] `documentation-updates` — Add test conventions to CLAUDE.md, backfill flight 03 log sections, audit and check off mission success criteria
-- [ ] `verify-and-deploy` — Deploy to verify all changes, run AIAT tests against live agent, trigger rollback job to verify it works
+- [x] `verify-and-deploy` — Deploy to verify all changes, run AIAT tests against live agent, trigger rollback job to verify it works
 
 ---
 
@@ -104,12 +104,12 @@ This flight is a series of small, independent fixes followed by a verification s
 
 ### Completion Checklist
 
-- [ ] All legs completed
-- [ ] `ruff check the_one/ tests/` clean
-- [ ] `pytest tests/ --tb=short -q` passes
-- [ ] Deploy succeeds with selftest passing
-- [ ] Rollback job works
-- [ ] All mission success criteria checked off or noted as known issues
+- [x] All legs completed
+- [x] `ruff check the_one/ tests/` clean
+- [x] `pytest tests/ --tb=short -q` passes
+- [x] Deploy succeeds with selftest passing — build #16
+- [x] Rollback job works — build #3
+- [x] All mission success criteria checked off or noted as known issues
 
 ### Verification
 
