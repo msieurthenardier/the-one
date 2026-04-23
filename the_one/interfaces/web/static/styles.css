@@ -176,7 +176,7 @@ body { font-family: 'SF Mono', 'Fira Code', monospace; background: var(--bg); co
 .area-studio .delete-btn.confirm { background: #ff4a4a; color: #000; border-color: #ff4a4a; font-weight: 600; }
 
 /* === Studio Area: Flash === */
-.area-studio .studio-flash { position: fixed; bottom: 24px; right: 24px; background: var(--accent); color: #000; padding: 8px 16px; border-radius: 6px; font-size: 12px; font-weight: 600; opacity: 0; transition: opacity 0.3s; z-index: 100; pointer-events: none; }
+.area-studio .studio-flash { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); background: var(--accent); color: #000; padding: 10px 48px; border-radius: 6px; font-size: 13px; font-weight: 600; opacity: 0; transition: opacity 0.3s; z-index: 100; pointer-events: none; }
 .area-studio .studio-flash.visible { opacity: 1; }
 
 /* === Stub Areas === */
