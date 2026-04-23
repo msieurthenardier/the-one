@@ -1,11 +1,11 @@
 # Flight: Chat Evolution
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Multi-Agent Workspace](../../mission.md)
 
 ## Contributing to Criteria
-- [ ] Users can select which agent to converse with, and the selected agent's config is reflected in the conversation
-- [ ] Chat conversations persist across application restarts, with full message history recoverable
+- [x] Users can select which agent to converse with, and the selected agent's config is reflected in the conversation
+- [x] Chat conversations persist across application restarts, with full message history recoverable
 
 ---
 
@@ -61,7 +61,7 @@ Connect the existing in-memory Session system with the DB ChatSession table. Ses
 - [x] Schema V2 migration works, codec converts messages to UI events
 - [x] Sessions persist to DB and restore on server restart
 - [x] Agent picker in UI, bound per-session
-- [ ] End-to-end UAT passes
+- [x] End-to-end UAT passes
 
 ### Adaptation Criteria
 
@@ -78,16 +78,16 @@ Connect the existing in-memory Session system with the DB ChatSession table. Ses
 - [x] `schema-migration-session-manager` - Schema V2 migration, codec extension, Session dataclass updates
 - [x] `persistence-bridge` - Save/restore sessions to DB, lazy loading
 - [x] `agent-picker-ui` - Agent dropdown in sidebar, session badges, content header badge
-- [ ] `uat-and-alignment` - End-to-end verification of all chat evolution features
+- [x] `uat-and-alignment` - End-to-end verification of all chat evolution features
 
 ---
 
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
-- [ ] Code merged
-- [ ] Tests passing
+- [x] All legs completed
+- [x] Code merged
+- [x] Tests passing
 - [ ] Documentation updated
 
 ### Verification

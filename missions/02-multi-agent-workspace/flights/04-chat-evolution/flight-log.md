@@ -3,7 +3,7 @@
 **Flight**: [Chat Evolution](flight.md)
 
 ## Summary
-Flight 04 implements DB-backed chat sessions, agent picker UI, and session persistence/restore.
+Flight 04 implements DB-backed chat sessions, agent picker UI, and session persistence/restore. All 4 legs completed. UAT passed with one bug fix (OllamaProvider None base_url). Flight landed.
 
 ---
 
@@ -60,6 +60,21 @@ Flight 04 implements DB-backed chat sessions, agent picker UI, and session persi
 ---
 
 ## Anomalies
+
+### OllamaProvider None base_url crash (discovered during UAT)
+- **Severity**: Minor (crash on first use with default config)
+- **Description**: `OllamaProvider.__init__` passed `base_url` to `.rstrip("/")` without guarding against `None`. When no `base_url` is configured (common default case), this raised `AttributeError: 'NoneType' object has no attribute 'rstrip'`.
+- **Fix**: Changed line 28 of `the_one/llm/ollama_provider.py` to `(base_url or "http://localhost:11434/v1").rstrip("/")`
+- **Root cause**: Constructor assumed base_url would always be a string, but settings can yield `None` when unconfigured.
+
+---
+
+### Leg 04: UAT & Alignment — completed (2026-04-23)
+- **Started**: 2026-04-23
+- All 9 verification steps passed by human tester
+- One bug found and fixed during UAT: `OllamaProvider.__init__` crashed on `None` base_url (see Anomalies)
+- Fix applied: `(base_url or "http://localhost:11434/v1").rstrip("/")`
+- All 134 tests passing (0 failures)
 
 ---
 
