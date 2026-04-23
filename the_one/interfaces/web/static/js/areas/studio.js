@@ -532,6 +532,7 @@ App.registerArea({
                 if (agents[i].name === created.name) { found = agents[i]; break; }
               }
               if (found) selectAgent(found);
+              showFlash('Agent created');
             });
           })
           .catch(function (err) {
@@ -560,6 +561,7 @@ App.registerArea({
               if (found) {
                 selectedAgent = found;
                 renderEditor(found);
+                showFlash('Saved');
               }
             });
           })
@@ -570,6 +572,18 @@ App.registerArea({
     }
 
     // ── Helpers ──────────────────────────────────────────────────────
+
+    function showFlash(msg) {
+      var el = document.createElement('div');
+      el.className = 'studio-flash';
+      el.textContent = msg;
+      editorEl.appendChild(el);
+      setTimeout(function () { el.classList.add('visible'); }, 10);
+      setTimeout(function () {
+        el.classList.remove('visible');
+        setTimeout(function () { el.remove(); }, 300);
+      }, 2000);
+    }
 
     function escapeHtml(s) {
       if (!s) return '';
