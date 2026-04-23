@@ -49,6 +49,17 @@ async def _chat_repo() -> ChatSessionRepository:
     return ChatSessionRepository(conn)
 
 
+# ── Tools ─────────────────────────────────────────────────────────────────
+
+
+@router.get("/tools")
+async def list_tools() -> list[dict[str, str]]:
+    from the_one.tools.builtins import BuiltinToolProvider
+
+    provider = BuiltinToolProvider()
+    return [{"name": t.name, "description": t.description} for t in provider.get_tools()]
+
+
 # ── Agents ────────────────────────────────────────────────────────────────
 
 
