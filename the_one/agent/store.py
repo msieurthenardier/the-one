@@ -11,31 +11,25 @@ from the_one.agent.config import AgentConfig
 
 @runtime_checkable
 class AgentConfigStore(Protocol):
-    """Protocol for persisting and retrieving agent configurations."""
+    """Protocol for persisting and retrieving agent configurations (async)."""
 
-    def list_agents(self) -> list[str]:
-        """Return names of all stored agent configs."""
-        ...
+    async def list_agents(self) -> list[str]: ...
 
-    def load(self, name: str) -> AgentConfig:
-        """Load an agent config by name. Raises KeyError if not found."""
-        ...
+    async def load(self, name: str) -> AgentConfig: ...
 
-    def save(self, config: AgentConfig) -> None:
-        """Persist an agent config. Creates or overwrites."""
-        ...
+    async def save(self, config: AgentConfig) -> None: ...
 
-    def delete(self, name: str) -> None:
-        """Delete an agent config by name. Raises KeyError if not found."""
-        ...
+    async def delete(self, name: str) -> None: ...
 
-    def exists(self, name: str) -> bool:
-        """Check if a named agent config exists."""
-        ...
+    async def exists(self, name: str) -> bool: ...
 
 
 class FilesystemConfigStore:
-    """Stores agent configs as JSON files in a directory."""
+    """Stores agent configs as JSON files in a directory.
+
+    Legacy synchronous store — kept for migration and tests.
+    Does NOT satisfy the async AgentConfigStore protocol.
+    """
 
     def __init__(self, agents_dir: Path) -> None:
         self.agents_dir = agents_dir

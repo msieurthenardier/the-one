@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import json
 import uuid
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, AsyncIterator
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
@@ -14,12 +15,43 @@ from fastapi.staticfiles import StaticFiles
 from the_one.agent import Agent
 from the_one.agent.factory import AgentFactory
 from the_one.config import settings
+from the_one.db import close_connection, init_db
+from the_one.db.connection import get_connection
+from the_one.db.migration import migrate_json_to_sqlite
+from the_one.db.repositories import SQLiteAgentStore
+from the_one.interfaces.web.api import router as api_router
 from the_one.llm.base import Role
 
-app = FastAPI(title="the-one")
-
 STATIC_DIR = Path(__file__).parent / "static"
+
+
+# ── Lifespan ──────────────────────────────────────────────────────────────
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Initialize DB on startup, close on shutdown."""
+    await init_db()
+    conn = await get_connection()
+    store = SQLiteAgentStore(conn)
+    await migrate_json_to_sqlite(store)
+    _state["factory"] = AgentFactory(store=store)
+    yield
+    await close_connection()
+
+
+app = FastAPI(title="the-one", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+app.include_router(api_router)
+
+
+# ── State ─────────────────────────────────────────────────────────────────
+
+_state: dict[str, Any] = {}
+
+
+def _get_factory() -> AgentFactory:
+    return _state.get("factory") or AgentFactory()
 
 
 # ── Sessions ─────────────────────────────────────────────────────────────
@@ -52,17 +84,17 @@ class Session:
 
 
 _sessions: dict[str, Session] = {}
-_factory = AgentFactory()
 
 
-def _get_session(session_id: str | None = None, source: str = "web") -> Session:
+async def _get_session(session_id: str | None = None, source: str = "web") -> Session:
     if session_id and session_id in _sessions:
         return _sessions[session_id]
     # Create new session
     sid = session_id or uuid.uuid4().hex[:12]
+    factory = _get_factory()
     session = Session(
         id=sid,
-        agent=_factory.create(),
+        agent=await factory.create(),
         created=datetime.now(timezone.utc).isoformat(),
         source=source,
     )
@@ -189,18 +221,14 @@ async def info() -> dict[str, Any]:
 
 @app.get("/api/selftest")
 async def selftest() -> dict[str, Any]:
-    """Run a quick smoke test: can the agent chat and use tools?
-
-    Returns {"status": "pass", "checks": [...]} on success,
-    or {"status": "fail", "checks": [...]} with a 500 status if anything breaks.
-    Used by Concourse health check to decide whether to roll back after a deploy.
-    """
+    """Run a quick smoke test: can the agent chat and use tools?"""
     from fastapi.responses import JSONResponse
 
     checks: list[dict[str, Any]] = []
-    agent = _factory.create()
+    factory = _get_factory()
+    agent = await factory.create()
 
-    # Check 1: basic chat — can the LLM respond at all?
+    # Check 1: basic chat
     try:
         reply_parts = []
         async for msg in agent.step("Reply with exactly: SELFTEST_OK"):
@@ -214,7 +242,7 @@ async def selftest() -> dict[str, Any]:
 
     agent.reset()
 
-    # Check 2: tool use — can the agent call a tool and get a result?
+    # Check 2: tool use
     try:
         got_tool_result = False
         async for msg in agent.step("Read the file /workspace/pyproject.toml"):
@@ -271,7 +299,7 @@ async def chat(request: Request) -> dict[str, Any]:
     if not user_input:
         return {"error": "no message provided"}
 
-    session = _get_session(session_id, source=source)
+    session = await _get_session(session_id, source=source)
 
     if user_input == "/reset":
         session.agent.reset()
@@ -321,7 +349,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
             # Session management actions
             if action == "join":
                 session_id = payload.get("session_id")
-                session = _get_session(session_id)
+                session = await _get_session(session_id)
                 if ws not in session.subscribers:
                     session.subscribers.add(ws)
                 await ws.send_json({
@@ -350,7 +378,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 # Leave current session
                 if session:
                     session.subscribers.discard(ws)
-                session = _get_session()
+                session = await _get_session()
                 session.subscribers.add(ws)
                 await ws.send_json({
                     "type": "session_joined",
@@ -377,7 +405,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
 
             # Auto-join a session if none active
             if not session:
-                session = _get_session()
+                session = await _get_session()
                 session.subscribers.add(ws)
                 await ws.send_json({
                     "type": "session_joined",

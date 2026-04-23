@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from the_one.agent.config import AgentConfig
 from the_one.agent.core import Agent
-from the_one.agent.store import AgentConfigStore, FilesystemConfigStore
+from the_one.agent.store import AgentConfigStore
 from the_one.config import settings
 from the_one.llm import get_provider
 from the_one.tools.base import ToolRegistry
@@ -20,13 +20,13 @@ class AgentFactory:
         store: AgentConfigStore | None = None,
         tool_providers: list[ToolProvider] | None = None,
     ) -> None:
-        self.store = store or FilesystemConfigStore(settings.agents_dir)
+        self.store = store
         self.tool_providers = tool_providers or [BuiltinToolProvider()]
 
-    def create(self, name: str = "default") -> Agent:
+    async def create(self, name: str = "default") -> Agent:
         """Create an Agent instance from a named config."""
         settings.ensure_dirs()
-        config = self._load_config(name)
+        config = await self._load_config(name)
 
         # 1. Get LLM provider — always pass base_url unconditionally
         llm = get_provider(
@@ -51,16 +51,18 @@ class AgentFactory:
             max_iterations=config.max_iterations,
         )
 
-    def list_agents(self) -> list[str]:
+    async def list_agents(self) -> list[str]:
         """List all available agent names (stored + default)."""
-        names = set(self.store.list_agents())
+        if self.store is None:
+            return ["default"]
+        names = set(await self.store.list_agents())
         names.add("default")
         return sorted(names)
 
-    def _load_config(self, name: str) -> AgentConfig:
+    async def _load_config(self, name: str) -> AgentConfig:
         """Load config from store, falling back to default for 'default'."""
-        if self.store.exists(name):
-            return self.store.load(name)
+        if self.store is not None and await self.store.exists(name):
+            return await self.store.load(name)
         if name == "default":
             return self._default_config()
         raise KeyError(f"Unknown agent: {name}")

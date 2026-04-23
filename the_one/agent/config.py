@@ -82,6 +82,10 @@ class AgentConfig(BaseModel):
     enabled_tools: list[str] | None = None
     disabled_tools: list[str] = Field(default_factory=list)
 
+    # Associations (reference IDs only — no functional behavior yet)
+    kb_ids: list[str] = Field(default_factory=list)
+    mcp_source_ids: list[str] = Field(default_factory=list)
+
     # Behavior
     max_iterations: int = 20
     direct_actions: bool = True

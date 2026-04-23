@@ -11,12 +11,37 @@ from conftest import FakeLLM, StubTool
 
 from the_one.agent.config import AgentConfig
 from the_one.agent.factory import AgentFactory
-from the_one.agent.store import FilesystemConfigStore
 from the_one.tools.base import Tool
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+class InMemoryStore:
+    """Minimal async store backed by a dict for testing."""
+
+    def __init__(self) -> None:
+        self._data: dict[str, AgentConfig] = {}
+
+    async def list_agents(self) -> list[str]:
+        return sorted(self._data.keys())
+
+    async def load(self, name: str) -> AgentConfig:
+        if name not in self._data:
+            raise KeyError(f"Agent config not found: {name}")
+        return self._data[name]
+
+    async def save(self, config: AgentConfig) -> None:
+        self._data[config.name] = config
+
+    async def delete(self, name: str) -> None:
+        if name not in self._data:
+            raise KeyError(f"Agent config not found: {name}")
+        del self._data[name]
+
+    async def exists(self, name: str) -> bool:
+        return name in self._data
 
 
 class StubToolProvider:
@@ -36,19 +61,19 @@ def _fake_get_provider(name: str, **kwargs: Any) -> FakeLLM:
 
 
 @pytest.fixture
-def store(tmp_path: Path) -> FilesystemConfigStore:
-    return FilesystemConfigStore(tmp_path / "agents")
+def store() -> InMemoryStore:
+    return InMemoryStore()
 
 
 @pytest.fixture
-def factory(store: FilesystemConfigStore) -> AgentFactory:
+def factory(store: InMemoryStore) -> AgentFactory:
     with patch("the_one.agent.factory.get_provider", _fake_get_provider), \
          patch("the_one.agent.factory.settings") as mock_settings:
         mock_settings.llm_provider = "fake"
         mock_settings.llm_model = "stub-model"
         mock_settings.llm_base_url = None
-        mock_settings.agents_dir = store.agents_dir
-        mock_settings.data_dir = store.agents_dir.parent
+        mock_settings.agents_dir = Path("/tmp/test-agents")
+        mock_settings.data_dir = Path("/tmp/test-data")
         mock_settings.ensure_dirs = lambda: None
         yield AgentFactory(store=store, tool_providers=[StubToolProvider()])
 
@@ -59,26 +84,26 @@ def factory(store: FilesystemConfigStore) -> AgentFactory:
 
 
 class TestDefaultAgent:
-    def test_create_default_returns_agent(self, factory: AgentFactory) -> None:
-        agent = factory.create()
+    async def test_create_default_returns_agent(self, factory: AgentFactory) -> None:
+        agent = await factory.create()
         assert agent is not None
         assert agent.max_iterations == 20
 
-    def test_default_has_tools(self, factory: AgentFactory) -> None:
-        agent = factory.create()
+    async def test_default_has_tools(self, factory: AgentFactory) -> None:
+        agent = await factory.create()
         names = agent.tools.tool_names
         assert "tool_a" in names
         assert "tool_b" in names
         assert "tool_c" in names
 
-    def test_default_has_system_prompt(self, factory: AgentFactory) -> None:
-        agent = factory.create()
+    async def test_default_has_system_prompt(self, factory: AgentFactory) -> None:
+        agent = await factory.create()
         assert len(agent.system_prompt) > 0
 
 
 class TestNamedAgent:
-    def test_create_from_stored_config(
-        self, factory: AgentFactory, store: FilesystemConfigStore
+    async def test_create_from_stored_config(
+        self, factory: AgentFactory, store: InMemoryStore
     ) -> None:
         cfg = AgentConfig(
             name="custom",
@@ -87,18 +112,18 @@ class TestNamedAgent:
             llm_model="stub-model",
             max_iterations=5,
         )
-        store.save(cfg)
-        agent = factory.create("custom")
+        await store.save(cfg)
+        agent = await factory.create("custom")
         assert agent.max_iterations == 5
 
-    def test_unknown_agent_raises_key_error(self, factory: AgentFactory) -> None:
+    async def test_unknown_agent_raises_key_error(self, factory: AgentFactory) -> None:
         with pytest.raises(KeyError, match="Unknown agent"):
-            factory.create("nonexistent")
+            await factory.create("nonexistent")
 
 
 class TestToolFiltering:
-    def test_disabled_tools_excluded(
-        self, factory: AgentFactory, store: FilesystemConfigStore
+    async def test_disabled_tools_excluded(
+        self, factory: AgentFactory, store: InMemoryStore
     ) -> None:
         cfg = AgentConfig(
             name="limited",
@@ -106,13 +131,13 @@ class TestToolFiltering:
             llm_model="stub-model",
             disabled_tools=["tool_a"],
         )
-        store.save(cfg)
-        agent = factory.create("limited")
+        await store.save(cfg)
+        agent = await factory.create("limited")
         assert "tool_a" not in agent.tools.tool_names
         assert "tool_b" in agent.tools.tool_names
 
-    def test_enabled_tools_whitelist(
-        self, factory: AgentFactory, store: FilesystemConfigStore
+    async def test_enabled_tools_whitelist(
+        self, factory: AgentFactory, store: InMemoryStore
     ) -> None:
         cfg = AgentConfig(
             name="restricted",
@@ -120,22 +145,22 @@ class TestToolFiltering:
             llm_model="stub-model",
             enabled_tools=["tool_a"],
         )
-        store.save(cfg)
-        agent = factory.create("restricted")
+        await store.save(cfg)
+        agent = await factory.create("restricted")
         assert agent.tools.tool_names == ["tool_a"]
 
 
 class TestListAgents:
-    def test_includes_default(self, factory: AgentFactory) -> None:
-        names = factory.list_agents()
+    async def test_includes_default(self, factory: AgentFactory) -> None:
+        names = await factory.list_agents()
         assert "default" in names
 
-    def test_includes_stored_agents(
-        self, factory: AgentFactory, store: FilesystemConfigStore
+    async def test_includes_stored_agents(
+        self, factory: AgentFactory, store: InMemoryStore
     ) -> None:
-        store.save(AgentConfig(name="alpha"))
-        store.save(AgentConfig(name="bravo"))
-        names = factory.list_agents()
+        await store.save(AgentConfig(name="alpha"))
+        await store.save(AgentConfig(name="bravo"))
+        names = await factory.list_agents()
         assert "default" in names
         assert "alpha" in names
         assert "bravo" in names

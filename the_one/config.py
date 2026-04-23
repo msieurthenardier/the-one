@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     def agents_dir(self) -> Path:
         return self.data_dir / "agents"
 
+    @property
+    def db_path(self) -> Path:
+        return self.data_dir / "the-one.db"
+
     def ensure_dirs(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)
 

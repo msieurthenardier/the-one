@@ -1,0 +1,292 @@
+"""Tests for all database repositories."""
+
+from __future__ import annotations
+
+import pytest
+
+from the_one.agent.config import AgentConfig
+from the_one.db.models import ChatSession, KBItem, KnowledgeBase, MCPSource
+from the_one.db.repositories import (
+    ChatSessionRepository,
+    KBItemRepository,
+    KnowledgeBaseRepository,
+    MCPSourceRepository,
+    SQLiteAgentStore,
+)
+
+
+@pytest.fixture
+async def conn(tmp_path):
+    """Create a fresh in-memory-like DB connection with schema applied."""
+    import aiosqlite
+
+    from the_one.db.schema import ensure_schema
+
+    db_path = tmp_path / "test.db"
+    connection = await aiosqlite.connect(str(db_path))
+    connection.row_factory = aiosqlite.Row
+    await connection.execute("PRAGMA foreign_keys=ON")
+    await ensure_schema(connection)
+    yield connection
+    await connection.close()
+
+
+@pytest.fixture
+def agent_store(conn):
+    return SQLiteAgentStore(conn)
+
+
+@pytest.fixture
+def kb_repo(conn):
+    return KnowledgeBaseRepository(conn)
+
+
+@pytest.fixture
+def kb_item_repo(conn):
+    return KBItemRepository(conn)
+
+
+@pytest.fixture
+def mcp_repo(conn):
+    return MCPSourceRepository(conn)
+
+
+@pytest.fixture
+def chat_repo(conn):
+    return ChatSessionRepository(conn)
+
+
+# ── Agent Store ───────────────────────────────────────────────────────────
+
+
+class TestSQLiteAgentStore:
+    async def test_save_and_load(self, agent_store: SQLiteAgentStore) -> None:
+        cfg = AgentConfig(name="test", description="A test agent")
+        await agent_store.save(cfg)
+        loaded = await agent_store.load("test")
+        assert loaded.name == "test"
+        assert loaded.description == "A test agent"
+
+    async def test_list_agents(self, agent_store: SQLiteAgentStore) -> None:
+        for name in ("charlie", "alpha", "bravo"):
+            await agent_store.save(AgentConfig(name=name))
+        names = await agent_store.list_agents()
+        assert names == ["alpha", "bravo", "charlie"]
+
+    async def test_exists(self, agent_store: SQLiteAgentStore) -> None:
+        assert await agent_store.exists("nope") is False
+        await agent_store.save(AgentConfig(name="exists"))
+        assert await agent_store.exists("exists") is True
+
+    async def test_delete(self, agent_store: SQLiteAgentStore) -> None:
+        await agent_store.save(AgentConfig(name="doomed"))
+        await agent_store.delete("doomed")
+        assert await agent_store.exists("doomed") is False
+
+    async def test_delete_nonexistent_raises(self, agent_store: SQLiteAgentStore) -> None:
+        with pytest.raises(KeyError):
+            await agent_store.delete("ghost")
+
+    async def test_load_nonexistent_raises(self, agent_store: SQLiteAgentStore) -> None:
+        with pytest.raises(KeyError):
+            await agent_store.load("missing")
+
+    async def test_save_overwrites(self, agent_store: SQLiteAgentStore) -> None:
+        await agent_store.save(AgentConfig(name="x", description="old"))
+        await agent_store.save(AgentConfig(name="x", description="new"))
+        loaded = await agent_store.load("x")
+        assert loaded.description == "new"
+
+    async def test_json_fields_round_trip(self, agent_store: SQLiteAgentStore) -> None:
+        cfg = AgentConfig(
+            name="json-test",
+            enabled_tools=["tool_a", "tool_b"],
+            disabled_tools=["tool_c"],
+            kb_ids=["kb1", "kb2"],
+            mcp_source_ids=["mcp1"],
+        )
+        await agent_store.save(cfg)
+        loaded = await agent_store.load("json-test")
+        assert loaded.enabled_tools == ["tool_a", "tool_b"]
+        assert loaded.disabled_tools == ["tool_c"]
+        assert loaded.kb_ids == ["kb1", "kb2"]
+        assert loaded.mcp_source_ids == ["mcp1"]
+
+    async def test_enabled_tools_none(self, agent_store: SQLiteAgentStore) -> None:
+        cfg = AgentConfig(name="null-tools", enabled_tools=None)
+        await agent_store.save(cfg)
+        loaded = await agent_store.load("null-tools")
+        assert loaded.enabled_tools is None
+
+
+# ── Knowledge Base Repository ─────────────────────────────────────────────
+
+
+class TestKnowledgeBaseRepository:
+    async def test_create_and_get(self, kb_repo: KnowledgeBaseRepository) -> None:
+        kb = KnowledgeBase(id="kb1", name="Test KB", description="desc")
+        await kb_repo.create(kb)
+        loaded = await kb_repo.get("kb1")
+        assert loaded.name == "Test KB"
+
+    async def test_list(self, kb_repo: KnowledgeBaseRepository) -> None:
+        await kb_repo.create(KnowledgeBase(id="b", name="Bravo"))
+        await kb_repo.create(KnowledgeBase(id="a", name="Alpha"))
+        kbs = await kb_repo.list()
+        assert [kb.name for kb in kbs] == ["Alpha", "Bravo"]
+
+    async def test_update(self, kb_repo: KnowledgeBaseRepository) -> None:
+        await kb_repo.create(KnowledgeBase(id="kb1", name="Old"))
+        kb = await kb_repo.get("kb1")
+        kb.name = "New"
+        await kb_repo.update(kb)
+        loaded = await kb_repo.get("kb1")
+        assert loaded.name == "New"
+
+    async def test_delete(self, kb_repo: KnowledgeBaseRepository) -> None:
+        await kb_repo.create(KnowledgeBase(id="kb1", name="Doomed"))
+        await kb_repo.delete("kb1")
+        with pytest.raises(KeyError):
+            await kb_repo.get("kb1")
+
+    async def test_get_nonexistent_raises(self, kb_repo: KnowledgeBaseRepository) -> None:
+        with pytest.raises(KeyError):
+            await kb_repo.get("nope")
+
+
+# ── KB Item Repository ────────────────────────────────────────────────────
+
+
+class TestKBItemRepository:
+    async def test_create_and_list(
+        self, kb_repo: KnowledgeBaseRepository, kb_item_repo: KBItemRepository
+    ) -> None:
+        await kb_repo.create(KnowledgeBase(id="kb1", name="KB"))
+        item = KBItem(id="item1", kb_id="kb1", type="file", path_or_url="/tmp/x")
+        await kb_item_repo.create(item)
+        items = await kb_item_repo.list("kb1")
+        assert len(items) == 1
+        assert items[0].path_or_url == "/tmp/x"
+
+    async def test_delete(
+        self, kb_repo: KnowledgeBaseRepository, kb_item_repo: KBItemRepository
+    ) -> None:
+        await kb_repo.create(KnowledgeBase(id="kb1", name="KB"))
+        await kb_item_repo.create(KBItem(id="i1", kb_id="kb1", type="url", path_or_url="http://x"))
+        await kb_item_repo.delete("i1")
+        items = await kb_item_repo.list("kb1")
+        assert len(items) == 0
+
+    async def test_cascade_delete(
+        self, kb_repo: KnowledgeBaseRepository, kb_item_repo: KBItemRepository
+    ) -> None:
+        await kb_repo.create(KnowledgeBase(id="kb1", name="KB"))
+        await kb_item_repo.create(KBItem(id="i1", kb_id="kb1", type="file", path_or_url="/a"))
+        await kb_repo.delete("kb1")
+        items = await kb_item_repo.list("kb1")
+        assert len(items) == 0
+
+
+# ── MCP Source Repository ─────────────────────────────────────────────────
+
+
+class TestMCPSourceRepository:
+    async def test_create_and_get(self, mcp_repo: MCPSourceRepository) -> None:
+        source = MCPSource(id="s1", name="Test", type="stdio", config={"command": "python"})
+        await mcp_repo.create(source)
+        loaded = await mcp_repo.get("s1")
+        assert loaded.name == "Test"
+        assert loaded.config == {"command": "python"}
+
+    async def test_list(self, mcp_repo: MCPSourceRepository) -> None:
+        await mcp_repo.create(MCPSource(id="b", name="Bravo", type="sse"))
+        await mcp_repo.create(MCPSource(id="a", name="Alpha", type="stdio"))
+        sources = await mcp_repo.list()
+        assert [s.name for s in sources] == ["Alpha", "Bravo"]
+
+    async def test_update(self, mcp_repo: MCPSourceRepository) -> None:
+        await mcp_repo.create(MCPSource(id="s1", name="Old", type="stdio"))
+        source = await mcp_repo.get("s1")
+        source.name = "New"
+        await mcp_repo.update(source)
+        loaded = await mcp_repo.get("s1")
+        assert loaded.name == "New"
+
+    async def test_delete(self, mcp_repo: MCPSourceRepository) -> None:
+        await mcp_repo.create(MCPSource(id="s1", name="Doomed", type="sse"))
+        await mcp_repo.delete("s1")
+        with pytest.raises(KeyError):
+            await mcp_repo.get("s1")
+
+
+# ── Chat Session Repository ──────────────────────────────────────────────
+
+
+class TestChatSessionRepository:
+    async def test_create_and_get(
+        self, agent_store: SQLiteAgentStore, chat_repo: ChatSessionRepository
+    ) -> None:
+        await agent_store.save(AgentConfig(name="agent1"))
+        session = ChatSession(id="s1", agent_name="agent1", title="Hello")
+        await chat_repo.create(session)
+        loaded = await chat_repo.get("s1")
+        assert loaded.title == "Hello"
+
+    async def test_list(
+        self, agent_store: SQLiteAgentStore, chat_repo: ChatSessionRepository
+    ) -> None:
+        await agent_store.save(AgentConfig(name="agent1"))
+        await chat_repo.create(ChatSession(id="s1", agent_name="agent1"))
+        await chat_repo.create(ChatSession(id="s2", agent_name="agent1"))
+        sessions = await chat_repo.list()
+        assert len(sessions) == 2
+
+    async def test_list_by_agent(
+        self, agent_store: SQLiteAgentStore, chat_repo: ChatSessionRepository
+    ) -> None:
+        await agent_store.save(AgentConfig(name="a1"))
+        await agent_store.save(AgentConfig(name="a2"))
+        await chat_repo.create(ChatSession(id="s1", agent_name="a1"))
+        await chat_repo.create(ChatSession(id="s2", agent_name="a2"))
+        sessions = await chat_repo.list(agent_name="a1")
+        assert len(sessions) == 1
+        assert sessions[0].agent_name == "a1"
+
+    async def test_update(
+        self, agent_store: SQLiteAgentStore, chat_repo: ChatSessionRepository
+    ) -> None:
+        await agent_store.save(AgentConfig(name="agent1"))
+        await chat_repo.create(ChatSession(id="s1", agent_name="agent1", title="Old"))
+        session = await chat_repo.get("s1")
+        session.title = "New"
+        await chat_repo.update(session)
+        loaded = await chat_repo.get("s1")
+        assert loaded.title == "New"
+
+    async def test_delete(
+        self, agent_store: SQLiteAgentStore, chat_repo: ChatSessionRepository
+    ) -> None:
+        await agent_store.save(AgentConfig(name="agent1"))
+        await chat_repo.create(ChatSession(id="s1", agent_name="agent1"))
+        await chat_repo.delete("s1")
+        with pytest.raises(KeyError):
+            await chat_repo.get("s1")
+
+    async def test_purge_messages(
+        self, agent_store: SQLiteAgentStore, chat_repo: ChatSessionRepository
+    ) -> None:
+        await agent_store.save(AgentConfig(name="agent1"))
+        session = ChatSession(id="s1", agent_name="agent1", messages='[{"role":"user"}]')
+        await chat_repo.create(session)
+        await chat_repo.purge_messages("s1")
+        loaded = await chat_repo.get("s1")
+        assert loaded.messages == "[]"
+
+    async def test_cascade_delete_agent(
+        self, agent_store: SQLiteAgentStore, chat_repo: ChatSessionRepository
+    ) -> None:
+        await agent_store.save(AgentConfig(name="agent1"))
+        await chat_repo.create(ChatSession(id="s1", agent_name="agent1"))
+        await agent_store.delete("agent1")
+        sessions = await chat_repo.list(agent_name="agent1")
+        assert len(sessions) == 0

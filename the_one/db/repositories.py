@@ -1,0 +1,373 @@
+"""Async CRUD repositories for all database entities."""
+
+from __future__ import annotations
+
+import json
+from datetime import datetime, timezone
+
+import aiosqlite
+
+from the_one.agent.config import AgentConfig
+from the_one.db.models import ChatSession, KBItem, KnowledgeBase, MCPSource
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+# ── Agent repository ──────────────────────────────────────────────────────
+
+
+class SQLiteAgentStore:
+    """Async agent config store backed by SQLite."""
+
+    def __init__(self, conn: aiosqlite.Connection) -> None:
+        self.conn = conn
+
+    async def list_agents(self) -> list[str]:
+        async with self.conn.execute("SELECT name FROM agents ORDER BY name") as cur:
+            return [row[0] for row in await cur.fetchall()]
+
+    async def load(self, name: str) -> AgentConfig:
+        async with self.conn.execute("SELECT * FROM agents WHERE name = ?", (name,)) as cur:
+            row = await cur.fetchone()
+        if row is None:
+            raise KeyError(f"Agent config not found: {name}")
+        return self._row_to_config(row)
+
+    async def save(self, config: AgentConfig) -> None:
+        now = _now_iso()
+        await self.conn.execute(
+            """\
+            INSERT INTO agents (
+                name, description, llm_provider, llm_model, llm_base_url,
+                system_prompt, enabled_tools, disabled_tools, max_iterations,
+                kb_ids, mcp_source_ids, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(name) DO UPDATE SET
+                description=excluded.description,
+                llm_provider=excluded.llm_provider,
+                llm_model=excluded.llm_model,
+                llm_base_url=excluded.llm_base_url,
+                system_prompt=excluded.system_prompt,
+                enabled_tools=excluded.enabled_tools,
+                disabled_tools=excluded.disabled_tools,
+                max_iterations=excluded.max_iterations,
+                kb_ids=excluded.kb_ids,
+                mcp_source_ids=excluded.mcp_source_ids,
+                updated_at=excluded.updated_at
+            """,
+            (
+                config.name,
+                config.description,
+                config.llm_provider,
+                config.llm_model,
+                config.llm_base_url,
+                config.system_prompt,
+                json.dumps(config.enabled_tools) if config.enabled_tools is not None else None,
+                json.dumps(config.disabled_tools),
+                config.max_iterations,
+                json.dumps(config.kb_ids),
+                json.dumps(config.mcp_source_ids),
+                now,
+                now,
+            ),
+        )
+        await self.conn.commit()
+
+    async def delete(self, name: str) -> None:
+        if not await self.exists(name):
+            raise KeyError(f"Agent config not found: {name}")
+        await self.conn.execute("DELETE FROM agents WHERE name = ?", (name,))
+        await self.conn.commit()
+
+    async def exists(self, name: str) -> bool:
+        async with self.conn.execute(
+            "SELECT 1 FROM agents WHERE name = ?", (name,)
+        ) as cur:
+            return await cur.fetchone() is not None
+
+    @staticmethod
+    def _row_to_config(row: aiosqlite.Row) -> AgentConfig:
+        enabled = json.loads(row["enabled_tools"]) if row["enabled_tools"] else None
+        return AgentConfig(
+            name=row["name"],
+            description=row["description"] or "",
+            llm_provider=row["llm_provider"] or "ollama",
+            llm_model=row["llm_model"] or "qwen2.5:7b",
+            llm_base_url=row["llm_base_url"],
+            system_prompt=row["system_prompt"] or "",
+            enabled_tools=enabled,
+            disabled_tools=json.loads(row["disabled_tools"] or "[]"),
+            max_iterations=row["max_iterations"] or 20,
+            kb_ids=json.loads(row["kb_ids"] or "[]"),
+            mcp_source_ids=json.loads(row["mcp_source_ids"] or "[]"),
+        )
+
+
+# ── Knowledge base repository ────────────────────────────────────────────
+
+
+class KnowledgeBaseRepository:
+    """Async CRUD for knowledge bases."""
+
+    def __init__(self, conn: aiosqlite.Connection) -> None:
+        self.conn = conn
+
+    async def list(self) -> list[KnowledgeBase]:
+        async with self.conn.execute(
+            "SELECT * FROM knowledge_bases ORDER BY name"
+        ) as cur:
+            return [self._row_to_model(r) for r in await cur.fetchall()]
+
+    async def get(self, kb_id: str) -> KnowledgeBase:
+        async with self.conn.execute(
+            "SELECT * FROM knowledge_bases WHERE id = ?", (kb_id,)
+        ) as cur:
+            row = await cur.fetchone()
+        if row is None:
+            raise KeyError(f"Knowledge base not found: {kb_id}")
+        return self._row_to_model(row)
+
+    async def create(self, kb: KnowledgeBase) -> None:
+        await self.conn.execute(
+            "INSERT INTO knowledge_bases (id, name, description, created_at, updated_at)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (kb.id, kb.name, kb.description, kb.created_at, kb.updated_at),
+        )
+        await self.conn.commit()
+
+    async def update(self, kb: KnowledgeBase) -> None:
+        if not await self._exists(kb.id):
+            raise KeyError(f"Knowledge base not found: {kb.id}")
+        await self.conn.execute(
+            "UPDATE knowledge_bases SET name=?, description=?, updated_at=? WHERE id=?",
+            (kb.name, kb.description, _now_iso(), kb.id),
+        )
+        await self.conn.commit()
+
+    async def delete(self, kb_id: str) -> None:
+        if not await self._exists(kb_id):
+            raise KeyError(f"Knowledge base not found: {kb_id}")
+        await self.conn.execute("DELETE FROM knowledge_bases WHERE id = ?", (kb_id,))
+        await self.conn.commit()
+
+    async def _exists(self, kb_id: str) -> bool:
+        async with self.conn.execute(
+            "SELECT 1 FROM knowledge_bases WHERE id = ?", (kb_id,)
+        ) as cur:
+            return await cur.fetchone() is not None
+
+    @staticmethod
+    def _row_to_model(row: aiosqlite.Row) -> KnowledgeBase:
+        return KnowledgeBase(
+            id=row["id"],
+            name=row["name"],
+            description=row["description"] or "",
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+
+# ── KB item repository ───────────────────────────────────────────────────
+
+
+class KBItemRepository:
+    """Async CRUD for knowledge base items."""
+
+    def __init__(self, conn: aiosqlite.Connection) -> None:
+        self.conn = conn
+
+    async def list(self, kb_id: str) -> list[KBItem]:
+        async with self.conn.execute(
+            "SELECT * FROM kb_items WHERE kb_id = ? ORDER BY created_at", (kb_id,)
+        ) as cur:
+            return [self._row_to_model(r) for r in await cur.fetchall()]
+
+    async def get(self, item_id: str) -> KBItem:
+        async with self.conn.execute(
+            "SELECT * FROM kb_items WHERE id = ?", (item_id,)
+        ) as cur:
+            row = await cur.fetchone()
+        if row is None:
+            raise KeyError(f"KB item not found: {item_id}")
+        return self._row_to_model(row)
+
+    async def create(self, item: KBItem) -> None:
+        await self.conn.execute(
+            "INSERT INTO kb_items (id, kb_id, parent_id, type, path_or_url, status, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (item.id, item.kb_id, item.parent_id, item.type, item.path_or_url,
+             item.status, item.created_at),
+        )
+        await self.conn.commit()
+
+    async def delete(self, item_id: str) -> None:
+        async with self.conn.execute(
+            "SELECT 1 FROM kb_items WHERE id = ?", (item_id,)
+        ) as cur:
+            if await cur.fetchone() is None:
+                raise KeyError(f"KB item not found: {item_id}")
+        await self.conn.execute("DELETE FROM kb_items WHERE id = ?", (item_id,))
+        await self.conn.commit()
+
+    @staticmethod
+    def _row_to_model(row: aiosqlite.Row) -> KBItem:
+        return KBItem(
+            id=row["id"],
+            kb_id=row["kb_id"],
+            parent_id=row["parent_id"],
+            type=row["type"],
+            path_or_url=row["path_or_url"],
+            status=row["status"] or "pending",
+            created_at=row["created_at"],
+        )
+
+
+# ── MCP source repository ────────────────────────────────────────────────
+
+
+class MCPSourceRepository:
+    """Async CRUD for MCP sources."""
+
+    def __init__(self, conn: aiosqlite.Connection) -> None:
+        self.conn = conn
+
+    async def list(self) -> list[MCPSource]:
+        async with self.conn.execute(
+            "SELECT * FROM mcp_sources ORDER BY name"
+        ) as cur:
+            return [self._row_to_model(r) for r in await cur.fetchall()]
+
+    async def get(self, source_id: str) -> MCPSource:
+        async with self.conn.execute(
+            "SELECT * FROM mcp_sources WHERE id = ?", (source_id,)
+        ) as cur:
+            row = await cur.fetchone()
+        if row is None:
+            raise KeyError(f"MCP source not found: {source_id}")
+        return self._row_to_model(row)
+
+    async def create(self, source: MCPSource) -> None:
+        await self.conn.execute(
+            "INSERT INTO mcp_sources (id, name, type, config, created_at, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (source.id, source.name, source.type, json.dumps(source.config),
+             source.created_at, source.updated_at),
+        )
+        await self.conn.commit()
+
+    async def update(self, source: MCPSource) -> None:
+        async with self.conn.execute(
+            "SELECT 1 FROM mcp_sources WHERE id = ?", (source.id,)
+        ) as cur:
+            if await cur.fetchone() is None:
+                raise KeyError(f"MCP source not found: {source.id}")
+        await self.conn.execute(
+            "UPDATE mcp_sources SET name=?, type=?, config=?, updated_at=? WHERE id=?",
+            (source.name, source.type, json.dumps(source.config), _now_iso(), source.id),
+        )
+        await self.conn.commit()
+
+    async def delete(self, source_id: str) -> None:
+        async with self.conn.execute(
+            "SELECT 1 FROM mcp_sources WHERE id = ?", (source_id,)
+        ) as cur:
+            if await cur.fetchone() is None:
+                raise KeyError(f"MCP source not found: {source_id}")
+        await self.conn.execute("DELETE FROM mcp_sources WHERE id = ?", (source_id,))
+        await self.conn.commit()
+
+    @staticmethod
+    def _row_to_model(row: aiosqlite.Row) -> MCPSource:
+        return MCPSource(
+            id=row["id"],
+            name=row["name"],
+            type=row["type"],
+            config=json.loads(row["config"] or "{}"),
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+
+# ── Chat session repository ──────────────────────────────────────────────
+
+
+class ChatSessionRepository:
+    """Async CRUD for chat sessions."""
+
+    def __init__(self, conn: aiosqlite.Connection) -> None:
+        self.conn = conn
+
+    async def list(self, agent_name: str | None = None) -> list[ChatSession]:
+        if agent_name:
+            sql = "SELECT * FROM chat_sessions WHERE agent_name = ? ORDER BY updated_at DESC"
+            params: tuple = (agent_name,)
+        else:
+            sql = "SELECT * FROM chat_sessions ORDER BY updated_at DESC"
+            params = ()
+        async with self.conn.execute(sql, params) as cur:
+            return [self._row_to_model(r) for r in await cur.fetchall()]
+
+    async def get(self, session_id: str) -> ChatSession:
+        async with self.conn.execute(
+            "SELECT * FROM chat_sessions WHERE id = ?", (session_id,)
+        ) as cur:
+            row = await cur.fetchone()
+        if row is None:
+            raise KeyError(f"Chat session not found: {session_id}")
+        return self._row_to_model(row)
+
+    async def create(self, session: ChatSession) -> None:
+        await self.conn.execute(
+            "INSERT INTO chat_sessions (id, agent_name, title, messages, created_at, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (session.id, session.agent_name, session.title, session.messages,
+             session.created_at, session.updated_at),
+        )
+        await self.conn.commit()
+
+    async def update(self, session: ChatSession) -> None:
+        async with self.conn.execute(
+            "SELECT 1 FROM chat_sessions WHERE id = ?", (session.id,)
+        ) as cur:
+            if await cur.fetchone() is None:
+                raise KeyError(f"Chat session not found: {session.id}")
+        await self.conn.execute(
+            "UPDATE chat_sessions SET title=?, messages=?, updated_at=? WHERE id=?",
+            (session.title, session.messages, _now_iso(), session.id),
+        )
+        await self.conn.commit()
+
+    async def delete(self, session_id: str) -> None:
+        async with self.conn.execute(
+            "SELECT 1 FROM chat_sessions WHERE id = ?", (session_id,)
+        ) as cur:
+            if await cur.fetchone() is None:
+                raise KeyError(f"Chat session not found: {session_id}")
+        await self.conn.execute("DELETE FROM chat_sessions WHERE id = ?", (session_id,))
+        await self.conn.commit()
+
+    async def purge_messages(self, session_id: str) -> None:
+        """Clear messages for a session but keep the session itself."""
+        async with self.conn.execute(
+            "SELECT 1 FROM chat_sessions WHERE id = ?", (session_id,)
+        ) as cur:
+            if await cur.fetchone() is None:
+                raise KeyError(f"Chat session not found: {session_id}")
+        await self.conn.execute(
+            "UPDATE chat_sessions SET messages='[]', updated_at=? WHERE id=?",
+            (_now_iso(), session_id),
+        )
+        await self.conn.commit()
+
+    @staticmethod
+    def _row_to_model(row: aiosqlite.Row) -> ChatSession:
+        return ChatSession(
+            id=row["id"],
+            agent_name=row["agent_name"],
+            title=row["title"] or "New chat",
+            messages=row["messages"] or "[]",
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
