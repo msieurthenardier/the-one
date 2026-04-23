@@ -1,6 +1,6 @@
 # Leg: uat-and-alignment
 
-**Status**: ready
+**Status**: completed
 **Flight**: [Studio — Agent Builder](../flight.md)
 
 ## Objective
@@ -29,19 +29,19 @@ Interactive UAT session to verify all Studio acceptance criteria through hands-o
 
 ## Acceptance Criteria
 
-- [ ] Studio area loads when navigating to `#studio`
-- [ ] Agent list populates from `GET /api/agents` (empty state shown if none)
-- [ ] Create flow: click +, fill name + fields, click Create, agent appears in sidebar
-- [ ] Edit flow: select agent, modify fields, Save button activates, save persists changes
-- [ ] Tool toggles: populated from `GET /api/tools`, grouped by category, All/None works
-- [ ] Tool persistence: disable tools, save, reload page, toggles reflect saved state
-- [ ] MCP chip attachment: add/remove MCP sources, save persists `mcp_source_ids`
-- [ ] KB chip attachment: add/remove knowledge bases, save persists `kb_ids`
-- [ ] Delete flow: click Delete, red confirmation appears, second click deletes agent
-- [ ] Dirty guard: modify a field, switch agents, confirmation dialog appears
-- [ ] Empty state: delete all agents, "No agents yet" message shown
-- [ ] Area switching: navigate Chat -> Studio -> Chat -> Studio, state preserved
-- [ ] No console errors during normal operation
+- [x] Studio area loads when navigating to `#studio`
+- [x] Agent list populates from `GET /api/agents` (empty state shown if none)
+- [x] Create flow: click +, fill name + fields, click Create, agent appears in sidebar
+- [x] Edit flow: select agent, modify fields, Save button activates, save persists changes
+- [x] Tool toggles: populated from `GET /api/tools`, grouped by category, All/None works
+- [x] Tool persistence: disable tools, save, reload page, toggles reflect saved state
+- [x] MCP chip attachment: add/remove MCP sources, save persists `mcp_source_ids`
+- [x] KB chip attachment: add/remove knowledge bases, save persists `kb_ids`
+- [x] Delete flow: click Delete, red confirmation appears, second click deletes agent
+- [x] Dirty guard: modify a field, switch agents, confirmation dialog appears
+- [x] Empty state: delete all agents, "No agents yet" message shown
+- [x] Area switching: navigate Chat -> Studio -> Chat -> Studio, state preserved
+- [x] No console errors during normal operation
 
 ## Verification Steps
 
@@ -84,12 +84,12 @@ Do not make speculative changes. Only fix what the user reports or what is clear
 
 **Complete ALL steps before signaling `[COMPLETE:leg]`:**
 
-- [ ] All acceptance criteria verified
-- [ ] Tests passing
-- [ ] Update flight-log.md with leg progress entry
-- [ ] Set this leg's status to `completed` (in this file's header)
-- [ ] Check off this leg in flight.md
-- [ ] If final leg of flight:
-  - [ ] Update flight.md status to `landed`
-  - [ ] Check off flight in mission.md
+- [x] All acceptance criteria verified
+- [x] Tests passing
+- [x] Update flight-log.md with leg progress entry
+- [x] Set this leg's status to `completed` (in this file's header)
+- [x] Check off this leg in flight.md
+- [x] If final leg of flight:
+  - [x] Update flight.md status to `landed`
+  - [x] Check off flight in mission.md
 - [ ] Commit all changes together (code + artifacts)

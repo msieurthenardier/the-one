@@ -1,14 +1,14 @@
 # Flight: Studio — Agent Builder
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Multi-Agent Workspace](../../mission.md)
 
 ## Contributing to Criteria
 
-- [ ] Users can create, edit, and delete agent definitions through a Studio interface, configuring name, description, LLM provider/model, and system prompt for each
-- [ ] Built-in tools can be selectively enabled or disabled per agent through the Studio interface
-- [ ] MCP tool sources (local stdio and remote SSE) can be registered and attached to agents through the Studio interface, with the data model and persistence in place
-- [ ] Knowledge bases can be attached to and detached from agents through the Studio interface, with the association persisted
+- [x] Users can create, edit, and delete agent definitions through a Studio interface, configuring name, description, LLM provider/model, and system prompt for each
+- [x] Built-in tools can be selectively enabled or disabled per agent through the Studio interface
+- [x] MCP tool sources (local stdio and remote SSE) can be registered and attached to agents through the Studio interface, with the data model and persistence in place
+- [x] Knowledge bases can be attached to and detached from agents through the Studio interface, with the association persisted
 
 ---
 
@@ -60,7 +60,7 @@ Three-leg implementation: (1) tools API endpoint, (2) Studio sidebar with agent 
 - [x] `tools-api` - Add GET /api/tools endpoint exposing built-in tool names and descriptions
 - [x] `sidebar-and-crud` - Studio sidebar with agent list, create/delete, selection
 - [x] `editor-panel` - Full editor form with all AgentConfig fields, tool toggles, MCP/KB chips, dirty tracking, save
-- [ ] `uat-and-alignment` - Interactive UAT session with verification of all acceptance criteria
+- [x] `uat-and-alignment` - Interactive UAT session with verification of all acceptance criteria
 
 ---
 
@@ -71,8 +71,8 @@ Three-leg implementation: (1) tools API endpoint, (2) Studio sidebar with agent 
 - [x] Tools API endpoint implemented and verified (14 tools returned)
 - [x] Studio sidebar with agent list, create, delete with inline confirmation
 - [x] Full editor form with all fields
-- [ ] All legs completed (UAT pending)
-- [ ] Code committed
+- [x] All legs completed
+- [x] Code committed
 
 ### Verification
 

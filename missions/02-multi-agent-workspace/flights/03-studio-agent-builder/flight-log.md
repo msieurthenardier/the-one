@@ -77,6 +77,22 @@ Tool categories are a static JS map matching the 14 tools from BuiltinToolProvid
 
 ---
 
+### uat-and-alignment
+**Status**: completed
+**Started**: 2026-04-23
+**Completed**: 2026-04-23
+
+#### Changes Made
+- Added flash toast notification on create/save (top-center, 2-second fade)
+- All 13 acceptance criteria verified interactively in browser
+
+#### Notes
+One alignment fix during UAT: save/create had no visible success feedback. Added a flash toast ("Agent created" / "Saved") — initially bottom-right, moved to top-center per user preference.
+
+---
+
 ## Session Notes
 
 2026-04-23: All implementation complete. Studio area replaces stub with full agent CRUD, editor, tool toggles, and connection management. Ready for interactive UAT.
+
+2026-04-23: UAT complete. All criteria pass. Flight landed.
