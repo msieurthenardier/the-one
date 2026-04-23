@@ -60,7 +60,7 @@ Connect the existing in-memory Session system with the DB ChatSession table. Ses
 ### Checkpoints
 - [x] Schema V2 migration works, codec converts messages to UI events
 - [x] Sessions persist to DB and restore on server restart
-- [ ] Agent picker in UI, bound per-session
+- [x] Agent picker in UI, bound per-session
 - [ ] End-to-end UAT passes
 
 ### Adaptation Criteria
@@ -77,7 +77,7 @@ Connect the existing in-memory Session system with the DB ChatSession table. Ses
 
 - [x] `schema-migration-session-manager` - Schema V2 migration, codec extension, Session dataclass updates
 - [x] `persistence-bridge` - Save/restore sessions to DB, lazy loading
-- [ ] `agent-picker-ui` - Agent dropdown in sidebar, session badges, content header badge
+- [x] `agent-picker-ui` - Agent dropdown in sidebar, session badges, content header badge
 - [ ] `uat-and-alignment` - End-to-end verification of all chat evolution features
 
 ---

@@ -8,23 +8,29 @@ App.registerArea({
     var ws = null;
     var busy = false;
     var currentSessionId = null;
-    var messagesEl, inputEl, sendBtn, statusEl, sessionListEl;
+    var currentAgentName = null;
+    var messagesEl, inputEl, sendBtn, statusEl, sessionListEl, agentSelect, agentBadgeEl;
 
     // Build sidebar DOM
     sidebar.innerHTML =
       '<div id="sidebar-header">' +
         '<span class="title">the-one</span>' +
-        '<button class="new-chat">+ new</button>' +
+        '<div class="sidebar-actions">' +
+          '<select class="agent-select"><option value="">default</option></select>' +
+          '<button class="new-chat">+ new</button>' +
+        '</div>' +
       '</div>' +
       '<div class="session-list"></div>';
 
     sessionListEl = sidebar.querySelector('.session-list');
     var newChatBtn = sidebar.querySelector('.new-chat');
+    agentSelect = sidebar.querySelector('.agent-select');
 
     // Build content DOM
     content.innerHTML =
       '<div class="header">' +
         '<span class="status">connecting...</span>' +
+        '<span class="session-agent-badge"></span>' +
         '<div class="telemetry">' +
           '<span><span class="label">in:</span> <span class="value t-in">0</span></span>' +
           '<span><span class="label">out:</span> <span class="value t-out">0</span></span>' +
@@ -43,6 +49,7 @@ App.registerArea({
     inputEl = content.querySelector('.input-area input');
     sendBtn = content.querySelector('.input-area button');
     statusEl = content.querySelector('.status');
+    agentBadgeEl = content.querySelector('.session-agent-badge');
 
     function fmtTokens(n) {
       if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
@@ -63,6 +70,10 @@ App.registerArea({
       bar.className = 'context-bar' + (pct >= 90 ? ' crit' : pct >= 70 ? ' warn' : '');
     }
 
+    function updateAgentBadge(name) {
+      agentBadgeEl.textContent = name || 'default';
+    }
+
     function addMsg(cls, text) {
       var el = document.createElement('div');
       el.className = 'msg ' + cls;
@@ -78,53 +89,67 @@ App.registerArea({
       }
     }
 
+    function fetchAgents() {
+      fetch('/api/agents')
+        .then(function (r) { return r.json(); })
+        .then(function (agents) {
+          var prev = agentSelect.value;
+          // Clear all options except default
+          agentSelect.innerHTML = '<option value="">default</option>';
+          for (var i = 0; i < agents.length; i++) {
+            var opt = document.createElement('option');
+            opt.value = agents[i].name;
+            opt.textContent = agents[i].name;
+            agentSelect.appendChild(opt);
+          }
+          // Preserve previous selection if still available
+          if (prev) {
+            for (var j = 0; j < agentSelect.options.length; j++) {
+              if (agentSelect.options[j].value === prev) {
+                agentSelect.value = prev;
+                break;
+              }
+            }
+          }
+        })
+        .catch(function () { /* agents list is nice-to-have */ });
+    }
+
     function renderSessionList(sessions) {
       sessionListEl.innerHTML = '';
-      var groups = {};
       for (var i = 0; i < sessions.length; i++) {
-        var src = sessions[i].source || 'web';
-        if (!groups[src]) groups[src] = [];
-        groups[src].push(sessions[i]);
-      }
-      var keys = Object.keys(groups).sort(function (a, b) {
-        if (a === 'web') return -1;
-        if (b === 'web') return 1;
-        return a.localeCompare(b);
-      });
+        (function (s) {
+          var el = document.createElement('div');
+          el.className = 'session-item' + (s.id === currentSessionId ? ' active' : '');
+          el.dataset.id = s.id;
 
-      for (var k = 0; k < keys.length; k++) {
-        var srcKey = keys[k];
-        var label = document.createElement('div');
-        label.className = 'session-group';
-        label.textContent = srcKey;
-        sessionListEl.appendChild(label);
+          var textWrap = document.createElement('div');
+          textWrap.className = 'session-item-text';
 
-        var list = groups[srcKey];
-        for (var j = 0; j < list.length; j++) {
-          (function (s) {
-            var el = document.createElement('div');
-            el.className = 'session-item' + (s.id === currentSessionId ? ' active' : '');
-            el.dataset.id = s.id;
+          var titleSpan = document.createElement('span');
+          titleSpan.className = 'session-item-title';
+          titleSpan.textContent = s.title;
+          textWrap.appendChild(titleSpan);
 
-            var titleSpan = document.createElement('span');
-            titleSpan.textContent = s.title;
-            titleSpan.style.overflow = 'hidden';
-            titleSpan.style.textOverflow = 'ellipsis';
-            el.appendChild(titleSpan);
+          var agentSpan = document.createElement('span');
+          agentSpan.className = 'session-item-agent';
+          agentSpan.textContent = s.agent_name || 'default';
+          textWrap.appendChild(agentSpan);
 
-            var delBtn = document.createElement('span');
-            delBtn.className = 'delete';
-            delBtn.textContent = '\u2715';
-            delBtn.onclick = function (e) {
-              e.stopPropagation();
-              ws.send(JSON.stringify({ action: 'delete_session', session_id: s.id }));
-            };
-            el.appendChild(delBtn);
+          el.appendChild(textWrap);
 
-            el.onclick = function () { joinSession(s.id); };
-            sessionListEl.appendChild(el);
-          })(list[j]);
-        }
+          var delBtn = document.createElement('span');
+          delBtn.className = 'delete';
+          delBtn.textContent = '\u2715';
+          delBtn.onclick = function (e) {
+            e.stopPropagation();
+            ws.send(JSON.stringify({ action: 'delete_session', session_id: s.id }));
+          };
+          el.appendChild(delBtn);
+
+          el.onclick = function () { joinSession(s.id); };
+          sessionListEl.appendChild(el);
+        })(sessions[i]);
       }
     }
 
@@ -134,7 +159,7 @@ App.registerArea({
         var ev = history[i];
         if (ev.type === 'user') {
           var cls = ev.source === 'api' ? 'user api' : 'user';
-          addMsg(cls, (ev.source && ev.source !== 'web' ? '[' + ev.source + '] ' : '') + ev.content);
+          addMsg(cls, (ev.source && ev.source !== 'web' && ev.source !== 'restored' ? '[' + ev.source + '] ' : '') + ev.content);
         }
         else if (ev.type === 'assistant') addMsg('assistant', ev.content);
         else if (ev.type === 'tool_call') addMsg('tool', '> ' + ev.name + '(' + Object.entries(ev.arguments).map(function (kv) { return kv[0] + '=' + JSON.stringify(kv[1]); }).join(', ') + ')');
@@ -170,6 +195,7 @@ App.registerArea({
       ws.onopen = function () {
         statusEl.textContent = 'connected';
         ws.send(JSON.stringify({ action: 'list_sessions' }));
+        fetchAgents();
       };
 
       ws.onclose = function () {
@@ -192,6 +218,8 @@ App.registerArea({
 
         if (data.type === 'session_joined') {
           currentSessionId = data.session_id;
+          currentAgentName = data.agent_name;
+          updateAgentBadge(data.agent_name);
           renderHistory(data.history);
           refreshSessionList();
           return;
@@ -232,17 +260,23 @@ App.registerArea({
     });
     sendBtn.addEventListener('click', send);
     newChatBtn.addEventListener('click', function () {
-      ws.send(JSON.stringify({ action: 'new_session' }));
+      var selected = agentSelect.value;
+      var msg = { action: 'new_session' };
+      if (selected) msg.agent_name = selected;
+      ws.send(JSON.stringify(msg));
     });
 
-    // Store connect for activate
+    // Store references for activate
     this._connect = connect;
     this._ws = function () { return ws; };
+    this._fetchAgents = fetchAgents;
   },
 
   activate: function () {
     if (!this._ws || !this._ws() || this._ws().readyState > 1) {
       this._connect();
+    } else if (this._ws() && this._ws().readyState === WebSocket.OPEN) {
+      this._fetchAgents();
     }
   },
 

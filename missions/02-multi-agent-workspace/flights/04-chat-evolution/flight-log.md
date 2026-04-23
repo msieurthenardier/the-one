@@ -36,6 +36,19 @@ Flight 04 implements DB-backed chat sessions, agent picker UI, and session persi
 - All join/new_session/auto-join responses include `agent_name`
 - All 134 tests passing (0 failures)
 
+### Leg 03: Agent Picker UI — completed (2026-04-23)
+- **Started**: 2026-04-23
+- Sidebar header restructured: title on first line, then row with agent `<select>` dropdown + "+ new" button
+- `fetchAgents()` fetches `/api/agents`, populates dropdown with `.name` from each agent, prepends "default" option (value=""), preserves selection across refreshes, called on WS connect and `activate()`
+- `new_session` click handler reads `agentSelect.value`, includes `agent_name` in WS message when non-empty
+- `renderSessionList` converted to flat list (removed source-based grouping), two-line items with title + agent subtitle (`session-item-text` column layout)
+- `session_joined` handler reads `data.agent_name`, stores as `currentAgentName`, calls `updateAgentBadge()`
+- Content header: added `session-agent-badge` span after status, `updateAgentBadge(name)` sets text to `name || 'default'`
+- `renderHistory`: treats source "restored" like "web" (no [restored] prefix)
+- `activate()`: calls `fetchAgents()` when WS is open
+- CSS: removed `.session-group` rules, added `.sidebar-actions` flex row, `.agent-select` dark-theme styled, `.session-item-text` column layout, `.session-item-agent` dimmed, `.session-agent-badge` badge in content header
+- All 134 tests passing (0 failures)
+
 ---
 
 ## Decisions
