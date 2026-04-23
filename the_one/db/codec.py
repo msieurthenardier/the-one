@@ -74,3 +74,27 @@ def encode_messages(messages: list[Message]) -> str:
 def decode_messages(data: str) -> list[Message]:
     """Deserialize a JSON string back into a list of Messages."""
     return [message_from_dict(d) for d in json.loads(data)]
+
+
+def messages_to_ui_events(messages: list[Message]) -> list[dict[str, Any]]:
+    """Convert stored Messages to UI event format for session replay."""
+    events: list[dict[str, Any]] = []
+    for msg in messages:
+        if msg.role == Role.SYSTEM:
+            continue
+        elif msg.role == Role.USER:
+            events.append({"type": "user", "content": msg.content, "source": "restored"})
+        elif msg.role == Role.ASSISTANT:
+            if msg.content:
+                events.append({"type": "assistant", "content": msg.content})
+            if msg.tool_calls:
+                for tc in msg.tool_calls:
+                    events.append({"type": "tool_call", "name": tc.name, "arguments": tc.arguments})
+        elif msg.role == Role.TOOL:
+            if msg.tool_result:
+                events.append({
+                    "type": "tool_result",
+                    "content": msg.tool_result.content,
+                    "is_error": msg.tool_result.is_error,
+                })
+    return events

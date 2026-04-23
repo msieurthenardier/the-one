@@ -1,6 +1,6 @@
 # Mission: Multi-Agent Workspace
 
-**Status**: planning
+**Status**: active
 
 ## Outcome
 

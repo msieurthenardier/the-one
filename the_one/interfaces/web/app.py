@@ -64,6 +64,7 @@ class Session:
     created: str
     source: str = "web"
     title: str = "New chat"
+    agent_name: str | None = None
     history: list[dict[str, Any]] = field(default_factory=list)
     subscribers: set[WebSocket] = field(default_factory=set, repr=False)
 
@@ -79,6 +80,7 @@ class Session:
             "title": self.title,
             "created": self.created,
             "source": self.source,
+            "agent_name": self.agent_name,
             "message_count": len(self.history),
         }
 
@@ -266,26 +268,6 @@ async def selftest() -> dict[str, Any]:
     if not all_passed:
         return JSONResponse(content=result, status_code=500)
     return result
-
-
-@app.get("/api/sessions")
-async def list_sessions() -> list[dict[str, Any]]:
-    return [s.summary() for s in sorted(_sessions.values(), key=lambda s: s.created, reverse=True)]
-
-
-@app.get("/api/sessions/{session_id}")
-async def get_session(session_id: str) -> dict[str, Any]:
-    if session_id not in _sessions:
-        return {"error": "session not found"}
-    s = _sessions[session_id]
-    return {**s.summary(), "history": s.history}
-
-
-@app.delete("/api/sessions/{session_id}")
-async def delete_session(session_id: str) -> dict[str, str]:
-    if session_id in _sessions:
-        del _sessions[session_id]
-    return {"status": "ok"}
 
 
 @app.post("/api/chat")
