@@ -1,6 +1,6 @@
 # Mission: Multi-Agent Workspace
 
-**Status**: active
+**Status**: completed
 
 ## Outcome
 
@@ -18,11 +18,11 @@ This mission builds on the Mission 01 foundation to deliver the data model, pers
 
 ## Success Criteria
 
-- [ ] Users can create, edit, and delete agent definitions through a Studio interface, configuring name, description, LLM provider/model, and system prompt for each
-- [ ] Built-in tools can be selectively enabled or disabled per agent through the Studio interface
-- [ ] MCP tool sources (local stdio and remote SSE) can be registered and attached to agents through the Studio interface, with the data model and persistence in place — actual MCP connection and tool discovery is stubbed for a future mission
-- [ ] Knowledge bases can be created with a name and description, and items (files or URLs) can be added to them, with the data model supporting hierarchical sub-items (directory trees, crawled page trees) — actual file upload, crawling, and RAG retrieval are stubbed for future missions
-- [ ] Knowledge bases can be attached to and detached from agents through the Studio interface, with the association persisted
+- [x] Users can create, edit, and delete agent definitions through a Studio interface, configuring name, description, LLM provider/model, and system prompt for each
+- [x] Built-in tools can be selectively enabled or disabled per agent through the Studio interface
+- [x] MCP tool sources (local stdio and remote SSE) can be registered and attached to agents through the Studio interface, with the data model and persistence in place — actual MCP connection and tool discovery is stubbed for a future mission
+- [x] Knowledge bases can be created with a name and description, and items (files or URLs) can be added to them, with the data model supporting hierarchical sub-items (directory trees, crawled page trees) — actual file upload, crawling, and RAG retrieval are stubbed for future missions
+- [x] Knowledge bases can be attached to and detached from agents through the Studio interface, with the association persisted
 - [x] Chat conversations persist across application restarts, with each session's full message history (including tool calls and results) recoverable when the user returns
 - [x] Users can select which agent to converse with, and the selected agent's configuration (LLM, prompt, tools) is reflected in the conversation
 - [x] The web interface is organized into switchable functional areas (Studio, Chat, Administration) through an app-shell architecture that can accommodate additional areas without structural changes
