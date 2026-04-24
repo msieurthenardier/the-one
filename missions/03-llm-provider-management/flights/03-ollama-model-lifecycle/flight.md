@@ -1,6 +1,6 @@
 # Flight: Ollama Model Lifecycle
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [LLM Provider Management](../../mission.md)
 
 ## Contributing to Criteria
@@ -127,7 +127,7 @@ _(none — all resolved during interview)_
 - [x] `admin-model-lifecycle` — Enhanced Admin provider form for ollama: replace simple model list with lifecycle panel showing loaded/available status, VRAM usage bar, per-model size, pull with progress bar (SSE reader), load/unload/delete buttons. Pull dialog for entering model name. Non-ollama providers keep existing simple model list.
 - [x] `studio-vram-warnings` — Studio model selector fetches VRAM status for ollama providers on model selection, shows inline amber warning when estimated model size exceeds available VRAM. No warnings for non-ollama providers.
 - [x] `auto-load-on-chat` — Session creation in app.py checks if agent's provider is ollama-type and model is loaded. If not, triggers load via ollama_api and sends "Loading model..." system message over WebSocket. AgentFactory unchanged.
-- [ ] `hat` — Guided HAT session with iterative fixes
+- [x] `hat` — Guided HAT session with iterative fixes
 
 ---
 
