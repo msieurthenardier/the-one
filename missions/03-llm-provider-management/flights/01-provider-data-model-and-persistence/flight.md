@@ -95,8 +95,8 @@ _(none — all resolved at mission level and during design review)_
 - [x] API keys are encrypted in DB and decrypted on read
 - [x] Connection test endpoint successfully reaches a running Ollama instance
 - [x] Model discovery endpoint returns models from a running Ollama instance
-- [ ] AgentFactory resolves providers from DB
-- [ ] Existing tests pass (updated for schema changes)
+- [x] AgentFactory resolves providers from DB
+- [x] Existing tests pass (updated for schema changes)
 
 ### Adaptation Criteria
 
@@ -118,7 +118,7 @@ _(none — all resolved at mission level and during design review)_
 - [x] `provider-model-and-schema` — Add `LLMProviderConfig` Pydantic model to `db/models.py` with id (12-char hex), name, type (Literal), base_url, api_key, config (dict). Schema migration v3: create `llm_providers` table, rebuild `agents` table (add `provider_config_id` FK ON DELETE SET NULL, drop `llm_provider`/`llm_base_url`). Note: `cryptography` dependency already added in leg 01
 - [x] `provider-repository` — Add `LLMProviderRepository` to `db/repositories.py` with CRUD operations, encrypt-on-write / decrypt-on-read for api_key, and unit tests
 - [x] `provider-api-endpoints` — Add REST endpoints: CRUD (`/api/providers`), connection test (`POST /api/providers/{id}/test`), model discovery (`GET /api/providers/{id}/models`), encryption key rotation (`POST /api/encryption/rotate`). Connection test and model discovery include provider-specific logic: Ollama native API (`/api/tags`), OpenAI-compatible (`/v1/models` with graceful degradation), OpenAI (SDK models list), Anthropic (SDK models list)
-- [ ] `settings-and-agent-migration` — Remove `llm_provider`, `llm_model`, `llm_base_url` from Settings. Update AgentConfig: replace `llm_provider` + `llm_base_url` with `provider_config_id`. Update AgentFactory to resolve from DB. Update SQLiteAgentStore for new schema. Fix `/api/info` in app.py. Note `/api/settings` response shape change. Update all affected tests
+- [x] `settings-and-agent-migration` — Remove `llm_provider`, `llm_model`, `llm_base_url` from Settings. Update AgentConfig: replace `llm_provider` + `llm_base_url` with `provider_config_id`. Update AgentFactory to resolve from DB. Update SQLiteAgentStore for new schema. Fix `/api/info` in app.py. Note `/api/settings` response shape change. Update all affected tests
 - [ ] `uat` — End-to-end verification: create provider via API, test connection, discover models, create agent referencing provider, verify factory creates working agent, rotate encryption key, verify secrets still accessible
 
 ---

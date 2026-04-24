@@ -15,9 +15,8 @@ class TestAgentConfigConstruction:
         cfg = AgentConfig(name="test-agent")
         assert cfg.name == "test-agent"
         assert cfg.description == ""
-        assert cfg.llm_provider == "ollama"
+        assert cfg.provider_config_id is None
         assert cfg.llm_model == "qwen2.5:7b"
-        assert cfg.llm_base_url is None
         assert cfg.system_prompt == ""
         assert cfg.enabled_tools is None
         assert cfg.disabled_tools == []
@@ -28,9 +27,8 @@ class TestAgentConfigConstruction:
         cfg = AgentConfig(
             name="custom",
             description="A custom agent",
-            llm_provider="openai",
+            provider_config_id="prov-123",
             llm_model="gpt-4",
-            llm_base_url="http://localhost:8080",
             system_prompt="You are helpful.",
             enabled_tools=["tool_a"],
             disabled_tools=["tool_b"],
@@ -39,14 +37,25 @@ class TestAgentConfigConstruction:
         )
         assert cfg.name == "custom"
         assert cfg.description == "A custom agent"
-        assert cfg.llm_provider == "openai"
+        assert cfg.provider_config_id == "prov-123"
         assert cfg.llm_model == "gpt-4"
-        assert cfg.llm_base_url == "http://localhost:8080"
         assert cfg.system_prompt == "You are helpful."
         assert cfg.enabled_tools == ["tool_a"]
         assert cfg.disabled_tools == ["tool_b"]
         assert cfg.max_iterations == 5
         assert cfg.direct_actions is False
+
+    def test_extra_fields_ignored(self):
+        """Old JSON configs with llm_provider/llm_base_url should not raise."""
+        cfg = AgentConfig(
+            name="legacy",
+            llm_provider="ollama",
+            llm_base_url="http://localhost:11434/v1",
+        )
+        assert cfg.name == "legacy"
+        assert cfg.provider_config_id is None
+        assert not hasattr(cfg, "llm_provider")
+        assert not hasattr(cfg, "llm_base_url")
 
 
 # ===================================================================

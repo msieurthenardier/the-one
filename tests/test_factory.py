@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from conftest import FakeLLM, StubTool
 
 from the_one.agent.config import AgentConfig
 from the_one.agent.factory import AgentFactory
+from the_one.db.models import LLMProviderConfig
 from the_one.tools.base import Tool
 
 # ---------------------------------------------------------------------------
@@ -60,6 +61,19 @@ def _fake_get_provider(name: str, **kwargs: Any) -> FakeLLM:
     return FakeLLM(responses=[])
 
 
+def _make_provider_config(
+    provider_id: str = "test-provider",
+    ptype: str = "ollama",
+    base_url: str = "http://localhost:11434/v1",
+) -> LLMProviderConfig:
+    return LLMProviderConfig(
+        id=provider_id,
+        name="Test Provider",
+        type=ptype,
+        base_url=base_url,
+    )
+
+
 @pytest.fixture
 def store() -> InMemoryStore:
     return InMemoryStore()
@@ -67,11 +81,14 @@ def store() -> InMemoryStore:
 
 @pytest.fixture
 def factory(store: InMemoryStore) -> AgentFactory:
+    mock_repo = AsyncMock()
+    mock_repo.get = AsyncMock(return_value=_make_provider_config())
+
     with patch("the_one.agent.factory.get_provider", _fake_get_provider), \
-         patch("the_one.agent.factory.settings") as mock_settings:
-        mock_settings.llm_provider = "fake"
-        mock_settings.llm_model = "stub-model"
-        mock_settings.llm_base_url = None
+         patch("the_one.agent.factory.settings") as mock_settings, \
+         patch("the_one.db.connection.get_connection", new_callable=AsyncMock), \
+         patch("the_one.encryption.get_encryptor", return_value=AsyncMock()), \
+         patch("the_one.db.repositories.LLMProviderRepository", return_value=mock_repo):
         mock_settings.agents_dir = Path("/tmp/test-agents")
         mock_settings.data_dir = Path("/tmp/test-data")
         mock_settings.ensure_dirs = lambda: None
@@ -84,21 +101,20 @@ def factory(store: InMemoryStore) -> AgentFactory:
 
 
 class TestDefaultAgent:
-    async def test_create_default_returns_agent(self, factory: AgentFactory) -> None:
-        agent = await factory.create()
-        assert agent is not None
-        assert agent.max_iterations == 20
+    async def test_create_default_raises_without_provider(self, store: InMemoryStore) -> None:
+        """Default agent has no provider_config_id, so create() should raise."""
+        with patch("the_one.agent.factory.settings") as mock_settings:
+            mock_settings.ensure_dirs = lambda: None
+            factory = AgentFactory(store=store, tool_providers=[StubToolProvider()])
+            with pytest.raises(ValueError, match="no provider configured"):
+                await factory.create()
 
-    async def test_default_has_tools(self, factory: AgentFactory) -> None:
-        agent = await factory.create()
-        names = agent.tools.tool_names
-        assert "tool_a" in names
-        assert "tool_b" in names
-        assert "tool_c" in names
-
-    async def test_default_has_system_prompt(self, factory: AgentFactory) -> None:
-        agent = await factory.create()
-        assert len(agent.system_prompt) > 0
+    async def test_default_has_system_prompt(self, store: InMemoryStore) -> None:
+        """Default config should have a system prompt even without a provider."""
+        factory = AgentFactory(store=store, tool_providers=[StubToolProvider()])
+        # Use _default_config directly since create() will fail without provider
+        config = factory._default_config()
+        assert config.get_system_prompt() != ""
 
 
 class TestNamedAgent:
@@ -108,7 +124,7 @@ class TestNamedAgent:
         cfg = AgentConfig(
             name="custom",
             description="A custom agent",
-            llm_provider="fake",
+            provider_config_id="test-provider",
             llm_model="stub-model",
             max_iterations=5,
         )
@@ -120,6 +136,17 @@ class TestNamedAgent:
         with pytest.raises(KeyError, match="Unknown agent"):
             await factory.create("nonexistent")
 
+    async def test_agent_without_provider_raises_value_error(
+        self, factory: AgentFactory, store: InMemoryStore
+    ) -> None:
+        cfg = AgentConfig(
+            name="no-provider",
+            provider_config_id=None,
+        )
+        await store.save(cfg)
+        with pytest.raises(ValueError, match="no provider configured"):
+            await factory.create("no-provider")
+
 
 class TestToolFiltering:
     async def test_disabled_tools_excluded(
@@ -127,7 +154,7 @@ class TestToolFiltering:
     ) -> None:
         cfg = AgentConfig(
             name="limited",
-            llm_provider="fake",
+            provider_config_id="test-provider",
             llm_model="stub-model",
             disabled_tools=["tool_a"],
         )
@@ -141,7 +168,7 @@ class TestToolFiltering:
     ) -> None:
         cfg = AgentConfig(
             name="restricted",
-            llm_provider="fake",
+            provider_config_id="test-provider",
             llm_model="stub-model",
             enabled_tools=["tool_a"],
         )

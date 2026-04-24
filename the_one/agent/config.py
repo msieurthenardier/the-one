@@ -66,14 +66,15 @@ If you're done, just respond without calling any tools.
 class AgentConfig(BaseModel):
     """Definition of an agent's identity and capabilities."""
 
+    model_config = {"extra": "ignore"}
+
     # Identity
     name: str
     description: str = ""
 
     # LLM
-    llm_provider: str = "ollama"
+    provider_config_id: str | None = None
     llm_model: str = "qwen2.5:7b"
-    llm_base_url: str | None = None
 
     # Prompt
     system_prompt: str = ""

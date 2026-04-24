@@ -12,12 +12,22 @@ CREATE TABLE IF NOT EXISTS schema_version (
     applied_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS llm_providers (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL CHECK (type IN ('ollama', 'openai-compatible', 'openai', 'anthropic')),
+    base_url TEXT NOT NULL,
+    api_key TEXT,
+    config TEXT DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS agents (
     name TEXT PRIMARY KEY,
     description TEXT DEFAULT '',
-    llm_provider TEXT DEFAULT 'ollama',
+    provider_config_id TEXT REFERENCES llm_providers(id) ON DELETE SET NULL,
     llm_model TEXT DEFAULT 'qwen2.5:7b',
-    llm_base_url TEXT,
     system_prompt TEXT DEFAULT '',
     enabled_tools TEXT,
     disabled_tools TEXT DEFAULT '[]',

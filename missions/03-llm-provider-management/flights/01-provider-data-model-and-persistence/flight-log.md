@@ -84,6 +84,29 @@ Flight 01 of Mission 03 (LLM Provider Management). Establishing the backend foun
 - No deviations from leg spec
 - 24 pre-existing test failures remain (deferred to leg 05)
 
+### Leg 05: Settings & Agent Migration
+
+**Status**: completed
+**Date**: 2026-04-24
+
+**Outcomes**:
+- Removed `llm_provider`, `llm_model`, `llm_base_url` fields from `Settings` in `the_one/config.py`
+- Updated `AgentConfig` in `the_one/agent/config.py`: replaced `llm_provider`/`llm_base_url` with `provider_config_id: str | None = None`; added `model_config = {"extra": "ignore"}` for backwards compatibility with old JSON configs
+- Updated `SQLiteAgentStore.save()` and `_row_to_config()` in `the_one/db/repositories.py` to use `provider_config_id` column
+- Updated `AgentFactory` in `the_one/agent/factory.py`: `create()` now resolves provider from DB via `LLMProviderRepository`, raises `ValueError` when no provider configured; `_default_config()` no longer references Settings LLM fields; added `_PROVIDER_TYPE_MAP` for type-to-registry mapping with KeyError guard
+- Updated V1 DDL in `the_one/db/schema.py`: `llm_providers` table placed before `agents` table; `agents` uses `provider_config_id` FK instead of old columns
+- Updated `/api/info` endpoint in `the_one/interfaces/web/app.py`: removed `provider` and `model` fields
+- Fixed `tests/test_config.py`: updated for new `provider_config_id` field, added `test_extra_fields_ignored` test
+- Fixed `tests/test_factory.py`: mocks now cover DB-based provider resolution path; tests cover "no provider" error case
+- Fixed `tests/test_db_migration.py`: updated field references from `llm_provider` to `provider_config_id`
+- Fixed `tests/test_store.py`: replaced `llm_provider` assertion with `llm_model`
+- Fixed `tests/test_schema.py`: added `_LEGACY_SCHEMA_V1` for v2→v3 migration tests to properly simulate pre-migration state
+- All 212 tests passing (0 failures), `ruff check` clean on all modified files
+
+**Notes**:
+- No deviations from leg spec
+- The 24 pre-existing test failures from legs 02-04 are now resolved
+
 ---
 
 ## Decisions

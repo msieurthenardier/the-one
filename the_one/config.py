@@ -8,11 +8,6 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     model_config = {"env_prefix": "THE_ONE_", "env_file": ".env", "extra": "ignore"}
 
-    # LLM
-    llm_provider: str = "ollama"
-    llm_model: str = "qwen2.5:7b"
-    llm_base_url: str = "http://localhost:11434/v1"
-
     # Web
     host: str = "127.0.0.1"
     port: int = 8484

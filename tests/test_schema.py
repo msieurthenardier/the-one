@@ -5,7 +5,68 @@ from __future__ import annotations
 import aiosqlite
 import pytest
 
-from the_one.db.schema import SCHEMA_V1, ensure_schema
+from the_one.db.schema import ensure_schema
+
+# The original V1 DDL before the provider migration, used to simulate
+# pre-migration databases in v2→v3 tests.
+_LEGACY_SCHEMA_V1 = """\
+CREATE TABLE IF NOT EXISTS schema_version (
+    version INTEGER PRIMARY KEY,
+    applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS agents (
+    name TEXT PRIMARY KEY,
+    description TEXT DEFAULT '',
+    llm_provider TEXT DEFAULT 'ollama',
+    llm_model TEXT DEFAULT 'qwen2.5:7b',
+    llm_base_url TEXT,
+    system_prompt TEXT DEFAULT '',
+    enabled_tools TEXT,
+    disabled_tools TEXT DEFAULT '[]',
+    max_iterations INTEGER DEFAULT 20,
+    kb_ids TEXT DEFAULT '[]',
+    mcp_source_ids TEXT DEFAULT '[]',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS knowledge_bases (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS kb_items (
+    id TEXT PRIMARY KEY,
+    kb_id TEXT NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
+    parent_id TEXT REFERENCES kb_items(id) ON DELETE CASCADE,
+    type TEXT NOT NULL CHECK (type IN ('file', 'url')),
+    path_or_url TEXT NOT NULL,
+    status TEXT DEFAULT 'pending',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS mcp_sources (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL CHECK (type IN ('stdio', 'sse')),
+    config TEXT DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS chat_sessions (
+    id TEXT PRIMARY KEY,
+    agent_name TEXT NOT NULL REFERENCES agents(name) ON DELETE CASCADE,
+    title TEXT DEFAULT 'New chat',
+    messages TEXT DEFAULT '[]',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+"""
 
 
 @pytest.fixture
@@ -20,8 +81,8 @@ async def fresh_db():
 async def v2_db():
     """Return an in-memory connection at schema version 2."""
     conn = await aiosqlite.connect(":memory:")
-    # Apply V1
-    await conn.executescript(SCHEMA_V1)
+    # Apply legacy V1 (with llm_provider/llm_base_url columns)
+    await conn.executescript(_LEGACY_SCHEMA_V1)
     await conn.execute("INSERT INTO schema_version (version) VALUES (?)", (1,))
     await conn.commit()
 

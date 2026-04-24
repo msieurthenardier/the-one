@@ -314,8 +314,6 @@ async def info() -> dict[str, Any]:
 
     result: dict[str, Any] = {
         "version": "0.1.0",
-        "provider": settings.llm_provider,
-        "model": settings.llm_model,
     }
 
     status_file = settings.workspace_dir / ".deploy-status.json"

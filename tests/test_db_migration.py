@@ -78,7 +78,7 @@ class TestMigration:
             agents_dir,
             "full",
             description="Full config",
-            llm_provider="anthropic",
+            provider_config_id=None,
             llm_model="claude-sonnet-4-6",
             system_prompt="Be helpful",
             enabled_tools=["shell", "read_file"],
@@ -91,7 +91,7 @@ class TestMigration:
         assert count == 1
 
         loaded = await store.load("full")
-        assert loaded.llm_provider == "anthropic"
+        assert loaded.provider_config_id is None
         assert loaded.enabled_tools == ["shell", "read_file"]
         assert loaded.kb_ids == ["kb1"]
         assert loaded.max_iterations == 10

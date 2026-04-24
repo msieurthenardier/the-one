@@ -41,15 +41,14 @@ class SQLiteAgentStore:
         await self.conn.execute(
             """\
             INSERT INTO agents (
-                name, description, llm_provider, llm_model, llm_base_url,
+                name, description, provider_config_id, llm_model,
                 system_prompt, enabled_tools, disabled_tools, max_iterations,
                 kb_ids, mcp_source_ids, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(name) DO UPDATE SET
                 description=excluded.description,
-                llm_provider=excluded.llm_provider,
+                provider_config_id=excluded.provider_config_id,
                 llm_model=excluded.llm_model,
-                llm_base_url=excluded.llm_base_url,
                 system_prompt=excluded.system_prompt,
                 enabled_tools=excluded.enabled_tools,
                 disabled_tools=excluded.disabled_tools,
@@ -61,9 +60,8 @@ class SQLiteAgentStore:
             (
                 config.name,
                 config.description,
-                config.llm_provider,
+                config.provider_config_id,
                 config.llm_model,
-                config.llm_base_url,
                 config.system_prompt,
                 json.dumps(config.enabled_tools) if config.enabled_tools is not None else None,
                 json.dumps(config.disabled_tools),
@@ -92,9 +90,8 @@ class SQLiteAgentStore:
         return AgentConfig(
             name=row["name"],
             description=row["description"] or "",
-            llm_provider=row["llm_provider"] or "ollama",
+            provider_config_id=row["provider_config_id"],
             llm_model=row["llm_model"] or "qwen2.5:7b",
-            llm_base_url=row["llm_base_url"],
             system_prompt=row["system_prompt"] or "",
             enabled_tools=enabled,
             disabled_tools=json.loads(row["disabled_tools"] or "[]"),

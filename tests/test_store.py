@@ -26,7 +26,7 @@ class TestSaveAndLoad:
         store.save(cfg)
         loaded = store.load("test-agent")
         assert loaded.name == cfg.name
-        assert loaded.llm_provider == cfg.llm_provider
+        assert loaded.llm_model == cfg.llm_model
 
     def test_save_creates_parent_dirs(self, tmp_path: Path) -> None:
         deep = tmp_path / "a" / "b" / "c"
