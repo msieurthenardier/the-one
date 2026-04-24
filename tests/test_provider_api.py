@@ -270,6 +270,35 @@ class TestEncryptionRotation:
         assert resp.status_code == 200
         assert resp.json()["api_key"] == "***...5678"
 
+    async def test_rotate_empty_table(self, client: AsyncClient) -> None:
+        """Rotation with no providers should succeed as a no-op."""
+        resp = await client.post("/api/encryption/rotate")
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "ok"}
+
+    async def test_rotate_multiple_providers(self, client: AsyncClient) -> None:
+        """Rotation should re-encrypt all provider API keys."""
+        ids = []
+        for i, suffix in enumerate(["aaaa", "bbbb", "cccc"]):
+            create_resp = await client.post(
+                "/api/providers",
+                json={
+                    "name": f"Provider{i}",
+                    "type": "openai",
+                    "base_url": "https://api.openai.com/v1",
+                    "api_key": f"sk-multirotate{suffix}",
+                },
+            )
+            ids.append(create_resp.json()["id"])
+
+        resp = await client.post("/api/encryption/rotate")
+        assert resp.status_code == 200
+
+        for pid, suffix in zip(ids, ["aaaa", "bbbb", "cccc"]):
+            resp = await client.get(f"/api/providers/{pid}")
+            assert resp.status_code == 200
+            assert resp.json()["api_key"] == f"***...{suffix}"
+
 
 # ── Provider helper ────────────────────────────────────────────────────
 
@@ -461,9 +490,9 @@ class TestModelDiscovery:
             instance.__aenter__ = AsyncMock(return_value=instance)
             instance.__aexit__ = AsyncMock(return_value=False)
             mock_httpx_client.return_value = instance
-            # Ollama branch doesn't catch exceptions — propagates to caller
-            with pytest.raises(ConnectionError, match="refused"):
-                await client.get(f"/api/providers/{pid}/models")
+            resp = await client.get(f"/api/providers/{pid}/models")
+        assert resp.status_code == 502
+        assert "refused" in resp.json()["detail"]
 
     async def test_openai_compatible_models(self, client: AsyncClient) -> None:
         pid = await _create_provider(client, "openai-compatible")
@@ -524,9 +553,9 @@ class TestModelDiscovery:
             side_effect=Exception("rate limited")
         )
         with patch.dict(sys.modules, {"openai": mock_mod}):
-            # openai branch doesn't catch exceptions — propagates to caller
-            with pytest.raises(Exception, match="rate limited"):
-                await client.get(f"/api/providers/{pid}/models")
+            resp = await client.get(f"/api/providers/{pid}/models")
+        assert resp.status_code == 502
+        assert "rate limited" in resp.json()["detail"]
 
     async def test_anthropic_models(self, client: AsyncClient) -> None:
         pid = await _create_provider(client, "anthropic")
@@ -552,10 +581,303 @@ class TestModelDiscovery:
             side_effect=Exception("auth error")
         )
         with patch.dict(sys.modules, {"anthropic": mock_mod}):
-            # anthropic branch doesn't catch exceptions — propagates to caller
-            with pytest.raises(Exception, match="auth error"):
-                await client.get(f"/api/providers/{pid}/models")
+            resp = await client.get(f"/api/providers/{pid}/models")
+        assert resp.status_code == 502
+        assert "auth error" in resp.json()["detail"]
 
     async def test_not_found(self, client: AsyncClient) -> None:
         resp = await client.get("/api/providers/nonexistent/models")
         assert resp.status_code == 404
+
+    async def test_ollama_models_via_ollama_api(self, client: AsyncClient) -> None:
+        """Verify the ollama branch now delegates to ollama_api.list_models."""
+        pid = await _create_provider(client, "ollama")
+        mock_models = [
+            {"name": "qwen2.5:7b", "size": 4_500_000_000},
+            {"name": "llama3:8b", "size": 5_000_000_000},
+        ]
+        with patch(
+            "the_one.interfaces.web.api.ollama_api.list_models",
+            new_callable=AsyncMock,
+            return_value=mock_models,
+        ):
+            resp = await client.get(f"/api/providers/{pid}/models")
+        assert resp.status_code == 200
+        models = resp.json()
+        assert len(models) == 2
+        assert models[0]["id"] == "qwen2.5:7b"
+        assert models[0]["size"] == 4_500_000_000
+
+    async def test_ollama_models_via_ollama_api_failure(self, client: AsyncClient) -> None:
+        pid = await _create_provider(client, "ollama")
+        with patch(
+            "the_one.interfaces.web.api.ollama_api.list_models",
+            new_callable=AsyncMock,
+            side_effect=ConnectionError("cannot connect"),
+        ):
+            resp = await client.get(f"/api/providers/{pid}/models")
+        assert resp.status_code == 502
+        assert "cannot connect" in resp.json()["detail"]
+
+
+# ── Ollama Model Lifecycle endpoints ──────────────────────────────────
+
+
+class TestPullModel:
+    """Tests for POST /api/providers/{id}/models/pull."""
+
+    async def test_pull_success(self, client: AsyncClient) -> None:
+        pid = await _create_provider(client, "ollama")
+
+        async def _fake_pull(*_args, **_kwargs):
+            yield {"status": "downloading", "completed": 50, "total": 100}
+            yield {"status": "success"}
+
+        with patch(
+            "the_one.interfaces.web.api.ollama_api.pull_model",
+            side_effect=_fake_pull,
+        ):
+            resp = await client.post(
+                f"/api/providers/{pid}/models/pull", json={"model": "llama3:8b"}
+            )
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("text/event-stream")
+        lines = [ln for ln in resp.text.split("\n") if ln.startswith("data: ")]
+        assert len(lines) == 2
+        import json as _json
+
+        first = _json.loads(lines[0].removeprefix("data: "))
+        assert first["status"] == "downloading"
+        second = _json.loads(lines[1].removeprefix("data: "))
+        assert second["status"] == "success"
+
+    async def test_pull_upstream_error_mid_stream(self, client: AsyncClient) -> None:
+        pid = await _create_provider(client, "ollama")
+
+        async def _failing_pull(*_args, **_kwargs):
+            yield {"status": "downloading", "completed": 10, "total": 100}
+            raise ConnectionError("connection lost")
+
+        with patch(
+            "the_one.interfaces.web.api.ollama_api.pull_model",
+            side_effect=_failing_pull,
+        ):
+            resp = await client.post(
+                f"/api/providers/{pid}/models/pull", json={"model": "llama3:8b"}
+            )
+        assert resp.status_code == 200
+        lines = [ln for ln in resp.text.split("\n") if ln.startswith("data: ")]
+        assert len(lines) == 2
+        import json as _json
+
+        last = _json.loads(lines[-1].removeprefix("data: "))
+        assert "error" in last
+
+    async def test_pull_not_found(self, client: AsyncClient) -> None:
+        resp = await client.post(
+            "/api/providers/nonexistent/models/pull", json={"model": "x"}
+        )
+        assert resp.status_code == 404
+
+    async def test_pull_wrong_type(self, client: AsyncClient) -> None:
+        pid = await _create_provider(client, "openai")
+        resp = await client.post(
+            f"/api/providers/{pid}/models/pull", json={"model": "x"}
+        )
+        assert resp.status_code == 400
+        assert "not 'ollama'" in resp.json()["detail"]
+
+    async def test_pull_empty_model(self, client: AsyncClient) -> None:
+        pid = await _create_provider(client, "ollama")
+        resp = await client.post(
+            f"/api/providers/{pid}/models/pull", json={"model": ""}
+        )
+        assert resp.status_code == 400
+        assert "Missing or empty" in resp.json()["detail"]
+
+
+class TestDeleteModel:
+    """Tests for POST /api/providers/{id}/models/delete."""
+
+    async def test_delete_success(self, client: AsyncClient) -> None:
+        pid = await _create_provider(client, "ollama")
+        with patch(
+            "the_one.interfaces.web.api.ollama_api.delete_model",
+            new_callable=AsyncMock,
+        ):
+            resp = await client.post(
+                f"/api/providers/{pid}/models/delete", json={"model": "llama3:8b"}
+            )
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "ok"}
+
+    async def test_delete_not_found(self, client: AsyncClient) -> None:
+        resp = await client.post(
+            "/api/providers/nonexistent/models/delete", json={"model": "x"}
+        )
+        assert resp.status_code == 404
+
+    async def test_delete_wrong_type(self, client: AsyncClient) -> None:
+        pid = await _create_provider(client, "openai")
+        resp = await client.post(
+            f"/api/providers/{pid}/models/delete", json={"model": "x"}
+        )
+        assert resp.status_code == 400
+
+    async def test_delete_upstream_failure(self, client: AsyncClient) -> None:
+        pid = await _create_provider(client, "ollama")
+        with patch(
+            "the_one.interfaces.web.api.ollama_api.delete_model",
+            new_callable=AsyncMock,
+            side_effect=ConnectionError("refused"),
+        ):
+            resp = await client.post(
+                f"/api/providers/{pid}/models/delete", json={"model": "llama3:8b"}
+            )
+        assert resp.status_code == 502
+        assert "refused" in resp.json()["detail"]
+
+    async def test_delete_empty_model(self, client: AsyncClient) -> None:
+        pid = await _create_provider(client, "ollama")
+        resp = await client.post(
+            f"/api/providers/{pid}/models/delete", json={"model": "  "}
+        )
+        assert resp.status_code == 400
+
+
+class TestLoadModel:
+    """Tests for POST /api/providers/{id}/models/load."""
+
+    async def test_load_success(self, client: AsyncClient) -> None:
+        pid = await _create_provider(client, "ollama")
+        with patch(
+            "the_one.interfaces.web.api.ollama_api.load_model",
+            new_callable=AsyncMock,
+        ):
+            resp = await client.post(
+                f"/api/providers/{pid}/models/load", json={"model": "llama3:8b"}
+            )
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "ok"}
+
+    async def test_load_not_found(self, client: AsyncClient) -> None:
+        resp = await client.post(
+            "/api/providers/nonexistent/models/load", json={"model": "x"}
+        )
+        assert resp.status_code == 404
+
+    async def test_load_wrong_type(self, client: AsyncClient) -> None:
+        pid = await _create_provider(client, "anthropic")
+        resp = await client.post(
+            f"/api/providers/{pid}/models/load", json={"model": "x"}
+        )
+        assert resp.status_code == 400
+
+    async def test_load_upstream_failure(self, client: AsyncClient) -> None:
+        pid = await _create_provider(client, "ollama")
+        with patch(
+            "the_one.interfaces.web.api.ollama_api.load_model",
+            new_callable=AsyncMock,
+            side_effect=ConnectionError("timeout"),
+        ):
+            resp = await client.post(
+                f"/api/providers/{pid}/models/load", json={"model": "llama3:8b"}
+            )
+        assert resp.status_code == 502
+        assert "timeout" in resp.json()["detail"]
+
+    async def test_load_empty_model(self, client: AsyncClient) -> None:
+        pid = await _create_provider(client, "ollama")
+        resp = await client.post(
+            f"/api/providers/{pid}/models/load", json={"model": ""}
+        )
+        assert resp.status_code == 400
+
+
+class TestUnloadModel:
+    """Tests for POST /api/providers/{id}/models/unload."""
+
+    async def test_unload_success(self, client: AsyncClient) -> None:
+        pid = await _create_provider(client, "ollama")
+        with patch(
+            "the_one.interfaces.web.api.ollama_api.unload_model",
+            new_callable=AsyncMock,
+        ):
+            resp = await client.post(
+                f"/api/providers/{pid}/models/unload", json={"model": "llama3:8b"}
+            )
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "ok"}
+
+    async def test_unload_not_found(self, client: AsyncClient) -> None:
+        resp = await client.post(
+            "/api/providers/nonexistent/models/unload", json={"model": "x"}
+        )
+        assert resp.status_code == 404
+
+    async def test_unload_wrong_type(self, client: AsyncClient) -> None:
+        pid = await _create_provider(client, "openai-compatible")
+        resp = await client.post(
+            f"/api/providers/{pid}/models/unload", json={"model": "x"}
+        )
+        assert resp.status_code == 400
+
+    async def test_unload_upstream_failure(self, client: AsyncClient) -> None:
+        pid = await _create_provider(client, "ollama")
+        with patch(
+            "the_one.interfaces.web.api.ollama_api.unload_model",
+            new_callable=AsyncMock,
+            side_effect=ConnectionError("refused"),
+        ):
+            resp = await client.post(
+                f"/api/providers/{pid}/models/unload", json={"model": "llama3:8b"}
+            )
+        assert resp.status_code == 502
+        assert "refused" in resp.json()["detail"]
+
+    async def test_unload_empty_model(self, client: AsyncClient) -> None:
+        pid = await _create_provider(client, "ollama")
+        resp = await client.post(
+            f"/api/providers/{pid}/models/unload", json={"model": ""}
+        )
+        assert resp.status_code == 400
+
+
+class TestModelStatus:
+    """Tests for GET /api/providers/{id}/models/status."""
+
+    async def test_status_success(self, client: AsyncClient) -> None:
+        pid = await _create_provider(client, "ollama")
+        mock_running = [
+            {"name": "llama3:8b", "size": 5_000_000_000, "vram": 4_800_000_000},
+        ]
+        with patch(
+            "the_one.interfaces.web.api.ollama_api.list_running",
+            new_callable=AsyncMock,
+            return_value=mock_running,
+        ):
+            resp = await client.get(f"/api/providers/{pid}/models/status")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["name"] == "llama3:8b"
+
+    async def test_status_not_found(self, client: AsyncClient) -> None:
+        resp = await client.get("/api/providers/nonexistent/models/status")
+        assert resp.status_code == 404
+
+    async def test_status_wrong_type(self, client: AsyncClient) -> None:
+        pid = await _create_provider(client, "openai")
+        resp = await client.get(f"/api/providers/{pid}/models/status")
+        assert resp.status_code == 400
+
+    async def test_status_upstream_failure(self, client: AsyncClient) -> None:
+        pid = await _create_provider(client, "ollama")
+        with patch(
+            "the_one.interfaces.web.api.ollama_api.list_running",
+            new_callable=AsyncMock,
+            side_effect=ConnectionError("refused"),
+        ):
+            resp = await client.get(f"/api/providers/{pid}/models/status")
+        assert resp.status_code == 502
+        assert "refused" in resp.json()["detail"]

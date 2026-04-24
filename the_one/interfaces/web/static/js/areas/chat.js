@@ -249,7 +249,37 @@ App.registerArea({
         else if (data.type === 'assistant') addMsg('assistant', data.content);
         else if (data.type === 'tool_call') addMsg('tool', '> ' + data.name + '(' + Object.entries(data.arguments).map(function (kv) { return kv[0] + '=' + JSON.stringify(kv[1]); }).join(', ') + ')');
         else if (data.type === 'tool_result') addMsg(data.is_error ? 'tool error' : 'tool', data.content);
-        else if (data.type === 'system') addMsg('system', data.content);
+        else if (data.type === 'system') {
+          if (data.content === 'Loading model...') {
+            // Show inline ASCII loading animation
+            var loadEl = document.createElement('div');
+            loadEl.className = 'msg system model-loading';
+            loadEl.innerHTML = '<span class="model-loading-text">Loading model</span><span class="model-loading-dots"></span>';
+            messagesEl.appendChild(loadEl);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+            // Animate dots: ⣾ ⣽ ⣻ ⢿ ⡿ ⣟ ⣯ ⣷
+            var frames = ['\u28fe', '\u28fd', '\u28fb', '\u28bf', '\u287f', '\u28df', '\u28ef', '\u28f7'];
+            var dotEl = loadEl.querySelector('.model-loading-dots');
+            var frameIdx = 0;
+            loadEl._dotTimer = setInterval(function () {
+              frameIdx = (frameIdx + 1) % frames.length;
+              dotEl.textContent = ' ' + frames[frameIdx];
+            }, 120);
+          } else if (data.content === 'Model loaded.') {
+            // Replace loading animation with done message
+            var loadingMsg = messagesEl.querySelector('.model-loading');
+            if (loadingMsg) {
+              if (loadingMsg._dotTimer) clearInterval(loadingMsg._dotTimer);
+              loadingMsg.classList.remove('model-loading');
+              loadingMsg.innerHTML = '';
+              loadingMsg.textContent = 'Model loaded.';
+            } else {
+              addMsg('system', data.content);
+            }
+          } else {
+            addMsg('system', data.content);
+          }
+        }
         else if (data.type === 'usage') {
           updateTelemetry(data);
         }
