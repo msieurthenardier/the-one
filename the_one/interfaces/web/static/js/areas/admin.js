@@ -429,8 +429,8 @@ App.registerArea({
 
     function renderProviderForm(provider) {
       var isEdit = !!provider;
-      var type = isEdit ? provider.type : 'ollama';
-      var defaults = TYPE_DEFAULTS[type];
+      var type = isEdit ? provider.type : '';
+      var defaults = TYPE_DEFAULTS[type] || { base_url: '', showBaseUrl: false, showApiKey: false };
 
       var html =
         '<div class="admin-header">' +
@@ -449,9 +449,12 @@ App.registerArea({
       html += '<div class="admin-pf-row">' +
         '<label class="admin-pf-label" for="pf-type">Type</label>' +
         '<select class="admin-pf-input admin-pf-select" id="pf-type" data-field="type">';
+      if (!isEdit) {
+        html += '<option value="" disabled selected>Select a provider\u2026</option>';
+      }
       for (var t = 0; t < PROVIDER_TYPES.length; t++) {
         var pt = PROVIDER_TYPES[t];
-        html += '<option value="' + escapeAttr(pt.value) + '"' + (type === pt.value ? ' selected' : '') + '>' + escapeHtml(pt.label) + '</option>';
+        html += '<option value="' + escapeAttr(pt.value) + '"' + (isEdit && type === pt.value ? ' selected' : '') + '>' + escapeHtml(pt.label) + '</option>';
       }
       html += '</select></div>';
 
