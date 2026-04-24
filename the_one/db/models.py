@@ -49,7 +49,7 @@ class ChatSession(BaseModel):
     """A chat session with message history."""
 
     id: str
-    agent_name: str
+    agent_name: str | None = None
     title: str = "New chat"
     messages: str = "[]"  # JSON-encoded via codec
     created_at: str = Field(default_factory=_now_iso)

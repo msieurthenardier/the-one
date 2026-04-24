@@ -35,6 +35,29 @@ async def client(tmp_path):
     await conn.close()
 
 
+# ── Settings endpoint ─────────────────────────────────────────────────────
+
+
+class TestSettingsAPI:
+    async def test_get_settings(self, client: AsyncClient) -> None:
+        resp = await client.get("/api/settings")
+        assert resp.status_code == 200
+        data = resp.json()
+        # All Settings.model_fields keys present
+        from the_one.config import Settings
+
+        for field_name in Settings.model_fields:
+            assert field_name in data, f"Missing field: {field_name}"
+
+    async def test_path_values_are_strings(self, client: AsyncClient) -> None:
+        resp = await client.get("/api/settings")
+        data = resp.json()
+        assert isinstance(data["data_dir"], str)
+        assert isinstance(data["workspace_dir"], str)
+        assert "PosixPath" not in data["data_dir"]
+        assert "PosixPath" not in data["workspace_dir"]
+
+
 # ── Agent endpoints ───────────────────────────────────────────────────────
 
 

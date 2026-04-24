@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 import uuid
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
+from the_one.config import Settings, settings
 from the_one.db.connection import get_connection
 from the_one.db.models import ChatSession, KBItem, KnowledgeBase, MCPSource
 from the_one.db.repositories import (
@@ -47,6 +49,18 @@ async def _mcp_repo() -> MCPSourceRepository:
 async def _chat_repo() -> ChatSessionRepository:
     conn = await get_connection()
     return ChatSessionRepository(conn)
+
+
+# ── Settings ──────────────────────────────────────────────────────────────
+
+
+@router.get("/settings")
+async def get_settings() -> dict[str, Any]:
+    return {
+        name: str(val) if isinstance(val, Path) else val
+        for name in Settings.model_fields
+        for val in [getattr(settings, name)]
+    }
 
 
 # ── Tools ─────────────────────────────────────────────────────────────────

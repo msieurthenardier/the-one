@@ -67,22 +67,27 @@ body { font-family: 'SF Mono', 'Fira Code', monospace; background: var(--bg); co
 .content-panel.active { display: flex; }
 
 /* === Chat Area: Sidebar === */
-.area-chat #sidebar-header { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+.area-chat #sidebar-header { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
 .area-chat .title { font-weight: 700; color: var(--accent); font-size: 14px; }
-.area-chat .new-chat { background: none; border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; color: #888; font-size: 12px; cursor: pointer; font-family: inherit; }
+.area-chat .sidebar-actions { display: flex; gap: 6px; align-items: center; }
+.area-chat .agent-select { flex: 1; min-width: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; color: var(--fg); font-family: inherit; font-size: 12px; outline: none; cursor: pointer; overflow: hidden; text-overflow: ellipsis; }
+.area-chat .agent-select:focus { border-color: var(--accent); }
+.area-chat .new-chat { background: none; border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; color: #888; font-size: 12px; cursor: pointer; font-family: inherit; white-space: nowrap; flex-shrink: 0; }
 .area-chat .new-chat:hover { color: var(--fg); border-color: #666; }
 .area-chat .session-list { flex: 1; overflow-y: auto; padding: 8px; }
-.area-chat .session-item { padding: 8px 10px; border-radius: 6px; font-size: 12px; cursor: pointer; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 6px; }
+.area-chat .session-item { padding: 8px 10px; border-radius: 6px; font-size: 12px; cursor: pointer; color: #888; display: flex; align-items: center; gap: 6px; }
 .area-chat .session-item:hover { background: var(--surface); color: var(--fg); }
 .area-chat .session-item.active { background: var(--surface); color: var(--fg); border: 1px solid var(--border); }
+.area-chat .session-item-text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.area-chat .session-item-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.area-chat .session-item-agent { font-size: 10px; color: #555; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .area-chat .session-item .delete { display: none; margin-left: auto; color: #555; font-size: 10px; padding: 2px 4px; flex-shrink: 0; }
 .area-chat .session-item:hover .delete { display: block; }
 .area-chat .session-item .delete:hover { color: #ff4a4a; }
-.area-chat .session-group { padding: 8px 10px 4px; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #555; }
-.area-chat .session-group:not(:first-child) { margin-top: 8px; border-top: 1px solid var(--border); padding-top: 12px; }
 
 /* === Chat Area: Content === */
 .area-chat .header { padding: 12px 20px; border-bottom: 1px solid var(--border); font-size: 12px; color: #666; display: flex; align-items: center; gap: 12px; }
+.area-chat .session-agent-badge { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px; font-size: 11px; color: #888; }
 .area-chat .telemetry { margin-left: auto; display: flex; align-items: center; gap: 16px; font-size: 11px; color: #555; }
 .area-chat .telemetry .label { color: #444; }
 .area-chat .telemetry .value { color: #888; font-variant-numeric: tabular-nums; }
@@ -178,6 +183,35 @@ body { font-family: 'SF Mono', 'Fira Code', monospace; background: var(--bg); co
 /* === Studio Area: Flash === */
 .area-studio .studio-flash { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); background: var(--accent); color: #000; padding: 10px 48px; border-radius: 6px; font-size: 13px; font-weight: 600; opacity: 0; transition: opacity 0.3s; z-index: 100; pointer-events: none; }
 .area-studio .studio-flash.visible { opacity: 1; }
+
+/* === Admin Area: Sidebar === */
+.area-admin .admin-sidebar-header { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; }
+.area-admin .admin-sidebar-header .title { font-weight: 700; color: var(--accent); font-size: 14px; }
+.area-admin .admin-category-list { flex: 1; overflow-y: auto; padding: 8px; }
+.area-admin .admin-category-item { padding: 8px 10px; border-radius: 6px; font-size: 12px; cursor: pointer; color: #888; display: flex; align-items: center; gap: 6px; }
+.area-admin .admin-category-item:hover { background: var(--surface); color: var(--fg); }
+.area-admin .admin-category-item.active { background: var(--surface); color: var(--fg); border: 1px solid var(--border); }
+.area-admin .admin-category-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.area-admin .admin-category-badge { font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; color: #555; background: var(--border); border-radius: 4px; padding: 2px 6px; flex-shrink: 0; }
+
+/* === Admin Area: Content === */
+.area-admin .admin-content { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
+.area-admin .admin-header { padding: 12px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; flex-shrink: 0; }
+.area-admin .admin-title { font-weight: 700; font-size: 16px; color: var(--fg); }
+.area-admin .admin-form { flex: 1; overflow-y: auto; padding: 16px 20px 40px; }
+.area-admin .admin-loading { color: #555; font-size: 13px; padding: 20px 0; }
+.area-admin .admin-note { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; font-size: 12px; color: #888; margin-bottom: 16px; line-height: 1.5; }
+.area-admin .admin-section { padding: 16px 0; border-top: 1px solid var(--border); }
+.area-admin .admin-section:first-of-type { border-top: none; padding-top: 0; }
+.area-admin .admin-section-title { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #555; margin-bottom: 12px; }
+.area-admin .admin-field-row { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.area-admin .admin-field-label { width: 120px; font-size: 12px; color: #888; flex-shrink: 0; }
+.area-admin .admin-field-value { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; color: var(--fg); font-size: 13px; font-family: inherit; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.area-admin .admin-field-not-set { color: #555; font-style: italic; }
+.area-admin .admin-field-env { font-size: 10px; color: #444; flex-shrink: 0; min-width: 180px; font-family: inherit; }
+.area-admin .admin-placeholder { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; }
+.area-admin .admin-placeholder-title { font-size: 16px; font-weight: 700; color: var(--fg); }
+.area-admin .admin-placeholder-text { font-size: 14px; color: #555; }
 
 /* === Stub Areas === */
 .stub-content { flex: 1; display: flex; align-items: center; justify-content: center; color: #555; font-size: 14px; }

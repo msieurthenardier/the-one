@@ -25,7 +25,7 @@ class OllamaProvider(LLMProvider):
         **kwargs: Any,
     ):
         self.model = model
-        self.base_url = base_url.rstrip("/")
+        self.base_url = (base_url or "http://localhost:11434/v1").rstrip("/")
 
     async def complete(
         self,

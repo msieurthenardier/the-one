@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import aiosqlite
 
-CURRENT_VERSION = 1
+CURRENT_VERSION = 2
 
 SCHEMA_V1 = """\
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -85,4 +85,28 @@ async def ensure_schema(conn: aiosqlite.Connection) -> None:
     if version < 1:
         await conn.executescript(SCHEMA_V1)
         await conn.execute("INSERT INTO schema_version (version) VALUES (?)", (1,))
+        await conn.commit()
+        version = 1
+
+    if version < 2:
+        await conn.executescript("""\
+CREATE TABLE IF NOT EXISTS chat_sessions_new (
+    id TEXT PRIMARY KEY,
+    agent_name TEXT REFERENCES agents(name) ON DELETE CASCADE,
+    title TEXT DEFAULT 'New chat',
+    messages TEXT DEFAULT '[]',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+INSERT INTO chat_sessions_new (id, agent_name, title, messages, created_at, updated_at)
+    SELECT id, agent_name, title, messages, created_at, updated_at FROM chat_sessions;
+
+DROP TABLE chat_sessions;
+
+ALTER TABLE chat_sessions_new RENAME TO chat_sessions;
+
+CREATE INDEX idx_chat_sessions_agent ON chat_sessions(agent_name);
+""")
+        await conn.execute("INSERT INTO schema_version (version) VALUES (?)", (2,))
         await conn.commit()

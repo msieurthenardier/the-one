@@ -585,10 +585,7 @@ App.registerArea({
       }, 2000);
     }
 
-    function escapeHtml(s) {
-      if (!s) return '';
-      return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    }
+    var escapeHtml = App.escapeHtml;
 
     function escapeAttr(s) {
       if (!s) return '';

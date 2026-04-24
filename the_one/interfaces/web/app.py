@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -16,11 +17,15 @@ from the_one.agent import Agent
 from the_one.agent.factory import AgentFactory
 from the_one.config import settings
 from the_one.db import close_connection, init_db
+from the_one.db.codec import decode_messages, encode_messages, messages_to_ui_events
 from the_one.db.connection import get_connection
 from the_one.db.migration import migrate_json_to_sqlite
-from the_one.db.repositories import SQLiteAgentStore
+from the_one.db.models import ChatSession as ChatSessionModel
+from the_one.db.repositories import ChatSessionRepository, SQLiteAgentStore
 from the_one.interfaces.web.api import router as api_router
 from the_one.llm.base import Role
+
+logger = logging.getLogger(__name__)
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -64,6 +69,7 @@ class Session:
     created: str
     source: str = "web"
     title: str = "New chat"
+    agent_name: str | None = None
     history: list[dict[str, Any]] = field(default_factory=list)
     subscribers: set[WebSocket] = field(default_factory=set, repr=False)
 
@@ -79,6 +85,7 @@ class Session:
             "title": self.title,
             "created": self.created,
             "source": self.source,
+            "agent_name": self.agent_name,
             "message_count": len(self.history),
         }
 
@@ -86,20 +93,116 @@ class Session:
 _sessions: dict[str, Session] = {}
 
 
-async def _get_session(session_id: str | None = None, source: str = "web") -> Session:
-    if session_id and session_id in _sessions:
-        return _sessions[session_id]
-    # Create new session
+# ── DB helpers ────────────────────────────────────────────────────────────
+
+
+async def _chat_repo() -> ChatSessionRepository:
+    conn = await get_connection()
+    return ChatSessionRepository(conn)
+
+
+async def _create_session(
+    agent_name: str | None = None,
+    source: str = "web",
+    session_id: str | None = None,
+) -> Session:
+    """Create a new session in both memory and DB."""
     sid = session_id or uuid.uuid4().hex[:12]
+    # Normalize agent_name: "default" or empty -> None in DB (FK constraint)
+    db_agent_name = None if (not agent_name or agent_name == "default") else agent_name
     factory = _get_factory()
+    agent = await factory.create(agent_name or "default")
+    now = datetime.now(timezone.utc).isoformat()
     session = Session(
         id=sid,
-        agent=await factory.create(),
-        created=datetime.now(timezone.utc).isoformat(),
+        agent=agent,
+        created=now,
         source=source,
+        agent_name=db_agent_name,
     )
     _sessions[sid] = session
+
+    # Persist to DB
+    try:
+        repo = await _chat_repo()
+        db_session = ChatSessionModel(
+            id=sid,
+            agent_name=db_agent_name,
+            title=session.title,
+            messages="[]",
+            created_at=now,
+            updated_at=now,
+        )
+        await repo.create(db_session)
+    except Exception:
+        logger.warning("Failed to persist new session %s to DB", sid, exc_info=True)
+
     return session
+
+
+async def _restore_session(session_id: str) -> Session | None:
+    """Load a session from DB into memory, rebuilding the agent."""
+    try:
+        repo = await _chat_repo()
+        db_session = await repo.get(session_id)
+    except KeyError:
+        return None
+
+    factory = _get_factory()
+    agent_name_for_factory = db_session.agent_name or "default"
+    try:
+        agent = await factory.create(agent_name_for_factory)
+    except KeyError:
+        logger.warning(
+            "Agent %r not found, falling back to default for session %s",
+            db_session.agent_name, session_id,
+        )
+        agent = await factory.create("default")
+
+    # Decode messages and inject into agent
+    messages = decode_messages(db_session.messages)
+    if messages:
+        agent.messages = messages
+
+    # Build UI events from stored messages
+    ui_events = messages_to_ui_events(messages)
+
+    session = Session(
+        id=session_id,
+        agent=agent,
+        created=db_session.created_at,
+        title=db_session.title,
+        agent_name=db_session.agent_name,
+        history=ui_events,
+    )
+    _sessions[session_id] = session
+    return session
+
+
+async def _get_or_restore_session(session_id: str) -> Session | None:
+    """Check memory first, fall back to DB restore."""
+    if session_id in _sessions:
+        return _sessions[session_id]
+    return await _restore_session(session_id)
+
+
+async def _save_session_to_db(session: Session) -> None:
+    """Persist current session state to DB."""
+    try:
+        repo = await _chat_repo()
+        encoded = encode_messages(session.agent.messages)
+        try:
+            db_session = await repo.get(session.id)
+        except KeyError:
+            logger.warning("Session %s not found in DB during save", session.id)
+            return
+        updated = db_session.model_copy(update={
+            "title": session.title,
+            "messages": encoded,
+        })
+        await repo.update(updated)
+    except Exception:
+        logger.warning("Failed to save session %s to DB", session.id, exc_info=True)
 
 
 async def _send_to_session(
@@ -187,6 +290,12 @@ async def _process_and_broadcast(
                 "is_error": msg.tool_result.is_error,
             })
 
+    # Save to DB after each complete exchange
+    try:
+        await _save_session_to_db(session)
+    except Exception:
+        logger.warning("Failed to save session %s after exchange", session.id, exc_info=True)
+
     await _send_to_session(session, {"type": "done"})
     return result_messages
 
@@ -268,26 +377,6 @@ async def selftest() -> dict[str, Any]:
     return result
 
 
-@app.get("/api/sessions")
-async def list_sessions() -> list[dict[str, Any]]:
-    return [s.summary() for s in sorted(_sessions.values(), key=lambda s: s.created, reverse=True)]
-
-
-@app.get("/api/sessions/{session_id}")
-async def get_session(session_id: str) -> dict[str, Any]:
-    if session_id not in _sessions:
-        return {"error": "session not found"}
-    s = _sessions[session_id]
-    return {**s.summary(), "history": s.history}
-
-
-@app.delete("/api/sessions/{session_id}")
-async def delete_session(session_id: str) -> dict[str, str]:
-    if session_id in _sessions:
-        del _sessions[session_id]
-    return {"status": "ok"}
-
-
 @app.post("/api/chat")
 async def chat(request: Request) -> dict[str, Any]:
     """Chat endpoint for programmatic access."""
@@ -295,17 +384,24 @@ async def chat(request: Request) -> dict[str, Any]:
     user_input = payload.get("message", "")
     source = payload.get("source", "api")
     session_id = payload.get("session_id")
+    agent_name = payload.get("agent_name")
 
     if not user_input:
         return {"error": "no message provided"}
 
-    session = await _get_session(session_id, source=source)
+    # Resolve or create session
+    session: Session | None = None
+    if session_id:
+        session = await _get_or_restore_session(session_id)
+    if session is None:
+        session = await _create_session(agent_name=agent_name, source=source, session_id=session_id)
 
     if user_input == "/reset":
         session.agent.reset()
         session.history.clear()
         session.title = "New chat"
         await _send_to_session(session, {"type": "system", "content": "Context cleared."})
+        await _save_session_to_db(session)
         return {
             "session_id": session.id,
             "messages": [
@@ -332,6 +428,7 @@ async def chat_reset(request: Request) -> dict[str, str]:
         s.history.clear()
         s.title = "New chat"
         await _send_to_session(s, {"type": "system", "content": "Context cleared."})
+        await _save_session_to_db(s)
     return {"status": "ok"}
 
 
@@ -349,28 +446,41 @@ async def websocket_endpoint(ws: WebSocket) -> None:
             # Session management actions
             if action == "join":
                 session_id = payload.get("session_id")
-                session = await _get_session(session_id)
+                if session_id:
+                    session = await _get_or_restore_session(session_id)
+                if session is None:
+                    session = await _create_session()
                 if ws not in session.subscribers:
                     session.subscribers.add(ws)
                 await ws.send_json({
                     "type": "session_joined",
                     "session_id": session.id,
                     "title": session.title,
+                    "agent_name": session.agent_name,
                     "history": session.history,
                 })
                 continue
 
             if action == "list_sessions":
+                try:
+                    repo = await _chat_repo()
+                    db_sessions = await repo.list()
+                    sessions_list = [
+                        {
+                            "id": s.id,
+                            "title": s.title,
+                            "agent_name": s.agent_name,
+                            "created_at": s.created_at,
+                            "updated_at": s.updated_at,
+                        }
+                        for s in db_sessions
+                    ]
+                except Exception:
+                    logger.warning("Failed to list sessions from DB", exc_info=True)
+                    sessions_list = []
                 await ws.send_json({
                     "type": "session_list",
-                    "sessions": [
-                        s.summary()
-                        for s in sorted(
-                            _sessions.values(),
-                            key=lambda s: s.created,
-                            reverse=True,
-                        )
-                    ],
+                    "sessions": sessions_list,
                 })
                 continue
 
@@ -378,23 +488,35 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 # Leave current session
                 if session:
                     session.subscribers.discard(ws)
-                session = await _get_session()
+                agent_name = payload.get("agent_name")
+                session = await _create_session(agent_name=agent_name)
                 session.subscribers.add(ws)
                 await ws.send_json({
                     "type": "session_joined",
                     "session_id": session.id,
                     "title": session.title,
+                    "agent_name": session.agent_name,
                     "history": [],
                 })
                 continue
 
             if action == "delete_session":
                 sid = payload.get("session_id")
-                if sid and sid in _sessions:
-                    if session and session.id == sid:
-                        session.subscribers.discard(ws)
-                        session = None
-                    del _sessions[sid]
+                if sid:
+                    # Remove from memory
+                    if sid in _sessions:
+                        if session and session.id == sid:
+                            session.subscribers.discard(ws)
+                            session = None
+                        del _sessions[sid]
+                    # Remove from DB
+                    try:
+                        repo = await _chat_repo()
+                        await repo.delete(sid)
+                    except KeyError:
+                        pass
+                    except Exception:
+                        logger.warning("Failed to delete session %s from DB", sid, exc_info=True)
                 await ws.send_json({"type": "session_deleted", "session_id": sid})
                 continue
 
@@ -405,12 +527,13 @@ async def websocket_endpoint(ws: WebSocket) -> None:
 
             # Auto-join a session if none active
             if not session:
-                session = await _get_session()
+                session = await _create_session()
                 session.subscribers.add(ws)
                 await ws.send_json({
                     "type": "session_joined",
                     "session_id": session.id,
                     "title": session.title,
+                    "agent_name": session.agent_name,
                     "history": [],
                 })
 
@@ -419,6 +542,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 session.history.clear()
                 session.title = "New chat"
                 await _send_to_session(session, {"type": "system", "content": "Context cleared."})
+                await _save_session_to_db(session)
                 continue
 
             # Process message — exclude echoing user msg back to sender
