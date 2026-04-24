@@ -8,7 +8,8 @@ from datetime import datetime, timezone
 import aiosqlite
 
 from the_one.agent.config import AgentConfig
-from the_one.db.models import ChatSession, KBItem, KnowledgeBase, MCPSource
+from the_one.db.models import ChatSession, KBItem, KnowledgeBase, LLMProviderConfig, MCPSource
+from the_one.encryption import Encryptor
 
 
 def _now_iso() -> str:
@@ -82,9 +83,7 @@ class SQLiteAgentStore:
         await self.conn.commit()
 
     async def exists(self, name: str) -> bool:
-        async with self.conn.execute(
-            "SELECT 1 FROM agents WHERE name = ?", (name,)
-        ) as cur:
+        async with self.conn.execute("SELECT 1 FROM agents WHERE name = ?", (name,)) as cur:
             return await cur.fetchone() is not None
 
     @staticmethod
@@ -115,15 +114,11 @@ class KnowledgeBaseRepository:
         self.conn = conn
 
     async def list(self) -> list[KnowledgeBase]:
-        async with self.conn.execute(
-            "SELECT * FROM knowledge_bases ORDER BY name"
-        ) as cur:
+        async with self.conn.execute("SELECT * FROM knowledge_bases ORDER BY name") as cur:
             return [self._row_to_model(r) for r in await cur.fetchall()]
 
     async def get(self, kb_id: str) -> KnowledgeBase:
-        async with self.conn.execute(
-            "SELECT * FROM knowledge_bases WHERE id = ?", (kb_id,)
-        ) as cur:
+        async with self.conn.execute("SELECT * FROM knowledge_bases WHERE id = ?", (kb_id,)) as cur:
             row = await cur.fetchone()
         if row is None:
             raise KeyError(f"Knowledge base not found: {kb_id}")
@@ -153,9 +148,7 @@ class KnowledgeBaseRepository:
         await self.conn.commit()
 
     async def _exists(self, kb_id: str) -> bool:
-        async with self.conn.execute(
-            "SELECT 1 FROM knowledge_bases WHERE id = ?", (kb_id,)
-        ) as cur:
+        async with self.conn.execute("SELECT 1 FROM knowledge_bases WHERE id = ?", (kb_id,)) as cur:
             return await cur.fetchone() is not None
 
     @staticmethod
@@ -185,9 +178,7 @@ class KBItemRepository:
             return [self._row_to_model(r) for r in await cur.fetchall()]
 
     async def get(self, item_id: str) -> KBItem:
-        async with self.conn.execute(
-            "SELECT * FROM kb_items WHERE id = ?", (item_id,)
-        ) as cur:
+        async with self.conn.execute("SELECT * FROM kb_items WHERE id = ?", (item_id,)) as cur:
             row = await cur.fetchone()
         if row is None:
             raise KeyError(f"KB item not found: {item_id}")
@@ -197,15 +188,20 @@ class KBItemRepository:
         await self.conn.execute(
             "INSERT INTO kb_items (id, kb_id, parent_id, type, path_or_url, status, created_at)"
             " VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (item.id, item.kb_id, item.parent_id, item.type, item.path_or_url,
-             item.status, item.created_at),
+            (
+                item.id,
+                item.kb_id,
+                item.parent_id,
+                item.type,
+                item.path_or_url,
+                item.status,
+                item.created_at,
+            ),
         )
         await self.conn.commit()
 
     async def delete(self, item_id: str) -> None:
-        async with self.conn.execute(
-            "SELECT 1 FROM kb_items WHERE id = ?", (item_id,)
-        ) as cur:
+        async with self.conn.execute("SELECT 1 FROM kb_items WHERE id = ?", (item_id,)) as cur:
             if await cur.fetchone() is None:
                 raise KeyError(f"KB item not found: {item_id}")
         await self.conn.execute("DELETE FROM kb_items WHERE id = ?", (item_id,))
@@ -234,15 +230,11 @@ class MCPSourceRepository:
         self.conn = conn
 
     async def list(self) -> list[MCPSource]:
-        async with self.conn.execute(
-            "SELECT * FROM mcp_sources ORDER BY name"
-        ) as cur:
+        async with self.conn.execute("SELECT * FROM mcp_sources ORDER BY name") as cur:
             return [self._row_to_model(r) for r in await cur.fetchall()]
 
     async def get(self, source_id: str) -> MCPSource:
-        async with self.conn.execute(
-            "SELECT * FROM mcp_sources WHERE id = ?", (source_id,)
-        ) as cur:
+        async with self.conn.execute("SELECT * FROM mcp_sources WHERE id = ?", (source_id,)) as cur:
             row = await cur.fetchone()
         if row is None:
             raise KeyError(f"MCP source not found: {source_id}")
@@ -252,15 +244,19 @@ class MCPSourceRepository:
         await self.conn.execute(
             "INSERT INTO mcp_sources (id, name, type, config, created_at, updated_at)"
             " VALUES (?, ?, ?, ?, ?, ?)",
-            (source.id, source.name, source.type, json.dumps(source.config),
-             source.created_at, source.updated_at),
+            (
+                source.id,
+                source.name,
+                source.type,
+                json.dumps(source.config),
+                source.created_at,
+                source.updated_at,
+            ),
         )
         await self.conn.commit()
 
     async def update(self, source: MCPSource) -> None:
-        async with self.conn.execute(
-            "SELECT 1 FROM mcp_sources WHERE id = ?", (source.id,)
-        ) as cur:
+        async with self.conn.execute("SELECT 1 FROM mcp_sources WHERE id = ?", (source.id,)) as cur:
             if await cur.fetchone() is None:
                 raise KeyError(f"MCP source not found: {source.id}")
         await self.conn.execute(
@@ -270,9 +266,7 @@ class MCPSourceRepository:
         await self.conn.commit()
 
     async def delete(self, source_id: str) -> None:
-        async with self.conn.execute(
-            "SELECT 1 FROM mcp_sources WHERE id = ?", (source_id,)
-        ) as cur:
+        async with self.conn.execute("SELECT 1 FROM mcp_sources WHERE id = ?", (source_id,)) as cur:
             if await cur.fetchone() is None:
                 raise KeyError(f"MCP source not found: {source_id}")
         await self.conn.execute("DELETE FROM mcp_sources WHERE id = ?", (source_id,))
@@ -322,8 +316,14 @@ class ChatSessionRepository:
         await self.conn.execute(
             "INSERT INTO chat_sessions (id, agent_name, title, messages, created_at, updated_at)"
             " VALUES (?, ?, ?, ?, ?, ?)",
-            (session.id, session.agent_name, session.title, session.messages,
-             session.created_at, session.updated_at),
+            (
+                session.id,
+                session.agent_name,
+                session.title,
+                session.messages,
+                session.created_at,
+                session.updated_at,
+            ),
         )
         await self.conn.commit()
 
@@ -368,6 +368,92 @@ class ChatSessionRepository:
             agent_name=row["agent_name"],
             title=row["title"] or "New chat",
             messages=row["messages"] or "[]",
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+
+# ── LLM provider repository ──────────────────────────────────────────────
+
+
+class LLMProviderRepository:
+    """Async CRUD for LLM provider configurations."""
+
+    def __init__(self, conn: aiosqlite.Connection, encryptor: Encryptor) -> None:
+        self.conn = conn
+        self.encryptor = encryptor
+
+    async def list(self) -> list[LLMProviderConfig]:
+        async with self.conn.execute("SELECT * FROM llm_providers ORDER BY name") as cur:
+            return [self._row_to_model(r) for r in await cur.fetchall()]
+
+    async def get(self, provider_id: str) -> LLMProviderConfig:
+        async with self.conn.execute(
+            "SELECT * FROM llm_providers WHERE id = ?", (provider_id,)
+        ) as cur:
+            row = await cur.fetchone()
+        if row is None:
+            raise KeyError(f"Provider not found: {provider_id}")
+        return self._row_to_model(row)
+
+    async def create(self, provider: LLMProviderConfig) -> None:
+        await self.conn.execute(
+            "INSERT INTO llm_providers (id, name, type, base_url, api_key, config,"
+            " created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            self._to_row(provider),
+        )
+        await self.conn.commit()
+
+    async def update(self, provider: LLMProviderConfig) -> None:
+        if not await self._exists(provider.id):
+            raise KeyError(f"Provider not found: {provider.id}")
+        await self.conn.execute(
+            "UPDATE llm_providers SET name=?, type=?, base_url=?, api_key=?,"
+            " config=?, updated_at=? WHERE id=?",
+            (
+                provider.name,
+                provider.type,
+                provider.base_url,
+                self.encryptor.encrypt_optional(provider.api_key),
+                json.dumps(provider.config),
+                _now_iso(),
+                provider.id,
+            ),
+        )
+        await self.conn.commit()
+
+    async def delete(self, provider_id: str) -> None:
+        if not await self._exists(provider_id):
+            raise KeyError(f"Provider not found: {provider_id}")
+        await self.conn.execute("DELETE FROM llm_providers WHERE id = ?", (provider_id,))
+        await self.conn.commit()
+
+    async def _exists(self, provider_id: str) -> bool:
+        async with self.conn.execute(
+            "SELECT 1 FROM llm_providers WHERE id = ?", (provider_id,)
+        ) as cur:
+            return await cur.fetchone() is not None
+
+    def _to_row(self, provider: LLMProviderConfig) -> tuple:
+        return (
+            provider.id,
+            provider.name,
+            provider.type,
+            provider.base_url,
+            self.encryptor.encrypt_optional(provider.api_key),
+            json.dumps(provider.config),
+            provider.created_at,
+            provider.updated_at,
+        )
+
+    def _row_to_model(self, row: aiosqlite.Row) -> LLMProviderConfig:
+        return LLMProviderConfig(
+            id=row["id"],
+            name=row["name"],
+            type=row["type"],
+            base_url=row["base_url"],
+            api_key=self.encryptor.decrypt_optional(row["api_key"]),
+            config=json.loads(row["config"] or "{}"),
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )

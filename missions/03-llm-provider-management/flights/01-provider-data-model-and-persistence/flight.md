@@ -92,7 +92,7 @@ _(none — all resolved at mission level and during design review)_
 - [x] Encryption module works: key auto-generation, encrypt/decrypt round-trip, key rotation
 - [x] Schema migration runs cleanly on existing v2 databases
 - [ ] Provider CRUD via REST API works end-to-end (create, read, update, delete)
-- [ ] API keys are encrypted in DB and decrypted on read
+- [x] API keys are encrypted in DB and decrypted on read
 - [ ] Connection test endpoint successfully reaches a running Ollama instance
 - [ ] Model discovery endpoint returns models from a running Ollama instance
 - [ ] AgentFactory resolves providers from DB
@@ -116,7 +116,7 @@ _(none — all resolved at mission level and during design review)_
 
 - [x] `encryption-module` — Create `the_one/encryption.py` with Fernet key management (auto-generate key file at `{data_dir}/encryption.key` with mode 0600, load, rotate), encrypt/decrypt helpers that skip None/empty values, and unit tests
 - [x] `provider-model-and-schema` — Add `LLMProviderConfig` Pydantic model to `db/models.py` with id (12-char hex), name, type (Literal), base_url, api_key, config (dict). Schema migration v3: create `llm_providers` table, rebuild `agents` table (add `provider_config_id` FK ON DELETE SET NULL, drop `llm_provider`/`llm_base_url`). Note: `cryptography` dependency already added in leg 01
-- [ ] `provider-repository` — Add `LLMProviderRepository` to `db/repositories.py` with CRUD operations, encrypt-on-write / decrypt-on-read for api_key, and unit tests
+- [x] `provider-repository` — Add `LLMProviderRepository` to `db/repositories.py` with CRUD operations, encrypt-on-write / decrypt-on-read for api_key, and unit tests
 - [ ] `provider-api-endpoints` — Add REST endpoints: CRUD (`/api/providers`), connection test (`POST /api/providers/{id}/test`), model discovery (`GET /api/providers/{id}/models`), encryption key rotation (`POST /api/encryption/rotate`). Connection test and model discovery include provider-specific logic: Ollama native API (`/api/tags`), OpenAI-compatible (`/v1/models` with graceful degradation), OpenAI (SDK models list), Anthropic (SDK models list)
 - [ ] `settings-and-agent-migration` — Remove `llm_provider`, `llm_model`, `llm_base_url` from Settings. Update AgentConfig: replace `llm_provider` + `llm_base_url` with `provider_config_id`. Update AgentFactory to resolve from DB. Update SQLiteAgentStore for new schema. Fix `/api/info` in app.py. Note `/api/settings` response shape change. Update all affected tests
 - [ ] `uat` — End-to-end verification: create provider via API, test connection, discover models, create agent referencing provider, verify factory creates working agent, rotate encryption key, verify secrets still accessible

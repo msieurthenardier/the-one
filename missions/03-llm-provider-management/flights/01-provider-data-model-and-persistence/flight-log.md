@@ -29,7 +29,7 @@ Flight 01 of Mission 03 (LLM Provider Management). Establishing the backend foun
 
 ### Leg 02: Provider Model & Schema
 
-**Status**: in-flight
+**Status**: completed
 **Date**: 2026-04-23
 
 **Outcomes**:
@@ -42,6 +42,25 @@ Flight 01 of Mission 03 (LLM Provider Management). Establishing the backend foun
 
 **Known regression**:
 - 24 existing tests in `test_db_api.py`, `test_db_repositories.py`, `test_db_migration.py` now fail with `sqlite3.OperationalError: table agents has no column named llm_provider`. This is expected: `SQLiteAgentStore.save()` still writes to `llm_provider`/`llm_base_url` columns removed by v3. The repository update is explicitly deferred to leg 05 per the flight design.
+
+### Leg 03: Provider Repository
+
+**Status**: completed
+**Date**: 2026-04-23
+
+**Outcomes**:
+- Added `LLMProviderRepository` class to `the_one/db/repositories.py` with full CRUD: `list`, `get`, `create`, `update`, `delete`
+- Constructor takes `(conn, encryptor)` — transparent encrypt-on-write / decrypt-on-read for `api_key` field
+- `config` dict stored as JSON, restored via `json.loads`
+- `None`/empty API keys pass through unchanged via `encrypt_optional`/`decrypt_optional`
+- `get`, `update`, `delete` raise `KeyError` when provider not found
+- Added `Encryptor` and `LLMProviderConfig` imports to repositories module
+- Created `tests/test_provider_repository.py` with 13 tests — all passing in 0.16s
+- Lint (`ruff check`) and format (`ruff format`) clean
+
+**Notes**:
+- No deviations from leg spec
+- 24 pre-existing test failures remain (deferred to leg 05)
 
 ---
 
