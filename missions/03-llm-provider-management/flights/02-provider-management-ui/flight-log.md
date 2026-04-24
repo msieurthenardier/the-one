@@ -75,6 +75,28 @@ Flight 02 of Mission 03 (LLM Provider Management). Building the provider managem
 **Test results**: 234 passed, 8 deselected (live marker), 0 failures
 **Ruff**: 6 pre-existing errors in test files (not introduced by this leg, which only modifies .js/.css)
 
+### Leg 05: hat (completed)
+
+**Started**: 2026-04-24
+
+**HAT results**: All 14 acceptance criteria verified in live browser session.
+
+1. **Admin sidebar**: Shows General, LLM Providers, System — no Agents or Integrations categories
+2. **General settings**: Only Paths, Server, Concourse CI sections — no LLM Configuration
+3. **LLM Providers CRUD**: Add, edit, delete providers all functional
+4. **Type-specific fields**: Correct fields appear/hide per provider type
+5. **Connection test**: Shows success/failure with inline status indicator
+6. **Model discovery**: Models auto-load after successful connection test
+7. **Delete warning**: Agent-usage warning displays when deleting a provider referenced by agents
+8. **System key rotation**: Double-click confirmation pattern works correctly
+9. **Studio provider dropdown**: Shows configured providers with type labels
+10. **Studio model dropdown**: Populates when provider is selected
+11. **Studio default agent**: Shows "No provider" placeholder when provider_config_id is null
+12. **CLI**: Starts without crash
+13. **Tests**: 226 passed, 0 failures
+
+**Flight status**: Landed. All 5 legs completed, all checkpoints passed.
+
 ---
 
 ## Decisions

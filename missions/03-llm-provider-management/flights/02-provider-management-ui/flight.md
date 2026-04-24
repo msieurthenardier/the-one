@@ -1,15 +1,15 @@
 # Flight: Provider Management UI
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [LLM Provider Management](../../mission.md)
 
 ## Contributing to Criteria
 
-- [ ] Users can add, edit, and remove LLM provider configurations through the Administration interface, specifying connection details and credentials for each
-- [ ] Multiple instances of the same provider type can coexist with distinct configurations
-- [ ] Users can verify provider connectivity before saving a configuration
-- [ ] The provider configuration interface discovers available models by querying provider APIs after credentials are verified
-- [ ] The Studio agent editor presents configured providers and their discovered models for selection, replacing free-text entry with dynamic dropdowns
+- [x] Users can add, edit, and remove LLM provider configurations through the Administration interface, specifying connection details and credentials for each
+- [x] Multiple instances of the same provider type can coexist with distinct configurations
+- [x] Users can verify provider connectivity before saving a configuration
+- [x] The provider configuration interface discovers available models by querying provider APIs after credentials are verified
+- [x] The Studio agent editor presents configured providers and their discovered models for selection, replacing free-text entry with dynamic dropdowns
 
 ---
 
@@ -110,7 +110,7 @@ _(all resolved)_
 - [x] Provider CRUD + test + model discovery UI working in Admin
 - [x] System category with key rotation functional, General settings cleaned up
 - [x] Studio agent editor uses provider/model dropdowns with null-provider handling
-- [ ] HAT passed
+- [x] HAT passed
 
 ### Adaptation Criteria
 
@@ -131,7 +131,7 @@ _(all resolved)_
 - [x] `provider-list-and-editor` — Admin "LLM Providers" category with card/table layout, add/edit form with type-specific fields, CRUD wired to API, connection test + model auto-discovery + refresh
 - [x] `system-and-settings-cleanup` — Admin "System" category with encryption key rotation, remove stale categories ("Agents", "Integrations"), update General settings (remove LLM section), update stale docs (`agents.md`)
 - [x] `studio-provider-dropdowns` — Fix broken Studio LLM fields: replace free-text provider/model/base_url with provider dropdown + model dropdown, handle null provider_config_id with actionable placeholder
-- [ ] `hat` — Guided HAT session with iterative fixes across all UI changes
+- [x] `hat` — Guided HAT session with iterative fixes across all UI changes
 
 ---
 
