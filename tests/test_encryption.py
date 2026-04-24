@@ -9,7 +9,15 @@ from pathlib import Path
 import pytest
 from cryptography.fernet import InvalidToken
 
-from the_one.encryption import Encryptor, get_encryptor
+from the_one.encryption import Encryptor, _encryptor_cache, get_encryptor
+
+
+@pytest.fixture(autouse=True)
+def _clear_encryptor_cache():
+    """Ensure each test starts with a clean encryptor cache."""
+    _encryptor_cache.clear()
+    yield
+    _encryptor_cache.clear()
 
 
 class TestGetEncryptor:
@@ -39,6 +47,32 @@ class TestGetEncryptor:
         key_bytes = key_path.read_bytes()
         get_encryptor(tmp_path)
         assert key_path.read_bytes() == key_bytes
+
+    def test_caches_by_data_dir(self, tmp_path: Path) -> None:
+        """Calling get_encryptor twice with the same path returns the same instance."""
+        enc1 = get_encryptor(tmp_path)
+        enc2 = get_encryptor(tmp_path)
+        assert enc1 is enc2
+
+    def test_different_dirs_get_different_instances(self, tmp_path: Path) -> None:
+        """Different data_dir paths should produce separate Encryptor instances."""
+        dir_a = tmp_path / "a"
+        dir_b = tmp_path / "b"
+        dir_a.mkdir()
+        dir_b.mkdir()
+        enc_a = get_encryptor(dir_a)
+        enc_b = get_encryptor(dir_b)
+        assert enc_a is not enc_b
+
+    def test_rotation_propagates_through_cache(self, tmp_path: Path) -> None:
+        """rotate_key() mutates in-place, so the cached instance sees the new key."""
+        enc1 = get_encryptor(tmp_path)
+        enc1.rotate_key(lambda old, new: None)
+        enc2 = get_encryptor(tmp_path)
+        assert enc1 is enc2
+        # The rotated encryptor can encrypt/decrypt with the new key
+        ct = enc2.encrypt("post-rotation")
+        assert enc1.decrypt(ct) == "post-rotation"
 
 
 class TestEncryptDecrypt:

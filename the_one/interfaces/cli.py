@@ -25,21 +25,27 @@ async def _run_cli() -> None:
     store = SQLiteAgentStore(conn)
     await migrate_json_to_sqlite(store)
 
-    factory = AgentFactory(store=store)
-    agent = await factory.create()
-    session: PromptSession[str] = PromptSession(
-        history=FileHistory(str(settings.data_dir / "cli_history"))
-    )
-
     console.print(
         Panel(
-            f"[bold]the-one[/bold] v0.1.0\n"
-            f"Provider: {settings.llm_provider} / {settings.llm_model}\n"
-            f"Tools: {', '.join(agent.tools.tool_names)}\n"
-            f"Type [bold]/quit[/bold] to exit, [bold]/reset[/bold] to clear context.",
+            "[bold]the-one[/bold] v0.1.0\n"
+            "Type [bold]/quit[/bold] to exit, [bold]/reset[/bold] to clear context.",
             title="the-one",
             border_style="blue",
         )
+    )
+
+    factory = AgentFactory(store=store)
+    try:
+        agent = await factory.create()
+    except ValueError as exc:
+        console.print(
+            f"[red]No provider configured:[/red] {exc}\n"
+            f"Set one up in Admin at http://{settings.host}:{settings.port}"
+        )
+        return
+
+    session: PromptSession[str] = PromptSession(
+        history=FileHistory(str(settings.data_dir / "cli_history"))
     )
 
     try:

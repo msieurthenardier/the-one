@@ -1,4 +1,4 @@
-"""Tests for schema migrations (v1 -> v2 -> v3)."""
+"""Tests for schema migrations (v1 -> v2 -> v3 -> v4)."""
 
 from __future__ import annotations
 
@@ -141,13 +141,13 @@ async def test_fresh_db_creates_all_tables(fresh_db):
 
 
 @pytest.mark.asyncio
-async def test_fresh_db_schema_version_is_3(fresh_db):
-    """After full migration, schema version should be 3."""
+async def test_fresh_db_schema_version_is_4(fresh_db):
+    """After full migration, schema version should be 4."""
     await ensure_schema(fresh_db)
 
     async with fresh_db.execute("SELECT MAX(version) FROM schema_version") as cur:
         row = await cur.fetchone()
-    assert row[0] == 3
+    assert row[0] == 4
 
 
 @pytest.mark.asyncio
@@ -301,6 +301,18 @@ async def test_llm_providers_type_check_constraint(fresh_db):
 
 
 @pytest.mark.asyncio
+async def test_fresh_db_has_provider_config_id_index(fresh_db):
+    """Fresh DB should have idx_agents_provider index after v4 migration."""
+    await ensure_schema(fresh_db)
+
+    async with fresh_db.execute(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_agents_provider'"
+    ) as cur:
+        row = await cur.fetchone()
+    assert row is not None, "idx_agents_provider index should exist"
+
+
+@pytest.mark.asyncio
 async def test_idempotent_ensure_schema(fresh_db):
     """Calling ensure_schema twice is safe (idempotent)."""
     await ensure_schema(fresh_db)
@@ -308,4 +320,4 @@ async def test_idempotent_ensure_schema(fresh_db):
 
     async with fresh_db.execute("SELECT MAX(version) FROM schema_version") as cur:
         row = await cur.fetchone()
-    assert row[0] == 3
+    assert row[0] == 4

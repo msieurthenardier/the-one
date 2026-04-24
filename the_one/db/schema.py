@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import aiosqlite
 
-CURRENT_VERSION = 3
+CURRENT_VERSION = 4
 
 SCHEMA_V1 = """\
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -163,4 +163,12 @@ ALTER TABLE agents_new RENAME TO agents;
 PRAGMA foreign_keys=ON;
 """)
         await conn.execute("INSERT INTO schema_version (version) VALUES (?)", (3,))
+        await conn.commit()
+        version = 3
+
+    if version < 4:
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_agents_provider ON agents(provider_config_id)"
+        )
+        await conn.execute("INSERT INTO schema_version (version) VALUES (?)", (4,))
         await conn.commit()

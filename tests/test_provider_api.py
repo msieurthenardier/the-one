@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
+import sys
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiosqlite
 import pytest
@@ -13,6 +15,22 @@ from httpx import ASGITransport, AsyncClient
 from the_one.db.schema import ensure_schema
 from the_one.encryption import Encryptor
 from the_one.interfaces.web.api import router
+
+
+def _mock_openai_module() -> MagicMock:
+    """Create a mock ``openai`` module with AsyncOpenAI."""
+    mod = MagicMock()
+    mock_client = AsyncMock()
+    mod.AsyncOpenAI.return_value = mock_client
+    return mod
+
+
+def _mock_anthropic_module() -> MagicMock:
+    """Create a mock ``anthropic`` module with AsyncAnthropic."""
+    mod = MagicMock()
+    mock_client = AsyncMock()
+    mod.AsyncAnthropic.return_value = mock_client
+    return mod
 
 
 @pytest.fixture
@@ -251,3 +269,293 @@ class TestEncryptionRotation:
         resp = await client.get(f"/api/providers/{provider_id}")
         assert resp.status_code == 200
         assert resp.json()["api_key"] == "***...5678"
+
+
+# ── Provider helper ────────────────────────────────────────────────────
+
+
+PROVIDER_FIXTURES = {
+    "ollama": {
+        "name": "Local Ollama",
+        "type": "ollama",
+        "base_url": "http://localhost:11434/v1",
+    },
+    "openai-compatible": {
+        "name": "LM Studio",
+        "type": "openai-compatible",
+        "base_url": "http://localhost:1234/v1",
+        "api_key": "lm-studio-key-1234",
+    },
+    "openai": {
+        "name": "OpenAI",
+        "type": "openai",
+        "base_url": "https://api.openai.com/v1",
+        "api_key": "sk-openai-test-1234",
+    },
+    "anthropic": {
+        "name": "Anthropic",
+        "type": "anthropic",
+        "base_url": "https://api.anthropic.com",
+        "api_key": "sk-ant-test-key-1234",
+    },
+}
+
+
+async def _create_provider(client: AsyncClient, provider_type: str) -> str:
+    """Create a provider of the given type and return its id."""
+    resp = await client.post("/api/providers", json=PROVIDER_FIXTURES[provider_type])
+    assert resp.status_code == 201
+    return resp.json()["id"]
+
+
+# ── Connection test endpoint ───────────────────────────────────────────
+
+
+class TestConnectionTest:
+    """Tests for POST /api/providers/{id}/test."""
+
+    async def test_ollama_success(self, client: AsyncClient) -> None:
+        pid = await _create_provider(client, "ollama")
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        with patch("the_one.interfaces.web.api.httpx.AsyncClient") as mock_httpx_client:
+            instance = AsyncMock()
+            instance.get = AsyncMock(return_value=mock_resp)
+            instance.__aenter__ = AsyncMock(return_value=instance)
+            instance.__aexit__ = AsyncMock(return_value=False)
+            mock_httpx_client.return_value = instance
+            resp = await client.post(f"/api/providers/{pid}/test")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "ok"
+        assert "Ollama" in data["detail"]
+
+    async def test_ollama_failure(self, client: AsyncClient) -> None:
+        pid = await _create_provider(client, "ollama")
+        with patch("the_one.interfaces.web.api.httpx.AsyncClient") as mock_httpx_client:
+            instance = AsyncMock()
+            instance.get = AsyncMock(side_effect=ConnectionError("refused"))
+            instance.__aenter__ = AsyncMock(return_value=instance)
+            instance.__aexit__ = AsyncMock(return_value=False)
+            mock_httpx_client.return_value = instance
+            resp = await client.post(f"/api/providers/{pid}/test")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "error"
+        assert "refused" in data["detail"]
+
+    async def test_openai_compatible_success(self, client: AsyncClient) -> None:
+        pid = await _create_provider(client, "openai-compatible")
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        with patch("the_one.interfaces.web.api.httpx.AsyncClient") as mock_httpx_client:
+            instance = AsyncMock()
+            instance.get = AsyncMock(return_value=mock_resp)
+            instance.__aenter__ = AsyncMock(return_value=instance)
+            instance.__aexit__ = AsyncMock(return_value=False)
+            mock_httpx_client.return_value = instance
+            resp = await client.post(f"/api/providers/{pid}/test")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
+
+    async def test_openai_compatible_failure(self, client: AsyncClient) -> None:
+        pid = await _create_provider(client, "openai-compatible")
+        with patch("the_one.interfaces.web.api.httpx.AsyncClient") as mock_httpx_client:
+            instance = AsyncMock()
+            instance.get = AsyncMock(side_effect=ConnectionError("timeout"))
+            instance.__aenter__ = AsyncMock(return_value=instance)
+            instance.__aexit__ = AsyncMock(return_value=False)
+            mock_httpx_client.return_value = instance
+            resp = await client.post(f"/api/providers/{pid}/test")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "error"
+
+    async def test_openai_success(self, client: AsyncClient) -> None:
+        pid = await _create_provider(client, "openai")
+        mock_mod = _mock_openai_module()
+        mock_mod.AsyncOpenAI.return_value.models.list = AsyncMock(
+            return_value=MagicMock(data=[])
+        )
+        with patch.dict(sys.modules, {"openai": mock_mod}):
+            resp = await client.post(f"/api/providers/{pid}/test")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
+        assert "OpenAI" in resp.json()["detail"]
+
+    async def test_openai_failure(self, client: AsyncClient) -> None:
+        pid = await _create_provider(client, "openai")
+        mock_mod = _mock_openai_module()
+        mock_mod.AsyncOpenAI.return_value.models.list = AsyncMock(
+            side_effect=Exception("invalid api key")
+        )
+        with patch.dict(sys.modules, {"openai": mock_mod}):
+            resp = await client.post(f"/api/providers/{pid}/test")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "error"
+        assert "invalid api key" in resp.json()["detail"]
+
+    async def test_anthropic_success(self, client: AsyncClient) -> None:
+        pid = await _create_provider(client, "anthropic")
+        mock_mod = _mock_anthropic_module()
+        mock_mod.AsyncAnthropic.return_value.models.list = AsyncMock(
+            return_value=MagicMock(data=[])
+        )
+        with patch.dict(sys.modules, {"anthropic": mock_mod}):
+            resp = await client.post(f"/api/providers/{pid}/test")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
+        assert "Anthropic" in resp.json()["detail"]
+
+    async def test_anthropic_failure(self, client: AsyncClient) -> None:
+        pid = await _create_provider(client, "anthropic")
+        mock_mod = _mock_anthropic_module()
+        mock_mod.AsyncAnthropic.return_value.models.list = AsyncMock(
+            side_effect=Exception("auth failed")
+        )
+        with patch.dict(sys.modules, {"anthropic": mock_mod}):
+            resp = await client.post(f"/api/providers/{pid}/test")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "error"
+        assert "auth failed" in resp.json()["detail"]
+
+    async def test_not_found(self, client: AsyncClient) -> None:
+        resp = await client.post("/api/providers/nonexistent/test")
+        assert resp.status_code == 404
+
+
+# ── Model discovery endpoint ──────────────────────────────────────────
+
+
+class TestModelDiscovery:
+    """Tests for GET /api/providers/{id}/models."""
+
+    async def test_ollama_models(self, client: AsyncClient) -> None:
+        pid = await _create_provider(client, "ollama")
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.json.return_value = {
+            "models": [
+                {"name": "qwen2.5:7b", "size": 4_500_000_000},
+                {"name": "llama3:8b", "size": 5_000_000_000},
+            ]
+        }
+        with patch("the_one.interfaces.web.api.httpx.AsyncClient") as mock_httpx_client:
+            instance = AsyncMock()
+            instance.get = AsyncMock(return_value=mock_resp)
+            instance.__aenter__ = AsyncMock(return_value=instance)
+            instance.__aexit__ = AsyncMock(return_value=False)
+            mock_httpx_client.return_value = instance
+            resp = await client.get(f"/api/providers/{pid}/models")
+        assert resp.status_code == 200
+        models = resp.json()
+        assert len(models) == 2
+        assert models[0]["id"] == "qwen2.5:7b"
+        assert models[0]["name"] == "qwen2.5:7b"
+        assert models[0]["size"] == 4_500_000_000
+
+    async def test_ollama_models_failure(self, client: AsyncClient) -> None:
+        pid = await _create_provider(client, "ollama")
+        with patch("the_one.interfaces.web.api.httpx.AsyncClient") as mock_httpx_client:
+            instance = AsyncMock()
+            instance.get = AsyncMock(side_effect=ConnectionError("refused"))
+            instance.__aenter__ = AsyncMock(return_value=instance)
+            instance.__aexit__ = AsyncMock(return_value=False)
+            mock_httpx_client.return_value = instance
+            # Ollama branch doesn't catch exceptions — propagates to caller
+            with pytest.raises(ConnectionError, match="refused"):
+                await client.get(f"/api/providers/{pid}/models")
+
+    async def test_openai_compatible_models(self, client: AsyncClient) -> None:
+        pid = await _create_provider(client, "openai-compatible")
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.json.return_value = {
+            "data": [
+                {"id": "model-alpha"},
+                {"id": "model-beta"},
+            ]
+        }
+        with patch("the_one.interfaces.web.api.httpx.AsyncClient") as mock_httpx_client:
+            instance = AsyncMock()
+            instance.get = AsyncMock(return_value=mock_resp)
+            instance.__aenter__ = AsyncMock(return_value=instance)
+            instance.__aexit__ = AsyncMock(return_value=False)
+            mock_httpx_client.return_value = instance
+            resp = await client.get(f"/api/providers/{pid}/models")
+        assert resp.status_code == 200
+        models = resp.json()
+        assert len(models) == 2
+        assert models[0]["id"] == "model-alpha"
+        assert models[1]["name"] == "model-beta"
+
+    async def test_openai_compatible_models_failure(self, client: AsyncClient) -> None:
+        """openai-compatible model discovery now raises HTTPException(502) on failure."""
+        pid = await _create_provider(client, "openai-compatible")
+        with patch("the_one.interfaces.web.api.httpx.AsyncClient") as mock_httpx_client:
+            instance = AsyncMock()
+            instance.get = AsyncMock(side_effect=ConnectionError("connection refused"))
+            instance.__aenter__ = AsyncMock(return_value=instance)
+            instance.__aexit__ = AsyncMock(return_value=False)
+            mock_httpx_client.return_value = instance
+            resp = await client.get(f"/api/providers/{pid}/models")
+        assert resp.status_code == 502
+        assert "connection refused" in resp.json()["detail"]
+
+    async def test_openai_models(self, client: AsyncClient) -> None:
+        pid = await _create_provider(client, "openai")
+        model_a = SimpleNamespace(id="gpt-4o")
+        model_b = SimpleNamespace(id="gpt-4o-mini")
+        mock_mod = _mock_openai_module()
+        mock_mod.AsyncOpenAI.return_value.models.list = AsyncMock(
+            return_value=MagicMock(data=[model_a, model_b])
+        )
+        with patch.dict(sys.modules, {"openai": mock_mod}):
+            resp = await client.get(f"/api/providers/{pid}/models")
+        assert resp.status_code == 200
+        models = resp.json()
+        assert len(models) == 2
+        assert models[0]["id"] == "gpt-4o"
+        assert models[1]["name"] == "gpt-4o-mini"
+
+    async def test_openai_models_failure(self, client: AsyncClient) -> None:
+        pid = await _create_provider(client, "openai")
+        mock_mod = _mock_openai_module()
+        mock_mod.AsyncOpenAI.return_value.models.list = AsyncMock(
+            side_effect=Exception("rate limited")
+        )
+        with patch.dict(sys.modules, {"openai": mock_mod}):
+            # openai branch doesn't catch exceptions — propagates to caller
+            with pytest.raises(Exception, match="rate limited"):
+                await client.get(f"/api/providers/{pid}/models")
+
+    async def test_anthropic_models(self, client: AsyncClient) -> None:
+        pid = await _create_provider(client, "anthropic")
+        model_a = SimpleNamespace(id="claude-sonnet-4-20250514", display_name="Claude Sonnet 4")
+        model_b = SimpleNamespace(id="claude-haiku-4-20250514", display_name="Claude Haiku 4")
+        mock_mod = _mock_anthropic_module()
+        mock_mod.AsyncAnthropic.return_value.models.list = AsyncMock(
+            return_value=MagicMock(data=[model_a, model_b])
+        )
+        with patch.dict(sys.modules, {"anthropic": mock_mod}):
+            resp = await client.get(f"/api/providers/{pid}/models")
+        assert resp.status_code == 200
+        models = resp.json()
+        assert len(models) == 2
+        assert models[0]["id"] == "claude-sonnet-4-20250514"
+        assert models[0]["name"] == "Claude Sonnet 4"
+        assert models[1]["name"] == "Claude Haiku 4"
+
+    async def test_anthropic_models_failure(self, client: AsyncClient) -> None:
+        pid = await _create_provider(client, "anthropic")
+        mock_mod = _mock_anthropic_module()
+        mock_mod.AsyncAnthropic.return_value.models.list = AsyncMock(
+            side_effect=Exception("auth error")
+        )
+        with patch.dict(sys.modules, {"anthropic": mock_mod}):
+            # anthropic branch doesn't catch exceptions — propagates to caller
+            with pytest.raises(Exception, match="auth error"):
+                await client.get(f"/api/providers/{pid}/models")
+
+    async def test_not_found(self, client: AsyncClient) -> None:
+        resp = await client.get("/api/providers/nonexistent/models")
+        assert resp.status_code == 404
