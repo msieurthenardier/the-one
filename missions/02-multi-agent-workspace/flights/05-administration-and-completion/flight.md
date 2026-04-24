@@ -1,12 +1,12 @@
 # Flight: Administration & Completion
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Multi-Agent Workspace](../../mission.md)
 
 ## Contributing to Criteria
-- [ ] The web interface is organized into switchable functional areas (Studio, Chat, Administration) through an app-shell architecture
-- [ ] Each functional area has a consistent layout (sidebar + main panel) with area-specific content, and a shared navigation mechanism
-- [ ] The Administration area is present with a small number of functional settings and placeholder categories for future expansion
+- [x] The web interface is organized into switchable functional areas (Studio, Chat, Administration) through an app-shell architecture
+- [x] Each functional area has a consistent layout (sidebar + main panel) with area-specific content, and a shared navigation mechanism
+- [x] The Administration area is present with a small number of functional settings and placeholder categories for future expansion
 
 ---
 
@@ -60,8 +60,8 @@ Add a `GET /api/settings` endpoint that returns all config values from the `Sett
 ### Checkpoints
 - [x] Settings API returns correct JSON
 - [x] Admin area shows 4 categories with General active
-- [ ] All three areas navigate correctly
-- [ ] Documentation is accurate
+- [x] All three areas navigate correctly
+- [x] Documentation is accurate
 
 ### Adaptation Criteria
 
@@ -77,17 +77,17 @@ Add a `GET /api/settings` endpoint that returns all config values from the `Sett
 
 - [x] `settings-api` - Add `GET /api/settings` endpoint returning all config values
 - [x] `admin-area-ui` - Replace admin stub with functional Administration area
-- [ ] `docs-and-uat` - Documentation updates and end-to-end verification
+- [x] `docs-and-uat` - Documentation updates and end-to-end verification
 
 ---
 
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
-- [ ] Code merged
-- [ ] Tests passing
-- [ ] Documentation updated
+- [x] All legs completed
+- [x] Code merged
+- [x] Tests passing
+- [x] Documentation updated
 
 ### Verification
 1. Navigate to Admin via gear icon — 4 categories, General selected

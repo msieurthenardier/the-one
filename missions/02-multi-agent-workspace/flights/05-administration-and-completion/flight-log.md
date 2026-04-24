@@ -27,6 +27,15 @@ Flight 05 implements the Administration area — the final functional area neede
 - Follows Studio patterns: sidebar header, list items with active highlighting, section titles, field rows
 - All 149 tests passing
 
+### Leg 03 — docs-and-uat (completed)
+- Updated CLAUDE.md with persistence layer (SQLite + aiosqlite, repositories), three web UI areas (Chat, Studio, Administration), and `GET /api/settings` endpoint documentation
+- UAT verified: Admin area accessible via gear icon, 4 categories with General selected, correct settings values displayed, placeholder categories show "Coming soon"
+- UAT verified: Switching between Chat/Studio/Admin works without glitches
+- UAT verified: `curl /api/settings` returns correct JSON
+- All tests passing
+- Mission criteria 8, 9, 10 verified as met
+- Flight 05 landed — all legs complete
+
 ---
 
 ## Decisions

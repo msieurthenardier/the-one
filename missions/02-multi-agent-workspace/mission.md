@@ -25,9 +25,9 @@ This mission builds on the Mission 01 foundation to deliver the data model, pers
 - [ ] Knowledge bases can be attached to and detached from agents through the Studio interface, with the association persisted
 - [x] Chat conversations persist across application restarts, with each session's full message history (including tool calls and results) recoverable when the user returns
 - [x] Users can select which agent to converse with, and the selected agent's configuration (LLM, prompt, tools) is reflected in the conversation
-- [ ] The web interface is organized into switchable functional areas (Studio, Chat, Administration) through an app-shell architecture that can accommodate additional areas without structural changes
-- [ ] Each functional area has a consistent layout (sidebar + main panel) with area-specific content, and a shared navigation mechanism for switching between areas
-- [ ] The Administration area is present with a small number of functional settings (e.g., default LLM provider/model, data directory) and placeholder categories for future expansion
+- [x] The web interface is organized into switchable functional areas (Studio, Chat, Administration) through an app-shell architecture that can accommodate additional areas without structural changes
+- [x] Each functional area has a consistent layout (sidebar + main panel) with area-specific content, and a shared navigation mechanism for switching between areas
+- [x] The Administration area is present with a small number of functional settings (e.g., default LLM provider/model, data directory) and placeholder categories for future expansion
 
 ## Stakeholders
 
@@ -74,5 +74,5 @@ _(none yet — this is a new mission)_
 - [x] Flight 2: **App Shell & Navigation** — Build the extensible app-shell architecture (vanilla JS component system, area registry, sidebar/panel layout, app switcher icon). Migrate the existing chat UI into the Chat area. Establish the frontend patterns all areas will use.
 - [x] Flight 3: **Studio — Agent Builder** — Build the Studio area: agent list sidebar, agent editor panel (name, description, LLM config, system prompt, built-in tool toggles, MCP source attachment stubs, KB attachment stubs). Full agent CRUD through the UI backed by the persistence APIs.
 - [x] Flight 4: **Chat Evolution** — Add agent picker to Chat area, wire agent selection to AgentFactory, implement persistent chat history (full message list save/load/purge), restore sessions on startup.
-- [ ] Flight 5: **Administration & Completion** — Build Administration area with functional settings (default LLM provider/model, data directory) and placeholder categories. Resolve any remaining Mission 01 debrief action items that intersect with this mission's scope. End-to-end verification.
+- [x] Flight 5: **Administration & Completion** — Build Administration area with functional settings (default LLM provider/model, data directory) and placeholder categories. Resolve any remaining Mission 01 debrief action items that intersect with this mission's scope. End-to-end verification.
 - [ ] Flight 6 *(optional)*: **Alignment** — Interactive vibe-coding session for UI polish, UX refinement, and hands-on adjustments across all areas.

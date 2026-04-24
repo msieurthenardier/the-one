@@ -47,7 +47,14 @@ The system has four layers that compose bottom-up:
 
 Agent configuration (`agent/config.py`) defines `AgentConfig` (Pydantic model) with LLM, prompt, tool filtering, and behavior settings. `AgentFactory` (`agent/factory.py`) wires config + LLM + tools into a ready-to-use Agent. Agent configs persist as JSON files via `AgentConfigStore` (`agent/store.py`).
 
+**Persistence** (`the_one/db/`) — SQLite via aiosqlite. `get_connection()` returns a shared async connection. Repository classes (`SQLiteAgentStore`, `KnowledgeBaseRepository`, `MCPSourceRepository`, `ChatSessionRepository`, `KBItemRepository`) each wrap a table with CRUD operations over Pydantic models. Schema is initialized on first connection.
+
 **Interfaces** (`the_one/interfaces/`) — CLI (Rich + prompt-toolkit) and Web (FastAPI + WebSocket). Both use `AgentFactory.create()` to get configured agents, then call `agent.step(user_input)` which yields messages. The web app adds session management and broadcasts events to WebSocket subscribers.
+
+The web UI has three functional areas sharing a sidebar + content panel layout:
+- **Chat** — Multi-session chat with agent selection, WebSocket streaming, context telemetry
+- **Studio** — Agent configuration editor (CRUD agents, tool toggles, connections)
+- **Administration** — Read-only settings display from `GET /api/settings`, with placeholder categories (Agents, Integrations, System) for future expansion. Settings are configured via environment variables and require a server restart.
 
 For architecture internals, see `the_one/agents.md`.
 

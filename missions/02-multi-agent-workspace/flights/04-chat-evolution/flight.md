@@ -1,6 +1,6 @@
 # Flight: Chat Evolution
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Multi-Agent Workspace](../../mission.md)
 
 ## Contributing to Criteria
