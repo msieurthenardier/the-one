@@ -97,6 +97,20 @@ Flight 02 of Mission 03 (LLM Provider Management). Building the provider managem
 
 **Flight status**: Landed. All 5 legs completed, all checkpoints passed.
 
+### Post-Flight Fixes (2026-04-24)
+
+Bugs discovered during live usage after HAT and debrief:
+
+1. **Dockerfile missing LLM SDKs**: Container installed `.[dev]` but not `.[all-llms]`, so `anthropic` and `openai` packages were absent. Connection test and model discovery for these provider types failed with `ModuleNotFoundError`. Fixed by changing to `.[dev,all-llms]`.
+
+2. **Hardcoded `llm_model: 'qwen2.5:7b'` in Studio**: New agent form pre-filled model field with `qwen2.5:7b` regardless of provider. Removed hardcoded default, changed placeholder to "Select a provider first", and model field now clears when switching providers.
+
+3. **Add Provider pre-selects ollama**: Type dropdown defaulted to first option (ollama) instead of showing a placeholder. Added "Select a provider..." disabled placeholder option; base_url/api_key fields hidden until a type is chosen.
+
+4. **New agent shows "No provider" despite configured providers**: Default `provider_config_id: null` always showed the placeholder. Now defaults to first available provider when providers exist.
+
+5. **Chat hardcoded to "default" agent**: Chat agent dropdown included a hardcoded "default" option with empty value. On first connect with no sessions, `new_session` was sent without an agent name, falling back to the unconfigured "default" agent in `AgentFactory`. Fixed by populating dropdown from `/api/agents` only, fetching agents before listing sessions (race condition fix), and passing selected agent name on all `new_session` actions.
+
 ---
 
 ## Decisions
