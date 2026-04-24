@@ -337,6 +337,11 @@ App.registerArea({
           var providerId = providerSelect.value;
           if (providerId) {
             fetchModelsForProvider(providerId);
+          } else {
+            var datalist = editorEl.querySelector('#model-options');
+            var loadingEl = editorEl.querySelector('.field-model-loading');
+            if (datalist) datalist.innerHTML = '';
+            if (loadingEl) loadingEl.textContent = '';
           }
         });
       }
@@ -677,6 +682,31 @@ App.registerArea({
 
     newAgentBtn.addEventListener('click', enterCreateMode);
 
+    // Store refresh function for activate() to call when area becomes visible
+    var self = this;
+    self._refresh = function () {
+      loadAll().then(function () {
+        if (selectedAgent) {
+          // Re-select the current agent to re-render with fresh data
+          var found = null;
+          for (var i = 0; i < agents.length; i++) {
+            if (agents[i].name === selectedAgent.name) { found = agents[i]; break; }
+          }
+          if (found) {
+            selectedAgent = found;
+            renderEditor(found);
+          } else {
+            selectedAgent = null;
+            if (agents.length > 0) selectAgent(agents[0]);
+            else renderEmptyEditor();
+          }
+        } else if (!createMode) {
+          if (agents.length > 0) selectAgent(agents[0]);
+          else renderEmptyEditor();
+        }
+      });
+    };
+
     loadAll().then(function () {
       if (agents.length > 0) {
         selectAgent(agents[0]);
@@ -686,6 +716,10 @@ App.registerArea({
     });
   },
 
-  activate: function () {},
+  activate: function () {
+    if (this._refresh) {
+      this._refresh();
+    }
+  },
   deactivate: function () {}
 });

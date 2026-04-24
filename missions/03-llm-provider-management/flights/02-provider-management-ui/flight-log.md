@@ -53,6 +53,14 @@ Flight 02 of Mission 03 (LLM Provider Management). Building the provider managem
 - Updated collectFormData() to send provider_config_id, removed llm_provider/llm_base_url
 - Accessibility: for/id labels, aria-live on model loading indicator
 
+### Leg 5: hat
+**Status**: complete
+
+- All 14 verification steps passed
+- **Bug 1**: Models list disappeared when opening edit form — fixed by adding auto-fetch of models when edit form opens
+- **Bug 2**: Studio provider dropdown not refreshing after Admin changes — fixed by adding re-fetch in Studio `activate()` so dropdown refreshes on navigation
+- Both bugs were minor UI state issues fixed inline during the HAT session
+
 ---
 
 ## Decisions

@@ -393,6 +393,11 @@ App.registerArea({
 
       // Wire events
       wireProviderFormEvents(isNew, provider);
+
+      // Auto-fetch models when editing an existing provider
+      if (!isNew && provider.id) {
+        fetchModels(provider.id);
+      }
     }
 
     function renderTypeFields(type, base_url, api_key) {

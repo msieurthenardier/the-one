@@ -110,7 +110,7 @@ _(all resolved)_
 - [x] Provider CRUD + test + model discovery UI working in Admin
 - [x] System category with key rotation functional, General settings cleaned up
 - [x] Studio agent editor uses provider/model dropdowns with null-provider handling
-- [ ] HAT passed
+- [x] HAT passed
 
 ### Adaptation Criteria
 
@@ -131,7 +131,7 @@ _(all resolved)_
 - [x] `provider-list-and-editor` — Admin "LLM Providers" category with card/table layout, add/edit form with type-specific fields, CRUD wired to API, connection test + model auto-discovery + refresh
 - [x] `system-and-settings-cleanup` — Admin "System" category with encryption key rotation, remove stale categories ("Agents", "Integrations"), update General settings (remove LLM section), update stale docs (`agents.md`)
 - [x] `studio-provider-dropdowns` — Fix broken Studio LLM fields: replace free-text provider/model/base_url with provider dropdown + model dropdown, handle null provider_config_id with actionable placeholder
-- [ ] `hat` — Guided HAT session with iterative fixes across all UI changes
+- [x] `hat` — Guided HAT session with iterative fixes across all UI changes
 
 ---
 
