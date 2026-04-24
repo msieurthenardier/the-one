@@ -36,7 +36,7 @@ docker compose up --build
 
 The system has four layers that compose bottom-up:
 
-**LLM layer** (`the_one/llm/`) — Abstract `LLMProvider` base with `complete()` method. Three implementations (ollama, openai, anthropic) lazy-loaded via a registry (`get_provider(name)`). All share the `Message`/`ToolCall`/`ToolResult` dataclasses from `base.py`. Provider is selected by `THE_ONE_LLM_PROVIDER` env var.
+**LLM layer** (`the_one/llm/`) — Abstract `LLMProvider` base with `complete()` method. Three implementations (ollama, openai, anthropic) lazy-loaded via a registry (`get_provider(name)`). All share the `Message`/`ToolCall`/`ToolResult` dataclasses from `base.py`. Provider is resolved from the database via `LLMProviderRepository` — each agent references a provider config by `provider_config_id`.
 
 **Tool layer** (`the_one/tools/`) — Abstract `Tool` base class with `execute(**kwargs) -> str`. `ToolRegistry` holds all tools and generates JSON schemas for the LLM. `BuiltinToolProvider` (`builtins.py`) provides all 14 built-in tools via lazy import, implementing the `ToolProvider` protocol (`provider.py`). Tools are the agent's only way to affect the outside world.
 
@@ -45,16 +45,18 @@ The system has four layers that compose bottom-up:
 - *Continue signal*: a virtual tool (`CONTINUE_SCHEMA`) that keeps the agent's turn going
 - Max 20 iterations per step as a safety limit
 
-Agent configuration (`agent/config.py`) defines `AgentConfig` (Pydantic model) with LLM, prompt, tool filtering, and behavior settings. `AgentFactory` (`agent/factory.py`) wires config + LLM + tools into a ready-to-use Agent. Agent configs persist as JSON files via `AgentConfigStore` (`agent/store.py`).
+Agent configuration (`agent/config.py`) defines `AgentConfig` (Pydantic model) with `provider_config_id` (FK to `llm_providers`), `llm_model`, prompt, tool filtering, and behavior settings. `AgentFactory` (`agent/factory.py`) resolves the provider config from DB, maps the provider type to the registry name, and wires config + LLM + tools into a ready-to-use Agent. Agent configs persist via `SQLiteAgentStore` in the DB.
 
-**Persistence** (`the_one/db/`) — SQLite via aiosqlite. `get_connection()` returns a shared async connection. Repository classes (`SQLiteAgentStore`, `KnowledgeBaseRepository`, `MCPSourceRepository`, `ChatSessionRepository`, `KBItemRepository`) each wrap a table with CRUD operations over Pydantic models. Schema is initialized on first connection.
+**Persistence** (`the_one/db/`) — SQLite via aiosqlite. `get_connection()` returns a shared async connection. Repository classes (`SQLiteAgentStore`, `KnowledgeBaseRepository`, `MCPSourceRepository`, `ChatSessionRepository`, `KBItemRepository`, `LLMProviderRepository`) each wrap a table with CRUD operations over Pydantic models. `LLMProviderRepository` takes an `Encryptor` for transparent encrypt-on-write / decrypt-on-read of API keys. Schema is versioned (currently v3) and auto-migrated on first connection.
+
+**Encryption** (`the_one/encryption.py`) — Fernet symmetric encryption for API credentials. Key auto-generated at `{data_dir}/encryption.key` (mode 0600). `get_encryptor(data_dir)` returns a cached `Encryptor` instance. Supports key rotation via `rotate_key()`.
 
 **Interfaces** (`the_one/interfaces/`) — CLI (Rich + prompt-toolkit) and Web (FastAPI + WebSocket). Both use `AgentFactory.create()` to get configured agents, then call `agent.step(user_input)` which yields messages. The web app adds session management and broadcasts events to WebSocket subscribers.
 
 The web UI has three functional areas sharing a sidebar + content panel layout:
 - **Chat** — Multi-session chat with agent selection, WebSocket streaming, context telemetry
 - **Studio** — Agent configuration editor (CRUD agents, tool toggles, connections)
-- **Administration** — Read-only settings display from `GET /api/settings`, with placeholder categories (Agents, Integrations, System) for future expansion. Settings are configured via environment variables and require a server restart.
+- **Administration** — Settings display from `GET /api/settings`, provider management via `/api/providers` endpoints (CRUD, connection test, model discovery, key rotation). Provider configurations are stored in the database with encrypted API keys.
 
 Areas register via `App.registerArea({ id, label, icon, order, init, activate, deactivate })`. The `init(sidebar, content)` function receives DOM elements on first activation; `activate()` fires on every switch-to (use for data refresh); `deactivate()` fires on switch-away. CSS is scoped under `.area-{id}`. Shared utilities like `App.escapeHtml()` are available on the `App` object.
 
@@ -71,7 +73,7 @@ The container runs from `/app` (built code) but mounts the source repo at `/work
 
 ## Configuration
 
-All config via env vars prefixed `THE_ONE_` (see `.env.example`). Managed by pydantic-settings in `the_one/config.py`. The `settings` singleton is imported directly. The `agents_dir` property (`settings.data_dir / "agents"`) provides the path for stored agent configurations.
+Runtime config via env vars prefixed `THE_ONE_` (see `.env.example`): host, port, data_dir, workspace_dir, Concourse settings. Managed by pydantic-settings in `the_one/config.py`. The `settings` singleton is imported directly. LLM provider configuration is managed through the database (not env vars) — see the `/api/providers` endpoints.
 
 ## Conventions
 
@@ -82,7 +84,7 @@ All config via env vars prefixed `THE_ONE_` (see `.env.example`). Managed by pyd
 
 ## Testing
 
-**Unit tests** run by default with `pytest tests/` — fast, no external dependencies, ~65 tests in <1s.
+**Unit tests** run by default with `pytest tests/` — fast, no external dependencies, ~212 tests in <6s.
 
 **AIAT tests** (Agent-in-a-Test) are live integration tests that hit a running instance. They are excluded from default runs via `addopts = "-m 'not live'"` in `pyproject.toml`.
 
