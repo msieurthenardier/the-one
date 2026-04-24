@@ -272,6 +272,9 @@ async def _ensure_ollama_model_loaded(session: Session) -> None:
             session, {"type": "system", "content": "Loading model..."}
         )
         await ollama_api.load_model(provider_config.base_url, model_name)
+        await _send_to_session(
+            session, {"type": "system", "content": "Model loaded."}
+        )
 
     except Exception:
         logger.warning(

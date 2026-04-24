@@ -635,6 +635,31 @@ async def model_status(provider_id: str) -> list[dict[str, Any]]:
         raise HTTPException(status_code=502, detail=str(e))
 
 
+# ── Ollama Library Search ────────────────────────────────────────────────
+
+
+@router.get("/ollama-library/search")
+async def search_ollama_library(q: str = "") -> list[dict[str, str]]:
+    """Search the public Ollama model library for available models."""
+    q = q.strip().lower()
+    if len(q) < 2:
+        return []
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get("https://ollama.com/api/tags")
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception:
+        return []
+
+    results = []
+    for m in data.get("models", []):
+        name = m.get("name", "")
+        if q in name.lower():
+            results.append({"name": name, "size": str(m.get("size", 0))})
+    return results[:30]
+
+
 # ── Encryption ───────────────────────────────────────────────────────────
 
 

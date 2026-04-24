@@ -27,6 +27,7 @@ def _mock_client(response: MagicMock | None = None) -> tuple[MagicMock, AsyncMoc
         instance.get = AsyncMock(return_value=response)
         instance.post = AsyncMock(return_value=response)
         instance.delete = AsyncMock(return_value=response)
+        instance.request = AsyncMock(return_value=response)
     return instance
 
 
@@ -367,8 +368,8 @@ class TestDeleteModel:
         with patch("the_one.llm.ollama_api.httpx.AsyncClient") as mock_cls:
             mock_cls.return_value = instance
             await ollama_api.delete_model(BASE, "old-model")
-        instance.delete.assert_called_once_with(
-            f"{BASE}/api/delete", json={"model": "old-model"}
+        instance.request.assert_called_once_with(
+            "DELETE", f"{BASE}/api/delete", json={"model": "old-model"}
         )
 
     @pytest.mark.asyncio
@@ -383,7 +384,7 @@ class TestDeleteModel:
     @pytest.mark.asyncio
     async def test_connection_error(self) -> None:
         instance = _mock_client()
-        instance.delete = AsyncMock(side_effect=httpx.ConnectError("refused"))
+        instance.request = AsyncMock(side_effect=httpx.ConnectError("refused"))
         with patch("the_one.llm.ollama_api.httpx.AsyncClient") as mock_cls:
             mock_cls.return_value = instance
             with pytest.raises(ConnectionError):
@@ -448,8 +449,11 @@ class TestUnloadModel:
     @pytest.mark.asyncio
     async def test_success(self) -> None:
         resp = _json_response({})
+        ps_resp = _json_response({"models": []})
         instance = _mock_client(resp)
-        with patch("the_one.llm.ollama_api.httpx.AsyncClient") as mock_cls:
+        instance.get = AsyncMock(return_value=ps_resp)
+        with patch("the_one.llm.ollama_api.httpx.AsyncClient") as mock_cls, \
+             patch("asyncio.sleep", new_callable=AsyncMock):
             mock_cls.return_value = instance
             await ollama_api.unload_model(BASE, "llama3:8b")
         instance.post.assert_called_once_with(

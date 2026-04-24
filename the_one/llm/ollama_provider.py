@@ -25,7 +25,11 @@ class OllamaProvider(LLMProvider):
         **kwargs: Any,
     ):
         self.model = model
-        self.base_url = (base_url or "http://localhost:11434/v1").rstrip("/")
+        url = (base_url or "http://localhost:11434/v1").rstrip("/")
+        # Ensure /v1 suffix for OpenAI-compatible endpoint
+        if not url.endswith("/v1"):
+            url = f"{url}/v1"
+        self.base_url = url
 
     async def complete(
         self,

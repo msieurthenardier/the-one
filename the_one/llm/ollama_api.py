@@ -183,7 +183,7 @@ async def delete_model(base_url: str, model: str) -> None:
     url = _normalize_url(base_url)
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.delete(f"{url}/api/delete", json={"model": model})
+            resp = await client.request("DELETE", f"{url}/api/delete", json={"model": model})
             resp.raise_for_status()
     except httpx.ConnectError as exc:
         raise ConnectionError(f"Cannot connect to Ollama at {url}: {exc}") from exc
@@ -219,7 +219,12 @@ async def load_model(
 
 
 async def unload_model(base_url: str, model: str) -> None:
-    """Unload a model from VRAM via ``/api/generate`` with ``keep_alive: 0``."""
+    """Unload a model from VRAM via ``/api/generate`` with ``keep_alive: 0``.
+
+    Waits until the model no longer appears in ``/api/ps`` before returning.
+    """
+    import asyncio
+
     url = _normalize_url(base_url)
     try:
         async with httpx.AsyncClient(timeout=30) as client:
@@ -228,6 +233,14 @@ async def unload_model(base_url: str, model: str) -> None:
                 json={"model": model, "keep_alive": 0},
             )
             resp.raise_for_status()
+
+            # Wait for Ollama to actually release the model
+            for _ in range(20):  # up to ~5 seconds
+                await asyncio.sleep(0.25)
+                ps = await client.get(f"{url}/api/ps")
+                running = ps.json().get("models", [])
+                if not any(m.get("name", "") == model for m in running):
+                    return
     except httpx.ConnectError as exc:
         raise ConnectionError(f"Cannot connect to Ollama at {url}: {exc}") from exc
     except httpx.TimeoutException as exc:

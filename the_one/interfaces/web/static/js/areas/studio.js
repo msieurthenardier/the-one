@@ -232,11 +232,12 @@ App.registerArea({
       }
       html += '</select></div>';
 
-      // Model input with datalist
+      // Model select dropdown
       html += '<div class="field-row"><label for="studio-model">Model</label>';
       html += '<div class="field-model-wrap">';
-      html += '<input id="studio-model" class="field-input" data-field="llm_model" list="studio-model-list" value="' + escapeAttr(cfg.llm_model) + '" placeholder="Select a provider first" />';
-      html += '<datalist id="studio-model-list"></datalist>';
+      html += '<select id="studio-model" class="field-input field-select" data-field="llm_model">';
+      html += '<option value="" disabled selected>Select a provider first</option>';
+      html += '</select>';
       html += '<span class="model-loading" aria-live="polite"></span>';
       html += '</div></div>';
 
@@ -319,12 +320,14 @@ App.registerArea({
     }
 
     function fetchModelsForProvider(providerId) {
-      var datalist = editorEl.querySelector('#studio-model-list');
+      var selectEl = editorEl.querySelector('#studio-model');
       var loadingEl = editorEl.querySelector('.model-loading');
-      if (!datalist) return;
+      if (!selectEl) return;
+
+      var currentVal = selectEl.dataset.pendingValue || selectEl.value;
 
       if (!providerId) {
-        datalist.innerHTML = '';
+        selectEl.innerHTML = '<option value="" disabled selected>Select a provider first</option>';
         if (loadingEl) loadingEl.textContent = '';
         return;
       }
@@ -337,18 +340,25 @@ App.registerArea({
           return r.json();
         })
         .then(function (models) {
-          var html = '';
+          var html = '<option value="" disabled>Choose a model</option>';
           for (var i = 0; i < models.length; i++) {
             var modelId = models[i].id || models[i].name;
-            html += '<option value="' + escapeAttr(modelId) + '">';
+            var sel = modelId === currentVal ? ' selected' : '';
+            html += '<option value="' + escapeAttr(modelId) + '"' + sel + '>' + escapeHtml(modelId) + '</option>';
           }
-          datalist.innerHTML = html;
+          selectEl.innerHTML = html;
+          // If current value wasn't in the list, add it as a custom option
+          if (currentVal && !selectEl.querySelector('option[value="' + CSS.escape(currentVal) + '"]')) {
+            var customOpt = '<option value="' + escapeAttr(currentVal) + '" selected>' + escapeHtml(currentVal) + ' (custom)</option>';
+            selectEl.insertAdjacentHTML('beforeend', customOpt);
+          }
           if (loadingEl) {
             loadingEl.textContent = models.length === 0 ? 'No models discovered' : '';
           }
+          delete selectEl.dataset.pendingValue;
         })
         .catch(function () {
-          datalist.innerHTML = '';
+          selectEl.innerHTML = '<option value="" disabled selected>Failed to load models</option>';
           if (loadingEl) loadingEl.textContent = '';
         });
     }
@@ -365,13 +375,15 @@ App.registerArea({
       var providerSelect = editorEl.querySelector('#studio-provider');
       if (providerSelect) {
         providerSelect.addEventListener('change', function () {
-          var modelInput = editorEl.querySelector('#studio-model');
-          if (modelInput) modelInput.value = '';
+          var modelSelect = editorEl.querySelector('#studio-model');
+          if (modelSelect) modelSelect.selectedIndex = 0;
           clearVramWarning();
           fetchModelsForProvider(providerSelect.value);
         });
         // Auto-fetch models for currently selected provider
         if (cfg.provider_config_id) {
+          var modelSelect = editorEl.querySelector('#studio-model');
+          if (modelSelect && cfg.llm_model) modelSelect.dataset.pendingValue = cfg.llm_model;
           fetchModelsForProvider(cfg.provider_config_id);
         }
       }
@@ -379,7 +391,6 @@ App.registerArea({
       // Model input -> debounced VRAM check (ollama only)
       var modelInput = editorEl.querySelector('#studio-model');
       if (modelInput) {
-        modelInput.addEventListener('input', debouncedVramCheck);
         modelInput.addEventListener('change', debouncedVramCheck);
         // Check on initial load if model is already set
         if (cfg.llm_model && cfg.provider_config_id) {

@@ -735,12 +735,16 @@ App.registerArea({
           '<button class="admin-pf-pull-btn">Pull Model</button>' +
         '</div>' +
         '<div class="admin-pf-pull-input" style="display:none">' +
-          '<input class="admin-pf-input admin-pf-pull-name" placeholder="e.g. llama3:8b" />' +
-          '<button class="admin-pf-pull-go">Pull</button>' +
+          '<div class="admin-pf-pull-search-wrap">' +
+            '<input class="admin-pf-input admin-pf-pull-name" placeholder="Search Ollama library..." autocomplete="off" />' +
+            '<div class="admin-pf-pull-suggestions" style="display:none"></div>' +
+          '</div>' +
+          '<button class="admin-pf-pull-go" disabled>Pull</button>' +
         '</div>' +
         '<div class="admin-pf-pull-progress" style="display:none">' +
           '<div class="admin-pf-pull-fill"></div>' +
           '<span class="admin-pf-pull-text"></span>' +
+          '<button class="admin-pf-pull-cancel">\u2715</button>' +
         '</div>' +
         '<div class="admin-pf-pull-error" style="display:none"></div>' +
         '<div class="admin-pf-vram-summary"></div>' +
@@ -761,33 +765,111 @@ App.registerArea({
       var pullText = container.querySelector('.admin-pf-pull-text');
       var pullError = container.querySelector('.admin-pf-pull-error');
 
+      var suggestionsEl = container.querySelector('.admin-pf-pull-suggestions');
+      var pullAbort = null;
+
       pullBtn.addEventListener('click', function () {
         pullInputRow.style.display = pullInputRow.style.display === 'none' ? 'flex' : 'none';
         pullError.style.display = 'none';
+        suggestionsEl.style.display = 'none';
+        pullNameInput.value = '';
+        pullGoBtn.disabled = true;
         pullNameInput.focus();
       });
 
       pullGoBtn.addEventListener('click', function () { startPull(); });
+
+      // Dynamic model search from Ollama library
+      var pullSearchTimer = null;
+      pullNameInput.addEventListener('input', function () {
+        clearTimeout(pullSearchTimer);
+        var q = pullNameInput.value.trim();
+        pullGoBtn.disabled = !q;
+        if (q.length < 2) {
+          suggestionsEl.style.display = 'none';
+          suggestionsEl.innerHTML = '';
+          return;
+        }
+        pullSearchTimer = setTimeout(function () {
+          fetch('/api/ollama-library/search?q=' + encodeURIComponent(q))
+            .then(function (r) { return r.ok ? r.json() : []; })
+            .then(function (models) {
+              if (!models.length) {
+                suggestionsEl.style.display = 'none';
+                return;
+              }
+              var html = '';
+              for (var i = 0; i < models.length && i < 15; i++) {
+                var sz = models[i].size ? ' (' + formatBytes(Number(models[i].size)) + ')' : '';
+                html += '<div class="admin-pf-pull-suggestion" data-model="' +
+                  escapeAttr(models[i].name) + '">' +
+                  escapeHtml(models[i].name) +
+                  '<span class="admin-pf-pull-suggestion-size">' + escapeHtml(sz) + '</span></div>';
+              }
+              suggestionsEl.innerHTML = html;
+              suggestionsEl.style.display = 'block';
+
+              // Wire click handlers on suggestions
+              var items = suggestionsEl.querySelectorAll('.admin-pf-pull-suggestion');
+              for (var j = 0; j < items.length; j++) {
+                items[j].addEventListener('click', function () {
+                  pullNameInput.value = this.getAttribute('data-model');
+                  suggestionsEl.style.display = 'none';
+                  pullGoBtn.disabled = false;
+                });
+              }
+            })
+            .catch(function () {
+              suggestionsEl.style.display = 'none';
+            });
+        }, 300);
+      });
+
+      // Hide suggestions on blur (with delay so clicks register)
+      pullNameInput.addEventListener('blur', function () {
+        setTimeout(function () { suggestionsEl.style.display = 'none'; }, 200);
+      });
+      // Re-show on focus if there's content
+      pullNameInput.addEventListener('focus', function () {
+        if (suggestionsEl.innerHTML && pullNameInput.value.trim().length >= 2) {
+          suggestionsEl.style.display = 'block';
+        }
+      });
+      // Enter in input does nothing (must click Pull button)
       pullNameInput.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') startPull();
+        if (e.key === 'Enter') e.preventDefault();
+      });
+
+      // Cancel button
+      var pullCancelBtn = container.querySelector('.admin-pf-pull-cancel');
+      pullCancelBtn.addEventListener('click', function () {
+        if (pullAbort) {
+          pullAbort.abort();
+          pullAbort = null;
+        }
+        finishPull(false);
+        showAdminFlash('Pull cancelled');
       });
 
       function startPull() {
         var model = pullNameInput.value.trim();
         if (!model) return;
 
+        pullAbort = new AbortController();
         pullGoBtn.disabled = true;
         pullBtn.disabled = true;
         pullNameInput.disabled = true;
+        suggestionsEl.style.display = 'none';
         pullError.style.display = 'none';
         pullProgress.style.display = 'flex';
         pullFill.style.width = '0%';
-        pullText.textContent = 'Starting pull\u2026';
+        pullText.textContent = 'Pulling ' + escapeHtml(model) + '\u2026';
 
         fetch('/api/providers/' + encodeURIComponent(providerId) + '/models/pull', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: model })
+          body: JSON.stringify({ model: model }),
+          signal: pullAbort.signal
         })
           .then(function (resp) {
             if (!resp.ok) {
@@ -805,7 +887,7 @@ App.registerArea({
                 }
                 buffer += decoder.decode(result.value, { stream: true });
                 var lines = buffer.split('\n');
-                buffer = lines.pop(); // keep incomplete line
+                buffer = lines.pop();
 
                 for (var i = 0; i < lines.length; i++) {
                   var line = lines[i].trim();
@@ -820,7 +902,6 @@ App.registerArea({
                         finishPull(true);
                         return;
                       }
-                      // Update progress
                       var pct = 0;
                       if (evt.total && evt.total > 0) {
                         pct = Math.round((evt.completed / evt.total) * 100);
@@ -839,11 +920,13 @@ App.registerArea({
             return read();
           })
           .catch(function (err) {
+            if (err.name === 'AbortError') return; // cancelled by user
             showPullError(err.message || 'Pull failed');
           });
       }
 
       function showPullError(msg) {
+        pullAbort = null;
         pullProgress.style.display = 'none';
         pullError.style.display = 'block';
         pullError.textContent = escapeHtml(msg);
@@ -853,6 +936,7 @@ App.registerArea({
       }
 
       function finishPull(success) {
+        pullAbort = null;
         pullProgress.style.display = 'none';
         pullGoBtn.disabled = false;
         pullBtn.disabled = false;
