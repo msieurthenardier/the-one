@@ -56,6 +56,25 @@ Flight 02 of Mission 03 (LLM Provider Management). Building the provider managem
 
 **Ruff**: 6 pre-existing errors in test files (not introduced by this leg, which only modifies .js/.css/.md)
 
+### Leg 04: studio-provider-dropdowns (completed)
+
+**Started**: 2026-04-24
+
+**Changes implemented**:
+1. **Provider state and fetching** (`studio.js`): Added `allProviders` state variable and `fetchProviders()` function. Included in `loadAll()` `Promise.all` as 5th fetch.
+2. **Default object update** (`studio.js`): Replaced stale `llm_provider: 'ollama', llm_base_url: null` with `provider_config_id: null` in the new-agent default config. Kept `llm_model: 'qwen2.5:7b'`.
+3. **Provider dropdown** (`studio.js`): Replaced free-text Provider input with `<select>` dropdown populated from `allProviders`. Shows `name (type)` per option. When `provider_config_id` is null, shows disabled "No provider -- configure in Admin" placeholder. Handles unknown provider (deleted after assignment) with "Unknown provider" option.
+4. **Model input with datalist** (`studio.js`): Replaced free-text Model input with `<input>` + `<datalist>` for type-ahead suggestions. Allows both selection from discovered models and free-text entry. Includes inline loading indicator with `aria-live="polite"`.
+5. **Base URL field removed** (`studio.js`): Completely removed the Base URL input from the LLM Configuration section.
+6. **Auto-fetch models** (`studio.js`): New `fetchModelsForProvider()` function calls `GET /api/providers/{id}/models` and populates the datalist. Triggered on provider change and on initial render if agent has a provider set. Shows "Loading models..." and "No models discovered" states.
+7. **collectFormData() update** (`studio.js`): Now queries `.field-select` in addition to `.field-input`. Reads `provider_config_id` from select (converts empty string to null). Removed stale `llm_base_url` cleanup.
+8. **Dirty tracking** (`studio.js`): Updated input selectors to include `.field-select` for change detection.
+9. **Accessibility** (`studio.js`): Added `for`/`id` label association on Provider (`studio-provider`) and Model (`studio-model`) fields.
+10. **CSS styles** (`styles.css`): Added `.field-select` (custom dropdown arrow, pointer cursor), `.field-model-wrap` (flex layout for model input + loading indicator), `.model-loading` (inline loading text).
+
+**Test results**: 234 passed, 8 deselected (live marker), 0 failures
+**Ruff**: 6 pre-existing errors in test files (not introduced by this leg, which only modifies .js/.css)
+
 ---
 
 ## Decisions

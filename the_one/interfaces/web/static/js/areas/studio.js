@@ -9,6 +9,7 @@ App.registerArea({
     var allTools = [];
     var allMcpSources = [];
     var allKnowledgeBases = [];
+    var allProviders = [];
     var selectedAgent = null;
     var createMode = false;
     var dirty = false;
@@ -55,13 +56,18 @@ App.registerArea({
       return fetch('/api/knowledge-bases').then(function (r) { return r.json(); });
     }
 
+    function fetchProviders() {
+      return fetch('/api/providers').then(function (r) { return r.json(); });
+    }
+
     function loadAll() {
-      return Promise.all([fetchAgents(), fetchTools(), fetchMcpSources(), fetchKnowledgeBases()])
+      return Promise.all([fetchAgents(), fetchTools(), fetchMcpSources(), fetchKnowledgeBases(), fetchProviders()])
         .then(function (results) {
           agents = results[0];
           allTools = results[1];
           allMcpSources = results[2];
           allKnowledgeBases = results[3];
+          allProviders = results[4];
           renderAgentList();
         });
     }
@@ -167,8 +173,8 @@ App.registerArea({
     function renderEditor(agent) {
       var isCreate = !agent;
       var cfg = agent || {
-        name: '', description: '', llm_provider: 'ollama', llm_model: 'qwen2.5:7b',
-        llm_base_url: null, system_prompt: '', enabled_tools: null, disabled_tools: [],
+        name: '', description: '', provider_config_id: null, llm_model: 'qwen2.5:7b',
+        system_prompt: '', enabled_tools: null, disabled_tools: [],
         kb_ids: [], mcp_source_ids: [], max_iterations: 20
       };
 
@@ -207,9 +213,33 @@ App.registerArea({
 
       // LLM Configuration
       html += '<div class="editor-section"><div class="section-title">LLM Configuration</div>';
-      html += '<div class="field-row"><label>Provider</label><input class="field-input" data-field="llm_provider" value="' + escapeAttr(cfg.llm_provider) + '" /></div>';
-      html += '<div class="field-row"><label>Model</label><input class="field-input" data-field="llm_model" value="' + escapeAttr(cfg.llm_model) + '" /></div>';
-      html += '<div class="field-row"><label>Base URL</label><input class="field-input" data-field="llm_base_url" value="' + escapeAttr(cfg.llm_base_url || '') + '" placeholder="optional" /></div>';
+
+      // Provider dropdown
+      html += '<div class="field-row"><label for="studio-provider">Provider</label>';
+      html += '<select id="studio-provider" class="field-input field-select" data-field="provider_config_id">';
+      if (!cfg.provider_config_id) {
+        html += '<option value="" disabled selected>No provider \u2014 configure in Admin</option>';
+      }
+      var providerFound = false;
+      for (var p = 0; p < allProviders.length; p++) {
+        var prov = allProviders[p];
+        var provSelected = cfg.provider_config_id === prov.id ? ' selected' : '';
+        if (cfg.provider_config_id === prov.id) providerFound = true;
+        html += '<option value="' + escapeAttr(prov.id) + '"' + provSelected + '>' + escapeHtml(prov.name) + ' (' + escapeHtml(prov.type) + ')</option>';
+      }
+      if (cfg.provider_config_id && !providerFound) {
+        html += '<option value="' + escapeAttr(cfg.provider_config_id) + '" selected>Unknown provider (' + escapeAttr(cfg.provider_config_id) + ')</option>';
+      }
+      html += '</select></div>';
+
+      // Model input with datalist
+      html += '<div class="field-row"><label for="studio-model">Model</label>';
+      html += '<div class="field-model-wrap">';
+      html += '<input id="studio-model" class="field-input" data-field="llm_model" list="studio-model-list" value="' + escapeAttr(cfg.llm_model) + '" placeholder="e.g. qwen2.5:7b" />';
+      html += '<datalist id="studio-model-list"></datalist>';
+      html += '<span class="model-loading" aria-live="polite"></span>';
+      html += '</div></div>';
+
       html += '</div>';
 
       // System Prompt
@@ -285,12 +315,59 @@ App.registerArea({
       wireEditorEvents(isCreate, cfg);
     }
 
+    function fetchModelsForProvider(providerId) {
+      var datalist = editorEl.querySelector('#studio-model-list');
+      var loadingEl = editorEl.querySelector('.model-loading');
+      if (!datalist) return;
+
+      if (!providerId) {
+        datalist.innerHTML = '';
+        if (loadingEl) loadingEl.textContent = '';
+        return;
+      }
+
+      if (loadingEl) loadingEl.textContent = 'Loading models\u2026';
+
+      fetch('/api/providers/' + encodeURIComponent(providerId) + '/models')
+        .then(function (r) {
+          if (!r.ok) throw new Error('Failed');
+          return r.json();
+        })
+        .then(function (models) {
+          var html = '';
+          for (var i = 0; i < models.length; i++) {
+            var modelId = models[i].id || models[i].name;
+            html += '<option value="' + escapeAttr(modelId) + '">';
+          }
+          datalist.innerHTML = html;
+          if (loadingEl) {
+            loadingEl.textContent = models.length === 0 ? 'No models discovered' : '';
+          }
+        })
+        .catch(function () {
+          datalist.innerHTML = '';
+          if (loadingEl) loadingEl.textContent = '';
+        });
+    }
+
     function wireEditorEvents(isCreate, cfg) {
       // Dirty tracking on all inputs
-      var inputs = editorEl.querySelectorAll('.field-input, .field-textarea, .tool-toggle');
+      var inputs = editorEl.querySelectorAll('.field-input, .field-textarea, .field-select, .tool-toggle');
       for (var i = 0; i < inputs.length; i++) {
         inputs[i].addEventListener('input', checkDirty);
         inputs[i].addEventListener('change', checkDirty);
+      }
+
+      // Provider change -> fetch models
+      var providerSelect = editorEl.querySelector('#studio-provider');
+      if (providerSelect) {
+        providerSelect.addEventListener('change', function () {
+          fetchModelsForProvider(providerSelect.value);
+        });
+        // Auto-fetch models for currently selected provider
+        if (cfg.provider_config_id) {
+          fetchModelsForProvider(cfg.provider_config_id);
+        }
       }
 
       // Tool select all/none
@@ -451,12 +528,14 @@ App.registerArea({
 
     function collectFormData() {
       var data = {};
-      var fields = editorEl.querySelectorAll('.field-input, .field-textarea');
+      var fields = editorEl.querySelectorAll('.field-input, .field-textarea, .field-select');
       for (var i = 0; i < fields.length; i++) {
         var f = fields[i];
         var key = f.dataset.field;
         if (key === 'max_iterations') {
           data[key] = parseInt(f.value, 10) || 20;
+        } else if (key === 'provider_config_id') {
+          data[key] = f.value || null;
         } else {
           data[key] = f.value;
         }
@@ -496,9 +575,6 @@ App.registerArea({
       data.kb_ids = [];
       for (var m = 0; m < mcpChips.length; m++) data.mcp_source_ids.push(mcpChips[m].dataset.id);
       for (var k = 0; k < kbChips.length; k++) data.kb_ids.push(kbChips[k].dataset.id);
-
-      // Clean up empty base_url
-      if (data.llm_base_url === '') data.llm_base_url = null;
 
       return data;
     }

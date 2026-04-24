@@ -140,6 +140,13 @@ body { font-family: 'SF Mono', 'Fira Code', monospace; background: var(--bg); co
 .area-studio .field-input { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; color: var(--fg); font-family: inherit; font-size: 13px; outline: none; }
 .area-studio .field-input:focus { border-color: var(--accent); }
 .area-studio .field-input-short { max-width: 100px; }
+.area-studio .field-select { appearance: none; -webkit-appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23888'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; padding-right: 30px; cursor: pointer; }
+.area-studio .field-select:focus { border-color: var(--accent); }
+.area-studio .field-select option { background: var(--surface); color: var(--fg); }
+.area-studio .field-select option:disabled { color: #555; }
+.area-studio .field-model-wrap { flex: 1; display: flex; align-items: center; gap: 8px; }
+.area-studio .field-model-wrap .field-input { flex: 1; }
+.area-studio .model-loading { font-size: 11px; color: #888; white-space: nowrap; flex-shrink: 0; }
 .area-studio .field-textarea { width: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; color: var(--fg); font-family: inherit; font-size: 13px; outline: none; resize: vertical; }
 .area-studio .field-textarea:focus { border-color: var(--accent); }
 
