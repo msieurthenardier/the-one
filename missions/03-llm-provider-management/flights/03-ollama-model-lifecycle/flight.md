@@ -1,6 +1,6 @@
 # Flight: Ollama Model Lifecycle
 
-**Status**: landed
+**Status**: completed
 **Mission**: [LLM Provider Management](../../mission.md)
 
 ## Contributing to Criteria
