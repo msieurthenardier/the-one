@@ -9,6 +9,7 @@ App.registerArea({
     var allTools = [];
     var allMcpSources = [];
     var allKnowledgeBases = [];
+    var allProviders = [];
     var selectedAgent = null;
     var createMode = false;
     var dirty = false;
@@ -55,13 +56,18 @@ App.registerArea({
       return fetch('/api/knowledge-bases').then(function (r) { return r.json(); });
     }
 
+    function fetchProviders() {
+      return fetch('/api/providers').then(function (r) { return r.json(); });
+    }
+
     function loadAll() {
-      return Promise.all([fetchAgents(), fetchTools(), fetchMcpSources(), fetchKnowledgeBases()])
+      return Promise.all([fetchAgents(), fetchTools(), fetchMcpSources(), fetchKnowledgeBases(), fetchProviders()])
         .then(function (results) {
           agents = results[0];
           allTools = results[1];
           allMcpSources = results[2];
           allKnowledgeBases = results[3];
+          allProviders = results[4];
           renderAgentList();
         });
     }
@@ -167,8 +173,8 @@ App.registerArea({
     function renderEditor(agent) {
       var isCreate = !agent;
       var cfg = agent || {
-        name: '', description: '', llm_provider: 'ollama', llm_model: 'qwen2.5:7b',
-        llm_base_url: null, system_prompt: '', enabled_tools: null, disabled_tools: [],
+        name: '', description: '', provider_config_id: null, llm_model: 'qwen2.5:7b',
+        system_prompt: '', enabled_tools: null, disabled_tools: [],
         kb_ids: [], mcp_source_ids: [], max_iterations: 20
       };
 
@@ -200,16 +206,42 @@ App.registerArea({
       // Identity
       html += '<div class="editor-section"><div class="section-title">Identity</div>';
       if (isCreate) {
-        html += '<div class="field-row"><label>Name</label><input class="field-input" data-field="name" value="" placeholder="agent-name" /></div>';
+        html += '<div class="field-row"><label for="field-name">Name</label><input id="field-name" class="field-input" data-field="name" value="" placeholder="agent-name" /></div>';
       }
-      html += '<div class="field-row"><label>Description</label><input class="field-input" data-field="description" value="' + escapeAttr(cfg.description) + '" placeholder="What does this agent do?" /></div>';
+      html += '<div class="field-row"><label for="field-description">Description</label><input id="field-description" class="field-input" data-field="description" value="' + escapeAttr(cfg.description) + '" placeholder="What does this agent do?" /></div>';
       html += '</div>';
 
-      // LLM Configuration
+      // LLM Configuration — Provider dropdown + Model with datalist
       html += '<div class="editor-section"><div class="section-title">LLM Configuration</div>';
-      html += '<div class="field-row"><label>Provider</label><input class="field-input" data-field="llm_provider" value="' + escapeAttr(cfg.llm_provider) + '" /></div>';
-      html += '<div class="field-row"><label>Model</label><input class="field-input" data-field="llm_model" value="' + escapeAttr(cfg.llm_model) + '" /></div>';
-      html += '<div class="field-row"><label>Base URL</label><input class="field-input" data-field="llm_base_url" value="' + escapeAttr(cfg.llm_base_url || '') + '" placeholder="optional" /></div>';
+
+      // Provider dropdown
+      html += '<div class="field-row"><label for="field-provider">Provider</label>';
+      html += '<select id="field-provider" class="field-input field-select" data-field="provider_config_id">';
+      if (allProviders.length === 0) {
+        html += '<option value="" disabled selected>No provider \u2014 configure in Admin</option>';
+      } else {
+        if (!cfg.provider_config_id) {
+          html += '<option value="" disabled selected>Select a provider\u2026</option>';
+        }
+        for (var p = 0; p < allProviders.length; p++) {
+          var prov = allProviders[p];
+          var provSelected = cfg.provider_config_id === prov.id ? ' selected' : '';
+          html += '<option value="' + escapeAttr(prov.id) + '"' + provSelected + '>' +
+            escapeHtml(prov.name) + ' (' + escapeHtml(prov.type) + ')</option>';
+        }
+      }
+      html += '</select>';
+      html += '</div>';
+
+      // Model with datalist for type-ahead
+      html += '<div class="field-row"><label for="field-model">Model</label>';
+      html += '<div class="field-model-wrap">';
+      html += '<input id="field-model" class="field-input" data-field="llm_model" list="model-options" value="' + escapeAttr(cfg.llm_model) + '" placeholder="model name" />';
+      html += '<datalist id="model-options"></datalist>';
+      html += '<span class="field-model-loading" aria-live="polite"></span>';
+      html += '</div>';
+      html += '</div>';
+
       html += '</div>';
 
       // System Prompt
@@ -265,7 +297,7 @@ App.registerArea({
 
       // Max iterations
       html += '<div class="editor-section"><div class="section-title">Behavior</div>';
-      html += '<div class="field-row"><label>Max Iterations</label><input class="field-input field-input-short" data-field="max_iterations" type="number" value="' + cfg.max_iterations + '" min="1" max="100" /></div>';
+      html += '<div class="field-row"><label for="field-max-iter">Max Iterations</label><input id="field-max-iter" class="field-input field-input-short" data-field="max_iterations" type="number" value="' + cfg.max_iterations + '" min="1" max="100" /></div>';
       html += '</div>';
 
       // Save button
@@ -283,14 +315,30 @@ App.registerArea({
 
       // Wire events
       wireEditorEvents(isCreate, cfg);
+
+      // Auto-fetch models if provider is selected
+      if (cfg.provider_config_id) {
+        fetchModelsForProvider(cfg.provider_config_id);
+      }
     }
 
     function wireEditorEvents(isCreate, cfg) {
       // Dirty tracking on all inputs
-      var inputs = editorEl.querySelectorAll('.field-input, .field-textarea, .tool-toggle');
+      var inputs = editorEl.querySelectorAll('.field-input, .field-textarea, .tool-toggle, .field-select');
       for (var i = 0; i < inputs.length; i++) {
         inputs[i].addEventListener('input', checkDirty);
         inputs[i].addEventListener('change', checkDirty);
+      }
+
+      // Provider change — auto-fetch models
+      var providerSelect = editorEl.querySelector('[data-field="provider_config_id"]');
+      if (providerSelect) {
+        providerSelect.addEventListener('change', function () {
+          var providerId = providerSelect.value;
+          if (providerId) {
+            fetchModelsForProvider(providerId);
+          }
+        });
       }
 
       // Tool select all/none
@@ -345,6 +393,35 @@ App.registerArea({
       // Save
       var saveBtn = editorEl.querySelector('.save-btn');
       saveBtn.onclick = function () { save(isCreate); };
+    }
+
+    // ── Model fetching for provider ─────────────────────────────────
+
+    function fetchModelsForProvider(providerId) {
+      var loadingEl = editorEl.querySelector('.field-model-loading');
+      var datalist = editorEl.querySelector('#model-options');
+      if (loadingEl) loadingEl.textContent = 'Loading models\u2026';
+
+      fetch('/api/providers/' + encodeURIComponent(providerId) + '/models')
+        .then(function (r) {
+          if (!r.ok) throw new Error('Failed');
+          return r.json();
+        })
+        .then(function (models) {
+          if (loadingEl) loadingEl.textContent = models.length + ' models available';
+          if (datalist) {
+            datalist.innerHTML = '';
+            for (var i = 0; i < models.length; i++) {
+              var opt = document.createElement('option');
+              opt.value = models[i].name || models[i].id;
+              datalist.appendChild(opt);
+            }
+          }
+        })
+        .catch(function () {
+          if (loadingEl) loadingEl.textContent = '';
+          if (datalist) datalist.innerHTML = '';
+        });
     }
 
     // ── Tool helpers ─────────────────────────────────────────────────
@@ -455,11 +532,18 @@ App.registerArea({
       for (var i = 0; i < fields.length; i++) {
         var f = fields[i];
         var key = f.dataset.field;
+        if (!key) continue;
         if (key === 'max_iterations') {
           data[key] = parseInt(f.value, 10) || 20;
         } else {
           data[key] = f.value;
         }
+      }
+
+      // Provider selection
+      var providerSelect = editorEl.querySelector('[data-field="provider_config_id"]');
+      if (providerSelect) {
+        data.provider_config_id = providerSelect.value || null;
       }
 
       // Tool state
@@ -496,9 +580,6 @@ App.registerArea({
       data.kb_ids = [];
       for (var m = 0; m < mcpChips.length; m++) data.mcp_source_ids.push(mcpChips[m].dataset.id);
       for (var k = 0; k < kbChips.length; k++) data.kb_ids.push(kbChips[k].dataset.id);
-
-      // Clean up empty base_url
-      if (data.llm_base_url === '') data.llm_base_url = null;
 
       return data;
     }

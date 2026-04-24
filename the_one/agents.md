@@ -39,7 +39,7 @@ Global configuration via `pydantic-settings`. All values from `THE_ONE_*` env va
 | `Settings` | class | Pydantic-settings model |
 | `settings` | instance | Global singleton |
 
-Key properties: `data_dir` (`~/.the-one`), `workspace_dir` (`/workspace`), `agents_dir` (`data_dir / "agents"`), `llm_provider`, `llm_model`.
+Key properties: `data_dir` (`~/.the-one`), `workspace_dir` (`/workspace`), `agents_dir` (`data_dir / "agents"`).
 
 ### `the_one/agent/`
 
@@ -125,7 +125,9 @@ config.py ←── llm/ ←──┐
 
 ### Multi-Agent via AgentFactory
 
-Agents are defined as JSON files in `~/.the-one/agents/`. The factory reads a config, wires up the right LLM + filtered tools + prompt, and returns a ready-to-use `Agent`. A "default" agent is synthesized from env vars when no config file exists.
+Agents are defined in the SQLite database (table `agents`). The factory reads a config, resolves the LLM provider via `provider_config_id` (a foreign key to `llm_providers`), wires up filtered tools + prompt, and returns a ready-to-use `Agent`. A "default" agent is synthesized with `provider_config_id=None` when no config exists; agents without a provider will raise `ValueError` on creation.
+
+Provider resolution: `AgentConfig.provider_config_id` references `llm_providers.id`. The factory loads the `LLMProviderConfig` from the DB, maps the provider type (`ollama`, `openai-compatible`, `openai`, `anthropic`) to the LLM registry name, and passes `base_url` and `api_key` to the LLM provider constructor.
 
 ### Tool Filtering
 

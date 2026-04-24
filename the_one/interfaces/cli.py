@@ -26,20 +26,30 @@ async def _run_cli() -> None:
     await migrate_json_to_sqlite(store)
 
     factory = AgentFactory(store=store)
-    agent = await factory.create()
-    session: PromptSession[str] = PromptSession(
-        history=FileHistory(str(settings.data_dir / "cli_history"))
-    )
 
+    # Print banner before creating the agent (no provider references needed)
     console.print(
         Panel(
-            f"[bold]the-one[/bold] v0.1.0\n"
-            f"Provider: {settings.llm_provider} / {settings.llm_model}\n"
-            f"Tools: {', '.join(agent.tools.tool_names)}\n"
-            f"Type [bold]/quit[/bold] to exit, [bold]/reset[/bold] to clear context.",
+            "[bold]the-one[/bold] v0.1.0\n"
+            "Type [bold]/quit[/bold] to exit, [bold]/reset[/bold] to clear context.",
             title="the-one",
             border_style="blue",
         )
+    )
+
+    try:
+        agent = await factory.create()
+    except ValueError as e:
+        console.print(f"[red]Error: {e}[/red]")
+        console.print(
+            "[yellow]Configure a provider in the web UI (Admin > LLM Providers) "
+            "and assign it to the default agent in Studio.[/yellow]"
+        )
+        await close_connection()
+        return
+
+    session: PromptSession[str] = PromptSession(
+        history=FileHistory(str(settings.data_dir / "cli_history"))
     )
 
     try:

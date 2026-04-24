@@ -517,8 +517,11 @@ async def list_provider_models(provider_id: str) -> list[dict[str, Any]]:
                 resp.raise_for_status()
             data = resp.json().get("data", [])
             return [{"id": m.get("id", ""), "name": m.get("id", "")} for m in data]
-        except Exception:
-            return []
+        except Exception as e:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Failed to fetch models from openai-compatible provider: {e}",
+            )
     elif provider.type == "openai":
         import openai
 

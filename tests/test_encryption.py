@@ -41,6 +41,48 @@ class TestGetEncryptor:
         assert key_path.read_bytes() == key_bytes
 
 
+class TestEncryptorCaching:
+    """Tests for get_encryptor module-level singleton caching."""
+
+    def test_same_dir_returns_same_instance(self, tmp_path: Path) -> None:
+        from the_one.encryption import _encryptor_cache
+        # Clear cache to avoid interference from other tests
+        _encryptor_cache.clear()
+        enc1 = get_encryptor(tmp_path)
+        enc2 = get_encryptor(tmp_path)
+        assert enc1 is enc2
+
+    def test_different_dir_returns_different_instance(self, tmp_path: Path) -> None:
+        from the_one.encryption import _encryptor_cache
+        _encryptor_cache.clear()
+        dir1 = tmp_path / "dir1"
+        dir1.mkdir()
+        dir2 = tmp_path / "dir2"
+        dir2.mkdir()
+        enc1 = get_encryptor(dir1)
+        enc2 = get_encryptor(dir2)
+        assert enc1 is not enc2
+
+    def test_rotation_propagates_through_cache(self, tmp_path: Path) -> None:
+        from the_one.encryption import _encryptor_cache
+        _encryptor_cache.clear()
+        enc = get_encryptor(tmp_path)
+        plaintext = "before-rotation"
+        encrypted = enc.encrypt(plaintext)
+        assert enc.decrypt(encrypted) == plaintext
+
+        # Rotate key
+        enc.rotate_key(lambda old, new: None)
+
+        # Same cached instance should use the new key
+        enc_cached = get_encryptor(tmp_path)
+        assert enc_cached is enc
+        # Old ciphertext should fail with new key
+        from cryptography.fernet import InvalidToken
+        with pytest.raises(InvalidToken):
+            enc_cached.decrypt(encrypted)
+
+
 class TestEncryptDecrypt:
     """Tests for encrypt/decrypt round-trip."""
 

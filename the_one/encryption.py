@@ -67,11 +67,21 @@ class Encryptor:
         self._key = new_key
 
 
+_encryptor_cache: dict[str, Encryptor] = {}
+
+
 def get_encryptor(data_dir: Path) -> Encryptor:
     """Return an Encryptor backed by a key file in *data_dir*.
 
     The key file is auto-generated on first use and set to mode 0600.
+    Results are cached by resolved data_dir path so the same Encryptor
+    instance is returned for repeated calls with the same directory.
     """
+    cache_key = str(data_dir.resolve())
+    cached = _encryptor_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     key_path = data_dir / "encryption.key"
 
     if key_path.exists():
@@ -81,4 +91,6 @@ def get_encryptor(data_dir: Path) -> Encryptor:
         key_path.write_bytes(key)
         os.chmod(key_path, 0o600)
 
-    return Encryptor(key, key_path=key_path)
+    encryptor = Encryptor(key, key_path=key_path)
+    _encryptor_cache[cache_key] = encryptor
+    return encryptor
