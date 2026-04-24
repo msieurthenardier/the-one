@@ -7,18 +7,21 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+import httpx
 from fastapi import APIRouter, HTTPException, Request
 
 from the_one.config import Settings, settings
 from the_one.db.connection import get_connection
-from the_one.db.models import ChatSession, KBItem, KnowledgeBase, MCPSource
+from the_one.db.models import ChatSession, KBItem, KnowledgeBase, LLMProviderConfig, MCPSource
 from the_one.db.repositories import (
     ChatSessionRepository,
     KBItemRepository,
     KnowledgeBaseRepository,
+    LLMProviderRepository,
     MCPSourceRepository,
     SQLiteAgentStore,
 )
+from the_one.encryption import get_encryptor
 
 router = APIRouter(prefix="/api")
 
@@ -353,3 +356,208 @@ def _session_summary(session: ChatSession) -> dict[str, Any]:
         "created_at": session.created_at,
         "updated_at": session.updated_at,
     }
+
+
+# ── LLM Provider helpers ────────────────────────────────────────────────
+
+
+async def _provider_repo() -> LLMProviderRepository:
+    conn = await get_connection()
+    encryptor = get_encryptor(settings.data_dir)
+    return LLMProviderRepository(conn, encryptor)
+
+
+def _mask_api_key(key: str | None) -> str | None:
+    if not key:
+        return key
+    if len(key) <= 4:
+        return "***"
+    return f"***...{key[-4:]}"
+
+
+def _provider_response(provider: LLMProviderConfig) -> dict[str, Any]:
+    data = provider.model_dump()
+    data["api_key"] = _mask_api_key(provider.api_key)
+    return data
+
+
+def _auth_headers(api_key: str | None) -> dict[str, str]:
+    if api_key:
+        return {"Authorization": f"Bearer {api_key}"}
+    return {}
+
+
+# ── LLM Providers ───────────────────────────────────────────────────────
+
+
+@router.get("/providers")
+async def list_providers() -> list[dict[str, Any]]:
+    repo = await _provider_repo()
+    providers = await repo.list()
+    return [_provider_response(p) for p in providers]
+
+
+@router.get("/providers/{provider_id}")
+async def get_provider(provider_id: str) -> dict[str, Any]:
+    repo = await _provider_repo()
+    try:
+        provider = await repo.get(provider_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Provider not found: {provider_id}")
+    return _provider_response(provider)
+
+
+@router.post("/providers", status_code=201)
+async def create_provider(request: Request) -> dict[str, Any]:
+    data = await request.json()
+    if "id" not in data:
+        data["id"] = uuid.uuid4().hex[:12]
+    provider = LLMProviderConfig.model_validate(data)
+    repo = await _provider_repo()
+    await repo.create(provider)
+    return _provider_response(provider)
+
+
+@router.put("/providers/{provider_id}")
+async def update_provider(provider_id: str, request: Request) -> dict[str, Any]:
+    data = await request.json()
+    data["id"] = provider_id
+    repo = await _provider_repo()
+    try:
+        existing = await repo.get(provider_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Provider not found: {provider_id}")
+
+    # Detect masked API key and preserve existing stored key
+    incoming_key = data.get("api_key")
+    if incoming_key and incoming_key.startswith("***"):
+        data["api_key"] = existing.api_key
+
+    updated = existing.model_copy(update=data)
+    await repo.update(updated)
+    return _provider_response(updated)
+
+
+@router.delete("/providers/{provider_id}")
+async def delete_provider(provider_id: str) -> dict[str, str]:
+    repo = await _provider_repo()
+    try:
+        await repo.delete(provider_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Provider not found: {provider_id}")
+    return {"status": "ok"}
+
+
+@router.post("/providers/{provider_id}/test")
+async def test_provider(provider_id: str) -> dict[str, Any]:
+    repo = await _provider_repo()
+    try:
+        provider = await repo.get(provider_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Provider not found: {provider_id}")
+
+    try:
+        if provider.type == "ollama":
+            base = provider.base_url.rstrip("/").removesuffix("/v1")
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.get(f"{base}/api/tags")
+                resp.raise_for_status()
+            return {"status": "ok", "detail": "Connected to Ollama"}
+        elif provider.type == "openai-compatible":
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.get(
+                    f"{provider.base_url.rstrip('/')}/models",
+                    headers=_auth_headers(provider.api_key),
+                )
+                resp.raise_for_status()
+            return {"status": "ok", "detail": "Connected"}
+        elif provider.type == "openai":
+            import openai
+
+            client = openai.AsyncOpenAI(api_key=provider.api_key)
+            await client.models.list()
+            return {"status": "ok", "detail": "Connected to OpenAI"}
+        elif provider.type == "anthropic":
+            import anthropic
+
+            client = anthropic.AsyncAnthropic(api_key=provider.api_key)
+            await client.models.list()
+            return {"status": "ok", "detail": "Connected to Anthropic"}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}
+
+    return {"status": "error", "detail": f"Unknown provider type: {provider.type}"}
+
+
+@router.get("/providers/{provider_id}/models")
+async def list_provider_models(provider_id: str) -> list[dict[str, Any]]:
+    repo = await _provider_repo()
+    try:
+        provider = await repo.get(provider_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Provider not found: {provider_id}")
+
+    if provider.type == "ollama":
+        base = provider.base_url.rstrip("/").removesuffix("/v1")
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(f"{base}/api/tags")
+            resp.raise_for_status()
+        models = resp.json().get("models", [])
+        return [
+            {"id": m.get("name", ""), "name": m.get("name", ""), "size": m.get("size")}
+            for m in models
+        ]
+    elif provider.type == "openai-compatible":
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.get(
+                    f"{provider.base_url.rstrip('/')}/models",
+                    headers=_auth_headers(provider.api_key),
+                )
+                resp.raise_for_status()
+            data = resp.json().get("data", [])
+            return [{"id": m.get("id", ""), "name": m.get("id", "")} for m in data]
+        except Exception:
+            return []
+    elif provider.type == "openai":
+        import openai
+
+        client = openai.AsyncOpenAI(api_key=provider.api_key)
+        response = await client.models.list()
+        return [{"id": m.id, "name": m.id} for m in response.data]
+    elif provider.type == "anthropic":
+        import anthropic
+
+        client = anthropic.AsyncAnthropic(api_key=provider.api_key)
+        response = await client.models.list()
+        return [{"id": m.id, "name": getattr(m, "display_name", m.id)} for m in response.data]
+
+    return []
+
+
+# ── Encryption ───────────────────────────────────────────────────────────
+
+
+@router.post("/encryption/rotate")
+async def rotate_encryption_key() -> dict[str, str]:
+    encryptor = get_encryptor(settings.data_dir)
+    conn = await get_connection()
+
+    # 1. Read and decrypt all stored API keys
+    async with conn.execute(
+        "SELECT id, api_key FROM llm_providers WHERE api_key IS NOT NULL AND api_key != ''"
+    ) as cur:
+        rows = await cur.fetchall()
+    decrypted = [(row["id"], encryptor.decrypt(row["api_key"])) for row in rows]
+
+    # 2. Rotate key (no-op callback — re-encryption handled below)
+    encryptor.rotate_key(lambda old, new: None)
+
+    # 3. Re-encrypt with the now-rotated encryptor
+    for provider_id, plaintext in decrypted:
+        await conn.execute(
+            "UPDATE llm_providers SET api_key = ? WHERE id = ?",
+            (encryptor.encrypt(plaintext), provider_id),
+        )
+    await conn.commit()
+    return {"status": "ok"}

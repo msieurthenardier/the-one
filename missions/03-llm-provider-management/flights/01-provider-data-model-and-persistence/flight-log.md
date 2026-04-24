@@ -62,6 +62,28 @@ Flight 01 of Mission 03 (LLM Provider Management). Establishing the backend foun
 - No deviations from leg spec
 - 24 pre-existing test failures remain (deferred to leg 05)
 
+### Leg 04: Provider API Endpoints
+
+**Status**: completed
+**Date**: 2026-04-23
+
+**Outcomes**:
+- Added provider CRUD endpoints to `the_one/interfaces/web/api.py`: GET/POST/PUT/DELETE `/api/providers` and `/api/providers/{id}`
+- Added connection test endpoint `POST /api/providers/{id}/test` with support for ollama, openai-compatible, openai, and anthropic provider types
+- Added model discovery endpoint `GET /api/providers/{id}/models` with graceful degradation for openai-compatible
+- Added encryption key rotation endpoint `POST /api/encryption/rotate` using inline decrypt-rotate-reencrypt approach
+- API key masking in all GET responses: `***...XXXX` format (last 4 chars visible)
+- PUT endpoint detects masked API keys (`***...` prefix) and preserves existing stored key
+- POST returns status 201, auto-generates 12-char hex ID if not provided
+- Helper functions: `_provider_repo()`, `_mask_api_key()`, `_provider_response()`, `_auth_headers()`
+- Created `tests/test_provider_api.py` with 16 tests — all passing in ~1.2s
+- Test fixture patches both `get_connection` and `get_encryptor` for isolation
+- Lint (`ruff check`) and format (`ruff format`) clean
+
+**Notes**:
+- No deviations from leg spec
+- 24 pre-existing test failures remain (deferred to leg 05)
+
 ---
 
 ## Decisions
