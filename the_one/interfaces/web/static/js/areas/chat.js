@@ -90,12 +90,14 @@ App.registerArea({
     }
 
     function fetchAgents() {
-      fetch('/api/agents')
+      return fetch('/api/agents')
         .then(function (r) { return r.json(); })
         .then(function (agents) {
           var prev = agentSelect.value;
-          // Clear all options except default
-          agentSelect.innerHTML = '<option value="">default</option>';
+          agentSelect.innerHTML = '';
+          if (agents.length === 0) {
+            agentSelect.innerHTML = '<option value="" disabled>No agents configured</option>';
+          }
           for (var i = 0; i < agents.length; i++) {
             var opt = document.createElement('option');
             opt.value = agents[i].name;
@@ -194,8 +196,9 @@ App.registerArea({
 
       ws.onopen = function () {
         statusEl.textContent = 'connected';
-        ws.send(JSON.stringify({ action: 'list_sessions' }));
-        fetchAgents();
+        fetchAgents().then(function () {
+          ws.send(JSON.stringify({ action: 'list_sessions' }));
+        });
       };
 
       ws.onclose = function () {
@@ -211,7 +214,9 @@ App.registerArea({
           if (data.sessions.length > 0 && !currentSessionId) {
             joinSession(data.sessions[0].id);
           } else if (!currentSessionId) {
-            ws.send(JSON.stringify({ action: 'new_session' }));
+            var msg = { action: 'new_session' };
+            if (agentSelect.value) msg.agent_name = agentSelect.value;
+            ws.send(JSON.stringify(msg));
           }
           return;
         }
@@ -229,7 +234,9 @@ App.registerArea({
           if (currentSessionId === data.session_id) {
             currentSessionId = null;
             messagesEl.innerHTML = '';
-            ws.send(JSON.stringify({ action: 'new_session' }));
+            var delMsg = { action: 'new_session' };
+            if (agentSelect.value) delMsg.agent_name = agentSelect.value;
+            ws.send(JSON.stringify(delMsg));
           }
           refreshSessionList();
           return;
