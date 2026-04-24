@@ -173,7 +173,7 @@ App.registerArea({
     function renderEditor(agent) {
       var isCreate = !agent;
       var cfg = agent || {
-        name: '', description: '', provider_config_id: null, llm_model: 'qwen2.5:7b',
+        name: '', description: '', provider_config_id: null, llm_model: '',
         system_prompt: '', enabled_tools: null, disabled_tools: [],
         kb_ids: [], mcp_source_ids: [], max_iterations: 20
       };
@@ -235,7 +235,7 @@ App.registerArea({
       // Model input with datalist
       html += '<div class="field-row"><label for="studio-model">Model</label>';
       html += '<div class="field-model-wrap">';
-      html += '<input id="studio-model" class="field-input" data-field="llm_model" list="studio-model-list" value="' + escapeAttr(cfg.llm_model) + '" placeholder="e.g. qwen2.5:7b" />';
+      html += '<input id="studio-model" class="field-input" data-field="llm_model" list="studio-model-list" value="' + escapeAttr(cfg.llm_model) + '" placeholder="Select a provider first" />';
       html += '<datalist id="studio-model-list"></datalist>';
       html += '<span class="model-loading" aria-live="polite"></span>';
       html += '</div></div>';
@@ -362,6 +362,8 @@ App.registerArea({
       var providerSelect = editorEl.querySelector('#studio-provider');
       if (providerSelect) {
         providerSelect.addEventListener('change', function () {
+          var modelInput = editorEl.querySelector('#studio-model');
+          if (modelInput) modelInput.value = '';
           fetchModelsForProvider(providerSelect.value);
         });
         // Auto-fetch models for currently selected provider
