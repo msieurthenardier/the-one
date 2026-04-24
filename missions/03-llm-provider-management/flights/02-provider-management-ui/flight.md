@@ -1,6 +1,6 @@
 # Flight: Provider Management UI
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [LLM Provider Management](../../mission.md)
 
 ## Contributing to Criteria
