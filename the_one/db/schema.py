@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import aiosqlite
 
-CURRENT_VERSION = 2
+CURRENT_VERSION = 3
 
 SCHEMA_V1 = """\
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -69,9 +69,7 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
 async def _get_version(conn: aiosqlite.Connection) -> int:
     """Return current schema version, or 0 if no version table exists."""
     try:
-        async with conn.execute(
-            "SELECT MAX(version) FROM schema_version"
-        ) as cursor:
+        async with conn.execute("SELECT MAX(version) FROM schema_version") as cursor:
             row = await cursor.fetchone()
             return row[0] if row and row[0] is not None else 0
     except aiosqlite.OperationalError:
@@ -109,4 +107,50 @@ ALTER TABLE chat_sessions_new RENAME TO chat_sessions;
 CREATE INDEX idx_chat_sessions_agent ON chat_sessions(agent_name);
 """)
         await conn.execute("INSERT INTO schema_version (version) VALUES (?)", (2,))
+        await conn.commit()
+
+    if version < 3:
+        await conn.executescript("""\
+PRAGMA foreign_keys=OFF;
+
+CREATE TABLE IF NOT EXISTS llm_providers (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL CHECK (type IN ('ollama', 'openai-compatible', 'openai', 'anthropic')),
+    base_url TEXT NOT NULL,
+    api_key TEXT,
+    config TEXT DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS agents_new (
+    name TEXT PRIMARY KEY,
+    description TEXT DEFAULT '',
+    provider_config_id TEXT REFERENCES llm_providers(id) ON DELETE SET NULL,
+    llm_model TEXT DEFAULT 'qwen2.5:7b',
+    system_prompt TEXT DEFAULT '',
+    enabled_tools TEXT,
+    disabled_tools TEXT DEFAULT '[]',
+    max_iterations INTEGER DEFAULT 20,
+    kb_ids TEXT DEFAULT '[]',
+    mcp_source_ids TEXT DEFAULT '[]',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+INSERT INTO agents_new (name, description, llm_model, system_prompt,
+    enabled_tools, disabled_tools, max_iterations, kb_ids, mcp_source_ids,
+    created_at, updated_at)
+    SELECT name, description, llm_model, system_prompt,
+    enabled_tools, disabled_tools, max_iterations, kb_ids, mcp_source_ids,
+    created_at, updated_at FROM agents;
+
+DROP TABLE agents;
+
+ALTER TABLE agents_new RENAME TO agents;
+
+PRAGMA foreign_keys=ON;
+""")
+        await conn.execute("INSERT INTO schema_version (version) VALUES (?)", (3,))
         await conn.commit()

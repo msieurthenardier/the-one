@@ -12,6 +12,19 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+class LLMProviderConfig(BaseModel):
+    """An LLM provider connection configuration."""
+
+    id: str
+    name: str
+    type: Literal["ollama", "openai-compatible", "openai", "anthropic"]
+    base_url: str
+    api_key: str | None = None
+    config: dict = Field(default_factory=dict)
+    created_at: str = Field(default_factory=_now_iso)
+    updated_at: str = Field(default_factory=_now_iso)
+
+
 class KnowledgeBase(BaseModel):
     """A knowledge base — stub for future RAG pipeline."""
 
