@@ -27,6 +27,21 @@ Flight 02 of Mission 03 (LLM Provider Management). Building the provider managem
 **Test results**: 234 passed, 8 deselected (live marker), 0 failures
 **Ruff**: All checks passed on modified files
 
+### Leg 02: provider-list-and-editor (completed)
+
+**Started**: 2026-04-24
+
+**Changes implemented**:
+1. **Admin sidebar** (`admin.js`): Replaced "Integrations" placeholder with "LLM Providers" (active: true). "Agents" and "System" remain as placeholders with "Soon" badges.
+2. **Provider list view** (`admin.js`): `renderProvidersPanel()` fetches `GET /api/providers` and displays cards with color-coded type badges (ollama=green, openai-compatible=yellow, openai=blue, anthropic=purple), provider name, and Edit/Delete action buttons. Empty state shows placeholder text.
+3. **Provider form** (`admin.js`): Inline add/edit form with Name, Type dropdown, Base URL (conditional), API Key (password with show/hide toggle). Type change handler dynamically shows/hides fields and sets default base_url values. Hidden base_url fields still populate the payload with type defaults (required by `LLMProviderConfig`).
+4. **CRUD operations** (`admin.js`): Create via `POST /api/providers`, update via `PUT /api/providers/{id}`. After create, auto-switches to edit mode (enabling Test Connection button). Masked API key values sent as-is on edit (backend preserves original).
+5. **Connection test** (`admin.js`): "Test Connection" button (visible only after save) calls `POST /api/providers/{id}/test`. Shows inline green/red status. On success, auto-fetches models from `GET /api/providers/{id}/models`.
+6. **Model discovery** (`admin.js`): Models displayed as scrollable list below form. "Refresh" button re-fetches. Bounded to 240px max-height. Error handling for failed model fetches.
+7. **Delete with agent-usage warning** (`admin.js`): On first click, fetches `GET /api/agents`, counts agents where `provider_config_id` matches, shows warning with count. Confirm pattern with 3-second timeout reset (matching Studio's pattern).
+8. **Flash feedback** (`admin.js`, `styles.css`): `.admin-flash` scoped to `.area-admin`, mirrors Studio's `.studio-flash` pattern. Supports error variant (red background). Shown on create, save, delete, test success/failure.
+9. **CSS styles** (`styles.css`): Added 50+ styles following `.area-admin .admin-*` naming convention for provider cards, form fields, type badges, password toggle, test status indicators, model list, and flash messages.
+
 ---
 
 ## Decisions
