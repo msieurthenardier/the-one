@@ -1,15 +1,15 @@
 # Flight: Provider Data Model & Persistence
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [LLM Provider Management](../../mission.md)
 
 ## Contributing to Criteria
 
-- [ ] Users can add, edit, and remove LLM provider configurations through the Administration interface, specifying connection details and credentials for each
-- [ ] Multiple instances of the same provider type can coexist with distinct configurations
-- [ ] API credentials are stored encrypted at rest, with the encryption key auto-generated on first start and stored on the filesystem outside the database; a rotate function re-encrypts all stored secrets with a new key
-- [ ] The provider configuration interface discovers available models by querying provider APIs after credentials are verified
-- [ ] Users can verify provider connectivity before saving a configuration
+- [x] Users can add, edit, and remove LLM provider configurations through the Administration interface, specifying connection details and credentials for each
+- [x] Multiple instances of the same provider type can coexist with distinct configurations
+- [x] API credentials are stored encrypted at rest, with the encryption key auto-generated on first start and stored on the filesystem outside the database; a rotate function re-encrypts all stored secrets with a new key
+- [x] The provider configuration interface discovers available models by querying provider APIs after credentials are verified
+- [x] Users can verify provider connectivity before saving a configuration
 
 ---
 
@@ -57,16 +57,16 @@ _(none — all resolved at mission level and during design review)_
 
 ### Prerequisites
 
-- [ ] Mission 03 approved and active
-- [ ] `cryptography` package available (will be added to dependencies)
+- [x] Mission 03 approved and active
+- [x] `cryptography` package available (will be added to dependencies)
 
 ### Pre-Flight Checklist
 
-- [ ] All open questions resolved
-- [ ] Design decisions documented
-- [ ] Prerequisites verified
-- [ ] Validation approach defined
-- [ ] Legs defined
+- [x] All open questions resolved
+- [x] Design decisions documented
+- [x] Prerequisites verified
+- [x] Validation approach defined
+- [x] Legs defined
 
 ---
 
@@ -119,7 +119,7 @@ _(none — all resolved at mission level and during design review)_
 - [x] `provider-repository` — Add `LLMProviderRepository` to `db/repositories.py` with CRUD operations, encrypt-on-write / decrypt-on-read for api_key, and unit tests
 - [x] `provider-api-endpoints` — Add REST endpoints: CRUD (`/api/providers`), connection test (`POST /api/providers/{id}/test`), model discovery (`GET /api/providers/{id}/models`), encryption key rotation (`POST /api/encryption/rotate`). Connection test and model discovery include provider-specific logic: Ollama native API (`/api/tags`), OpenAI-compatible (`/v1/models` with graceful degradation), OpenAI (SDK models list), Anthropic (SDK models list)
 - [x] `settings-and-agent-migration` — Remove `llm_provider`, `llm_model`, `llm_base_url` from Settings. Update AgentConfig: replace `llm_provider` + `llm_base_url` with `provider_config_id`. Update AgentFactory to resolve from DB. Update SQLiteAgentStore for new schema. Fix `/api/info` in app.py. Note `/api/settings` response shape change. Update all affected tests
-- [ ] `uat` — End-to-end verification: create provider via API, test connection, discover models, create agent referencing provider, verify factory creates working agent, rotate encryption key, verify secrets still accessible
+- [x] `uat` — End-to-end verification: create provider via API, test connection, discover models, create agent referencing provider, verify factory creates working agent, rotate encryption key, verify secrets still accessible
 
 ---
 
@@ -127,9 +127,9 @@ _(none — all resolved at mission level and during design review)_
 
 ### Completion Checklist
 
-- [ ] All legs completed
-- [ ] Code merged
-- [ ] Tests passing
+- [x] All legs completed
+- [x] Code merged
+- [x] Tests passing
 - [ ] CLAUDE.md updated if architecture section changes
 
 ### Verification

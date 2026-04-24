@@ -107,6 +107,27 @@ Flight 01 of Mission 03 (LLM Provider Management). Establishing the backend foun
 - No deviations from leg spec
 - The 24 pre-existing test failures from legs 02-04 are now resolved
 
+### Leg 06: UAT
+
+**Status**: completed
+**Date**: 2026-04-24
+
+**Outcomes**:
+- All 11 acceptance criteria verified against running application
+- Fresh database schema creation confirmed (`llm_providers` and updated `agents` table)
+- Provider CRUD lifecycle verified end-to-end: create (201), list, update (masked key preserved), delete
+- Connection test returns status ok for reachable Ollama instance
+- Model discovery returns model list from Ollama
+- Encryption key rotation successful — provider still accessible after rotation
+- `/api/info` confirmed free of `provider` and `model` fields
+- `/api/settings` confirmed free of LLM fields
+- `AgentFactory.create()` raises clear `ValueError` for agent without provider
+- All 212 tests passing
+
+**Notes**:
+- Final leg of Flight 01 — flight status set to `landed`
+- No deviations from leg spec
+
 ---
 
 ## Decisions
