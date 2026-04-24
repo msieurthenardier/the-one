@@ -59,7 +59,7 @@ Add a `GET /api/settings` endpoint that returns all config values from the `Sett
 
 ### Checkpoints
 - [x] Settings API returns correct JSON
-- [ ] Admin area shows 4 categories with General active
+- [x] Admin area shows 4 categories with General active
 - [ ] All three areas navigate correctly
 - [ ] Documentation is accurate
 
@@ -76,7 +76,7 @@ Add a `GET /api/settings` endpoint that returns all config values from the `Sett
 ### Legs
 
 - [x] `settings-api` - Add `GET /api/settings` endpoint returning all config values
-- [ ] `admin-area-ui` - Replace admin stub with functional Administration area
+- [x] `admin-area-ui` - Replace admin stub with functional Administration area
 - [ ] `docs-and-uat` - Documentation updates and end-to-end verification
 
 ---
