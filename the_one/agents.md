@@ -39,14 +39,22 @@ Global configuration via `pydantic-settings`. All values from `THE_ONE_*` env va
 | `Settings` | class | Pydantic-settings model |
 | `settings` | instance | Global singleton |
 
-Key properties: `data_dir` (`~/.the-one`), `workspace_dir` (`/workspace`), `agents_dir` (`data_dir / "agents"`), `llm_provider`, `llm_model`.
+Key properties: `data_dir` (`~/.the-one`), `workspace_dir` (`/workspace`), `agents_dir` (`data_dir / "agents"`), `db_path` (`data_dir / "the-one.db"`).
+
+### `the_one/encryption.py`
+
+Fernet-based encryption for API keys stored in the database. Generates and caches an `Encryptor` per `data_dir`. Supports key rotation via `rotate_key()` which re-encrypts all provider credentials in a single transaction.
+
+### `the_one/db/repositories.py`
+
+Database repositories including `LLMProviderRepository` for CRUD on `llm_provider_configs` table. Provider configs store `name`, `type`, `base_url`, and encrypted `api_key`. Referenced by `AgentConfig.provider_config_id`.
 
 ### `the_one/agent/`
 
 | File | Exports | Purpose |
 |------|---------|---------|
 | `core.py` | `Agent` | The agent loop: `step()` yields messages, max 20 iterations |
-| `config.py` | `AgentConfig`, `DEFAULT_SYSTEM_PROMPT` | Agent definition Pydantic model and fallback prompt |
+| `config.py` | `AgentConfig`, `DEFAULT_SYSTEM_PROMPT` | Agent definition Pydantic model (includes `provider_config_id` for LLM provider resolution) and fallback prompt |
 | `factory.py` | `AgentFactory` | `create(name)` → configured Agent; `list_agents()` |
 | `store.py` | `AgentConfigStore`, `FilesystemConfigStore` | CRUD for agent configs (`~/.the-one/agents/*.json`) |
 | `behaviors.py` | `DIRECT_ACTIONS`, `CONTINUE_SCHEMA`, `match_direct_action()` | Behavioral patterns extracted from core |
@@ -125,7 +133,7 @@ config.py ←── llm/ ←──┐
 
 ### Multi-Agent via AgentFactory
 
-Agents are defined as JSON files in `~/.the-one/agents/`. The factory reads a config, wires up the right LLM + filtered tools + prompt, and returns a ready-to-use `Agent`. A "default" agent is synthesized from env vars when no config file exists.
+Agents are defined as JSON files in `~/.the-one/agents/` (or rows in the SQLite DB). The factory reads a config, resolves the LLM provider via `provider_config_id` (a reference to `llm_provider_configs` table), wires up filtered tools + prompt, and returns a ready-to-use `Agent`. A "default" agent has `provider_config_id=None` and must be configured through the Admin UI to assign a provider.
 
 ### Tool Filtering
 

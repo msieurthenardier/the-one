@@ -7,9 +7,8 @@ App.registerArea({
   init: function (sidebar, content) {
     var categories = [
       { id: 'general', label: 'General', active: true },
-      { id: 'agents', label: 'Agents', active: false },
       { id: 'providers', label: 'LLM Providers', active: true },
-      { id: 'system', label: 'System', active: false }
+      { id: 'system', label: 'System', active: true }
     ];
     var currentCategory = 'general';
     var categoryListEl;
@@ -44,10 +43,6 @@ App.registerArea({
     // Settings grouped into sections
     var settingSections = [
       {
-        title: 'LLM Configuration',
-        fields: ['llm_provider', 'llm_model', 'llm_base_url']
-      },
-      {
         title: 'Paths',
         fields: ['data_dir', 'workspace_dir']
       },
@@ -62,9 +57,6 @@ App.registerArea({
     ];
 
     var fieldLabels = {
-      llm_provider: 'Provider',
-      llm_model: 'Model',
-      llm_base_url: 'Base URL',
       data_dir: 'Data Directory',
       workspace_dir: 'Workspace Directory',
       host: 'Host',
@@ -124,6 +116,8 @@ App.registerArea({
         renderGeneralPanel();
       } else if (currentCategory === 'providers') {
         renderProvidersPanel();
+      } else if (currentCategory === 'system') {
+        renderSystemPanel();
       } else {
         var cat = null;
         for (var i = 0; i < categories.length; i++) {
@@ -199,6 +193,77 @@ App.registerArea({
           '<div class="admin-placeholder-title">' + escapeHtml(name) + '</div>' +
           '<div class="admin-placeholder-text">Coming soon</div>' +
         '</div>';
+    }
+
+    // ── System Panel ──────────────────────────────────────────────────
+
+    var rotateConfirmTimer = null;
+
+    function renderSystemPanel() {
+      contentEl.innerHTML =
+        '<div class="admin-header">' +
+          '<span class="admin-title">System</span>' +
+        '</div>' +
+        '<div class="admin-form">' +
+          '<div class="admin-system-section">' +
+            '<div class="admin-section-title">Encryption</div>' +
+            '<p class="admin-system-text">' +
+              'API keys for LLM providers are encrypted at rest. ' +
+              'You can rotate the encryption key to re-encrypt all stored credentials with a new key.' +
+            '</p>' +
+            '<div class="admin-system-warning" role="note">' +
+              'Rotating the encryption key re-encrypts all stored API credentials with a new key. This is irreversible.' +
+            '</div>' +
+            '<button class="admin-system-btn" type="button">Rotate Encryption Key</button>' +
+            '<div class="admin-system-flash" aria-live="polite"></div>' +
+          '</div>' +
+        '</div>';
+
+      var rotateBtn = contentEl.querySelector('.admin-system-btn');
+      var flashEl = contentEl.querySelector('.admin-system-flash');
+
+      rotateBtn.addEventListener('click', function () {
+        if (rotateBtn.classList.contains('admin-system-btn-confirm')) {
+          // Second click — actually rotate
+          rotateBtn.disabled = true;
+          rotateBtn.textContent = 'Rotating\u2026';
+
+          fetch('/api/encryption/rotate', { method: 'POST' })
+            .then(function (r) {
+              if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || 'Rotation failed'); });
+              return r.json();
+            })
+            .then(function () {
+              rotateBtn.disabled = false;
+              rotateBtn.classList.remove('admin-system-btn-confirm');
+              rotateBtn.textContent = 'Rotate Encryption Key';
+              if (rotateConfirmTimer) { clearTimeout(rotateConfirmTimer); rotateConfirmTimer = null; }
+              flashEl.textContent = 'Encryption key rotated successfully.';
+              flashEl.className = 'admin-system-flash success';
+              setTimeout(function () { flashEl.textContent = ''; flashEl.className = 'admin-system-flash'; }, 3000);
+            })
+            .catch(function (err) {
+              rotateBtn.disabled = false;
+              rotateBtn.classList.remove('admin-system-btn-confirm');
+              rotateBtn.textContent = 'Rotate Encryption Key';
+              if (rotateConfirmTimer) { clearTimeout(rotateConfirmTimer); rotateConfirmTimer = null; }
+              flashEl.textContent = 'Error: ' + err.message;
+              flashEl.className = 'admin-system-flash error';
+              setTimeout(function () { flashEl.textContent = ''; flashEl.className = 'admin-system-flash'; }, 4000);
+            });
+          return;
+        }
+
+        // First click — show confirmation
+        rotateBtn.classList.add('admin-system-btn-confirm');
+        rotateBtn.textContent = 'Click again to confirm rotation';
+
+        if (rotateConfirmTimer) clearTimeout(rotateConfirmTimer);
+        rotateConfirmTimer = setTimeout(function () {
+          rotateBtn.classList.remove('admin-system-btn-confirm');
+          rotateBtn.textContent = 'Rotate Encryption Key';
+        }, 4000);
+      });
     }
 
     // ── Providers Panel ───────────────────────────────────────────────

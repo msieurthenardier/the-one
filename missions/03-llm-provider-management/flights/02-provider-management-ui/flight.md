@@ -108,7 +108,7 @@ _(all resolved)_
 
 - [x] Backend hardening complete — all endpoints tested, encryptor cached, index added, CLI fixed
 - [x] Provider CRUD + test + model discovery UI working in Admin
-- [ ] System category with key rotation functional, General settings cleaned up
+- [x] System category with key rotation functional, General settings cleaned up
 - [ ] Studio agent editor uses provider/model dropdowns with null-provider handling
 - [ ] HAT passed
 
@@ -129,7 +129,7 @@ _(all resolved)_
 
 - [x] `backend-hardening` — Add mock tests for connection test/model discovery endpoints, cache `get_encryptor()`, schema v4 (provider_config_id index), fix openai-compatible silent exceptions, fix CLI crash (`settings.llm_provider`/`settings.llm_model` references)
 - [x] `provider-list-and-editor` — Admin "LLM Providers" category with card/table layout, add/edit form with type-specific fields, CRUD wired to API, connection test + model auto-discovery + refresh
-- [ ] `system-and-settings-cleanup` — Admin "System" category with encryption key rotation, remove stale categories ("Agents", "Integrations"), update General settings (remove LLM section), update stale docs (`agents.md`)
+- [x] `system-and-settings-cleanup` — Admin "System" category with encryption key rotation, remove stale categories ("Agents", "Integrations"), update General settings (remove LLM section), update stale docs (`agents.md`)
 - [ ] `studio-provider-dropdowns` — Fix broken Studio LLM fields: replace free-text provider/model/base_url with provider dropdown + model dropdown, handle null provider_config_id with actionable placeholder
 - [ ] `hat` — Guided HAT session with iterative fixes across all UI changes
 

@@ -42,6 +42,20 @@ Flight 02 of Mission 03 (LLM Provider Management). Building the provider managem
 8. **Flash feedback** (`admin.js`, `styles.css`): `.admin-flash` scoped to `.area-admin`, mirrors Studio's `.studio-flash` pattern. Supports error variant (red background). Shown on create, save, delete, test success/failure.
 9. **CSS styles** (`styles.css`): Added 50+ styles following `.area-admin .admin-*` naming convention for provider cards, form fields, type badges, password toggle, test status indicators, model list, and flash messages.
 
+### Leg 03: system-and-settings-cleanup (completed)
+
+**Started**: 2026-04-24
+
+**Changes implemented**:
+1. **Remove "Agents" category** (`admin.js`): Removed `{ id: 'agents', label: 'Agents', active: false }` from the categories array. Sidebar now shows: General, LLM Providers, System.
+2. **Activate "System" category** (`admin.js`): Changed `active: false` to `active: true` on the System category. Added `renderSystemPanel()` dispatch in `renderContent()`.
+3. **System panel with key rotation** (`admin.js`): New `renderSystemPanel()` function renders Encryption section with explanatory text, amber warning box (`role="note"`), and "Rotate Encryption Key" button. Double-click confirm pattern: first click changes button to red "Click again to confirm rotation" state (4-second timeout reset), second click calls `POST /api/encryption/rotate`. Flash feedback div with `aria-live="polite"` shows success (green) or error (red) messages.
+4. **Clean up General settings** (`admin.js`): Removed "LLM Configuration" section from `settingSections` array. Removed `llm_provider`, `llm_model`, `llm_base_url` from `fieldLabels`. General now shows only Paths, Server, Concourse CI.
+5. **System panel CSS** (`styles.css`): Added 11 styles for `.admin-system-*` classes — section container, text, warning (amber border/background), button (with confirm red state), flash feedback (success green, error red), focus-visible outline, disabled state.
+6. **Updated agents.md**: Removed stale `llm_provider`, `llm_model` from config.py key properties. Documented `provider_config_id` on AgentConfig. Updated Multi-Agent pattern to describe provider resolution via `provider_config_id` instead of env var synthesis. Added `encryption.py` and `db/repositories.py` sections for LLMProviderRepository.
+
+**Ruff**: 6 pre-existing errors in test files (not introduced by this leg, which only modifies .js/.css/.md)
+
 ---
 
 ## Decisions
