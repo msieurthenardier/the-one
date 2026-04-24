@@ -672,6 +672,21 @@ App.registerArea({
 
     newAgentBtn.addEventListener('click', enterCreateMode);
 
+    var self = this;
+    self._refresh = function () {
+      loadAll().then(function () {
+        if (selectedAgent) {
+          var found = null;
+          for (var i = 0; i < agents.length; i++) {
+            if (agents[i].name === selectedAgent.name) { found = agents[i]; break; }
+          }
+          if (found) selectAgent(found);
+          else if (agents.length > 0) selectAgent(agents[0]);
+          else renderEmptyEditor();
+        }
+      });
+    };
+
     loadAll().then(function () {
       if (agents.length > 0) {
         selectAgent(agents[0]);
@@ -681,6 +696,8 @@ App.registerArea({
     });
   },
 
-  activate: function () {},
+  activate: function () {
+    if (this._refresh) this._refresh();
+  },
   deactivate: function () {}
 });

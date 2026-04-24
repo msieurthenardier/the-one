@@ -495,6 +495,11 @@ App.registerArea({
       contentEl.innerHTML = html;
 
       wireProviderFormEvents(isEdit, provider);
+
+      // Auto-fetch models when opening edit form
+      if (isEdit && provider.id) {
+        fetchProviderModels(provider.id);
+      }
     }
 
     function wireProviderFormEvents(isEdit, provider) {
