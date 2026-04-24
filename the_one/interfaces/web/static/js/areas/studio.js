@@ -173,7 +173,7 @@ App.registerArea({
     function renderEditor(agent) {
       var isCreate = !agent;
       var cfg = agent || {
-        name: '', description: '', provider_config_id: null, llm_model: '',
+        name: '', description: '', provider_config_id: allProviders.length > 0 ? allProviders[0].id : null, llm_model: '',
         system_prompt: '', enabled_tools: null, disabled_tools: [],
         kb_ids: [], mcp_source_ids: [], max_iterations: 20
       };
