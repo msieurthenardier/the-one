@@ -1,6 +1,6 @@
 # Flight: Provider Management UI
 
-**Status**: landed
+**Status**: completed
 **Mission**: [LLM Provider Management](../../mission.md)
 
 ## Contributing to Criteria
@@ -139,10 +139,10 @@ _(all resolved)_
 
 ### Completion Checklist
 
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged
-- [ ] Tests passing
-- [ ] Documentation updated
+- [x] Tests passing
+- [x] Documentation updated
 
 ### Verification
 
