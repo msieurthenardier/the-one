@@ -65,44 +65,6 @@ class TestNormalizeUrl:
         assert ollama_api._normalize_url("http://host:1234") == "http://host:1234"
 
 
-# ---------------------------------------------------------------------------
-# estimate_vram
-# ---------------------------------------------------------------------------
-
-
-class TestEstimateVram:
-    def test_with_params_and_quant(self) -> None:
-        data = {"parameter_size": 7_000_000_000, "quantization_level": "Q4_K_M", "size": 0}
-        result = ollama_api.estimate_vram(data)
-        assert result is not None
-        # 7B * 4 bits / 8 * 1.1 = ~3.85 GB
-        assert 3_500_000_000 < result < 4_500_000_000
-
-    def test_with_params_f16(self) -> None:
-        data = {"parameter_size": 1_000_000_000, "quantization_level": "F16", "size": 0}
-        result = ollama_api.estimate_vram(data)
-        assert result is not None
-        # 1B * 16 bits / 8 * 1.1 = ~2.2 GB
-        assert 2_000_000_000 < result < 2_500_000_000
-
-    def test_fallback_to_file_size(self) -> None:
-        data = {"parameter_size": None, "quantization_level": None, "size": 4_000_000_000}
-        assert ollama_api.estimate_vram(data) == 4_000_000_000
-
-    def test_returns_none_when_no_data(self) -> None:
-        data = {"parameter_size": None, "quantization_level": None, "size": 0}
-        assert ollama_api.estimate_vram(data) is None
-
-    def test_returns_none_empty_dict(self) -> None:
-        assert ollama_api.estimate_vram({}) is None
-
-    def test_unknown_quant_uses_default(self) -> None:
-        data = {"parameter_size": 1_000_000_000, "quantization_level": "WEIRD", "size": 0}
-        result = ollama_api.estimate_vram(data)
-        assert result is not None
-        # default 4 bpp: 1B * 4/8 * 1.1 = 550M
-        assert 500_000_000 < result < 600_000_000
-
 
 # ---------------------------------------------------------------------------
 # _parse_parameter_size

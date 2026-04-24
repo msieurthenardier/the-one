@@ -8,7 +8,6 @@ parameter so callers can target different Ollama instances.
 from __future__ import annotations
 
 import json
-import math
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -17,23 +16,6 @@ import httpx
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-# Rough bytes-per-parameter multipliers keyed by quantization keywords.
-# Values represent the average bits per parameter for common quant schemes.
-_QUANT_BPP: dict[str, float] = {
-    "Q2": 2.0,
-    "Q3": 3.0,
-    "Q4": 4.0,
-    "Q5": 5.0,
-    "Q6": 6.0,
-    "Q8": 8.0,
-    "F16": 16.0,
-    "F32": 32.0,
-    "FP16": 16.0,
-    "FP32": 32.0,
-}
-
-_DEFAULT_BPP = 4.0  # assume Q4 when quantization is unknown
 
 
 def _normalize_url(base_url: str) -> str:
@@ -62,16 +44,6 @@ def _parse_parameter_size(raw: str | None) -> int | None:
     except ValueError:
         return None
 
-
-def _bits_per_param(quant_level: str | None) -> float:
-    """Return estimated bits-per-parameter for a quantization level string."""
-    if not quant_level:
-        return _DEFAULT_BPP
-    upper = quant_level.upper()
-    for key, bpp in _QUANT_BPP.items():
-        if key in upper:
-            return bpp
-    return _DEFAULT_BPP
 
 
 # ---------------------------------------------------------------------------
@@ -249,24 +221,3 @@ async def unload_model(base_url: str, model: str) -> None:
         ) from exc
 
 
-def estimate_vram(show_data: dict[str, Any]) -> int | None:
-    """Estimate VRAM usage in bytes from ``show_model`` output.
-
-    Uses parameter count and quantization level when available, falls back
-    to the model file size. Returns ``None`` if neither is available.
-    """
-    param_count = show_data.get("parameter_size")
-    quant_level = show_data.get("quantization_level")
-    file_size = show_data.get("size")
-
-    if param_count and isinstance(param_count, int):
-        bpp = _bits_per_param(quant_level)
-        # bytes = params * bits_per_param / 8, plus ~10 % overhead for KV cache / buffers
-        estimated = math.ceil(param_count * bpp / 8 * 1.1)
-        return estimated
-
-    # Fallback: file size is a reasonable proxy (model weights dominate)
-    if file_size and isinstance(file_size, int) and file_size > 0:
-        return file_size
-
-    return None
