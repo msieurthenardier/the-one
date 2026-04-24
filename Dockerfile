@@ -14,7 +14,7 @@ COPY the_one/ the_one/
 COPY tests/ tests/
 COPY scripts/entrypoint.sh /entrypoint.sh
 
-RUN pip install --no-cache-dir ".[dev]"
+RUN pip install --no-cache-dir ".[dev,all-llms]"
 
 EXPOSE 8484
 
