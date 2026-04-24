@@ -56,6 +56,8 @@ The web UI has three functional areas sharing a sidebar + content panel layout:
 - **Studio** — Agent configuration editor (CRUD agents, tool toggles, connections)
 - **Administration** — Read-only settings display from `GET /api/settings`, with placeholder categories (Agents, Integrations, System) for future expansion. Settings are configured via environment variables and require a server restart.
 
+Areas register via `App.registerArea({ id, label, icon, order, init, activate, deactivate })`. The `init(sidebar, content)` function receives DOM elements on first activation; `activate()` fires on every switch-to (use for data refresh); `deactivate()` fires on switch-away. CSS is scoped under `.area-{id}`. Shared utilities like `App.escapeHtml()` are available on the `App` object.
+
 For architecture internals, see `the_one/agents.md`.
 
 ## Self-Deployment

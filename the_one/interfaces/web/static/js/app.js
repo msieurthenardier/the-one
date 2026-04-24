@@ -86,5 +86,10 @@ var App = (function () {
     switchTo(getHashArea());
   });
 
-  return { registerArea: registerArea };
+  function escapeHtml(s) {
+    if (!s) return '';
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  return { registerArea: registerArea, escapeHtml: escapeHtml };
 })();

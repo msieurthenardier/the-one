@@ -171,10 +171,7 @@ App.registerArea({
         '</div>';
     }
 
-    function escapeHtml(s) {
-      if (!s) return '';
-      return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    }
+    var escapeHtml = App.escapeHtml;
 
     // Store reference for activate() to reuse
     var self = this;
