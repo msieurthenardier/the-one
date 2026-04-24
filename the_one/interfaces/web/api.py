@@ -9,6 +9,7 @@ from typing import Any
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import StreamingResponse
 
 from the_one.config import Settings, settings
 from the_one.db.connection import get_connection
@@ -21,7 +22,8 @@ from the_one.db.repositories import (
     MCPSourceRepository,
     SQLiteAgentStore,
 )
-from the_one.encryption import get_encryptor
+from the_one.encryption import Encryptor, get_encryptor
+from the_one.llm import ollama_api
 
 router = APIRouter(prefix="/api")
 
@@ -387,6 +389,24 @@ def _auth_headers(api_key: str | None) -> dict[str, str]:
     return {}
 
 
+async def _get_ollama_base_url(provider_id: str) -> str:
+    """Load a provider by ID, validate it's ollama-type, and return the native base_url.
+
+    Raises HTTPException(404) if not found, HTTPException(400) if not ollama-type.
+    """
+    repo = await _provider_repo()
+    try:
+        provider = await repo.get(provider_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Provider not found: {provider_id}")
+    if provider.type != "ollama":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Provider '{provider_id}' is type '{provider.type}', not 'ollama'",
+        )
+    return provider.base_url.rstrip("/").removesuffix("/v1")
+
+
 # ── LLM Providers ───────────────────────────────────────────────────────
 
 
@@ -498,15 +518,15 @@ async def list_provider_models(provider_id: str) -> list[dict[str, Any]]:
         raise HTTPException(status_code=404, detail=f"Provider not found: {provider_id}")
 
     if provider.type == "ollama":
-        base = provider.base_url.rstrip("/").removesuffix("/v1")
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(f"{base}/api/tags")
-            resp.raise_for_status()
-        models = resp.json().get("models", [])
-        return [
-            {"id": m.get("name", ""), "name": m.get("name", ""), "size": m.get("size")}
-            for m in models
-        ]
+        try:
+            base = provider.base_url.rstrip("/").removesuffix("/v1")
+            models = await ollama_api.list_models(base)
+            return [
+                {"id": m.get("name", ""), "name": m.get("name", ""), "size": m.get("size")}
+                for m in models
+            ]
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=str(e))
     elif provider.type == "openai-compatible":
         try:
             async with httpx.AsyncClient(timeout=10) as client:
@@ -520,19 +540,99 @@ async def list_provider_models(provider_id: str) -> list[dict[str, Any]]:
         except Exception as e:
             raise HTTPException(status_code=502, detail=str(e))
     elif provider.type == "openai":
-        import openai
+        try:
+            import openai
 
-        client = openai.AsyncOpenAI(api_key=provider.api_key)
-        response = await client.models.list()
-        return [{"id": m.id, "name": m.id} for m in response.data]
+            client = openai.AsyncOpenAI(api_key=provider.api_key)
+            response = await client.models.list()
+            return [{"id": m.id, "name": m.id} for m in response.data]
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=str(e))
     elif provider.type == "anthropic":
-        import anthropic
+        try:
+            import anthropic
 
-        client = anthropic.AsyncAnthropic(api_key=provider.api_key)
-        response = await client.models.list()
-        return [{"id": m.id, "name": getattr(m, "display_name", m.id)} for m in response.data]
+            client = anthropic.AsyncAnthropic(api_key=provider.api_key)
+            response = await client.models.list()
+            return [
+                {"id": m.id, "name": getattr(m, "display_name", m.id)} for m in response.data
+            ]
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=str(e))
 
     return []
+
+
+# ── Ollama Model Lifecycle ────────────────────────────────────────────────
+
+
+@router.post("/providers/{provider_id}/models/pull")
+async def pull_model(provider_id: str, request: Request) -> StreamingResponse:
+    base_url = await _get_ollama_base_url(provider_id)
+    data = await request.json()
+    model = data.get("model", "").strip()
+    if not model:
+        raise HTTPException(status_code=400, detail="Missing or empty 'model' field")
+
+    async def _stream():
+        try:
+            async for progress in ollama_api.pull_model(base_url, model):
+                yield f"data: {json.dumps(progress)}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+    return StreamingResponse(_stream(), media_type="text/event-stream")
+
+
+@router.post("/providers/{provider_id}/models/delete")
+async def delete_model(provider_id: str, request: Request) -> dict[str, str]:
+    base_url = await _get_ollama_base_url(provider_id)
+    data = await request.json()
+    model = data.get("model", "").strip()
+    if not model:
+        raise HTTPException(status_code=400, detail="Missing or empty 'model' field")
+    try:
+        await ollama_api.delete_model(base_url, model)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    return {"status": "ok"}
+
+
+@router.post("/providers/{provider_id}/models/load")
+async def load_model(provider_id: str, request: Request) -> dict[str, str]:
+    base_url = await _get_ollama_base_url(provider_id)
+    data = await request.json()
+    model = data.get("model", "").strip()
+    if not model:
+        raise HTTPException(status_code=400, detail="Missing or empty 'model' field")
+    try:
+        await ollama_api.load_model(base_url, model)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    return {"status": "ok"}
+
+
+@router.post("/providers/{provider_id}/models/unload")
+async def unload_model(provider_id: str, request: Request) -> dict[str, str]:
+    base_url = await _get_ollama_base_url(provider_id)
+    data = await request.json()
+    model = data.get("model", "").strip()
+    if not model:
+        raise HTTPException(status_code=400, detail="Missing or empty 'model' field")
+    try:
+        await ollama_api.unload_model(base_url, model)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    return {"status": "ok"}
+
+
+@router.get("/providers/{provider_id}/models/status")
+async def model_status(provider_id: str) -> list[dict[str, Any]]:
+    base_url = await _get_ollama_base_url(provider_id)
+    try:
+        return await ollama_api.list_running(base_url)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
 
 
 # ── Encryption ───────────────────────────────────────────────────────────
@@ -543,21 +643,27 @@ async def rotate_encryption_key() -> dict[str, str]:
     encryptor = get_encryptor(settings.data_dir)
     conn = await get_connection()
 
-    # 1. Read and decrypt all stored API keys
+    # 1. Pre-fetch and decrypt all stored API keys before rotation
     async with conn.execute(
         "SELECT id, api_key FROM llm_providers WHERE api_key IS NOT NULL AND api_key != ''"
     ) as cur:
         rows = await cur.fetchall()
     decrypted = [(row["id"], encryptor.decrypt(row["api_key"])) for row in rows]
 
-    # 2. Rotate key (no-op callback — re-encryption handled below)
-    encryptor.rotate_key(lambda old, new: None)
+    # 2. Re-encrypt inside the callback so that callback failure preserves the old key
+    reencrypted: list[tuple[str, str]] = []
 
-    # 3. Re-encrypt with the now-rotated encryptor
-    for provider_id, plaintext in decrypted:
+    def _reencrypt(_old: Encryptor, new: Encryptor) -> None:
+        for provider_id, plaintext in decrypted:
+            reencrypted.append((provider_id, new.encrypt(plaintext)))
+
+    encryptor.rotate_key(_reencrypt)
+
+    # 3. Key file now reflects the new key — write re-encrypted values to DB
+    for provider_id, ciphertext in reencrypted:
         await conn.execute(
             "UPDATE llm_providers SET api_key = ? WHERE id = ?",
-            (encryptor.encrypt(plaintext), provider_id),
+            (ciphertext, provider_id),
         )
     await conn.commit()
     return {"status": "ok"}

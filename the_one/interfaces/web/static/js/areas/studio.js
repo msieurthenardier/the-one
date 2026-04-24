@@ -240,6 +240,9 @@ App.registerArea({
       html += '<span class="model-loading" aria-live="polite"></span>';
       html += '</div></div>';
 
+      // VRAM warning placeholder (ollama only)
+      html += '<div class="studio-vram-warning" role="status" aria-live="polite"></div>';
+
       html += '</div>';
 
       // System Prompt
@@ -358,17 +361,29 @@ App.registerArea({
         inputs[i].addEventListener('change', checkDirty);
       }
 
-      // Provider change -> fetch models
+      // Provider change -> fetch models + clear VRAM warning
       var providerSelect = editorEl.querySelector('#studio-provider');
       if (providerSelect) {
         providerSelect.addEventListener('change', function () {
           var modelInput = editorEl.querySelector('#studio-model');
           if (modelInput) modelInput.value = '';
+          clearVramWarning();
           fetchModelsForProvider(providerSelect.value);
         });
         // Auto-fetch models for currently selected provider
         if (cfg.provider_config_id) {
           fetchModelsForProvider(cfg.provider_config_id);
+        }
+      }
+
+      // Model input -> debounced VRAM check (ollama only)
+      var modelInput = editorEl.querySelector('#studio-model');
+      if (modelInput) {
+        modelInput.addEventListener('input', debouncedVramCheck);
+        modelInput.addEventListener('change', debouncedVramCheck);
+        // Check on initial load if model is already set
+        if (cfg.llm_model && cfg.provider_config_id) {
+          debouncedVramCheck();
         }
       }
 
@@ -661,6 +676,118 @@ App.registerArea({
         el.classList.remove('visible');
         setTimeout(function () { el.remove(); }, 300);
       }, 2000);
+    }
+
+    // ── VRAM warning helpers ─────────────────────────────────────────
+
+    function formatBytes(bytes) {
+      if (!bytes || bytes <= 0) return '0 B';
+      var units = ['B', 'KB', 'MB', 'GB', 'TB'];
+      var i = Math.floor(Math.log(bytes) / Math.log(1024));
+      if (i >= units.length) i = units.length - 1;
+      var val = bytes / Math.pow(1024, i);
+      return val.toFixed(val < 10 ? 1 : 0) + ' ' + units[i];
+    }
+
+    var vramCheckTimer = null;
+
+    function getSelectedProviderType() {
+      var providerSelect = editorEl.querySelector('#studio-provider');
+      if (!providerSelect || !providerSelect.value) return null;
+      for (var i = 0; i < allProviders.length; i++) {
+        if (String(allProviders[i].id) === String(providerSelect.value)) {
+          return allProviders[i];
+        }
+      }
+      return null;
+    }
+
+    function clearVramWarning() {
+      var el = editorEl.querySelector('.studio-vram-warning');
+      if (el) {
+        el.innerHTML = '';
+        el.classList.remove('visible');
+      }
+    }
+
+    function checkVramForModel() {
+      var provider = getSelectedProviderType();
+      if (!provider || provider.type !== 'ollama') {
+        clearVramWarning();
+        return;
+      }
+
+      var modelInput = editorEl.querySelector('#studio-model');
+      if (!modelInput || !modelInput.value.trim()) {
+        clearVramWarning();
+        return;
+      }
+
+      var modelName = modelInput.value.trim();
+      var providerId = provider.id;
+
+      Promise.all([
+        fetch('/api/providers/' + encodeURIComponent(providerId) + '/models/status')
+          .then(function (r) { return r.ok ? r.json() : []; }),
+        fetch('/api/providers/' + encodeURIComponent(providerId) + '/models')
+          .then(function (r) { return r.ok ? r.json() : []; })
+      ])
+        .then(function (results) {
+          var running = results[0] || [];
+          var models = results[1] || [];
+
+          // Check if model is already loaded
+          for (var i = 0; i < running.length; i++) {
+            var runName = running[i].name || running[i].model || '';
+            if (runName === modelName || runName.split(':')[0] === modelName.split(':')[0]) {
+              clearVramWarning();
+              return;
+            }
+          }
+
+          // Find model in available list to get its size
+          var modelSize = 0;
+          for (var j = 0; j < models.length; j++) {
+            var mId = models[j].id || models[j].name || '';
+            if (mId === modelName || mId.split(':')[0] === modelName.split(':')[0]) {
+              modelSize = models[j].size || 0;
+              break;
+            }
+          }
+
+          if (!modelSize) {
+            clearVramWarning();
+            return;
+          }
+
+          // Calculate total VRAM currently loaded
+          var totalLoaded = 0;
+          var loadedCount = running.length;
+          for (var k = 0; k < running.length; k++) {
+            totalLoaded += running[k].size_vram || 0;
+          }
+
+          // Show warning with model size and current load
+          var warningEl = editorEl.querySelector('.studio-vram-warning');
+          if (warningEl) {
+            var msg = 'This model requires ~' + escapeHtml(formatBytes(modelSize)) + '.';
+            if (loadedCount > 0) {
+              msg += ' Currently ' + escapeHtml(formatBytes(totalLoaded)) +
+                ' loaded across ' + loadedCount + ' model' + (loadedCount !== 1 ? 's' : '') + '.';
+            }
+            warningEl.innerHTML = msg;
+            warningEl.classList.add('visible');
+          }
+        })
+        .catch(function () {
+          // Silently skip on network errors
+          clearVramWarning();
+        });
+    }
+
+    function debouncedVramCheck() {
+      if (vramCheckTimer) clearTimeout(vramCheckTimer);
+      vramCheckTimer = setTimeout(checkVramForModel, 500);
     }
 
     var escapeHtml = App.escapeHtml;

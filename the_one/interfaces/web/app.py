@@ -21,7 +21,8 @@ from the_one.db.codec import decode_messages, encode_messages, messages_to_ui_ev
 from the_one.db.connection import get_connection
 from the_one.db.migration import migrate_json_to_sqlite
 from the_one.db.models import ChatSession as ChatSessionModel
-from the_one.db.repositories import ChatSessionRepository, SQLiteAgentStore
+from the_one.db.repositories import ChatSessionRepository, LLMProviderRepository, SQLiteAgentStore
+from the_one.encryption import get_encryptor
 from the_one.interfaces.web.api import router as api_router
 from the_one.llm.base import Role
 
@@ -223,6 +224,61 @@ async def _send_to_session(
         session.subscribers.discard(ws)
 
 
+async def _ensure_ollama_model_loaded(session: Session) -> None:
+    """If the session's agent uses an Ollama provider, ensure its model is loaded.
+
+    Sends a system message to subscribers when loading is needed.  Errors are
+    logged but never propagated — a failed pre-load should not block the chat.
+    """
+    from the_one.llm import ollama_api
+
+    try:
+        # Resolve agent config from DB (Option B from leg spec)
+        agent_name = session.agent_name or "default"
+        conn = await get_connection()
+        store = SQLiteAgentStore(conn)
+
+        if not await store.exists(agent_name):
+            return  # default agent without DB record — skip
+
+        agent_config = await store.load(agent_name)
+
+        if agent_config.provider_config_id is None:
+            return
+
+        encryptor = get_encryptor(settings.data_dir)
+        provider_repo = LLMProviderRepository(conn, encryptor)
+        provider_config = await provider_repo.get(agent_config.provider_config_id)
+
+        if provider_config.type != "ollama":
+            return
+
+        # Check if model is already loaded
+        running = await ollama_api.list_running(provider_config.base_url)
+        model_name = agent_config.llm_model
+
+        for m in running:
+            running_name = m.get("name", "")
+            # Exact match, or match ignoring :latest tag
+            if running_name == model_name:
+                return
+            if running_name == f"{model_name}:latest":
+                return
+            if model_name == f"{running_name}:latest":
+                return
+
+        # Model not loaded — notify subscribers and trigger load
+        await _send_to_session(
+            session, {"type": "system", "content": "Loading model..."}
+        )
+        await ollama_api.load_model(provider_config.base_url, model_name)
+
+    except Exception:
+        logger.warning(
+            "Auto-load check failed for session %s", session.id, exc_info=True,
+        )
+
+
 async def _process_and_broadcast(
     session: Session,
     user_input: str,
@@ -230,6 +286,9 @@ async def _process_and_broadcast(
     exclude_user_echo: WebSocket | None = None,
 ) -> list[dict[str, Any]]:
     """Run agent step, broadcast all events, return message list for API."""
+    # Auto-load Ollama model if needed (fast check, safe to run every message)
+    await _ensure_ollama_model_loaded(session)
+
     # Broadcast user message
     user_event = {"type": "user", "content": user_input, "source": source}
     session.add_event(user_event)

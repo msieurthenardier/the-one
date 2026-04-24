@@ -187,6 +187,10 @@ body { font-family: 'SF Mono', 'Fira Code', monospace; background: var(--bg); co
 .area-studio .delete-btn:hover { color: #ff4a4a; border-color: #ff4a4a; }
 .area-studio .delete-btn.confirm { background: #ff4a4a; color: #000; border-color: #ff4a4a; font-weight: 600; }
 
+/* === Studio Area: VRAM Warning === */
+.area-studio .studio-vram-warning { display: none; margin-top: 6px; padding: 6px 10px; border-left: 3px solid #f5a623; background: rgba(245, 166, 35, 0.08); border-radius: 0 4px 4px 0; font-size: 12px; color: #f5a623; line-height: 1.4; }
+.area-studio .studio-vram-warning.visible { display: block; }
+
 /* === Studio Area: Flash === */
 .area-studio .studio-flash { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); background: var(--accent); color: #000; padding: 10px 48px; border-radius: 6px; font-size: 13px; font-weight: 600; opacity: 0; transition: opacity 0.3s; z-index: 100; pointer-events: none; }
 .area-studio .studio-flash.visible { opacity: 1; }
@@ -303,6 +307,37 @@ body { font-family: 'SF Mono', 'Fira Code', monospace; background: var(--bg); co
 .area-admin .admin-pf-models-empty { color: #555; font-size: 12px; }
 .area-admin .admin-pf-model-item { padding: 4px 8px; font-size: 12px; color: var(--fg); border-bottom: 1px solid var(--border); }
 .area-admin .admin-pf-model-item:last-child { border-bottom: none; }
+
+/* === Admin Area: Ollama Lifecycle Panel === */
+.area-admin .admin-pf-vram-summary { font-size: 12px; color: #888; padding: 8px 0 4px; }
+.area-admin .admin-pf-vram-value { color: var(--accent); font-weight: 600; }
+.area-admin .admin-pf-section-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #555; padding: 10px 0 4px; }
+.area-admin .admin-pf-model-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-bottom: 1px solid var(--border); position: relative; }
+.area-admin .admin-pf-model-row:last-child { border-bottom: none; }
+.area-admin .admin-pf-model-dot { width: 8px; height: 8px; border-radius: 50%; background: #555; flex-shrink: 0; }
+.area-admin .admin-pf-model-dot.loaded { background: #2ecc71; }
+.area-admin .admin-pf-model-name { flex: 1; font-size: 12px; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.area-admin .admin-pf-model-size { font-size: 11px; color: #888; flex-shrink: 0; min-width: 60px; text-align: right; }
+.area-admin .admin-pf-model-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.area-admin .admin-pf-model-btn { background: none; border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px; color: #888; font-size: 10px; cursor: pointer; font-family: inherit; }
+.area-admin .admin-pf-model-btn:hover { color: var(--fg); border-color: #666; }
+.area-admin .admin-pf-model-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.area-admin .admin-pf-model-delete:hover { color: #ff4a4a; border-color: #ff4a4a; }
+.area-admin .admin-pf-model-delete.admin-pf-model-delete-confirm { background: #ff4a4a; color: #fff; border-color: #ff4a4a; font-weight: 600; }
+.area-admin .admin-pf-model-error { font-size: 10px; color: #ff4a4a; padding: 2px 0; width: 100%; }
+
+/* === Admin Area: Pull UI === */
+.area-admin .admin-pf-pull-btn { background: none; border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px; color: #888; font-size: 10px; cursor: pointer; font-family: inherit; margin-left: auto; }
+.area-admin .admin-pf-pull-btn:hover { color: var(--fg); border-color: #666; }
+.area-admin .admin-pf-pull-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.area-admin .admin-pf-pull-input { display: flex; align-items: center; gap: 8px; padding: 8px 0; }
+.area-admin .admin-pf-pull-name { flex: 1; }
+.area-admin .admin-pf-pull-go { background: var(--accent); border: none; border-radius: 4px; padding: 6px 14px; color: #000; font-weight: 600; font-size: 11px; cursor: pointer; font-family: inherit; flex-shrink: 0; }
+.area-admin .admin-pf-pull-go:disabled { opacity: 0.4; cursor: not-allowed; }
+.area-admin .admin-pf-pull-progress { display: flex; align-items: center; gap: 10px; padding: 6px 0; height: 28px; background: var(--surface); border-radius: 4px; overflow: hidden; position: relative; }
+.area-admin .admin-pf-pull-fill { position: absolute; top: 0; left: 0; height: 100%; background: var(--accent); opacity: 0.15; transition: width 0.3s ease; border-radius: 4px; }
+.area-admin .admin-pf-pull-text { position: relative; font-size: 11px; color: var(--fg); padding: 0 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; z-index: 1; }
+.area-admin .admin-pf-pull-error { font-size: 11px; color: #ff4a4a; padding: 4px 0; }
 
 /* === Stub Areas === */
 .stub-content { flex: 1; display: flex; align-items: center; justify-content: center; color: #555; font-size: 14px; }

@@ -1,6 +1,6 @@
 # Flight: Ollama Model Lifecycle
 
-**Status**: ready
+**Status**: in-flight
 **Mission**: [LLM Provider Management](../../mission.md)
 
 ## Contributing to Criteria
@@ -98,12 +98,12 @@ _(none — all resolved during interview)_
 
 ### Checkpoints
 
-- [ ] Key rotation atomicity fixed, error handling normalized
-- [ ] Ollama native API client module works with local Ollama instance
-- [ ] Backend lifecycle endpoints functional (pull, delete, load, unload, status)
-- [ ] Admin shows model lifecycle UI with VRAM info for ollama providers
-- [ ] Studio shows VRAM warnings for large models on ollama providers
-- [ ] Auto-load on conversation start works with loading indicator
+- [x] Key rotation atomicity fixed, error handling normalized
+- [x] Ollama native API client module works with local Ollama instance
+- [x] Backend lifecycle endpoints functional (pull, delete, load, unload, status)
+- [x] Admin shows model lifecycle UI with VRAM info for ollama providers
+- [x] Studio shows VRAM warnings for large models on ollama providers
+- [x] Auto-load on conversation start works with loading indicator
 - [ ] HAT passed
 
 ### Adaptation Criteria
@@ -121,12 +121,12 @@ _(none — all resolved during interview)_
 
 > **Note:** These are tentative suggestions, not commitments. Legs are planned and created one at a time as the flight progresses. This list will evolve based on discoveries during implementation.
 
-- [ ] `backend-hardening` — Fix key rotation atomicity (re-encrypt inside callback before new key is persisted). Normalize error handling: wrap all provider type branches in `test_provider` and `list_provider_models` with HTTPException 502 on upstream failure.
-- [ ] `ollama-api-client` — New `the_one/llm/ollama_api.py` module: async functions for ps (loaded models + VRAM), show (model details + parameter count), pull (async generator yielding progress), delete, load (via generate with keep_alive), unload. All accept base_url parameter. Tests with mocked httpx responses. Fallback handling when /api/show metadata is insufficient.
-- [ ] `lifecycle-endpoints` — New API endpoints: pull (SSE via StreamingResponse), delete, load, unload, status. All validate provider is ollama-type. Model name in request body (not URL path). Proxies to native API via the client module. Tests for all endpoints.
-- [ ] `admin-model-lifecycle` — Enhanced Admin provider form for ollama: replace simple model list with lifecycle panel showing loaded/available status, VRAM usage bar, per-model size, pull with progress bar (SSE reader), load/unload/delete buttons. Pull dialog for entering model name. Non-ollama providers keep existing simple model list.
-- [ ] `studio-vram-warnings` — Studio model selector fetches VRAM status for ollama providers on model selection, shows inline amber warning when estimated model size exceeds available VRAM. No warnings for non-ollama providers.
-- [ ] `auto-load-on-chat` — Session creation in app.py checks if agent's provider is ollama-type and model is loaded. If not, triggers load via ollama_api and sends "Loading model..." system message over WebSocket. AgentFactory unchanged.
+- [x] `backend-hardening` — Fix key rotation atomicity (re-encrypt inside callback before new key is persisted). Normalize error handling: wrap all provider type branches in `test_provider` and `list_provider_models` with HTTPException 502 on upstream failure.
+- [x] `ollama-api-client` — New `the_one/llm/ollama_api.py` module: async functions for ps (loaded models + VRAM), show (model details + parameter count), pull (async generator yielding progress), delete, load (via generate with keep_alive), unload. All accept base_url parameter. Tests with mocked httpx responses. Fallback handling when /api/show metadata is insufficient.
+- [x] `lifecycle-endpoints` — New API endpoints: pull (SSE via StreamingResponse), delete, load, unload, status. All validate provider is ollama-type. Model name in request body (not URL path). Proxies to native API via the client module. Tests for all endpoints.
+- [x] `admin-model-lifecycle` — Enhanced Admin provider form for ollama: replace simple model list with lifecycle panel showing loaded/available status, VRAM usage bar, per-model size, pull with progress bar (SSE reader), load/unload/delete buttons. Pull dialog for entering model name. Non-ollama providers keep existing simple model list.
+- [x] `studio-vram-warnings` — Studio model selector fetches VRAM status for ollama providers on model selection, shows inline amber warning when estimated model size exceeds available VRAM. No warnings for non-ollama providers.
+- [x] `auto-load-on-chat` — Session creation in app.py checks if agent's provider is ollama-type and model is loaded. If not, triggers load via ollama_api and sends "Loading model..." system message over WebSocket. AgentFactory unchanged.
 - [ ] `hat` — Guided HAT session with iterative fixes
 
 ---
