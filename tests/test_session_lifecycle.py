@@ -302,13 +302,17 @@ class TestRestoreSession:
 
 
 class TestGetOrRestoreSession:
-    async def test_returns_from_memory_if_cached(self, patched_app):
+    async def test_preserves_session_identity_across_rejoin(self, patched_app):
+        """C-lite: a join for an already-cached session updates in place,
+        preserving the Session object identity (subscribers etc.)."""
         session = await patched_app._create_session(session_id="mem-test")
+        # Save so _restore_session can find it
+        await patched_app._save_session_to_db(session)
         result = await patched_app._get_or_restore_session("mem-test")
         assert result.status == "ok"
-        assert result.session is session
-        # Cache hits don't carry a db_session; that's only for fresh restores.
-        assert result.db_session is None
+        assert result.session is session  # identity preserved via in-place update
+        # Health was re-evaluated, so db_session is now populated
+        assert result.db_session is not None
 
     async def test_falls_back_to_db(self, patched_app):
         session = await patched_app._create_session(session_id="fallback-test")
@@ -325,19 +329,19 @@ class TestGetOrRestoreSession:
         assert result.session is None
         assert result.status == "not_found"
 
-    async def test_cached_session_skips_health_check(self, patched_app):
-        """Cached sessions return ok without consulting the factory.
-
-        Per design: health is a join-time concept. A session that was
-        healthy on join stays cached as ok even if the factory would now
-        raise (e.g. agent config deleted mid-conversation).
-        """
+    async def test_cached_session_re_evaluates_health_on_join(self, patched_app):
+        """C-lite: cached sessions re-run health on join. If the agent has
+        been deleted since the cache was warmed, the next join surfaces
+        agent_deleted (the cache short-circuit was removed in flight 05 HAT)."""
         session = await patched_app._create_session(session_id="warm-cache")
-        # Now make the factory hostile — but the cache must shield us.
+        await patched_app._save_session_to_db(session)
+        # Make the factory hostile after the session was cached
         mock_factory = patched_app._get_factory.return_value
         mock_factory.create = AsyncMock(side_effect=KeyError("Unknown agent: doesnt-matter"))
 
         result = await patched_app._get_or_restore_session("warm-cache")
-        assert result.status == "ok"
-        assert result.session is session
-        mock_factory.create.assert_not_called()
+        assert result.status == "agent_deleted"
+        assert result.session is None
+        mock_factory.create.assert_called_once()
+        # Cache entry was dropped on the degraded outcome
+        assert "warm-cache" not in patched_app._sessions

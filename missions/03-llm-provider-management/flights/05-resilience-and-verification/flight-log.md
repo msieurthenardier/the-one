@@ -4,7 +4,7 @@
 
 ## Summary
 
-Flight in progress. Branch `flight/05-resilience-and-verification` created from `main` at `0005128`. Mission Control orchestrating via `/agentic-workflow` (single review + commit at end of flight, per fast-variant workflow).
+Flight landed. Branch `flight/05-resilience-and-verification` from `main` at `0005128`. Mission Control orchestrated via `/agentic-workflow`. All 4 autonomous legs + the optional HAT leg are completed. The HAT surfaced two real bugs that were fixed inline (schema FK CASCADE on chat_sessions; cached-Session snapshot pattern preventing system-prompt edits from propagating); both fixes are committed on this branch.
 
 ---
 
@@ -51,6 +51,27 @@ Flight in progress. Branch `flight/05-resilience-and-verification` created from 
 - `the_one/agents.md:70` updated to drop the `qwen2.5:7b default` mention.
 - Tests: `pytest -q --timeout=30` (no `--ignore` flags) → **333 passed, 8 deselected, 0 collection errors**. `pytest --collect-only -q` shows 333/341 tests collected, none from `workspace/`.
 - Ruff `check` clean for `the_one/llm/ollama_provider.py`, `the_one/interfaces/web/api.py`, `tests/test_tool_registry.py`, `tests/test_provider_api.py`. Ruff `format --check` clean for those plus `the_one/interfaces/web/app.py`.
+
+### `hat-and-alignment` — completed
+All 7 verification blocks passed. Two real bugs surfaced and were fixed inline:
+
+- **Block B failure (1st pass) → Schema migration v5**: `chat_sessions.agent_name REFERENCES agents(name) ON DELETE CASCADE` (from v1 schema) cascade-deleted sessions when their agent was deleted, foreclosing the entire `agent_deleted` state. Fix: migration v5 rebuilds `chat_sessions` without the FK on `agent_name`. Sessions now survive agent deletion, the column holds the deleted name as free text, and `_restore_session` correctly classifies via `factory.create()` → `KeyError("Unknown agent: ...")`. Recreated `idx_chat_sessions_agent`. (Commit `1210dcf`.)
+- **Block B failure (2nd pass) → C-lite session reactivity**: even with the schema fix, the cached `Session` snapshotted the Agent at restore time, so deletions/edits never propagated until process restart. `_get_or_restore_session` was changed to always rebuild via `_restore_session`, which now updates the cached `Session.agent` in place (preserving subscribers and identity). Edits to system_prompt/model/tools propagate on next join; deletion surfaces `agent_deleted` on next join.
+- **Block B refinement → System-prompt persistence fix**: even with C-lite, the new system prompt didn't apply because `_restore_session` overwrote `agent.messages` with the DB-stored list (which contained the OLD system prompt at index 0). Fix: keep the freshly-built Agent's system message (`agent.messages[:1]`) and append only non-system DB messages.
+- **Block B UX refinement**: moved the session-health banner from above the message list to directly above the input area (so it explains why the input is disabled), and switched the CSS border from `border-bottom` to `border-top` for visual coherence.
+
+Other blocks:
+- Block A: key rotation end-to-end — `POST /api/encryption/rotate` returned `{"status":"ok"}`, encryption.key md5 changed (`4ea896f4...` → `7bbf1993...`), provider's masked tail unchanged (`***...4567`).
+- Block C: `provider_missing` — manually nulled the agent's `provider_config_id`, banner appeared, input disabled; restoring the provider in Studio re-enabled chat with no banner.
+- Block D: stale-join guard + `+ new` button — rapid session-clicking settles cleanly, "+ new" creates fresh sessions repeatedly.
+- Block E: masked API key sentinel round-trip — unchanged-on-save preserves the original key; new-key-typed swaps it (mask transitions correctly).
+- Block F: error taxonomy — implicit pass during initial provider-creation 401 from OpenAI (graceful 200-with-status-error response).
+- Block G: cleanup verifications — `pytest -q` runs clean (336 passed, 8 deselected, zero collection errors); `workspace/` excluded from default collection; `qwen2.5:7b` removed from source.
+
+Side fix during HAT:
+- **Data persistence across container rebuilds**: added named volume `the_one_data:/root/.the-one` to `docker-compose.yml` so the SQLite DB and encryption key survive `docker compose up --build`. (Commit `dcab2e6`.)
+
+Final test count: **336 passed, 8 deselected, 0 collection errors**.
 
 ---
 

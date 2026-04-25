@@ -241,9 +241,10 @@ App.registerArea({
         if (!sessionBannerEl) {
           sessionBannerEl = document.createElement('div');
           sessionBannerEl.className = 'chat-session-banner';
-          // Place after the setup banner if both exist; otherwise immediately above messagesEl
-          var anchor = bannerEl ? bannerEl.nextSibling : messagesEl;
-          messagesEl.parentNode.insertBefore(sessionBannerEl, anchor);
+          // Position directly above the input area so the banner explains
+          // exactly why the input below it is disabled.
+          var inputArea = content.querySelector('.input-area');
+          inputArea.parentNode.insertBefore(sessionBannerEl, inputArea);
         }
         sessionBannerEl.textContent = msg;
         inputEl.disabled = true;

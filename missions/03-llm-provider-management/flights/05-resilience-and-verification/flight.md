@@ -97,7 +97,7 @@ The cleanup leg bundles all minor debt items that don't interact with each other
 - [x] Masked API key uses `__MASKED__` sentinel
 - [x] test_provider error handling clarified (keep 200-with-status for expected errors, HTTPException for unexpected failures)
 - [x] workspace/test_agent.py collection error resolved
-- [ ] All flows verified via HAT with state-transition sequences *(deferred to optional HAT leg)*
+- [x] All flows verified via HAT with state-transition sequences
 
 ### Adaptation Criteria
 
@@ -126,7 +126,7 @@ The cleanup leg bundles all minor debt items that don't interact with each other
 
 ### Completion Checklist
 
-- [x] All legs completed *(4 autonomous legs landed; HAT leg deferred as optional)*
+- [x] All legs completed *(4 autonomous legs + optional HAT leg, all completed)*
 - [ ] Code merged *(pending PR merge)*
 - [x] Tests passing *(333 passed, 8 deselected, zero collection errors)*
 - [ ] All 9 mission success criteria verified as met *(to be confirmed at mission debrief)*

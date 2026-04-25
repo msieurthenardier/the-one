@@ -1,6 +1,6 @@
 # Leg: hat-and-alignment
 
-**Status**: in-flight
+**Status**: completed
 **Flight**: [Resilience & Verification](../flight.md)
 
 ## Objective

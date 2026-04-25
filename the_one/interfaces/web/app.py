@@ -171,16 +171,24 @@ async def _create_session(
 
 
 async def _restore_session(session_id: str) -> RestoredSession:
-    """Load a session from DB into memory, classifying its health on the way.
+    """Load a session from DB and (re)build the Agent from CURRENT config.
 
-    Returns a RestoredSession dataclass. On the OK path the session is also
-    cached in `_sessions`; degraded states are NEVER cached (caching them
-    would mask future health changes).
+    Health is re-evaluated on every call. If a Session is already cached for
+    this id, the existing object is updated in place — preserving subscribers
+    and identity — but its `.agent` is replaced with a freshly-constructed one
+    from the current agent_config row. This way edits to system_prompt, model,
+    or tools propagate at the next join, and deletions surface as agent_deleted
+    on the next join.
+
+    Degraded states (agent_deleted, provider_missing) drop the entry from the
+    cache so the next successful join starts clean.
     """
     try:
         repo = await _chat_repo()
         db_session = await repo.get(session_id)
     except KeyError:
+        # If we had a cached session for this id, drop it — the row is gone.
+        _sessions.pop(session_id, None)
         return RestoredSession(None, SESSION_STATUS_NOT_FOUND, None)
 
     factory = _get_factory()
@@ -191,8 +199,6 @@ async def _restore_session(session_id: str) -> RestoredSession:
         # Two possible KeyError sources from factory.create:
         #   - "Unknown agent: ..."         from factory.py:102 (_load_config)
         #   - "Provider not found: ..."    from db/repositories.py:401 (LLMProviderRepository.get)
-        # If any of those messages change, this branch will silently
-        # misclassify; update both sites together.
         msg = str(exc)
         if "Provider not found" in msg:
             status = SESSION_STATUS_PROVIDER_MISSING
@@ -205,26 +211,38 @@ async def _restore_session(session_id: str) -> RestoredSession:
             db_session.agent_name,
             exc,
         )
+        _sessions.pop(session_id, None)
         return RestoredSession(None, status, db_session)
     except ValueError as exc:
-        # AgentFactory raises ValueError("Agent '...' has no provider configured...")
-        # at factory.py:39-43 when the agent has no provider_config_id.
         if "has no provider configured" in str(exc):
             logger.warning(
                 "Session %s degraded: status=provider_missing agent=%r",
                 session_id,
                 db_session.agent_name,
             )
+            _sessions.pop(session_id, None)
             return RestoredSession(None, SESSION_STATUS_PROVIDER_MISSING, db_session)
-        raise  # Unrecognized ValueError — surface it; do NOT classify as degraded.
+        raise
 
-    # Decode messages and inject into agent
     messages = decode_messages(db_session.messages)
     if messages:
-        agent.messages = messages
-
-    # Build UI events from stored messages
+        # Keep the freshly-built Agent's system message (reflects current
+        # agent_config); append only the non-system messages from the DB.
+        # Without this, the persisted-at-session-creation system prompt
+        # would clobber the freshly-built one and edits to the system
+        # prompt in Studio would never take effect.
+        non_system = [m for m in messages if m.role != Role.SYSTEM]
+        agent.messages = agent.messages[:1] + non_system
     ui_events = messages_to_ui_events(messages)
+
+    if session_id in _sessions:
+        # Update existing Session in place — keeps subscribers and identity.
+        existing = _sessions[session_id]
+        existing.agent = agent
+        existing.title = db_session.title
+        existing.agent_name = db_session.agent_name
+        existing.history = ui_events
+        return RestoredSession(existing, SESSION_STATUS_OK, db_session)
 
     session = Session(
         id=session_id,
@@ -239,13 +257,13 @@ async def _restore_session(session_id: str) -> RestoredSession:
 
 
 async def _get_or_restore_session(session_id: str) -> RestoredSession:
-    """Check memory first, fall back to DB restore.
+    """Always rebuild via _restore_session.
 
-    Cached sessions are returned as-is with status=ok. Health checks are
-    NOT re-run — per the design decision, health is a join-time concept.
+    Earlier versions short-circuited to the in-memory cache, which froze the
+    Agent at restore time and meant edits to the agent config (system_prompt,
+    model, tools) and agent deletions did not propagate until process restart.
+    Now every join rebinds the cached Session's `.agent` to the current config.
     """
-    if session_id in _sessions:
-        return RestoredSession(_sessions[session_id], SESSION_STATUS_OK, None)
     return await _restore_session(session_id)
 
 
