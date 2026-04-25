@@ -1,6 +1,6 @@
 # Flight: Resilience & Verification
 
-**Status**: landed
+**Status**: completed
 **Mission**: [LLM Provider Management](../../mission.md)
 
 ## Contributing to Criteria
