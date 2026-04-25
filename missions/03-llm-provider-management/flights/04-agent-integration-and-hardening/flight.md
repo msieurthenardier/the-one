@@ -1,6 +1,6 @@
 # Flight: Agent Integration & Hardening
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [LLM Provider Management](../../mission.md)
 
 ## Contributing to Criteria
@@ -65,7 +65,7 @@ Six autonomous implementation legs covering JS utilities, backend cleanup, provi
 - [x] First-start banner shows when no providers configured
 - [x] Library search cache working with 5-min TTL
 - [x] All activate() methods refresh data
-- [ ] HAT passed
+- [x] HAT passed
 
 ### Adaptation Criteria
 
@@ -84,7 +84,7 @@ Six autonomous implementation legs covering JS utilities, backend cleanup, provi
 - [x] `first-start-and-model-default` — Chat banner for no providers, empty model default
 - [x] `library-cache-and-tests` — TTL cache for library search, endpoint tests
 - [x] `activate-refresh-convention` — Audit and fix activate() data refresh
-- [ ] `hat` — Interactive human acceptance test
+- [x] `hat` — Interactive human acceptance test
 
 ---
 

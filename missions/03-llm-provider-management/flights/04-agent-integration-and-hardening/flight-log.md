@@ -79,6 +79,25 @@ Consolidating outstanding hardening items from Flights 01-03 debriefs with remai
 - **Deviations**: No functional gaps found — convention was already followed, just needed documentation
 - **Tests**: No test changes needed
 
+### Leg 07: HAT — DONE
+
+- **Scope**: Interactive human acceptance test covering all changes
+- **Results**:
+  - First-start banner: PASS — shows appropriate message for no-providers, no-agents, and both-missing states
+  - Add provider: PASS — Ollama provider saves, connection test passes
+  - Banner dismissal: PASS — banner updates to "No agents" after provider added, disappears after agent created
+  - Create agent: PASS — model dropdown shows "Choose a model" placeholder, populates after provider selection
+  - Provider deletion protection: not explicitly re-tested (covered by automated tests)
+  - Shared JS utilities: PASS — no console errors across all areas
+  - Library search cache: not explicitly re-tested (covered by automated tests)
+  - Test suite: PASS — 325 passed, 0 failed
+- **HAT fixes applied**:
+  - `chat.js`: Enhanced `checkProviders` to also check agents, showing contextual banner messages for each state
+  - `chat.js`: Made `checkProviders` return its promise, chained before `fetchAgents`/`list_sessions` to avoid race
+  - `chat.js`: Skip auto-create session and `+ new` button when banner is showing
+  - `chat.js`: Reset `busy`/`sendBtn` state when system error arrives (prevents stuck disabled button)
+- **Known issue (deferred)**: First auto-joined session on connect may show "default agent has no provider" error if old sessions exist in DB — user will address separately
+
 ---
 
 ## Decisions

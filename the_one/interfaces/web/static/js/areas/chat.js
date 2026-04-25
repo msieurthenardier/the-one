@@ -192,16 +192,28 @@ App.registerArea({
     }
 
     function checkProviders() {
-      fetch('/api/providers')
-        .then(function (r) { return r.json(); })
-        .then(function (providers) {
-          if (providers.length === 0) {
+      return Promise.all([
+        fetch('/api/providers').then(function (r) { return r.json(); }),
+        fetch('/api/agents').then(function (r) { return r.json(); })
+      ])
+        .then(function (results) {
+          var providers = results[0];
+          var agents = results[1];
+          var msg = null;
+          if (providers.length === 0 && agents.length === 0) {
+            msg = 'Getting started: add a provider in Admin, then create an agent in Studio to start chatting.';
+          } else if (providers.length === 0) {
+            msg = 'No providers configured \u2014 add one in Admin to start chatting.';
+          } else if (agents.length === 0) {
+            msg = 'No agents configured \u2014 create one in Studio to start chatting.';
+          }
+          if (msg) {
             if (!bannerEl) {
               bannerEl = document.createElement('div');
               bannerEl.className = 'chat-no-providers';
-              bannerEl.textContent = 'No providers configured \u2014 set one up in Admin to start chatting';
               messagesEl.parentNode.insertBefore(bannerEl, messagesEl);
             }
+            bannerEl.textContent = msg;
           } else {
             if (bannerEl) {
               bannerEl.parentNode.removeChild(bannerEl);
@@ -218,8 +230,9 @@ App.registerArea({
 
       ws.onopen = function () {
         statusEl.textContent = 'connected';
-        checkProviders();
-        fetchAgents().then(function () {
+        checkProviders().then(function () {
+          return fetchAgents();
+        }).then(function () {
           ws.send(JSON.stringify({ action: 'list_sessions' }));
         });
       };
@@ -236,7 +249,8 @@ App.registerArea({
           renderSessionList(data.sessions);
           if (data.sessions.length > 0 && !currentSessionId) {
             joinSession(data.sessions[0].id);
-          } else if (!currentSessionId) {
+          } else if (!currentSessionId && !bannerEl) {
+            // Only auto-create a session if setup is complete (no banner showing)
             var msg = { action: 'new_session' };
             if (agentSelect.value) msg.agent_name = agentSelect.value;
             ws.send(JSON.stringify(msg));
@@ -301,6 +315,11 @@ App.registerArea({
             }
           } else {
             addMsg('system', data.content);
+            // Reset busy state if an error arrived (e.g. failed session creation)
+            if (busy) {
+              busy = false;
+              sendBtn.disabled = false;
+            }
           }
         }
         else if (data.type === 'usage') {
@@ -320,6 +339,7 @@ App.registerArea({
     });
     sendBtn.addEventListener('click', send);
     newChatBtn.addEventListener('click', function () {
+      if (bannerEl) return; // setup not complete
       var selected = agentSelect.value;
       var msg = { action: 'new_session' };
       if (selected) msg.agent_name = selected;
