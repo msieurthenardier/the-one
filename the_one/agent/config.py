@@ -74,7 +74,7 @@ class AgentConfig(BaseModel):
 
     # LLM
     provider_config_id: str | None = None
-    llm_model: str = "qwen2.5:7b"
+    llm_model: str = ""
 
     # Prompt
     system_prompt: str = ""

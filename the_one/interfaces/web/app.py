@@ -454,7 +454,10 @@ async def chat(request: Request) -> dict[str, Any]:
     if session_id:
         session = await _get_or_restore_session(session_id)
     if session is None:
-        session = await _create_session(agent_name=agent_name, source=source, session_id=session_id)
+        try:
+            session = await _create_session(agent_name=agent_name, source=source, session_id=session_id)
+        except (ValueError, KeyError) as exc:
+            return {"error": f"Cannot start chat: {exc}"}
 
     if user_input == "/reset":
         session.agent.reset()
@@ -509,7 +512,11 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 if session_id:
                     session = await _get_or_restore_session(session_id)
                 if session is None:
-                    session = await _create_session()
+                    try:
+                        session = await _create_session()
+                    except (ValueError, KeyError) as exc:
+                        await ws.send_json({"type": "system", "content": f"Cannot start chat: {exc}"})
+                        continue
                 if ws not in session.subscribers:
                     session.subscribers.add(ws)
                 await ws.send_json({
@@ -549,7 +556,11 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 if session:
                     session.subscribers.discard(ws)
                 agent_name = payload.get("agent_name")
-                session = await _create_session(agent_name=agent_name)
+                try:
+                    session = await _create_session(agent_name=agent_name)
+                except (ValueError, KeyError) as exc:
+                    await ws.send_json({"type": "system", "content": f"Cannot start chat: {exc}"})
+                    continue
                 session.subscribers.add(ws)
                 await ws.send_json({
                     "type": "session_joined",
@@ -587,7 +598,11 @@ async def websocket_endpoint(ws: WebSocket) -> None:
 
             # Auto-join a session if none active
             if not session:
-                session = await _create_session()
+                try:
+                    session = await _create_session()
+                except (ValueError, KeyError) as exc:
+                    await ws.send_json({"type": "system", "content": f"Cannot start chat: {exc}"})
+                    continue
                 session.subscribers.add(ws)
                 await ws.send_json({
                     "type": "session_joined",

@@ -8,22 +8,31 @@ parameter so callers can target different Ollama instances.
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
-def _normalize_url(base_url: str) -> str:
+def strip_v1(base_url: str) -> str:
     """Strip trailing slash and ``/v1`` suffix so we hit the native API."""
     url = base_url.rstrip("/")
     if url.endswith("/v1"):
         url = url[:-3]
     return url
+
+
+def ensure_v1(base_url: str) -> str:
+    """Strip trailing slash and ensure ``/v1`` suffix for OpenAI-compatible endpoints."""
+    url = base_url.rstrip("/")
+    return url if url.endswith("/v1") else f"{url}/v1"
 
 
 def _parse_parameter_size(raw: str | None) -> int | None:
@@ -57,7 +66,7 @@ async def list_models(base_url: str) -> list[dict[str, Any]]:
     Each dict contains at minimum ``name``, ``size`` (bytes), and
     ``modified_at``.
     """
-    url = _normalize_url(base_url)
+    url = strip_v1(base_url)
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.get(f"{url}/api/tags")
@@ -76,7 +85,7 @@ async def list_running(base_url: str) -> list[dict[str, Any]]:
 
     Each dict includes model name, size, VRAM usage, and expiry info.
     """
-    url = _normalize_url(base_url)
+    url = strip_v1(base_url)
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.get(f"{url}/api/ps")
@@ -97,7 +106,7 @@ async def show_model(base_url: str, model: str) -> dict[str, Any]:
     None), ``quantization_level`` (str or None), and ``size`` (file size in
     bytes), plus any other fields from the raw response.
     """
-    url = _normalize_url(base_url)
+    url = strip_v1(base_url)
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.post(f"{url}/api/show", json={"model": model})
@@ -129,7 +138,7 @@ async def pull_model(base_url: str, model: str) -> AsyncIterator[dict[str, Any]]
     Yields progress dicts with keys like ``status``, ``completed``, and
     ``total``.
     """
-    url = _normalize_url(base_url)
+    url = strip_v1(base_url)
     try:
         async with httpx.AsyncClient(timeout=600) as client:
             async with client.stream(
@@ -152,7 +161,7 @@ async def pull_model(base_url: str, model: str) -> AsyncIterator[dict[str, Any]]
 
 async def delete_model(base_url: str, model: str) -> None:
     """Delete a model via ``DELETE /api/delete``."""
-    url = _normalize_url(base_url)
+    url = strip_v1(base_url)
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.request("DELETE", f"{url}/api/delete", json={"model": model})
@@ -174,7 +183,7 @@ async def load_model(
 
     Ollama loads the model when it receives a generate request.
     """
-    url = _normalize_url(base_url)
+    url = strip_v1(base_url)
     try:
         async with httpx.AsyncClient(timeout=300) as client:
             resp = await client.post(
@@ -197,7 +206,7 @@ async def unload_model(base_url: str, model: str) -> None:
     """
     import asyncio
 
-    url = _normalize_url(base_url)
+    url = strip_v1(base_url)
     try:
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.post(
@@ -213,6 +222,7 @@ async def unload_model(base_url: str, model: str) -> None:
                 running = ps.json().get("models", [])
                 if not any(m.get("name", "") == model for m in running):
                     return
+            logger.warning("Model '%s' still running after polling exhausted on %s", model, url)
     except httpx.ConnectError as exc:
         raise ConnectionError(f"Cannot connect to Ollama at {url}: {exc}") from exc
     except httpx.TimeoutException as exc:

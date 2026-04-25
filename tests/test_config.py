@@ -16,7 +16,7 @@ class TestAgentConfigConstruction:
         assert cfg.name == "test-agent"
         assert cfg.description == ""
         assert cfg.provider_config_id is None
-        assert cfg.llm_model == "qwen2.5:7b"
+        assert cfg.llm_model == ""
         assert cfg.system_prompt == ""
         assert cfg.enabled_tools is None
         assert cfg.disabled_tools == []

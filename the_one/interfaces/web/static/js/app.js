@@ -69,6 +69,8 @@ var App = (function () {
     }
 
     currentId = areaId;
+    // Convention: activate() must refresh the area's data so changes made in
+    // other areas (e.g. adding a provider in Admin) are reflected immediately.
     areas[areaId].activate();
   }
 
@@ -91,5 +93,37 @@ var App = (function () {
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
-  return { registerArea: registerArea, escapeHtml: escapeHtml };
+  function escapeAttr(s) {
+    if (!s) return '';
+    return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function formatBytes(bytes) {
+    if (!bytes || bytes <= 0) return '0 B';
+    var units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    var i = 0;
+    var val = bytes;
+    while (val >= 1024 && i < units.length - 1) { val /= 1024; i++; }
+    return (i >= 2 ? val.toFixed(1) : Math.round(val)) + ' ' + units[i];
+  }
+
+  function showFlash(container, msg, isError) {
+    var el = document.createElement('div');
+    el.className = 'app-flash' + (isError ? ' error' : '');
+    if (isError) {
+      el.setAttribute('role', 'alert');
+    } else {
+      el.setAttribute('role', 'status');
+      el.setAttribute('aria-live', 'polite');
+    }
+    el.textContent = msg;
+    container.appendChild(el);
+    setTimeout(function () { el.classList.add('visible'); }, 10);
+    setTimeout(function () {
+      el.classList.remove('visible');
+      setTimeout(function () { el.remove(); }, 300);
+    }, 2000);
+  }
+
+  return { registerArea: registerArea, escapeHtml: escapeHtml, escapeAttr: escapeAttr, formatBytes: formatBytes, showFlash: showFlash };
 })();

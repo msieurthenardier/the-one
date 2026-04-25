@@ -677,28 +677,11 @@ App.registerArea({
 
     // ── Helpers ──────────────────────────────────────────────────────
 
-    function showFlash(msg) {
-      var el = document.createElement('div');
-      el.className = 'studio-flash';
-      el.textContent = msg;
-      editorEl.appendChild(el);
-      setTimeout(function () { el.classList.add('visible'); }, 10);
-      setTimeout(function () {
-        el.classList.remove('visible');
-        setTimeout(function () { el.remove(); }, 300);
-      }, 2000);
-    }
+    var showFlash = function (msg) { App.showFlash(editorEl, msg); };
 
     // ── VRAM warning helpers ─────────────────────────────────────────
 
-    function formatBytes(bytes) {
-      if (!bytes || bytes <= 0) return '0 B';
-      var units = ['B', 'KB', 'MB', 'GB', 'TB'];
-      var i = Math.floor(Math.log(bytes) / Math.log(1024));
-      if (i >= units.length) i = units.length - 1;
-      var val = bytes / Math.pow(1024, i);
-      return val.toFixed(val < 10 ? 1 : 0) + ' ' + units[i];
-    }
+    var formatBytes = App.formatBytes;
 
     var vramCheckTimer = null;
 
@@ -802,11 +785,7 @@ App.registerArea({
     }
 
     var escapeHtml = App.escapeHtml;
-
-    function escapeAttr(s) {
-      if (!s) return '';
-      return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    }
+    var escapeAttr = App.escapeAttr;
 
     // ── Init ─────────────────────────────────────────────────────────
 

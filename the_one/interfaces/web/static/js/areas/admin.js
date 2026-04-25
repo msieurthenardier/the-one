@@ -387,29 +387,39 @@ App.registerArea({
         return;
       }
 
-      // First click — check agent usage and show confirm
-      fetch('/api/agents')
+      // First click — check agent usage via dedicated endpoint
+      fetch('/api/providers/' + encodeURIComponent(id) + '/agents')
         .then(function (r) { return r.json(); })
-        .then(function (agents) {
-          var count = 0;
-          for (var i = 0; i < agents.length; i++) {
-            if (agents[i].provider_config_id === id) count++;
-          }
+        .then(function (data) {
+          var agentNames = data.agents || [];
 
-          btn.classList.add('admin-provider-delete-confirm');
-          btn.setAttribute('aria-live', 'assertive');
-          if (count > 0) {
-            btn.textContent = count + ' agent' + (count > 1 ? 's' : '') + ' use this — confirm?';
+          if (agentNames.length > 0) {
+            // Hard-block: show agent names, disable button, no confirm flow
+            btn.textContent = 'Used by: ' + agentNames.join(', ');
+            btn.disabled = true;
+            btn.classList.add('admin-provider-delete-blocked');
+            btn.setAttribute('aria-live', 'assertive');
+
+            if (deleteConfirmTimer) clearTimeout(deleteConfirmTimer);
+            deleteConfirmTimer = setTimeout(function () {
+              btn.disabled = false;
+              btn.classList.remove('admin-provider-delete-blocked');
+              btn.removeAttribute('aria-live');
+              btn.textContent = 'Delete';
+            }, 3000);
           } else {
+            // No agents — normal confirm flow
+            btn.classList.add('admin-provider-delete-confirm');
+            btn.setAttribute('aria-live', 'assertive');
             btn.textContent = 'Confirm delete?';
-          }
 
-          if (deleteConfirmTimer) clearTimeout(deleteConfirmTimer);
-          deleteConfirmTimer = setTimeout(function () {
-            btn.classList.remove('admin-provider-delete-confirm');
-            btn.removeAttribute('aria-live');
-            btn.textContent = 'Delete';
-          }, 3000);
+            if (deleteConfirmTimer) clearTimeout(deleteConfirmTimer);
+            deleteConfirmTimer = setTimeout(function () {
+              btn.classList.remove('admin-provider-delete-confirm');
+              btn.removeAttribute('aria-live');
+              btn.textContent = 'Delete';
+            }, 3000);
+          }
         })
         .catch(function () {
           // If agent fetch fails, still allow delete with basic confirm
@@ -716,14 +726,7 @@ App.registerArea({
 
     // ── Ollama Lifecycle Panel ──────────────────────────────────────
 
-    function formatBytes(bytes) {
-      if (!bytes || bytes <= 0) return '0 B';
-      var units = ['B', 'KB', 'MB', 'GB', 'TB'];
-      var i = 0;
-      var val = bytes;
-      while (val >= 1024 && i < units.length - 1) { val /= 1024; i++; }
-      return (i >= 2 ? val.toFixed(1) : Math.round(val)) + ' ' + units[i];
-    }
+    var formatBytes = App.formatBytes;
 
     function renderOllamaModels(providerId, container) {
       if (!container) return;
@@ -1141,31 +1144,13 @@ App.registerArea({
     // ── Flash Feedback ────────────────────────────────────────────────
 
     function showAdminFlash(msg, isError) {
-      var el = document.createElement('div');
-      el.className = 'admin-flash' + (isError ? ' error' : '');
-      if (isError) {
-        el.setAttribute('role', 'alert');
-      } else {
-        el.setAttribute('role', 'status');
-        el.setAttribute('aria-live', 'polite');
-      }
-      el.textContent = msg;
-      contentEl.appendChild(el);
-      setTimeout(function () { el.classList.add('visible'); }, 10);
-      setTimeout(function () {
-        el.classList.remove('visible');
-        setTimeout(function () { el.remove(); }, 300);
-      }, 2000);
+      App.showFlash(contentEl, msg, isError);
     }
 
     // ── Helpers ────────────────────────────────────────────────────────
 
     var escapeHtml = App.escapeHtml;
-
-    function escapeAttr(s) {
-      if (!s) return '';
-      return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    }
+    var escapeAttr = App.escapeAttr;
 
     // Store reference for activate() to reuse
     var self = this;

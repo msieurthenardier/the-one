@@ -29,6 +29,14 @@ class SQLiteAgentStore:
         async with self.conn.execute("SELECT name FROM agents ORDER BY name") as cur:
             return [row[0] for row in await cur.fetchall()]
 
+    async def list_by_provider(self, provider_config_id: str) -> list[str]:
+        """Return agent names that reference the given provider config."""
+        async with self.conn.execute(
+            "SELECT name FROM agents WHERE provider_config_id = ? ORDER BY name",
+            (provider_config_id,),
+        ) as cur:
+            return [row[0] for row in await cur.fetchall()]
+
     async def load(self, name: str) -> AgentConfig:
         async with self.conn.execute("SELECT * FROM agents WHERE name = ?", (name,)) as cur:
             row = await cur.fetchone()
@@ -91,7 +99,7 @@ class SQLiteAgentStore:
             name=row["name"],
             description=row["description"] or "",
             provider_config_id=row["provider_config_id"],
-            llm_model=row["llm_model"] or "qwen2.5:7b",
+            llm_model=row["llm_model"] or "",
             system_prompt=row["system_prompt"] or "",
             enabled_tools=enabled,
             disabled_tools=json.loads(row["disabled_tools"] or "[]"),

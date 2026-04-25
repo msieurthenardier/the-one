@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -404,7 +405,7 @@ async def _get_ollama_base_url(provider_id: str) -> str:
             status_code=400,
             detail=f"Provider '{provider_id}' is type '{provider.type}', not 'ollama'",
         )
-    return provider.base_url.rstrip("/").removesuffix("/v1")
+    return ollama_api.strip_v1(provider.base_url)
 
 
 # ── LLM Providers ───────────────────────────────────────────────────────
@@ -458,13 +459,37 @@ async def update_provider(provider_id: str, request: Request) -> dict[str, Any]:
     return _provider_response(updated)
 
 
+@router.get("/providers/{provider_id}/agents")
+async def list_provider_agents(provider_id: str) -> dict[str, list[str]]:
+    """Return agent names that reference this provider."""
+    repo = await _provider_repo()
+    try:
+        await repo.get(provider_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Provider not found: {provider_id}")
+    store = await _agent_store()
+    names = await store.list_by_provider(provider_id)
+    return {"agents": names}
+
+
 @router.delete("/providers/{provider_id}")
 async def delete_provider(provider_id: str) -> dict[str, str]:
     repo = await _provider_repo()
     try:
-        await repo.delete(provider_id)
+        await repo.get(provider_id)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Provider not found: {provider_id}")
+
+    # Block deletion if agents reference this provider
+    store = await _agent_store()
+    agent_names = await store.list_by_provider(provider_id)
+    if agent_names:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Provider is used by agents: {', '.join(agent_names)}",
+        )
+
+    await repo.delete(provider_id)
     return {"status": "ok"}
 
 
@@ -478,7 +503,7 @@ async def test_provider(provider_id: str) -> dict[str, Any]:
 
     try:
         if provider.type == "ollama":
-            base = provider.base_url.rstrip("/").removesuffix("/v1")
+            base = ollama_api.strip_v1(provider.base_url)
             async with httpx.AsyncClient(timeout=10) as client:
                 resp = await client.get(f"{base}/api/tags")
                 resp.raise_for_status()
@@ -519,7 +544,7 @@ async def list_provider_models(provider_id: str) -> list[dict[str, Any]]:
 
     if provider.type == "ollama":
         try:
-            base = provider.base_url.rstrip("/").removesuffix("/v1")
+            base = ollama_api.strip_v1(provider.base_url)
             models = await ollama_api.list_models(base)
             return [
                 {"id": m.get("name", ""), "name": m.get("name", ""), "size": m.get("size")}
@@ -637,6 +662,10 @@ async def model_status(provider_id: str) -> list[dict[str, Any]]:
 
 # ── Ollama Library Search ────────────────────────────────────────────────
 
+_library_cache: dict[str, Any] = {"models": [], "timestamp": 0.0}
+
+_LIBRARY_CACHE_TTL = 300  # seconds
+
 
 @router.get("/ollama-library/search")
 async def search_ollama_library(q: str = "") -> list[dict[str, str]]:
@@ -644,16 +673,22 @@ async def search_ollama_library(q: str = "") -> list[dict[str, str]]:
     q = q.strip().lower()
     if len(q) < 2:
         return []
-    try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get("https://ollama.com/api/tags")
-            resp.raise_for_status()
-            data = resp.json()
-    except Exception:
-        return []
+
+    now = time.time()
+    if now - _library_cache["timestamp"] >= _LIBRARY_CACHE_TTL:
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.get("https://ollama.com/api/tags")
+                resp.raise_for_status()
+                data = resp.json()
+            _library_cache["models"] = data.get("models", [])
+            _library_cache["timestamp"] = now
+        except Exception:
+            if not _library_cache["models"]:
+                return []
 
     results = []
-    for m in data.get("models", []):
+    for m in _library_cache["models"]:
         name = m.get("name", "")
         if q in name.lower():
             results.append({"name": name, "size": str(m.get("size", 0))})

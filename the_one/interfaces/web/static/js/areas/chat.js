@@ -10,6 +10,7 @@ App.registerArea({
     var currentSessionId = null;
     var currentAgentName = null;
     var messagesEl, inputEl, sendBtn, statusEl, sessionListEl, agentSelect, agentBadgeEl;
+    var bannerEl = null;
 
     // Build sidebar DOM
     sidebar.innerHTML =
@@ -190,12 +191,34 @@ App.registerArea({
       sendBtn.disabled = true;
     }
 
+    function checkProviders() {
+      fetch('/api/providers')
+        .then(function (r) { return r.json(); })
+        .then(function (providers) {
+          if (providers.length === 0) {
+            if (!bannerEl) {
+              bannerEl = document.createElement('div');
+              bannerEl.className = 'chat-no-providers';
+              bannerEl.textContent = 'No providers configured \u2014 set one up in Admin to start chatting';
+              messagesEl.parentNode.insertBefore(bannerEl, messagesEl);
+            }
+          } else {
+            if (bannerEl) {
+              bannerEl.parentNode.removeChild(bannerEl);
+              bannerEl = null;
+            }
+          }
+        })
+        .catch(function () { /* best-effort */ });
+    }
+
     function connect() {
       var proto = location.protocol === 'https:' ? 'wss' : 'ws';
       ws = new WebSocket(proto + '://' + location.host + '/ws');
 
       ws.onopen = function () {
         statusEl.textContent = 'connected';
+        checkProviders();
         fetchAgents().then(function () {
           ws.send(JSON.stringify({ action: 'list_sessions' }));
         });
@@ -307,6 +330,7 @@ App.registerArea({
     this._connect = connect;
     this._ws = function () { return ws; };
     this._fetchAgents = fetchAgents;
+    this._checkProviders = checkProviders;
   },
 
   activate: function () {
@@ -314,6 +338,7 @@ App.registerArea({
       this._connect();
     } else if (this._ws() && this._ws().readyState === WebSocket.OPEN) {
       this._fetchAgents();
+      this._checkProviders();
     }
   },
 

@@ -5,6 +5,7 @@ from typing import Any
 
 import httpx
 
+from the_one.llm import ollama_api
 from the_one.llm.base import LLMProvider, Message, Role, TokenUsage, ToolCall
 from the_one.llm.registry import register_provider
 
@@ -25,11 +26,7 @@ class OllamaProvider(LLMProvider):
         **kwargs: Any,
     ):
         self.model = model
-        url = (base_url or "http://localhost:11434/v1").rstrip("/")
-        # Ensure /v1 suffix for OpenAI-compatible endpoint
-        if not url.endswith("/v1"):
-            url = f"{url}/v1"
-        self.base_url = url
+        self.base_url = ollama_api.ensure_v1(base_url or "http://localhost:11434/v1")
 
     async def complete(
         self,

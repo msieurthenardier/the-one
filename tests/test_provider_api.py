@@ -881,3 +881,237 @@ class TestModelStatus:
             resp = await client.get(f"/api/providers/{pid}/models/status")
         assert resp.status_code == 502
         assert "refused" in resp.json()["detail"]
+
+
+# ── URL normalization utilities ───────────────────────────────────────
+
+
+# ── Provider Deletion Protection ──────────────────────────────────────
+
+
+class TestProviderDeletionProtection:
+    """Tests for provider deletion protection and agents-by-provider endpoint."""
+
+    async def _create_agent(self, client: AsyncClient, name: str, provider_id: str) -> None:
+        resp = await client.post(
+            "/api/agents",
+            json={
+                "name": name,
+                "provider_config_id": provider_id,
+                "llm_model": "test-model",
+            },
+        )
+        assert resp.status_code == 201
+
+    async def test_delete_blocked_by_agents(self, client: AsyncClient) -> None:
+        """DELETE should return 409 when agents reference the provider."""
+        pid = await _create_provider(client, "ollama")
+        await self._create_agent(client, "agent-a", pid)
+
+        resp = await client.delete(f"/api/providers/{pid}")
+        assert resp.status_code == 409
+        data = resp.json()
+        assert "agent-a" in data["detail"]
+        assert "Provider is used by agents" in data["detail"]
+
+    async def test_delete_allowed_without_agents(self, client: AsyncClient) -> None:
+        """DELETE should succeed (200) when no agents reference the provider."""
+        pid = await _create_provider(client, "ollama")
+
+        resp = await client.delete(f"/api/providers/{pid}")
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "ok"}
+
+        # Verify it's actually gone
+        resp = await client.get(f"/api/providers/{pid}")
+        assert resp.status_code == 404
+
+    async def test_agents_by_provider(self, client: AsyncClient) -> None:
+        """GET /api/providers/{id}/agents should return agent names referencing the provider."""
+        pid = await _create_provider(client, "ollama")
+        await self._create_agent(client, "bot-alpha", pid)
+        await self._create_agent(client, "bot-beta", pid)
+
+        resp = await client.get(f"/api/providers/{pid}/agents")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert sorted(data["agents"]) == ["bot-alpha", "bot-beta"]
+
+    async def test_agents_by_provider_empty(self, client: AsyncClient) -> None:
+        """GET /api/providers/{id}/agents should return empty list when no agents reference it."""
+        pid = await _create_provider(client, "ollama")
+
+        resp = await client.get(f"/api/providers/{pid}/agents")
+        assert resp.status_code == 200
+        assert resp.json() == {"agents": []}
+
+    async def test_agents_by_provider_not_found(self, client: AsyncClient) -> None:
+        """GET /api/providers/{id}/agents should return 404 for non-existent provider."""
+        resp = await client.get("/api/providers/nonexistent/agents")
+        assert resp.status_code == 404
+
+
+# ── Ollama Library Search ─────────────────────────────────────────────
+
+
+class TestOllamaLibrarySearch:
+    """Tests for GET /api/ollama-library/search."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_cache(self):
+        """Reset the library cache before each test."""
+        from the_one.interfaces.web import api as _api_mod
+
+        _api_mod._library_cache["models"] = []
+        _api_mod._library_cache["timestamp"] = 0.0
+        yield
+        _api_mod._library_cache["models"] = []
+        _api_mod._library_cache["timestamp"] = 0.0
+
+    def _mock_httpx(self, models: list[dict] | Exception):
+        """Return a patch context that mocks httpx.AsyncClient for library fetch."""
+        mock_resp = MagicMock()
+        instance = AsyncMock()
+        instance.__aenter__ = AsyncMock(return_value=instance)
+        instance.__aexit__ = AsyncMock(return_value=False)
+
+        if isinstance(models, Exception):
+            instance.get = AsyncMock(side_effect=models)
+        else:
+            mock_resp.raise_for_status = MagicMock()
+            mock_resp.json.return_value = {"models": models}
+            instance.get = AsyncMock(return_value=mock_resp)
+
+        return patch(
+            "the_one.interfaces.web.api.httpx.AsyncClient",
+            return_value=instance,
+        )
+
+    async def test_basic_search(self, client: AsyncClient) -> None:
+        models = [
+            {"name": "llama3:8b", "size": 5_000_000_000},
+            {"name": "llama3:70b", "size": 40_000_000_000},
+            {"name": "qwen2.5:7b", "size": 4_500_000_000},
+        ]
+        with self._mock_httpx(models):
+            resp = await client.get("/api/ollama-library/search?q=llama")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 2
+        assert data[0]["name"] == "llama3:8b"
+        assert data[1]["name"] == "llama3:70b"
+
+    async def test_empty_query(self, client: AsyncClient) -> None:
+        resp = await client.get("/api/ollama-library/search?q=")
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    async def test_short_query(self, client: AsyncClient) -> None:
+        resp = await client.get("/api/ollama-library/search?q=a")
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    async def test_results_capped_at_30(self, client: AsyncClient) -> None:
+        models = [{"name": f"model-x-{i}", "size": 100} for i in range(50)]
+        with self._mock_httpx(models):
+            resp = await client.get("/api/ollama-library/search?q=model-x")
+        assert resp.status_code == 200
+        assert len(resp.json()) == 30
+
+    async def test_cache_hit(self, client: AsyncClient) -> None:
+        models = [
+            {"name": "llama3:8b", "size": 5_000_000_000},
+            {"name": "qwen2.5:7b", "size": 4_500_000_000},
+        ]
+        mock_ctx = self._mock_httpx(models)
+        with mock_ctx as mock_cls:
+            resp1 = await client.get("/api/ollama-library/search?q=llama")
+            resp2 = await client.get("/api/ollama-library/search?q=qwen")
+            # httpx.AsyncClient should have been instantiated only once (first call)
+            assert mock_cls.call_count == 1
+        assert len(resp1.json()) == 1
+        assert resp1.json()[0]["name"] == "llama3:8b"
+        assert len(resp2.json()) == 1
+        assert resp2.json()[0]["name"] == "qwen2.5:7b"
+
+    async def test_http_error_no_cache(self, client: AsyncClient) -> None:
+        """HTTP error with no cached data returns empty list."""
+        with self._mock_httpx(ConnectionError("refused")):
+            resp = await client.get("/api/ollama-library/search?q=llama")
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    async def test_http_error_stale_cache_fallback(self, client: AsyncClient) -> None:
+        """HTTP error with stale cache falls back to cached data."""
+        from the_one.interfaces.web import api as _api_mod
+
+        models = [
+            {"name": "llama3:8b", "size": 5_000_000_000},
+        ]
+        # Pre-populate cache, then expire it
+        with self._mock_httpx(models):
+            await client.get("/api/ollama-library/search?q=llama")
+
+        # Expire the cache
+        _api_mod._library_cache["timestamp"] = 0.0
+
+        # Now fetch fails — should fall back to stale cache
+        with self._mock_httpx(ConnectionError("timeout")):
+            resp = await client.get("/api/ollama-library/search?q=llama")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["name"] == "llama3:8b"
+
+
+class TestStripV1:
+    """Tests for ollama_api.strip_v1()."""
+
+    def test_strips_v1_suffix(self) -> None:
+        from the_one.llm.ollama_api import strip_v1
+
+        assert strip_v1("http://localhost:11434/v1") == "http://localhost:11434"
+
+    def test_strips_v1_slash_suffix(self) -> None:
+        from the_one.llm.ollama_api import strip_v1
+
+        assert strip_v1("http://localhost:11434/v1/") == "http://localhost:11434"
+
+    def test_bare_url_unchanged(self) -> None:
+        from the_one.llm.ollama_api import strip_v1
+
+        assert strip_v1("http://localhost:11434") == "http://localhost:11434"
+
+    def test_strips_trailing_slash(self) -> None:
+        from the_one.llm.ollama_api import strip_v1
+
+        assert strip_v1("http://localhost:11434/") == "http://localhost:11434"
+
+    def test_already_correct(self) -> None:
+        from the_one.llm.ollama_api import strip_v1
+
+        assert strip_v1("http://myhost:8080") == "http://myhost:8080"
+
+
+class TestEnsureV1:
+    """Tests for ollama_api.ensure_v1()."""
+
+    def test_adds_v1_suffix(self) -> None:
+        from the_one.llm.ollama_api import ensure_v1
+
+        assert ensure_v1("http://localhost:11434") == "http://localhost:11434/v1"
+
+    def test_already_has_v1(self) -> None:
+        from the_one.llm.ollama_api import ensure_v1
+
+        assert ensure_v1("http://localhost:11434/v1") == "http://localhost:11434/v1"
+
+    def test_trailing_slash_gets_v1(self) -> None:
+        from the_one.llm.ollama_api import ensure_v1
+
+        assert ensure_v1("http://localhost:11434/") == "http://localhost:11434/v1"
+
+    def test_v1_with_trailing_slash(self) -> None:
+        from the_one.llm.ollama_api import ensure_v1
+
+        assert ensure_v1("http://localhost:11434/v1/") == "http://localhost:11434/v1"

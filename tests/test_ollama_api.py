@@ -47,22 +47,22 @@ def _json_response(data: dict, status_code: int = 200) -> MagicMock:
 
 
 # ---------------------------------------------------------------------------
-# _normalize_url
+# strip_v1
 # ---------------------------------------------------------------------------
 
 
-class TestNormalizeUrl:
+class TestStripV1OllamaApi:
     def test_strips_trailing_slash(self) -> None:
-        assert ollama_api._normalize_url("http://host:1234/") == "http://host:1234"
+        assert ollama_api.strip_v1("http://host:1234/") == "http://host:1234"
 
     def test_strips_v1_suffix(self) -> None:
-        assert ollama_api._normalize_url("http://host:1234/v1") == "http://host:1234"
+        assert ollama_api.strip_v1("http://host:1234/v1") == "http://host:1234"
 
     def test_strips_v1_with_trailing_slash(self) -> None:
-        assert ollama_api._normalize_url("http://host:1234/v1/") == "http://host:1234"
+        assert ollama_api.strip_v1("http://host:1234/v1/") == "http://host:1234"
 
     def test_no_change_needed(self) -> None:
-        assert ollama_api._normalize_url("http://host:1234") == "http://host:1234"
+        assert ollama_api.strip_v1("http://host:1234") == "http://host:1234"
 
 
 
