@@ -11,6 +11,8 @@ App.registerArea({
     var currentAgentName = null;
     var messagesEl, inputEl, sendBtn, statusEl, sessionListEl, agentSelect, agentBadgeEl;
     var bannerEl = null;
+    var setupIncomplete = false;
+    var sessionBannerEl = null;
 
     // Build sidebar DOM
     sidebar.innerHTML =
@@ -208,6 +210,7 @@ App.registerArea({
             msg = 'No agents configured \u2014 create one in Studio to start chatting.';
           }
           if (msg) {
+            setupIncomplete = true;
             if (!bannerEl) {
               bannerEl = document.createElement('div');
               bannerEl.className = 'chat-no-providers';
@@ -215,6 +218,7 @@ App.registerArea({
             }
             bannerEl.textContent = msg;
           } else {
+            setupIncomplete = false;
             if (bannerEl) {
               bannerEl.parentNode.removeChild(bannerEl);
               bannerEl = null;
@@ -222,6 +226,36 @@ App.registerArea({
           }
         })
         .catch(function () { /* best-effort */ });
+    }
+
+    function setSessionHealth(status) {
+      // Default unknown status to 'ok' — defensive against future protocol additions
+      var msg = null;
+      if (status === 'agent_deleted') {
+        msg = 'This agent has been deleted. Chat history is preserved but new messages cannot be sent.';
+      } else if (status === 'provider_missing') {
+        msg = "This agent's provider is missing. Configure a provider in Studio to continue this conversation.";
+      }
+
+      if (msg) {
+        if (!sessionBannerEl) {
+          sessionBannerEl = document.createElement('div');
+          sessionBannerEl.className = 'chat-session-banner';
+          // Place after the setup banner if both exist; otherwise immediately above messagesEl
+          var anchor = bannerEl ? bannerEl.nextSibling : messagesEl;
+          messagesEl.parentNode.insertBefore(sessionBannerEl, anchor);
+        }
+        sessionBannerEl.textContent = msg;
+        inputEl.disabled = true;
+        sendBtn.disabled = true;
+      } else {
+        if (sessionBannerEl) {
+          sessionBannerEl.parentNode.removeChild(sessionBannerEl);
+          sessionBannerEl = null;
+        }
+        inputEl.disabled = false;
+        sendBtn.disabled = false;
+      }
     }
 
     function connect() {
@@ -249,7 +283,7 @@ App.registerArea({
           renderSessionList(data.sessions);
           if (data.sessions.length > 0 && !currentSessionId) {
             joinSession(data.sessions[0].id);
-          } else if (!currentSessionId && !bannerEl) {
+          } else if (!currentSessionId && !setupIncomplete) {
             // Only auto-create a session if setup is complete (no banner showing)
             var msg = { action: 'new_session' };
             if (agentSelect.value) msg.agent_name = agentSelect.value;
@@ -259,10 +293,18 @@ App.registerArea({
         }
 
         if (data.type === 'session_joined') {
+          // Stale-join guard: ignore responses for superseded join requests.
+          // joinSession sets currentSessionId optimistically before sending; if a newer
+          // join has been issued since, the response for the older one is irrelevant.
+          // Auto-create paths (new_session / fallback) leave currentSessionId null until
+          // the response arrives, so guard only when an explicit id was set and mismatches.
+          if (currentSessionId && currentSessionId !== data.session_id) return;
+
           currentSessionId = data.session_id;
           currentAgentName = data.agent_name;
           updateAgentBadge(data.agent_name);
           renderHistory(data.history);
+          setSessionHealth(data.status || 'ok');
           refreshSessionList();
           return;
         }
@@ -271,6 +313,7 @@ App.registerArea({
           if (currentSessionId === data.session_id) {
             currentSessionId = null;
             messagesEl.innerHTML = '';
+            setSessionHealth('ok');
             var delMsg = { action: 'new_session' };
             if (agentSelect.value) delMsg.agent_name = agentSelect.value;
             ws.send(JSON.stringify(delMsg));
@@ -318,7 +361,10 @@ App.registerArea({
             // Reset busy state if an error arrived (e.g. failed session creation)
             if (busy) {
               busy = false;
-              sendBtn.disabled = false;
+              // Only re-enable if no degraded session banner is active
+              if (!sessionBannerEl) {
+                sendBtn.disabled = false;
+              }
             }
           }
         }
@@ -327,7 +373,10 @@ App.registerArea({
         }
         else if (data.type === 'done') {
           busy = false;
-          sendBtn.disabled = false;
+          // Only re-enable if no degraded session banner is active
+          if (!sessionBannerEl) {
+            sendBtn.disabled = false;
+          }
           refreshSessionList();
         }
       };
@@ -339,10 +388,11 @@ App.registerArea({
     });
     sendBtn.addEventListener('click', send);
     newChatBtn.addEventListener('click', function () {
-      if (bannerEl) return; // setup not complete
+      if (setupIncomplete) return; // setup not complete
       var selected = agentSelect.value;
       var msg = { action: 'new_session' };
       if (selected) msg.agent_name = selected;
+      currentSessionId = null; // Clear so the response binds the new id
       ws.send(JSON.stringify(msg));
     });
 

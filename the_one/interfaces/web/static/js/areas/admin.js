@@ -520,6 +520,11 @@ App.registerArea({
     }
 
     function wireProviderFormEvents(isEdit, provider) {
+      var MASKED_SENTINEL = '__MASKED__';
+      // Capture the originally pre-filled (masked) API-key value so we can detect
+      // "user did not modify the field" on submit. In create mode this is empty.
+      var originalMaskedApiKey = isEdit ? (provider.api_key || '') : '';
+
       var typeSelect = contentEl.querySelector('[data-field="type"]');
       var baseUrlRow = contentEl.querySelector('.admin-pf-base-url');
       var baseUrlInput = contentEl.querySelector('[data-field="base_url"]');
@@ -592,6 +597,11 @@ App.registerArea({
         var apiKeyInput = contentEl.querySelector('[data-field="api_key"]');
         var apiKey = apiKeyInput ? apiKeyInput.value : null;
         if (!apiKey) apiKey = null;
+        // If editing and the user did not modify the pre-filled (masked) value,
+        // send the sentinel so the backend preserves the existing stored key.
+        if (isEdit && originalMaskedApiKey && apiKey === originalMaskedApiKey) {
+          apiKey = MASKED_SENTINEL;
+        }
 
         var payload = {
           name: name,

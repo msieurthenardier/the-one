@@ -37,6 +37,19 @@ class Encryptor:
             return value
         return self.decrypt(value)
 
+    @property
+    def key_path(self) -> Path | None:
+        """Return the on-disk key file path, or None if this Encryptor is not file-backed."""
+        return self._key_path
+
+    def install_key(self, new_key: bytes) -> None:
+        """Replace the in-memory Fernet key without touching disk.
+
+        Caller is responsible for ensuring the key file already reflects this key.
+        """
+        self._fernet = Fernet(new_key)
+        self._key = new_key
+
     def rotate_key(self, reencrypt: Callable[[Encryptor, Encryptor], None]) -> None:
         """Generate a new key, re-encrypt secrets via callback, then persist the new key.
 

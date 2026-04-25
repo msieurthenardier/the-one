@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -17,11 +18,25 @@ from the_one.encryption import Encryptor
 from the_one.interfaces.web.api import router
 
 
+class _StubOpenAIError(Exception):
+    """Stand-in for ``openai.OpenAIError`` used by the test_provider handler's
+    expected-error catch branch."""
+
+
+class _StubAnthropicError(Exception):
+    """Stand-in for ``anthropic.AnthropicError`` used by the test_provider
+    handler's expected-error catch branch."""
+
+
 def _mock_openai_module() -> MagicMock:
     """Create a mock ``openai`` module with AsyncOpenAI."""
     mod = MagicMock()
     mock_client = AsyncMock()
     mod.AsyncOpenAI.return_value = mock_client
+    # The api handler does `except openai.OpenAIError`, so the module must
+    # expose a real exception class (MagicMock attributes aren't valid in
+    # `except` clauses).
+    mod.OpenAIError = _StubOpenAIError
     return mod
 
 
@@ -30,6 +45,9 @@ def _mock_anthropic_module() -> MagicMock:
     mod = MagicMock()
     mock_client = AsyncMock()
     mod.AsyncAnthropic.return_value = mock_client
+    # The api handler does `except anthropic.AnthropicError`, so the module
+    # must expose a real exception class.
+    mod.AnthropicError = _StubAnthropicError
     return mod
 
 
@@ -183,7 +201,7 @@ class TestProviderAPI:
         assert resp.status_code == 404
 
     async def test_update_preserves_masked_key(self, client: AsyncClient) -> None:
-        """PUT with a masked API key (***...) should preserve the original stored key."""
+        """PUT with the __MASKED__ sentinel should preserve the original stored key."""
         create_resp = await client.post(
             "/api/providers",
             json={
@@ -195,24 +213,55 @@ class TestProviderAPI:
         )
         provider_id = create_resp.json()["id"]
 
-        # Update with masked key — original should be preserved
+        # Update with the masked sentinel — original should be preserved
         resp = await client.put(
             f"/api/providers/{provider_id}",
             json={
                 "name": "Updated",
                 "type": "openai",
                 "base_url": "https://api.openai.com/v1",
-                "api_key": "***...9999",
+                "api_key": "__MASKED__",
             },
         )
         assert resp.status_code == 200
         assert resp.json()["name"] == "Updated"
-        # The masked key in response should still match original
+        # The masked response should reflect the ORIGINAL stored key's last-4
+        # (not the literal sentinel string).
         assert resp.json()["api_key"] == "***...9999"
 
-        # Verify the actual stored key is still the original (not the mask string)
+        # Verify a fresh GET shows the same mask — confirms the stored value is
+        # still the original, not the sentinel literal.
         get_resp = await client.get(f"/api/providers/{provider_id}")
         assert get_resp.json()["api_key"] == "***...9999"
+
+    async def test_update_replaces_key_when_not_masked(self, client: AsyncClient) -> None:
+        """PUT with a non-sentinel api_key should replace the stored key."""
+        create_resp = await client.post(
+            "/api/providers",
+            json={
+                "name": "Test",
+                "type": "openai",
+                "base_url": "https://api.openai.com/v1",
+                "api_key": "sk-mysecretkey9999",
+            },
+        )
+        provider_id = create_resp.json()["id"]
+
+        resp = await client.put(
+            f"/api/providers/{provider_id}",
+            json={
+                "name": "Updated",
+                "type": "openai",
+                "base_url": "https://api.openai.com/v1",
+                "api_key": "sk-newkey7777",
+            },
+        )
+        assert resp.status_code == 200
+        # The masked response should reflect the NEW stored key's last-4.
+        assert resp.json()["api_key"] == "***...7777"
+
+        get_resp = await client.get(f"/api/providers/{provider_id}")
+        assert get_resp.json()["api_key"] == "***...7777"
 
     async def test_delete_provider(self, client: AsyncClient) -> None:
         create_resp = await client.post(
@@ -299,6 +348,70 @@ class TestEncryptionRotation:
             assert resp.status_code == 200
             assert resp.json()["api_key"] == f"***...{suffix}"
 
+    async def test_rotate_preserves_key_on_db_failure(
+        self, client: AsyncClient, tmp_path: Path
+    ) -> None:
+        """Verify a DB commit failure leaves the rotation half-undone safely.
+
+        After the simulated failure the on-disk key file, the cached encryptor,
+        and the on-disk ciphertext must all be byte-identical to their
+        pre-rotation state.
+        """
+        create_resp = await client.post(
+            "/api/providers",
+            json={
+                "name": "FailureTest",
+                "type": "openai",
+                "base_url": "https://api.openai.com/v1",
+                "api_key": "sk-failuretest9999",
+            },
+        )
+        assert create_resp.status_code in (200, 201)
+        provider_id = create_resp.json()["id"]
+
+        key_path = tmp_path / "test.key"
+        key_before = key_path.read_bytes()
+
+        # The fixture's ASGITransport uses raise_app_exceptions=True (the
+        # httpx default), so the simulated commit failure propagates out of
+        # client.post as a RuntimeError. In production the exception would
+        # surface as a 500 from FastAPI's default exception handler — the
+        # invariants we care about (no key file write, no cached encryptor
+        # mutation, on-disk ciphertext untouched) are the same in both paths.
+        with (
+            patch(
+                "aiosqlite.Connection.commit",
+                side_effect=RuntimeError("simulated DB failure"),
+            ),
+            pytest.raises(RuntimeError, match="simulated DB failure"),
+        ):
+            await client.post("/api/encryption/rotate")
+
+        # (i) Key file byte-identical to its pre-rotation contents.
+        assert key_path.read_bytes() == key_before
+
+        # (ii) Masked tail still works (exercises the cached encryptor's
+        # decrypt path — would fail if the cached _fernet was mutated).
+        get_resp = await client.get(f"/api/providers/{provider_id}")
+        assert get_resp.status_code == 200
+        assert get_resp.json()["api_key"] == "***...9999"
+
+        # (iii) Direct decrypt with the pre-rotation key bytes succeeds —
+        # this catches a regression where on-disk ciphertext was rewritten
+        # before the commit failed. Open a fresh connection because the
+        # fixture closes its conn after yield.
+        direct_conn = await aiosqlite.connect(str(tmp_path / "test.db"))
+        direct_conn.row_factory = aiosqlite.Row
+        try:
+            async with direct_conn.execute(
+                "SELECT api_key FROM llm_providers WHERE id = ?", (provider_id,)
+            ) as cur:
+                row = await cur.fetchone()
+        finally:
+            await direct_conn.close()
+        assert row is not None
+        assert Fernet(key_before).decrypt(row["api_key"].encode()).decode() == "sk-failuretest9999"
+
 
 # ── Provider helper ────────────────────────────────────────────────────
 
@@ -360,10 +473,12 @@ class TestConnectionTest:
         assert "Ollama" in data["detail"]
 
     async def test_ollama_failure(self, client: AsyncClient) -> None:
+        import httpx as _httpx
+
         pid = await _create_provider(client, "ollama")
         with patch("the_one.interfaces.web.api.httpx.AsyncClient") as mock_httpx_client:
             instance = AsyncMock()
-            instance.get = AsyncMock(side_effect=ConnectionError("refused"))
+            instance.get = AsyncMock(side_effect=_httpx.ConnectError("refused"))
             instance.__aenter__ = AsyncMock(return_value=instance)
             instance.__aexit__ = AsyncMock(return_value=False)
             mock_httpx_client.return_value = instance
@@ -388,10 +503,12 @@ class TestConnectionTest:
         assert resp.json()["status"] == "ok"
 
     async def test_openai_compatible_failure(self, client: AsyncClient) -> None:
+        import httpx as _httpx
+
         pid = await _create_provider(client, "openai-compatible")
         with patch("the_one.interfaces.web.api.httpx.AsyncClient") as mock_httpx_client:
             instance = AsyncMock()
-            instance.get = AsyncMock(side_effect=ConnectionError("timeout"))
+            instance.get = AsyncMock(side_effect=_httpx.ConnectError("timeout"))
             instance.__aenter__ = AsyncMock(return_value=instance)
             instance.__aexit__ = AsyncMock(return_value=False)
             mock_httpx_client.return_value = instance
@@ -402,9 +519,7 @@ class TestConnectionTest:
     async def test_openai_success(self, client: AsyncClient) -> None:
         pid = await _create_provider(client, "openai")
         mock_mod = _mock_openai_module()
-        mock_mod.AsyncOpenAI.return_value.models.list = AsyncMock(
-            return_value=MagicMock(data=[])
-        )
+        mock_mod.AsyncOpenAI.return_value.models.list = AsyncMock(return_value=MagicMock(data=[]))
         with patch.dict(sys.modules, {"openai": mock_mod}):
             resp = await client.post(f"/api/providers/{pid}/test")
         assert resp.status_code == 200
@@ -415,7 +530,7 @@ class TestConnectionTest:
         pid = await _create_provider(client, "openai")
         mock_mod = _mock_openai_module()
         mock_mod.AsyncOpenAI.return_value.models.list = AsyncMock(
-            side_effect=Exception("invalid api key")
+            side_effect=mock_mod.OpenAIError("invalid api key")
         )
         with patch.dict(sys.modules, {"openai": mock_mod}):
             resp = await client.post(f"/api/providers/{pid}/test")
@@ -439,7 +554,7 @@ class TestConnectionTest:
         pid = await _create_provider(client, "anthropic")
         mock_mod = _mock_anthropic_module()
         mock_mod.AsyncAnthropic.return_value.models.list = AsyncMock(
-            side_effect=Exception("auth failed")
+            side_effect=mock_mod.AnthropicError("auth failed")
         )
         with patch.dict(sys.modules, {"anthropic": mock_mod}):
             resp = await client.post(f"/api/providers/{pid}/test")
@@ -674,24 +789,18 @@ class TestPullModel:
         assert "error" in last
 
     async def test_pull_not_found(self, client: AsyncClient) -> None:
-        resp = await client.post(
-            "/api/providers/nonexistent/models/pull", json={"model": "x"}
-        )
+        resp = await client.post("/api/providers/nonexistent/models/pull", json={"model": "x"})
         assert resp.status_code == 404
 
     async def test_pull_wrong_type(self, client: AsyncClient) -> None:
         pid = await _create_provider(client, "openai")
-        resp = await client.post(
-            f"/api/providers/{pid}/models/pull", json={"model": "x"}
-        )
+        resp = await client.post(f"/api/providers/{pid}/models/pull", json={"model": "x"})
         assert resp.status_code == 400
         assert "not 'ollama'" in resp.json()["detail"]
 
     async def test_pull_empty_model(self, client: AsyncClient) -> None:
         pid = await _create_provider(client, "ollama")
-        resp = await client.post(
-            f"/api/providers/{pid}/models/pull", json={"model": ""}
-        )
+        resp = await client.post(f"/api/providers/{pid}/models/pull", json={"model": ""})
         assert resp.status_code == 400
         assert "Missing or empty" in resp.json()["detail"]
 
@@ -712,16 +821,12 @@ class TestDeleteModel:
         assert resp.json() == {"status": "ok"}
 
     async def test_delete_not_found(self, client: AsyncClient) -> None:
-        resp = await client.post(
-            "/api/providers/nonexistent/models/delete", json={"model": "x"}
-        )
+        resp = await client.post("/api/providers/nonexistent/models/delete", json={"model": "x"})
         assert resp.status_code == 404
 
     async def test_delete_wrong_type(self, client: AsyncClient) -> None:
         pid = await _create_provider(client, "openai")
-        resp = await client.post(
-            f"/api/providers/{pid}/models/delete", json={"model": "x"}
-        )
+        resp = await client.post(f"/api/providers/{pid}/models/delete", json={"model": "x"})
         assert resp.status_code == 400
 
     async def test_delete_upstream_failure(self, client: AsyncClient) -> None:
@@ -739,9 +844,7 @@ class TestDeleteModel:
 
     async def test_delete_empty_model(self, client: AsyncClient) -> None:
         pid = await _create_provider(client, "ollama")
-        resp = await client.post(
-            f"/api/providers/{pid}/models/delete", json={"model": "  "}
-        )
+        resp = await client.post(f"/api/providers/{pid}/models/delete", json={"model": "  "})
         assert resp.status_code == 400
 
 
@@ -761,16 +864,12 @@ class TestLoadModel:
         assert resp.json() == {"status": "ok"}
 
     async def test_load_not_found(self, client: AsyncClient) -> None:
-        resp = await client.post(
-            "/api/providers/nonexistent/models/load", json={"model": "x"}
-        )
+        resp = await client.post("/api/providers/nonexistent/models/load", json={"model": "x"})
         assert resp.status_code == 404
 
     async def test_load_wrong_type(self, client: AsyncClient) -> None:
         pid = await _create_provider(client, "anthropic")
-        resp = await client.post(
-            f"/api/providers/{pid}/models/load", json={"model": "x"}
-        )
+        resp = await client.post(f"/api/providers/{pid}/models/load", json={"model": "x"})
         assert resp.status_code == 400
 
     async def test_load_upstream_failure(self, client: AsyncClient) -> None:
@@ -788,9 +887,7 @@ class TestLoadModel:
 
     async def test_load_empty_model(self, client: AsyncClient) -> None:
         pid = await _create_provider(client, "ollama")
-        resp = await client.post(
-            f"/api/providers/{pid}/models/load", json={"model": ""}
-        )
+        resp = await client.post(f"/api/providers/{pid}/models/load", json={"model": ""})
         assert resp.status_code == 400
 
 
@@ -810,16 +907,12 @@ class TestUnloadModel:
         assert resp.json() == {"status": "ok"}
 
     async def test_unload_not_found(self, client: AsyncClient) -> None:
-        resp = await client.post(
-            "/api/providers/nonexistent/models/unload", json={"model": "x"}
-        )
+        resp = await client.post("/api/providers/nonexistent/models/unload", json={"model": "x"})
         assert resp.status_code == 404
 
     async def test_unload_wrong_type(self, client: AsyncClient) -> None:
         pid = await _create_provider(client, "openai-compatible")
-        resp = await client.post(
-            f"/api/providers/{pid}/models/unload", json={"model": "x"}
-        )
+        resp = await client.post(f"/api/providers/{pid}/models/unload", json={"model": "x"})
         assert resp.status_code == 400
 
     async def test_unload_upstream_failure(self, client: AsyncClient) -> None:
@@ -837,9 +930,7 @@ class TestUnloadModel:
 
     async def test_unload_empty_model(self, client: AsyncClient) -> None:
         pid = await _create_provider(client, "ollama")
-        resp = await client.post(
-            f"/api/providers/{pid}/models/unload", json={"model": ""}
-        )
+        resp = await client.post(f"/api/providers/{pid}/models/unload", json={"model": ""})
         assert resp.status_code == 400
 
 
