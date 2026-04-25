@@ -14,7 +14,12 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from the_one.agent import Agent
-from the_one.agent.factory import AgentFactory
+from the_one.agent.factory import (
+    AgentFactory,
+    AgentNotFoundError,
+    ProviderNotConfiguredError,
+    ProviderNotFoundError,
+)
 from the_one.config import settings
 from the_one.db import close_connection, init_db
 from the_one.db.codec import decode_messages, encode_messages, messages_to_ui_events
@@ -195,34 +200,27 @@ async def _restore_session(session_id: str) -> RestoredSession:
     agent_name_for_factory = db_session.agent_name or "default"
     try:
         agent = await factory.create(agent_name_for_factory)
-    except KeyError as exc:
-        # Two possible KeyError sources from factory.create:
-        #   - "Unknown agent: ..."         from factory.py:102 (_load_config)
-        #   - "Provider not found: ..."    from db/repositories.py:401 (LLMProviderRepository.get)
-        msg = str(exc)
-        if "Provider not found" in msg:
-            status = SESSION_STATUS_PROVIDER_MISSING
-        else:
-            status = SESSION_STATUS_AGENT_DELETED
+    except ProviderNotFoundError as exc:
         logger.warning(
-            "Session %s degraded: status=%s agent=%r exc=%s",
-            session_id,
-            status,
-            db_session.agent_name,
-            exc,
+            "Session %s degraded: status=provider_missing agent=%r exc=%s",
+            session_id, db_session.agent_name, exc,
         )
         _sessions.pop(session_id, None)
-        return RestoredSession(None, status, db_session)
-    except ValueError as exc:
-        if "has no provider configured" in str(exc):
-            logger.warning(
-                "Session %s degraded: status=provider_missing agent=%r",
-                session_id,
-                db_session.agent_name,
-            )
-            _sessions.pop(session_id, None)
-            return RestoredSession(None, SESSION_STATUS_PROVIDER_MISSING, db_session)
-        raise
+        return RestoredSession(None, SESSION_STATUS_PROVIDER_MISSING, db_session)
+    except ProviderNotConfiguredError as exc:
+        logger.warning(
+            "Session %s degraded: status=provider_missing agent=%r exc=%s",
+            session_id, db_session.agent_name, exc,
+        )
+        _sessions.pop(session_id, None)
+        return RestoredSession(None, SESSION_STATUS_PROVIDER_MISSING, db_session)
+    except AgentNotFoundError as exc:
+        logger.warning(
+            "Session %s degraded: status=agent_deleted agent=%r exc=%s",
+            session_id, db_session.agent_name, exc,
+        )
+        _sessions.pop(session_id, None)
+        return RestoredSession(None, SESSION_STATUS_AGENT_DELETED, db_session)
 
     messages = decode_messages(db_session.messages)
     if messages:

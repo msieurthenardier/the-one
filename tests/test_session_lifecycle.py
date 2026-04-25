@@ -218,22 +218,20 @@ class TestRestoreSession:
         assert restored.history == []
 
     async def test_restore_returns_agent_deleted(self, patched_app):
-        """When the agent config is gone, factory raises KeyError('Unknown agent: ...').
+        """When the agent config is gone, factory raises AgentNotFoundError.
 
         Classification: agent_deleted. The session is NOT cached and no
         Session object is returned.
-
-        Note: the chat_session is created with agent_name=None (the
-        nullable default-agent case) so the FK constraint is satisfied.
-        The classification logic is the same regardless of the stored
-        agent_name — what matters is the factory's exception.
         """
+        from the_one.agent.factory import AgentNotFoundError
+
         await patched_app._create_session(session_id="orphan-agent")
         del patched_app._sessions["orphan-agent"]
 
-        # Override the factory's create to raise the agent-deleted KeyError.
         mock_factory = patched_app._get_factory.return_value
-        mock_factory.create = AsyncMock(side_effect=KeyError("Unknown agent: missing-agent"))
+        mock_factory.create = AsyncMock(
+            side_effect=AgentNotFoundError("Unknown agent: missing-agent")
+        )
 
         result = await patched_app._restore_session("orphan-agent")
         assert result.session is None
@@ -245,14 +243,16 @@ class TestRestoreSession:
         # in the DB, so factory is called once with "default".
         mock_factory.create.assert_called_once_with("default")
 
-    async def test_restore_returns_provider_missing_via_value_error(self, patched_app):
-        """ValueError('...has no provider configured...') → provider_missing."""
+    async def test_restore_returns_provider_missing_via_not_configured(self, patched_app):
+        """ProviderNotConfiguredError → provider_missing."""
+        from the_one.agent.factory import ProviderNotConfiguredError
+
         await patched_app._create_session(session_id="no-prov")
         del patched_app._sessions["no-prov"]
 
         mock_factory = patched_app._get_factory.return_value
         mock_factory.create = AsyncMock(
-            side_effect=ValueError(
+            side_effect=ProviderNotConfiguredError(
                 "Agent 'default' has no provider configured. "
                 "Please assign a provider in the agent settings."
             )
@@ -264,13 +264,17 @@ class TestRestoreSession:
         assert result.db_session is not None
         assert "no-prov" not in patched_app._sessions
 
-    async def test_restore_returns_provider_missing_via_key_error(self, patched_app):
-        """KeyError('Provider not found: ...') from provider_repo → provider_missing."""
+    async def test_restore_returns_provider_missing_via_not_found(self, patched_app):
+        """ProviderNotFoundError → provider_missing."""
+        from the_one.agent.factory import ProviderNotFoundError
+
         await patched_app._create_session(session_id="dead-prov")
         del patched_app._sessions["dead-prov"]
 
         mock_factory = patched_app._get_factory.return_value
-        mock_factory.create = AsyncMock(side_effect=KeyError("Provider not found: abc123"))
+        mock_factory.create = AsyncMock(
+            side_effect=ProviderNotFoundError("Provider not found: abc123")
+        )
 
         result = await patched_app._restore_session("dead-prov")
         assert result.session is None
@@ -280,17 +284,19 @@ class TestRestoreSession:
 
     async def test_restore_does_not_cache_degraded_sessions(self, patched_app):
         """Degraded restores must not populate `_sessions`."""
+        from the_one.agent.factory import AgentNotFoundError
+
         await patched_app._create_session(session_id="never-cached")
         del patched_app._sessions["never-cached"]
 
         mock_factory = patched_app._get_factory.return_value
-        mock_factory.create = AsyncMock(side_effect=KeyError("Unknown agent: missing"))
+        mock_factory.create = AsyncMock(side_effect=AgentNotFoundError("Unknown agent: missing"))
 
         await patched_app._restore_session("never-cached")
         assert "never-cached" not in patched_app._sessions
 
     async def test_restore_propagates_unrecognized_value_error(self, patched_app):
-        """A ValueError that doesn't mean 'no provider configured' must propagate."""
+        """A ValueError that isn't ProviderNotConfiguredError must propagate."""
         await patched_app._create_session(session_id="weird")
         del patched_app._sessions["weird"]
 
@@ -333,11 +339,15 @@ class TestGetOrRestoreSession:
         """C-lite: cached sessions re-run health on join. If the agent has
         been deleted since the cache was warmed, the next join surfaces
         agent_deleted (the cache short-circuit was removed in flight 05 HAT)."""
+        from the_one.agent.factory import AgentNotFoundError
+
         session = await patched_app._create_session(session_id="warm-cache")
         await patched_app._save_session_to_db(session)
         # Make the factory hostile after the session was cached
         mock_factory = patched_app._get_factory.return_value
-        mock_factory.create = AsyncMock(side_effect=KeyError("Unknown agent: doesnt-matter"))
+        mock_factory.create = AsyncMock(
+            side_effect=AgentNotFoundError("Unknown agent: doesnt-matter")
+        )
 
         result = await patched_app._get_or_restore_session("warm-cache")
         assert result.status == "agent_deleted"
