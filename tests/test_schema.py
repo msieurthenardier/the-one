@@ -1,4 +1,4 @@
-"""Tests for schema migrations (v1 -> v2 -> v3 -> v4)."""
+"""Tests for schema migrations (v1 -> v2 -> v3 -> v4 -> v5)."""
 
 from __future__ import annotations
 
@@ -141,13 +141,13 @@ async def test_fresh_db_creates_all_tables(fresh_db):
 
 
 @pytest.mark.asyncio
-async def test_fresh_db_schema_version_is_4(fresh_db):
-    """After full migration, schema version should be 4."""
+async def test_fresh_db_schema_version_is_5(fresh_db):
+    """After full migration, schema version should be 5."""
     await ensure_schema(fresh_db)
 
     async with fresh_db.execute("SELECT MAX(version) FROM schema_version") as cur:
         row = await cur.fetchone()
-    assert row[0] == 4
+    assert row[0] == 5
 
 
 @pytest.mark.asyncio
@@ -320,4 +320,88 @@ async def test_idempotent_ensure_schema(fresh_db):
 
     async with fresh_db.execute("SELECT MAX(version) FROM schema_version") as cur:
         row = await cur.fetchone()
-    assert row[0] == 4
+    assert row[0] == 5
+
+
+# ── v5 migration tests: chat_sessions FK on agent_name dropped ──
+
+
+@pytest.mark.asyncio
+async def test_fresh_db_chat_sessions_no_fk_on_agent_name(fresh_db):
+    """Fresh DB chat_sessions must NOT have a FK on agent_name after v5."""
+    await ensure_schema(fresh_db)
+
+    async with fresh_db.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='chat_sessions'"
+    ) as cur:
+        row = await cur.fetchone()
+
+    assert row is not None
+    sql = row[0]
+    # The v5 migration removes `REFERENCES agents(name)` from agent_name.
+    assert "REFERENCES agents" not in sql, f"chat_sessions still has FK to agents(name): {sql}"
+
+
+@pytest.mark.asyncio
+async def test_fresh_db_chat_sessions_index_recreated(fresh_db):
+    """After v5 rebuild, idx_chat_sessions_agent must still exist."""
+    await ensure_schema(fresh_db)
+
+    async with fresh_db.execute(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_chat_sessions_agent'"
+    ) as cur:
+        row = await cur.fetchone()
+    assert row is not None, "idx_chat_sessions_agent should exist after v5 migration"
+
+
+@pytest.mark.asyncio
+async def test_v5_agent_delete_does_not_cascade_to_sessions(fresh_db):
+    """Regression guard for Leg 02 design intent.
+
+    Deleting an agent must NOT delete its chat_sessions rows, and
+    `agent_name` must be preserved as a free-text value (not nulled out,
+    not removed). This is what enables `_restore_session` to surface the
+    `agent_deleted` health state instead of silently falling back to the
+    default agent.
+    """
+    await ensure_schema(fresh_db)
+    await fresh_db.execute("PRAGMA foreign_keys=ON")
+
+    # Create an agent and a session referencing it.
+    await fresh_db.execute(
+        "INSERT INTO agents (name, description) VALUES (?, ?)",
+        ("doomed-agent", "about to be deleted"),
+    )
+    await fresh_db.execute(
+        "INSERT INTO chat_sessions (id, agent_name, title) VALUES (?, ?, ?)",
+        ("sess-survive", "doomed-agent", "Will I survive?"),
+    )
+    await fresh_db.commit()
+
+    # Sanity check: session exists before deletion.
+    async with fresh_db.execute(
+        "SELECT agent_name FROM chat_sessions WHERE id = ?", ("sess-survive",)
+    ) as cur:
+        row = await cur.fetchone()
+    assert row is not None
+    assert row[0] == "doomed-agent"
+
+    # Delete the agent.
+    await fresh_db.execute("DELETE FROM agents WHERE name = ?", ("doomed-agent",))
+    await fresh_db.commit()
+
+    # Session must still exist with its original agent_name preserved.
+    async with fresh_db.execute(
+        "SELECT id, agent_name, title FROM chat_sessions WHERE id = ?",
+        ("sess-survive",),
+    ) as cur:
+        row = await cur.fetchone()
+
+    assert row is not None, "session was cascade-deleted — v5 migration did not drop the FK"
+    assert row[0] == "sess-survive"
+    assert row[1] == "doomed-agent", (
+        f"agent_name was modified on agent delete (got {row[1]!r}); "
+        "must remain as the free-text deleted-agent name so "
+        "_restore_session can classify as agent_deleted"
+    )
+    assert row[2] == "Will I survive?"

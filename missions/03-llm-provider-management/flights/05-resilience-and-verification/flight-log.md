@@ -90,6 +90,19 @@ Verification after both fixes: `pytest -q --timeout=30` → 333 passed, 8 desele
 
 ## Anomalies
 
+### HAT Block B caught schema FK CASCADE foreclosing the `agent_deleted` health state
+**Observed**: During HAT Block B (verifying the `agent_deleted` session-health banner from Leg 02), deleting an agent via the UI made the chat session disappear from the session list entirely instead of showing the "This agent has been deleted. Chat history is preserved..." banner. Root cause: the v1 schema declared `agent_name TEXT REFERENCES agents(name) ON DELETE CASCADE`, and the v2 migration kept the FK CASCADE while only relaxing `NOT NULL`. So deleting an agent cascade-deleted its sessions before `_restore_session` could ever classify them.
+
+**Severity**: bug — forecloses Leg 02's `agent_deleted` health state in production. Leg 02's design decision explicitly required sessions to survive agent deletion ("user explicitly wants old sessions to remain visible with actionable guidance, not silently deleted or auto-redirected"). The unit tests in `tests/test_session_lifecycle.py` exercised the classification logic in isolation but did not exercise the FK behavior; `tests/test_db_repositories.py::test_cascade_delete_agent` actively asserted the buggy CASCADE behavior.
+
+**Resolution**: Added schema migration v5 to `the_one/db/schema.py` that rebuilds `chat_sessions` without the FK on `agent_name` (table-rebuild dance, mirroring the v3 agents-table rebuild pattern). The column stays as `TEXT` so the deleted agent's name persists as a free-text value — `_restore_session` then calls `factory.create("<deleted-name>")` which raises `KeyError("Unknown agent: ...")` and the classifier returns `agent_deleted` as designed. Did NOT use `ON DELETE SET NULL` because that would null `agent_name` and silently fall back to the default agent (the exact bug Leg 02 was supposed to fix).
+
+Test changes:
+- `tests/test_schema.py`: bumped `CURRENT_VERSION` expectation to 5; added 3 v5-specific tests (`test_fresh_db_chat_sessions_no_fk_on_agent_name`, `test_fresh_db_chat_sessions_index_recreated`, `test_v5_agent_delete_does_not_cascade_to_sessions`).
+- `tests/test_db_repositories.py`: renamed `test_cascade_delete_agent` to `test_agent_delete_does_not_cascade_to_sessions` and inverted its assertion — it's now the regression guard at the repository layer.
+
+Verification: `pytest -q --timeout=30` → 336 passed (333 baseline + 3 new), 8 deselected. Ruff `check` and `format --check` clean for all touched files. `docker compose up -d --build` against the user's existing v4 DB applied the migration: `schema_version` now `[1,2,3,4,5]`; `chat_sessions` schema shows `agent_name TEXT,` with no `REFERENCES agents(name)` clause; `idx_chat_sessions_agent` recreated.
+
 ### Test collection errors on flight start
 **Observed**: `pytest --co` on `main` (commit `0005128`) reports 2 collection errors before any flight work begins:
 1. `workspace/test_agent.py` — already on cleanup leg's todo list (flight spec, leg 4)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import aiosqlite
 
-CURRENT_VERSION = 4
+CURRENT_VERSION = 5
 
 SCHEMA_V1 = """\
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -171,4 +171,40 @@ PRAGMA foreign_keys=ON;
             "CREATE INDEX IF NOT EXISTS idx_agents_provider ON agents(provider_config_id)"
         )
         await conn.execute("INSERT INTO schema_version (version) VALUES (?)", (4,))
+        await conn.commit()
+        version = 4
+
+    if version < 5:
+        # Drop the FK constraint on chat_sessions.agent_name so deleting an
+        # agent does NOT cascade to its sessions. The column stays as TEXT
+        # and retains the deleted agent's name as a free-text value, which
+        # lets the session-health classifier surface `agent_deleted` to the
+        # user (see Leg 02 design decision: sessions must survive agent
+        # deletion so users can see actionable guidance, not silent loss).
+        # SQLite has no `ALTER TABLE DROP CONSTRAINT`, so rebuild the table
+        # following the same pattern as the v3 agents-table rebuild above.
+        await conn.executescript("""\
+PRAGMA foreign_keys=OFF;
+
+CREATE TABLE chat_sessions_new (
+    id TEXT PRIMARY KEY,
+    agent_name TEXT,
+    title TEXT DEFAULT 'New chat',
+    messages TEXT DEFAULT '[]',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+INSERT INTO chat_sessions_new (id, agent_name, title, messages, created_at, updated_at)
+    SELECT id, agent_name, title, messages, created_at, updated_at FROM chat_sessions;
+
+DROP TABLE chat_sessions;
+
+ALTER TABLE chat_sessions_new RENAME TO chat_sessions;
+
+CREATE INDEX idx_chat_sessions_agent ON chat_sessions(agent_name);
+
+PRAGMA foreign_keys=ON;
+""")
+        await conn.execute("INSERT INTO schema_version (version) VALUES (?)", (5,))
         await conn.commit()
