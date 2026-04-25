@@ -191,7 +191,7 @@ App.registerArea({
       sendBtn.disabled = true;
     }
 
-    function checkProviders() {
+    function checkSetupState() {
       return Promise.all([
         fetch('/api/providers').then(function (r) { return r.json(); }),
         fetch('/api/agents').then(function (r) { return r.json(); })
@@ -230,7 +230,7 @@ App.registerArea({
 
       ws.onopen = function () {
         statusEl.textContent = 'connected';
-        checkProviders().then(function () {
+        checkSetupState().then(function () {
           return fetchAgents();
         }).then(function () {
           ws.send(JSON.stringify({ action: 'list_sessions' }));
@@ -350,7 +350,7 @@ App.registerArea({
     this._connect = connect;
     this._ws = function () { return ws; };
     this._fetchAgents = fetchAgents;
-    this._checkProviders = checkProviders;
+    this._checkSetupState = checkSetupState;
   },
 
   activate: function () {
@@ -358,7 +358,7 @@ App.registerArea({
       this._connect();
     } else if (this._ws() && this._ws().readyState === WebSocket.OPEN) {
       this._fetchAgents();
-      this._checkProviders();
+      this._checkSetupState();
     }
   },
 

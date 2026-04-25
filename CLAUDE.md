@@ -82,6 +82,26 @@ Runtime config via env vars prefixed `THE_ONE_` (see `.env.example`): host, port
 - Tools return strings, errors are caught and wrapped by the agent loop
 - LLM provider schemas default to OpenAI function-calling format; override `tool_schema()` for others
 
+## HAT Design Guidance
+
+For UI-heavy flights, structure HAT steps as **state transition sequences** rather than isolated checks. Name each transition explicitly and include multiple assertions per state (UI elements, error area, button states). Include negative assertions ("no error messages") to catch race conditions and leftover state.
+
+Example format:
+```
+1. [no-setup]: Open Chat with empty DB
+   - Banner: "Getting started..."
+   - Session list: empty, no auto-create
+   - No error messages
+2. [no-setup] -> [provider-only]: Add provider, switch to Chat
+   - Banner updates to "No agents..."
+   - No error messages (catches race conditions)
+3. [provider-only] -> [fully-configured]: Create agent, switch to Chat
+   - Banner: gone
+   - Session auto-created
+```
+
+This format caught three bugs during Flight 04 HAT that end-state-only specs missed (simultaneous banner + error, race condition on auto-join, stuck button state). If this approach proves effective across 2-3 more flights, recommend a permanent update to the mission-control leg skill to include state-transition guidance for UI-focused HAT legs.
+
 ## Testing
 
 **Unit tests** run by default with `pytest tests/` — fast, no external dependencies, ~212 tests in <6s.
