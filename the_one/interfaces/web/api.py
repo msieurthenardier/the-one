@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
+import os
+import secrets
 import time
 import uuid
 from pathlib import Path
 from typing import Any
 
 import httpx
+from cryptography.fernet import Fernet
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
@@ -370,6 +373,9 @@ async def _provider_repo() -> LLMProviderRepository:
     return LLMProviderRepository(conn, encryptor)
 
 
+_MASKED_API_KEY_SENTINEL = "__MASKED__"
+
+
 def _mask_api_key(key: str | None) -> str | None:
     if not key:
         return key
@@ -451,7 +457,7 @@ async def update_provider(provider_id: str, request: Request) -> dict[str, Any]:
 
     # Detect masked API key and preserve existing stored key
     incoming_key = data.get("api_key")
-    if incoming_key and incoming_key.startswith("***"):
+    if incoming_key == _MASKED_API_KEY_SENTINEL:
         data["api_key"] = existing.api_key
 
     updated = existing.model_copy(update=data)
@@ -519,19 +525,31 @@ async def test_provider(provider_id: str) -> dict[str, Any]:
         elif provider.type == "openai":
             import openai
 
-            client = openai.AsyncOpenAI(api_key=provider.api_key)
-            await client.models.list()
-            return {"status": "ok", "detail": "Connected to OpenAI"}
+            try:
+                client = openai.AsyncOpenAI(api_key=provider.api_key)
+                await client.models.list()
+                return {"status": "ok", "detail": "Connected to OpenAI"}
+            except openai.OpenAIError as e:
+                return {"status": "error", "detail": str(e)}
         elif provider.type == "anthropic":
             import anthropic
 
-            client = anthropic.AsyncAnthropic(api_key=provider.api_key)
-            await client.models.list()
-            return {"status": "ok", "detail": "Connected to Anthropic"}
-    except Exception as e:
+            try:
+                client = anthropic.AsyncAnthropic(api_key=provider.api_key)
+                await client.models.list()
+                return {"status": "ok", "detail": "Connected to Anthropic"}
+            except anthropic.AnthropicError as e:
+                return {"status": "error", "detail": str(e)}
+        return {"status": "error", "detail": f"Unknown provider type: {provider.type}"}
+    except httpx.HTTPError as e:
+        # Expected: connection/timeout/HTTP-status from upstream
         return {"status": "error", "detail": str(e)}
-
-    return {"status": "error", "detail": f"Unknown provider type: {provider.type}"}
+    except HTTPException:
+        # Pass through anything we explicitly raised so it isn't re-wrapped as 500
+        raise
+    except Exception as e:
+        # Unexpected: surface as 500 so it's visible in logs, not a user-fixable issue
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/providers/{provider_id}/models")
@@ -579,9 +597,7 @@ async def list_provider_models(provider_id: str) -> list[dict[str, Any]]:
 
             client = anthropic.AsyncAnthropic(api_key=provider.api_key)
             response = await client.models.list()
-            return [
-                {"id": m.id, "name": getattr(m, "display_name", m.id)} for m in response.data
-            ]
+            return [{"id": m.id, "name": getattr(m, "display_name", m.id)} for m in response.data]
         except Exception as e:
             raise HTTPException(status_code=502, detail=str(e))
 
@@ -700,30 +716,66 @@ async def search_ollama_library(q: str = "") -> list[dict[str, str]]:
 
 @router.post("/encryption/rotate")
 async def rotate_encryption_key() -> dict[str, str]:
+    """Rotate the encryption key with crash-safe ordering.
+
+    Re-encrypts every provider row using a freshly generated key in memory and
+    commits the DB transaction *before* the new key file replaces the old one
+    via temp-file + ``os.replace``. If the DB commit fails, the on-disk key
+    file is left byte-identical to its pre-rotation contents so existing
+    ciphertext remains decryptable.
+    """
     encryptor = get_encryptor(settings.data_dir)
+    if encryptor.key_path is None:
+        raise HTTPException(status_code=500, detail="encryptor not file-backed")
+    key_path = encryptor.key_path
     conn = await get_connection()
 
-    # 1. Pre-fetch and decrypt all stored API keys before rotation
+    # 1. Decrypt existing rows with the current encryptor.
     async with conn.execute(
         "SELECT id, api_key FROM llm_providers WHERE api_key IS NOT NULL AND api_key != ''"
     ) as cur:
         rows = await cur.fetchall()
     decrypted = [(row["id"], encryptor.decrypt(row["api_key"])) for row in rows]
 
-    # 2. Re-encrypt inside the callback so that callback failure preserves the old key
-    reencrypted: list[tuple[str, str]] = []
+    # 2. Generate a new key + Encryptor in memory only (no disk writes yet).
+    new_key = Fernet.generate_key()
+    new_encryptor = Encryptor(new_key)
 
-    def _reencrypt(_old: Encryptor, new: Encryptor) -> None:
-        for provider_id, plaintext in decrypted:
-            reencrypted.append((provider_id, new.encrypt(plaintext)))
+    # 3. Re-encrypt every row using the new encryptor.
+    reencrypted = [(pid, new_encryptor.encrypt(pt)) for pid, pt in decrypted]
 
-    encryptor.rotate_key(_reencrypt)
+    # 4. Write all rows in a single transaction and commit. If anything in
+    #    this block raises, roll the transaction back so the connection
+    #    cache does not surface uncommitted ciphertext encrypted with the
+    #    new (not-yet-on-disk) key. The key file is untouched at this
+    #    point, so re-raising leaves the system fully recoverable.
+    try:
+        for pid, ct in reencrypted:
+            await conn.execute(
+                "UPDATE llm_providers SET api_key = ? WHERE id = ?",
+                (ct, pid),
+            )
+        await conn.commit()
+    except Exception:
+        await conn.rollback()
+        raise
 
-    # 3. Key file now reflects the new key — write re-encrypted values to DB
-    for provider_id, ciphertext in reencrypted:
-        await conn.execute(
-            "UPDATE llm_providers SET api_key = ? WHERE id = ?",
-            (ciphertext, provider_id),
-        )
-    await conn.commit()
+    # 5. Persist the new key to a temp file in the same directory as the
+    #    canonical key path. Mode 0o600 is set at creation time via os.open
+    #    (Path.write_bytes followed by chmod has a brief world-readable
+    #    window).
+    tmp_path = key_path.with_name(f"{key_path.name}.tmp.{secrets.token_hex(4)}")
+    fd = os.open(str(tmp_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        os.write(fd, new_key)
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+    # 6. Atomic rename — after this point the new key is canonical on disk.
+    os.replace(str(tmp_path), str(key_path))
+
+    # 7. Update the cached encryptor so subsequent requests use the new key.
+    encryptor.install_key(new_key)
+
     return {"status": "ok"}

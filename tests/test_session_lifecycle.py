@@ -6,14 +6,13 @@ from unittest.mock import AsyncMock, patch
 
 import aiosqlite
 import pytest
+from conftest import FakeLLM
 
 from the_one.agent.core import Agent
 from the_one.db.codec import decode_messages
 from the_one.db.repositories import ChatSessionRepository
 from the_one.db.schema import ensure_schema
 from the_one.llm.base import Message
-
-from conftest import FakeLLM
 
 
 @pytest.fixture
@@ -168,7 +167,9 @@ class TestRestoreSession:
         del patched_app._sessions["restore-test"]
 
         # Restore
-        restored = await patched_app._restore_session("restore-test")
+        result = await patched_app._restore_session("restore-test")
+        assert result.status == "ok"
+        restored = result.session
         assert restored is not None
         assert restored.id == "restore-test"
         assert restored.title == "hello"
@@ -181,39 +182,143 @@ class TestRestoreSession:
         assert len(restored.history) == 2
         assert restored.history[0]["type"] == "user"
         assert restored.history[1]["type"] == "assistant"
+        # db_session is included on the ok path so callers don't re-query.
+        assert result.db_session is not None
+        assert result.db_session.id == "restore-test"
 
-    async def test_restore_nonexistent_returns_none(self, patched_app):
+    async def test_restore_nonexistent_returns_not_found(self, patched_app):
         result = await patched_app._restore_session("does-not-exist")
-        assert result is None
+        assert result.session is None
+        assert result.status == "not_found"
+        assert result.db_session is None
 
     async def test_restore_caches_in_memory(self, patched_app):
         session = await patched_app._create_session(session_id="cache-test")
         await patched_app._save_session_to_db(session)
         del patched_app._sessions["cache-test"]
 
-        restored = await patched_app._restore_session("cache-test")
+        result = await patched_app._restore_session("cache-test")
+        assert result.status == "ok"
         assert "cache-test" in patched_app._sessions
-        assert patched_app._sessions["cache-test"] is restored
+        assert patched_app._sessions["cache-test"] is result.session
 
     async def test_restore_empty_messages(self, patched_app):
         """Session with no conversation should restore with just the system message."""
-        session = await patched_app._create_session(session_id="empty-test")
+        await patched_app._create_session(session_id="empty-test")
         # Don't add any user messages — DB has "[]"
         del patched_app._sessions["empty-test"]
 
-        restored = await patched_app._restore_session("empty-test")
+        result = await patched_app._restore_session("empty-test")
+        assert result.status == "ok"
+        restored = result.session
         assert restored is not None
         # Agent should still have its system prompt
         assert len(restored.agent.messages) >= 1
         assert restored.agent.messages[0].role.value == "system"
         assert restored.history == []
 
+    async def test_restore_returns_agent_deleted(self, patched_app):
+        """When the agent config is gone, factory raises AgentNotFoundError.
+
+        Classification: agent_deleted. The session is NOT cached and no
+        Session object is returned.
+        """
+        from the_one.agent.factory import AgentNotFoundError
+
+        await patched_app._create_session(session_id="orphan-agent")
+        del patched_app._sessions["orphan-agent"]
+
+        mock_factory = patched_app._get_factory.return_value
+        mock_factory.create = AsyncMock(
+            side_effect=AgentNotFoundError("Unknown agent: missing-agent")
+        )
+
+        result = await patched_app._restore_session("orphan-agent")
+        assert result.session is None
+        assert result.status == "agent_deleted"
+        assert result.db_session is not None
+        assert "orphan-agent" not in patched_app._sessions
+        # Regression guard: must NOT silently fall back to "default" with a
+        # second call to factory.create. The fixture stores agent_name=None
+        # in the DB, so factory is called once with "default".
+        mock_factory.create.assert_called_once_with("default")
+
+    async def test_restore_returns_provider_missing_via_not_configured(self, patched_app):
+        """ProviderNotConfiguredError → provider_missing."""
+        from the_one.agent.factory import ProviderNotConfiguredError
+
+        await patched_app._create_session(session_id="no-prov")
+        del patched_app._sessions["no-prov"]
+
+        mock_factory = patched_app._get_factory.return_value
+        mock_factory.create = AsyncMock(
+            side_effect=ProviderNotConfiguredError(
+                "Agent 'default' has no provider configured. "
+                "Please assign a provider in the agent settings."
+            )
+        )
+
+        result = await patched_app._restore_session("no-prov")
+        assert result.session is None
+        assert result.status == "provider_missing"
+        assert result.db_session is not None
+        assert "no-prov" not in patched_app._sessions
+
+    async def test_restore_returns_provider_missing_via_not_found(self, patched_app):
+        """ProviderNotFoundError → provider_missing."""
+        from the_one.agent.factory import ProviderNotFoundError
+
+        await patched_app._create_session(session_id="dead-prov")
+        del patched_app._sessions["dead-prov"]
+
+        mock_factory = patched_app._get_factory.return_value
+        mock_factory.create = AsyncMock(
+            side_effect=ProviderNotFoundError("Provider not found: abc123")
+        )
+
+        result = await patched_app._restore_session("dead-prov")
+        assert result.session is None
+        assert result.status == "provider_missing"
+        assert result.db_session is not None
+        assert "dead-prov" not in patched_app._sessions
+
+    async def test_restore_does_not_cache_degraded_sessions(self, patched_app):
+        """Degraded restores must not populate `_sessions`."""
+        from the_one.agent.factory import AgentNotFoundError
+
+        await patched_app._create_session(session_id="never-cached")
+        del patched_app._sessions["never-cached"]
+
+        mock_factory = patched_app._get_factory.return_value
+        mock_factory.create = AsyncMock(side_effect=AgentNotFoundError("Unknown agent: missing"))
+
+        await patched_app._restore_session("never-cached")
+        assert "never-cached" not in patched_app._sessions
+
+    async def test_restore_propagates_unrecognized_value_error(self, patched_app):
+        """A ValueError that isn't ProviderNotConfiguredError must propagate."""
+        await patched_app._create_session(session_id="weird")
+        del patched_app._sessions["weird"]
+
+        mock_factory = patched_app._get_factory.return_value
+        mock_factory.create = AsyncMock(side_effect=ValueError("something completely unexpected"))
+
+        with pytest.raises(ValueError, match="something completely unexpected"):
+            await patched_app._restore_session("weird")
+
 
 class TestGetOrRestoreSession:
-    async def test_returns_from_memory_if_cached(self, patched_app):
+    async def test_preserves_session_identity_across_rejoin(self, patched_app):
+        """C-lite: a join for an already-cached session updates in place,
+        preserving the Session object identity (subscribers etc.)."""
         session = await patched_app._create_session(session_id="mem-test")
+        # Save so _restore_session can find it
+        await patched_app._save_session_to_db(session)
         result = await patched_app._get_or_restore_session("mem-test")
-        assert result is session
+        assert result.status == "ok"
+        assert result.session is session  # identity preserved via in-place update
+        # Health was re-evaluated, so db_session is now populated
+        assert result.db_session is not None
 
     async def test_falls_back_to_db(self, patched_app):
         session = await patched_app._create_session(session_id="fallback-test")
@@ -221,9 +326,32 @@ class TestGetOrRestoreSession:
         del patched_app._sessions["fallback-test"]
 
         result = await patched_app._get_or_restore_session("fallback-test")
-        assert result is not None
-        assert result.id == "fallback-test"
+        assert result.status == "ok"
+        assert result.session is not None
+        assert result.session.id == "fallback-test"
 
-    async def test_returns_none_for_unknown(self, patched_app):
+    async def test_returns_not_found_for_unknown(self, patched_app):
         result = await patched_app._get_or_restore_session("unknown")
-        assert result is None
+        assert result.session is None
+        assert result.status == "not_found"
+
+    async def test_cached_session_re_evaluates_health_on_join(self, patched_app):
+        """C-lite: cached sessions re-run health on join. If the agent has
+        been deleted since the cache was warmed, the next join surfaces
+        agent_deleted (the cache short-circuit was removed in flight 05 HAT)."""
+        from the_one.agent.factory import AgentNotFoundError
+
+        session = await patched_app._create_session(session_id="warm-cache")
+        await patched_app._save_session_to_db(session)
+        # Make the factory hostile after the session was cached
+        mock_factory = patched_app._get_factory.return_value
+        mock_factory.create = AsyncMock(
+            side_effect=AgentNotFoundError("Unknown agent: doesnt-matter")
+        )
+
+        result = await patched_app._get_or_restore_session("warm-cache")
+        assert result.status == "agent_deleted"
+        assert result.session is None
+        mock_factory.create.assert_called_once()
+        # Cache entry was dropped on the degraded outcome
+        assert "warm-cache" not in patched_app._sessions

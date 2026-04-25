@@ -43,7 +43,7 @@ Key properties: `data_dir` (`~/.the-one`), `workspace_dir` (`/workspace`), `agen
 
 ### `the_one/encryption.py`
 
-Fernet-based encryption for API keys stored in the database. Generates and caches an `Encryptor` per `data_dir`. Supports key rotation via `rotate_key()` which re-encrypts all provider credentials in a single transaction.
+Fernet-based encryption for API keys stored in the database. Generates and caches an `Encryptor` per `data_dir`. Provides an `install_key()` helper plus a public `key_path` property; the API rotation path (`POST /api/encryption/rotate`) re-encrypts all provider credentials, commits the DB, then atomically replaces the key file via `os.replace`. The legacy `rotate_key()` callback API is retained for non-API callers.
 
 ### `the_one/db/repositories.py`
 
@@ -67,7 +67,7 @@ Database repositories including `LLMProviderRepository` for CRUD on `llm_provide
 |------|---------|---------|
 | `base.py` | `LLMProvider`, `Message`, `ToolCall`, `ToolResult`, `Role`, `TokenUsage` | Core types |
 | `registry.py` | `register_provider`, `get_provider` | Lazy-loaded provider registry |
-| `ollama_provider.py` | `OllamaProvider` | Local models (qwen2.5:7b default) |
+| `ollama_provider.py` | `OllamaProvider` | Local Ollama and OpenAI-compatible servers; model selection comes from agent config |
 | `openai_provider.py` | `OpenAIProvider` | GPT-4o |
 | `anthropic_provider.py` | `AnthropicProvider` | Claude (claude-sonnet-4-6 default) |
 

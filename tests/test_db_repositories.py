@@ -282,11 +282,23 @@ class TestChatSessionRepository:
         loaded = await chat_repo.get("s1")
         assert loaded.messages == "[]"
 
-    async def test_cascade_delete_agent(
+    async def test_agent_delete_does_not_cascade_to_sessions(
         self, agent_store: SQLiteAgentStore, chat_repo: ChatSessionRepository
     ) -> None:
+        """Deleting an agent must NOT delete its sessions (schema v5).
+
+        Per Leg 02 design intent (Flight 05): users must keep seeing the
+        session in the list with an actionable `agent_deleted` banner,
+        not silently lose the chat history. The schema v5 migration
+        dropped the FK CASCADE on chat_sessions.agent_name; this test is
+        the regression guard at the repository layer.
+        """
         await agent_store.save(AgentConfig(name="agent1"))
         await chat_repo.create(ChatSession(id="s1", agent_name="agent1"))
         await agent_store.delete("agent1")
         sessions = await chat_repo.list(agent_name="agent1")
-        assert len(sessions) == 0
+        assert len(sessions) == 1
+        assert sessions[0].id == "s1"
+        # agent_name must remain set to the deleted agent's name
+        # (free-text), not nulled or removed.
+        assert sessions[0].agent_name == "agent1"

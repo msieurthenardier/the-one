@@ -20,6 +20,30 @@ _PROVIDER_TYPE_MAP = {
 }
 
 
+class AgentNotFoundError(KeyError):
+    """Raised when a named agent config does not exist.
+
+    Subclasses KeyError for back-compat — callers catching ``KeyError`` still
+    work, but new code can disambiguate the agent-vs-provider lookup failures
+    via ``isinstance`` / typed except clauses.
+    """
+
+
+class ProviderNotFoundError(KeyError):
+    """Raised when an agent's ``provider_config_id`` references a deleted provider.
+
+    Subclasses KeyError for back-compat. Distinct from ``AgentNotFoundError``
+    so session-health classification doesn't have to message-match.
+    """
+
+
+class ProviderNotConfiguredError(ValueError):
+    """Raised when an agent has no ``provider_config_id`` set.
+
+    Subclasses ValueError for back-compat.
+    """
+
+
 class AgentFactory:
     """Creates configured Agent instances from named agent definitions."""
 
@@ -37,7 +61,7 @@ class AgentFactory:
         config = await self._load_config(name)
 
         if config.provider_config_id is None:
-            raise ValueError(
+            raise ProviderNotConfiguredError(
                 f"Agent '{name}' has no provider configured. "
                 "Please assign a provider in the agent settings."
             )
@@ -50,7 +74,12 @@ class AgentFactory:
         conn = await get_connection()
         encryptor = get_encryptor(settings.data_dir)
         provider_repo = LLMProviderRepository(conn, encryptor)
-        provider_config = await provider_repo.get(config.provider_config_id)
+        try:
+            provider_config = await provider_repo.get(config.provider_config_id)
+        except KeyError as exc:
+            # Repository raises generic KeyError("Provider not found: ...");
+            # convert to the typed exception so callers can disambiguate.
+            raise ProviderNotFoundError(str(exc)) from exc
 
         # Map config type to registry name
         registry_name = _PROVIDER_TYPE_MAP.get(provider_config.type)
@@ -99,7 +128,7 @@ class AgentFactory:
             return await self.store.load(name)
         if name == "default":
             return self._default_config()
-        raise KeyError(f"Unknown agent: {name}")
+        raise AgentNotFoundError(f"Unknown agent: {name}")
 
     def _default_config(self) -> AgentConfig:
         """Synthesize the default agent config from current settings."""

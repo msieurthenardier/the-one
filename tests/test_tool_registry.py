@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import pytest
+from conftest import StubTool
 
-from tests.conftest import StubTool
 from the_one.tools.base import ToolRegistry
 
 

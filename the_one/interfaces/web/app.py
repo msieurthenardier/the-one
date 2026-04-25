@@ -14,7 +14,12 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from the_one.agent import Agent
-from the_one.agent.factory import AgentFactory
+from the_one.agent.factory import (
+    AgentFactory,
+    AgentNotFoundError,
+    ProviderNotConfiguredError,
+    ProviderNotFoundError,
+)
 from the_one.config import settings
 from the_one.db import close_connection, init_db
 from the_one.db.codec import decode_messages, encode_messages, messages_to_ui_events
@@ -94,6 +99,35 @@ class Session:
 _sessions: dict[str, Session] = {}
 
 
+# ── Session health classification ────────────────────────────────────────
+
+SESSION_STATUS_OK = "ok"
+SESSION_STATUS_NOT_FOUND = "not_found"
+SESSION_STATUS_AGENT_DELETED = "agent_deleted"
+SESSION_STATUS_PROVIDER_MISSING = "provider_missing"
+
+
+@dataclass
+class RestoredSession:
+    """Result of attempting to restore a session, with health classification.
+
+    For ok-cache hits, db_session is None (we don't re-query the DB).
+    For degraded states (agent_deleted, provider_missing), session is None
+    and db_session carries the row so the caller can render history.
+    """
+
+    session: Session | None
+    status: str
+    db_session: ChatSessionModel | None = None
+
+    @property
+    def is_degraded(self) -> bool:
+        return self.status in (
+            SESSION_STATUS_AGENT_DELETED,
+            SESSION_STATUS_PROVIDER_MISSING,
+        )
+
+
 # ── DB helpers ────────────────────────────────────────────────────────────
 
 
@@ -141,32 +175,72 @@ async def _create_session(
     return session
 
 
-async def _restore_session(session_id: str) -> Session | None:
-    """Load a session from DB into memory, rebuilding the agent."""
+async def _restore_session(session_id: str) -> RestoredSession:
+    """Load a session from DB and (re)build the Agent from CURRENT config.
+
+    Health is re-evaluated on every call. If a Session is already cached for
+    this id, the existing object is updated in place — preserving subscribers
+    and identity — but its `.agent` is replaced with a freshly-constructed one
+    from the current agent_config row. This way edits to system_prompt, model,
+    or tools propagate at the next join, and deletions surface as agent_deleted
+    on the next join.
+
+    Degraded states (agent_deleted, provider_missing) drop the entry from the
+    cache so the next successful join starts clean.
+    """
     try:
         repo = await _chat_repo()
         db_session = await repo.get(session_id)
     except KeyError:
-        return None
+        # If we had a cached session for this id, drop it — the row is gone.
+        _sessions.pop(session_id, None)
+        return RestoredSession(None, SESSION_STATUS_NOT_FOUND, None)
 
     factory = _get_factory()
     agent_name_for_factory = db_session.agent_name or "default"
     try:
         agent = await factory.create(agent_name_for_factory)
-    except KeyError:
+    except ProviderNotFoundError as exc:
         logger.warning(
-            "Agent %r not found, falling back to default for session %s",
-            db_session.agent_name, session_id,
+            "Session %s degraded: status=provider_missing agent=%r exc=%s",
+            session_id, db_session.agent_name, exc,
         )
-        agent = await factory.create("default")
+        _sessions.pop(session_id, None)
+        return RestoredSession(None, SESSION_STATUS_PROVIDER_MISSING, db_session)
+    except ProviderNotConfiguredError as exc:
+        logger.warning(
+            "Session %s degraded: status=provider_missing agent=%r exc=%s",
+            session_id, db_session.agent_name, exc,
+        )
+        _sessions.pop(session_id, None)
+        return RestoredSession(None, SESSION_STATUS_PROVIDER_MISSING, db_session)
+    except AgentNotFoundError as exc:
+        logger.warning(
+            "Session %s degraded: status=agent_deleted agent=%r exc=%s",
+            session_id, db_session.agent_name, exc,
+        )
+        _sessions.pop(session_id, None)
+        return RestoredSession(None, SESSION_STATUS_AGENT_DELETED, db_session)
 
-    # Decode messages and inject into agent
     messages = decode_messages(db_session.messages)
     if messages:
-        agent.messages = messages
-
-    # Build UI events from stored messages
+        # Keep the freshly-built Agent's system message (reflects current
+        # agent_config); append only the non-system messages from the DB.
+        # Without this, the persisted-at-session-creation system prompt
+        # would clobber the freshly-built one and edits to the system
+        # prompt in Studio would never take effect.
+        non_system = [m for m in messages if m.role != Role.SYSTEM]
+        agent.messages = agent.messages[:1] + non_system
     ui_events = messages_to_ui_events(messages)
+
+    if session_id in _sessions:
+        # Update existing Session in place — keeps subscribers and identity.
+        existing = _sessions[session_id]
+        existing.agent = agent
+        existing.title = db_session.title
+        existing.agent_name = db_session.agent_name
+        existing.history = ui_events
+        return RestoredSession(existing, SESSION_STATUS_OK, db_session)
 
     session = Session(
         id=session_id,
@@ -177,13 +251,17 @@ async def _restore_session(session_id: str) -> Session | None:
         history=ui_events,
     )
     _sessions[session_id] = session
-    return session
+    return RestoredSession(session, SESSION_STATUS_OK, db_session)
 
 
-async def _get_or_restore_session(session_id: str) -> Session | None:
-    """Check memory first, fall back to DB restore."""
-    if session_id in _sessions:
-        return _sessions[session_id]
+async def _get_or_restore_session(session_id: str) -> RestoredSession:
+    """Always rebuild via _restore_session.
+
+    Earlier versions short-circuited to the in-memory cache, which froze the
+    Agent at restore time and meant edits to the agent config (system_prompt,
+    model, tools) and agent deletions did not propagate until process restart.
+    Now every join rebinds the cached Session's `.agent` to the current config.
+    """
     return await _restore_session(session_id)
 
 
@@ -197,13 +275,45 @@ async def _save_session_to_db(session: Session) -> None:
         except KeyError:
             logger.warning("Session %s not found in DB during save", session.id)
             return
-        updated = db_session.model_copy(update={
-            "title": session.title,
-            "messages": encoded,
-        })
+        updated = db_session.model_copy(
+            update={
+                "title": session.title,
+                "messages": encoded,
+            }
+        )
         await repo.update(updated)
     except Exception:
         logger.warning("Failed to save session %s to DB", session.id, exc_info=True)
+
+
+def _build_session_joined_ok(session: Session) -> dict[str, Any]:
+    """Build a session_joined payload for a healthy in-memory session."""
+    return {
+        "type": "session_joined",
+        "session_id": session.id,
+        "status": SESSION_STATUS_OK,
+        "title": session.title,
+        "agent_name": session.agent_name,
+        "history": session.history,
+    }
+
+
+def _build_session_joined_degraded(restored: RestoredSession) -> dict[str, Any]:
+    """Build a session_joined payload for a degraded (agent_deleted/provider_missing) session.
+
+    History is decoded from the DB row directly — there is no in-memory
+    Session for degraded states.
+    """
+    db = restored.db_session
+    assert db is not None, "degraded RestoredSession must carry db_session"
+    return {
+        "type": "session_joined",
+        "session_id": db.id,
+        "status": restored.status,
+        "title": db.title,
+        "agent_name": db.agent_name,
+        "history": messages_to_ui_events(decode_messages(db.messages)),
+    }
 
 
 async def _send_to_session(
@@ -268,17 +378,15 @@ async def _ensure_ollama_model_loaded(session: Session) -> None:
                 return
 
         # Model not loaded — notify subscribers and trigger load
-        await _send_to_session(
-            session, {"type": "system", "content": "Loading model..."}
-        )
+        await _send_to_session(session, {"type": "system", "content": "Loading model..."})
         await ollama_api.load_model(provider_config.base_url, model_name)
-        await _send_to_session(
-            session, {"type": "system", "content": "Model loaded."}
-        )
+        await _send_to_session(session, {"type": "system", "content": "Model loaded."})
 
     except Exception:
         logger.warning(
-            "Auto-load check failed for session %s", session.id, exc_info=True,
+            "Auto-load check failed for session %s",
+            session.id,
+            exc_info=True,
         )
 
 
@@ -333,8 +441,7 @@ async def _process_and_broadcast(
                 entry["content"] = msg.content
             if msg.tool_calls:
                 entry["tool_calls"] = [
-                    {"name": tc.name, "arguments": tc.arguments}
-                    for tc in msg.tool_calls
+                    {"name": tc.name, "arguments": tc.arguments} for tc in msg.tool_calls
                 ]
             result_messages.append(entry)
 
@@ -346,11 +453,13 @@ async def _process_and_broadcast(
             }
             session.add_event(tr_event)
             await _send_to_session(session, tr_event)
-            result_messages.append({
-                "role": "tool",
-                "content": msg.tool_result.content[:4000],
-                "is_error": msg.tool_result.is_error,
-            })
+            result_messages.append(
+                {
+                    "role": "tool",
+                    "content": msg.tool_result.content[:4000],
+                    "is_error": msg.tool_result.is_error,
+                }
+            )
 
     # Save to DB after each complete exchange
     try:
@@ -417,15 +526,14 @@ async def selftest() -> dict[str, Any]:
         async for msg in agent.step("Read the file /workspace/pyproject.toml"):
             if msg.role == Role.TOOL and msg.tool_result and not msg.tool_result.is_error:
                 got_tool_result = True
-        detail = (
-            "read_file executed" if got_tool_result
-            else "no tool result"
+        detail = "read_file executed" if got_tool_result else "no tool result"
+        checks.append(
+            {
+                "name": "tool_use",
+                "pass": got_tool_result,
+                "detail": detail,
+            }
         )
-        checks.append({
-            "name": "tool_use",
-            "pass": got_tool_result,
-            "detail": detail,
-        })
     except Exception as e:
         checks.append({"name": "tool_use", "pass": False, "detail": str(e)[:200]})
 
@@ -452,10 +560,15 @@ async def chat(request: Request) -> dict[str, Any]:
     # Resolve or create session
     session: Session | None = None
     if session_id:
-        session = await _get_or_restore_session(session_id)
+        restored = await _get_or_restore_session(session_id)
+        if restored.is_degraded:
+            return {"error": f"session_{restored.status}"}
+        session = restored.session  # None for not_found, real Session for ok
     if session is None:
         try:
-            session = await _create_session(agent_name=agent_name, source=source, session_id=session_id)
+            session = await _create_session(
+                agent_name=agent_name, source=source, session_id=session_id
+            )
         except (ValueError, KeyError) as exc:
             return {"error": f"Cannot start chat: {exc}"}
 
@@ -467,9 +580,7 @@ async def chat(request: Request) -> dict[str, Any]:
         await _save_session_to_db(session)
         return {
             "session_id": session.id,
-            "messages": [
-                {"role": "system", "content": "Context cleared."}
-            ],
+            "messages": [{"role": "system", "content": "Context cleared."}],
         }
 
     result = await _process_and_broadcast(session, user_input, source=source)
@@ -479,11 +590,7 @@ async def chat(request: Request) -> dict[str, Any]:
 @app.post("/api/chat/reset")
 async def chat_reset(request: Request) -> dict[str, str]:
     content_type = request.headers.get("content-type")
-    payload = (
-        await request.json()
-        if content_type == "application/json"
-        else {}
-    )
+    payload = await request.json() if content_type == "application/json" else {}
     session_id = payload.get("session_id")
     if session_id and session_id in _sessions:
         s = _sessions[session_id]
@@ -509,23 +616,43 @@ async def websocket_endpoint(ws: WebSocket) -> None:
             # Session management actions
             if action == "join":
                 session_id = payload.get("session_id")
+
                 if session_id:
-                    session = await _get_or_restore_session(session_id)
-                if session is None:
-                    try:
-                        session = await _create_session()
-                    except (ValueError, KeyError) as exc:
-                        await ws.send_json({"type": "system", "content": f"Cannot start chat: {exc}"})
+                    restored = await _get_or_restore_session(session_id)
+                    if restored.status == SESSION_STATUS_OK:
+                        # `session` here is the WS-loop-scoped variable;
+                        # restored.session is the dataclass field.
+                        session = restored.session
+                        assert session is not None
+                        if ws not in session.subscribers:
+                            session.subscribers.add(ws)
+                        await ws.send_json(_build_session_joined_ok(session))
                         continue
+                    if restored.is_degraded:
+                        # Don't operate on a degraded session in this connection.
+                        session = None
+                        await ws.send_json(_build_session_joined_degraded(restored))
+                        continue
+                    # status == not_found → fall through to auto-create below.
+                elif session is not None:
+                    # No session_id supplied AND outer session is already bound —
+                    # preserve today's idempotent re-bind behavior.
+                    if ws not in session.subscribers:
+                        session.subscribers.add(ws)
+                    await ws.send_json(_build_session_joined_ok(session))
+                    continue
+                # else: no session_id AND no outer session → auto-create below.
+
+                # Auto-create: either no session_id was supplied AND no outer
+                # session, or the supplied session_id was not_found.
+                try:
+                    session = await _create_session()
+                except (ValueError, KeyError) as exc:
+                    await ws.send_json({"type": "system", "content": f"Cannot start chat: {exc}"})
+                    continue
                 if ws not in session.subscribers:
                     session.subscribers.add(ws)
-                await ws.send_json({
-                    "type": "session_joined",
-                    "session_id": session.id,
-                    "title": session.title,
-                    "agent_name": session.agent_name,
-                    "history": session.history,
-                })
+                await ws.send_json(_build_session_joined_ok(session))
                 continue
 
             if action == "list_sessions":
@@ -545,10 +672,12 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 except Exception:
                     logger.warning("Failed to list sessions from DB", exc_info=True)
                     sessions_list = []
-                await ws.send_json({
-                    "type": "session_list",
-                    "sessions": sessions_list,
-                })
+                await ws.send_json(
+                    {
+                        "type": "session_list",
+                        "sessions": sessions_list,
+                    }
+                )
                 continue
 
             if action == "new_session":
@@ -562,13 +691,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                     await ws.send_json({"type": "system", "content": f"Cannot start chat: {exc}"})
                     continue
                 session.subscribers.add(ws)
-                await ws.send_json({
-                    "type": "session_joined",
-                    "session_id": session.id,
-                    "title": session.title,
-                    "agent_name": session.agent_name,
-                    "history": [],
-                })
+                await ws.send_json(_build_session_joined_ok(session))
                 continue
 
             if action == "delete_session":
@@ -604,13 +727,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                     await ws.send_json({"type": "system", "content": f"Cannot start chat: {exc}"})
                     continue
                 session.subscribers.add(ws)
-                await ws.send_json({
-                    "type": "session_joined",
-                    "session_id": session.id,
-                    "title": session.title,
-                    "agent_name": session.agent_name,
-                    "history": [],
-                })
+                await ws.send_json(_build_session_joined_ok(session))
 
             if user_input == "/reset":
                 session.agent.reset()

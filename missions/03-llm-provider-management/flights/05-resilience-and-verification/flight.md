@@ -1,13 +1,13 @@
 # Flight: Resilience & Verification
 
-**Status**: ready
+**Status**: completed
 **Mission**: [LLM Provider Management](../../mission.md)
 
 ## Contributing to Criteria
 
-- [ ] API credentials are stored encrypted at rest [...] a rotate function re-encrypts all stored secrets with a new key
-- [ ] The system degrades gracefully when a configured provider is unreachable or a requested model is unavailable, surfacing clear feedback to the user
-- [ ] On first start with no provider configurations, the application guides the user to set up at least one provider before chat is functional
+- [x] API credentials are stored encrypted at rest [...] a rotate function re-encrypts all stored secrets with a new key
+- [x] The system degrades gracefully when a configured provider is unreachable or a requested model is unavailable, surfacing clear feedback to the user
+- [x] On first start with no provider configurations, the application guides the user to set up at least one provider before chat is functional
 
 ---
 
@@ -63,7 +63,7 @@ Close the final three partially-met mission success criteria and eliminate all c
 ### Prerequisites
 
 - [x] Flight 04 completed (shared utilities, first-start banner, deletion protection, error boundaries)
-- [ ] All 325 tests passing on current main
+- [x] All 325 tests passing on current main *(actual: 317 collected with 2 known collection errors at flight start; both fixed in Leg 04. Final count: 333 passing, 8 deselected)*
 
 ### Pre-Flight Checklist
 
@@ -89,15 +89,15 @@ The cleanup leg bundles all minor debt items that don't interact with each other
 
 ### Checkpoints
 
-- [ ] Key rotation is crash-safe with temp-file pattern and test coverage
-- [ ] Session join returns health status (ok/agent_deleted/provider_missing)
-- [ ] Chat UI renders appropriate banners and disables input for degraded sessions
-- [ ] bannerEl refactored to dedicated boolean state flag
-- [ ] OllamaProvider default removed
-- [ ] Masked API key uses `__MASKED__` sentinel
-- [ ] test_provider error handling clarified (keep 200-with-status for expected errors, HTTPException for unexpected failures)
-- [ ] workspace/test_agent.py collection error resolved
-- [ ] All flows verified via HAT with state-transition sequences
+- [x] Key rotation is crash-safe with temp-file pattern and test coverage
+- [x] Session join returns health status (ok/agent_deleted/provider_missing)
+- [x] Chat UI renders appropriate banners and disables input for degraded sessions
+- [x] bannerEl refactored to dedicated boolean state flag
+- [x] OllamaProvider default removed
+- [x] Masked API key uses `__MASKED__` sentinel
+- [x] test_provider error handling clarified (keep 200-with-status for expected errors, HTTPException for unexpected failures)
+- [x] workspace/test_agent.py collection error resolved
+- [x] All flows verified via HAT with state-transition sequences
 
 ### Adaptation Criteria
 
@@ -114,10 +114,10 @@ The cleanup leg bundles all minor debt items that don't interact with each other
 
 > **Note:** These are tentative suggestions, not commitments. Legs are planned and created one at a time as the flight progresses.
 
-- [ ] `key-rotation-atomicity` - Make key rotation crash-safe with temp-file + atomic rename pattern; add test coverage
-- [ ] `session-health-backend` - Add health status to session restore/join; return agent_deleted/provider_missing states via WebSocket
-- [ ] `session-health-frontend` - Render session health banners in chat.js; disable input for degraded sessions; refactor bannerEl to dedicated boolean
-- [ ] `backend-cleanup` - Remove OllamaProvider default, fix masked API key sentinel, normalize test_provider errors, fix workspace/test_agent.py collection error
+- [x] `key-rotation-atomicity` - Make key rotation crash-safe with temp-file + atomic rename pattern; add test coverage
+- [x] `session-health-backend` - Add health status to session restore/join; return agent_deleted/provider_missing states via WebSocket
+- [x] `session-health-frontend` - Render session health banners in chat.js; disable input for degraded sessions; refactor bannerEl to dedicated boolean
+- [x] `backend-cleanup` - Remove OllamaProvider default, fix masked API key sentinel, normalize test_provider errors, fix workspace/test_agent.py collection error
 - [ ] `hat-and-alignment` *(optional)* - Guided HAT session using state-transition sequences; iterative fixes until all flows pass
 
 ---
@@ -126,10 +126,10 @@ The cleanup leg bundles all minor debt items that don't interact with each other
 
 ### Completion Checklist
 
-- [ ] All legs completed
-- [ ] Code merged
-- [ ] Tests passing
-- [ ] All 9 mission success criteria verified as met
+- [x] All legs completed *(4 autonomous legs + optional HAT leg, all completed)*
+- [ ] Code merged *(pending PR merge)*
+- [x] Tests passing *(333 passed, 8 deselected, zero collection errors)*
+- [ ] All 9 mission success criteria verified as met *(to be confirmed at mission debrief)*
 
 ### Verification
 

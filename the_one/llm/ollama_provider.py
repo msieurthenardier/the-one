@@ -21,7 +21,7 @@ class OllamaProvider(LLMProvider):
 
     def __init__(
         self,
-        model: str = "qwen2.5:7b",
+        model: str = "",
         base_url: str = "http://localhost:11434/v1",
         **kwargs: Any,
     ):
