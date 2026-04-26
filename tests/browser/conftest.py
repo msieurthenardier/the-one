@@ -3,15 +3,19 @@
 This module provides:
 - ``_free_port()`` / ``_wait_for_ready()`` — internal helpers.
 - ``app_clean`` (function-scoped) — fresh app subprocess with empty DB.
+- ``app_with_provider`` / ``app_with_agent`` — seeded variants (leg 04).
 - ``browser`` (module-scoped) — headless Chromium instance, reused per module.
 - ``page`` (function-scoped) — fresh BrowserContext + Page per test.
-
-Subsequent legs in Flight 01 (Mission 04) will add:
-- ``app_with_provider`` / ``app_with_agent`` — seeded variants (leg 04).
 
 The standalone smoke test at tests/browser/test_smoke.py does NOT depend
 on these fixtures — it loads a data: URL to validate the toolchain in
 isolation, so it stays green even if the app fixtures break.
+
+Snapshot-update bridge: ``--snapshot-update`` is registered as a CLI
+flag here and forwarded to the ``_PYTEST_SNAPSHOT_UPDATE`` env var that
+``test_visual_snapshots.py`` reads.  The env-var bridge keeps the
+snapshot helper simple (no pytest-config dependency at import time) and
+lets ad-hoc shell ``UPDATE_SNAPSHOTS=1`` runs work identically.
 """
 
 from __future__ import annotations
@@ -29,6 +33,38 @@ import httpx
 import pytest
 from browser.seeders import SeededApp, seed_mock_agent, seed_mock_provider
 from playwright.sync_api import Browser, Page, Playwright, sync_playwright
+
+
+# ── pytest CLI extension ──────────────────────────────────────────────────
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    """Register the ``--snapshot-update`` flag for the visual-snapshot suite.
+
+    Mirrors Playwright JS's ``--update-snapshots`` semantics: when
+    present, ``test_visual_snapshots.py`` regenerates baselines instead
+    of comparing.  Implemented as a module-local hook here (rather than
+    inside the snapshot test file) because pytest only collects
+    addoption hooks from conftest.py and the rootdir's plugin chain.
+    """
+    parser.addoption(
+        "--snapshot-update",
+        action="store_true",
+        default=False,
+        help="Regenerate visual snapshot baselines instead of comparing.",
+    )
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Bridge the CLI flag to an env var for the snapshot helper to read.
+
+    Setting an env var (rather than passing config through fixtures)
+    keeps ``test_visual_snapshots.py`` decoupled from pytest internals
+    and makes ad-hoc ``UPDATE_SNAPSHOTS=1`` runs behave identically to
+    ``--snapshot-update``.
+    """
+    if config.getoption("--snapshot-update"):
+        os.environ["_PYTEST_SNAPSHOT_UPDATE"] = "1"
 
 # ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -171,7 +207,7 @@ def browser(playwright_instance: Playwright) -> Iterator[Browser]:
 @pytest.fixture
 def page(browser: Browser) -> Iterator[Page]:
     """Fresh BrowserContext + Page per test for cookie/storage isolation."""
-    context = browser.new_context()
+    context = browser.new_context(color_scheme="no-preference")
     page = context.new_page()
     try:
         yield page

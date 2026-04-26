@@ -1,7 +1,7 @@
 App.registerArea({
   id: 'studio',
   label: 'Studio',
-  icon: '\uD83E\uDD16',
+  icon: App.icons.studio,
   order: 20,
 
   init: function (sidebar, content) {
@@ -27,7 +27,7 @@ App.registerArea({
     sidebar.innerHTML =
       '<div class="studio-sidebar-header">' +
         '<span class="title">Studio</span>' +
-        '<button class="new-agent-btn" data-testid="new-agent-btn">+</button>' +
+        '<button class="new-agent-btn" data-testid="new-agent-btn" aria-label="New agent">' + App.icon('plus') + '</button>' +
       '</div>' +
       '<div class="agent-list"></div>';
 
@@ -98,7 +98,7 @@ App.registerArea({
 
           var delBtn = document.createElement('span');
           delBtn.className = 'agent-item-delete';
-          delBtn.textContent = '\u2715';
+          delBtn.innerHTML = App.icon('x');
           delBtn.onclick = function (e) {
             e.stopPropagation();
             deleteAgentInline(agent.name, el);
@@ -283,7 +283,7 @@ App.registerArea({
       html += '<div class="chip-area" data-type="mcp">';
       for (var m = 0; m < cfg.mcp_source_ids.length; m++) {
         html += '<span class="chip" data-id="' + escapeAttr(cfg.mcp_source_ids[m]) + '">' +
-          escapeHtml(mcpName(cfg.mcp_source_ids[m])) + '<span class="chip-remove">\u2715</span></span>';
+          escapeHtml(mcpName(cfg.mcp_source_ids[m])) + '<span class="chip-remove">' + App.icon('x') + '</span></span>';
       }
       html += '<button class="chip-add" data-type="mcp">+ Add</button>';
       html += '</div></div>';
@@ -293,7 +293,7 @@ App.registerArea({
       html += '<div class="chip-area" data-type="kb">';
       for (var k = 0; k < cfg.kb_ids.length; k++) {
         html += '<span class="chip" data-id="' + escapeAttr(cfg.kb_ids[k]) + '">' +
-          escapeHtml(kbName(cfg.kb_ids[k])) + '<span class="chip-remove">\u2715</span></span>';
+          escapeHtml(kbName(cfg.kb_ids[k])) + '<span class="chip-remove">' + App.icon('x') + '</span></span>';
       }
       html += '<button class="chip-add" data-type="kb">+ Add</button>';
       html += '</div></div>';
@@ -514,7 +514,7 @@ App.registerArea({
             var chip = document.createElement('span');
             chip.className = 'chip';
             chip.dataset.id = item.id;
-            chip.innerHTML = escapeHtml(item.name || item.id) + '<span class="chip-remove">\u2715</span>';
+            chip.innerHTML = escapeHtml(item.name || item.id) + '<span class="chip-remove">' + App.icon('x') + '</span>';
             chipArea.insertBefore(chip, btn);
             dropdown.remove();
             checkDirty();

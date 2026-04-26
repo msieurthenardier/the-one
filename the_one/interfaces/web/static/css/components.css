@@ -1,0 +1,6 @@
+@layer components {
+  /* === Shared Flash === */
+  .app-flash { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); background: var(--accent); color: var(--fg-on-accent); padding: 10px 48px; border-radius: var(--panel-radius-sm); font-size: var(--font-size-body); font-weight: var(--font-weight-semibold); opacity: 0; transition: opacity 0.3s; z-index: 100; pointer-events: none; box-shadow: 0 0 12px var(--accent-glow-strong); }
+  .app-flash.visible { opacity: 1; }
+  .app-flash.error { background: var(--status-danger); color: var(--fg-on-danger); box-shadow: 0 0 12px var(--status-danger-glow); }
+}

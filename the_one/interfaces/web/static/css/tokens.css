@@ -1,0 +1,194 @@
+/* Theme tokens — F2 (apply-tokens + visual-realization + light-realization).
+ *
+ * Dark-theme values realized in leg 03 (NEXUS-style cyan + glow). Light-theme
+ * values realized in leg 06 (Linear/Stripe-light quality: cool-tinted off-white
+ * surfaces, deep navy text, drop-shadows replacing glows). Both themes share
+ * the same token names; leg 07 enforces strict WCAG AA across both.
+ *
+ * Token groups: surfaces, borders, text, accent, status, provider badges,
+ * shadows, body backdrop, density-and-geometry.
+ *
+ * The :root { color-scheme: dark light } rule is preserved here because
+ * color-scheme is a meta-property informing native widget rendering (scrollbars,
+ * form controls, default selection color) — it is NOT a theme token.
+ */
+
+@layer tokens {
+  /* Native UI element theming (scrollbars, form controls, default selection). */
+  :root {
+    color-scheme: dark light;
+  }
+
+  [data-theme="dark"] {
+    /* surfaces */
+    --bg: #0a0a0a;
+    --surface: #1a1a1a;
+    --surface-elevated: #333333;
+    --surface-tool: #2d2d2d;
+
+    /* borders */
+    --border: #2a2a2a;
+    --border-hover: #444444;
+    --border-strong: #666666;
+
+    /* text */
+    --fg: #e0e0e0;
+    --fg-secondary: #888888;
+    --fg-tertiary: #666666;
+    --fg-muted: #a8a8a8;
+    --fg-faint: #444444;
+    --fg-on-accent: #000000;
+    --fg-on-accent-muted: #333333;
+    /* fg-on-danger is BLACK in dark to pass AA against the bright #ff4a4a (white-on-red is only 3.32:1; black is 6.33:1). Light theme keeps white-on-deeper-red. */
+    --fg-on-danger: #000000;
+    --fg-tool-msg: #999999;
+
+    /* accent */
+    --accent: #22d3ee;
+    --accent-api: #7c4dff;
+    --accent-glow: rgba(34, 211, 238, 0.25);
+    --accent-glow-strong: rgba(34, 211, 238, 0.4);
+    --accent-translucent: rgba(34, 211, 238, 0.08);
+    --accent-translucent-hover: rgba(34, 211, 238, 0.12);
+
+    /* status */
+    --status-success: #2ecc71;
+    --status-success-glow: rgba(46, 204, 113, 0.6);
+    --status-warning: #f5a623;
+    --status-warning-glow: rgba(245, 166, 35, 0.5);
+    --status-warning-bg-soft: rgba(245, 166, 35, 0.08);
+    --status-warning-bg-soft-2: rgba(245, 166, 35, 0.1);
+    --status-warning-border: rgba(245, 166, 35, 0.3);
+    --status-danger: #ff4a4a;
+    --status-danger-muted: #d56363;
+    --status-danger-glow: rgba(255, 74, 74, 0.5);
+
+    /* provider badges
+       NOTE: --badge-openai stays at #4a9eff even though --accent moves to cyan.
+       Brand colors are stable across themes (per leg 02 decision). */
+    --badge-ollama: #2ecc71;
+    --badge-openai-compatible: #d4a800;
+    --badge-openai: #4a9eff;
+    --badge-anthropic: #9b59b6;
+    --badge-mock: #888888;
+    --badge-unknown: #888888;
+
+    /* panel design tokens */
+    --panel-radius: 10px;
+    --panel-radius-sm: 6px;
+    --surface-translucent: rgba(255, 255, 255, 0.02);
+    --panel-shadow: 0 1px 0 rgba(255, 255, 255, 0.03), inset 0 1px 0 rgba(255, 255, 255, 0.02);
+    --panel-shadow-glow: 0 0 12px var(--accent-glow);
+
+    /* body backdrop */
+    --bg-gradient: linear-gradient(180deg, #0e1428 0%, #050505 70%);
+
+    /* density-and-geometry */
+    --sidebar-w: 240px;
+    --nav-w: 48px;
+
+    /* nav rail palette — same as body in dark; sidebar shows the body
+       gradient through (transparent) for the original layered feel. */
+    --nav-bg: var(--bg);
+    --nav-bg-active: var(--surface);
+    --nav-border: var(--border);
+    --nav-fg: var(--fg-secondary);
+    --nav-fg-hover: var(--fg);
+    --nav-fg-active: var(--accent);
+
+    --sidebar-bg: transparent;
+  }
+
+  [data-theme="light"] {
+    /* surfaces — cool-tinted off-white, coordinates with cyan accent */
+    --bg: #fafbfc;
+    --surface: #ffffff;
+    --surface-elevated: #f1f5f9;
+    --surface-tool: #f3f4f6;
+
+    /* borders — visibly darker than dark theme so they read on light surfaces */
+    --border: #e5e7eb;
+    --border-hover: #cbd5e1;
+    --border-strong: #94a3b8;
+
+    /* text — deep navy primary; AA-compliant secondary/tertiary; faint is
+       intentional secondary-tier (AA-borderline; used in faint contexts only) */
+    --fg: #0f172a;
+    --fg-secondary: #334155;
+    --fg-tertiary: #475569;
+    --fg-muted: #64748b;
+    --fg-faint: #94a3b8;
+    --fg-on-accent: #ffffff;
+    --fg-on-accent-muted: #cbd5e1;
+    --fg-on-danger: #ffffff;
+    --fg-tool-msg: #475569;
+
+    /* accent — cyan-700 for strict WCAG AA on light surfaces (white-on-accent
+       reads at 5.36:1 — body AA pass; accent-on-bg reads at 5.17:1). Tuned
+       up from leg-06 cyan-600 #0891b2 (which read at 4.46:1 white-on-accent
+       — a body-AA fail). */
+    --accent: #0e7490;
+    --accent-api: #6d28d9;
+    --accent-glow: rgba(14, 116, 144, 0.20);
+    --accent-glow-strong: rgba(14, 116, 144, 0.35);
+    --accent-translucent: rgba(14, 116, 144, 0.10);
+    --accent-translucent-hover: rgba(14, 116, 144, 0.15);
+
+    /* status — Tailwind-700 variants tuned for strict body-AA on light
+       (≥ 4.5:1 against #fafbfc and #ffffff). Leg 06 used the -600 family
+       which sits ~3:1 — only the 3:1 large/UI threshold; leg 07 deepened
+       success and warning to -700 for body. Danger stays at #dc2626 (4.83:1
+       on bg — already passes body). */
+    --status-success: #15803d;
+    --status-success-glow: rgba(21, 128, 61, 0.3);
+    --status-warning: #a16207;
+    --status-warning-glow: rgba(161, 98, 7, 0.3);
+    --status-warning-bg-soft: rgba(161, 98, 7, 0.08);
+    --status-warning-bg-soft-2: rgba(161, 98, 7, 0.12);
+    --status-warning-border: rgba(161, 98, 7, 0.3);
+    --status-danger: #dc2626;
+    --status-danger-muted: #a85050;
+    --status-danger-glow: rgba(220, 38, 38, 0.3);
+
+    /* provider badges — same brand colors in both themes (badges identify
+       the provider, NOT the theme; brand stability over palette consistency) */
+    --badge-ollama: #2ecc71;
+    --badge-openai-compatible: #d4a800;
+    --badge-openai: #4a9eff;
+    --badge-anthropic: #9b59b6;
+    --badge-mock: #888888;
+    --badge-unknown: #888888;
+
+    /* panel design tokens — drop-shadow style replaces dark's glow shadows.
+       --panel-shadow-glow composites cyan tint + dark elevation for the
+       "designed affordance with subtle lift" feeling on white. */
+    --panel-radius: 10px;
+    --panel-radius-sm: 6px;
+    --surface-translucent: rgba(15, 23, 42, 0.02);
+    --panel-shadow: 0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
+    --panel-shadow-glow: 0 4px 12px rgba(14, 116, 144, 0.18), 0 1px 3px rgba(15, 23, 42, 0.06);
+
+    /* body backdrop — subtle but visible cool fade */
+    --bg-gradient: linear-gradient(180deg, #fafbfc 0%, #f1f5f9 100%);
+
+    /* density-and-geometry */
+    --sidebar-w: 240px;
+    --nav-w: 48px;
+
+    /* nav rail palette — intentionally dark navy so the rail reads as a
+       chrome surface against the light body. Internal palette uses the
+       dark theme's bright cyan (--accent in light is cyan-700, which
+       under-reads on dark navy; we use cyan-400 for the active state). */
+    --nav-bg: #0f172a;
+    --nav-bg-active: #1e293b;
+    --nav-border: #1e293b;
+    --nav-fg: #94a3b8;
+    --nav-fg-hover: #e2e8f0;
+    --nav-fg-active: #22d3ee;
+
+    /* sidebar palette — slate-300, clearly darker than body bg but much
+       lighter than the dark-navy rail. Establishes the rail < sidebar
+       < content elevation chain. */
+    --sidebar-bg: #cbd5e1;
+  }
+}

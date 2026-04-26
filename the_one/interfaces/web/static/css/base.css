@@ -1,0 +1,72 @@
+@layer base {
+  /* === Reset === */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: var(--font-family-sans); background: var(--bg-gradient); color: var(--fg); height: 100vh; display: flex; }
+
+  /* === Nav Rail === */
+  #app-nav {
+    width: var(--nav-w);
+    background: var(--nav-bg);
+    border-right: 1px solid var(--nav-border);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-top: 12px;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+  .nav-item {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: var(--font-size-h1);
+    position: relative;
+    user-select: none;
+  }
+  .nav-item svg {
+    width: 20px;
+    height: 20px;
+    display: block;
+  }
+  .nav-item { color: var(--nav-fg); }
+  .nav-item:hover { background: var(--nav-bg-active); color: var(--nav-fg-hover); }
+  .nav-item.active { background: var(--nav-bg-active); color: var(--nav-fg-active); }
+  .nav-item.active::before {
+    content: '';
+    position: absolute;
+    left: -6px;
+    top: 8px;
+    bottom: 8px;
+    width: 3px;
+    background: var(--nav-fg-active);
+    border-radius: 2px;
+  }
+
+  /* === Sidebar === */
+  #app-sidebar {
+    width: var(--sidebar-w);
+    background: var(--sidebar-bg);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    overflow: hidden;
+  }
+  .sidebar-panel { display: none; flex-direction: column; flex: 1; overflow: hidden; }
+  .sidebar-panel.active { display: flex; }
+
+  /* === Content === */
+  #app-content { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+  .content-panel { display: none; flex-direction: column; flex: 1; overflow: hidden; }
+  .content-panel.active { display: flex; }
+
+  /* === Stub Areas === */
+  .stub-content { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--fg-muted); font-size: var(--font-size-body-lg); }
+  .stub-sidebar { padding: 12px 16px; border-bottom: 1px solid var(--border); }
+  .stub-sidebar .title { font-weight: var(--font-weight-bold); color: var(--accent); font-size: var(--font-size-body-lg); }
+  .stub-sidebar .subtitle { color: var(--fg-muted); font-size: var(--font-size-caption); margin-top: 4px; }
+}

@@ -67,7 +67,8 @@ The mission addresses these in two phases. The first three flights lay groundwor
 
 ## Known Issues
 
-_(none yet — this is a new mission)_
+- **Pre-existing keyboard-operability debt** (surfaced by F2 a11y review, 2026-04-26) — Multiple primary navigation/selection elements are rendered as `<div>` (or `<span>`) with click-only handlers. They are not in the keyboard tab order and cannot be activated with Enter/Space, which fails WCAG 2.1.1. Sites: nav rail items (`app.js`), session list items (`chat.js`), agent list items (`studio.js`), admin category items (`admin.js`), inline session/agent delete affordances (multiple, also gated on hover-only `display: none`), inline chip-remove (`studio.js`). These patterns predate F2 — the F2 a11y leg (07) was scoped to contrast / focus indicators / ARIA roles on already-focusable elements. Address in a dedicated future flight (estimated 1 flight): convert these elements to `<button>`, add `:focus-within` reveal for hover-only delete affordances, add roving-tabindex/listbox semantics where appropriate. Ticket-equivalent context lives in F2's flight log under "Post-review fixes".
+- **Theme generator under Settings** (HAT follow-up, 2026-04-26) — User suggested a future feature: a Settings UI that exposes load-bearing tokens (palette, glow intensities, alpha values, gradient stops) per theme with live preview, persisted to localStorage or per-user config. Punted from F2 (HAT scope was aesthetic feedback on the designed defaults, not a token editor). Worth a small flight or absorbed into a later mission.
 
 ## Flights
 

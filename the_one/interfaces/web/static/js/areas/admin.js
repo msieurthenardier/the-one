@@ -1,7 +1,7 @@
 App.registerArea({
   id: 'admin',
   label: 'Admin',
-  icon: '\u2699\uFE0F',
+  icon: App.icons.admin,
   order: 30,
 
   init: function (sidebar, content) {
@@ -32,7 +32,7 @@ App.registerArea({
       return providerTypesReady;
     }
 
-    // TYPE_DEFAULTS and TYPE_BADGE_COLORS are static metadata kept unconditional —
+    // TYPE_DEFAULTS and KNOWN_BADGE_TYPES are static metadata kept unconditional —
     // existing mock providers (created when dev_mode was on) must still render
     // correctly when dev_mode is off. The dropdown filter prevents *new* mock
     // providers; it does not hide *existing* ones.
@@ -44,13 +44,7 @@ App.registerArea({
       'mock': { base_url: '', showBaseUrl: false, showApiKey: false }
     };
 
-    var TYPE_BADGE_COLORS = {
-      'ollama': '#2ecc71',
-      'openai-compatible': '#d4a800',
-      'openai': '#4a9eff',
-      'anthropic': '#9b59b6',
-      'mock': '#888'
-    };
+    var KNOWN_BADGE_TYPES = ['ollama', 'openai-compatible', 'openai', 'anthropic', 'mock'];
 
     // Settings grouped into sections
     var settingSections = [
@@ -212,11 +206,27 @@ App.registerArea({
     var rotateConfirmTimer = null;
 
     function renderSystemPanel() {
+      var currentPref = (window.App && window.App.theme) ? window.App.theme.get() : 'auto';
+      function themeOption(value, label) {
+        var isActive = currentPref === value;
+        return '<button class="admin-theme-option' + (isActive ? ' active' : '') + '" type="button" role="radio" aria-checked="' + isActive + '" tabindex="' + (isActive ? '0' : '-1') + '" data-theme-pref="' + value + '">' + label + '</button>';
+      }
       contentEl.innerHTML =
         '<div class="admin-header">' +
           '<span class="admin-title">System</span>' +
         '</div>' +
         '<div class="admin-form">' +
+          '<div class="admin-system-section">' +
+            '<div class="admin-section-title" id="admin-appearance-heading">Appearance</div>' +
+            '<p class="admin-system-text">' +
+              'Choose a theme. Auto follows your operating system preference.' +
+            '</p>' +
+            '<div class="admin-theme-toggle" role="radiogroup" aria-labelledby="admin-appearance-heading">' +
+              themeOption('light', 'Light') +
+              themeOption('dark', 'Dark') +
+              themeOption('auto', 'Auto') +
+            '</div>' +
+          '</div>' +
           '<div class="admin-system-section">' +
             '<div class="admin-section-title">Encryption</div>' +
             '<p class="admin-system-text">' +
@@ -230,6 +240,34 @@ App.registerArea({
             '<div class="admin-system-flash" aria-live="polite"></div>' +
           '</div>' +
         '</div>';
+
+      var themeToggle = contentEl.querySelector('.admin-theme-toggle');
+      function selectThemeOption(btn) {
+        if (!btn || !window.App || !window.App.theme) return;
+        var pref = btn.getAttribute('data-theme-pref');
+        window.App.theme.set(pref);
+        var options = themeToggle.querySelectorAll('.admin-theme-option');
+        for (var i = 0; i < options.length; i++) {
+          var isActive = options[i] === btn;
+          options[i].classList.toggle('active', isActive);
+          options[i].setAttribute('aria-checked', isActive);
+          options[i].setAttribute('tabindex', isActive ? '0' : '-1');
+        }
+        btn.focus();
+      }
+      themeToggle.addEventListener('click', function (e) {
+        selectThemeOption(e.target.closest('.admin-theme-option'));
+      });
+      themeToggle.addEventListener('keydown', function (e) {
+        if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight' && e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+        var options = Array.prototype.slice.call(themeToggle.querySelectorAll('.admin-theme-option'));
+        var idx = options.indexOf(document.activeElement);
+        if (idx === -1) return;
+        e.preventDefault();
+        var dir = (e.key === 'ArrowRight' || e.key === 'ArrowDown') ? 1 : -1;
+        var next = options[(idx + dir + options.length) % options.length];
+        selectThemeOption(next);
+      });
 
       var rotateBtn = contentEl.querySelector('.admin-system-btn');
       var flashEl = contentEl.querySelector('.admin-system-flash');
@@ -333,10 +371,10 @@ App.registerArea({
       var html = '';
       for (var i = 0; i < providers.length; i++) {
         var p = providers[i];
-        var badgeColor = TYPE_BADGE_COLORS[p.type] || '#888';
+        var typeSuffix = KNOWN_BADGE_TYPES.indexOf(p.type) >= 0 ? p.type : 'unknown';
         html +=
           '<div class="admin-provider-card" role="listitem" data-testid="provider-card" data-id="' + escapeAttr(p.id) + '">' +
-            '<span class="admin-provider-badge" style="background:' + badgeColor + '">' + escapeHtml(p.type) + '</span>' +
+            '<span class="admin-provider-badge admin-provider-badge--' + escapeAttr(typeSuffix) + '">' + escapeHtml(p.type) + '</span>' +
             '<span class="admin-provider-name">' + escapeHtml(p.name) + '</span>' +
             '<div class="admin-provider-actions">' +
               '<button class="admin-provider-edit-btn" data-id="' + escapeAttr(p.id) + '">Edit</button>' +
@@ -409,13 +447,11 @@ App.registerArea({
             // Hard-block: show agent names, disable button, no confirm flow
             btn.textContent = 'Used by: ' + agentNames.join(', ');
             btn.disabled = true;
-            btn.classList.add('admin-provider-delete-blocked');
             btn.setAttribute('aria-live', 'assertive');
 
             if (deleteConfirmTimer) clearTimeout(deleteConfirmTimer);
             deleteConfirmTimer = setTimeout(function () {
               btn.disabled = false;
-              btn.classList.remove('admin-provider-delete-blocked');
               btn.removeAttribute('aria-live');
               btn.textContent = 'Delete';
             }, 3000);
@@ -504,7 +540,7 @@ App.registerArea({
           '<label class="admin-pf-label" for="pf-api-key">API Key</label>' +
           '<div class="admin-pf-password-wrap">' +
             '<input class="admin-pf-input admin-pf-password" id="pf-api-key" type="password" data-field="api_key" value="' + escapeAttr(apiKeyValue) + '" placeholder="sk-..." />' +
-            '<button class="admin-pf-eye" type="button" title="Show/Hide" aria-label="Show password">\u25CF\u25CF\u25CF</button>' +
+            '<button class="admin-pf-eye" type="button" title="Show/Hide" aria-label="Show password">' + App.icon('eye') + '</button>' +
           '</div>' +
         '</div>';
 
@@ -575,11 +611,11 @@ App.registerArea({
         eyeBtn.addEventListener('click', function () {
           if (passwordInput.type === 'password') {
             passwordInput.type = 'text';
-            eyeBtn.textContent = '\u25CB\u25CB\u25CB';
+            eyeBtn.innerHTML = App.icon('eye-off');
             eyeBtn.setAttribute('aria-label', 'Hide password');
           } else {
             passwordInput.type = 'password';
-            eyeBtn.textContent = '\u25CF\u25CF\u25CF';
+            eyeBtn.innerHTML = App.icon('eye');
             eyeBtn.setAttribute('aria-label', 'Show password');
           }
         });
@@ -780,7 +816,7 @@ App.registerArea({
         '<div class="admin-pf-pull-progress" style="display:none">' +
           '<div class="admin-pf-pull-fill"></div>' +
           '<span class="admin-pf-pull-text"></span>' +
-          '<button class="admin-pf-pull-cancel">\u2715</button>' +
+          '<button class="admin-pf-pull-cancel" aria-label="Cancel pull">' + App.icon('x') + '</button>' +
         '</div>' +
         '<div class="admin-pf-pull-error" style="display:none"></div>' +
         '<div class="admin-pf-vram-summary"></div>' +

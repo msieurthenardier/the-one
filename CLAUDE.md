@@ -65,6 +65,8 @@ The web UI has three functional areas sharing a sidebar + content panel layout:
 
 Areas register via `App.registerArea({ id, label, icon, order, init, activate, deactivate })`. The `init(sidebar, content)` function receives DOM elements on first activation; `activate()` fires on every switch-to (use for data refresh); `deactivate()` fires on switch-away. CSS is scoped under `.area-{id}`. Shared utilities like `App.escapeHtml()` are available on the `App` object.
 
+The web UI ships with a token-based design system (NEXUS-style cyan accent, Geist Sans + Geist Mono self-hosted, ~20 Lucide SVG icons via `App.icon('name')`) and a tri-state theme switcher (`App.theme.{get,resolved,set}` with `'light'/'dark'/'auto'` semantics, OS-preference fallback, localStorage persistence under key `theme-preference`). The user-facing toggle lives in **Admin → System → Appearance**. Token definitions and the load-bearing contrast pair tables for both themes live in `the_one/agents.md` "Design system" section; per-theme values are mirrored in `tests/browser/design_tokens.py` for tests that assert on token values.
+
 For architecture internals, see `the_one/agents.md`.
 
 ## Self-Deployment
@@ -86,7 +88,7 @@ When `THE_ONE_DEV_MODE=true` is set, a fifth provider type `mock` becomes availa
 
 - Backend rejects mock-typed creates/updates with HTTP 400 when dev mode is off
 - UI dropdown filters out `mock` when dev mode is off (driven by `GET /api/providers/types`)
-- Existing mock providers continue to render correctly in the admin UI even after dev mode is later disabled (the `TYPE_DEFAULTS`/`TYPE_BADGE_COLORS` entries are unconditional)
+- Existing mock providers continue to render correctly in the admin UI even after dev mode is later disabled (the `TYPE_DEFAULTS` defaults and the `KNOWN_BADGE_TYPES` array are unconditional, so the badge styling resolves regardless of dev_mode)
 
 ## Conventions
 
@@ -118,6 +120,12 @@ This format caught three bugs during Flight 04 HAT that end-state-only specs mis
 ## Testing
 
 **Unit tests** run by default with `pytest tests/` — fast, no external dependencies, ~212 tests in <6s.
+
+**Color contrast tests** (`tests/test_design_tokens_a11y.py`): WCAG 2.1 AA contrast audits for the F2 design tokens. Run via default `pytest tests/`. See `the_one/agents.md` "Color contrast (WCAG AA)" for the audited pairs and any deliberate exceptions.
+
+**Visual snapshot tests** (`tests/browser/test_visual_snapshots.py`): 12 Playwright baseline screenshots covering 3 UI areas × 2 states × 2 themes. Run via `pytest -m browser tests/browser/test_visual_snapshots.py`. Baselines live in `tests/browser/__snapshots__/`; tolerance 2% pixel diff. Regenerate with `--snapshot-update` (commit baselines to git; CI compares only).
+
+**Token-definition test** (`tests/test_token_definitions.py`): asserts every `var(--x)` reference in component CSS is defined in `tokens.css` or `fonts.css`. Catches typos that CSS would silently treat as `unset`.
 
 **AIAT tests** (Agent-in-a-Test) are live integration tests that hit a running instance. They are excluded from default runs via `addopts = "-m 'not live'"` in `pyproject.toml`.
 
