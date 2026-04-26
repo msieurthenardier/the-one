@@ -141,13 +141,13 @@ async def test_fresh_db_creates_all_tables(fresh_db):
 
 
 @pytest.mark.asyncio
-async def test_fresh_db_schema_version_is_5(fresh_db):
-    """After full migration, schema version should be 5."""
+async def test_fresh_db_schema_version_is_6(fresh_db):
+    """After full migration, schema version should be 6."""
     await ensure_schema(fresh_db)
 
     async with fresh_db.execute("SELECT MAX(version) FROM schema_version") as cur:
         row = await cur.fetchone()
-    assert row[0] == 5
+    assert row[0] == 6
 
 
 @pytest.mark.asyncio
@@ -320,7 +320,7 @@ async def test_idempotent_ensure_schema(fresh_db):
 
     async with fresh_db.execute("SELECT MAX(version) FROM schema_version") as cur:
         row = await cur.fetchone()
-    assert row[0] == 5
+    assert row[0] == 6
 
 
 # ── v5 migration tests: chat_sessions FK on agent_name dropped ──

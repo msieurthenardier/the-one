@@ -23,6 +23,7 @@ python -m pytest tests/ --tb=short -q
 python -m pytest tests/test_example.py -q          # single file
 python -m pytest tests/test_example.py::test_name   # single test
 pytest -m live tests/test_aiat.py                   # AIAT (needs running instance)
+pytest -m browser tests/browser/                    # Browser tests (needs THE_ONE_DEV_MODE=true)
 
 # Lint & format
 ruff check the_one/ tests/
@@ -51,6 +52,10 @@ Agent configuration (`agent/config.py`) defines `AgentConfig` (Pydantic model) w
 
 **Encryption** (`the_one/encryption.py`) — Fernet symmetric encryption for API credentials. Key auto-generated at `{data_dir}/encryption.key` (mode 0600). `get_encryptor(data_dir)` returns an `Encryptor` instance. Supports key rotation via `rotate_key()`.
 
+### `__MASKED__` sentinel for API key updates
+
+The provider edit form sends the literal string `__MASKED__` as the `api_key` field when the user has not modified it. The backend (`update_provider` in `interfaces/web/api.py`) detects this sentinel and preserves the existing stored key rather than overwriting it with the masked display value. Anyone touching the provider edit form needs to know this contract.
+
 **Interfaces** (`the_one/interfaces/`) — CLI (Rich + prompt-toolkit) and Web (FastAPI + WebSocket). Both use `AgentFactory.create()` to get configured agents, then call `agent.step(user_input)` which yields messages. The web app adds session management and broadcasts events to WebSocket subscribers.
 
 The web UI has three functional areas sharing a sidebar + content panel layout:
@@ -74,6 +79,14 @@ The container runs from `/app` (built code) but mounts the source repo at `/work
 ## Configuration
 
 Runtime config via env vars prefixed `THE_ONE_` (see `.env.example`): host, port, data_dir, workspace_dir, Concourse settings. Managed by pydantic-settings in `the_one/config.py`. The `settings` singleton is imported directly. LLM provider configuration is managed through the database (not env vars) — see the `/api/providers` endpoints.
+
+### Dev mode and the mock provider
+
+When `THE_ONE_DEV_MODE=true` is set, a fifth provider type `mock` becomes available alongside `ollama`, `openai-compatible`, `openai`, and `anthropic`. The mock provider returns deterministic scripted responses sourced from its `LLMProviderConfig.config["response"]` field — defaults to `"Mock response from the mock provider."` if no `response` key is set. Used by browser tests for deterministic chat flows; also useful for offline dev work and demos.
+
+- Backend rejects mock-typed creates/updates with HTTP 400 when dev mode is off
+- UI dropdown filters out `mock` when dev mode is off (driven by `GET /api/providers/types`)
+- Existing mock providers continue to render correctly in the admin UI even after dev mode is later disabled (the `TYPE_DEFAULTS`/`TYPE_BADGE_COLORS` entries are unconditional)
 
 ## Conventions
 
@@ -111,6 +124,14 @@ This format caught three bugs during Flight 04 HAT that end-state-only specs mis
 - **`THE_ONE_TEST_URL`** env var sets the target URL (default `http://localhost:8484`)
 - **`@pytest.mark.live`** decorator marks AIAT tests — all live in `tests/test_aiat.py`
 - Run live tests: `pytest -m live tests/test_aiat.py`
+
+**Browser tests** are end-to-end browser-driven tests using Playwright. They are excluded from default runs via `addopts = "-m 'not live and not browser'"` in `pyproject.toml`.
+
+- **`@pytest.mark.browser`** marks browser tests — all live in `tests/browser/`
+- Run browser tests: `pytest -m browser tests/browser/`
+- Each test spawns its own app subprocess on a random port with an isolated `tmp_path` data_dir; teardown via SIGTERM
+- Mock LLM responses are deterministic via the `mock` provider type (see below)
+- See `tests/browser/conftest.py` for fixture documentation
 
 **Test patterns** (no mock libraries):
 

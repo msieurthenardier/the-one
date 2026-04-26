@@ -89,15 +89,17 @@ jobs:
           params:
             DOCKER_HOST: ((docker-host))
             WORKSPACE_PATH: ((workspace-path))
+            THE_ONE_DEV_MODE: "true"
           run:
             path: sh
             args:
               - -exc
               - |
                 docker run --rm \
+                  -e THE_ONE_DEV_MODE="${THE_ONE_DEV_MODE}" \
                   -v "${WORKSPACE_PATH}:/src:ro" \
-                  python:3.11-slim \
-                  sh -c "cp -r /src /work && cd /work && pip install --no-cache-dir '.[dev]' -q && python -m pytest tests/ --tb=short -q"
+                  mcr.microsoft.com/playwright/python:v1.58.0-jammy \
+                  sh -c "cp -r /src /work && cd /work && pip install --no-cache-dir '.[dev]' -q && python -m pytest tests/ --tb=short -q && python -m pytest -m browser tests/browser/ --tb=short -q"
 
       - task: build-and-deploy
         privileged: true

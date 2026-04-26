@@ -19,25 +19,37 @@ App.registerArea({
     var providerFormMode = null; // null | 'add' | 'edit'
     var editingProvider = null;
 
-    var PROVIDER_TYPES = [
-      { value: 'ollama', label: 'Ollama' },
-      { value: 'openai-compatible', label: 'OpenAI-Compatible' },
-      { value: 'openai', label: 'OpenAI' },
-      { value: 'anthropic', label: 'Anthropic' }
-    ];
+    // Provider type list — fetched from /api/providers/types so dev-mode gating
+    // for the `mock` type is enforced server-side. Populated by fetchProviderTypes().
+    var PROVIDER_TYPES = [];
+    var providerTypesReady = null;
 
+    function fetchProviderTypes() {
+      providerTypesReady = fetch('/api/providers/types')
+        .then(function (r) { return r.json(); })
+        .then(function (types) { PROVIDER_TYPES = types; })
+        .catch(function () { PROVIDER_TYPES = []; });
+      return providerTypesReady;
+    }
+
+    // TYPE_DEFAULTS and TYPE_BADGE_COLORS are static metadata kept unconditional —
+    // existing mock providers (created when dev_mode was on) must still render
+    // correctly when dev_mode is off. The dropdown filter prevents *new* mock
+    // providers; it does not hide *existing* ones.
     var TYPE_DEFAULTS = {
       'ollama': { base_url: 'http://localhost:11434/v1', showBaseUrl: true, showApiKey: false },
       'openai-compatible': { base_url: '', showBaseUrl: true, showApiKey: true },
       'openai': { base_url: 'https://api.openai.com/v1', showBaseUrl: false, showApiKey: true },
-      'anthropic': { base_url: 'https://api.anthropic.com', showBaseUrl: false, showApiKey: true }
+      'anthropic': { base_url: 'https://api.anthropic.com', showBaseUrl: false, showApiKey: true },
+      'mock': { base_url: '', showBaseUrl: false, showApiKey: false }
     };
 
     var TYPE_BADGE_COLORS = {
       'ollama': '#2ecc71',
       'openai-compatible': '#d4a800',
       'openai': '#4a9eff',
-      'anthropic': '#9b59b6'
+      'anthropic': '#9b59b6',
+      'mock': '#888'
     };
 
     // Settings grouped into sections
@@ -277,7 +289,7 @@ App.registerArea({
       contentEl.innerHTML =
         '<div class="admin-header">' +
           '<span class="admin-title">LLM Providers</span>' +
-          '<button class="admin-provider-add-btn">+ Add Provider</button>' +
+          '<button class="admin-provider-add-btn" data-testid="add-provider-btn">+ Add Provider</button>' +
         '</div>' +
         '<div class="admin-provider-list" role="list">' +
           '<div class="admin-loading">Loading providers\u2026</div>' +
@@ -323,7 +335,7 @@ App.registerArea({
         var p = providers[i];
         var badgeColor = TYPE_BADGE_COLORS[p.type] || '#888';
         html +=
-          '<div class="admin-provider-card" role="listitem" data-id="' + escapeAttr(p.id) + '">' +
+          '<div class="admin-provider-card" role="listitem" data-testid="provider-card" data-id="' + escapeAttr(p.id) + '">' +
             '<span class="admin-provider-badge" style="background:' + badgeColor + '">' + escapeHtml(p.type) + '</span>' +
             '<span class="admin-provider-name">' + escapeHtml(p.name) + '</span>' +
             '<div class="admin-provider-actions">' +
@@ -438,6 +450,15 @@ App.registerArea({
     // ── Provider Form ─────────────────────────────────────────────────
 
     function renderProviderForm(provider) {
+      // Gate form rendering on the provider-types fetch — the type dropdown
+      // depends on PROVIDER_TYPES, which is populated by fetchProviderTypes().
+      var ready = providerTypesReady || fetchProviderTypes();
+      ready.then(function () {
+        _renderProviderFormImpl(provider);
+      });
+    }
+
+    function _renderProviderFormImpl(provider) {
       var isEdit = !!provider;
       var type = isEdit ? provider.type : '';
       var defaults = TYPE_DEFAULTS[type] || { base_url: '', showBaseUrl: false, showApiKey: false };
@@ -491,9 +512,9 @@ App.registerArea({
       html += '<div class="admin-pf-actions">';
       html += '<span class="admin-pf-error"></span>';
       html += '<button class="admin-pf-cancel">Cancel</button>';
-      html += '<button class="admin-pf-save">' + (isEdit ? 'Save' : 'Create') + '</button>';
+      html += '<button class="admin-pf-save" data-testid="save-provider-btn">' + (isEdit ? 'Save' : 'Create') + '</button>';
       if (isEdit) {
-        html += '<button class="admin-pf-test">Test Connection</button>';
+        html += '<button class="admin-pf-test" data-testid="test-connection-btn">Test Connection</button>';
       }
       html += '</div>';
 
@@ -589,7 +610,9 @@ App.registerArea({
         if (!defaults.showBaseUrl) {
           baseUrl = defaults.base_url;
         }
-        if (!baseUrl) {
+        // Only enforce non-empty when the field is shown for this type.
+        // Types with showBaseUrl=false (e.g. mock) intentionally use ''.
+        if (!baseUrl && defaults.showBaseUrl) {
           errorEl.textContent = 'Base URL is required.';
           return;
         }
@@ -1174,6 +1197,7 @@ App.registerArea({
 
     // ── Init ──────────────────────────────────────────────────────────
 
+    fetchProviderTypes();
     renderCategoryList();
     renderContent();
   },

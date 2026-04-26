@@ -17,6 +17,7 @@ _PROVIDER_TYPE_MAP = {
     "openai-compatible": "ollama",
     "openai": "openai",
     "anthropic": "anthropic",
+    "mock": "mock",
 }
 
 
@@ -94,6 +95,7 @@ class AgentFactory:
             model=config.llm_model,
             base_url=provider_config.base_url,
             api_key=provider_config.api_key,
+            config=provider_config.config,
         )
 
         # 2. Build filtered tool registry

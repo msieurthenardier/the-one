@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import aiosqlite
 
-CURRENT_VERSION = 5
+CURRENT_VERSION = 6
 
 SCHEMA_V1 = """\
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -208,3 +208,40 @@ PRAGMA foreign_keys=ON;
 """)
         await conn.execute("INSERT INTO schema_version (version) VALUES (?)", (5,))
         await conn.commit()
+        version = 5
+
+    if version < 6:
+        # Extend llm_providers.type CHECK constraint to allow 'mock' (added
+        # for the dev-mode mock LLM provider). SQLite has no `ALTER TABLE
+        # DROP CONSTRAINT`, so rebuild the table following the v3 pattern.
+        # Agents reference llm_providers via a FK; disable FK enforcement
+        # during the rebuild so the rename doesn't break referential checks
+        # (the FK is restored on the renamed table by SQLite automatically).
+        await conn.executescript("""\
+PRAGMA foreign_keys=OFF;
+
+CREATE TABLE llm_providers_new (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL CHECK (
+        type IN ('ollama', 'openai-compatible', 'openai', 'anthropic', 'mock')
+    ),
+    base_url TEXT NOT NULL,
+    api_key TEXT,
+    config TEXT DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+INSERT INTO llm_providers_new (id, name, type, base_url, api_key, config, created_at, updated_at)
+    SELECT id, name, type, base_url, api_key, config, created_at, updated_at FROM llm_providers;
+
+DROP TABLE llm_providers;
+
+ALTER TABLE llm_providers_new RENAME TO llm_providers;
+
+PRAGMA foreign_keys=ON;
+""")
+        await conn.execute("INSERT INTO schema_version (version) VALUES (?)", (6,))
+        await conn.commit()
+        version = 6

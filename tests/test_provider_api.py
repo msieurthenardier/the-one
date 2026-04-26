@@ -1206,3 +1206,140 @@ class TestEnsureV1:
         from the_one.llm.ollama_api import ensure_v1
 
         assert ensure_v1("http://localhost:11434/v1/") == "http://localhost:11434/v1"
+
+
+# ── Mock provider gating + types endpoint ─────────────────────────────────
+
+
+class TestProviderTypesEndpoint:
+    """Tests for GET /api/providers/types (dev-mode-aware list)."""
+
+    async def test_returns_4_types_when_dev_mode_off(self, client: AsyncClient) -> None:
+        with patch("the_one.interfaces.web.api.settings") as mock_settings:
+            mock_settings.dev_mode = False
+            resp = await client.get("/api/providers/types")
+        assert resp.status_code == 200
+        data = resp.json()
+        values = [t["value"] for t in data]
+        assert set(values) == {"ollama", "openai-compatible", "openai", "anthropic"}
+        # Each entry has the expected shape
+        for entry in data:
+            assert set(entry.keys()) == {"value", "label"}
+
+    async def test_returns_5_types_when_dev_mode_on(self, client: AsyncClient) -> None:
+        with patch("the_one.interfaces.web.api.settings") as mock_settings:
+            mock_settings.dev_mode = True
+            resp = await client.get("/api/providers/types")
+        assert resp.status_code == 200
+        values = [t["value"] for t in resp.json()]
+        assert "mock" in values
+        assert len(values) == 5
+
+    async def test_types_route_does_not_collide_with_id_route(self, client: AsyncClient) -> None:
+        """Regression: /providers/types must be registered before /providers/{id}.
+
+        If route ordering is reversed, FastAPI matches /providers/types
+        as a get_provider call with provider_id="types" and returns 404.
+        This test pins the ordering invariant.
+        """
+        with patch("the_one.interfaces.web.api.settings") as mock_settings:
+            mock_settings.dev_mode = False
+            resp = await client.get("/api/providers/types")
+        assert resp.status_code == 200, (
+            "GET /providers/types returned non-200 — route may have been reordered "
+            "behind /providers/{provider_id}"
+        )
+        # Confirm body shape — not just a 200 from some other path
+        assert isinstance(resp.json(), list)
+
+
+class TestMockProviderGating:
+    """Tests for THE_ONE_DEV_MODE gating on mock-typed creates and updates."""
+
+    async def test_create_mock_rejected_when_dev_mode_off(self, client: AsyncClient) -> None:
+        with patch("the_one.interfaces.web.api.settings") as mock_settings:
+            mock_settings.dev_mode = False
+            resp = await client.post(
+                "/api/providers",
+                json={"name": "Mock", "type": "mock", "base_url": ""},
+            )
+        assert resp.status_code == 400
+        assert "DEV_MODE" in resp.json()["detail"]
+
+    async def test_create_mock_accepted_when_dev_mode_on(self, client: AsyncClient) -> None:
+        with patch("the_one.interfaces.web.api.settings") as mock_settings:
+            mock_settings.dev_mode = True
+            resp = await client.post(
+                "/api/providers",
+                json={"name": "Mock", "type": "mock", "base_url": ""},
+            )
+        assert resp.status_code == 201
+        assert resp.json()["type"] == "mock"
+
+    async def test_update_to_mock_rejected_when_dev_mode_off(self, client: AsyncClient) -> None:
+        # Create an ollama provider first (no dev_mode required)
+        with patch("the_one.interfaces.web.api.settings") as mock_settings:
+            mock_settings.dev_mode = False
+            create_resp = await client.post(
+                "/api/providers",
+                json={"name": "P", "type": "ollama", "base_url": "http://localhost:11434/v1"},
+            )
+            assert create_resp.status_code == 201
+            provider_id = create_resp.json()["id"]
+            resp = await client.put(
+                f"/api/providers/{provider_id}",
+                json={"name": "P", "type": "mock", "base_url": ""},
+            )
+        assert resp.status_code == 400
+        assert "DEV_MODE" in resp.json()["detail"]
+
+
+class TestMockProviderRoutes:
+    """Tests for mock-type branches in test_provider and list_provider_models."""
+
+    async def test_test_provider_mock_returns_ok(self, client: AsyncClient) -> None:
+        with patch("the_one.interfaces.web.api.settings") as mock_settings:
+            mock_settings.dev_mode = True
+            create_resp = await client.post(
+                "/api/providers",
+                json={"name": "M", "type": "mock", "base_url": ""},
+            )
+            provider_id = create_resp.json()["id"]
+            resp = await client.post(f"/api/providers/{provider_id}/test")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "ok"
+        assert "Mock" in body["detail"]
+
+    async def test_list_models_mock_default(self, client: AsyncClient) -> None:
+        with patch("the_one.interfaces.web.api.settings") as mock_settings:
+            mock_settings.dev_mode = True
+            create_resp = await client.post(
+                "/api/providers",
+                json={"name": "M", "type": "mock", "base_url": ""},
+            )
+            provider_id = create_resp.json()["id"]
+            resp = await client.get(f"/api/providers/{provider_id}/models")
+        assert resp.status_code == 200
+        models = resp.json()
+        assert len(models) == 1
+        assert models[0]["id"] == "mock-default"
+        assert models[0]["name"] == "mock-default"
+
+    async def test_list_models_mock_configured(self, client: AsyncClient) -> None:
+        with patch("the_one.interfaces.web.api.settings") as mock_settings:
+            mock_settings.dev_mode = True
+            create_resp = await client.post(
+                "/api/providers",
+                json={
+                    "name": "M",
+                    "type": "mock",
+                    "base_url": "",
+                    "config": {"models": ["mock-fast", "mock-thinking"]},
+                },
+            )
+            provider_id = create_resp.json()["id"]
+            resp = await client.get(f"/api/providers/{provider_id}/models")
+        assert resp.status_code == 200
+        ids = [m["id"] for m in resp.json()]
+        assert ids == ["mock-fast", "mock-thinking"]

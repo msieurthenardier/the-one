@@ -27,7 +27,7 @@ App.registerArea({
     sidebar.innerHTML =
       '<div class="studio-sidebar-header">' +
         '<span class="title">Studio</span>' +
-        '<button class="new-agent-btn">+</button>' +
+        '<button class="new-agent-btn" data-testid="new-agent-btn">+</button>' +
       '</div>' +
       '<div class="agent-list"></div>';
 
@@ -79,6 +79,7 @@ App.registerArea({
       if (agents.length === 0 && !createMode) {
         var empty = document.createElement('div');
         empty.className = 'agent-empty';
+        empty.setAttribute('data-testid', 'agent-empty');
         empty.textContent = 'No agents yet. Click + to create one.';
         agentListEl.appendChild(empty);
         return;
@@ -88,6 +89,7 @@ App.registerArea({
           var el = document.createElement('div');
           el.className = 'agent-item' + (selectedAgent && selectedAgent.name === agent.name && !createMode ? ' active' : '');
           el.dataset.name = agent.name;
+          el.setAttribute('data-testid', 'agent-item');
 
           var nameSpan = document.createElement('span');
           nameSpan.className = 'agent-item-name';
@@ -197,7 +199,7 @@ App.registerArea({
         html += '<span class="editor-title">New Agent</span>';
       } else {
         html += '<span class="editor-title">' + escapeHtml(cfg.name) + '</span>';
-        html += '<button class="delete-btn" data-name="' + escapeHtml(cfg.name) + '">Delete Agent</button>';
+        html += '<button class="delete-btn" data-testid="delete-agent-btn" data-name="' + escapeHtml(cfg.name) + '">Delete Agent</button>';
       }
       html += '</div>';
 
@@ -305,7 +307,7 @@ App.registerArea({
       // Save button
       html += '<div class="editor-actions">';
       html += '<span class="editor-error"></span>';
-      html += '<button class="save-btn clean">' + (isCreate ? 'Create' : 'Save') + '</button>';
+      html += '<button class="save-btn clean" data-testid="save-agent-btn">' + (isCreate ? 'Create' : 'Save') + '</button>';
       html += '</div>';
 
       html += '</div>'; // .editor-form
