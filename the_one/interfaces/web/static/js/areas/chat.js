@@ -44,8 +44,8 @@ App.registerArea({
       '</div>' +
       '<div class="messages"></div>' +
       '<div class="input-area">' +
-        '<input placeholder="Type a message..." autocomplete="off" />' +
-        '<button>Send</button>' +
+        '<input data-testid="chat-input" placeholder="Type a message..." autocomplete="off" />' +
+        '<button data-testid="chat-send-btn">Send</button>' +
       '</div>';
 
     messagesEl = content.querySelector('.messages');
@@ -80,6 +80,7 @@ App.registerArea({
     function addMsg(cls, text) {
       var el = document.createElement('div');
       el.className = 'msg ' + cls;
+      el.setAttribute('data-testid', 'message');
       el.textContent = text;
       messagesEl.appendChild(el);
       messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -214,6 +215,7 @@ App.registerArea({
             if (!bannerEl) {
               bannerEl = document.createElement('div');
               bannerEl.className = 'chat-no-providers';
+              bannerEl.setAttribute('data-testid', 'setup-banner');
               messagesEl.parentNode.insertBefore(bannerEl, messagesEl);
             }
             bannerEl.textContent = msg;

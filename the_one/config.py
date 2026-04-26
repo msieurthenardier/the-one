@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = 8484
 
+    # Dev mode (gates the mock provider type)
+    dev_mode: bool = False
+
     # Paths
     data_dir: Path = Path.home() / ".the-one"
     workspace_dir: Path = Path("/workspace")

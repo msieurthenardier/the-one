@@ -424,6 +424,28 @@ async def list_providers() -> list[dict[str, Any]]:
     return [_provider_response(p) for p in providers]
 
 
+@router.get("/providers/types")
+async def list_provider_types() -> list[dict[str, str]]:
+    """Return the list of provider types selectable in the UI.
+
+    The ``mock`` type is included only when ``THE_ONE_DEV_MODE`` is on.
+
+    NOTE: This route MUST be registered BEFORE ``/providers/{provider_id}``
+    because FastAPI matches routes in registration order. If reordered, a
+    GET to ``/providers/types`` would resolve to ``get_provider`` with
+    ``provider_id="types"`` and 404.
+    """
+    types = [
+        {"value": "ollama", "label": "Ollama"},
+        {"value": "openai-compatible", "label": "OpenAI-Compatible"},
+        {"value": "openai", "label": "OpenAI"},
+        {"value": "anthropic", "label": "Anthropic"},
+    ]
+    if settings.dev_mode:
+        types.append({"value": "mock", "label": "Mock (dev)"})
+    return types
+
+
 @router.get("/providers/{provider_id}")
 async def get_provider(provider_id: str) -> dict[str, Any]:
     repo = await _provider_repo()
@@ -437,6 +459,11 @@ async def get_provider(provider_id: str) -> dict[str, Any]:
 @router.post("/providers", status_code=201)
 async def create_provider(request: Request) -> dict[str, Any]:
     data = await request.json()
+    if data.get("type") == "mock" and not settings.dev_mode:
+        raise HTTPException(
+            status_code=400,
+            detail="Mock provider type requires THE_ONE_DEV_MODE=true",
+        )
     if "id" not in data:
         data["id"] = uuid.uuid4().hex[:12]
     provider = LLMProviderConfig.model_validate(data)
@@ -454,6 +481,15 @@ async def update_provider(provider_id: str, request: Request) -> dict[str, Any]:
         existing = await repo.get(provider_id)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Provider not found: {provider_id}")
+
+    # Gate mock-typed updates on dev_mode. Compare the resulting type so an
+    # update that doesn't change the type isn't accidentally rejected.
+    incoming_type = data.get("type", existing.type)
+    if incoming_type == "mock" and not settings.dev_mode:
+        raise HTTPException(
+            status_code=400,
+            detail="Mock provider type requires THE_ONE_DEV_MODE=true",
+        )
 
     # Detect masked API key and preserve existing stored key
     incoming_key = data.get("api_key")
@@ -508,7 +544,9 @@ async def test_provider(provider_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail=f"Provider not found: {provider_id}")
 
     try:
-        if provider.type == "ollama":
+        if provider.type == "mock":
+            return {"status": "ok", "detail": "Mock provider (dev mode)"}
+        elif provider.type == "ollama":
             base = ollama_api.strip_v1(provider.base_url)
             async with httpx.AsyncClient(timeout=10) as client:
                 resp = await client.get(f"{base}/api/tags")
@@ -560,7 +598,10 @@ async def list_provider_models(provider_id: str) -> list[dict[str, Any]]:
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Provider not found: {provider_id}")
 
-    if provider.type == "ollama":
+    if provider.type == "mock":
+        models = provider.config.get("models", ["mock-default"])
+        return [{"id": m, "name": m} for m in models]
+    elif provider.type == "ollama":
         try:
             base = ollama_api.strip_v1(provider.base_url)
             models = await ollama_api.list_models(base)

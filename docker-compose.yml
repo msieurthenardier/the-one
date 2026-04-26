@@ -14,6 +14,7 @@ services:
       - THE_ONE_LLM_BASE_URL=http://host.docker.internal:11434/v1
       - THE_ONE_HOST=0.0.0.0
       - THE_ONE_WORKSPACE_DIR=/workspace
+      - THE_ONE_DEV_MODE=true
       - THE_ONE_CONCOURSE_TARGET=local
       - THE_ONE_CONCOURSE_PIPELINE=the-one
       - THE_ONE_CONCOURSE_URL=http://host.docker.internal:8080

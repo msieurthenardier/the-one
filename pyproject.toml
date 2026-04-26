@@ -21,7 +21,7 @@ dependencies = [
 openai = ["openai>=1.0"]
 anthropic = ["anthropic>=0.40"]
 all-llms = ["openai>=1.0", "anthropic>=0.40"]
-dev = ["pytest>=8.0", "pytest-asyncio>=0.24", "ruff>=0.6"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.24", "ruff>=0.6", "playwright>=1.48"]
 
 [project.scripts]
 the-one = "the_one.main:cli_entry"
@@ -38,9 +38,20 @@ build-backend = "setuptools.build_meta"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-addopts = "-m 'not live'"
-markers = ["live: marks tests that call real LLM APIs (deselect with '-m \"not live\"')"]
+# importlib import-mode + explicit pythonpath: required so the existing
+# `from conftest import FakeLLM, StubTool` pattern in tests/test_*.py keeps
+# resolving to tests/conftest.py once tests/browser/conftest.py exists.
+# Without this, pytest's default rootdir-prepend caches the nested browser
+# conftest in sys.modules under the bare name "conftest" and shadows the
+# top-level fixtures module.
+addopts = "-m 'not live and not browser' --import-mode=importlib"
+pythonpath = ["tests"]
+markers = [
+    "live: marks tests that call real LLM APIs (deselect with '-m \"not live\"')",
+    "browser: marks tests that require a browser via Playwright (deselect with '-m \"not browser\"')",
+]
 norecursedirs = ["workspace", ".worktrees", "node_modules", ".git"]
+
 
 [tool.ruff]
 line-length = 100
