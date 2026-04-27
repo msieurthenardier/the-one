@@ -21,7 +21,7 @@ def test_hash_routing_admin_subpage_persists_on_refresh(app_clean: str, page: Pa
 
     # 1. Open app (lands on #chat by default).
     page.goto(base_url)
-    expect(page.locator(".status")).to_have_text("connected", timeout=5000)
+    expect(page.locator(".app-picker-button")).to_be_visible(timeout=5000)
 
     # 2. Navigate to Admin via picker.
     page.locator(".app-picker-button").click()
@@ -55,12 +55,12 @@ def test_hash_routing_chat_session_persists_on_refresh(app_with_agent: SeededApp
     """Session auto-created, URL becomes #chat/sessions/<id>, persists on refresh."""
     base_url = app_with_agent.base_url
 
-    # 1. Open #chat. Session auto-creates.
+    # 1. Open #chat. Welcome canvas shows; bootstrap a session.
     page.goto(base_url)
-    expect(page.locator(".status")).to_have_text("connected", timeout=5000)
+    page.locator(".chat-welcome-item").filter(has_text=app_with_agent.agent_name).click()
 
-    # 2. Wait for session to be auto-created and joined (session_joined fires).
-    #    The session-agent-badge updates on join.
+    # 2. session_joined fires; agent badge updates and URL becomes
+    #    #chat/sessions/<id>.
     expect(page.locator(".session-agent-badge")).to_have_text(app_with_agent.agent_name, timeout=8000)
 
     # 3. URL should now be #chat/sessions/<id> (set by session_joined handler).
@@ -77,8 +77,6 @@ def test_hash_routing_chat_session_persists_on_refresh(app_with_agent: SeededApp
     page.reload()
 
     # 6. After reload, same session should be selected.
-    expect(page.locator(".status")).to_have_text("connected", timeout=8000)
-
     # The session_joined handler fires after WS reconnects, which updates URL.
     # Wait for the specific session item to be marked selected.
     restored_item = page.locator(f'.session-item[data-id="{session_id}"][aria-selected="true"]')
@@ -145,7 +143,7 @@ def test_hash_routing_replacestate_no_history_growth(app_clean: str, page: Page)
 
     # 1. Open app.
     page.goto(base_url)
-    expect(page.locator(".status")).to_have_text("connected", timeout=5000)
+    expect(page.locator(".app-picker-button")).to_be_visible(timeout=5000)
 
     # 2. Capture baseline history.length (after initial load).
     baseline = page.evaluate("history.length")

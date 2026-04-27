@@ -411,55 +411,66 @@ async def _process_and_broadcast(
     max_context = session.agent.llm.max_context_tokens
 
     result_messages: list[dict[str, Any]] = []
-    async for msg in session.agent.step(user_input):
-        if msg.role == Role.ASSISTANT:
-            if msg.usage:
-                total_input += msg.usage.input_tokens
-                total_output += msg.usage.output_tokens
-                last_input = msg.usage.input_tokens
-                usage_event = {
-                    "type": "usage",
-                    "input_tokens": total_input,
-                    "output_tokens": total_output,
-                    "context_tokens": last_input,
-                    "max_context_tokens": max_context,
-                }
-                await _send_to_session(session, usage_event)
+    try:
+        async for msg in session.agent.step(user_input):
+            if msg.role == Role.ASSISTANT:
+                if msg.usage:
+                    total_input += msg.usage.input_tokens
+                    total_output += msg.usage.output_tokens
+                    last_input = msg.usage.input_tokens
+                    usage_event = {
+                        "type": "usage",
+                        "input_tokens": total_input,
+                        "output_tokens": total_output,
+                        "context_tokens": last_input,
+                        "max_context_tokens": max_context,
+                    }
+                    await _send_to_session(session, usage_event)
 
-            if msg.content:
-                event: dict[str, Any] = {"type": "assistant", "content": msg.content}
-                session.add_event(event)
-                await _send_to_session(session, event)
-            if msg.tool_calls:
-                for tc in msg.tool_calls:
-                    tc_event = {"type": "tool_call", "name": tc.name, "arguments": tc.arguments}
-                    session.add_event(tc_event)
-                    await _send_to_session(session, tc_event)
+                if msg.content:
+                    event: dict[str, Any] = {"type": "assistant", "content": msg.content}
+                    session.add_event(event)
+                    await _send_to_session(session, event)
+                if msg.tool_calls:
+                    for tc in msg.tool_calls:
+                        tc_event = {"type": "tool_call", "name": tc.name, "arguments": tc.arguments}
+                        session.add_event(tc_event)
+                        await _send_to_session(session, tc_event)
 
-            entry: dict[str, Any] = {"role": "assistant"}
-            if msg.content:
-                entry["content"] = msg.content
-            if msg.tool_calls:
-                entry["tool_calls"] = [
-                    {"name": tc.name, "arguments": tc.arguments} for tc in msg.tool_calls
-                ]
-            result_messages.append(entry)
+                entry: dict[str, Any] = {"role": "assistant"}
+                if msg.content:
+                    entry["content"] = msg.content
+                if msg.tool_calls:
+                    entry["tool_calls"] = [
+                        {"name": tc.name, "arguments": tc.arguments} for tc in msg.tool_calls
+                    ]
+                result_messages.append(entry)
 
-        elif msg.role == Role.TOOL and msg.tool_result:
-            tr_event = {
-                "type": "tool_result",
-                "content": msg.tool_result.content[:2000],
-                "is_error": msg.tool_result.is_error,
-            }
-            session.add_event(tr_event)
-            await _send_to_session(session, tr_event)
-            result_messages.append(
-                {
-                    "role": "tool",
-                    "content": msg.tool_result.content[:4000],
+            elif msg.role == Role.TOOL and msg.tool_result:
+                tr_event = {
+                    "type": "tool_result",
+                    "content": msg.tool_result.content[:2000],
                     "is_error": msg.tool_result.is_error,
                 }
-            )
+                session.add_event(tr_event)
+                await _send_to_session(session, tr_event)
+                result_messages.append(
+                    {
+                        "role": "tool",
+                        "content": msg.tool_result.content[:4000],
+                        "is_error": msg.tool_result.is_error,
+                    }
+                )
+    except Exception as exc:
+        # Surface the failure to the UI so the client can drop its "thinking…"
+        # indicator and re-enable the input. Without this, an exception in
+        # `agent.step` (e.g. a provider 4xx) would propagate up and crash the
+        # WS handler before the closing `done` event fires.
+        logger.exception("Agent step failed for session %s", session.id)
+        await _send_to_session(
+            session,
+            {"type": "system", "content": f"Agent error: {exc}"},
+        )
 
     # Save to DB after each complete exchange
     try:
@@ -618,6 +629,12 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 session_id = payload.get("session_id")
 
                 if session_id:
+                    # Leave any prior session before joining a new one.
+                    # Without this, broadcasts to the old session (e.g. an
+                    # in-flight "Loading model..." or assistant message)
+                    # surface in the new session's UI after a switch.
+                    if session and session.id != session_id:
+                        session.subscribers.discard(ws)
                     restored = await _get_or_restore_session(session_id)
                     if restored.status == SESSION_STATUS_OK:
                         # `session` here is the WS-loop-scoped variable;

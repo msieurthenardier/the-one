@@ -27,10 +27,10 @@ def test_session_item_keyboard_select(app_with_agent: SeededApp, page: Page) -> 
     base_url = app_with_agent.base_url
     page.goto(base_url)
 
-    # Wait for WS to connect and auto-create a session
-    expect(page.locator(".status")).to_have_text("connected", timeout=5000)
+    # Bootstrap a session via the welcome listbox (no auto-create after leg 05).
+    page.locator(".chat-welcome-item").filter(has_text=app_with_agent.agent_name).click()
     expect(page.locator(".session-agent-badge")).to_have_text(
-        app_with_agent.agent_name, timeout=5000
+        app_with_agent.agent_name, timeout=8000
     )
 
     # Confirm the session-item appeared and has listbox role on parent
@@ -51,7 +51,11 @@ def test_session_item_has_role_option(app_with_agent: SeededApp, page: Page) -> 
     base_url = app_with_agent.base_url
     page.goto(base_url)
 
-    expect(page.locator(".status")).to_have_text("connected", timeout=5000)
+    # Bootstrap a session via the welcome listbox (no auto-create after leg 05).
+    page.locator(".chat-welcome-item").filter(has_text=app_with_agent.agent_name).click()
+    expect(page.locator(".session-agent-badge")).to_have_text(
+        app_with_agent.agent_name, timeout=8000
+    )
     expect(page.locator(".session-item").first).to_be_visible(timeout=5000)
 
     # Listbox role on parent
@@ -76,7 +80,11 @@ def test_session_delete_keyboard_reveal(app_with_agent: SeededApp, page: Page) -
     base_url = app_with_agent.base_url
     page.goto(base_url)
 
-    expect(page.locator(".status")).to_have_text("connected", timeout=5000)
+    # Bootstrap a session via the welcome listbox (no auto-create after leg 05).
+    page.locator(".chat-welcome-item").filter(has_text=app_with_agent.agent_name).click()
+    expect(page.locator(".session-agent-badge")).to_have_text(
+        app_with_agent.agent_name, timeout=8000
+    )
     expect(page.locator(".session-item").first).to_be_visible(timeout=5000)
 
     delete_btn = page.locator(".session-item .delete").first

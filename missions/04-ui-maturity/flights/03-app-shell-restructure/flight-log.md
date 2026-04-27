@@ -339,3 +339,53 @@ This decision applies project-wide going forward (recorded in user feedback memo
 3. **Active picker option lacks `aria-current="page"`** (`app.js:54-57`). Sighted users see the `.active` cyan-stripe; screen-reader users get no announcement of which area is current. WCAG 2.1 AA does not require; WCAG 2.2 best practice. Candidate: trivial addition in leg 06.
 
 Per protocol: both reviewers confirmed → proceed to commit. The 3 non-blocking suggestions are documented and will be considered during leg 06 design.
+
+### 2026-04-27 — Leg 05 (new-chat-restructure) — discovery + implementation
+
+Interactive leg. Flight Director walked the user through the pre-leg new-chat flow (sidebar `+ new` next to a passive agent dropdown; cold-entry auto-create). User named three pain points and gave directional input that set the redesign:
+
+1. **Dropdown semantics flip** — changing the sidebar agent dropdown should *start a new conversation* with the chosen agent (not seed a future click).
+2. **`+ new` belongs to the conversation** — relocate to the conversation header (right-justified, next to the agent name) and bind to the *current* agent. It's a "start over with the same person" affordance.
+3. **First-ever entry deserves a real welcome** — no silent auto-create. Use the canvas to engage and educate ("Hello. Which agent would you like to chat with?") instead of cramming everything into tiny sidebar controls.
+
+Implementation delivered the agreed contract plus a sweep of 11 user-driven cosmetic tweaks captured across two follow-up passes:
+
+- Area renames (Chat → "Agent Chat", Studio → "Agent Studio", Admin → "Settings"; IDs preserved so hash URLs do not break)
+- Theme toggle removed from topbar; lives only at Settings → System → Appearance (compact variant + multi-mount sync deleted as dead code)
+- Sidebar bottom border, header bottom border, and "connecting…" status chicklet all removed
+- Agent name restyled from chip to `<h2>`-sized header; "+ new" replaced with Lucide `square-pen` icon + "New Chat" label, right-justified
+- Telemetry overlay relocated to lower-right of conversation; chrome-free; ghosted at rest, hover/focus expands details via `max-width 0 → 280px` transition, mouse-away contracts and fades
+- Chat-history sidebar grouped into Today / Yesterday / Last 7 Days / Last 30 Days / Older buckets under a `Chat History` heading; each bucket is a `role=group` with `aria-labelledby`
+- Per-message attribution labels ("You" / agent name) below each user / assistant bubble; tool / system messages unattributed
+- "Thinking…" indicator (assistant-styled bubble, italic-muted, braille-spinner animation) appears on send and clears on assistant message / tool_call / done / error / chat switch / session delete / WS close
+
+**Setup-incomplete states unified into the welcome canvas.** Replaced the top-of-chrome `chat-no-providers` banner with state-aware welcome content. Greeting "Hello." is constant; body adapts to: no providers + no agents (links to both Settings and Agent Studio); no providers (Settings link only); no agents (Agent Studio link only); ready (agent listbox). Inline `href="#admin"` / `href="#studio"` anchors route via the existing hash router.
+
+#### Server-side fixes uncovered during the leg
+
+User reported "stuck on Thinking" after a real Claude Sonnet 4.6 chat. Container logs showed `anthropic.BadRequestError: 'temperature' is deprecated for this model.` The exception bubbled up through `_process_and_broadcast`, crashed the WS handler, and the closing `done` event never fired — leaving the indicator stranded.
+
+Three layered fixes:
+
+1. **`AnthropicProvider.complete()`** catches `BadRequestError` and retries once without `temperature` if the message text contains "temperature". Newer Claude models (Opus 4.x, Sonnet 4.x) reject the parameter outright — this avoids maintaining a model-family allowlist.
+2. **`_process_and_broadcast`** wraps the agent step loop in `try/except`. Any exception now emits `{"type": "system", "content": "Agent error: <exc>"}` followed by the normal `done`, so the client always recovers its UI even when an agent step blows up.
+3. **WS join handler subscriber leak** — orthogonal but found in the same investigation. Joining a new session never discarded the WS from the prior session's subscribers. Broadcasts to the old session (e.g. an in-flight model-loading ping) leaked into the new session's UI on switch. Fixed by mirroring the `new_session` handler's discard step in `join` (`app.py` join-action ~line 622).
+
+Plus client defense-in-depth: `ws.onclose` now hides the thinking indicator and resets `busy` / re-enables send. Auto-reconnect runs 2s later.
+
+**Mock provider** got an optional `delay_ms` config key (default 0) so E2E tests can deterministically exercise the thinking indicator with a known delay window. Defaults preserve test-suite speed.
+
+#### Tests
+
+- New file: `tests/browser/test_flow_new_chat.py` — **11 Playwright tests** covering all states, the affordance reassignment, history grouping, attribution, telemetry overlay, and thinking indicator.
+- Updated existing: `test_flow_chat.py`, `test_flow_keyboard.py`, `test_flow_hash_routing.py`, `test_flow_provider_setup.py` — removed all `.status` "connected" waits (chicklet is gone), replaced `[data-testid="setup-banner"]` assertions with `.chat-welcome-guidance` text, and added welcome-listbox bootstrap to tests that previously relied on auto-create-on-load.
+
+**Test counts after leg**: 393 unit + 32 browser passing (was 393 + 21 pre-leg-05).
+
+#### Out of scope (user-deferred)
+
+User explicitly deferred **response streaming** and **markdown / code-block rendering** to a future mission — confirmed as F3-out-of-scope and F4+-candidate.
+
+#### Status
+
+Leg 05 commits inline (interactive-leg pattern, distinct from batch-A's deferred commit). User's wrap signal: *"yup, lets wrap it up. will need a debrief."* Proceed to leg 06 with the snapshot-policy redesign already noted.

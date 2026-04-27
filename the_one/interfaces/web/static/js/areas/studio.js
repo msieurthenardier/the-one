@@ -1,6 +1,6 @@
 App.registerArea({
   id: 'studio',
-  label: 'Studio',
+  label: 'Agent Studio',
   icon: App.icons.studio,
   order: 20,
   sidebarLabel: 'Agent list',
@@ -41,7 +41,7 @@ App.registerArea({
     // Build sidebar
     sidebar.innerHTML =
       '<div class="studio-sidebar-header">' +
-        '<span class="title">Studio</span>' +
+        '<span class="title">Agent Studio</span>' +
         '<button class="new-agent-btn" data-testid="new-agent-btn" aria-label="New agent">' + App.icon('plus') + '</button>' +
       '</div>' +
       '<div class="agent-list" role="listbox" aria-label="Agents"></div>';

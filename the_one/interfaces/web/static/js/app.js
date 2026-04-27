@@ -16,18 +16,11 @@
     topbar.innerHTML =
       '<h1 class="app-topbar-title">the-one</h1>' +
       '<div class="app-topbar-actions">' +
-        '<div class="theme-toggle-compact-mount"></div>' +
         '<button class="app-picker-button" aria-label="Switch app" aria-haspopup="true" aria-expanded="false">' +
           App.icons.menu +
         '</button>' +
       '</div>' +
       '<nav class="app-picker-popover" aria-label="App areas" data-open="false"></nav>';
-
-    // Mount compact theme toggle
-    var themeMount = topbar.querySelector('.theme-toggle-compact-mount');
-    if (window.App && window.App.theme && window.App.theme.renderToggle) {
-      window.App.theme.renderToggle(themeMount, { variant: 'compact' });
-    }
 
     var pickerBtn = topbar.querySelector('.app-picker-button');
     var popover = topbar.querySelector('.app-picker-popover');

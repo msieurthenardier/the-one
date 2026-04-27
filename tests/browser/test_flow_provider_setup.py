@@ -1,12 +1,12 @@
 """End-to-end flow test: first-start provider setup.
 
 Drives a real Chromium session through the empty-DB onboarding flow:
-- See setup banner in Chat
+- Welcome canvas guidance points to Settings + Agent Studio (no providers yet)
 - Navigate to Admin → LLM Providers
 - Add a mock provider via the form
 - Verify it appears in the list with a mock badge
 - Edit it, click Test Connection, see success
-- Navigate back to Chat, banner now says "No agents"
+- Navigate back to Chat, welcome guidance now points only to Agent Studio
 """
 
 from __future__ import annotations
@@ -19,11 +19,13 @@ from playwright.sync_api import Page, expect
 def test_first_start_provider_setup_flow(app_clean: str, page: Page) -> None:
     base_url = app_clean
 
-    # 1. Open app (defaults to #chat). Setup banner shows "Getting started".
+    # 1. Open app (defaults to #chat). Welcome canvas guidance shows the
+    #    full setup path: Settings + Agent Studio.
     page.goto(base_url)
-    setup_banner = page.locator('[data-testid="setup-banner"]')
-    expect(setup_banner).to_be_visible()
-    expect(setup_banner).to_contain_text("Getting started")
+    welcome_guidance = page.locator(".chat-welcome-guidance")
+    expect(welcome_guidance).to_be_visible(timeout=5000)
+    expect(welcome_guidance).to_contain_text("Settings")
+    expect(welcome_guidance).to_contain_text("Agent Studio")
 
     # 2. Navigate to Admin → LLM Providers.
     page.goto(f"{base_url}#admin")
@@ -60,7 +62,9 @@ def test_first_start_provider_setup_flow(app_clean: str, page: Page) -> None:
     expect(card.locator(".admin-provider-name")).to_have_text("Mock Test")
     expect(card.locator(".admin-provider-badge")).to_have_text("mock")
 
-    # 12. Navigate back to Chat. Banner now reflects the next setup gap.
+    # 12. Navigate back to Chat. Welcome guidance now reflects the next setup
+    #     gap (provider exists, agent does not).
     page.goto(f"{base_url}#chat")
-    expect(setup_banner).to_be_visible()
-    expect(setup_banner).to_contain_text("No agents")
+    expect(welcome_guidance).to_be_visible(timeout=5000)
+    expect(welcome_guidance).to_contain_text("Agent Studio")
+    expect(welcome_guidance).not_to_contain_text("Settings")

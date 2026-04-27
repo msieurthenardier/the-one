@@ -1,9 +1,9 @@
 App.registerArea({
   id: 'admin',
-  label: 'Admin',
+  label: 'Settings',
   icon: App.icons.admin,
   order: 30,
-  sidebarLabel: 'Admin categories',
+  sidebarLabel: 'Settings categories',
 
   serializeState: function () {
     return this._currentCategory || null;
@@ -85,13 +85,13 @@ App.registerArea({
     // Build sidebar
     sidebar.innerHTML =
       '<div class="admin-sidebar-header">' +
-        '<span class="title">Administration</span>' +
+        '<span class="title">Settings</span>' +
       '</div>' +
       '<div class="admin-category-list"></div>';
 
     categoryListEl = sidebar.querySelector('.admin-category-list');
     categoryListEl.setAttribute('role', 'listbox');
-    categoryListEl.setAttribute('aria-label', 'Admin categories');
+    categoryListEl.setAttribute('aria-label', 'Settings categories');
 
     // Build content
     content.innerHTML = '<div class="admin-content"></div>';
@@ -259,7 +259,7 @@ App.registerArea({
       // admin.js per index.html script order — the guard is defensive only).
       var themeToggleEl = contentEl.querySelector('#admin-theme-toggle-mount');
       if (window.App && window.App.theme && window.App.theme.renderToggle) {
-        window.App.theme.renderToggle(themeToggleEl, { variant: 'full', labelledBy: 'admin-appearance-heading' });
+        window.App.theme.renderToggle(themeToggleEl, { labelledBy: 'admin-appearance-heading' });
       }
 
       var rotateBtn = contentEl.querySelector('.admin-system-btn');
