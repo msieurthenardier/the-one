@@ -406,3 +406,11 @@ User direction on scope: *"with regard to the snapshots we should describe the w
 **Test counts after leg**: 393 unit + 32 browser passing (+ 1 skipped — the snapshot module via `importorskip`). Pixel suite (12 tests) collects locally and is excluded from CI.
 
 **Mid-leg user note**: *"I jumped the gun a little bit and we did a bit of the chat alignment that is supposed to be in flight 4. We can use flight 4 to do a bit more cleanup and tackle those 2 big items from before (streaming and formatting)."* Acknowledged — the leg-05 cosmetic sweep (agent name as header, telemetry overlay, attribution labels, Today/Yesterday history grouping, thinking indicator) crossed into territory originally scoped for F4 Chat Alignment. F4 absorbs streaming + markdown formatting and any remaining chat-polish cleanup the user surfaces during F3 leg-07 HAT or F4 design.
+
+### 2026-04-27 — Leg 07 absorbed; flight landed
+
+User direction: *"we pretty much already did it, we can skip it, lets do a debrief and get everything merged."*
+
+The substantive HAT verification work that leg 07 was scoped to do — walking the user through every restructured surface (top bar, picker, sidebar, keyboard flow, hash-routing, theme toggle relocation, Settings rename, new-chat flow, welcome canvas, telemetry overlay, history grouping, thinking indicator) — happened conversationally during leg 05's discovery-via-HAT pass. The user signed off ("looks good", "looks perfect", "the flow is perfect") at each visual checkpoint and supplied the cosmetic-tweak punch list that landed inline.
+
+Leg 07 marked complete by absorption into leg 05. No separate leg artifact written. Status flipped `in-flight` → `landed`. Awaiting `/flight-debrief` and merge.
