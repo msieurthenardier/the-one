@@ -2,6 +2,7 @@
   var areas = {};
   var order = [];
   var currentId = null;
+  var currentSub = null;
   var initialized = {};
 
   function registerArea(descriptor) {
@@ -10,35 +11,128 @@
     order.sort(function (a, b) { return a.order - b.order; });
   }
 
-  function renderNav() {
-    var nav = document.getElementById('app-nav');
-    nav.innerHTML = '';
+  function renderTopBar() {
+    var topbar = document.getElementById('app-topbar');
+    topbar.innerHTML =
+      '<h1 class="app-topbar-title">the-one</h1>' +
+      '<div class="app-topbar-actions">' +
+        '<div class="theme-toggle-compact-mount"></div>' +
+        '<button class="app-picker-button" aria-label="Switch app" aria-haspopup="true" aria-expanded="false">' +
+          App.icons.menu +
+        '</button>' +
+      '</div>' +
+      '<nav class="app-picker-popover" aria-label="App areas" data-open="false"></nav>';
+
+    // Mount compact theme toggle
+    var themeMount = topbar.querySelector('.theme-toggle-compact-mount');
+    if (window.App && window.App.theme && window.App.theme.renderToggle) {
+      window.App.theme.renderToggle(themeMount, { variant: 'compact' });
+    }
+
+    var pickerBtn = topbar.querySelector('.app-picker-button');
+    var popover = topbar.querySelector('.app-picker-popover');
+
+    // Picker open/close — defined here so option-click handlers can call closePicker via closure.
+    function openPicker() {
+      popover.dataset.open = 'true';
+      pickerBtn.setAttribute('aria-expanded', 'true');
+      var firstOpt = popover.querySelector('.app-picker-option');
+      // data-open switches CSS to display: block synchronously (attribute sets are
+      // synchronous; the CSS rule applies to the next style recalc which happens
+      // before focus() returns). Safe to focus immediately.
+      if (firstOpt) firstOpt.focus();
+    }
+    function closePicker() {
+      popover.dataset.open = 'false';
+      pickerBtn.setAttribute('aria-expanded', 'false');
+    }
+
+    // Build picker options — closePicker is in scope here.
     for (var i = 0; i < order.length; i++) {
       var a = order[i];
-      var el = document.createElement('div');
-      el.className = 'nav-item';
-      el.dataset.area = a.id;
-      el.innerHTML = a.icon;
-      el.title = a.label;
-      el.addEventListener('click', (function (id) {
-        return function () { location.hash = id; };
+      var opt = document.createElement('button');
+      opt.className = 'app-picker-option';
+      opt.dataset.area = a.id;
+      opt.setAttribute('type', 'button');
+      opt.innerHTML = a.icon + '<span>' + a.label + '</span>';
+      opt.addEventListener('click', (function (id) {
+        return function (e) {
+          // stopPropagation guards against click-outside listener firing after
+          // option click — defensive; option handler calls closePicker() itself.
+          e.stopPropagation();
+          location.hash = id;
+          closePicker();
+        };
       })(a.id));
-      nav.appendChild(el);
+      popover.appendChild(opt);
     }
+
+    pickerBtn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      if (popover.dataset.open === 'true') closePicker();
+      else openPicker();
+    });
+
+    // Click-outside closes
+    document.addEventListener('click', function (e) {
+      if (popover.dataset.open !== 'true') return;
+      if (popover.contains(e.target) || pickerBtn.contains(e.target)) return;
+      closePicker();
+    });
+
+    // Keyboard within popover (Escape, arrow-cycle)
+    popover.addEventListener('keydown', function (e) {
+      var opts = Array.prototype.slice.call(popover.querySelectorAll('.app-picker-option'));
+      var idx = opts.indexOf(document.activeElement);
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        closePicker();
+        pickerBtn.focus();
+        return;
+      }
+      if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        if (idx === -1) opts[0].focus();
+        else opts[(idx + 1) % opts.length].focus();
+        return;
+      }
+      if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+        e.preventDefault();
+        if (idx === -1) opts[opts.length - 1].focus();
+        else opts[(idx - 1 + opts.length) % opts.length].focus();
+        return;
+      }
+    });
   }
 
-  function switchTo(areaId) {
-    if (!areas[areaId]) areaId = 'chat';
-    if (areaId === currentId) return;
+  function parseHash(hashString) {
+    var raw = (hashString || '').replace(/^#/, '');
+    if (!raw) return { area: null, sub: null };
+    var slash = raw.indexOf('/');
+    if (slash === -1) return { area: raw, sub: null };
+    return { area: raw.slice(0, slash), sub: raw.slice(slash + 1) };
+  }
 
-    // Deactivate current
+  function switchTo(areaId, sub) {
+    if (!areas[areaId]) areaId = 'chat';
+    sub = (sub === undefined ? null : sub);
+
+    // Same-area sub-change: only hydrate
+    if (areaId === currentId && sub === currentSub) return;
+    if (areaId === currentId && sub !== currentSub) {
+      currentSub = sub;
+      if (typeof areas[areaId].hydrateState === 'function') areas[areaId].hydrateState(sub);
+      return;
+    }
+
+    // Cross-area navigation: deactivate current, activate target
     if (currentId && areas[currentId]) {
       areas[currentId].deactivate();
     }
 
     // Hide all panels
     var sidebarPanels = document.querySelectorAll('#app-sidebar .sidebar-panel');
-    var contentPanels = document.querySelectorAll('#app-content .content-panel');
+    var contentPanels = document.querySelectorAll('#main-content .content-panel');
     for (var i = 0; i < sidebarPanels.length; i++) sidebarPanels[i].classList.remove('active');
     for (var i = 0; i < contentPanels.length; i++) contentPanels[i].classList.remove('active');
 
@@ -50,7 +144,7 @@
 
       var contentPanel = document.createElement('div');
       contentPanel.className = 'content-panel area-' + areaId;
-      document.getElementById('app-content').appendChild(contentPanel);
+      document.getElementById('main-content').appendChild(contentPanel);
 
       areas[areaId].init(sidebarPanel, contentPanel);
       initialized[areaId] = true;
@@ -58,34 +152,41 @@
 
     // Show target panels
     var targetSidebar = document.querySelector('#app-sidebar .area-' + areaId);
-    var targetContent = document.querySelector('#app-content .area-' + areaId);
+    var targetContent = document.querySelector('#main-content .area-' + areaId);
     if (targetSidebar) targetSidebar.classList.add('active');
     if (targetContent) targetContent.classList.add('active');
 
-    // Update nav highlight
-    var navItems = document.querySelectorAll('.nav-item');
-    for (var i = 0; i < navItems.length; i++) {
-      navItems[i].classList.toggle('active', navItems[i].dataset.area === areaId);
+    // Set aside aria-label for the active area
+    var asideEl = document.getElementById('app-sidebar');
+    var areaLabel = areas[areaId].sidebarLabel || (areas[areaId].label + ' sidebar');
+    asideEl.setAttribute('aria-label', areaLabel);
+
+    // Update picker highlight
+    var pickerOpts = document.querySelectorAll('.app-picker-option');
+    for (var i = 0; i < pickerOpts.length; i++) {
+      pickerOpts[i].classList.toggle('active', pickerOpts[i].dataset.area === areaId);
     }
 
     currentId = areaId;
+    currentSub = sub;
     // Convention: activate() must refresh the area's data so changes made in
     // other areas (e.g. adding a provider in Admin) are reflected immediately.
     areas[areaId].activate();
-  }
 
-  function getHashArea() {
-    var hash = location.hash.replace('#', '');
-    return hash && areas[hash] ? hash : 'chat';
+    if (typeof areas[areaId].hydrateState === 'function') areas[areaId].hydrateState(sub);
   }
 
   window.addEventListener('hashchange', function () {
-    switchTo(getHashArea());
+    var parsed = parseHash(location.hash);
+    if (!parsed.area || !areas[parsed.area]) return; // skip-link / unknown area
+    switchTo(parsed.area, parsed.sub);
   });
 
   document.addEventListener('DOMContentLoaded', function () {
-    renderNav();
-    switchTo(getHashArea());
+    renderTopBar();
+    var parsed = parseHash(location.hash);
+    var area = (parsed.area && areas[parsed.area]) ? parsed.area : 'chat';
+    switchTo(area, parsed.sub);
   });
 
   function escapeHtml(s) {
@@ -128,6 +229,22 @@
   window.App = window.App || {};
   Object.assign(window.App, {
     registerArea: registerArea,
+    router: {
+      parseHash: parseHash,
+      /**
+       * Update the URL sub-state without pushing history. Used by area code when
+       * the user navigates within an area (selects a different session/agent/category).
+       * The area is implicit (currentId) — only the sub portion is updated.
+       * Calling this does NOT fire hashchange (replaceState is silent), so it does
+       * not loop back through switchTo.
+       */
+      replaceSub: function (sub) {
+        if (!currentId) return;
+        var newHash = sub ? '#' + currentId + '/' + sub : '#' + currentId;
+        if (location.hash === newHash) return; // no-op
+        history.replaceState(null, '', newHash);
+      },
+    },
     escapeHtml: escapeHtml,
     escapeAttr: escapeAttr,
     formatBytes: formatBytes,

@@ -14,9 +14,13 @@
   .area-studio .agent-item.confirm-delete .agent-item-name { color: var(--status-danger); }
   .area-studio .agent-item-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
   .area-studio .agent-item-delete { display: none; color: var(--status-danger-muted); font-size: var(--font-size-tiny); padding: 2px 4px; flex-shrink: 0; cursor: pointer; transition: color 0.2s, filter 0.2s; }
-  .area-studio .agent-item:hover .agent-item-delete { display: block; }
+  .area-studio .agent-item:hover .agent-item-delete,
+  .area-studio .agent-item:focus-within .agent-item-delete { display: block; }
   .area-studio .agent-item-delete:hover { color: var(--status-danger); filter: drop-shadow(0 0 6px var(--status-danger-glow)); }
   .area-studio .agent-item-delete svg { width: 10px; height: 10px; display: block; }
+  .area-studio .agent-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; box-shadow: inset 0 0 0 3px var(--accent-glow); }
+  .area-studio .agent-item-delete { background: transparent; border: none; }
+  .area-studio .agent-item-delete:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 3px var(--accent-glow); }
   .area-studio .agent-empty { padding: 16px; color: var(--fg-muted); font-size: var(--font-size-body-sm); text-align: center; }
 
   /* === Studio Area: Editor === */
@@ -70,8 +74,9 @@
   .area-studio .connection-label { font-size: var(--font-size-body-sm); color: var(--fg-secondary); display: block; margin-bottom: 6px; }
   .area-studio .chip-area { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
   .area-studio .chip { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; font-size: var(--font-size-caption); color: var(--fg); display: inline-flex; align-items: center; gap: 6px; }
-  .area-studio .chip-remove { cursor: pointer; color: var(--status-danger-muted); font-size: var(--font-size-tiny); transition: color 0.2s, filter 0.2s; }
+  .area-studio .chip-remove { cursor: pointer; color: var(--status-danger-muted); font-size: var(--font-size-tiny); transition: color 0.2s, filter 0.2s; background: transparent; border: none; padding: 0; }
   .area-studio .chip-remove:hover { color: var(--status-danger); filter: drop-shadow(0 0 6px var(--status-danger-glow)); }
+  .area-studio .chip-remove:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 3px var(--accent-glow); }
   .area-studio .chip-remove svg { width: 10px; height: 10px; display: inline-block; vertical-align: middle; }
   /* Outlined-cyan chip-add affordance (dashed border to distinguish from solid outlined) */
   .area-studio .chip-add { background: transparent; border: 1px dashed var(--accent); border-radius: var(--panel-radius-sm); padding: 4px 10px; font-size: var(--font-size-caption); color: var(--accent); cursor: pointer; font-family: inherit; transition: background 0.2s, color 0.2s; }

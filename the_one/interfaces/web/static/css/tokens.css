@@ -85,10 +85,11 @@
 
     /* density-and-geometry */
     --sidebar-w: 240px;
-    --nav-w: 48px;
+    /* topbar height — chrome strip across the top of the shell */
+    --topbar-h: 48px;
 
-    /* nav rail palette — same as body in dark; sidebar shows the body
-       gradient through (transparent) for the original layered feel. */
+    /* nav rail palette — chrome surface; same as body in dark so the rail
+       reads as a non-elevated edge. */
     --nav-bg: var(--bg);
     --nav-bg-active: var(--surface);
     --nav-border: var(--border);
@@ -96,7 +97,10 @@
     --nav-fg-hover: var(--fg);
     --nav-fg-active: var(--accent);
 
-    --sidebar-bg: transparent;
+    /* Sidebar reads as body bg in dark (declarative; previously `transparent`
+       which let the body gradient bleed through — replaced for snapshot
+       stability and explicit intent). Light theme uses #cbd5e1 (slate-300). */
+    --sidebar-bg: var(--bg);
   }
 
   [data-theme="light"] {
@@ -173,7 +177,8 @@
 
     /* density-and-geometry */
     --sidebar-w: 240px;
-    --nav-w: 48px;
+    /* topbar height — chrome strip across the top of the shell */
+    --topbar-h: 48px;
 
     /* nav rail palette — intentionally dark navy so the rail reads as a
        chrome surface against the light body. Internal palette uses the

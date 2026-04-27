@@ -3,11 +3,35 @@ App.registerArea({
   label: 'Chat',
   icon: App.icons.chat,
   order: 10,
+  sidebarLabel: 'Chat sessions',
+
+  serializeState: function () {
+    return this._currentSessionId ? 'sessions/' + this._currentSessionId : null;
+  },
+  hydrateState: function (sub) {
+    if (!sub) return;
+    if (sub.indexOf('sessions/') === 0) {
+      var id = sub.slice('sessions/'.length);
+      if (!id || id === this._currentSessionId) return;
+      // Defer: WS may not be open yet on cold entry. The session_list handler
+      // (which fires when the server confirms the WS connection) consumes
+      // pendingJoinId in preference to its auto-join behaviour.
+      this._pendingJoinId = id;
+      // Warm path: WS is open and currentSessionId differs — join immediately
+      // and clear the pending stash.
+      if (this._ws && this._ws() && this._ws().readyState === WebSocket.OPEN) {
+        this._joinSession(id);
+        this._pendingJoinId = null;
+      }
+    }
+  },
 
   init: function (sidebar, content) {
     var ws = null;
     var busy = false;
     var currentSessionId = null;
+    var pendingJoinId = null;
+    var sessions = [];
     var currentAgentName = null;
     var messagesEl, inputEl, sendBtn, statusEl, sessionListEl, agentSelect, agentBadgeEl;
     var bannerEl = null;
@@ -20,10 +44,11 @@ App.registerArea({
         '<span class="title">the-one</span>' +
         '<div class="sidebar-actions">' +
           '<select class="agent-select"><option value="">default</option></select>' +
+          // TODO(a11y-keyboard): new-chat-flow restructure (F3 leg 05)
           '<button class="new-chat">+ new</button>' +
         '</div>' +
       '</div>' +
-      '<div class="session-list"></div>';
+      '<div class="session-list" role="listbox" aria-label="Chat sessions"></div>';
 
     sessionListEl = sidebar.querySelector('.session-list');
     var newChatBtn = sidebar.querySelector('.new-chat');
@@ -89,7 +114,9 @@ App.registerArea({
     function highlightActiveSession() {
       var items = sessionListEl.querySelectorAll('.session-item');
       for (var i = 0; i < items.length; i++) {
-        items[i].classList.toggle('active', items[i].dataset.id === currentSessionId);
+        var isActive = items[i].dataset.id === currentSessionId;
+        items[i].classList.toggle('active', isActive);
+        items[i].setAttribute('aria-selected', isActive ? 'true' : 'false');
       }
     }
 
@@ -127,6 +154,9 @@ App.registerArea({
         (function (s) {
           var el = document.createElement('div');
           el.className = 'session-item' + (s.id === currentSessionId ? ' active' : '');
+          el.setAttribute('role', 'option');
+          el.setAttribute('tabindex', '0');
+          el.setAttribute('aria-selected', s.id === currentSessionId ? 'true' : 'false');
           el.dataset.id = s.id;
 
           var textWrap = document.createElement('div');
@@ -144,8 +174,10 @@ App.registerArea({
 
           el.appendChild(textWrap);
 
-          var delBtn = document.createElement('span');
+          var delBtn = document.createElement('button');
+          delBtn.type = 'button';
           delBtn.className = 'delete';
+          delBtn.setAttribute('aria-label', 'Delete session');
           delBtn.innerHTML = App.icon('x');
           delBtn.onclick = function (e) {
             e.stopPropagation();
@@ -154,6 +186,12 @@ App.registerArea({
           el.appendChild(delBtn);
 
           el.onclick = function () { joinSession(s.id); };
+          el.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              joinSession(s.id);
+            }
+          });
           sessionListEl.appendChild(el);
         })(sessions[i]);
       }
@@ -285,9 +323,25 @@ App.registerArea({
         var data = JSON.parse(e.data);
 
         if (data.type === 'session_list') {
-          renderSessionList(data.sessions);
-          if (data.sessions.length > 0 && !currentSessionId) {
-            joinSession(data.sessions[0].id);
+          sessions = data.sessions;
+          renderSessionList(sessions);
+          if (pendingJoinId) {
+            var target = pendingJoinId;
+            pendingJoinId = null;
+            // Verify the session exists in the list before joining; if not, fall
+            // back to the auto-join (or stay empty if nothing is available).
+            var found = false;
+            for (var i = 0; i < sessions.length; i++) {
+              if (sessions[i].id === target) { found = true; break; }
+            }
+            if (found) {
+              joinSession(target);
+              return;
+            }
+            // pendingJoinId did not match — fall through to auto-join.
+          }
+          if (sessions.length > 0 && !currentSessionId) {
+            joinSession(sessions[0].id);
           } else if (!currentSessionId && !setupIncomplete) {
             // Only auto-create a session if setup is complete (no banner showing)
             var msg = { action: 'new_session' };
@@ -306,6 +360,9 @@ App.registerArea({
           if (currentSessionId && currentSessionId !== data.session_id) return;
 
           currentSessionId = data.session_id;
+          if (window.App && window.App.router) {
+            App.router.replaceSub('sessions/' + currentSessionId);
+          }
           currentAgentName = data.agent_name;
           updateAgentBadge(data.agent_name);
           renderHistory(data.history);
@@ -317,6 +374,7 @@ App.registerArea({
         if (data.type === 'session_deleted') {
           if (currentSessionId === data.session_id) {
             currentSessionId = null;
+            if (window.App && window.App.router) App.router.replaceSub(null);
             messagesEl.innerHTML = '';
             setSessionHealth('ok');
             var delMsg = { action: 'new_session' };
@@ -398,14 +456,27 @@ App.registerArea({
       var msg = { action: 'new_session' };
       if (selected) msg.agent_name = selected;
       currentSessionId = null; // Clear so the response binds the new id
+      if (window.App && window.App.router) App.router.replaceSub(null);
       ws.send(JSON.stringify(msg));
     });
 
-    // Store references for activate
-    this._connect = connect;
-    this._ws = function () { return ws; };
-    this._fetchAgents = fetchAgents;
-    this._checkSetupState = checkSetupState;
+    var self = this;
+
+    // Store references for activate and hydrateState
+    self._connect = connect;
+    self._ws = function () { return ws; };
+    self._fetchAgents = fetchAgents;
+    self._checkSetupState = checkSetupState;
+    self._joinSession = function (id) { joinSession(id); };
+    Object.defineProperty(self, '_currentSessionId', {
+      get: function () { return currentSessionId; },
+      configurable: true
+    });
+    Object.defineProperty(self, '_pendingJoinId', {
+      get: function () { return pendingJoinId; },
+      set: function (v) { pendingJoinId = v; },
+      configurable: true
+    });
   },
 
   activate: function () {

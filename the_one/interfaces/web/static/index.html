@@ -15,10 +15,13 @@
 <link rel="stylesheet" href="/static/css/admin.css">
 </head>
 <body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
 
-<div id="app-nav"></div>
-<div id="app-sidebar"></div>
-<div id="app-content"></div>
+<header id="app-topbar"></header>
+<div class="app-shell-row">
+  <aside id="app-sidebar"></aside>
+  <main id="main-content" tabindex="-1"></main>
+</div>
 
 <script src="/static/js/app.js"></script>
 <script src="/static/js/icons.js"></script>

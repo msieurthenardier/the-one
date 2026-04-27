@@ -87,6 +87,9 @@ def _palette(theme: str) -> dict[str, str]:
         ("dark", "fg", "surface"),
         ("dark", "fg_secondary", "bg"),
         ("dark", "fg_secondary", "surface"),
+        # --fg-muted (dark) #a8a8a8 — promoted to body-AA per F2 debrief.
+        ("dark", "fg_muted", "bg"),
+        ("dark", "fg_muted", "surface"),
         # Light — body text on bg/surface.
         ("light", "fg", "bg"),
         ("light", "fg", "surface"),

@@ -3,6 +3,17 @@ App.registerArea({
   label: 'Admin',
   icon: App.icons.admin,
   order: 30,
+  sidebarLabel: 'Admin categories',
+
+  serializeState: function () {
+    return this._currentCategory || null;
+  },
+  hydrateState: function (sub) {
+    if (!sub) return;
+    var validIds = ['general', 'providers', 'system'];
+    if (validIds.indexOf(sub) === -1) return;
+    if (this._setCategory) this._setCategory(sub);
+  },
 
   init: function (sidebar, content) {
     var categories = [
@@ -79,6 +90,8 @@ App.registerArea({
       '<div class="admin-category-list"></div>';
 
     categoryListEl = sidebar.querySelector('.admin-category-list');
+    categoryListEl.setAttribute('role', 'listbox');
+    categoryListEl.setAttribute('aria-label', 'Admin categories');
 
     // Build content
     content.innerHTML = '<div class="admin-content"></div>';
@@ -92,6 +105,9 @@ App.registerArea({
         (function (cat) {
           var el = document.createElement('div');
           el.className = 'admin-category-item' + (currentCategory === cat.id ? ' active' : '');
+          el.setAttribute('role', 'option');
+          el.setAttribute('tabindex', '0');
+          el.setAttribute('aria-selected', currentCategory === cat.id ? 'true' : 'false');
 
           var nameSpan = document.createElement('span');
           nameSpan.className = 'admin-category-name';
@@ -109,9 +125,16 @@ App.registerArea({
             currentCategory = cat.id;
             providerFormMode = null;
             editingProvider = null;
+            if (window.App && window.App.router) App.router.replaceSub(currentCategory);
             renderCategoryList();
             renderContent();
           };
+          el.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              el.onclick();
+            }
+          });
           categoryListEl.appendChild(el);
         })(categories[i]);
       }
@@ -206,11 +229,6 @@ App.registerArea({
     var rotateConfirmTimer = null;
 
     function renderSystemPanel() {
-      var currentPref = (window.App && window.App.theme) ? window.App.theme.get() : 'auto';
-      function themeOption(value, label) {
-        var isActive = currentPref === value;
-        return '<button class="admin-theme-option' + (isActive ? ' active' : '') + '" type="button" role="radio" aria-checked="' + isActive + '" tabindex="' + (isActive ? '0' : '-1') + '" data-theme-pref="' + value + '">' + label + '</button>';
-      }
       contentEl.innerHTML =
         '<div class="admin-header">' +
           '<span class="admin-title">System</span>' +
@@ -221,11 +239,7 @@ App.registerArea({
             '<p class="admin-system-text">' +
               'Choose a theme. Auto follows your operating system preference.' +
             '</p>' +
-            '<div class="admin-theme-toggle" role="radiogroup" aria-labelledby="admin-appearance-heading">' +
-              themeOption('light', 'Light') +
-              themeOption('dark', 'Dark') +
-              themeOption('auto', 'Auto') +
-            '</div>' +
+            '<div class="admin-theme-toggle" id="admin-theme-toggle-mount" aria-labelledby="admin-appearance-heading"></div>' +
           '</div>' +
           '<div class="admin-system-section">' +
             '<div class="admin-section-title">Encryption</div>' +
@@ -241,33 +255,12 @@ App.registerArea({
           '</div>' +
         '</div>';
 
-      var themeToggle = contentEl.querySelector('.admin-theme-toggle');
-      function selectThemeOption(btn) {
-        if (!btn || !window.App || !window.App.theme) return;
-        var pref = btn.getAttribute('data-theme-pref');
-        window.App.theme.set(pref);
-        var options = themeToggle.querySelectorAll('.admin-theme-option');
-        for (var i = 0; i < options.length; i++) {
-          var isActive = options[i] === btn;
-          options[i].classList.toggle('active', isActive);
-          options[i].setAttribute('aria-checked', isActive);
-          options[i].setAttribute('tabindex', isActive ? '0' : '-1');
-        }
-        btn.focus();
+      // Mount the reusable theme toggle (defined in theme.js, loaded before
+      // admin.js per index.html script order — the guard is defensive only).
+      var themeToggleEl = contentEl.querySelector('#admin-theme-toggle-mount');
+      if (window.App && window.App.theme && window.App.theme.renderToggle) {
+        window.App.theme.renderToggle(themeToggleEl, { variant: 'full', labelledBy: 'admin-appearance-heading' });
       }
-      themeToggle.addEventListener('click', function (e) {
-        selectThemeOption(e.target.closest('.admin-theme-option'));
-      });
-      themeToggle.addEventListener('keydown', function (e) {
-        if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight' && e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
-        var options = Array.prototype.slice.call(themeToggle.querySelectorAll('.admin-theme-option'));
-        var idx = options.indexOf(document.activeElement);
-        if (idx === -1) return;
-        e.preventDefault();
-        var dir = (e.key === 'ArrowRight' || e.key === 'ArrowDown') ? 1 : -1;
-        var next = options[(idx + dir + options.length) % options.length];
-        selectThemeOption(next);
-      });
 
       var rotateBtn = contentEl.querySelector('.admin-system-btn');
       var flashEl = contentEl.querySelector('.admin-system-flash');
@@ -1228,6 +1221,19 @@ App.registerArea({
         fetchSettings();
       } else if (currentCategory === 'providers' && !providerFormMode) {
         fetchProviders();
+      }
+    };
+    Object.defineProperty(self, '_currentCategory', {
+      get: function () { return currentCategory; },
+      configurable: true
+    });
+    self._setCategory = function (sub) {
+      if (currentCategory !== sub) {
+        currentCategory = sub;
+        providerFormMode = null;
+        editingProvider = null;
+        renderCategoryList();
+        renderContent();
       }
     };
 
