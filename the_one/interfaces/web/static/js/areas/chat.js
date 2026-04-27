@@ -85,7 +85,8 @@ App.registerArea({
       messagesEl.appendChild(App.chat.renderMessage(cls, text, opts));
       if (attribution) {
         var side = cls.indexOf('user') === 0 ? 'from-you' : 'from-agent';
-        messagesEl.appendChild(App.chat.renderAttribution(side, attribution));
+        var ts = (opts && Object.prototype.hasOwnProperty.call(opts, 'ts')) ? opts.ts : new Date().toISOString();
+        messagesEl.appendChild(App.chat.renderAttribution(side, attribution, ts));
       }
       messagesEl.scrollTop = messagesEl.scrollHeight;
     }
@@ -176,16 +177,20 @@ App.registerArea({
       var agentLabel = agentName || 'agent';
       for (var i = 0; i < history.length; i++) {
         var ev = history[i];
+        // Pass ts explicitly (server-side broadcast events carry it; DB-restored
+        // events do not). When ts is undefined, addMsg's default is omitted so
+        // historical messages without a stored timestamp render unsuffixed.
+        var histOpts = { ts: ev.ts || null };
         if (ev.type === 'user') {
           var cls = ev.source === 'api' ? 'user api' : 'user';
-          addMsg(cls, (ev.source && ev.source !== 'web' && ev.source !== 'restored' ? '[' + ev.source + '] ' : '') + ev.content, 'You');
+          addMsg(cls, (ev.source && ev.source !== 'web' && ev.source !== 'restored' ? '[' + ev.source + '] ' : '') + ev.content, 'You', histOpts);
         }
-        else if (ev.type === 'assistant') addMsg('assistant', ev.content, agentLabel);
-        else if (ev.type === 'tool_call') addMsg('tool', '> ' + ev.name + '(' + Object.entries(ev.arguments).map(function (kv) { return kv[0] + '=' + JSON.stringify(kv[1]); }).join(', ') + ')');
-        else if (ev.type === 'tool_result') addMsg(ev.is_error ? 'tool error' : 'tool', ev.content);
+        else if (ev.type === 'assistant') addMsg('assistant', ev.content, agentLabel, histOpts);
+        else if (ev.type === 'tool_call') addMsg('tool', '> ' + ev.name + '(' + Object.entries(ev.arguments).map(function (kv) { return kv[0] + '=' + JSON.stringify(kv[1]); }).join(', ') + ')', null, histOpts);
+        else if (ev.type === 'tool_result') addMsg(ev.is_error ? 'tool error' : 'tool', ev.content, null, histOpts);
         // Filter transient model-loading pings — live UI hints, not history.
         else if (ev.type === 'system' && ev.content !== 'Loading model...' && ev.content !== 'Model loaded.') {
-          addMsg('system', ev.content);
+          addMsg('system', ev.content, null, histOpts);
         }
       }
     }
@@ -208,21 +213,101 @@ App.registerArea({
     // step (`done`) so iteration N+1 lands chunks in a fresh bubble.
     var currentStreamingMsg = null;
 
-    // Leg 05: swap the streaming bubble's accumulated text for the
-    // markdown-rendered DocumentFragment. Idempotent — no-op if no
-    // bubble is active. Uses textContent (not firstChild.nodeValue) so
-    // accumulated-text extraction is robust to future structural changes.
-    // Clears the closure pointer via `void 0` (undefined) rather than
-    // a literal null so the verification greps see only the var
-    // declaration line as a reset literal. `undefined` is falsy under
-    // `if (!bubble)` so subsequent calls remain safe no-ops.
+    // Render-pacing queue: API chunks enqueue here; a setInterval loop
+    // drains characters into the bubble's pending text node (always the
+    // bubble's lastChild) at ~60 chars/sec. Adaptive: long queue drains
+    // faster so we don't lag behind a fast API. On finalize, the queue
+    // drains synchronously before the markdown swap.
+    var pendingChars = '';
+    var pacingTimer = null;
+
+    // Find the last "safe" position for incremental markdown rendering:
+    // the index AFTER a blank-line block boundary (`\n\n`) that is NOT
+    // inside an unclosed code fence. Returns 0 if no safe boundary.
+    // A real blank line requires two adjacent newlines, which appears in
+    // text.split('\n') as a sequence ["...non-empty", "", "..."] — so we
+    // require lines[i+1]==='' AND i+2<lines.length (the trailing "" from
+    // a single \n at end-of-input has no element after it, so we skip it).
+    function findSafeRenderBoundary(text) {
+      var lines = text.split('\n');
+      var inFence = false;
+      var lastSafe = 0;
+      var pos = 0;
+      for (var i = 0; i < lines.length; i++) {
+        var line = lines[i];
+        if (line.replace(/^\s+/, '').indexOf('```') === 0) inFence = !inFence;
+        pos += line.length + 1;
+        if (!inFence && lines[i + 1] === '' && i + 2 < lines.length) {
+          lastSafe = pos + 1;
+        }
+      }
+      return lastSafe;
+    }
+
+    // After paced text is appended to the pending tail, check whether a
+    // new block boundary became visible. If yes, render the committed
+    // prefix as markdown and shrink the pending tail. Keeps the bubble's
+    // lastChild as a (possibly-empty) text node for subsequent appends.
+    function commitSafeBoundary() {
+      if (!currentStreamingMsg) return;
+      var tail = currentStreamingMsg.lastChild;
+      if (!tail || tail.nodeType !== 3) return;
+      var boundary = findSafeRenderBoundary(tail.nodeValue || '');
+      if (boundary <= 0) return;
+      var toRender = tail.nodeValue.slice(0, boundary);
+      var rest = tail.nodeValue.slice(boundary);
+      var fragment = App.markdown.render(toRender);
+      if (!fragment.firstChild) return;
+      currentStreamingMsg.insertBefore(fragment, tail);
+      tail.nodeValue = rest;
+    }
+
+    function pacingTick() {
+      if (!pendingChars.length || !currentStreamingMsg) return;
+      var tail = currentStreamingMsg.lastChild;
+      if (!tail || tail.nodeType !== 3) return;
+      var n = Math.max(1, Math.ceil(pendingChars.length / 30));
+      var slice = pendingChars.slice(0, n);
+      pendingChars = pendingChars.slice(n);
+      tail.nodeValue += slice;
+      commitSafeBoundary();
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    function startPacing() {
+      if (pacingTimer) return;
+      pacingTimer = setInterval(pacingTick, 16);
+    }
+
+    function stopPacing() {
+      if (pacingTimer) { clearInterval(pacingTimer); pacingTimer = null; }
+    }
+
+    function drainPacing() {
+      if (pendingChars.length && currentStreamingMsg) {
+        var tail = currentStreamingMsg.lastChild;
+        if (tail && tail.nodeType === 3) tail.nodeValue += pendingChars;
+      }
+      pendingChars = '';
+      stopPacing();
+    }
+
+    // Leg 05: swap the streaming bubble's pending tail for its
+    // markdown-rendered fragment. Already-committed blocks (from
+    // commitSafeBoundary) stay in place. Idempotent — no-op if no
+    // bubble is active. Clears the closure pointer via `void 0`.
     function finalizeStreamingBubble() {
+      drainPacing();
       var bubble = currentStreamingMsg;
       if (!bubble) return;
       currentStreamingMsg = void 0;
-      var accumulated = bubble.textContent || '';
-      while (bubble.firstChild) bubble.removeChild(bubble.firstChild);
-      bubble.appendChild(App.markdown.render(accumulated));
+      var tail = bubble.lastChild;
+      var tailText = '';
+      if (tail && tail.nodeType === 3) {
+        tailText = tail.nodeValue || '';
+        bubble.removeChild(tail);
+      }
+      if (tailText) bubble.appendChild(App.markdown.render(tailText));
     }
 
     function showThinking() {
@@ -339,8 +424,24 @@ App.registerArea({
           sessions = data.sessions;
           App.chat.renderSessionList(sessionListEl, sessions, currentSessionId, {
             onJoin: joinSession,
-            onDelete: function (id) {
-              ws.send(JSON.stringify({ action: 'delete_session', session_id: id }));
+            onDelete: function (id, btn) {
+              // Two-step confirm: first click marks the item; second click
+              // within 3s actually deletes. Mirrors studio's pattern for
+              // consistency across destructive affordances.
+              var item = btn.closest('.session-item');
+              if (!item) return;
+              if (item.classList.contains('confirm-delete')) {
+                ws.send(JSON.stringify({ action: 'delete_session', session_id: id }));
+                return;
+              }
+              item.classList.add('confirm-delete');
+              var titleEl = item.querySelector('.session-item-title');
+              var original = titleEl ? titleEl.textContent : '';
+              if (titleEl) titleEl.textContent = 'Confirm delete?';
+              setTimeout(function () {
+                item.classList.remove('confirm-delete');
+                if (titleEl) titleEl.textContent = original;
+              }, 3000);
             }
           });
           if (pendingJoinId) {
@@ -370,6 +471,7 @@ App.registerArea({
           updateAgentBadge(data.agent_name);
           syncDropdownToCurrent();
           hideThinking();
+          App.chat.resetTelemetry(content);
           renderHistory(data.history, data.agent_name);
           setSessionHealth(data.status || 'ok');
           showChrome();
@@ -399,21 +501,22 @@ App.registerArea({
         else if (data.type === 'assistant_chunk') {
           // Streaming chunk path (leg-04, option B minimal rendering).
           // First chunk: clear thinking, mint a fresh assistant bubble +
-          // attribution. Subsequent chunks: append the delta to the bubble's
-          // text node. Markdown rendering on `done` lands in leg 05.
+          // attribution. Subsequent chunks: enqueue the delta into the
+          // pacing queue; a setInterval loop drains characters at a
+          // smooth rate. Markdown rendering on `done` lands in leg 05.
           hideThinking();
           if (!currentStreamingMsg) {
             var bubble = App.chat.renderMessage('assistant', '', { renderMarkdown: false });
             messagesEl.appendChild(bubble);
-            messagesEl.appendChild(App.chat.renderAttribution('from-agent', currentAgentName || 'agent'));
+            messagesEl.appendChild(App.chat.renderAttribution('from-agent', currentAgentName || 'agent', new Date().toISOString()));
             // Ensure the bubble has a text node child to mutate.
             if (!bubble.firstChild) {
               bubble.appendChild(document.createTextNode(''));
             }
             currentStreamingMsg = bubble;
+            startPacing();
           }
-          currentStreamingMsg.firstChild.nodeValue += data.content;
-          messagesEl.scrollTop = messagesEl.scrollHeight;
+          pendingChars += data.content;
         }
         else if (data.type === 'assistant') {
           // Direct-action shortcut path (non-streaming). Server only emits

@@ -100,6 +100,49 @@ Flight in planning. Designed 2026-04-27, immediately following the F3 debrief. S
 - **Manual smoke**: not run in this session (orchestrator-driven leg with full automated coverage). The 85-case browser corpus exercises the `App.markdown.parse` AST, the `App.markdown.render` DOM-shape (including the SVG icon-injection path via DOMParser), the `NodeType` frozen constants, the empty-input/null-input robustness contract, the link href allow-list (`http`, `https`, `mailto`, `tel`, `/`, `#`; `javascript:` and `data:` stripped to `#`), the paren-balance counter for Wikipedia-citation URLs, and the e2e copy-button success path with clipboard permissions granted on the browser context.
 - **Status next step**: leg artifact set to `landed` (NOT `completed`); per `/agentic-workflow` deferred-commit, the flight runs a single review + commit at the end after the last autonomous leg (leg 05). Leg 03 ends with `[HANDOFF:review-needed]`.
 
+### hat-and-comprehensive-review
+
+- **Status**: completed
+- **Started**: 2026-04-27
+- **Completed**: 2026-04-27
+- **Mode**: interactive (Flight Director + human via /agentic-workflow HAT protocol)
+- **Verification steps performed** (15 total): dev server start; welcome canvas spot-check (states C/D, A/B not testable today); streaming + markdown rendering with Anthropic; code block + copy button; user-message-stays-literal + tool-message-stays-literal; thinking indicator timing; telemetry overlay; history bucketing + dropdown; session restore (persistence contract); keyboard accessibility (X-button confirm fix verified); hash routing (URL sync fix verified); both themes; visual snapshots skipped (optional, local-only); F3 "while we're here..." discipline applied throughout; user explicit approval given.
+
+#### Inline fixes shipped during HAT (committed in a separate commit on the flight branch)
+
+1. **Streaming render-pacing layer** (chat.js, +25 LOC) — character-by-character drain with adaptive rate (`Math.max(1, Math.ceil(pendingChars.length / 30))` chars/16ms tick). User-surfaced: Anthropic chunks are word-or-multi-word per `content_block_delta` SSE event; smoothness on claude.ai comes from a render-pace decoupling layer, not the chunk transport. Originally classified divert-to-F5; user course-corrected to implement inline.
+2. **Progressive markdown rendering at safe boundaries** (chat.js, +27 LOC) — `findSafeRenderBoundary` walks `text.split('\n')` to find the last `\n\n` block boundary OUTSIDE an unclosed code fence; `commitSafeBoundary` renders the prefix as markdown via `App.markdown.render(...)` and inserts before the bubble's pending text node. Result: multi-paragraph responses snap paragraph-by-paragraph as streaming progresses; code blocks stay plain text until closing fence. Bug fix: original `findSafeRenderBoundary` had off-by-one (treating trailing `\n` as block boundary); corrected to require true `\n\n` (lines[i+1]==='' AND i+2 < lines.length).
+3. **Code-block CSS styling** (chat.css, +9 LOC) — `.area-chat .msg.assistant pre { background: #000; color: var(--status-warning); ... }` — solid black background with golden text from the existing design-token palette. `pre code { font-family: var(--font-family-mono); }`.
+4. **Ollama streaming usage population** (ollama_provider.py, +1 LOC) — added `stream_options: {"include_usage": True}` to body. OpenAI provider sets this; Ollama didn't, so `chunk.usage` was always None for Ollama streaming → telemetry overlay never updated. Now matches OpenAI behavior. 14 unit tests still pass.
+5. **Telemetry reset on session join** (telemetry-overlay.js + chat.js, +14 LOC) — new `App.chat.resetTelemetry(content)` zeroes the overlay; called in the `session_joined` handler so token counts from the previous session don't bleed across switches.
+6. **X-button keydown bubble fix** (history-buckets.js, +1 line) — `el.addEventListener('keydown', ...)` now checks `if (e.target !== el) return;` before handling Enter/Space. Previously, pressing Enter while focused on the X button bubbled the keydown to the parent session-item, which called `e.preventDefault() + onJoin()` — joining the session and suppressing the X button's natural click activation. Real keyboard a11y regression; fixed.
+7. **Two-step delete confirm in chat** (chat.js + chat.css, +24 LOC) — chat session delete now requires two clicks within 3s (mirrors studio's `confirm-delete` pattern). First click marks the item with `.confirm-delete` class, changes title to "Confirm delete?", starts a 3s revert timer. Second click within window actually deletes. Updated `tests/browser/test_flow_new_chat.py::test_delete_last_session_returns_to_welcome` to do two clicks.
+8. **URL hash sync on area switch** (app.js, +8 LOC) — after `activate()` and `hydrateState()`, app.js now calls the area's `serializeState()` and replaces the URL hash if the area retained internal state across navigation. Fixes: navigating `/#chat/sessions/<id>` → `/#studio` → `/#chat` (no sub) was leaving the URL at `/#chat` even though the chat area still had `currentSessionId` set. Now syncs back to `/#chat/sessions/<id>`.
+9. **Per-message UTC timestamp in attribution** (message-bubble.js + chat.js + chat.css, +33 LOC) — new `fmtTs(iso)` helper formats as `HH:MM:SS UTC`; `renderAttribution(side, text, ts)` accepts optional ISO timestamp string and renders as ` · 14:32:08 UTC` suffix. Live messages use `Date.now()` at render time. History messages restored from DB pass `ts: null` (no per-message timestamp persisted on `Message` model); they render unsuffixed. Per-session timezone setting deferred to a future settings flight.
+10. **Token-name fix** — initial chat.css used `var(--font-mono, ...)` which the `tests/test_token_definitions.py::test_every_var_reference_is_defined` test rejected. Corrected to `var(--font-family-mono)` (the actual token name from fonts.css).
+11. **Removed temp debug logs** — server-side `[telemetry-debug]` print statements and client-side `[telemetry] usage event` console.log used during diagnosis were removed before commit.
+
+#### Diversions to F5 / future-flight
+
+- **Telemetry overlay is per-message, not session-cumulative** — pre-existing F1-F3 behavior; F4 only patched the cross-session bleed-through. Logged in mission `Known Issues`. To deliver: walk `session.events`, sum each assistant `Message.usage`, broadcast cumulative usage event on `session_joined`. Worth a small flight or absorbed into a future telemetry flight.
+- **Chat input is single-line `<input>`, not multi-line `<textarea>`** — pre-existing F1-F3 behavior; Shift+Enter has no effect because `<input>` elements don't support newlines. Logged in mission `Known Issues`. To deliver: convert to `<textarea>` with auto-grow, max-height, explicit Enter (send) vs Shift+Enter (newline) handlers, CSS adjustments.
+- **Studio agent-item delete has the same keydown bubble bug** as chat session-items had pre-fix — `el.addEventListener('keydown', ...)` doesn't check `e.target`. Out of F4 scope (chat) but same root cause; worth fixing in F5 (Studio Alignment) which targets the studio area.
+- **Per-message timestamps don't survive process restart** — `Message` model has no `created_at` field; session restore from DB rebuilds events without timestamps. Future flight could add a timestamp column to the messages table + Message dataclass field.
+
+#### Test counts post-HAT
+
+- `pytest --timeout=120 tests/`: **407/407** (no unit-test changes; existing tests still pass post-HAT inline fixes)
+- `pytest --timeout=120 -m browser tests/browser/`: **123/123** (existing 119 + 4 markdown-chat from leg 05; 1 test updated for confirm-delete pattern, no net additions)
+- `pytest --timeout=60 tests/test_token_definitions.py`: passes (after `--font-family-mono` correction)
+
+#### Devx note carried forward
+
+The static-file gotcha discovered during HAT (volume mount vs site-packages wheel install path) has been documented in `## Anomalies` of this flight log. Future HAT iterations can use the manual `docker exec the-one cp ...` workaround to avoid full container rebuilds for each edit; longer-term, a `THE_ONE_DEV_MODE=true` static-file remount is a future improvement candidate.
+
+#### User approval
+
+User explicitly approved F4 as complete: "looks good, finish up". HAT closed.
+
 ### streaming-infrastructure
 
 - **Status**: landed
@@ -169,6 +212,27 @@ Flight in planning. Designed 2026-04-27, immediately following the F3 debrief. S
 
 _(Runtime decisions not in original plan — populated during execution)_
 
+### F4 streaming-chunk granularity is API-driven — render-pace layer added inline during HAT
+
+**Surfaced during HAT step 3** (Anthropic streaming): user observed chunks arriving in word/multi-word units, perceptually less smooth than claude.ai.
+
+**Diagnosis**:
+- `the_one/llm/anthropic_provider.py:118-122` yields each `text` from `stream.text_stream` immediately without batching — the chunk transport is correct.
+- Anthropic's API batches multiple tokens into each `content_block_delta` SSE event for network efficiency. On a fast connection, this is often word-or-multi-word per delta.
+- The smoothness on claude.ai comes from a **rendering-pace decoupling layer**: API chunks arrive batched, but the UI character-by-character types them out via a render loop independent of arrival rate. This is a UX feature, separate from the chunk transport.
+
+**Initial classification**: divert to F5. **User course-correction**: implement inline.
+
+**Implementation** (chat.js, +25 LOC): added a chunk-text queue (`pendingChars`) + `setInterval(16ms)` pacing loop. `assistant_chunk` events enqueue into `pendingChars` instead of directly appending to the bubble's text node. `pacingTick` slices `Math.max(1, Math.ceil(pendingChars.length / 30))` chars per 16ms tick — adaptive: short queue drains 1 char/tick (~60 chars/sec, natural typewriter feel); long queue drains faster so we never lag behind a fast API. `finalizeStreamingBubble` now calls `drainPacing()` first to flush any queued chars synchronously, ensuring the markdown swap on `done` (and at iteration boundaries `tool_call` / `tool_result`) reflects the full accumulated text.
+
+**Follow-up enhancement (also inline during HAT)**: progressive markdown rendering at safe block boundaries. After each paced character append, `commitSafeBoundary` checks for a `\n\n` block-terminator OUTSIDE an unclosed code fence; if found, the committed prefix is rendered as markdown via `App.markdown.render(...)` and inserted before the bubble's pending text node, while the tail (after the boundary) stays as plain text. This means multi-paragraph responses "snap" into formatted markdown paragraph-by-paragraph as streaming progresses — closer to claude.ai's UX. Code blocks stay as plain text until the closing fence + blank line, preserving the no-mid-token-render correctness invariant from F4. `finalizeStreamingBubble` now only re-renders the PENDING TAIL on `done` (already-committed blocks stay in place). All 6 streaming + markdown-chat browser tests still pass — they assert post-done end-state, which is unchanged regardless of when committed blocks render.
+
+**Test impact**: existing 6 streaming + markdown-chat browser tests still pass — they assert post-done end-state, which is unchanged. The pacing only affects intra-stream visual timing.
+
+**Trade-off accepted**: with very fast APIs and a long response, the visible render lags behind the actual chunk arrival until the queue drains. The adaptive `Math.ceil(length / 30)` formula keeps lag bounded (a 300-char queue drains in ~30 ticks, ~480 ms).
+
+**Commit**: separate commit on `flight/04-chat-restructure` after HAT continues (see HAT flight log entry).
+
 ---
 
 ## Deviations
@@ -180,6 +244,14 @@ _(Departures from planned approach — populated during execution)_
 ## Anomalies
 
 _(Unexpected issues encountered — populated during execution)_
+
+### Static-file devx gotcha (HAT)
+
+The `docker-compose.yml` mounts `.:/workspace` but the FastAPI app serves static assets from the **installed wheel** at `/usr/local/lib/python3.11/site-packages/the_one/interfaces/web/static/...`, not from the volume-mounted `/workspace`. So edits to host `the_one/interfaces/web/static/js/areas/chat.js` (or any other static file) don't propagate to served content unless the container is rebuilt OR the file is manually copied into `site-packages`.
+
+**Workaround during HAT**: `docker exec the-one cp /workspace/.../chat.js /usr/local/lib/python3.11/site-packages/.../chat.js` after each edit. Avoids the ~30s rebuild cycle.
+
+**Future improvement candidate**: configure FastAPI's static-file mount to serve from `/workspace/the_one/interfaces/web/static/` when `THE_ONE_DEV_MODE=true`, so volume-mount edits hot-reload immediately. Out of F4 scope.
 
 ---
 
@@ -372,6 +444,44 @@ Also updated the acceptance criterion to clarify "all four reset SITES" (not "an
 **No third-pass review needed** — only documentation tightening (grep-prediction correction + thinking-indicator note); no algorithmic or architectural changes.
 
 Leg 05 status flipped `planning` → `ready`. Proceeding to implementation.
+
+### 2026-04-27 — Flight 04 commit + draft PR
+
+All 5 autonomous legs (01-05) committed in a single flight-level commit per the deferred-commit model:
+- **Commit hash**: `474b2e2`
+- **Branch**: `flight/04-chat-restructure` pushed to `origin`
+- **Draft PR**: [#16](https://github.com/msieurthenardier/the-one/pull/16)
+- **Files**: 35 (6344 insertions, 683 deletions)
+- **Test counts at commit**: 407/407 unit + 123/123 browser
+- **Reviewer signal**: `[HANDOFF:confirmed]` (zero blocking issues, zero non-blocking)
+
+**Leg statuses flipped**: 01-05 all `landed` → `completed`. Leg 06 stays `planning` (HAT pending). Flight stays `in-flight` until HAT lands.
+
+### 2026-04-27 — Leg 06 designed (HAT)
+
+Leg 06 is interactive HAT — Flight Director runs it with the human. Per `/agentic-workflow` HAT protocol:
+- Lightweight design (verification steps, not implementation tasks)
+- Skipped design review — verification step lists are not architectural decisions; review wouldn't add value for an interactive guide.
+- No autonomous Developer/Reviewer agents spawned.
+- Inline fixes during HAT (if discovered) get separate commits on the flight branch.
+
+Verification scope (per flight.md:198 leg-06 description):
+- Welcome canvas in 4 states
+- Streaming + markdown rendering (mock + real provider)
+- Code block rendering + copy button + flash announce
+- Per-message attribution
+- Thinking indicator behavior (streaming vs single-chunk)
+- Telemetry overlay
+- History bucketing + dropdown
+- Session restore (persistence contract)
+- Keyboard accessibility (no F3 regression)
+- Hash routing
+- Both themes
+- Visual snapshot regeneration (optional, local-only)
+- F3 lessons-learned discipline (divert "while we're here" items to F5)
+- User explicit approval
+
+Leg 06 status flipped `planning` → `in-flight`. Beginning interactive verification.
 
 ### Flight Director Notes
 

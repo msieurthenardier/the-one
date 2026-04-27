@@ -106,6 +106,7 @@ class OllamaProvider(LLMProvider):
             "messages": api_messages,
             "temperature": temperature,
             "max_tokens": max_tokens,
+            "stream_options": {"include_usage": True},
         }
         if tools:
             body["tools"] = [self.tool_schema(t) for t in tools]

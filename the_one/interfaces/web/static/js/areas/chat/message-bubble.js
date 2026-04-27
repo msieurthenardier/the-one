@@ -32,12 +32,33 @@
     return el;
   }
 
-  // Builds an attribution label: <div class="msg-attribution {side}">{text}</div>.
-  // side is 'from-you' (user) or 'from-agent' (everything else).
-  function renderAttribution(side, text) {
+  // Format an ISO timestamp as "HH:MM:SS UTC". Returns "" for falsy input.
+  function fmtTs(ts) {
+    if (!ts) return '';
+    var d = new Date(ts);
+    if (isNaN(d.getTime())) return '';
+    var hh = String(d.getUTCHours()).padStart(2, '0');
+    var mm = String(d.getUTCMinutes()).padStart(2, '0');
+    var ss = String(d.getUTCSeconds()).padStart(2, '0');
+    return hh + ':' + mm + ':' + ss + ' UTC';
+  }
+
+  // Builds an attribution label: <div class="msg-attribution {side}">{text}<span class="msg-attribution-ts">{ts}</span></div>.
+  // side is 'from-you' (user) or 'from-agent' (everything else). ts is an
+  // optional ISO 8601 timestamp string; if present, it renders as a UTC time
+  // suffix. Per-session timezone preference belongs in a future settings flight.
+  function renderAttribution(side, text, ts) {
     var el = document.createElement('div');
     el.className = 'msg-attribution ' + side;
     el.textContent = text;
+    var formatted = fmtTs(ts);
+    if (formatted) {
+      el.appendChild(document.createTextNode(' · '));
+      var tsEl = document.createElement('span');
+      tsEl.className = 'msg-attribution-ts';
+      tsEl.textContent = formatted;
+      el.appendChild(tsEl);
+    }
     return el;
   }
 

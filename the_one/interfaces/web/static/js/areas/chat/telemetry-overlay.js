@@ -77,7 +77,20 @@
     bar.className = 'context-bar' + (pct >= 90 ? ' crit' : pct >= 70 ? ' warn' : '');
   }
 
+  // Clear all displayed values back to zero / default. Called on session
+  // switch so token counts from the previous session don't bleed across.
+  function resetTelemetry(chromeContent) {
+    chromeContent.querySelector('.t-in').textContent = '0';
+    chromeContent.querySelector('.t-out').textContent = '0';
+    chromeContent.querySelector('.t-ctx').textContent = '0';
+    chromeContent.querySelector('.t-ctx-pct').textContent = '0%';
+    var bar = chromeContent.querySelector('.context-bar');
+    bar.style.width = '0%';
+    bar.className = 'context-bar';
+  }
+
   window.App.chat.fmtTokens = fmtTokens;
   window.App.chat.renderTelemetry = renderTelemetry;
   window.App.chat.updateTelemetry = updateTelemetry;
+  window.App.chat.resetTelemetry = resetTelemetry;
 })();

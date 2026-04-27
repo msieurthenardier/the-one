@@ -68,6 +68,10 @@
 
     el.onclick = function () { callbacks.onJoin(s.id); };
     el.addEventListener('keydown', function (e) {
+      // Ignore keydown bubbled from descendants (e.g., the delete button) so
+      // pressing Enter while focused on the X doesn't suppress the button's
+      // own activation and accidentally fire onJoin.
+      if (e.target !== el) return;
       if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();
         callbacks.onJoin(s.id);
