@@ -16,10 +16,15 @@ We implement an equivalent locally using PIL + pixelmatch:
   configurable anti-aliasing-aware threshold, matching the JS API's
   ``maxDiffPixelRatio`` semantics.
 - Baselines live in ``tests/browser/__snapshots__/`` (the directory is
-  the same pattern Playwright JS uses).
+  the same pattern Playwright JS uses).  **Baselines are gitignored —
+  local-only regression artifacts, not shared source.**  Each developer
+  regenerates locally; CI never runs pixel comparison (these tests are
+  marked ``pixel`` rather than ``browser`` so the standard ``-m browser``
+  collection skips them).
 - Update mode is opt-in via ``UPDATE_SNAPSHOTS=1`` env var or
-  ``--snapshot-update`` CLI flag (parsed in ``conftest.py``).  CI never
-  sets this; baselines are committed to git.
+  ``--snapshot-update`` CLI flag (parsed in ``conftest.py``).  When a
+  baseline is missing, the helper auto-generates it on first run so a
+  fresh checkout becomes useful immediately; subsequent runs compare.
 
 Snapshot tolerance: ``DIFF_RATIO`` = 2% pixel diff.  Generous enough to
 absorb anti-aliasing variance across runs without missing real
@@ -34,10 +39,16 @@ from io import BytesIO
 from pathlib import Path
 
 import pytest
-from browser.seeders import SeededApp
-from PIL import Image
-from pixelmatch.contrib.PIL import pixelmatch
-from playwright.sync_api import Page, expect
+
+# PIL + pixelmatch are dev-only deps; the pixel suite runs locally during
+# UI work and is excluded from CI (see `agents.md` → Pytest markers). Use
+# `importorskip` so a venv without these libs can still collect (and run)
+# the rest of the browser suite.
+Image = pytest.importorskip("PIL.Image")
+pixelmatch = pytest.importorskip("pixelmatch.contrib.PIL").pixelmatch
+
+from browser.seeders import SeededApp  # noqa: E402
+from playwright.sync_api import Page, expect  # noqa: E402
 
 # ── Snapshot config ───────────────────────────────────────────────────────
 
@@ -159,7 +170,7 @@ def _assert_screenshot(page: Page, name: str) -> None:
 # ── Tests — Chat ──────────────────────────────────────────────────────────
 
 
-@pytest.mark.browser
+@pytest.mark.pixel
 @pytest.mark.parametrize("theme", ["dark", "light"])
 def test_snapshot_chat_empty(app_clean: str, page: Page, theme: str) -> None:
     """Empty chat — no provider seeded, getting-started banner shows."""
@@ -175,7 +186,7 @@ def test_snapshot_chat_empty(app_clean: str, page: Page, theme: str) -> None:
     _assert_screenshot(page, f"chat-empty-{theme}")
 
 
-@pytest.mark.browser
+@pytest.mark.pixel
 @pytest.mark.parametrize("theme", ["dark", "light"])
 def test_snapshot_chat_with_messages(
     app_with_agent: SeededApp, page: Page, theme: str
@@ -202,7 +213,7 @@ def test_snapshot_chat_with_messages(
 # ── Tests — Studio ────────────────────────────────────────────────────────
 
 
-@pytest.mark.browser
+@pytest.mark.pixel
 @pytest.mark.parametrize("theme", ["dark", "light"])
 def test_snapshot_studio_empty(
     app_with_provider: SeededApp, page: Page, theme: str
@@ -216,7 +227,7 @@ def test_snapshot_studio_empty(
     _assert_screenshot(page, f"studio-empty-{theme}")
 
 
-@pytest.mark.browser
+@pytest.mark.pixel
 @pytest.mark.parametrize("theme", ["dark", "light"])
 def test_snapshot_studio_with_agent(
     app_with_agent: SeededApp, page: Page, theme: str
@@ -233,7 +244,7 @@ def test_snapshot_studio_with_agent(
 # ── Tests — Admin ─────────────────────────────────────────────────────────
 
 
-@pytest.mark.browser
+@pytest.mark.pixel
 @pytest.mark.parametrize("theme", ["dark", "light"])
 def test_snapshot_admin_empty(app_clean: str, page: Page, theme: str) -> None:
     """Admin → LLM Providers, empty state (no providers seeded)."""
@@ -246,7 +257,7 @@ def test_snapshot_admin_empty(app_clean: str, page: Page, theme: str) -> None:
     _assert_screenshot(page, f"admin-empty-{theme}")
 
 
-@pytest.mark.browser
+@pytest.mark.pixel
 @pytest.mark.parametrize("theme", ["dark", "light"])
 def test_snapshot_admin_with_provider(
     app_with_provider: SeededApp, page: Page, theme: str

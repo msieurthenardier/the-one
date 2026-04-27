@@ -1,8 +1,22 @@
 App.registerArea({
   id: 'studio',
-  label: 'Studio',
+  label: 'Agent Studio',
   icon: App.icons.studio,
   order: 20,
+  sidebarLabel: 'Agent list',
+
+  serializeState: function () {
+    return (this._selectedAgent && !this._createMode) ? 'agents/' + encodeURIComponent(this._selectedAgent.name) : null;
+  },
+  hydrateState: function (sub) {
+    if (!sub) return;
+    if (sub.indexOf('agents/') === 0) {
+      var name = decodeURIComponent(sub.slice('agents/'.length));
+      // Defer: agents array may not be loaded yet on cold entry.
+      this._pendingSelectName = name;
+      this._tryConsumePendingSelect();
+    }
+  },
 
   init: function (sidebar, content) {
     var agents = [];
@@ -11,6 +25,7 @@ App.registerArea({
     var allKnowledgeBases = [];
     var allProviders = [];
     var selectedAgent = null;
+    var pendingSelectName = null;
     var createMode = false;
     var dirty = false;
     var snapshot = '';
@@ -26,10 +41,10 @@ App.registerArea({
     // Build sidebar
     sidebar.innerHTML =
       '<div class="studio-sidebar-header">' +
-        '<span class="title">Studio</span>' +
+        '<span class="title">Agent Studio</span>' +
         '<button class="new-agent-btn" data-testid="new-agent-btn" aria-label="New agent">' + App.icon('plus') + '</button>' +
       '</div>' +
-      '<div class="agent-list"></div>';
+      '<div class="agent-list" role="listbox" aria-label="Agents"></div>';
 
     var agentListEl = sidebar.querySelector('.agent-list');
     var newAgentBtn = sidebar.querySelector('.new-agent-btn');
@@ -88,6 +103,9 @@ App.registerArea({
         (function (agent) {
           var el = document.createElement('div');
           el.className = 'agent-item' + (selectedAgent && selectedAgent.name === agent.name && !createMode ? ' active' : '');
+          el.setAttribute('role', 'option');
+          el.setAttribute('tabindex', '0');
+          el.setAttribute('aria-selected', selectedAgent && selectedAgent.name === agent.name && !createMode ? 'true' : 'false');
           el.dataset.name = agent.name;
           el.setAttribute('data-testid', 'agent-item');
 
@@ -96,8 +114,10 @@ App.registerArea({
           nameSpan.textContent = agent.name;
           el.appendChild(nameSpan);
 
-          var delBtn = document.createElement('span');
+          var delBtn = document.createElement('button');
+          delBtn.type = 'button';
           delBtn.className = 'agent-item-delete';
+          delBtn.setAttribute('aria-label', 'Delete agent');
           delBtn.innerHTML = App.icon('x');
           delBtn.onclick = function (e) {
             e.stopPropagation();
@@ -106,6 +126,12 @@ App.registerArea({
           el.appendChild(delBtn);
 
           el.onclick = function () { selectAgent(agent); };
+          el.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              selectAgent(agent);
+            }
+          });
           agentListEl.appendChild(el);
         })(agents[i]);
       }
@@ -119,6 +145,7 @@ App.registerArea({
               selectedAgent = null;
               createMode = false;
               dirty = false;
+              if (window.App && window.App.router) App.router.replaceSub(null);
             }
             return loadAll();
           })
@@ -153,6 +180,9 @@ App.registerArea({
       dirty = false;
       renderAgentList();
       renderEditor(agent);
+      if (window.App && window.App.router) {
+        App.router.replaceSub(selectedAgent && !createMode ? 'agents/' + encodeURIComponent(selectedAgent.name) : null);
+      }
     }
 
     function enterCreateMode() {
@@ -164,6 +194,7 @@ App.registerArea({
       dirty = false;
       renderAgentList();
       renderEditor(null);
+      if (window.App && window.App.router) App.router.replaceSub(null);
     }
 
     // ── Editor rendering ─────────────────────────────────────────────
@@ -282,8 +313,9 @@ App.registerArea({
       html += '<div class="connection-group"><span class="connection-label">MCP Sources</span>';
       html += '<div class="chip-area" data-type="mcp">';
       for (var m = 0; m < cfg.mcp_source_ids.length; m++) {
+        var mName = mcpName(cfg.mcp_source_ids[m]);
         html += '<span class="chip" data-id="' + escapeAttr(cfg.mcp_source_ids[m]) + '">' +
-          escapeHtml(mcpName(cfg.mcp_source_ids[m])) + '<span class="chip-remove">' + App.icon('x') + '</span></span>';
+          escapeHtml(mName) + '<button class="chip-remove" type="button" aria-label="Remove ' + escapeAttr(mName) + '">' + App.icon('x') + '</button></span>';
       }
       html += '<button class="chip-add" data-type="mcp">+ Add</button>';
       html += '</div></div>';
@@ -292,8 +324,9 @@ App.registerArea({
       html += '<div class="connection-group"><span class="connection-label">Knowledge Bases</span>';
       html += '<div class="chip-area" data-type="kb">';
       for (var k = 0; k < cfg.kb_ids.length; k++) {
+        var kName = kbName(cfg.kb_ids[k]);
         html += '<span class="chip" data-id="' + escapeAttr(cfg.kb_ids[k]) + '">' +
-          escapeHtml(kbName(cfg.kb_ids[k])) + '<span class="chip-remove">' + App.icon('x') + '</span></span>';
+          escapeHtml(kName) + '<button class="chip-remove" type="button" aria-label="Remove ' + escapeAttr(kName) + '">' + App.icon('x') + '</button></span>';
       }
       html += '<button class="chip-add" data-type="kb">+ Add</button>';
       html += '</div></div>';
@@ -434,8 +467,9 @@ App.registerArea({
 
       // Chip removal
       editorEl.addEventListener('click', function (e) {
-        if (e.target.classList.contains('chip-remove')) {
-          e.target.parentElement.remove();
+        var removeBtn = e.target.closest('.chip-remove');
+        if (removeBtn) {
+          removeBtn.parentElement.remove();
           checkDirty();
         }
       });
@@ -514,7 +548,8 @@ App.registerArea({
             var chip = document.createElement('span');
             chip.className = 'chip';
             chip.dataset.id = item.id;
-            chip.innerHTML = escapeHtml(item.name || item.id) + '<span class="chip-remove">' + App.icon('x') + '</span>';
+            var chipName = item.name || item.id;
+            chip.innerHTML = escapeHtml(chipName) + '<button class="chip-remove" type="button" aria-label="Remove ' + escapeAttr(chipName) + '">' + App.icon('x') + '</button>';
             chipArea.insertBefore(chip, btn);
             dropdown.remove();
             checkDirty();
@@ -791,6 +826,19 @@ App.registerArea({
 
     // ── Init ─────────────────────────────────────────────────────────
 
+    function tryConsumePendingSelect() {
+      if (!pendingSelectName) return;
+      if (!agents || agents.length === 0) return; // wait for loadAll
+      var target = null;
+      for (var i = 0; i < agents.length; i++) {
+        if (agents[i].name === pendingSelectName) { target = agents[i]; break; }
+      }
+      pendingSelectName = null;
+      if (target && (!selectedAgent || selectedAgent.name !== target.name)) {
+        selectAgent(target);
+      }
+    }
+
     newAgentBtn.addEventListener('click', enterCreateMode);
 
     var self = this;
@@ -807,8 +855,28 @@ App.registerArea({
         }
       });
     };
+    self._tryConsumePendingSelect = function () { tryConsumePendingSelect(); };
+    Object.defineProperty(self, '_selectedAgent', {
+      get: function () { return selectedAgent; },
+      configurable: true
+    });
+    Object.defineProperty(self, '_createMode', {
+      get: function () { return createMode; },
+      configurable: true
+    });
+    Object.defineProperty(self, '_pendingSelectName', {
+      get: function () { return pendingSelectName; },
+      set: function (v) { pendingSelectName = v; },
+      configurable: true
+    });
 
     loadAll().then(function () {
+      if (pendingSelectName) {
+        tryConsumePendingSelect();
+        // tryConsumePendingSelect calls selectAgent if it found a match;
+        // if no match (or no agents), fall through to default behavior.
+        if (selectedAgent) return;
+      }
       if (agents.length > 0) {
         selectAgent(agents[0]);
       } else {

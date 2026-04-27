@@ -45,7 +45,16 @@ class AnthropicProvider(LLMProvider):
         if tools:
             kwargs["tools"] = [self._to_anthropic_tool(t) for t in tools]
 
-        response = await self.client.messages.create(**kwargs)
+        try:
+            response = await self.client.messages.create(**kwargs)
+        except anthropic.BadRequestError as exc:
+            # Newer Claude models (Opus 4.x, Sonnet 4.x) reject the
+            # `temperature` parameter entirely. Retry once without it.
+            if "temperature" in str(exc).lower():
+                kwargs.pop("temperature", None)
+                response = await self.client.messages.create(**kwargs)
+            else:
+                raise
 
         content = ""
         tool_calls = []

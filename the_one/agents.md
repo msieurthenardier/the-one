@@ -171,6 +171,28 @@ The `mock` provider type (production code, dev-mode-gated) provides deterministi
 
 Tests rely on `data-testid` attributes on load-bearing UI elements rather than CSS classes, so the tests survive UI redesigns. Each flow leg adds 3-5 testids on a budget.
 
+### Pytest markers and what runs where
+
+| Marker | Tests | Default `pytest` | CI |
+|---|---|---|---|
+| (no marker) | unit tests | runs | runs |
+| `live` | hits real LLM APIs (paid) | skipped | skipped |
+| `browser` | Playwright **functional** flow tests | skipped (run with `-m browser`) | runs `-m browser` |
+| `pixel` | Playwright **visual** snapshot regression | skipped (run with `-m pixel`) | **never runs** |
+
+Default `addopts` deselects `live`, `browser`, AND `pixel` so a bare `pytest` runs only unit tests. Override at the CLI to opt in: `pytest -m browser`, `pytest -m pixel`, or `pytest -m "browser or pixel"`.
+
+### Visual snapshot workflow (local-only)
+
+Snapshot baselines under `tests/browser/__snapshots__/` are **gitignored** — they are local regression artifacts, not shared source. The flow:
+
+1. **First run on a fresh checkout**: `pytest -m pixel --snapshot-update` (or `UPDATE_SNAPSHOTS=1 pytest -m pixel`). The helper writes a baseline PNG for each scenario (3 areas × 2 states × 2 themes = 12 baselines). Missing-baseline auto-generation also kicks in on a bare `pytest -m pixel` first run, but `--snapshot-update` is the explicit affordance.
+2. **Subsequent runs**: `pytest -m pixel`. Each test compares its current screenshot against the locally-stored baseline; >2% pixel diff fails and writes `<name>-actual.png` + `<name>-diff.png` next to the baseline for inspection.
+3. **After an intentional layout change**: `pytest -m pixel --snapshot-update` to regenerate.
+4. **CI**: never runs `-m pixel`. Functional Playwright coverage is provided by `-m browser`. The pixel suite has no shared baselines to compare against in CI by design — pixel diffs are a developer's local feedback loop, not a regression gate.
+
+If the visual-snapshot suite ever needs CI-side regression detection, the right move is to capture a fresh baseline on each run, store it as a build artifact, and compare against the previous successful build's artifact — not to commit baselines to git.
+
 ---
 
 ## Design system
@@ -181,6 +203,22 @@ themes (`[data-theme="dark"]` and `[data-theme="light"]`) live in
 values differ per theme. Component CSS files reference tokens — no hex/rgba
 literals leak into component rules (enforced by a grep gate in CI; only
 `tokens.css`, `fonts.css`, and SVG `data:` URLs may contain literals).
+
+### Affordance patterns
+
+The interface uses six recurring affordance patterns. Each is identifiable by its visual treatment and intended interaction class. New UI work should compose with these patterns rather than invent parallel idioms. Where the live UI diverges from these descriptions today, the divergence is pre-realization debt to be resolved during the per-area alignment flights (F4 Chat / F5 Studio / F6 Administration).
+
+1. **Info banner** — neutral disclosure inside a surface. Documented pattern: background `var(--surface-elevated)`, border `1px solid var(--border)`, text `var(--fg-secondary)`. Live UI today: `.admin-note` uses `var(--surface)` and the `.chat-no-providers` banner uses a cyan-accented gradient — both are pre-realization variants. Used at the top of provider lists, agent editors, and admin sub-pages to surface non-actionable context.
+
+2. **Outlined-cyan** — secondary action; reads as available but de-emphasized. Pattern: background transparent, border `1px solid var(--accent)`, text `var(--accent)`, hover background `var(--accent-translucent)`. Live UI today: `.new-chat` (chat sidebar's "+ new" button), `.new-agent-btn` (studio sidebar). Future use: "edit", "configure", and similar non-CTA actions across all areas.
+
+3. **Filled-cyan CTA** — primary action; reads as the recommended next step. Pattern: background `var(--accent)`, text `var(--fg-on-accent)`, hover via `filter: brightness(1.1)` or explicit hover token. Used for "save", "submit", "create" — one CTA per page is the convention.
+
+4. **Muted-default-then-glow destructive** — irreversible action; reads as recessive at idle, glows on focus/confirm. Pattern: transparent background at idle, text/border `var(--status-danger-muted)`. Confirm state (after first click): background `var(--status-danger)`, text `var(--fg-on-danger)`, glow `var(--status-danger-glow)`. Used for delete affordances on session items, agent items, chip-removes. Never used for routine actions.
+
+5. **Neutral utility** — small, non-categorical action with no surrounding chrome. Pattern: background transparent, text `var(--fg-secondary)`, hover text `var(--fg)`, no border. Examples: inline `x` icon buttons, dropdown-chevron indicators, decorative scroll affordances. NOT for "+ new" buttons (those are outlined-cyan, pattern 2).
+
+6. **Palette-island rule** — components that establish their own chrome (the nav rail, the top bar arriving in F3 leg 02) declare their own `--nav-*` (or topbar-equivalent) palette family in `tokens.css`. The body palette and the chrome palette MUST NOT share token names. Rule: never reach into chrome tokens from body components or vice versa.
 
 ### Color contrast (WCAG AA)
 
@@ -401,6 +439,7 @@ colour inherits from the surrounding context (theme-aware via
 | `chevron-right` | `chevron-right` | (curated; future use) |
 | `zap` | `zap` | (curated; future use) |
 | `sparkles` | `sparkles` | (curated; future use) |
+| `menu` | `menu` | app-picker hamburger button (topbar) |
 
 Add a new icon by editing `static/js/icons.js`: append the inlined
 single-line SVG markup to the `Icons` object (preserving Lucide's
@@ -411,6 +450,236 @@ CSS sizing: each icon's host element sets a `svg { width: Npx; height: Npx; disp
 `.session-item .delete svg { 12×12 }`, `.new-agent-btn svg { 14×14 }`).
 Currents include `.nav-item svg` (20×20), `.new-agent-btn svg` (14×14),
 `.agent-item-delete svg` (10×10), `.chip-remove svg` (10×10), `.session-item .delete svg` (12×12), `.admin-pf-eye svg` (14×14), `.admin-pf-pull-cancel svg` (12×12).
+
+### App shell
+
+The web UI shell (F3 leg 02) uses a vertical flex-column layout: a fixed-height top bar
+across the full viewport width, with a flex-row inner row below containing the sidebar and
+main content area.
+
+```
+<body>
+  <a class="skip-link" href="#main-content">  ← first focusable element, visually hidden until focused
+  <header id="app-topbar">                    ← chrome strip; height: var(--topbar-h)
+    <h1 class="app-topbar-title">             ← "the-one"; single <h1> per page
+    <div class="app-topbar-actions">          ← right side: theme toggle + picker button
+      <div class="theme-toggle-compact-mount">
+      <button class="app-picker-button">      ← hamburger; aria-haspopup + aria-expanded
+    <nav class="app-picker-popover">          ← dropdown; data-open="true/false"
+  <div class="app-shell-row">                 ← flex: 1; min-height: 0; overflow: hidden
+    <aside id="app-sidebar">                  ← aria-label set per active area
+    <main id="main-content" tabindex="-1">   ← skip-link target; tabindex="-1" for programmatic focus
+```
+
+#### Top bar
+
+`#app-topbar` uses the `--nav-*` palette island (same chrome tokens as the old nav rail):
+`--nav-bg` background, `--nav-border` bottom border, `--nav-fg` / `--nav-fg-active` for
+icon and accent colours. The `--topbar-h: 48px` token replaces the old `--nav-w` (rail
+width) — same 48 px value, new semantic name.
+
+**Known limitation**: the picker popover uses `position: absolute; right: 16px` from the
+topbar. On viewports narrower than ~200px it can overflow off-screen. Acceptable for v1
+(the app is desktop-first).
+
+#### App picker contract
+
+The hamburger button (`<button class="app-picker-button">`) toggles an inline `<nav
+class="app-picker-popover">` dropdown containing one `<button class="app-picker-option">`
+per registered area.
+
+- **Open**: `data-open="true"` on the popover (CSS switches `display: none → block`);
+  `aria-expanded="true"` on the picker button; focus moves to the first option.
+- **Close**: `data-open="false"`; `aria-expanded="false"`; triggered by: Escape key (focus
+  returns to picker button), click-outside, or option selection.
+- **Keyboard model**: Enter/Space opens when picker button is focused; ArrowDown / ArrowRight
+  advances through options (wraps); ArrowUp / ArrowLeft reverses (wraps); Escape closes and
+  returns focus to the button.
+- **Active area accent**: the current area's option carries `.active` class → cyan
+  `::before` left-border stripe (ported from the old `.nav-item.active::before` treatment).
+- **Click-outside guard**: option-click handlers call `e.stopPropagation()` (defensive —
+  the click-outside `document.addEventListener` fires on bubble; `stopPropagation` prevents
+  a race if the outside listener fires after the option already called `closePicker()`).
+
+All picker wiring (open/close, click-outside, keyboard) is defined INSIDE `renderTopBar()`
+so `closePicker` is in shared closure scope — no separate `wirePicker` function (that
+pattern introduced a closure-scope hazard in the F3 design-review round 1).
+
+#### Skip-link contract
+
+`<a class="skip-link" href="#main-content">` is the FIRST element in `<body>` (before the
+topbar). CSS: `position: absolute; top: -40px;` at rest; `:focus { top: 0; }` to reveal.
+Background `var(--accent)`, text `var(--fg-on-accent)` for visibility.
+
+Activating the skip-link sets `location.hash = '#main-content'`, which fires the
+`hashchange` listener. The listener bails immediately (`if (!areas[hash]) return`) because
+`main-content` is not a registered area hash — the skip-link does NOT force-reset the active
+area to chat. `<main id="main-content" tabindex="-1">` receives programmatic focus.
+
+#### Area sidebar label (`sidebarLabel`)
+
+`App.registerArea()` accepts an optional `sidebarLabel` property on the descriptor. After
+each `switchTo`, `<aside id="app-sidebar">` receives `aria-label` set to:
+- `descriptor.sidebarLabel` if present, OR
+- `descriptor.label + ' sidebar'` as fallback.
+
+Current values: chat → `'Chat sessions'`; studio → `'Agent list'`; admin → `'Admin categories'`.
+
+### Hash routing
+
+F3 leg 04 extends URL routing from area-only (`#chat`, `#studio`, `#admin`) to area-plus-sub (`#chat/sessions/<id>`, `#studio/agents/<name>`, `#admin/providers`), enabling browser refresh to restore the user's exact location within each area.
+
+#### URL format
+
+```
+#area[/sub]
+```
+
+- **area**: one of `chat`, `studio`, `admin`. Required. Defaults to `chat` if absent or unknown.
+- **sub**: optional, area-specific:
+  - chat: `sessions/<uuid>` (e.g., `#chat/sessions/abc-123`)
+  - studio: `agents/<name>` (URL-encoded, e.g., `#studio/agents/my%20agent`)
+  - admin: bare category id (e.g., `#admin/providers`, `#admin/system`, `#admin/general`)
+
+`serializeState()` returns the sub WITHOUT the area prefix. The framework (`app.js`) owns the `area/` segment.
+
+#### `serializeState` / `hydrateState` contract
+
+Each area descriptor passed to `App.registerArea()` may optionally define two methods:
+
+```javascript
+App.registerArea({
+  id, label, icon, order, sidebarLabel,
+  init, activate, deactivate,
+  serializeState,   // optional: () => string | null  — null/undefined means "no sub"
+  hydrateState,     // optional: (sub: string | null) => void
+});
+```
+
+- **`serializeState()`** — returns the current sub-state string (e.g., `'sessions/<id>'`), or `null` if no sub state to encode. Called by area code to compute the sub before calling `App.router.replaceSub`.
+- **`hydrateState(sub)`** — applies a sub-state string to the area (e.g., joins the given session). Called by `switchTo` immediately after `activate`. On cold entry (`activate` just fired async work), `hydrateState` MUST stash a pending target and resolve it when async work completes — it must NOT assume data is ready synchronously.
+
+Areas without `serializeState`/`hydrateState` behave exactly as before.
+
+#### `App.router` namespace
+
+`app.js` exposes two helpers under `window.App.router`:
+
+```javascript
+App.router.parseHash(hashString)
+// → { area: string|null, sub: string|null }
+// Examples:
+//   parseHash('#admin/providers') → { area: 'admin', sub: 'providers' }
+//   parseHash('#chat')            → { area: 'chat', sub: null }
+//   parseHash('')                 → { area: null, sub: null }
+//   parseHash('#/something')      → { area: '', sub: 'something' }  ← bailed in listener
+
+App.router.replaceSub(sub)
+// Updates the URL sub-state WITHOUT pushing history.
+// The area is implicit (currentId). sub=null clears to bare #area.
+// Uses history.replaceState — does NOT fire hashchange.
+```
+
+#### History semantics
+
+Two navigation modes have distinct history behavior:
+
+| Navigation type | Mechanism | History effect |
+|----------------|-----------|----------------|
+| Cross-area (picker click, `location.hash = 'admin'`) | `location.hash =` assignment | Pushes new entry |
+| Area-internal sub-change (session click, admin category click) | `history.replaceState` | Replaces current entry |
+
+**Critical invariant**: `history.replaceState` does NOT fire `hashchange`, so calling it from inside an option-click handler does not re-enter `switchTo`. If this invariant is ever broken by using `location.hash =` for sub-navigation, a recursion loop results: `switchTo` → `replaceSub` → `hashchange` → `switchTo` → ...
+
+The net effect: pressing browser back exits the area entirely (or returns to the previous area), and does NOT walk back through sub-page history within an area.
+
+#### Lifecycle ordering
+
+- **Cold entry** (first activation of an area, or cross-area navigation):
+  `init()` → `activate()` → `hydrateState(sub)`
+- **Same-area sub-change** (user was already in this area, hash sub changed):
+  `hydrateState(sub)` only — `init` and `activate` do NOT re-fire.
+- **No-op** (same area AND same sub): returns immediately.
+
+#### Async hydration pattern
+
+`hydrateState` runs synchronously after `activate` returns, but `activate` may have kicked off async work. Each area handles this differently:
+
+- **Chat**: `hydrateState('sessions/<id>')` stashes `pendingJoinId`. The `session_list` WebSocket message (which fires when the WS opens after `activate`) checks `pendingJoinId` and joins it instead of auto-joining `sessions[0]`.
+- **Studio**: `hydrateState('agents/<name>')` stashes `pendingSelectName`. The `loadAll().then(...)` continuation in `init` calls `tryConsumePendingSelect()` before the default-select-first behavior.
+- **Admin**: `hydrateState` updates `currentCategory` synchronously. `init` sets `currentCategory='general'`; if hydration sets it to (e.g.) `providers`, there is a brief double-fetch (general then providers). The general fetch's completion checks for `.admin-form` element existence and bails — no visual flicker. Documented as benign.
+
+#### `replaceSub` call sites
+
+Each area calls `App.router.replaceSub(sub)` after every internal sub-state change:
+
+| Area | Trigger | Call site |
+|------|---------|-----------|
+| chat | Session joined (WS `session_joined` message) | After `currentSessionId = data.session_id` |
+| chat | New chat started | After `currentSessionId = null` (clears sub during gap) |
+| chat | Session deleted | After `currentSessionId = null` |
+| studio | Agent selected | Bottom of `selectAgent(agent)` |
+| studio | Create mode entered | Inside `enterCreateMode()` |
+| studio | Agent deleted | After `selectedAgent = null` in delete handler |
+| admin | Category clicked | Inside `el.onclick` in `renderCategoryList`, before re-render |
+
+### Keyboard operability
+
+F3 leg 03 converts all interactive `<div>`/`<span>` elements to keyboard-operable equivalents. The two patterns used across all areas are:
+
+#### Listbox/option pattern (list rows with child action affordances)
+
+Used where a parent row is clickable AND contains an inline delete affordance (chat session-item, studio agent-item, admin category-item). The nested-button rule prohibits `<button>` inside `<button>`, so the parent stays as a `<div>` with ARIA roles instead.
+
+- **Parent container** (`session-list`, `agent-list`, `admin-category-list`): receives `role="listbox"` and `aria-label="<purpose>"` at init time.
+- **Each row** (`session-item`, `agent-item`, `admin-category-item`): `<div role="option" tabindex="0" aria-selected="true|false">`. The row keeps its existing class-based active/hover CSS. A `keydown` listener on each row fires the activation handler on Enter or Space (`e.preventDefault()` suppresses scroll on Space).
+- **`aria-selected`** is set at render time inside the list-build loop (not in a separate post-render walk). `highlightActiveSession` / `selectAgent` also update `aria-selected` on all items after activating one.
+- **Simplification**: all options use `tabindex="0"` (each adds a Tab stop); no roving tabindex. For ~5–20 items this is WCAG-compliant and simpler than arrow-key navigation. Revisit at ~50 items.
+- **Deliberate accepted deviation**: `role="option"` technically SHOULD NOT contain interactive children (the ARIA spec says option is a leaf). In practice, NVDA and VoiceOver handle this correctly — they announce the option, then announce the inner button separately. Document in review if a strict audit requires sibling-restructure instead.
+
+#### Button pattern (inline action affordances)
+
+Used for elements that are purely action-only with no child interactive content — `<span class="delete">` → `<button class="delete" type="button" aria-label="Delete session">`, `<span class="agent-item-delete">` → `<button class="agent-item-delete" type="button" aria-label="Delete agent">`, and three `<span class="chip-remove">` → `<button class="chip-remove" type="button" aria-label="Remove">` sites. No keydown handler needed — native `<button>` activates on Enter (keydown) and Space (keyup) by default.
+
+#### `:focus-within` reveal convention
+
+Hover-only delete affordances (hidden by `display: none` at rest) are revealed via the parent's `:focus-within` selector when the user Tabs into the child button:
+
+```css
+/* Before: */
+.area-chat .session-item:hover .delete { display: block; }
+
+/* After: */
+.area-chat .session-item:hover .delete,
+.area-chat .session-item:focus-within .delete { display: block; }
+```
+
+The chip-remove (`chip-remove`) is always-visible — no `:focus-within` reveal needed.
+
+#### `:focus-visible` accent-ring convention
+
+Two variants, both using `var(--accent)` (cyan):
+
+- **Inset variant** (list rows with backgrounds — `session-item`, `agent-item`, `admin-category-item`):
+  ```css
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  box-shadow: inset 0 0 0 3px var(--accent-glow);
+  ```
+- **Standard variant** (inline action buttons — `.delete`, `.agent-item-delete`, `.chip-remove`):
+  ```css
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px var(--accent-glow);
+  ```
+
+#### Button reset for converted `<span>` → `<button>` elements
+
+Any `<span>` converted to `<button>` must neutralize browser button defaults. Add to the element's CSS rule: `background: transparent; border: none; cursor: pointer; padding: 0;` (preserve existing `padding` value if intentional).
+
+#### SVG-resilient chip-remove dispatch
+
+The chip-remove click handler uses `e.target.closest('.chip-remove')` (not `e.target.classList.contains('chip-remove')`). When the button contains an SVG icon, clicking on the SVG yields `e.target = <svg>` — the `classList` check fails silently. `closest()` walks up the DOM and reliably finds the button regardless of which descendant was the click target.
 
 ### Theme switching contract
 
@@ -469,6 +738,9 @@ regenerate baselines via `pytest -m browser tests/browser/test_visual_snapshots.
 CI runs comparison-only.  On mismatch, the helper writes
 `<name>-actual.png` and `<name>-diff.png` next to the baseline for
 inspection.
+
+- **Lucide icon pin**: icons are pinned to `lucide-icons/lucide@v0.265.0`. Adding new icons requires fetching from this exact tag — do NOT pull from `main` or `latest`. The pin is what keeps `tests/browser/__snapshots__/` baselines stable.
+- **Playwright `color_scheme`**: browser tests pin `color_scheme="no-preference"` so they don't inherit the host OS theme preference. Without this, a CI environment with `prefers-color-scheme: dark` would resolve `auto` to `dark` and produce a different snapshot than a developer's light-mode laptop.
 
 ---
 

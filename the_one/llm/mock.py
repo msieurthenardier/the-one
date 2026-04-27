@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from the_one.llm.base import LLMProvider, Message, TokenUsage, ToolCall
@@ -52,6 +53,12 @@ class MockProvider(LLMProvider):
         temperature: float = 0.0,
         max_tokens: int = 16384,
     ) -> Message:
+        # Optional latency simulation. Defaults to 0 so tests stay fast;
+        # interactive dev sessions can pass `delay_ms` to exercise the
+        # client-side "thinking…" indicator.
+        delay_ms = self.config.get("delay_ms", 0)
+        if delay_ms:
+            await asyncio.sleep(delay_ms / 1000)
         response = self.config.get("response", _DEFAULT_RESPONSE)
         content = response.get("content", "")
         tool_calls = [

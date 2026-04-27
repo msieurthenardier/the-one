@@ -24,11 +24,10 @@ def test_chat_send_receives_mock_response(app_with_agent: SeededApp, page: Page)
     # 1. Open #chat. Default area is chat, so this is the home page.
     page.goto(base_url)
 
-    # WebSocket connects → status changes to "connected".
-    expect(page.locator(".status")).to_have_text("connected", timeout=5000)
-
-    # 2. Session auto-creates with the seeded agent. Agent badge updates.
-    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=5000)
+    # 2. Welcome canvas shows because no sessions exist yet (leg-05 removed
+    #    auto-create-on-load). Pick the seeded agent to bootstrap a session.
+    page.locator(".chat-welcome-item").filter(has_text=agent_name).click()
+    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
 
     # 3-4. Type and send.
     page.locator('[data-testid="chat-input"]').fill("hello")
