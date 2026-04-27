@@ -104,7 +104,7 @@ App.registerArea({
       for (var i = 0; i < categories.length; i++) {
         (function (cat) {
           var el = document.createElement('div');
-          el.className = 'admin-category-item' + (currentCategory === cat.id ? ' active' : '');
+          el.className = 'list-item admin-category-item' + (currentCategory === cat.id ? ' active' : '');
           el.setAttribute('role', 'option');
           el.setAttribute('tabindex', '0');
           el.setAttribute('aria-selected', currentCategory === cat.id ? 'true' : 'false');
@@ -184,7 +184,7 @@ App.registerArea({
           for (var s = 0; s < settingSections.length; s++) {
             var section = settingSections[s];
             html += '<div class="admin-section">';
-            html += '<div class="admin-section-title">' + escapeHtml(section.title) + '</div>';
+            html += '<div class="section-title admin-section-title">' + escapeHtml(section.title) + '</div>';
             for (var f = 0; f < section.fields.length; f++) {
               var field = section.fields[f];
               var label = fieldLabels[field] || field;
@@ -235,14 +235,14 @@ App.registerArea({
         '</div>' +
         '<div class="admin-form">' +
           '<div class="admin-system-section">' +
-            '<div class="admin-section-title" id="admin-appearance-heading">Appearance</div>' +
+            '<div class="section-title admin-section-title" id="admin-appearance-heading">Appearance</div>' +
             '<p class="admin-system-text">' +
               'Choose a theme. Auto follows your operating system preference.' +
             '</p>' +
             '<div class="admin-theme-toggle" id="admin-theme-toggle-mount" aria-labelledby="admin-appearance-heading"></div>' +
           '</div>' +
           '<div class="admin-system-section">' +
-            '<div class="admin-section-title">Encryption</div>' +
+            '<div class="section-title admin-section-title">Encryption</div>' +
             '<p class="admin-system-text">' +
               'API keys for LLM providers are encrypted at rest. ' +
               'You can rotate the encryption key to re-encrypt all stored credentials with a new key.' +
@@ -320,7 +320,7 @@ App.registerArea({
       contentEl.innerHTML =
         '<div class="admin-header">' +
           '<span class="admin-title">LLM Providers</span>' +
-          '<button class="admin-provider-add-btn" data-testid="add-provider-btn">+ Add Provider</button>' +
+          '<button class="btn-outlined-cyan admin-provider-add-btn" data-testid="add-provider-btn">+ Add Provider</button>' +
         '</div>' +
         '<div class="admin-provider-list" role="list">' +
           '<div class="admin-loading">Loading providers\u2026</div>' +
@@ -355,7 +355,7 @@ App.registerArea({
 
       if (providers.length === 0) {
         listEl.innerHTML =
-          '<div class="admin-provider-empty">' +
+          '<div class="empty-state admin-provider-empty">' +
             'No providers configured. Add one to get started.' +
           '</div>';
         return;
@@ -370,8 +370,8 @@ App.registerArea({
             '<span class="admin-provider-badge admin-provider-badge--' + escapeAttr(typeSuffix) + '">' + escapeHtml(p.type) + '</span>' +
             '<span class="admin-provider-name">' + escapeHtml(p.name) + '</span>' +
             '<div class="admin-provider-actions">' +
-              '<button class="admin-provider-edit-btn" data-id="' + escapeAttr(p.id) + '">Edit</button>' +
-              '<button class="admin-provider-delete-btn" data-id="' + escapeAttr(p.id) + '">Delete</button>' +
+              '<button class="btn-outlined-cyan admin-provider-edit-btn" data-id="' + escapeAttr(p.id) + '">Edit</button>' +
+              '<button class="btn-muted-destructive admin-provider-delete-btn" data-id="' + escapeAttr(p.id) + '">Delete</button>' +
             '</div>' +
           '</div>';
       }
@@ -500,15 +500,15 @@ App.registerArea({
 
       // Name field
       html +=
-        '<div class="admin-pf-row">' +
-          '<label class="admin-pf-label" for="pf-name">Name</label>' +
-          '<input class="admin-pf-input" id="pf-name" data-field="name" value="' + escapeAttr(isEdit ? provider.name : '') + '" placeholder="My Provider" />' +
+        '<div class="field-row admin-pf-row">' +
+          '<label for="pf-name">Name</label>' +
+          '<input class="field-input admin-pf-input" id="pf-name" data-field="name" value="' + escapeAttr(isEdit ? provider.name : '') + '" placeholder="My Provider" />' +
         '</div>';
 
       // Type dropdown
-      html += '<div class="admin-pf-row">' +
-        '<label class="admin-pf-label" for="pf-type">Type</label>' +
-        '<select class="admin-pf-input admin-pf-select" id="pf-type" data-field="type">';
+      html += '<div class="field-row admin-pf-row">' +
+        '<label for="pf-type">Type</label>' +
+        '<select class="field-input field-select admin-pf-input admin-pf-select" id="pf-type" data-field="type">';
       if (!isEdit) {
         html += '<option value="" disabled selected>Select a provider\u2026</option>';
       }
@@ -521,18 +521,18 @@ App.registerArea({
       // Base URL field
       var baseUrlValue = isEdit ? provider.base_url : defaults.base_url;
       html +=
-        '<div class="admin-pf-row admin-pf-base-url" style="display:' + (defaults.showBaseUrl ? 'flex' : 'none') + '">' +
-          '<label class="admin-pf-label" for="pf-base-url">Base URL</label>' +
-          '<input class="admin-pf-input" id="pf-base-url" data-field="base_url" value="' + escapeAttr(baseUrlValue) + '" placeholder="https://..." />' +
+        '<div class="field-row admin-pf-row admin-pf-base-url' + (defaults.showBaseUrl ? '' : ' is-hidden') + '">' +
+          '<label for="pf-base-url">Base URL</label>' +
+          '<input class="field-input admin-pf-input" id="pf-base-url" data-field="base_url" value="' + escapeAttr(baseUrlValue) + '" placeholder="https://..." />' +
         '</div>';
 
       // API Key field
       var apiKeyValue = isEdit ? (provider.api_key || '') : '';
       html +=
-        '<div class="admin-pf-row admin-pf-api-key" style="display:' + (defaults.showApiKey ? 'flex' : 'none') + '">' +
-          '<label class="admin-pf-label" for="pf-api-key">API Key</label>' +
+        '<div class="field-row admin-pf-row admin-pf-api-key' + (defaults.showApiKey ? '' : ' is-hidden') + '">' +
+          '<label for="pf-api-key">API Key</label>' +
           '<div class="admin-pf-password-wrap">' +
-            '<input class="admin-pf-input admin-pf-password" id="pf-api-key" type="password" data-field="api_key" value="' + escapeAttr(apiKeyValue) + '" placeholder="sk-..." />' +
+            '<input class="field-input admin-pf-input admin-pf-password" id="pf-api-key" type="password" data-field="api_key" value="' + escapeAttr(apiKeyValue) + '" placeholder="sk-..." />' +
             '<button class="admin-pf-eye" type="button" title="Show/Hide" aria-label="Show password">' + App.icon('eye') + '</button>' +
           '</div>' +
         '</div>';
@@ -540,8 +540,8 @@ App.registerArea({
       // Action buttons
       html += '<div class="admin-pf-actions">';
       html += '<span class="admin-pf-error"></span>';
-      html += '<button class="admin-pf-cancel">Cancel</button>';
-      html += '<button class="admin-pf-save" data-testid="save-provider-btn">' + (isEdit ? 'Save' : 'Create') + '</button>';
+      html += '<button class="btn-outlined-cyan admin-pf-cancel">Cancel</button>';
+      html += '<button class="btn-filled-cyan admin-pf-save" data-testid="save-provider-btn">' + (isEdit ? 'Save' : 'Create') + '</button>';
       if (isEdit) {
         html += '<button class="admin-pf-test" data-testid="test-connection-btn">Test Connection</button>';
       }
@@ -589,8 +589,8 @@ App.registerArea({
       typeSelect.addEventListener('change', function () {
         var val = typeSelect.value;
         var defaults = TYPE_DEFAULTS[val];
-        baseUrlRow.style.display = defaults.showBaseUrl ? 'flex' : 'none';
-        apiKeyRow.style.display = defaults.showApiKey ? 'flex' : 'none';
+        baseUrlRow.classList.toggle('is-hidden', !defaults.showBaseUrl);
+        apiKeyRow.classList.toggle('is-hidden', !defaults.showApiKey);
         // Set default base_url when switching types
         if (defaults.base_url) {
           baseUrlInput.value = defaults.base_url;
@@ -768,7 +768,7 @@ App.registerArea({
           if (!listEl) return;
 
           if (models.length === 0) {
-            listEl.innerHTML = '<span class="admin-pf-models-empty">No models found.</span>';
+            listEl.innerHTML = '<span class="empty-state admin-pf-models-empty">No models found.</span>';
             return;
           }
 
@@ -799,19 +799,19 @@ App.registerArea({
           '<button class="admin-pf-models-refresh">Refresh</button>' +
           '<button class="admin-pf-pull-btn">Pull Model</button>' +
         '</div>' +
-        '<div class="admin-pf-pull-input" style="display:none">' +
+        '<div class="admin-pf-pull-input is-hidden">' +
           '<div class="admin-pf-pull-search-wrap">' +
-            '<input class="admin-pf-input admin-pf-pull-name" placeholder="Search Ollama library..." autocomplete="off" />' +
-            '<div class="admin-pf-pull-suggestions" style="display:none"></div>' +
+            '<input class="field-input admin-pf-input admin-pf-pull-name" placeholder="Search Ollama library..." autocomplete="off" />' +
+            '<div class="admin-pf-pull-suggestions is-hidden"></div>' +
           '</div>' +
-          '<button class="admin-pf-pull-go" disabled>Pull</button>' +
+          '<button class="btn-filled-cyan admin-pf-pull-go" disabled>Pull</button>' +
         '</div>' +
-        '<div class="admin-pf-pull-progress" style="display:none">' +
+        '<div class="admin-pf-pull-progress is-hidden">' +
           '<div class="admin-pf-pull-fill"></div>' +
           '<span class="admin-pf-pull-text"></span>' +
           '<button class="admin-pf-pull-cancel" aria-label="Cancel pull">' + App.icon('x') + '</button>' +
         '</div>' +
-        '<div class="admin-pf-pull-error" style="display:none"></div>' +
+        '<div class="admin-pf-pull-error is-hidden"></div>' +
         '<div class="admin-pf-vram-summary"></div>' +
         '<div class="admin-pf-models-list" aria-live="polite"><span class="admin-loading">Loading models\u2026</span></div>';
 
@@ -834,9 +834,9 @@ App.registerArea({
       var pullAbort = null;
 
       pullBtn.addEventListener('click', function () {
-        pullInputRow.style.display = pullInputRow.style.display === 'none' ? 'flex' : 'none';
-        pullError.style.display = 'none';
-        suggestionsEl.style.display = 'none';
+        pullInputRow.classList.toggle('is-hidden');
+        pullError.classList.add('is-hidden');
+        suggestionsEl.classList.add('is-hidden');
         pullNameInput.value = '';
         pullGoBtn.disabled = true;
         pullNameInput.focus();
@@ -851,7 +851,7 @@ App.registerArea({
         var q = pullNameInput.value.trim();
         pullGoBtn.disabled = !q;
         if (q.length < 2) {
-          suggestionsEl.style.display = 'none';
+          suggestionsEl.classList.add('is-hidden');
           suggestionsEl.innerHTML = '';
           return;
         }
@@ -860,7 +860,7 @@ App.registerArea({
             .then(function (r) { return r.ok ? r.json() : []; })
             .then(function (models) {
               if (!models.length) {
-                suggestionsEl.style.display = 'none';
+                suggestionsEl.classList.add('is-hidden');
                 return;
               }
               var html = '';
@@ -872,32 +872,32 @@ App.registerArea({
                   '<span class="admin-pf-pull-suggestion-size">' + escapeHtml(sz) + '</span></div>';
               }
               suggestionsEl.innerHTML = html;
-              suggestionsEl.style.display = 'block';
+              suggestionsEl.classList.remove('is-hidden');
 
               // Wire click handlers on suggestions
               var items = suggestionsEl.querySelectorAll('.admin-pf-pull-suggestion');
               for (var j = 0; j < items.length; j++) {
                 items[j].addEventListener('click', function () {
                   pullNameInput.value = this.getAttribute('data-model');
-                  suggestionsEl.style.display = 'none';
+                  suggestionsEl.classList.add('is-hidden');
                   pullGoBtn.disabled = false;
                 });
               }
             })
             .catch(function () {
-              suggestionsEl.style.display = 'none';
+              suggestionsEl.classList.add('is-hidden');
             });
         }, 300);
       });
 
       // Hide suggestions on blur (with delay so clicks register)
       pullNameInput.addEventListener('blur', function () {
-        setTimeout(function () { suggestionsEl.style.display = 'none'; }, 200);
+        setTimeout(function () { suggestionsEl.classList.add('is-hidden'); }, 200);
       });
       // Re-show on focus if there's content
       pullNameInput.addEventListener('focus', function () {
         if (suggestionsEl.innerHTML && pullNameInput.value.trim().length >= 2) {
-          suggestionsEl.style.display = 'block';
+          suggestionsEl.classList.remove('is-hidden');
         }
       });
       // Enter in input does nothing (must click Pull button)
@@ -924,9 +924,9 @@ App.registerArea({
         pullGoBtn.disabled = true;
         pullBtn.disabled = true;
         pullNameInput.disabled = true;
-        suggestionsEl.style.display = 'none';
-        pullError.style.display = 'none';
-        pullProgress.style.display = 'flex';
+        suggestionsEl.classList.add('is-hidden');
+        pullError.classList.add('is-hidden');
+        pullProgress.classList.remove('is-hidden');
         pullFill.style.width = '0%';
         pullText.textContent = 'Pulling ' + escapeHtml(model) + '\u2026';
 
@@ -992,8 +992,8 @@ App.registerArea({
 
       function showPullError(msg) {
         pullAbort = null;
-        pullProgress.style.display = 'none';
-        pullError.style.display = 'block';
+        pullProgress.classList.add('is-hidden');
+        pullError.classList.remove('is-hidden');
         pullError.textContent = escapeHtml(msg);
         pullGoBtn.disabled = false;
         pullBtn.disabled = false;
@@ -1002,12 +1002,12 @@ App.registerArea({
 
       function finishPull(success) {
         pullAbort = null;
-        pullProgress.style.display = 'none';
+        pullProgress.classList.add('is-hidden');
         pullGoBtn.disabled = false;
         pullBtn.disabled = false;
         pullNameInput.disabled = false;
         pullNameInput.value = '';
-        pullInputRow.style.display = 'none';
+        pullInputRow.classList.add('is-hidden');
         if (success) {
           showAdminFlash('Model pulled successfully');
           renderOllamaModels(providerId, container);
@@ -1057,7 +1057,7 @@ App.registerArea({
 
           // Build model rows
           if (allModels.length === 0 && runningModels.length === 0) {
-            listEl.innerHTML = '<span class="admin-pf-models-empty">No models found. Use Pull Model to download one.</span>';
+            listEl.innerHTML = '<span class="empty-state admin-pf-models-empty">No models found. Use Pull Model to download one.</span>';
             return;
           }
 

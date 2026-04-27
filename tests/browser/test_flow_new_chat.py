@@ -14,6 +14,8 @@ Covers:
 
 from __future__ import annotations
 
+import re
+
 import httpx
 import pytest
 from browser.seeders import SeededApp, seed_mock_agent
@@ -188,10 +190,14 @@ def test_delete_last_session_returns_to_welcome(
     )
 
     # The bootstrapped session is the only one. Hover to reveal the delete
-    # button (display:none → block via :hover), then click it.
+    # button (display:none → block via :hover), then click it twice — F4 HAT
+    # added a two-step confirm pattern (first click marks .confirm-delete,
+    # second click within 3s actually deletes; mirrors studio's pattern).
     item = page.locator(".session-item").first
     expect(item).to_be_visible(timeout=5000)
     item.hover()
+    item.locator(".delete").click()
+    expect(item).to_have_class(re.compile(r".*confirm-delete.*"), timeout=2000)
     item.locator(".delete").click()
 
     # Welcome canvas takes over once session_deleted lands and the empty

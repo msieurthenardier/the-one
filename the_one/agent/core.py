@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 
 from the_one.agent.behaviors import CONTINUE_SCHEMA, match_direct_action
 from the_one.agent.config import DEFAULT_SYSTEM_PROMPT
@@ -29,10 +29,21 @@ class Agent:
         schemas = self.tools.all_schemas() or []
         return schemas + [CONTINUE_SCHEMA]
 
-    async def step(self, user_input: str) -> AsyncIterator[Message]:
+    async def step(
+        self,
+        user_input: str,
+        on_chunk: Callable[[str], Awaitable[None]] | None = None,
+    ) -> AsyncIterator[Message]:
         """Process a user message through the agent loop.
 
         Yields each assistant/tool message as it's produced.
+
+        ``on_chunk``: optional async callback invoked once per content chunk
+        during streaming. Callers that omit ``on_chunk`` get the original
+        Message-yielding semantics; chunks fan out internally but only the
+        synthesised final ``Message`` flows up via ``yield``. Direct-action
+        responses bypass the LLM entirely so ``on_chunk`` is never invoked
+        on that path.
         """
         self.messages.append(Message.user(user_input))
 
@@ -51,10 +62,31 @@ class Agent:
             return
 
         for _ in range(self.max_iterations):
-            response = await self.llm.complete(
+            accumulated_text = ""
+            final_chunk = None
+            async for chunk in self.llm.stream(
                 messages=self.messages,
                 tools=self._tool_schemas() or None,
-            )
+            ):
+                if chunk.content:
+                    accumulated_text += chunk.content
+                    if on_chunk:
+                        await on_chunk(chunk.content)
+                if chunk.is_final:
+                    final_chunk = chunk
+                    break
+
+            # Synthesize the response Message — prefer the provider's
+            # synthesized Message if available; otherwise rebuild it from
+            # accumulated state.
+            if final_chunk is not None and final_chunk.message is not None:
+                response = final_chunk.message
+            else:
+                response = Message.assistant(
+                    content=accumulated_text,
+                    tool_calls=(final_chunk.tool_calls if final_chunk else []),
+                    usage=(final_chunk.usage if final_chunk else None),
+                )
             self.messages.append(response)
             yield response
 

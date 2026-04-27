@@ -172,6 +172,17 @@
     areas[areaId].activate();
 
     if (typeof areas[areaId].hydrateState === 'function') areas[areaId].hydrateState(sub);
+
+    // If the area retained internal state across navigation (e.g. chat's
+    // currentSessionId after a studio side-trip), sync the URL hash from
+    // serializeState so the address bar reflects what's actually shown.
+    if (typeof areas[areaId].serializeState === 'function') {
+      var serialized = areas[areaId].serializeState();
+      if (serialized && serialized !== sub) {
+        history.replaceState(null, '', '#' + areaId + '/' + serialized);
+        currentSub = serialized;
+      }
+    }
   }
 
   window.addEventListener('hashchange', function () {

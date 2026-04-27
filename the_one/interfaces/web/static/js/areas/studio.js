@@ -42,7 +42,7 @@ App.registerArea({
     sidebar.innerHTML =
       '<div class="studio-sidebar-header">' +
         '<span class="title">Agent Studio</span>' +
-        '<button class="new-agent-btn" data-testid="new-agent-btn" aria-label="New agent">' + App.icon('plus') + '</button>' +
+        '<button class="btn-outlined-cyan new-agent-btn" data-testid="new-agent-btn" aria-label="New agent">' + App.icon('plus') + '</button>' +
       '</div>' +
       '<div class="agent-list" role="listbox" aria-label="Agents"></div>';
 
@@ -93,7 +93,7 @@ App.registerArea({
       agentListEl.innerHTML = '';
       if (agents.length === 0 && !createMode) {
         var empty = document.createElement('div');
-        empty.className = 'agent-empty';
+        empty.className = 'empty-state agent-empty';
         empty.setAttribute('data-testid', 'agent-empty');
         empty.textContent = 'No agents yet. Click + to create one.';
         agentListEl.appendChild(empty);
@@ -102,7 +102,7 @@ App.registerArea({
       for (var i = 0; i < agents.length; i++) {
         (function (agent) {
           var el = document.createElement('div');
-          el.className = 'agent-item' + (selectedAgent && selectedAgent.name === agent.name && !createMode ? ' active' : '');
+          el.className = 'list-item agent-item' + (selectedAgent && selectedAgent.name === agent.name && !createMode ? ' active' : '');
           el.setAttribute('role', 'option');
           el.setAttribute('tabindex', '0');
           el.setAttribute('aria-selected', selectedAgent && selectedAgent.name === agent.name && !createMode ? 'true' : 'false');
@@ -116,7 +116,7 @@ App.registerArea({
 
           var delBtn = document.createElement('button');
           delBtn.type = 'button';
-          delBtn.className = 'agent-item-delete';
+          delBtn.className = 'list-item-delete agent-item-delete';
           delBtn.setAttribute('aria-label', 'Delete agent');
           delBtn.innerHTML = App.icon('x');
           delBtn.onclick = function (e) {
@@ -200,7 +200,7 @@ App.registerArea({
     // ── Editor rendering ─────────────────────────────────────────────
 
     function renderEmptyEditor() {
-      editorEl.innerHTML = '<div class="editor-empty">Select an agent or click + to create one.</div>';
+      editorEl.innerHTML = '<div class="empty-state editor-empty">Select an agent or click + to create one.</div>';
     }
 
     function renderEditor(agent) {
@@ -230,7 +230,7 @@ App.registerArea({
         html += '<span class="editor-title">New Agent</span>';
       } else {
         html += '<span class="editor-title">' + escapeHtml(cfg.name) + '</span>';
-        html += '<button class="delete-btn" data-testid="delete-agent-btn" data-name="' + escapeHtml(cfg.name) + '">Delete Agent</button>';
+        html += '<button class="btn-muted-destructive delete-btn" data-testid="delete-agent-btn" data-name="' + escapeHtml(cfg.name) + '">Delete Agent</button>';
       }
       html += '</div>';
 
@@ -286,7 +286,7 @@ App.registerArea({
 
       // Tools
       html += '<div class="editor-section"><div class="section-title">Tools</div>';
-      html += '<div class="tool-actions"><button class="tool-select-all">All</button><button class="tool-select-none">None</button></div>';
+      html += '<div class="tool-actions"><button class="btn-outlined-cyan tool-select-all">All</button><button class="btn-outlined-cyan tool-select-none">None</button></div>';
       var catKeys = Object.keys(TOOL_CATEGORIES);
       for (var c = 0; c < catKeys.length; c++) {
         var cat = catKeys[c];
@@ -340,7 +340,7 @@ App.registerArea({
       // Save button
       html += '<div class="editor-actions">';
       html += '<span class="editor-error"></span>';
-      html += '<button class="save-btn clean" data-testid="save-agent-btn">' + (isCreate ? 'Create' : 'Save') + '</button>';
+      html += '<button class="btn-filled-cyan save-btn clean" data-testid="save-agent-btn">' + (isCreate ? 'Create' : 'Save') + '</button>';
       html += '</div>';
 
       html += '</div>'; // .editor-form

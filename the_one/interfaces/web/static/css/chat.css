@@ -3,7 +3,6 @@
   .area-chat #sidebar-header { padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; }
   .area-chat .title { font-weight: var(--font-weight-bold); color: var(--accent); font-size: var(--font-size-body-lg); }
   .area-chat .sidebar-actions { display: flex; gap: 6px; align-items: center; }
-  /* "Chat History" heading + per-bucket date labels (Today / Yesterday / …). */
   .area-chat .session-list-heading { padding: 12px 16px 4px 16px; font-size: var(--font-size-caption); font-weight: var(--font-weight-semibold); color: var(--fg-muted); text-transform: uppercase; letter-spacing: 0.06em; }
   .area-chat .session-group { display: flex; flex-direction: column; }
   .area-chat .session-group-label { padding: 8px 16px 4px 16px; font-size: var(--font-size-tiny); color: var(--fg-faint); text-transform: uppercase; letter-spacing: 0.05em; }
@@ -11,39 +10,21 @@
   .area-chat .agent-select:focus { border-color: var(--accent); }
   .area-chat .agent-select:focus-visible { border-color: var(--accent); outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 3px var(--accent-glow); }
   .area-chat .session-list { flex: 1; overflow-y: auto; padding: 8px; }
-  .area-chat .session-item { padding: 8px 10px; border-radius: 6px; font-size: var(--font-size-body-sm); cursor: pointer; color: var(--fg-secondary); display: flex; align-items: center; gap: 6px; }
-  .area-chat .session-item:hover { background: var(--surface); color: var(--fg); }
-  .area-chat .session-item.active { background: var(--accent-translucent); color: var(--fg); border: 1px solid var(--accent); box-shadow: var(--panel-shadow-glow); }
   .area-chat .session-item-text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
   .area-chat .session-item-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .area-chat .session-item-agent { font-family: var(--font-family-mono); font-size: var(--font-size-tiny); color: var(--fg-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .area-chat .session-item .delete { display: none; margin-left: auto; color: var(--status-danger-muted); font-size: var(--font-size-tiny); padding: 2px 4px; flex-shrink: 0; transition: color 0.2s, filter 0.2s; }
-  .area-chat .session-item:hover .delete,
-  .area-chat .session-item:focus-within .delete { display: block; }
-  .area-chat .session-item .delete:hover { color: var(--status-danger); filter: drop-shadow(0 0 6px var(--status-danger-glow)); }
-  .area-chat .session-item .delete svg { width: 12px; height: 12px; display: block; }
-  .area-chat .session-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; box-shadow: inset 0 0 0 3px var(--accent-glow); }
-  .area-chat .session-item .delete { background: transparent; border: none; cursor: pointer; }
-  .area-chat .session-item .delete:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 3px var(--accent-glow); }
 
   /* === Chat Area: Content === */
-  /* Chrome wraps the header / messages / input. Toggled with the welcome
-     canvas via `hidden` from chat.js; both are flex columns so swapping
-     keeps content area filled. position:relative anchors the telemetry
-     overlay (lower-right). */
+  /* Chrome wraps header/messages/input; toggled with welcome via `hidden`. */
   .area-chat .chat-chrome { display: flex; flex-direction: column; flex: 1; min-height: 0; position: relative; }
   .area-chat .chat-chrome[hidden] { display: none; }
   .area-chat .header { padding: 14px 20px; font-size: var(--font-size-body-sm); color: var(--fg-tertiary); display: flex; align-items: center; gap: 12px; }
-  /* Agent name now reads as a header, not a chrome chip. */
   .area-chat .session-agent-badge { font-size: var(--font-size-h2); font-weight: var(--font-weight-semibold); color: var(--fg); padding: 0; background: transparent; border: none; border-radius: 0; }
-  /* "New Chat" button — right-justified; icon + label, start over with current agent. */
-  .area-chat .new-chat-header { margin-left: auto; background: transparent; border: 1px solid var(--accent); border-radius: var(--panel-radius-sm); padding: 4px 10px; color: var(--accent); font-size: var(--font-size-body-sm); cursor: pointer; font-family: inherit; white-space: nowrap; flex-shrink: 0; transition: background 0.2s, color 0.2s; display: inline-flex; align-items: center; gap: 6px; }
+  /* New-chat header button — layout-only override; cosmetics from .btn-outlined-cyan. */
+  .area-chat .new-chat-header { margin-left: auto; white-space: nowrap; flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; }
   .area-chat .new-chat-header svg { width: 14px; height: 14px; }
-  .area-chat .new-chat-header:hover { background: var(--accent-translucent-hover); }
-  .area-chat .new-chat-header:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 3px var(--accent-glow); }
 
-  /* Telemetry overlay — chrome-free; hover/focus expands the details
-     panel via a max-width transition and lifts opacity to 1. */
+  /* Telemetry overlay — hover/focus expands details, lifts opacity to 1. */
   .area-chat .telemetry-overlay { position: absolute; right: 20px; bottom: 76px; display: flex; align-items: center; gap: 10px; font-size: var(--font-size-caption); color: var(--fg-muted); opacity: 0.4; transition: opacity 0.25s ease; z-index: 1; }
   .area-chat .telemetry-overlay:hover,
   .area-chat .telemetry-overlay:focus-within { opacity: 1; }
@@ -76,27 +57,46 @@
   .area-chat .msg.tool { align-self: flex-start; background: var(--surface-tool); font-family: var(--font-family-mono); font-size: var(--font-size-body-sm); color: var(--fg-tool-msg); border-left: 3px solid var(--accent); }
   .area-chat .msg.tool.error { border-left-color: var(--status-danger); }
   .area-chat .msg.system { align-self: center; color: var(--fg-tertiary); font-size: var(--font-size-body-sm); }
-  /* Attribution — small label below each user / assistant bubble. */
   .area-chat .msg-attribution { font-size: var(--font-size-tiny); color: var(--fg-faint); font-family: var(--font-family-mono); letter-spacing: 0.04em; padding: 0 4px; margin-top: -6px; }
   .area-chat .msg-attribution.from-you { align-self: flex-end; }
   .area-chat .msg-attribution.from-agent { align-self: flex-start; }
+  .area-chat .msg-attribution-ts { color: var(--fg-faint); opacity: 0.75; }
   .area-chat .msg.model-loading .model-loading-dots { display: inline; font-size: var(--font-size-body-lg); }
-  /* "thinking…" indicator — assistant bubble with the same braille spinner.
-     Italic + muted to differentiate from real responses. */
   .area-chat .msg.assistant.thinking { color: var(--fg-muted); font-style: italic; }
   .area-chat .msg.assistant.thinking .model-loading-text { letter-spacing: 0.02em; }
+  /* Markdown rendering inside assistant bubbles — strip default block-level margins
+     so the leg-05 markdown integration doesn't introduce ~16px gaps from <p> defaults. */
+  .area-chat .msg.assistant > :first-child { margin-top: 0; }
+  .area-chat .msg.assistant > :last-child { margin-bottom: 0; }
+  .area-chat .msg.assistant p { margin: 0.5em 0; }
+  .area-chat .msg.assistant ul,
+  .area-chat .msg.assistant ol { margin: 0.5em 0; padding-left: 1.5em; }
+  .area-chat .msg.assistant pre {
+    margin: 0.5em 0;
+    background: #000;
+    color: var(--status-warning);
+    padding: 12px 14px;
+    border-radius: var(--panel-radius-sm);
+    overflow-x: auto;
+  }
+  .area-chat .msg.assistant pre code {
+    background: transparent;
+    color: inherit;
+    font-family: var(--font-family-mono);
+    font-size: 0.9em;
+  }
+  .area-chat .msg.assistant blockquote { margin: 0.5em 0; padding-left: 1em; border-left: 3px solid var(--border); }
+  /* Two-step delete confirm state on session items (mirrors studio.css). */
+  .area-chat .session-item.confirm-delete { border: 1px solid var(--status-danger); }
+  .area-chat .session-item.confirm-delete .session-item-title { color: var(--status-danger); }
+  .area-chat .session-item.confirm-delete .list-item-delete { color: var(--status-danger); opacity: 1; display: block; }
+  /* Input area — chat input is sized differently from shared .field-input. */
   .area-chat .input-area { padding: 16px 20px; border-top: 1px solid var(--border); display: flex; gap: 10px; }
   .area-chat .input-area input { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; color: var(--fg); font-family: inherit; font-size: var(--font-size-body-lg); outline: none; }
   .area-chat .input-area input:focus { border-color: var(--accent); }
   .area-chat .input-area input:focus-visible { border-color: var(--accent); outline: 1px solid var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
-  /* Filled-cyan primary CTA with glow */
-  .area-chat .input-area button { background: var(--accent); border: none; border-radius: 8px; padding: 10px 20px; color: var(--fg-on-accent); font-weight: var(--font-weight-semibold); cursor: pointer; font-family: inherit; box-shadow: 0 0 8px var(--accent-glow); }
-  .area-chat .input-area button:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
-  .area-chat .input-area button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 3px var(--accent-glow); }
 
   /* === Chat Area: Welcome canvas === */
-  /* Shown when there's no active session and setup is complete. Toggled via
-     `hidden` from chat.js; uses the same content-area space as .chat-chrome. */
   .area-chat .chat-welcome { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 40px 24px; overflow-y: auto; }
   .area-chat .chat-welcome[hidden] { display: none; }
   .area-chat .chat-welcome-inner { width: 100%; max-width: 520px; display: flex; flex-direction: column; gap: 8px; }
@@ -108,9 +108,7 @@
   .area-chat .chat-welcome-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; box-shadow: inset 0 0 0 3px var(--accent-glow); }
   .area-chat .chat-welcome-item-name { font-size: var(--font-size-body-lg); font-weight: var(--font-weight-semibold); }
   .area-chat .chat-welcome-item-meta { font-size: var(--font-size-caption); color: var(--fg-muted); font-family: var(--font-family-mono); }
-  .area-chat .chat-welcome-empty { padding: 16px; color: var(--fg-secondary); font-style: italic; text-align: center; }
-  /* Setup-incomplete guidance line shown inside the welcome canvas in
-     place of the agent picker. Inline links deep-link to Settings / Studio. */
+  /* Setup-incomplete guidance line — inline links deep-link to Settings / Studio. */
   .area-chat .chat-welcome-guidance { margin: 0; padding: 4px 0; color: var(--fg-secondary); font-size: var(--font-size-body-lg); line-height: var(--line-height-normal); }
   .area-chat .chat-welcome-link { color: var(--accent); text-decoration: none; border-bottom: 1px solid transparent; transition: border-color 0.15s ease; }
   .area-chat .chat-welcome-link:hover { border-bottom-color: var(--accent); }

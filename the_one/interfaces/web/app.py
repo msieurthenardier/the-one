@@ -411,8 +411,22 @@ async def _process_and_broadcast(
     max_context = session.agent.llm.max_context_tokens
 
     result_messages: list[dict[str, Any]] = []
+    # Streaming wire-up: chunks fan out via WS as `assistant_chunk` events.
+    # `chunks_seen` is a per-iteration flag that distinguishes the streaming
+    # path (chunks were broadcast → the client already has the text → skip
+    # the legacy `assistant` event) from the direct-action shortcut path
+    # (no chunks → broadcast the legacy `assistant` event so the client
+    # still renders). Reset UNCONDITIONALLY at the end of each Role.ASSISTANT
+    # block so iteration N+1 starts clean (multi-iteration agent loops).
+    chunks_seen = False
+
+    async def _broadcast_chunk(content: str) -> None:
+        nonlocal chunks_seen
+        chunks_seen = True
+        await _send_to_session(session, {"type": "assistant_chunk", "content": content})
+
     try:
-        async for msg in session.agent.step(user_input):
+        async for msg in session.agent.step(user_input, on_chunk=_broadcast_chunk):
             if msg.role == Role.ASSISTANT:
                 if msg.usage:
                     total_input += msg.usage.input_tokens
@@ -430,7 +444,12 @@ async def _process_and_broadcast(
                 if msg.content:
                     event: dict[str, Any] = {"type": "assistant", "content": msg.content}
                     session.add_event(event)
-                    await _send_to_session(session, event)
+                    if not chunks_seen:
+                        # Direct-action / non-streaming path — broadcast the
+                        # legacy event so the client still renders. When chunks
+                        # were broadcast, the client already has the text via
+                        # the chunk path; suppress the duplicate broadcast.
+                        await _send_to_session(session, event)
                 if msg.tool_calls:
                     for tc in msg.tool_calls:
                         tc_event = {"type": "tool_call", "name": tc.name, "arguments": tc.arguments}
@@ -445,6 +464,11 @@ async def _process_and_broadcast(
                         {"name": tc.name, "arguments": tc.arguments} for tc in msg.tool_calls
                     ]
                 result_messages.append(entry)
+                # UNCONDITIONAL reset at end-of-iteration. Resetting inside
+                # `if msg.content:` would skip the reset on tool-call-only
+                # iterations and incorrectly carry chunks_seen=True into
+                # iteration N+1.
+                chunks_seen = False
 
             elif msg.role == Role.TOOL and msg.tool_result:
                 tr_event = {

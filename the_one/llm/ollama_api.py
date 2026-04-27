@@ -132,6 +132,40 @@ async def show_model(base_url: str, model: str) -> dict[str, Any]:
     return result
 
 
+async def chat_stream(
+    provider_url: str, body: dict[str, Any]
+) -> AsyncIterator[dict[str, Any]]:
+    """Stream ``/v1/chat/completions`` SSE chunks from an OpenAI-compatible Ollama endpoint.
+
+    Yields parsed JSON dicts for each ``data: {...}`` line. Stops on
+    ``data: [DONE]``. Wire format is **true SSE** (``data: ...`` prefix
+    + ``[DONE]`` terminator), distinct from ``pull_model``'s JSONL.
+    """
+    url = ensure_v1(provider_url)
+    try:
+        async with httpx.AsyncClient(timeout=600) as client:
+            async with client.stream(
+                "POST", f"{url}/chat/completions", json={**body, "stream": True}
+            ) as resp:
+                resp.raise_for_status()
+                async for raw_line in resp.aiter_lines():
+                    if not raw_line:
+                        continue
+                    if not raw_line.startswith("data:"):
+                        continue
+                    payload = raw_line[len("data:"):].strip()
+                    if payload == "[DONE]":
+                        return
+                    try:
+                        yield json.loads(payload)
+                    except ValueError:
+                        continue
+    except httpx.ConnectError as exc:
+        raise ConnectionError(f"Cannot connect to Ollama at {url}: {exc}") from exc
+    except httpx.TimeoutException as exc:
+        raise ConnectionError(f"Timeout streaming from Ollama at {url}: {exc}") from exc
+
+
 async def pull_model(base_url: str, model: str) -> AsyncIterator[dict[str, Any]]:
     """Stream-pull a model via ``/api/pull``.
 

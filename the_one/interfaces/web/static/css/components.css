@@ -92,4 +92,234 @@
     border-radius: 2px;
   }
 
+  /* === List Item (sidebar/category list rows with focus-within delete reveal) === */
+  /* Sources consolidated: chat .session-item, studio .agent-item, admin .admin-category-item.
+     The legacy class names persist on emit sites for test-selector / styling-hook continuity. */
+  .list-item {
+    padding: 8px 10px;
+    border-radius: 6px;
+    font-size: var(--font-size-body-sm);
+    cursor: pointer;
+    color: var(--fg-secondary);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .list-item:hover { background: var(--surface); color: var(--fg); }
+  .list-item.active { background: var(--accent-translucent); color: var(--fg); border: 1px solid var(--accent); box-shadow: var(--panel-shadow-glow); }
+  .list-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; box-shadow: inset 0 0 0 3px var(--accent-glow); }
+
+  .list-item-delete {
+    display: none;
+    margin-left: auto;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    color: var(--status-danger-muted);
+    font-size: var(--font-size-tiny);
+    padding: 2px 4px;
+    flex-shrink: 0;
+    transition: color 0.2s, filter 0.2s;
+  }
+  .list-item:hover .list-item-delete,
+  .list-item:focus-within .list-item-delete { display: block; }
+  .list-item-delete:hover { color: var(--status-danger); filter: drop-shadow(0 0 6px var(--status-danger-glow)); }
+  .list-item-delete:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 3px var(--accent-glow); }
+  .list-item-delete svg { width: 12px; height: 12px; display: block; }
+
+  /* === Form Field Primitives (editable form rows) === */
+  /* NOTE: distinct from admin's read-only `.admin-field-row` (label 120px, value display only). */
+  .field-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+  }
+  .field-row label {
+    width: 100px;
+    font-size: var(--font-size-body-sm);
+    color: var(--fg-secondary);
+    flex-shrink: 0;
+  }
+  .field-input {
+    flex: 1;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 12px;
+    color: var(--fg);
+    font-family: inherit;
+    font-size: var(--font-size-body);
+    outline: none;
+  }
+  .field-input:focus { border-color: var(--accent); }
+  .field-input:focus-visible {
+    border-color: var(--accent);
+    outline: 1px solid var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-glow);
+  }
+  .field-textarea {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    color: var(--fg);
+    font-family: inherit;
+    font-size: var(--font-size-body);
+    outline: none;
+    resize: vertical;
+  }
+  .field-textarea:focus { border-color: var(--accent); }
+  .field-textarea:focus-visible {
+    border-color: var(--accent);
+    outline: 1px solid var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-glow);
+  }
+  /* The URL-encoded color in the data URL below is an SVG arrow exception:
+     CSS variables can't be used inside data URLs. */
+  .field-select {
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23888'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 30px;
+    cursor: pointer;
+  }
+  .field-select:focus { border-color: var(--accent); }
+  .field-select:focus-visible {
+    border-color: var(--accent);
+    outline: 1px solid var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-glow);
+  }
+  .field-select option { background: var(--surface); color: var(--fg); }
+  .field-select option:disabled { color: var(--fg-muted); }
+
+  /* === Section Title (// PREFIX) === */
+  .section-title {
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-tiny);
+    font-weight: var(--font-weight-bold);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--fg-secondary);
+    margin-bottom: 12px;
+  }
+  .section-title::before {
+    content: "//";
+    padding-right: 0.4em;
+    color: var(--accent);
+    font-weight: var(--font-weight-bold);
+  }
+
+  /* === Buttons: Outlined-Cyan (secondary affordance) === */
+  .btn-outlined-cyan {
+    background: transparent;
+    border: 1px solid var(--accent);
+    border-radius: var(--panel-radius-sm);
+    padding: 4px 10px;
+    color: var(--accent);
+    font-size: var(--font-size-body-sm);
+    cursor: pointer;
+    font-family: inherit;
+    transition: background 0.2s, color 0.2s;
+  }
+  .btn-outlined-cyan:hover { background: var(--accent-translucent-hover); }
+  .btn-outlined-cyan:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 3px var(--accent-glow); }
+  .btn-outlined-cyan:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* === Buttons: Filled-Cyan (primary CTA) === */
+  .btn-filled-cyan {
+    background: var(--accent);
+    border: none;
+    border-radius: var(--panel-radius-sm);
+    padding: 8px 24px;
+    color: var(--fg-on-accent);
+    font-weight: var(--font-weight-semibold);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: var(--font-size-body);
+    box-shadow: 0 0 8px var(--accent-glow);
+  }
+  .btn-filled-cyan:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 3px var(--accent-glow); }
+  .btn-filled-cyan:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
+
+  /* === Buttons: Muted-Destructive (delete-confirm style) === */
+  .btn-muted-destructive {
+    background: none;
+    border: 1px solid var(--status-danger-muted);
+    border-radius: var(--panel-radius-sm);
+    padding: 3px 10px;
+    color: var(--status-danger-muted);
+    font-size: var(--font-size-caption);
+    cursor: pointer;
+    font-family: inherit;
+    transition: color 0.2s, border-color 0.2s, box-shadow 0.2s;
+  }
+  .btn-muted-destructive:hover { color: var(--status-danger); border-color: var(--status-danger); box-shadow: 0 0 8px var(--status-danger-glow); }
+  .btn-muted-destructive:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 3px var(--accent-glow); }
+  .btn-muted-destructive:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* === Chip + Chip-Remove (single-use lift for vocabulary completeness) === */
+  .chip { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; font-size: var(--font-size-caption); color: var(--fg); display: inline-flex; align-items: center; gap: 6px; }
+  .chip-remove { cursor: pointer; color: var(--status-danger-muted); font-size: var(--font-size-tiny); transition: color 0.2s, filter 0.2s; background: transparent; border: none; padding: 0; }
+  .chip-remove:hover { color: var(--status-danger); filter: drop-shadow(0 0 6px var(--status-danger-glow)); }
+  .chip-remove:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 3px var(--accent-glow); }
+  .chip-remove svg { width: 10px; height: 10px; display: inline-block; vertical-align: middle; }
+
+  /* === Empty State (empty-list / empty-canvas messaging) === */
+  .empty-state {
+    padding: 16px;
+    color: var(--fg-muted);
+    font-size: var(--font-size-body);
+    text-align: center;
+  }
+
+  /* === Markdown code-block copy affordance === */
+  .markdown-code-wrap {
+    position: relative;
+  }
+  .markdown-copy-btn {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--panel-radius-sm);
+    padding: 4px 6px;
+    color: var(--fg-muted);
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s, color 0.15s, border-color 0.15s;
+  }
+  .markdown-code-wrap:hover .markdown-copy-btn,
+  .markdown-code-wrap:focus-within .markdown-copy-btn {
+    opacity: 1;
+  }
+  .markdown-copy-btn:hover {
+    opacity: 1;
+    color: var(--fg);
+    border-color: var(--accent);
+  }
+  .markdown-copy-btn:focus-visible {
+    opacity: 1;
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 3px var(--accent-glow);
+  }
+  .markdown-copy-btn svg {
+    width: 14px;
+    height: 14px;
+    display: block;
+  }
+
+}
+
+@layer utilities {
+  /* Utility classes — !important wins over @layer components / @layer areas
+     by design (utility is the explicit override). */
+  .is-hidden { display: none !important; }
+  .u-flex { display: flex !important; }
+  .u-block { display: block !important; }
 }
