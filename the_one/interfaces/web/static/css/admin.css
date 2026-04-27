@@ -1,0 +1,179 @@
+@layer areas {
+  /* === Admin Area: Sidebar === */
+  .area-admin .admin-sidebar-header { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; }
+  .area-admin .admin-sidebar-header .title { font-weight: var(--font-weight-bold); color: var(--accent); font-size: var(--font-size-body-lg); }
+  .area-admin .admin-category-list { flex: 1; overflow-y: auto; padding: 8px; }
+  .area-admin .admin-category-item { padding: 8px 10px; border-radius: 6px; font-size: var(--font-size-body-sm); cursor: pointer; color: var(--fg-secondary); display: flex; align-items: center; gap: 6px; }
+  .area-admin .admin-category-item:hover { background: var(--surface); color: var(--fg); }
+  .area-admin .admin-category-item.active { background: var(--accent-translucent); color: var(--fg); border: 1px solid var(--accent); box-shadow: var(--panel-shadow-glow); }
+  .area-admin .admin-category-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* font-size 9px is intentionally smaller than --font-size-tiny (10px) — admin
+     category badges sit beside denser text and need to recede further. Kept literal. */
+  .area-admin .admin-category-badge { font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--fg-muted); background: var(--border); border-radius: 4px; padding: 2px 6px; flex-shrink: 0; }
+
+  /* === Admin Area: Content === */
+  .area-admin .admin-content { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
+  .area-admin .admin-header { padding: 12px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; flex-shrink: 0; }
+  .area-admin .admin-title { font-weight: var(--font-weight-bold); font-size: var(--font-size-h2); color: var(--fg); }
+  .area-admin .admin-form { flex: 1; overflow-y: auto; padding: 16px 20px 40px; }
+  .area-admin .admin-loading { color: var(--fg-muted); font-size: var(--font-size-body); padding: 20px 0; }
+  .area-admin .admin-note { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; font-size: var(--font-size-body-sm); color: var(--fg-secondary); margin-bottom: 16px; line-height: var(--line-height-normal); }
+  .area-admin .admin-section { padding: 16px 0; border-top: 1px solid var(--border); }
+  .area-admin .admin-section:first-of-type { border-top: none; padding-top: 0; }
+  .area-admin .admin-section-title { font-family: var(--font-family-mono); font-size: var(--font-size-tiny); font-weight: var(--font-weight-bold); text-transform: uppercase; letter-spacing: 1px; color: var(--fg-secondary); margin-bottom: 12px; }
+  .area-admin .admin-section-title::before { content: "//"; padding-right: 0.4em; color: var(--accent); font-weight: var(--font-weight-bold); }
+  .area-admin .admin-field-row { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+  .area-admin .admin-field-label { width: 120px; font-size: var(--font-size-body-sm); color: var(--fg-secondary); flex-shrink: 0; }
+  .area-admin .admin-field-value { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; color: var(--fg); font-size: var(--font-size-body); font-family: inherit; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .area-admin .admin-field-not-set { color: var(--fg-muted); font-style: italic; }
+  .area-admin .admin-field-env { font-family: var(--font-family-mono); font-size: var(--font-size-tiny); color: var(--fg-faint); flex-shrink: 0; min-width: 180px; }
+  .area-admin .admin-placeholder { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; }
+  .area-admin .admin-placeholder-title { font-size: var(--font-size-h2); font-weight: var(--font-weight-bold); color: var(--fg); }
+  .area-admin .admin-placeholder-text { font-size: var(--font-size-body-lg); color: var(--fg-muted); }
+
+  /* === Admin Area: Flash (uses shared .app-flash) === */
+
+  /* === Admin Area: System Panel === */
+  .area-admin .admin-system-section { padding: 0; }
+  .area-admin .admin-system-text { font-size: var(--font-size-body); color: var(--fg-secondary); line-height: var(--line-height-normal); margin-bottom: 12px; }
+  .area-admin .admin-system-warning { background: var(--status-warning-bg-soft-2); border: 1px solid var(--status-warning-border); border-radius: 6px; padding: 10px 14px; font-size: var(--font-size-body-sm); color: var(--status-warning); line-height: var(--line-height-normal); margin-bottom: 16px; }
+  .area-admin .admin-system-btn { background: none; border: 1px solid var(--border); border-radius: 6px; padding: 8px 20px; color: var(--fg-secondary); font-size: var(--font-size-body); cursor: pointer; font-family: inherit; transition: background 0.2s, color 0.2s, border-color 0.2s; }
+  .area-admin .admin-system-btn:hover { color: var(--fg); border-color: var(--border-strong); }
+  .area-admin .admin-system-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .area-admin .admin-system-btn.admin-system-btn-confirm { background: var(--status-danger); color: var(--fg-on-danger); border-color: var(--status-danger); font-weight: var(--font-weight-semibold); }
+  .area-admin .admin-system-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 3px var(--accent-glow); }
+  .area-admin .admin-system-flash { margin-top: 12px; font-size: var(--font-size-body-sm); min-height: 20px; }
+  .area-admin .admin-system-flash.success { color: var(--status-success); font-weight: var(--font-weight-semibold); }
+  .area-admin .admin-system-flash.error { color: var(--status-danger); }
+  .area-admin .admin-theme-toggle { display: inline-flex; border: 1px solid var(--border); border-radius: var(--panel-radius-sm); padding: 2px; background: var(--surface); }
+  .area-admin .admin-theme-option { background: transparent; border: none; padding: 6px 16px; color: var(--fg-secondary); font-size: var(--font-size-body-sm); font-family: inherit; cursor: pointer; border-radius: 4px; transition: background 0.2s, color 0.2s, box-shadow 0.2s; }
+  .area-admin .admin-theme-option:hover { color: var(--fg); }
+  .area-admin .admin-theme-option.active { background: var(--accent); color: var(--fg-on-accent); font-weight: var(--font-weight-semibold); box-shadow: 0 0 8px var(--accent-glow); }
+  .area-admin .admin-theme-option:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 3px var(--accent-glow); }
+
+  /* === Admin Area: Provider List === */
+  /* Outlined-cyan creation/affordance button */
+  .area-admin .admin-provider-add-btn { margin-left: auto; background: transparent; border: 1px solid var(--accent); border-radius: var(--panel-radius-sm); padding: 4px 12px; color: var(--accent); font-size: var(--font-size-body-sm); cursor: pointer; font-family: inherit; transition: background 0.2s, color 0.2s; }
+  .area-admin .admin-provider-add-btn:hover { background: var(--accent-translucent-hover); }
+  .area-admin .admin-provider-list { flex: 1; overflow-y: auto; padding: 16px 20px; }
+  .area-admin .admin-provider-empty { color: var(--fg-muted); font-size: var(--font-size-body); padding: 20px 0; text-align: center; }
+  .area-admin .admin-provider-card { display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: var(--surface-translucent); border: 1px solid var(--border); border-radius: var(--panel-radius); margin-bottom: 8px; box-shadow: var(--panel-shadow); transition: border-color 0.2s, box-shadow 0.2s; }
+  .area-admin .admin-provider-card:hover { border-color: var(--accent); box-shadow: var(--panel-shadow-glow); }
+  .area-admin .admin-provider-badge { font-family: var(--font-family-mono); font-size: var(--font-size-tiny); font-weight: var(--font-weight-semibold); color: var(--fg-on-accent); padding: 2px 8px; border-radius: 4px; flex-shrink: 0; text-transform: uppercase; letter-spacing: 0.5px; }
+  .area-admin .admin-provider-name { flex: 1; font-size: var(--font-size-body); color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .area-admin .admin-provider-actions { display: flex; gap: 6px; flex-shrink: 0; }
+  /* Edit — outlined cyan, creation/affordance accent */
+  .area-admin .admin-provider-edit-btn { background: transparent; border: 1px solid var(--accent); border-radius: var(--panel-radius-sm); padding: 3px 10px; color: var(--accent); font-size: var(--font-size-caption); cursor: pointer; font-family: inherit; transition: background 0.2s, color 0.2s; }
+  .area-admin .admin-provider-edit-btn:hover { background: var(--accent-translucent-hover); }
+  /* Delete — neutral default, danger hover (UNCHANGED behavior; rule split from edit) */
+  .area-admin .admin-provider-delete-btn { background: none; border: 1px solid var(--status-danger-muted); border-radius: var(--panel-radius-sm); padding: 3px 10px; color: var(--status-danger-muted); font-size: var(--font-size-caption); cursor: pointer; font-family: inherit; transition: color 0.2s, border-color 0.2s, box-shadow 0.2s; }
+  .area-admin .admin-provider-delete-btn:hover { color: var(--status-danger); border-color: var(--status-danger); box-shadow: 0 0 8px var(--status-danger-glow); }
+  .area-admin .admin-provider-delete-btn.admin-provider-delete-confirm { background: var(--status-danger); color: var(--fg-on-danger); border-color: var(--status-danger); font-weight: var(--font-weight-semibold); }
+
+  /* === Admin Area: Focus Styles (cyan glow ring) === */
+  .area-admin .admin-provider-add-btn:focus-visible,
+  .area-admin .admin-provider-edit-btn:focus-visible,
+  .area-admin .admin-provider-delete-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 3px var(--accent-glow); }
+  .area-admin .admin-pf-input:focus-visible { border-color: var(--accent); outline: 1px solid var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+  .area-admin .admin-pf-select:focus-visible { border-color: var(--accent); outline: 1px solid var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+  .area-admin .admin-pf-eye:focus-visible,
+  .area-admin .admin-pf-cancel:focus-visible,
+  .area-admin .admin-pf-save:focus-visible,
+  .area-admin .admin-pf-test:focus-visible,
+  .area-admin .admin-pf-models-refresh:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 3px var(--accent-glow); }
+  .area-admin .admin-category-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; box-shadow: inset 0 0 0 3px var(--accent-glow); }
+
+  /* === Admin Area: Provider Form === */
+  .area-admin .admin-provider-form { flex: 1; overflow-y: auto; padding: 16px 20px 40px; }
+  .area-admin .admin-pf-row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+  .area-admin .admin-pf-label { width: 100px; font-size: var(--font-size-body-sm); color: var(--fg-secondary); flex-shrink: 0; }
+  .area-admin .admin-pf-input { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; color: var(--fg); font-family: inherit; font-size: var(--font-size-body); outline: none; }
+  .area-admin .admin-pf-input:focus { border-color: var(--accent); }
+  .area-admin .admin-pf-select { cursor: pointer; }
+  .area-admin .admin-pf-password-wrap { flex: 1; display: flex; gap: 6px; align-items: center; }
+  .area-admin .admin-pf-password-wrap .admin-pf-input { flex: 1; }
+  .area-admin .admin-pf-eye { background: none; border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; color: var(--fg-secondary); font-size: var(--font-size-tiny); cursor: pointer; font-family: inherit; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+  .area-admin .admin-pf-eye:hover { color: var(--fg); border-color: var(--border-strong); }
+  .area-admin .admin-pf-eye svg { width: 14px; height: 14px; display: block; }
+  .area-admin .admin-pf-actions { display: flex; align-items: center; gap: 10px; padding: 16px 0; border-top: 1px solid var(--border); margin-top: 8px; }
+  .area-admin .admin-pf-error { color: var(--status-danger); font-size: var(--font-size-body-sm); flex: 1; }
+  /* Outlined-cyan creation/affordance button (cancel = secondary affordance) */
+  .area-admin .admin-pf-cancel { background: transparent; border: 1px solid var(--accent); border-radius: var(--panel-radius-sm); padding: 6px 16px; color: var(--accent); font-size: var(--font-size-body-sm); cursor: pointer; font-family: inherit; transition: background 0.2s, color 0.2s; }
+  .area-admin .admin-pf-cancel:hover { background: var(--accent-translucent-hover); }
+  /* Filled-cyan primary CTA with glow */
+  .area-admin .admin-pf-save { background: var(--accent); border: none; border-radius: var(--panel-radius-sm); padding: 8px 24px; color: var(--fg-on-accent); font-weight: var(--font-weight-semibold); cursor: pointer; font-family: inherit; font-size: var(--font-size-body); box-shadow: 0 0 8px var(--accent-glow); }
+  /* Deliberate exception: .admin-pf-test keeps solid-fill hover (more aggressive
+     confirmation-moment affordance than other outlined-cyan buttons). */
+  .area-admin .admin-pf-test { background: none; border: 1px solid var(--accent); border-radius: var(--panel-radius-sm); padding: 6px 16px; color: var(--accent); font-size: var(--font-size-body-sm); cursor: pointer; font-family: inherit; }
+  .area-admin .admin-pf-test:hover { background: var(--accent); color: var(--fg-on-accent); }
+  .area-admin .admin-pf-test:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* === Admin Area: Test Result === */
+  .area-admin .admin-pf-test-result { padding: 8px 0; min-height: 24px; }
+  .area-admin .admin-pf-testing { color: var(--fg-secondary); font-size: var(--font-size-body-sm); }
+  .area-admin .admin-pf-test-ok { color: var(--status-success); font-size: var(--font-size-body-sm); font-weight: var(--font-weight-semibold); }
+  .area-admin .admin-pf-test-fail { color: var(--status-danger); font-size: var(--font-size-body-sm); }
+
+  /* === Admin Area: Model List === */
+  .area-admin .admin-pf-models { border-top: 1px solid var(--border); padding-top: 12px; }
+  .area-admin .admin-pf-models-header { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+  .area-admin .admin-pf-models-title { font-family: var(--font-family-mono); font-size: var(--font-size-tiny); text-transform: uppercase; letter-spacing: 1px; color: var(--fg-muted); }
+  .area-admin .admin-pf-models-title::before { content: "//"; padding-right: 0.4em; color: var(--accent); opacity: 0.6; font-weight: var(--font-weight-semibold); }
+  .area-admin .admin-pf-models-refresh { background: none; border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px; color: var(--fg-secondary); font-size: var(--font-size-tiny); cursor: pointer; font-family: inherit; }
+  .area-admin .admin-pf-models-refresh:hover { color: var(--fg); border-color: var(--border-strong); }
+  .area-admin .admin-pf-models-list { max-height: 240px; overflow-y: auto; border-radius: var(--panel-radius); }
+  .area-admin .admin-pf-models-empty { color: var(--fg-muted); font-size: var(--font-size-body-sm); }
+  .area-admin .admin-pf-model-item { padding: 4px 8px; font-size: var(--font-size-body-sm); color: var(--fg); border-bottom: 1px solid var(--border); }
+  .area-admin .admin-pf-model-item:last-child { border-bottom: none; }
+
+  /* === Admin Area: Ollama Lifecycle Panel === */
+  .area-admin .admin-pf-vram-summary { font-family: var(--font-family-mono); font-size: var(--font-size-body-sm); color: var(--fg-secondary); padding: 8px 0 4px; }
+  .area-admin .admin-pf-vram-value { color: var(--accent); font-weight: var(--font-weight-semibold); }
+  .area-admin .admin-pf-section-label { font-family: var(--font-family-mono); font-size: var(--font-size-tiny); text-transform: uppercase; letter-spacing: 1px; color: var(--fg-muted); padding: 10px 0 4px; }
+  .area-admin .admin-pf-section-label::before { content: "//"; padding-right: 0.4em; color: var(--accent); opacity: 0.6; font-weight: var(--font-weight-semibold); }
+  .area-admin .admin-pf-model-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-bottom: 1px solid var(--border); position: relative; }
+  .area-admin .admin-pf-model-row:last-child { border-bottom: none; }
+  .area-admin .admin-pf-model-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--fg-muted); flex-shrink: 0; }
+  .area-admin .admin-pf-model-dot.loaded { background: var(--status-success); box-shadow: 0 0 6px var(--status-success-glow); }
+  .area-admin .admin-pf-model-name { flex: 1; font-family: var(--font-family-mono); font-size: var(--font-size-body-sm); color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .area-admin .admin-pf-model-size { font-family: var(--font-family-mono); font-size: var(--font-size-caption); color: var(--fg-secondary); flex-shrink: 0; min-width: 60px; text-align: right; }
+  .area-admin .admin-pf-model-actions { display: flex; gap: 4px; flex-shrink: 0; }
+  .area-admin .admin-pf-model-btn { background: none; border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px; color: var(--fg-secondary); font-size: var(--font-size-tiny); cursor: pointer; font-family: inherit; }
+  .area-admin .admin-pf-model-btn:hover { color: var(--fg); border-color: var(--border-strong); }
+  .area-admin .admin-pf-model-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .area-admin .admin-pf-model-delete { color: var(--status-danger-muted); border-color: var(--status-danger-muted); transition: color 0.2s, border-color 0.2s, box-shadow 0.2s; }
+  .area-admin .admin-pf-model-delete:hover { color: var(--status-danger); border-color: var(--status-danger); box-shadow: 0 0 8px var(--status-danger-glow); }
+  .area-admin .admin-pf-model-delete.admin-pf-model-delete-confirm { background: var(--status-danger); color: var(--fg-on-danger); border-color: var(--status-danger); font-weight: var(--font-weight-semibold); }
+  .area-admin .admin-pf-model-error { font-size: var(--font-size-tiny); color: var(--status-danger); padding: 2px 0; width: 100%; }
+
+  /* === Admin Area: Pull UI === */
+  .area-admin .admin-pf-pull-btn { background: none; border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px; color: var(--fg-secondary); font-size: var(--font-size-tiny); cursor: pointer; font-family: inherit; margin-left: auto; }
+  .area-admin .admin-pf-pull-btn:hover { color: var(--fg); border-color: var(--border-strong); }
+  .area-admin .admin-pf-pull-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .area-admin .admin-pf-pull-input { display: flex; align-items: center; gap: 8px; padding: 8px 0; }
+  .area-admin .admin-pf-pull-search-wrap { flex: 1; position: relative; }
+  .area-admin .admin-pf-pull-name { width: 100%; }
+  .area-admin .admin-pf-pull-suggestions { position: absolute; top: 100%; left: 0; right: 0; max-height: 240px; overflow-y: auto; background: var(--surface); border: 1px solid var(--border); border-top: none; border-radius: 0 0 6px 6px; z-index: 10; }
+  .area-admin .admin-pf-pull-suggestion { padding: 6px 12px; font-size: var(--font-size-body-sm); color: var(--fg); cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+  .area-admin .admin-pf-pull-suggestion:hover { background: var(--accent); color: var(--fg-on-accent); }
+  .area-admin .admin-pf-pull-suggestion-size { font-size: var(--font-size-tiny); color: var(--fg-secondary); }
+  .area-admin .admin-pf-pull-suggestion:hover .admin-pf-pull-suggestion-size { color: var(--fg-on-accent-muted); }
+  /* Filled-cyan primary CTA with glow */
+  .area-admin .admin-pf-pull-go { background: var(--accent); border: none; border-radius: var(--panel-radius-sm); padding: 6px 14px; color: var(--fg-on-accent); font-weight: var(--font-weight-semibold); font-size: var(--font-size-caption); cursor: pointer; font-family: inherit; flex-shrink: 0; box-shadow: 0 0 8px var(--accent-glow); }
+  .area-admin .admin-pf-pull-go:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
+  .area-admin .admin-pf-pull-progress { display: flex; align-items: center; gap: 10px; padding: 6px 0; height: 28px; background: var(--surface); border-radius: 4px; overflow: hidden; position: relative; }
+  .area-admin .admin-pf-pull-fill { position: absolute; top: 0; left: 0; height: 100%; background: var(--accent); opacity: 0.15; transition: width 0.3s ease; border-radius: 4px; }
+  .area-admin .admin-pf-pull-text { position: relative; font-size: var(--font-size-caption); color: var(--fg); padding: 0 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; z-index: 1; flex: 1; }
+  .area-admin .admin-pf-pull-cancel { position: relative; z-index: 1; background: none; border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px; color: var(--fg-secondary); font-size: var(--font-size-caption); cursor: pointer; font-family: inherit; flex-shrink: 0; margin-right: 6px; }
+  .area-admin .admin-pf-pull-cancel:hover { color: var(--status-danger); border-color: var(--status-danger); }
+  .area-admin .admin-pf-pull-cancel svg { width: 12px; height: 12px; display: block; }
+  .area-admin .admin-pf-pull-error { font-size: var(--font-size-caption); color: var(--status-danger); padding: 4px 0; }
+
+  /* === Admin Area: Provider Type Badges (per-type — replaces JS-side TYPE_BADGE_COLORS) === */
+  .area-admin .admin-provider-badge--ollama { background: var(--badge-ollama); }
+  .area-admin .admin-provider-badge--openai-compatible { background: var(--badge-openai-compatible); }
+  .area-admin .admin-provider-badge--openai { background: var(--badge-openai); }
+  .area-admin .admin-provider-badge--anthropic { background: var(--badge-anthropic); }
+  .area-admin .admin-provider-badge--mock { background: var(--badge-mock); }
+  .area-admin .admin-provider-badge--unknown { background: var(--badge-unknown); }
+}

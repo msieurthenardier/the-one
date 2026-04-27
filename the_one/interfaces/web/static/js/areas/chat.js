@@ -1,7 +1,7 @@
 App.registerArea({
   id: 'chat',
   label: 'Chat',
-  icon: '\uD83D\uDCAC',
+  icon: App.icons.chat,
   order: 10,
 
   init: function (sidebar, content) {
@@ -146,7 +146,7 @@ App.registerArea({
 
           var delBtn = document.createElement('span');
           delBtn.className = 'delete';
-          delBtn.textContent = '\u2715';
+          delBtn.innerHTML = App.icon('x');
           delBtn.onclick = function (e) {
             e.stopPropagation();
             ws.send(JSON.stringify({ action: 'delete_session', session_id: s.id }));
@@ -216,6 +216,7 @@ App.registerArea({
               bannerEl = document.createElement('div');
               bannerEl.className = 'chat-no-providers';
               bannerEl.setAttribute('data-testid', 'setup-banner');
+              bannerEl.setAttribute('role', 'status');
               messagesEl.parentNode.insertBefore(bannerEl, messagesEl);
             }
             bannerEl.textContent = msg;
@@ -243,6 +244,7 @@ App.registerArea({
         if (!sessionBannerEl) {
           sessionBannerEl = document.createElement('div');
           sessionBannerEl.className = 'chat-session-banner';
+          sessionBannerEl.setAttribute('role', 'status');
           // Position directly above the input area so the banner explains
           // exactly why the input below it is disabled.
           var inputArea = content.querySelector('.input-area');

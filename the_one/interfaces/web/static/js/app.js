@@ -1,4 +1,4 @@
-var App = (function () {
+(function () {
   var areas = {};
   var order = [];
   var currentId = null;
@@ -18,7 +18,7 @@ var App = (function () {
       var el = document.createElement('div');
       el.className = 'nav-item';
       el.dataset.area = a.id;
-      el.textContent = a.icon;
+      el.innerHTML = a.icon;
       el.title = a.label;
       el.addEventListener('click', (function (id) {
         return function () { location.hash = id; };
@@ -125,5 +125,12 @@ var App = (function () {
     }, 2000);
   }
 
-  return { registerArea: registerArea, escapeHtml: escapeHtml, escapeAttr: escapeAttr, formatBytes: formatBytes, showFlash: showFlash };
+  window.App = window.App || {};
+  Object.assign(window.App, {
+    registerArea: registerArea,
+    escapeHtml: escapeHtml,
+    escapeAttr: escapeAttr,
+    formatBytes: formatBytes,
+    showFlash: showFlash,
+  });
 })();

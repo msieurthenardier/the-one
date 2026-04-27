@@ -21,7 +21,7 @@ dependencies = [
 openai = ["openai>=1.0"]
 anthropic = ["anthropic>=0.40"]
 all-llms = ["openai>=1.0", "anthropic>=0.40"]
-dev = ["pytest>=8.0", "pytest-asyncio>=0.24", "ruff>=0.6", "playwright>=1.48"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.24", "ruff>=0.6", "playwright>=1.48", "pytest-playwright>=0.5", "pillow>=10.0", "pixelmatch>=0.3"]
 
 [project.scripts]
 the-one = "the_one.main:cli_entry"
