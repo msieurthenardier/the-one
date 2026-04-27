@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 from typing import Any
 
-from the_one.llm.base import LLMProvider, Message, TokenUsage, ToolCall
+from the_one.llm.base import LLMProvider, Message, StreamChunk, TokenUsage, ToolCall
 from the_one.llm.registry import register_provider
 
 _DEFAULT_RESPONSE = {"content": "Mock response from the mock provider."}
@@ -21,10 +22,15 @@ class MockProvider(LLMProvider):
                 "tool_calls": [
                     {"id": "1", "name": "tool_a", "arguments": {"x": 1}}
                 ]
-            }
+            },
+            "stream_chunks": ["Hello, ", "world", "!"], # optional; if set, stream() yields each
+            "delay_ms": 200,                            # optional; latency between chunks (and on complete)
         }
 
     If ``response`` is not set, returns a fixed default content.
+    If ``stream_chunks`` is unset/empty, ``stream`` falls back to the default
+    one-chunk-equals-complete-output path (mirrors the base class default impl
+    but expressed inline for clarity — no async-generator delegation overhead).
 
     Gated at the API layer by ``THE_ONE_DEV_MODE`` — this class itself does
     not check the env var; it trusts that the only callers are paths that
@@ -69,6 +75,64 @@ class MockProvider(LLMProvider):
             content=content,
             tool_calls=tool_calls,
             usage=TokenUsage(input_tokens=0, output_tokens=len(content.split())),
+        )
+
+    async def stream(
+        self,
+        messages: list[Message],
+        tools: list[dict[str, Any]] | None = None,
+        temperature: float = 0.0,
+        max_tokens: int = 16384,
+    ) -> AsyncIterator[StreamChunk]:
+        """Streaming implementation honouring ``config['stream_chunks']``.
+
+        When ``stream_chunks`` is set (non-empty list), yields each chunk with
+        ``delay_ms`` between chunks; the final chunk synthesises a Message
+        with the accumulated content + the configured ``response.tool_calls``.
+        When ``stream_chunks`` is unset/empty, falls back to the default-impl
+        path: call ``self.complete()``, yield one final chunk. This mirrors
+        the base class default (NOT a ``super().stream(...)`` delegation —
+        we inline for clarity).
+        """
+        stream_chunks = self.config.get("stream_chunks") or []
+        if not stream_chunks:
+            # Default-impl path: one chunk = full content (mirrors complete()).
+            msg = await self.complete(messages, tools, temperature, max_tokens)
+            yield StreamChunk(
+                content=msg.content,
+                is_final=True,
+                tool_calls=msg.tool_calls,
+                usage=msg.usage,
+                message=msg,
+            )
+            return
+
+        delay_ms = self.config.get("delay_ms", 0)
+        response = self.config.get("response", _DEFAULT_RESPONSE)
+        tool_calls = [
+            ToolCall(id=tc["id"], name=tc["name"], arguments=tc.get("arguments", {}))
+            for tc in response.get("tool_calls", [])
+        ]
+        accumulated = ""
+        for i, chunk_text in enumerate(stream_chunks):
+            if delay_ms and i > 0:
+                await asyncio.sleep(delay_ms / 1000)
+            accumulated += chunk_text
+            yield StreamChunk(content=chunk_text, is_final=False)
+
+        # Final chunk — synthesize the Message
+        usage = TokenUsage(input_tokens=0, output_tokens=len(accumulated.split()))
+        msg = Message.assistant(
+            content=accumulated,
+            tool_calls=tool_calls,
+            usage=usage,
+        )
+        yield StreamChunk(
+            content="",
+            is_final=True,
+            tool_calls=tool_calls,
+            usage=usage,
+            message=msg,
         )
 
 

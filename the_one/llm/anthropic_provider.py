@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import os
+from collections.abc import AsyncIterator
 from typing import Any
 
 import anthropic
 
-from the_one.llm.base import LLMProvider, Message, Role, TokenUsage, ToolCall
+from the_one.llm.base import LLMProvider, Message, Role, StreamChunk, TokenUsage, ToolCall
 from the_one.llm.registry import register_provider
 
 
@@ -19,13 +20,13 @@ class AnthropicProvider(LLMProvider):
             api_key=api_key or os.environ.get("ANTHROPIC_API_KEY")
         )
 
-    async def complete(
+    def _build_kwargs(
         self,
         messages: list[Message],
-        tools: list[dict[str, Any]] | None = None,
-        temperature: float = 0.0,
-        max_tokens: int = 16384,
-    ) -> Message:
+        tools: list[dict[str, Any]] | None,
+        temperature: float,
+        max_tokens: int,
+    ) -> dict[str, Any]:
         system_prompt = ""
         api_messages = []
         for m in messages:
@@ -44,6 +45,16 @@ class AnthropicProvider(LLMProvider):
             kwargs["system"] = system_prompt
         if tools:
             kwargs["tools"] = [self._to_anthropic_tool(t) for t in tools]
+        return kwargs
+
+    async def complete(
+        self,
+        messages: list[Message],
+        tools: list[dict[str, Any]] | None = None,
+        temperature: float = 0.0,
+        max_tokens: int = 16384,
+    ) -> Message:
+        kwargs = self._build_kwargs(messages, tools, temperature, max_tokens)
 
         try:
             response = await self.client.messages.create(**kwargs)
@@ -74,6 +85,67 @@ class AnthropicProvider(LLMProvider):
             )
 
         return Message.assistant(content=content, tool_calls=tool_calls, usage=usage)
+
+    async def stream(
+        self,
+        messages: list[Message],
+        tools: list[dict[str, Any]] | None = None,
+        temperature: float = 0.0,
+        max_tokens: int = 16384,
+    ) -> AsyncIterator[StreamChunk]:
+        """Native Anthropic streaming via ``client.messages.stream``.
+
+        Ports the F3 ``BadRequestError`` temperature-retry from ``complete()``.
+        The retry is gated by ``yielded_any``: once any chunk has been
+        emitted, retrying would duplicate output to the consumer. In
+        practice, Anthropic raises BadRequestError on request submission
+        (before any text deltas), so the gate is defence-in-depth.
+        """
+        kwargs = self._build_kwargs(messages, tools, temperature, max_tokens)
+        yielded_any = False
+        try:
+            async for chunk in self._stream_inner(kwargs):
+                yielded_any = True
+                yield chunk
+        except anthropic.BadRequestError as exc:
+            if not yielded_any and "temperature" in str(exc).lower():
+                kwargs.pop("temperature", None)
+                async for chunk in self._stream_inner(kwargs):
+                    yield chunk
+            else:
+                raise
+
+    async def _stream_inner(self, kwargs: dict[str, Any]) -> AsyncIterator[StreamChunk]:
+        async with self.client.messages.stream(**kwargs) as stream:
+            async for text in stream.text_stream:
+                yield StreamChunk(content=text, is_final=False)
+            final = await stream.get_final_message()
+
+        content = ""
+        tool_calls: list[ToolCall] = []
+        for block in final.content:
+            if block.type == "text":
+                content += block.text
+            elif block.type == "tool_use":
+                tool_calls.append(
+                    ToolCall(id=block.id, name=block.name, arguments=block.input)
+                )
+
+        usage = None
+        if final.usage:
+            usage = TokenUsage(
+                input_tokens=final.usage.input_tokens,
+                output_tokens=final.usage.output_tokens,
+            )
+
+        msg = Message.assistant(content=content, tool_calls=tool_calls, usage=usage)
+        yield StreamChunk(
+            content="",
+            is_final=True,
+            tool_calls=tool_calls,
+            usage=usage,
+            message=msg,
+        )
 
     def _to_anthropic_tool(self, tool_def: dict[str, Any]) -> dict[str, Any]:
         return {

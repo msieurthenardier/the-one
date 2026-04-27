@@ -101,6 +101,33 @@ Providers are lazy-loaded on first `get_provider(name)` call. Each converts mess
 
 Both use `AgentFactory.create()` to get agents. The web app adds session management.
 
+### App.chat helpers
+
+The chat area's pure-helper layer lives at `the_one/interfaces/web/static/js/areas/chat/`. Each file is its own IIFE that attaches functions to `window.App.chat`; `chat.js` (the orchestrator) consumes them via the namespace and owns all closure state. A 3-line `App.markdown = {}` stub at `static/js/markdown.js` is loaded ahead of the chat helpers; flight F4 leg 03 replaces it with the real markdown library.
+
+**Pure** (take inputs, return DOM):
+
+- `App.chat.welcomeLink(text, areaId) → <a>`
+- `App.chat.startOfDay(d) → number`
+- `App.chat.bucketForSession(s, nowDay) → BucketLabel`
+- `App.chat.fmtTokens(n) → string`
+- `App.chat.renderMessage(cls, text, opts) → <div.msg>` — `opts.renderMarkdown: bool` is reserved for the markdown integration (leg 05). The flight spec's `(cls, text, attribution, opts)` shape is split into two functions: `renderMessage` (returns the bubble) plus `renderAttribution` (separate label). Leg 05's wire-up calls them as a pair, not as a single combined invocation.
+- `App.chat.renderAttribution(side, text) → <div.msg-attribution>` — `side` is `'from-you'` (user) or `'from-agent'` (everything else); caller-determined.
+- `App.chat.renderTelemetry() → <div.telemetry-overlay>` — returns the full overlay DOM (`.telemetry-summary`, `.context-bar-wrap` / `.context-bar`, `.t-ctx-pct`, `.telemetry-details`, the three `in:` / `out:` / `ctx:` rows). Built via `document.createElement` calls (not innerHTML) and preserves the F2/F3 `tabindex="0"` / `role="status"` / `aria-label="Token usage"` attributes verbatim.
+- `App.chat.updateTelemetry(chromeContent, data)` — mutates the `.t-in` / `.t-out` / `.t-ctx` / `.t-ctx-pct` slots and the `.context-bar` width/class under the chrome content element.
+- `App.chat.createThinking() → <div.msg.thinking>` — returns an element that owns its dot-animation interval (`el._dotTimer`); `THINKING_FRAMES` is module-private inside `thinking-indicator.js`.
+- `App.chat.removeThinking(el)` — idempotent (no-op on null/undefined); clears the interval and removes the element from its parent.
+
+**Callback-injected** (closure references replaced with explicit callbacks):
+
+- `App.chat.renderWelcomeList(welcomeEl, welcomeListEl, agents, setupState, callbacks)` — `callbacks = { onStart: function(agentName) }`. (No `onLink` — `welcomeLink` returns `<a href>` and the browser handles navigation.)
+- `App.chat.renderSessionList(sessionListEl, sessions, currentSessionId, callbacks)` — `callbacks = { onJoin: function(id), onDelete: function(id, btn) }`.
+- `App.chat.buildSessionItem(session, currentSessionId, callbacks)` — same callbacks shape.
+
+The orchestrator (`chat.js`) owns closure state — `ws`, `currentSessionId`, `currentAgentName`, `pendingJoinId`, `availableAgents`, `setupState`, the WS lifecycle, the welcome-listbox roving-tabindex keydown handler, and the system-message `Loading model...` / `Model loaded.` flow. It wires WS events to helpers via the callbacks above.
+
+Load order (set in `index.html`): `app.js` → `icons.js` → `markdown.js` → `areas/chat/welcome.js` → `areas/chat/history-buckets.js` → `areas/chat/message-bubble.js` → `areas/chat/telemetry-overlay.js` → `areas/chat/thinking-indicator.js` → `areas/chat.js` → `areas/studio.js` → `areas/admin.js`. Helpers MUST load before `chat.js` because the orchestrator calls `App.chat.renderTelemetry()` synchronously during `init`.
+
 ---
 
 ## Dependency Graph
@@ -219,6 +246,27 @@ The interface uses six recurring affordance patterns. Each is identifiable by it
 5. **Neutral utility** — small, non-categorical action with no surrounding chrome. Pattern: background transparent, text `var(--fg-secondary)`, hover text `var(--fg)`, no border. Examples: inline `x` icon buttons, dropdown-chevron indicators, decorative scroll affordances. NOT for "+ new" buttons (those are outlined-cyan, pattern 2).
 
 6. **Palette-island rule** — components that establish their own chrome (the nav rail, the top bar arriving in F3 leg 02) declare their own `--nav-*` (or topbar-equivalent) palette family in `tokens.css`. The body palette and the chrome palette MUST NOT share token names. Rule: never reach into chrome tokens from body components or vice versa.
+
+#### Affordance vocabulary (shared class catalog)
+
+The F4 leg 02 lift consolidates per-area duplications into shared primitives in `components.css`. Templates compose the shared class with the legacy area-specific class so existing test selectors and styling hooks keep working.
+
+**Shared class catalog** (in `components.css` `@layer components`):
+- `.list-item` + `.list-item-delete` — sidebar/category list rows with a focus-within-revealed inline delete affordance. Used in chat (`.session-item`), studio (`.agent-item`), admin (`.admin-category-item`).
+- `.field-row` + `.field-input` + `.field-textarea` + `.field-select` — editable form rows with label + input. Used in studio (agent editor) and admin (provider form). Note: admin's `.admin-field-row` (read-only field-VALUE display, e.g., encryption status) is a DIFFERENT pattern and remains admin-only — distinct widths (label 120px vs 100px) and read-only `<div>` value vs editable `<input>`.
+- `.section-title` (with `// PREFIX` `::before`) — section headers in editor / form contexts.
+- `.btn-outlined-cyan` — secondary affordance buttons (transparent + 1px solid accent border).
+- `.btn-filled-cyan` — primary CTAs (accent fill + glow).
+- `.btn-muted-destructive` — delete-confirm-style buttons (muted danger color until hover).
+- `.chip` + `.chip-remove` — tag-like rows (currently studio-only; lifted for vocabulary completeness).
+- `.empty-state` — empty-list / empty-canvas messaging (4 active sites: `agent-empty`, `editor-empty`, `admin-provider-empty`, `admin-pf-models-empty`; the dead `chat-welcome-empty` rule was removed in this leg with no JS emitter).
+
+**Utility classes** (in `components.css` `@layer utilities`):
+- `.is-hidden { display: none !important; }`
+- `.u-flex { display: flex !important; }`
+- `.u-block { display: block !important; }`
+
+JavaScript should toggle visibility via `el.classList.toggle('is-hidden', !visible)` rather than writing `el.style.display = ...` inline. The `@layer utilities` declaration in `index.html` is the highest-precedence named layer, so utilities win over `@layer components` and `@layer areas` rules by design.
 
 ### Color contrast (WCAG AA)
 
@@ -741,6 +789,147 @@ inspection.
 
 - **Lucide icon pin**: icons are pinned to `lucide-icons/lucide@v0.265.0`. Adding new icons requires fetching from this exact tag — do NOT pull from `main` or `latest`. The pin is what keeps `tests/browser/__snapshots__/` baselines stable.
 - **Playwright `color_scheme`**: browser tests pin `color_scheme="no-preference"` so they don't inherit the host OS theme preference. Without this, a CI environment with `prefers-color-scheme: dark` would resolve `auto` to `dark` and produce a different snapshot than a developer's light-mode laptop.
+
+---
+
+## Markdown rendering
+
+Hand-rolled CommonMark-subset library at `static/js/markdown.js`. Public API:
+
+- `App.markdown.parse(text) → AST` — `{type: 'document', children: Node[]}`. Walk the tree to inspect or transform.
+- `App.markdown.render(text) → DocumentFragment` — caller appends the fragment to a parent.
+- `App.markdown.NodeType` — frozen object with the string constants for all 14 node types.
+
+### AST node shape
+
+`{type: NodeType_value, children?: Node[], value?: string, meta?: object}`. Specific shapes documented in markdown.js header comment.
+
+### Supported subset (v1)
+
+paragraphs, ATX headers (`#` to `######`), fenced code blocks with optional language tag, blockquotes (single level), unordered + ordered lists (one nesting level), horizontal rules (`---` / `***`), emphasis (`*` or `_`), strong (`**` or `__`), inline code (`` ` ``), links (`[text](url)` — including URLs with balanced parens like Wikipedia citations), soft breaks (single `\n`), hard breaks (trailing TWO spaces + `\n`; a single trailing space + `\n` is a soft break, not hard).
+
+### Out of subset (v1 non-goals)
+
+tables, footnotes, definition lists, autolinks (bare URLs), reference-style links, HTML passthrough, recursive nested emphasis. The test corpus locks v1 in; adding any of these requires a new flight or leg with a corresponding test-case expansion.
+
+### Nested-emphasis v1 contract
+
+`***word***` renders as `<em><strong>word</strong></em>` (outer-em-first, inner-strong). Recursive nested emphasis (the full CommonMark "left/right flanking delimiter run" algorithm) is v2 scope. `**bold *with em***` renders as `<strong>bold *with em*</strong>` — the inner `*with em*` is literal text since recursive emphasis is off. The mechanism is an `inEmphasisRun` suppression flag in the inline parser: once an emphasis or strong run opens, emphasis-delimiter recognition is disabled inside it (only inline code, links, soft/hard breaks, plain text are honoured). The closing-delimiter-run scan returns the position such that consuming `delimLen` chars lands at the END of the run, so a 3-char `***` closer for a `**` opener has its leading `*` fall INTO the inner span as literal content.
+
+### XSS guarantee
+
+Renderer constructs DOM via `document.createElement` + `textContent` exclusively. The library NEVER uses `innerHTML` — `grep -n innerHTML markdown.js` returns zero hits (including comments). The icons.js SVG string injection on the code-block copy button is done via `DOMParser().parseFromString(svg, 'image/svg+xml').documentElement` to keep the no-innerHTML invariant intact. Link `href` values pass through a scheme allow-list (`http`, `https`, `mailto`, `tel`, `/`, `#`); other schemes (notably `javascript:`, `data:`, `vbscript:`, `file:`) are stripped to `#`. Future contributors cannot accidentally introduce XSS via crafted markdown — the structural property of "no innerHTML anywhere in the markdown pipeline" makes this a compile-time guarantee.
+
+### Robustness contract (streaming-friendly inputs)
+
+`App.markdown.parse(null)`, `parse(undefined)`, and `parse('')` all return `{type: 'document', children: []}` — no exception. `render(null) / render(undefined) / render('')` all return an empty `DocumentFragment`. This is deliberate: streaming callers can pass partial buffers (or a not-yet-arrived text) without try/catch ceremony. Whitespace-only input behaves the same as empty.
+
+### Streaming + flash attachment contract
+
+Callers must attach the rendered `DocumentFragment` (or its host element) to the document tree BEFORE user interaction with the rendered DOM. The code-block copy button's "Copied!" flash uses `App.showFlash(container, msg)` which appends the flash element to the container; if the container is detached, the flash never becomes visible to the user. In leg 05's chat integration this is naturally satisfied (rendered messages are appended to `.messages` which is in the document); test cases must explicitly attach via `document.body.appendChild(host)` before clicking.
+
+### Extension contract
+
+Adding a new construct: (1) add a `NodeType` constant, (2) add the tokeniser/parser case, (3) add the renderer branch, (4) add at least 3 parametrized test cases. All four land together in the same leg or flight. PRs that add a parser case without test cases (or vice versa) fail review.
+
+### Code-block copy-button a11y
+
+`<button class="markdown-copy-btn" aria-label="Copy code" type="button">` with `aria-hidden="true"` on the SVG icon (carried over from the icons.js Lucide template). On click, copies `<code>.textContent` via `navigator.clipboard.writeText`; on success, emits a "Copied!" flash via `App.showFlash`; on failure (clipboard permission denied), emits a "Copy failed" error flash. Keyboard-reachable via Tab (the button is in the natural tab order); `:focus-within` on the `.markdown-code-wrap` reveals the button so keyboard users see it before activating, and `:hover` on the button itself keeps it visible if the pointer leaves the wrap (defence-in-depth).
+
+### Chat integration
+
+`App.chat.renderMessage(cls, text, opts)` renders assistant messages via `App.markdown.render(text)` by default (no opt-in needed). User, tool, and system messages stay `textContent` — markdown is assistant-only. Detection uses a first-token whitespace split (`cls.split(' ')[0] === 'assistant'`) so a hypothetical `'assistant-error'` composite would NOT trigger markdown rendering; only the bare `'assistant'` first token does.
+
+Pass `{ renderMarkdown: false }` to force textContent — used by the streaming-accumulation path so chunk-by-chunk text appends as plain text. On the `done` event (and on every streaming-bubble reset boundary — `tool_call`, `tool_result`, direct-action `assistant`), `finalizeStreamingBubble()` swaps the accumulated text for the markdown-rendered DocumentFragment. The helper extracts the buffer via `currentStreamingMsg.textContent` (not `firstChild.nodeValue`) so the algorithm is robust to future structural changes; it clears the closure pointer via `void 0` so a stray bare `currentStreamingMsg = null` reset literal never appears outside the `var` declaration.
+
+The same default applies to historical assistant messages on session-rejoin (`renderHistory` → `addMsg('assistant', ...)` → `renderMessage` → markdown). The persistence contract (leg 04: synthesized assistant `Message` added to `session.history` server-side) carries through cleanly: streamed markdown shows on first send AND on rejoin.
+
+Mid-stream markdown rendering is intentionally NOT supported — partial markdown syntax has no canonical semantics (`**bold` mid-token has no end). The streaming path uses `textContent` accumulation followed by a single swap on `done`. Block-element resets in `static/css/chat.css` (scoped under `.area-chat .msg.assistant`) strip default top/bottom margins on `<p>`, `<ul>`, `<ol>`, `<pre>`, `<blockquote>` so paragraph-style markdown answers don't shift bubble heights from browser defaults.
+
+---
+
+## Streaming protocol
+
+F4 leg 04 added a streaming path through the LLM stack so assistant content fans out to the chat client chunk-by-chunk during generation. The protocol is provider-agnostic at the agent layer; per-provider native streaming sits behind a single `LLMProvider.stream(...)` method.
+
+### `LLMProvider.stream(...)`
+
+```python
+async def stream(
+    self,
+    messages: list[Message],
+    tools: list[dict[str, Any]] | None = None,
+    temperature: float = 0.0,
+    max_tokens: int = 16384,
+) -> AsyncIterator[StreamChunk]
+```
+
+**NOT abstract** — the base class supplies a default implementation that calls `complete()` and yields exactly one `StreamChunk(is_final=True, ...)`. Forward-compat for any future provider that doesn't natively stream. Subclasses MAY override for native chunk delivery.
+
+### `StreamChunk` shape
+
+```python
+@dataclass
+class StreamChunk:
+    content: str = ""               # NEW tokens since the last chunk; delta semantics, NOT cumulative
+    is_final: bool = False           # True only on the final chunk
+    tool_calls: list[ToolCall] = []  # populated on final chunk
+    usage: TokenUsage | None = None  # populated on final chunk where exposed
+    message: Message | None = None   # populated on final chunk; the synthesised assistant Message
+```
+
+**Delta semantics**: `content` is the NEW tokens for that chunk, NOT cumulative. The agent accumulates by string concatenation. The final chunk MAY carry a content delta (some providers emit a stop-event with trailing text); the agent's accumulator handles that by checking `chunk.content` regardless of `is_final`.
+
+**Final-chunk contract**: providers populate `message` with the synthesised assistant `Message` so `Agent.step` can prefer it over rebuilding from accumulator state. When `message` is None on the final chunk, the agent rebuilds from accumulated `content` + `tool_calls` + `usage`.
+
+### Per-provider streaming notes
+
+- **Anthropic** (`anthropic_provider.py`): native streaming via `client.messages.stream(...)`. Yields `text_stream` deltas in real time; final message comes from `stream.get_final_message()` (text content + `tool_use` blocks + usage). **Ports the F3 `BadRequestError` temperature-retry**: catches `BadRequestError` containing "temperature", strips the kwarg, retries once. Gated by a `yielded_any` flag so the retry is only safe BEFORE any chunk has emitted (post-yield retries would duplicate output to the consumer; in practice Anthropic raises pre-stream, so the gate is defence-in-depth). The shared `_build_kwargs` helper DRYs the retry so `complete()` and `stream()` share a single kwargs construction path.
+- **OpenAI** (`openai_provider.py`): native streaming via `chat.completions.create(stream=True, stream_options={"include_usage": True}, ...)`. The `include_usage` flag is **required** — without it the trailing metadata-only chunk has no `usage` field and the F4 telemetry overlay's end-of-stream update breaks. Tool-call deltas accumulate by `index` and emit on the final chunk.
+- **Ollama** (`ollama_provider.py` + `ollama_api.chat_stream`): native streaming via the new `ollama_api.chat_stream(provider_url, body) → AsyncIterator[dict]` SSE helper. Wire format is **true SSE** (`data: {...}` lines + `data: [DONE]` terminator), distinct from `pull_model`'s JSONL. The provider consumes the parsed dicts and reuses the OpenAI-shape tool-call accumulation pattern (the Ollama OpenAI-compatible endpoint emits the same chunk shape).
+- **Mock** (`mock.py`): honours a new `config["stream_chunks"]: list[str]` option. When set (non-empty list), `stream()` yields each chunk with the existing `delay_ms` between deltas; the final chunk synthesises a `Message` from accumulated content + the configured `response.tool_calls`. When `stream_chunks` is unset/empty, falls back to the default-impl path **inline** (calls `self.complete()` + yields one final chunk — NOT `super().stream(...)` delegation, for clarity and to avoid async-generator delegation overhead).
+
+### `Agent.step` `on_chunk` callback
+
+```python
+async def step(
+    self,
+    user_input: str,
+    on_chunk: Callable[[str], Awaitable[None]] | None = None,
+) -> AsyncIterator[Message]
+```
+
+Internally calls `self.llm.stream(...)` and accumulates content per iteration. When `on_chunk` is provided, it is invoked once per content delta during streaming. The Message-yielding contract is unchanged for callers that don't pass `on_chunk` — chunks fan out internally but only the synthesised final `Message` flows up via `yield`. The direct-action shortcut path bypasses the LLM entirely so `on_chunk` is never invoked there.
+
+### WS event vocabulary
+
+| Event | When | Direction |
+|------|-----|-----------|
+| `assistant_chunk` | Per-content-delta during streaming | server → client |
+| `assistant` | Direct-action shortcut path only (no chunks fired) | server → client |
+| `tool_call` | Tool-call emitted by the model (non-streamed) | server → client |
+| `tool_result` | Tool execution result | server → client |
+| `usage` | Token usage on each iteration's final chunk | server → client |
+| `done` | End of agent step | server → client |
+
+The streaming WS contract is **chunks-only-no-final-assistant**: when the chunk path fires, the legacy `assistant` event is suppressed server-side. The client already has the accumulated text via the chunk stream. The legacy `assistant` event survives for the direct-action shortcut path (early-return in `Agent.step` before any LLM call).
+
+### `chunks_seen` invariant in `_process_and_broadcast`
+
+The server distinguishes streaming from direct-action via a per-iteration `chunks_seen` flag captured in the agent-step closure. The flag is set inside `_broadcast_chunk` (the callback passed to `agent.step`), and reset **unconditionally at the end of each Role.ASSISTANT block** in the `async for msg in agent.step(...)` loop. The unconditional reset matters for multi-iteration agent loops: a tool-call-only iteration (empty `msg.content`, non-empty `msg.tool_calls`) must still reset the flag for iteration N+1. Resetting inside `if msg.content:` would skip the reset on tool-call-only responses and incorrectly carry `chunks_seen=True` into the next iteration.
+
+### Persistence contract
+
+The synthesised final assistant `Message` is **NOT broadcast** as `{"type": "assistant"}` over the WS during streaming (the client already has the text). It IS:
+
+- Appended to `session.history` via `session.add_event(event)` so session rejoin / refresh re-renders the assistant text from server-side history.
+- Appended to `result_messages` so the HTTP API caller (POST /api/sessions/{id}/messages) receives the full message list.
+
+This split — stream-the-deltas-over-WS, persist-the-full-message-server-side — is the F4 leg-04 contract. Browser test `test_streaming_message_persists_to_history` enforces it end-to-end: send a streaming message, reload the page, and assert the assistant text re-appears from history.
+
+### chat.js wire-up (option B minimal rendering)
+
+The chat.js wire-up renders chunks via a `currentStreamingMsg` pointer that holds the current assistant bubble. First `assistant_chunk`: clear the thinking indicator, mint a fresh `<div class="msg assistant">` + attribution (built via `App.chat.renderMessage('assistant', '', { renderMarkdown: false })` so `textContent` semantics hold during accumulation), store the bubble pointer. Subsequent chunks: append the delta to the bubble's text node. At every streaming-bubble reset boundary (`tool_call`, `tool_result`, direct-action `assistant`, AND `done`) the wire-up calls `finalizeStreamingBubble()` — leg-05 — which swaps the accumulated `textContent` buffer for the markdown-rendered `DocumentFragment` and clears the pointer. Iteration N+1 (in a multi-iteration agent loop) therefore lands chunks in a fresh bubble after each iteration boundary, with the closed iteration's bubble already markdown-rendered.
 
 ---
 
