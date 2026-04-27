@@ -157,7 +157,12 @@
     // Update picker highlight
     var pickerOpts = document.querySelectorAll('.app-picker-option');
     for (var i = 0; i < pickerOpts.length; i++) {
-      pickerOpts[i].classList.toggle('active', pickerOpts[i].dataset.area === areaId);
+      var isActiveOpt = pickerOpts[i].dataset.area === areaId;
+      pickerOpts[i].classList.toggle('active', isActiveOpt);
+      // Announce the active area to assistive tech (the popover is wrapped in
+      // a <nav> landmark; aria-current="page" closes the navigation semantic).
+      if (isActiveOpt) pickerOpts[i].setAttribute('aria-current', 'page');
+      else pickerOpts[i].removeAttribute('aria-current');
     }
 
     currentId = areaId;

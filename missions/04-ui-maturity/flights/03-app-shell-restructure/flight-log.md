@@ -389,3 +389,20 @@ User explicitly deferred **response streaming** and **markdown / code-block rend
 #### Status
 
 Leg 05 commits inline (interactive-leg pattern, distinct from batch-A's deferred commit). User's wrap signal: *"yup, lets wrap it up. will need a debrief."* Proceed to leg 06 with the snapshot-policy redesign already noted.
+
+### 2026-04-27 — Leg 06 (snapshots-and-tests) — scope-changed redesign
+
+User direction on scope: *"with regard to the snapshots we should describe the workflow rather than doing a snapshot comparison necessarily... For CI we should exercise the playwright tests but only from a functional and not a pixel comparison perspective."* The original "regenerate 12 baselines + add 8 keyboard-state baselines" plan was moot after the mid-flight snapshot-policy decision (baselines gitignored, never committed).
+
+**Replacement scope delivered:**
+
+1. **Pytest marker split.** Added `pixel` marker; default `addopts` deselects it alongside `live` / `browser`. Snapshot tests in `test_visual_snapshots.py` had `@pytest.mark.browser` swapped for `@pytest.mark.pixel`. PIL + pixelmatch imports moved to `pytest.importorskip(...)` so a venv without those dev deps collects cleanly and skips the whole file (the typical CI case). With libs installed locally, the suite runs normally. Existing missing-baseline auto-generation logic preserved.
+2. **Workflow documented in `agents.md`.** New "Pytest markers and what runs where" table + "Visual snapshot workflow (local-only)" subsection under the Browser test fixtures section. Clarifies the four-bucket marker model and the local-only snapshot lifecycle (`pytest -m pixel --snapshot-update` for first-run / regen, `pytest -m pixel` for compare). Notes that CI-side regression detection — if ever needed — should capture per-run artifacts and compare against the previous successful build's artifact, NOT commit baselines to git.
+3. **Three a11y polish items (batch-A carry-overs).**
+   - chip-remove `aria-label` now includes the item name in all three studio.js sites (MCP source / KB / dynamic add-dropdown chips).
+   - Active picker option gets `aria-current="page"` (and removes it when inactive). Closes the `<nav>` landmark semantic — the picker IS area navigation; buttons-that-navigate + `aria-current` is a recognized pattern.
+   - The picker `<nav>` landmark concern collapses into the aria-current fix. No structural change needed.
+
+**Test counts after leg**: 393 unit + 32 browser passing (+ 1 skipped — the snapshot module via `importorskip`). Pixel suite (12 tests) collects locally and is excluded from CI.
+
+**Mid-leg user note**: *"I jumped the gun a little bit and we did a bit of the chat alignment that is supposed to be in flight 4. We can use flight 4 to do a bit more cleanup and tackle those 2 big items from before (streaming and formatting)."* Acknowledged — the leg-05 cosmetic sweep (agent name as header, telemetry overlay, attribution labels, Today/Yesterday history grouping, thinking indicator) crossed into territory originally scoped for F4 Chat Alignment. F4 absorbs streaming + markdown formatting and any remaining chat-polish cleanup the user surfaces during F3 leg-07 HAT or F4 design.

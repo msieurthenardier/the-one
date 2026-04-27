@@ -171,6 +171,28 @@ The `mock` provider type (production code, dev-mode-gated) provides deterministi
 
 Tests rely on `data-testid` attributes on load-bearing UI elements rather than CSS classes, so the tests survive UI redesigns. Each flow leg adds 3-5 testids on a budget.
 
+### Pytest markers and what runs where
+
+| Marker | Tests | Default `pytest` | CI |
+|---|---|---|---|
+| (no marker) | unit tests | runs | runs |
+| `live` | hits real LLM APIs (paid) | skipped | skipped |
+| `browser` | Playwright **functional** flow tests | skipped (run with `-m browser`) | runs `-m browser` |
+| `pixel` | Playwright **visual** snapshot regression | skipped (run with `-m pixel`) | **never runs** |
+
+Default `addopts` deselects `live`, `browser`, AND `pixel` so a bare `pytest` runs only unit tests. Override at the CLI to opt in: `pytest -m browser`, `pytest -m pixel`, or `pytest -m "browser or pixel"`.
+
+### Visual snapshot workflow (local-only)
+
+Snapshot baselines under `tests/browser/__snapshots__/` are **gitignored** — they are local regression artifacts, not shared source. The flow:
+
+1. **First run on a fresh checkout**: `pytest -m pixel --snapshot-update` (or `UPDATE_SNAPSHOTS=1 pytest -m pixel`). The helper writes a baseline PNG for each scenario (3 areas × 2 states × 2 themes = 12 baselines). Missing-baseline auto-generation also kicks in on a bare `pytest -m pixel` first run, but `--snapshot-update` is the explicit affordance.
+2. **Subsequent runs**: `pytest -m pixel`. Each test compares its current screenshot against the locally-stored baseline; >2% pixel diff fails and writes `<name>-actual.png` + `<name>-diff.png` next to the baseline for inspection.
+3. **After an intentional layout change**: `pytest -m pixel --snapshot-update` to regenerate.
+4. **CI**: never runs `-m pixel`. Functional Playwright coverage is provided by `-m browser`. The pixel suite has no shared baselines to compare against in CI by design — pixel diffs are a developer's local feedback loop, not a regression gate.
+
+If the visual-snapshot suite ever needs CI-side regression detection, the right move is to capture a fresh baseline on each run, store it as a build artifact, and compare against the previous successful build's artifact — not to commit baselines to git.
+
 ---
 
 ## Design system

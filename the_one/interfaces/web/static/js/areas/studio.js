@@ -313,8 +313,9 @@ App.registerArea({
       html += '<div class="connection-group"><span class="connection-label">MCP Sources</span>';
       html += '<div class="chip-area" data-type="mcp">';
       for (var m = 0; m < cfg.mcp_source_ids.length; m++) {
+        var mName = mcpName(cfg.mcp_source_ids[m]);
         html += '<span class="chip" data-id="' + escapeAttr(cfg.mcp_source_ids[m]) + '">' +
-          escapeHtml(mcpName(cfg.mcp_source_ids[m])) + '<button class="chip-remove" type="button" aria-label="Remove">' + App.icon('x') + '</button></span>';
+          escapeHtml(mName) + '<button class="chip-remove" type="button" aria-label="Remove ' + escapeAttr(mName) + '">' + App.icon('x') + '</button></span>';
       }
       html += '<button class="chip-add" data-type="mcp">+ Add</button>';
       html += '</div></div>';
@@ -323,8 +324,9 @@ App.registerArea({
       html += '<div class="connection-group"><span class="connection-label">Knowledge Bases</span>';
       html += '<div class="chip-area" data-type="kb">';
       for (var k = 0; k < cfg.kb_ids.length; k++) {
+        var kName = kbName(cfg.kb_ids[k]);
         html += '<span class="chip" data-id="' + escapeAttr(cfg.kb_ids[k]) + '">' +
-          escapeHtml(kbName(cfg.kb_ids[k])) + '<button class="chip-remove" type="button" aria-label="Remove">' + App.icon('x') + '</button></span>';
+          escapeHtml(kName) + '<button class="chip-remove" type="button" aria-label="Remove ' + escapeAttr(kName) + '">' + App.icon('x') + '</button></span>';
       }
       html += '<button class="chip-add" data-type="kb">+ Add</button>';
       html += '</div></div>';
@@ -546,7 +548,8 @@ App.registerArea({
             var chip = document.createElement('span');
             chip.className = 'chip';
             chip.dataset.id = item.id;
-            chip.innerHTML = escapeHtml(item.name || item.id) + '<button class="chip-remove" type="button" aria-label="Remove">' + App.icon('x') + '</button>';
+            var chipName = item.name || item.id;
+            chip.innerHTML = escapeHtml(chipName) + '<button class="chip-remove" type="button" aria-label="Remove ' + escapeAttr(chipName) + '">' + App.icon('x') + '</button>';
             chipArea.insertBefore(chip, btn);
             dropdown.remove();
             checkDirty();
