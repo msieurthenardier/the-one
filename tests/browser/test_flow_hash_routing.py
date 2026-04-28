@@ -32,13 +32,13 @@ def test_hash_routing_admin_subpage_persists_on_refresh(app_clean: str, page: Pa
     page.locator(".app-picker-button").click()
     page.locator('.app-picker-option[data-area="admin"]').click()
 
-    # 3. Admin area is now active — General category is the default.
-    expect(page.locator(".admin-title")).to_have_text("General Settings", timeout=5000)
+    # 3. Admin area is now active — System category is the default (F6 leg 01).
+    expect(page.locator(".page-title")).to_have_text("System", timeout=5000)
 
     # 4. Click the Providers category.
-    providers_item = page.locator(".admin-category-item").filter(has_text="LLM Providers")
+    providers_item = page.locator(".area-admin .section-nav-item").filter(has_text="LLM Providers")
     providers_item.click()
-    expect(page.locator(".admin-title")).to_have_text("LLM Providers", timeout=5000)
+    expect(page.locator(".page-title")).to_have_text("LLM Providers", timeout=5000)
 
     # 5. URL should now be #admin/providers.
     assert page.evaluate("location.hash") == "#admin/providers"
@@ -48,10 +48,10 @@ def test_hash_routing_admin_subpage_persists_on_refresh(app_clean: str, page: Pa
 
     # 7. After reload, app should land on admin/providers sub-page.
     # Wait for admin area to activate.
-    expect(page.locator(".admin-title")).to_have_text("LLM Providers", timeout=8000)
+    expect(page.locator(".page-title")).to_have_text("LLM Providers", timeout=8000)
 
-    # Providers category should be marked active.
-    active_cat = page.locator(".admin-category-item.active")
+    # Providers category should be marked active (aria-current="page" via section-nav).
+    active_cat = page.locator('.area-admin .section-nav-item[aria-current="page"]')
     expect(active_cat).to_contain_text("LLM Providers")
 
 
@@ -214,7 +214,7 @@ def test_hash_routing_replacestate_no_history_growth(app_clean: str, page: Page)
     # 3. Navigate to Admin via picker (cross-area — pushes history).
     page.locator(".app-picker-button").click()
     page.locator('.app-picker-option[data-area="admin"]').click()
-    expect(page.locator(".admin-title")).to_have_text("General Settings", timeout=5000)
+    expect(page.locator(".page-title")).to_have_text("System", timeout=5000)
 
     after_cross_area = page.evaluate("history.length")
     assert after_cross_area == baseline + 1, (
@@ -223,9 +223,9 @@ def test_hash_routing_replacestate_no_history_growth(app_clean: str, page: Page)
     )
 
     # 4. Click Providers (sub-page change within admin — replaceState, no push).
-    providers_item = page.locator(".admin-category-item").filter(has_text="LLM Providers")
+    providers_item = page.locator(".area-admin .section-nav-item").filter(has_text="LLM Providers")
     providers_item.click()
-    expect(page.locator(".admin-title")).to_have_text("LLM Providers", timeout=5000)
+    expect(page.locator(".page-title")).to_have_text("LLM Providers", timeout=5000)
 
     after_providers = page.evaluate("history.length")
     assert after_providers == baseline + 1, (
@@ -234,9 +234,9 @@ def test_hash_routing_replacestate_no_history_growth(app_clean: str, page: Page)
     )
 
     # 5. Click System (another sub-page change — replaceState, no push).
-    system_item = page.locator(".admin-category-item").filter(has_text="System")
+    system_item = page.locator(".area-admin .section-nav-item").filter(has_text="System")
     system_item.click()
-    expect(page.locator(".admin-title")).to_have_text("System", timeout=5000)
+    expect(page.locator(".page-title")).to_have_text("System", timeout=5000)
 
     after_system = page.evaluate("history.length")
     assert after_system == baseline + 1, (

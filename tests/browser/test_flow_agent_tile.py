@@ -2,8 +2,8 @@
 
 Covers the CSS-grid tile layout:
 
-- `.agent-tile-grid` renders as the agents container in the main panel
-- Each tile is a `<button class="agent-tile">` carrying the legacy
+- `.entity-tile-grid` renders as the agents container in the main panel
+- Each tile is a `<button class="entity-tile">` carrying the legacy
   `.agent-item` class (composed for test-selector continuity), plus
   `data-testid="agent-item"`, `data-name`, `aria-selected`
 - Tile click navigates to the editor
@@ -26,17 +26,17 @@ def _wait_studio_ready(page: Page) -> None:
 
 @pytest.mark.browser
 def test_agent_tile_grid_renders(app_with_agent: SeededApp, page: Page) -> None:
-    """The agents pane uses an `.agent-tile-grid` container with `<button class="agent-tile">` tiles."""
+    """The agents pane uses `.entity-tile-grid` with `<button class="entity-tile">` tiles."""
     base_url = app_with_agent.base_url
     agent_name = app_with_agent.agent_name
 
     page.goto(f"{base_url}#studio")
     _wait_studio_ready(page)
 
-    grid = page.locator(".agent-tile-grid")
+    grid = page.locator(".entity-tile-grid")
     expect(grid).to_be_visible(timeout=5000)
 
-    tile = page.locator(f'button.agent-tile[data-name="{agent_name}"]')
+    tile = page.locator(f'button.entity-tile[data-name="{agent_name}"]')
     expect(tile).to_have_count(1)
     expect(tile).to_have_attribute("data-testid", "agent-item")
 
@@ -50,7 +50,7 @@ def test_agent_tile_click_opens_editor(app_with_agent: SeededApp, page: Page) ->
     page.goto(f"{base_url}#studio")
     _wait_studio_ready(page)
 
-    tile = page.locator(f'button.agent-tile[data-name="{agent_name}"]')
+    tile = page.locator(f'button.entity-tile[data-name="{agent_name}"]')
     expect(tile).to_be_visible(timeout=5000)
     tile.click()
 
@@ -68,13 +68,13 @@ def test_multiple_tiles_render_in_grid(app_with_provider: SeededApp, page: Page)
     page.goto(f"{base_url}#studio")
     _wait_studio_ready(page)
 
-    grid = page.locator(".agent-tile-grid")
+    grid = page.locator(".entity-tile-grid")
     expect(grid).to_be_visible(timeout=5000)
 
-    tiles = page.locator("button.agent-tile")
+    tiles = page.locator("button.entity-tile")
     expect(tiles).to_have_count(2, timeout=5000)
 
-    alpha = page.locator('button.agent-tile[data-name="agent-alpha"]')
-    expect(alpha.locator(".agent-tile-name")).to_have_text("agent-alpha")
-    beta = page.locator('button.agent-tile[data-name="agent-beta"]')
-    expect(beta.locator(".agent-tile-name")).to_have_text("agent-beta")
+    alpha = page.locator('button.entity-tile[data-name="agent-alpha"]')
+    expect(alpha.locator(".entity-tile-name")).to_have_text("agent-alpha")
+    beta = page.locator('button.entity-tile[data-name="agent-beta"]')
+    expect(beta.locator(".entity-tile-name")).to_have_text("agent-beta")

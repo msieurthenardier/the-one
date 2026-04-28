@@ -6,29 +6,88 @@ App.registerArea({
   sidebarLabel: 'Settings categories',
 
   serializeState: function () {
-    return this._currentCategory || null;
+    if (this._currentCategory === 'system') return 'system';
+    if (this._currentCategory === 'providers') {
+      if (this._providerFormMode === 'add') return 'providers/new';
+      if (this._providerFormMode === 'edit' && this._editingProvider) {
+        return 'providers/' + encodeURIComponent(this._editingProvider.id);
+      }
+      // Hydrate-vs-fetch race: pending id known but provider not yet loaded.
+      if (this._pendingFormMode === 'add') return 'providers/new';
+      if (this._pendingProviderId) {
+        return 'providers/' + encodeURIComponent(this._pendingProviderId);
+      }
+      return 'providers';
+    }
+    return this._currentCategory || 'system';
   },
   hydrateState: function (sub) {
     if (!sub) return;
-    var validIds = ['general', 'providers', 'system'];
+    var origSub = sub;
+    // Legacy redirect: #admin/general → #admin/system (F6 leg 01).
+    if (sub === 'general') sub = 'system';
+
+    var pendingId = null;
+    var pendingFormMode = null;
+    if (origSub === 'providers/new') {
+      sub = 'providers';
+      pendingFormMode = 'add';
+    } else if (origSub && origSub.indexOf('providers/') === 0) {
+      sub = 'providers';
+      pendingFormMode = 'edit';
+      // Strip trailing slash defensively; decodeURIComponent the id.
+      var rest = origSub.slice('providers/'.length);
+      if (rest.charAt(rest.length - 1) === '/') rest = rest.slice(0, -1);
+      // Defensive: if extra path segments, take only the first.
+      var slashIdx = rest.indexOf('/');
+      if (slashIdx !== -1) rest = rest.slice(0, slashIdx);
+      pendingId = rest ? decodeURIComponent(rest) : null;
+    }
+
+    var validIds = ['system', 'providers'];
     if (validIds.indexOf(sub) === -1) return;
+
+    // Set category FIRST — _setCategory wipes pending state on category change,
+    // so we must set pending AFTER it to survive the wipe.
     if (this._setCategory) this._setCategory(sub);
+
+    // Always overwrite pending state — including with nulls when the new
+    // sub does not match providers/... — so navigating from
+    // #admin/providers/new → #admin/system clears pending state.
+    this._pendingProviderId = pendingId;
+    this._pendingFormMode = pendingFormMode;
+
+    // Sub-state changes within the same category (e.g.,
+    // #admin/providers → #admin/providers/new) do NOT trigger _setCategory's
+    // re-render path because currentCategory is unchanged. Fire consume
+    // unconditionally so within-admin sub navigation actually opens the
+    // editor.
+    if (this._tryConsumePendingProvider) this._tryConsumePendingProvider();
   },
 
   init: function (sidebar, content) {
     var categories = [
-      { id: 'general', label: 'General', active: true },
-      { id: 'providers', label: 'LLM Providers', active: true },
-      { id: 'system', label: 'System', active: true }
+      { id: 'system', label: 'System' },
+      { id: 'providers', label: 'LLM Providers' }
     ];
-    var currentCategory = 'general';
+    var currentCategory = 'system';
     var categoryListEl;
     var contentEl;
 
     // Provider state
-    var providers = [];
+    var providers = null; // null until first fetch resolves; helper shows loading placeholder.
     var providerFormMode = null; // null | 'add' | 'edit'
     var editingProvider = null;
+    var pendingProviderId = null;
+    var pendingFormMode = null;
+
+    // Orchestrator's mirror of the provider-editor sub-module's local `dirty`
+    // flag (F6 leg 04). The editor sub-module is the source of truth for the
+    // disabled-button flip; the orchestrator mirror is the source of truth
+    // for the navigation gates (Back / section-nav / beforeunload). The
+    // bridge is the onDirtyChange callback in renderProviderEditor's
+    // callbacks object.
+    var dirty = false;
 
     // Provider type list — fetched from /api/providers/types so dev-mode gating
     // for the `mock` type is enforced server-side. Populated by fetchProviderTypes().
@@ -43,10 +102,11 @@ App.registerArea({
       return providerTypesReady;
     }
 
-    // TYPE_DEFAULTS and KNOWN_BADGE_TYPES are static metadata kept unconditional —
-    // existing mock providers (created when dev_mode was on) must still render
-    // correctly when dev_mode is off. The dropdown filter prevents *new* mock
-    // providers; it does not hide *existing* ones.
+    // TYPE_DEFAULTS is static metadata kept unconditional — existing mock
+    // providers (created when dev_mode was on) must still render correctly
+    // when dev_mode is off. The dropdown filter prevents *new* mock
+    // providers; it does not hide *existing* ones. The provider-type badge
+    // suffix mapping (KNOWN_BADGE_TYPES) lives in providers-grid.js post-leg-02.
     var TYPE_DEFAULTS = {
       'ollama': { base_url: 'http://localhost:11434/v1', showBaseUrl: true, showApiKey: false },
       'openai-compatible': { base_url: '', showBaseUrl: true, showApiKey: true },
@@ -55,43 +115,59 @@ App.registerArea({
       'mock': { base_url: '', showBaseUrl: false, showApiKey: false }
     };
 
-    var KNOWN_BADGE_TYPES = ['ollama', 'openai-compatible', 'openai', 'anthropic', 'mock'];
-
-    // Settings grouped into sections
-    var settingSections = [
-      {
-        title: 'Paths',
-        fields: ['data_dir', 'workspace_dir']
-      },
-      {
-        title: 'Server',
-        fields: ['host', 'port']
-      },
-      {
-        title: 'Concourse CI',
-        fields: ['concourse_target', 'concourse_pipeline']
+    // ── beforeunload listener (F6 leg 04) ──────────────────────────────
+    //
+    // Registered ONCE at init() time (init runs once per area lifetime,
+    // gated by app.js's initialized[areaId] check). The closure `dirty`
+    // flag is the sole gate — when in another area, dirty is false (the
+    // editor isn't mounted); when in admin with an unsaved provider edit,
+    // dirty is true and the listener calls e.preventDefault() to surface
+    // the browser's native "Leave site?" prompt.
+    //
+    // Do NOT remove on deactivate() — closure-flag gate handles all cross-
+    // area transitions. Mirrors studio.js:127-149.
+    window.addEventListener('beforeunload', function (e) {
+      if (dirty) {
+        e.preventDefault();
+        e.returnValue = '';
+        return '';
       }
-    ];
+    });
 
-    var fieldLabels = {
-      data_dir: 'Data Directory',
-      workspace_dir: 'Workspace Directory',
-      host: 'Host',
-      port: 'Port',
-      concourse_target: 'Target',
-      concourse_pipeline: 'Pipeline'
-    };
-
-    // Build sidebar
-    sidebar.innerHTML =
-      '<div class="admin-sidebar-header">' +
-        '<span class="title">Settings</span>' +
-      '</div>' +
-      '<div class="admin-category-list"></div>';
-
-    categoryListEl = sidebar.querySelector('.admin-category-list');
-    categoryListEl.setAttribute('role', 'listbox');
-    categoryListEl.setAttribute('aria-label', 'Settings categories');
+    // Build sidebar via the shared section-nav primitive (F6 leg 01).
+    // Mount on a child div (not the sidebar panel itself) so the panel's
+    // .area-admin class is preserved — the helper sets className on its
+    // container, which would otherwise clobber the area scoping class.
+    sidebar.innerHTML = '<div class="admin-section-nav"></div>';
+    var sectionNavEl = sidebar.querySelector('.admin-section-nav');
+    function doSetCategory(catId) {
+      currentCategory = catId;
+      providerFormMode = null;
+      editingProvider = null;
+      pendingProviderId = null;
+      pendingFormMode = null;
+      dirty = false;
+      if (window.App && window.App.router) App.router.replaceSub(currentCategory);
+      App.layout.updateActiveSection(categoryListEl, currentCategory);
+      renderContent();
+    }
+    function setCategory(catId) {
+      // Dirty gate fires only when leaving providers + editor-mounted
+      // context. Same-category clicks short-circuit naturally (no state
+      // change). Mirrors studio.js:190-201 (F5 leg 04 setActiveSection).
+      var inEditor = currentCategory === 'providers' && providerFormMode;
+      if (dirty && inEditor) {
+        App.confirmDialog({ onConfirm: function () { doSetCategory(catId); } });
+        return;
+      }
+      doSetCategory(catId);
+    }
+    App.layout.renderSectionNav(sectionNavEl, categories, currentCategory, {
+      onSelect: setCategory,
+      header: 'Settings',
+      ariaLabel: 'Settings sections'
+    });
+    categoryListEl = sectionNavEl; // helper rendered into the container
 
     // Build content
     content.innerHTML = '<div class="admin-content"></div>';
@@ -99,1109 +175,166 @@ App.registerArea({
 
     // ── Rendering ─────────────────────────────────────────────────────
 
-    function renderCategoryList() {
-      categoryListEl.innerHTML = '';
-      for (var i = 0; i < categories.length; i++) {
-        (function (cat) {
-          var el = document.createElement('div');
-          el.className = 'list-item admin-category-item' + (currentCategory === cat.id ? ' active' : '');
-          el.setAttribute('role', 'option');
-          el.setAttribute('tabindex', '0');
-          el.setAttribute('aria-selected', currentCategory === cat.id ? 'true' : 'false');
-
-          var nameSpan = document.createElement('span');
-          nameSpan.className = 'admin-category-name';
-          nameSpan.textContent = cat.label;
-          el.appendChild(nameSpan);
-
-          if (!cat.active) {
-            var badge = document.createElement('span');
-            badge.className = 'admin-category-badge';
-            badge.textContent = 'Soon';
-            el.appendChild(badge);
-          }
-
-          el.onclick = function () {
-            currentCategory = cat.id;
-            providerFormMode = null;
-            editingProvider = null;
-            if (window.App && window.App.router) App.router.replaceSub(currentCategory);
-            renderCategoryList();
-            renderContent();
-          };
-          el.addEventListener('keydown', function (e) {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              el.onclick();
-            }
-          });
-          categoryListEl.appendChild(el);
-        })(categories[i]);
-      }
-    }
-
     function renderContent() {
-      if (currentCategory === 'general') {
-        renderGeneralPanel();
+      if (currentCategory === 'system') {
+        App.admin.renderSystemPage(contentEl);
       } else if (currentCategory === 'providers') {
         renderProvidersPanel();
-      } else if (currentCategory === 'system') {
-        renderSystemPanel();
-      } else {
-        var cat = null;
-        for (var i = 0; i < categories.length; i++) {
-          if (categories[i].id === currentCategory) { cat = categories[i]; break; }
-        }
-        renderPlaceholder(cat ? cat.label : currentCategory);
       }
-    }
-
-    function renderGeneralPanel() {
-      contentEl.innerHTML =
-        '<div class="admin-header">' +
-          '<span class="admin-title">General Settings</span>' +
-        '</div>' +
-        '<div class="admin-form">' +
-          '<div class="admin-loading">Loading settings\u2026</div>' +
-        '</div>';
-
-      fetchSettings();
-    }
-
-    function fetchSettings() {
-      fetch('/api/settings')
-        .then(function (r) { return r.json(); })
-        .then(function (data) {
-          var formEl = contentEl.querySelector('.admin-form');
-          if (!formEl) return;
-
-          var html =
-            '<div class="admin-note">' +
-              'Settings are configured via environment variables. ' +
-              'Restart the server after changing values.' +
-            '</div>';
-
-          for (var s = 0; s < settingSections.length; s++) {
-            var section = settingSections[s];
-            html += '<div class="admin-section">';
-            html += '<div class="section-title admin-section-title">' + escapeHtml(section.title) + '</div>';
-            for (var f = 0; f < section.fields.length; f++) {
-              var field = section.fields[f];
-              var label = fieldLabels[field] || field;
-              var value = data[field];
-              var envVar = 'THE_ONE_' + field.toUpperCase();
-              html += settingRow(label, value, envVar);
-            }
-            html += '</div>';
-          }
-
-          formEl.innerHTML = html;
-        })
-        .catch(function () {
-          // On failure, loading message stays — no crash
-        });
-    }
-
-    function settingRow(label, value, envVar) {
-      var displayValue;
-      if (value === null || value === undefined || value === '') {
-        displayValue = '<span class="admin-field-not-set">not set</span>';
-      } else {
-        displayValue = escapeHtml(String(value));
-      }
-      return '<div class="admin-field-row">' +
-        '<div class="admin-field-label">' + escapeHtml(label) + '</div>' +
-        '<div class="admin-field-value">' + displayValue + '</div>' +
-        '<div class="admin-field-env">' + escapeHtml(envVar) + '</div>' +
-      '</div>';
-    }
-
-    function renderPlaceholder(name) {
-      contentEl.innerHTML =
-        '<div class="admin-placeholder">' +
-          '<div class="admin-placeholder-title">' + escapeHtml(name) + '</div>' +
-          '<div class="admin-placeholder-text">Coming soon</div>' +
-        '</div>';
-    }
-
-    // ── System Panel ──────────────────────────────────────────────────
-
-    var rotateConfirmTimer = null;
-
-    function renderSystemPanel() {
-      contentEl.innerHTML =
-        '<div class="admin-header">' +
-          '<span class="admin-title">System</span>' +
-        '</div>' +
-        '<div class="admin-form">' +
-          '<div class="admin-system-section">' +
-            '<div class="section-title admin-section-title" id="admin-appearance-heading">Appearance</div>' +
-            '<p class="admin-system-text">' +
-              'Choose a theme. Auto follows your operating system preference.' +
-            '</p>' +
-            '<div class="admin-theme-toggle" id="admin-theme-toggle-mount" aria-labelledby="admin-appearance-heading"></div>' +
-          '</div>' +
-          '<div class="admin-system-section">' +
-            '<div class="section-title admin-section-title">Encryption</div>' +
-            '<p class="admin-system-text">' +
-              'API keys for LLM providers are encrypted at rest. ' +
-              'You can rotate the encryption key to re-encrypt all stored credentials with a new key.' +
-            '</p>' +
-            '<div class="admin-system-warning" role="note">' +
-              'Rotating the encryption key re-encrypts all stored API credentials with a new key. This is irreversible.' +
-            '</div>' +
-            '<button class="admin-system-btn" type="button">Rotate Encryption Key</button>' +
-            '<div class="admin-system-flash" aria-live="polite"></div>' +
-          '</div>' +
-        '</div>';
-
-      // Mount the reusable theme toggle (defined in theme.js, loaded before
-      // admin.js per index.html script order — the guard is defensive only).
-      var themeToggleEl = contentEl.querySelector('#admin-theme-toggle-mount');
-      if (window.App && window.App.theme && window.App.theme.renderToggle) {
-        window.App.theme.renderToggle(themeToggleEl, { labelledBy: 'admin-appearance-heading' });
-      }
-
-      var rotateBtn = contentEl.querySelector('.admin-system-btn');
-      var flashEl = contentEl.querySelector('.admin-system-flash');
-
-      rotateBtn.addEventListener('click', function () {
-        if (rotateBtn.classList.contains('admin-system-btn-confirm')) {
-          // Second click — actually rotate
-          rotateBtn.disabled = true;
-          rotateBtn.textContent = 'Rotating\u2026';
-
-          fetch('/api/encryption/rotate', { method: 'POST' })
-            .then(function (r) {
-              if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || 'Rotation failed'); });
-              return r.json();
-            })
-            .then(function () {
-              rotateBtn.disabled = false;
-              rotateBtn.classList.remove('admin-system-btn-confirm');
-              rotateBtn.textContent = 'Rotate Encryption Key';
-              if (rotateConfirmTimer) { clearTimeout(rotateConfirmTimer); rotateConfirmTimer = null; }
-              flashEl.textContent = 'Encryption key rotated successfully.';
-              flashEl.className = 'admin-system-flash success';
-              setTimeout(function () { flashEl.textContent = ''; flashEl.className = 'admin-system-flash'; }, 3000);
-            })
-            .catch(function (err) {
-              rotateBtn.disabled = false;
-              rotateBtn.classList.remove('admin-system-btn-confirm');
-              rotateBtn.textContent = 'Rotate Encryption Key';
-              if (rotateConfirmTimer) { clearTimeout(rotateConfirmTimer); rotateConfirmTimer = null; }
-              flashEl.textContent = 'Error: ' + err.message;
-              flashEl.className = 'admin-system-flash error';
-              setTimeout(function () { flashEl.textContent = ''; flashEl.className = 'admin-system-flash'; }, 4000);
-            });
-          return;
-        }
-
-        // First click — show confirmation
-        rotateBtn.classList.add('admin-system-btn-confirm');
-        rotateBtn.textContent = 'Click again to confirm rotation';
-
-        if (rotateConfirmTimer) clearTimeout(rotateConfirmTimer);
-        rotateConfirmTimer = setTimeout(function () {
-          rotateBtn.classList.remove('admin-system-btn-confirm');
-          rotateBtn.textContent = 'Rotate Encryption Key';
-        }, 4000);
-      });
     }
 
     // ── Providers Panel ───────────────────────────────────────────────
 
     function renderProvidersPanel() {
+      // Editor branch: delegate to provider-editor sub-module (F6 leg 03).
       if (providerFormMode) {
-        renderProviderForm(editingProvider);
+        // Reset orchestrator's dirty mirror BEFORE editor mount (F6 leg 04).
+        // The fresh editor closure starts at dirty=false; the onDirtyChange
+        // bridge only fires on the first user input. This handles the
+        // create\u2192edit re-render case cleanly: the previous closure's
+        // dirty=true would otherwise dangle in the orchestrator mirror.
+        dirty = false;
+
+        // Wait for provider types before rendering the editor (the type
+        // dropdown depends on PROVIDER_TYPES). The gate moved here from
+        // renderProviderForm() which the leg deleted.
+        var ready = providerTypesReady || fetchProviderTypes();
+        ready.then(function () {
+          // doHandleBack hoisted into ready.then closure (per leg-04 OQ1
+          // resolution: simpler placement; body uses orchestrator
+          // closure-locals which mutate globally).
+          function doHandleBack() {
+            providerFormMode = null;
+            editingProvider = null;
+            dirty = false;
+            if (window.App && window.App.router) App.router.replaceSub('providers');
+            renderProvidersPanel();
+          }
+          App.admin.renderProviderEditor(contentEl, editingProvider, PROVIDER_TYPES, {
+            onBack: function () {
+              if (dirty) {
+                App.confirmDialog({ onConfirm: doHandleBack });
+                return;
+              }
+              doHandleBack();
+            },
+            onCancel: function () {
+              // Create-mode Cancel: navigate back to grid (the editor's
+              // Cancel handler only invokes onCancel when isCreate).
+              // Cancel-when-dirty is intentional discard \u2014 no dialog gate.
+              providerFormMode = null;
+              editingProvider = null;
+              dirty = false;
+              if (window.App && window.App.router) App.router.replaceSub('providers');
+              renderProvidersPanel();
+            },
+            onSaveSuccess: function (updated, isCreate) {
+              // Editor sub-module owns the fetch; this callback only mutates
+              // orchestrator state on success. For create\u2192edit transition,
+              // re-render the editor with the new provider so Models +
+              // Danger Zone + Test button now render.
+              editingProvider = updated;
+              providerFormMode = 'edit';
+              dirty = false; // Save cleared dirty (sub-module recaptures snapshot).
+              if (window.App && window.App.router) {
+                App.router.replaceSub(self.serializeState());
+              }
+              if (isCreate) {
+                renderProvidersPanel();
+              }
+              // Edit\u2192edit case: editor stays mounted; sub-module's local
+              // snapshot recapture handles dirty reset. No re-render needed.
+            },
+            onDeleteSuccess: function () {
+              providerFormMode = null;
+              editingProvider = null;
+              dirty = false;
+              if (window.App && window.App.router) App.router.replaceSub('providers');
+              renderProvidersPanel();
+            },
+            onDirtyChange: function (d) { dirty = d; },
+            getTypeDefaults: function (type) { return TYPE_DEFAULTS[type]; }
+          });
+        });
         return;
       }
-
-      contentEl.innerHTML =
-        '<div class="admin-header">' +
-          '<span class="admin-title">LLM Providers</span>' +
-          '<button class="btn-outlined-cyan admin-provider-add-btn" data-testid="add-provider-btn">+ Add Provider</button>' +
-        '</div>' +
-        '<div class="admin-provider-list" role="list">' +
-          '<div class="admin-loading">Loading providers\u2026</div>' +
-        '</div>';
-
-      var addBtn = contentEl.querySelector('.admin-provider-add-btn');
-      addBtn.onclick = function () {
-        providerFormMode = 'add';
-        editingProvider = null;
-        renderProvidersPanel();
-      };
-
+      // Grid branch: delegate to providers-grid sub-module.
+      App.admin.renderProvidersGrid(contentEl, providers, {
+        selectedId: editingProvider ? editingProvider.id : null,
+        onSelectProvider: selectProvider,
+        onCreateProvider: enterCreateMode
+      });
+      // The sub-module renders a "Loading providers\u2026" placeholder if providers
+      // is null/undefined; it auto-populates the grid otherwise. Trigger fetch
+      // to (re-)populate.
       fetchProviders();
     }
 
     function fetchProviders() {
-      fetch('/api/providers')
+      return fetch('/api/providers')
         .then(function (r) { return r.json(); })
         .then(function (data) {
           providers = data;
-          renderProviderList();
+          populateProviderGrid();
+          self._tryConsumePendingProvider();
         })
         .catch(function () {
-          var listEl = contentEl.querySelector('.admin-provider-list');
-          if (listEl) listEl.innerHTML = '<div class="admin-loading">Failed to load providers.</div>';
+          var gridEl = contentEl.querySelector('.entity-tile-grid');
+          if (gridEl) gridEl.innerHTML = '<div class="admin-loading">Failed to load providers.</div>';
         });
     }
 
-    function renderProviderList() {
-      var listEl = contentEl.querySelector('.admin-provider-list');
-      if (!listEl) return;
+    // Re-populate the existing tile grid in-place AFTER fetch resolves \u2014
+    // does NOT re-fire fetchProviders (would loop). Skips when the editor
+    // branch is active (no grid is mounted).
+    function populateProviderGrid() {
+      if (providerFormMode) return;
+      App.admin.renderProvidersGrid(contentEl, providers, {
+        selectedId: editingProvider ? editingProvider.id : null,
+        onSelectProvider: selectProvider,
+        onCreateProvider: enterCreateMode
+      });
+    }
 
-      if (providers.length === 0) {
-        listEl.innerHTML =
-          '<div class="empty-state admin-provider-empty">' +
-            'No providers configured. Add one to get started.' +
-          '</div>';
-        return;
+    function selectProvider(id) {
+      var provider = findProvider(id);
+      if (!provider) return; // pending-id race; will be re-attempted after fetch
+      providerFormMode = 'edit';
+      editingProvider = provider;
+      pendingProviderId = null;
+      pendingFormMode = null;
+      if (window.App && window.App.router) {
+        App.router.replaceSub(self.serializeState());
       }
+      renderProvidersPanel();
+    }
 
-      var html = '';
-      for (var i = 0; i < providers.length; i++) {
-        var p = providers[i];
-        var typeSuffix = KNOWN_BADGE_TYPES.indexOf(p.type) >= 0 ? p.type : 'unknown';
-        html +=
-          '<div class="admin-provider-card" role="listitem" data-testid="provider-card" data-id="' + escapeAttr(p.id) + '">' +
-            '<span class="admin-provider-badge admin-provider-badge--' + escapeAttr(typeSuffix) + '">' + escapeHtml(p.type) + '</span>' +
-            '<span class="admin-provider-name">' + escapeHtml(p.name) + '</span>' +
-            '<div class="admin-provider-actions">' +
-              '<button class="btn-outlined-cyan admin-provider-edit-btn" data-id="' + escapeAttr(p.id) + '">Edit</button>' +
-              '<button class="btn-muted-destructive admin-provider-delete-btn" data-id="' + escapeAttr(p.id) + '">Delete</button>' +
-            '</div>' +
-          '</div>';
+    function enterCreateMode() {
+      providerFormMode = 'add';
+      editingProvider = null;
+      pendingProviderId = null;
+      pendingFormMode = null;
+      if (window.App && window.App.router) {
+        App.router.replaceSub(self.serializeState());
       }
-      listEl.innerHTML = html;
-
-      // Wire edit buttons
-      var editBtns = listEl.querySelectorAll('.admin-provider-edit-btn');
-      for (var e = 0; e < editBtns.length; e++) {
-        editBtns[e].addEventListener('click', function (ev) {
-          var id = ev.target.dataset.id;
-          var provider = findProvider(id);
-          if (provider) {
-            providerFormMode = 'edit';
-            editingProvider = provider;
-            renderProvidersPanel();
-          }
-        });
-      }
-
-      // Wire delete buttons
-      var delBtns = listEl.querySelectorAll('.admin-provider-delete-btn');
-      for (var d = 0; d < delBtns.length; d++) {
-        delBtns[d].addEventListener('click', function (ev) {
-          var btn = ev.target;
-          var id = btn.dataset.id;
-          handleProviderDelete(id, btn);
-        });
-      }
+      renderProvidersPanel();
     }
 
     function findProvider(id) {
+      if (!providers) return null;
       for (var i = 0; i < providers.length; i++) {
         if (providers[i].id === id) return providers[i];
       }
       return null;
     }
 
-    // ── Provider Delete ───────────────────────────────────────────────
-
-    var deleteConfirmTimer = null;
-
-    function handleProviderDelete(id, btn) {
-      if (btn.classList.contains('admin-provider-delete-confirm')) {
-        // Second click — actually delete
-        fetch('/api/providers/' + encodeURIComponent(id), { method: 'DELETE' })
-          .then(function (r) {
-            if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || 'Delete failed'); });
-            showAdminFlash('Provider deleted');
-            providerFormMode = null;
-            editingProvider = null;
-            renderProvidersPanel();
-          })
-          .catch(function (err) {
-            showAdminFlash('Error: ' + err.message, true);
-          });
-        return;
-      }
-
-      // First click — check agent usage via dedicated endpoint
-      fetch('/api/providers/' + encodeURIComponent(id) + '/agents')
-        .then(function (r) { return r.json(); })
-        .then(function (data) {
-          var agentNames = data.agents || [];
-
-          if (agentNames.length > 0) {
-            // Hard-block: show agent names, disable button, no confirm flow
-            btn.textContent = 'Used by: ' + agentNames.join(', ');
-            btn.disabled = true;
-            btn.setAttribute('aria-live', 'assertive');
-
-            if (deleteConfirmTimer) clearTimeout(deleteConfirmTimer);
-            deleteConfirmTimer = setTimeout(function () {
-              btn.disabled = false;
-              btn.removeAttribute('aria-live');
-              btn.textContent = 'Delete';
-            }, 3000);
-          } else {
-            // No agents — normal confirm flow
-            btn.classList.add('admin-provider-delete-confirm');
-            btn.setAttribute('aria-live', 'assertive');
-            btn.textContent = 'Confirm delete?';
-
-            if (deleteConfirmTimer) clearTimeout(deleteConfirmTimer);
-            deleteConfirmTimer = setTimeout(function () {
-              btn.classList.remove('admin-provider-delete-confirm');
-              btn.removeAttribute('aria-live');
-              btn.textContent = 'Delete';
-            }, 3000);
-          }
-        })
-        .catch(function () {
-          // If agent fetch fails, still allow delete with basic confirm
-          btn.classList.add('admin-provider-delete-confirm');
-          btn.setAttribute('aria-live', 'assertive');
-          btn.textContent = 'Confirm delete?';
-          if (deleteConfirmTimer) clearTimeout(deleteConfirmTimer);
-          deleteConfirmTimer = setTimeout(function () {
-            btn.classList.remove('admin-provider-delete-confirm');
-            btn.removeAttribute('aria-live');
-            btn.textContent = 'Delete';
-          }, 3000);
-        });
-    }
-
-    // ── Provider Form ─────────────────────────────────────────────────
-
-    function renderProviderForm(provider) {
-      // Gate form rendering on the provider-types fetch — the type dropdown
-      // depends on PROVIDER_TYPES, which is populated by fetchProviderTypes().
-      var ready = providerTypesReady || fetchProviderTypes();
-      ready.then(function () {
-        _renderProviderFormImpl(provider);
-      });
-    }
-
-    function _renderProviderFormImpl(provider) {
-      var isEdit = !!provider;
-      var type = isEdit ? provider.type : '';
-      var defaults = TYPE_DEFAULTS[type] || { base_url: '', showBaseUrl: false, showApiKey: false };
-
-      var html =
-        '<div class="admin-header">' +
-          '<span class="admin-title">' + (isEdit ? 'Edit Provider' : 'Add Provider') + '</span>' +
-        '</div>' +
-        '<div class="admin-provider-form">';
-
-      // Name field
-      html +=
-        '<div class="field-row admin-pf-row">' +
-          '<label for="pf-name">Name</label>' +
-          '<input class="field-input admin-pf-input" id="pf-name" data-field="name" value="' + escapeAttr(isEdit ? provider.name : '') + '" placeholder="My Provider" />' +
-        '</div>';
-
-      // Type dropdown
-      html += '<div class="field-row admin-pf-row">' +
-        '<label for="pf-type">Type</label>' +
-        '<select class="field-input field-select admin-pf-input admin-pf-select" id="pf-type" data-field="type">';
-      if (!isEdit) {
-        html += '<option value="" disabled selected>Select a provider\u2026</option>';
-      }
-      for (var t = 0; t < PROVIDER_TYPES.length; t++) {
-        var pt = PROVIDER_TYPES[t];
-        html += '<option value="' + escapeAttr(pt.value) + '"' + (isEdit && type === pt.value ? ' selected' : '') + '>' + escapeHtml(pt.label) + '</option>';
-      }
-      html += '</select></div>';
-
-      // Base URL field
-      var baseUrlValue = isEdit ? provider.base_url : defaults.base_url;
-      html +=
-        '<div class="field-row admin-pf-row admin-pf-base-url' + (defaults.showBaseUrl ? '' : ' is-hidden') + '">' +
-          '<label for="pf-base-url">Base URL</label>' +
-          '<input class="field-input admin-pf-input" id="pf-base-url" data-field="base_url" value="' + escapeAttr(baseUrlValue) + '" placeholder="https://..." />' +
-        '</div>';
-
-      // API Key field
-      var apiKeyValue = isEdit ? (provider.api_key || '') : '';
-      html +=
-        '<div class="field-row admin-pf-row admin-pf-api-key' + (defaults.showApiKey ? '' : ' is-hidden') + '">' +
-          '<label for="pf-api-key">API Key</label>' +
-          '<div class="admin-pf-password-wrap">' +
-            '<input class="field-input admin-pf-input admin-pf-password" id="pf-api-key" type="password" data-field="api_key" value="' + escapeAttr(apiKeyValue) + '" placeholder="sk-..." />' +
-            '<button class="admin-pf-eye" type="button" title="Show/Hide" aria-label="Show password">' + App.icon('eye') + '</button>' +
-          '</div>' +
-        '</div>';
-
-      // Action buttons
-      html += '<div class="admin-pf-actions">';
-      html += '<span class="admin-pf-error"></span>';
-      html += '<button class="btn-outlined-cyan admin-pf-cancel">Cancel</button>';
-      html += '<button class="btn-filled-cyan admin-pf-save" data-testid="save-provider-btn">' + (isEdit ? 'Save' : 'Create') + '</button>';
-      if (isEdit) {
-        html += '<button class="admin-pf-test" data-testid="test-connection-btn">Test Connection</button>';
-      }
-      html += '</div>';
-
-      // Test result area
-      html += '<div class="admin-pf-test-result" aria-live="polite"></div>';
-
-      // Model list area
-      html += '<div class="admin-pf-models"></div>';
-
-      html += '</div>'; // .admin-provider-form
-
-      contentEl.innerHTML = html;
-
-      wireProviderFormEvents(isEdit, provider);
-
-      // Auto-fetch models when opening edit form
-      if (isEdit && provider.id) {
-        if (provider.type === 'ollama') {
-          renderOllamaModels(provider.id, contentEl.querySelector('.admin-pf-models'));
-        } else {
-          fetchProviderModels(provider.id);
-        }
-      }
-    }
-
-    function wireProviderFormEvents(isEdit, provider) {
-      var MASKED_SENTINEL = '__MASKED__';
-      // Capture the originally pre-filled (masked) API-key value so we can detect
-      // "user did not modify the field" on submit. In create mode this is empty.
-      var originalMaskedApiKey = isEdit ? (provider.api_key || '') : '';
-
-      var typeSelect = contentEl.querySelector('[data-field="type"]');
-      var baseUrlRow = contentEl.querySelector('.admin-pf-base-url');
-      var baseUrlInput = contentEl.querySelector('[data-field="base_url"]');
-      var apiKeyRow = contentEl.querySelector('.admin-pf-api-key');
-      var cancelBtn = contentEl.querySelector('.admin-pf-cancel');
-      var saveBtn = contentEl.querySelector('.admin-pf-save');
-      var testBtn = contentEl.querySelector('.admin-pf-test');
-      var eyeBtn = contentEl.querySelector('.admin-pf-eye');
-      var passwordInput = contentEl.querySelector('.admin-pf-password');
-
-      // Type change handler
-      typeSelect.addEventListener('change', function () {
-        var val = typeSelect.value;
-        var defaults = TYPE_DEFAULTS[val];
-        baseUrlRow.classList.toggle('is-hidden', !defaults.showBaseUrl);
-        apiKeyRow.classList.toggle('is-hidden', !defaults.showApiKey);
-        // Set default base_url when switching types
-        if (defaults.base_url) {
-          baseUrlInput.value = defaults.base_url;
-        } else {
-          baseUrlInput.value = '';
-        }
-      });
-
-      // Eye toggle
-      if (eyeBtn && passwordInput) {
-        eyeBtn.addEventListener('click', function () {
-          if (passwordInput.type === 'password') {
-            passwordInput.type = 'text';
-            eyeBtn.innerHTML = App.icon('eye-off');
-            eyeBtn.setAttribute('aria-label', 'Hide password');
-          } else {
-            passwordInput.type = 'password';
-            eyeBtn.innerHTML = App.icon('eye');
-            eyeBtn.setAttribute('aria-label', 'Show password');
-          }
-        });
-      }
-
-      // Cancel
-      cancelBtn.addEventListener('click', function () {
-        providerFormMode = null;
-        editingProvider = null;
-        renderProvidersPanel();
-      });
-
-      // Save
-      saveBtn.addEventListener('click', function () {
-        var errorEl = contentEl.querySelector('.admin-pf-error');
-        var nameInput = contentEl.querySelector('[data-field="name"]');
-        var name = nameInput.value.trim();
-        if (!name) {
-          errorEl.textContent = 'Name is required.';
-          return;
-        }
-
-        var selectedType = typeSelect.value;
-        var defaults = TYPE_DEFAULTS[selectedType];
-
-        // Always include base_url — it's required on the model
-        var baseUrl = baseUrlInput.value.trim();
-        if (!defaults.showBaseUrl) {
-          baseUrl = defaults.base_url;
-        }
-        // Only enforce non-empty when the field is shown for this type.
-        // Types with showBaseUrl=false (e.g. mock) intentionally use ''.
-        if (!baseUrl && defaults.showBaseUrl) {
-          errorEl.textContent = 'Base URL is required.';
-          return;
-        }
-
-        var apiKeyInput = contentEl.querySelector('[data-field="api_key"]');
-        var apiKey = apiKeyInput ? apiKeyInput.value : null;
-        if (!apiKey) apiKey = null;
-        // If editing and the user did not modify the pre-filled (masked) value,
-        // send the sentinel so the backend preserves the existing stored key.
-        if (isEdit && originalMaskedApiKey && apiKey === originalMaskedApiKey) {
-          apiKey = MASKED_SENTINEL;
-        }
-
-        var payload = {
-          name: name,
-          type: selectedType,
-          base_url: baseUrl,
-          api_key: apiKey
-        };
-
-        errorEl.textContent = '';
-
-        if (isEdit) {
-          fetch('/api/providers/' + encodeURIComponent(provider.id), {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-          })
-            .then(function (r) {
-              if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || 'Save failed'); });
-              return r.json();
-            })
-            .then(function (updated) {
-              editingProvider = updated;
-              showAdminFlash('Provider saved');
-              // Re-render form with updated data (now has id, show test btn)
-              renderProviderForm(updated);
-            })
-            .catch(function (err) {
-              errorEl.textContent = err.message;
-            });
-        } else {
-          fetch('/api/providers', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-          })
-            .then(function (r) {
-              if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || 'Create failed'); });
-              return r.json();
-            })
-            .then(function (created) {
-              showAdminFlash('Provider created');
-              // Switch to edit mode for the newly created provider
-              providerFormMode = 'edit';
-              editingProvider = created;
-              renderProviderForm(created);
-            })
-            .catch(function (err) {
-              errorEl.textContent = err.message;
-            });
-        }
-      });
-
-      // Test connection
-      if (testBtn && isEdit) {
-        testBtn.addEventListener('click', function () {
-          var resultEl = contentEl.querySelector('.admin-pf-test-result');
-          resultEl.innerHTML = '<span class="admin-pf-testing">Testing\u2026</span>';
-          testBtn.disabled = true;
-
-          fetch('/api/providers/' + encodeURIComponent(provider.id) + '/test', { method: 'POST' })
-            .then(function (r) { return r.json(); })
-            .then(function (result) {
-              testBtn.disabled = false;
-              if (result.status === 'ok') {
-                resultEl.innerHTML = '<span class="admin-pf-test-ok">\u2713 ' + escapeHtml(result.detail || 'Connected') + '</span>';
-                showAdminFlash('Connection successful');
-                // Auto-fetch models
-                if (provider.type === 'ollama') {
-                  renderOllamaModels(provider.id, contentEl.querySelector('.admin-pf-models'));
-                } else {
-                  fetchProviderModels(provider.id);
-                }
-              } else {
-                resultEl.innerHTML = '<span class="admin-pf-test-fail">\u2717 ' + escapeHtml(result.detail || 'Failed') + '</span>';
-                showAdminFlash('Connection failed', true);
-              }
-            })
-            .catch(function (err) {
-              testBtn.disabled = false;
-              resultEl.innerHTML = '<span class="admin-pf-test-fail">\u2717 ' + escapeHtml(err.message || 'Request failed') + '</span>';
-              showAdminFlash('Connection test error', true);
-            });
-        });
-      }
-    }
-
-    // ── Model Discovery ───────────────────────────────────────────────
-
-    function fetchProviderModels(providerId) {
-      var modelsEl = contentEl.querySelector('.admin-pf-models');
-      if (!modelsEl) return;
-
-      modelsEl.innerHTML =
-        '<div class="admin-pf-models-header">' +
-          '<span class="admin-pf-models-title">Models</span>' +
-          '<button class="admin-pf-models-refresh">Refresh</button>' +
-        '</div>' +
-        '<div class="admin-pf-models-list" aria-live="polite"><span class="admin-loading">Loading models\u2026</span></div>';
-
-      var refreshBtn = modelsEl.querySelector('.admin-pf-models-refresh');
-      refreshBtn.addEventListener('click', function () {
-        fetchProviderModels(providerId);
-      });
-
-      fetch('/api/providers/' + encodeURIComponent(providerId) + '/models')
-        .then(function (r) {
-          if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || 'Failed to load models'); });
-          return r.json();
-        })
-        .then(function (models) {
-          var listEl = modelsEl.querySelector('.admin-pf-models-list');
-          if (!listEl) return;
-
-          if (models.length === 0) {
-            listEl.innerHTML = '<span class="empty-state admin-pf-models-empty">No models found.</span>';
-            return;
-          }
-
-          var html = '';
-          for (var i = 0; i < models.length; i++) {
-            html += '<div class="admin-pf-model-item">' + escapeHtml(models[i].id || models[i].name) + '</div>';
-          }
-          listEl.innerHTML = html;
-        })
-        .catch(function (err) {
-          var listEl = modelsEl.querySelector('.admin-pf-models-list');
-          if (listEl) {
-            listEl.innerHTML = '<span class="admin-pf-test-fail">' + escapeHtml(err.message || 'Failed to load models') + '</span>';
-          }
-        });
-    }
-
-    // ── Ollama Lifecycle Panel ──────────────────────────────────────
-
-    var formatBytes = App.formatBytes;
-
-    function renderOllamaModels(providerId, container) {
-      if (!container) return;
-
-      container.innerHTML =
-        '<div class="admin-pf-models-header">' +
-          '<span class="admin-pf-models-title">Models</span>' +
-          '<button class="admin-pf-models-refresh">Refresh</button>' +
-          '<button class="admin-pf-pull-btn">Pull Model</button>' +
-        '</div>' +
-        '<div class="admin-pf-pull-input is-hidden">' +
-          '<div class="admin-pf-pull-search-wrap">' +
-            '<input class="field-input admin-pf-input admin-pf-pull-name" placeholder="Search Ollama library..." autocomplete="off" />' +
-            '<div class="admin-pf-pull-suggestions is-hidden"></div>' +
-          '</div>' +
-          '<button class="btn-filled-cyan admin-pf-pull-go" disabled>Pull</button>' +
-        '</div>' +
-        '<div class="admin-pf-pull-progress is-hidden">' +
-          '<div class="admin-pf-pull-fill"></div>' +
-          '<span class="admin-pf-pull-text"></span>' +
-          '<button class="admin-pf-pull-cancel" aria-label="Cancel pull">' + App.icon('x') + '</button>' +
-        '</div>' +
-        '<div class="admin-pf-pull-error is-hidden"></div>' +
-        '<div class="admin-pf-vram-summary"></div>' +
-        '<div class="admin-pf-models-list" aria-live="polite"><span class="admin-loading">Loading models\u2026</span></div>';
-
-      var refreshBtn = container.querySelector('.admin-pf-models-refresh');
-      refreshBtn.addEventListener('click', function () {
-        renderOllamaModels(providerId, container);
-      });
-
-      // Pull UI wiring
-      var pullBtn = container.querySelector('.admin-pf-pull-btn');
-      var pullInputRow = container.querySelector('.admin-pf-pull-input');
-      var pullNameInput = container.querySelector('.admin-pf-pull-name');
-      var pullGoBtn = container.querySelector('.admin-pf-pull-go');
-      var pullProgress = container.querySelector('.admin-pf-pull-progress');
-      var pullFill = container.querySelector('.admin-pf-pull-fill');
-      var pullText = container.querySelector('.admin-pf-pull-text');
-      var pullError = container.querySelector('.admin-pf-pull-error');
-
-      var suggestionsEl = container.querySelector('.admin-pf-pull-suggestions');
-      var pullAbort = null;
-
-      pullBtn.addEventListener('click', function () {
-        pullInputRow.classList.toggle('is-hidden');
-        pullError.classList.add('is-hidden');
-        suggestionsEl.classList.add('is-hidden');
-        pullNameInput.value = '';
-        pullGoBtn.disabled = true;
-        pullNameInput.focus();
-      });
-
-      pullGoBtn.addEventListener('click', function () { startPull(); });
-
-      // Dynamic model search from Ollama library
-      var pullSearchTimer = null;
-      pullNameInput.addEventListener('input', function () {
-        clearTimeout(pullSearchTimer);
-        var q = pullNameInput.value.trim();
-        pullGoBtn.disabled = !q;
-        if (q.length < 2) {
-          suggestionsEl.classList.add('is-hidden');
-          suggestionsEl.innerHTML = '';
-          return;
-        }
-        pullSearchTimer = setTimeout(function () {
-          fetch('/api/ollama-library/search?q=' + encodeURIComponent(q))
-            .then(function (r) { return r.ok ? r.json() : []; })
-            .then(function (models) {
-              if (!models.length) {
-                suggestionsEl.classList.add('is-hidden');
-                return;
-              }
-              var html = '';
-              for (var i = 0; i < models.length && i < 15; i++) {
-                var sz = models[i].size ? ' (' + formatBytes(Number(models[i].size)) + ')' : '';
-                html += '<div class="admin-pf-pull-suggestion" data-model="' +
-                  escapeAttr(models[i].name) + '">' +
-                  escapeHtml(models[i].name) +
-                  '<span class="admin-pf-pull-suggestion-size">' + escapeHtml(sz) + '</span></div>';
-              }
-              suggestionsEl.innerHTML = html;
-              suggestionsEl.classList.remove('is-hidden');
-
-              // Wire click handlers on suggestions
-              var items = suggestionsEl.querySelectorAll('.admin-pf-pull-suggestion');
-              for (var j = 0; j < items.length; j++) {
-                items[j].addEventListener('click', function () {
-                  pullNameInput.value = this.getAttribute('data-model');
-                  suggestionsEl.classList.add('is-hidden');
-                  pullGoBtn.disabled = false;
-                });
-              }
-            })
-            .catch(function () {
-              suggestionsEl.classList.add('is-hidden');
-            });
-        }, 300);
-      });
-
-      // Hide suggestions on blur (with delay so clicks register)
-      pullNameInput.addEventListener('blur', function () {
-        setTimeout(function () { suggestionsEl.classList.add('is-hidden'); }, 200);
-      });
-      // Re-show on focus if there's content
-      pullNameInput.addEventListener('focus', function () {
-        if (suggestionsEl.innerHTML && pullNameInput.value.trim().length >= 2) {
-          suggestionsEl.classList.remove('is-hidden');
-        }
-      });
-      // Enter in input does nothing (must click Pull button)
-      pullNameInput.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') e.preventDefault();
-      });
-
-      // Cancel button
-      var pullCancelBtn = container.querySelector('.admin-pf-pull-cancel');
-      pullCancelBtn.addEventListener('click', function () {
-        if (pullAbort) {
-          pullAbort.abort();
-          pullAbort = null;
-        }
-        finishPull(false);
-        showAdminFlash('Pull cancelled');
-      });
-
-      function startPull() {
-        var model = pullNameInput.value.trim();
-        if (!model) return;
-
-        pullAbort = new AbortController();
-        pullGoBtn.disabled = true;
-        pullBtn.disabled = true;
-        pullNameInput.disabled = true;
-        suggestionsEl.classList.add('is-hidden');
-        pullError.classList.add('is-hidden');
-        pullProgress.classList.remove('is-hidden');
-        pullFill.style.width = '0%';
-        pullText.textContent = 'Pulling ' + escapeHtml(model) + '\u2026';
-
-        fetch('/api/providers/' + encodeURIComponent(providerId) + '/models/pull', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: model }),
-          signal: pullAbort.signal
-        })
-          .then(function (resp) {
-            if (!resp.ok) {
-              return resp.json().then(function (e) { throw new Error(e.detail || 'Pull request failed'); });
-            }
-            var reader = resp.body.getReader();
-            var decoder = new TextDecoder();
-            var buffer = '';
-
-            function read() {
-              return reader.read().then(function (result) {
-                if (result.done) {
-                  finishPull(true);
-                  return;
-                }
-                buffer += decoder.decode(result.value, { stream: true });
-                var lines = buffer.split('\n');
-                buffer = lines.pop();
-
-                for (var i = 0; i < lines.length; i++) {
-                  var line = lines[i].trim();
-                  if (line.indexOf('data: ') === 0) {
-                    try {
-                      var evt = JSON.parse(line.substring(6));
-                      if (evt.error) {
-                        showPullError(evt.error);
-                        return;
-                      }
-                      if (evt.status === 'success') {
-                        finishPull(true);
-                        return;
-                      }
-                      var pct = 0;
-                      if (evt.total && evt.total > 0) {
-                        pct = Math.round((evt.completed / evt.total) * 100);
-                      }
-                      pullFill.style.width = pct + '%';
-                      pullText.textContent = escapeHtml(evt.status || '') + (pct > 0 ? ' \u2014 ' + pct + '%' : '');
-                    } catch (parseErr) {
-                      // skip unparseable lines
-                    }
-                  }
-                }
-                return read();
-              });
-            }
-
-            return read();
-          })
-          .catch(function (err) {
-            if (err.name === 'AbortError') return; // cancelled by user
-            showPullError(err.message || 'Pull failed');
-          });
-      }
-
-      function showPullError(msg) {
-        pullAbort = null;
-        pullProgress.classList.add('is-hidden');
-        pullError.classList.remove('is-hidden');
-        pullError.textContent = escapeHtml(msg);
-        pullGoBtn.disabled = false;
-        pullBtn.disabled = false;
-        pullNameInput.disabled = false;
-      }
-
-      function finishPull(success) {
-        pullAbort = null;
-        pullProgress.classList.add('is-hidden');
-        pullGoBtn.disabled = false;
-        pullBtn.disabled = false;
-        pullNameInput.disabled = false;
-        pullNameInput.value = '';
-        pullInputRow.classList.add('is-hidden');
-        if (success) {
-          showAdminFlash('Model pulled successfully');
-          renderOllamaModels(providerId, container);
-        }
-      }
-
-      // Fetch both endpoints in parallel
-      var modelsPromise = fetch('/api/providers/' + encodeURIComponent(providerId) + '/models')
-        .then(function (r) {
-          if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || 'Failed to load models'); });
-          return r.json();
-        });
-
-      var statusPromise = fetch('/api/providers/' + encodeURIComponent(providerId) + '/models/status')
-        .then(function (r) {
-          if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || 'Failed to load status'); });
-          return r.json();
-        });
-
-      Promise.all([modelsPromise, statusPromise])
-        .then(function (results) {
-          var allModels = results[0];
-          var runningModels = results[1];
-
-          var listEl = container.querySelector('.admin-pf-models-list');
-          var vramEl = container.querySelector('.admin-pf-vram-summary');
-          if (!listEl || !vramEl) return;
-
-          // Build set of running model names
-          var runningNames = {};
-          var totalVram = 0;
-          for (var r = 0; r < runningModels.length; r++) {
-            var rm = runningModels[r];
-            var rname = rm.name || rm.model || '';
-            runningNames[rname] = rm;
-            if (rm.size_vram) totalVram += rm.size_vram;
-          }
-
-          // VRAM summary
-          if (runningModels.length === 0) {
-            vramEl.textContent = 'No models loaded';
-          } else if (totalVram > 0) {
-            vramEl.innerHTML = '<span class="admin-pf-vram-value">' + escapeHtml(formatBytes(totalVram)) + ' loaded</span>';
-          } else {
-            vramEl.textContent = 'VRAM info unavailable';
-          }
-
-          // Build model rows
-          if (allModels.length === 0 && runningModels.length === 0) {
-            listEl.innerHTML = '<span class="empty-state admin-pf-models-empty">No models found. Use Pull Model to download one.</span>';
-            return;
-          }
-
-          var html = '';
-
-          // Running models section
-          if (runningModels.length > 0) {
-            html += '<div class="admin-pf-section-label">Running</div>';
-            for (var i = 0; i < runningModels.length; i++) {
-              var run = runningModels[i];
-              var runName = run.name || run.model || 'unknown';
-              var runVram = run.size_vram ? formatBytes(run.size_vram) : '';
-              html +=
-                '<div class="admin-pf-model-row">' +
-                  '<span class="admin-pf-model-dot loaded"></span>' +
-                  '<span class="admin-pf-model-name">' + escapeHtml(runName) + '</span>' +
-                  '<span class="admin-pf-model-size">' + escapeHtml(runVram) + '</span>' +
-                  '<div class="admin-pf-model-actions">' +
-                    '<button class="admin-pf-model-btn admin-pf-model-unload" data-model="' + escapeAttr(runName) + '">Unload</button>' +
-                  '</div>' +
-                '</div>';
-            }
-          }
-
-          // Available models section (not currently running)
-          var availableModels = [];
-          for (var j = 0; j < allModels.length; j++) {
-            var am = allModels[j];
-            var aname = am.name || am.id || '';
-            if (!runningNames[aname]) {
-              availableModels.push(am);
-            }
-          }
-
-          if (availableModels.length > 0) {
-            html += '<div class="admin-pf-section-label">Available</div>';
-            for (var k = 0; k < availableModels.length; k++) {
-              var avail = availableModels[k];
-              var availName = avail.name || avail.id || 'unknown';
-              var availSize = avail.size ? formatBytes(avail.size) : '';
-              html +=
-                '<div class="admin-pf-model-row">' +
-                  '<span class="admin-pf-model-dot"></span>' +
-                  '<span class="admin-pf-model-name">' + escapeHtml(availName) + '</span>' +
-                  '<span class="admin-pf-model-size">' + escapeHtml(availSize) + '</span>' +
-                  '<div class="admin-pf-model-actions">' +
-                    '<button class="admin-pf-model-btn admin-pf-model-load" data-model="' + escapeAttr(availName) + '">Load</button>' +
-                    '<button class="admin-pf-model-btn admin-pf-model-delete" data-model="' + escapeAttr(availName) + '">Delete</button>' +
-                  '</div>' +
-                '</div>';
-            }
-          }
-
-          listEl.innerHTML = html;
-
-          // Wire action buttons
-          wireOllamaActions(providerId, container);
-        })
-        .catch(function (err) {
-          var listEl = container.querySelector('.admin-pf-models-list');
-          if (listEl) {
-            listEl.innerHTML = '<span class="admin-pf-test-fail">' + escapeHtml(err.message || 'Failed to load models') + '</span>';
-          }
-        });
-    }
-
-    function wireOllamaActions(providerId, container) {
-      // Unload buttons
-      var unloadBtns = container.querySelectorAll('.admin-pf-model-unload');
-      for (var u = 0; u < unloadBtns.length; u++) {
-        unloadBtns[u].addEventListener('click', function (ev) {
-          var btn = ev.target;
-          var model = btn.dataset.model;
-          btn.disabled = true;
-          btn.textContent = 'Unloading\u2026';
-          ollamaAction(providerId, container, 'unload', model, btn);
-        });
-      }
-
-      // Load buttons
-      var loadBtns = container.querySelectorAll('.admin-pf-model-load');
-      for (var l = 0; l < loadBtns.length; l++) {
-        loadBtns[l].addEventListener('click', function (ev) {
-          var btn = ev.target;
-          var model = btn.dataset.model;
-          btn.disabled = true;
-          btn.textContent = 'Loading\u2026';
-          ollamaAction(providerId, container, 'load', model, btn);
-        });
-      }
-
-      // Delete buttons (with confirmation)
-      var delBtns = container.querySelectorAll('.admin-pf-model-delete');
-      for (var d = 0; d < delBtns.length; d++) {
-        delBtns[d].addEventListener('click', function (ev) {
-          var btn = ev.target;
-          var model = btn.dataset.model;
-          if (btn.classList.contains('admin-pf-model-delete-confirm')) {
-            btn.disabled = true;
-            btn.textContent = 'Deleting\u2026';
-            ollamaAction(providerId, container, 'delete', model, btn);
-          } else {
-            btn.classList.add('admin-pf-model-delete-confirm');
-            btn.textContent = 'Confirm?';
-            setTimeout(function () {
-              btn.classList.remove('admin-pf-model-delete-confirm');
-              btn.textContent = 'Delete';
-            }, 3000);
-          }
-        });
-      }
-    }
-
-    function ollamaAction(providerId, container, action, model, btn) {
-      var url = '/api/providers/' + encodeURIComponent(providerId) + '/models/' + action;
-      fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: model })
-      })
-        .then(function (r) {
-          if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || action + ' failed'); });
-          return r.json();
-        })
-        .then(function () {
-          showAdminFlash('Model ' + action + (action === 'delete' ? 'd' : 'ed') + ' successfully');
-          renderOllamaModels(providerId, container);
-        })
-        .catch(function (err) {
-          btn.disabled = false;
-          btn.textContent = action.charAt(0).toUpperCase() + action.slice(1);
-          // Show inline error
-          var row = btn.closest('.admin-pf-model-row');
-          if (row) {
-            var existing = row.querySelector('.admin-pf-model-error');
-            if (existing) existing.remove();
-            var errEl = document.createElement('div');
-            errEl.className = 'admin-pf-model-error';
-            errEl.textContent = err.message;
-            row.appendChild(errEl);
-            setTimeout(function () { errEl.remove(); }, 4000);
-          }
-        });
-    }
+    // ── Provider Form / Delete / Models / Ollama ─────────────────────
+    // Migrated to admin/provider-editor.js + admin/provider-models.js in
+    // F6 leg 03. The orchestrator's renderProvidersPanel above delegates
+    // editor mounting to App.admin.renderProviderEditor; that sub-module
+    // owns the form/test/save/delete fetches and invokes onSaveSuccess /
+    // onDeleteSuccess callbacks for state mutation. The Ollama lifecycle
+    // panel + basic-model-list both live in App.admin.renderProviderModels.
 
     // ── Flash Feedback ────────────────────────────────────────────────
 
@@ -1217,14 +350,36 @@ App.registerArea({
     // Store reference for activate() to reuse
     var self = this;
     self._refresh = function () {
-      if (currentCategory === 'general') {
-        fetchSettings();
+      if (currentCategory === 'system') {
+        App.admin.renderSystemPage(contentEl);
       } else if (currentCategory === 'providers' && !providerFormMode) {
-        fetchProviders();
+        fetchProviders().then(function () {
+          self._tryConsumePendingProvider();
+        });
       }
     };
     Object.defineProperty(self, '_currentCategory', {
       get: function () { return currentCategory; },
+      configurable: true
+    });
+    Object.defineProperty(self, '_providerFormMode', {
+      get: function () { return providerFormMode; },
+      set: function (v) { providerFormMode = v; },
+      configurable: true
+    });
+    Object.defineProperty(self, '_editingProvider', {
+      get: function () { return editingProvider; },
+      set: function (v) { editingProvider = v; },
+      configurable: true
+    });
+    Object.defineProperty(self, '_pendingProviderId', {
+      get: function () { return pendingProviderId; },
+      set: function (v) { pendingProviderId = v; },
+      configurable: true
+    });
+    Object.defineProperty(self, '_pendingFormMode', {
+      get: function () { return pendingFormMode; },
+      set: function (v) { pendingFormMode = v; },
       configurable: true
     });
     self._setCategory = function (sub) {
@@ -1232,15 +387,39 @@ App.registerArea({
         currentCategory = sub;
         providerFormMode = null;
         editingProvider = null;
-        renderCategoryList();
+        pendingProviderId = null;
+        pendingFormMode = null;
+        App.layout.updateActiveSection(categoryListEl, currentCategory);
         renderContent();
+      }
+    };
+    self._tryConsumePendingProvider = function () {
+      if (!pendingProviderId && !pendingFormMode) return;
+      if (pendingFormMode === 'add') {
+        providerFormMode = 'add';
+        editingProvider = null;
+        pendingFormMode = null;
+        pendingProviderId = null;
+        renderProvidersPanel();
+        return;
+      }
+      if (pendingFormMode === 'edit' && pendingProviderId) {
+        var found = findProvider(pendingProviderId);
+        if (found) {
+          providerFormMode = 'edit';
+          editingProvider = found;
+          pendingProviderId = null;
+          pendingFormMode = null;
+          renderProvidersPanel();
+        }
+        // else: provider not in cache (unknown or fetch race not yet resolved);
+        // _tryConsumePendingProvider re-fires after fetchProviders.then.
       }
     };
 
     // ── Init ──────────────────────────────────────────────────────────
 
     fetchProviderTypes();
-    renderCategoryList();
     renderContent();
   },
 

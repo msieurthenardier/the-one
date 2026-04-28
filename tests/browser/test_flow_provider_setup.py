@@ -29,10 +29,10 @@ def test_first_start_provider_setup_flow(app_clean: str, page: Page) -> None:
 
     # 2. Navigate to Admin → LLM Providers.
     page.goto(f"{base_url}#admin")
-    page.locator(".admin-category-item", has_text="LLM Providers").click()
+    page.locator(".section-nav-item", has_text="LLM Providers").click()
 
-    # 3. Click + Add Provider.
-    page.locator('[data-testid="add-provider-btn"]').click()
+    # 3. Click + New Provider.
+    page.locator('[data-testid="new-provider-btn"]').click()
 
     # 4-5. Fill name, select mock type (auto-hides base_url and api_key inputs).
     page.locator("#pf-name").fill("Mock Test")
@@ -41,25 +41,25 @@ def test_first_start_provider_setup_flow(app_clean: str, page: Page) -> None:
     # 6. Click Create.
     page.locator('[data-testid="save-provider-btn"]').click()
 
-    # 7. Form auto-switches to edit mode after successful Create
-    #    (admin.js:665-670). Confirm by waiting for the title and the
-    #    Test Connection button (only rendered in edit mode).
-    expect(page.locator(".admin-title")).to_have_text("Edit Provider")
+    # 7. Form auto-switches to edit mode after successful Create. Post-leg-03
+    #    the editor title is the provider's name (not "Edit Provider"); the
+    #    Test button is only rendered in edit mode.
+    expect(page.locator(".editor-title")).to_have_text("Mock Test")
     test_btn = page.locator('[data-testid="test-connection-btn"]')
     expect(test_btn).to_be_visible()
 
     # 8-9. Click Test Connection. The mock branch (leg 02) returns
     #      {"status": "ok", "detail": "Mock provider (dev mode)"}.
     test_btn.click()
-    expect(page.locator(".admin-pf-test-result")).to_contain_text("Mock", timeout=5000)
+    expect(page.locator(".test-result")).to_contain_text("Mock", timeout=5000)
 
-    # 10. Click Cancel to return to the provider list.
-    page.locator(".admin-pf-cancel").click()
+    # 10. Clean form (just tested, no edits) — Cancel is disabled; use Back to return.
+    page.locator('[data-testid="back-provider-btn"]').click()
 
     # 11. Provider card visible with name "Mock Test" and mock badge.
     card = page.locator('[data-testid="provider-card"]')
     expect(card).to_be_visible()
-    expect(card.locator(".admin-provider-name")).to_have_text("Mock Test")
+    expect(card.locator(".entity-tile-name")).to_have_text("Mock Test")
     expect(card.locator(".admin-provider-badge")).to_have_text("mock")
 
     # 12. Navigate back to Chat. Welcome guidance now reflects the next setup

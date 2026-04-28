@@ -106,7 +106,7 @@ def test_agent_item_keyboard_select(app_with_agent: SeededApp, page: Page) -> No
 
     F5 leg 02 replaced the flat `<div role="option">` rows inside
     `<div class="agent-list" role="listbox">` with a CSS-grid of
-    `<button class="agent-tile">` buttons. Each tile is a natural tab stop
+    `<button class="entity-tile">` buttons. Each tile is a natural tab stop
     (default <button> behavior, no custom tabindex), so the listbox/option
     pattern was retired in favor of a more direct keyboard model.
     """
@@ -117,8 +117,8 @@ def test_agent_item_keyboard_select(app_with_agent: SeededApp, page: Page) -> No
     agent_item = page.locator('[data-testid="agent-item"]').first
     expect(agent_item).to_be_visible(timeout=5000)
 
-    # The container is a CSS-grid (`.agent-tile-grid`), not a listbox.
-    expect(page.locator(".agent-tile-grid")).to_be_visible()
+    # The container is a CSS-grid (`.entity-tile-grid`), not a listbox.
+    expect(page.locator(".entity-tile-grid")).to_be_visible()
 
     # The tile is a <button> (natural tab stop) carrying the agent-item testid.
     tag_name = agent_item.evaluate("el => el.tagName.toLowerCase()")
@@ -134,27 +134,27 @@ def test_agent_item_keyboard_select(app_with_agent: SeededApp, page: Page) -> No
 
 @pytest.mark.browser
 def test_admin_category_keyboard_select(app_clean: str, page: Page) -> None:
-    """Tab into admin-category-item, press Enter; aria-selected becomes true."""
+    """Tab into section-nav-item, press Enter; aria-current becomes 'page'."""
     page.goto(f"{app_clean}#admin")
 
-    # Wait for admin category list to render
-    category_item = page.locator(".admin-category-item").first
+    # Wait for admin section nav to render (scoped under .area-admin so studio
+    # nav buttons cannot match if both areas are mounted in DOM).
+    category_item = page.locator(".area-admin .section-nav-item").first
     expect(category_item).to_be_visible(timeout=5000)
 
-    # Category list has role=listbox
-    expect(page.locator(".admin-category-list")).to_have_attribute("role", "listbox")
+    # Section-nav container has role=group (set by App.layout.renderSectionNav)
+    expect(page.locator(".area-admin .section-nav")).to_have_attribute("role", "group")
 
-    # Category item has role=option with tabindex=0
-    expect(category_item).to_have_attribute("role", "option")
+    # Active section-nav item has tabindex=0 (roving tabindex contract)
     expect(category_item).to_have_attribute("tabindex", "0")
 
-    # The first category is "General" which is active by default
-    # Click the second category (Providers) then keyboard-activate the first
-    page.locator(".admin-category-item").nth(1).click()
+    # The first section-nav item is "System" which is active by default
+    # Click the second item (LLM Providers) then keyboard-activate the first
+    page.locator(".area-admin .section-nav-item").nth(1).click()
 
     # Now focus first item and press Enter to switch back
-    first_item = page.locator(".admin-category-item").first
+    first_item = page.locator(".area-admin .section-nav-item").first
     first_item.focus()
     page.keyboard.press("Enter")
 
-    expect(first_item).to_have_attribute("aria-selected", "true")
+    expect(first_item).to_have_attribute("aria-current", "page")
