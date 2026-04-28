@@ -29,6 +29,23 @@ def test_admin_legacy_general_redirects_to_system(app_clean: str, page: Page) ->
 
 
 @pytest.mark.browser
+def test_admin_picker_click_from_providers_redirects_to_system(
+    app_clean: str, page: Page
+) -> None:
+    """Clicking the Settings picker while already in admin (from /providers)
+    sets bare `#admin` — must redirect to `#admin/system`, not strand the URL.
+
+    Regression test for the F6 HAT bug: same-area sub-change skipped the
+    serialize-replace block, leaving the URL at bare `#admin`.
+    """
+    page.goto(f"{app_clean}#admin/providers")
+    expect(page.locator(".page-title")).to_have_text("LLM Providers", timeout=8000)
+    page.evaluate("location.hash = '#admin'")
+    expect(page.locator(".page-title")).to_have_text("System", timeout=5000)
+    assert page.evaluate("location.hash") == "#admin/system"
+
+
+@pytest.mark.browser
 def test_admin_section_nav_renders_two_sections(app_clean: str, page: Page) -> None:
     page.goto(f"{app_clean}#admin/system")
     nav = page.locator(".area-admin .section-nav")

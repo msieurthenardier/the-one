@@ -22,6 +22,7 @@ down: ## Stop the-one
 rebuild: ## Rebuild image + restart (REQUIRED after editing JS/CSS/Python)
 	docker compose build the-one
 	docker compose up -d the-one
+	@$(MAKE) --no-print-directory _ensure-playwright
 	@$(MAKE) --no-print-directory verify-serving
 
 .PHONY: rebuild-clean
@@ -30,7 +31,21 @@ rebuild-clean: ## Rebuild image + wipe DB volume + restart fresh (HAT prep, no c
 	docker volume rm -f the-one_the_one_data
 	docker compose build the-one
 	docker compose up -d the-one
+	@$(MAKE) --no-print-directory _ensure-playwright
 	@$(MAKE) --no-print-directory verify-serving
+
+# Internal target: reinstall playwright browsers + system deps if missing.
+# Cache lives at /root/.cache/ms-playwright inside the container, which does
+# NOT persist across `docker compose down` / image rebuilds — without this,
+# every rebuild leaves the test suite unable to launch chromium.
+.PHONY: _ensure-playwright
+_ensure-playwright:
+	@if ! docker exec the-one test -x /root/.cache/ms-playwright/chromium_headless_shell-1208/chrome-headless-shell-linux64/chrome-headless-shell 2>/dev/null; then \
+		echo "Installing playwright chromium (cache was wiped by rebuild) ..."; \
+		docker exec the-one playwright install chromium >/dev/null 2>&1; \
+		docker exec the-one playwright install-deps chromium >/dev/null 2>&1; \
+		echo "  ✓ playwright chromium ready"; \
+	fi
 
 .PHONY: reset-db
 reset-db: ## Wipe DB volume + restart (DESTRUCTIVE — requires CONFIRM=1)

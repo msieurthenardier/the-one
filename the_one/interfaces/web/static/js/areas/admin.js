@@ -22,7 +22,16 @@ App.registerArea({
     return this._currentCategory || 'system';
   },
   hydrateState: function (sub) {
-    if (!sub) return;
+    // Empty sub (user navigated to bare `#admin`) → reset to default 'system'.
+    // Without this, currentCategory retains whatever it was (e.g. 'providers')
+    // and the router's syncUrlFromState would rewrite the URL to that retained
+    // state instead of the canonical default. F6 HAT regression.
+    if (!sub) {
+      if (this._setCategory) this._setCategory('system');
+      this._pendingProviderId = null;
+      this._pendingFormMode = null;
+      return;
+    }
     var origSub = sub;
     // Legacy redirect: #admin/general → #admin/system (F6 leg 01).
     if (sub === 'general') sub = 'system';
