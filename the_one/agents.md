@@ -245,7 +245,7 @@ The interface uses six recurring affordance patterns. Each is identifiable by it
 
 5. **Neutral utility** — small, non-categorical action with no surrounding chrome. Pattern: background transparent, text `var(--fg-secondary)`, hover text `var(--fg)`, no border. Examples: inline `x` icon buttons, dropdown-chevron indicators, decorative scroll affordances. NOT for "+ new" buttons (those are outlined-cyan, pattern 2).
 
-6. **Palette-island rule** — components that establish their own chrome (the nav rail, the top bar arriving in F3 leg 02) declare their own `--nav-*` (or topbar-equivalent) palette family in `tokens.css`. The body palette and the chrome palette MUST NOT share token names. Rule: never reach into chrome tokens from body components or vice versa.
+6. **Palette-island rule** — components that establish their own chrome (the `#app-topbar` post-F3) declare their own `--nav-*` palette family in `tokens.css`. The body palette and the chrome palette MUST NOT share token names. Rule: never reach into chrome tokens from body components or vice versa. (The `--nav-*` token-family name is retained for continuity even though F3 replaced the original left nav rail with the topbar app-picker; the rule applies to chrome surfaces generally, not to a specific layout.)
 
 #### Affordance vocabulary (shared class catalog)
 
@@ -400,8 +400,8 @@ box-shadow: 0 0 0 3px var(--accent-glow);
 In dark this resolves to a `#22d3ee` outline + cyan glow; in light it
 resolves to a `#0e7490` outline + cyan glow. Both meet the 3:1 non-text
 contrast threshold (WCAG 1.4.11) against adjacent surfaces. Manually
-verified by tabbing through chat input, send button, and nav rail in both
-themes.
+verified by tabbing through chat input, send button, and the topbar
+app-picker in both themes.
 
 #### Semantic attributes
 
@@ -489,9 +489,9 @@ colour inherits from the surrounding context (theme-aware via
 
 | Name | Lucide source | Used in |
 |------|---------------|---------|
-| `chat` | `message-circle` | nav rail (Chat area) |
-| `studio` | `bot` | nav rail (Studio area) |
-| `admin` | `settings` | nav rail (Admin area) |
+| `chat` | `message-circle` | topbar app-picker (Chat area option) |
+| `studio` | `bot` | topbar app-picker (Studio area option) |
+| `admin` | `settings` | topbar app-picker (Admin area option) |
 | `plus` | `plus` | new-agent button (Studio sidebar) |
 | `x` | `x` | session-delete, agent-delete, chip-remove, password-toggle-close, model-pull-cancel |
 | `edit` | `edit` | (curated; future use) |
