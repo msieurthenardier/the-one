@@ -28,10 +28,34 @@ pytest -m browser tests/browser/                    # Browser tests (needs THE_O
 # Lint & format
 ruff check the_one/ tests/
 ruff format the_one/ tests/
-
-# Docker
-docker compose up --build
 ```
+
+## Local dev with Docker
+
+The container at `localhost:8484` serves from image-baked code (`Dockerfile COPY the_one/`) — **editing source on the host does NOT update the running app**. The `/workspace` bind-mount is used by the test suite, which spawns its own uvicorn subprocess; it does not feed the daemon at port 8484. Browser tests can therefore go green while the user-facing app serves stale JS — `make rebuild` is the cure.
+
+Use the Makefile rather than raw `docker compose` calls so the rebuild + verify step is consistent:
+
+```bash
+make rebuild                # rebuild image + restart + verify static assets (use after editing JS/CSS/Python)
+make rebuild-clean          # rebuild + wipe DB volume + restart fresh (HAT prep — empty-state walkthroughs)
+make reset-db CONFIRM=1     # wipe DB volume + restart (without rebuild). Gated to prevent accidental data loss.
+make up                     # start without rebuilding
+make down                   # stop
+make logs                   # follow container logs
+make shell                  # bash into the container
+make test                   # run all default tests inside the container
+make test-unit              # unit tests only
+make test-browser           # Playwright browser tests
+make lint                   # ruff check
+make format                 # ruff format
+make verify-serving         # curl-check that admin sub-modules return 200 (catches stale-image bugs)
+make help                   # list all targets
+```
+
+**When `make rebuild` is required**: any change under `the_one/` — JS, CSS, HTML, Python. The Dockerfile copies these at build time; live-reload is intentionally NOT enabled (mirrors the Concourse CI/prod path).
+
+**When `make rebuild` is NOT required**: editing files under `tests/` (tests run from `/workspace` via subprocess) or running ad-hoc one-off pytest invocations.
 
 ## Architecture
 
@@ -76,7 +100,7 @@ The agent deploys itself through Concourse CI (`ci/pipeline.yml`). Key jobs:
 - `autopilot`: runs every 30min, sends a work-cycle prompt to `/api/chat`
 - `rollback`, `restart`, `pause-autopilot`, `unpause-autopilot`
 
-The container runs from `/app` (built code) but mounts the source repo at `/workspace` (editable). Changes to `/workspace` take effect after a deploy.
+The container runs from `/app` (built code, baked at image-build time via Dockerfile `COPY the_one/`). The source repo is bind-mounted at `/workspace` for git operations, ad-hoc inspection, and the test fixtures (which spawn their own uvicorn from the workspace). Changes to source on the host do NOT auto-reload into the running daemon — `make rebuild` is required for the served app to pick up edits. The Concourse `deploy` job rebuilds the image from scratch the same way.
 
 ## Configuration
 
