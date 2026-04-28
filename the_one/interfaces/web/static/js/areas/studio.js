@@ -5,31 +5,148 @@ App.registerArea({
   order: 20,
   sidebarLabel: 'Agent list',
 
+  // ── Hash-routing serialize/hydrate ──────────────────────────────────
+  //
+  // serializeState branch order (explicit):
+  //   1. _activeSection === 'knowledge' → 'knowledge'
+  //   2. _activeSection === 'tools' → 'tools'
+  //   3. _activeSection === 'agents' && agent selected && !createMode →
+  //      'agents/<encoded-name>/<tab>'   (F5 leg 03 — appended /{tab})
+  //   4. otherwise (no agent OR createMode) → 'agents'
+  //
+  // F5 leg 03 extends branch 3 by appending the active tab segment so the
+  // URL reflects the editor's tab state. Defaults to 'general'. The F3
+  // router's serialize-after-hydrate path performs the
+  // #studio/agents/{name} → #studio/agents/{name}/general upgrade for free
+  // (no new redirect logic in studio.js).
   serializeState: function () {
-    return (this._selectedAgent && !this._createMode) ? 'agents/' + encodeURIComponent(this._selectedAgent.name) : null;
+    if (this._activeSection === 'knowledge') return 'knowledge';
+    if (this._activeSection === 'tools') return 'tools';
+    if (this._activeSection === 'agents' && this._selectedAgent && !this._createMode) {
+      return 'agents/' + encodeURIComponent(this._selectedAgent.name) +
+        '/' + (this._activeTab || 'general');
+    }
+    // Hydrate-before-loadAll race: when the user lands on
+    // #studio/agents/{name}/{tab} but agents fetch hasn't completed,
+    // _selectedAgent is null even though we already know the target.
+    // Without this branch, the F3 router's serialize-after-hydrate would
+    // clobber the URL to #studio/agents before tryConsumePendingSelect
+    // resolves. Returning the deep form keeps the URL stable.
+    if (this._activeSection === 'agents' && this._pendingSelectName) {
+      return 'agents/' + encodeURIComponent(this._pendingSelectName) +
+        '/' + (this._activeTab || 'general');
+    }
+    return 'agents';
   },
+
+  // hydrateState parses sub and updates the area's _activeSection + pending
+  // agent selection state. After hydrate returns, the F3 router at
+  // app.js:179-185 calls serializeState and writes URL via replaceState if
+  // serialized !== sub (idempotent). Therefore hydrate MUST NOT call
+  // _writeUrl itself — pass {writeUrl: false} when calling setActiveSection.
+  //
+  // F5 leg 03: extended to parse 'agents/<name>/<tab>'. Four cases:
+  //   - 'agents/{name}'         → activeTab='general' (router rewrites URL)
+  //   - 'agents/{name}/'        → activeTab='general' (defensive trailing-slash)
+  //   - 'agents/{name}/general|knowledge|tools' → use that tab
+  //   - 'agents/{name}/<other>' → defensively default to 'general'
+  // Encoding note: agent names with literal '/' are encoded as '%2F' by
+  // encodeURIComponent, so rest.indexOf('/') unambiguously finds the segment
+  // separator.
   hydrateState: function (sub) {
-    if (!sub) return;
-    if (sub.indexOf('agents/') === 0) {
-      var name = decodeURIComponent(sub.slice('agents/'.length));
-      // Defer: agents array may not be loaded yet on cold entry.
-      this._pendingSelectName = name;
-      this._tryConsumePendingSelect();
+    var section = 'agents';
+    var pending = null;
+    var pendingTab = 'general';
+    if (sub === 'knowledge') {
+      section = 'knowledge';
+    } else if (sub === 'tools') {
+      section = 'tools';
+    } else if (sub && sub.indexOf('agents/') === 0) {
+      section = 'agents';
+      var rest = sub.slice('agents/'.length);
+      var slashIdx = rest.indexOf('/');
+      if (slashIdx === -1) {
+        pending = decodeURIComponent(rest);
+        pendingTab = 'general';
+      } else if (slashIdx === rest.length - 1) {
+        // Trailing-slash defensive — treat as no-tab.
+        pending = decodeURIComponent(rest.slice(0, slashIdx));
+        pendingTab = 'general';
+      } else {
+        pending = decodeURIComponent(rest.slice(0, slashIdx));
+        var tab = rest.slice(slashIdx + 1);
+        if (tab === 'general' || tab === 'knowledge' || tab === 'tools') {
+          pendingTab = tab;
+        } else {
+          pendingTab = 'general';
+        }
+      }
+    } else if (sub === 'agents' || !sub) {
+      section = 'agents';
+    } else {
+      // Defensive: unrecognized sub defaults to 'agents'. Do NOT throw.
+      section = 'agents';
+    }
+    this._activeSection = section;
+    this._activeTab = pendingTab;
+    if (pending) {
+      this._pendingSelectName = pending;
+      this._pendingTabName = pendingTab;
+      if (this._tryConsumePendingSelect) this._tryConsumePendingSelect();
+    } else if (section !== 'agents') {
+      this._pendingSelectName = null;
+      this._pendingTabName = null;
+    }
+    if (this._setActiveSection) {
+      this._setActiveSection(section, { writeUrl: false });
     }
   },
 
   init: function (sidebar, content) {
-    var agents = [];
-    var allTools = [];
-    var allMcpSources = [];
-    var allKnowledgeBases = [];
-    var allProviders = [];
-    var selectedAgent = null;
-    var pendingSelectName = null;
-    var createMode = false;
+    var self = this;
+
+    // ── Per-instance state (promoted from closure locals to this.* so
+    //    serializeState reads the right values) ────────────────────────────
+    self._agents = [];
+    self._allTools = [];
+    self._allMcpSources = [];
+    self._allKnowledgeBases = [];
+    self._allProviders = [];
+    self._selectedAgent = null;
+    self._pendingSelectName = self._pendingSelectName || null;
+    self._pendingTabName = self._pendingTabName || null;
+    self._createMode = false;
+    self._activeSection = self._activeSection || 'agents';
+    self._activeTab = self._activeTab || 'general';
     var dirty = false;
     var snapshot = '';
-    var deleteTimer = null;
+    // Tab handle returned by App.studio.renderAgentEditor — used for
+    // imperative activate(tabId) calls after hydrate.
+    var tabHandle = null;
+
+    // ── beforeunload listener (F5 leg 04) ────────────────────────────────
+    //
+    // Registered ONCE at init() time (init runs once per area lifetime,
+    // gated by app.js's initialized[areaId] check). The closure `dirty` flag
+    // is the sole gate — when in another area, dirty is false because the
+    // editor isn't mounted; when in studio with unsaved changes, dirty is
+    // true and the listener calls e.preventDefault(); e.returnValue = ''.
+    //
+    // **Do NOT remove on deactivate()** — deactivate runs on every cross-area
+    // transition, so removing there would silently break tab-close
+    // protection after a chat → studio → chat round-trip. The closure-flag
+    // gate handles all cases.
+    //
+    // Modern browsers ignore the custom returnValue string and show a
+    // generic "Leave site?" dialog; setting returnValue = '' is the modern
+    // incantation that triggers the prompt.
+    window.addEventListener('beforeunload', function (e) {
+      if (dirty) {
+        e.preventDefault();
+        e.returnValue = '';
+        return '';
+      }
+    });
 
     var TOOL_CATEGORIES = {
       'Filesystem': ['read_file', 'write_file', 'list_dir'],
@@ -38,60 +155,113 @@ App.registerArea({
       'System': ['git', 'self_deploy', 'rollback', 'restart', 'mission_control', 'memory']
     };
 
-    // Build sidebar
+    // ── Sidebar layout ──────────────────────────────────────────────────
     sidebar.innerHTML =
-      '<div class="studio-sidebar-header">' +
-        '<span class="title">Agent Studio</span>' +
+      '<div class="studio-section-nav"></div>' +
+      '<div class="studio-section-content"></div>';
+
+    var sectionNavEl = sidebar.querySelector('.studio-section-nav');
+    var sectionContentEl = sidebar.querySelector('.studio-section-content');
+
+    var agentsContentEl = document.createElement('div');
+    agentsContentEl.className = 'studio-agents-content';
+    agentsContentEl.innerHTML =
+      '<div class="studio-agents-header">' +
         '<button class="btn-outlined-cyan new-agent-btn" data-testid="new-agent-btn" aria-label="New agent">' + App.icon('plus') + '</button>' +
       '</div>' +
-      '<div class="agent-list" role="listbox" aria-label="Agents"></div>';
+      '<div class="agent-tile-grid" role="listbox" aria-label="Agents"></div>';
+    var agentListEl = agentsContentEl.querySelector('.agent-tile-grid');
+    var newAgentBtn = agentsContentEl.querySelector('.new-agent-btn');
 
-    var agentListEl = sidebar.querySelector('.agent-list');
-    var newAgentBtn = sidebar.querySelector('.new-agent-btn');
-
-    // Build content
+    // Build content panel
     content.innerHTML = '<div class="studio-editor"></div>';
     var editorEl = content.querySelector('.studio-editor');
 
+    // ── Section navigation ─────────────────────────────────────────────
+
+    App.studio.renderSectionNav(sectionNavEl, self._activeSection, {
+      onSelect: function (section) {
+        // F5 leg 04: dirty gate — only fires when leaving the
+        // Agents-section + selected-agent context. Knowledge → Tools
+        // transitions (no editor mounted) navigate immediately.
+        var commit = function () { setActiveSection(section); };
+        var inEditingContext = self._activeSection === 'agents' && self._selectedAgent;
+        if (dirty && inEditingContext) {
+          App.confirmDialog({ onConfirm: commit });
+        } else {
+          commit();
+        }
+      }
+    });
+
+    function renderAgentsSection() {
+      sectionContentEl.innerHTML = '';
+      sectionContentEl.appendChild(agentsContentEl);
+      renderAgentList();
+    }
+
+    function renderKnowledgeSection() {
+      sectionContentEl.innerHTML = '';
+      App.studio.renderKnowledgeStub(sectionContentEl);
+    }
+
+    function renderToolsSection() {
+      sectionContentEl.innerHTML = '';
+      App.studio.renderToolsStub(sectionContentEl);
+    }
+
+    function setActiveSection(section, options) {
+      options = options || {};
+      var writeUrl = options.writeUrl !== false; // default true
+      self._activeSection = section;
+      App.studio.updateActiveSection(sectionNavEl, section);
+      if (section === 'knowledge') {
+        renderKnowledgeSection();
+        editorEl.classList.add('is-hidden');
+      } else if (section === 'tools') {
+        renderToolsSection();
+        editorEl.classList.add('is-hidden');
+      } else {
+        renderAgentsSection();
+        editorEl.classList.remove('is-hidden');
+      }
+      if (writeUrl) writeUrl_();
+    }
+    self._setActiveSection = setActiveSection;
+
+    // ── Single URL-write call site ──────────────────────────────────────
+    function writeUrl_() {
+      if (window.App && window.App.router) {
+        App.router.replaceSub(self.serializeState());
+      }
+    }
+    self._writeUrl = writeUrl_;
+
     // ── Data fetching ────────────────────────────────────────────────
 
-    function fetchAgents() {
-      return fetch('/api/agents').then(function (r) { return r.json(); });
-    }
-
-    function fetchTools() {
-      return fetch('/api/tools').then(function (r) { return r.json(); });
-    }
-
-    function fetchMcpSources() {
-      return fetch('/api/mcp-sources').then(function (r) { return r.json(); });
-    }
-
-    function fetchKnowledgeBases() {
-      return fetch('/api/knowledge-bases').then(function (r) { return r.json(); });
-    }
-
-    function fetchProviders() {
-      return fetch('/api/providers').then(function (r) { return r.json(); });
-    }
+    function fetchAgents() { return fetch('/api/agents').then(function (r) { return r.json(); }); }
+    function fetchTools() { return fetch('/api/tools').then(function (r) { return r.json(); }); }
+    function fetchMcpSources() { return fetch('/api/mcp-sources').then(function (r) { return r.json(); }); }
+    function fetchKnowledgeBases() { return fetch('/api/knowledge-bases').then(function (r) { return r.json(); }); }
+    function fetchProviders() { return fetch('/api/providers').then(function (r) { return r.json(); }); }
 
     function loadAll() {
       return Promise.all([fetchAgents(), fetchTools(), fetchMcpSources(), fetchKnowledgeBases(), fetchProviders()])
         .then(function (results) {
-          agents = results[0];
-          allTools = results[1];
-          allMcpSources = results[2];
-          allKnowledgeBases = results[3];
-          allProviders = results[4];
-          renderAgentList();
+          self._agents = results[0];
+          self._allTools = results[1];
+          self._allMcpSources = results[2];
+          self._allKnowledgeBases = results[3];
+          self._allProviders = results[4];
+          if (self._activeSection === 'agents') renderAgentList();
         });
     }
 
-    // ── Sidebar rendering ────────────────────────────────────────────
-
+    // ── Agents tile grid rendering (F5 leg 02) ──────────────────────────
     function renderAgentList() {
       agentListEl.innerHTML = '';
-      if (agents.length === 0 && !createMode) {
+      var agents = self._agents;
+      if (agents.length === 0 && !self._createMode) {
         var empty = document.createElement('div');
         empty.className = 'empty-state agent-empty';
         empty.setAttribute('data-testid', 'agent-empty');
@@ -101,257 +271,338 @@ App.registerArea({
       }
       for (var i = 0; i < agents.length; i++) {
         (function (agent) {
-          var el = document.createElement('div');
-          el.className = 'list-item agent-item' + (selectedAgent && selectedAgent.name === agent.name && !createMode ? ' active' : '');
-          el.setAttribute('role', 'option');
-          el.setAttribute('tabindex', '0');
-          el.setAttribute('aria-selected', selectedAgent && selectedAgent.name === agent.name && !createMode ? 'true' : 'false');
-          el.dataset.name = agent.name;
-          el.setAttribute('data-testid', 'agent-item');
+          var isActive = self._selectedAgent && self._selectedAgent.name === agent.name && !self._createMode;
+
+          var wrap = document.createElement('div');
+          wrap.className = 'agent-tile-wrap';
+
+          var tileEl = document.createElement('button');
+          tileEl.type = 'button';
+          tileEl.className = 'agent-tile agent-item' + (isActive ? ' active' : '');
+          tileEl.setAttribute('data-testid', 'agent-item');
+          // ARIA: role="option" + grid role="listbox" (above) makes
+          // aria-selected valid and exposes the grid's aria-label.
+          tileEl.setAttribute('role', 'option');
+          tileEl.dataset.name = agent.name;
+          tileEl.setAttribute('aria-selected', isActive ? 'true' : 'false');
+          tileEl.setAttribute('aria-label', agent.name);
 
           var nameSpan = document.createElement('span');
-          nameSpan.className = 'agent-item-name';
+          nameSpan.className = 'agent-tile-name';
+          nameSpan.setAttribute('data-confirm-title', '');
           nameSpan.textContent = agent.name;
-          el.appendChild(nameSpan);
+          tileEl.appendChild(nameSpan);
 
-          var delBtn = document.createElement('button');
-          delBtn.type = 'button';
-          delBtn.className = 'list-item-delete agent-item-delete';
-          delBtn.setAttribute('aria-label', 'Delete agent');
-          delBtn.innerHTML = App.icon('x');
-          delBtn.onclick = function (e) {
-            e.stopPropagation();
-            deleteAgentInline(agent.name, el);
-          };
-          el.appendChild(delBtn);
+          var descSpan = document.createElement('span');
+          descSpan.className = 'agent-tile-description';
+          descSpan.textContent = agent.description || '';
+          tileEl.appendChild(descSpan);
 
-          el.onclick = function () { selectAgent(agent); };
-          el.addEventListener('keydown', function (e) {
+          var metaSpan = document.createElement('span');
+          metaSpan.className = 'agent-tile-meta';
+          var providerLabel = '';
+          if (agent.provider_config_id) {
+            for (var pi = 0; pi < self._allProviders.length; pi++) {
+              if (self._allProviders[pi].id === agent.provider_config_id) {
+                providerLabel = self._allProviders[pi].name || '';
+                break;
+              }
+            }
+          }
+          var modelLabel = agent.llm_model || '';
+          if (providerLabel && modelLabel) {
+            metaSpan.textContent = providerLabel + ' · ' + modelLabel;
+          } else if (providerLabel) {
+            metaSpan.textContent = providerLabel;
+          } else if (modelLabel) {
+            metaSpan.textContent = modelLabel;
+          } else {
+            metaSpan.textContent = 'no provider';
+          }
+          tileEl.appendChild(metaSpan);
+
+          tileEl.onclick = function () { selectAgent(agent); };
+          tileEl.addEventListener('keydown', function (e) {
+            if (e.target !== tileEl) return;
             if (e.key === 'Enter' || e.key === ' ') {
               e.preventDefault();
               selectAgent(agent);
             }
           });
-          agentListEl.appendChild(el);
+          wrap.appendChild(tileEl);
+
+          var delBtn = document.createElement('button');
+          delBtn.type = 'button';
+          delBtn.className = 'list-item-delete agent-tile-delete';
+          delBtn.setAttribute('data-testid', 'agent-tile-delete-btn');
+          delBtn.setAttribute('aria-label', 'Delete agent ' + agent.name);
+          delBtn.innerHTML = App.icon('x');
+          delBtn.onclick = function (e) {
+            e.stopPropagation();
+            deleteAgentInline(agent.name, tileEl);
+          };
+          wrap.appendChild(delBtn);
+
+          agentListEl.appendChild(wrap);
         })(agents[i]);
       }
     }
 
+    // F5 leg 02: tile X-button uses App.confirmDelete (lowercase-d).
     function deleteAgentInline(name, el) {
-      if (el.classList.contains('confirm-delete')) {
+      App.confirmDelete(el, function (itemEl, revertFn) {
         fetch('/api/agents/' + encodeURIComponent(name), { method: 'DELETE' })
-          .then(function () {
-            if (selectedAgent && selectedAgent.name === name) {
-              selectedAgent = null;
-              createMode = false;
+          .then(function (r) {
+            if (!r.ok) throw new Error('delete failed: ' + r.status);
+            if (self._selectedAgent && self._selectedAgent.name === name) {
+              self._selectedAgent = null;
+              self._createMode = false;
               dirty = false;
-              if (window.App && window.App.router) App.router.replaceSub(null);
+              writeUrl_();
             }
             return loadAll();
           })
           .then(function () {
-            if (!selectedAgent && agents.length > 0) {
-              selectAgent(agents[0]);
-            } else if (agents.length === 0) {
+            if (!self._selectedAgent && self._agents.length > 0) {
+              selectAgent(self._agents[0]);
+            } else if (self._agents.length === 0) {
               renderEmptyEditor();
             }
+          })
+          .catch(function (err) {
+            if (window.console && console.error) console.error(err);
+            revertFn();
           });
-        return;
-      }
-      el.classList.add('confirm-delete');
-      var nameEl = el.querySelector('.agent-item-name');
-      var original = nameEl.textContent;
-      nameEl.textContent = 'Confirm delete?';
-      if (deleteTimer) clearTimeout(deleteTimer);
-      deleteTimer = setTimeout(function () {
-        el.classList.remove('confirm-delete');
-        nameEl.textContent = original;
-      }, 3000);
+      });
     }
 
     // ── Agent selection ──────────────────────────────────────────────
 
-    function selectAgent(agent) {
-      if (dirty) {
-        if (!confirm('You have unsaved changes. Discard them?')) return;
+    // F5 leg 04: doSelect / doEnterCreateMode — extracted bodies past the
+    // dirty-check so the App.confirmDialog onConfirm callback can invoke
+    // the real navigation. The async dialog pattern requires the guard to
+    // dispatch the dialog and let onConfirm proceed (the synchronous
+    // window.confirm guard-and-return pattern doesn't translate directly).
+    function doSelect(agent) {
+      // Preserve the current tab when re-selecting the same agent (e.g.,
+      // when activate() triggers a refresh after the user is already
+      // viewing this agent on a non-default tab). Honor any pending tab
+      // from hydrate, otherwise keep the existing _activeTab; only reset
+      // to 'general' on a genuine agent change.
+      var sameAgent = self._selectedAgent && self._selectedAgent.name === agent.name && !self._createMode;
+      var tabToActivate;
+      if (self._pendingTabName) {
+        tabToActivate = self._pendingTabName;
+      } else if (sameAgent) {
+        tabToActivate = self._activeTab || 'general';
+      } else {
+        tabToActivate = 'general';
       }
-      createMode = false;
-      selectedAgent = agent;
+      self._createMode = false;
+      self._selectedAgent = agent;
       dirty = false;
+      self._pendingTabName = null;
+      self._activeTab = tabToActivate;
+      if (self._activeSection !== 'agents') {
+        setActiveSection('agents', { writeUrl: false });
+      }
       renderAgentList();
       renderEditor(agent);
-      if (window.App && window.App.router) {
-        App.router.replaceSub(selectedAgent && !createMode ? 'agents/' + encodeURIComponent(selectedAgent.name) : null);
+      writeUrl_();
+    }
+
+    function selectAgent(agent) {
+      if (dirty) {
+        App.confirmDialog({ onConfirm: function () { doSelect(agent); } });
+        return;
       }
+      doSelect(agent);
+    }
+
+    function doEnterCreateMode() {
+      self._createMode = true;
+      self._selectedAgent = null;
+      self._activeTab = 'general';
+      dirty = false;
+      if (self._activeSection !== 'agents') {
+        setActiveSection('agents', { writeUrl: false });
+      }
+      renderAgentList();
+      renderEditor(null);
+      writeUrl_();
     }
 
     function enterCreateMode() {
       if (dirty) {
-        if (!confirm('You have unsaved changes. Discard them?')) return;
+        App.confirmDialog({ onConfirm: doEnterCreateMode });
+        return;
       }
-      createMode = true;
-      selectedAgent = null;
-      dirty = false;
-      renderAgentList();
-      renderEditor(null);
-      if (window.App && window.App.router) App.router.replaceSub(null);
+      doEnterCreateMode();
     }
 
     // ── Editor rendering ─────────────────────────────────────────────
 
     function renderEmptyEditor() {
       editorEl.innerHTML = '<div class="empty-state editor-empty">Select an agent or click + to create one.</div>';
+      tabHandle = null;
     }
 
+    // F5 leg 03: renderEditor delegates to the agent-editor module which
+    // builds the header + action cluster + tablist + three tab panels.
+    // Per-tab render helpers populate the panels; the General tab is mounted
+    // synchronously so existing form-field tests find their selectors
+    // immediately.
     function renderEditor(agent) {
       var isCreate = !agent;
-      var cfg = agent || {
-        name: '', description: '', provider_config_id: allProviders.length > 0 ? allProviders[0].id : null, llm_model: '',
-        system_prompt: '', enabled_tools: null, disabled_tools: [],
-        kb_ids: [], mcp_source_ids: [], max_iterations: 20
-      };
+      tabHandle = App.studio.renderAgentEditor(editorEl, agent, self._allProviders, {
+        initialTab: self._activeTab || 'general',
+        onBack: handleBack,
+        onDelete: handleDeleteEditor,
+        onSave: function () { save(isCreate); },
+        onTabChange: function (tabId) { setActiveTab(tabId); },
+        // F5 leg 04: dirty gate on tab activation. App.tabs's onBeforeChange
+        // wraps BOTH the click and Enter/Space keyboard activation paths.
+        // Arrow-key navigation does NOT route through onBeforeChange.
+        onBeforeTabChange: function (tabId, commit) {
+          if (dirty) {
+            App.confirmDialog({ onConfirm: commit });
+          } else {
+            commit();
+          }
+        },
+        onTestProvider: testProvider,
+        toolCategories: TOOL_CATEGORIES,
+        allTools: self._allTools,
+        onChange: checkDirty
+      });
 
-      // Determine enabled tool set
-      var enabledSet = {};
-      for (var i = 0; i < allTools.length; i++) {
-        var tn = allTools[i].name;
-        if (cfg.enabled_tools !== null && cfg.enabled_tools !== undefined) {
-          enabledSet[tn] = cfg.enabled_tools.indexOf(tn) >= 0;
-        } else {
-          enabledSet[tn] = cfg.disabled_tools.indexOf(tn) < 0;
-        }
-      }
+      // Wire field-level dirty tracking + provider-change side-effects.
+      // These run AFTER the editor DOM is in place.
+      wireEditorEvents(isCreate, agent || {
+        provider_config_id: self._allProviders.length > 0 ? self._allProviders[0].id : null,
+        llm_model: ''
+      });
 
-      var html = '';
-
-      // Header
-      html += '<div class="editor-header">';
-      if (isCreate) {
-        html += '<span class="editor-title">New Agent</span>';
-      } else {
-        html += '<span class="editor-title">' + escapeHtml(cfg.name) + '</span>';
-        html += '<button class="btn-muted-destructive delete-btn" data-testid="delete-agent-btn" data-name="' + escapeHtml(cfg.name) + '">Delete Agent</button>';
-      }
-      html += '</div>';
-
-      html += '<div class="editor-form">';
-
-      // Identity
-      html += '<div class="editor-section"><div class="section-title">Identity</div>';
-      if (isCreate) {
-        html += '<div class="field-row"><label>Name</label><input class="field-input" data-field="name" value="" placeholder="agent-name" /></div>';
-      }
-      html += '<div class="field-row"><label>Description</label><input class="field-input" data-field="description" value="' + escapeAttr(cfg.description) + '" placeholder="What does this agent do?" /></div>';
-      html += '</div>';
-
-      // LLM Configuration
-      html += '<div class="editor-section"><div class="section-title">LLM Configuration</div>';
-
-      // Provider dropdown
-      html += '<div class="field-row"><label for="studio-provider">Provider</label>';
-      html += '<select id="studio-provider" class="field-input field-select" data-field="provider_config_id">';
-      if (!cfg.provider_config_id) {
-        html += '<option value="" disabled selected>No provider \u2014 configure in Admin</option>';
-      }
-      var providerFound = false;
-      for (var p = 0; p < allProviders.length; p++) {
-        var prov = allProviders[p];
-        var provSelected = cfg.provider_config_id === prov.id ? ' selected' : '';
-        if (cfg.provider_config_id === prov.id) providerFound = true;
-        html += '<option value="' + escapeAttr(prov.id) + '"' + provSelected + '>' + escapeHtml(prov.name) + ' (' + escapeHtml(prov.type) + ')</option>';
-      }
-      if (cfg.provider_config_id && !providerFound) {
-        html += '<option value="' + escapeAttr(cfg.provider_config_id) + '" selected>Unknown provider (' + escapeAttr(cfg.provider_config_id) + ')</option>';
-      }
-      html += '</select></div>';
-
-      // Model select dropdown
-      html += '<div class="field-row"><label for="studio-model">Model</label>';
-      html += '<div class="field-model-wrap">';
-      html += '<select id="studio-model" class="field-input field-select" data-field="llm_model">';
-      html += '<option value="" disabled selected>Select a provider first</option>';
-      html += '</select>';
-      html += '<span class="model-loading" aria-live="polite"></span>';
-      html += '</div></div>';
-
-      // VRAM warning placeholder (ollama only)
-      html += '<div class="studio-vram-warning" role="status" aria-live="polite"></div>';
-
-      html += '</div>';
-
-      // System Prompt
-      html += '<div class="editor-section"><div class="section-title">System Prompt</div>';
-      html += '<textarea class="field-textarea" data-field="system_prompt" rows="8" placeholder="Instructions for the agent...">' + escapeHtml(cfg.system_prompt) + '</textarea>';
-      html += '</div>';
-
-      // Tools
-      html += '<div class="editor-section"><div class="section-title">Tools</div>';
-      html += '<div class="tool-actions"><button class="btn-outlined-cyan tool-select-all">All</button><button class="btn-outlined-cyan tool-select-none">None</button></div>';
-      var catKeys = Object.keys(TOOL_CATEGORIES);
-      for (var c = 0; c < catKeys.length; c++) {
-        var cat = catKeys[c];
-        var toolNames = TOOL_CATEGORIES[cat];
-        html += '<div class="tool-group">' + escapeHtml(cat) + '</div>';
-        for (var t = 0; t < toolNames.length; t++) {
-          var tName = toolNames[t];
-          var toolInfo = findTool(tName);
-          var checked = enabledSet[tName] ? ' checked' : '';
-          html += '<label class="tool-row">';
-          html += '<input type="checkbox" class="tool-toggle" data-tool="' + escapeAttr(tName) + '"' + checked + ' />';
-          html += '<span class="tool-switch"></span>';
-          html += '<span class="tool-name">' + escapeHtml(tName) + '</span>';
-          html += '<span class="tool-desc">' + escapeHtml(toolInfo ? toolInfo.description : '') + '</span>';
-          html += '</label>';
-        }
-      }
-      html += '</div>';
-
-      // Connections
-      html += '<div class="editor-section"><div class="section-title">Connections</div>';
-
-      // MCP Sources
-      html += '<div class="connection-group"><span class="connection-label">MCP Sources</span>';
-      html += '<div class="chip-area" data-type="mcp">';
-      for (var m = 0; m < cfg.mcp_source_ids.length; m++) {
-        var mName = mcpName(cfg.mcp_source_ids[m]);
-        html += '<span class="chip" data-id="' + escapeAttr(cfg.mcp_source_ids[m]) + '">' +
-          escapeHtml(mName) + '<button class="chip-remove" type="button" aria-label="Remove ' + escapeAttr(mName) + '">' + App.icon('x') + '</button></span>';
-      }
-      html += '<button class="chip-add" data-type="mcp">+ Add</button>';
-      html += '</div></div>';
-
-      // Knowledge Bases
-      html += '<div class="connection-group"><span class="connection-label">Knowledge Bases</span>';
-      html += '<div class="chip-area" data-type="kb">';
-      for (var k = 0; k < cfg.kb_ids.length; k++) {
-        var kName = kbName(cfg.kb_ids[k]);
-        html += '<span class="chip" data-id="' + escapeAttr(cfg.kb_ids[k]) + '">' +
-          escapeHtml(kName) + '<button class="chip-remove" type="button" aria-label="Remove ' + escapeAttr(kName) + '">' + App.icon('x') + '</button></span>';
-      }
-      html += '<button class="chip-add" data-type="kb">+ Add</button>';
-      html += '</div></div>';
-      html += '</div>';
-
-      // Max iterations
-      html += '<div class="editor-section"><div class="section-title">Behavior</div>';
-      html += '<div class="field-row"><label>Max Iterations</label><input class="field-input field-input-short" data-field="max_iterations" type="number" value="' + cfg.max_iterations + '" min="1" max="100" /></div>';
-      html += '</div>';
-
-      // Save button
-      html += '<div class="editor-actions">';
-      html += '<span class="editor-error"></span>';
-      html += '<button class="btn-filled-cyan save-btn clean" data-testid="save-agent-btn">' + (isCreate ? 'Create' : 'Save') + '</button>';
-      html += '</div>';
-
-      html += '</div>'; // .editor-form
-
-      editorEl.innerHTML = html;
-
-      // Take snapshot for dirty tracking
+      // Dirty snapshot baseline.
       snapshot = getFormSnapshot();
+    }
 
-      // Wire events
-      wireEditorEvents(isCreate, cfg);
+    // setActiveTab — analogous to setActiveSection. Updates _activeTab,
+    // calls the tab handle's activate (which swaps panel visibility +
+    // aria-selected + roving tabindex), writes URL via _writeUrl unless
+    // the caller opts out (hydrate path).
+    function setActiveTab(tab, options) {
+      options = options || {};
+      var writeUrl = options.writeUrl !== false;
+      self._activeTab = tab;
+      if (tabHandle && tabHandle.getActive() !== tab) {
+        tabHandle.activate(tab);
+      }
+      if (writeUrl) writeUrl_();
+    }
+    self._setActiveTab = setActiveTab;
+
+    // ── Action-cluster handlers ──────────────────────────────────────
+
+    // Back: clear selection, exit create mode, return to #studio/agents.
+    // F5 leg 04: dirty gate via App.confirmDialog. The async restructure
+    // mirrors selectAgent / enterCreateMode — extract the body past the
+    // dirty-check into doHandleBack so the dialog's onConfirm callback can
+    // invoke it.
+    function doHandleBack() {
+      self._selectedAgent = null;
+      self._createMode = false;
+      dirty = false;
+      self._activeTab = 'general';
+      renderEmptyEditor();
+      renderAgentList();
+      writeUrl_();
+    }
+
+    function handleBack() {
+      if (dirty) {
+        App.confirmDialog({ onConfirm: doHandleBack });
+        return;
+      }
+      doHandleBack();
+    }
+
+    // Editor's Delete button — KEEPS its inline two-step flow at the
+    // pre-leg-03 spec exactly. Class state on .delete-btn.confirm,
+    // capital-D label "Confirm Delete?", 3s revert timer, second-click
+    // DELETE. NOT migrated to App.confirmDelete (intentional — that helper
+    // is for the tile X-button; the editor flow keeps the capital-D label
+    // for test_flow_agent_crud.py:73 stability).
+    function handleDeleteEditor(deleteBtn) {
+      var name = self._selectedAgent ? self._selectedAgent.name : null;
+      if (!name) return;
+      if (deleteBtn.classList.contains('confirm')) {
+        fetch('/api/agents/' + encodeURIComponent(name), { method: 'DELETE' })
+          .then(function () {
+            self._selectedAgent = null;
+            dirty = false;
+            return loadAll();
+          })
+          .then(function () {
+            if (self._agents.length > 0) selectAgent(self._agents[0]);
+            else renderEmptyEditor();
+          });
+        return;
+      }
+      deleteBtn.classList.add('confirm');
+      deleteBtn.textContent = 'Confirm Delete?';
+      setTimeout(function () {
+        deleteBtn.classList.remove('confirm');
+        deleteBtn.textContent = 'Delete Agent';
+      }, 3000);
+    }
+
+    // Test provider — POST /api/providers/{id}/test with empty body.
+    // Reads the LIVE #studio-provider value (NOT cfg.provider_config_id)
+    // so unsaved provider changes are testable.
+    function testProvider() {
+      var providerSelect = editorEl.querySelector('#studio-provider');
+      var resultSpan = editorEl.querySelector('.test-result');
+      if (!providerSelect || !providerSelect.value) {
+        if (resultSpan) {
+          resultSpan.className = 'test-result test-result-fail';
+          resultSpan.textContent = '✗ No provider selected';
+        }
+        return;
+      }
+      var providerId = providerSelect.value;
+      if (resultSpan) {
+        resultSpan.className = 'test-result';
+        resultSpan.textContent = 'Testing…';
+      }
+      fetch('/api/providers/' + encodeURIComponent(providerId) + '/test', { method: 'POST' })
+        .then(function (r) {
+          return r.json().then(function (body) { return { ok: r.ok, body: body }; });
+        })
+        .then(function (res) {
+          var detail = (res.body && res.body.detail) || '';
+          var isOk = res.ok && res.body && res.body.status === 'ok';
+          if (resultSpan) {
+            resultSpan.className = 'test-result ' + (isOk ? 'test-result-ok' : 'test-result-fail');
+            resultSpan.textContent = (isOk ? '✓ ' : '✗ ') + detail;
+          }
+          if (isOk) {
+            App.showFlash(editorEl, detail || 'Provider test ok');
+          } else {
+            // Bypass the local one-arg showFlash wrapper which drops the
+            // error flag — call App.showFlash directly with isError=true
+            // to preserve the error styling.
+            App.showFlash(editorEl, detail || 'Provider test failed', true);
+          }
+        })
+        .catch(function (err) {
+          var msg = (err && err.message) || 'Network error';
+          if (resultSpan) {
+            resultSpan.className = 'test-result test-result-fail';
+            resultSpan.textContent = '✗ ' + msg;
+          }
+          App.showFlash(editorEl, msg, true);
+        });
     }
 
     function fetchModelsForProvider(providerId) {
@@ -367,7 +618,7 @@ App.registerArea({
         return;
       }
 
-      if (loadingEl) loadingEl.textContent = 'Loading models\u2026';
+      if (loadingEl) loadingEl.textContent = 'Loading models…';
 
       fetch('/api/providers/' + encodeURIComponent(providerId) + '/models')
         .then(function (r) {
@@ -382,7 +633,6 @@ App.registerArea({
             html += '<option value="' + escapeAttr(modelId) + '"' + sel + '>' + escapeHtml(modelId) + '</option>';
           }
           selectEl.innerHTML = html;
-          // If current value wasn't in the list, add it as a custom option
           if (currentVal && !selectEl.querySelector('option[value="' + CSS.escape(currentVal) + '"]')) {
             var customOpt = '<option value="' + escapeAttr(currentVal) + '" selected>' + escapeHtml(currentVal) + ' (custom)</option>';
             selectEl.insertAdjacentHTML('beforeend', customOpt);
@@ -398,15 +648,25 @@ App.registerArea({
         });
     }
 
+    function recomputeTestDisabled() {
+      var providerSelect = editorEl.querySelector('#studio-provider');
+      var testBtn = editorEl.querySelector('.test-provider-btn');
+      if (!testBtn) return;
+      testBtn.disabled = !providerSelect || !providerSelect.value;
+    }
+
     function wireEditorEvents(isCreate, cfg) {
-      // Dirty tracking on all inputs
+      // Dirty tracking on all inputs (skips disabled Advanced stubs).
       var inputs = editorEl.querySelectorAll('.field-input, .field-textarea, .field-select, .tool-toggle');
       for (var i = 0; i < inputs.length; i++) {
+        if (inputs[i].disabled) continue;
         inputs[i].addEventListener('input', checkDirty);
         inputs[i].addEventListener('change', checkDirty);
       }
 
-      // Provider change -> fetch models + clear VRAM warning
+      // Provider change → fetch models + clear VRAM warning + recompute Test btn.
+      // The Test-button-disabled recompute chains into the existing change
+      // handler (locality preferred over a second listener).
       var providerSelect = editorEl.querySelector('#studio-provider');
       if (providerSelect) {
         providerSelect.addEventListener('change', function () {
@@ -414,8 +674,8 @@ App.registerArea({
           if (modelSelect) modelSelect.selectedIndex = 0;
           clearVramWarning();
           fetchModelsForProvider(providerSelect.value);
+          recomputeTestDisabled();
         });
-        // Auto-fetch models for currently selected provider
         if (cfg.provider_config_id) {
           var modelSelect = editorEl.querySelector('#studio-model');
           if (modelSelect && cfg.llm_model) modelSelect.dataset.pendingValue = cfg.llm_model;
@@ -423,153 +683,14 @@ App.registerArea({
         }
       }
 
-      // Model input -> debounced VRAM check (ollama only)
+      // Model change → debounced VRAM check.
       var modelInput = editorEl.querySelector('#studio-model');
       if (modelInput) {
         modelInput.addEventListener('change', debouncedVramCheck);
-        // Check on initial load if model is already set
         if (cfg.llm_model && cfg.provider_config_id) {
           debouncedVramCheck();
         }
       }
-
-      // Tool select all/none
-      var selectAllBtn = editorEl.querySelector('.tool-select-all');
-      var selectNoneBtn = editorEl.querySelector('.tool-select-none');
-      if (selectAllBtn) selectAllBtn.onclick = function () { setAllTools(true); };
-      if (selectNoneBtn) selectNoneBtn.onclick = function () { setAllTools(false); };
-
-      // Delete button
-      var deleteBtn = editorEl.querySelector('.delete-btn');
-      if (deleteBtn) {
-        deleteBtn.onclick = function () {
-          if (deleteBtn.classList.contains('confirm')) {
-            fetch('/api/agents/' + encodeURIComponent(cfg.name), { method: 'DELETE' })
-              .then(function () {
-                selectedAgent = null;
-                dirty = false;
-                return loadAll();
-              })
-              .then(function () {
-                if (agents.length > 0) selectAgent(agents[0]);
-                else renderEmptyEditor();
-              });
-            return;
-          }
-          deleteBtn.classList.add('confirm');
-          deleteBtn.textContent = 'Confirm Delete?';
-          setTimeout(function () {
-            deleteBtn.classList.remove('confirm');
-            deleteBtn.textContent = 'Delete Agent';
-          }, 3000);
-        };
-      }
-
-      // Chip removal
-      editorEl.addEventListener('click', function (e) {
-        var removeBtn = e.target.closest('.chip-remove');
-        if (removeBtn) {
-          removeBtn.parentElement.remove();
-          checkDirty();
-        }
-      });
-
-      // Chip add buttons
-      var addBtns = editorEl.querySelectorAll('.chip-add');
-      for (var a = 0; a < addBtns.length; a++) {
-        addBtns[a].addEventListener('click', function (e) {
-          var type = e.target.dataset.type;
-          showAddDropdown(e.target, type);
-        });
-      }
-
-      // Save
-      var saveBtn = editorEl.querySelector('.save-btn');
-      saveBtn.onclick = function () { save(isCreate); };
-    }
-
-    // ── Tool helpers ─────────────────────────────────────────────────
-
-    function setAllTools(on) {
-      var toggles = editorEl.querySelectorAll('.tool-toggle');
-      for (var i = 0; i < toggles.length; i++) toggles[i].checked = on;
-      checkDirty();
-    }
-
-    function findTool(name) {
-      for (var i = 0; i < allTools.length; i++) {
-        if (allTools[i].name === name) return allTools[i];
-      }
-      return null;
-    }
-
-    // ── Connection helpers ───────────────────────────────────────────
-
-    function mcpName(id) {
-      for (var i = 0; i < allMcpSources.length; i++) {
-        if (allMcpSources[i].id === id) return allMcpSources[i].name || id;
-      }
-      return id;
-    }
-
-    function kbName(id) {
-      for (var i = 0; i < allKnowledgeBases.length; i++) {
-        if (allKnowledgeBases[i].id === id) return allKnowledgeBases[i].name || id;
-      }
-      return id;
-    }
-
-    function showAddDropdown(btn, type) {
-      // Remove existing dropdown
-      var existing = editorEl.querySelector('.add-dropdown');
-      if (existing) existing.remove();
-
-      var chipArea = btn.closest('.chip-area');
-      var currentIds = [];
-      var chips = chipArea.querySelectorAll('.chip');
-      for (var i = 0; i < chips.length; i++) currentIds.push(chips[i].dataset.id);
-
-      var items = type === 'mcp' ? allMcpSources : allKnowledgeBases;
-      var available = [];
-      for (var j = 0; j < items.length; j++) {
-        if (currentIds.indexOf(items[j].id) < 0) available.push(items[j]);
-      }
-
-      if (available.length === 0) return;
-
-      var dropdown = document.createElement('div');
-      dropdown.className = 'add-dropdown';
-      for (var k = 0; k < available.length; k++) {
-        (function (item) {
-          var opt = document.createElement('div');
-          opt.className = 'add-dropdown-item';
-          opt.textContent = item.name || item.id;
-          opt.onclick = function () {
-            var chip = document.createElement('span');
-            chip.className = 'chip';
-            chip.dataset.id = item.id;
-            var chipName = item.name || item.id;
-            chip.innerHTML = escapeHtml(chipName) + '<button class="chip-remove" type="button" aria-label="Remove ' + escapeAttr(chipName) + '">' + App.icon('x') + '</button>';
-            chipArea.insertBefore(chip, btn);
-            dropdown.remove();
-            checkDirty();
-          };
-          dropdown.appendChild(opt);
-        })(available[k]);
-      }
-
-      btn.parentElement.style.position = 'relative';
-      btn.parentElement.appendChild(dropdown);
-
-      // Close on outside click
-      setTimeout(function () {
-        document.addEventListener('click', function close(e) {
-          if (!dropdown.contains(e.target) && e.target !== btn) {
-            dropdown.remove();
-            document.removeEventListener('click', close);
-          }
-        });
-      }, 0);
     }
 
     // ── Dirty tracking ───────────────────────────────────────────────
@@ -582,21 +703,30 @@ App.registerArea({
     function checkDirty() {
       var current = getFormSnapshot();
       dirty = current !== snapshot;
+      // F5 leg 04: `disabled` is the single source of truth (was `.clean`/
+      // `.dirty` class toggles pre-leg-04). When clean: disabled (click
+      // blocked, focus skips it, screen readers announce as disabled).
+      // When dirty: enabled.
       var saveBtn = editorEl.querySelector('.save-btn');
       if (saveBtn) {
-        saveBtn.classList.toggle('clean', !dirty);
-        saveBtn.classList.toggle('dirty', dirty);
+        saveBtn.disabled = !dirty;
       }
     }
 
     // ── Form data collection ─────────────────────────────────────────
-
+    //
+    // collectFormData queries by [data-field="..."] selectors which work
+    // regardless of which tab/panel the field lives in. Fields that span
+    // tabs (provider, model, system_prompt, max_iterations on General;
+    // tool toggles on Tools) are all reachable from editorEl.
     function collectFormData() {
       var data = {};
       var fields = editorEl.querySelectorAll('.field-input, .field-textarea, .field-select');
       for (var i = 0; i < fields.length; i++) {
         var f = fields[i];
+        if (f.disabled) continue; // skip Advanced-stub disabled inputs
         var key = f.dataset.field;
+        if (!key) continue;
         if (key === 'max_iterations') {
           data[key] = parseInt(f.value, 10) || 20;
         } else if (key === 'provider_config_id') {
@@ -606,7 +736,6 @@ App.registerArea({
         }
       }
 
-      // Tool state
       var toggles = editorEl.querySelectorAll('.tool-toggle');
       var enabledNames = [];
       var disabledNames = [];
@@ -633,7 +762,9 @@ App.registerArea({
         data.disabled_tools = disabledNames;
       }
 
-      // Connections
+      // Connections (chips) — Tools tab does not currently render chips
+      // (MCP/KB attach is a future-flight stub), so this collects whatever
+      // chip-areas exist (none in F5 leg 03; future legs may add them).
       var mcpChips = editorEl.querySelectorAll('.chip-area[data-type="mcp"] .chip');
       var kbChips = editorEl.querySelectorAll('.chip-area[data-type="kb"] .chip');
       data.mcp_source_ids = [];
@@ -652,7 +783,7 @@ App.registerArea({
 
       if (isCreate) {
         if (!data.name || !data.name.trim()) {
-          errorEl.textContent = 'Name is required.';
+          if (errorEl) errorEl.textContent = 'Name is required.';
           return;
         }
         fetch('/api/agents', {
@@ -666,21 +797,21 @@ App.registerArea({
           })
           .then(function (created) {
             dirty = false;
-            createMode = false;
+            self._createMode = false;
             return loadAll().then(function () {
               var found = null;
-              for (var i = 0; i < agents.length; i++) {
-                if (agents[i].name === created.name) { found = agents[i]; break; }
+              for (var i = 0; i < self._agents.length; i++) {
+                if (self._agents[i].name === created.name) { found = self._agents[i]; break; }
               }
               if (found) selectAgent(found);
               showFlash('Agent created');
             });
           })
           .catch(function (err) {
-            errorEl.textContent = err.message;
+            if (errorEl) errorEl.textContent = err.message;
           });
       } else {
-        var name = selectedAgent.name;
+        var name = self._selectedAgent.name;
         data.name = name;
         fetch('/api/agents/' + encodeURIComponent(name), {
           method: 'PUT',
@@ -693,21 +824,21 @@ App.registerArea({
           })
           .then(function (updated) {
             dirty = false;
-            selectedAgent = updated;
+            self._selectedAgent = updated;
             return loadAll().then(function () {
               var found = null;
-              for (var i = 0; i < agents.length; i++) {
-                if (agents[i].name === updated.name) { found = agents[i]; break; }
+              for (var i = 0; i < self._agents.length; i++) {
+                if (self._agents[i].name === updated.name) { found = self._agents[i]; break; }
               }
               if (found) {
-                selectedAgent = found;
+                self._selectedAgent = found;
                 renderEditor(found);
                 showFlash('Saved');
               }
             });
           })
           .catch(function (err) {
-            errorEl.textContent = err.message;
+            if (errorEl) errorEl.textContent = err.message;
           });
       }
     }
@@ -716,18 +847,15 @@ App.registerArea({
 
     var showFlash = function (msg) { App.showFlash(editorEl, msg); };
 
-    // ── VRAM warning helpers ─────────────────────────────────────────
-
     var formatBytes = App.formatBytes;
-
     var vramCheckTimer = null;
 
     function getSelectedProviderType() {
       var providerSelect = editorEl.querySelector('#studio-provider');
       if (!providerSelect || !providerSelect.value) return null;
-      for (var i = 0; i < allProviders.length; i++) {
-        if (String(allProviders[i].id) === String(providerSelect.value)) {
-          return allProviders[i];
+      for (var i = 0; i < self._allProviders.length; i++) {
+        if (String(self._allProviders[i].id) === String(providerSelect.value)) {
+          return self._allProviders[i];
         }
       }
       return null;
@@ -767,7 +895,6 @@ App.registerArea({
           var running = results[0] || [];
           var models = results[1] || [];
 
-          // Check if model is already loaded
           for (var i = 0; i < running.length; i++) {
             var runName = running[i].name || running[i].model || '';
             if (runName === modelName || runName.split(':')[0] === modelName.split(':')[0]) {
@@ -776,7 +903,6 @@ App.registerArea({
             }
           }
 
-          // Find model in available list to get its size
           var modelSize = 0;
           for (var j = 0; j < models.length; j++) {
             var mId = models[j].id || models[j].name || '';
@@ -791,14 +917,12 @@ App.registerArea({
             return;
           }
 
-          // Calculate total VRAM currently loaded
           var totalLoaded = 0;
           var loadedCount = running.length;
           for (var k = 0; k < running.length; k++) {
             totalLoaded += running[k].size_vram || 0;
           }
 
-          // Show warning with model size and current load
           var warningEl = editorEl.querySelector('.studio-vram-warning');
           if (warningEl) {
             var msg = 'This model requires ~' + escapeHtml(formatBytes(modelSize)) + '.';
@@ -811,7 +935,6 @@ App.registerArea({
           }
         })
         .catch(function () {
-          // Silently skip on network errors
           clearVramWarning();
         });
     }
@@ -827,60 +950,48 @@ App.registerArea({
     // ── Init ─────────────────────────────────────────────────────────
 
     function tryConsumePendingSelect() {
-      if (!pendingSelectName) return;
-      if (!agents || agents.length === 0) return; // wait for loadAll
+      if (!self._pendingSelectName) return;
+      if (!self._agents || self._agents.length === 0) return;
       var target = null;
-      for (var i = 0; i < agents.length; i++) {
-        if (agents[i].name === pendingSelectName) { target = agents[i]; break; }
+      for (var i = 0; i < self._agents.length; i++) {
+        if (self._agents[i].name === self._pendingSelectName) { target = self._agents[i]; break; }
       }
-      pendingSelectName = null;
-      if (target && (!selectedAgent || selectedAgent.name !== target.name)) {
+      self._pendingSelectName = null;
+      if (target && (!self._selectedAgent || self._selectedAgent.name !== target.name)) {
         selectAgent(target);
       }
     }
 
     newAgentBtn.addEventListener('click', enterCreateMode);
 
-    var self = this;
     self._refresh = function () {
       loadAll().then(function () {
-        if (selectedAgent) {
+        if (self._selectedAgent) {
           var found = null;
-          for (var i = 0; i < agents.length; i++) {
-            if (agents[i].name === selectedAgent.name) { found = agents[i]; break; }
+          for (var i = 0; i < self._agents.length; i++) {
+            if (self._agents[i].name === self._selectedAgent.name) { found = self._agents[i]; break; }
           }
           if (found) selectAgent(found);
-          else if (agents.length > 0) selectAgent(agents[0]);
+          else if (self._agents.length > 0) selectAgent(self._agents[0]);
           else renderEmptyEditor();
         }
       });
     };
     self._tryConsumePendingSelect = function () { tryConsumePendingSelect(); };
-    Object.defineProperty(self, '_selectedAgent', {
-      get: function () { return selectedAgent; },
-      configurable: true
-    });
-    Object.defineProperty(self, '_createMode', {
-      get: function () { return createMode; },
-      configurable: true
-    });
-    Object.defineProperty(self, '_pendingSelectName', {
-      get: function () { return pendingSelectName; },
-      set: function (v) { pendingSelectName = v; },
-      configurable: true
-    });
+
+    setActiveSection(self._activeSection || 'agents', { writeUrl: false });
 
     loadAll().then(function () {
-      if (pendingSelectName) {
-        tryConsumePendingSelect();
-        // tryConsumePendingSelect calls selectAgent if it found a match;
-        // if no match (or no agents), fall through to default behavior.
-        if (selectedAgent) return;
-      }
-      if (agents.length > 0) {
-        selectAgent(agents[0]);
-      } else {
-        renderEmptyEditor();
+      if (self._activeSection === 'agents') {
+        if (self._pendingSelectName) {
+          tryConsumePendingSelect();
+          if (self._selectedAgent) return;
+        }
+        if (self._agents.length > 0) {
+          selectAgent(self._agents[0]);
+        } else {
+          renderEmptyEditor();
+        }
       }
     });
   },

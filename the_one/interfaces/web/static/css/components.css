@@ -93,8 +93,11 @@
   }
 
   /* === List Item (sidebar/category list rows with focus-within delete reveal) === */
-  /* Sources consolidated: chat .session-item, studio .agent-item, admin .admin-category-item.
-     The legacy class names persist on emit sites for test-selector / styling-hook continuity. */
+  /* Sources consolidated: chat .session-item, admin .admin-category-item.
+     Studio's agent inventory migrated from .list-item.agent-item rows to
+     .agent-tile (CSS-grid cell) in F5 leg 02; .agent-tile is a sibling
+     primitive (not a list-item consumer). The legacy class names persist
+     on emit sites for test-selector / styling-hook continuity. */
   .list-item {
     padding: 8px 10px;
     border-radius: 6px;
@@ -276,6 +279,283 @@
     text-align: center;
   }
 
+  /* === Agent Tile (CSS-grid tile primitive for studio's agent inventory) === */
+  /* The wrap-with-siblings DOM pattern lands here:
+       <div class="agent-tile-wrap">
+         <button class="agent-tile">...content...</button>
+         <button class="list-item-delete agent-tile-delete">X</button>
+       </div>
+     The wrap owns the :hover/:focus-within reveal of the X-button; the tile
+     button and X-button are independent focus stops. Tile is structurally a
+     grid cell, NOT a list row — it does not compose with .list-item. The
+     generic confirm-delete rule below covers both shapes via a multi-selector
+     list (descendant for chat list-items, adjacent-sibling for tiles). */
+  .agent-tile-wrap {
+    position: relative;
+    display: flex;
+    align-items: stretch;
+  }
+  .agent-tile {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 12px 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--panel-radius);
+    color: var(--fg);
+    text-align: left;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: var(--font-size-body);
+    transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+  }
+  .agent-tile:hover { border-color: var(--accent); background: var(--accent-translucent); }
+  .agent-tile:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+    box-shadow: inset 0 0 0 3px var(--accent-glow);
+  }
+  .agent-tile[aria-selected="true"],
+  .agent-tile.active {
+    border-color: var(--accent);
+    background: var(--accent-translucent);
+    box-shadow: var(--panel-shadow-glow);
+  }
+  .agent-tile-name {
+    font-size: var(--font-size-body-lg);
+    font-weight: var(--font-weight-bold);
+    color: var(--fg);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .agent-tile-description {
+    font-size: var(--font-size-body-sm);
+    color: var(--fg-secondary);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    line-height: var(--line-height-normal);
+    min-height: 2.4em;
+  }
+  .agent-tile-meta {
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-caption);
+    color: var(--fg-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* Tile X-button: composes with .list-item-delete reveal pattern but is
+     positioned absolutely over the wrap (top-right) since it's a sibling,
+     not a descendant of the tile button. Hidden by default; revealed via
+     wrap-level :hover / :focus-within. */
+  .agent-tile-delete {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    margin-left: 0;
+    padding: 4px;
+    border-radius: 4px;
+  }
+  .agent-tile-delete svg { width: 12px; height: 12px; display: block; }
+  .agent-tile-wrap:hover .agent-tile-delete,
+  .agent-tile-wrap:focus-within .agent-tile-delete { display: block; }
+
+  /* === Confirm-delete (canonical two-step state; F5 leg 02) === */
+  /* Lifted from chat.css .session-item.confirm-delete (now removed). One rule
+     list, two selectors: chat session items extend .list-item, studio tiles
+     use .agent-tile standalone (the tile is a grid cell, not a list row).
+     The X-button reveal differs by DOM shape: chat's X is a descendant of
+     .list-item (descendant combinator), studio's X is an adjacent sibling of
+     .agent-tile inside the .agent-tile-wrap (adjacent-sibling combinator). */
+  .list-item.confirm-delete,
+  .agent-tile.confirm-delete { border: 1px solid var(--status-danger); }
+  .list-item.confirm-delete [data-confirm-title],
+  .agent-tile.confirm-delete [data-confirm-title] { color: var(--status-danger); }
+  .list-item.confirm-delete .list-item-delete,
+  .agent-tile.confirm-delete + .agent-tile-delete { color: var(--status-danger); opacity: 1; display: block; }
+
+  /* === Section Navigation (sidebar sub-section nav) === */
+  /* Vertical list of <button> elements representing in-area section navigation.
+     First introduced for studio's Agents/Knowledge/Tools section nav (F5 leg 01).
+     Imminent F6 consumer: admin's category list at admin.js renderCategoryList
+     (currently using .list-item + .admin-category-item) will migrate here. */
+  .section-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .section-nav-header {
+    font-weight: var(--font-weight-bold);
+    color: var(--accent);
+    font-size: var(--font-size-body-lg);
+    padding: 4px 10px 8px;
+  }
+  .section-nav-item {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    padding: 8px 10px;
+    color: var(--fg-secondary);
+    font-family: inherit;
+    font-size: var(--font-size-body-sm);
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+  }
+  .section-nav-item:hover { background: var(--surface); color: var(--fg); }
+  .section-nav-item:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+    box-shadow: inset 0 0 0 3px var(--accent-glow);
+  }
+  .section-nav-item[aria-current="page"] {
+    background: var(--accent-translucent);
+    color: var(--fg);
+    border-color: var(--accent);
+    box-shadow: var(--panel-shadow-glow);
+  }
+
+  /* === Tab idiom (W3C ARIA tablist with manual activation; F5 leg 03) === */
+  /* Used by the studio agent editor's General/Knowledge/Tools tabs. The
+     tablist is a `<div role="tablist">` containing `<button role="tab">`
+     elements; below it, `<div role="tabpanel">` panels with [hidden]
+     control. Manual-activation contract — arrow keys move focus + visual
+     highlight only; Enter/Space (or click) commits the tab. Roving
+     tabindex: only the active tab carries tabindex="0". The `App.tabs`
+     helper in static/js/tabs.js wires the keyboard + click handlers. */
+  .tablist {
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid var(--border);
+    padding: 0 16px;
+    flex-shrink: 0;
+  }
+  .tab {
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: 10px 16px;
+    color: var(--fg-secondary);
+    font-family: inherit;
+    font-size: var(--font-size-body-sm);
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+    margin-bottom: -1px;
+  }
+  .tab:hover { color: var(--fg); }
+  .tab:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+    box-shadow: 0 0 0 3px var(--accent-glow);
+  }
+  .tab[aria-selected="true"] {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+  }
+  .tabpanel {
+    flex: 1;
+    overflow-y: auto;
+  }
+  .tabpanel[hidden] { display: none; }
+
+  /* === Editor header (canonical entity-name + description block) === */
+  /* Used above the agent editor's tablist (F5 leg 03) and any future
+     entity-editor (admin's provider editor in F6). Lifts the per-area
+     `.area-studio .editor-header` rule from studio.css and generalizes. */
+  .editor-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .editor-header-text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .editor-header-text .editor-title {
+    font-weight: var(--font-weight-bold);
+    font-size: var(--font-size-h2);
+    color: var(--fg);
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .editor-header-text .editor-subtitle {
+    font-size: var(--font-size-body-sm);
+    color: var(--fg-secondary);
+    margin: 0;
+  }
+
+  /* === Form actions (right-aligned button cluster) === */
+  /* Used by the agent editor's [← Back] [Delete] [Save] cluster (F5 leg 03)
+     and reusable for future modal `.modal-actions` composition (F5 leg 04). */
+  .form-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .form-actions .editor-error {
+    color: var(--status-danger);
+    font-size: var(--font-size-body-sm);
+  }
+
+  /* === Test result span (canonical connectivity-test indicator) === */
+  /* Used by the General tab's Test button (F5 leg 03). Admin's existing
+     `.admin-pf-test-ok` / `.admin-pf-test-fail` will migrate here in F6. */
+  .test-result {
+    display: inline-block;
+    margin-left: 8px;
+    font-size: var(--font-size-body-sm);
+    color: var(--fg-secondary);
+  }
+  .test-result-ok { color: var(--status-success); }
+  .test-result-fail { color: var(--status-danger); }
+
+  /* === Advanced collapsible (Coming-soon stub disclosure) === */
+  /* Native <details>/<summary> for accessibility (keyboard-operable, screen
+     readers announce expand/collapse, zero-JS). The Advanced section in
+     the General tab (F5 leg 03) is a stub for provider-bound config to
+     land in a future flight. */
+  .advanced-collapsible {
+    margin-top: 16px;
+    border-top: 1px solid var(--border);
+    padding-top: 12px;
+  }
+  .advanced-collapsible > summary {
+    cursor: pointer;
+    font-size: var(--font-size-body-sm);
+    color: var(--fg-secondary);
+    padding: 4px 0;
+  }
+  .advanced-collapsible > summary:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 3px var(--accent-glow);
+  }
+  .advanced-collapsible[open] > summary { color: var(--fg); }
+  .advanced-caption {
+    font-size: var(--font-size-caption);
+    color: var(--fg-muted);
+    font-style: italic;
+    margin-top: 8px;
+  }
+
   /* === Markdown code-block copy affordance === */
   .markdown-code-wrap {
     position: relative;
@@ -313,6 +593,65 @@
     height: 14px;
     display: block;
   }
+
+  /* === Modal dialog (F5 leg 04) ===
+     Canonical primitives for App.confirmDialog and any future blocking-
+     decision modals. Three classes:
+       .modal-overlay  — full-screen semi-transparent backdrop, flex-centers
+                         the dialog. role="dialog" + aria-modal="true" set
+                         by the helper.
+       .modal-dialog   — the dialog body itself (border, radius, padding,
+                         max-width).
+       .modal-actions  — right-aligned button cluster. Composed alongside
+                         .form-actions on the container (multi-class:
+                         class="modal-actions form-actions") so the
+                         existing .form-actions layout rule applies. The
+                         .modal-actions class itself is currently a
+                         no-op alias for documentation/grep-ability —
+                         ensures every modal action cluster grep-matches
+                         on .modal-actions. */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+  }
+  .modal-dialog {
+    background: var(--surface-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--panel-radius);
+    box-shadow: var(--panel-shadow);
+    padding: 24px;
+    min-width: 320px;
+    max-width: 480px;
+    width: 100%;
+    color: var(--fg);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .modal-dialog:focus { outline: none; }
+  .modal-dialog-title {
+    margin: 0;
+    font-size: var(--font-size-h2);
+    font-weight: var(--font-weight-semibold);
+    color: var(--fg);
+  }
+  .modal-dialog-message {
+    margin: 0 0 12px 0;
+    font-size: var(--font-size-body-lg);
+    line-height: 1.5;
+    color: var(--fg-secondary);
+  }
+  /* .modal-actions composes onto .form-actions for layout — the helper emits
+     `class="modal-actions form-actions"` so the right-aligned button
+     cluster comes from .form-actions. The .modal-actions class itself is a
+     documentation/grep hook with no extra rules today. */
+  .modal-actions { /* alias for .form-actions in the modal context */ }
 
 }
 

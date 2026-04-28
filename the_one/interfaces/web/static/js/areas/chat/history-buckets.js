@@ -45,6 +45,7 @@
 
     var titleSpan = document.createElement('span');
     titleSpan.className = 'session-item-title';
+    titleSpan.setAttribute('data-confirm-title', '');
     titleSpan.textContent = s.title;
     textWrap.appendChild(titleSpan);
 

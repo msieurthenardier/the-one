@@ -5,6 +5,11 @@ Covers the #area/sub URL format introduced in leg 04:
 - Chat session persists across browser refresh (#chat/sessions/<id>)
 - Studio agent persists across browser refresh (#studio/agents/<name>)
 - history.length invariant: sub-page navigation uses replaceState, not pushState
+
+F5 leg 01 extends this with:
+- #studio redirects to #studio/agents (via the F3 router's serialize-after-hydrate
+  path — no new redirect logic in studio.js)
+- #studio/knowledge and #studio/tools survive refresh
 """
 
 from __future__ import annotations
@@ -106,7 +111,7 @@ def test_hash_routing_studio_agent_persists_on_refresh(app_with_agent: SeededApp
     # 4. URL should now be #studio/agents/<name>.
     current_hash = page.evaluate("location.hash")
     import urllib.parse
-    expected_hash = f"#studio/agents/{urllib.parse.quote(agent_name)}"
+    expected_hash = f"#studio/agents/{urllib.parse.quote(agent_name)}/general"
     assert current_hash == expected_hash, f"Expected {expected_hash}, got: {current_hash}"
 
     # 5. Refresh the page.
@@ -121,6 +126,61 @@ def test_hash_routing_studio_agent_persists_on_refresh(app_with_agent: SeededApp
 
     # URL should still be the same.
     assert page.evaluate("location.hash") == expected_hash
+
+
+@pytest.mark.browser
+def test_studio_root_redirects_to_agents(app_clean: str, page: Page) -> None:
+    """Navigating to #studio rewrites the URL to #studio/agents.
+
+    The redirect is a free side-effect of studio.serializeState() returning
+    'agents' (not null) when no agent is selected. The F3 router's
+    serialize-after-hydrate path at app.js:179-185 detects the mismatch
+    (sub=null vs serialized='agents') and calls history.replaceState.
+    """
+    base_url = app_clean
+
+    page.goto(f"{base_url}#studio")
+    # Wait for studio to mount.
+    expect(page.locator(".section-nav-header")).to_have_text("Studio", timeout=8000)
+
+    # URL was rewritten by the F3 router (replaceState, not pushState).
+    assert page.evaluate("location.hash") == "#studio/agents"
+
+
+@pytest.mark.browser
+def test_studio_knowledge_section_persists_on_refresh(app_clean: str, page: Page) -> None:
+    """Navigating to #studio/knowledge shows the stub; refresh preserves the section."""
+    base_url = app_clean
+
+    page.goto(f"{base_url}#studio/knowledge")
+    expect(page.locator(".section-nav-header")).to_have_text("Studio", timeout=8000)
+
+    stub = page.locator('[data-testid="studio-knowledge-stub"]')
+    expect(stub).to_be_visible(timeout=5000)
+    assert page.evaluate("location.hash") == "#studio/knowledge"
+
+    page.reload()
+    expect(page.locator(".section-nav-header")).to_have_text("Studio", timeout=8000)
+    expect(page.locator('[data-testid="studio-knowledge-stub"]')).to_be_visible(timeout=5000)
+    assert page.evaluate("location.hash") == "#studio/knowledge"
+
+
+@pytest.mark.browser
+def test_studio_tools_section_persists_on_refresh(app_clean: str, page: Page) -> None:
+    """Navigating to #studio/tools shows the stub; refresh preserves the section."""
+    base_url = app_clean
+
+    page.goto(f"{base_url}#studio/tools")
+    expect(page.locator(".section-nav-header")).to_have_text("Studio", timeout=8000)
+
+    stub = page.locator('[data-testid="studio-tools-stub"]')
+    expect(stub).to_be_visible(timeout=5000)
+    assert page.evaluate("location.hash") == "#studio/tools"
+
+    page.reload()
+    expect(page.locator(".section-nav-header")).to_have_text("Studio", timeout=8000)
+    expect(page.locator('[data-testid="studio-tools-stub"]')).to_be_visible(timeout=5000)
+    assert page.evaluate("location.hash") == "#studio/tools"
 
 
 @pytest.mark.browser
