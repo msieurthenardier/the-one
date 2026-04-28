@@ -244,10 +244,11 @@ def test_studio_section_round_trip_preserves_agent_selection(
     expect(page.locator('[data-testid="studio-knowledge-stub"]')).to_be_visible(timeout=2000)
 
     # Switch back to Agents — agent still selected, editor visible.
+    # The tile grid is hidden while the editor owns the main panel.
     page.locator('.section-nav-item[data-section="agents"]').click()
     expect(page.locator(".editor-title")).to_have_text(agent_name, timeout=5000)
-    active_item = page.locator(f'.agent-item[data-name="{agent_name}"][aria-selected="true"]')
-    expect(active_item).to_be_visible(timeout=2000)
+    expect(page.locator(".studio-editor")).not_to_have_class("studio-editor is-hidden")
+    expect(page.locator(".studio-section-content")).to_have_class("studio-section-content is-hidden")
 
 
 @pytest.mark.browser

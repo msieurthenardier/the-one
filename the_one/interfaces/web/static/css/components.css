@@ -77,8 +77,11 @@
     text-align: left;
     position: relative;
   }
-  .app-picker-option:hover { background: var(--surface-elevated); color: var(--nav-fg-hover); }
-  .app-picker-option:focus { background: var(--surface-elevated); color: var(--nav-fg-hover); outline: none; }
+  /* Hover/focus uses --fg (theme-appropriate foreground that contrasts the
+     popover's surface-elevated hover background). --nav-fg-hover is for the
+     dark nav rail and is near-white in light theme — would vanish here. */
+  .app-picker-option:hover { background: var(--surface-elevated); color: var(--fg); }
+  .app-picker-option:focus { background: var(--surface-elevated); color: var(--fg); outline: none; }
   .app-picker-option:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .app-picker-option.active { color: var(--nav-fg-active); }
   .app-picker-option.active::before {
@@ -280,21 +283,9 @@
   }
 
   /* === Agent Tile (CSS-grid tile primitive for studio's agent inventory) === */
-  /* The wrap-with-siblings DOM pattern lands here:
-       <div class="agent-tile-wrap">
-         <button class="agent-tile">...content...</button>
-         <button class="list-item-delete agent-tile-delete">X</button>
-       </div>
-     The wrap owns the :hover/:focus-within reveal of the X-button; the tile
-     button and X-button are independent focus stops. Tile is structurally a
-     grid cell, NOT a list row — it does not compose with .list-item. The
-     generic confirm-delete rule below covers both shapes via a multi-selector
-     list (descendant for chat list-items, adjacent-sibling for tiles). */
-  .agent-tile-wrap {
-    position: relative;
-    display: flex;
-    align-items: stretch;
-  }
+  /* The tile is a single <button class="agent-tile"> that opens the editor
+     on click. Deletion lives inside the editor's General-tab Danger Zone
+     (F5 leg 05) — there is no per-tile X-button. */
   .agent-tile {
     flex: 1;
     min-width: 0;
@@ -350,35 +341,14 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  /* Tile X-button: composes with .list-item-delete reveal pattern but is
-     positioned absolutely over the wrap (top-right) since it's a sibling,
-     not a descendant of the tile button. Hidden by default; revealed via
-     wrap-level :hover / :focus-within. */
-  .agent-tile-delete {
-    position: absolute;
-    top: 8px;
-    right: 8px;
-    margin-left: 0;
-    padding: 4px;
-    border-radius: 4px;
-  }
-  .agent-tile-delete svg { width: 12px; height: 12px; display: block; }
-  .agent-tile-wrap:hover .agent-tile-delete,
-  .agent-tile-wrap:focus-within .agent-tile-delete { display: block; }
-
-  /* === Confirm-delete (canonical two-step state; F5 leg 02) === */
-  /* Lifted from chat.css .session-item.confirm-delete (now removed). One rule
-     list, two selectors: chat session items extend .list-item, studio tiles
-     use .agent-tile standalone (the tile is a grid cell, not a list row).
-     The X-button reveal differs by DOM shape: chat's X is a descendant of
-     .list-item (descendant combinator), studio's X is an adjacent sibling of
-     .agent-tile inside the .agent-tile-wrap (adjacent-sibling combinator). */
-  .list-item.confirm-delete,
-  .agent-tile.confirm-delete { border: 1px solid var(--status-danger); }
-  .list-item.confirm-delete [data-confirm-title],
-  .agent-tile.confirm-delete [data-confirm-title] { color: var(--status-danger); }
-  .list-item.confirm-delete .list-item-delete,
-  .agent-tile.confirm-delete + .agent-tile-delete { color: var(--status-danger); opacity: 1; display: block; }
+  /* === Confirm-delete (canonical two-step state) === */
+  /* Lifted from chat.css's `.session-item.confirm-delete` rules. Chat
+     session items compose with .list-item; the descendant combinator finds
+     the per-row .list-item-delete X-button. Studio tiles do not use this
+     state — agent deletion lives in the editor's Danger Zone (F5 leg 05). */
+  .list-item.confirm-delete { border: 1px solid var(--status-danger); }
+  .list-item.confirm-delete [data-confirm-title] { color: var(--status-danger); }
+  .list-item.confirm-delete .list-item-delete { color: var(--status-danger); opacity: 1; display: block; }
 
   /* === Section Navigation (sidebar sub-section nav) === */
   /* Vertical list of <button> elements representing in-area section navigation.

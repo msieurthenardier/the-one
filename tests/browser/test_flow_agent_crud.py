@@ -76,6 +76,6 @@ def test_studio_agent_crud_flow(app_with_provider: SeededApp, page: Page) -> Non
     delete_btn.click()
     expect(empty).to_be_visible(timeout=5000)
     expect(empty).to_contain_text("No agents yet")
-    # Agent item gone from sidebar; editor returns to its empty state.
+    # Tile gone; main panel returns to the tile grid (with empty state).
     expect(page.locator('[data-testid="agent-item"]')).to_have_count(0)
-    expect(page.locator(".editor-empty")).to_be_visible()
+    expect(page.locator(".studio-editor")).to_have_class("studio-editor is-hidden")

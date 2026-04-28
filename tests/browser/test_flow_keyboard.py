@@ -124,10 +124,8 @@ def test_agent_item_keyboard_select(app_with_agent: SeededApp, page: Page) -> No
     tag_name = agent_item.evaluate("el => el.tagName.toLowerCase()")
     assert tag_name == "button", f"agent-item must be a <button>, got <{tag_name}>"
 
-    # The agent starts deselected if multiple seeded; here a single seeded
-    # agent auto-selects on load, so simulate a fresh state by entering
-    # create mode first (which deselects the active agent).
-    # Simpler: just focus the tile and press Enter — it remains/becomes selected.
+    # Bare #studio/agents shows the tile grid with no agent selected.
+    # Focus the tile and press Enter to select it.
     agent_item.focus()
     page.keyboard.press("Enter")
 

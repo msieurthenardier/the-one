@@ -126,12 +126,27 @@
     html += '<div class="advanced-caption">Coming soon — provider-bound config in a future flight.</div>';
     html += '</details>';
 
+    // Danger Zone (existing agents only). The Delete button keeps its
+    // inline two-step flow: first click arms `.delete-btn.confirm` with
+    // capital-D "Confirm Delete?", second click within 3s fires DELETE.
+    if (!isCreate) {
+      html += '<div class="editor-section danger-zone">';
+      html += '<div class="section-title danger-zone-title">Danger Zone</div>';
+      html += '<button type="button" class="btn-muted-destructive delete-btn" ' +
+        'data-testid="delete-agent-btn" data-name="' + escapeAttr(cfg.name || '') + '">' +
+        'Delete Agent</button>';
+      html += '</div>';
+    }
+
     panel.innerHTML = html;
 
-    // Wire test-button click — delegate to studio.js handler.
     var testBtn = panel.querySelector('.test-provider-btn');
     if (testBtn && callbacks.onTestProvider) {
       testBtn.addEventListener('click', function () { callbacks.onTestProvider(); });
+    }
+    var deleteBtn = panel.querySelector('.delete-btn');
+    if (deleteBtn && callbacks.onDelete) {
+      deleteBtn.addEventListener('click', function () { callbacks.onDelete(deleteBtn); });
     }
   }
 

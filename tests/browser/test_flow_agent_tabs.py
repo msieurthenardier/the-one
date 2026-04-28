@@ -27,7 +27,20 @@ from playwright.sync_api import Page, expect
 
 
 def _wait_editor_ready(page: Page) -> None:
-    """Wait for the agent editor's tablist to mount."""
+    """Wait for the agent editor to be the visible child in the main panel.
+
+    Bare `#studio/agents` lands on the tile grid with no agent auto-selected
+    (F5 leg 05 design): the section-content (tile grid) is visible and the
+    editor is hidden. Click the first tile to swap them. Deep-link
+    navigations (`#studio/agents/<name>/...`) hydrate the selection and the
+    editor is already visible — skip the click.
+    """
+    expect(page.locator(".section-nav-header")).to_have_text("Studio", timeout=8000)
+    editor_hidden = page.evaluate(
+        "() => document.querySelector('.studio-editor')?.classList.contains('is-hidden')"
+    )
+    if editor_hidden:
+        page.locator("button.agent-tile").first.click()
     expect(page.locator('[data-testid="tab-general"]')).to_be_visible(timeout=8000)
 
 

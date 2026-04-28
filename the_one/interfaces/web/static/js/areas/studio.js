@@ -155,27 +155,30 @@ App.registerArea({
       'System': ['git', 'self_deploy', 'rollback', 'restart', 'mission_control', 'memory']
     };
 
-    // ── Sidebar layout ──────────────────────────────────────────────────
-    sidebar.innerHTML =
-      '<div class="studio-section-nav"></div>' +
-      '<div class="studio-section-content"></div>';
-
+    // ── Layout: sidebar = section-nav only; main panel hosts both the
+    // section-content (tile grid / Knowledge / Tools) and the editor,
+    // toggled via .is-hidden based on whether an agent is being edited.
+    sidebar.innerHTML = '<div class="studio-section-nav"></div>';
     var sectionNavEl = sidebar.querySelector('.studio-section-nav');
-    var sectionContentEl = sidebar.querySelector('.studio-section-content');
+
+    content.innerHTML =
+      '<div class="studio-section-content"></div>' +
+      '<div class="studio-editor"></div>';
+    var sectionContentEl = content.querySelector('.studio-section-content');
+    var editorEl = content.querySelector('.studio-editor');
 
     var agentsContentEl = document.createElement('div');
     agentsContentEl.className = 'studio-agents-content';
     agentsContentEl.innerHTML =
-      '<div class="studio-agents-header">' +
-        '<button class="btn-outlined-cyan new-agent-btn" data-testid="new-agent-btn" aria-label="New agent">' + App.icon('plus') + '</button>' +
+      '<div class="studio-page-header">' +
+        '<h1 class="studio-page-title">Agents</h1>' +
+        '<button class="btn-outlined-cyan new-agent-btn" type="button" data-testid="new-agent-btn">' +
+          App.icon('square-pen') + '<span>New Agent</span>' +
+        '</button>' +
       '</div>' +
       '<div class="agent-tile-grid" role="listbox" aria-label="Agents"></div>';
     var agentListEl = agentsContentEl.querySelector('.agent-tile-grid');
     var newAgentBtn = agentsContentEl.querySelector('.new-agent-btn');
-
-    // Build content panel
-    content.innerHTML = '<div class="studio-editor"></div>';
-    var editorEl = content.querySelector('.studio-editor');
 
     // ── Section navigation ─────────────────────────────────────────────
 
@@ -217,17 +220,26 @@ App.registerArea({
       App.studio.updateActiveSection(sectionNavEl, section);
       if (section === 'knowledge') {
         renderKnowledgeSection();
-        editorEl.classList.add('is-hidden');
       } else if (section === 'tools') {
         renderToolsSection();
-        editorEl.classList.add('is-hidden');
       } else {
         renderAgentsSection();
-        editorEl.classList.remove('is-hidden');
       }
+      updateContentVisibility();
       if (writeUrl) writeUrl_();
     }
     self._setActiveSection = setActiveSection;
+
+    // Section-content (tile grid / Knowledge / Tools stub) and the editor
+    // share the main panel; only one is visible at a time. The editor takes
+    // over when an agent is selected or being created in the Agents section;
+    // otherwise section-content is the visible child.
+    function updateContentVisibility() {
+      var inEditor = self._activeSection === 'agents' &&
+                     (self._selectedAgent || self._createMode);
+      sectionContentEl.classList.toggle('is-hidden', !!inEditor);
+      editorEl.classList.toggle('is-hidden', !inEditor);
+    }
 
     // ── Single URL-write call site ──────────────────────────────────────
     function writeUrl_() {
@@ -265,7 +277,7 @@ App.registerArea({
         var empty = document.createElement('div');
         empty.className = 'empty-state agent-empty';
         empty.setAttribute('data-testid', 'agent-empty');
-        empty.textContent = 'No agents yet. Click + to create one.';
+        empty.textContent = 'No agents yet. Click New Agent to create one.';
         agentListEl.appendChild(empty);
         return;
       }
@@ -273,15 +285,10 @@ App.registerArea({
         (function (agent) {
           var isActive = self._selectedAgent && self._selectedAgent.name === agent.name && !self._createMode;
 
-          var wrap = document.createElement('div');
-          wrap.className = 'agent-tile-wrap';
-
           var tileEl = document.createElement('button');
           tileEl.type = 'button';
           tileEl.className = 'agent-tile agent-item' + (isActive ? ' active' : '');
           tileEl.setAttribute('data-testid', 'agent-item');
-          // ARIA: role="option" + grid role="listbox" (above) makes
-          // aria-selected valid and exposes the grid's aria-label.
           tileEl.setAttribute('role', 'option');
           tileEl.dataset.name = agent.name;
           tileEl.setAttribute('aria-selected', isActive ? 'true' : 'false');
@@ -289,7 +296,6 @@ App.registerArea({
 
           var nameSpan = document.createElement('span');
           nameSpan.className = 'agent-tile-name';
-          nameSpan.setAttribute('data-confirm-title', '');
           nameSpan.textContent = agent.name;
           tileEl.appendChild(nameSpan);
 
@@ -329,51 +335,10 @@ App.registerArea({
               selectAgent(agent);
             }
           });
-          wrap.appendChild(tileEl);
 
-          var delBtn = document.createElement('button');
-          delBtn.type = 'button';
-          delBtn.className = 'list-item-delete agent-tile-delete';
-          delBtn.setAttribute('data-testid', 'agent-tile-delete-btn');
-          delBtn.setAttribute('aria-label', 'Delete agent ' + agent.name);
-          delBtn.innerHTML = App.icon('x');
-          delBtn.onclick = function (e) {
-            e.stopPropagation();
-            deleteAgentInline(agent.name, tileEl);
-          };
-          wrap.appendChild(delBtn);
-
-          agentListEl.appendChild(wrap);
+          agentListEl.appendChild(tileEl);
         })(agents[i]);
       }
-    }
-
-    // F5 leg 02: tile X-button uses App.confirmDelete (lowercase-d).
-    function deleteAgentInline(name, el) {
-      App.confirmDelete(el, function (itemEl, revertFn) {
-        fetch('/api/agents/' + encodeURIComponent(name), { method: 'DELETE' })
-          .then(function (r) {
-            if (!r.ok) throw new Error('delete failed: ' + r.status);
-            if (self._selectedAgent && self._selectedAgent.name === name) {
-              self._selectedAgent = null;
-              self._createMode = false;
-              dirty = false;
-              writeUrl_();
-            }
-            return loadAll();
-          })
-          .then(function () {
-            if (!self._selectedAgent && self._agents.length > 0) {
-              selectAgent(self._agents[0]);
-            } else if (self._agents.length === 0) {
-              renderEmptyEditor();
-            }
-          })
-          .catch(function (err) {
-            if (window.console && console.error) console.error(err);
-            revertFn();
-          });
-      });
     }
 
     // ── Agent selection ──────────────────────────────────────────────
@@ -408,6 +373,7 @@ App.registerArea({
       }
       renderAgentList();
       renderEditor(agent);
+      updateContentVisibility();
       writeUrl_();
     }
 
@@ -429,6 +395,7 @@ App.registerArea({
       }
       renderAgentList();
       renderEditor(null);
+      updateContentVisibility();
       writeUrl_();
     }
 
@@ -443,7 +410,7 @@ App.registerArea({
     // ── Editor rendering ─────────────────────────────────────────────
 
     function renderEmptyEditor() {
-      editorEl.innerHTML = '<div class="empty-state editor-empty">Select an agent or click + to create one.</div>';
+      editorEl.innerHTML = '';
       tabHandle = null;
     }
 
@@ -459,17 +426,12 @@ App.registerArea({
         onBack: handleBack,
         onDelete: handleDeleteEditor,
         onSave: function () { save(isCreate); },
+        onCancel: function () { cancelEdit(); },
         onTabChange: function (tabId) { setActiveTab(tabId); },
-        // F5 leg 04: dirty gate on tab activation. App.tabs's onBeforeChange
-        // wraps BOTH the click and Enter/Space keyboard activation paths.
-        // Arrow-key navigation does NOT route through onBeforeChange.
-        onBeforeTabChange: function (tabId, commit) {
-          if (dirty) {
-            App.confirmDialog({ onConfirm: commit });
-          } else {
-            commit();
-          }
-        },
+        // F5 leg 05: tabs in the same agent share the form's dirty state, so
+        // switching tabs does NOT lose unsaved data — no confirmation prompt.
+        // The dirty gate still fires on Back, section nav, and hash-route
+        // navigation to a different agent.
         onTestProvider: testProvider,
         toolCategories: TOOL_CATEGORIES,
         allTools: self._allTools,
@@ -516,6 +478,7 @@ App.registerArea({
       self._activeTab = 'general';
       renderEmptyEditor();
       renderAgentList();
+      updateContentVisibility();
       writeUrl_();
     }
 
@@ -525,6 +488,22 @@ App.registerArea({
         return;
       }
       doHandleBack();
+    }
+
+    // Cancel discards in-progress edits and restores the editor to the
+    // current agent's saved state. In create-mode, it returns to the tile
+    // grid (there is no saved state to revert to). The button only fires
+    // when dirty (disabled by checkDirty otherwise), so no extra guard.
+    function cancelEdit() {
+      if (self._createMode) {
+        doHandleBack();
+        return;
+      }
+      if (self._selectedAgent) {
+        renderEditor(self._selectedAgent);
+        dirty = false;
+        checkDirty();
+      }
     }
 
     // Editor's Delete button — KEEPS its inline two-step flow at the
@@ -544,8 +523,13 @@ App.registerArea({
             return loadAll();
           })
           .then(function () {
-            if (self._agents.length > 0) selectAgent(self._agents[0]);
-            else renderEmptyEditor();
+            if (self._agents.length > 0) {
+              selectAgent(self._agents[0]);
+            } else {
+              renderEmptyEditor();
+              updateContentVisibility();
+              writeUrl_();
+            }
           });
         return;
       }
@@ -703,14 +687,11 @@ App.registerArea({
     function checkDirty() {
       var current = getFormSnapshot();
       dirty = current !== snapshot;
-      // F5 leg 04: `disabled` is the single source of truth (was `.clean`/
-      // `.dirty` class toggles pre-leg-04). When clean: disabled (click
-      // blocked, focus skips it, screen readers announce as disabled).
-      // When dirty: enabled.
+      // `disabled` is the single source of truth for both Save and Cancel.
       var saveBtn = editorEl.querySelector('.save-btn');
-      if (saveBtn) {
-        saveBtn.disabled = !dirty;
-      }
+      if (saveBtn) saveBtn.disabled = !dirty;
+      var cancelBtn = editorEl.querySelector('.cancel-btn');
+      if (cancelBtn) cancelBtn.disabled = !dirty;
     }
 
     // ── Form data collection ─────────────────────────────────────────
@@ -987,11 +968,11 @@ App.registerArea({
           tryConsumePendingSelect();
           if (self._selectedAgent) return;
         }
-        if (self._agents.length > 0) {
-          selectAgent(self._agents[0]);
-        } else {
-          renderEmptyEditor();
-        }
+        // Bare #studio/agents shows the tile grid in the main panel; no
+        // agent is auto-selected. The user picks a tile (or +) to enter
+        // the editor.
+        renderEmptyEditor();
+        updateContentVisibility();
       }
     });
   },

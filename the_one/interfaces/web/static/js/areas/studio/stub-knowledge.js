@@ -6,12 +6,13 @@
   // Renders the Knowledge section stub: a centered .empty-state with one-liner.
   // Future mission will replace this with the KB CRUD surface.
   function renderKnowledgeStub(container) {
-    container.innerHTML = '';
-    var empty = document.createElement('div');
-    empty.className = 'empty-state';
-    empty.setAttribute('data-testid', 'studio-knowledge-stub');
-    empty.textContent = 'Knowledge bases will be created and managed here in a future mission.';
-    container.appendChild(empty);
+    container.innerHTML =
+      '<div class="studio-page-header">' +
+        '<h1 class="studio-page-title">Knowledge</h1>' +
+      '</div>' +
+      '<div class="empty-state" data-testid="studio-knowledge-stub">' +
+        'Knowledge bases will be created and managed here in a future mission.' +
+      '</div>';
   }
 
   window.App.studio.renderKnowledgeStub = renderKnowledgeStub;

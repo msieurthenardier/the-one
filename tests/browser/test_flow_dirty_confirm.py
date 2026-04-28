@@ -35,7 +35,20 @@ from playwright.sync_api import Page, expect
 
 
 def _wait_editor_ready(page: Page) -> None:
-    """Wait for the agent editor's tablist to mount."""
+    """Wait for the agent editor to be the visible child in the main panel.
+
+    Bare `#studio/agents` lands on the tile grid with no agent auto-selected
+    (F5 leg 05 design): the section-content (tile grid) is visible and the
+    editor is hidden. Click the first tile to swap them. Deep-link
+    navigations (`#studio/agents/<name>/...`) hydrate the selection and the
+    editor is already visible — skip the click.
+    """
+    expect(page.locator(".section-nav-header")).to_have_text("Studio", timeout=8000)
+    editor_hidden = page.evaluate(
+        "() => document.querySelector('.studio-editor')?.classList.contains('is-hidden')"
+    )
+    if editor_hidden:
+        page.locator("button.agent-tile").first.click()
     expect(page.locator('[data-testid="tab-general"]')).to_be_visible(timeout=8000)
 
 
@@ -120,8 +133,9 @@ def test_back_when_dirty_confirm_navigates(
     expect(overlay).to_have_count(0)
     # URL is now #studio/agents (no agent selected).
     assert page.evaluate("location.hash") == "#studio/agents"
-    # Editor returned to its empty state.
-    expect(page.locator(".editor-empty")).to_be_visible()
+    # Main panel returned to the tile grid; editor is hidden.
+    expect(page.locator(".agent-tile-grid")).to_be_visible()
+    expect(page.locator(".studio-editor")).to_have_class("studio-editor is-hidden")
 
 
 @pytest.mark.browser
@@ -173,64 +187,49 @@ def test_section_nav_clean_does_not_open_dialog(
 
 
 @pytest.mark.browser
-def test_tile_click_when_dirty_opens_dialog(
+def test_hash_change_to_other_agent_when_dirty_opens_dialog(
     app_with_agent: SeededApp, page: Page
 ) -> None:
-    """Clicking a tile while dirty (in editor of another agent) opens dialog."""
+    """Hash-route navigation to a different agent while dirty opens the dialog.
+
+    With F5 leg 05's main-panel layout, the tile grid is hidden while an
+    agent is being edited, so a direct tile click cannot reach a sibling
+    agent. The equivalent path is a hash-route navigation (deep link or
+    history navigation) which routes through `selectAgent` via
+    `tryConsumePendingSelect`, inheriting the dirty gate.
+    """
     base_url = app_with_agent.base_url
     provider_id = app_with_agent.provider_id
 
-    # Seed a SECOND agent so we have two tiles to click between.
     seed_mock_agent(base_url, provider_id, name="second-agent")
 
     page.goto(f"{base_url}#studio")
     _wait_editor_ready(page)
 
-    _make_dirty(page)
+    # Pick the agent that ISN'T the one currently in the editor — the
+    # tile-grid sort order is not guaranteed, so deriving from the editor
+    # title makes the test deterministic.
+    current = page.locator(".editor-title").inner_text()
+    other_name = "test-agent" if current == "second-agent" else "second-agent"
 
-    # Click the OTHER tile (not the currently selected one). Both tiles
-    # exist in the grid; click the one that isn't aria-selected=true.
-    other_tile = page.locator(
-        '[data-testid="agent-item"][aria-selected="false"]'
-    ).first
-    expect(other_tile).to_be_visible()
-    other_tile.click()
+    _make_dirty(page)
+    page.evaluate(f"location.hash = '#studio/agents/{other_name}/general'")
 
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
     expect(overlay).to_be_visible()
 
 
 @pytest.mark.browser
-def test_tab_click_when_dirty_opens_dialog(
+def test_tab_click_when_dirty_switches_without_dialog(
     app_with_agent: SeededApp, page: Page
 ) -> None:
-    """Clicking a tab when dirty opens the dialog; Cancel keeps state."""
-    base_url = app_with_agent.base_url
-    page.goto(f"{base_url}#studio")
-    _wait_editor_ready(page)
+    """Clicking a tab when dirty switches immediately — no dialog (F5 leg 05).
 
-    initial_hash = page.evaluate("location.hash")
-
-    _make_dirty(page)
-    page.locator('[data-testid="tab-knowledge"]').click()
-
-    overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
-    expect(overlay).to_be_visible()
-
-    # Cancel: stay on General; URL unchanged; aria-selected unchanged.
-    page.locator('[data-testid="modal-cancel-btn"]').click()
-    expect(overlay).to_have_count(0)
-    assert page.evaluate("location.hash") == initial_hash
-    expect(page.locator('[data-testid="tab-general"]')).to_have_attribute(
-        "aria-selected", "true"
-    )
-
-
-@pytest.mark.browser
-def test_tab_click_when_dirty_confirm_switches(
-    app_with_agent: SeededApp, page: Page
-) -> None:
-    """Clicking a tab when dirty + Confirm switches the tab and updates URL."""
+    Tabs in the same agent share one form; switching tabs does not lose
+    unsaved data (panels are hidden, not unmounted), so the dirty gate
+    does NOT fire on tab change. Dirty state and Save-enabled persist
+    across the switch.
+    """
     base_url = app_with_agent.base_url
     agent_name = app_with_agent.agent_name
     page.goto(f"{base_url}#studio")
@@ -239,17 +238,15 @@ def test_tab_click_when_dirty_confirm_switches(
     _make_dirty(page)
     page.locator('[data-testid="tab-knowledge"]').click()
 
-    overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
-    expect(overlay).to_be_visible()
-
-    page.locator('[data-testid="modal-confirm-btn"]').click()
-    expect(overlay).to_have_count(0)
-
+    # No dialog appears; tab switches directly.
+    expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_have_count(0)
     expected = f"#studio/agents/{urllib.parse.quote(agent_name)}/knowledge"
     assert page.evaluate("location.hash") == expected
     expect(page.locator('[data-testid="tab-knowledge"]')).to_have_attribute(
         "aria-selected", "true"
     )
+    # Dirty state survives the tab switch (Save remains enabled).
+    expect(page.locator('[data-testid="save-agent-btn"]')).to_be_enabled()
 
 
 @pytest.mark.browser

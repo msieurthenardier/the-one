@@ -4,11 +4,12 @@
      section-nav primitive is canonical (see components.css); only the per-area
      section-content host + its agents-section overrides live here. */
   .area-studio .studio-section-content { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
-  /* New-agent-btn relocated to top of Agents content (above .agent-list).
-     studio override: icon-button sizing — base cosmetics from .btn-outlined-cyan. */
-  .area-studio .studio-agents-header { padding: 8px 8px 4px; display: flex; justify-content: flex-end; }
-  .area-studio .new-agent-btn { font-size: var(--font-size-body-lg); line-height: var(--line-height-tight); }
-  .area-studio .new-agent-btn svg { width: 14px; height: 14px; display: block; }
+  /* Studio page header — h1 title on the left, optional action button on
+     the right. Mirrors chat's `.header` + `.new-chat-header` pattern. */
+  .area-studio .studio-page-header { padding: 14px 20px; display: flex; align-items: center; gap: 12px; }
+  .area-studio .studio-page-title { font-size: var(--font-size-h2); font-weight: var(--font-weight-semibold); color: var(--fg); margin: 0; }
+  .area-studio .new-agent-btn { margin-left: auto; white-space: nowrap; flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; }
+  .area-studio .new-agent-btn svg { width: 14px; height: 14px; }
   /* Tile grid (F5 leg 02): replaces the previous flex .agent-list. CSS-grid
      auto-fill ensures tiles wrap to fill available width; at narrow viewports
      they stack vertically. The .agent-tile primitive itself lives in
@@ -62,6 +63,12 @@
      Keeps its inline two-step flow (capital-D "Confirm Delete?" label, .delete-btn.confirm class). */
   .area-studio .delete-btn { padding: 6px 14px; border-radius: 6px; font-size: var(--font-size-body-sm); }
   .area-studio .delete-btn.confirm { background: var(--status-danger); color: var(--fg-on-danger); border-color: var(--status-danger); font-weight: var(--font-weight-semibold); }
+
+  /* === Studio Area: Danger Zone === */
+  /* Sits at the bottom of the General tab (existing agents only). Visually
+     separated by the standard `editor-section + editor-section` border-top
+     rule above. The title is destructive-tinted to flag the section. */
+  .area-studio .danger-zone-title { color: var(--status-danger); }
 
   /* === Studio Area: VRAM Warning === */
   /* line-height 1.4 retained as a context-specific value (warning copy). */

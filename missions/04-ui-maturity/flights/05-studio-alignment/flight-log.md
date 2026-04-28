@@ -159,6 +159,61 @@ Flight in planning. Designed 2026-04-27, immediately following the F4 merge to `
 - **VRAM warning verified**: the placeholder `.studio-vram-warning` element moved into the General tab's DOM; the model-change debounce continues to invoke `checkVramForModel`. Selecting an Ollama model with insufficient VRAM still shows the warning (verified by checking that the existing logic at `studio.js` querying `editorEl.querySelector('.studio-vram-warning')` still finds the element, since the General tab is mounted by default before the user can interact).
 - **CSS file sizes**: `components.css` 605 LOC (+133, leg target +80-120 — slightly over because the new primitives include both the canonical lift of `.editor-header` and the new tab/tabpanel/form-actions/test-result/advanced-collapsible vocabulary). `studio.css` 68 LOC (leg target ≤ 60 — slightly over because the existing `.editor-section + .editor-section` separator, `.tabpanel` padding, `.test-provider-row`, and the `.back-btn` / `.test-provider-btn` icon-button sizing are area-specific layout that didn't fit cleanly into the canonical primitives). Both deltas are within the leg's stated tolerances; the canonical-vs-per-area discipline is intact (no NEW area-specific rules duplicate canonical primitives).
 
+### 05-hat-and-comprehensive-review
+
+**Status**: completed
+**Designed**: 2026-04-28
+**Started**: 2026-04-28
+**Completed**: 2026-04-28
+
+#### Flight Director Notes
+
+- HAT walked interactively with the user. Several inline refinements applied that deviated from the original verification plan; revised steps captured in the leg artifact.
+- All inline refinements were CSS/JS layout/wiring changes — no new algorithms or cross-cutting state. Per F4 lessons-learned, the refinement bundle stayed below the threshold for a one-shot Developer review. LOC budgets honored throughout.
+
+#### Inline refinements applied during HAT
+
+1. **Studio boot auto-select removed** — bare `#studio/agents` was upgrading to `#studio/agents/<name>/general` because legacy code at `studio.js` end-of-init called `selectAgent(self._agents[0])` whenever any agents existed. The tile grid is the agents view; auto-selecting the first agent both polluted the URL and contradicted leg 02's design intent. Replaced with `renderEmptyEditor() + updateContentVisibility()` so the tile grid is the visible child of the main panel on bare `#studio/agents`.
+
+2. **Layout: tile grid + Knowledge/Tools moved out of sidebar into main panel.** The user clarified that the section-nav (Agents/Knowledge/Tools) is the only thing that belongs in the sidebar; the section content (tile grid / knowledge stub / tools stub) belongs in the main content panel — same as the editor. Restructured `studio.js init()` to put `.studio-section-nav` in the sidebar and BOTH `.studio-section-content` + `.studio-editor` in the content panel. New `updateContentVisibility()` helper toggles `.is-hidden` between the two: when an agent is selected/being-created in the Agents section, the editor is the visible child; otherwise the section-content is. Wired into `setActiveSection`, `doSelect`, `doEnterCreateMode`, `doHandleBack`, `handleDeleteEditor`'s no-agents-remaining branch, and the init bottom block.
+
+3. **Page titles + "New Agent" button refresh.** Each section now carries an `<h1 class="studio-page-title">` in the main panel (Agents / Knowledge / Tools). The agents `+`-icon button became a labeled `[square-pen icon] New Agent` button mirroring chat's `.new-chat-header` pattern (`btn-outlined-cyan` cosmetics + same icon). New canonical area-CSS rules `.studio-page-header` + `.studio-page-title` + updated `.new-agent-btn` layout in `studio.css`.
+
+4. **Cancel button added to action cluster; Delete moved to General-tab Danger Zone.** `agent-editor.js` action cluster is now `[← Back] [Cancel] [Save]`. Cancel uses `disabled` as single source of truth alongside Save (both flip together via `checkDirty`). New `cancelEdit()` handler in `studio.js`: in create mode it returns to the tile grid (no saved state to revert to); in edit mode it re-renders the editor with the current `_selectedAgent` (resets the form to saved values + dirty state to clean). The Delete button moved into a new "Danger Zone" `.editor-section` at the bottom of the General tab (existing-agents-only). `data-testid="delete-agent-btn"` preserved; capital-D two-step inline flow preserved (test_flow_agent_crud.py:73 still passes unmodified).
+
+5. **Per-tile X-button removed entirely.** Per the design refinement to centralize agent deletion in the editor's Danger Zone, the `.agent-tile-wrap` two-button DOM, the per-tile X delete button, the `deleteAgentInline()` function, and all associated CSS rules (`.agent-tile-wrap`, `.agent-tile-delete`, the `.agent-tile.confirm-delete` half of the multi-selector confirm-delete rule) are removed. The tile is now a single `<button class="agent-tile">` whose only action is `selectAgent`. `data-confirm-title` hook also removed from the tile name span (no longer needed without tile-level confirm flow). Chat session items continue using the canonical `.list-item.confirm-delete` rule (now sole consumer).
+
+6. **Tab-change dirty gate removed.** Tabs in the same agent share one form; switching tabs hides panels but does not unmount form state, so unsaved data survives across tabs. The `onBeforeTabChange` callback wiring at `studio.js` and the `onBeforeChange` plumbing through `agent-editor.js` to `App.tabs` are removed for the studio editor. The `App.tabs` primitive's `onBeforeChange` hook stays — it's a reusable opt-in for future consumers whose tab-switch DOES discard data. The dirty gate still fires on Back, section-nav, and hash-route navigation to a different agent.
+
+7. **App-picker hover contrast fix (light theme).** `.app-picker-option:hover/:focus` was using `var(--nav-fg-hover)` which in light theme resolves to `#e2e8f0` (slate-200, designed for the dark nav-rail). The popover's hover background is `var(--surface-elevated)` (#f1f5f9, also near-white in light theme), so hovered text was invisible in light mode. Switched to `var(--fg)` so the foreground tracks the popover's surface theme correctly. Dark theme behavior unchanged (`--nav-fg-hover` resolves to `--fg` there).
+
+#### Test deltas
+
+- **Removed**: `test_flow_agent_tile.py::test_agent_tile_two_step_delete`, `test_agent_tile_delete_revert_after_timeout`, `test_agent_tile_delete_keydown_bubble_fix` (the per-tile X-button no longer exists). `test_flow_dirty_confirm.py::test_tab_click_when_dirty_confirm_switches` (no confirm flow on tab change).
+- **Inverted**: `test_flow_dirty_confirm.py::test_tab_click_when_dirty_opens_dialog` → renamed to `test_tab_click_when_dirty_switches_without_dialog`; asserts the tab switches immediately and dirty state survives.
+- **Rewritten for new layout**: `test_flow_dirty_confirm.py::test_tile_click_when_dirty_opens_dialog` → renamed to `test_hash_change_to_other_agent_when_dirty_opens_dialog`; uses hash-route navigation (the only path to a different agent now that tiles are hidden in the editor view).
+- **Helper updates**: `_wait_editor_ready` in both `test_flow_dirty_confirm.py` and `test_flow_agent_tabs.py` now checks whether the editor is hidden (bare `#studio/agents`) and clicks the first tile if so; deep-link navigations skip the click.
+- **Stale-comment cleanup**: `test_flow_keyboard.py`, `test_flow_agent_tile.py`, `test_flow_hash_routing.py`, `test_flow_studio_navigation.py` had references to "auto-selects on load" or `.agent-item[aria-selected="true"]` visibility which no longer apply; updated to the new design.
+- **Editor-empty assertions**: `test_flow_agent_crud.py:81` and `test_flow_dirty_confirm.py:135` previously asserted `.editor-empty` is visible after delete-all / Back; with the new layout the editor is hidden and the tile grid is the visible child. Updated to assert `.studio-editor` carries `is-hidden` and `.agent-tile-grid` is visible instead.
+
+#### Final test counts
+
+- Unit: `407 passed` (no change from leg 04).
+- Browser: `172 passed` (down from 176; 4 tests removed because the per-tile X-button no longer exists).
+
+#### LOC budgets
+
+- `studio.js`: 984 LOC (target ≤ 1000 + HAT delta — well within budget; net shrinkage from leg 04's 1000 thanks to `deleteAgentInline` removal).
+- `studio.css`: 77 LOC (was 70; +7 for `.studio-page-header` / `.studio-page-title` / `.danger-zone-title` rules).
+- `components.css`: 634 LOC (was 664; -30 net shrinkage from `.agent-tile-wrap` + `.agent-tile-delete` + multi-selector confirm-delete simplification).
+- `chat.js`: 596 LOC (target ≤ 605, no expected change — confirmed unchanged).
+
+#### Notes
+
+- The original HAT artifact captured the verification plan against the pre-refinement design; the leg file was updated in-place with REVISED step descriptions to reflect the new layout/cluster. Steps 6 (tile X keyboard) and 16 (tile-when-dirty) marked OBSOLETE; Step 17 (tab-when-dirty) marked INVERTED; Steps 4, 5, 7 revised to describe the new layout, tile-only-click, and `[Back] [Cancel] [Save]` cluster. Step 1 verification re-ran successfully after the auto-select fix.
+- User approved each refinement individually before moving on, then confirmed the consolidated final batch (sections A–F: keyboard nav, tab persistence, Test button, Tools tab checkboxes, modal mechanics, beforeunload, theme switching) with "yes all good" — explicit sign-off captured in conversation.
+- No new mission-level Known Issues surfaced. The deferred a11y items from the flight-end review (`<h2>`/`<h3>` heading hierarchy refinement) are NOT regressed by these refinements but also NOT addressed; they remain queued for the F5 debrief / a routine-maintenance cycle.
+
 ### 04-dirty-state-and-confirm-dialog
 
 **Status**: landed

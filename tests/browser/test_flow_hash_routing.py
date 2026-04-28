@@ -104,7 +104,8 @@ def test_hash_routing_studio_agent_persists_on_refresh(app_with_agent: SeededApp
     agent_item = page.locator('[data-testid="agent-item"]')
     expect(agent_item).to_have_count(1, timeout=8000)
 
-    # 3. Click the agent in the sidebar (it may already be selected; click to confirm).
+    # 3. Click the agent tile to enter the editor (no auto-selection on
+    #    bare #studio/agents — F5 leg 02 design).
     agent_item.click()
     expect(page.locator(".editor-title")).to_have_text(agent_name, timeout=5000)
 
@@ -120,9 +121,11 @@ def test_hash_routing_studio_agent_persists_on_refresh(app_with_agent: SeededApp
     # 6. After reload, the same agent should be selected in Studio.
     expect(page.locator(".editor-title")).to_have_text(agent_name, timeout=10000)
 
-    # Agent item should be marked active in sidebar.
-    active_item = page.locator(f'.agent-item[data-name="{agent_name}"][aria-selected="true"]')
-    expect(active_item).to_be_visible(timeout=5000)
+    # Editor is the visible child of the main panel; tile grid is hidden.
+    expect(page.locator(".studio-editor")).not_to_have_class("studio-editor is-hidden")
+    expect(page.locator(".studio-section-content")).to_have_class(
+        "studio-section-content is-hidden"
+    )
 
     # URL should still be the same.
     assert page.evaluate("location.hash") == expected_hash

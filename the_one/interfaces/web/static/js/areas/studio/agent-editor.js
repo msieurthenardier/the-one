@@ -69,18 +69,16 @@
     html += '</div>';
 
     // === Action cluster ===========================================
+    // F5 leg 05: Delete moved into the General tab's Danger Zone (only
+    // for existing agents). The header carries Back / Cancel / Save.
+    // Save and Cancel share `disabled` as the SINGLE source of truth —
+    // checkDirty() flips both to mirror the dirty flag.
     html += '<div class="form-actions">';
     html += '<button type="button" class="btn-outlined-cyan back-btn" ' +
       'data-testid="back-agent-btn" aria-label="Back to agents list">' +
       window.App.icon('arrow-left') + ' Back</button>';
-    if (!isCreate) {
-      html += '<button type="button" class="btn-muted-destructive delete-btn" ' +
-        'data-testid="delete-agent-btn" data-name="' + escapeAttr(name) + '">Delete Agent</button>';
-    }
-    // F5 leg 04: Save button uses `disabled` as the SINGLE source of truth.
-    // Initial render: disabled (clean snapshot); checkDirty() flips
-    // .disabled to mirror the dirty flag. The legacy .clean / .dirty class
-    // toggling is removed in leg 04 in favor of the [disabled] attribute.
+    html += '<button type="button" class="btn-outlined-cyan cancel-btn" ' +
+      'data-testid="cancel-agent-btn" disabled>Cancel</button>';
     html += '<button type="button" class="btn-filled-cyan save-btn" ' +
       'data-testid="save-agent-btn" disabled>' + (isCreate ? 'Create' : 'Save') + '</button>';
     html += '<span class="editor-error"></span>';
@@ -112,16 +110,14 @@
 
     container.innerHTML = html;
 
-    // Wire action-cluster buttons — handlers from callbacks. The Delete
-    // button's two-step inline flow (capital-D confirm) is wired by
-    // studio.js (callbacks.onDelete), not by App.confirmDelete.
+    // Wire action-cluster buttons — handlers from callbacks.
     var backBtn = container.querySelector('.back-btn');
     if (backBtn && callbacks.onBack) {
       backBtn.addEventListener('click', function () { callbacks.onBack(); });
     }
-    var deleteBtn = container.querySelector('.delete-btn');
-    if (deleteBtn && callbacks.onDelete) {
-      deleteBtn.addEventListener('click', function () { callbacks.onDelete(deleteBtn); });
+    var cancelBtn = container.querySelector('.cancel-btn');
+    if (cancelBtn && callbacks.onCancel) {
+      cancelBtn.addEventListener('click', function () { callbacks.onCancel(); });
     }
     var saveBtn = container.querySelector('.save-btn');
     if (saveBtn && callbacks.onSave) {
@@ -136,7 +132,8 @@
     var toolsPanel = container.querySelector('#' + PANEL_IDS.tools);
 
     window.App.studio.renderGeneralTab(generalPanel, agent, providers, {
-      onTestProvider: callbacks.onTestProvider
+      onTestProvider: callbacks.onTestProvider,
+      onDelete: callbacks.onDelete
     });
     window.App.studio.renderKnowledgeTab(knowledgePanel);
     window.App.studio.renderToolsTab(toolsPanel, agent, {
@@ -151,9 +148,6 @@
     var panelsEl = container.querySelector('.tabpanels');
     var tabHandle = window.App.tabs(tablistEl, panelsEl, {
       onChange: callbacks.onTabChange,
-      // F5 leg 04: optional onBeforeChange hook used by studio.js to
-      // dispatch the dirty-state confirm dialog before committing the tab.
-      onBeforeChange: callbacks.onBeforeTabChange,
       initial: initialTab
     });
 
