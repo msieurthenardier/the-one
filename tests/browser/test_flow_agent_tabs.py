@@ -40,7 +40,7 @@ def _wait_editor_ready(page: Page) -> None:
         "() => document.querySelector('.studio-editor')?.classList.contains('is-hidden')"
     )
     if editor_hidden:
-        page.locator("button.agent-tile").first.click()
+        page.locator("button.entity-tile").first.click()
     expect(page.locator('[data-testid="tab-general"]')).to_be_visible(timeout=8000)
 
 

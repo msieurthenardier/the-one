@@ -106,6 +106,19 @@
     return { area: raw.slice(0, slash), sub: raw.slice(slash + 1) };
   }
 
+  // Sync the URL hash with the area's serialized state when it diverges
+  // (e.g. user navigates to bare `#admin` and admin's default is `system`,
+  // so the URL should redirect to `#admin/system`). Called after hydrate
+  // in both same-area-sub-change and cross-area paths.
+  function syncUrlFromState(areaId, sub) {
+    if (typeof areas[areaId].serializeState !== 'function') return;
+    var serialized = areas[areaId].serializeState();
+    if (serialized && serialized !== sub) {
+      history.replaceState(null, '', '#' + areaId + '/' + serialized);
+      currentSub = serialized;
+    }
+  }
+
   function switchTo(areaId, sub) {
     if (!areas[areaId]) areaId = 'chat';
     sub = (sub === undefined ? null : sub);
@@ -115,6 +128,9 @@
     if (areaId === currentId && sub !== currentSub) {
       currentSub = sub;
       if (typeof areas[areaId].hydrateState === 'function') areas[areaId].hydrateState(sub);
+      // After hydrate, let the area redirect bare `#admin` → `#admin/system`
+      // (or any other default-sub redirect) by syncing URL from serializeState.
+      syncUrlFromState(areaId, sub);
       return;
     }
 
@@ -174,15 +190,10 @@
     if (typeof areas[areaId].hydrateState === 'function') areas[areaId].hydrateState(sub);
 
     // If the area retained internal state across navigation (e.g. chat's
-    // currentSessionId after a studio side-trip), sync the URL hash from
-    // serializeState so the address bar reflects what's actually shown.
-    if (typeof areas[areaId].serializeState === 'function') {
-      var serialized = areas[areaId].serializeState();
-      if (serialized && serialized !== sub) {
-        history.replaceState(null, '', '#' + areaId + '/' + serialized);
-        currentSub = serialized;
-      }
-    }
+    // currentSessionId after a studio side-trip), or has a default sub-state
+    // (admin's `system`), sync the URL hash from serializeState so the
+    // address bar reflects what's actually shown.
+    syncUrlFromState(areaId, sub);
   }
 
   window.addEventListener('hashchange', function () {

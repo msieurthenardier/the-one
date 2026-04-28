@@ -170,19 +170,23 @@ App.registerArea({
     var agentsContentEl = document.createElement('div');
     agentsContentEl.className = 'studio-agents-content';
     agentsContentEl.innerHTML =
-      '<div class="studio-page-header">' +
-        '<h1 class="studio-page-title">Agents</h1>' +
-        '<button class="btn-outlined-cyan new-agent-btn" type="button" data-testid="new-agent-btn">' +
+      '<div class="page-header">' +
+        '<h1 class="page-title">Agents</h1>' +
+        '<button class="btn-outlined-cyan new-entity-btn" type="button" data-testid="new-agent-btn">' +
           App.icon('square-pen') + '<span>New Agent</span>' +
         '</button>' +
       '</div>' +
-      '<div class="agent-tile-grid" role="listbox" aria-label="Agents"></div>';
-    var agentListEl = agentsContentEl.querySelector('.agent-tile-grid');
-    var newAgentBtn = agentsContentEl.querySelector('.new-agent-btn');
+      '<div class="entity-tile-grid" role="listbox" aria-label="Agents"></div>';
+    var agentListEl = agentsContentEl.querySelector('.entity-tile-grid');
+    var newAgentBtn = agentsContentEl.querySelector('.new-entity-btn');
 
     // ── Section navigation ─────────────────────────────────────────────
 
-    App.studio.renderSectionNav(sectionNavEl, self._activeSection, {
+    App.layout.renderSectionNav(sectionNavEl, [
+      { id: 'agents', label: 'Agents' },
+      { id: 'knowledge', label: 'Knowledge' },
+      { id: 'tools', label: 'Tools' }
+    ], self._activeSection, {
       onSelect: function (section) {
         // F5 leg 04: dirty gate — only fires when leaving the
         // Agents-section + selected-agent context. Knowledge → Tools
@@ -194,7 +198,9 @@ App.registerArea({
         } else {
           commit();
         }
-      }
+      },
+      header: 'Studio',
+      ariaLabel: 'Studio sections'
     });
 
     function renderAgentsSection() {
@@ -217,7 +223,7 @@ App.registerArea({
       options = options || {};
       var writeUrl = options.writeUrl !== false; // default true
       self._activeSection = section;
-      App.studio.updateActiveSection(sectionNavEl, section);
+      App.layout.updateActiveSection(sectionNavEl, section);
       if (section === 'knowledge') {
         renderKnowledgeSection();
       } else if (section === 'tools') {
@@ -287,7 +293,7 @@ App.registerArea({
 
           var tileEl = document.createElement('button');
           tileEl.type = 'button';
-          tileEl.className = 'agent-tile agent-item' + (isActive ? ' active' : '');
+          tileEl.className = 'entity-tile agent-item' + (isActive ? ' active' : '');
           tileEl.setAttribute('data-testid', 'agent-item');
           tileEl.setAttribute('role', 'option');
           tileEl.dataset.name = agent.name;
@@ -295,17 +301,17 @@ App.registerArea({
           tileEl.setAttribute('aria-label', agent.name);
 
           var nameSpan = document.createElement('span');
-          nameSpan.className = 'agent-tile-name';
+          nameSpan.className = 'entity-tile-name';
           nameSpan.textContent = agent.name;
           tileEl.appendChild(nameSpan);
 
           var descSpan = document.createElement('span');
-          descSpan.className = 'agent-tile-description';
+          descSpan.className = 'entity-tile-description';
           descSpan.textContent = agent.description || '';
           tileEl.appendChild(descSpan);
 
           var metaSpan = document.createElement('span');
-          metaSpan.className = 'agent-tile-meta';
+          metaSpan.className = 'entity-tile-meta';
           var providerLabel = '';
           if (agent.provider_config_id) {
             for (var pi = 0; pi < self._allProviders.length; pi++) {
@@ -506,17 +512,19 @@ App.registerArea({
       }
     }
 
-    // Editor's Delete button — KEEPS its inline two-step flow at the
-    // pre-leg-03 spec exactly. Class state on .delete-btn.confirm,
-    // capital-D label "Confirm Delete?", 3s revert timer, second-click
-    // DELETE. NOT migrated to App.confirmDelete (intentional — that helper
-    // is for the tile X-button; the editor flow keeps the capital-D label
-    // for test_flow_agent_crud.py:73 stability).
+    // Editor's Delete button — migrated to App.confirmDelete in F6 leg 04
+    // (helper now has 3 permanent consumers: chat session items, studio
+    // agent editor, provider editor). Capital-D label "Confirm Delete?"
+    // preserved via the confirmLabel option for test_flow_agent_crud.py:73
+    // stability and parity with the provider editor.
     function handleDeleteEditor(deleteBtn) {
       var name = self._selectedAgent ? self._selectedAgent.name : null;
       if (!name) return;
-      if (deleteBtn.classList.contains('confirm')) {
+      App.confirmDelete(deleteBtn, function (btn, revertFn) {
         fetch('/api/agents/' + encodeURIComponent(name), { method: 'DELETE' })
+          .then(function (r) {
+            if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || 'Delete failed'); });
+          })
           .then(function () {
             self._selectedAgent = null;
             dirty = false;
@@ -530,15 +538,12 @@ App.registerArea({
               updateContentVisibility();
               writeUrl_();
             }
+          })
+          .catch(function (err) {
+            revertFn();
+            App.showFlash(editorEl, (err && err.message) || 'Delete failed', true);
           });
-        return;
-      }
-      deleteBtn.classList.add('confirm');
-      deleteBtn.textContent = 'Confirm Delete?';
-      setTimeout(function () {
-        deleteBtn.classList.remove('confirm');
-        deleteBtn.textContent = 'Delete Agent';
-      }, 3000);
+      }, { confirmLabel: 'Confirm Delete?' });
     }
 
     // Test provider — POST /api/providers/{id}/test with empty body.

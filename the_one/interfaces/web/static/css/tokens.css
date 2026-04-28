@@ -62,6 +62,7 @@
     --status-danger: #ff4a4a;
     --status-danger-muted: #d56363;
     --status-danger-glow: rgba(255, 74, 74, 0.5);
+    --status-danger-bg-soft: rgba(255, 74, 74, 0.08);
 
     /* provider badges
        NOTE: --badge-openai stays at #4a9eff even though --accent moves to cyan.
@@ -153,6 +154,7 @@
     --status-danger: #dc2626;
     --status-danger-muted: #a85050;
     --status-danger-glow: rgba(220, 38, 38, 0.3);
+    --status-danger-bg-soft: rgba(220, 38, 38, 0.06);
 
     /* provider badges — same brand colors in both themes (badges identify
        the provider, NOT the theme; brand stability over palette consistency) */

@@ -7,8 +7,8 @@
   // Future mission will replace this with MCP server + built-in tool config.
   function renderToolsStub(container) {
     container.innerHTML =
-      '<div class="studio-page-header">' +
-        '<h1 class="studio-page-title">Tools</h1>' +
+      '<div class="page-header">' +
+        '<h1 class="page-title">Tools</h1>' +
       '</div>' +
       '<div class="empty-state" data-testid="studio-tools-stub">' +
         'MCP servers and built-in tools will be configured here in a future mission.' +

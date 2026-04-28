@@ -1,0 +1,490 @@
+// App.admin.renderProviderModels — provider-models panel (F6 leg 03).
+//
+// Top-level dispatch on provider.type:
+//   - 'ollama'  → Ollama lifecycle UI (refresh / pull / list / unload / load /
+//                 delete-row + VRAM summary + streaming pull progress).
+//   - other     → Basic model list (Refresh + GET /api/providers/{id}/models).
+//
+// Migrated verbatim from pre-leg-03 admin.js:562-1021 with these substitutions:
+//   - showAdminFlash(msg, isError)            → window.App.showFlash(container, msg, isError)
+//   - <span class="admin-pf-test-fail">       → <span class="test-result-fail">
+//                                               (canonical class; the per-area
+//                                               .admin-pf-test-fail CSS rule
+//                                               was deleted in F6 leg 03)
+//
+// All `.admin-pf-pull*` / `.admin-pf-vram*` / `.admin-pf-model*` selectors
+// preserved (per-area scoping kept intentionally — Ollama-specific UI).
+(function () {
+  'use strict';
+  window.App = window.App || {};
+  window.App.admin = window.App.admin || {};
+
+  var escapeHtml = window.App.escapeHtml;
+  var escapeAttr = window.App.escapeAttr;
+
+  function renderProviderModels(container, provider) {
+    if (!provider || !provider.id) return;
+    if (provider.type === 'ollama') {
+      renderOllamaModels(provider.id, container);
+    } else {
+      renderBasicModels(provider.id, container);
+    }
+  }
+
+  function renderBasicModels(providerId, modelsEl) {
+    if (!modelsEl) return;
+
+    modelsEl.innerHTML =
+      '<div class="admin-pf-models-header">' +
+        '<button class="btn-outlined-cyan refresh-btn admin-pf-models-refresh">' + window.App.icon('refresh-cw') + ' Refresh</button>' +
+      '</div>' +
+      '<div class="admin-pf-models-list" aria-live="polite"><span class="admin-loading">Loading models…</span></div>';
+
+    var refreshBtn = modelsEl.querySelector('.admin-pf-models-refresh');
+    refreshBtn.addEventListener('click', function () {
+      renderBasicModels(providerId, modelsEl);
+    });
+
+    fetch('/api/providers/' + encodeURIComponent(providerId) + '/models')
+      .then(function (r) {
+        if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || 'Failed to load models'); });
+        return r.json();
+      })
+      .then(function (models) {
+        var listEl = modelsEl.querySelector('.admin-pf-models-list');
+        if (!listEl) return;
+
+        if (models.length === 0) {
+          listEl.innerHTML = '<span class="empty-state admin-pf-models-empty">No models found.</span>';
+          return;
+        }
+
+        var html = '';
+        for (var i = 0; i < models.length; i++) {
+          html += '<div class="admin-pf-model-item">' + escapeHtml(models[i].id || models[i].name) + '</div>';
+        }
+        listEl.innerHTML = html;
+      })
+      .catch(function (err) {
+        var listEl = modelsEl.querySelector('.admin-pf-models-list');
+        if (listEl) {
+          listEl.innerHTML = '<span class="test-result-fail">' + escapeHtml(err.message || 'Failed to load models') + '</span>';
+        }
+      });
+  }
+
+  function renderOllamaModels(providerId, container) {
+    if (!container) return;
+    var formatBytes = window.App.formatBytes;
+
+    container.innerHTML =
+      '<div class="admin-pf-models-header">' +
+        '<button class="btn-outlined-cyan refresh-btn admin-pf-models-refresh">' + window.App.icon('refresh-cw') + ' Refresh</button>' +
+        '<button class="btn-outlined-cyan btn-sm admin-pf-pull-btn">Pull Model</button>' +
+      '</div>' +
+      '<div class="admin-pf-pull-input is-hidden">' +
+        '<div class="admin-pf-pull-search-wrap">' +
+          '<input class="field-input admin-pf-input admin-pf-pull-name" placeholder="Search Ollama library..." autocomplete="off" />' +
+          '<div class="admin-pf-pull-suggestions is-hidden"></div>' +
+        '</div>' +
+        '<button class="btn-filled-cyan btn-sm admin-pf-pull-go" disabled>Pull</button>' +
+      '</div>' +
+      '<div class="admin-pf-pull-progress is-hidden">' +
+        '<div class="admin-pf-pull-fill"></div>' +
+        '<span class="admin-pf-pull-text"></span>' +
+        '<button class="admin-pf-pull-cancel" aria-label="Cancel pull">' + window.App.icon('x') + '</button>' +
+      '</div>' +
+      '<div class="admin-pf-pull-error is-hidden"></div>' +
+      '<div class="admin-pf-vram-summary"></div>' +
+      '<div class="admin-pf-models-list" aria-live="polite"><span class="admin-loading">Loading models…</span></div>';
+
+    var refreshBtn = container.querySelector('.admin-pf-models-refresh');
+    refreshBtn.addEventListener('click', function () {
+      renderOllamaModels(providerId, container);
+    });
+
+    // Pull UI wiring
+    var pullBtn = container.querySelector('.admin-pf-pull-btn');
+    var pullInputRow = container.querySelector('.admin-pf-pull-input');
+    var pullNameInput = container.querySelector('.admin-pf-pull-name');
+    var pullGoBtn = container.querySelector('.admin-pf-pull-go');
+    var pullProgress = container.querySelector('.admin-pf-pull-progress');
+    var pullFill = container.querySelector('.admin-pf-pull-fill');
+    var pullText = container.querySelector('.admin-pf-pull-text');
+    var pullError = container.querySelector('.admin-pf-pull-error');
+
+    var suggestionsEl = container.querySelector('.admin-pf-pull-suggestions');
+    var pullAbort = null;
+
+    pullBtn.addEventListener('click', function () {
+      pullInputRow.classList.toggle('is-hidden');
+      pullError.classList.add('is-hidden');
+      suggestionsEl.classList.add('is-hidden');
+      pullNameInput.value = '';
+      pullGoBtn.disabled = true;
+      pullNameInput.focus();
+    });
+
+    pullGoBtn.addEventListener('click', function () { startPull(); });
+
+    // Dynamic model search from Ollama library
+    var pullSearchTimer = null;
+    pullNameInput.addEventListener('input', function () {
+      clearTimeout(pullSearchTimer);
+      var q = pullNameInput.value.trim();
+      pullGoBtn.disabled = !q;
+      if (q.length < 2) {
+        suggestionsEl.classList.add('is-hidden');
+        suggestionsEl.innerHTML = '';
+        return;
+      }
+      pullSearchTimer = setTimeout(function () {
+        fetch('/api/ollama-library/search?q=' + encodeURIComponent(q))
+          .then(function (r) { return r.ok ? r.json() : []; })
+          .then(function (models) {
+            if (!models.length) {
+              suggestionsEl.classList.add('is-hidden');
+              return;
+            }
+            var html = '';
+            for (var i = 0; i < models.length && i < 15; i++) {
+              var sz = models[i].size ? ' (' + formatBytes(Number(models[i].size)) + ')' : '';
+              html += '<div class="admin-pf-pull-suggestion" data-model="' +
+                escapeAttr(models[i].name) + '">' +
+                escapeHtml(models[i].name) +
+                '<span class="admin-pf-pull-suggestion-size">' + escapeHtml(sz) + '</span></div>';
+            }
+            suggestionsEl.innerHTML = html;
+            suggestionsEl.classList.remove('is-hidden');
+
+            // Wire click handlers on suggestions
+            var items = suggestionsEl.querySelectorAll('.admin-pf-pull-suggestion');
+            for (var j = 0; j < items.length; j++) {
+              items[j].addEventListener('click', function () {
+                pullNameInput.value = this.getAttribute('data-model');
+                suggestionsEl.classList.add('is-hidden');
+                pullGoBtn.disabled = false;
+              });
+            }
+          })
+          .catch(function () {
+            suggestionsEl.classList.add('is-hidden');
+          });
+      }, 300);
+    });
+
+    // Hide suggestions on blur (with delay so clicks register)
+    pullNameInput.addEventListener('blur', function () {
+      setTimeout(function () { suggestionsEl.classList.add('is-hidden'); }, 200);
+    });
+    // Re-show on focus if there's content
+    pullNameInput.addEventListener('focus', function () {
+      if (suggestionsEl.innerHTML && pullNameInput.value.trim().length >= 2) {
+        suggestionsEl.classList.remove('is-hidden');
+      }
+    });
+    // Enter in input does nothing (must click Pull button)
+    pullNameInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') e.preventDefault();
+    });
+
+    // Cancel button
+    var pullCancelBtn = container.querySelector('.admin-pf-pull-cancel');
+    pullCancelBtn.addEventListener('click', function () {
+      if (pullAbort) {
+        pullAbort.abort();
+        pullAbort = null;
+      }
+      finishPull(false);
+      window.App.showFlash(container, 'Pull cancelled');
+    });
+
+    function startPull() {
+      var model = pullNameInput.value.trim();
+      if (!model) return;
+
+      pullAbort = new AbortController();
+      pullGoBtn.disabled = true;
+      pullBtn.disabled = true;
+      pullNameInput.disabled = true;
+      suggestionsEl.classList.add('is-hidden');
+      pullError.classList.add('is-hidden');
+      pullProgress.classList.remove('is-hidden');
+      pullFill.style.width = '0%';
+      pullText.textContent = 'Pulling ' + escapeHtml(model) + '…';
+
+      fetch('/api/providers/' + encodeURIComponent(providerId) + '/models/pull', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: model }),
+        signal: pullAbort.signal
+      })
+        .then(function (resp) {
+          if (!resp.ok) {
+            return resp.json().then(function (e) { throw new Error(e.detail || 'Pull request failed'); });
+          }
+          var reader = resp.body.getReader();
+          var decoder = new TextDecoder();
+          var buffer = '';
+
+          function read() {
+            return reader.read().then(function (result) {
+              if (result.done) {
+                finishPull(true);
+                return;
+              }
+              buffer += decoder.decode(result.value, { stream: true });
+              var lines = buffer.split('\n');
+              buffer = lines.pop();
+
+              for (var i = 0; i < lines.length; i++) {
+                var line = lines[i].trim();
+                if (line.indexOf('data: ') === 0) {
+                  try {
+                    var evt = JSON.parse(line.substring(6));
+                    if (evt.error) {
+                      showPullError(evt.error);
+                      return;
+                    }
+                    if (evt.status === 'success') {
+                      finishPull(true);
+                      return;
+                    }
+                    var pct = 0;
+                    if (evt.total && evt.total > 0) {
+                      pct = Math.round((evt.completed / evt.total) * 100);
+                    }
+                    pullFill.style.width = pct + '%';
+                    pullText.textContent = escapeHtml(evt.status || '') + (pct > 0 ? ' — ' + pct + '%' : '');
+                  } catch (parseErr) {
+                    // skip unparseable lines
+                  }
+                }
+              }
+              return read();
+            });
+          }
+
+          return read();
+        })
+        .catch(function (err) {
+          if (err.name === 'AbortError') return; // cancelled by user
+          showPullError(err.message || 'Pull failed');
+        });
+    }
+
+    function showPullError(msg) {
+      pullAbort = null;
+      pullProgress.classList.add('is-hidden');
+      pullError.classList.remove('is-hidden');
+      pullError.textContent = escapeHtml(msg);
+      pullGoBtn.disabled = false;
+      pullBtn.disabled = false;
+      pullNameInput.disabled = false;
+    }
+
+    function finishPull(success) {
+      pullAbort = null;
+      pullProgress.classList.add('is-hidden');
+      pullGoBtn.disabled = false;
+      pullBtn.disabled = false;
+      pullNameInput.disabled = false;
+      pullNameInput.value = '';
+      pullInputRow.classList.add('is-hidden');
+      if (success) {
+        window.App.showFlash(container, 'Model pulled successfully');
+        renderOllamaModels(providerId, container);
+      }
+    }
+
+    // Fetch both endpoints in parallel
+    var modelsPromise = fetch('/api/providers/' + encodeURIComponent(providerId) + '/models')
+      .then(function (r) {
+        if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || 'Failed to load models'); });
+        return r.json();
+      });
+
+    var statusPromise = fetch('/api/providers/' + encodeURIComponent(providerId) + '/models/status')
+      .then(function (r) {
+        if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || 'Failed to load status'); });
+        return r.json();
+      });
+
+    Promise.all([modelsPromise, statusPromise])
+      .then(function (results) {
+        var allModels = results[0];
+        var runningModels = results[1];
+
+        var listEl = container.querySelector('.admin-pf-models-list');
+        var vramEl = container.querySelector('.admin-pf-vram-summary');
+        if (!listEl || !vramEl) return;
+
+        // Build set of running model names
+        var runningNames = {};
+        var totalVram = 0;
+        for (var r = 0; r < runningModels.length; r++) {
+          var rm = runningModels[r];
+          var rname = rm.name || rm.model || '';
+          runningNames[rname] = rm;
+          if (rm.size_vram) totalVram += rm.size_vram;
+        }
+
+        // VRAM summary
+        if (runningModels.length === 0) {
+          vramEl.textContent = 'No models loaded';
+        } else if (totalVram > 0) {
+          vramEl.innerHTML = '<span class="admin-pf-vram-value">' + escapeHtml(formatBytes(totalVram)) + ' loaded</span>';
+        } else {
+          vramEl.textContent = 'VRAM info unavailable';
+        }
+
+        // Build model rows
+        if (allModels.length === 0 && runningModels.length === 0) {
+          listEl.innerHTML = '<span class="empty-state admin-pf-models-empty">No models found. Use Pull Model to download one.</span>';
+          return;
+        }
+
+        var html = '';
+
+        // Running models section
+        if (runningModels.length > 0) {
+          html += '<div class="admin-pf-section-label">Running</div>';
+          for (var i = 0; i < runningModels.length; i++) {
+            var run = runningModels[i];
+            var runName = run.name || run.model || 'unknown';
+            var runVram = run.size_vram ? formatBytes(run.size_vram) : '';
+            html +=
+              '<div class="admin-pf-model-row">' +
+                '<span class="admin-pf-model-dot loaded"></span>' +
+                '<span class="admin-pf-model-name">' + escapeHtml(runName) + '</span>' +
+                '<span class="admin-pf-model-size">' + escapeHtml(runVram) + '</span>' +
+                '<div class="admin-pf-model-actions">' +
+                  '<button class="btn-outlined-cyan btn-sm admin-pf-model-btn admin-pf-model-unload" data-model="' + escapeAttr(runName) + '">Unload</button>' +
+                '</div>' +
+              '</div>';
+          }
+        }
+
+        // Available models section (not currently running)
+        var availableModels = [];
+        for (var j = 0; j < allModels.length; j++) {
+          var am = allModels[j];
+          var aname = am.name || am.id || '';
+          if (!runningNames[aname]) {
+            availableModels.push(am);
+          }
+        }
+
+        if (availableModels.length > 0) {
+          html += '<div class="admin-pf-section-label">Available</div>';
+          for (var k = 0; k < availableModels.length; k++) {
+            var avail = availableModels[k];
+            var availName = avail.name || avail.id || 'unknown';
+            var availSize = avail.size ? formatBytes(avail.size) : '';
+            html +=
+              '<div class="admin-pf-model-row">' +
+                '<span class="admin-pf-model-dot"></span>' +
+                '<span class="admin-pf-model-name">' + escapeHtml(availName) + '</span>' +
+                '<span class="admin-pf-model-size">' + escapeHtml(availSize) + '</span>' +
+                '<div class="admin-pf-model-actions">' +
+                  '<button class="btn-outlined-cyan btn-sm admin-pf-model-btn admin-pf-model-load" data-model="' + escapeAttr(availName) + '">Load</button>' +
+                  '<button class="btn-muted-destructive btn-sm admin-pf-model-btn admin-pf-model-delete" data-model="' + escapeAttr(availName) + '">Delete</button>' +
+                '</div>' +
+              '</div>';
+          }
+        }
+
+        listEl.innerHTML = html;
+
+        // Wire action buttons
+        wireOllamaActions(providerId, container);
+      })
+      .catch(function (err) {
+        var listEl = container.querySelector('.admin-pf-models-list');
+        if (listEl) {
+          listEl.innerHTML = '<span class="test-result-fail">' + escapeHtml(err.message || 'Failed to load models') + '</span>';
+        }
+      });
+  }
+
+  function wireOllamaActions(providerId, container) {
+    // Unload buttons
+    var unloadBtns = container.querySelectorAll('.admin-pf-model-unload');
+    for (var u = 0; u < unloadBtns.length; u++) {
+      unloadBtns[u].addEventListener('click', function (ev) {
+        var btn = ev.target;
+        var model = btn.dataset.model;
+        btn.disabled = true;
+        btn.textContent = 'Unloading…';
+        ollamaAction(providerId, container, 'unload', model, btn);
+      });
+    }
+
+    // Load buttons
+    var loadBtns = container.querySelectorAll('.admin-pf-model-load');
+    for (var l = 0; l < loadBtns.length; l++) {
+      loadBtns[l].addEventListener('click', function (ev) {
+        var btn = ev.target;
+        var model = btn.dataset.model;
+        btn.disabled = true;
+        btn.textContent = 'Loading…';
+        ollamaAction(providerId, container, 'load', model, btn);
+      });
+    }
+
+    // Delete buttons (with confirmation)
+    var delBtns = container.querySelectorAll('.admin-pf-model-delete');
+    for (var d = 0; d < delBtns.length; d++) {
+      delBtns[d].addEventListener('click', function (ev) {
+        var btn = ev.target;
+        var model = btn.dataset.model;
+        if (btn.classList.contains('admin-pf-model-delete-confirm')) {
+          btn.disabled = true;
+          btn.textContent = 'Deleting…';
+          ollamaAction(providerId, container, 'delete', model, btn);
+        } else {
+          btn.classList.add('admin-pf-model-delete-confirm');
+          btn.textContent = 'Confirm?';
+          setTimeout(function () {
+            btn.classList.remove('admin-pf-model-delete-confirm');
+            btn.textContent = 'Delete';
+          }, 3000);
+        }
+      });
+    }
+  }
+
+  function ollamaAction(providerId, container, action, model, btn) {
+    var url = '/api/providers/' + encodeURIComponent(providerId) + '/models/' + action;
+    fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: model })
+    })
+      .then(function (r) {
+        if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || action + ' failed'); });
+        return r.json();
+      })
+      .then(function () {
+        window.App.showFlash(container, 'Model ' + action + (action === 'delete' ? 'd' : 'ed') + ' successfully');
+        renderOllamaModels(providerId, container);
+      })
+      .catch(function (err) {
+        btn.disabled = false;
+        btn.textContent = action.charAt(0).toUpperCase() + action.slice(1);
+        // Show inline error
+        var row = btn.closest('.admin-pf-model-row');
+        if (row) {
+          var existing = row.querySelector('.admin-pf-model-error');
+          if (existing) existing.remove();
+          var errEl = document.createElement('div');
+          errEl.className = 'admin-pf-model-error';
+          errEl.textContent = err.message;
+          row.appendChild(errEl);
+          setTimeout(function () { errEl.remove(); }, 4000);
+        }
+      });
+  }
+
+  window.App.admin.renderProviderModels = renderProviderModels;
+})();

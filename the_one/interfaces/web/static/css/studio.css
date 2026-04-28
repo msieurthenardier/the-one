@@ -4,17 +4,6 @@
      section-nav primitive is canonical (see components.css); only the per-area
      section-content host + its agents-section overrides live here. */
   .area-studio .studio-section-content { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
-  /* Studio page header — h1 title on the left, optional action button on
-     the right. Mirrors chat's `.header` + `.new-chat-header` pattern. */
-  .area-studio .studio-page-header { padding: 14px 20px; display: flex; align-items: center; gap: 12px; }
-  .area-studio .studio-page-title { font-size: var(--font-size-h2); font-weight: var(--font-weight-semibold); color: var(--fg); margin: 0; }
-  .area-studio .new-agent-btn { margin-left: auto; white-space: nowrap; flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; }
-  .area-studio .new-agent-btn svg { width: 14px; height: 14px; }
-  /* Tile grid (F5 leg 02): replaces the previous flex .agent-list. CSS-grid
-     auto-fill ensures tiles wrap to fill available width; at narrow viewports
-     they stack vertically. The .agent-tile primitive itself lives in
-     components.css; this rule is layout-only (studio-specific). */
-  .area-studio .agent-tile-grid { flex: 1; overflow-y: auto; padding: 8px; display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; align-content: start; }
 
   /* === Studio Area: Editor === */
   /* `.editor-header` lifted to components.css in F5 leg 03 (canonical
@@ -24,8 +13,7 @@
   /* `.empty-state` base provides text styling; this override adds layout + larger font. */
   .area-studio .editor-empty { flex: 1; display: flex; align-items: center; justify-content: center; font-size: var(--font-size-body-lg); }
   .area-studio .tabpanel { padding: 16px 20px 80px; }
-  .area-studio .editor-section { padding: 12px 0; }
-  .area-studio .editor-section + .editor-section { border-top: 1px solid var(--border); padding-top: 16px; }
+  /* `.editor-section` + sibling-adjacent divider lifted to components.css in F6 leg 03 (un-scoped, consumed by admin's provider editor). */
   .area-studio .field-input-short { max-width: 100px; }
   .area-studio .field-model-wrap { flex: 1; display: flex; align-items: center; gap: 8px; }
   .area-studio .field-model-wrap .field-input { flex: 1; }
@@ -47,28 +35,12 @@
   .area-studio .tool-name { font-size: var(--font-size-body-sm); color: var(--fg); min-width: 120px; }
   .area-studio .tool-desc { font-size: var(--font-size-caption); color: var(--fg-muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-  /* === Studio Area: Actions === */
-  /* Save-btn — `disabled` is the single source of truth (F5 leg 04). Opacity
-     hooks key off the [disabled] attribute (was `.clean` / `.dirty` classes
-     pre-leg-04). Cosmetics from .btn-filled-cyan; cluster lives in canonical
-     .form-actions (components.css). */
-  .area-studio .save-btn { transition: opacity 0.2s; padding: 6px 16px; font-size: var(--font-size-body-sm); }
-  .area-studio .save-btn[disabled] { opacity: 0.4; cursor: not-allowed; }
-  .area-studio .save-btn:not([disabled]) { opacity: 1; }
-  .area-studio .back-btn { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; }
-  .area-studio .back-btn svg { width: 14px; height: 14px; }
-  .area-studio .test-provider-btn { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; }
-  .area-studio .test-provider-btn svg { width: 14px; height: 14px; }
-  /* Delete-btn — area-specific padding + radius override; cosmetics from .btn-muted-destructive.
-     Keeps its inline two-step flow (capital-D "Confirm Delete?" label, .delete-btn.confirm class). */
-  .area-studio .delete-btn { padding: 6px 14px; border-radius: 6px; font-size: var(--font-size-body-sm); }
-  .area-studio .delete-btn.confirm { background: var(--status-danger); color: var(--fg-on-danger); border-color: var(--status-danger); font-weight: var(--font-weight-semibold); }
-
-  /* === Studio Area: Danger Zone === */
-  /* Sits at the bottom of the General tab (existing agents only). Visually
-     separated by the standard `editor-section + editor-section` border-top
-     rule above. The title is destructive-tinted to flag the section. */
-  .area-studio .danger-zone-title { color: var(--status-danger); }
+  /* === Studio Area: Actions, Danger Zone === */
+  /* All action-button rules (.save-btn / .back-btn / .test-provider-btn /
+     .delete-btn[.confirm]) and the .danger-zone-title rule were lifted to
+     components.css in F6 leg 03 (un-scoped, consumed by admin's provider
+     editor). Studio markup unchanged — bare class names match the
+     canonical rules. */
 
   /* === Studio Area: VRAM Warning === */
   /* line-height 1.4 retained as a context-specific value (warning copy). */

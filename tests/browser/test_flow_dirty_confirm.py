@@ -48,7 +48,7 @@ def _wait_editor_ready(page: Page) -> None:
         "() => document.querySelector('.studio-editor')?.classList.contains('is-hidden')"
     )
     if editor_hidden:
-        page.locator("button.agent-tile").first.click()
+        page.locator("button.entity-tile").first.click()
     expect(page.locator('[data-testid="tab-general"]')).to_be_visible(timeout=8000)
 
 
@@ -134,7 +134,7 @@ def test_back_when_dirty_confirm_navigates(
     # URL is now #studio/agents (no agent selected).
     assert page.evaluate("location.hash") == "#studio/agents"
     # Main panel returned to the tile grid; editor is hidden.
-    expect(page.locator(".agent-tile-grid")).to_be_visible()
+    expect(page.locator(".entity-tile-grid")).to_be_visible()
     expect(page.locator(".studio-editor")).to_have_class("studio-editor is-hidden")
 
 

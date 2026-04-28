@@ -31,11 +31,12 @@
 // callbacks: { onBack, onDelete, onSave, onTabChange, onTestProvider,
 //              toolCategories, allTools, initialTab }
 //
-// Editor Delete button: KEEPS its inline two-step flow (.delete-btn.confirm
-// class state, capital-D "Confirm Delete?" label, 3s revert). The handler
-// itself lives in studio.js (passed in via callbacks.onDelete) — this module
-// just renders the button into .form-actions. Distinct from App.confirmDelete
-// (lowercase-d) used by the tile X-button.
+// Editor Delete button: uses App.confirmDelete via studio.js's
+// handleDeleteEditor (F6 leg 04 migration). Capital-D "Confirm Delete?"
+// label preserved through the helper's confirmLabel option; armed-state
+// class is .delete-btn.confirm-delete. The handler itself lives in
+// studio.js (passed in via callbacks.onDelete) — this module just renders
+// the button into the General tab's Danger Zone.
 (function () {
   'use strict';
   window.App = window.App || {};
