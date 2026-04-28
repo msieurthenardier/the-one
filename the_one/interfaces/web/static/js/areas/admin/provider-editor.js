@@ -89,6 +89,11 @@
       html += '<div class="editor-section danger-zone">';
       html += '<div class="section-title danger-zone-title">Danger Zone</div>';
       html += '<button type="button" class="btn-muted-destructive delete-btn" data-testid="delete-provider-btn" data-name="' + escapeAttr(provider.name || '') + '"><span data-confirm-title>Delete Provider</span></button>';
+      // Hard-block message banner — shown when the provider is in use by
+      // ≥1 agents. Sibling of the button (NOT inside it) so long agent-name
+      // lists don't deform the button. aria-live="assertive" announces
+      // when revealed. F6 HAT refinement.
+      html += '<div class="action-blocked-message" data-testid="delete-blocked-message" role="status" aria-live="assertive" hidden></div>';
       html += '</div>';
     }
 
@@ -346,7 +351,7 @@
     var deleteBtn = container.querySelector('.delete-btn');
     if (deleteBtn && isEdit) {
       var deleteHardBlockTimer = null;
-      var deleteTitleEl = deleteBtn.querySelector('[data-confirm-title]');
+      var blockedMsgEl = container.querySelector('.action-blocked-message');
 
       function doDelete(btn, revertFn) {
         fetch('/api/providers/' + encodeURIComponent(provider.id), { method: 'DELETE' })
@@ -376,15 +381,21 @@
           .then(function (data) {
             var agents = data.agents || [];
             if (agents.length > 0) {
-              // Hard-block: write into the title span, disable, 3s revert.
-              if (deleteTitleEl) deleteTitleEl.textContent = 'Used by: ' + agents.join(', ');
+              // Hard-block: surface the message in a sibling banner (NOT
+              // inside the button, which would deform with long agent-name
+              // lists). Button text stays "Delete Provider".
+              if (blockedMsgEl) {
+                blockedMsgEl.textContent = 'Used by: ' + agents.join(', ');
+                blockedMsgEl.removeAttribute('hidden');
+              }
               deleteBtn.disabled = true;
-              deleteBtn.setAttribute('aria-live', 'assertive');
               if (deleteHardBlockTimer) clearTimeout(deleteHardBlockTimer);
               deleteHardBlockTimer = setTimeout(function () {
                 deleteBtn.disabled = false;
-                deleteBtn.removeAttribute('aria-live');
-                if (deleteTitleEl) deleteTitleEl.textContent = 'Delete Provider';
+                if (blockedMsgEl) {
+                  blockedMsgEl.setAttribute('hidden', '');
+                  blockedMsgEl.textContent = '';
+                }
               }, 3000);
             } else {
               // No agent usage: arm via App.confirmDelete.

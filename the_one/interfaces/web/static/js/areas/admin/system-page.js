@@ -22,8 +22,6 @@
     concourse_pipeline: 'Pipeline'
   };
 
-  var rotateConfirmTimer = null;
-
   function renderSystemPage(container) {
     container.innerHTML =
       '<div class="page-header">' +
@@ -54,7 +52,7 @@
           '<div class="admin-system-warning" role="note">' +
             'Rotating the encryption key re-encrypts all stored API credentials with a new key. This is irreversible.' +
           '</div>' +
-          '<button class="admin-system-btn" type="button">Rotate Encryption Key</button>' +
+          '<button class="btn-muted-destructive" data-testid="rotate-key-btn" type="button"><span data-confirm-title>Rotate Encryption Key</span></button>' +
           '<div class="admin-system-flash" aria-live="polite"></div>' +
         '</div>' +
       '</div>';
@@ -112,44 +110,35 @@
   }
 
   function wireEncryptionRotate(container) {
-    var rotateBtn = container.querySelector('.admin-system-btn');
+    var rotateBtn = container.querySelector('[data-testid="rotate-key-btn"]');
     var flashEl = container.querySelector('.admin-system-flash');
     rotateBtn.addEventListener('click', function () {
-      if (rotateBtn.classList.contains('admin-system-btn-confirm')) {
-        rotateBtn.disabled = true;
-        rotateBtn.textContent = 'Rotating…';
+      window.App.confirmDelete(rotateBtn, function (btn, revertFn) {
+        var titleEl = btn.querySelector('[data-confirm-title]');
+        btn.disabled = true;
+        if (titleEl) titleEl.textContent = 'Rotating…';
         fetch('/api/encryption/rotate', { method: 'POST' })
           .then(function (r) {
             if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || 'Rotation failed'); });
             return r.json();
           })
           .then(function () {
-            rotateBtn.disabled = false;
-            rotateBtn.classList.remove('admin-system-btn-confirm');
-            rotateBtn.textContent = 'Rotate Encryption Key';
-            if (rotateConfirmTimer) { clearTimeout(rotateConfirmTimer); rotateConfirmTimer = null; }
+            btn.disabled = false;
+            // Helper's revertFn restores the original "Rotate Encryption Key"
+            // text + removes the .confirm-delete class.
+            revertFn();
             flashEl.textContent = 'Encryption key rotated successfully.';
             flashEl.className = 'admin-system-flash success';
             setTimeout(function () { flashEl.textContent = ''; flashEl.className = 'admin-system-flash'; }, 3000);
           })
           .catch(function (err) {
-            rotateBtn.disabled = false;
-            rotateBtn.classList.remove('admin-system-btn-confirm');
-            rotateBtn.textContent = 'Rotate Encryption Key';
-            if (rotateConfirmTimer) { clearTimeout(rotateConfirmTimer); rotateConfirmTimer = null; }
+            btn.disabled = false;
+            revertFn();
             flashEl.textContent = 'Error: ' + err.message;
             flashEl.className = 'admin-system-flash error';
             setTimeout(function () { flashEl.textContent = ''; flashEl.className = 'admin-system-flash'; }, 4000);
           });
-        return;
-      }
-      rotateBtn.classList.add('admin-system-btn-confirm');
-      rotateBtn.textContent = 'Click again to confirm rotation';
-      if (rotateConfirmTimer) clearTimeout(rotateConfirmTimer);
-      rotateConfirmTimer = setTimeout(function () {
-        rotateBtn.classList.remove('admin-system-btn-confirm');
-        rotateBtn.textContent = 'Rotate Encryption Key';
-      }, 4000);
+      }, { confirmLabel: 'Confirm Rotate?' });
     });
   }
 

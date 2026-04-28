@@ -298,6 +298,12 @@ App.registerArea({
     // branch is active (no grid is mounted).
     function populateProviderGrid() {
       if (providerFormMode) return;
+      // Stale-then guard: if a fetchProviders kicked off while currentCategory
+      // was 'providers' resolves AFTER the user has navigated to the System
+      // page (e.g., area re-activate → hydrate-back-to-system race), the .then
+      // would clobber the System content. Bail when no longer on providers.
+      // F6 HAT regression.
+      if (currentCategory !== 'providers') return;
       App.admin.renderProvidersGrid(contentEl, providers, {
         selectedId: editingProvider ? editingProvider.id : null,
         onSelectProvider: selectProvider,

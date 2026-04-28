@@ -252,6 +252,14 @@ _(Departures from planned approach captured here)_
 - Existing test updates: `test_flow_provider_editor.py:153` regex update (`\bconfirm\b` → `\bconfirm-delete\b`); `test_flow_agent_crud.py` likely no change (verified via Step-1 grep — only literal-text assertions present, no inline-class regex).
 - Leg status updated `planning` → `ready`.
 
+### Leg 05 (HAT) landed
+- Walked sections A–J interactively with the user (empty state, System page, provider grid, create flow, edit flow + Test, Models section incl. Ollama lifecycle, Danger Zone delete + agent-usage hard-block, dirty-state confirm dialog × 4 routes, studio regression check, hash routing regression, six-requirements final pass).
+- Seven inline fixes landed during HAT (see leg-05 artifact for full list): bare `#admin` redirect (router + admin hydrate), rotate-key button migration to App.confirmDelete, provider-editor horizontal padding, duplicate Models label removal, Refresh button restyle + refresh-cw icon, small-button size system (`.btn-sm`/`.btn-lg`/`.btn-xl`), state-divergence stale-then guard + delete-blocked banner UX.
+- App.confirmDelete graduated from 3 → 4 consumers (added rotate-key).
+- Documentation absorbed into `the_one/agents.md` (affordance vocabulary catalog updated for F6 — stale `.agent-tile` references rewritten to `.entity-tile`; future-tense F5 references flipped to past-tense; 11 new entries appended for F6 primitives + patterns).
+- Test count post-HAT: 220 browser pass (1 new regression test for the bare-#admin redirect bug).
+- Mission 04 F6 entry checked off; flight status `in-flight` → `landed`.
+
 ## Anomalies
 
 _(Unexpected issues captured here)_

@@ -36,8 +36,7 @@
 
     modelsEl.innerHTML =
       '<div class="admin-pf-models-header">' +
-        '<span class="admin-pf-models-title">Models</span>' +
-        '<button class="admin-pf-models-refresh">Refresh</button>' +
+        '<button class="btn-outlined-cyan refresh-btn admin-pf-models-refresh">' + window.App.icon('refresh-cw') + ' Refresh</button>' +
       '</div>' +
       '<div class="admin-pf-models-list" aria-live="polite"><span class="admin-loading">Loading models…</span></div>';
 
@@ -80,16 +79,15 @@
 
     container.innerHTML =
       '<div class="admin-pf-models-header">' +
-        '<span class="admin-pf-models-title">Models</span>' +
-        '<button class="admin-pf-models-refresh">Refresh</button>' +
-        '<button class="admin-pf-pull-btn">Pull Model</button>' +
+        '<button class="btn-outlined-cyan refresh-btn admin-pf-models-refresh">' + window.App.icon('refresh-cw') + ' Refresh</button>' +
+        '<button class="btn-outlined-cyan btn-sm admin-pf-pull-btn">Pull Model</button>' +
       '</div>' +
       '<div class="admin-pf-pull-input is-hidden">' +
         '<div class="admin-pf-pull-search-wrap">' +
           '<input class="field-input admin-pf-input admin-pf-pull-name" placeholder="Search Ollama library..." autocomplete="off" />' +
           '<div class="admin-pf-pull-suggestions is-hidden"></div>' +
         '</div>' +
-        '<button class="btn-filled-cyan admin-pf-pull-go" disabled>Pull</button>' +
+        '<button class="btn-filled-cyan btn-sm admin-pf-pull-go" disabled>Pull</button>' +
       '</div>' +
       '<div class="admin-pf-pull-progress is-hidden">' +
         '<div class="admin-pf-pull-fill"></div>' +
@@ -361,7 +359,7 @@
                 '<span class="admin-pf-model-name">' + escapeHtml(runName) + '</span>' +
                 '<span class="admin-pf-model-size">' + escapeHtml(runVram) + '</span>' +
                 '<div class="admin-pf-model-actions">' +
-                  '<button class="admin-pf-model-btn admin-pf-model-unload" data-model="' + escapeAttr(runName) + '">Unload</button>' +
+                  '<button class="btn-outlined-cyan btn-sm admin-pf-model-btn admin-pf-model-unload" data-model="' + escapeAttr(runName) + '">Unload</button>' +
                 '</div>' +
               '</div>';
           }
@@ -389,8 +387,8 @@
                 '<span class="admin-pf-model-name">' + escapeHtml(availName) + '</span>' +
                 '<span class="admin-pf-model-size">' + escapeHtml(availSize) + '</span>' +
                 '<div class="admin-pf-model-actions">' +
-                  '<button class="admin-pf-model-btn admin-pf-model-load" data-model="' + escapeAttr(availName) + '">Load</button>' +
-                  '<button class="admin-pf-model-btn admin-pf-model-delete" data-model="' + escapeAttr(availName) + '">Delete</button>' +
+                  '<button class="btn-outlined-cyan btn-sm admin-pf-model-btn admin-pf-model-load" data-model="' + escapeAttr(availName) + '">Load</button>' +
+                  '<button class="btn-muted-destructive btn-sm admin-pf-model-btn admin-pf-model-delete" data-model="' + escapeAttr(availName) + '">Delete</button>' +
                 '</div>' +
               '</div>';
           }

@@ -161,16 +161,26 @@ def test_delete_two_step_confirm(
 def test_delete_blocked_when_provider_in_use(
     app_with_agent: SeededApp, page: Page
 ) -> None:
-    """Provider with an agent attached must hard-block (no confirm flow)."""
+    """Provider with an agent attached must hard-block (no confirm flow).
+
+    Hard-block message lives in a sibling banner below the button, NOT
+    in the button text — keeps the button compact when agent-name lists
+    are long. Button stays at "Delete Provider" but is disabled. F6 HAT
+    refinement.
+    """
     page.goto(f"{app_with_agent.base_url}#admin/providers/{app_with_agent.provider_id}")
     delete_btn = page.locator('[data-testid="delete-provider-btn"]')
     expect(delete_btn).to_be_visible(timeout=8000)
     delete_btn.click()
-    # Hard-block label includes the agent name.
-    expect(delete_btn).to_contain_text("Used by:", timeout=5000)
+    # Hard-block message banner reveals + names the blocking agent.
+    blocked_msg = page.locator('[data-testid="delete-blocked-message"]')
+    expect(blocked_msg).to_be_visible(timeout=5000)
+    expect(blocked_msg).to_contain_text("Used by:")
     assert app_with_agent.agent_name is not None
-    expect(delete_btn).to_contain_text(app_with_agent.agent_name)
+    expect(blocked_msg).to_contain_text(app_with_agent.agent_name)
+    # Button itself stays at "Delete Provider" but is disabled.
     expect(delete_btn).to_be_disabled()
+    expect(delete_btn).to_contain_text("Delete Provider")
 
 
 # ── Test button ──────────────────────────────────────────────────────────

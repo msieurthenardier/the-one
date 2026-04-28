@@ -1,6 +1,12 @@
 @layer areas {
   /* === Content === */
   .area-admin .admin-content { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
+  /* Admin's provider-editor mounts .editor-section blocks as direct children
+     of .admin-content — no .tabpanel wrapper (no tabs). Studio gets its
+     20px horizontal gutter from .tabpanel; admin needs the same gutter
+     applied to .editor-section directly to align with .editor-header's
+     20px padding. F6 HAT inline fix. */
+  .area-admin .editor-section { padding-left: 20px; padding-right: 20px; }
   /* `.admin-header` / `.admin-title` removed in F6 leg 03 — editor uses canonical `.editor-header` + `.editor-title`; system page uses `.page-header` + `.page-title` (post-leg-02). */
   .area-admin .admin-form { flex: 1; overflow-y: auto; padding: 16px 20px 40px; }
   .area-admin .admin-loading { color: var(--fg-muted); font-size: var(--font-size-body); padding: 20px 0; }
@@ -28,11 +34,6 @@
   .area-admin .admin-system-section:first-of-type { border-top: none; padding-top: 0; }
   .area-admin .admin-system-text { font-size: var(--font-size-body); color: var(--fg-secondary); line-height: var(--line-height-normal); margin-bottom: 12px; }
   .area-admin .admin-system-warning { background: var(--status-warning-bg-soft-2); border: 1px solid var(--status-warning-border); border-radius: 6px; padding: 10px 14px; font-size: var(--font-size-body-sm); color: var(--status-warning); line-height: var(--line-height-normal); margin-bottom: 16px; }
-  .area-admin .admin-system-btn { background: none; border: 1px solid var(--border); border-radius: 6px; padding: 8px 20px; color: var(--fg-secondary); font-size: var(--font-size-body); cursor: pointer; font-family: inherit; transition: background 0.2s, color 0.2s, border-color 0.2s; }
-  .area-admin .admin-system-btn:hover { color: var(--fg); border-color: var(--border-strong); }
-  .area-admin .admin-system-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-  .area-admin .admin-system-btn.admin-system-btn-confirm { background: var(--status-danger); color: var(--fg-on-danger); border-color: var(--status-danger); font-weight: var(--font-weight-semibold); }
-  .area-admin .admin-system-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 3px var(--accent-glow); }
   .area-admin .admin-system-flash { margin-top: 12px; font-size: var(--font-size-body-sm); min-height: 20px; }
   .area-admin .admin-system-flash.success { color: var(--status-success); font-weight: var(--font-weight-semibold); }
   .area-admin .admin-system-flash.error { color: var(--status-danger); }
@@ -48,12 +49,12 @@
 
   /* === Form-control focus rings === */
   .area-admin .admin-pf-input:focus-visible, .area-admin .admin-pf-select:focus-visible { border-color: var(--accent); outline: 1px solid var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
-  /* Focus ring covers the Ollama-lifecycle button family that remains under the .admin-pf-* namespace post-leg-03. The eye / cancel / save / test focus is provided by canonical rules in components.css. */
-  .area-admin .admin-pf-models-refresh:focus-visible,
-  .area-admin .admin-pf-pull-go:focus-visible,
-  .area-admin .admin-pf-pull-cancel:focus-visible,
-  .area-admin .admin-pf-pull-btn:focus-visible,
-  .area-admin .admin-pf-model-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 3px var(--accent-glow); }
+  /* Focus ring for the Ollama icon-only pull-cancel button (still per-area
+     since it's a special icon-only affordance). Other Ollama-lifecycle
+     buttons (Pull Model, Pull, Load, Unload, Delete) now compose canonical
+     .btn-outlined-cyan / .btn-filled-cyan / .btn-muted-destructive which
+     provide their own focus-visible. */
+  .area-admin .admin-pf-pull-cancel:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 3px var(--accent-glow); }
 
   /* === Provider Form === */
   /* The .admin-provider-form / .admin-pf-cancel / .admin-pf-password-wrap /
@@ -87,9 +88,9 @@
   .area-admin .admin-pf-model-name { flex: 1; font-family: var(--font-family-mono); font-size: var(--font-size-body-sm); color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
   .area-admin .admin-pf-model-size { font-family: var(--font-family-mono); font-size: var(--font-size-caption); color: var(--fg-secondary); flex-shrink: 0; min-width: 60px; text-align: right; }
   .area-admin .admin-pf-model-actions { display: flex; gap: 4px; flex-shrink: 0; }
-  .area-admin .admin-pf-model-btn, .area-admin .admin-pf-models-refresh, .area-admin .admin-pf-pull-btn { background: none; border: 1px solid var(--border); border-radius: 4px; padding: 2px 8px; color: var(--fg-secondary); font-size: var(--font-size-tiny); cursor: pointer; font-family: inherit; }
-  .area-admin .admin-pf-model-btn:hover, .area-admin .admin-pf-models-refresh:hover, .area-admin .admin-pf-pull-btn:hover { color: var(--fg); border-color: var(--border-strong); }
-  .area-admin .admin-pf-model-btn:disabled, .area-admin .admin-pf-pull-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  /* admin-pf-model-btn + admin-pf-pull-btn now retained ONLY as JS hooks
+     and for layout (.admin-pf-pull-btn margin-left). Styling provided by
+     canonical .btn-outlined-cyan / .btn-muted-destructive + .btn-sm. */
   .area-admin .admin-pf-pull-btn { margin-left: auto; }
   .area-admin .admin-pf-model-error { font-size: var(--font-size-tiny); color: var(--status-danger); padding: 2px 0; width: 100%; }
 

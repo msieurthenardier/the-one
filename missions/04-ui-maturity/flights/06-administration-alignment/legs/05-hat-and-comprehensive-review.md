@@ -1,6 +1,6 @@
 # Leg: 05-hat-and-comprehensive-review
 
-**Status**: in-flight
+**Status**: landed
 **Flight**: [Administration Alignment](../flight.md)
 
 ## Objective
@@ -104,12 +104,35 @@ Update `the_one/agents.md` lines 263-264 (stale tile X-button content from F5 �
 
 ## Acceptance
 
-When the user explicitly approves all sections A–J + the agents.md update lands, this leg is `landed`.
+User-approved all sections A–J on 2026-04-28. agents.md absorption committed alongside HAT inline fixes.
+
+## HAT inline fixes (committed during walkthrough)
+
+Seven inline fixes landed during the HAT pass:
+
+1. **A2: Bare `#admin` redirect bug** — clicking Settings while already on `#admin/providers` left the URL at bare `#admin` and stranded the page on whatever section was last active. Two-piece fix: router (`app.js`) extracted `syncUrlFromState(areaId, sub)` helper, called from both cross-area and same-area-sub-change branches; admin's `hydrateState(null)` reset to default `'system'` so `serializeState` returns the canonical default. New regression test `test_admin_picker_click_from_providers_redirects_to_system`.
+2. **B3: Rotate-encryption-key button styling regression** — per-area `.admin-system-btn` (border: --border, color: --fg-secondary) read as faint in light mode vs the canonical accent-cyan `+ New Provider`. Migrated to `App.confirmDelete` with `confirmLabel: 'Confirm Rotate?'`; button now composes `.btn-muted-destructive` + `<span data-confirm-title>`. Helper now has 4 permanent consumers.
+3. **C1: Provider editor missing horizontal padding** — editor-section blocks rendered flush-left because admin has no `.tabpanel` wrapper (studio's source of horizontal gutter). Added per-area override `.area-admin .editor-section { padding-left: 20px; padding-right: 20px; }`.
+4. **C6: Duplicate `// Models` section title** — editor scaffold's canonical `.section-title` was rendered above provider-models.js's panel-internal `.admin-pf-models-title` (also "Models"). Removed the panel-internal label in both `renderBasicModels` and `renderOllamaModels`; kept Refresh + Pull Model buttons in the panel header.
+5. **C6 cont.: Refresh button restyling** — added `refresh-cw` icon to icons.js; created canonical `.refresh-btn` rule (mirrors `.back-btn` / `.test-provider-btn` icon-button shape); migrated Refresh button markup to `class="btn-outlined-cyan refresh-btn admin-pf-models-refresh"` with icon + text.
+6. **F1: Small-button size system** — introduced `.btn-sm` / `.btn-lg` / `.btn-xl` modifiers to components.css. Migrated Ollama lifecycle buttons (Pull Model, Pull, per-row Load/Unload/Delete) from per-area `.admin-pf-model-btn` / `.admin-pf-pull-btn` styling to `.btn-outlined-cyan .btn-sm` / `.btn-muted-destructive .btn-sm` / `.btn-filled-cyan .btn-sm`. Removed the per-area shared style group from admin.css.
+7. **F4: State-divergence + hard-block UX** — TWO bugs in one user report:
+   - **Stale-`.then()` clobber**: `populateProviderGrid` had no guard against being called after the user navigated to a different category; admin's `.then` would overwrite the System page when hydrate-back-to-system raced with an in-flight `fetchProviders`. Added `if (currentCategory !== 'providers') return;` guard.
+   - **Long agent-name list deformed Delete button**: hard-block message ("Used by: {agents.join(',')}") was written into the button's `[data-confirm-title]` span, making the button stretch awkwardly. Moved message to a sibling `.action-blocked-message` banner below the button (canonical `.action-blocked-message` rule added to components.css; new design-system token `--status-danger-bg-soft` added to tokens.css for both themes). Updated `test_delete_blocked_when_provider_in_use` test to assert against the new banner selector.
+
+## Documentation absorption (`the_one/agents.md`)
+
+Updated the affordance vocabulary (shared class catalog) section:
+
+- **Stale references corrected**: `.agent-tile` family entry rewritten to `.entity-tile` (F6 leg 02 rename, no aliases); X-button references removed (F5 HAT removed per-tile X). `.new-agent-btn` references updated to `.new-entity-btn` (F6 leg 02). `App.studio.renderSectionNav` references updated to `App.layout.renderSectionNav` (F6 leg 01 namespace lift). `Confirm-delete` entry updated for 4 permanent consumers (chat sessions, studio agent editor, provider editor, system-page rotate-key) with `.confirm-delete` class (F6 leg 04 rename from `.confirm`).
+- **Future-tense → past-tense**: editor header / test result / beforeunload entries updated to reflect F6 consumption (admin now consumes; "future F6 consumer" → "F6 leg N consumer").
+- **NEW entries appended**: `.page-header` family, `.editor-section + sibling divider`, `.danger-zone`, `.api-key-wrap`, `.action-blocked-message`, `.refresh-btn`, `.btn-sm`/`.btn-lg`/`.btn-xl` size modifiers, `.cancel-btn` (JS-hook-only convention), `.save-btn`/`.back-btn`/`.test-provider-btn`/`.delete-btn` family, dirty-state SSoT idiom, hydrate-vs-fetch race + stale-then guard pattern, bare-area hash redirect contract.
 
 ## Out-of-scope (future flight candidates)
 
 Captured during HAT but explicitly diverted per F5 lessons-learned (don't grow scope mid-flight):
-- (none yet — populated as user surfaces refinements)
+- **Favicon 404** — `/favicon.ico` returns 404 (no file in `the_one/interfaces/web/static/`). Pre-existing condition predating F6 (verified via git log). Cosmetic console noise; not a regression, not part of the six F6 requirements. Candidate for a future cleanup flight or routine maintenance.
+- **Ollama pull cancel UX is misleading** — clicking the cancel button on an in-flight pull aborts the browser's fetch + closes the backend's SSE stream, but Ollama itself continues the pull in the background (content-addressable blob layers persist). The "Pull cancelled" flash implies the partial download was discarded; in reality it's retained and a re-pull resumes from those blobs. Pre-existing behavior — F6 didn't touch the pull lifecycle. Candidates for a future flight: (1) honest label rewrite "Pull stopped (partial blobs retained)"; (2) best-effort `DELETE /api/delete` on cancel; (3) UI for tracking + cleaning in-flight pulls separately. Caller behavior verified during F6 leg-05 HAT.
 
 ## Manual smoke commands
 
