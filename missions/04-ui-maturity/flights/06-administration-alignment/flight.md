@@ -1,6 +1,6 @@
 # Flight: Administration Alignment
 
-**Status**: landed
+**Status**: completed
 **Mission**: [UI Maturity](../../mission.md)
 
 ## Contributing to Criteria
