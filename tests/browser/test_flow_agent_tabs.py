@@ -1,0 +1,291 @@
+"""End-to-end flow tests: agent editor tab idiom (F5 leg 03).
+
+Covers the W3C ARIA tablist with manual activation introduced in F5 leg 03:
+
+- Tablist renders three tabs (General / Knowledge / Tools) with correct ARIA
+- Default tab on agent select is General; URL upgrades to .../general
+- Arrow Left/Right move focus + visual highlight only — URL unchanged
+- Enter (or Space) commits the focused tab — URL updates, aria-selected
+  toggles, roving tabindex updates, panel visibility swaps
+- Home/End jump to first/last tab (focus only)
+- Click on a tab commits (same as Enter)
+- Refresh on .../{tab} returns the user to that tab
+- Tools tab renders the built-in tool checkboxes (interactive)
+- Knowledge tab renders the empty-state stub
+- Advanced collapsible: visible, disabled inputs, "Coming soon" caption
+- Test button: disabled when no provider; click triggers fetch and renders
+  the result in the .test-result span
+"""
+
+from __future__ import annotations
+
+import urllib.parse
+
+import pytest
+from browser.seeders import SeededApp
+from playwright.sync_api import Page, expect
+
+
+def _wait_editor_ready(page: Page) -> None:
+    """Wait for the agent editor to be the visible child in the main panel.
+
+    Bare `#studio/agents` lands on the tile grid with no agent auto-selected
+    (F5 leg 05 design): the section-content (tile grid) is visible and the
+    editor is hidden. Click the first tile to swap them. Deep-link
+    navigations (`#studio/agents/<name>/...`) hydrate the selection and the
+    editor is already visible — skip the click.
+    """
+    expect(page.locator(".section-nav-header")).to_have_text("Studio", timeout=8000)
+    editor_hidden = page.evaluate(
+        "() => document.querySelector('.studio-editor')?.classList.contains('is-hidden')"
+    )
+    if editor_hidden:
+        page.locator("button.agent-tile").first.click()
+    expect(page.locator('[data-testid="tab-general"]')).to_be_visible(timeout=8000)
+
+
+@pytest.mark.browser
+def test_tablist_renders_with_three_tabs(app_with_agent: SeededApp, page: Page) -> None:
+    """The agent editor renders a tablist with three tabs and correct ARIA."""
+    base_url = app_with_agent.base_url
+    page.goto(f"{base_url}#studio")
+    _wait_editor_ready(page)
+
+    tablist = page.locator('[role="tablist"]')
+    expect(tablist).to_be_visible()
+
+    tabs = page.locator('[role="tab"]')
+    expect(tabs).to_have_count(3)
+
+    expect(page.locator('[data-testid="tab-general"]')).to_have_attribute(
+        "aria-selected", "true"
+    )
+    expect(page.locator('[data-testid="tab-knowledge"]')).to_have_attribute(
+        "aria-selected", "false"
+    )
+    expect(page.locator('[data-testid="tab-tools"]')).to_have_attribute(
+        "aria-selected", "false"
+    )
+
+
+@pytest.mark.browser
+def test_default_tab_is_general_on_select(app_with_agent: SeededApp, page: Page) -> None:
+    """Selecting an agent activates General; URL upgrades to .../general."""
+    base_url = app_with_agent.base_url
+    agent_name = app_with_agent.agent_name
+    page.goto(f"{base_url}#studio")
+    _wait_editor_ready(page)
+
+    expected = f"#studio/agents/{urllib.parse.quote(agent_name)}/general"
+    assert page.evaluate("location.hash") == expected
+
+    # General tab content is mounted (form fields visible).
+    expect(page.locator('[data-field="description"]')).to_be_visible()
+
+
+@pytest.mark.browser
+def test_arrow_keys_move_focus_only(app_with_agent: SeededApp, page: Page) -> None:
+    """Arrow Left/Right move focus + visual highlight only; URL stays."""
+    base_url = app_with_agent.base_url
+    agent_name = app_with_agent.agent_name
+    page.goto(f"{base_url}#studio")
+    _wait_editor_ready(page)
+
+    initial_hash = page.evaluate("location.hash")
+
+    # Focus the General tab.
+    page.locator('[data-testid="tab-general"]').focus()
+
+    # Arrow Right → focus moves to Knowledge but URL/aria-selected stay.
+    page.keyboard.press("ArrowRight")
+    focused_id = page.evaluate("document.activeElement?.id")
+    assert focused_id == "agent-tab-knowledge"
+
+    # URL unchanged.
+    assert page.evaluate("location.hash") == initial_hash
+
+    # aria-selected unchanged (still General).
+    expect(page.locator('[data-testid="tab-general"]')).to_have_attribute(
+        "aria-selected", "true"
+    )
+    expect(page.locator('[data-testid="tab-knowledge"]')).to_have_attribute(
+        "aria-selected", "false"
+    )
+
+
+@pytest.mark.browser
+def test_enter_commits_focused_tab(app_with_agent: SeededApp, page: Page) -> None:
+    """Enter on a focused tab commits — URL updates, aria-selected toggles."""
+    base_url = app_with_agent.base_url
+    agent_name = app_with_agent.agent_name
+    page.goto(f"{base_url}#studio")
+    _wait_editor_ready(page)
+
+    # Move focus to Knowledge then Enter.
+    page.locator('[data-testid="tab-general"]').focus()
+    page.keyboard.press("ArrowRight")
+    page.keyboard.press("Enter")
+
+    expected = f"#studio/agents/{urllib.parse.quote(agent_name)}/knowledge"
+    assert page.evaluate("location.hash") == expected
+
+    expect(page.locator('[data-testid="tab-knowledge"]')).to_have_attribute(
+        "aria-selected", "true"
+    )
+    expect(page.locator('[data-testid="tab-general"]')).to_have_attribute(
+        "aria-selected", "false"
+    )
+
+    # Roving tabindex: now Knowledge is the only tabindex="0".
+    expect(page.locator('[data-testid="tab-knowledge"]')).to_have_attribute(
+        "tabindex", "0"
+    )
+    expect(page.locator('[data-testid="tab-general"]')).to_have_attribute(
+        "tabindex", "-1"
+    )
+
+    # Knowledge panel visible; General hidden.
+    knowledge_stub = page.locator('[data-testid="agent-knowledge-tab-stub"]')
+    expect(knowledge_stub).to_be_visible()
+
+
+@pytest.mark.browser
+def test_home_end_jump_to_first_last(app_with_agent: SeededApp, page: Page) -> None:
+    """Home/End jump focus to first/last tab (without committing)."""
+    base_url = app_with_agent.base_url
+    page.goto(f"{base_url}#studio")
+    _wait_editor_ready(page)
+
+    page.locator('[data-testid="tab-general"]').focus()
+
+    page.keyboard.press("End")
+    assert page.evaluate("document.activeElement?.id") == "agent-tab-tools"
+
+    page.keyboard.press("Home")
+    assert page.evaluate("document.activeElement?.id") == "agent-tab-general"
+
+
+@pytest.mark.browser
+def test_click_commits_tab(app_with_agent: SeededApp, page: Page) -> None:
+    """Clicking a tab commits — URL updates and panel becomes visible."""
+    base_url = app_with_agent.base_url
+    agent_name = app_with_agent.agent_name
+    page.goto(f"{base_url}#studio")
+    _wait_editor_ready(page)
+
+    page.locator('[data-testid="tab-tools"]').click()
+
+    expected = f"#studio/agents/{urllib.parse.quote(agent_name)}/tools"
+    assert page.evaluate("location.hash") == expected
+    expect(page.locator('[data-testid="agent-mcp-tools-stub"]')).to_be_visible()
+
+
+@pytest.mark.browser
+def test_refresh_on_knowledge_tab_persists(app_with_agent: SeededApp, page: Page) -> None:
+    """Refresh on /knowledge URL returns the user to the Knowledge tab."""
+    base_url = app_with_agent.base_url
+    agent_name = app_with_agent.agent_name
+    target = f"{base_url}#studio/agents/{urllib.parse.quote(agent_name)}/knowledge"
+    page.goto(target)
+    _wait_editor_ready(page)
+
+    expect(page.locator('[data-testid="agent-knowledge-tab-stub"]')).to_be_visible(
+        timeout=8000
+    )
+    expect(page.locator('[data-testid="tab-knowledge"]')).to_have_attribute(
+        "aria-selected", "true"
+    )
+
+
+@pytest.mark.browser
+def test_refresh_on_tools_tab_persists(app_with_agent: SeededApp, page: Page) -> None:
+    """Refresh on /tools URL returns the user to the Tools tab."""
+    base_url = app_with_agent.base_url
+    agent_name = app_with_agent.agent_name
+    target = f"{base_url}#studio/agents/{urllib.parse.quote(agent_name)}/tools"
+    page.goto(target)
+    _wait_editor_ready(page)
+
+    expect(page.locator('[data-testid="agent-mcp-tools-stub"]')).to_be_visible(
+        timeout=8000
+    )
+    expect(page.locator('[data-testid="tab-tools"]')).to_have_attribute(
+        "aria-selected", "true"
+    )
+
+
+@pytest.mark.browser
+def test_tools_tab_renders_builtin_checkboxes(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    """Tools tab contains built-in tool checkboxes; interactive."""
+    base_url = app_with_agent.base_url
+    page.goto(f"{base_url}#studio")
+    _wait_editor_ready(page)
+
+    page.locator('[data-testid="tab-tools"]').click()
+
+    # The "Built-in tools" section shows checkboxes via .tool-toggle.
+    toggles = page.locator(".tool-toggle")
+    assert toggles.count() > 0
+
+
+@pytest.mark.browser
+def test_knowledge_tab_renders_stub(app_with_agent: SeededApp, page: Page) -> None:
+    """Knowledge tab renders the empty-state stub."""
+    base_url = app_with_agent.base_url
+    page.goto(f"{base_url}#studio")
+    _wait_editor_ready(page)
+
+    page.locator('[data-testid="tab-knowledge"]').click()
+
+    stub = page.locator('[data-testid="agent-knowledge-tab-stub"]')
+    expect(stub).to_be_visible()
+    expect(stub).to_contain_text("Knowledge bases will be attached")
+
+
+@pytest.mark.browser
+def test_advanced_section_visible_with_disabled_inputs(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    """Advanced section: visible disclosure, three disabled inputs, caption."""
+    base_url = app_with_agent.base_url
+    page.goto(f"{base_url}#studio")
+    _wait_editor_ready(page)
+
+    advanced = page.locator('[data-testid="advanced-collapsible"]')
+    expect(advanced).to_be_visible()
+
+    # Open the disclosure.
+    advanced.locator("summary").click()
+
+    inputs = advanced.locator("input[disabled]")
+    assert inputs.count() == 3
+
+    expect(advanced.locator(".advanced-caption")).to_contain_text("Coming soon")
+
+
+@pytest.mark.browser
+def test_test_button_renders_result(app_with_agent: SeededApp, page: Page) -> None:
+    """Test button click triggers fetch; result renders in .test-result span.
+
+    The seeded mock provider's /test endpoint returns ok with a deterministic
+    detail message — exercises the success path. The button is also enabled
+    (the agent has a provider_config_id) since it's seeded.
+    """
+    base_url = app_with_agent.base_url
+    page.goto(f"{base_url}#studio")
+    _wait_editor_ready(page)
+
+    test_btn = page.locator('[data-testid="test-provider-btn"]')
+    expect(test_btn).to_be_visible()
+    expect(test_btn).to_be_enabled()
+
+    test_btn.click()
+
+    result = page.locator('[data-testid="test-provider-result"]')
+    # Wait for the test to resolve — either ok or fail; both render text.
+    expect(result).not_to_have_text("Testing…", timeout=8000)
+    # Should carry the .test-result-ok or .test-result-fail modifier.
+    cls = result.get_attribute("class") or ""
+    assert "test-result-ok" in cls or "test-result-fail" in cls

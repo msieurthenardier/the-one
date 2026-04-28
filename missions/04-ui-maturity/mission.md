@@ -89,6 +89,6 @@ The mission addresses these in two phases. The first three flights lay groundwor
 
 - [x] Flight 4: **Chat Restructure: Components, Streaming & Markdown** — chat.js component split + shared component CSS lift + hand-rolled markdown library + streaming across all four providers + HAT-style final pass. Re-scoped from the original "Chat Alignment" framing per the F3 debrief (F3 absorbed agent-name header, telemetry overlay, attribution, history bucketing, thinking indicator). See [F4 flight spec](flights/04-chat-restructure/flight.md).
 
-- [ ] Flight 5: **Studio Alignment** — Vibe-coding HAT-style flight for the Studio area (agent editor, list, attachments). Apply patterns from Flight 4 where they fit; refine where the area's nature differs.
+- [x] Flight 5: **Studio Alignment** — Three-section sidebar (Agents/Knowledge/Tools with stub destinations), agent tile grid with header "+ New Agent" button, tabbed agent editor (General/Knowledge/Tools) with save/back/delete action cluster, dirty-state confirm modal, and HAT close. Establishes the codebase's first tab idiom (`App.tabs` with manual activation + roving tabindex), extracts F4-debrief-queued helpers (`App.confirmDelete` for two-step in-place destructive confirm; `App.confirmDialog` for modal blocking decisions). See [F5 flight spec](flights/05-studio-alignment/flight.md).
 
 - [ ] Flight 6: **Administration Alignment** — Vibe-coding HAT-style flight for the Administration area (provider management, settings, future categories). Closes out the alignment work across all three areas.

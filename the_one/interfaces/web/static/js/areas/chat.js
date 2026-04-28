@@ -425,23 +425,14 @@ App.registerArea({
           App.chat.renderSessionList(sessionListEl, sessions, currentSessionId, {
             onJoin: joinSession,
             onDelete: function (id, btn) {
-              // Two-step confirm: first click marks the item; second click
-              // within 3s actually deletes. Mirrors studio's pattern for
-              // consistency across destructive affordances.
+              // Two-step confirm via the canonical App.confirmDelete helper
+              // (F5 leg 02). WS delete is fire-and-forget so revertFn is
+              // unused here — server-side broadcast updates the list.
               var item = btn.closest('.session-item');
               if (!item) return;
-              if (item.classList.contains('confirm-delete')) {
+              App.confirmDelete(item, function (itemEl, revertFn) {
                 ws.send(JSON.stringify({ action: 'delete_session', session_id: id }));
-                return;
-              }
-              item.classList.add('confirm-delete');
-              var titleEl = item.querySelector('.session-item-title');
-              var original = titleEl ? titleEl.textContent : '';
-              if (titleEl) titleEl.textContent = 'Confirm delete?';
-              setTimeout(function () {
-                item.classList.remove('confirm-delete');
-                if (titleEl) titleEl.textContent = original;
-              }, 3000);
+              });
             }
           });
           if (pendingJoinId) {

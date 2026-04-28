@@ -86,10 +86,8 @@
     font-size: 0.9em;
   }
   .area-chat .msg.assistant blockquote { margin: 0.5em 0; padding-left: 1em; border-left: 3px solid var(--border); }
-  /* Two-step delete confirm state on session items (mirrors studio.css). */
-  .area-chat .session-item.confirm-delete { border: 1px solid var(--status-danger); }
-  .area-chat .session-item.confirm-delete .session-item-title { color: var(--status-danger); }
-  .area-chat .session-item.confirm-delete .list-item-delete { color: var(--status-danger); opacity: 1; display: block; }
+  /* Two-step delete confirm state on session items lifted to components.css
+     in F5 leg 02 as the canonical .list-item.confirm-delete rule. */
   /* Input area — chat input is sized differently from shared .field-input. */
   .area-chat .input-area { padding: 16px 20px; border-top: 1px solid var(--border); display: flex; gap: 10px; }
   .area-chat .input-area input { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; color: var(--fg); font-family: inherit; font-size: var(--font-size-body-lg); outline: none; }
