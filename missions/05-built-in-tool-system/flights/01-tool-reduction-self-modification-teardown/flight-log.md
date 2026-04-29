@@ -232,6 +232,43 @@ The leg artifact's "Files Affected" section did not anticipate this coupling. Fl
 
 **No commit made.** Per agentic-workflow, this is the last autonomous leg — Phase 2d (Reviewer over the cumulative L1-L6 changes, then single commit) follows.
 
+### 07-hat-prompt-feel
+
+**Status**: completed
+**Started**: 2026-04-29
+**Completed**: 2026-04-29
+
+**Probes walked (operator-driven, Flight Director facilitated):**
+- (b) Voice/identity: `pass` against the as-committed BASE_PROMPT.
+- (a) Tool list: `pass` — agent listed exactly the 7 expected tools (`shell`, `read_file`, `write_file`, `list_dir`, `http_request`, `web_search`, `python_exec`) plus the virtual `continue`. Bonus signal — operator had a pirate-persona agent in the mix; the persona-flavored answer ("Arrr, here be me arsenal o' tools, matey") confirmed L2's additive composition is working in practice (foundational tool-use disposition surfaces under any persona).
+- (c) File read: `pass` — agent invoked `read_file` against `/app/pyproject.toml` and correctly identified the project name. Note: the `read_file` output was truncated mid-line around line 49; this is a pre-existing tool behavior (output cap) that F3 will formalize via "tool-level read-size cap (default 50MB) + agent-level narrowing".
+- (d) Shell: `pass`.
+- (e) Web search: **conditional pass** — `web_search` invoked correctly but DuckDuckGo returned no results; the agent adapted by invoking `http_request(GET, https://fastapi.tiangolo.com/)` which succeeded. Pre-existing issue (`the_one/tools/web.py` last touched at commit `7e2c045`, predates this mission). Recorded under Anomalies; tracked in mission Known Issues for F5 to address.
+- (f) Admin Base Prompt section: `pass` — section visible, content matches `BASE_PROMPT`, Concourse CI section gone, Workspace Directory field gone.
+- (g) Studio Tools tab: `pass` — 3 categories (Filesystem/Execution/Web), 7 tools total, no System banner, no `run_tests`.
+- (h) AIAT live tests: skipped at operator's discretion (per L7 leg AC, optional but recommended).
+
+**Inline fix applied during HAT:**
+- Operator requested BASE_PROMPT minimization mid-HAT — wanted to drop the agent name (`"the-one"`) and the "Voice and tone" prescriptions ("Be direct", "Skip filler openings", etc.) so per-agent personas have full control over identity and tone, with the base prompt acting as a foundational fallback only.
+- Redlined BASE_PROMPT in `the_one/agent/config.py`: 296 words → 202 words. Dropped: agent name, "general-purpose: pair programmer one moment..." identity flavor, the entire 4-bullet "Voice and tone" section. Kept: tool-use disposition (4 bullets, foundational), turn semantics (3 bullets, must establish `continue`), the layered-composition signal at the bottom. Added a single fallback line: "If no persona is set, default to direct, concise responses."
+- Forbidden-vocabulary check: clean. Positive coverage: `continue` and `tool` both present. Word count 202 (within the 180-450 band). `pytest tests/test_config.py`: 12 passed.
+- Operator verified the minimized prompt renders correctly in Admin → System and behaves reasonably across personas (default fallback voice + pirate-persona overlay both still work).
+
+**Aside captured (out-of-scope, recorded as a known issue):**
+- During the rebuild step, operator noted that `make rebuild` re-installs Playwright Chromium every time. Cause: Makefile's `_ensure-playwright` target runs after `up`/`rebuild` and the `/root/.cache/ms-playwright` cache lives inside the container (doesn't survive a rebuild). Production paths don't need Playwright. Recommendation captured in mission.md Known Issues — drop the playwright pre-install from `up`/`rebuild` and keep it only in `test-browser`/`hat`. Trivial Makefile edit; belongs in a maintenance pass or an early F2 cleanup leg. Not in F1 scope to fix.
+
+**Verification commands run:**
+- `python3 -c "from the_one.agent.config import BASE_PROMPT; ..."` — word count 202, no forbidden vocabulary, both `continue` and `tool` present.
+- `pytest tests/test_config.py`: 12 passed.
+
+**Flight landing:**
+- L7 leg status `completed`.
+- Flight `**Status**`: `in-flight` → `landed`.
+- L7 checkbox in flight.md `### Legs` section: checked.
+- Last checkpoint (HAT pass) in flight.md `### Checkpoints` section: checked.
+- Flight 1 checkbox in mission.md: checked.
+- PR #19 ready for ready-for-review move (operator-triggered or via Flight Director Bash).
+
 ### Flight Director Notes
 
 **2026-04-28 — Flight start**
@@ -455,6 +492,16 @@ L6's AC step 10 regression grep surfaced this match (the `/workspace` token in `
 `tests/test_token_definitions.py::test_every_var_reference_is_defined` fails with: `Undefined CSS custom properties referenced: --font-size-h3 (referenced in: components.css)`. The offending reference is at `the_one/interfaces/web/static/css/components.css:284` (`.btn-xl { ...; font-size: var(--font-size-h3); ... }`), introduced by commit `18a0cd8` ("flight/06: HAT walkthrough + inline fixes + agents.md absorption (leg 05)"), which predates this flight. L1 modified zero CSS files (verified by `git diff --stat`: only `.py` files in `the_one/` and `tests/` plus the leg artifact / flight log).
 
 The leg artifact's "Inputs" section asserts the suite was green at branch start; the audit on this anomaly contradicts that — the assertion was incorrect, the test was already red on `main`. Surfaced here as an anomaly for the post-L6 reviewer / flight debrief; out of scope for L1 to fix (CSS token sites are not in L1's "Files Affected" list, and adding `--font-size-h3` to `tokens.css` would be a separate concern unrelated to tool-reduction). The remaining 394 unit tests pass; the 18 L1-affected tests (`test_agent.py` + `test_config.py`) pass in isolation.
+
+**2026-04-29 — L7 HAT: `web_search` returns no results against DuckDuckGo (pre-existing, not F1)**
+
+During HAT Probe (e), the operator asked the agent to search the web for "fastapi documentation". The agent invoked `web_search` correctly but the tool returned no results. The agent then adapted by invoking `http_request(method="GET", url="https://fastapi.tiangolo.com/")`, which succeeded — confirming the post-rip toolkit is functional and the agent can route around a degraded tool.
+
+Audit: `the_one/tools/web.py` (which hosts `WebSearchTool`) was last touched at commit `7e2c045` (early-mission scaffold), predating Mission 05. F1 made no edits to web.py. The empty-results behavior is pre-existing — likely a DuckDuckGo HTML/scraping change or rate-limiting against the container's egress IP, not an F1 regression.
+
+L7 Probe (e) treated as **conditional pass** — the agent's intent (find documentation) was satisfied via http_request fallback. Mission 05 Flight 5 ("Web Expansion & Constraints") is the natural follow-up site for fixing the search backend (the flight Open Questions explicitly call out "Search backend extensibility shape"). Adding a known-issue entry to mission.md so it isn't lost.
+
+`f1` does not divert; F5 will pick this up.
 
 ---
 

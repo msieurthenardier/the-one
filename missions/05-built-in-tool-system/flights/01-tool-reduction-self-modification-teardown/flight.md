@@ -1,6 +1,6 @@
 # Flight: Tool Reduction & Self-Modification Teardown
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Built-In Tool System](../../mission.md)
 
 ## Contributing to Criteria
@@ -209,7 +209,7 @@ Verify:
 - [x] **CI/runtime trimmed** — `pipeline.yml` has only `deploy` job, `docker-compose.yml` has no Concourse env vars / no workspace mount / no concourse network, `entrypoint.sh` minimized, `config.py` no longer carries Concourse or workspace settings
 - [x] **UI/docs aligned** — `TOOL_CATEGORIES` shows 3 categories with 7 tools, admin System page has no Concourse CI section and has a read-only Base Prompt section, `agents.md` and `CLAUDE.md` reflect the post-rip state
 - [x] **Test suite clean** — obsolete tests removed, full suite green (unit + browser + AIAT smoke)
-- [ ] **HAT pass (L7)** — operator and agent walk through a short interactive session against the new base prompt; agent reads a file, runs a shell command, performs a web search; prompt feel approved
+- [x] **HAT pass (L7)** — operator and agent walk through a short interactive session against the new base prompt; agent reads a file, runs a shell command, performs a web search; prompt feel approved
 
 ### Adaptation Criteria
 
@@ -243,7 +243,7 @@ Verify:
 
 - [x] `06-test-sweep` — Delete obsolete tests (`test_aiat.py::test_git_status`, `test_aiat.py::test_run_tests`, `test_agent.py::test_restart_bypass`, entire `test_behaviors.py`). Update `test_aiat.py::test_tool_use_file_read` (line ~126) to read a path that survives the workspace-mount removal — same path chosen for the L4 selftest fix. Run full unit suite (`pytest tests/`), browser suite (`pytest -m browser tests/browser/`) — both must be green. Run AIAT smoke (`pytest -m live tests/test_aiat.py`) against a fresh `make rebuild` and confirm the surviving live tests pass.
 
-- [ ] `07-hat-prompt-feel` — Guided HAT session: operator chats with the agent against the new base prompt. **Probes**: (a) ask the agent "list your tools" — none of the seven removed names should appear (no ghost-tool hallucination); (b) verify identity / voice feels right; (c) read a file with `read_file`, run a shell command with `shell`, search the web with `web_search` — all should succeed; (d) verify admin System page shows the Base Prompt section read-only; (e) verify Studio Tools tab shows 3 categories × 7 tools. Inline-fix any voice or copy issues that surface; divert any structural ones to a follow-up. **L7 is mandatory** — F1 cannot land without it.
+- [x] `07-hat-prompt-feel` — Guided HAT session: operator chats with the agent against the new base prompt. **Probes**: (a) ask the agent "list your tools" — none of the seven removed names should appear (no ghost-tool hallucination); (b) verify identity / voice feels right; (c) read a file with `read_file`, run a shell command with `shell`, search the web with `web_search` — all should succeed; (d) verify admin System page shows the Base Prompt section read-only; (e) verify Studio Tools tab shows 3 categories × 7 tools. Inline-fix any voice or copy issues that surface; divert any structural ones to a follow-up. **L7 is mandatory** — F1 cannot land without it.
 
 ---
 
