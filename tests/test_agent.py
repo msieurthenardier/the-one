@@ -56,7 +56,7 @@ class TestNormalFlow:
     async def test_text_only_response(self) -> None:
         """LLM responds with text only — yields one message, loop ends."""
         llm = FakeLLM([Message.assistant("hello")])
-        agent = Agent(llm=llm, tools=_make_registry())
+        agent = Agent(llm=llm, tools=_make_registry(), system_prompt="test")
         msgs = await _collect(agent, "hi")
 
         assert len(msgs) == 1
@@ -75,7 +75,7 @@ class TestToolExecution:
             ),
             Message.assistant("done"),
         ])
-        agent = Agent(llm=llm, tools=_make_registry(tool_a))
+        agent = Agent(llm=llm, tools=_make_registry(tool_a), system_prompt="test")
         msgs = await _collect(agent, "use tool_a")
 
         # Should yield: assistant (with tool_call), tool result, final assistant
@@ -87,22 +87,6 @@ class TestToolExecution:
         assert msgs[2].content == "done"
         # Tool was actually called
         assert len(tool_a.calls) == 1
-
-
-class TestDirectAction:
-    async def test_restart_bypass(self) -> None:
-        """'restart yourself' matches direct action — calls tool without LLM."""
-        restart_tool = StubTool("restart")
-        llm = FakeLLM([])  # No responses needed — LLM not called
-        agent = Agent(llm=llm, tools=_make_registry(restart_tool))
-        msgs = await _collect(agent, "restart yourself")
-
-        assert len(msgs) == 1
-        assert msgs[0].role == Role.ASSISTANT
-        assert msgs[0].content == "stub: restart"
-        assert len(restart_tool.calls) == 1
-        # LLM was never called
-        assert len(llm.calls) == 0
 
 
 class TestContinueSignal:
@@ -118,7 +102,7 @@ class TestContinueSignal:
             # Iteration 2: LLM responds with final text
             Message.assistant("all done"),
         ])
-        agent = Agent(llm=llm, tools=_make_registry(tool_a))
+        agent = Agent(llm=llm, tools=_make_registry(tool_a), system_prompt="test")
         msgs = await _collect(agent, "think hard")
 
         # The assistant message preceding the continue IS yielded (line 59 of core.py)
@@ -148,7 +132,7 @@ class TestMaxIterations:
             for i in range(5)  # More than max_iterations=2
         ]
         llm = FakeLLM(responses)
-        agent = Agent(llm=llm, tools=_make_registry(tool_a), max_iterations=2)
+        agent = Agent(llm=llm, tools=_make_registry(tool_a), max_iterations=2, system_prompt="test")
         msgs = await _collect(agent, "loop forever")
 
         # 2 iterations: each yields assistant + tool_result = 4 messages
@@ -172,7 +156,7 @@ class TestToolError:
             ),
             Message.assistant("sorry about that"),
         ])
-        agent = Agent(llm=llm, tools=_make_registry(bad))
+        agent = Agent(llm=llm, tools=_make_registry(bad), system_prompt="test")
         msgs = await _collect(agent, "call bad_tool")
 
         assert len(msgs) == 3
@@ -186,7 +170,7 @@ class TestReset:
     async def test_reset_clears_to_system_prompt(self) -> None:
         """After step, reset() leaves only the system prompt."""
         llm = FakeLLM([Message.assistant("hi")])
-        agent = Agent(llm=llm, tools=_make_registry())
+        agent = Agent(llm=llm, tools=_make_registry(), system_prompt="test")
         await _collect(agent, "hello")
 
         assert len(agent.messages) > 1  # system + user + assistant

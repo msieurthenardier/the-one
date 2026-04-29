@@ -5,7 +5,7 @@ from __future__ import annotations
 import aiosqlite
 import pytest
 
-from the_one.db.schema import ensure_schema
+from the_one.db.schema import CURRENT_VERSION, ensure_schema
 
 # The original V1 DDL before the provider migration, used to simulate
 # pre-migration databases in v2→v3 tests.
@@ -141,13 +141,13 @@ async def test_fresh_db_creates_all_tables(fresh_db):
 
 
 @pytest.mark.asyncio
-async def test_fresh_db_schema_version_is_6(fresh_db):
-    """After full migration, schema version should be 6."""
+async def test_fresh_db_schema_version_is_current(fresh_db):
+    """After full migration, schema version should match CURRENT_VERSION."""
     await ensure_schema(fresh_db)
 
     async with fresh_db.execute("SELECT MAX(version) FROM schema_version") as cur:
         row = await cur.fetchone()
-    assert row[0] == 6
+    assert row[0] == CURRENT_VERSION
 
 
 @pytest.mark.asyncio
@@ -320,7 +320,7 @@ async def test_idempotent_ensure_schema(fresh_db):
 
     async with fresh_db.execute("SELECT MAX(version) FROM schema_version") as cur:
         row = await cur.fetchone()
-    assert row[0] == 6
+    assert row[0] == CURRENT_VERSION
 
 
 # ── v5 migration tests: chat_sessions FK on agent_name dropped ──

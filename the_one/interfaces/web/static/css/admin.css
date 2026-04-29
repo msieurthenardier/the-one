@@ -37,6 +37,22 @@
   .area-admin .admin-system-flash { margin-top: 12px; font-size: var(--font-size-body-sm); min-height: 20px; }
   .area-admin .admin-system-flash.success { color: var(--status-success); font-weight: var(--font-weight-semibold); }
   .area-admin .admin-system-flash.error { color: var(--status-danger); }
+  .area-admin .admin-base-prompt {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--panel-radius-sm);
+    padding: 12px 14px;
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-body-sm);
+    line-height: 1.5;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 24rem;
+    overflow-y: auto;
+    color: var(--fg);
+    margin: 0;
+  }
   .area-admin .admin-theme-toggle { display: inline-flex; border: 1px solid var(--border); border-radius: var(--panel-radius-sm); padding: 2px; background: var(--surface); }
   .area-admin .admin-theme-option { background: transparent; border: none; padding: 6px 16px; color: var(--fg-secondary); font-size: var(--font-size-body-sm); font-family: inherit; cursor: pointer; border-radius: 4px; transition: background 0.2s, color 0.2s, box-shadow 0.2s; }
   .area-admin .admin-theme-option:hover { color: var(--fg); }

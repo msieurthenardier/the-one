@@ -8,18 +8,15 @@
   // previously-separate General + System pages (F6 leg 01).
 
   var SETTING_SECTIONS = [
-    { title: 'Paths', fields: ['data_dir', 'workspace_dir'] },
-    { title: 'Server', fields: ['host', 'port'] },
-    { title: 'Concourse CI', fields: ['concourse_target', 'concourse_pipeline'] }
+    { title: 'Paths', fields: ['data_dir'] },
+    { title: 'Server', fields: ['host', 'port', 'dev_mode'] }
   ];
 
   var FIELD_LABELS = {
     data_dir: 'Data Directory',
-    workspace_dir: 'Workspace Directory',
     host: 'Host',
     port: 'Port',
-    concourse_target: 'Target',
-    concourse_pipeline: 'Pipeline'
+    dev_mode: 'Dev Mode'
   };
 
   function renderSystemPage(container) {
@@ -55,9 +52,19 @@
           '<button class="btn-muted-destructive" data-testid="rotate-key-btn" type="button"><span data-confirm-title>Rotate Encryption Key</span></button>' +
           '<div class="admin-system-flash" aria-live="polite"></div>' +
         '</div>' +
+        '<div class="admin-system-section">' +
+          '<div class="section-title admin-section-title">Base Prompt</div>' +
+          '<p class="admin-system-text">' +
+            'The foundational system prompt every agent inherits. ' +
+            'Per-agent personas are appended to this base; ' +
+            'this content is read-only and only changes via code releases.' +
+          '</p>' +
+          '<pre class="admin-base-prompt" data-testid="base-prompt-content">Loading…</pre>' +
+        '</div>' +
       '</div>';
 
     fetchSettings(container);
+    fetchBasePrompt(container);
     mountThemeToggle(container);
     wireEncryptionRotate(container);
   }
@@ -85,6 +92,24 @@
         rowsEl.innerHTML = html;
       })
       .catch(function () { /* loading message stays */ });
+  }
+
+  function fetchBasePrompt(container) {
+    fetch('/api/info')
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        var preEl = container.querySelector('.admin-base-prompt');
+        if (!preEl) return;
+        if (typeof data.base_prompt === 'string') {
+          preEl.textContent = data.base_prompt;
+        } else {
+          preEl.textContent = '(base prompt unavailable)';
+        }
+      })
+      .catch(function () {
+        var preEl = container.querySelector('.admin-base-prompt');
+        if (preEl) preEl.textContent = '(failed to load)';
+      });
   }
 
   function settingRow(label, value, envVar) {

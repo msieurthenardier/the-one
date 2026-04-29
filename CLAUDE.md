@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-A self-modifying, LLM-powered personal agent. No agent frameworks — the agent loop, tool registry, LLM abstraction, and message protocol are all hand-rolled. The agent can edit its own source, run tests, deploy itself via Concourse CI, and roll back if things break.
+A general-purpose, LLM-powered personal agent. No agent frameworks — the agent loop, tool registry, LLM abstraction, and message protocol are all hand-rolled. Built-in tools cover filesystem, execution, and web; a layered system prompt composes a foundational base with optional per-agent personas.
 
 ## Commands
 
@@ -32,7 +32,7 @@ ruff format the_one/ tests/
 
 ## Local dev with Docker
 
-The container at `localhost:8484` serves from image-baked code (`Dockerfile COPY the_one/`) — **editing source on the host does NOT update the running app**. The `/workspace` bind-mount is used by the test suite, which spawns its own uvicorn subprocess; it does not feed the daemon at port 8484. Browser tests can therefore go green while the user-facing app serves stale JS — `make rebuild` is the cure.
+The container at `localhost:8484` serves from image-baked code (`Dockerfile COPY the_one/`) — **editing source on the host does NOT update the running app**. The test suite spawns its own uvicorn subprocess; that path is independent of the served daemon at port 8484. Browser tests can therefore go green while the user-facing app serves stale JS — `make rebuild` is the cure.
 
 Use the Makefile rather than raw `docker compose` calls so the rebuild + verify step is consistent:
 
@@ -55,7 +55,7 @@ make help                   # list all targets
 
 **When `make rebuild` is required**: any change under `the_one/` — JS, CSS, HTML, Python. The Dockerfile copies these at build time; live-reload is intentionally NOT enabled (mirrors the Concourse CI/prod path).
 
-**When `make rebuild` is NOT required**: editing files under `tests/` (tests run from `/workspace` via subprocess) or running ad-hoc one-off pytest invocations.
+**When `make rebuild` is NOT required**: editing files under `tests/` (the test suite spawns its own uvicorn subprocess, independent of the served daemon) or running ad-hoc one-off pytest invocations.
 
 ## Architecture
 
@@ -63,16 +63,13 @@ The system has four layers that compose bottom-up:
 
 **LLM layer** (`the_one/llm/`) — Abstract `LLMProvider` base with `complete()` method. Three implementations (ollama, openai, anthropic) lazy-loaded via a registry (`get_provider(name)`). All share the `Message`/`ToolCall`/`ToolResult` dataclasses from `base.py`. Provider is resolved from the database via `LLMProviderRepository` — each agent references a provider config by `provider_config_id`.
 
-**Tool layer** (`the_one/tools/`) — Abstract `Tool` base class with `execute(**kwargs) -> str`. `ToolRegistry` holds all tools and generates JSON schemas for the LLM. `BuiltinToolProvider` (`builtins.py`) provides all 14 built-in tools via lazy import, implementing the `ToolProvider` protocol (`provider.py`). Tools are the agent's only way to affect the outside world.
+**Tool layer** (`the_one/tools/`) — Abstract `Tool` base class with `execute(**kwargs) -> str`. `ToolRegistry` holds all tools and generates JSON schemas for the LLM. `BuiltinToolProvider` (`builtins.py`) provides all 7 built-in tools via lazy import, implementing the `ToolProvider` protocol (`provider.py`). Tools are the agent's only way to affect the outside world.
 
-**Agent loop** (`the_one/agent/core.py`) — The `Agent` class runs: user input → LLM call → tool execution → repeat until no tool calls remain. Behavioral constants and helpers live in `behaviors.py`:
-- *Direct actions*: regex patterns that bypass the LLM for known commands (restart, rollback) — `match_direct_action()`
-- *Continue signal*: a virtual tool (`CONTINUE_SCHEMA`) that keeps the agent's turn going
-- Max 20 iterations per step as a safety limit
+**Agent loop** (`the_one/agent/core.py`) — The `Agent` class runs: user input → LLM call → tool execution → repeat until no tool calls remain. The agent uses a virtual `CONTINUE_SCHEMA` (defined inline in `core.py`) as a turn-keeping signal — when the LLM calls `continue`, the loop registers another iteration. Max 20 iterations per step as a safety limit.
 
 Agent configuration (`agent/config.py`) defines `AgentConfig` (Pydantic model) with `provider_config_id` (FK to `llm_providers`), `llm_model`, prompt, tool filtering, and behavior settings. `AgentFactory` (`agent/factory.py`) resolves the provider config from DB, maps the provider type to the registry name, and wires config + LLM + tools into a ready-to-use Agent. Agent configs persist via `SQLiteAgentStore` in the DB.
 
-**Persistence** (`the_one/db/`) — SQLite via aiosqlite. `get_connection()` returns a shared async connection. Repository classes (`SQLiteAgentStore`, `KnowledgeBaseRepository`, `MCPSourceRepository`, `ChatSessionRepository`, `KBItemRepository`, `LLMProviderRepository`) each wrap a table with CRUD operations over Pydantic models. `LLMProviderRepository` takes an `Encryptor` for transparent encrypt-on-write / decrypt-on-read of API keys. Schema is versioned (currently v3) and auto-migrated on first connection.
+**Persistence** (`the_one/db/`) — SQLite via aiosqlite. `get_connection()` returns a shared async connection. Repository classes (`SQLiteAgentStore`, `KnowledgeBaseRepository`, `MCPSourceRepository`, `ChatSessionRepository`, `KBItemRepository`, `LLMProviderRepository`) each wrap a table with CRUD operations over Pydantic models. `LLMProviderRepository` takes an `Encryptor` for transparent encrypt-on-write / decrypt-on-read of API keys. Schema is versioned (currently v7) and auto-migrated on first connection.
 
 **Encryption** (`the_one/encryption.py`) — Fernet symmetric encryption for API credentials. Key auto-generated at `{data_dir}/encryption.key` (mode 0600). `get_encryptor(data_dir)` returns an `Encryptor` instance. Supports key rotation via `rotate_key()`.
 
@@ -93,18 +90,9 @@ The web UI ships with a token-based design system (NEXUS-style cyan accent, Geis
 
 For architecture internals, see `the_one/agents.md`.
 
-## Self-Deployment
-
-The agent deploys itself through Concourse CI (`ci/pipeline.yml`). Key jobs:
-- `deploy`: test → build Docker image → health check via `/api/selftest` → auto-rollback on failure
-- `autopilot`: runs every 30min, sends a work-cycle prompt to `/api/chat`
-- `rollback`, `restart`, `pause-autopilot`, `unpause-autopilot`
-
-The container runs from `/app` (built code, baked at image-build time via Dockerfile `COPY the_one/`). The source repo is bind-mounted at `/workspace` for git operations, ad-hoc inspection, and the test fixtures (which spawn their own uvicorn from the workspace). Changes to source on the host do NOT auto-reload into the running daemon — `make rebuild` is required for the served app to pick up edits. The Concourse `deploy` job rebuilds the image from scratch the same way.
-
 ## Configuration
 
-Runtime config via env vars prefixed `THE_ONE_` (see `.env.example`): host, port, data_dir, workspace_dir, Concourse settings. Managed by pydantic-settings in `the_one/config.py`. The `settings` singleton is imported directly. LLM provider configuration is managed through the database (not env vars) — see the `/api/providers` endpoints.
+Runtime config via env vars prefixed `THE_ONE_` (see `.env.example`): host, port, data_dir, dev_mode. Managed by pydantic-settings in `the_one/config.py`. The `settings` singleton is imported directly. LLM provider configuration is managed through the database (not env vars) — see the `/api/providers` endpoints.
 
 ### Dev mode and the mock provider
 

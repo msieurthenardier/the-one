@@ -150,9 +150,8 @@ App.registerArea({
 
     var TOOL_CATEGORIES = {
       'Filesystem': ['read_file', 'write_file', 'list_dir'],
-      'Execution': ['shell', 'python_exec', 'run_tests'],
-      'Web': ['http_request', 'web_search'],
-      'System': ['git', 'self_deploy', 'rollback', 'restart', 'mission_control', 'memory']
+      'Execution': ['shell', 'python_exec'],
+      'Web': ['http_request', 'web_search']
     };
 
     // ── Layout: sidebar = section-nav only; main panel hosts both the

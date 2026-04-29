@@ -53,9 +53,7 @@ class TestSettingsAPI:
         resp = await client.get("/api/settings")
         data = resp.json()
         assert isinstance(data["data_dir"], str)
-        assert isinstance(data["workspace_dir"], str)
         assert "PosixPath" not in data["data_dir"]
-        assert "PosixPath" not in data["workspace_dir"]
 
 
 # ── Agent endpoints ───────────────────────────────────────────────────────

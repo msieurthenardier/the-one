@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
+
 import aiosqlite
 
-CURRENT_VERSION = 6
+CURRENT_VERSION = 7
 
 SCHEMA_V1 = """\
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -245,3 +247,44 @@ PRAGMA foreign_keys=ON;
         await conn.execute("INSERT INTO schema_version (version) VALUES (?)", (6,))
         await conn.commit()
         version = 6
+
+    if version < 7:
+        # Strip the seven removed self-modification tool names from every
+        # agent's enabled_tools / disabled_tools JSON columns. The names
+        # were valid in v6 but reference tools deleted in mission 5
+        # flight 1. enabled_tools=NULL means "whitelist disabled, all
+        # tools allowed" — preserve NULL as NULL; never coerce to [].
+        # An empty whitelist after strip is the correct (locked-down)
+        # interpretation: the operator wanted only a removed tool, so
+        # widening their scope back to all-tools would be a silent
+        # privilege escalation.
+        REMOVED = {
+            "self_deploy", "rollback", "restart", "run_tests",
+            "git", "memory", "mission_control",
+        }
+        async with conn.execute(
+            "SELECT name, enabled_tools, disabled_tools FROM agents"
+        ) as cursor:
+            rows = await cursor.fetchall()
+        for row in rows:
+            name = row[0]
+            enabled_json = row[1]
+            disabled_json = row[2]
+            enabled = json.loads(enabled_json) if enabled_json else None
+            disabled = json.loads(disabled_json or "[]")
+            new_enabled = (
+                [t for t in enabled if t not in REMOVED]
+                if enabled is not None else None
+            )
+            new_disabled = [t for t in disabled if t not in REMOVED]
+            await conn.execute(
+                "UPDATE agents SET enabled_tools = ?, disabled_tools = ? WHERE name = ?",
+                (
+                    json.dumps(new_enabled) if new_enabled is not None else None,
+                    json.dumps(new_disabled),
+                    name,
+                ),
+            )
+        await conn.execute("INSERT INTO schema_version (version) VALUES (?)", (7,))
+        await conn.commit()
+        version = 7

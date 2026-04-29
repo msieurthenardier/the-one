@@ -17,11 +17,6 @@ class Settings(BaseSettings):
 
     # Paths
     data_dir: Path = Path.home() / ".the-one"
-    workspace_dir: Path = Path("/workspace")
-
-    # Concourse CI
-    concourse_target: str = "local"
-    concourse_pipeline: str = "the-one"
 
     @property
     def agents_dir(self) -> Path:

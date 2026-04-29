@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from the_one.agent.config import DEFAULT_SYSTEM_PROMPT, AgentConfig
+from the_one.agent.config import BASE_PROMPT, AgentConfig
 
 # ===================================================================
 # AgentConfig construction
@@ -21,7 +21,6 @@ class TestAgentConfigConstruction:
         assert cfg.enabled_tools is None
         assert cfg.disabled_tools == []
         assert cfg.max_iterations == 20
-        assert cfg.direct_actions is True
 
     def test_all_fields(self):
         cfg = AgentConfig(
@@ -33,7 +32,6 @@ class TestAgentConfigConstruction:
             enabled_tools=["tool_a"],
             disabled_tools=["tool_b"],
             max_iterations=5,
-            direct_actions=False,
         )
         assert cfg.name == "custom"
         assert cfg.description == "A custom agent"
@@ -43,7 +41,6 @@ class TestAgentConfigConstruction:
         assert cfg.enabled_tools == ["tool_a"]
         assert cfg.disabled_tools == ["tool_b"]
         assert cfg.max_iterations == 5
-        assert cfg.direct_actions is False
 
     def test_extra_fields_ignored(self):
         """Old JSON configs with llm_provider/llm_base_url should not raise."""
@@ -102,20 +99,20 @@ class TestGetSystemPrompt:
 
     def test_empty_returns_default(self):
         cfg = AgentConfig(name="t")
-        assert cfg.get_system_prompt() == DEFAULT_SYSTEM_PROMPT
+        assert cfg.get_system_prompt() == BASE_PROMPT
 
-    def test_custom_prompt_returned(self):
+    def test_custom_prompt_appended(self):
         cfg = AgentConfig(name="t", system_prompt="Custom prompt.")
-        assert cfg.get_system_prompt() == "Custom prompt."
+        assert cfg.get_system_prompt() == BASE_PROMPT + "\n\n---\n\nCustom prompt."
 
 
 # ===================================================================
-# DEFAULT_SYSTEM_PROMPT validation
+# BASE_PROMPT validation
 # ===================================================================
 
-class TestDefaultSystemPrompt:
-    """Validate DEFAULT_SYSTEM_PROMPT is usable."""
+class TestBasePrompt:
+    """Validate BASE_PROMPT is usable."""
 
     def test_is_non_empty_string(self):
-        assert isinstance(DEFAULT_SYSTEM_PROMPT, str)
-        assert len(DEFAULT_SYSTEM_PROMPT) > 0
+        assert isinstance(BASE_PROMPT, str)
+        assert len(BASE_PROMPT) > 0

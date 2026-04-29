@@ -68,7 +68,7 @@ def seed_mock_agent(
     Default `model` matches the mock provider's default model.
 
     Optional AgentConfig fields (description, enabled_tools, kb_ids,
-    mcp_source_ids, max_iterations, direct_actions) are omitted; their
+    mcp_source_ids, max_iterations) are omitted; their
     defaults from `agent/config.py` apply. `extra: "ignore"` on AgentConfig
     means the API silently drops any unknown fields.
     """
