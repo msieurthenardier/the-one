@@ -1,82 +1,4 @@
-resources:
-  - name: heartbeat
-    type: time
-    source:
-      interval: 30m
-
 jobs:
-  - name: autopilot
-    plan:
-      - get: heartbeat
-        trigger: true
-
-      - task: check-alive
-        config:
-          platform: linux
-          image_resource:
-            type: registry-image
-            source: { repository: curlimages/curl, tag: latest }
-          params:
-            APP_URL: ((app-url))
-          run:
-            path: sh
-            args:
-              - -exc
-              - |
-                curl -sf --max-time 10 "${APP_URL}/api/info" > /dev/null || {
-                  echo "Agent is not responding — skipping cycle"
-                  exit 1
-                }
-                echo "Agent is alive"
-
-      - task: pulse
-        config:
-          platform: linux
-          image_resource:
-            type: registry-image
-            source: { repository: python, tag: 3.11-alpine }
-          params:
-            APP_URL: ((app-url))
-          run:
-            path: sh
-            args:
-              - -exc
-              - |
-                python3 -c "
-                import json, urllib.request
-
-                prompt = '''You are in autopilot mode. Execute one work cycle:
-
-                1. Use mission_control (read_skill \"preflight-check\") to assess project state
-                2. Check .flightops/ for any active missions or flights with pending legs
-                3. If there is a leg ready to execute:
-                   - Read the leg file to understand the task
-                   - Execute it (make the code changes, run tests, etc.)
-                   - Update the leg file with what actually happened
-                4. If no legs are ready but there is an active flight:
-                   - Use mission_control (read_skill \"leg\") to design the next leg
-                   - Save it to .flightops/ using the filesystem tools
-                5. If no active work exists:
-                   - Use mission_control (read_skill \"routine-maintenance\") to assess codebase health
-                   - Save findings to memory
-                6. Use memory (save) to record what you did this cycle
-
-                Be concise. Do real work, not descriptions of work.'''
-
-                body = json.dumps({'message': prompt, 'source': 'autopilot', 'session_id': 'autopilot'}).encode()
-                req = urllib.request.Request(
-                    '${APP_URL}/api/chat',
-                    data=body,
-                    headers={'Content-Type': 'application/json'},
-                )
-                resp = urllib.request.urlopen(req, timeout=300)
-                result = json.loads(resp.read())
-
-                print('Autopilot cycle complete')
-                for msg in result.get('messages', []):
-                    if msg.get('role') == 'assistant' and msg.get('content'):
-                        print(msg['content'][:500])
-                "
   - name: deploy
     plan:
       - task: test
@@ -111,7 +33,6 @@ jobs:
           params:
             DOCKER_HOST: ((docker-host))
             WORKSPACE_PATH: ((workspace-path))
-            CONCOURSE_PASS: ((concourse-pass))
           run:
             path: sh
             args:
@@ -131,8 +52,6 @@ jobs:
                 docker run --rm \
                   -v "${WORKSPACE_PATH}:/src:ro" \
                   -v /var/run/docker.sock:/var/run/docker.sock \
-                  -e WORKSPACE_PATH="${WORKSPACE_PATH}" \
-                  -e CONCOURSE_PASS="${CONCOURSE_PASS}" \
                   docker:cli \
                   sh /src/ci/deploy.sh latest
 
@@ -181,7 +100,6 @@ jobs:
             params:
               DOCKER_HOST: ((docker-host))
               WORKSPACE_PATH: ((workspace-path))
-              CONCOURSE_PASS: ((concourse-pass))
             run:
               path: sh
               args:
@@ -190,96 +108,6 @@ jobs:
                   docker run --rm \
                     -v "${WORKSPACE_PATH}:/src:ro" \
                     -v /var/run/docker.sock:/var/run/docker.sock \
-                    -e WORKSPACE_PATH="${WORKSPACE_PATH}" \
-                    -e CONCOURSE_PASS="${CONCOURSE_PASS}" \
                     docker:cli \
                     sh /src/ci/deploy.sh rollback
                   echo "Rolled back to previous image"
-
-  - name: rollback
-    plan:
-      - task: rollback-container
-        privileged: true
-        config:
-          platform: linux
-          image_resource:
-            type: registry-image
-            source: { repository: docker, tag: cli }
-          params:
-            DOCKER_HOST: ((docker-host))
-            WORKSPACE_PATH: ((workspace-path))
-            CONCOURSE_PASS: ((concourse-pass))
-          run:
-            path: sh
-            args:
-              - -exc
-              - |
-                docker run --rm \
-                  -v "${WORKSPACE_PATH}:/src:ro" \
-                  -v /var/run/docker.sock:/var/run/docker.sock \
-                  -e WORKSPACE_PATH="${WORKSPACE_PATH}" \
-                  -e CONCOURSE_PASS="${CONCOURSE_PASS}" \
-                  docker:cli \
-                  sh /src/ci/deploy.sh rollback
-                echo "Rolled back to previous image"
-
-  - name: pause-autopilot
-    plan:
-      - task: pause
-        config:
-          platform: linux
-          image_resource:
-            type: registry-image
-            source: { repository: concourse/concourse, tag: "8.1" }
-          params:
-            CONCOURSE_URL: ((concourse-url))
-            CONCOURSE_USER: ((concourse-user))
-            CONCOURSE_PASS: ((concourse-pass))
-          run:
-            path: sh
-            args:
-              - -exc
-              - |
-                fly -t self login -c "$CONCOURSE_URL" -n the-one -u "$CONCOURSE_USER" -p "$CONCOURSE_PASS" > /dev/null 2>&1
-                fly -t self pause-job -j the-one/autopilot
-                echo "Autopilot paused"
-
-  - name: unpause-autopilot
-    plan:
-      - task: unpause
-        config:
-          platform: linux
-          image_resource:
-            type: registry-image
-            source: { repository: concourse/concourse, tag: "8.1" }
-          params:
-            CONCOURSE_URL: ((concourse-url))
-            CONCOURSE_USER: ((concourse-user))
-            CONCOURSE_PASS: ((concourse-pass))
-          run:
-            path: sh
-            args:
-              - -exc
-              - |
-                fly -t self login -c "$CONCOURSE_URL" -n the-one -u "$CONCOURSE_USER" -p "$CONCOURSE_PASS" > /dev/null 2>&1
-                fly -t self unpause-job -j the-one/autopilot
-                echo "Autopilot unpaused"
-
-  - name: restart
-    plan:
-      - task: restart-container
-        privileged: true
-        config:
-          platform: linux
-          image_resource:
-            type: registry-image
-            source: { repository: docker, tag: cli }
-          params:
-            DOCKER_HOST: ((docker-host))
-          run:
-            path: sh
-            args:
-              - -exc
-              - |
-                docker restart the-one
-                echo "Container restarted"

@@ -12,7 +12,6 @@ Usage:
 
 from __future__ import annotations
 
-import json
 import os
 import time
 import uuid
@@ -106,7 +105,7 @@ def test_health(base_url: str) -> None:
     r.raise_for_status()
     data = r.json()
     assert "version" in data, f"missing version in {data}"
-    assert "model" in data, f"missing model in {data}"
+    assert "base_prompt" in data, f"missing base_prompt in {data}"
 
 
 @pytest.mark.live
@@ -123,30 +122,13 @@ def test_tool_use_file_read(base_url: str, session_id: str) -> None:
     resp = chat(
         base_url,
         session_id,
-        "Read the file /workspace/pyproject.toml and tell me the project name.",
+        "Read the file /app/pyproject.toml and tell me the project name.",
     )
     text = assistant_text(resp)
     assert has_tool_result(resp), "expected a tool result in response"
     assert "the-one" in text.lower() or "the_one" in text.lower(), (
         f"expected project name in response, got: {text[:200]}"
     )
-
-
-@pytest.mark.live
-def test_git_status(base_url: str, session_id: str) -> None:
-    """Agent can run git status (no dubious ownership error)."""
-    resp = chat(
-        base_url,
-        session_id,
-        "Run git status on the workspace. Use the git tool with args 'status'.",
-    )
-    has_git = has_tool_call(resp, "git") or has_tool_result(resp)
-    text = assistant_text(resp)
-    full = json.dumps(resp)
-    assert "dubious" not in full.lower(), "git dubious ownership error still present"
-    assert has_git or any(
-        kw in text.lower() for kw in ("clean", "modified", "changes")
-    ), f"expected git status output, got: {text[:300]}"
 
 
 @pytest.mark.live
@@ -157,19 +139,6 @@ def test_reset(base_url: str, session_id: str) -> None:
     resp = chat(base_url, session_id, "What was the secret code I told you?")
     text = assistant_text(resp)
     assert "PINEAPPLE42" not in text, f"agent remembered after reset: {text[:200]}"
-
-
-@pytest.mark.live
-def test_run_tests(base_url: str, session_id: str) -> None:
-    """Agent can run the test suite."""
-    resp = chat(base_url, session_id, "Run the tests using the run_tests tool.")
-    full = json.dumps(resp)
-    assert has_tool_result(resp) or has_tool_call(resp, "run_tests"), (
-        "expected run_tests tool usage"
-    )
-    assert "error" not in full.lower() or "passed" in full.lower(), (
-        f"tests may have failed: {full[:500]}"
-    )
 
 
 @pytest.mark.live
@@ -190,10 +159,10 @@ def test_multi_step(base_url: str, session_id: str) -> None:
     resp = chat(
         base_url,
         session_id,
-        "List the files in /workspace/the_one/tools/ and tell me how many there are.",
+        "List the files in /app/the_one/tools/ and tell me how many there are.",
     )
     text = assistant_text(resp)
     assert has_tool_result(resp), "expected tool usage for listing files"
-    assert "git" in text.lower() or "base" in text.lower() or len(text) > 20, (
+    assert "shell" in text.lower() or "base" in text.lower() or len(text) > 20, (
         f"expected file listing response, got: {text[:200]}"
     )

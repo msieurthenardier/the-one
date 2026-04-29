@@ -8,7 +8,7 @@ For usage, commands, and conventions, see `CLAUDE.md`.
 
 ## Architecture Overview
 
-The-one is a self-modifying LLM agent built without frameworks. Four layers compose bottom-up:
+The-one is a general-purpose LLM agent built without frameworks. Four layers compose bottom-up:
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -39,7 +39,7 @@ Global configuration via `pydantic-settings`. All values from `THE_ONE_*` env va
 | `Settings` | class | Pydantic-settings model |
 | `settings` | instance | Global singleton |
 
-Key properties: `data_dir` (`~/.the-one`), `workspace_dir` (`/workspace`), `agents_dir` (`data_dir / "agents"`), `db_path` (`data_dir / "the-one.db"`).
+Key properties: `data_dir` (`~/.the-one`), `agents_dir` (`data_dir / "agents"`), `db_path` (`data_dir / "the-one.db"`), `dev_mode` (default: `false`).
 
 ### `the_one/encryption.py`
 
@@ -54,12 +54,11 @@ Database repositories including `LLMProviderRepository` for CRUD on `llm_provide
 | File | Exports | Purpose |
 |------|---------|---------|
 | `core.py` | `Agent` | The agent loop: `step()` yields messages, max 20 iterations |
-| `config.py` | `AgentConfig`, `DEFAULT_SYSTEM_PROMPT` | Agent definition Pydantic model (includes `provider_config_id` for LLM provider resolution) and fallback prompt |
+| `config.py` | `AgentConfig`, `BASE_PROMPT` | Agent definition Pydantic model (includes `provider_config_id` for LLM provider resolution) and the foundational base prompt for layered composition |
 | `factory.py` | `AgentFactory` | `create(name)` → configured Agent; `list_agents()` |
 | `store.py` | `AgentConfigStore`, `FilesystemConfigStore` | CRUD for agent configs (`~/.the-one/agents/*.json`) |
-| `behaviors.py` | `DIRECT_ACTIONS`, `CONTINUE_SCHEMA`, `match_direct_action()` | Behavioral patterns extracted from core |
 
-**Agent.step() flow**: user input → check direct actions → LLM call → execute tools → repeat until no tool calls or max iterations.
+**Agent.step() flow**: user input → LLM call → execute tools → repeat until no tool calls or max iterations.
 
 ### `the_one/llm/`
 
@@ -79,18 +78,11 @@ Providers are lazy-loaded on first `get_provider(name)` call. Each converts mess
 |------|---------|---------|
 | `base.py` | `Tool`, `ToolRegistry` | Tool ABC (`execute(**kwargs) -> str`) and registry |
 | `provider.py` | `ToolProvider` | Protocol: `name` property + `get_tools()` method |
-| `builtins.py` | `BuiltinToolProvider` | Provides all 14 built-in tools via lazy import |
+| `builtins.py` | `BuiltinToolProvider` | Provides all 7 built-in tools via lazy import |
 | `shell.py` | `ShellTool` | Arbitrary shell commands |
 | `filesystem.py` | `ReadFileTool`, `WriteFileTool`, `ListDirTool` | File operations |
-| `git.py` | `GitTool` | Version control with safety guards |
-| `test_runner.py` | `TestRunnerTool` | pytest integration |
 | `python_exec.py` | `PythonExecTool` | Python subprocess execution |
 | `web.py` | `HttpRequestTool`, `WebSearchTool` | HTTP and web search |
-| `memory.py` | `MemoryTool` | Persistent key-value store (`.memory/` directory) |
-| `self_deploy.py` | `SelfDeployTool` | Concourse CI deployment trigger |
-| `restart.py` | `RestartTool` | Container restart via Concourse |
-| `rollback.py` | `RollbackTool` | Docker image rollback via Concourse |
-| `mission_control.py` | `MissionControlTool` | Flight Control methodology access |
 
 ### `the_one/interfaces/`
 
@@ -143,7 +135,6 @@ config.py ←── llm/ ←──┐
             ↑
         agent/store.py
         agent/config.py
-        agent/behaviors.py
 ```
 
 **Rules**:
@@ -168,15 +159,11 @@ Agents are defined as JSON files in `~/.the-one/agents/` (or rows in the SQLite 
 
 ### Tool Providers
 
-`ToolProvider` is a protocol with `name` + `get_tools()`. `BuiltinToolProvider` provides the 14 built-in tools. Future `McpToolProvider` implements the same protocol for MCP server tools.
-
-### Direct Actions
-
-Regex patterns in `behaviors.py` that bypass the LLM for known commands (restart, rollback). This avoids small models reaching for `shell` when a dedicated tool exists.
+`ToolProvider` is a protocol with `name` + `get_tools()`. `BuiltinToolProvider` provides the 7 built-in tools. Future `McpToolProvider` implements the same protocol for MCP server tools.
 
 ### Continue Signal
 
-A virtual tool (`CONTINUE_SCHEMA`) that the LLM calls to indicate it needs another iteration. Not a real tool — the agent loop intercepts it and loops.
+A virtual tool (`CONTINUE_SCHEMA`, defined inline in `core.py`) that the LLM calls to indicate it needs another iteration. Not a real tool — the agent loop intercepts it and loops.
 
 ---
 

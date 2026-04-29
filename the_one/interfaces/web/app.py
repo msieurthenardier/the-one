@@ -14,6 +14,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from the_one.agent import Agent
+from the_one.agent.config import BASE_PROMPT
 from the_one.agent.factory import (
     AgentFactory,
     AgentNotFoundError,
@@ -516,20 +517,7 @@ async def index() -> str:
 
 @app.get("/api/info")
 async def info() -> dict[str, Any]:
-    import json as _json
-
-    result: dict[str, Any] = {
-        "version": "0.1.0",
-    }
-
-    status_file = settings.workspace_dir / ".deploy-status.json"
-    if status_file.exists():
-        try:
-            result["deploy"] = _json.loads(status_file.read_text())
-        except Exception:
-            pass
-
-    return result
+    return {"version": "0.1.0", "base_prompt": BASE_PROMPT}
 
 
 @app.get("/api/selftest")
@@ -558,7 +546,7 @@ async def selftest() -> dict[str, Any]:
     # Check 2: tool use
     try:
         got_tool_result = False
-        async for msg in agent.step("Read the file /workspace/pyproject.toml"):
+        async for msg in agent.step("Read the file /app/pyproject.toml"):
             if msg.role == Role.TOOL and msg.tool_result and not msg.tool_result.is_error:
                 got_tool_result = True
         detail = "read_file executed" if got_tool_result else "no tool result"

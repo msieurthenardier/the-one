@@ -3,8 +3,8 @@
 # Why this file exists: the Dockerfile `COPY the_one/` bakes JS/CSS/Python
 # into the image at build time. Editing source on the host does NOT update
 # the running container at port 8484 — `make rebuild` is required for
-# changes to surface. (The `/workspace` bind-mount is used by tests which
-# spawn their own uvicorn subprocess; it does NOT feed the served app.)
+# changes to surface. (Tests spawn their own uvicorn subprocess via the
+# conftest fixtures; that path is independent of the container.)
 
 .DEFAULT_GOAL := help
 

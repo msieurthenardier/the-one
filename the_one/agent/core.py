@@ -2,10 +2,28 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Awaitable, Callable
 
-from the_one.agent.behaviors import CONTINUE_SCHEMA, match_direct_action
-from the_one.agent.config import DEFAULT_SYSTEM_PROMPT
 from the_one.llm.base import LLMProvider, Message, ToolCall, ToolResult
 from the_one.tools.base import ToolRegistry
+
+# The agent can call this to keep its turn. It's a signal, not a real tool.
+CONTINUE_SCHEMA = {
+    "name": "continue",
+    "description": (
+        "Call this when you're not done yet — you have more steps to take "
+        "but need another turn to think or act. If you don't call this or "
+        "any other tool, your turn ends and the user sees your response."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "reason": {
+                "type": "string",
+                "description": "Brief note to yourself about what you're doing next.",
+            },
+        },
+        "required": [],
+    },
+}
 
 
 class Agent:
@@ -15,7 +33,7 @@ class Agent:
         self,
         llm: LLMProvider,
         tools: ToolRegistry,
-        system_prompt: str = DEFAULT_SYSTEM_PROMPT,
+        system_prompt: str,
         max_iterations: int = 20,
     ) -> None:
         self.llm = llm
@@ -41,25 +59,9 @@ class Agent:
         ``on_chunk``: optional async callback invoked once per content chunk
         during streaming. Callers that omit ``on_chunk`` get the original
         Message-yielding semantics; chunks fan out internally but only the
-        synthesised final ``Message`` flows up via ``yield``. Direct-action
-        responses bypass the LLM entirely so ``on_chunk`` is never invoked
-        on that path.
+        synthesised final ``Message`` flows up via ``yield``.
         """
         self.messages.append(Message.user(user_input))
-
-        # Check for direct-action patterns before calling the LLM
-        direct = self._match_direct_action(user_input)
-        if direct:
-            tool_name, tool_kwargs = direct
-            try:
-                tool = self.tools.get(tool_name)
-                output = await tool.execute(**tool_kwargs)
-            except Exception as e:
-                output = f"[error] {e}"
-            msg = Message.assistant(content=output)
-            self.messages.append(msg)
-            yield msg
-            return
 
         for _ in range(self.max_iterations):
             accumulated_text = ""
@@ -126,11 +128,6 @@ class Agent:
                 content=f"[error] Tool execution failed: {e}",
                 is_error=True,
             )
-
-    @staticmethod
-    def _match_direct_action(user_input: str) -> tuple[str, dict] | None:
-        """Delegate to standalone match_direct_action function."""
-        return match_direct_action(user_input)
 
     def reset(self) -> None:
         self.messages = [Message.system(self.system_prompt)]
