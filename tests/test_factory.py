@@ -52,7 +52,14 @@ class StubToolProvider:
     def name(self) -> str:
         return "stub"
 
-    def get_tools(self) -> list[Tool]:
+    def get_tools(
+        self,
+        tool_configs: dict[str, dict] | None = None,
+        agent_overrides: dict[str, dict] | None = None,
+    ) -> list[Tool]:
+        # Signature widens to match the (post-L3) ToolProvider Protocol.
+        # F2 doesn't exercise the args here — the factory test asserts they
+        # arrive populated via the `received_args` helper test below.
         return [StubTool("tool_a"), StubTool("tool_b"), StubTool("tool_c")]
 
 
@@ -84,11 +91,20 @@ def factory(store: InMemoryStore) -> AgentFactory:
     mock_repo = AsyncMock()
     mock_repo.get = AsyncMock(return_value=_make_provider_config())
 
+    # L3: factory now also constructs `ToolConfigRepository(conn)` and awaits
+    # `list_all()`. Patch it to return an empty dict so the resolver path
+    # short-circuits cleanly. Without `list_all = AsyncMock(return_value={})`
+    # the await would yield an `AsyncMock` (not a dict), breaking the
+    # provider invocation downstream.
+    mock_tool_repo = AsyncMock()
+    mock_tool_repo.list_all = AsyncMock(return_value={})
+
     with patch("the_one.agent.factory.get_provider", _fake_get_provider), \
          patch("the_one.agent.factory.settings") as mock_settings, \
          patch("the_one.db.connection.get_connection", new_callable=AsyncMock), \
          patch("the_one.encryption.get_encryptor", return_value=AsyncMock()), \
-         patch("the_one.db.repositories.LLMProviderRepository", return_value=mock_repo):
+         patch("the_one.db.repositories.LLMProviderRepository", return_value=mock_repo), \
+         patch("the_one.db.repositories.ToolConfigRepository", return_value=mock_tool_repo):
         mock_settings.agents_dir = Path("/tmp/test-agents")
         mock_settings.data_dir = Path("/tmp/test-data")
         mock_settings.ensure_dirs = lambda: None
@@ -175,6 +191,132 @@ class TestToolFiltering:
         await store.save(cfg)
         agent = await factory.create("restricted")
         assert agent.tools.tool_names == ["tool_a"]
+
+
+class TestResolverWiring:
+    """Verify the factory passes tool_configs and agent_overrides through to
+    the provider's get_tools call (the resolver invocation path)."""
+
+    async def test_factory_passes_resolver_args_to_provider(
+        self, store: InMemoryStore
+    ) -> None:
+        """When AgentFactory.create() runs, it should:
+        * Construct a ToolConfigRepository, await list_all(), and pass that
+          dict as the first positional arg to provider.get_tools(...).
+        * Pass config.tool_overrides (or {} if None) as the second arg.
+        """
+        captured: dict[str, Any] = {}
+
+        class CapturingProvider:
+            @property
+            def name(self) -> str:
+                return "capturing"
+
+            def get_tools(
+                self,
+                tool_configs: dict[str, dict] | None = None,
+                agent_overrides: dict[str, dict] | None = None,
+            ) -> list[Tool]:
+                captured["tool_configs"] = tool_configs
+                captured["agent_overrides"] = agent_overrides
+                return [StubTool("tool_a")]
+
+        mock_repo = AsyncMock()
+        mock_repo.get = AsyncMock(return_value=_make_provider_config())
+        mock_tool_repo = AsyncMock()
+        mock_tool_repo.list_all = AsyncMock(
+            return_value={"shell": {"output_cap": 1000}}
+        )
+
+        cfg = AgentConfig(
+            name="resolver-wired",
+            provider_config_id="test-provider",
+            llm_model="stub-model",
+            tool_overrides={"shell": {"output_cap": 500}},
+        )
+        await store.save(cfg)
+
+        with patch("the_one.agent.factory.get_provider", _fake_get_provider), \
+             patch("the_one.agent.factory.settings") as mock_settings, \
+             patch("the_one.db.connection.get_connection", new_callable=AsyncMock), \
+             patch("the_one.encryption.get_encryptor", return_value=AsyncMock()), \
+             patch(
+                 "the_one.db.repositories.LLMProviderRepository",
+                 return_value=mock_repo,
+             ), \
+             patch(
+                 "the_one.db.repositories.ToolConfigRepository",
+                 return_value=mock_tool_repo,
+             ):
+            mock_settings.agents_dir = Path("/tmp/test-agents")
+            mock_settings.data_dir = Path("/tmp/test-data")
+            mock_settings.ensure_dirs = lambda: None
+
+            factory = AgentFactory(
+                store=store, tool_providers=[CapturingProvider()]
+            )
+            await factory.create("resolver-wired")
+
+        assert captured["tool_configs"] == {"shell": {"output_cap": 1000}}
+        assert captured["agent_overrides"] == {"shell": {"output_cap": 500}}
+
+    async def test_factory_passes_empty_overrides_when_none(
+        self, store: InMemoryStore
+    ) -> None:
+        """When config.tool_overrides is None, the factory should pass {}
+        (NOT None) to provider.get_tools — the locked-down NULL semantic
+        flips to an empty dict at the factory boundary so the provider
+        doesn't have to disambiguate."""
+        captured: dict[str, Any] = {}
+
+        class CapturingProvider:
+            @property
+            def name(self) -> str:
+                return "capturing"
+
+            def get_tools(
+                self,
+                tool_configs: dict[str, dict] | None = None,
+                agent_overrides: dict[str, dict] | None = None,
+            ) -> list[Tool]:
+                captured["agent_overrides"] = agent_overrides
+                return []
+
+        mock_repo = AsyncMock()
+        mock_repo.get = AsyncMock(return_value=_make_provider_config())
+        mock_tool_repo = AsyncMock()
+        mock_tool_repo.list_all = AsyncMock(return_value={})
+
+        cfg = AgentConfig(
+            name="no-overrides",
+            provider_config_id="test-provider",
+            llm_model="stub-model",
+            # tool_overrides defaults to None
+        )
+        await store.save(cfg)
+
+        with patch("the_one.agent.factory.get_provider", _fake_get_provider), \
+             patch("the_one.agent.factory.settings") as mock_settings, \
+             patch("the_one.db.connection.get_connection", new_callable=AsyncMock), \
+             patch("the_one.encryption.get_encryptor", return_value=AsyncMock()), \
+             patch(
+                 "the_one.db.repositories.LLMProviderRepository",
+                 return_value=mock_repo,
+             ), \
+             patch(
+                 "the_one.db.repositories.ToolConfigRepository",
+                 return_value=mock_tool_repo,
+             ):
+            mock_settings.agents_dir = Path("/tmp/test-agents")
+            mock_settings.data_dir = Path("/tmp/test-data")
+            mock_settings.ensure_dirs = lambda: None
+
+            factory = AgentFactory(
+                store=store, tool_providers=[CapturingProvider()]
+            )
+            await factory.create("no-overrides")
+
+        assert captured["agent_overrides"] == {}
 
 
 class TestListAgents:

@@ -58,6 +58,21 @@ class MCPSource(BaseModel):
     updated_at: str = Field(default_factory=_now_iso)
 
 
+class ToolConfig(BaseModel):
+    """A tool-level config row — operator-set defaults for a built-in tool.
+
+    Mirrors `MCPSource` shape but keyed by `name` (the tool's stable
+    identifier). The resolver composes this with a per-agent override
+    dict from `AgentConfig.tool_overrides` at `AgentFactory.create()`
+    time (session-bound; mid-session edits do not affect running agents).
+    """
+
+    name: str
+    config: dict = Field(default_factory=dict)
+    created_at: str = Field(default_factory=_now_iso)
+    updated_at: str = Field(default_factory=_now_iso)
+
+
 class ChatSession(BaseModel):
     """A chat session with message history."""
 

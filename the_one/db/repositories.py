@@ -8,7 +8,14 @@ from datetime import datetime, timezone
 import aiosqlite
 
 from the_one.agent.config import AgentConfig
-from the_one.db.models import ChatSession, KBItem, KnowledgeBase, LLMProviderConfig, MCPSource
+from the_one.db.models import (
+    ChatSession,
+    KBItem,
+    KnowledgeBase,
+    LLMProviderConfig,
+    MCPSource,
+    ToolConfig,
+)
 from the_one.encryption import Encryptor
 
 
@@ -51,8 +58,8 @@ class SQLiteAgentStore:
             INSERT INTO agents (
                 name, description, provider_config_id, llm_model,
                 system_prompt, enabled_tools, disabled_tools, max_iterations,
-                kb_ids, mcp_source_ids, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                kb_ids, mcp_source_ids, tool_overrides, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(name) DO UPDATE SET
                 description=excluded.description,
                 provider_config_id=excluded.provider_config_id,
@@ -63,6 +70,7 @@ class SQLiteAgentStore:
                 max_iterations=excluded.max_iterations,
                 kb_ids=excluded.kb_ids,
                 mcp_source_ids=excluded.mcp_source_ids,
+                tool_overrides=excluded.tool_overrides,
                 updated_at=excluded.updated_at
             """,
             (
@@ -76,6 +84,7 @@ class SQLiteAgentStore:
                 config.max_iterations,
                 json.dumps(config.kb_ids),
                 json.dumps(config.mcp_source_ids),
+                json.dumps(config.tool_overrides) if config.tool_overrides is not None else None,
                 now,
                 now,
             ),
@@ -106,6 +115,13 @@ class SQLiteAgentStore:
             max_iterations=row["max_iterations"] or 20,
             kb_ids=json.loads(row["kb_ids"] or "[]"),
             mcp_source_ids=json.loads(row["mcp_source_ids"] or "[]"),
+            # Truthiness mirrors `enabled_tools` above: NULL and empty
+            # string both deserialize to None. Missing-column safety
+            # comes from the v8 migration having run, not from this
+            # expression — `aiosqlite.Row[<missing>]` raises IndexError.
+            tool_overrides=(
+                json.loads(row["tool_overrides"]) if row["tool_overrides"] else None
+            ),
         )
 
 
@@ -283,6 +299,88 @@ class MCPSourceRepository:
             id=row["id"],
             name=row["name"],
             type=row["type"],
+            config=json.loads(row["config"] or "{}"),
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+
+# ── Tool config repository ───────────────────────────────────────────────
+
+
+class ToolConfigRepository:
+    """Async CRUD for tool-level config rows.
+
+    Mirrors `MCPSourceRepository` but keyed by `name` (the tool's
+    stable identifier — operators set tool config by name, the row
+    exists or it doesn't, so there's no separate create/update split).
+    `list_all()` is the resolver-facing convenience read; the resolver
+    in L3 imports `list_all`, NOT `list`.
+    """
+
+    def __init__(self, conn: aiosqlite.Connection) -> None:
+        self.conn = conn
+
+    async def list(self) -> list[ToolConfig]:
+        """Operator-UI-facing read; `list` shadows the builtin to match
+        `MCPSourceRepository.list` consistency."""
+        async with self.conn.execute("SELECT * FROM tool_configs ORDER BY name") as cur:
+            return [self._row_to_model(r) for r in await cur.fetchall()]
+
+    async def list_all(self) -> dict[str, dict]:
+        """Resolver-facing read: `{tool_name: config_dict}`.
+
+        Convenience wrapper over `list()`. L3's resolver imports this
+        method (NOT `list`) and treats an empty `tool_configs.config`
+        identically to a missing row.
+        """
+        items = await self.list()
+        return {item.name: item.config for item in items}
+
+    async def get(self, name: str) -> ToolConfig:
+        async with self.conn.execute(
+            "SELECT * FROM tool_configs WHERE name = ?", (name,)
+        ) as cur:
+            row = await cur.fetchone()
+        if row is None:
+            raise KeyError(f"Tool config not found: {name}")
+        return self._row_to_model(row)
+
+    async def upsert(self, name: str, config: dict) -> None:
+        """INSERT or REPLACE the config row, bumping `updated_at` on update.
+
+        L3 reads only; the upsert path is exercised by tests in L2 and
+        by F6's admin UI when it lands. F2 does not call `upsert` from
+        the resolver or the factory.
+        """
+        await self.conn.execute(
+            """\
+            INSERT INTO tool_configs (name, config, created_at, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(name) DO UPDATE SET
+                config=excluded.config,
+                updated_at=excluded.updated_at
+            """,
+            (name, json.dumps(config), _now_iso(), _now_iso()),
+        )
+        await self.conn.commit()
+
+    async def delete(self, name: str) -> None:
+        if not await self.exists(name):
+            raise KeyError(f"Tool config not found: {name}")
+        await self.conn.execute("DELETE FROM tool_configs WHERE name = ?", (name,))
+        await self.conn.commit()
+
+    async def exists(self, name: str) -> bool:
+        async with self.conn.execute(
+            "SELECT 1 FROM tool_configs WHERE name = ?", (name,)
+        ) as cur:
+            return await cur.fetchone() is not None
+
+    @staticmethod
+    def _row_to_model(row: aiosqlite.Row) -> ToolConfig:
+        return ToolConfig(
+            name=row["name"],
             config=json.loads(row["config"] or "{}"),
             created_at=row["created_at"],
             updated_at=row["updated_at"],

@@ -27,7 +27,7 @@ TIMEOUT = 120  # some tool calls are slow
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def base_url() -> str:
     """Base URL for the live agent, from env var or default."""
     return os.environ.get("THE_ONE_TEST_URL", "http://localhost:8484")

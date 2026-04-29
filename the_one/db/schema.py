@@ -6,7 +6,7 @@ import json
 
 import aiosqlite
 
-CURRENT_VERSION = 7
+CURRENT_VERSION = 8
 
 SCHEMA_V1 = """\
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -288,3 +288,49 @@ PRAGMA foreign_keys=ON;
         await conn.execute("INSERT INTO schema_version (version) VALUES (?)", (7,))
         await conn.commit()
         version = 7
+
+    if version < 8:
+        # Tool-level config table (mirrors mcp_sources shape) plus a new
+        # nullable `tool_overrides` JSON column on `agents` for per-agent
+        # narrowing / substitution overrides. Both surfaces are read by
+        # the F2 resolver; F2 itself does not populate them.
+        #
+        # Atomicity: aiosqlite's default isolation_level="" mode silently
+        # COMMITs before any non-DML statement (CREATE/ALTER/DROP), so
+        # each DDL effectively runs in its own auto-commit. Idempotency
+        # is provided by `IF NOT EXISTS` + the `PRAGMA table_info` guard;
+        # the `INSERT INTO schema_version` goes LAST so a partial apply
+        # leaves version=7 and `ensure_schema` retries cleanly on the
+        # next call. The INSERT uses `OR IGNORE` to neutralize the narrow
+        # concurrent-`ensure_schema` PK-violation race window for v8;
+        # older migrations (v3/v5/v6/v7) accept the same exposure with
+        # bare INSERT and are not backported.
+        #
+        # Use individual `await conn.execute(...)` calls — NOT
+        # `executescript`. The `executescript` form COMMITs before its
+        # first DDL and would defeat the LAST-INSERT idempotency.
+        await conn.execute("""\
+CREATE TABLE IF NOT EXISTS tool_configs (
+    name TEXT PRIMARY KEY,
+    config TEXT DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+)""")
+
+        # Idempotent ADD COLUMN: skip if the column already exists.
+        # NOTE: omit `DEFAULT NULL` — SQLite columns are nullable by
+        # default, and an explicit `DEFAULT NULL` clause would surface
+        # in PRAGMA table_info as the literal string "NULL" rather than
+        # Python None.
+        async with conn.execute("PRAGMA table_info(agents)") as cursor:
+            existing_cols = {row[1] for row in await cursor.fetchall()}
+        if "tool_overrides" not in existing_cols:
+            await conn.execute(
+                "ALTER TABLE agents ADD COLUMN tool_overrides TEXT"
+            )
+
+        await conn.execute(
+            "INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (8,)
+        )
+        await conn.commit()
+        version = 8

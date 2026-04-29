@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+from the_one.platform import run_python
 from the_one.tools.base import Tool
 
 
@@ -24,18 +25,12 @@ class PythonExecTool(Tool):
 
     async def execute(self, code: str, timeout: int = 60, **kwargs: Any) -> str:
         try:
-            proc = await asyncio.create_subprocess_exec(
-                "python3", "-c", code,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            stdout, stderr, _ = await run_python(code, timeout=timeout)
             output = stdout.decode(errors="replace")
             if stderr:
                 output += f"\n[stderr]\n{stderr.decode(errors='replace')}"
             return output.strip() or "(no output)"
         except asyncio.TimeoutError:
-            proc.kill()
             return f"[error] Timed out after {timeout}s"
         except Exception as e:
             return f"[error] {e}"

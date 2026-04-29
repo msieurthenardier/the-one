@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 BASE_PROMPT = """\
@@ -53,6 +55,14 @@ class AgentConfig(BaseModel):
     # Associations (reference IDs only — no functional behavior yet)
     kb_ids: list[str] = Field(default_factory=list)
     mcp_source_ids: list[str] = Field(default_factory=list)
+
+    # Tool-level constraint overrides (per-agent narrowing or substitution).
+    # None means "no overrides set" (uses tool-level defaults — locked-down
+    # NULL semantic, mirrors `enabled_tools=None`). The inner value type is
+    # `dict[str, Any]` (NOT bare `dict`) so Pydantic v2 actually validates
+    # that each tool's override is itself a dict — bare `dict` is parametric
+    # and Pydantic skips inner-value validation.
+    tool_overrides: dict[str, dict[str, Any]] | None = None
 
     # Behavior
     max_iterations: int = 20

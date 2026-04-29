@@ -90,6 +90,30 @@ The web UI ships with a token-based design system (NEXUS-style cyan accent, Geis
 
 For architecture internals, see `the_one/agents.md`.
 
+## Tool Configuration Layer (M05 Flight 2)
+
+### Two-layer config model
+- **Tool-level**: `tool_configs` SQLite table — operator-set defaults shared by all agents.
+- **Agent-level**: `AgentConfig.tool_overrides: dict[str, dict[str, Any]] | None` — per-agent narrowing or substitution. NULL means "no overrides set".
+
+### Resolver semantics
+`the_one/tools/resolver.py::resolve(schema, tool_config, agent_override)` composes the two layers per-key:
+- `Annotated[type, Narrow]`: agent override must be ≤ tool-level value (bool: True→False or equal; int/float: cap; list: subset). Widening raises `ValueError`.
+- `Annotated[type, Substitute]`: agent override replaces tool-level value (no comparison). For identity / shared-credential / KV values.
+- Unannotated fields raise `ValueError("...no Narrow/Substitute marker...")` when overridden — F3-F5 must annotate every field they introduce.
+
+### Session-bound freshness
+Resolved tool configs are computed at `AgentFactory.create()` time and held as instance state on each tool. Mid-session operator updates to `tool_configs` rows or `AgentConfig.tool_overrides` apply at the **next** `AgentFactory.create()` invocation, NOT to in-flight agents. F6's admin UI must communicate "applies to next session" clearly.
+
+### Platform abstraction layer
+`the_one/platform/` isolates platform-divergent concerns:
+- `paths.py` — `canonicalize`, `safe_resolve`, `is_within`
+- `shell.py` — `select_shell`, `run_shell` (kill+reap on timeout via `start_new_session=True` + `killpg(SIGKILL)`)
+- `interpreter.py` — `resolve_python` (returns `sys.executable`), `run_python`
+- `tempdirs.py` — `temp_dir`, `user_home`, `user_config_dir`
+
+F3-F5 will populate per-tool Pydantic Configs with real constraint values on top of this seam.
+
 ## Configuration
 
 Runtime config via env vars prefixed `THE_ONE_` (see `.env.example`): host, port, data_dir, dev_mode. Managed by pydantic-settings in `the_one/config.py`. The `settings` singleton is imported directly. LLM provider configuration is managed through the database (not env vars) — see the `/api/providers` endpoints.

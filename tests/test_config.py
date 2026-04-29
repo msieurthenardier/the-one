@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from the_one.agent.config import BASE_PROMPT, AgentConfig
 
 # ===================================================================
@@ -53,6 +55,68 @@ class TestAgentConfigConstruction:
         assert cfg.provider_config_id is None
         assert not hasattr(cfg, "llm_provider")
         assert not hasattr(cfg, "llm_base_url")
+
+
+# ===================================================================
+# tool_overrides field
+# ===================================================================
+
+class TestToolOverridesField:
+    """Tests for AgentConfig.tool_overrides — Decision 1 + Decision 6 Q&A."""
+
+    def test_default_is_none(self):
+        """Locked-down NULL: no overrides set means None, not {}."""
+        cfg = AgentConfig(name="t")
+        assert cfg.tool_overrides is None
+
+    def test_explicit_dict_roundtrips_through_model_dump_then_validate(self):
+        """An explicit overrides dict survives model_dump → model_validate."""
+        cfg = AgentConfig(
+            name="t",
+            tool_overrides={"shell": {"timeout": 30}, "read_file": {"max_bytes": 1000}},
+        )
+        dumped = cfg.model_dump()
+        assert dumped["tool_overrides"] == {
+            "shell": {"timeout": 30},
+            "read_file": {"max_bytes": 1000},
+        }
+        revived = AgentConfig.model_validate(dumped)
+        assert revived.tool_overrides == cfg.tool_overrides
+
+    def test_extra_ignore_survives_stale_direct_actions_payload(self):
+        """Regression check from F1: model_config['extra'] == 'ignore' so a
+        stale `direct_actions: true` payload is silently dropped, NOT a
+        ValidationError. Locked-down by F1; pinned here so the new field
+        addition doesn't accidentally flip extra='allow'."""
+        assert AgentConfig.model_config["extra"] == "ignore"
+        cfg = AgentConfig.model_validate(
+            {"name": "stale", "direct_actions": True, "tool_overrides": None}
+        )
+        assert cfg.name == "stale"
+        assert not hasattr(cfg, "direct_actions")
+        assert cfg.tool_overrides is None
+
+    def test_outer_non_dict_raises_validation_error(self):
+        """A list or string at the top level fails Pydantic validation."""
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            AgentConfig.model_validate({"name": "t", "tool_overrides": [1, 2, 3]})
+
+    def test_inner_non_dict_raises_validation_error(self):
+        """An inner string/list fails validation thanks to dict[str, Any]
+        inner type — bare `dict` would silently accept this case."""
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            AgentConfig.model_validate(
+                {"name": "t", "tool_overrides": {"shell": "not-a-dict"}}
+            )
+
+        with pytest.raises(ValidationError):
+            AgentConfig.model_validate(
+                {"name": "t", "tool_overrides": {"shell": [1, 2, 3]}}
+            )
 
 
 # ===================================================================
