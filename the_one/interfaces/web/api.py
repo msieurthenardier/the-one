@@ -14,6 +14,7 @@ import httpx
 from cryptography.fernet import Fernet
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
+from pydantic import ValidationError
 
 from the_one.config import Settings, settings
 from the_one.db.connection import get_connection
@@ -112,7 +113,10 @@ async def create_agent(request: Request) -> dict[str, Any]:
     from the_one.agent.config import AgentConfig
 
     data = await request.json()
-    cfg = AgentConfig.model_validate(data)
+    try:
+        cfg = AgentConfig.model_validate(data)
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=e.errors())
     store = await _agent_store()
     await store.save(cfg)
     return cfg.model_dump()
@@ -129,7 +133,10 @@ async def update_agent(name: str, request: Request) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail=f"Agent not found: {name}")
     data = await request.json()
     data["name"] = name  # Ensure name matches path
-    cfg = AgentConfig.model_validate(data)
+    try:
+        cfg = AgentConfig.model_validate(data)
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=e.errors())
     await store.save(cfg)
     return cfg.model_dump()
 

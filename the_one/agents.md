@@ -76,9 +76,10 @@ Providers are lazy-loaded on first `get_provider(name)` call. Each converts mess
 
 | File | Exports | Purpose |
 |------|---------|---------|
-| `base.py` | `Tool`, `ToolRegistry` | Tool ABC (`execute(**kwargs) -> str`) and registry |
-| `provider.py` | `ToolProvider` | Protocol: `name` property + `get_tools()` method |
-| `builtins.py` | `BuiltinToolProvider` | Provides all 7 built-in tools via lazy import |
+| `base.py` | `Tool`, `ToolRegistry` | Tool ABC (`Config: type[BaseModel]`, `__init__(config)`, `execute(**kwargs) -> str`) and registry |
+| `provider.py` | `ToolProvider` | Protocol: `name` property + `get_tools(tool_configs=None, agent_overrides=None)` method |
+| `builtins.py` | `BuiltinToolProvider` | Per-agent instantiation of all 7 built-in tools via module-level `_TOOL_CLASSES` |
+| `resolver.py` | `Narrow`, `Substitute`, `resolve` | Tool policy resolver — composes tool-level + agent-level configs per per-key marker semantics |
 | `shell.py` | `ShellTool` | Arbitrary shell commands |
 | `filesystem.py` | `ReadFileTool`, `WriteFileTool`, `ListDirTool` | File operations |
 | `python_exec.py` | `PythonExecTool` | Python subprocess execution |
@@ -159,7 +160,18 @@ Agents are defined as JSON files in `~/.the-one/agents/` (or rows in the SQLite 
 
 ### Tool Providers
 
-`ToolProvider` is a protocol with `name` + `get_tools()`. `BuiltinToolProvider` provides the 7 built-in tools. Future `McpToolProvider` implements the same protocol for MCP server tools.
+`ToolProvider` is a single-method protocol: `name` property + `get_tools(tool_configs=None, agent_overrides=None) -> list[Tool]`. `BuiltinToolProvider` provides the 7 built-in tools, instantiated fresh per call (no shared singletons). Future `McpToolProvider` implements the same protocol for MCP server tools.
+
+**Two call paths**: when both args are `None` (introspection — e.g., `/api/tools`, zero-arg tests), each tool is instantiated with its empty default Config. When at least one arg is supplied (factory path — `AgentFactory.create()`), the provider invokes `the_one.tools.resolver.resolve(...)` per tool and hands the resolved Config to `cls(resolved_config)`.
+
+### Tool Policy Resolver
+
+`the_one/tools/resolver.py` is a pure function: `resolve(schema, tool_config, agent_override) -> BaseModel`. It composes tool-level config (operator-set defaults persisted in the `tool_configs` SQLite table) with agent-level overrides (`AgentConfig.tool_overrides`) per per-key marker semantics declared on the tool's `Config` schema:
+
+- `Annotated[type, Narrow]` — agent override must not widen the tool value. Per-type comparisons: `bool` (True→False is narrowing), `int`/`float` (lower cap is narrowing), `list`/`tuple` (subset is narrowing). Other types raise `NotImplementedError` — the field author must declare per-tool semantics or use `Substitute`.
+- `Annotated[type, Substitute]` — agent override replaces the tool value (no comparison). Used for identity / shared-credential / KV fields.
+
+Invoked once at agent build time inside `BuiltinToolProvider.get_tools(...)`; the resolved Config flows into the per-agent tool instance via `Tool.__init__(config)` and is held as `self._config`. Session-bound freshness contract (Decision 8): mid-session operator updates apply at the next `AgentFactory.create()` call. F2's seven tools have empty Configs (`Tool.Config = _EmptyConfig`) — F3-F5 introduce real constraint fields.
 
 ### Continue Signal
 

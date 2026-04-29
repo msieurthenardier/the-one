@@ -150,7 +150,10 @@ class TestSchemaV7:
             ),
         )
         # Rewind schema_version so ensure_schema sees v6 and reruns v7.
-        await conn.execute("DELETE FROM schema_version WHERE version = 7")
+        # (Delete v7+ markers; _get_version returns MAX(version), so we
+        # must clear every row above the rewind target — v8 was added in
+        # F2/L2 and lives above v7.)
+        await conn.execute("DELETE FROM schema_version WHERE version >= 7")
         await conn.commit()
 
         # Run the v7 migration.
@@ -191,11 +194,226 @@ class TestSchemaV7:
         assert json.loads(row["enabled_tools"]) == ["shell", "read_file", "write_file"]
         assert json.loads(row["disabled_tools"]) == ["python_exec"]
 
-        # Assertion 5: schema_version is 7.
+        # Assertion 5: schema_version reaches CURRENT_VERSION (was 7 at
+        # design time; advanced to 8 in F2/L2 — the v7 strip ran AND the
+        # later migrations followed).
+        from the_one.db.schema import CURRENT_VERSION
         async with conn.execute(
             "SELECT MAX(version) FROM schema_version"
         ) as cur:
             row = await cur.fetchone()
-        assert row[0] == 7
+        assert row[0] == CURRENT_VERSION
+
+        await conn.close()
+
+
+class TestSchemaV8:
+    """Tests for the v8 migration that adds tool_configs + agents.tool_overrides."""
+
+    async def test_v8_fresh_db_includes_tool_configs_and_tool_overrides(
+        self, tmp_path
+    ) -> None:
+        """Fresh DB → ensure_schema → v8 surfaces exist.
+
+        Acts as the regression-loud-fail guard: if a future bump to
+        CURRENT_VERSION = 9 silently drops the v8 block, this test
+        will fail with explicit messages naming both `tool_configs`
+        and `tool_overrides`.
+        """
+        from the_one.db.schema import CURRENT_VERSION
+
+        db_path = tmp_path / "v8-fresh.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await ensure_schema(conn)
+
+        # CURRENT_VERSION assertion — pins the leg's version bump.
+        assert CURRENT_VERSION == 8, (
+            f"CURRENT_VERSION must be 8 after L2 (got {CURRENT_VERSION})"
+        )
+
+        # tool_configs table must exist.
+        async with conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='tool_configs'"
+        ) as cur:
+            row = await cur.fetchone()
+        assert row is not None, (
+            "v8 migration missing: table `tool_configs` does not exist after "
+            "ensure_schema on a fresh DB"
+        )
+
+        # agents.tool_overrides column must exist, be TEXT, nullable, no DEFAULT.
+        async with conn.execute("PRAGMA table_info(agents)") as cur:
+            agent_cols = {r["name"]: r for r in await cur.fetchall()}
+        assert "tool_overrides" in agent_cols, (
+            "v8 migration missing: column `tool_overrides` does not exist on "
+            "`agents` after ensure_schema on a fresh DB"
+        )
+        col = agent_cols["tool_overrides"]
+        assert col["type"] == "TEXT", col["type"]
+        # notnull == 0 means the column is nullable.
+        assert col["notnull"] == 0, col["notnull"]
+        # No explicit DEFAULT clause — dflt_value must be Python None,
+        # not the literal string "NULL".
+        assert col["dflt_value"] is None, col["dflt_value"]
+
+        # tool_configs must be empty on a fresh DB.
+        async with conn.execute("SELECT * FROM tool_configs") as cur:
+            rows = await cur.fetchall()
+        assert rows == [], rows
+
+        # schema_version row for v8 exists.
+        async with conn.execute(
+            "SELECT MAX(version) FROM schema_version"
+        ) as cur:
+            row = await cur.fetchone()
+        assert row[0] == 8
+
+        await conn.close()
+
+    async def test_v8_migration_on_v7_fixture_db_preserves_existing_rows(
+        self, tmp_path
+    ) -> None:
+        """v7 → v8: existing agent rows survive with tool_overrides=NULL,
+        tool_configs is created empty, schema_version lands at 8."""
+        db_path = tmp_path / "v8-from-v7.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        # Migrate fresh DB straight to current.
+        await ensure_schema(conn)
+
+        # Seed a v7-shaped agent row with enabled_tools set.
+        await conn.execute(
+            "INSERT INTO agents (name, enabled_tools, disabled_tools) "
+            "VALUES (?, ?, ?)",
+            ("seed", json.dumps(["shell", "read_file"]), json.dumps([])),
+        )
+
+        # Rewind schema_version so ensure_schema sees v7 and reruns v8.
+        await conn.execute("DELETE FROM schema_version WHERE version = 8")
+        await conn.commit()
+
+        # Re-run the v8 migration on a v7-shaped DB. Note: the seeded
+        # row pre-existed because the fresh ensure_schema already added
+        # the tool_overrides column; we still exercise the migration's
+        # idempotent guard (PRAGMA table_info skips the ALTER) and the
+        # CREATE TABLE IF NOT EXISTS path.
+        await ensure_schema(conn)
+
+        # Assertion (a): the agents row survives with tool_overrides=NULL.
+        async with conn.execute(
+            "SELECT name, enabled_tools, disabled_tools, tool_overrides "
+            "FROM agents WHERE name = 'seed'"
+        ) as cur:
+            row = await cur.fetchone()
+        assert row is not None
+        assert json.loads(row["enabled_tools"]) == ["shell", "read_file"]
+        assert json.loads(row["disabled_tools"]) == []
+        assert row["tool_overrides"] is None
+
+        # Assertion (b): tool_configs is present and empty.
+        async with conn.execute("SELECT * FROM tool_configs") as cur:
+            rows = await cur.fetchall()
+        assert rows == []
+
+        # Assertion (c): schema_version is 8.
+        async with conn.execute(
+            "SELECT MAX(version) FROM schema_version"
+        ) as cur:
+            row = await cur.fetchone()
+        assert row[0] == 8
+
+        await conn.close()
+
+    async def test_v8_migration_is_idempotent(self, tmp_path) -> None:
+        """Calling ensure_schema twice on a fresh DB is a no-op the second
+        time: no errors, no duplicate schema_version rows for v8."""
+        db_path = tmp_path / "v8-idempotent.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await ensure_schema(conn)
+        await ensure_schema(conn)  # second call — must be a no-op
+
+        # Exactly one schema_version row for v8.
+        async with conn.execute(
+            "SELECT COUNT(*) FROM schema_version WHERE version = 8"
+        ) as cur:
+            row = await cur.fetchone()
+        assert row[0] == 1
+
+        # Surfaces still present after the second call.
+        async with conn.execute("PRAGMA table_info(agents)") as cur:
+            cols = {r["name"] for r in await cur.fetchall()}
+        assert "tool_overrides" in cols
+        async with conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='tool_configs'"
+        ) as cur:
+            assert (await cur.fetchone()) is not None
+
+        await conn.close()
+
+    async def test_v6_to_v7_to_v8_chained_migration(self, tmp_path) -> None:
+        """v6 → v7 → v8: rewinding schema_version to 6 forces both v7
+        (row-content strip) and v8 (DDL) to apply in sequence; agents
+        land in a sensible state, both 7 and 8 rows are present, and
+        schema_version is 8."""
+        db_path = tmp_path / "v8-chain.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await ensure_schema(conn)
+
+        # Seed an agent row with a removed tool name in enabled_tools so
+        # the v7 strip has something to do.
+        await conn.execute(
+            "INSERT INTO agents (name, enabled_tools, disabled_tools) "
+            "VALUES (?, ?, ?)",
+            (
+                "chained",
+                json.dumps(["self_deploy", "shell"]),
+                json.dumps(["git", "read_file"]),
+            ),
+        )
+
+        # Rewind to 6 (delete both the 7 and 8 markers).
+        await conn.execute("DELETE FROM schema_version WHERE version >= 7")
+        await conn.commit()
+
+        await ensure_schema(conn)
+
+        # Assertion (a): the v7 strip ran — removed names gone, kept ones
+        # remain.
+        async with conn.execute(
+            "SELECT enabled_tools, disabled_tools, tool_overrides "
+            "FROM agents WHERE name = 'chained'"
+        ) as cur:
+            row = await cur.fetchone()
+        assert json.loads(row["enabled_tools"]) == ["shell"]
+        assert json.loads(row["disabled_tools"]) == ["read_file"]
+
+        # Assertion (b): the v8 DDL ran — tool_overrides column exists
+        # and the seeded row has NULL (no overrides set).
+        assert row["tool_overrides"] is None
+        async with conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='tool_configs'"
+        ) as cur:
+            assert (await cur.fetchone()) is not None
+
+        # Assertion (c): both 7 and 8 are present in schema_version,
+        # MAX(version) is 8.
+        async with conn.execute(
+            "SELECT version FROM schema_version ORDER BY version"
+        ) as cur:
+            versions = [r[0] for r in await cur.fetchall()]
+        assert 7 in versions, versions
+        assert 8 in versions, versions
+        assert max(versions) == 8
 
         await conn.close()

@@ -97,6 +97,61 @@ class TestAgentAPI:
         resp = await client.get("/api/agents/test")
         assert resp.status_code == 404
 
+    async def test_get_agent_includes_tool_overrides_null_by_default(
+        self, client: AsyncClient
+    ) -> None:
+        """An agent created without `tool_overrides` returns it as null
+        in the GET payload (Decision 1 — locked-down NULL semantic)."""
+        await client.post("/api/agents", json={"name": "default-overrides"})
+        resp = await client.get("/api/agents/default-overrides")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "tool_overrides" in body
+        assert body["tool_overrides"] is None
+
+    async def test_create_agent_with_tool_overrides_round_trips(
+        self, client: AsyncClient
+    ) -> None:
+        """POST with explicit `tool_overrides` dict → GET returns it
+        unchanged."""
+        payload = {
+            "name": "with-overrides",
+            "tool_overrides": {
+                "shell": {"timeout": 30},
+                "read_file": {"max_bytes": 1000},
+            },
+        }
+        resp = await client.post("/api/agents", json=payload)
+        assert resp.status_code == 201
+
+        resp = await client.get("/api/agents/with-overrides")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["tool_overrides"] == payload["tool_overrides"]
+
+    async def test_create_agent_with_outer_non_dict_tool_overrides_returns_422(
+        self, client: AsyncClient
+    ) -> None:
+        """POST with `tool_overrides=[1,2,3]` (a list) raises 422
+        Pydantic validation error."""
+        resp = await client.post(
+            "/api/agents",
+            json={"name": "bad-outer", "tool_overrides": [1, 2, 3]},
+        )
+        assert resp.status_code == 422
+
+    async def test_create_agent_with_inner_non_dict_tool_overrides_returns_422(
+        self, client: AsyncClient
+    ) -> None:
+        """POST with `tool_overrides={"shell": "not-a-dict"}` raises 422
+        — proves dict[str, Any] inner type validates inner is a dict
+        (bare `dict` would silently accept this)."""
+        resp = await client.post(
+            "/api/agents",
+            json={"name": "bad-inner", "tool_overrides": {"shell": "not-a-dict"}},
+        )
+        assert resp.status_code == 422
+
 
 # ── Knowledge base endpoints ─────────────────────────────────────────────
 

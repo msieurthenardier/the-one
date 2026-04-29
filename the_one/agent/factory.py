@@ -69,7 +69,10 @@ class AgentFactory:
 
         # Resolve provider config from DB
         from the_one.db.connection import get_connection
-        from the_one.db.repositories import LLMProviderRepository
+        from the_one.db.repositories import (
+            LLMProviderRepository,
+            ToolConfigRepository,
+        )
         from the_one.encryption import get_encryptor
 
         conn = await get_connection()
@@ -98,10 +101,20 @@ class AgentFactory:
             config=provider_config.config,
         )
 
-        # 2. Build filtered tool registry
+        # 2. Load tool-level configs and agent-level overrides for the
+        # tool policy resolver. Resolved per-agent — Decision 8's
+        # session-bound freshness contract: mid-session updates apply at
+        # the next AgentFactory.create() call.
+        tool_configs_repo = ToolConfigRepository(conn)
+        tool_configs_by_name = await tool_configs_repo.list_all()
+        agent_overrides = config.tool_overrides or {}
+
+        # 3. Build filtered tool registry — fresh ToolRegistry per call,
+        # populated with fresh per-agent tool instances (the provider
+        # invokes the resolver internally per Decision 10).
         registry = ToolRegistry()
         for provider in self.tool_providers:
-            for tool in provider.get_tools():
+            for tool in provider.get_tools(tool_configs_by_name, agent_overrides):
                 if config.is_tool_enabled(tool.name):
                     registry.register(tool)
 

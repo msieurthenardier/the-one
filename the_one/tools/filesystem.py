@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from the_one.platform import canonicalize
 from the_one.tools.base import Tool
 
 
@@ -24,7 +25,7 @@ class ReadFileTool(Tool):
         limit: int | None = None, **kwargs: Any,
     ) -> str:
         try:
-            p = Path(path).expanduser().resolve()
+            p = canonicalize(path)
             text = p.read_text(errors="replace")
             lines = text.splitlines()
             if offset or limit:
@@ -49,7 +50,7 @@ class WriteFileTool(Tool):
 
     async def execute(self, path: str, content: str, **kwargs: Any) -> str:
         try:
-            p = Path(path).expanduser().resolve()
+            p = canonicalize(path)
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(content)
             return f"Wrote {len(content)} bytes to {p}"
@@ -71,7 +72,7 @@ class ListDirTool(Tool):
 
     async def execute(self, path: str = ".", recursive: bool = False, **kwargs: Any) -> str:
         try:
-            p = Path(path).expanduser().resolve()
+            p = canonicalize(path)
             if recursive:
                 entries = sorted(p.rglob("*"))
             else:

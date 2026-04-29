@@ -12,6 +12,7 @@ from the_one.db.repositories import (
     KnowledgeBaseRepository,
     MCPSourceRepository,
     SQLiteAgentStore,
+    ToolConfigRepository,
 )
 
 
@@ -54,6 +55,11 @@ def mcp_repo(conn):
 @pytest.fixture
 def chat_repo(conn):
     return ChatSessionRepository(conn)
+
+
+@pytest.fixture
+def tool_config_repo(conn):
+    return ToolConfigRepository(conn)
 
 
 # ── Agent Store ───────────────────────────────────────────────────────────
@@ -117,6 +123,32 @@ class TestSQLiteAgentStore:
         await agent_store.save(cfg)
         loaded = await agent_store.load("null-tools")
         assert loaded.enabled_tools is None
+
+    async def test_tool_overrides_round_trip(
+        self, agent_store: SQLiteAgentStore
+    ) -> None:
+        """Saving an agent with `tool_overrides` set roundtrips through
+        the SQLite store cleanly (Decision 1: dict[str, dict[str, Any]])."""
+        cfg = AgentConfig(
+            name="override-test",
+            tool_overrides={"shell": {"timeout": 30}, "read_file": {"max_bytes": 1000}},
+        )
+        await agent_store.save(cfg)
+        loaded = await agent_store.load("override-test")
+        assert loaded.tool_overrides == {
+            "shell": {"timeout": 30},
+            "read_file": {"max_bytes": 1000},
+        }
+
+    async def test_tool_overrides_none_default(
+        self, agent_store: SQLiteAgentStore
+    ) -> None:
+        """An agent without `tool_overrides` set roundtrips as None
+        (locked-down NULL semantic — Decision 1)."""
+        cfg = AgentConfig(name="no-overrides")
+        await agent_store.save(cfg)
+        loaded = await agent_store.load("no-overrides")
+        assert loaded.tool_overrides is None
 
 
 # ── Knowledge Base Repository ─────────────────────────────────────────────
@@ -302,3 +334,93 @@ class TestChatSessionRepository:
         # agent_name must remain set to the deleted agent's name
         # (free-text), not nulled or removed.
         assert sessions[0].agent_name == "agent1"
+
+
+# ── Tool Config Repository ───────────────────────────────────────────────
+
+
+class TestToolConfigRepository:
+    """CRUD coverage for ToolConfigRepository (the resolver-feeding store)."""
+
+    async def test_upsert_inserts_then_lists(
+        self, tool_config_repo: ToolConfigRepository
+    ) -> None:
+        await tool_config_repo.upsert("shell", {"timeout": 30})
+        items = await tool_config_repo.list()
+        assert len(items) == 1
+        assert items[0].name == "shell"
+        assert items[0].config == {"timeout": 30}
+
+    async def test_list_orders_by_name(
+        self, tool_config_repo: ToolConfigRepository
+    ) -> None:
+        await tool_config_repo.upsert("shell", {})
+        await tool_config_repo.upsert("read_file", {})
+        await tool_config_repo.upsert("python_exec", {})
+        items = await tool_config_repo.list()
+        assert [i.name for i in items] == ["python_exec", "read_file", "shell"]
+
+    async def test_list_all_returns_dict_shape(
+        self, tool_config_repo: ToolConfigRepository
+    ) -> None:
+        """list_all is the resolver-facing read — returns {name: config}."""
+        await tool_config_repo.upsert("shell", {"timeout": 30})
+        await tool_config_repo.upsert("read_file", {"max_bytes": 1000})
+        result = await tool_config_repo.list_all()
+        assert result == {
+            "shell": {"timeout": 30},
+            "read_file": {"max_bytes": 1000},
+        }
+
+    async def test_list_all_empty_when_no_rows(
+        self, tool_config_repo: ToolConfigRepository
+    ) -> None:
+        assert await tool_config_repo.list_all() == {}
+
+    async def test_get_returns_row(
+        self, tool_config_repo: ToolConfigRepository
+    ) -> None:
+        await tool_config_repo.upsert("shell", {"timeout": 30})
+        item = await tool_config_repo.get("shell")
+        assert item.name == "shell"
+        assert item.config == {"timeout": 30}
+
+    async def test_get_missing_raises(
+        self, tool_config_repo: ToolConfigRepository
+    ) -> None:
+        with pytest.raises(KeyError):
+            await tool_config_repo.get("nope")
+
+    async def test_upsert_updates_existing_row_and_bumps_updated_at(
+        self, tool_config_repo: ToolConfigRepository
+    ) -> None:
+        await tool_config_repo.upsert("shell", {"timeout": 30})
+        first = await tool_config_repo.get("shell")
+        # Tiny sleep to ensure updated_at differs at second granularity.
+        # The ISO-format _now_iso() includes microseconds, but be safe.
+        import asyncio
+        await asyncio.sleep(0.01)
+        await tool_config_repo.upsert("shell", {"timeout": 60})
+        updated = await tool_config_repo.get("shell")
+        assert updated.config == {"timeout": 60}
+        # created_at preserved on update; updated_at bumped.
+        assert updated.created_at == first.created_at
+        assert updated.updated_at >= first.updated_at
+
+    async def test_delete_removes_row(
+        self, tool_config_repo: ToolConfigRepository
+    ) -> None:
+        await tool_config_repo.upsert("shell", {})
+        await tool_config_repo.delete("shell")
+        assert await tool_config_repo.exists("shell") is False
+
+    async def test_delete_missing_raises(
+        self, tool_config_repo: ToolConfigRepository
+    ) -> None:
+        with pytest.raises(KeyError):
+            await tool_config_repo.delete("ghost")
+
+    async def test_exists(self, tool_config_repo: ToolConfigRepository) -> None:
+        assert await tool_config_repo.exists("shell") is False
+        await tool_config_repo.upsert("shell", {})
+        assert await tool_config_repo.exists("shell") is True
