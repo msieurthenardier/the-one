@@ -44,21 +44,27 @@ class TestBuiltinToolProviderL3:
         provider = BuiltinToolProvider()
         zero_arg = provider.get_tools()
         explicit_none = provider.get_tools(tool_configs=None, agent_overrides=None)
-        # Same shape: 7 tools, same names, in the same order.
+        # Same shape: 13 tools, same names, in the same order.
         assert [t.name for t in zero_arg] == [t.name for t in explicit_none]
-        assert len(zero_arg) == 7
+        assert len(zero_arg) == 13
 
     def test_empty_dicts_go_through_factory_path(self) -> None:
         # Both args are non-None empty dicts → factory path. Each tool's
-        # Config resolves to the empty default; result still has 7 tools.
+        # Config resolves to the empty default; result still has 13 tools.
         provider = BuiltinToolProvider()
         tools = provider.get_tools({}, {})
-        assert len(tools) == 7
+        assert len(tools) == 13
         names = {t.name for t in tools}
         assert names == {
             "shell",
             "read_file",
             "write_file",
+            "edit_file",
+            "delete_file",
+            "move_file",
+            "mkdir",
+            "glob",
+            "grep",
             "list_dir",
             "python_exec",
             "http_request",
@@ -83,13 +89,11 @@ class TestBuiltinToolProviderL3:
             assert ta is not tb, f"singleton leaked for {ta.name}"
 
     def test_unknown_tool_name_in_overrides_silently_ignored(self) -> None:
-        # An unknown tool name in agent_overrides must not raise; the 7
+        # An unknown tool name in agent_overrides must not raise; the 13
         # known tools are still instantiated. Mirrors the v7
         # enabled_tools/disabled_tools strip semantic.
         provider = BuiltinToolProvider()
-        tools = provider.get_tools(
-            None, {"nonexistent_tool": {"foo": "bar"}}
-        )
-        assert len(tools) == 7
+        tools = provider.get_tools(None, {"nonexistent_tool": {"foo": "bar"}})
+        assert len(tools) == 13
         names = {t.name for t in tools}
         assert "nonexistent_tool" not in names

@@ -25,6 +25,8 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from the_one.platform.paths import is_within
+
 
 class Narrow:
     """Marker: agent-level override for this field must be no-wider-than the
@@ -58,6 +60,38 @@ class Substitute:
     """
 
 
+class NarrowPrefix:
+    """Marker: agent-level ``list[str]`` (paths) is narrowing iff every agent
+    entry is a descendant of (or equal to) at least one tool entry, checked
+    via ``the_one.platform.paths.is_within``.
+
+    Used for path-allowlist style fields where the operator declares a set of
+    permitted root paths and an agent may further restrict to subtrees within
+    those roots.
+
+    Raises ``NotImplementedError`` when applied to non-list values — this
+    marker is list-only. Matches F2's ``Narrow``-on-``str`` precedent for
+    "marker on unsupported type" so the contract is uniform across markers.
+    """
+
+
+class NarrowSuperset:
+    """Marker: agent-level ``list[T]`` is narrowing iff every tool entry is
+    also in the agent value (agent ⊇ tool — agent ADDS restrictions).
+
+    Inverse of ``Narrow``'s list semantic (which is agent ⊆ tool, i.e. the
+    agent removes options). Used for denylist-style fields where the
+    operator declares a baseline of forbidden entries and the agent may add
+    more forbidden entries but never remove the operator's baseline.
+
+    Membership check is plain ``==`` equality on raw values — string-equal
+    membership; canonicalization (e.g. resolving ``~``) is the consumer's
+    responsibility (see ``FilesystemConfig.model_post_init`` in F3 L2a).
+
+    Raises ``NotImplementedError`` when applied to non-list values.
+    """
+
+
 class _EmptyConfig(BaseModel):
     """Private sentinel — concrete empty `BaseModel` subclass.
 
@@ -88,8 +122,7 @@ def _check_narrow(
         # cannot grant what the operator denied).
         if agent_val is True and tool_val is False:
             raise ValueError(
-                f"agent override widens {schema_name}.{field_name}; "
-                "only narrowing allowed"
+                f"agent override widens {schema_name}.{field_name}; only narrowing allowed"
             )
         return
     if (
@@ -100,8 +133,7 @@ def _check_narrow(
     ):
         if agent_val > tool_val:
             raise ValueError(
-                f"agent override widens {schema_name}.{field_name}; "
-                "only narrowing allowed"
+                f"agent override widens {schema_name}.{field_name}; only narrowing allowed"
             )
         return
     if isinstance(agent_val, (list, tuple)) and isinstance(tool_val, (list, tuple)):
@@ -109,14 +141,55 @@ def _check_narrow(
         # which `set()`-based comparison would not.
         if not all(item in tool_val for item in agent_val):
             raise ValueError(
-                f"agent override widens {schema_name}.{field_name}; "
-                "only narrowing allowed"
+                f"agent override widens {schema_name}.{field_name}; only narrowing allowed"
             )
         return
     raise NotImplementedError(
         f"Narrow on {type(agent_val).__name__} field {schema_name}.{field_name}; "
         "declare per-tool narrowing semantics or use Substitute"
     )
+
+
+def _check_narrow_prefix(
+    field_name: str,
+    schema_name: str,
+    tool_val: Any,
+    agent_val: Any,
+) -> None:
+    """Raise if ``agent_val`` widens ``tool_val`` under prefix-containment
+    semantics. Both must be ``list[str]``; non-list values raise
+    ``NotImplementedError`` (matches F2's ``Narrow``-on-``str`` precedent)."""
+    if not (isinstance(tool_val, list) and isinstance(agent_val, list)):
+        raise NotImplementedError(
+            f"NarrowPrefix on non-list field {schema_name}.{field_name}; marker is list-only"
+        )
+    for ap in agent_val:
+        if not any(is_within(ap, tp) for tp in tool_val):
+            raise ValueError(
+                f"agent override widens {schema_name}.{field_name}; "
+                f"'{ap}' not within any tool entry"
+            )
+
+
+def _check_narrow_superset(
+    field_name: str,
+    schema_name: str,
+    tool_val: Any,
+    agent_val: Any,
+) -> None:
+    """Raise if ``agent_val`` widens ``tool_val`` under superset-membership
+    semantics (agent must contain every tool entry). Membership uses ``==``
+    on raw values — canonicalization is consumer-side."""
+    if not (isinstance(tool_val, list) and isinstance(agent_val, list)):
+        raise NotImplementedError(
+            f"NarrowSuperset on non-list field {schema_name}.{field_name}; marker is list-only"
+        )
+    for tp in tool_val:
+        if tp not in agent_val:
+            raise ValueError(
+                f"agent override widens {schema_name}.{field_name}; "
+                f"tool entry '{tp}' missing from agent value"
+            )
 
 
 def resolve(
@@ -158,20 +231,29 @@ def resolve(
             continue
         markers = field_info.metadata
         has_narrow = any(m is Narrow for m in markers)
+        has_narrow_prefix = any(m is NarrowPrefix for m in markers)
+        has_narrow_superset = any(m is NarrowSuperset for m in markers)
         has_substitute = any(m is Substitute for m in markers)
-        if has_narrow and has_substitute:
+        marker_count = sum([has_narrow, has_narrow_prefix, has_narrow_superset, has_substitute])
+        if marker_count > 1:
             raise ValueError(
-                f"field {schema.__name__}.{key} has both Narrow and "
-                "Substitute markers"
+                f"field {schema.__name__}.{key} has multiple narrow/substitute "
+                "markers; declare exactly one of "
+                "(Narrow, NarrowPrefix, NarrowSuperset, Substitute)"
             )
-        if not (has_narrow or has_substitute):
+        if marker_count == 0:
             raise ValueError(
-                f"field {schema.__name__}.{key} has no Narrow/Substitute "
-                "marker; cannot resolve"
+                f"field {schema.__name__}.{key} has no Narrow/Substitute marker; "
+                "declare one of (Narrow, NarrowPrefix, NarrowSuperset, Substitute)"
             )
+        tool_val = merged.get(key, field_info.default)
         if has_narrow:
-            tool_val = merged.get(key, field_info.default)
             _check_narrow(key, schema.__name__, tool_val, agent_override[key])
+        elif has_narrow_prefix:
+            _check_narrow_prefix(key, schema.__name__, tool_val, agent_override[key])
+        elif has_narrow_superset:
+            _check_narrow_superset(key, schema.__name__, tool_val, agent_override[key])
+        # Substitute path: no check; merge below performs replacement.
         merged[key] = agent_override[key]
 
     # 4. Final validation (drops unknown keys via extra="ignore" default).

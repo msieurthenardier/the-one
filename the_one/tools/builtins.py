@@ -1,7 +1,17 @@
 from __future__ import annotations
 
 from the_one.tools.base import Tool
-from the_one.tools.filesystem import ListDirTool, ReadFileTool, WriteFileTool
+from the_one.tools.filesystem import (
+    DeleteFileTool,
+    EditFileTool,
+    GlobTool,
+    GrepTool,
+    ListDirTool,
+    MkdirTool,
+    MoveFileTool,
+    ReadFileTool,
+    WriteFileTool,
+)
 from the_one.tools.python_exec import PythonExecTool
 from the_one.tools.resolver import resolve
 from the_one.tools.shell import ShellTool
@@ -16,6 +26,12 @@ _TOOL_CLASSES: dict[str, type[Tool]] = {
     "shell": ShellTool,
     "read_file": ReadFileTool,
     "write_file": WriteFileTool,
+    "edit_file": EditFileTool,
+    "delete_file": DeleteFileTool,
+    "move_file": MoveFileTool,
+    "mkdir": MkdirTool,
+    "glob": GlobTool,
+    "grep": GrepTool,
     "list_dir": ListDirTool,
     "python_exec": PythonExecTool,
     "http_request": HttpRequestTool,
