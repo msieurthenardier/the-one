@@ -26,7 +26,14 @@ App.registerArea({
 
   init: function (sidebar, content) {
     var ws = null;
-    var busy = false;
+    // Per-session in-flight tracker: a session is "busy" when its agent
+    // is mid-turn. Was previously a single `busy` flag per WebSocket, but
+    // that caused the input to stay disabled in a NEW conversation when
+    // the user switched away from a still-running one (post-F4 surfacing).
+    var inFlightSessions = Object.create(null);
+    function isCurrentBusy() {
+      return !!(currentSessionId && inFlightSessions[currentSessionId]);
+    }
     var currentSessionId = null;
     var pendingJoinId = null;
     var sessions = [];
@@ -324,11 +331,11 @@ App.registerArea({
 
     function send() {
       var text = inputEl.value.trim();
-      if (!text || busy) return;
+      if (!text || isCurrentBusy()) return;
       addMsg('user', text, 'You');
       ws.send(JSON.stringify({ message: text }));
       inputEl.value = '';
-      busy = true;
+      if (currentSessionId) inFlightSessions[currentSessionId] = true;
       sendBtn.disabled = true;
       showThinking();
     }
@@ -392,7 +399,10 @@ App.registerArea({
       } else {
         hideThinking();
         addMsg('system', data.content);
-        if (busy) { busy = false; if (!sessionBannerEl) sendBtn.disabled = false; }
+        if (currentSessionId && inFlightSessions[currentSessionId]) {
+          delete inFlightSessions[currentSessionId];
+          if (!sessionBannerEl) sendBtn.disabled = false;
+        }
       }
     }
 
@@ -410,10 +420,9 @@ App.registerArea({
         // Drop "thinking…" + re-enable input so a mid-response disconnect doesn't
         // strand the UI; the auto-reconnect below brings the WS back.
         hideThinking();
-        if (busy) {
-          busy = false;
-          if (!sessionBannerEl) sendBtn.disabled = false;
-        }
+        // Disconnect drops every in-flight broadcast — clear the whole map.
+        for (var k in inFlightSessions) delete inFlightSessions[k];
+        if (!sessionBannerEl) sendBtn.disabled = false;
         setTimeout(connect, 2000);
       };
 
@@ -465,6 +474,19 @@ App.registerArea({
           App.chat.resetTelemetry(content);
           renderHistory(data.history, data.agent_name);
           setSessionHealth(data.status || 'ok');
+          // Sync per-session busy state to server ground truth (the
+          // session's `processing_lock.locked()` boolean). Without this,
+          // switching away from an in-flight session and back leaves
+          // the prior `busy` flag stale — either stuck-disabled (turn
+          // finished while away) or stuck-enabled (turn still running).
+          if (data.is_processing) {
+            inFlightSessions[currentSessionId] = true;
+            if (!sessionBannerEl) sendBtn.disabled = true;
+            showThinking();
+          } else {
+            delete inFlightSessions[currentSessionId];
+            if (!sessionBannerEl) sendBtn.disabled = false;
+          }
           showChrome();
           refreshSessionList();
           return;
@@ -538,7 +560,7 @@ App.registerArea({
           // its accumulated text for the markdown-rendered fragment, and
           // the next user message starts a fresh streaming round.
           finalizeStreamingBubble();
-          busy = false;
+          if (currentSessionId) delete inFlightSessions[currentSessionId];
           if (!sessionBannerEl) sendBtn.disabled = false;
           refreshSessionList();
         }

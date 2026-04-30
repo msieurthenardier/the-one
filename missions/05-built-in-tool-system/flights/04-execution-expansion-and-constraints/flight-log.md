@@ -372,11 +372,15 @@ Flight in progress. 10 legs planned (L1a, L1b, L2, L3, L4, L5a, L5b, L6, L7-HAT,
 *Part 2 — preserve in-memory history across rejoin:*
 After Part 1 shipped, the operator surfaced a follow-up bug: rejoining the still-running session via `join` returned an empty chat. Root cause: `_restore_session` (`the_one/interfaces/web/app.py:250`) always rebuilt the agent and replaced `existing.history = ui_events` from the DB, but the user's just-submitted message + in-flight assistant chunks weren't yet persisted. **Fix**: `_restore_session` short-circuits to the cached in-memory session when its `processing_lock` is held. The rebuild's purpose (rebind agent for config edits) is intentionally suspended for the duration of the in-flight turn; the next join after completion picks up config edits as before.
 
+*Part 3 — per-session UI busy state:*
+After Parts 1+2 shipped, the operator surfaced a third bug: starting a NEW conversation while a long tool call ran left the new chat's input disabled. Root cause: the chat UI's `busy` flag was module-scoped (per-WebSocket), not per-session — switching from a still-processing session A to a fresh session B inherited A's `busy = true`, so `send()` early-returned. **Fix (two-sided)**: (a) backend `_build_session_joined_ok` now includes `is_processing: bool` derived from `processing_lock.locked()`; (b) chat.js replaces the single `busy` flag with `inFlightSessions: Object.create(null)`, keyed by session id, and on every `session_joined` it syncs the current session's busy state from `data.is_processing`. Result: switching to a new chat correctly enables input; rejoining a still-running session correctly shows the spinner; rejoining a since-completed session correctly enables input.
+
 **Verification**:
-- `tests/test_ws_responsiveness.py` (NEW, 6 tests): lazy lock creation, second-message-waits, exception suppression, task self-discard, restore-skip-when-locked, restore-rebuilds-when-unlocked.
+- `tests/test_ws_responsiveness.py` (NEW, 9 tests): lazy lock creation, second-message-waits, exception suppression, task self-discard, restore-skip-when-locked, restore-rebuilds-when-unlocked, is_processing reports false (lock unheld), is_processing reports false (lock None), is_processing reports true (lock held).
 - Live smoke 1: with `sleep 200` (120s clipped) in flight, `list_sessions` over the same WebSocket replied in **0.02s**.
-- Live smoke 2: rejoining the in-flight session via `join` returned `history` with the user message + tool_call event (was blank before the Part 2 fix).
-- Full unit suite: 831 passed (was 825; +6 net).
+- Live smoke 2: rejoining the in-flight session via `join` returned `history` with the user message + tool_call event.
+- Live smoke 3: full per-session flow — A starts un-busy → submits → B fresh un-busy → B completes in 0.75s while A still running → rejoin A correctly shows `is_processing=true` with intact history.
+- Full unit suite: 834 passed (was 825; +9 net).
 
 **Pre-existing condition** (predates F4 — `git log -L` traces `_process_and_broadcast` invocation back to `09bd91f`). F4 didn't introduce the bug; it just made it more visible because the new 120s timeout cap turned previously-unbounded sleeps into deterministic 2-minute UI hangs.
 

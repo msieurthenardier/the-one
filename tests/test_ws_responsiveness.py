@@ -268,6 +268,39 @@ class TestRestoreSkipsRebuildDuringInflight:
             _sessions.pop(s.id, None)
 
 
+class TestSessionJoinedReportsIsProcessing:
+    """`_build_session_joined_ok` payload includes `is_processing` so the
+    UI can sync per-session busy state on join (server is the ground
+    truth — `processing_lock.locked()`)."""
+
+    async def test_is_processing_false_when_lock_unheld(self) -> None:
+        from the_one.interfaces.web.app import _build_session_joined_ok
+
+        s = _make_session("idle-sess")
+        s.processing_lock = asyncio.Lock()  # not held
+        payload = _build_session_joined_ok(s)
+        assert payload["is_processing"] is False
+
+    async def test_is_processing_false_when_lock_is_none(self) -> None:
+        """Sessions that have never seen a message have `processing_lock=None`
+        (lazy creation). Payload reports False."""
+        from the_one.interfaces.web.app import _build_session_joined_ok
+
+        s = _make_session("never-used")
+        assert s.processing_lock is None
+        payload = _build_session_joined_ok(s)
+        assert payload["is_processing"] is False
+
+    async def test_is_processing_true_when_lock_held(self) -> None:
+        from the_one.interfaces.web.app import _build_session_joined_ok
+
+        s = _make_session("busy-sess")
+        s.processing_lock = asyncio.Lock()
+        async with s.processing_lock:
+            payload = _build_session_joined_ok(s)
+            assert payload["is_processing"] is True
+
+
 @pytest.fixture(autouse=True)
 async def _drain_inflight() -> None:
     """Cancel any leaked tasks between tests so one test doesn't poison

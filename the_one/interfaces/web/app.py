@@ -376,7 +376,17 @@ async def _save_session_to_db(session: Session) -> None:
 
 
 def _build_session_joined_ok(session: Session) -> dict[str, Any]:
-    """Build a session_joined payload for a healthy in-memory session."""
+    """Build a session_joined payload for a healthy in-memory session.
+
+    `is_processing` reflects whether a turn is currently in flight on
+    this session — the client uses it to size the send-button enabled
+    state and the thinking indicator on rejoin (otherwise switching
+    away from an in-flight session and back leaves the UI's per-WS
+    busy flag stale).
+    """
+    is_processing = bool(
+        session.processing_lock is not None and session.processing_lock.locked()
+    )
     return {
         "type": "session_joined",
         "session_id": session.id,
@@ -384,6 +394,7 @@ def _build_session_joined_ok(session: Session) -> dict[str, Any]:
         "title": session.title,
         "agent_name": session.agent_name,
         "history": session.history,
+        "is_processing": is_processing,
     }
 
 
