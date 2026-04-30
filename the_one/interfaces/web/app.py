@@ -268,6 +268,23 @@ async def _restore_session(session_id: str) -> RestoredSession:
         _sessions.pop(session_id, None)
         return RestoredSession(None, SESSION_STATUS_NOT_FOUND, None)
 
+    # If a message is actively being processed on this session, skip the
+    # rebuild: the in-memory `Session.agent`/`history` are mid-mutation by
+    # the spawned task, and the DB snapshot is stale (the user's message
+    # and any in-flight assistant chunks haven't been persisted yet).
+    # Replacing history with the empty DB snapshot would render the chat
+    # blank on rejoin (bug surfaced post-F4 HAT). The "rebind agent for
+    # config edits" property of restore is intentionally suspended for the
+    # duration of the in-flight turn — the next join after the turn
+    # completes will pick up any config edits as before.
+    cached = _sessions.get(session_id)
+    if (
+        cached is not None
+        and cached.processing_lock is not None
+        and cached.processing_lock.locked()
+    ):
+        return RestoredSession(cached, SESSION_STATUS_OK, db_session)
+
     factory = _get_factory()
     agent_name_for_factory = db_session.agent_name or "default"
     try:

@@ -360,17 +360,23 @@ Flight in progress. 10 legs planned (L1a, L1b, L2, L3, L4, L5a, L5b, L6, L7-HAT,
 
 **Root cause**: `the_one/interfaces/web/app.py:780` (pre-fix) did `await _process_and_broadcast(...)` synchronously inside the WebSocket receive loop. While the agent's tool call ran, the loop could not call `await ws.receive_text()` again, so any subsequent action over the same WebSocket (`join`, `list_sessions`, `new_session`) queued in the kernel buffer until the in-flight reply chain completed.
 
-**Resolution (committed on F4 branch)**:
+**Resolution (committed on F4 branch in two commits)**:
+
+*Part 1 — unblock the receive loop:*
 - New `_spawn_message_processing(...)` wrapper creates an `asyncio.Task` per submitted message; the receive loop is no longer blocked.
 - New `Session.processing_lock` (lazy `asyncio.Lock`) serializes successive messages on the same session (avoids `agent.messages` race); a second message politely waits.
 - Module-level `_inflight_tasks: set[asyncio.Task]` tracks live tasks; FastAPI's `lifespan` teardown cancels them.
 - Errors inside the spawned task are caught and broadcast to the session's subscribers as a `system` event.
 - HTTP `POST /api/chat` is unchanged — callers expect a synchronous result.
 
+*Part 2 — preserve in-memory history across rejoin:*
+After Part 1 shipped, the operator surfaced a follow-up bug: rejoining the still-running session via `join` returned an empty chat. Root cause: `_restore_session` (`the_one/interfaces/web/app.py:250`) always rebuilt the agent and replaced `existing.history = ui_events` from the DB, but the user's just-submitted message + in-flight assistant chunks weren't yet persisted. **Fix**: `_restore_session` short-circuits to the cached in-memory session when its `processing_lock` is held. The rebuild's purpose (rebind agent for config edits) is intentionally suspended for the duration of the in-flight turn; the next join after completion picks up config edits as before.
+
 **Verification**:
-- `tests/test_ws_responsiveness.py` (NEW, 4 tests): lazy lock creation, second-message-waits, exception suppression, task self-discard.
-- Live smoke: with a `sleep 200` (120s clipped) in flight, `list_sessions` over the same WebSocket replied in **0.02s** (was previously blocked ~120s).
-- Full unit suite: 829 passed (was 825; +4 net).
+- `tests/test_ws_responsiveness.py` (NEW, 6 tests): lazy lock creation, second-message-waits, exception suppression, task self-discard, restore-skip-when-locked, restore-rebuilds-when-unlocked.
+- Live smoke 1: with `sleep 200` (120s clipped) in flight, `list_sessions` over the same WebSocket replied in **0.02s**.
+- Live smoke 2: rejoining the in-flight session via `join` returned `history` with the user message + tool_call event (was blank before the Part 2 fix).
+- Full unit suite: 831 passed (was 825; +6 net).
 
 **Pre-existing condition** (predates F4 — `git log -L` traces `_process_and_broadcast` invocation back to `09bd91f`). F4 didn't introduce the bug; it just made it more visible because the new 120s timeout cap turned previously-unbounded sleeps into deterministic 2-minute UI hangs.
 

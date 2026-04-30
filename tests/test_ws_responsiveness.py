@@ -160,6 +160,114 @@ class TestProcessingLock:
             app_module._process_and_broadcast = original  # type: ignore[assignment]
 
 
+class TestRestoreSkipsRebuildDuringInflight:
+    """Regression: rejoining a session that's actively processing must
+    NOT clobber the in-memory `Session.agent`/`history` with a stale DB
+    snapshot.
+
+    Before the fix, `_restore_session` always rebuilt the agent and
+    replaced `history = ui_events_from_db`. The user's just-submitted
+    message is in memory but not persisted yet → rebuilding rendered
+    the chat blank on rejoin during a long tool call.
+
+    After the fix, `_restore_session` short-circuits to the cached
+    session if its `processing_lock` is held.
+    """
+
+    async def test_rebuild_skipped_when_lock_held(self) -> None:
+        from the_one.interfaces.web import app as app_module
+        from the_one.interfaces.web.app import _restore_session, _sessions
+
+        s = _make_session("locked-sess")
+        s.processing_lock = asyncio.Lock()
+        s.history = [{"type": "user", "content": "hi"}]
+        _sessions[s.id] = s
+
+        # Stub repo + factory to detect whether the rebuild path runs.
+        rebuild_invoked = False
+
+        class FakeRepo:
+            async def get(self, _sid):
+                # Returns a minimal db_session-shaped object.
+                from the_one.db.models import ChatSession as ChatSessionModel
+                return ChatSessionModel(
+                    id=s.id, agent_name=None, title="Old",
+                    messages="[]", created_at="2020-01-01T00:00:00",
+                    updated_at="2020-01-01T00:00:00",
+                )
+
+        async def fake_chat_repo():
+            return FakeRepo()
+
+        class FakeFactory:
+            async def create(self, _name):
+                nonlocal rebuild_invoked
+                rebuild_invoked = True
+                return _FakeAgent()
+
+        original_repo = app_module._chat_repo
+        original_get_factory = app_module._get_factory
+        app_module._chat_repo = fake_chat_repo  # type: ignore[assignment]
+        app_module._get_factory = lambda: FakeFactory()  # type: ignore[assignment]
+        try:
+            async with s.processing_lock:
+                restored = await _restore_session(s.id)
+            assert restored.session is s
+            assert restored.session.history == [{"type": "user", "content": "hi"}]
+            assert not rebuild_invoked, (
+                "factory.create should NOT run while processing_lock is held"
+            )
+        finally:
+            app_module._chat_repo = original_repo  # type: ignore[assignment]
+            app_module._get_factory = original_get_factory  # type: ignore[assignment]
+            _sessions.pop(s.id, None)
+
+    async def test_rebuild_runs_when_lock_unheld(self) -> None:
+        """Rebuild path must still run for normal joins (config-edit
+        propagation is the original purpose)."""
+        from the_one.interfaces.web import app as app_module
+        from the_one.interfaces.web.app import _restore_session, _sessions
+
+        s = _make_session("unlocked-sess")
+        s.processing_lock = asyncio.Lock()  # exists but not held
+        s.history = [{"type": "user", "content": "old"}]
+        _sessions[s.id] = s
+
+        rebuild_invoked = False
+
+        class FakeRepo:
+            async def get(self, _sid):
+                from the_one.db.models import ChatSession as ChatSessionModel
+                return ChatSessionModel(
+                    id=s.id, agent_name=None, title="DBTitle",
+                    messages="[]", created_at="2020-01-01T00:00:00",
+                    updated_at="2020-01-01T00:00:00",
+                )
+
+        async def fake_chat_repo():
+            return FakeRepo()
+
+        class FakeFactory:
+            async def create(self, _name):
+                nonlocal rebuild_invoked
+                rebuild_invoked = True
+                return _FakeAgent()
+
+        original_repo = app_module._chat_repo
+        original_get_factory = app_module._get_factory
+        app_module._chat_repo = fake_chat_repo  # type: ignore[assignment]
+        app_module._get_factory = lambda: FakeFactory()  # type: ignore[assignment]
+        try:
+            restored = await _restore_session(s.id)
+            assert restored.session is s
+            assert rebuild_invoked, "factory.create should run for non-processing rejoins"
+            assert restored.session.title == "DBTitle"
+        finally:
+            app_module._chat_repo = original_repo  # type: ignore[assignment]
+            app_module._get_factory = original_get_factory  # type: ignore[assignment]
+            _sessions.pop(s.id, None)
+
+
 @pytest.fixture(autouse=True)
 async def _drain_inflight() -> None:
     """Cancel any leaked tasks between tests so one test doesn't poison
