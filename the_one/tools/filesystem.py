@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from enum import Enum
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -12,6 +13,20 @@ from the_one.tools.base import (  # noqa: F401  (ConstraintError re-export for b
     Tool,
 )
 from the_one.tools.resolver import Narrow, NarrowPrefix, NarrowSuperset
+
+
+class CheckMode(str, Enum):
+    """Dispatch mode for `_filesystem_check`. F5 L0 unification of
+    F3's read/write-parent/write-path helpers + F4's ``_cwd_check``.
+
+    The four modes have genuinely divergent post-canonicalize shapes
+    — see the dispatcher implementation. ``str`` mixin allows
+    ergonomic test asserts like ``mode == "read"``."""
+
+    READ = "read"  # scope only on canonicalize(path)
+    WRITE_NEW = "write_new"  # scope on canonicalize(parent)/leaf, re-canonicalized
+    WRITE_EXISTING_PARENT = "write_existing_parent"  # WRITE_NEW + parent.exists()
+    DIRECTORY = "directory"  # READ + is_dir()
 
 DEFAULT_PATH_DENYLIST: tuple[str, ...] = (
     # System secrets / credentials (8)
@@ -120,20 +135,68 @@ def _is_descendant(path: Path, root: Path) -> bool:
         return False
 
 
-def _filesystem_check(path: str | Path, cfg: FilesystemConfig) -> Path:
-    """Canonicalize ``path`` and verify it is within ``cfg.path_allowlist``
-    and not within ``cfg.path_denylist``. Returns the canonical Path on
-    success.
+def _filesystem_check(
+    path: str | Path,
+    cfg: FilesystemConfig,
+    mode: CheckMode = CheckMode.READ,
+) -> Path:
+    """Canonicalize ``path`` against ``cfg.path_allowlist``/``path_denylist``
+    and run the mode's post-check. Returns the canonical Path on success.
+
+    F5 L0 unified dispatcher — replaces the previous trio of
+    ``_filesystem_check`` (READ), ``_filesystem_check_write_parent``
+    (WRITE_EXISTING_PARENT), ``_filesystem_check_write_path`` (WRITE_NEW)
+    plus F4's ``_cwd_check`` (DIRECTORY). The two-arg call form
+    (``_filesystem_check(path, cfg)``) preserves identical READ behavior,
+    so the 7+ existing call sites in ``the_one/tools/`` need no changes.
+
+    Modes:
+        - READ: scope check on ``canonicalize(path)``. No existence check.
+        - WRITE_NEW: scope check on ``canonicalize(canonical_parent / leaf)``
+          (parent canonicalized first, leaf composed, then re-canonicalized
+          so a leaf-symlink-to-out-of-scope is rejected). Parent may not
+          exist. Use for ``write_file``/``mkdir`` (caller mkdirs intermediates).
+        - WRITE_EXISTING_PARENT: WRITE_NEW + assert parent exists. Raises
+          ``FileNotFoundError`` (NOT ``ConstraintError``) on missing parent
+          — environmental error distinct from policy refusal. Use for
+          ``move_file`` destination, ``edit_file`` write-back.
+        - DIRECTORY: scope check on ``canonicalize(path)`` + assert
+          ``canonical.is_dir()``. Use for cwd validation in execution tools.
 
     Raises:
-        ConstraintError: if the canonical path is outside every allowlist
-            root, OR equal-to-or-descendant of any denylist root.
+        ConstraintError: scope refusal (allowlist-fail or denylist-hit).
+            Always checked FIRST so a hostile prompt cannot learn whether
+            out-of-scope paths exist.
+        FileNotFoundError: WRITE_EXISTING_PARENT mode only, when parent
+            is in-scope but does not exist.
 
     Symlinks: ``canonicalize`` calls ``Path.resolve``, which follows
     symlinks. A symlink pointing outside the allowlist is therefore
     detected as out-of-scope (the symlink target's canonical form is
-    used in the comparison)."""
-    canonical = canonicalize(path)
+    used in the comparison). For WRITE_* modes, the second canonicalize
+    pass on the composed path is what catches a leaf-symlink whose
+    target lies out of scope."""
+    p = Path(path).expanduser()
+
+    # Canonicalize per mode shape. For WRITE_* modes, canonicalize the
+    # PARENT first (handles non-existent leafs lexically), compose with
+    # the leaf, then re-canonicalize the composed path. The second
+    # canonicalize is required to resolve a leaf that IS an existing
+    # symlink (otherwise a symlink to an out-of-scope target slips past
+    # the scope check). This matches F3's pre-L0 behavior — the legacy
+    # ``_filesystem_check_write_parent``/``_filesystem_check_write_path``
+    # both delegated to ``_filesystem_check(composed, cfg)`` and got the
+    # second resolve for free.
+    if mode in (CheckMode.WRITE_NEW, CheckMode.WRITE_EXISTING_PARENT):
+        canonical_parent = canonicalize(p.parent)
+        canonical = canonicalize(canonical_parent / p.name)
+    else:  # READ, DIRECTORY
+        canonical_parent = None
+        canonical = canonicalize(p)
+
+    # Scope check (allowlist + denylist) — same across all modes,
+    # checked FIRST to avoid leaking filesystem layout for out-of-scope
+    # paths.
     in_allowlist = any(
         canonical == r or _is_descendant(canonical, r) for r in cfg._canonical_allowlist
     )
@@ -142,64 +205,46 @@ def _filesystem_check(path: str | Path, cfg: FilesystemConfig) -> Path:
     for deny in cfg._canonical_denylist:
         if canonical == deny or _is_descendant(canonical, deny):
             raise ConstraintError(f"path '{canonical}' inside denylist '{deny}'")
+
+    # Mode-specific post-check.
+    if mode == CheckMode.WRITE_EXISTING_PARENT:
+        # ``canonical_parent`` is always set in this branch (set above
+        # when mode is WRITE_NEW or WRITE_EXISTING_PARENT). Guard
+        # explicitly rather than via ``assert`` so behavior is identical
+        # under ``python -O`` (which strips asserts).
+        if canonical_parent is None:
+            raise RuntimeError(
+                "unreachable: canonical_parent unset in WRITE_EXISTING_PARENT"
+            )
+        if not canonical_parent.exists():
+            raise FileNotFoundError(
+                f"parent does not exist for path '{path}': {canonical_parent}"
+            )
+    elif mode == CheckMode.DIRECTORY:
+        if not canonical.is_dir():
+            # ``Path.is_dir()`` returns False for both nonexistent and
+            # non-directory paths; the combined wording is the F4 contract
+            # downstream agents depend on — DO NOT change.
+            raise ConstraintError(
+                f"cwd '{canonical}' does not exist or is not a directory"
+            )
+    # READ and WRITE_NEW have no post-check.
+
     return canonical
 
 
 def _filesystem_check_write_parent(path: str | Path, cfg: FilesystemConfig) -> Path:
-    """For write operations whose target may not exist: canonicalize the
-    PARENT and verify it is in scope; then compose the leaf with the
-    canonical parent.
-
-    Raises:
-        ConstraintError: if the canonical-parent + leaf composition is
-            outside scope (allowlist-fail or denylist-hit). **Checked
-            first** — a hostile prompt cannot learn whether out-of-scope
-            paths exist.
-        FileNotFoundError: if the parent is in scope but does not exist
-            (environmental error — distinct from ConstraintError so tool
-            wrappers can format the two differently). Message includes
-            the original path the agent passed AND the canonical parent.
-
-    The leaf is intentionally NOT required to exist — `write_file`,
-    `mkdir`, `move_file` (destination), and `edit_file`'s write-back
-    pass through this helper.
-
-    Order rationale: `canonicalize` with `Path.resolve(strict=False)` is
-    lexical for non-existent targets, so it always succeeds. Running the
-    composed path through `_filesystem_check` BEFORE the existence check
-    prevents leaking filesystem-layout information for paths the
-    operator never permitted."""
-    p = Path(path).expanduser()
-    canonical_parent = canonicalize(p.parent)
-    composed = canonical_parent / p.name
-    # Scope check FIRST — for out-of-scope paths the agent learns only
-    # "outside allowlist" / "inside denylist", never whether the path
-    # exists.
-    result = _filesystem_check(composed, cfg)
-    # Existence check SECOND — only fires for in-scope-but-missing
-    # parents, which the operator already permitted access to.
-    if not canonical_parent.exists():
-        raise FileNotFoundError(f"parent does not exist for path '{path}': {canonical_parent}")
-    return result
+    """Shim — calls ``_filesystem_check(path, cfg, CheckMode.WRITE_EXISTING_PARENT)``.
+    Preserved so external imports (tests, future tools) keep resolving
+    after the F5 L0 unification."""
+    return _filesystem_check(path, cfg, CheckMode.WRITE_EXISTING_PARENT)
 
 
 def _filesystem_check_write_path(path: str | Path, cfg: FilesystemConfig) -> Path:
-    """For write operations whose target may not exist AND whose parent
-    may also not exist (the caller will ``mkdir(parents=True)``):
-    canonicalize the parent lexically (no existence check), compose with
-    the leaf, and run the composition through ``_filesystem_check``.
-
-    Raises:
-        ConstraintError: if the composed path is outside scope.
-
-    Use for ``write_file`` (auto-creates intermediates) and for L5's
-    ``MkdirTool``. Use ``_filesystem_check_write_parent`` for
-    ``move_file`` (destination's parent must already exist) or
-    ``edit_file``'s write-back, where the parent is required to exist."""
-    p = Path(path).expanduser()
-    canonical_parent = canonicalize(p.parent)
-    composed = canonical_parent / p.name
-    return _filesystem_check(composed, cfg)
+    """Shim — calls ``_filesystem_check(path, cfg, CheckMode.WRITE_NEW)``.
+    Preserved so external imports (tests, future tools) keep resolving
+    after the F5 L0 unification."""
+    return _filesystem_check(path, cfg, CheckMode.WRITE_NEW)
 
 
 def _check_read_size(path: Path, cfg: FilesystemConfig) -> int:

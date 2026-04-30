@@ -39,5 +39,13 @@ class ToolProvider(Protocol):
         keyed on ``(agent_name, session_id)``. NOT an adversarial separator —
         agents trust the operator's tool-level policy boundary. Defaults to
         ``None`` for introspection callers (e.g. ``/api/tools``).
+
+        The provider's per-call ``cross_configs`` view (passed into each
+        tool's ``__init__``) carries two categories of entries (F5 L6):
+        Pydantic-keyed Config entries (frozen models — F4 L1b shape) and
+        Protocol-keyed service entries (e.g. ``SearchBackend`` mapped to a
+        per-call ``DDGSearchBackend()`` instance). The widening is
+        non-breaking for ``isinstance(provider, ToolProvider)`` checks
+        because ``runtime_checkable`` Protocols only validate method names.
         """
         ...

@@ -51,16 +51,16 @@ class TestBuiltinToolProviderL3:
         provider = BuiltinToolProvider()
         zero_arg = provider.get_tools()
         explicit_none = provider.get_tools(tool_configs=None, agent_overrides=None)
-        # Same shape: 17 tools, same names, in the same order.
+        # Same shape: 19 tools, same names, in the same order.
         assert [t.name for t in zero_arg] == [t.name for t in explicit_none]
-        assert len(zero_arg) == 17
+        assert len(zero_arg) == 19
 
     def test_empty_dicts_go_through_factory_path(self) -> None:
         # Both args are non-None empty dicts → factory path. Each tool's
-        # Config resolves to the empty default; result still has 17 tools.
+        # Config resolves to the empty default; result still has 19 tools.
         provider = BuiltinToolProvider()
         tools = provider.get_tools({}, {})
-        assert len(tools) == 17
+        assert len(tools) == 19
         names = {t.name for t in tools}
         assert names == {
             "shell",
@@ -79,6 +79,8 @@ class TestBuiltinToolProviderL3:
             "shell_session_close",
             "shell_session_list",
             "http_request",
+            "fetch_url",
+            "download_file",
             "web_search",
         }
 
@@ -100,12 +102,12 @@ class TestBuiltinToolProviderL3:
             assert ta is not tb, f"singleton leaked for {ta.name}"
 
     def test_unknown_tool_name_in_overrides_silently_ignored(self) -> None:
-        # An unknown tool name in agent_overrides must not raise; the 17
+        # An unknown tool name in agent_overrides must not raise; the 19
         # known tools are still instantiated. Mirrors the v7
         # enabled_tools/disabled_tools strip semantic.
         provider = BuiltinToolProvider()
         tools = provider.get_tools(None, {"nonexistent_tool": {"foo": "bar"}})
-        assert len(tools) == 17
+        assert len(tools) == 19
         names = {t.name for t in tools}
         assert "nonexistent_tool" not in names
 
@@ -202,32 +204,52 @@ class TestBuiltinToolProviderL1b:
         assert fixture._agent_name == "alpha"
 
     def test_cross_configs_skips_empty_config(self) -> None:
-        # Tools with the inherited `_EmptyConfig` default (post-L4: only the
-        # web tools — `http_request`, `web_search`) must NOT contribute an
-        # entry to cross_configs — the per-call view collapses empties so
-        # cross-Config consumers don't see noise.
+        # Tools with the inherited `_EmptyConfig` default must NOT contribute
+        # an entry to cross_configs — the per-call view collapses empties so
+        # cross-Config consumers don't see noise. Post-F5-L6 ALL of the 19
+        # built-in tools have a non-empty Config (`WebSearchTool` migrated
+        # from `_EmptyConfig` to `WebConfig` in F5 L6); the assertion still
+        # holds defensively against future tools that may inherit the empty
+        # default.
         from the_one.tools.resolver import _EmptyConfig
 
         tools = BuiltinToolProvider().get_tools({}, {})
         for tool in tools:
             assert _EmptyConfig not in tool._cross_configs
 
-    def test_cross_configs_contains_three_distinct_configs(self) -> None:
-        """Lock the post-L4 dispatch shape: the per-call ``cross_configs``
-        view contains EXACTLY ``{FilesystemConfig, ExecutionConfig,
-        PythonExecConfig}`` — three distinct Config types from
-        ``_TOOL_CLASSES``. ``_EmptyConfig`` (web tools) is skipped;
-        ``PythonExecConfig`` (a subclass of ``ExecutionConfig``) is a
-        DISTINCT key from its parent (the resolver dispatch layer treats
-        them as independent Config types). Guards against future drift if
-        a new Config sneaks in or one of these gets removed."""
+    def test_cross_configs_contains_expected_entries(self) -> None:
+        """Lock the post-F5-L6 dispatch shape: the per-call ``cross_configs``
+        view contains FIVE entries — four Pydantic-keyed Configs
+        (``{FilesystemConfig, ExecutionConfig, PythonExecConfig, WebConfig}``)
+        plus one Protocol-keyed service (``SearchBackend``).
+
+        ``_EmptyConfig`` is skipped; ``PythonExecConfig`` (a subclass of
+        ``ExecutionConfig``) is a DISTINCT key from its parent (the
+        resolver dispatch layer treats them as independent Config types);
+        ``WebConfig`` entered the set with F5 L2 (``HttpRequestTool``
+        migration); ``SearchBackend`` enters with F5 L6 (``WebSearchTool``
+        migration). The Protocol-keyed entry coexists with the
+        Pydantic-keyed entries thanks to F5 L6's ``cross_configs`` type
+        widening from ``dict[type[BaseModel], BaseModel]`` to
+        ``dict[type, object]``.
+
+        Guards against future drift if a new Config / service sneaks in or
+        one of these gets removed."""
+        from the_one.tools._search_backends import SearchBackend
+        from the_one.tools._web_config import WebConfig
         from the_one.tools.execution import ExecutionConfig, PythonExecConfig
 
         tools = BuiltinToolProvider().get_tools({}, {})
         # All tools share one cross_configs dict by reference; sample tool[0].
         cross_configs = tools[0]._cross_configs
-        assert set(cross_configs.keys()) == {
+        expected_keys = {
             FilesystemConfig,
             ExecutionConfig,
             PythonExecConfig,
+            WebConfig,
+            SearchBackend,
         }
+        assert expected_keys <= set(cross_configs.keys())
+        # Ensure no unexpected drift either — the post-F5-L6 view is exactly
+        # these five entries.
+        assert set(cross_configs.keys()) == expected_keys
