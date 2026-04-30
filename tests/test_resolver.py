@@ -8,8 +8,14 @@ from typing import Annotated
 import pytest
 from pydantic import BaseModel, Field, ValidationError
 
-from the_one.tools.resolver import Narrow, Substitute, _EmptyConfig, resolve
-
+from the_one.tools.resolver import (
+    Narrow,
+    NarrowPrefix,
+    NarrowSuperset,
+    Substitute,
+    _EmptyConfig,
+    resolve,
+)
 
 # ---------------------------------------------------------------------------
 # Fixture configs
@@ -50,6 +56,42 @@ class StrNarrowCfg(BaseModel):
 
 class FieldPlusMarkerCfg(BaseModel):
     cap: Annotated[int, Field(description="x"), Narrow] = 100
+
+
+class PrefixCfg(BaseModel):
+    paths: Annotated[list[str], NarrowPrefix] = []
+
+
+class SupersetCfg(BaseModel):
+    deny: Annotated[list[str], NarrowSuperset] = []
+
+
+class PrefixOnIntCfg(BaseModel):
+    cap: Annotated[int, NarrowPrefix] = 100  # type-mismatch fixture
+
+
+class SupersetOnIntCfg(BaseModel):
+    cap: Annotated[int, NarrowSuperset] = 100
+
+
+class NarrowPlusPrefixCfg(BaseModel):
+    bad: Annotated[list[str], Narrow, NarrowPrefix] = []
+
+
+class PrefixPlusSupersetCfg(BaseModel):
+    bad: Annotated[list[str], NarrowPrefix, NarrowSuperset] = []
+
+
+class PrefixPlusSubstituteCfg(BaseModel):
+    bad: Annotated[list[str], NarrowPrefix, Substitute] = []
+
+
+class SupersetPlusSubstituteCfg(BaseModel):
+    bad: Annotated[list[str], NarrowSuperset, Substitute] = []
+
+
+class NarrowPlusSupersetCfg(BaseModel):
+    bad: Annotated[list[str], Narrow, NarrowSuperset] = []
 
 
 # ---------------------------------------------------------------------------
@@ -121,9 +163,7 @@ class TestNarrowInt:
 
 class TestNarrowList:
     def test_narrow_subset(self) -> None:
-        result = resolve(
-            ListCfg, {"paths": ["/home", "/tmp"]}, {"paths": ["/home"]}
-        )
+        result = resolve(ListCfg, {"paths": ["/home", "/tmp"]}, {"paths": ["/home"]})
         assert result.paths == ["/home"]
 
     def test_narrow_subset_unhashable(self) -> None:
@@ -196,9 +236,11 @@ class TestMarkerErrors:
         assert "no Narrow/Substitute marker" in str(exc.value)
 
     def test_both_markers_raises(self) -> None:
+        # L1 reworked the error message to enumerate all four markers; class
+        # remains ValueError (no exception-class promotion).
         with pytest.raises(ValueError) as exc:
             resolve(BothMarkersCfg, {"bad": 0}, {"bad": 5})
-        assert "both Narrow and Substitute" in str(exc.value)
+        assert "multiple narrow/substitute" in str(exc.value)
 
     def test_narrow_on_str_raises_not_implemented(self) -> None:
         with pytest.raises(NotImplementedError) as exc:
@@ -209,9 +251,7 @@ class TestMarkerErrors:
         # Verifies the resolver finds the marker alongside `FieldInfo`
         # metadata (the `m is Narrow` identity check works regardless of
         # other entries in field_info.metadata).
-        result = resolve(
-            FieldPlusMarkerCfg, {"cap": 50}, {"cap": 30}
-        )
+        result = resolve(FieldPlusMarkerCfg, {"cap": 50}, {"cap": 30})
         assert result.cap == 30
 
 
@@ -249,3 +289,97 @@ class TestPydanticInteraction:
     def test_unknown_key_in_tool_config_silently_dropped(self) -> None:
         result = resolve(IntCfg, {"cap": 50, "unknown_tool_key": 999}, None)
         assert result.cap == 50
+
+
+# ---------------------------------------------------------------------------
+# NarrowPrefix
+# ---------------------------------------------------------------------------
+
+
+class TestNarrowPrefix:
+    """`NarrowPrefix` non-list type-error uses NotImplementedError to match
+    F2's Narrow-on-str precedent (resolver.py:116). Test for it accordingly."""
+
+    def test_happy_descendant(self) -> None:
+        result = resolve(PrefixCfg, {"paths": ["/home/u"]}, {"paths": ["/home/u/projects"]})
+        assert result.paths == ["/home/u/projects"]
+
+    def test_happy_equal_to_root(self) -> None:
+        result = resolve(PrefixCfg, {"paths": ["/home/u"]}, {"paths": ["/home/u"]})
+        assert result.paths == ["/home/u"]
+
+    def test_happy_multi_root_match(self) -> None:
+        # agent path /home/u/x is descendant of one of the two tool roots.
+        result = resolve(
+            PrefixCfg,
+            {"paths": ["/home/u", "/var/data"]},
+            {"paths": ["/home/u/x"]},
+        )
+        assert result.paths == ["/home/u/x"]
+
+    def test_widen_outside_any_root_raises(self) -> None:
+        with pytest.raises(ValueError) as exc:
+            resolve(PrefixCfg, {"paths": ["/home/u"]}, {"paths": ["/etc"]})
+        assert "widens" in str(exc.value)
+        assert "not within" in str(exc.value)
+
+    def test_non_list_raises_not_implemented(self) -> None:
+        with pytest.raises(NotImplementedError) as exc:
+            resolve(PrefixOnIntCfg, {"cap": 100}, {"cap": 50})
+        assert "non-list" in str(exc.value)
+
+
+# ---------------------------------------------------------------------------
+# NarrowSuperset
+# ---------------------------------------------------------------------------
+
+
+class TestNarrowSuperset:
+    """`NarrowSuperset` membership uses raw == on values; canonicalization is
+    consumer-side. Non-list type-error uses NotImplementedError, matching
+    F2's Narrow-on-str precedent."""
+
+    def test_happy_agent_superset(self) -> None:
+        result = resolve(SupersetCfg, {"deny": ["/etc"]}, {"deny": ["/etc", "/proc"]})
+        assert result.deny == ["/etc", "/proc"]
+
+    def test_happy_equal(self) -> None:
+        result = resolve(SupersetCfg, {"deny": ["/etc"]}, {"deny": ["/etc"]})
+        assert result.deny == ["/etc"]
+
+    def test_widen_drops_tool_entry_raises(self) -> None:
+        with pytest.raises(ValueError) as exc:
+            resolve(
+                SupersetCfg,
+                {"deny": ["/etc", "/proc"]},
+                {"deny": ["/etc"]},  # missing /proc — narrows the denylist
+            )
+        assert "widens" in str(exc.value)
+        assert "/proc" in str(exc.value)
+
+    def test_non_list_raises_not_implemented(self) -> None:
+        with pytest.raises(NotImplementedError) as exc:
+            resolve(SupersetOnIntCfg, {"cap": 100}, {"cap": 50})
+        assert "non-list" in str(exc.value)
+
+
+# ---------------------------------------------------------------------------
+# Mutual exclusion across the four markers
+# ---------------------------------------------------------------------------
+
+
+class TestMutualExclusion:
+    @pytest.mark.parametrize(
+        "schema",
+        [
+            NarrowPlusPrefixCfg,
+            NarrowPlusSupersetCfg,
+            PrefixPlusSupersetCfg,
+            PrefixPlusSubstituteCfg,
+            SupersetPlusSubstituteCfg,
+        ],
+    )
+    def test_multi_marker_rejected(self, schema: type[BaseModel]) -> None:
+        with pytest.raises(ValueError) as exc:
+            resolve(schema, {"bad": []}, {"bad": []})
+        assert "multiple narrow/substitute" in str(exc.value)

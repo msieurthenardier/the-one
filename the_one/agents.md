@@ -79,7 +79,7 @@ Providers are lazy-loaded on first `get_provider(name)` call. Each converts mess
 | `base.py` | `Tool`, `ToolRegistry` | Tool ABC (`Config: type[BaseModel]`, `__init__(config)`, `execute(**kwargs) -> str`) and registry |
 | `provider.py` | `ToolProvider` | Protocol: `name` property + `get_tools(tool_configs=None, agent_overrides=None)` method |
 | `builtins.py` | `BuiltinToolProvider` | Per-agent instantiation of all 7 built-in tools via module-level `_TOOL_CLASSES` |
-| `resolver.py` | `Narrow`, `Substitute`, `resolve` | Tool policy resolver — composes tool-level + agent-level configs per per-key marker semantics |
+| `resolver.py` | `Narrow`, `NarrowPrefix`, `NarrowSuperset`, `Substitute`, `resolve` | Tool policy resolver — composes tool-level + agent-level configs per per-key marker semantics |
 | `shell.py` | `ShellTool` | Arbitrary shell commands |
 | `filesystem.py` | `ReadFileTool`, `WriteFileTool`, `ListDirTool` | File operations |
 | `python_exec.py` | `PythonExecTool` | Python subprocess execution |
@@ -169,6 +169,8 @@ Agents are defined as JSON files in `~/.the-one/agents/` (or rows in the SQLite 
 `the_one/tools/resolver.py` is a pure function: `resolve(schema, tool_config, agent_override) -> BaseModel`. It composes tool-level config (operator-set defaults persisted in the `tool_configs` SQLite table) with agent-level overrides (`AgentConfig.tool_overrides`) per per-key marker semantics declared on the tool's `Config` schema:
 
 - `Annotated[type, Narrow]` — agent override must not widen the tool value. Per-type comparisons: `bool` (True→False is narrowing), `int`/`float` (lower cap is narrowing), `list`/`tuple` (subset is narrowing). Other types raise `NotImplementedError` — the field author must declare per-tool semantics or use `Substitute`.
+- `Annotated[type, NarrowPrefix]` — agent override on a `list[str]` of paths is narrowing iff every agent entry is descendant-of (or equal to) at least one tool entry, checked via `the_one.platform.paths.is_within`. Used by `FilesystemConfig.path_allowlist`. Non-list values raise `NotImplementedError`.
+- `Annotated[type, NarrowSuperset]` — agent override on a `list[T]` is narrowing iff every tool entry is also in the agent value (agent ⊇ tool — agent adds restrictions). Used by `FilesystemConfig.path_denylist`. Membership uses raw `==` equality; canonicalization is consumer-side. Non-list values raise `NotImplementedError`.
 - `Annotated[type, Substitute]` — agent override replaces the tool value (no comparison). Used for identity / shared-credential / KV fields.
 
 Invoked once at agent build time inside `BuiltinToolProvider.get_tools(...)`; the resolved Config flows into the per-agent tool instance via `Tool.__init__(config)` and is held as `self._config`. Session-bound freshness contract (Decision 8): mid-session operator updates apply at the next `AgentFactory.create()` call. F2's seven tools have empty Configs (`Tool.Config = _EmptyConfig`) — F3-F5 introduce real constraint fields.
@@ -176,6 +178,26 @@ Invoked once at agent build time inside `BuiltinToolProvider.get_tools(...)`; th
 ### Continue Signal
 
 A virtual tool (`CONTINUE_SCHEMA`, defined inline in `core.py`) that the LLM calls to indicate it needs another iteration. Not a real tool — the agent loop intercepts it and loops.
+
+### Test conventions and schema metadata
+
+Tests monkeypatch built-in tool registration via
+`the_one.tools.builtins._TOOL_CLASSES` (module-level dict) — this is the
+supported seam; do NOT reach into `BuiltinToolProvider` internals.
+See `tests/CONVENTIONS.md` for the four established test patterns
+(asyncio_mode auto, monkeypatch.setenv HOME for tilde-expansion tests,
+httpx MockTransport `_install_mock` recursion-avoidance, kill+reap
+timeout-budget assertions).
+
+Pydantic Config schemas may declare UI-presentation hints via
+`Field(json_schema_extra={"ui_hint": "...", "ui_choices": [...]})`
+so the F6 admin form generator renders finite-set fields (e.g.,
+read-size cap, redirect cap) as dropdowns rather than free-form
+numeric inputs. The convention introduced in F3 Decision 11:
+`ui_hint` is the rendering strategy ("dropdown", future: "slider",
+"toggle"); `ui_choices` is a list of `{"value": ..., "label": ...}`
+dicts. F4-F6 should reuse the same metadata keys for any
+finite-value configuration field.
 
 ---
 

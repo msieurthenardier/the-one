@@ -99,8 +99,19 @@ For architecture internals, see `the_one/agents.md`.
 ### Resolver semantics
 `the_one/tools/resolver.py::resolve(schema, tool_config, agent_override)` composes the two layers per-key:
 - `Annotated[type, Narrow]`: agent override must be ≤ tool-level value (bool: True→False or equal; int/float: cap; list: subset). Widening raises `ValueError`.
+- `Annotated[type, NarrowPrefix]`: agent override on a `list[str]` of paths is narrowing iff every agent entry is a descendant-of (or equal to) at least one tool entry, checked via `the_one.platform.paths.is_within`. Used by `FilesystemConfig.path_allowlist`.
+- `Annotated[type, NarrowSuperset]`: agent override on a `list[T]` is narrowing iff every tool entry is also in the agent value (agent ⊇ tool — agent ADDS restrictions). Used by `FilesystemConfig.path_denylist`.
 - `Annotated[type, Substitute]`: agent override replaces tool-level value (no comparison). For identity / shared-credential / KV values.
-- Unannotated fields raise `ValueError("...no Narrow/Substitute marker...")` when overridden — F3-F5 must annotate every field they introduce.
+- Fields with multiple markers OR no marker raise `ValueError` on resolve. Markers are mutually exclusive — declare exactly one of `(Narrow, NarrowPrefix, NarrowSuperset, Substitute)`.
+
+### Filesystem constraint surface (F3)
+`the_one/tools/filesystem.py::FilesystemConfig` is the per-category Config shared by all 9 filesystem tools. Four fields:
+- `path_allowlist: list[str]` (NarrowPrefix) — default `["~"]`.
+- `path_denylist: list[str]` (NarrowSuperset) — default 19-entry curated list (system secrets, browser/app data, agent internals, system paths).
+- `read_size_cap_bytes: int` (Narrow) — default 1 MiB; bounds `[1024, 100 MB]`.
+- `allow_binary_files: bool` (Narrow) — default False; positively-named permission so resolver's True=permissive reading aligns.
+
+Policy refusals raise `ConstraintError`; tool wrappers format as `[error] [constraint] {msg}`. Environmental errors format as `[error] {e}` so agents can distinguish policy refusals from runtime failures.
 
 ### Session-bound freshness
 Resolved tool configs are computed at `AgentFactory.create()` time and held as instance state on each tool. Mid-session operator updates to `tool_configs` rows or `AgentConfig.tool_overrides` apply at the **next** `AgentFactory.create()` invocation, NOT to in-flight agents. F6's admin UI must communicate "applies to next session" clearly.
