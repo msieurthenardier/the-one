@@ -352,6 +352,30 @@ Flight in progress. 10 legs planned (L1a, L1b, L2, L3, L4, L5a, L5b, L6, L7-HAT,
 
 ## Anomalies
 
+### Chat WebSocket blocks during long tool calls (post-flight fix)
+
+**Observed (post-flight)**: operator noticed during HAT scenario 1 that switching conversations in the UI did nothing while the `sleep 200` tool call was running; the UI became responsive only once the 120s clip fired and the tool returned.
+
+**Severity**: degraded UX (long-standing); actionable.
+
+**Root cause**: `the_one/interfaces/web/app.py:780` (pre-fix) did `await _process_and_broadcast(...)` synchronously inside the WebSocket receive loop. While the agent's tool call ran, the loop could not call `await ws.receive_text()` again, so any subsequent action over the same WebSocket (`join`, `list_sessions`, `new_session`) queued in the kernel buffer until the in-flight reply chain completed.
+
+**Resolution (committed on F4 branch)**:
+- New `_spawn_message_processing(...)` wrapper creates an `asyncio.Task` per submitted message; the receive loop is no longer blocked.
+- New `Session.processing_lock` (lazy `asyncio.Lock`) serializes successive messages on the same session (avoids `agent.messages` race); a second message politely waits.
+- Module-level `_inflight_tasks: set[asyncio.Task]` tracks live tasks; FastAPI's `lifespan` teardown cancels them.
+- Errors inside the spawned task are caught and broadcast to the session's subscribers as a `system` event.
+- HTTP `POST /api/chat` is unchanged — callers expect a synchronous result.
+
+**Verification**:
+- `tests/test_ws_responsiveness.py` (NEW, 4 tests): lazy lock creation, second-message-waits, exception suppression, task self-discard.
+- Live smoke: with a `sleep 200` (120s clipped) in flight, `list_sessions` over the same WebSocket replied in **0.02s** (was previously blocked ~120s).
+- Full unit suite: 829 passed (was 825; +4 net).
+
+**Pre-existing condition** (predates F4 — `git log -L` traces `_process_and_broadcast` invocation back to `09bd91f`). F4 didn't introduce the bug; it just made it more visible because the new 120s timeout cap turned previously-unbounded sleeps into deterministic 2-minute UI hangs.
+
+---
+
 ### Stale uvicorn imports across L3-L6 source changes
 
 **Observed**: Scenario 1 of the L7 HAT initially showed `[error] Command timed out after 200s` instead of the expected `120s` — the timeout cap clip was not engaging through the chat API. Direct `python` invocations inside the same container correctly clipped to 120s.

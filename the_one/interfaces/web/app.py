@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
 import logging
 import uuid
@@ -55,6 +57,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # ``try/except Exception`` (NOT ``BaseException``) so
     # ``CancelledError`` propagates while a misbehaving session.close()
     # only logs.
+    # Cancel any in-flight per-message processing tasks. Each task
+    # observes the cancel inside its `_spawn_message_processing` wrapper
+    # and exits cleanly; the session's processing_lock is released by
+    # `async with` automatically.
+    for task in list(_inflight_tasks):
+        task.cancel()
+    if _inflight_tasks:
+        with contextlib.suppress(Exception):
+            await asyncio.gather(*list(_inflight_tasks), return_exceptions=True)
     try:
         await _session_registry_shutdown_drain()
     except Exception:
@@ -89,6 +100,12 @@ class Session:
     agent_name: str | None = None
     history: list[dict[str, Any]] = field(default_factory=list)
     subscribers: set[WebSocket] = field(default_factory=set, repr=False)
+    # Per-session lock serializes `_process_and_broadcast` so a second
+    # in-flight message on the same session waits for the first to finish
+    # (mid-flight `agent.step` is not safe to call concurrently — it
+    # mutates `agent.messages`). Created lazily on first use to avoid
+    # binding to an event loop at dataclass construction time.
+    processing_lock: asyncio.Lock | None = field(default=None, repr=False)
 
     def add_event(self, event: dict[str, Any]) -> None:
         self.history.append(event)
@@ -108,6 +125,50 @@ class Session:
 
 
 _sessions: dict[str, Session] = {}
+
+# Set of in-flight per-message processing tasks spawned by the WebSocket
+# handler. Tracked so FastAPI's lifespan teardown can cancel them on
+# shutdown (otherwise a `make rebuild` mid-tool-call would leave a
+# detached coroutine). Tasks self-discard on completion via `add_done_callback`.
+_inflight_tasks: set[asyncio.Task] = set()
+
+
+async def _spawn_message_processing(
+    session: Session,
+    user_input: str,
+    source: str,
+    exclude_user_echo: WebSocket | None,
+) -> None:
+    """Run `_process_and_broadcast` under the session's lock.
+
+    Wrapper used by the WebSocket handler so the receive loop is not
+    blocked while the agent's tool calls run. The session lock prevents
+    two messages on the same session from racing on `agent.messages`;
+    a second message waits politely. Errors are caught and broadcast to
+    the session's subscribers as a `system` event so the user sees them
+    instead of silently dropping into a crashed task.
+    """
+    if session.processing_lock is None:
+        session.processing_lock = asyncio.Lock()
+    async with session.processing_lock:
+        try:
+            await _process_and_broadcast(
+                session, user_input, source=source, exclude_user_echo=exclude_user_echo
+            )
+        except asyncio.CancelledError:
+            # Lifespan-shutdown cancellation; let it propagate so the task
+            # cleanup observes the cancel.
+            raise
+        except Exception:
+            logger.exception("session %s processing failed", session.id)
+            with contextlib.suppress(Exception):
+                await _send_to_session(
+                    session,
+                    {
+                        "type": "system",
+                        "content": "An error occurred while processing your message.",
+                    },
+                )
 
 
 # ── Session health classification ────────────────────────────────────────
@@ -776,8 +837,17 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 await _save_session_to_db(session)
                 continue
 
-            # Process message — exclude echoing user msg back to sender
-            await _process_and_broadcast(session, user_input, source="web", exclude_user_echo=ws)
+            # Process message in a background task so the WebSocket receive
+            # loop stays responsive — switching conversations, listing
+            # sessions, etc. should not block on a long agent tool call
+            # (e.g. a `sleep 200` clipped to 120s by the F4 timeout cap).
+            # The session's `processing_lock` serializes successive messages
+            # on the same session; broadcasts go to all current subscribers.
+            task = asyncio.create_task(
+                _spawn_message_processing(session, user_input, "web", ws)
+            )
+            _inflight_tasks.add(task)
+            task.add_done_callback(_inflight_tasks.discard)
 
     except WebSocketDisconnect:
         if session:
