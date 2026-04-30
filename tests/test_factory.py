@@ -48,6 +48,9 @@ class InMemoryStore:
 class StubToolProvider:
     """Minimal ToolProvider that returns a fixed set of StubTools."""
 
+    def __init__(self) -> None:
+        self.captured_agent_name: str | None = None
+
     @property
     def name(self) -> str:
         return "stub"
@@ -56,11 +59,18 @@ class StubToolProvider:
         self,
         tool_configs: dict[str, dict] | None = None,
         agent_overrides: dict[str, dict] | None = None,
+        agent_name: str | None = None,
     ) -> list[Tool]:
-        # Signature widens to match the (post-L3) ToolProvider Protocol.
+        # Signature widens to match the (post-L1b) ToolProvider Protocol —
+        # `agent_name` is the per-agent state-isolation key (F4 Decision 4).
         # F2 doesn't exercise the args here — the factory test asserts they
         # arrive populated via the `received_args` helper test below.
-        return [StubTool("tool_a"), StubTool("tool_b"), StubTool("tool_c")]
+        self.captured_agent_name = agent_name
+        return [
+            StubTool("tool_a", agent_name=agent_name),
+            StubTool("tool_b", agent_name=agent_name),
+            StubTool("tool_c", agent_name=agent_name),
+        ]
 
 
 def _fake_get_provider(name: str, **kwargs: Any) -> FakeLLM:
@@ -216,9 +226,11 @@ class TestResolverWiring:
                 self,
                 tool_configs: dict[str, dict] | None = None,
                 agent_overrides: dict[str, dict] | None = None,
+                agent_name: str | None = None,
             ) -> list[Tool]:
                 captured["tool_configs"] = tool_configs
                 captured["agent_overrides"] = agent_overrides
+                captured["agent_name"] = agent_name
                 return [StubTool("tool_a")]
 
         mock_repo = AsyncMock()
@@ -259,6 +271,9 @@ class TestResolverWiring:
 
         assert captured["tool_configs"] == {"shell": {"output_cap": 1000}}
         assert captured["agent_overrides"] == {"shell": {"output_cap": 500}}
+        # L1b: factory threads the agent name into get_tools so providers
+        # can scope per-agent runtime state (e.g. PTY session ownership).
+        assert captured["agent_name"] == "resolver-wired"
 
     async def test_factory_passes_empty_overrides_when_none(
         self, store: InMemoryStore
@@ -278,8 +293,10 @@ class TestResolverWiring:
                 self,
                 tool_configs: dict[str, dict] | None = None,
                 agent_overrides: dict[str, dict] | None = None,
+                agent_name: str | None = None,
             ) -> list[Tool]:
                 captured["agent_overrides"] = agent_overrides
+                captured["agent_name"] = agent_name
                 return []
 
         mock_repo = AsyncMock()
@@ -317,6 +334,29 @@ class TestResolverWiring:
             await factory.create("no-overrides")
 
         assert captured["agent_overrides"] == {}
+
+
+class TestAgentNamePlumbing:
+    """L1b: AgentFactory.create(name) must thread `name` into the provider so
+    each tool instance carries `_agent_name == name`. PTY session ownership
+    in F4 keys on `(agent_name, session_id)` — without this thread, sessions
+    cannot be scoped per-agent."""
+
+    async def test_agent_name_threads_to_tools(
+        self, factory: AgentFactory, store: InMemoryStore
+    ) -> None:
+        cfg = AgentConfig(
+            name="test-agent",
+            provider_config_id="test-provider",
+            llm_model="stub-model",
+        )
+        await store.save(cfg)
+        agent = await factory.create("test-agent")
+        # Every tool must have observed the agent name during construction.
+        for tool in agent.tools._tools.values():  # type: ignore[attr-defined]
+            assert tool._agent_name == "test-agent", (
+                f"tool {tool.name} got _agent_name={tool._agent_name!r}"
+            )
 
 
 class TestListAgents:

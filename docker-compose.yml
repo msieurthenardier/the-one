@@ -14,6 +14,9 @@ services:
       # lines to restore the production-style frozen image.
       - ./the_one:/app/the_one
       - ./the_one:/usr/local/lib/python3.11/site-packages/the_one
+      # Mount tests/ so test edits are live too (F4 L1b finding —
+      # otherwise every leg adding tests would need `docker cp tests/...`).
+      - ./tests:/app/tests
     environment:
       - THE_ONE_LLM_PROVIDER=ollama
       - THE_ONE_LLM_MODEL=qwen2.5:7b

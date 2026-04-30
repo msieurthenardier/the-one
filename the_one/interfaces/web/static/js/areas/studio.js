@@ -151,6 +151,7 @@ App.registerArea({
     var TOOL_CATEGORIES = {
       'Filesystem': ['read_file', 'write_file', 'edit_file', 'delete_file', 'move_file', 'mkdir', 'glob', 'grep', 'list_dir'],
       'Execution': ['shell', 'python_exec'],
+      'Sessions': ['shell_session_start', 'shell_session_send', 'shell_session_close', 'shell_session_list'],
       'Web': ['http_request', 'web_search']
     };
 

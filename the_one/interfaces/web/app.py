@@ -31,6 +31,7 @@ from the_one.db.repositories import ChatSessionRepository, LLMProviderRepository
 from the_one.encryption import get_encryptor
 from the_one.interfaces.web.api import router as api_router
 from the_one.llm.base import Role
+from the_one.tools._session_registry import shutdown_drain as _session_registry_shutdown_drain
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await migrate_json_to_sqlite(store)
     _state["factory"] = AgentFactory(store=store)
     yield
+    # Drain the PTY session registry on shutdown — cancels the idle
+    # reaper task and closes any live sessions. Wrapped in
+    # ``try/except Exception`` (NOT ``BaseException``) so
+    # ``CancelledError`` propagates while a misbehaving session.close()
+    # only logs.
+    try:
+        await _session_registry_shutdown_drain()
+    except Exception:
+        logger.exception("session registry shutdown failed")
     await close_connection()
 
 

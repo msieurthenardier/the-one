@@ -1,36 +1,103 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import Any
 
 from the_one.platform import run_python
-from the_one.tools.base import Tool
+from the_one.tools.base import ConstraintError, Tool
+from the_one.tools.execution import (
+    PythonExecConfig,
+    _build_subprocess_env,
+    _command_check,
+    _cwd_check,
+    _truncate_output,
+)
+from the_one.tools.filesystem import FilesystemConfig
 
 
 class PythonExecTool(Tool):
     name = "python_exec"
-    description = "Execute Python code and return the output. Runs in a subprocess."
+    description = (
+        "Execute Python code in a one-shot subprocess. Prefer this over `shell` "
+        "for computation, parsing, or any multi-line Python; use "
+        "`shell_session_send` for interactive REPL work. Default cwd is $HOME; "
+        "subprocess environment is a hardcoded minimal allowlist (no host "
+        "secrets). Timeout is clipped to the operator-set max."
+    )
     parameters = {
         "type": "object",
         "properties": {
             "code": {"type": "string", "description": "Python code to execute."},
+            "cwd": {
+                "type": "string",
+                "description": (
+                    "Working directory; defaults to $HOME if omitted. "
+                    "Refused if outside the path allowlist."
+                ),
+            },
             "timeout": {
                 "type": "integer",
-                "description": "Timeout in seconds (default 60).",
-                "default": 60,
+                "description": (
+                    "Timeout in seconds. Uses the resolved default "
+                    "(90s for python_exec) if omitted; clipped to the "
+                    "operator-set max."
+                ),
             },
         },
         "required": ["code"],
     }
 
-    async def execute(self, code: str, timeout: int = 60, **kwargs: Any) -> str:
+    Config = PythonExecConfig
+    Requires = (FilesystemConfig,)
+
+    async def execute(
+        self,
+        code: str,
+        cwd: str | None = None,
+        timeout: float | None = None,
+        **kwargs: Any,
+    ) -> str:
+        exec_cfg: PythonExecConfig = self._config  # type: ignore[assignment]
+        fs_cfg: FilesystemConfig = self._cross_configs[FilesystemConfig]  # type: ignore[index]
+        # Compute the clipped timeout BEFORE the try/except so the timeout
+        # error message reflects the value the subprocess actually saw
+        # (Decision 1: agent passing 999 → clipped to 120 → message says 120s).
+        if timeout is None:
+            clipped_timeout: float = exec_cfg.timeout_seconds_default
+        else:
+            # NB: float-preserving — agent passing ``timeout=0.5`` keeps
+            # ``0.5`` (the existing F2 ``test_timeout_returns_promptly``
+            # asserts ``"after 0.5s"``). Only zero/negative values are
+            # floored to 1. ``min(timeout, max)`` clips above. The
+            # ``Field(ge=1)`` constraint on the Config field constrains
+            # operator/agent Config values, NOT the per-call agent kwarg.
+            clipped_timeout = min(timeout, exec_cfg.timeout_seconds_max)
+            if clipped_timeout <= 0:
+                clipped_timeout = 1
+        # Three-clause envelope (deliberate F4 deviation from F3's
+        # two-clause filesystem pattern): ConstraintError → asyncio.TimeoutError
+        # → Exception. Order matters because ``asyncio.TimeoutError`` IS an
+        # ``Exception`` subclass; the timeout-message wording
+        # (``[error] Timed out after Ns`` — note: NO ``"Command "`` prefix,
+        # which is a deliberate divergence from ShellTool preserved per F4
+        # leg-spec) is asserted by an existing test
+        # (``test_timeout_returns_promptly``) so the timeout branch must
+        # precede the generic clause.
         try:
-            stdout, stderr, _ = await run_python(code, timeout=timeout)
-            output = stdout.decode(errors="replace")
-            if stderr:
-                output += f"\n[stderr]\n{stderr.decode(errors='replace')}"
-            return output.strip() or "(no output)"
+            _command_check(code, exec_cfg)
+            canonical_cwd = _cwd_check(cwd or str(Path.home()), fs_cfg)
+            stdout, stderr, returncode = await run_python(
+                code,
+                timeout=clipped_timeout,
+                env=_build_subprocess_env(),
+                cwd=canonical_cwd,
+            )
+            text, _ = _truncate_output(stdout, stderr, returncode, exec_cfg)
+            return text
+        except ConstraintError as e:
+            return f"[error] [constraint] {e}"
         except asyncio.TimeoutError:
-            return f"[error] Timed out after {timeout}s"
+            return f"[error] Timed out after {clipped_timeout}s"
         except Exception as e:
             return f"[error] {e}"

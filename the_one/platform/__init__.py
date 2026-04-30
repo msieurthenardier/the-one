@@ -8,9 +8,13 @@ Public API:
     shell: select_shell, run_shell
     interpreter: resolve_python, run_python
     tempdirs: temp_dir, user_home, user_config_dir
+    pty: PtySession, UnixPtySession, create_pty_session (POSIX-only;
+         importing on Windows raises NotImplementedError)
 """
 
 from __future__ import annotations
+
+import os
 
 from the_one.platform.interpreter import resolve_python, run_python
 from the_one.platform.paths import canonicalize, is_within, safe_resolve
@@ -29,3 +33,16 @@ __all__ = [
     "user_config_dir",
     "user_home",
 ]
+
+# PTY session surface — POSIX-only. Importing on Windows would raise at
+# import time inside ``the_one.platform.pty``; guarding here keeps the
+# package importable on Windows for non-PTY consumers (e.g. ``paths``,
+# ``tempdirs``).
+if os.name == "posix":
+    from the_one.platform.pty import (  # noqa: E402
+        PtySession,
+        UnixPtySession,
+        create_pty_session,
+    )
+
+    __all__ += ["PtySession", "UnixPtySession", "create_pty_session"]

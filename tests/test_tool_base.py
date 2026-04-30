@@ -83,3 +83,56 @@ class TestToolCustomConfig:
     def test_explicit_bad_type_raises_validation_error(self) -> None:
         with pytest.raises(ValidationError):
             _CustomCfg(timeout="bad")  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# L1b additions — Requires class attr; cross_configs + agent_name __init__
+# parameters; defaults preserve back-compat for zero-arg `cls()` callers.
+# ---------------------------------------------------------------------------
+
+
+class _OtherCfg(BaseModel):
+    """A second BaseModel used to exercise cross_configs by-type lookup."""
+
+
+class TestToolL1bWidening:
+    def test_requires_default_is_empty_tuple(self) -> None:
+        # Default `Requires` must be `()` (immutable) so subclasses can't
+        # accidentally mutate the class default.
+        assert _NoConfigTool.Requires == ()
+        assert isinstance(_NoConfigTool.Requires, tuple)
+
+    def test_zero_arg_keeps_back_compat(self) -> None:
+        # Existing `cls()` call sites (introspection path, tests) must
+        # continue to work with the new init signature.
+        tool = _NoConfigTool()
+        assert tool._cross_configs == {}
+        assert tool._agent_name is None
+
+    def test_explicit_none_kwargs_match_zero_arg(self) -> None:
+        tool = _NoConfigTool(config=None, cross_configs=None, agent_name=None)
+        assert tool._cross_configs == {}
+        assert tool._agent_name is None
+
+    def test_cross_configs_stored_by_type_key(self) -> None:
+        custom = _CustomCfg()
+        other = _OtherCfg()
+        tool = _NoConfigTool(cross_configs={_CustomCfg: custom, _OtherCfg: other})
+        assert tool._cross_configs[_CustomCfg] is custom
+        assert tool._cross_configs[_OtherCfg] is other
+
+    def test_agent_name_stored(self) -> None:
+        tool = _NoConfigTool(agent_name="alpha")
+        assert tool._agent_name == "alpha"
+
+    def test_all_three_kwargs_combined(self) -> None:
+        cfg = _CustomCfg(timeout=5)
+        other = _OtherCfg()
+        tool = _CustomCfgTool(
+            config=cfg,
+            cross_configs={_OtherCfg: other},
+            agent_name="bravo",
+        )
+        assert tool._config is cfg
+        assert tool._cross_configs[_OtherCfg] is other
+        assert tool._agent_name == "bravo"

@@ -1,0 +1,495 @@
+"""PTY session helpers — cross-platform contract.
+
+F4 ships Unix-only support; Windows ConPTY is deferred to a future mission.
+The module raises ``NotImplementedError`` at IMPORT time on Windows
+(``os.name == "nt"``) so consumers get a fast, deterministic failure rather
+than a runtime surprise from a half-wired session.
+
+Public surface:
+
+    PtySession (ABC)        — async session contract: start / send / close /
+                              is_alive / last_activity
+    UnixPtySession          — concrete Unix implementation using
+                              ``pty.fork()`` + child-side ``execvp`` to
+                              enforce the F4 Decision 10 env allowlist.
+                              The fork-then-exec pattern is required because
+                              ``pty.spawn(shell)`` would inherit the full
+                              parent env, defeating the allowlist.
+    create_pty_session(...) — platform-dispatching factory; on POSIX returns
+                              ``UnixPtySession``; on other platforms is
+                              unreachable thanks to the import-time guard.
+
+L5a is the platform primitive — no registry, no reaper, no agent_name. The
+session-tool layer (L5b registry + lifespan; L6 four ``shell_session_*``
+tools) wires this primitive into the agent surface.
+
+PTY readiness: ``start()`` blocks until the master_fd has been idle (no new
+bytes for ~100ms) OR a hard 2-second cap, whichever comes first. This avoids
+brittle prompt-regex matching (different shells / RC files produce different
+prompts) while still giving the agent a clean post-``start()`` state for
+its first ``send``.
+
+Stdlib-only — no async-pty libraries — per the M01-M04 framework constraint.
+``send`` is async; internally it uses ``loop.run_in_executor`` to wrap the
+synchronous ``os.write`` + ``select.select`` + ``os.read`` loop.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import os
+import time
+from abc import ABC, abstractmethod
+from pathlib import Path
+
+if os.name == "nt":
+    raise NotImplementedError(
+        "Windows ConPTY support deferred to a future mission"
+    )
+
+# Imports below this guard are POSIX-only — ``fcntl``, ``pty``, ``select``,
+# and ``signal`` are all stdlib modules that exist only on Unix. Importing
+# any of them on Windows would raise ``ModuleNotFoundError`` BEFORE the
+# clean ``NotImplementedError`` above could fire. Keep them below the
+# guard so Windows consumers see the guarded message instead.
+import fcntl  # noqa: E402
+import pty  # noqa: E402
+import select  # noqa: E402
+import signal  # noqa: E402
+
+from the_one.platform.env import _build_subprocess_env  # noqa: E402
+from the_one.platform.shell import select_shell  # noqa: E402
+
+# Internal tuning constants. Idle window of 100ms is the recommended PTY
+# readiness signal (Decision-resolution at L5a leg-design); 2s cap is the
+# defense against shells that never go idle (e.g. RC file emits an infinite
+# loop). 65536 is a comfortable single-read size — smaller than typical PTY
+# kernel buffers, so a single ``os.read`` rarely truncates a logical chunk.
+_DEFAULT_IDLE_WINDOW = 0.1
+_DEFAULT_START_TIMEOUT = 2.0
+_READ_CHUNK = 65536
+
+# Shells that benefit from ``-i`` (interactive flag): ``bash`` and ``zsh``
+# both source RC files and emit prompts more reliably with ``-i``. ``dash``
+# (which is ``/bin/sh`` on Debian/Ubuntu) emits a "can't access tty" warning
+# under some configurations when invoked with ``-i``; the F4 use case does
+# not strictly need an interactive prompt — the idle-mark detects readiness
+# regardless of whether a prompt was printed.
+_INTERACTIVE_SHELL_BASENAMES: frozenset[str] = frozenset({"bash", "zsh"})
+
+
+class PtySession(ABC):
+    """Abstract async PTY session contract.
+
+    L5a defines the protocol; L5a's ``UnixPtySession`` is the only concrete
+    implementation in this flight. Consumers (L5b registry, L6 session
+    tools) program against this ABC.
+    """
+
+    @abstractmethod
+    async def start(self) -> None:
+        """Spawn the shell subprocess and block until ready for input.
+
+        Implementations must:
+
+        * fork-then-execvp with the hardcoded env allowlist (Decision 10).
+        * block until the shell signals readiness (idle-mark — no new bytes
+          for ~100ms — OR a hard 2s cap, whichever comes first).
+        """
+
+    @abstractmethod
+    async def send(self, input: str, timeout: float = 30.0) -> bytes:
+        """Write ``input`` (newline-terminated if not already) to the
+        shell; read response until idle (no new bytes for ~100ms) OR the
+        ``timeout`` elapses. Returns raw bytes. Updates
+        ``self.last_activity``.
+
+        Raises ``asyncio.TimeoutError`` if the shell produces no output
+        for the entire ``timeout`` window.
+        """
+
+    @abstractmethod
+    async def close(self) -> None:
+        """Send SIGTERM, wait 1s, SIGKILL if still alive, close
+        master_fd. Idempotent — safe to call multiple times."""
+
+    @property
+    @abstractmethod
+    def is_alive(self) -> bool:
+        """True if the subprocess is still running.
+
+        Non-blocking ``os.waitpid(pid, os.WNOHANG)`` check; returns
+        ``False`` once the child has exited (or after ``close()``).
+        """
+
+    @property
+    @abstractmethod
+    def last_activity(self) -> float:
+        """``time.monotonic()`` timestamp of the most recent ``send``
+        return. Used by the idle reaper (L5b) to decide when to call
+        ``close()``."""
+
+
+class UnixPtySession(PtySession):
+    """Unix concrete ``PtySession`` using ``pty.fork()`` + child-side
+    ``execvp`` to enforce the F4 Decision 10 env allowlist.
+
+    Construction is cheap; the subprocess is spawned by ``start()``.
+    Tests should always wrap ``await s.close()`` in a ``try/finally`` to
+    avoid leaking child processes between tests.
+
+    Args:
+        cwd: Optional working directory for the spawned shell. Passed to
+            ``os.chdir`` in the child BEFORE the env clear/exec; chdir
+            failure makes the child ``os._exit(127)`` (parent then sees
+            the session as dead via ``is_alive``).
+        shell: Optional explicit shell path. Used by tests for
+            deterministic ``env`` output. Defaults to ``select_shell()[0]``
+            (honors ``$SHELL`` on POSIX).
+    """
+
+    def __init__(
+        self,
+        cwd: Path | None = None,
+        shell: str | None = None,
+    ) -> None:
+        self._cwd = cwd
+        self._shell_override = shell
+        self._pid: int | None = None
+        self._master_fd: int | None = None
+        self._closed = False
+        # ``_last_activity`` is set by ``start`` and ``send``. Initialize
+        # to construction time so the reaper has a sensible value even if
+        # ``start`` somehow doesn't run (shouldn't happen, but defensive).
+        self._last_activity = time.monotonic()
+
+    # ------------------------------------------------------------------
+    # PtySession protocol implementation
+    # ------------------------------------------------------------------
+
+    async def start(self) -> None:
+        """Spawn the shell via ``pty.fork()`` and block until idle-mark
+        or 2s cap, whichever comes first."""
+        if os.name != "posix":
+            # Belt-and-suspenders. Module-level guard already raised on
+            # Windows; this also covers (hypothetical) future os.name
+            # values that aren't "posix".
+            raise NotImplementedError(
+                f"UnixPtySession requires os.name == 'posix' (got {os.name!r})"
+            )
+        if self._pid is not None:
+            raise RuntimeError("session already started")
+
+        shell = self._shell_override or select_shell()[0]
+        cwd = self._cwd
+
+        try:
+            pid, master_fd = pty.fork()
+        except OSError as exc:
+            # ``pty.fork()`` can fail under resource limits (RLIMIT_NPROC,
+            # FD exhaustion). Surface with context so the caller can tell
+            # this from a downstream ``send`` failure.
+            raise RuntimeError(f"pty.fork() failed: {exc}") from exc
+
+        if pid == 0:
+            # Child branch — ``os._exit`` on any failure to avoid running
+            # parent atexit handlers / pytest cleanup. Errors written to
+            # the slave PTY surface to the parent via the master_fd read.
+            try:
+                if cwd is not None:
+                    try:
+                        os.chdir(str(cwd))
+                    except OSError:
+                        # cwd doesn't exist / not a directory / no perms.
+                        # Parent will see EOF on master_fd; ``is_alive``
+                        # returns False shortly after.
+                        os._exit(127)
+                os.environ.clear()
+                os.environ.update(_build_subprocess_env())
+                # ``-i`` for shells that benefit from it (bash, zsh);
+                # bare invocation otherwise.
+                if os.path.basename(shell) in _INTERACTIVE_SHELL_BASENAMES:
+                    argv = [shell, "-i"]
+                else:
+                    argv = [shell]
+                os.execvp(shell, argv)
+            except Exception:  # pragma: no cover — exec replaces image
+                # Unreachable under normal operation: ``execvp`` either
+                # replaces the image or raises; on raise we exit so the
+                # parent sees a quick EOF. ``BaseException`` would catch
+                # ``SystemExit`` from ``os._exit``; we explicitly want
+                # ``Exception`` to let ``SystemExit`` propagate out.
+                os._exit(127)
+            # Should never reach here.
+            os._exit(127)  # pragma: no cover
+
+        # Parent branch
+        self._pid = pid
+        self._master_fd = master_fd
+        # Non-blocking master_fd so ``os.read`` raises ``BlockingIOError``
+        # rather than blocking when the buffer is empty. ``select.select``
+        # remains the wait primitive.
+        flags = fcntl.fcntl(master_fd, fcntl.F_GETFL)
+        fcntl.fcntl(master_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+
+        # Drain the prompt. Discard the bytes — we only care that the
+        # shell has gone idle. Use the leg-spec readiness window: 100ms
+        # idle, hard 2s cap.
+        try:
+            await self._read_until_idle(
+                timeout=_DEFAULT_START_TIMEOUT,
+                idle_window=_DEFAULT_IDLE_WINDOW,
+            )
+        except asyncio.TimeoutError:
+            # No bytes at all in 2s — accepted. Some shells in some
+            # configurations don't emit a prompt on stdout (notably
+            # non-interactive ``sh``). The session is still usable.
+            pass
+
+        self._last_activity = time.monotonic()
+
+    async def send(self, input: str, timeout: float = 30.0) -> bytes:
+        """Write ``input`` (newline-appended if not already terminated)
+        to the shell; read response until idle or timeout.
+
+        Returns raw bytes. Raises ``asyncio.TimeoutError`` on no-output
+        windows. Raises ``RuntimeError`` if the session is closed or
+        the subprocess has exited.
+        """
+        if self._closed or not self.is_alive:
+            raise RuntimeError("session not active")
+        if not input.endswith("\n"):
+            input = input + "\n"
+        payload = input.encode()
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            None,
+            self._send_blocking,
+            payload,
+            timeout,
+        )
+        self._last_activity = time.monotonic()
+        return result
+
+    async def close(self) -> None:
+        """Idempotent SIGTERM-then-SIGKILL teardown. Closes ``master_fd``."""
+        if self._closed:
+            return
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._close_blocking)
+
+    @property
+    def is_alive(self) -> bool:
+        """True if the subprocess is still running.
+
+        Returns False after ``close()`` or once ``os.waitpid`` reports
+        the child has exited. Catches ``ChildProcessError`` (kernel
+        removed the entry between calls) and treats as dead.
+        """
+        if self._closed or self._pid is None:
+            return False
+        try:
+            done, _status = os.waitpid(self._pid, os.WNOHANG)
+        except ChildProcessError:
+            # Kernel removed the entry between calls; treat as dead.
+            self._closed = True
+            return False
+        if done == 0:
+            return True
+        # ``done == self._pid`` means the child has exited.
+        self._closed = True
+        return False
+
+    @property
+    def last_activity(self) -> float:
+        """Monotonic timestamp of the most recent ``send`` return (or
+        ``start()`` completion if no ``send`` has happened yet)."""
+        return self._last_activity
+
+    # ------------------------------------------------------------------
+    # Blocking helpers (run via ``loop.run_in_executor``)
+    # ------------------------------------------------------------------
+
+    def _send_blocking(self, payload: bytes, timeout: float) -> bytes:
+        """Synchronous write-then-read. Caller wraps in
+        ``run_in_executor``."""
+        assert self._master_fd is not None  # set by ``start``
+        os.write(self._master_fd, payload)
+        return self._read_until_idle_blocking(
+            timeout=timeout,
+            idle_window=_DEFAULT_IDLE_WINDOW,
+        )
+
+    async def _read_until_idle(
+        self,
+        timeout: float,
+        idle_window: float,
+    ) -> bytes:
+        """Async wrapper around ``_read_until_idle_blocking``."""
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            None,
+            self._read_until_idle_blocking,
+            timeout,
+            idle_window,
+        )
+
+    def _read_until_idle_blocking(
+        self,
+        timeout: float,
+        idle_window: float,
+    ) -> bytes:
+        """Read from ``master_fd`` until the stream goes idle for
+        ``idle_window`` seconds (and the buffer is non-empty) OR the
+        ``timeout`` budget is exhausted.
+
+        Returns the accumulated bytes. Raises ``asyncio.TimeoutError``
+        if the timeout elapses with no bytes received.
+
+        Edge cases:
+        * On ``OSError(EIO)`` (slave PTY closed when shell exited): returns
+          the buffer accumulated so far (may be empty).
+        * On ``BlockingIOError`` / ``OSError(EAGAIN)`` from ``os.read``:
+          treats as no-data this iteration and continues.
+        * ``select.select`` timeout is clamped to ``max(0.0, ...)`` to
+          avoid ``ValueError`` once the budget is exhausted.
+        """
+        assert self._master_fd is not None  # set by ``start``
+        master_fd = self._master_fd
+        buffer = bytearray()
+        start_time = time.monotonic()
+        last_byte_time = start_time
+
+        while True:
+            now = time.monotonic()
+            elapsed = now - start_time
+            remaining = timeout - elapsed
+            # Clamp non-negative — ``select.select`` raises ``ValueError``
+            # on negative timeouts.
+            select_timeout = max(0.0, min(idle_window, remaining))
+
+            try:
+                ready, _, _ = select.select([master_fd], [], [], select_timeout)
+            except (OSError, ValueError):
+                # ``ValueError`` means master_fd was already closed;
+                # ``OSError`` (e.g. EBADF) covers the same. Return what
+                # we have.
+                return bytes(buffer)
+
+            if ready:
+                try:
+                    chunk = os.read(master_fd, _READ_CHUNK)
+                except BlockingIOError:
+                    # No data despite ``select`` returning ready (rare,
+                    # but possible on some PTY implementations under
+                    # contention). Continue.
+                    continue
+                except OSError as exc:
+                    # EIO: slave PTY closed (shell exited). Return
+                    # accumulated bytes — caller decides whether the
+                    # partial read is enough.
+                    if exc.errno in (5,):  # EIO
+                        return bytes(buffer)
+                    # EAGAIN under non-blocking is harmless; re-loop.
+                    if exc.errno in (11, 35):  # EAGAIN / EWOULDBLOCK
+                        continue
+                    raise
+                if chunk:
+                    buffer.extend(chunk)
+                    last_byte_time = time.monotonic()
+                else:
+                    # Zero-byte read → EOF on the master fd (unusual).
+                    return bytes(buffer)
+            else:
+                # No data this window. If buffer is non-empty AND the
+                # last-byte time is at least ``idle_window`` ago, we're
+                # idle-stable: return.
+                if (
+                    buffer
+                    and (time.monotonic() - last_byte_time) >= idle_window
+                ):
+                    return bytes(buffer)
+
+            # Timeout budget check (after each iteration so a single
+            # idle-window doesn't busy-loop past the cap).
+            if time.monotonic() - start_time >= timeout:
+                if buffer:
+                    return bytes(buffer)
+                raise asyncio.TimeoutError(
+                    f"PTY read timed out after {timeout}s with no output"
+                )
+
+    def _close_blocking(self) -> None:
+        """SIGTERM, wait up to 1s, SIGKILL if still alive, close
+        master_fd. Caller wraps in ``run_in_executor``.
+
+        Idempotent: every step catches ``ProcessLookupError`` (child
+        already exited) and ``OSError`` (fd already closed)."""
+        # Mark closed FIRST so concurrent ``is_alive`` checks short-circuit.
+        if self._closed:
+            return
+        self._closed = True
+
+        pid = self._pid
+        master_fd = self._master_fd
+
+        if pid is not None:
+            # SIGTERM
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pid = None  # already gone
+
+        # Poll up to 1s for graceful exit.
+        if pid is not None:
+            deadline = time.monotonic() + 1.0
+            reaped = False
+            while time.monotonic() < deadline:
+                try:
+                    done, _status = os.waitpid(pid, os.WNOHANG)
+                except ChildProcessError:
+                    reaped = True
+                    break
+                if done != 0:
+                    reaped = True
+                    break
+                time.sleep(0.05)
+            if not reaped:
+                # SIGKILL + blocking reap.
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                try:
+                    os.waitpid(pid, 0)
+                except ChildProcessError:
+                    pass
+
+        # Close master_fd last — once closed, any concurrent reads return
+        # immediately.
+        if master_fd is not None:
+            try:
+                os.close(master_fd)
+            except OSError:
+                pass
+
+        self._pid = None
+        self._master_fd = None
+
+
+def create_pty_session(
+    cwd: Path | None = None,
+    shell: str | None = None,
+) -> PtySession:
+    """Platform-dispatching factory.
+
+    On POSIX (``os.name == "posix"``) returns a ``UnixPtySession``.
+    On other platforms the import-time guard at the top of this module
+    already raised, so this branch is unreachable; the explicit check
+    here is belt-and-suspenders for defensive programming.
+    """
+    if os.name == "posix":
+        return UnixPtySession(cwd=cwd, shell=shell)
+    raise NotImplementedError(
+        f"PTY sessions not supported on os.name={os.name!r}"
+    )

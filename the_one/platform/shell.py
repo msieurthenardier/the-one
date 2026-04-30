@@ -30,6 +30,7 @@ from __future__ import annotations
 import asyncio
 import os
 import signal
+from pathlib import Path
 
 
 def select_shell() -> tuple[str, list[str]]:
@@ -56,6 +57,7 @@ async def run_shell(
     *,
     timeout: float,
     env: dict[str, str] | None = None,
+    cwd: str | Path | None = None,
 ) -> tuple[bytes, bytes, int]:
     """Run ``command`` via the OS shell; return ``(stdout, stderr, returncode)``.
 
@@ -65,6 +67,11 @@ async def run_shell(
 
     ``env=None`` means inherit the parent environment (today's behavior); a
     dict replaces the environment entirely.
+
+    ``cwd=None`` means inherit the parent process's cwd (today's behavior); a
+    str or Path is passed to ``create_subprocess_shell`` (coerced to ``str``
+    for cross-platform safety). F4 callers pass a canonicalized cwd validated
+    via ``the_one.tools.execution._cwd_check``.
 
     On timeout, kills the subprocess, re-drains pipes via a second
     ``communicate()`` call, and re-raises ``asyncio.TimeoutError``.
@@ -77,6 +84,12 @@ async def run_shell(
     popen_kwargs: dict[str, object] = {}
     if env is not None:
         popen_kwargs["env"] = env
+    if cwd is not None:
+        # ``str(cwd)`` is the safe cross-platform default —
+        # ``create_subprocess_shell`` accepts both str and Path on POSIX, but
+        # str is the common-denominator type Python's subprocess plumbing
+        # handles uniformly across platforms.
+        popen_kwargs["cwd"] = str(cwd)
     if os.name == "posix":
         popen_kwargs["start_new_session"] = True
     proc = await asyncio.create_subprocess_shell(

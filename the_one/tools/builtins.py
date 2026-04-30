@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pydantic import BaseModel
+
 from the_one.tools.base import Tool
 from the_one.tools.filesystem import (
     DeleteFileTool,
@@ -13,7 +15,13 @@ from the_one.tools.filesystem import (
     WriteFileTool,
 )
 from the_one.tools.python_exec import PythonExecTool
-from the_one.tools.resolver import resolve
+from the_one.tools.resolver import _EmptyConfig, resolve
+from the_one.tools.sessions import (
+    ShellSessionCloseTool,
+    ShellSessionListTool,
+    ShellSessionSendTool,
+    ShellSessionStartTool,
+)
 from the_one.tools.shell import ShellTool
 from the_one.tools.web import HttpRequestTool, WebSearchTool
 
@@ -34,6 +42,10 @@ _TOOL_CLASSES: dict[str, type[Tool]] = {
     "grep": GrepTool,
     "list_dir": ListDirTool,
     "python_exec": PythonExecTool,
+    "shell_session_start": ShellSessionStartTool,
+    "shell_session_send": ShellSessionSendTool,
+    "shell_session_close": ShellSessionCloseTool,
+    "shell_session_list": ShellSessionListTool,
     "http_request": HttpRequestTool,
     "web_search": WebSearchTool,
 }
@@ -63,13 +75,36 @@ class BuiltinToolProvider:
         self,
         tool_configs: dict[str, dict] | None = None,
         agent_overrides: dict[str, dict] | None = None,
+        agent_name: str | None = None,
     ) -> list[Tool]:
         # Both None → introspection path (no resolver invocation).
+        # `Tool.__init__` defaults `cross_configs={}` and `agent_name=None`,
+        # so zero-arg construction preserves the F2/F3 introspection contract.
         if tool_configs is None and agent_overrides is None:
             return [cls() for cls in _TOOL_CLASSES.values()]
         # Factory path → resolver invocation per tool.
         tool_configs = tool_configs or {}
         agent_overrides = agent_overrides or {}
+
+        # Build the per-call shared cross-Config view (F4 Decision 7). Walk
+        # `_TOOL_CLASSES.items()` once in declared order; for each distinct
+        # `cls.Config` (skipping `_EmptyConfig`), resolve from the FIRST tool
+        # name carrying that Config. Multiple tools sharing one Config (e.g.
+        # all 9 filesystem tools share `FilesystemConfig`) collapse to one
+        # entry. Agent overrides are NOT applied at the cross-Config layer —
+        # the cross-Config view is the operator-default baseline so a tool
+        # consulting another category's policy sees what the operator
+        # declared, not what the agent narrowed for its own bag.
+        cross_configs: dict[type[BaseModel], BaseModel] = {}
+        for name, cls in _TOOL_CLASSES.items():
+            if cls.Config is _EmptyConfig:
+                continue
+            if cls.Config in cross_configs:
+                continue
+            cross_configs[cls.Config] = resolve(
+                cls.Config, tool_configs.get(name), None
+            )
+
         result: list[Tool] = []
         for name, cls in _TOOL_CLASSES.items():
             cfg = resolve(
@@ -77,5 +112,8 @@ class BuiltinToolProvider:
                 tool_configs.get(name),
                 agent_overrides.get(name),
             )
-            result.append(cls(cfg))
+            # `cross_configs` is shared by reference across all tools in this
+            # call; frozen Configs (FilesystemConfig + future ExecutionConfig)
+            # prevent any tool from mutating a peer's view.
+            result.append(cls(cfg, cross_configs=cross_configs, agent_name=agent_name))
         return result

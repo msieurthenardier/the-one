@@ -198,3 +198,39 @@ class TestUiHint:
         # Sanity: 1MB choice present
         values = [c["value"] for c in prop["ui_choices"]]
         assert 1_048_576 in values
+
+
+# ---------------------------------------------------------------------------
+# Frozen behavior (F4 L1b) — model_config = ConfigDict(frozen=True)
+# ---------------------------------------------------------------------------
+
+
+class TestFrozen:
+    """FilesystemConfig is frozen so the per-call cross_configs view shared
+    across tool instances cannot be mutated by one tool to corrupt another's
+    view (F4 Decision 7)."""
+
+    def test_attribute_assignment_raises_validation_error(self) -> None:
+        cfg = FilesystemConfig()
+        with pytest.raises(ValidationError):
+            cfg.read_size_cap_bytes = 1  # type: ignore[misc]
+
+    def test_assignment_to_other_fields_also_blocked(self) -> None:
+        cfg = FilesystemConfig()
+        with pytest.raises(ValidationError):
+            cfg.allow_binary_files = True  # type: ignore[misc]
+        with pytest.raises(ValidationError):
+            cfg.path_allowlist = ["/tmp"]  # type: ignore[misc]
+
+    def test_model_post_init_still_runs_post_freeze(self) -> None:
+        # `frozen=True` blocks attribute assignment AFTER construction,
+        # but `PrivateAttr` writes inside `model_post_init` use a different
+        # path. The canonical-paths cache must still be populated.
+        cfg = FilesystemConfig()
+        assert cfg._canonical_allowlist  # non-empty (default ['~'] canonicalized)
+        assert cfg._canonical_denylist  # non-empty (default DEFAULT_PATH_DENYLIST)
+
+    def test_model_post_init_canonicalizes_custom_paths(self, tmp_path: Any) -> None:
+        cfg = FilesystemConfig(path_allowlist=[str(tmp_path)])
+        assert len(cfg._canonical_allowlist) == 1
+        assert cfg._canonical_allowlist[0].is_absolute()

@@ -2,7 +2,14 @@
 
 from __future__ import annotations
 
+from typing import Any
+
+import pytest
+from pydantic import BaseModel
+
+from the_one.tools.base import Tool
 from the_one.tools.builtins import BuiltinToolProvider
+from the_one.tools.filesystem import FilesystemConfig
 from the_one.tools.provider import ToolProvider
 
 
@@ -44,16 +51,16 @@ class TestBuiltinToolProviderL3:
         provider = BuiltinToolProvider()
         zero_arg = provider.get_tools()
         explicit_none = provider.get_tools(tool_configs=None, agent_overrides=None)
-        # Same shape: 13 tools, same names, in the same order.
+        # Same shape: 17 tools, same names, in the same order.
         assert [t.name for t in zero_arg] == [t.name for t in explicit_none]
-        assert len(zero_arg) == 13
+        assert len(zero_arg) == 17
 
     def test_empty_dicts_go_through_factory_path(self) -> None:
         # Both args are non-None empty dicts → factory path. Each tool's
-        # Config resolves to the empty default; result still has 13 tools.
+        # Config resolves to the empty default; result still has 17 tools.
         provider = BuiltinToolProvider()
         tools = provider.get_tools({}, {})
-        assert len(tools) == 13
+        assert len(tools) == 17
         names = {t.name for t in tools}
         assert names == {
             "shell",
@@ -67,6 +74,10 @@ class TestBuiltinToolProviderL3:
             "grep",
             "list_dir",
             "python_exec",
+            "shell_session_start",
+            "shell_session_send",
+            "shell_session_close",
+            "shell_session_list",
             "http_request",
             "web_search",
         }
@@ -89,11 +100,134 @@ class TestBuiltinToolProviderL3:
             assert ta is not tb, f"singleton leaked for {ta.name}"
 
     def test_unknown_tool_name_in_overrides_silently_ignored(self) -> None:
-        # An unknown tool name in agent_overrides must not raise; the 13
+        # An unknown tool name in agent_overrides must not raise; the 17
         # known tools are still instantiated. Mirrors the v7
         # enabled_tools/disabled_tools strip semantic.
         provider = BuiltinToolProvider()
         tools = provider.get_tools(None, {"nonexistent_tool": {"foo": "bar"}})
-        assert len(tools) == 13
+        assert len(tools) == 17
         names = {t.name for t in tools}
         assert "nonexistent_tool" not in names
+
+
+# ---------------------------------------------------------------------------
+# L1b additions — cross_configs dispatch, agent_name plumbing, intra-call
+# sharing, inter-call freshness, Requires-declaring fixture tool.
+# ---------------------------------------------------------------------------
+
+
+class _ExecutionStub(BaseModel):
+    """Stand-in Config for a fixture tool — F4 L2 will introduce the real
+    ExecutionConfig; here we only need a non-empty BaseModel."""
+
+    cap: int = 100
+
+
+class _FixtureRequiresFsTool(Tool):
+    """Fixture tool declaring `Requires = (FilesystemConfig,)` so the L1b
+    cross_configs dispatch path can be asserted without coupling to any of
+    the 17 real tools' Config wiring."""
+
+    name = "fixture_requires_fs"
+    description = "Fixture tool that depends on FilesystemConfig."
+    parameters: dict[str, Any] = {"type": "object", "properties": {}, "required": []}
+    Config = _ExecutionStub
+    Requires = (FilesystemConfig,)
+
+    async def execute(self, **kwargs: Any) -> str:
+        return "ok"
+
+
+class TestBuiltinToolProviderL1b:
+    def test_factory_path_populates_cross_configs_for_filesystem(self) -> None:
+        # The 9 filesystem tools all carry `Config = FilesystemConfig`; on
+        # the factory path the provider must resolve FilesystemConfig once
+        # and stash it in `cross_configs` keyed by the Config type.
+        tools = BuiltinToolProvider().get_tools({}, {})
+        for tool in tools:
+            assert FilesystemConfig in tool._cross_configs, (
+                f"tool {tool.name} missing FilesystemConfig in cross_configs"
+            )
+            assert isinstance(
+                tool._cross_configs[FilesystemConfig], FilesystemConfig
+            )
+
+    def test_introspection_path_has_empty_cross_configs(self) -> None:
+        # Zero-arg / both-None calls must not invoke the resolver; tools come
+        # back with the `Tool.__init__` defaults.
+        tools = BuiltinToolProvider().get_tools()
+        for tool in tools:
+            assert tool._cross_configs == {}
+            assert tool._agent_name is None
+
+    def test_agent_name_threads_to_every_tool(self) -> None:
+        tools = BuiltinToolProvider().get_tools({}, {}, agent_name="alpha")
+        for tool in tools:
+            assert tool._agent_name == "alpha"
+
+    def test_cross_configs_shared_by_reference_within_one_call(self) -> None:
+        # Shared dict means a frozen Config protects every tool from a peer
+        # mutating its view (FilesystemConfig is frozen as of L1b).
+        tools = BuiltinToolProvider().get_tools({}, {})
+        first = tools[0]._cross_configs
+        for tool in tools[1:]:
+            assert tool._cross_configs is first
+
+    def test_cross_configs_fresh_per_call(self) -> None:
+        # Each `get_tools` call builds its own cross_configs dict — no
+        # cross-call leakage even though the dict is shared within a call.
+        tools_a = BuiltinToolProvider().get_tools({}, {})
+        tools_b = BuiltinToolProvider().get_tools({}, {})
+        assert tools_a[0]._cross_configs is not tools_b[0]._cross_configs
+
+    def test_requires_fixture_tool_receives_filesystem_config(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Inject the fixture tool into _TOOL_CLASSES; the provider must
+        # resolve the FilesystemConfig (declared via `Requires`) and pass
+        # the dict to the fixture tool so it sees a FilesystemConfig
+        # instance keyed by the Config class.
+        from the_one.tools import builtins as builtins_mod
+
+        patched = dict(builtins_mod._TOOL_CLASSES)
+        patched["fixture_requires_fs"] = _FixtureRequiresFsTool
+        monkeypatch.setattr(builtins_mod, "_TOOL_CLASSES", patched)
+
+        tools = BuiltinToolProvider().get_tools({}, {}, agent_name="alpha")
+        fixture = next(t for t in tools if t.name == "fixture_requires_fs")
+        assert FilesystemConfig in fixture._cross_configs
+        assert isinstance(
+            fixture._cross_configs[FilesystemConfig], FilesystemConfig
+        )
+        assert fixture._agent_name == "alpha"
+
+    def test_cross_configs_skips_empty_config(self) -> None:
+        # Tools with the inherited `_EmptyConfig` default (post-L4: only the
+        # web tools — `http_request`, `web_search`) must NOT contribute an
+        # entry to cross_configs — the per-call view collapses empties so
+        # cross-Config consumers don't see noise.
+        from the_one.tools.resolver import _EmptyConfig
+
+        tools = BuiltinToolProvider().get_tools({}, {})
+        for tool in tools:
+            assert _EmptyConfig not in tool._cross_configs
+
+    def test_cross_configs_contains_three_distinct_configs(self) -> None:
+        """Lock the post-L4 dispatch shape: the per-call ``cross_configs``
+        view contains EXACTLY ``{FilesystemConfig, ExecutionConfig,
+        PythonExecConfig}`` — three distinct Config types from
+        ``_TOOL_CLASSES``. ``_EmptyConfig`` (web tools) is skipped;
+        ``PythonExecConfig`` (a subclass of ``ExecutionConfig``) is a
+        DISTINCT key from its parent (the resolver dispatch layer treats
+        them as independent Config types). Guards against future drift if
+        a new Config sneaks in or one of these gets removed."""
+        from the_one.tools.execution import ExecutionConfig, PythonExecConfig
+
+        tools = BuiltinToolProvider().get_tools({}, {})
+        # All tools share one cross_configs dict by reference; sample tool[0].
+        cross_configs = tools[0]._cross_configs
+        assert set(cross_configs.keys()) == {
+            FilesystemConfig,
+            ExecutionConfig,
+            PythonExecConfig,
+        }
