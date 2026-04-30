@@ -232,15 +232,21 @@ PTY sessions ship via `the_one/platform/pty.py::PtySession` ABC (Unix concrete; 
 
 **Per-call denylist re-check** (Decision 11): every `_send` runs `_command_check(input, exec_cfg)` BEFORE forwarding to the PTY. Agents cannot pre-stage a denylisted command behind an open session. The same trailing-space convention applies (`"sudo "` denied; `"sudoku"` allowed).
 
-### Dev iteration: container restart
+### Dev iteration: source auto-reload
 
-The dev container at `localhost:8484` runs the FastAPI app under uvicorn as a long-lived process. The `the_one/` and `tests/` bind-mounts (added pre-flight to F4) make new files visible to **new** Python invocations (`docker exec the-one python /app/_tmp.py` sees post-edit code) but do NOT affect modules already imported by the long-running uvicorn worker. **When iterating on tool source code mid-flight, restart the container**:
+The dev container at `localhost:8484` runs `uvicorn ... --reload --reload-dir /app/the_one` (wired into `docker-compose.yml`'s `command:`). Edits to any file under `./the_one/` on the host trigger a graceful uvicorn worker restart within ~1s — no manual `docker compose restart` needed.
+
+To verify the reload fired, watch the container logs:
 
 ```bash
-docker compose restart the-one
+docker logs --tail 20 the-one
+# WARNING:  WatchFiles detected changes in 'the_one/<file>'. Reloading...
+# INFO:     Started server process [<new-pid>]
 ```
 
-Surfaced during F4 L7 HAT scenario 1 — the timeout-cap clip behavior from L3-L4 was not engaging through the chat API until the container was restarted; HAT then passed cleanly. See F4 flight-log Anomalies for the full incident write-up. Optional follow-up (out of F4 scope): add `--reload` to uvicorn in the dev compose file, OR an `App.onChange` script that auto-restarts on `the_one/**/*.py` changes — either would eliminate the manual-restart step for future flights.
+`./tests/` is also bind-mounted but **not** watched by `--reload-dir` — test edits don't bounce the server (avoids noise). Run tests with `docker exec the-one pytest ...`; fresh Python interpreters always see the latest test code.
+
+**Historical note** — surfaced during F4 L7 HAT scenario 1, the timeout-cap clip from L3-L4 was not engaging through the chat API because uvicorn had cached the pre-L3 imports. Pre-fix the workaround was `docker compose restart the-one`; post-fix the reload is automatic.
 
 ### Continue Signal
 

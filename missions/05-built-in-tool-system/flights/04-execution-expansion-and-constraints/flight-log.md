@@ -396,9 +396,9 @@ After Parts 1+2 shipped, the operator surfaced a third bug: starting a NEW conve
 
 **Resolution**: `docker compose restart the-one` reloaded all imports; HAT re-run with all 10 scenarios passing cleanly thereafter.
 
-**Documentation impact (deferred to L8)**:
-- Add a one-line note in `agents.md` and/or `CLAUDE.md`: "When iterating on tool source code mid-flight, restart the container (`docker compose restart the-one`) so uvicorn picks up new imports. The bind-mount alone is not sufficient for the long-running server process."
-- Optional follow-up (out of F4 scope): consider adding `--reload` to uvicorn in the dev compose file, OR an `App.onChange` script that auto-restarts on `the_one/**/*.py` changes. Either would eliminate the manual-restart step for future flights.
+**Documentation impact**:
+- L8 added a "Dev iteration: container restart" note to `agents.md` and `CLAUDE.md` documenting the manual workaround.
+- **Post-flight follow-up landed**: added `command: uvicorn ... --reload --reload-dir /app/the_one` to `docker-compose.yml`. `watchfiles` 1.1.1 was already in the image (uvicorn ships it as a reload-extra). Live smoke confirmed `WatchFiles detected changes ... Reloading` fires on edits to `the_one/**/*.py`. Docs updated from "restart the container" to "reload is automatic" in both `agents.md` and `CLAUDE.md`.
 
 ---
 
