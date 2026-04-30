@@ -76,13 +76,16 @@ Providers are lazy-loaded on first `get_provider(name)` call. Each converts mess
 
 | File | Exports | Purpose |
 |------|---------|---------|
-| `base.py` | `Tool`, `ToolRegistry` | Tool ABC (`Config: type[BaseModel]`, `__init__(config)`, `execute(**kwargs) -> str`) and registry |
-| `provider.py` | `ToolProvider` | Protocol: `name` property + `get_tools(tool_configs=None, agent_overrides=None)` method |
-| `builtins.py` | `BuiltinToolProvider` | Per-agent instantiation of all 7 built-in tools via module-level `_TOOL_CLASSES` |
+| `base.py` | `Tool`, `ToolRegistry`, `ConstraintError` | Tool ABC (`Config: type[BaseModel]`, `Requires: tuple[type[BaseModel], ...]`, `__init__(config, cross_configs=None, agent_name=None)`, `execute(**kwargs) -> str`); `ConstraintError` exception (F4 L1a — promoted from `filesystem.py` next to the ABC because the two-clause `try/except` envelope IS the tool authorship contract) |
+| `provider.py` | `ToolProvider` | Protocol: `name` property + `get_tools(tool_configs=None, agent_overrides=None, agent_name=None)` method |
+| `builtins.py` | `BuiltinToolProvider` | Per-agent instantiation of all 17 built-in tools via module-level `_TOOL_CLASSES` |
 | `resolver.py` | `Narrow`, `NarrowPrefix`, `NarrowSuperset`, `Substitute`, `resolve` | Tool policy resolver — composes tool-level + agent-level configs per per-key marker semantics |
-| `shell.py` | `ShellTool` | Arbitrary shell commands |
-| `filesystem.py` | `ReadFileTool`, `WriteFileTool`, `ListDirTool` | File operations |
-| `python_exec.py` | `PythonExecTool` | Python subprocess execution |
+| `shell.py` | `ShellTool` | Arbitrary shell commands (F4: `Config = ExecutionConfig`, `Requires = (FilesystemConfig,)`) |
+| `filesystem.py` | `FilesystemConfig`, `ReadFileTool`, `WriteFileTool`, `EditFileTool`, `DeleteFileTool`, `MoveFileTool`, `MkdirTool`, `GlobTool`, `GrepTool`, `ListDirTool` | Per-category Config + 9 file operations (F3 expansion; F4 sets `model_config = ConfigDict(frozen=True)` retroactively) |
+| `execution.py` | `ExecutionConfig`, `PythonExecConfig`, `_command_check`, `_cwd_check`, `_truncate_output`, `DEFAULT_COMMAND_DENYLIST` | Per-category execution Config + helpers (F4 L2). `PythonExecConfig` is a subclass with a 90s timeout default for `PythonExecTool`. |
+| `python_exec.py` | `PythonExecTool` | Python subprocess execution (F4: `Config = PythonExecConfig`, `Requires = (FilesystemConfig,)`) |
+| `sessions.py` | `ShellSessionStartTool`, `ShellSessionSendTool`, `ShellSessionCloseTool`, `ShellSessionListTool` | F4 PTY session tools (per-explicit-handle `session_id` addressing; per-agent isolation; idle reap; per-call denylist re-check on `_send`) |
+| `_session_registry.py` | `register`, `get`, `close`, `list_for_agent`, `count_for_agent`, `_clear_for_test` | F4 L5b module-level session registry keyed on `(agent_name, session_id)`; lazy reaper task; FastAPI-lifespan-drained at shutdown |
 | `web.py` | `HttpRequestTool`, `WebSearchTool` | HTTP and web search |
 
 ### `the_one/interfaces/`
@@ -160,9 +163,17 @@ Agents are defined as JSON files in `~/.the-one/agents/` (or rows in the SQLite 
 
 ### Tool Providers
 
-`ToolProvider` is a single-method protocol: `name` property + `get_tools(tool_configs=None, agent_overrides=None) -> list[Tool]`. `BuiltinToolProvider` provides the 7 built-in tools, instantiated fresh per call (no shared singletons). Future `McpToolProvider` implements the same protocol for MCP server tools.
+`ToolProvider` is a single-method protocol: `name` property + `get_tools(tool_configs=None, agent_overrides=None, agent_name=None) -> list[Tool]`. `BuiltinToolProvider` provides the 17 built-in tools (F4 grew the count from F3's 13 by adding the four `shell_session_*` tools), instantiated fresh per call (no shared singletons). Future `McpToolProvider` implements the same protocol for MCP server tools.
 
-**Two call paths**: when both args are `None` (introspection — e.g., `/api/tools`, zero-arg tests), each tool is instantiated with its empty default Config. When at least one arg is supplied (factory path — `AgentFactory.create()`), the provider invokes `the_one.tools.resolver.resolve(...)` per tool and hands the resolved Config to `cls(resolved_config)`.
+**Two call paths**: when both `tool_configs` and `agent_overrides` are `None` (introspection — e.g., `/api/tools`, zero-arg tests), each tool is instantiated with its empty default Config. When at least one is supplied (factory path — `AgentFactory.create()`), the provider invokes `the_one.tools.resolver.resolve(...)` per tool, builds a per-call shared `cross_configs: dict[type[BaseModel], BaseModel]` view (F4 L1b — Decision 7), and hands `(resolved_config, cross_configs, agent_name)` into each tool's `__init__`. `agent_name` threads from `AgentFactory.create()` through the provider call so session tools can key their registry on `(agent_name, session_id)` for cross-agent isolation.
+
+### Cross-Config dispatch (F4)
+
+Tools may declare `Requires: tuple[type[BaseModel], ...]` to opt into the shared `cross_configs` view. Used by:
+- `ShellTool` and `PythonExecTool` declare `Requires = (FilesystemConfig,)` so cwd validation can call `_cwd_check(target_cwd, fs_cfg)` against the filesystem path-scope.
+- `ShellSessionStartTool` and `ShellSessionSendTool` declare the same; `ShellSessionCloseTool` and `ShellSessionListTool` declare `Requires = ()` because they're session-id-only operations.
+
+The view is built once per `get_tools()` call by walking `_TOOL_CLASSES` in declared order and resolving each distinct Config class once. Both `ExecutionConfig` and `FilesystemConfig` are `frozen=True` so a tool cannot mutate the shared view to corrupt another tool's read.
 
 ### Tool Policy Resolver
 
@@ -173,7 +184,69 @@ Agents are defined as JSON files in `~/.the-one/agents/` (or rows in the SQLite 
 - `Annotated[type, NarrowSuperset]` — agent override on a `list[T]` is narrowing iff every tool entry is also in the agent value (agent ⊇ tool — agent adds restrictions). Used by `FilesystemConfig.path_denylist`. Membership uses raw `==` equality; canonicalization is consumer-side. Non-list values raise `NotImplementedError`.
 - `Annotated[type, Substitute]` — agent override replaces the tool value (no comparison). Used for identity / shared-credential / KV fields.
 
-Invoked once at agent build time inside `BuiltinToolProvider.get_tools(...)`; the resolved Config flows into the per-agent tool instance via `Tool.__init__(config)` and is held as `self._config`. Session-bound freshness contract (Decision 8): mid-session operator updates apply at the next `AgentFactory.create()` call. F2's seven tools have empty Configs (`Tool.Config = _EmptyConfig`) — F3-F5 introduce real constraint fields.
+Invoked once at agent build time inside `BuiltinToolProvider.get_tools(...)`; the resolved Config flows into the per-agent tool instance via `Tool.__init__(config, cross_configs, agent_name)` and is held as `self._config`. Session-bound freshness contract (Decision 8): mid-session operator updates apply at the next `AgentFactory.create()` call. F2's seven tools had empty Configs (`Tool.Config = _EmptyConfig`); F3 introduced `FilesystemConfig` (4 fields, used by all 9 filesystem tools); F4 introduced `ExecutionConfig` (6 fields + `default <= max` cross-field invariant, used by all 6 execution tools — `shell`, `python_exec`, and the four `shell_session_*` tools — with `PythonExecConfig` as the 90s-default subclass for `PythonExecTool`); F5 will add the URL/host scope Config for the web tools.
+
+### Constraint surface
+
+The five **active** constraint types after F4 are:
+
+| Type | Source flight | Config field(s) | Marker(s) | Applies to |
+|------|---------------|-----------------|-----------|------------|
+| Path scope (allowlist + denylist) | F3 | `FilesystemConfig.path_allowlist`, `path_denylist` | `NarrowPrefix` + `NarrowSuperset` | All 9 filesystem tools + cwd validation in all 6 execution tools (cross-Config dispatch) |
+| Read-size cap | F3 | `FilesystemConfig.read_size_cap_bytes`, `allow_binary_files` | `Narrow` (`int`) + `Narrow` (`bool`) | `read_file`, `grep`, indirect via `edit_file` pre-read |
+| Output cap | F4 | `ExecutionConfig.output_cap_bytes` | `Narrow` (`int`) | All 6 execution tools (combined stdout+stderr, tail-preserving truncation; default 256 KB) |
+| Timeout caps | F4 | `ExecutionConfig.timeout_seconds_default`, `timeout_seconds_max` | `Narrow` (`int`) × 2, plus a `model_validator(mode="after")` cross-field invariant `default <= max` | All 6 execution tools (agent value clipped to `[1, max]`; `default` used when agent omits) |
+| Command denylist | F4 | `ExecutionConfig.command_denylist` | `NarrowSuperset` (`list[str]`) | `shell`, `python_exec`, `shell_session_send` (per-call re-check, Decision 11). Substring match with trailing-space convention to avoid the `sudoku` false-positive class. |
+
+URL/host scope (sixth type) is **future** — F5 will add it via `WebConfig` to govern `http_request`, `web_search`, and the new `fetch_url` / `download_file` tools.
+
+PTY-specific knobs `pty_session_idle_ttl_seconds` (default 5min) and `max_concurrent_sessions` (default 5) live on the same `ExecutionConfig` (Narrow ints) so per-tool overrides flow through the same resolver path. They're enforced by the registry + reaper rather than at the tool's `execute` boundary, but they're still operator-tunable via `tool_configs` and agent-narrowable via `tool_overrides`.
+
+### Subprocess environment (F4 invariant)
+
+All three execution call sites — `the_one/platform/shell.py::run_shell`, `the_one/platform/interpreter.py::run_python`, and `the_one/platform/pty.py::UnixPtySession` (fork-then-execv with `os.environ.clear()` + `os.environ.update(_build_subprocess_env())` in the child before `os.execvp`) — pass an explicit subprocess env built from a hardcoded 8-key allowlist:
+
+```
+PATH, HOME, USER, LOGNAME, LANG, LC_ALL, TERM, TZ
+```
+
+Defined as `_ENV_ALLOWLIST: tuple[str, ...]` in `the_one/platform/env.py` alongside `_build_subprocess_env()`. **NOT operator-configurable** — Decision 10 pins this as part of the F4 trust contract: the agent has no path to read or carry through host secrets via subprocess inheritance. `the_one/tools/execution.py` re-exports both names for backward-compat with L2/L3/L4 tests; `the_one/platform/pty.py` consumes `_build_subprocess_env` directly to avoid a backwards `platform/ → tools/` dependency. The HAT scenario 5 (env-allowlist invariant) verified the agent observes only allowlisted keys at the `env` boundary.
+
+### Threat model — trip-wire, not fence
+
+F4 Decision 3 framing for the `command_denylist`: it is a **trip-wire** that catches obvious-stupid (agent typos, prompt-injection telegraphs in plaintext, the operator's company-specific dangerous patterns). It is **NOT a fence** against adversarial agents — `bash -c "$(echo c3VkbyB3aG9hbWk= | base64 -d)"` is not in the denylist and would not be caught. The trip-wire produces a clean small-model-readable error rather than a destructive side-effect; bypasses are an accepted property because the operator-trust threat model assumes the agent is not actively adversarial. Operators wanting fence-grade isolation should run the agent in a sandbox (container, VM, namespace) and treat the denylist as the inner-defence layer, not the only one. False-positive surface is also accepted: legitimate text containing a denylisted token (`echo "do not run sudo"`) is refused; the workaround is to write the literal through a file (`echo $S > /tmp/x` after setting `S` outside the denylist) — documented in the `shell_session_send` tool description.
+
+### PTY session lifecycle (F4)
+
+PTY sessions ship via `the_one/platform/pty.py::PtySession` ABC (Unix concrete; `UnixPtySession`). On import under `os.name == "nt"` the module raises `NotImplementedError("Windows ConPTY support deferred to a future mission")` — Windows PTY is explicitly out of M05 scope.
+
+**Session addressing** (Decision 4): per-explicit-handle. `shell_session_start` returns a `pty-{12hex}` token; the agent passes that token back into `_send` / `_close`. The four discrete tools (`_start`, `_send`, `_close`, `_list`) replace the action-enum (`shell_session(action="...")`) shape rejected during flight design — discrete tools surface JSON-Schema constraints that the action-enum would not.
+
+**Per-agent isolation**: `the_one/tools/_session_registry.py::_sessions: dict[tuple[str, str], _SessionEntry]` keyed on `(agent_name, session_id)`. Cross-agent `_send` / `_close` returns `[error] [constraint] session 'pty-...' not owned by this agent or does not exist` — the same error shape as a non-existent session, so the agent cannot probe for other agents' session ids. `agent_name=None` (introspection path) raises `ConstraintError("session tools require an agent context")` from a free-function `_require_agent_name(tool)` helper.
+
+**Idle reap** (Decision 5): a single asyncio reaper task spawns lazily on first session registration, wakes every 30s, and closes sessions whose `time.monotonic() - session.last_activity > pty_session_idle_ttl_seconds` (default 5 minutes; Narrow on `ExecutionConfig`). The reaper registers with the FastAPI lifespan (`the_one/interfaces/web/app.py` lifespan context) so shutdown drains the registry cleanly. On `CancelledError`, the reaper closes all live sessions and exits.
+
+**Max concurrent**: `count_for_agent < max_concurrent_sessions` (default 5; Narrow). The L6 leg-spec accepted a documented race — concurrent `_start` calls from a single agent could race past the cap because `(count_for_agent, register)` is not atomic under one lock acquisition. HAT scenario 8 surfaced the **bonus finding** that the registry's internal lock serialized correctly under single-process asyncio, so the documented race did not actually fire even when Haiku 4.5 made 6 parallel `_start` tool calls in one turn. The "accept the race" stance remains conservative; for F6+ HTTP parallelism, the registry can grow a `register_if_under_cap()` helper that does count+insert under one lock acquisition.
+
+**Idle-mark prompt detection**: `UnixPtySession` does NOT scan for shell prompts. Instead, `_read_until_idle` blocks until the master_fd has been silent for 100ms (`_DEFAULT_IDLE_WINDOW`), with a 2s hard cap (`_DEFAULT_IDLE_DEADLINE`). Robust against shells that emit prompts inconsistently (zsh themes, sudo prompt detection, etc.). `start()` blocks on this idle-mark before returning so the agent's first `send` doesn't race with shell init.
+
+**Per-call denylist re-check** (Decision 11): every `_send` runs `_command_check(input, exec_cfg)` BEFORE forwarding to the PTY. Agents cannot pre-stage a denylisted command behind an open session. The same trailing-space convention applies (`"sudo "` denied; `"sudoku"` allowed).
+
+### Dev iteration: source auto-reload
+
+The dev container at `localhost:8484` runs `uvicorn ... --reload --reload-dir /app/the_one` (wired into `docker-compose.yml`'s `command:`). Edits to any file under `./the_one/` on the host trigger a graceful uvicorn worker restart within ~1s — no manual `docker compose restart` needed.
+
+To verify the reload fired, watch the container logs:
+
+```bash
+docker logs --tail 20 the-one
+# WARNING:  WatchFiles detected changes in 'the_one/<file>'. Reloading...
+# INFO:     Started server process [<new-pid>]
+```
+
+`./tests/` is also bind-mounted but **not** watched by `--reload-dir` — test edits don't bounce the server (avoids noise). Run tests with `docker exec the-one pytest ...`; fresh Python interpreters always see the latest test code.
+
+**Historical note** — surfaced during F4 L7 HAT scenario 1, the timeout-cap clip from L3-L4 was not engaging through the chat API because uvicorn had cached the pre-L3 imports. Pre-fix the workaround was `docker compose restart the-one`; post-fix the reload is automatic.
 
 ### Continue Signal
 

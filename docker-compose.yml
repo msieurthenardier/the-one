@@ -5,6 +5,20 @@ services:
     restart: unless-stopped
     ports:
       - "8484:8484"
+    # Override the image's `the-one serve` CMD with a direct uvicorn
+    # invocation that auto-reloads on `the_one/` source edits — pairs
+    # with the dev bind-mounts below so iteration on tool source
+    # propagates to the live server without `docker compose restart`.
+    # `watchfiles` is already in the image (uvicorn ships it as a
+    # reload-extra dependency, version 1.1.1 confirmed).
+    # Surfaced as a follow-up after F4 HAT scenario 1 — see flight log
+    # Anomalies for the original incident write-up.
+    command: >
+      uvicorn the_one.interfaces.web.app:app
+      --host 0.0.0.0
+      --port 8484
+      --reload
+      --reload-dir /app/the_one
     volumes:
       - the_one_data:/root/.the-one
       # Dev bind-mounts: host the_one/ becomes the live source seen by both the
@@ -14,6 +28,9 @@ services:
       # lines to restore the production-style frozen image.
       - ./the_one:/app/the_one
       - ./the_one:/usr/local/lib/python3.11/site-packages/the_one
+      # Mount tests/ so test edits are live too (F4 L1b finding —
+      # otherwise every leg adding tests would need `docker cp tests/...`).
+      - ./tests:/app/tests
     environment:
       - THE_ONE_LLM_PROVIDER=ollama
       - THE_ONE_LLM_MODEL=qwen2.5:7b

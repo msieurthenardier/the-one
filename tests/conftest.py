@@ -45,7 +45,19 @@ class FakeLLM(LLMProvider):
 class StubTool(Tool):
     """Tool that records calls and returns a canned response."""
 
-    def __init__(self, name: str, description: str = "A stub tool.") -> None:
+    def __init__(
+        self,
+        name: str,
+        description: str = "A stub tool.",
+        cross_configs: dict[Any, Any] | None = None,
+        agent_name: str | None = None,
+    ) -> None:
+        # L1b: widen to accept cross_configs/agent_name kwargs so this stub
+        # works on the BuiltinToolProvider factory path. We do not call
+        # `super().__init__()` because StubTool has no Config schema and the
+        # tests intentionally use a plain `name`-positional constructor; we
+        # mirror the base class's storage of the new fields so factory-path
+        # plumbing assertions (e.g. `_agent_name`) succeed.
         self.name = name
         self.description = description
         self.parameters: dict[str, Any] = {
@@ -54,6 +66,8 @@ class StubTool(Tool):
             "required": [],
         }
         self.calls: list[dict[str, Any]] = []
+        self._cross_configs = cross_configs or {}
+        self._agent_name = agent_name
 
     async def execute(self, **kwargs: Any) -> str:
         self.calls.append(kwargs)

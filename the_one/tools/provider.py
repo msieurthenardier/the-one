@@ -30,6 +30,14 @@ class ToolProvider(Protocol):
         self,
         tool_configs: dict[str, dict] | None = None,
         agent_overrides: dict[str, dict] | None = None,
+        agent_name: str | None = None,
     ) -> list[Tool]:
-        """Return all tools this provider can supply."""
+        """Return all tools this provider can supply.
+
+        ``agent_name`` is the per-agent state-isolation key (F4 Decision 4):
+        used to scope per-agent runtime state like PTY session ownership
+        keyed on ``(agent_name, session_id)``. NOT an adversarial separator —
+        agents trust the operator's tool-level policy boundary. Defaults to
+        ``None`` for introspection callers (e.g. ``/api/tools``).
+        """
         ...

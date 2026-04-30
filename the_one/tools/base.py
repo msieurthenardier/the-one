@@ -8,6 +8,14 @@ from pydantic import BaseModel
 from the_one.tools.resolver import _EmptyConfig
 
 
+class ConstraintError(Exception):
+    """Policy-driven refusal raised by tools and category-helper checks.
+    Tool wrappers catch this type and format
+    `[error] [constraint] {msg}`; environmental exceptions still format
+    `[error] {e}` so agents can distinguish policy refusals from runtime
+    failures (Flight 3 Decision 1.5)."""
+
+
 class Tool(ABC):
     """Base class for all tools the agent can use.
 
@@ -34,11 +42,37 @@ class Tool(ABC):
     # constraint fields.
     Config: type[BaseModel] = _EmptyConfig
 
-    def __init__(self, config: BaseModel | None = None) -> None:
+    # F4 Decision 7: tools may declare other Configs they consult at execute
+    # time (e.g. ShellTool consults `FilesystemConfig` for cwd validation so
+    # `cd /etc && cat passwd` is denied for an agent denied
+    # `read_file('/etc/passwd')`). The provider resolves each declared Config
+    # once per `get_tools(...)` call and hands the full mapping to every tool
+    # via `cross_configs`. `Requires` is purely declarative in L1b — the
+    # provider passes the full dict to all tools regardless. Future flights
+    # may use `Requires` for static analysis or selective dispatch. Tuple
+    # (immutable) so subclasses can't accidentally mutate the class default.
+    Requires: tuple[type[BaseModel], ...] = ()
+
+    def __init__(
+        self,
+        config: BaseModel | None = None,
+        cross_configs: dict[type[BaseModel], BaseModel] | None = None,
+        agent_name: str | None = None,
+    ) -> None:
         # `or self.Config()` evaluates `self.Config()` only when `config` is
         # None, so subclasses with required-field Configs only fail when they
         # actually need a config but didn't get one.
         self._config = config or self.Config()
+        # `cross_configs` is the per-call shared mapping of tool-level
+        # Configs the provider resolved across `_TOOL_CLASSES`. Tools that
+        # need cross-Config policy lookups (F4 Decision 7) read from this
+        # dict by Config-type key (e.g. `self._cross_configs[FilesystemConfig]`).
+        self._cross_configs: dict[type[BaseModel], BaseModel] = cross_configs or {}
+        # `agent_name` is per-agent state-isolation key (F4 Decision 4 — PTY
+        # session ownership keys on `(agent_name, session_id)`). NOT an
+        # adversarial separator; agents trust the operator's tool-level
+        # policy. `None` for introspection callers and zero-arg test paths.
+        self._agent_name: str | None = agent_name
 
     @abstractmethod
     async def execute(self, **kwargs: Any) -> str:

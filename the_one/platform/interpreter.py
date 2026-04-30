@@ -22,6 +22,7 @@ import asyncio
 import os
 import signal
 import sys
+from pathlib import Path
 
 
 def resolve_python() -> str:
@@ -39,6 +40,7 @@ async def run_python(
     *,
     timeout: float,
     env: dict[str, str] | None = None,
+    cwd: str | Path | None = None,
 ) -> tuple[bytes, bytes, int]:
     """Run ``code`` via ``python -c``; return ``(stdout, stderr, returncode)``.
 
@@ -46,7 +48,10 @@ async def run_python(
     ``resolve_python()``. Returns raw bytes; caller decides decode policy.
 
     ``env=None`` means inherit the parent environment (today's behavior); a
-    dict replaces the environment entirely.
+    dict replaces the environment entirely. ``cwd=None`` (default) inherits
+    the agent server's CWD; a value is coerced via ``str(cwd)`` and passed
+    to ``create_subprocess_exec``. F4 L4 widening for ``PythonExecTool``'s
+    cwd argument — same shape as ``run_shell``'s widening.
 
     On timeout, kills the subprocess, re-drains pipes via a second
     ``communicate()`` call, and re-raises ``asyncio.TimeoutError``.
@@ -57,6 +62,8 @@ async def run_python(
     popen_kwargs: dict[str, object] = {}
     if env is not None:
         popen_kwargs["env"] = env
+    if cwd is not None:
+        popen_kwargs["cwd"] = str(cwd)
     if os.name == "posix":
         popen_kwargs["start_new_session"] = True
     proc = await asyncio.create_subprocess_exec(

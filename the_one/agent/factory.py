@@ -114,7 +114,9 @@ class AgentFactory:
         # invokes the resolver internally per Decision 10).
         registry = ToolRegistry()
         for provider in self.tool_providers:
-            for tool in provider.get_tools(tool_configs_by_name, agent_overrides):
+            for tool in provider.get_tools(
+                tool_configs_by_name, agent_overrides, agent_name=name
+            ):
                 if config.is_tool_enabled(tool.name):
                     registry.register(tool)
 

@@ -4,20 +4,14 @@ import re
 from pathlib import Path
 from typing import Annotated, Any
 
-from pydantic import BaseModel, Field, PrivateAttr
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 from the_one.platform import canonicalize
-from the_one.tools.base import Tool
+from the_one.tools.base import (  # noqa: F401  (ConstraintError re-export for backward-compat)
+    ConstraintError,
+    Tool,
+)
 from the_one.tools.resolver import Narrow, NarrowPrefix, NarrowSuperset
-
-
-class ConstraintError(Exception):
-    """Policy-driven refusal raised by filesystem tools and the
-    `_filesystem_check` family. Tool wrappers catch this type and format
-    `[error] [constraint] {msg}`; environmental exceptions still format
-    `[error] {e}` so agents can distinguish policy refusals from runtime
-    failures (Flight 3 Decision 1.5)."""
-
 
 DEFAULT_PATH_DENYLIST: tuple[str, ...] = (
     # System secrets / credentials (8)
@@ -57,7 +51,18 @@ class FilesystemConfig(BaseModel):
     Eagerly canonicalizes allowlist/denylist entries via `model_post_init`
     + `PrivateAttr`. NOT `@computed_field @property` — those re-execute on
     every access and would defeat the N×M canonicalize-avoidance.
+
+    Frozen (F4 Decision 7) so `cross_configs` shared by reference across
+    tool instances in one `BuiltinToolProvider.get_tools(...)` call cannot
+    be mutated by one tool to corrupt a peer's view. Pydantic's freeze
+    blocks attribute *assignment*; `PrivateAttr` writes inside
+    `model_post_init` use a different path and remain permitted.
+    Note: list-content mutation (e.g. `cfg.path_denylist.append(...)`) is
+    NOT blocked by `frozen=True` — freezing only guards the attribute
+    binding, not contained mutable values.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     path_allowlist: Annotated[list[str], NarrowPrefix] = ["~"]
 

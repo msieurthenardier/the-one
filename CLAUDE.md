@@ -63,7 +63,7 @@ The system has four layers that compose bottom-up:
 
 **LLM layer** (`the_one/llm/`) — Abstract `LLMProvider` base with `complete()` method. Three implementations (ollama, openai, anthropic) lazy-loaded via a registry (`get_provider(name)`). All share the `Message`/`ToolCall`/`ToolResult` dataclasses from `base.py`. Provider is resolved from the database via `LLMProviderRepository` — each agent references a provider config by `provider_config_id`.
 
-**Tool layer** (`the_one/tools/`) — Abstract `Tool` base class with `execute(**kwargs) -> str`. `ToolRegistry` holds all tools and generates JSON schemas for the LLM. `BuiltinToolProvider` (`builtins.py`) provides all 7 built-in tools via lazy import, implementing the `ToolProvider` protocol (`provider.py`). Tools are the agent's only way to affect the outside world.
+**Tool layer** (`the_one/tools/`) — Abstract `Tool` base class with `execute(**kwargs) -> str`. `ToolRegistry` holds all tools and generates JSON schemas for the LLM. `BuiltinToolProvider` (`builtins.py`) provides all 17 built-in tools via lazy import, implementing the `ToolProvider` protocol (`provider.py`): one `shell`, nine filesystem (`read_file`, `write_file`, `edit_file`, `delete_file`, `move_file`, `mkdir`, `glob`, `grep`, `list_dir`), one `python_exec`, four PTY session tools (`shell_session_start`, `shell_session_send`, `shell_session_close`, `shell_session_list`), and two web (`http_request`, `web_search`). Tools are the agent's only way to affect the outside world.
 
 **Agent loop** (`the_one/agent/core.py`) — The `Agent` class runs: user input → LLM call → tool execution → repeat until no tool calls remain. The agent uses a virtual `CONTINUE_SCHEMA` (defined inline in `core.py`) as a turn-keeping signal — when the LLM calls `continue`, the loop registers another iteration. Max 20 iterations per step as a safety limit.
 
@@ -111,7 +111,30 @@ For architecture internals, see `the_one/agents.md`.
 - `read_size_cap_bytes: int` (Narrow) — default 1 MiB; bounds `[1024, 100 MB]`.
 - `allow_binary_files: bool` (Narrow) — default False; positively-named permission so resolver's True=permissive reading aligns.
 
-Policy refusals raise `ConstraintError`; tool wrappers format as `[error] [constraint] {msg}`. Environmental errors format as `[error] {e}` so agents can distinguish policy refusals from runtime failures.
+Policy refusals raise `ConstraintError`; tool wrappers format as `[error] [constraint] {msg}`. Environmental errors format as `[error] {e}` so agents can distinguish policy refusals from runtime failures. `ConstraintError` lives in `the_one/tools/base.py` (next to the `Tool` ABC — the two-clause `try/except` envelope is the tool authorship contract); `filesystem.py` re-exports it for backward-compat with F3 test imports.
+
+### Execution constraint surface (F4)
+`the_one/tools/execution.py::ExecutionConfig` is the per-category Config shared by all 6 execution tools (`shell`, `python_exec`, `shell_session_start`, `shell_session_send`, `shell_session_close`, `shell_session_list`). Six fields plus a cross-field invariant:
+- `timeout_seconds_default: int` (Narrow) — default 30s; used when the agent omits `timeout`. Bounds `[1, 3600]`.
+- `timeout_seconds_max: int` (Narrow) — default 120s; hard ceiling, agent value clipped to it. Bounds `[1, 3600]`.
+- `output_cap_bytes: int` (Narrow) — default 256 KB; combined stdout+stderr tail-preserving cap. Bounds `[1024, 100 MB]`.
+- `command_denylist: list[str]` (NarrowSuperset) — default 19-entry curated list (`sudo `, `rm -rf /`, `mkfs`, `shutdown`, fork bomb, etc.). Substring match with trailing-space convention to avoid the `sudoku` false positive. **Trip-wire, not fence** — catches obvious-stupid; not a defence against adversarial agents.
+- `pty_session_idle_ttl_seconds: int` (Narrow) — default 5 minutes; reaper closes sessions idle longer than this. Bounds `[10, 3600]`.
+- `max_concurrent_sessions: int` (Narrow) — default 5; per-agent cap on simultaneous PTY sessions. Bounds `[1, 50]`.
+- `model_validator(mode="after")` enforces `timeout_seconds_default <= timeout_seconds_max` after resolver dispatch (prevents an agent from widening `default` past a narrowed `max`).
+
+`PythonExecConfig(ExecutionConfig)` is a subclass with `timeout_seconds_default = 90` (the cap and all other constraints inherit unchanged). Both Configs are `frozen=True` so the per-call shared `cross_configs` view cannot be mutated by one tool to corrupt another's view.
+
+The 8-key subprocess environment allowlist (`PATH, HOME, USER, LOGNAME, LANG, LC_ALL, TERM, TZ`) is module-level and **NOT operator-configurable** — it lives in `the_one/platform/env.py` (`_ENV_ALLOWLIST` constant, `_build_subprocess_env()` helper) and is enforced at all 3 execution call sites: `the_one/platform/shell.py::run_shell`, `the_one/platform/interpreter.py::run_python`, and `the_one/platform/pty.py::UnixPtySession` (fork-then-execv with `os.environ.clear()` + `os.environ.update(_build_subprocess_env())` in the child before `os.execvp`).
+
+### Cross-Config dispatch (F4)
+Tools may declare `Requires: tuple[type[BaseModel], ...] = (FilesystemConfig,)` to receive the resolved `FilesystemConfig` (or any other declared Config) via `cross_configs: dict[type[BaseModel], BaseModel]` passed into `Tool.__init__`. `BuiltinToolProvider.get_tools` builds the per-call shared view once by walking `_TOOL_CLASSES` in declared order. Used by `ShellTool` and `PythonExecTool` to validate `cwd` against the filesystem path-scope, and by `ShellSessionStartTool` / `ShellSessionSendTool` for the same. `Tool.__init__` also accepts `agent_name: str | None = None` (threaded from `AgentFactory.create()`) — the four session tools key the `_session_registry` on `(agent_name, session_id)` for cross-agent isolation; `agent_name=None` is the introspection path and produces a clean `ConstraintError` from session tools.
+
+### PTY session lifecycle (F4)
+PTY sessions ship via `the_one/platform/pty.py::PtySession` ABC (`UnixPtySession` concrete; Windows `ConPTY` deferred to a future mission). Sessions are registered in `the_one/tools/_session_registry.py` keyed on `(agent_name, session_id)`; per-agent `count_for_agent()` enforces the `max_concurrent_sessions` cap; a single asyncio reaper task spawns lazily on first registration and wakes every 30s to close sessions idle past `pty_session_idle_ttl_seconds`. The reaper registers with the FastAPI lifespan so shutdown drains the registry cleanly. Readiness detection uses an idle-mark (`_read_until_idle` blocks until the master_fd has been silent for 100ms, with a 2s hard cap) — robust against shells that emit prompts inconsistently. Per-call denylist re-check applies on every `shell_session_send` (Decision 11) so agents cannot pre-stage a denylisted command behind an open session.
+
+### Dev iteration: source auto-reload
+The dev container runs `uvicorn ... --reload --reload-dir /app/the_one` (wired into `docker-compose.yml`'s `command:`). Edits to any file under `./the_one/` propagate to the running server within ~1s via `WatchFiles`; no manual restart needed. `./tests/` is bind-mounted but NOT watched (avoids noise from test edits) — `docker exec the-one pytest ...` still sees fresh test code on every invocation. Historical note: F4 L7 HAT scenario 1 originally exposed the cached-import problem (uvicorn's worker held pre-L3 imports); pre-fix the workaround was `docker compose restart the-one`, post-fix the reload is automatic.
 
 ### Session-bound freshness
 Resolved tool configs are computed at `AgentFactory.create()` time and held as instance state on each tool. Mid-session operator updates to `tool_configs` rows or `AgentConfig.tool_overrides` apply at the **next** `AgentFactory.create()` invocation, NOT to in-flight agents. F6's admin UI must communicate "applies to next session" clearly.

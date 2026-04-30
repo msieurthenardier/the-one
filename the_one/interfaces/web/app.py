@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
 import logging
 import uuid
@@ -31,6 +33,7 @@ from the_one.db.repositories import ChatSessionRepository, LLMProviderRepository
 from the_one.encryption import get_encryptor
 from the_one.interfaces.web.api import router as api_router
 from the_one.llm.base import Role
+from the_one.tools._session_registry import shutdown_drain as _session_registry_shutdown_drain
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +52,24 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await migrate_json_to_sqlite(store)
     _state["factory"] = AgentFactory(store=store)
     yield
+    # Drain the PTY session registry on shutdown — cancels the idle
+    # reaper task and closes any live sessions. Wrapped in
+    # ``try/except Exception`` (NOT ``BaseException``) so
+    # ``CancelledError`` propagates while a misbehaving session.close()
+    # only logs.
+    # Cancel any in-flight per-message processing tasks. Each task
+    # observes the cancel inside its `_spawn_message_processing` wrapper
+    # and exits cleanly; the session's processing_lock is released by
+    # `async with` automatically.
+    for task in list(_inflight_tasks):
+        task.cancel()
+    if _inflight_tasks:
+        with contextlib.suppress(Exception):
+            await asyncio.gather(*list(_inflight_tasks), return_exceptions=True)
+    try:
+        await _session_registry_shutdown_drain()
+    except Exception:
+        logger.exception("session registry shutdown failed")
     await close_connection()
 
 
@@ -79,6 +100,12 @@ class Session:
     agent_name: str | None = None
     history: list[dict[str, Any]] = field(default_factory=list)
     subscribers: set[WebSocket] = field(default_factory=set, repr=False)
+    # Per-session lock serializes `_process_and_broadcast` so a second
+    # in-flight message on the same session waits for the first to finish
+    # (mid-flight `agent.step` is not safe to call concurrently — it
+    # mutates `agent.messages`). Created lazily on first use to avoid
+    # binding to an event loop at dataclass construction time.
+    processing_lock: asyncio.Lock | None = field(default=None, repr=False)
 
     def add_event(self, event: dict[str, Any]) -> None:
         self.history.append(event)
@@ -98,6 +125,50 @@ class Session:
 
 
 _sessions: dict[str, Session] = {}
+
+# Set of in-flight per-message processing tasks spawned by the WebSocket
+# handler. Tracked so FastAPI's lifespan teardown can cancel them on
+# shutdown (otherwise a `make rebuild` mid-tool-call would leave a
+# detached coroutine). Tasks self-discard on completion via `add_done_callback`.
+_inflight_tasks: set[asyncio.Task] = set()
+
+
+async def _spawn_message_processing(
+    session: Session,
+    user_input: str,
+    source: str,
+    exclude_user_echo: WebSocket | None,
+) -> None:
+    """Run `_process_and_broadcast` under the session's lock.
+
+    Wrapper used by the WebSocket handler so the receive loop is not
+    blocked while the agent's tool calls run. The session lock prevents
+    two messages on the same session from racing on `agent.messages`;
+    a second message waits politely. Errors are caught and broadcast to
+    the session's subscribers as a `system` event so the user sees them
+    instead of silently dropping into a crashed task.
+    """
+    if session.processing_lock is None:
+        session.processing_lock = asyncio.Lock()
+    async with session.processing_lock:
+        try:
+            await _process_and_broadcast(
+                session, user_input, source=source, exclude_user_echo=exclude_user_echo
+            )
+        except asyncio.CancelledError:
+            # Lifespan-shutdown cancellation; let it propagate so the task
+            # cleanup observes the cancel.
+            raise
+        except Exception:
+            logger.exception("session %s processing failed", session.id)
+            with contextlib.suppress(Exception):
+                await _send_to_session(
+                    session,
+                    {
+                        "type": "system",
+                        "content": "An error occurred while processing your message.",
+                    },
+                )
 
 
 # ── Session health classification ────────────────────────────────────────
@@ -197,6 +268,23 @@ async def _restore_session(session_id: str) -> RestoredSession:
         _sessions.pop(session_id, None)
         return RestoredSession(None, SESSION_STATUS_NOT_FOUND, None)
 
+    # If a message is actively being processed on this session, skip the
+    # rebuild: the in-memory `Session.agent`/`history` are mid-mutation by
+    # the spawned task, and the DB snapshot is stale (the user's message
+    # and any in-flight assistant chunks haven't been persisted yet).
+    # Replacing history with the empty DB snapshot would render the chat
+    # blank on rejoin (bug surfaced post-F4 HAT). The "rebind agent for
+    # config edits" property of restore is intentionally suspended for the
+    # duration of the in-flight turn — the next join after the turn
+    # completes will pick up any config edits as before.
+    cached = _sessions.get(session_id)
+    if (
+        cached is not None
+        and cached.processing_lock is not None
+        and cached.processing_lock.locked()
+    ):
+        return RestoredSession(cached, SESSION_STATUS_OK, db_session)
+
     factory = _get_factory()
     agent_name_for_factory = db_session.agent_name or "default"
     try:
@@ -288,7 +376,17 @@ async def _save_session_to_db(session: Session) -> None:
 
 
 def _build_session_joined_ok(session: Session) -> dict[str, Any]:
-    """Build a session_joined payload for a healthy in-memory session."""
+    """Build a session_joined payload for a healthy in-memory session.
+
+    `is_processing` reflects whether a turn is currently in flight on
+    this session — the client uses it to size the send-button enabled
+    state and the thinking indicator on rejoin (otherwise switching
+    away from an in-flight session and back leaves the UI's per-WS
+    busy flag stale).
+    """
+    is_processing = bool(
+        session.processing_lock is not None and session.processing_lock.locked()
+    )
     return {
         "type": "session_joined",
         "session_id": session.id,
@@ -296,6 +394,7 @@ def _build_session_joined_ok(session: Session) -> dict[str, Any]:
         "title": session.title,
         "agent_name": session.agent_name,
         "history": session.history,
+        "is_processing": is_processing,
     }
 
 
@@ -766,8 +865,17 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 await _save_session_to_db(session)
                 continue
 
-            # Process message — exclude echoing user msg back to sender
-            await _process_and_broadcast(session, user_input, source="web", exclude_user_echo=ws)
+            # Process message in a background task so the WebSocket receive
+            # loop stays responsive — switching conversations, listing
+            # sessions, etc. should not block on a long agent tool call
+            # (e.g. a `sleep 200` clipped to 120s by the F4 timeout cap).
+            # The session's `processing_lock` serializes successive messages
+            # on the same session; broadcasts go to all current subscribers.
+            task = asyncio.create_task(
+                _spawn_message_processing(session, user_input, "web", ws)
+            )
+            _inflight_tasks.add(task)
+            task.add_done_callback(_inflight_tasks.discard)
 
     except WebSocketDisconnect:
         if session:
