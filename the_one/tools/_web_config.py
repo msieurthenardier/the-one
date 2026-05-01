@@ -50,7 +50,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from the_one.tools.base import ConstraintError
 from the_one.tools.execution import _TIMEOUT_DEFAULT_UI_CHOICES
-from the_one.tools.resolver import Narrow, NarrowSuperset
+from the_one.tools.resolver import Narrow, NarrowSuperset, Substitute
 
 # ---------------------------------------------------------------------------
 # Module-level constants (NOT operator-configurable)
@@ -236,6 +236,24 @@ class WebConfig(BaseModel):
                 "'hostname:port'. Common: 'localhost:11434' (Ollama). "
                 "The SSRF protection itself is not disable-able; this "
                 "list is the only opt-out."
+            ),
+        ),
+    ]
+
+    default_user_agent: Annotated[
+        str,
+        Substitute,
+        Field(
+            default=_DEFAULT_USER_AGENT,
+            description=(
+                "User-Agent header sent on every web-tool request unless "
+                "the agent passes an explicit `User-Agent` in `headers`. "
+                "Substitute marker: agents can replace this with their own "
+                "identity (no narrowing semantic — UA strings aren't "
+                "ordered). Operator-set baseline identifies the-one to "
+                "remote servers; some sites (e.g. Wikipedia) reject this "
+                "default and require a browser-class UA — set per-agent "
+                "or override the operator default to work around."
             ),
         ),
     ]

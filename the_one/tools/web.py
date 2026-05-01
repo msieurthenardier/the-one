@@ -110,6 +110,12 @@ class HttpRequestTool(Tool):
             else:
                 follow = True
                 max_redirs = cfg.redirect_cap
+            # Merge agent-supplied headers over the operator's default UA;
+            # explicit User-Agent in `headers` wins. `Substitute` marker on
+            # `default_user_agent` means agents can replace via tool override.
+            merged_headers = {"User-Agent": cfg.default_user_agent}
+            if headers:
+                merged_headers.update(headers)
             async with httpx.AsyncClient(
                 transport=transport,
                 timeout=clipped,
@@ -117,7 +123,7 @@ class HttpRequestTool(Tool):
                 max_redirects=max_redirs,
             ) as client:
                 resp = await client.request(
-                    method, url, headers=headers, content=body
+                    method, url, headers=merged_headers, content=body
                 )
                 text, _ = _truncate_response(
                     resp.content,
@@ -181,6 +187,7 @@ class FetchUrlTool(Tool):
                 timeout=clipped,
                 follow_redirects=follow,
                 max_redirects=max_redirs,
+                headers={"User-Agent": cfg.default_user_agent},
             ) as client:
                 resp = await client.get(url)
                 ct = resp.headers.get("content-type", "")
@@ -291,6 +298,7 @@ class DownloadFileTool(Tool):
                         timeout=clipped,
                         follow_redirects=follow,
                         max_redirects=max_redirs,
+                        headers={"User-Agent": cfg.default_user_agent},
                     ) as client:
                         async with client.stream("GET", url) as resp:
                             status = resp.status_code

@@ -355,6 +355,57 @@ _ARTICLE_HTML = """<!doctype html>
 """
 
 
+class TestHttpRequestToolUserAgent:
+    """Post-F5-debrief: verify the operator's `default_user_agent` flows
+    through to the httpx request, and that an agent-supplied `User-Agent`
+    in `headers` wins over the operator default."""
+
+    async def test_default_user_agent_sent(self, monkeypatch) -> None:
+        captured = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["ua"] = request.headers.get("User-Agent")
+            return httpx.Response(200, text="ok")
+
+        _patch_transport(monkeypatch, handler)
+        from the_one.tools._web_config import _DEFAULT_USER_AGENT
+        await HttpRequestTool(WebConfig()).execute(
+            method="GET", url="https://example.test/"
+        )
+        assert captured["ua"] == _DEFAULT_USER_AGENT
+
+    async def test_operator_override_sent(self, monkeypatch) -> None:
+        captured = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["ua"] = request.headers.get("User-Agent")
+            return httpx.Response(200, text="ok")
+
+        _patch_transport(monkeypatch, handler)
+        cfg = WebConfig(default_user_agent="Mozilla/5.0 OperatorOverride")
+        await HttpRequestTool(cfg).execute(
+            method="GET", url="https://example.test/"
+        )
+        assert captured["ua"] == "Mozilla/5.0 OperatorOverride"
+
+    async def test_agent_per_call_header_wins(self, monkeypatch) -> None:
+        """Agent passing `User-Agent` in `headers` overrides the operator
+        default for that call only."""
+        captured = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["ua"] = request.headers.get("User-Agent")
+            return httpx.Response(200, text="ok")
+
+        _patch_transport(monkeypatch, handler)
+        await HttpRequestTool(WebConfig()).execute(
+            method="GET",
+            url="https://example.test/",
+            headers={"User-Agent": "AgentPerCallUA/1.0"},
+        )
+        assert captured["ua"] == "AgentPerCallUA/1.0"
+
+
 class TestFetchUrlTool:
     async def test_html_extraction(self, monkeypatch) -> None:
         """Realistic article fixture → readability extracts the article;

@@ -26,10 +26,12 @@ from the_one.tools.resolver import resolve
 
 
 class TestWebConfigDefaults:
-    def test_field_count_is_seven(self) -> None:
-        assert len(WebConfig.model_fields) == 7
+    def test_field_count_is_eight(self) -> None:
+        # 7 F5 fields + `default_user_agent` (post-debrief addition).
+        assert len(WebConfig.model_fields) == 8
 
     def test_default_values(self) -> None:
+        from the_one.tools._web_config import _DEFAULT_USER_AGENT
         c = WebConfig()
         assert c.timeout_seconds_default == 30
         assert c.timeout_seconds_max == 120
@@ -38,6 +40,7 @@ class TestWebConfigDefaults:
         assert c.host_allowlist == []
         assert c.host_denylist == []
         assert c.extra_allowed_hosts == []
+        assert c.default_user_agent == _DEFAULT_USER_AGENT
 
     def test_list_defaults_are_lists_not_tuples(self) -> None:
         """Resolver's ``_check_narrow_superset`` requires ``isinstance(tool_val, list)``;
@@ -255,3 +258,38 @@ class TestNoSSRFDisableField:
         assert "disable_ssrf" not in WebConfig.model_fields
         assert "ssrf_disabled" not in WebConfig.model_fields
         assert "disable_ssrf_protection" not in WebConfig.model_fields
+
+
+class TestDefaultUserAgent:
+    """Post-F5-debrief addition: `default_user_agent` is a `Substitute`-marked
+    field on `WebConfig` so operators can set the baseline UA and agents can
+    fully replace it (no narrowing semantic — UA strings aren't ordered)."""
+
+    def test_default_value_is_the_one_ua(self) -> None:
+        from the_one.tools._web_config import _DEFAULT_USER_AGENT
+        c = WebConfig()
+        assert c.default_user_agent == _DEFAULT_USER_AGENT
+
+    def test_substitute_marker_allows_agent_replacement(self) -> None:
+        from the_one.tools.resolver import resolve
+        operator_cfg = {"default_user_agent": "the-one/0.2"}
+        agent_override = {"default_user_agent": "Mozilla/5.0 ResearchAgent/1.0"}
+        merged = resolve(WebConfig, operator_cfg, agent_override)
+        assert merged.default_user_agent == "Mozilla/5.0 ResearchAgent/1.0"
+
+    def test_no_narrowing_constraint_on_substitute(self) -> None:
+        """`Substitute` semantic — agent's value just replaces operator's;
+        no ordering is checked. A string `"Z"` overrides an operator-set
+        `"A"` without raising."""
+        from the_one.tools.resolver import resolve
+        # Both directions work: operator long, agent short, and vice versa.
+        for op_val, agent_val in [
+            ("the-one/0.2", "ShortUA/1"),
+            ("ShortUA/1", "Mozilla/5.0 (X11; Linux x86_64) Chrome/120.0.0.0"),
+        ]:
+            merged = resolve(
+                WebConfig,
+                {"default_user_agent": op_val},
+                {"default_user_agent": agent_val},
+            )
+            assert merged.default_user_agent == agent_val

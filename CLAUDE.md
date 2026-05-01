@@ -176,6 +176,99 @@ Resolved tool configs are computed at `AgentFactory.create()` time and held as i
 
 F3-F5 populated per-tool Pydantic Configs with real constraint values on top of this seam (`FilesystemConfig`, `ExecutionConfig`, `WebConfig`).
 
+## Tool Authorship Contract
+
+Patterns every tool author must follow. Codifies the F2-F5 patterns; new tools should mirror these or document a deliberate deviation in the leg artifact.
+
+### Envelope shape
+
+**Three-clause envelope (filesystem, execution-without-timeout)**:
+```python
+try:
+    ...
+except ConstraintError as e:
+    return f"[error] [constraint] {e}"
+except Exception as e:
+    return f"[error] {e}"
+```
+
+**Four-clause envelope (timeout-prone tools — shell, python_exec, pty session, all web tools)**:
+```python
+try:
+    ...
+except ConstraintError as e:
+    return f"[error] [constraint] {e}"
+except (asyncio.TimeoutError, httpx.TimeoutException):  # if httpx
+    return f"[error] {tool-specific} timed out after {clipped}s"
+except httpx.TooManyRedirects:  # web tools only
+    return f"[error] [constraint] exceeded redirect cap of {cfg.redirect_cap}"
+except Exception as e:
+    return f"[error] {e}"
+```
+
+**Critical**: `httpx.TimeoutException` is NOT a subclass of `asyncio.TimeoutError` — any tool that calls httpx must group both in one `except` clause or its production timeouts will fall through to the generic `Exception` clause and return `[error] {e}` instead of the per-tool timeout message. Verified against httpx 0.28.1 MRO (`TimeoutException → TransportError → RequestError → HTTPError → Exception`).
+
+### Float-preserving timeout clip
+
+```python
+if timeout is None:
+    clipped = cfg.timeout_seconds_default
+else:
+    clipped = min(timeout, cfg.timeout_seconds_max)
+    if clipped <= 0:
+        clipped = 1
+```
+
+NOT `max(1, min(timeout, max))` — that floors fractional `timeout=0.5` calls to 1, breaking the F2 `test_timeout_returns_promptly` contract.
+
+### Two-phase lock-and-await
+
+Any registry-style state with `asyncio.Lock`: snapshot under lock, release lock, then `await session.close()` (or other long-running cleanup). Holding the lock across the cleanup blocks all other registry operations. See `the_one/tools/_session_registry.py::close` and `_reap_once`.
+
+### Cross-Config dispatch
+
+Tools that need another category's config or service declare:
+```python
+class MyTool(Tool):
+    Config = MyConfig
+    Requires = (FilesystemConfig, SearchBackend)  # advisory; declarative
+```
+And consume via:
+```python
+fs_cfg = self._cross_configs[FilesystemConfig]
+backend = self._cross_configs[SearchBackend]
+```
+
+`cross_configs` is `dict[type, object]`. Two categories of entries (introduced in F4 + F5):
+- **Pydantic Configs** (`FilesystemConfig`, `ExecutionConfig`, `PythonExecConfig`, `WebConfig`): frozen via `ConfigDict(frozen=True)` so shared-by-reference across tool instances cannot be mutated.
+- **Protocol-keyed services** (`SearchBackend`): per-`get_tools()`-call-fresh; not frozen because they own stateful resources (e.g., `httpx.AsyncClient`). Per-call lifecycle replaces frozenness as the safety mechanism — every agent invocation gets a fresh provider call.
+
+When introducing a new typed dispatch slot, pre-declare which category it belongs to in the leg artifact.
+
+### Pydantic v2 `json_schema_extra` does NOT inherit on `Annotated` re-declaration
+
+Subclassing a Config and re-declaring a field with a different default (e.g., F4's `PythonExecConfig.timeout_seconds_default = 90`) loses the parent's `json_schema_extra` (including `ui_choices`). Hoist shared metadata to module-level constants and re-reference in both the parent and the override.
+
+### Frozen Configs for cross-tool sharing
+
+Any Config that gets passed via `cross_configs` (i.e., declared in any tool's `Requires`) must be `model_config = ConfigDict(frozen=True)`. This is methodology, not per-flight discretion.
+
+### Scaffolding-leg consumer test
+
+A leg that introduces helpers WITHOUT immediately wiring them through a tool must ship a "stub-tool" consumer test that exercises the helpers end-to-end through a tool-shaped scenario. F4 L2 surfaced this requirement (helper formatting drift discovered at L3 integration); F5 L1 followed and caught real issues in `tests/test_web_stub_tool.py`. Mandatory pattern.
+
+### `_build_transport(cfg)` test seam (web tools)
+
+Each web tool defines a one-line `_build_transport` method returning the SSRF-guarded transport. Tests monkeypatch `MyWebTool._build_transport` to inject `httpx.MockTransport(handler)` and bypass SSRF. Per-tool isolation (vs a shared base-class helper) keeps test seams independent. Document copies of this pattern as deliberate, not as duplication for refactor.
+
+### `_safe_unlink(target)` for cleanup-before-streaming
+
+When a tool creates an artifact (file, session, etc.) BEFORE a streaming or long-running operation begins, every error clause must clean up the partial artifact. F5 L4 caught this for `download_file`: `target.open("wb")` creates the file before `client.stream()` runs, so a `TooManyRedirects` or `TimeoutException` mid-stream leaves an empty file. The `_safe_unlink(target)` helper at module level is called from each error clause; the `if target is None` guard handles the case where `_filesystem_check` raised before `target` was bound.
+
+### Library-API drift checklist
+
+Any leg touching a third-party library must document the installed version and verify the API shape against current docs (not training-cutoff knowledge). The architect-review-per-leg cycle has caught 5+ high-severity items in this class across F4-F5 (httpx SNI extension API, `asyncio.get_running_loop` vs deprecated `get_event_loop`, Pydantic v2 `json_schema_extra` non-inheritance, lxml install path, httpx exception MRO). Cheap to verify; expensive to miss.
+
 ## Configuration
 
 Runtime config via env vars prefixed `THE_ONE_` (see `.env.example`): host, port, data_dir, dev_mode. Managed by pydantic-settings in `the_one/config.py`. The `settings` singleton is imported directly. LLM provider configuration is managed through the database (not env vars) — see the `/api/providers` endpoints.
