@@ -5,8 +5,9 @@ tools (`shell`, `python_exec`, and the four `shell_session_*` tools landing in
 later legs) plus four module-level helpers the tools call:
 
 * ``_command_check`` — substring denylist refusal (F4 Decision 3).
-* ``_cwd_check``    — cross-Config cwd validation reusing
-  ``filesystem._filesystem_check`` (F4 Decision 7).
+* ``_cwd_check``    — cross-Config cwd validation; thin shim over
+  ``filesystem._filesystem_check(..., CheckMode.DIRECTORY)`` post-F5 L0
+  (F4 Decision 7).
 * ``_truncate_output`` — combined stdout+stderr tail-preserving cap formatter
   (F4 Decision 2).
 * ``_build_subprocess_env`` — hardcoded 8-key env allowlist (F4 Decision 10).
@@ -323,24 +324,19 @@ def _command_check(command: str, cfg: ExecutionConfig) -> None:
 
 
 def _cwd_check(cwd: str | Path, fs_cfg: FilesystemConfig) -> Path:
-    """Cross-Config cwd validation (F4 Decision 7).
+    """Shim — calls ``_filesystem_check(cwd, fs_cfg, CheckMode.DIRECTORY)``.
 
-    Delegates path-scope (allowlist/denylist) to ``_filesystem_check`` —
-    single source of truth for "is this path in scope?" — then asserts
-    the canonical path is a directory. Raises ``ConstraintError`` for
-    both out-of-scope and not-a-directory.
-
-    Same ``[error] [constraint] ...`` surface as filesystem tools; the
-    agent sees a uniform refusal whether the cwd was denied for scope
-    reasons or shape reasons.
+    Preserved as a name for execution-tool readability; the unified
+    dispatch (scope check + ``is_dir()`` post-check, same
+    ``"does not exist or is not a directory"`` wording) lives in
+    ``the_one/tools/filesystem.py`` post-F5 L0.
     """
-    canonical = _filesystem_check(cwd, fs_cfg)
-    if not canonical.is_dir():
-        # `Path.is_dir()` returns False for both nonexistent and
-        # non-directory paths; combine in the error message for
-        # small-model clarity (per L2 review feedback).
-        raise ConstraintError(f"cwd '{canonical}' does not exist or is not a directory")
-    return canonical
+    # Local import keeps the existing top-of-file import block minimal
+    # (the architect noted there is no actual cycle here; this is just
+    # a one-line shim, not worth touching the module-level imports).
+    from the_one.tools.filesystem import CheckMode
+
+    return _filesystem_check(cwd, fs_cfg, CheckMode.DIRECTORY)
 
 
 def _truncate_output(

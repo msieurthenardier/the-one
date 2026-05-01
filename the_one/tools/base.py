@@ -51,12 +51,17 @@ class Tool(ABC):
     # provider passes the full dict to all tools regardless. Future flights
     # may use `Requires` for static analysis or selective dispatch. Tuple
     # (immutable) so subclasses can't accidentally mutate the class default.
-    Requires: tuple[type[BaseModel], ...] = ()
+    #
+    # F5 L6 widens this from `tuple[type[BaseModel], ...]` to `tuple[type, ...]`
+    # so tools can declare service-style dependencies (e.g.
+    # `WebSearchTool.Requires = (SearchBackend,)` where `SearchBackend` is a
+    # `runtime_checkable` Protocol, NOT a `BaseModel`).
+    Requires: tuple[type, ...] = ()
 
     def __init__(
         self,
         config: BaseModel | None = None,
-        cross_configs: dict[type[BaseModel], BaseModel] | None = None,
+        cross_configs: dict[type, object] | None = None,
         agent_name: str | None = None,
     ) -> None:
         # `or self.Config()` evaluates `self.Config()` only when `config` is
@@ -64,10 +69,29 @@ class Tool(ABC):
         # actually need a config but didn't get one.
         self._config = config or self.Config()
         # `cross_configs` is the per-call shared mapping of tool-level
-        # Configs the provider resolved across `_TOOL_CLASSES`. Tools that
-        # need cross-Config policy lookups (F4 Decision 7) read from this
-        # dict by Config-type key (e.g. `self._cross_configs[FilesystemConfig]`).
-        self._cross_configs: dict[type[BaseModel], BaseModel] = cross_configs or {}
+        # Configs (Pydantic-keyed) AND per-call service instances
+        # (Protocol-keyed) the provider built across `_TOOL_CLASSES`. Tools
+        # that need cross-Config policy lookups (F4 Decision 7) read from
+        # this dict by Config-type key (e.g.
+        # `self._cross_configs[FilesystemConfig]`); tools that need
+        # service-style dependencies (F5 L6) read by Protocol-type key
+        # (e.g. `self._cross_configs[SearchBackend]`).
+        #
+        # **Type widening (F5 L6)**: F4 L1b's signature was
+        # `dict[type[BaseModel], BaseModel]` because every entry was a
+        # frozen Pydantic model. F5 L6 widens to `dict[type, object]` so
+        # the same dispatch dict can also carry Protocol-keyed service
+        # instances (e.g. `SearchBackend`). The "frozen Pydantic"
+        # invariant from F4 still holds for Pydantic-keyed Config entries
+        # (`FilesystemConfig`, `ExecutionConfig`, `PythonExecConfig`,
+        # `WebConfig`) — those are still frozen models so a peer tool
+        # cannot mutate one to corrupt another's view. Protocol-keyed
+        # service entries are stateful (e.g. `DDGSearchBackend` owns an
+        # httpx client) but per-`get_tools()`-call-scoped, matching the
+        # session-bound freshness contract — every agent invocation gets
+        # a fresh provider call, so two concurrent agents never share a
+        # backend instance.
+        self._cross_configs: dict[type, object] = cross_configs or {}
         # `agent_name` is per-agent state-isolation key (F4 Decision 4 — PTY
         # session ownership keys on `(agent_name, session_id)`). NOT an
         # adversarial separator; agents trust the operator's tool-level

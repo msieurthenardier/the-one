@@ -152,7 +152,7 @@ App.registerArea({
       'Filesystem': ['read_file', 'write_file', 'edit_file', 'delete_file', 'move_file', 'mkdir', 'glob', 'grep', 'list_dir'],
       'Execution': ['shell', 'python_exec'],
       'Sessions': ['shell_session_start', 'shell_session_send', 'shell_session_close', 'shell_session_list'],
-      'Web': ['http_request', 'web_search']
+      'Web': ['download_file', 'fetch_url', 'http_request', 'web_search']
     };
 
     // ── Layout: sidebar = section-nav only; main panel hosts both the

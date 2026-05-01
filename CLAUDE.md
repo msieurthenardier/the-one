@@ -63,7 +63,7 @@ The system has four layers that compose bottom-up:
 
 **LLM layer** (`the_one/llm/`) — Abstract `LLMProvider` base with `complete()` method. Three implementations (ollama, openai, anthropic) lazy-loaded via a registry (`get_provider(name)`). All share the `Message`/`ToolCall`/`ToolResult` dataclasses from `base.py`. Provider is resolved from the database via `LLMProviderRepository` — each agent references a provider config by `provider_config_id`.
 
-**Tool layer** (`the_one/tools/`) — Abstract `Tool` base class with `execute(**kwargs) -> str`. `ToolRegistry` holds all tools and generates JSON schemas for the LLM. `BuiltinToolProvider` (`builtins.py`) provides all 17 built-in tools via lazy import, implementing the `ToolProvider` protocol (`provider.py`): one `shell`, nine filesystem (`read_file`, `write_file`, `edit_file`, `delete_file`, `move_file`, `mkdir`, `glob`, `grep`, `list_dir`), one `python_exec`, four PTY session tools (`shell_session_start`, `shell_session_send`, `shell_session_close`, `shell_session_list`), and two web (`http_request`, `web_search`). Tools are the agent's only way to affect the outside world.
+**Tool layer** (`the_one/tools/`) — Abstract `Tool` base class with `execute(**kwargs) -> str`. `ToolRegistry` holds all tools and generates JSON schemas for the LLM. `BuiltinToolProvider` (`builtins.py`) provides all 19 built-in tools via lazy import, implementing the `ToolProvider` protocol (`provider.py`): one `shell`, nine filesystem (`read_file`, `write_file`, `edit_file`, `delete_file`, `move_file`, `mkdir`, `glob`, `grep`, `list_dir`), one `python_exec`, four PTY session tools (`shell_session_start`, `shell_session_send`, `shell_session_close`, `shell_session_list`), and four web (`http_request`, `fetch_url`, `download_file`, `web_search`). Tools are the agent's only way to affect the outside world.
 
 **Agent loop** (`the_one/agent/core.py`) — The `Agent` class runs: user input → LLM call → tool execution → repeat until no tool calls remain. The agent uses a virtual `CONTINUE_SCHEMA` (defined inline in `core.py`) as a turn-keeping signal — when the LLM calls `continue`, the loop registers another iteration. Max 20 iterations per step as a safety limit.
 
@@ -127,8 +127,36 @@ Policy refusals raise `ConstraintError`; tool wrappers format as `[error] [const
 
 The 8-key subprocess environment allowlist (`PATH, HOME, USER, LOGNAME, LANG, LC_ALL, TERM, TZ`) is module-level and **NOT operator-configurable** — it lives in `the_one/platform/env.py` (`_ENV_ALLOWLIST` constant, `_build_subprocess_env()` helper) and is enforced at all 3 execution call sites: `the_one/platform/shell.py::run_shell`, `the_one/platform/interpreter.py::run_python`, and `the_one/platform/pty.py::UnixPtySession` (fork-then-execv with `os.environ.clear()` + `os.environ.update(_build_subprocess_env())` in the child before `os.execvp`).
 
+### Web constraint surface (F5)
+`the_one/tools/_web_config.py::WebConfig` is the per-category Config shared by all 4 web tools (`http_request`, `fetch_url`, `download_file`, `web_search`). Seven fields:
+- `timeout_seconds_default: int` (Narrow) — default 30s; bounds `[1, 3600]`. Used when the agent omits `timeout`.
+- `timeout_seconds_max: int` (Narrow) — default 120s; bounds `[1, 3600]`. Hard ceiling, agent value clipped.
+- `response_size_cap_bytes: int` (Narrow) — default 1 MiB; bounds `[1024, 100 MB]`. Per-response tail-preserving cap.
+- `redirect_cap: int` (Field-only, NO marker) — default 5; bounds `[0, 20]`. Tool-level only — agents cannot narrow this; an agent override on this key raises `ValueError` at agent-build time (Decision 9).
+- `host_allowlist: list[str]` (Narrow) — empty default = allow-all; non-empty restricts to those hosts.
+- `host_denylist: list[str]` (NarrowSuperset) — default empty.
+- `extra_allowed_hosts: list[str]` (Narrow) — operator-named hosts that bypass the SSRF default-block. Host-by-host opt-in for internal addresses.
+
+`model_config = ConfigDict(frozen=True)` mirrors `FilesystemConfig` / `ExecutionConfig`. A `model_validator(mode="after")` enforces `timeout_seconds_default <= timeout_seconds_max` after resolver dispatch.
+
+**Two-layer SSRF enforcement** — `_url_check(url, cfg)` gates scheme / `host_allowlist` / `host_denylist` at the tool boundary; `SSRFGuardedTransport(httpx.AsyncHTTPTransport)` resolves DNS once and pins the connect target to that IP, refusing loopback / link-local / RFC1918 / cloud-metadata / IPv6 ULA + ULL by default. **IP-literal hosts are also gated** by `_is_ssrf_blocked(host)` inside the transport's IP-literal short-circuit branch (HAT scenario 3 inline fix — the pre-fix short-circuit bypassed SSRF for raw `http://169.254.169.254/`, `http://10.0.0.1/`, `http://127.0.0.1/`; the post-fix default-block list refuses raw IP literals BEFORE any connect attempt with `ConstraintError(f"IP literal {host} is in the SSRF block list")`). `extra_allowed_hosts` is honored as an operator override on both the hostname-resolution path and the IP-literal path.
+
+**Mission invariant — "no full-disable"**: `WebConfig` deliberately has no `disable_ssrf` / `ssrf_disabled` / `disable_ssrf_protection` field. SSRF protection is always-on; operators reaching specific internal hosts must list them in `extra_allowed_hosts`. The invariant is encoded by the absence of the field — no enforcement code is needed because the field doesn't exist. Preserve this in any future changes.
+
+The three HTTP tools (`http_request`, `fetch_url`, `download_file`) call a per-tool `_build_transport(cfg) → SSRFGuardedTransport(extra_allowed_hosts=cfg.extra_allowed_hosts)` helper to construct an `httpx.AsyncClient`. `WebSearchTool` does NOT use the SSRF transport — search-engine traffic to the public domain `html.duckduckgo.com` is acceptable as-is in F5; SSRF-pinning of search-backend traffic is a future enhancement if the backend list grows.
+
+### SearchBackend Protocol (F5)
+`the_one/tools/_search_backends.py` defines a single-method `Protocol`:
+
+```python
+class SearchBackend(Protocol):
+    async def search(self, query: str, limit: int) -> list[SearchResult]: ...
+```
+
+`DDGSearchBackend` is the F5 default implementation; `SearchResult` is a shared `BaseModel` (title / url / snippet) for shape uniformity across backends. **Backend dispatch is via `cross_configs[SearchBackend]`** (F5 Decision 12 — Protocol-keyed service entry, NOT a constructor parameter): `BuiltinToolProvider.get_tools` constructs a `DDGSearchBackend()` (no client injected) and stores it under `cross_configs[SearchBackend]`; `WebSearchTool` declares `Requires = (SearchBackend,)` and reads `self._cross_configs[SearchBackend]` in `execute`. `DDGSearchBackend.__init__(http_client=None)` defers to its own `httpx.AsyncClient(timeout=15)` per call when no client was injected — that is the F5 production path. Tests inject a fake `SearchBackend` by overriding `cross_configs[SearchBackend]` on the per-call view; no monkeypatching of module internals. Future Brave / SerpAPI / Bing backends implement the same Protocol and slot into the same `cross_configs[SearchBackend]` slot. This is the supported test seam (F5 Decision 2 + Decision 12).
+
 ### Cross-Config dispatch (F4)
-Tools may declare `Requires: tuple[type[BaseModel], ...] = (FilesystemConfig,)` to receive the resolved `FilesystemConfig` (or any other declared Config) via `cross_configs: dict[type[BaseModel], BaseModel]` passed into `Tool.__init__`. `BuiltinToolProvider.get_tools` builds the per-call shared view once by walking `_TOOL_CLASSES` in declared order. Used by `ShellTool` and `PythonExecTool` to validate `cwd` against the filesystem path-scope, and by `ShellSessionStartTool` / `ShellSessionSendTool` for the same. `Tool.__init__` also accepts `agent_name: str | None = None` (threaded from `AgentFactory.create()`) — the four session tools key the `_session_registry` on `(agent_name, session_id)` for cross-agent isolation; `agent_name=None` is the introspection path and produces a clean `ConstraintError` from session tools.
+Tools may declare `Requires: tuple[type[BaseModel], ...] = (FilesystemConfig,)` to receive the resolved `FilesystemConfig` (or any other declared Config) via `cross_configs: dict[type[BaseModel], BaseModel]` passed into `Tool.__init__`. `BuiltinToolProvider.get_tools` builds the per-call shared view once by walking `_TOOL_CLASSES` in declared order. Used by `ShellTool` and `PythonExecTool` to validate `cwd` against the filesystem path-scope, and by `ShellSessionStartTool` / `ShellSessionSendTool` for the same. `DownloadFileTool` (F5 L4) declares the same so destination-path validation flows through `_filesystem_check(path, fs_cfg, CheckMode.WRITE_EXISTING_PARENT)` (post-F5 L0 helper unification — Decision 1; the parent directory must pre-exist, no auto-mkdir — agents call the `mkdir` tool first if needed). `Tool.__init__` also accepts `agent_name: str | None = None` (threaded from `AgentFactory.create()`) — the four session tools key the `_session_registry` on `(agent_name, session_id)` for cross-agent isolation; `agent_name=None` is the introspection path and produces a clean `ConstraintError` from session tools.
 
 ### PTY session lifecycle (F4)
 PTY sessions ship via `the_one/platform/pty.py::PtySession` ABC (`UnixPtySession` concrete; Windows `ConPTY` deferred to a future mission). Sessions are registered in `the_one/tools/_session_registry.py` keyed on `(agent_name, session_id)`; per-agent `count_for_agent()` enforces the `max_concurrent_sessions` cap; a single asyncio reaper task spawns lazily on first registration and wakes every 30s to close sessions idle past `pty_session_idle_ttl_seconds`. The reaper registers with the FastAPI lifespan so shutdown drains the registry cleanly. Readiness detection uses an idle-mark (`_read_until_idle` blocks until the master_fd has been silent for 100ms, with a 2s hard cap) — robust against shells that emit prompts inconsistently. Per-call denylist re-check applies on every `shell_session_send` (Decision 11) so agents cannot pre-stage a denylisted command behind an open session.
@@ -146,7 +174,100 @@ Resolved tool configs are computed at `AgentFactory.create()` time and held as i
 - `interpreter.py` — `resolve_python` (returns `sys.executable`), `run_python`
 - `tempdirs.py` — `temp_dir`, `user_home`, `user_config_dir`
 
-F3-F5 will populate per-tool Pydantic Configs with real constraint values on top of this seam.
+F3-F5 populated per-tool Pydantic Configs with real constraint values on top of this seam (`FilesystemConfig`, `ExecutionConfig`, `WebConfig`).
+
+## Tool Authorship Contract
+
+Patterns every tool author must follow. Codifies the F2-F5 patterns; new tools should mirror these or document a deliberate deviation in the leg artifact.
+
+### Envelope shape
+
+**Three-clause envelope (filesystem, execution-without-timeout)**:
+```python
+try:
+    ...
+except ConstraintError as e:
+    return f"[error] [constraint] {e}"
+except Exception as e:
+    return f"[error] {e}"
+```
+
+**Four-clause envelope (timeout-prone tools — shell, python_exec, pty session, all web tools)**:
+```python
+try:
+    ...
+except ConstraintError as e:
+    return f"[error] [constraint] {e}"
+except (asyncio.TimeoutError, httpx.TimeoutException):  # if httpx
+    return f"[error] {tool-specific} timed out after {clipped}s"
+except httpx.TooManyRedirects:  # web tools only
+    return f"[error] [constraint] exceeded redirect cap of {cfg.redirect_cap}"
+except Exception as e:
+    return f"[error] {e}"
+```
+
+**Critical**: `httpx.TimeoutException` is NOT a subclass of `asyncio.TimeoutError` — any tool that calls httpx must group both in one `except` clause or its production timeouts will fall through to the generic `Exception` clause and return `[error] {e}` instead of the per-tool timeout message. Verified against httpx 0.28.1 MRO (`TimeoutException → TransportError → RequestError → HTTPError → Exception`).
+
+### Float-preserving timeout clip
+
+```python
+if timeout is None:
+    clipped = cfg.timeout_seconds_default
+else:
+    clipped = min(timeout, cfg.timeout_seconds_max)
+    if clipped <= 0:
+        clipped = 1
+```
+
+NOT `max(1, min(timeout, max))` — that floors fractional `timeout=0.5` calls to 1, breaking the F2 `test_timeout_returns_promptly` contract.
+
+### Two-phase lock-and-await
+
+Any registry-style state with `asyncio.Lock`: snapshot under lock, release lock, then `await session.close()` (or other long-running cleanup). Holding the lock across the cleanup blocks all other registry operations. See `the_one/tools/_session_registry.py::close` and `_reap_once`.
+
+### Cross-Config dispatch
+
+Tools that need another category's config or service declare:
+```python
+class MyTool(Tool):
+    Config = MyConfig
+    Requires = (FilesystemConfig, SearchBackend)  # advisory; declarative
+```
+And consume via:
+```python
+fs_cfg = self._cross_configs[FilesystemConfig]
+backend = self._cross_configs[SearchBackend]
+```
+
+`cross_configs` is `dict[type, object]`. Two categories of entries (introduced in F4 + F5):
+- **Pydantic Configs** (`FilesystemConfig`, `ExecutionConfig`, `PythonExecConfig`, `WebConfig`): frozen via `ConfigDict(frozen=True)` so shared-by-reference across tool instances cannot be mutated.
+- **Protocol-keyed services** (`SearchBackend`): per-`get_tools()`-call-fresh; not frozen because they own stateful resources (e.g., `httpx.AsyncClient`). Per-call lifecycle replaces frozenness as the safety mechanism — every agent invocation gets a fresh provider call.
+
+When introducing a new typed dispatch slot, pre-declare which category it belongs to in the leg artifact.
+
+### Pydantic v2 `json_schema_extra` does NOT inherit on `Annotated` re-declaration
+
+Subclassing a Config and re-declaring a field with a different default (e.g., F4's `PythonExecConfig.timeout_seconds_default = 90`) loses the parent's `json_schema_extra` (including `ui_choices`). Hoist shared metadata to module-level constants and re-reference in both the parent and the override.
+
+### Frozen Configs for cross-tool sharing
+
+Any Config that gets passed via `cross_configs` (i.e., declared in any tool's `Requires`) must be `model_config = ConfigDict(frozen=True)`. This is methodology, not per-flight discretion.
+
+### Scaffolding-leg consumer test
+
+A leg that introduces helpers WITHOUT immediately wiring them through a tool must ship a "stub-tool" consumer test that exercises the helpers end-to-end through a tool-shaped scenario. F4 L2 surfaced this requirement (helper formatting drift discovered at L3 integration); F5 L1 followed and caught real issues in `tests/test_web_stub_tool.py`. Mandatory pattern.
+
+### `_build_transport(cfg)` test seam (web tools)
+
+Each web tool defines a one-line `_build_transport` method returning the SSRF-guarded transport. Tests monkeypatch `MyWebTool._build_transport` to inject `httpx.MockTransport(handler)` and bypass SSRF. Per-tool isolation (vs a shared base-class helper) keeps test seams independent. Document copies of this pattern as deliberate, not as duplication for refactor.
+
+### `_safe_unlink(target)` for cleanup-before-streaming
+
+When a tool creates an artifact (file, session, etc.) BEFORE a streaming or long-running operation begins, every error clause must clean up the partial artifact. F5 L4 caught this for `download_file`: `target.open("wb")` creates the file before `client.stream()` runs, so a `TooManyRedirects` or `TimeoutException` mid-stream leaves an empty file. The `_safe_unlink(target)` helper at module level is called from each error clause; the `if target is None` guard handles the case where `_filesystem_check` raised before `target` was bound.
+
+### Library-API drift checklist
+
+Any leg touching a third-party library must document the installed version and verify the API shape against current docs (not training-cutoff knowledge). The architect-review-per-leg cycle has caught 5+ high-severity items in this class across F4-F5 (httpx SNI extension API, `asyncio.get_running_loop` vs deprecated `get_event_loop`, Pydantic v2 `json_schema_extra` non-inheritance, lxml install path, httpx exception MRO). Cheap to verify; expensive to miss.
 
 ## Configuration
 

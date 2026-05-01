@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from pydantic import BaseModel
-
+from the_one.tools._search_backends import DDGSearchBackend, SearchBackend
 from the_one.tools.base import Tool
 from the_one.tools.filesystem import (
     DeleteFileTool,
@@ -23,7 +22,12 @@ from the_one.tools.sessions import (
     ShellSessionStartTool,
 )
 from the_one.tools.shell import ShellTool
-from the_one.tools.web import HttpRequestTool, WebSearchTool
+from the_one.tools.web import (
+    DownloadFileTool,
+    FetchUrlTool,
+    HttpRequestTool,
+    WebSearchTool,
+)
 
 # Module-level eager-init mapping. One dict per Python process; tests that
 # need to monkeypatch tool classes can patch
@@ -47,6 +51,8 @@ _TOOL_CLASSES: dict[str, type[Tool]] = {
     "shell_session_close": ShellSessionCloseTool,
     "shell_session_list": ShellSessionListTool,
     "http_request": HttpRequestTool,
+    "fetch_url": FetchUrlTool,
+    "download_file": DownloadFileTool,
     "web_search": WebSearchTool,
 }
 
@@ -65,6 +71,21 @@ class BuiltinToolProvider:
       agent_overrides.get(name))`` and the resolved Config is handed to
       ``cls(resolved_config)``. Unknown tool names in ``agent_overrides``
       are silently ignored (mirrors `enabled_tools` strip behavior).
+
+    The factory-path ``cross_configs`` view contains TWO categories of
+    entries (F5 L6):
+
+    * **Pydantic-keyed Config entries** — ``FilesystemConfig``,
+      ``ExecutionConfig``, ``PythonExecConfig``, ``WebConfig`` — frozen
+      models resolved from operator/agent policy. These are the F4 L1b
+      shape.
+    * **Protocol-keyed service entries** — ``SearchBackend`` is the first
+      such entry, mapped to a fresh ``DDGSearchBackend()`` per
+      ``get_tools(...)`` call. F5 ships only DDG; F6 admin will let
+      operators pick the active backend. The backend instance owns its
+      own httpx client; per-call lifecycle matches the session-bound
+      freshness contract — agents with different ``extra_allowed_hosts``
+      get separate backend instances via separate ``get_tools()`` calls.
     """
 
     @property
@@ -95,7 +116,7 @@ class BuiltinToolProvider:
         # the cross-Config view is the operator-default baseline so a tool
         # consulting another category's policy sees what the operator
         # declared, not what the agent narrowed for its own bag.
-        cross_configs: dict[type[BaseModel], BaseModel] = {}
+        cross_configs: dict[type, object] = {}
         for name, cls in _TOOL_CLASSES.items():
             if cls.Config is _EmptyConfig:
                 continue
@@ -104,6 +125,16 @@ class BuiltinToolProvider:
             cross_configs[cls.Config] = resolve(
                 cls.Config, tool_configs.get(name), None
             )
+
+        # F5 L6: inject the SearchBackend service alongside the Pydantic
+        # Config entries. F5 ships only DDG; F6 admin will let operators
+        # pick. The backend is constructed fresh per `get_tools(...)` call
+        # — owns its own httpx client; per-call lifecycle matches the
+        # session-bound freshness contract — agents with different
+        # `extra_allowed_hosts` get different httpx clients via separate
+        # `get_tools()` calls. The backend instance is GC'd when the
+        # tool list goes out of scope.
+        cross_configs[SearchBackend] = DDGSearchBackend()
 
         result: list[Tool] = []
         for name, cls in _TOOL_CLASSES.items():

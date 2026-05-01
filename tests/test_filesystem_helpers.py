@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from the_one.tools.filesystem import (
+    CheckMode,
     ConstraintError,
     FilesystemConfig,
     _check_read_size,
@@ -324,3 +325,83 @@ class TestIsBinary:
         target = tmp_path / "empty.dat"
         target.write_bytes(b"")
         assert _is_binary(target) is False
+
+
+# ---------------------------------------------------------------------------
+# CheckMode dispatch (F5 L0)
+# ---------------------------------------------------------------------------
+
+
+class TestCheckModeDispatch:
+    """L0 unification: all four modes share the same canonicalize +
+    allowlist + denylist core; mode-specific post-checks fire correctly."""
+
+    def test_read_mode_no_existence_check(self, tmp_path: Path) -> None:
+        cfg = FilesystemConfig(path_allowlist=[str(tmp_path)])
+        target = tmp_path / "missing.txt"  # path does not exist
+        # READ mode does NOT require existence; should return canonical.
+        result = _filesystem_check(str(target), cfg, CheckMode.READ)
+        assert result == target.resolve()
+
+    def test_write_new_mode_allows_missing_parent(self, tmp_path: Path) -> None:
+        cfg = FilesystemConfig(path_allowlist=[str(tmp_path)])
+        target = tmp_path / "missing_dir" / "file.txt"
+        # WRITE_NEW does not require parent to exist.
+        result = _filesystem_check(str(target), cfg, CheckMode.WRITE_NEW)
+        assert result == (tmp_path / "missing_dir" / "file.txt").resolve()
+
+    def test_write_existing_parent_raises_fnf_for_missing_parent(
+        self, tmp_path: Path
+    ) -> None:
+        cfg = FilesystemConfig(path_allowlist=[str(tmp_path)])
+        target = tmp_path / "missing_dir" / "file.txt"
+        with pytest.raises(FileNotFoundError):
+            _filesystem_check(str(target), cfg, CheckMode.WRITE_EXISTING_PARENT)
+
+    def test_write_existing_parent_succeeds_when_parent_exists(
+        self, tmp_path: Path
+    ) -> None:
+        cfg = FilesystemConfig(path_allowlist=[str(tmp_path)])
+        target = tmp_path / "newfile.txt"  # parent IS tmp_path
+        result = _filesystem_check(str(target), cfg, CheckMode.WRITE_EXISTING_PARENT)
+        assert result == target
+
+    def test_directory_mode_raises_for_file(self, tmp_path: Path) -> None:
+        f = tmp_path / "file.txt"
+        f.write_text("x")
+        cfg = FilesystemConfig(path_allowlist=[str(tmp_path)])
+        with pytest.raises(
+            ConstraintError, match="does not exist or is not a directory"
+        ):
+            _filesystem_check(str(f), cfg, CheckMode.DIRECTORY)
+
+    def test_directory_mode_succeeds_for_dir(self, tmp_path: Path) -> None:
+        cfg = FilesystemConfig(path_allowlist=[str(tmp_path)])
+        result = _filesystem_check(str(tmp_path), cfg, CheckMode.DIRECTORY)
+        assert result == tmp_path
+
+    def test_scope_check_fires_first_for_all_modes(self, tmp_path: Path) -> None:
+        # Out-of-scope path -> ConstraintError regardless of mode.
+        cfg = FilesystemConfig(path_allowlist=[str(tmp_path)])
+        outside = tmp_path.parent / "outside_dir"
+        for mode in CheckMode:
+            with pytest.raises(ConstraintError, match="outside allowlist"):
+                _filesystem_check(str(outside / "anything"), cfg, mode)
+
+    def test_write_modes_resolve_leaf_symlink_to_out_of_scope(
+        self, tmp_path: Path
+    ) -> None:
+        # Regression net: WRITE_NEW and WRITE_EXISTING_PARENT must
+        # canonicalize the COMPOSED path (parent + leaf), so a leaf
+        # that's a symlink to an out-of-scope target is rejected.
+        # Before L0 this was the contract of `_filesystem_check_write_*`,
+        # which delegated to `_filesystem_check(composed, cfg)` for the
+        # second canonicalize. The dispatcher must preserve this.
+        outside = tmp_path.parent / "outside_target"
+        outside.mkdir()
+        leaf = tmp_path / "linkout"
+        leaf.symlink_to(outside / "x")  # leaf -> out-of-scope path
+        cfg = FilesystemConfig(path_allowlist=[str(tmp_path)])
+        for mode in (CheckMode.WRITE_NEW, CheckMode.WRITE_EXISTING_PARENT):
+            with pytest.raises(ConstraintError, match="outside allowlist"):
+                _filesystem_check(str(leaf), cfg, mode)
