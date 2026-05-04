@@ -26,6 +26,7 @@ from the_one.db.repositories import (
     LLMProviderRepository,
     MCPSourceRepository,
     SQLiteAgentStore,
+    ToolConfigRepository,
 )
 from the_one.encryption import Encryptor, get_encryptor
 from the_one.llm import ollama_api
@@ -61,6 +62,59 @@ async def _chat_repo() -> ChatSessionRepository:
     return ChatSessionRepository(conn)
 
 
+# ── Tool config helpers (F6 L1) ───────────────────────────────────────────
+
+_TESTABLE_TOOLS = frozenset({"web_search", "fetch_url"})
+
+
+async def _tool_config_repo() -> ToolConfigRepository:
+    conn = await get_connection()
+    return ToolConfigRepository(conn)
+
+
+def _enrich_schema_with_markers(
+    schema: dict[str, Any], config_class: type
+) -> dict[str, Any]:
+    """Inject `x_marker` per top-level property by reading
+    `config_class.model_fields[name].metadata`. Pydantic v2 does not
+    surface marker classes in `model_json_schema()`; the resolver
+    dispatches on `m is Narrow` / `m is Substitute` identity at
+    `the_one/tools/resolver.py:233-236` — same pattern here.
+
+    Mutates `schema` in place AND returns it (caller convenience —
+    both forms work). Safe to call on `_EmptyConfig` (no-op since
+    `model_fields` is empty).
+
+    Assumes a flat schema (no nested BaseModel fields under `$defs`).
+    All four F2-F5 Configs (FilesystemConfig, ExecutionConfig,
+    PythonExecConfig, WebConfig) are flat. A future Config that
+    nests another BaseModel will need a `$defs` walk added here.
+    """
+    from the_one.tools.resolver import (
+        Narrow,
+        NarrowPrefix,
+        NarrowSuperset,
+        Substitute,
+    )
+
+    marker_map = {
+        Narrow: "Narrow",
+        NarrowPrefix: "NarrowPrefix",
+        NarrowSuperset: "NarrowSuperset",
+        Substitute: "Substitute",
+    }
+    properties = schema.get("properties") or {}
+    for field_name, field_info in config_class.model_fields.items():
+        prop = properties.get(field_name)
+        if prop is None:
+            continue
+        for marker_cls, marker_name in marker_map.items():
+            if any(m is marker_cls for m in field_info.metadata):
+                prop["x_marker"] = marker_name
+                break
+    return schema
+
+
 # ── Settings ──────────────────────────────────────────────────────────────
 
 
@@ -82,6 +136,207 @@ async def list_tools() -> list[dict[str, str]]:
 
     provider = BuiltinToolProvider()
     return [{"name": t.name, "description": t.description} for t in provider.get_tools()]
+
+
+# ── Tool configs ──────────────────────────────────────────────────────────
+
+
+@router.get("/tools/configs")
+async def list_tool_configs() -> list[dict[str, Any]]:
+    """Operator-facing tool-config list. Tools without a saved row
+    appear with `enabled=True` and `config={}` (the default state).
+    Sorted by tool name. The L2 admin grid consumes this."""
+    from the_one.tools.builtins import _TOOL_CLASSES
+
+    repo = await _tool_config_repo()
+    saved = {c.name: c for c in await repo.list()}
+    result: list[dict[str, Any]] = []
+    for name in sorted(_TOOL_CLASSES):
+        cls = _TOOL_CLASSES[name]
+        row = saved.get(name)
+        result.append(
+            {
+                "name": name,
+                "description": cls.description,
+                "enabled": row.enabled if row else True,
+                "config": row.config if row else {},
+            }
+        )
+    return result
+
+
+@router.get("/tools/configs/{name}")
+async def get_tool_config(name: str) -> dict[str, Any]:
+    """Per-tool detail with marker-enriched JSON Schema. The L3 editor
+    drives form rendering from the returned `schema`."""
+    from the_one.tools.builtins import _TOOL_CLASSES
+
+    cls = _TOOL_CLASSES.get(name)
+    if cls is None:
+        raise HTTPException(status_code=404, detail=f"Tool not found: {name}")
+    repo = await _tool_config_repo()
+    try:
+        row = await repo.get(name)
+        enabled = row.enabled
+        config = row.config
+    except KeyError:
+        enabled = True
+        config = {}
+    schema = _enrich_schema_with_markers(cls.Config.model_json_schema(), cls.Config)
+    return {
+        "name": name,
+        "description": cls.description,
+        "enabled": enabled,
+        "config": config,
+        "schema": schema,
+    }
+
+
+@router.put("/tools/configs/{name}")
+async def upsert_tool_config(name: str, request: Request) -> dict[str, Any]:
+    """Upsert the operator-saved config + enabled state.
+
+    Body shape: `{enabled?: bool, config?: dict}`.
+
+    REPLACE-not-merge contract for `config`: when present in body,
+    REPLACES the saved config wholesale (REST PUT convention). The
+    L3 form always submits the full Config state, so REPLACE matches
+    its actual behaviour. To wipe to defaults, send `{"config": {}}`.
+
+    Top-level keys are preserved when omitted: PUT `{"enabled": true}`
+    (no `config` key) updates only `enabled` and leaves `config`
+    intact. Symmetric for `config`-only PUTs.
+
+    Validates submitted `config` against `cls.Config` — Pydantic v2's
+    default `extra="ignore"` (verified for all four F2-F5 Configs)
+    silently drops unknown extras.
+    """
+    from the_one.tools.builtins import _TOOL_CLASSES
+
+    cls = _TOOL_CLASSES.get(name)
+    if cls is None:
+        raise HTTPException(status_code=404, detail=f"Tool not found: {name}")
+    data = await request.json()
+    repo = await _tool_config_repo()
+    try:
+        existing = await repo.get(name)
+        current_enabled = existing.enabled
+        current_config = existing.config
+    except KeyError:
+        current_enabled = True
+        current_config = {}
+
+    # `enabled` — preserve when omitted from body; coerce when present.
+    new_enabled = bool(data["enabled"]) if "enabled" in data else current_enabled
+
+    # `config` — REPLACE when present (validate body), preserve when omitted.
+    if "config" in data:
+        try:
+            validated = cls.Config.model_validate(data["config"])
+        except ValidationError as e:
+            # `e.errors()` may carry a raw exception in `ctx['error']` (Pydantic
+            # v2 model-validator path) which is NOT JSON-serializable. Pass
+            # `include_context=False` so the response stays JSON-encodable —
+            # `msg` + `loc` carry the human-readable diagnostic the L3 form
+            # surfaces inline. Discovered during F6 L6 HAT scenario 3 when an
+            # operator narrowed `timeout_seconds_max < timeout_seconds_default`
+            # and the resulting model-validator ValueError crashed the JSON
+            # encoder, surfacing as 500 instead of 422.
+            raise HTTPException(
+                status_code=422, detail=e.errors(include_context=False)
+            )
+        new_config = validated.model_dump()
+    else:
+        new_config = current_config
+
+    await repo.upsert(name, new_config, enabled=new_enabled)
+    return {
+        "name": name,
+        "description": cls.description,
+        "enabled": new_enabled,
+        "config": new_config,
+    }
+
+
+@router.post("/tools/configs/{name}/test")
+async def test_tool_config(name: str, request: Request) -> dict[str, Any]:
+    """Run a connection test against the named tool's currently-saved
+    Config (Decision 5). Only `web_search` and `fetch_url` are
+    testable. Tool-side failures (constraint refusals, network
+    errors) come through as `[error] [constraint] ...` strings in
+    `output` — not HTTP 5xx — so the operator sees the agent's view.
+
+    Named-tool isolation: `BuiltinToolProvider.get_tools` builds
+    `cross_configs[Config]` by walking `_TOOL_CLASSES` in declared
+    order and resolving from the FIRST tool name carrying that
+    Config. For WebConfig, that's `http_request`. To honour
+    Decision 5's "named tool's saved Config" semantics in the test
+    endpoint, we re-key the input dict so EVERY tool sharing the
+    named tool's Config class is given the named tool's saved row.
+    This makes `cross_configs[NamedConfig]` carry the tested tool's
+    saved config regardless of declaration order. Sibling tools
+    with different Config classes get their own saved rows.
+    """
+    from the_one.tools.builtins import _TOOL_CLASSES, BuiltinToolProvider
+
+    # 404 takes precedence over 400 — unknown name is not "untestable",
+    # it's "doesn't exist".
+    if name not in _TOOL_CLASSES:
+        raise HTTPException(status_code=404, detail=f"Tool not found: {name}")
+    if name not in _TESTABLE_TOOLS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Tool {name} does not support connection testing",
+        )
+
+    repo = await _tool_config_repo()
+    saved = {c.name: c.config for c in await repo.list()}
+    named_config_class = _TOOL_CLASSES[name].Config
+    named_config = saved.get(name, {})
+    # Re-key sibling tools sharing the named tool's Config class to use
+    # the named tool's saved row (Decision 5 named-tool isolation).
+    # Other tools keep their own saved rows.
+    tool_configs_by_name = dict(saved)
+    for tname, tcls in _TOOL_CLASSES.items():
+        if tcls.Config is named_config_class:
+            tool_configs_by_name[tname] = named_config
+
+    provider = BuiltinToolProvider()
+    tools = provider.get_tools(tool_configs_by_name, {})
+    tool = next(t for t in tools if t.name == name)
+
+    # F6 HAT addition — accept optional override params from the request
+    # body so the operator can test against a custom input. Empty/malformed
+    # body falls back to the per-tool fixture defaults (preserves the
+    # existing 200-on-empty-body behavior). Type guards drop malformed
+    # values cleanly; the tool's own validation (URL parse, host check) is
+    # the security boundary — these checks are belt-and-suspenders.
+    try:
+        raw = await request.body()
+        body = json.loads(raw) if raw else {}
+        if not isinstance(body, dict):
+            body = {}
+    except Exception:
+        body = {}
+
+    defaults = {
+        "web_search": {"query": "the one cli agent", "max_results": 5},
+        "fetch_url": {"url": "https://example.com/"},
+    }[name]
+    fixture_kwargs = dict(defaults)
+    if name == "web_search":
+        if isinstance(body.get("query"), str) and body["query"].strip():
+            fixture_kwargs["query"] = body["query"]
+        if isinstance(body.get("max_results"), int) and 1 <= body["max_results"] <= 50:
+            fixture_kwargs["max_results"] = body["max_results"]
+    elif name == "fetch_url":
+        if isinstance(body.get("url"), str) and body["url"].strip():
+            fixture_kwargs["url"] = body["url"]
+
+    start = time.perf_counter()
+    output = await tool.execute(**fixture_kwargs)
+    elapsed_ms = round((time.perf_counter() - start) * 1000, 2)
+    return {"output": output, "elapsed_ms": elapsed_ms}
 
 
 # ── Agents ────────────────────────────────────────────────────────────────

@@ -105,19 +105,34 @@ class AgentFactory:
         # tool policy resolver. Resolved per-agent — Decision 8's
         # session-bound freshness contract: mid-session updates apply at
         # the next AgentFactory.create() call.
+        #
+        # F6 L1: project the full ToolConfig list into TWO derived
+        # structures — the resolver-facing `{name: config_dict}` (which
+        # `list_all()` would return identically) AND a `disabled_names`
+        # set for the registry-build filter. We deliberately do NOT
+        # widen `list_all()` to carry `enabled`; pushing the projection
+        # to the factory keeps the resolver's API surface pure (see
+        # L0's `test_list_all_omits_enabled`).
         tool_configs_repo = ToolConfigRepository(conn)
-        tool_configs_by_name = await tool_configs_repo.list_all()
+        configs = await tool_configs_repo.list()
+        tool_configs_by_name = {c.name: c.config for c in configs}
+        disabled_names = {c.name for c in configs if not c.enabled}
         agent_overrides = config.tool_overrides or {}
 
         # 3. Build filtered tool registry — fresh ToolRegistry per call,
         # populated with fresh per-agent tool instances (the provider
-        # invokes the resolver internally per Decision 10).
+        # invokes the resolver internally per Decision 10). The filter
+        # composes operator-disable (tool_configs.enabled) with per-agent
+        # disable (config.is_tool_enabled) — both must pass.
         registry = ToolRegistry()
         for provider in self.tool_providers:
             for tool in provider.get_tools(
                 tool_configs_by_name, agent_overrides, agent_name=name
             ):
-                if config.is_tool_enabled(tool.name):
+                if (
+                    tool.name not in disabled_names
+                    and config.is_tool_enabled(tool.name)
+                ):
                     registry.register(tool)
 
         # 3. Resolve system prompt

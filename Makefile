@@ -22,7 +22,6 @@ down: ## Stop the-one
 rebuild: ## Rebuild image + restart (REQUIRED after editing JS/CSS/Python)
 	docker compose build the-one
 	docker compose up -d the-one
-	@$(MAKE) --no-print-directory _ensure-playwright
 	@$(MAKE) --no-print-directory verify-serving
 
 .PHONY: rebuild-clean
@@ -31,7 +30,6 @@ rebuild-clean: ## Rebuild image + wipe DB volume + restart fresh (HAT prep, no c
 	docker volume rm -f the-one_the_one_data
 	docker compose build the-one
 	docker compose up -d the-one
-	@$(MAKE) --no-print-directory _ensure-playwright
 	@$(MAKE) --no-print-directory verify-serving
 
 # Internal target: reinstall playwright browsers + system deps if missing.
@@ -92,7 +90,7 @@ verify-serving: ## Sanity-check that the running container serves the current so
 		sleep 1; \
 	done
 	@echo "Verifying admin sub-modules served ..."
-	@for f in admin.js admin/system-page.js admin/providers-grid.js admin/provider-editor.js admin/provider-models.js layout/section-nav.js; do \
+	@for f in admin.js admin/system-page.js admin/providers-grid.js admin/provider-editor.js admin/provider-models.js admin/tools-form-helpers.js admin/tools-grid.js admin/tools-editor.js layout/section-nav.js; do \
 		code=$$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8484/static/js/areas/$$f); \
 		if [ "$$code" = "200" ]; then echo "  ✓ $$f served (200)"; \
 		else echo "  ✗ $$f returned $$code — image may be stale, run 'make rebuild'" && exit 1; fi; \
@@ -109,11 +107,13 @@ test-unit: ## Run unit tests only (excludes browser, live, pixel)
 	docker exec the-one pytest tests/ -m 'not browser and not live and not pixel' -v --tb=short
 
 .PHONY: test-browser
-test-browser: ## Run browser tests (requires THE_ONE_DEV_MODE=true; uses Playwright)
+test-browser: ## Run browser tests (requires THE_ONE_DEV_MODE=true; uses Playwright; installs playwright if missing)
+	@$(MAKE) --no-print-directory _ensure-playwright
 	docker exec the-one pytest -m browser tests/browser/ -v --tb=short
 
 .PHONY: test-pixel
-test-pixel: ## Run visual snapshot tests (baselines are gitignored — local regen only)
+test-pixel: ## Run visual snapshot tests (baselines are gitignored — local regen only; installs playwright if missing)
+	@$(MAKE) --no-print-directory _ensure-playwright
 	docker exec the-one pytest -m pixel tests/browser/ -v --tb=short
 
 .PHONY: test-live

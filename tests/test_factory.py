@@ -11,7 +11,7 @@ from conftest import FakeLLM, StubTool
 
 from the_one.agent.config import AgentConfig
 from the_one.agent.factory import AgentFactory
-from the_one.db.models import LLMProviderConfig
+from the_one.db.models import LLMProviderConfig, ToolConfig
 from the_one.tools.base import Tool
 
 # ---------------------------------------------------------------------------
@@ -101,13 +101,16 @@ def factory(store: InMemoryStore) -> AgentFactory:
     mock_repo = AsyncMock()
     mock_repo.get = AsyncMock(return_value=_make_provider_config())
 
-    # L3: factory now also constructs `ToolConfigRepository(conn)` and awaits
-    # `list_all()`. Patch it to return an empty dict so the resolver path
-    # short-circuits cleanly. Without `list_all = AsyncMock(return_value={})`
-    # the await would yield an `AsyncMock` (not a dict), breaking the
-    # provider invocation downstream.
+    # F6 L1: factory now constructs `ToolConfigRepository(conn)` and awaits
+    # `list()` (returning `list[ToolConfig]`) — switched from L3's
+    # `list_all()` -> `dict[str, dict]` shape. The factory projects this
+    # into `tool_configs_by_name` (dict) AND `disabled_names` (set) and
+    # composes operator-disable with the per-agent enabled/disabled
+    # whitelist. Patch with an empty list so the resolver path
+    # short-circuits cleanly. Without `list = AsyncMock(return_value=[])`
+    # the await would yield an `AsyncMock`, breaking the provider call.
     mock_tool_repo = AsyncMock()
-    mock_tool_repo.list_all = AsyncMock(return_value={})
+    mock_tool_repo.list = AsyncMock(return_value=[])
 
     with patch("the_one.agent.factory.get_provider", _fake_get_provider), \
          patch("the_one.agent.factory.settings") as mock_settings, \
@@ -236,8 +239,14 @@ class TestResolverWiring:
         mock_repo = AsyncMock()
         mock_repo.get = AsyncMock(return_value=_make_provider_config())
         mock_tool_repo = AsyncMock()
-        mock_tool_repo.list_all = AsyncMock(
-            return_value={"shell": {"output_cap": 1000}}
+        mock_tool_repo.list = AsyncMock(
+            return_value=[
+                ToolConfig(
+                    name="shell",
+                    config={"output_cap": 1000},
+                    enabled=True,
+                ),
+            ]
         )
 
         cfg = AgentConfig(
@@ -302,7 +311,7 @@ class TestResolverWiring:
         mock_repo = AsyncMock()
         mock_repo.get = AsyncMock(return_value=_make_provider_config())
         mock_tool_repo = AsyncMock()
-        mock_tool_repo.list_all = AsyncMock(return_value={})
+        mock_tool_repo.list = AsyncMock(return_value=[])
 
         cfg = AgentConfig(
             name="no-overrides",

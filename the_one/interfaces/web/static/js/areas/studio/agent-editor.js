@@ -140,7 +140,11 @@
     window.App.studio.renderToolsTab(toolsPanel, agent, {
       toolCategories: callbacks.toolCategories,
       allTools: callbacks.allTools,
-      onChange: callbacks.onChange
+      onChange: callbacks.onChange,
+      // F6 leg 05 — operator-disabled tools + per-agent override panels.
+      disabledTools: callbacks.disabledTools,
+      operatorConfigs: callbacks.operatorConfigs,
+      fetchToolSchema: callbacks.fetchToolSchema
     });
 
     // Initialize the App.tabs helper. The initial activation happens here

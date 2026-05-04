@@ -6,7 +6,7 @@ import json
 
 import aiosqlite
 
-CURRENT_VERSION = 8
+CURRENT_VERSION = 9
 
 SCHEMA_V1 = """\
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -334,3 +334,27 @@ CREATE TABLE IF NOT EXISTS tool_configs (
         )
         await conn.commit()
         version = 8
+
+    if version < 9:
+        # Add `enabled` column to tool_configs so the F6 admin UI can
+        # operator-disable a tool without touching per-agent allow/deny
+        # lists. Default 1 (true) keeps every pre-v9 row enabled.
+        #
+        # Idempotency follows the v8 pattern: PRAGMA-check the column
+        # presence so a re-run after partial-apply is a no-op, and
+        # leave the schema_version INSERT for LAST. Use individual
+        # `await conn.execute(...)` calls (NOT `executescript`) so the
+        # implicit COMMIT stays out of the way.
+        async with conn.execute("PRAGMA table_info(tool_configs)") as cursor:
+            existing_cols = {row[1] for row in await cursor.fetchall()}
+        if "enabled" not in existing_cols:
+            await conn.execute(
+                "ALTER TABLE tool_configs ADD COLUMN "
+                "enabled INTEGER NOT NULL DEFAULT 1"
+            )
+
+        await conn.execute(
+            "INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (9,)
+        )
+        await conn.commit()
+        version = 9
