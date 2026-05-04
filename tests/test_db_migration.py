@@ -230,8 +230,8 @@ class TestSchemaV8:
         await ensure_schema(conn)
 
         # CURRENT_VERSION assertion — pins the leg's version bump.
-        assert CURRENT_VERSION == 8, (
-            f"CURRENT_VERSION must be 8 after L2 (got {CURRENT_VERSION})"
+        assert CURRENT_VERSION == 9, (
+            f"CURRENT_VERSION must be 9 after F6 L0 (got {CURRENT_VERSION})"
         )
 
         # tool_configs table must exist.
@@ -264,12 +264,16 @@ class TestSchemaV8:
             rows = await cur.fetchall()
         assert rows == [], rows
 
-        # schema_version row for v8 exists.
+        # schema_version row for v8 exists; the head pointer lands at
+        # CURRENT_VERSION (which advances past 8 in later legs — the
+        # invariant this test guards is "v8 migration ran", not "no
+        # later migration ran").
         async with conn.execute(
-            "SELECT MAX(version) FROM schema_version"
+            "SELECT version FROM schema_version ORDER BY version"
         ) as cur:
-            row = await cur.fetchone()
-        assert row[0] == 8
+            versions = [r[0] for r in await cur.fetchall()]
+        assert 8 in versions, versions
+        assert max(versions) == CURRENT_VERSION, versions
 
         await conn.close()
 
@@ -293,8 +297,11 @@ class TestSchemaV8:
             ("seed", json.dumps(["shell", "read_file"]), json.dumps([])),
         )
 
-        # Rewind schema_version so ensure_schema sees v7 and reruns v8.
-        await conn.execute("DELETE FROM schema_version WHERE version = 8")
+        # Rewind schema_version so ensure_schema sees v7 and reruns v8
+        # (and any later migrations layered on top — delete >= 8 so the
+        # MAX() head pointer drops to 7 and the migration loop re-enters
+        # the v8 block).
+        await conn.execute("DELETE FROM schema_version WHERE version >= 8")
         await conn.commit()
 
         # Re-run the v8 migration on a v7-shaped DB. Note: the seeded
@@ -320,12 +327,17 @@ class TestSchemaV8:
             rows = await cur.fetchall()
         assert rows == []
 
-        # Assertion (c): schema_version is 8.
+        # Assertion (c): v8 ran (schema_version contains 8). The head
+        # pointer is CURRENT_VERSION since later legs may have added
+        # subsequent migrations on top.
+        from the_one.db.schema import CURRENT_VERSION
+
         async with conn.execute(
-            "SELECT MAX(version) FROM schema_version"
+            "SELECT version FROM schema_version ORDER BY version"
         ) as cur:
-            row = await cur.fetchone()
-        assert row[0] == 8
+            versions = [r[0] for r in await cur.fetchall()]
+        assert 8 in versions, versions
+        assert max(versions) == CURRENT_VERSION, versions
 
         await conn.close()
 
@@ -407,13 +419,153 @@ class TestSchemaV8:
             assert (await cur.fetchone()) is not None
 
         # Assertion (c): both 7 and 8 are present in schema_version,
-        # MAX(version) is 8.
+        # MAX(version) is CURRENT_VERSION (later legs may layer more
+        # migrations on top; the v7→v8 chain still applies cleanly).
+        from the_one.db.schema import CURRENT_VERSION
+
         async with conn.execute(
             "SELECT version FROM schema_version ORDER BY version"
         ) as cur:
             versions = [r[0] for r in await cur.fetchall()]
         assert 7 in versions, versions
         assert 8 in versions, versions
-        assert max(versions) == 8
+        assert max(versions) == CURRENT_VERSION, versions
+
+        await conn.close()
+
+
+class TestSchemaV9:
+    """Tests for the v9 migration that adds tool_configs.enabled."""
+
+    async def test_v9_fresh_db_has_enabled_column_with_default_1(
+        self, tmp_path
+    ) -> None:
+        from the_one.db.schema import CURRENT_VERSION
+
+        db_path = tmp_path / "v9-fresh.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+        await ensure_schema(conn)
+
+        assert CURRENT_VERSION == 9, CURRENT_VERSION
+
+        async with conn.execute("PRAGMA table_info(tool_configs)") as cur:
+            cols = {r["name"]: r for r in await cur.fetchall()}
+        assert "enabled" in cols
+        col = cols["enabled"]
+        assert col["type"] == "INTEGER", col["type"]
+        assert col["notnull"] == 1, col["notnull"]
+        # SQLite stores the literal text of the DEFAULT clause.
+        # Stringify to avoid aiosqlite-version-dependent type quirks.
+        assert str(col["dflt_value"]) == "1", col["dflt_value"]
+
+        # Behavioural cross-check: an INSERT that omits `enabled`
+        # lands on 1 via the column DEFAULT. The PRAGMA assertion
+        # is the schema; this is the contract.
+        await conn.execute(
+            "INSERT INTO tool_configs (name, config) VALUES (?, ?)",
+            ("default-check", json.dumps({})),
+        )
+        await conn.commit()
+        async with conn.execute(
+            "SELECT enabled FROM tool_configs WHERE name = 'default-check'"
+        ) as cur:
+            r = await cur.fetchone()
+        assert r["enabled"] == 1, r["enabled"]
+
+        async with conn.execute(
+            "SELECT MAX(version) FROM schema_version"
+        ) as cur:
+            row = await cur.fetchone()
+        assert row[0] == 9
+
+        await conn.close()
+
+    async def test_v9_migration_on_v8_fixture_db_preserves_existing_rows(
+        self, tmp_path
+    ) -> None:
+        db_path = tmp_path / "v9-from-v8.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+        await ensure_schema(conn)
+
+        # Seed a tool_configs row directly (4-column-shaped INSERT
+        # would have been the v8 form; on v9 the column default
+        # supplies enabled=1 for an INSERT that omits it).
+        await conn.execute(
+            "INSERT INTO tool_configs (name, config) VALUES (?, ?)",
+            ("preexisting", json.dumps({"timeout_sec_default": 30.0})),
+        )
+
+        # Rewind to v8.
+        await conn.execute("DELETE FROM schema_version WHERE version = 9")
+        await conn.commit()
+
+        # Re-run — idempotent guard skips ALTER, INSERT OR IGNORE skips dup.
+        await ensure_schema(conn)
+
+        async with conn.execute(
+            "SELECT name, config, enabled FROM tool_configs WHERE name = 'preexisting'"
+        ) as cur:
+            row = await cur.fetchone()
+        assert row is not None
+        assert json.loads(row["config"]) == {"timeout_sec_default": 30.0}
+        assert row["enabled"] == 1
+
+        async with conn.execute(
+            "SELECT MAX(version) FROM schema_version"
+        ) as cur:
+            row = await cur.fetchone()
+        assert row[0] == 9
+
+        await conn.close()
+
+    async def test_v9_migration_is_idempotent(self, tmp_path) -> None:
+        db_path = tmp_path / "v9-idempotent.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await ensure_schema(conn)
+        await ensure_schema(conn)
+
+        async with conn.execute(
+            "SELECT COUNT(*) FROM schema_version WHERE version = 9"
+        ) as cur:
+            row = await cur.fetchone()
+        assert row[0] == 1
+
+        async with conn.execute("PRAGMA table_info(tool_configs)") as cur:
+            cols = {r["name"] for r in await cur.fetchall()}
+        assert "enabled" in cols
+
+        await conn.close()
+
+    async def test_v8_to_v9_chained_migration(self, tmp_path) -> None:
+        """Rewind to v8, seed a v8-shaped row (no enabled column at
+        insert time logically — the column default supplies 1), then
+        run the v9 ADD COLUMN. The seeded row must have enabled=1."""
+        db_path = tmp_path / "v9-chain.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+        await ensure_schema(conn)
+
+        await conn.execute(
+            "INSERT INTO tool_configs (name, config) VALUES (?, ?)",
+            ("chained", json.dumps({})),
+        )
+        await conn.execute("DELETE FROM schema_version WHERE version = 9")
+        await conn.commit()
+
+        await ensure_schema(conn)
+
+        async with conn.execute(
+            "SELECT enabled FROM tool_configs WHERE name = 'chained'"
+        ) as cur:
+            row = await cur.fetchone()
+        assert row["enabled"] == 1
 
         await conn.close()

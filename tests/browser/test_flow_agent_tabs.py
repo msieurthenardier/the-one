@@ -26,22 +26,42 @@ from browser.seeders import SeededApp
 from playwright.sync_api import Page, expect
 
 
-def _wait_editor_ready(page: Page) -> None:
+def _wait_editor_ready(page: Page, expected_tab: str = "general") -> None:
     """Wait for the agent editor to be the visible child in the main panel.
 
     Bare `#studio/agents` lands on the tile grid with no agent auto-selected
     (F5 leg 05 design): the section-content (tile grid) is visible and the
     editor is hidden. Click the first tile to swap them. Deep-link
     navigations (`#studio/agents/<name>/...`) hydrate the selection and the
-    editor is already visible — skip the click.
+    editor mounts asynchronously via L5's `refreshToolConfigsCache().then(renderEditor)`
+    wrapper inside `doSelect` (studio.js); skip the click in that case and
+    wait for the async mount to complete.
+
+    expected_tab: which tab is expected to be active after the editor mounts.
+    Defaults to 'general' for tests that select an agent without specifying
+    a tab. Deep-link tests (/knowledge, /tools) override this so the helper
+    waits for the deep-linked tab's `aria-selected="true"` before returning,
+    avoiding the race with the L5 async editor-mount wrapper.
     """
     expect(page.locator(".section-nav-header")).to_have_text("Studio", timeout=8000)
-    editor_hidden = page.evaluate(
-        "() => document.querySelector('.studio-editor')?.classList.contains('is-hidden')"
+    # If the URL hash deep-links into an agent (`#studio/agents/<name>...`),
+    # the editor mount is already in flight via the async wrapper — wait for
+    # it to complete instead of clicking a tile (the tile becomes hidden
+    # the moment the editor renders, racing the click).
+    deep_linked = page.evaluate(
+        "() => /^#?studio\\/agents\\/[^/]/i.test(location.hash)"
     )
-    if editor_hidden:
-        page.locator("button.entity-tile").first.click()
-    expect(page.locator('[data-testid="tab-general"]')).to_be_visible(timeout=8000)
+    if not deep_linked:
+        editor_hidden = page.evaluate(
+            "() => document.querySelector('.studio-editor')?.classList.contains('is-hidden')"
+        )
+        if editor_hidden:
+            page.locator("button.entity-tile").first.click()
+    expect(page.locator(f'[data-testid="tab-{expected_tab}"]')).to_be_visible(timeout=8000)
+    # Wait for the expected tab to be active (handles the L5 async editor-mount race).
+    expect(page.locator(f'[data-testid="tab-{expected_tab}"]')).to_have_attribute(
+        "aria-selected", "true", timeout=8000
+    )
 
 
 @pytest.mark.browser
@@ -187,7 +207,7 @@ def test_refresh_on_knowledge_tab_persists(app_with_agent: SeededApp, page: Page
     agent_name = app_with_agent.agent_name
     target = f"{base_url}#studio/agents/{urllib.parse.quote(agent_name)}/knowledge"
     page.goto(target)
-    _wait_editor_ready(page)
+    _wait_editor_ready(page, expected_tab="knowledge")
 
     expect(page.locator('[data-testid="agent-knowledge-tab-stub"]')).to_be_visible(
         timeout=8000
@@ -204,7 +224,7 @@ def test_refresh_on_tools_tab_persists(app_with_agent: SeededApp, page: Page) ->
     agent_name = app_with_agent.agent_name
     target = f"{base_url}#studio/agents/{urllib.parse.quote(agent_name)}/tools"
     page.goto(target)
-    _wait_editor_ready(page)
+    _wait_editor_ready(page, expected_tab="tools")
 
     expect(page.locator('[data-testid="agent-mcp-tools-stub"]')).to_be_visible(
         timeout=8000

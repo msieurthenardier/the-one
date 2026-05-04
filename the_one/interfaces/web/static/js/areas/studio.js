@@ -263,6 +263,59 @@ App.registerArea({
     function fetchKnowledgeBases() { return fetch('/api/knowledge-bases').then(function (r) { return r.json(); }); }
     function fetchProviders() { return fetch('/api/providers').then(function (r) { return r.json(); }); }
 
+    // ── F6 leg 05 — tool configs (operator state) + schema cache ──────
+    //
+    // Operator-state caches. `_disabledTools` (Set<string>) and
+    // `_operatorConfigs` ({name → {enabled, config}}) are RE-fetched on
+    // every agent-edit mount — the operator may have flipped a toggle in
+    // another tab between agent edits. The schema cache below survives
+    // across agent changes (schemas are static at runtime).
+    self._disabledTools = new Set();
+    self._operatorConfigs = {};
+
+    function fetchToolConfigs() {
+      return fetch('/api/tools/configs').then(function (r) { return r.json(); });
+    }
+
+    function refreshToolConfigsCache() {
+      return fetchToolConfigs().then(function (configs) {
+        var disabled = new Set();
+        var byName = {};
+        for (var i = 0; i < configs.length; i++) {
+          var c = configs[i];
+          byName[c.name] = { enabled: !!c.enabled, config: c.config || {} };
+          if (!c.enabled) disabled.add(c.name);
+        }
+        self._disabledTools = disabled;
+        self._operatorConfigs = byName;
+      }).catch(function () {
+        // On error, keep prior caches; the tools tab still renders with
+        // pre-L5 baseline (no disabled-tool styling, no override panels).
+        self._disabledTools = self._disabledTools || new Set();
+        self._operatorConfigs = self._operatorConfigs || {};
+      });
+    }
+
+    // Lazy schema fetcher — closure-cached. Stores the PROMISE (not the
+    // resolved value) so concurrent callers during an in-flight fetch
+    // reuse the same in-flight promise (no double-fetch). The cache
+    // survives across agent changes; schemas are static.
+    var _schemaPromiseCache = {};
+
+    function fetchToolSchema(name) {
+      if (_schemaPromiseCache[name]) return _schemaPromiseCache[name];
+      var p = fetch('/api/tools/configs/' + encodeURIComponent(name)).then(function (r) {
+        if (!r.ok) throw new Error('fetchToolSchema: HTTP ' + r.status);
+        return r.json();
+      }).catch(function (err) {
+        // Drop the cached promise on error so next attempt retries.
+        delete _schemaPromiseCache[name];
+        throw err;
+      });
+      _schemaPromiseCache[name] = p;
+      return p;
+    }
+
     function loadAll() {
       return Promise.all([fetchAgents(), fetchTools(), fetchMcpSources(), fetchKnowledgeBases(), fetchProviders()])
         .then(function (results) {
@@ -378,9 +431,15 @@ App.registerArea({
         setActiveSection('agents', { writeUrl: false });
       }
       renderAgentList();
-      renderEditor(agent);
-      updateContentVisibility();
-      writeUrl_();
+      // F6 leg 05 — refresh operator-state caches on every agent-edit
+      // mount (operator may have flipped a toggle in another tab between
+      // agent edits). Render-on-resolve so the Tools tab reflects current
+      // disabled state from first paint.
+      refreshToolConfigsCache().then(function () {
+        renderEditor(agent);
+        updateContentVisibility();
+        writeUrl_();
+      });
     }
 
     function selectAgent(agent) {
@@ -400,9 +459,13 @@ App.registerArea({
         setActiveSection('agents', { writeUrl: false });
       }
       renderAgentList();
-      renderEditor(null);
-      updateContentVisibility();
-      writeUrl_();
+      // F6 leg 05 — refresh operator-state caches before rendering so the
+      // new-agent Tools tab reflects current operator-disabled state.
+      refreshToolConfigsCache().then(function () {
+        renderEditor(null);
+        updateContentVisibility();
+        writeUrl_();
+      });
     }
 
     function enterCreateMode() {
@@ -441,7 +504,13 @@ App.registerArea({
         onTestProvider: testProvider,
         toolCategories: TOOL_CATEGORIES,
         allTools: self._allTools,
-        onChange: checkDirty
+        onChange: checkDirty,
+        // F6 leg 05 — operator-state surfaces in Tools tab. Caches were
+        // refreshed at editor-mount time (see selectAgent / doSelect). The
+        // schema fetcher is closure-cached and survives agent changes.
+        disabledTools: self._disabledTools,
+        operatorConfigs: self._operatorConfigs,
+        fetchToolSchema: fetchToolSchema
       });
 
       // Wire field-level dirty tracking + provider-change side-effects.
@@ -751,12 +820,42 @@ App.registerArea({
       // Connections (chips) — Tools tab does not currently render chips
       // (MCP/KB attach is a future-flight stub), so this collects whatever
       // chip-areas exist (none in F5 leg 03; future legs may add them).
+      // The new override chip-list editors carry data-tool-override-tool
+      // (NOT data-type), so they don't match the [data-type] selector
+      // here and are picked up below in the override walk.
       var mcpChips = editorEl.querySelectorAll('.chip-area[data-type="mcp"] .chip');
       var kbChips = editorEl.querySelectorAll('.chip-area[data-type="kb"] .chip');
       data.mcp_source_ids = [];
       data.kb_ids = [];
       for (var m = 0; m < mcpChips.length; m++) data.mcp_source_ids.push(mcpChips[m].dataset.id);
       for (var k = 0; k < kbChips.length; k++) data.kb_ids.push(kbChips[k].dataset.id);
+
+      // F6 leg 05 — collect tool_overrides from per-tool override panels.
+      // Each override input carries `data-tool-override-tool="{name}"` and
+      // `data-tool-override-field="{field}"`. The chip-list-editor wrapper
+      // <div> ALSO carries both attrs so the same selector picks it up;
+      // readFieldValue dispatches on shape.
+      var overrideEls = editorEl.querySelectorAll('[data-tool-override-tool][data-tool-override-field]');
+      var overrides = {};
+      var helpers = window.App.adminFormHelpers;
+      for (var oi = 0; oi < overrideEls.length; oi++) {
+        var oe = overrideEls[oi];
+        // Skip the .field-row wrapper (which carries the attrs for error
+        // rendering) — it's a div with no value to read.
+        if (oe.classList && oe.classList.contains('field-row')) continue;
+        var toolName = oe.dataset.toolOverrideTool;
+        var fieldName = oe.dataset.toolOverrideField;
+        if (!toolName || !fieldName) continue;
+        var v = helpers ? helpers.readFieldValue(oe) : null;
+        // Skip empty overrides — agent.tool_overrides only contains tools
+        // with at least one set field.
+        if (v === null || v === undefined) continue;
+        if (Array.isArray(v) && v.length === 0) continue;
+        if (typeof v === 'string' && v === '') continue;
+        if (!overrides[toolName]) overrides[toolName] = {};
+        overrides[toolName][fieldName] = v;
+      }
+      data.tool_overrides = Object.keys(overrides).length > 0 ? overrides : null;
 
       return data;
     }

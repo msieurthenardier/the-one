@@ -424,3 +424,46 @@ class TestToolConfigRepository:
         assert await tool_config_repo.exists("shell") is False
         await tool_config_repo.upsert("shell", {})
         assert await tool_config_repo.exists("shell") is True
+
+    # ── L0: enabled flag round-trips ───────────────────────────────
+
+    async def test_upsert_default_enabled_true(
+        self, tool_config_repo: ToolConfigRepository
+    ) -> None:
+        await tool_config_repo.upsert("shell", {})
+        items = await tool_config_repo.list()
+        assert len(items) == 1
+        assert items[0].enabled is True
+
+    async def test_upsert_persists_enabled_false(
+        self, tool_config_repo: ToolConfigRepository
+    ) -> None:
+        await tool_config_repo.upsert("shell", {}, enabled=False)
+        got = await tool_config_repo.get("shell")
+        assert got.enabled is False
+
+    async def test_upsert_round_trips_enabled_true_after_false(
+        self, tool_config_repo: ToolConfigRepository
+    ) -> None:
+        await tool_config_repo.upsert("shell", {}, enabled=False)
+        await tool_config_repo.upsert("shell", {}, enabled=True)
+        got = await tool_config_repo.get("shell")
+        assert got.enabled is True
+
+    async def test_list_all_omits_enabled(
+        self, tool_config_repo: ToolConfigRepository
+    ) -> None:
+        # The resolver-facing list_all() must stay {name: config_dict}.
+        # Admin read path in L1 uses list() (which returns full models).
+        await tool_config_repo.upsert("shell", {"timeout": 1}, enabled=False)
+        result = await tool_config_repo.list_all()
+        assert result == {"shell": {"timeout": 1}}
+        # Explicit guard: enabled must not leak into the resolver dict.
+        assert "enabled" not in result["shell"]
+
+    async def test_pydantic_coerces_int_to_bool_for_enabled(self) -> None:
+        # Insurance for any future code path that builds ToolConfig
+        # from a raw row tuple instead of an aiosqlite.Row.
+        from the_one.db.models import ToolConfig
+        m = ToolConfig(name="x", enabled=1)
+        assert m.enabled is True

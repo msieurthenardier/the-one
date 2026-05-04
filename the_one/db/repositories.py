@@ -346,22 +346,31 @@ class ToolConfigRepository:
             raise KeyError(f"Tool config not found: {name}")
         return self._row_to_model(row)
 
-    async def upsert(self, name: str, config: dict) -> None:
+    async def upsert(self, name: str, config: dict, enabled: bool = True) -> None:
         """INSERT or REPLACE the config row, bumping `updated_at` on update.
 
-        L3 reads only; the upsert path is exercised by tests in L2 and
-        by F6's admin UI when it lands. F2 does not call `upsert` from
-        the resolver or the factory.
+        `enabled` defaults to True so existing call sites (resolver,
+        factory) continue to work without modification. The F6 admin
+        UI is the first caller to pass `enabled=False`.
+
+        Caveat: ON CONFLICT writes `enabled=excluded.enabled`, which
+        means a config-only update that omits the kwarg will silently
+        re-enable a previously-disabled row. Callers that want to
+        update only `config` (keeping the existing `enabled` state)
+        must read first via `get(name)` and pass the existing flag.
+        The L1 admin PUT endpoint sends the full row state, so the
+        "last write wins" semantics are intentional for that surface.
         """
         await self.conn.execute(
             """\
-            INSERT INTO tool_configs (name, config, created_at, updated_at)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO tool_configs (name, config, enabled, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(name) DO UPDATE SET
                 config=excluded.config,
+                enabled=excluded.enabled,
                 updated_at=excluded.updated_at
             """,
-            (name, json.dumps(config), _now_iso(), _now_iso()),
+            (name, json.dumps(config), int(enabled), _now_iso(), _now_iso()),
         )
         await self.conn.commit()
 
@@ -382,6 +391,7 @@ class ToolConfigRepository:
         return ToolConfig(
             name=row["name"],
             config=json.loads(row["config"] or "{}"),
+            enabled=bool(row["enabled"]),
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )

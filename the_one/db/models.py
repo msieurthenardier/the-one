@@ -65,10 +65,15 @@ class ToolConfig(BaseModel):
     identifier). The resolver composes this with a per-agent override
     dict from `AgentConfig.tool_overrides` at `AgentFactory.create()`
     time (session-bound; mid-session edits do not affect running agents).
+
+    `enabled` (added in schema v9) is operator-set tool-level on/off.
+    Disabled tools are filtered out of the registry at L1's enforcement
+    point — independent of per-agent enabled_tools / disabled_tools.
     """
 
     name: str
     config: dict = Field(default_factory=dict)
+    enabled: bool = True
     created_at: str = Field(default_factory=_now_iso)
     updated_at: str = Field(default_factory=_now_iso)
 

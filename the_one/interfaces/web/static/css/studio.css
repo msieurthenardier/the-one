@@ -46,4 +46,26 @@
   /* line-height 1.4 retained as a context-specific value (warning copy). */
   .area-studio .studio-vram-warning { display: none; margin-top: 6px; padding: 6px 10px; border-left: 3px solid var(--status-warning); background: var(--status-warning-bg-soft); border-radius: 0 4px 4px 0; font-size: var(--font-size-body-sm); color: var(--status-warning); line-height: 1.4; }
   .area-studio .studio-vram-warning.visible { display: block; }
+
+  /* === Studio Area: Tools tab — operator-disabled rows + override panels === */
+  /* F6 leg 05. Operator-disabled tools: dim row + cursor:not-allowed +
+     strikethrough name. Override panel (`<details>`): nested under each
+     enabled tool row with a left-border indicator. NarrowSuperset locked
+     chips: dimmer surface + cursor:default (the chip-remove button is
+     OMITTED at render time, NOT just hidden, so keyboard focus order
+     skips them and screen readers don't announce them). */
+  .area-studio .tool-row-disabled { opacity: 0.5; cursor: not-allowed; }
+  .area-studio .tool-row-disabled .tool-toggle,
+  .area-studio .tool-row-disabled .tool-switch { cursor: not-allowed; }
+  .area-studio .tool-name-strike { text-decoration: line-through; color: var(--fg-faint); }
+  .area-studio .tool-row-overrides { margin: 4px 0 8px 28px; padding: 0; border-left: 2px solid var(--border-strong); }
+  .area-studio .tool-row-overrides[open] { padding: 4px 0 8px 12px; }
+  .area-studio .tool-row-overrides summary { cursor: pointer; padding: 4px 8px; font-size: var(--font-size-body-sm); color: var(--fg-secondary); user-select: none; }
+  .area-studio .tool-row-overrides summary:hover { color: var(--accent); }
+  .area-studio .tool-row-overrides-body { padding: 4px 8px 0; }
+  .area-studio .tool-row-overrides .field-row { margin-bottom: 8px; }
+  .area-studio .tool-row-overrides .chip[data-locked] { background: var(--surface-elevated); opacity: 0.7; cursor: default; }
+  .area-studio .tool-row-overrides .empty-state { font-size: var(--font-size-body-sm); color: var(--fg-secondary); padding: 4px 8px; }
+  .area-studio .tool-row-overrides .loading { font-size: var(--font-size-body-sm); color: var(--fg-secondary); padding: 4px 8px; }
+  .area-studio .tool-row-overrides .error { font-size: var(--font-size-body-sm); color: var(--status-danger); padding: 4px 8px; }
 }

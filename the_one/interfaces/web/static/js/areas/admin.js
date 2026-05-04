@@ -19,6 +19,16 @@ App.registerArea({
       }
       return 'providers';
     }
+    if (this._currentCategory === 'tools') {
+      if (this._toolFormMode === 'edit' && this._editingTool) {
+        return 'tools/' + encodeURIComponent(this._editingTool.name);
+      }
+      // Hydrate-vs-fetch race: pending name known but tool detail not yet loaded.
+      if (this._pendingToolName) {
+        return 'tools/' + encodeURIComponent(this._pendingToolName);
+      }
+      return 'tools';
+    }
     return this._currentCategory || 'system';
   },
   hydrateState: function (sub) {
@@ -30,6 +40,8 @@ App.registerArea({
       if (this._setCategory) this._setCategory('system');
       this._pendingProviderId = null;
       this._pendingFormMode = null;
+      this._pendingToolName = null;
+      this._pendingToolFormMode = null;
       return;
     }
     var origSub = sub;
@@ -38,6 +50,8 @@ App.registerArea({
 
     var pendingId = null;
     var pendingFormMode = null;
+    var pendingToolName_local = null;
+    var pendingToolFormMode_local = null;
     if (origSub === 'providers/new') {
       sub = 'providers';
       pendingFormMode = 'add';
@@ -51,9 +65,22 @@ App.registerArea({
       var slashIdx = rest.indexOf('/');
       if (slashIdx !== -1) rest = rest.slice(0, slashIdx);
       pendingId = rest ? decodeURIComponent(rest) : null;
+    } else if (origSub === 'tools') {
+      sub = 'tools';
+    } else if (origSub && origSub.indexOf('tools/') === 0) {
+      // F6 leg 03: parse the tool name out of `tools/{name}` so the
+      // editor opens on direct-load / refresh.
+      sub = 'tools';
+      pendingToolFormMode_local = 'edit';
+      var trest = origSub.slice('tools/'.length);
+      if (trest.charAt(trest.length - 1) === '/') trest = trest.slice(0, -1);
+      // Defensive: if extra path segments, take only the first.
+      var tslashIdx = trest.indexOf('/');
+      if (tslashIdx !== -1) trest = trest.slice(0, tslashIdx);
+      pendingToolName_local = trest ? decodeURIComponent(trest) : null;
     }
 
-    var validIds = ['system', 'providers'];
+    var validIds = ['system', 'providers', 'tools'];
     if (validIds.indexOf(sub) === -1) return;
 
     // Set category FIRST — _setCategory wipes pending state on category change,
@@ -65,6 +92,8 @@ App.registerArea({
     // #admin/providers/new → #admin/system clears pending state.
     this._pendingProviderId = pendingId;
     this._pendingFormMode = pendingFormMode;
+    this._pendingToolName = pendingToolName_local;
+    this._pendingToolFormMode = pendingToolFormMode_local;
 
     // Sub-state changes within the same category (e.g.,
     // #admin/providers → #admin/providers/new) do NOT trigger _setCategory's
@@ -72,12 +101,17 @@ App.registerArea({
     // unconditionally so within-admin sub navigation actually opens the
     // editor.
     if (this._tryConsumePendingProvider) this._tryConsumePendingProvider();
+    if (this._tryConsumePendingTool) this._tryConsumePendingTool();
   },
 
   init: function (sidebar, content) {
     var categories = [
       { id: 'system', label: 'System' },
-      { id: 'providers', label: 'LLM Providers' }
+      { id: 'providers', label: 'LLM Providers' },
+      // F6 HAT inline fix #5: "Tools" → "Built-in Tools" — distinguishes
+      // from future MCP / external tool surfaces. id stays 'tools' so URL
+      // routing (#admin/tools/{name}) is unchanged.
+      { id: 'tools', label: 'Built-in Tools' }
     ];
     var currentCategory = 'system';
     var categoryListEl;
@@ -102,6 +136,19 @@ App.registerArea({
     // for the `mock` type is enforced server-side. Populated by fetchProviderTypes().
     var PROVIDER_TYPES = [];
     var providerTypesReady = null;
+
+    // Tools state (F6 leg 02)
+    var toolConfigs = null; // null until first fetch resolves; helper shows loading placeholder.
+    // Per-tool in-flight PUT tracker — second click while a PUT is pending is
+    // dropped (toggle is also disabled in CSS via the `disabled` attr).
+    // Closes the optimistic-update double-click race.
+    var toolsInFlight = Object.create(null);
+
+    // Tools editor state (F6 leg 03)
+    var toolFormMode = null; // null | 'edit'
+    var editingTool = null; // { name, description, enabled, config, schema } | null
+    var pendingToolName = null; // hydrate-vs-fetch race
+    var pendingToolFormMode = null; // null | 'edit'
 
     function fetchProviderTypes() {
       providerTypesReady = fetch('/api/providers/types')
@@ -155,16 +202,21 @@ App.registerArea({
       editingProvider = null;
       pendingProviderId = null;
       pendingFormMode = null;
+      toolFormMode = null;
+      editingTool = null;
+      pendingToolName = null;
+      pendingToolFormMode = null;
       dirty = false;
       if (window.App && window.App.router) App.router.replaceSub(currentCategory);
       App.layout.updateActiveSection(categoryListEl, currentCategory);
       renderContent();
     }
     function setCategory(catId) {
-      // Dirty gate fires only when leaving providers + editor-mounted
-      // context. Same-category clicks short-circuit naturally (no state
-      // change). Mirrors studio.js:190-201 (F5 leg 04 setActiveSection).
-      var inEditor = currentCategory === 'providers' && providerFormMode;
+      // Dirty gate fires only when leaving an editor-mounted context.
+      // Same-category clicks short-circuit naturally (no state change).
+      // Mirrors studio.js:190-201 (F5 leg 04 setActiveSection).
+      var inEditor = (currentCategory === 'providers' && providerFormMode)
+                  || (currentCategory === 'tools' && toolFormMode);
       if (dirty && inEditor) {
         App.confirmDialog({ onConfirm: function () { doSetCategory(catId); } });
         return;
@@ -189,6 +241,8 @@ App.registerArea({
         App.admin.renderSystemPage(contentEl);
       } else if (currentCategory === 'providers') {
         renderProvidersPanel();
+      } else if (currentCategory === 'tools') {
+        renderToolsPanel();
       }
     }
 
@@ -343,6 +397,165 @@ App.registerArea({
       return null;
     }
 
+    // ── Tools Panel (F6 leg 02 / leg 03 editor) ───────────────────────
+
+    function renderToolsPanel() {
+      // Editor branch (F6 leg 03): delegate to tools-editor sub-module.
+      if (toolFormMode === 'edit' && editingTool) {
+        // Reset orchestrator's dirty mirror BEFORE editor mount (mirrors
+        // provider-editor pattern at renderProvidersPanel:222). The fresh
+        // editor closure starts at dirty=false; the onDirtyChange bridge
+        // only fires on the first user input.
+        dirty = false;
+        App.admin.renderToolsEditor(contentEl, editingTool, {
+          onBack: function () {
+            if (dirty) {
+              App.confirmDialog({ onConfirm: function () { exitEditor(); } });
+              return;
+            }
+            exitEditor();
+          },
+          onCancel: function () {
+            // Cancel sub-module restores original DOM (re-mounts with the
+            // original toolDetail). Orchestrator stays in editor mode —
+            // there is no navigate-to-grid on Cancel for tools (Cancel is
+            // a snapshot-revert, not a "discard and exit").
+            dirty = false;
+          },
+          onSaveSuccess: function (updated) {
+            // Update the grid cache so an immediate Back lands on a current
+            // grid (post-leg-02 cache fields: name, description, enabled, config).
+            if (toolConfigs) {
+              for (var i = 0; i < toolConfigs.length; i++) {
+                if (toolConfigs[i].name === updated.name) {
+                  toolConfigs[i] = {
+                    name: updated.name,
+                    description: updated.description,
+                    enabled: updated.enabled,
+                    config: updated.config
+                  };
+                  break;
+                }
+              }
+            }
+            // Merge the PUT response (4 fields) preserving the prior schema —
+            // L1's upsert_tool_config response does NOT include `schema`. The
+            // editor sub-module reads `toolDetail.schema` on each render.
+            editingTool = {
+              name: updated.name,
+              description: updated.description,
+              enabled: updated.enabled,
+              config: updated.config,
+              schema: editingTool.schema
+            };
+            dirty = false;
+          },
+          onDirtyChange: function (d) { dirty = d; }
+        });
+        return;
+      }
+      // Grid branch (L2)
+      App.admin.renderToolsGrid(contentEl, toolConfigs, {
+        onToggle: handleToolToggle,
+        inFlight: toolsInFlight,
+        onSelectTool: selectTool
+      });
+      fetchToolConfigs();
+    }
+
+    function exitEditor() {
+      toolFormMode = null;
+      editingTool = null;
+      dirty = false;
+      if (window.App && window.App.router) App.router.replaceSub('tools');
+      renderToolsPanel();
+    }
+
+    function selectTool(name) {
+      // ALWAYS fetches — the grid cache lacks `schema`, so a cache-lookup
+      // short-circuit would always fall through to fetch anyway.
+      return fetch('/api/tools/configs/' + encodeURIComponent(name))
+        .then(function (r) {
+          if (!r.ok) throw new Error('Fetch failed: ' + r.status);
+          return r.json();
+        })
+        .then(function (detail) {
+          editingTool = detail;
+          toolFormMode = 'edit';
+          pendingToolName = null;
+          pendingToolFormMode = null;
+          if (window.App && window.App.router) {
+            App.router.replaceSub(self.serializeState());
+          }
+          renderToolsPanel();
+        })
+        .catch(function () {
+          App.showFlash(contentEl, 'Failed to load ' + name + '.', true);
+        });
+    }
+
+    function fetchToolConfigs() {
+      return fetch('/api/tools/configs')
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          // Stale-then guard at cache-write: if the operator switched away
+          // mid-fetch, do not clobber the cache.
+          if (currentCategory !== 'tools') return;
+          toolConfigs = data;
+          populateToolGrid();
+        })
+        .catch(function () {
+          if (currentCategory !== 'tools') return;
+          var gridEl = contentEl.querySelector('.entity-tile-grid');
+          if (gridEl) gridEl.innerHTML = '<div class="admin-loading">Failed to load tools.</div>';
+        });
+    }
+
+    function populateToolGrid() {
+      // Stale-then guard: bail when no longer on tools (mirrors providers),
+      // OR when the editor is mounted (no grid in the DOM to populate).
+      if (currentCategory !== 'tools') return;
+      if (toolFormMode) return;
+      App.admin.renderToolsGrid(contentEl, toolConfigs, {
+        onToggle: handleToolToggle,
+        inFlight: toolsInFlight,
+        onSelectTool: selectTool
+      });
+    }
+
+    function handleToolToggle(name, newEnabled) {
+      // Drop second click while a PUT is pending for this tool.
+      if (toolsInFlight[name]) return;
+
+      // Optimistic update: flip cache, re-render, PUT. Revert on failure.
+      var idx = -1;
+      for (var i = 0; i < toolConfigs.length; i++) {
+        if (toolConfigs[i].name === name) { idx = i; break; }
+      }
+      if (idx === -1) return;
+      var prev = toolConfigs[idx].enabled;
+      toolConfigs[idx].enabled = newEnabled;
+      toolsInFlight[name] = true;
+      populateToolGrid();
+
+      fetch('/api/tools/configs/' + encodeURIComponent(name), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: newEnabled })  // omit config — L1 REPLACE preserves
+      }).then(function (r) {
+        if (!r.ok) throw new Error('PUT failed: ' + r.status);
+      }).catch(function () {
+        // Revert and surface the error via the existing admin wrapper.
+        toolConfigs[idx].enabled = prev;
+        showAdminFlash('Failed to update ' + name + '.', true);
+      }).then(function () {
+        // Always clear in-flight + re-render (success path also re-renders
+        // to clear the `disabled` attr on the toggle).
+        delete toolsInFlight[name];
+        populateToolGrid();
+      });
+    }
+
     // ── Provider Form / Delete / Models / Ollama ─────────────────────
     // Migrated to admin/provider-editor.js + admin/provider-models.js in
     // F6 leg 03. The orchestrator's renderProvidersPanel above delegates
@@ -371,6 +584,12 @@ App.registerArea({
         fetchProviders().then(function () {
           self._tryConsumePendingProvider();
         });
+      } else if (currentCategory === 'tools' && toolFormMode === 'edit' && editingTool) {
+        // Re-fetch the per-tool detail so the editor reflects external changes
+        // (e.g., DB tweak) while the editor was mounted.
+        selectTool(editingTool.name);
+      } else if (currentCategory === 'tools') {
+        fetchToolConfigs();
       }
     };
     Object.defineProperty(self, '_currentCategory', {
@@ -397,6 +616,26 @@ App.registerArea({
       set: function (v) { pendingFormMode = v; },
       configurable: true
     });
+    Object.defineProperty(self, '_toolFormMode', {
+      get: function () { return toolFormMode; },
+      set: function (v) { toolFormMode = v; },
+      configurable: true
+    });
+    Object.defineProperty(self, '_editingTool', {
+      get: function () { return editingTool; },
+      set: function (v) { editingTool = v; },
+      configurable: true
+    });
+    Object.defineProperty(self, '_pendingToolName', {
+      get: function () { return pendingToolName; },
+      set: function (v) { pendingToolName = v; },
+      configurable: true
+    });
+    Object.defineProperty(self, '_pendingToolFormMode', {
+      get: function () { return pendingToolFormMode; },
+      set: function (v) { pendingToolFormMode = v; },
+      configurable: true
+    });
     self._setCategory = function (sub) {
       if (currentCategory !== sub) {
         currentCategory = sub;
@@ -404,6 +643,10 @@ App.registerArea({
         editingProvider = null;
         pendingProviderId = null;
         pendingFormMode = null;
+        toolFormMode = null;
+        editingTool = null;
+        pendingToolName = null;
+        pendingToolFormMode = null;
         App.layout.updateActiveSection(categoryListEl, currentCategory);
         renderContent();
       }
@@ -429,6 +672,15 @@ App.registerArea({
         }
         // else: provider not in cache (unknown or fetch race not yet resolved);
         // _tryConsumePendingProvider re-fires after fetchProviders.then.
+      }
+    };
+    self._tryConsumePendingTool = function () {
+      if (!pendingToolName && !pendingToolFormMode) return;
+      if (pendingToolFormMode === 'edit' && pendingToolName) {
+        var name = pendingToolName;
+        pendingToolName = null;
+        pendingToolFormMode = null;
+        selectTool(name);
       }
     };
 

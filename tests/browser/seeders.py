@@ -81,3 +81,35 @@ def seed_mock_agent(
     r = httpx.post(f"{base_url}/api/agents", json=payload, timeout=5.0)
     assert r.status_code == 201, f"seed_mock_agent failed: {r.status_code} {r.text}"
     return r.json()["name"]
+
+
+def seed_tool_config(
+    base_url: str,
+    name: str,
+    *,
+    enabled: bool | None = None,
+    config: dict | None = None,
+) -> None:
+    """PUT a tool_configs row via the L1 endpoint.
+
+    Either or both of ``enabled`` / ``config`` can be set; omitted keys
+    preserve existing state per the L1 PUT contract (see api.py
+    ``upsert_tool_config``). One-shot ``httpx.put`` mirrors the
+    ``seed_mock_provider`` / ``seed_mock_agent`` POST pattern — no
+    persistent client.
+
+    F6 L7 callers use this to set up operator state (disable web_search,
+    narrow timeout_seconds_max, seed a denylist for NarrowSuperset
+    coverage) before navigating the page in tests.
+    """
+    body: dict = {}
+    if enabled is not None:
+        body["enabled"] = enabled
+    if config is not None:
+        body["config"] = config
+    if not body:
+        # Nothing to write — silent no-op so callers can pass conditionally
+        # without sentinel handling at every site.
+        return
+    r = httpx.put(f"{base_url}/api/tools/configs/{name}", json=body, timeout=5.0)
+    assert r.status_code == 200, f"seed_tool_config failed: {r.status_code} {r.text}"

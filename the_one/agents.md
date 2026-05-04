@@ -260,6 +260,40 @@ class SearchBackend(Protocol):
 
 `SearchResult` is the shared `BaseModel` for shape uniformity across backends (title / url / snippet). `DDGSearchBackend` is the F5 default implementation — its `__init__(http_client: httpx.AsyncClient | None = None)` accepts an optional injected client (allows future SSRF-pinning if needed) but F5 wires it with no client, so `search` falls back to a short-lived `httpx.AsyncClient(timeout=15)` owned by the backend. **Backend dispatch is via `cross_configs[SearchBackend]`** (Decision 12 — Protocol-keyed service entry, NOT a constructor parameter): `WebSearchTool` declares `Requires = (SearchBackend,)` and reads `self._cross_configs[SearchBackend]` at execute-time; `BuiltinToolProvider.get_tools` populates `cross_configs[SearchBackend] = DDGSearchBackend()` once per `get_tools(...)` call. F6 admin will let operators pick the backend by swapping the `cross_configs[SearchBackend]` value. **Tests inject a fake `SearchBackend`** by overriding the `cross_configs[SearchBackend]` entry on the per-call view — no monkeypatching of module internals — which is the supported test seam (Decision 2). Future Brave / SerpAPI / Bing backends implement the same Protocol and slot into the same `cross_configs[SearchBackend]` slot. The Protocol intentionally does NOT include backend-specific configuration (api keys, rate-limit policy) — backends own their own config and read it from `WebConfig` extension fields if they need operator-tunable knobs.
 
+### Built-in tool admin (F6)
+
+Operators manage built-in tool defaults via `Settings → Built-in Tools` in the web UI (route `#admin/tools`). The grid renders the 19 builtins under 4 category tabs (Filesystem / Execution / Python / Web) with one tile per tool — each carrying a category badge, name, prompt, and an enable/disable toggle. Toggling persists immediately via `PUT /api/tools/configs/{name}` with `{enabled: bool}` (REPLACE-not-merge — omitting `config` preserves the saved row's config).
+
+The per-tool editor (`#admin/tools/{name}`) drives form rendering from `_enrich_schema_with_markers(Config.model_json_schema(), Config)` (`the_one/interfaces/web/api.py:75-115`) which injects `x_marker` per top-level property. Field-widget dispatch lives in `App.adminFormHelpers.renderField` at `the_one/interfaces/web/static/js/areas/admin/tools-form-helpers.js`:
+
+- `bool` → checkbox.
+- `int` + `ui_hint=dropdown` + non-empty `ui_choices` → `<select>` of choices.
+- `int` (any marker) → `<input type=number min={prop.minimum} max={prop.maximum}>`.
+- `array` (list[str]) → chip-list editor (Enter/comma adds, × removes; agent-mode adds NarrowSuperset locked-chip rendering).
+- `string` → text input.
+
+The Configuration section's "Enabled for all agents" row uses the same iOS-toggle as the grid tile — visually consistent kill switch. Each field carries an `ⓘ` info icon to the right of the input that surfaces the field's `description` as a hover tooltip; an `// prompt` block in the editor header surfaces the agent-visible tool description.
+
+`web_search` and `fetch_url` editors expose a "Test connection" panel (`POST /api/tools/configs/{name}/test`) with a custom-input field (pre-filled with the fixture default — query `"the one cli agent"` for web_search; URL `"https://example.com/"` for fetch_url) so operators can verify constraints work against arbitrary inputs. The endpoint runs the named tool through `BuiltinToolProvider().get_tools(...)` against the operator's currently-saved Config (named-tool isolation — see `api.py:297-303`) so failed tests surface the agent's view of the refusal directly (`[error] [constraint] ...` rendered in the result `<pre>`, refusal pinned via `output.indexOf('[error]') === 0` heuristic).
+
+### Per-agent tool overrides (F6)
+
+The Studio agent editor's Tools tab surfaces operator state for every tool:
+
+- **Operator-disabled tools** render with a strikethrough name + dim row + "Disabled by operator" tooltip + `disabled` HTML attribute on the checkbox. The agent's existing `enabled_tools` / `disabled_tools` on/off state is preserved across operator-disable cycles (HTML `disabled` blocks user toggling but not property reads — `studio.js::collectFormData` walks `.tool-toggle.checked` regardless of disabled state).
+- **Per-agent overrides**: each enabled tool with marker-bearing fields gets a collapsible `<details>` panel labeled "Narrow constraints". On first expand, the panel lazy-fetches `GET /api/tools/configs/{name}` for the marker-enriched schema (the schema fetch is closure-cached — concurrent in-flight callers reuse the same Promise; cache survives across agent changes within the studio area lifetime).
+
+Agent-mode marker dispatch differs from admin mode (operator-mode renders schema's `le`/`ge` as ceilings; agent-mode uses operator's saved value):
+
+- `Narrow` (int) → `<input type=number min={prop.minimum} max={operator_value}>` — operator's saved value as ceiling, schema floor preserved.
+- `Narrow` (list[str]) → chip-list constrained to subset of operator's items.
+- `NarrowSuperset` (list[str]) → chip-list with operator's items rendered as locked chips (rendered WITHOUT the `<button class="chip-remove">` element entirely — keyboard focus order skips them; screen readers don't announce a remove affordance) plus an input for agent additions.
+- `NarrowPrefix` (list[str]) → chip-list (the prefix semantic is server-side validation only).
+- `Substitute` → free-form input.
+- Unmarked field → HIDDEN from agent override surface entirely (the F2 resolver raises `ValueError("... no Narrow/Substitute marker ...")` on agent override of an unmarked field).
+
+Save propagates through `studio.js::collectFormData`'s `[data-tool-override-tool][data-tool-override-field]` walk, building `tool_overrides: {tool_name: {field: value}}` and dropping empty per-tool entries. Empty top-level → `null` (not `{}`). The shape lands in `AgentConfig.tool_overrides: dict[str, dict[str, Any]] | None` at `the_one/agent/config.py:65` and is validated by the resolver at `AgentFactory.create()` time.
+
 ### Dev iteration: source auto-reload
 
 The dev container at `localhost:8484` runs `uvicorn ... --reload --reload-dir /app/the_one` (wired into `docker-compose.yml`'s `command:`). Edits to any file under `./the_one/` on the host trigger a graceful uvicorn worker restart within ~1s — no manual `docker compose restart` needed.
@@ -292,9 +326,16 @@ timeout-budget assertions).
 
 Pydantic Config schemas may declare UI-presentation hints via
 `Field(json_schema_extra={"ui_hint": "...", "ui_choices": [...]})`
-so the F6 admin form generator renders finite-set fields (e.g.,
-read-size cap, redirect cap) as dropdowns rather than free-form
-numeric inputs. The convention introduced in F3 Decision 11:
+so the F6 admin form generator (`App.adminFormHelpers.renderField` at
+`the_one/interfaces/web/static/js/areas/admin/tools-form-helpers.js`)
+renders finite-set fields (e.g., read-size cap, redirect cap) as
+dropdowns rather than free-form numeric inputs. F6 also added
+server-side `_enrich_schema_with_markers` (`api.py:75-115`) which
+injects `x_marker` per property so the renderer can dispatch on
+marker class — admin and Studio share the same renderer with
+mode-specific widget shapes (see "Built-in tool admin (F6)" and
+"Per-agent tool overrides (F6)" entries above). The convention
+introduced in F3 Decision 11:
 `ui_hint` is the rendering strategy ("dropdown", future: "slider",
 "toggle"); `ui_choices` is a list of `{"value": ..., "label": ...}`
 dicts. F4-F6 should reuse the same metadata keys for any

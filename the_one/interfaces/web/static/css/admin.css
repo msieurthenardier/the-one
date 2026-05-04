@@ -135,4 +135,428 @@
   .area-admin .admin-provider-badge--anthropic { background: var(--badge-anthropic); }
   .area-admin .admin-provider-badge--mock { background: var(--badge-mock); }
   .area-admin .admin-provider-badge--unknown { background: var(--badge-unknown); }
+
+  /* === Tool Category Badges (F6 leg 02) === */
+  .area-admin .admin-tool-badge {
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-tiny);
+    font-weight: var(--font-weight-semibold);
+    color: var(--fg-on-accent);
+    padding: 2px 8px;
+    border-radius: 4px;
+    flex-shrink: 0;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .area-admin .admin-tool-badge--filesystem { background: var(--badge-filesystem); }
+  .area-admin .admin-tool-badge--execution { background: var(--badge-execution); }
+  .area-admin .admin-tool-badge--python { background: var(--badge-python); }
+  .area-admin .admin-tool-badge--web { background: var(--badge-web); }
+  .area-admin .admin-tool-badge--unknown { background: var(--badge-unknown); }
+
+  /* === Tool Tile + Inline Enable Toggle (F6 leg 02) === */
+  /* L2 tile is a <div>, not <button>. The .entity-tile selector still
+     applies its cursor:pointer + hover-accent affordance; the tile-level
+     click handler in tools-grid.js forwards to the inner checkbox so the
+     affordance stays honest. */
+  .area-admin .tool-tile {
+    position: relative;
+    /* Reserve space at bottom-right for the toggle so it doesn't collide
+       with .entity-tile-badge (which is hard-coded top:8px right:8px in
+       components.css). The toggle sits at bottom-right; description text
+       wraps above it. */
+    padding-bottom: 36px;
+  }
+  .area-admin .tool-enable-switch {
+    position: absolute;
+    bottom: 12px;
+    right: 12px;
+    width: 36px;
+    height: 20px;
+    cursor: pointer;
+  }
+  .area-admin .tool-enable-switch input[type="checkbox"] {
+    /* Visually-hidden but keyboard-operable. position:absolute removes from
+       layout; opacity:0 hides without breaking screen-reader access. */
+    position: absolute;
+    opacity: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    cursor: pointer;
+    /* Z-index above the track so the click reliably hits the input first
+       (avoids label-click-through quirks in older WebKit). */
+    z-index: 1;
+  }
+  .area-admin .tool-enable-switch-track {
+    display: block;
+    width: 36px;
+    height: 20px;
+    /* Off-state track uses --border-strong (an established token) for the
+       OFF visual; --surface-muted is NOT defined. */
+    background: var(--border-strong);
+    border-radius: 10px;
+    position: relative;
+    transition: background 0.2s ease;
+    /* Track must NOT eat the click — the wrapping <label> + <input> handle it. */
+    pointer-events: none;
+  }
+  .area-admin .tool-enable-switch-track::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    background: var(--fg-on-accent);
+    border-radius: 50%;
+    transition: transform 0.2s ease;
+  }
+  .area-admin .tool-enable-switch input[type="checkbox"]:checked + .tool-enable-switch-track {
+    background: var(--accent);
+  }
+  .area-admin .tool-enable-switch input[type="checkbox"]:checked + .tool-enable-switch-track::after {
+    transform: translateX(16px);
+  }
+  .area-admin .tool-enable-switch input[type="checkbox"]:focus-visible + .tool-enable-switch-track {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  /* Disabled state during in-flight PUT (orchestrator sets disabled attr) */
+  .area-admin .tool-enable-switch input[type="checkbox"]:disabled + .tool-enable-switch-track {
+    opacity: 0.5;
+    cursor: wait;
+  }
+
+  /* === Tools Editor (F6 leg 03) === */
+  /* The Enabled-toggle row sits above the schema-driven field rows; align
+     its layout to the rest of the form (existing .field-row already
+     supplies display:flex + 100px label gutter — no extra layout here). */
+  .area-admin .tools-editor-enabled-row {
+    margin-bottom: 12px;
+  }
+  /* The .tool-enable-switch above is position:absolute (designed to slot
+     into the grid tile's bottom-right corner — see .tool-tile context).
+     Inside the editor row it must flow inline next to the label, so
+     unpin it. The inner checkbox + track + thumb mechanics stay
+     identical — only the wrapper's positioning differs. */
+  .area-admin .tools-editor-enabled-row .tool-enable-switch {
+    position: relative;
+    bottom: auto;
+    right: auto;
+  }
+
+  /* === Editor prompt block (F6 HAT inline fix #1) ============================
+     The tool's `description` IS the prompt baked into the LLM tools schema.
+     The header re-shape moves it out of the small subtitle and into a
+     monospace-labeled block so operators see it as "what the agent sees".
+     The `.editor-subtitle-meta` modifier shrinks the now-just-category
+     subtitle. */
+  .area-admin .editor-subtitle-meta {
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-tiny);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--fg-muted);
+  }
+  .area-admin .editor-prompt-block {
+    margin-top: 8px;
+    padding: 8px 12px;
+    background: var(--surface-elevated);
+    border-radius: var(--panel-radius-sm);
+    border: 1px solid var(--border);
+  }
+  .area-admin .editor-prompt-label {
+    display: block;
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-tiny);
+    color: var(--fg-secondary);
+    margin-bottom: 2px;
+  }
+  .area-admin .editor-prompt-text {
+    margin: 0;
+    font-size: var(--font-size-body-sm);
+    color: var(--fg);
+    line-height: var(--line-height-normal);
+    white-space: pre-wrap;
+  }
+
+  /* === Uniform field-control width (F6 HAT inline fix #3) ====================
+     Pre-fix widths varied: number inputs were narrow, text inputs full-width,
+     dropdowns medium. Pinning a uniform max-width aligns inputs in a column
+     while still degrading on narrow viewports. The chip-list editor already
+     wraps via `flex-wrap: wrap` — the max-width caps the wrapper itself. */
+  .area-admin .tools-editor-field input[type="text"],
+  .area-admin .tools-editor-field input[type="number"],
+  .area-admin .tools-editor-field select,
+  .area-admin .tools-editor-field .chip-list-editor {
+    width: 100%;
+    max-width: 320px;
+    box-sizing: border-box;
+  }
+
+  /* === Field info icon (F6 HAT inline fix #4) ================================
+     Per-field descriptions are now tooltips on an info icon rendered as a
+     sibling AFTER the input element (operator UX tweak: `label | input | ⓘ`
+     instead of the prior `label-with-nested-ⓘ | input`). The parent
+     `.field-row` is `display:flex; align-items:center` (components.css), so
+     the icon participates as the third flex child — vertically centered
+     against the input by default, with `flex-shrink:0` so it never collapses.
+     For chip-list rows the chips can wrap to multiple lines; we top-align
+     the icon there so it stays anchored to the first chip row. */
+  .area-admin .tools-editor-field .field-info-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    align-self: center;
+    color: var(--fg-secondary);
+    cursor: help;
+    transition: color 0.15s ease;
+  }
+  /* When the input is the chip-list-editor wrapper (variable-height,
+     wraps), top-align the icon so it sits next to the first row of chips
+     rather than the geometric centre of a tall multi-row wrapper. */
+  .area-admin .tools-editor-field:has(.chip-list-editor) .field-info-icon {
+    align-self: flex-start;
+    padding-top: 8px;
+  }
+  .area-admin .field-info-icon:hover {
+    color: var(--accent);
+  }
+  .area-admin .field-info-icon svg {
+    width: 14px;
+    height: 14px;
+    display: block;
+  }
+
+  /* === Field error highlight (F6 HAT inline fix #7) ==========================
+     Applied to `.tools-editor-field` rows whose field is the offender of a
+     422 validation error (matched directly via renderFieldErrors, or matched
+     heuristically via the model-level error name-substring scan in
+     tools-editor.js). Red border + label-color tint surface the offending
+     fields visually so the operator can find them without re-reading the
+     banner. Cleared at next save attempt and on any field's change event. */
+  .area-admin .tools-editor-field.field-error-highlight input,
+  .area-admin .tools-editor-field.field-error-highlight select,
+  .area-admin .tools-editor-field.field-error-highlight .chip-list-editor {
+    border-color: var(--status-danger);
+    box-shadow: 0 0 0 1px var(--status-danger-glow);
+  }
+  .area-admin .tools-editor-field.field-error-highlight label {
+    color: var(--status-danger);
+  }
+
+  /* Chip-list editor primitive — chips are direct children of the
+     wrapper (no .chip-list-chips wrapper, per leg-03 design Reviewer).
+     F6 HAT scenario 8 inline fix: selectors extended to ALSO match
+     `.area-studio .tool-row-overrides .chip-list-editor` so the per-agent
+     tool-override panel inherits the same visual scaffolding (border,
+     padding, chip pill styling, input field) as the admin per-tool editor.
+     Without this extension, the override-panel chip-list rendered as
+     unstyled raw HTML. The studio-only carve-out for NarrowSuperset locked
+     chips (`.area-studio .tool-row-overrides .chip[data-locked]`, in
+     studio.css) is preserved as it overrides only the single rule it
+     needs to. */
+  .area-admin .chip-list-editor,
+  .area-studio .tool-row-overrides .chip-list-editor {
+    flex: 1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    align-items: center;
+    padding: 6px;
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
+    min-height: 40px;
+    background: var(--surface);
+  }
+  .area-admin .chip-list-editor .chip,
+  .area-studio .tool-row-overrides .chip-list-editor .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 6px;
+    background: var(--surface-elevated);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    font-size: var(--font-size-body-sm);
+    color: var(--fg);
+  }
+  .area-admin .chip-list-editor .chip-remove,
+  .area-studio .tool-row-overrides .chip-list-editor .chip-remove {
+    background: none;
+    border: 0;
+    color: var(--fg-faint);
+    cursor: pointer;
+    padding: 0 2px;
+    font-size: 1em;
+    line-height: 1;
+  }
+  .area-admin .chip-list-editor .chip-remove:hover,
+  .area-studio .tool-row-overrides .chip-list-editor .chip-remove:hover {
+    color: var(--accent);
+  }
+  .area-admin .chip-list-input,
+  .area-studio .tool-row-overrides .chip-list-input {
+    flex: 1;
+    min-width: 100px;
+    border: 0;
+    outline: none;
+    padding: 2px;
+    background: transparent;
+    color: var(--fg);
+    font-family: inherit;
+    font-size: var(--font-size-body);
+  }
+
+  /* Inline 422 errors — surfaced adjacent to the matching field row. */
+  .area-admin .field-error {
+    display: block;
+    color: var(--status-danger);
+    font-size: var(--font-size-tiny);
+    margin: 4px 0 0 100px;  /* align with .field-row label gutter (100px) */
+  }
+
+  /* Per-field description (rendered when JSON Schema sets `description`).
+     100px left margin matches .field-row label width so the description
+     visually associates with the field input rather than the label. */
+  .area-admin .field-description {
+    font-size: var(--font-size-tiny);
+    color: var(--fg-secondary);
+    margin: 4px 0 0 100px;
+  }
+
+  /* Developer-visible cue when renderField hits an un-dispatched type —
+     console.warn fires alongside this border so the issue is visible
+     in both dev surfaces. */
+  .area-admin .field-unknown-type {
+    border-color: var(--status-danger);
+  }
+
+  /* === Tools Editor — Connection Test Section (F6 leg 04) === */
+  /* Section uses the default .editor-section margin for vertical separation
+     from the Configuration block above; no extra rules needed here. The
+     selector exists as a hook for future per-section tweaks. */
+  .area-admin .tools-editor-test-section { /* uses default .editor-section margin */ }
+  .area-admin .tools-editor-test-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .area-admin .tools-editor-test-help {
+    margin-bottom: 8px;
+  }
+  /* F6 HAT inline tweak — section header row pairing the section title with
+     an info icon (hint moved out of the prior `.tools-editor-test-help`
+     paragraph onto a discoverable-on-hover icon, mirroring the per-field
+     info-icon pattern). The row is a flex container so the icon sits on
+     the same baseline as the title text without affecting other section
+     titles (which keep their original block layout). The `.field-info-icon`
+     selector reuses the existing 14×14 styling block defined above. */
+  .area-admin .section-title-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+  /* F6 HAT inline tweak — `.test-tool-btn` SVG icon + label baselines were
+     mis-aligned because the canonical `.btn-outlined-cyan` rule does not
+     opinionate on inline-flex/SVG sizing. Pin inline-flex centering + the
+     same 16×16 svg sizing the editor-error-banner uses. Provider-editor's
+     Test button has no icon so it's unaffected; other admin icon buttons
+     (Back, etc.) inherit `.btn-outlined-cyan` and the icon happens to
+     baseline-align there for unrelated reasons — pinning on a class
+     specific to the test button avoids regressing them. */
+  .area-admin .test-tool-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .area-admin .test-tool-btn svg {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+  }
+  /* Tool-output panel — monospace, scrollable, max-height bounded so long
+     responses don't expand the editor unbounded. The `hidden` attribute is
+     the source of truth for visibility; the [hidden] rule below is defensive
+     against any CSS reset that clobbers the UA-stylesheet default. */
+  .area-admin .tool-test-output {
+    display: block;
+    max-height: 320px;
+    overflow-y: auto;
+    padding: 8px 10px;
+    margin-top: 8px;
+    background: var(--surface-elevated);
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-body-sm);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .area-admin .tool-test-output[hidden] { display: none; }
+
+  /* F6 HAT addition — editable Test-input field paired with the Test
+     connection button. Pre-filled with the per-tool default fixture
+     (TEST_FIXTURES in tools-editor.js) so operators can verify behavior
+     against arbitrary inputs. The label wraps the text + input as a
+     flex row so they baseline-align with the adjacent button. */
+  .area-admin .test-tool-input-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .area-admin .test-tool-input-label-text {
+    font-size: var(--font-size-body-sm);
+    color: var(--fg-secondary);
+  }
+  .area-admin .test-tool-input {
+    width: 240px;
+    padding: 4px 8px;
+    border: 1px solid var(--border-strong);
+    border-radius: 4px;
+    background: var(--surface-elevated);
+    color: var(--fg);
+    font-size: var(--font-size-body-sm);
+  }
+  .area-admin .test-tool-input:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+
+  /* Editor error banner — F6 HAT inline fix #3. Renders model-level (loc:[])
+     and unmatched-field 422 errors prominently above the Configuration
+     section, instead of squeezing them into the small `.editor-error` span
+     next to Save/Cancel. The inline span is preserved for backward compat
+     with provider-editor; the L3 tools-editor now routes most error text
+     through this banner. Field-level errors (loc maps to a rendered field
+     row) still render as inline `.field-error` spans on the row. */
+  .area-admin .editor-error-banner {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    margin: 12px 0;
+    padding: 10px 14px;
+    background: var(--status-danger-bg-soft);
+    border-left: 3px solid var(--status-danger);
+    border-radius: 4px;
+    color: var(--status-danger);
+    font-size: var(--font-size-body-sm);
+  }
+  .area-admin .editor-error-banner[hidden] { display: none; }
+  .area-admin .editor-error-banner svg {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    margin-top: 2px;
+  }
+  .area-admin .editor-error-banner-text {
+    flex: 1;
+    line-height: 1.4;
+    white-space: pre-wrap;
+  }
 }
