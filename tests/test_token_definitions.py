@@ -27,15 +27,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-
-CSS_DIR = (
-    Path(__file__).parent.parent
-    / "the_one"
-    / "interfaces"
-    / "web"
-    / "static"
-    / "css"
-)
+CSS_DIR = Path(__file__).parent.parent / "the_one" / "interfaces" / "web" / "static" / "css"
 
 # ``var(--token-name)`` references.  The capture group strips the leading
 # whitespace and the ``var(`` prefix; the ``--name`` is what we want.

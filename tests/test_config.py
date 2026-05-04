@@ -10,6 +10,7 @@ from the_one.agent.config import BASE_PROMPT, AgentConfig
 # AgentConfig construction
 # ===================================================================
 
+
 class TestAgentConfigConstruction:
     """Test AgentConfig model construction and defaults."""
 
@@ -61,6 +62,7 @@ class TestAgentConfigConstruction:
 # tool_overrides field
 # ===================================================================
 
+
 class TestToolOverridesField:
     """Tests for AgentConfig.tool_overrides — Decision 1 + Decision 6 Q&A."""
 
@@ -109,19 +111,16 @@ class TestToolOverridesField:
         from pydantic import ValidationError
 
         with pytest.raises(ValidationError):
-            AgentConfig.model_validate(
-                {"name": "t", "tool_overrides": {"shell": "not-a-dict"}}
-            )
+            AgentConfig.model_validate({"name": "t", "tool_overrides": {"shell": "not-a-dict"}})
 
         with pytest.raises(ValidationError):
-            AgentConfig.model_validate(
-                {"name": "t", "tool_overrides": {"shell": [1, 2, 3]}}
-            )
+            AgentConfig.model_validate({"name": "t", "tool_overrides": {"shell": [1, 2, 3]}})
 
 
 # ===================================================================
 # is_tool_enabled
 # ===================================================================
+
 
 class TestIsToolEnabled:
     """Test is_tool_enabled() logic paths."""
@@ -158,6 +157,7 @@ class TestIsToolEnabled:
 # get_system_prompt
 # ===================================================================
 
+
 class TestGetSystemPrompt:
     """Test get_system_prompt() fallback behavior."""
 
@@ -173,6 +173,7 @@ class TestGetSystemPrompt:
 # ===================================================================
 # BASE_PROMPT validation
 # ===================================================================
+
 
 class TestBasePrompt:
     """Validate BASE_PROMPT is usable."""

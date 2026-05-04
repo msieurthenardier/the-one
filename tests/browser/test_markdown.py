@@ -37,7 +37,6 @@ import httpx
 import pytest
 from playwright.sync_api import Browser, Page
 
-
 # ── Module-scoped app subprocess + page ────────────────────────────────────
 
 
@@ -52,9 +51,7 @@ def _wait_for_ready(base_url: str, proc: subprocess.Popen, timeout: float = 15.0
     last_exc: Exception | None = None
     while time.monotonic() < deadline:
         if proc.poll() is not None:
-            raise RuntimeError(
-                f"App subprocess exited with code {proc.returncode} during startup"
-            )
+            raise RuntimeError(f"App subprocess exited with code {proc.returncode} during startup")
         try:
             r = httpx.get(f"{base_url}/api/info", timeout=1.0)
             if r.status_code == 200:
@@ -250,9 +247,7 @@ AST_CASES: list[tuple[str, dict]] = [
         _doc(
             {
                 "type": "blockquote",
-                "children": [
-                    _para(_text("line one"), {"type": "softBreak"}, _text("line two"))
-                ],
+                "children": [_para(_text("line one"), {"type": "softBreak"}, _text("line two"))],
             }
         ),
     ),
@@ -614,7 +609,7 @@ RENDER_CASES: list[tuple[str, str]] = [
     ),
     (
         "[wiki](https://en.wikipedia.org/wiki/Foo_(bar))",
-        '<p><a href="https://en.wikipedia.org/wiki/Foo_(bar)" rel="noopener noreferrer">wiki</a></p>',
+        '<p><a href="https://en.wikipedia.org/wiki/Foo_(bar)" rel="noopener noreferrer">wiki</a></p>',  # noqa: E501
     ),
     # --- code blocks (with + without lang) ---
     # Note: the SVG icon is parsed via DOMParser then re-serialized when read
@@ -655,7 +650,7 @@ RENDER_CASES: list[tuple[str, str]] = [
     ("- a\n- b", "<ul><li>a</li><li>b</li></ul>"),
     ("* a\n* b", "<ul><li>a</li><li>b</li></ul>"),
     ("1. one\n2. two", "<ol><li>one</li><li>two</li></ol>"),
-    ('5. five\n6. six', '<ol start="5"><li>five</li><li>six</li></ol>'),
+    ("5. five\n6. six", '<ol start="5"><li>five</li><li>six</li></ol>'),
     # --- horizontal rule ---
     ("---", "<hr>"),
     ("***", "<hr>"),
@@ -763,7 +758,5 @@ def test_markdown_copy_button(page_with_app: Page) -> None:
     btn.click(force=True)
     flash = page_with_app.locator(".app-flash").filter(has_text="Copied!")
     flash.wait_for(state="visible", timeout=2000)
-    clipboard_text = page_with_app.evaluate(
-        "() => navigator.clipboard.readText()"
-    )
+    clipboard_text = page_with_app.evaluate("() => navigator.clipboard.readText()")
     assert clipboard_text == "console.log(1);\n"

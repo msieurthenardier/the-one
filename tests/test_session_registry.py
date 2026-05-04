@@ -266,6 +266,4 @@ async def test_register_after_shutdown_drain_raises() -> None:
     fail loudly rather than silently orphan."""
     await shutdown_drain()
     with pytest.raises(RuntimeError, match="session registry is shutting down"):
-        await register(
-            "agent-a", new_session_id(), MockPtySession(), ttl_seconds=300
-        )
+        await register("agent-a", new_session_id(), MockPtySession(), ttl_seconds=300)

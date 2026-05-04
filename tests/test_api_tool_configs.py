@@ -48,9 +48,7 @@ async def client(tmp_path):
 
 
 class TestListToolConfigs:
-    async def test_list_configs_returns_all_19_tools(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_list_configs_returns_all_19_tools(self, client: AsyncClient) -> None:
         """Fresh DB, no rows → GET returns 19 entries each with
         `enabled=True`, `config={}`, plus the tool's description."""
         from the_one.tools.builtins import _TOOL_CLASSES
@@ -67,9 +65,7 @@ class TestListToolConfigs:
             assert r["config"] == {}
             assert isinstance(r["description"], str) and r["description"]
 
-    async def test_list_configs_reflects_saved_state(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_list_configs_reflects_saved_state(self, client: AsyncClient) -> None:
         """Upsert one row with `enabled=False`; GET shows that row's
         `enabled=False` and the others' `enabled=True`."""
         await client.put(
@@ -88,9 +84,7 @@ class TestListToolConfigs:
 
 
 class TestGetToolConfig:
-    async def test_get_one_returns_enriched_schema(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_get_one_returns_enriched_schema(self, client: AsyncClient) -> None:
         """Returns `{name, enabled, config, description, schema}` with
         `schema["properties"][field]["x_marker"]` populated for marker-
         bearing fields. Confirms the helper covers all marker types
@@ -108,16 +102,12 @@ class TestGetToolConfig:
         assert props["host_denylist"]["x_marker"] == "NarrowSuperset"
         assert props["default_user_agent"]["x_marker"] == "Substitute"
 
-    async def test_get_one_returns_404_for_unknown_tool(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_get_one_returns_404_for_unknown_tool(self, client: AsyncClient) -> None:
         resp = await client.get("/api/tools/configs/nonexistent")
         assert resp.status_code == 404
         assert "Tool not found" in resp.json()["detail"]
 
-    async def test_get_one_for_empty_config_tool(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_get_one_for_empty_config_tool(self, client: AsyncClient) -> None:
         """Originally this leg expected `shell_session_close` to use
         `_EmptyConfig` (per the leg's Edge Cases note), but F2-F5 wired
         every builtin tool to a category Config — `_TOOL_CLASSES` now
@@ -139,7 +129,10 @@ class TestGetToolConfig:
         data = resp.json()
         assert data["name"] == "shell_session_close"
         valid_markers = {
-            "Narrow", "NarrowPrefix", "NarrowSuperset", "Substitute",
+            "Narrow",
+            "NarrowPrefix",
+            "NarrowSuperset",
+            "Substitute",
         }
         props = data["schema"].get("properties", {})
         # Either properties is empty (helper no-op) OR every x_marker
@@ -153,9 +146,7 @@ class TestGetToolConfig:
 
 
 class TestUpsertToolConfig:
-    async def test_put_validates_config_against_schema(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_put_validates_config_against_schema(self, client: AsyncClient) -> None:
         """Negative bound on a `>= 0` field → 422."""
         # `timeout_seconds_max` has `ge=1` per WebConfig — -1 violates.
         resp = await client.put(
@@ -194,9 +185,7 @@ class TestUpsertToolConfig:
             for v in err["ctx"].values():
                 assert isinstance(v, (str, int, float, bool, list, dict, type(None))), v
 
-    async def test_put_persists_enabled_and_config(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_put_persists_enabled_and_config(self, client: AsyncClient) -> None:
         resp = await client.put(
             "/api/tools/configs/web_search",
             json={"enabled": False, "config": {"timeout_seconds_max": 100}},
@@ -208,9 +197,7 @@ class TestUpsertToolConfig:
         assert data["enabled"] is False
         assert data["config"]["timeout_seconds_max"] == 100
 
-    async def test_put_replaces_config_wholesale(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_put_replaces_config_wholesale(self, client: AsyncClient) -> None:
         """REPLACE-not-merge: existing override `host_allowlist=["a.com"]`
         + `timeout_seconds_max=99`; PUT `{"config": {"timeout_seconds_max":
         100}}` → `host_allowlist` is gone (replaced by Config's default),
@@ -235,9 +222,7 @@ class TestUpsertToolConfig:
         # `host_allowlist` is back to the WebConfig default (empty list).
         assert cfg["host_allowlist"] == []
 
-    async def test_put_preserves_omitted_top_level_keys(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_put_preserves_omitted_top_level_keys(self, client: AsyncClient) -> None:
         """Existing row `enabled=False, config={"timeout_seconds_max": 100}`;
         PUT `{"enabled": true}` (no `config`) → row becomes
         `enabled=True` AND `config={"timeout_seconds_max": 100}` (unchanged
@@ -276,9 +261,7 @@ class TestUpsertToolConfig:
         assert data["enabled"] is False
         assert data["config"]["timeout_seconds_max"] == 60
 
-    async def test_put_with_empty_config_wipes_to_defaults(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_put_with_empty_config_wipes_to_defaults(self, client: AsyncClient) -> None:
         """PUT `{"config": {}}` with an existing row carrying overrides
         → `model_validate({})` succeeds; saved `config` becomes the
         Config's default-dump (every field at its default value)."""
@@ -306,9 +289,7 @@ class TestUpsertToolConfig:
         assert cfg["redirect_cap"] == 5
 
     async def test_put_for_unknown_tool(self, client: AsyncClient) -> None:
-        resp = await client.put(
-            "/api/tools/configs/nonexistent", json={"enabled": False}
-        )
+        resp = await client.put("/api/tools/configs/nonexistent", json={"enabled": False})
         assert resp.status_code == 404
 
 
@@ -384,18 +365,12 @@ class TestTestEndpoint:
         assert "Paragraph" in data["output"] or "Heading" in data["output"]
         assert isinstance(data["elapsed_ms"], float)
 
-    async def test_test_endpoint_rejects_non_testable_tool(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_test_endpoint_rejects_non_testable_tool(self, client: AsyncClient) -> None:
         resp = await client.post("/api/tools/configs/shell/test")
         assert resp.status_code == 400
-        assert resp.json()["detail"] == (
-            "Tool shell does not support connection testing"
-        )
+        assert resp.json()["detail"] == ("Tool shell does not support connection testing")
 
-    async def test_test_endpoint_rejects_unknown_tool(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_test_endpoint_rejects_unknown_tool(self, client: AsyncClient) -> None:
         """404 must take precedence over 400."""
         resp = await client.post("/api/tools/configs/nonexistent/test")
         assert resp.status_code == 404
@@ -462,8 +437,7 @@ class TestTestEndpoint:
 
         original = BuiltinToolProvider.get_tools
 
-        def spy_get_tools(self, tool_configs=None, agent_overrides=None,
-                          agent_name=None):
+        def spy_get_tools(self, tool_configs=None, agent_overrides=None, agent_name=None):
             captured["tool_configs"] = tool_configs
             return original(self, tool_configs, agent_overrides, agent_name)
 
@@ -488,16 +462,10 @@ class TestTestEndpoint:
         # fetch_url, http_request, download_file) should carry
         # fetch_url's saved row (empty dict) in `tool_configs`.
         tcs = captured["tool_configs"]
-        assert tcs["fetch_url"] == {}, (
-            "fetch_url should keep its own saved row (empty)"
-        )
+        assert tcs["fetch_url"] == {}, "fetch_url should keep its own saved row (empty)"
         # Re-keyed siblings: the named tool's row replaces theirs.
-        assert tcs["web_search"] == {}, (
-            "web_search must be re-keyed to fetch_url's empty row"
-        )
-        assert tcs["http_request"] == {}, (
-            "http_request must be re-keyed to fetch_url's empty row"
-        )
+        assert tcs["web_search"] == {}, "web_search must be re-keyed to fetch_url's empty row"
+        assert tcs["http_request"] == {}, "http_request must be re-keyed to fetch_url's empty row"
         # And the resulting fetch_url request is NOT denied — the
         # endpoint succeeded with [200] from the fixture transport.
         # (If the re-keying were broken, web_search's denylist would
@@ -520,7 +488,9 @@ class TestTestEndpoint:
             captured["max_results"] = max_results
             return [
                 SearchResult(
-                    title="R", url="https://example.org/r", snippet="s",
+                    title="R",
+                    url="https://example.org/r",
+                    snippet="s",
                 ),
             ]
 

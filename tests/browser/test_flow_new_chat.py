@@ -43,9 +43,7 @@ def test_welcome_no_setup_shows_both_links(app_clean: str, page: Page) -> None:
 
 
 @pytest.mark.browser
-def test_welcome_provider_only_shows_studio_link(
-    app_with_provider: SeededApp, page: Page
-) -> None:
+def test_welcome_provider_only_shows_studio_link(app_with_provider: SeededApp, page: Page) -> None:
     """Provider seeded, no agents → guidance only points to Agent Studio."""
     page.goto(app_with_provider.base_url)
     welcome = page.locator('[data-testid="chat-welcome"]')
@@ -107,9 +105,7 @@ def test_picking_agent_from_welcome_starts_session(
 
 
 @pytest.mark.browser
-def test_dropdown_change_starts_new_session(
-    app_with_provider: SeededApp, page: Page
-) -> None:
+def test_dropdown_change_starts_new_session(app_with_provider: SeededApp, page: Page) -> None:
     """Changing the sidebar agent dropdown starts a fresh session with that agent."""
     seed_mock_agent(app_with_provider.base_url, app_with_provider.provider_id, name="agent-a")
     seed_mock_agent(app_with_provider.base_url, app_with_provider.provider_id, name="agent-b")
@@ -117,7 +113,9 @@ def test_dropdown_change_starts_new_session(
     page.goto(app_with_provider.base_url)
 
     # Pick agent-a from the welcome listbox to bootstrap into chrome.
-    expect(page.locator(".chat-welcome-item").filter(has_text="agent-a")).to_be_visible(timeout=8000)
+    expect(page.locator(".chat-welcome-item").filter(has_text="agent-a")).to_be_visible(
+        timeout=8000
+    )
     page.locator(".chat-welcome-item").filter(has_text="agent-a").click()
     expect(page.locator(".session-agent-badge")).to_have_text("agent-a", timeout=8000)
 
@@ -179,9 +177,7 @@ def test_header_new_chat_button_starts_session_with_current_agent(
 
 
 @pytest.mark.browser
-def test_delete_last_session_returns_to_welcome(
-    app_with_agent: SeededApp, page: Page
-) -> None:
+def test_delete_last_session_returns_to_welcome(app_with_agent: SeededApp, page: Page) -> None:
     """Deleting the only session returns to the welcome canvas (no auto-create)."""
     page.goto(app_with_agent.base_url)
     page.locator(".chat-welcome-item").filter(has_text=app_with_agent.agent_name).click()
@@ -219,7 +215,9 @@ def test_chat_history_today_group_renders(app_with_agent: SeededApp, page: Page)
     )
 
     expect(page.locator(".session-list-heading")).to_have_text("Chat History")
-    expect(page.locator(".session-group-label").filter(has_text="Today")).to_be_visible(timeout=5000)
+    expect(page.locator(".session-group-label").filter(has_text="Today")).to_be_visible(
+        timeout=5000
+    )
 
 
 # ── Per-message attribution ──────────────────────────────────────────────
@@ -253,9 +251,7 @@ def test_message_attribution_labels_render(app_with_agent: SeededApp, page: Page
 
 
 @pytest.mark.browser
-def test_telemetry_overlay_collapses_by_default(
-    app_with_agent: SeededApp, page: Page
-) -> None:
+def test_telemetry_overlay_collapses_by_default(app_with_agent: SeededApp, page: Page) -> None:
     """The token overlay's details panel is collapsed (max-width 0) at rest."""
     page.goto(app_with_agent.base_url)
     page.locator(".chat-welcome-item").filter(has_text=app_with_agent.agent_name).click()

@@ -109,9 +109,7 @@ class TestAgentAPI:
         assert "tool_overrides" in body
         assert body["tool_overrides"] is None
 
-    async def test_create_agent_with_tool_overrides_round_trips(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_create_agent_with_tool_overrides_round_trips(self, client: AsyncClient) -> None:
         """POST with explicit `tool_overrides` dict → GET returns it
         unchanged."""
         payload = {
@@ -224,9 +222,7 @@ class TestMCPSourceAPI:
         assert resp.json()["config"]["command"] == "python"
 
         # Update
-        resp = await client.put(
-            f"/api/mcp-sources/{source_id}", json={"name": "Updated"}
-        )
+        resp = await client.put(f"/api/mcp-sources/{source_id}", json={"name": "Updated"})
         assert resp.status_code == 200
 
         # Delete
@@ -256,9 +252,7 @@ class TestChatSessionAPI:
         assert resp.json()["title"] == "Test Chat"
 
         # Update
-        resp = await client.put(
-            f"/api/chat/sessions/{session_id}", json={"title": "Updated"}
-        )
+        resp = await client.put(f"/api/chat/sessions/{session_id}", json={"title": "Updated"})
         assert resp.status_code == 200
 
         # List

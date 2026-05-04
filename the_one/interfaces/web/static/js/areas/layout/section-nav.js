@@ -41,7 +41,7 @@
     }
 
     if (headerText) {
-      var header = document.createElement('div');
+      var header = document.createElement('h2');
       header.className = 'section-nav-header';
       header.textContent = headerText;
       container.appendChild(header);

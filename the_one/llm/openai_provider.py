@@ -108,9 +108,7 @@ class OpenAIProvider(LLMProvider):
             if getattr(delta, "tool_calls", None):
                 for tc_delta in delta.tool_calls:
                     idx = tc_delta.index
-                    entry = tool_calls_acc.setdefault(
-                        idx, {"id": "", "name": "", "arguments": ""}
-                    )
+                    entry = tool_calls_acc.setdefault(idx, {"id": "", "name": "", "arguments": ""})
                     if tc_delta.id:
                         entry["id"] = tc_delta.id
                     if tc_delta.function:

@@ -71,9 +71,7 @@ def test_save_button_disabled_when_clean(app_with_agent: SeededApp, page: Page) 
 
 
 @pytest.mark.browser
-def test_save_button_enabled_after_field_change(
-    app_with_agent: SeededApp, page: Page
-) -> None:
+def test_save_button_enabled_after_field_change(app_with_agent: SeededApp, page: Page) -> None:
     """Editing a field flips the Save button to enabled."""
     base_url = app_with_agent.base_url
     page.goto(f"{base_url}#studio")
@@ -87,12 +85,9 @@ def test_save_button_enabled_after_field_change(
 
 
 @pytest.mark.browser
-def test_back_when_dirty_cancel_keeps_state(
-    app_with_agent: SeededApp, page: Page
-) -> None:
+def test_back_when_dirty_cancel_keeps_state(app_with_agent: SeededApp, page: Page) -> None:
     """Back when dirty opens dialog; clicking Cancel keeps state + URL."""
     base_url = app_with_agent.base_url
-    agent_name = app_with_agent.agent_name
     page.goto(f"{base_url}#studio")
     _wait_editor_ready(page)
 
@@ -114,9 +109,7 @@ def test_back_when_dirty_cancel_keeps_state(
 
 
 @pytest.mark.browser
-def test_back_when_dirty_confirm_navigates(
-    app_with_agent: SeededApp, page: Page
-) -> None:
+def test_back_when_dirty_confirm_navigates(app_with_agent: SeededApp, page: Page) -> None:
     """Back when dirty + Confirm navigates to #studio/agents."""
     base_url = app_with_agent.base_url
     page.goto(f"{base_url}#studio")
@@ -139,9 +132,7 @@ def test_back_when_dirty_confirm_navigates(
 
 
 @pytest.mark.browser
-def test_section_nav_when_dirty_opens_dialog(
-    app_with_agent: SeededApp, page: Page
-) -> None:
+def test_section_nav_when_dirty_opens_dialog(app_with_agent: SeededApp, page: Page) -> None:
     """Clicking a section button when dirty + selected-agent opens dialog."""
     base_url = app_with_agent.base_url
     page.goto(f"{base_url}#studio")
@@ -150,9 +141,7 @@ def test_section_nav_when_dirty_opens_dialog(
     _make_dirty(page)
 
     # Click the Knowledge section button in the sidebar.
-    knowledge_btn = page.locator(
-        '.section-nav-item[data-section="knowledge"]'
-    )
+    knowledge_btn = page.locator('.section-nav-item[data-section="knowledge"]')
     expect(knowledge_btn).to_be_visible()
     knowledge_btn.click()
 
@@ -167,9 +156,7 @@ def test_section_nav_when_dirty_opens_dialog(
 
 
 @pytest.mark.browser
-def test_section_nav_clean_does_not_open_dialog(
-    app_with_provider: SeededApp, page: Page
-) -> None:
+def test_section_nav_clean_does_not_open_dialog(app_with_provider: SeededApp, page: Page) -> None:
     """Clean state: section nav clicks navigate immediately, no dialog."""
     base_url = app_with_provider.base_url
     page.goto(f"{base_url}#studio")
@@ -177,9 +164,7 @@ def test_section_nav_clean_does_not_open_dialog(
 
     # No agent selected — knowledge nav should NOT prompt even if
     # somehow dirty (and it's clean here).
-    knowledge_btn = page.locator(
-        '.section-nav-item[data-section="knowledge"]'
-    )
+    knowledge_btn = page.locator('.section-nav-item[data-section="knowledge"]')
     knowledge_btn.click()
 
     expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_have_count(0)
@@ -242,17 +227,13 @@ def test_tab_click_when_dirty_switches_without_dialog(
     expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_have_count(0)
     expected = f"#studio/agents/{urllib.parse.quote(agent_name)}/knowledge"
     assert page.evaluate("location.hash") == expected
-    expect(page.locator('[data-testid="tab-knowledge"]')).to_have_attribute(
-        "aria-selected", "true"
-    )
+    expect(page.locator('[data-testid="tab-knowledge"]')).to_have_attribute("aria-selected", "true")
     # Dirty state survives the tab switch (Save remains enabled).
     expect(page.locator('[data-testid="save-agent-btn"]')).to_be_enabled()
 
 
 @pytest.mark.browser
-def test_arrow_keys_in_tablist_do_not_open_dialog(
-    app_with_agent: SeededApp, page: Page
-) -> None:
+def test_arrow_keys_in_tablist_do_not_open_dialog(app_with_agent: SeededApp, page: Page) -> None:
     """Arrow-key tab navigation moves focus only, never opens dialog."""
     base_url = app_with_agent.base_url
     page.goto(f"{base_url}#studio")
@@ -271,9 +252,7 @@ def test_arrow_keys_in_tablist_do_not_open_dialog(
 
 
 @pytest.mark.browser
-def test_modal_focus_trap_tab_cycles_forward(
-    app_with_agent: SeededApp, page: Page
-) -> None:
+def test_modal_focus_trap_tab_cycles_forward(app_with_agent: SeededApp, page: Page) -> None:
     """Tab from the last focusable wraps to the first."""
     base_url = app_with_agent.base_url
     page.goto(f"{base_url}#studio")
@@ -301,9 +280,7 @@ def test_modal_focus_trap_tab_cycles_forward(
 
 
 @pytest.mark.browser
-def test_modal_focus_trap_shift_tab_cycles_backward(
-    app_with_agent: SeededApp, page: Page
-) -> None:
+def test_modal_focus_trap_shift_tab_cycles_backward(app_with_agent: SeededApp, page: Page) -> None:
     """Shift+Tab from the first focusable wraps to the last."""
     base_url = app_with_agent.base_url
     page.goto(f"{base_url}#studio")
@@ -392,9 +369,7 @@ def test_modal_aria_contract(app_with_agent: SeededApp, page: Page) -> None:
 
 
 @pytest.mark.browser
-def test_modal_restore_focus_on_close(
-    app_with_agent: SeededApp, page: Page
-) -> None:
+def test_modal_restore_focus_on_close(app_with_agent: SeededApp, page: Page) -> None:
     """After close, focus returns to the trigger element."""
     base_url = app_with_agent.base_url
     page.goto(f"{base_url}#studio")
@@ -418,9 +393,7 @@ def test_modal_restore_focus_on_close(
 
 
 @pytest.mark.browser
-def test_clean_state_does_not_open_dialog_on_back(
-    app_with_agent: SeededApp, page: Page
-) -> None:
+def test_clean_state_does_not_open_dialog_on_back(app_with_agent: SeededApp, page: Page) -> None:
     """Back when clean navigates immediately — no dialog."""
     base_url = app_with_agent.base_url
     page.goto(f"{base_url}#studio")
@@ -450,9 +423,7 @@ def test_clean_state_does_not_open_dialog_on_tab_click(
 
 
 @pytest.mark.browser
-def test_beforeunload_listener_prevents_when_dirty(
-    app_with_agent: SeededApp, page: Page
-) -> None:
+def test_beforeunload_listener_prevents_when_dirty(app_with_agent: SeededApp, page: Page) -> None:
     """Synthetic beforeunload when dirty has defaultPrevented = True."""
     base_url = app_with_agent.base_url
     page.goto(f"{base_url}#studio")
@@ -495,9 +466,7 @@ def test_beforeunload_listener_does_not_prevent_when_clean(
 
 
 @pytest.mark.browser
-def test_singleton_modal_second_call_warns(
-    app_with_agent: SeededApp, page: Page
-) -> None:
+def test_singleton_modal_second_call_warns(app_with_agent: SeededApp, page: Page) -> None:
     """Calling App.confirmDialog while one is open is a no-op + console.warn."""
     base_url = app_with_agent.base_url
     page.goto(f"{base_url}#studio")

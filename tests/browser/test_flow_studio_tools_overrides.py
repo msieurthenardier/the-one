@@ -53,9 +53,7 @@ def _open_tools_tab(app: SeededApp, page: Page) -> None:
 
 
 @pytest.mark.browser
-def test_studio_tools_tab_renders_grid(
-    app_with_agent: SeededApp, page: Page
-) -> None:
+def test_studio_tools_tab_renders_grid(app_with_agent: SeededApp, page: Page) -> None:
     """Tools tab shows 19 tool rows (one per built-in)."""
     _open_tools_tab(app_with_agent, page)
     rows = page.locator(".tool-row")
@@ -74,16 +72,12 @@ def test_studio_disabled_tool_renders_with_strikethrough(
     _open_tools_tab(app_with_agent, page)
     row = page.locator('.tool-row:has(input[data-tool="web_search"])')
     expect(row).to_have_class(re.compile(r"\btool-row-disabled\b"))
-    expect(row.locator(".tool-name")).to_have_class(
-        re.compile(r"\btool-name-strike\b")
-    )
+    expect(row.locator(".tool-name")).to_have_class(re.compile(r"\btool-name-strike\b"))
     expect(row.locator('input[data-tool="web_search"]')).to_be_disabled()
 
 
 @pytest.mark.browser
-def test_studio_disabled_tool_tooltip(
-    app_with_agent: SeededApp, page: Page
-) -> None:
+def test_studio_disabled_tool_tooltip(app_with_agent: SeededApp, page: Page) -> None:
     """Disabled row's `title` attribute reads "Disabled by operator"."""
     seed_tool_config(app_with_agent.base_url, "web_search", enabled=False)
     _open_tools_tab(app_with_agent, page)
@@ -93,9 +87,7 @@ def test_studio_disabled_tool_tooltip(
 
 
 @pytest.mark.browser
-def test_studio_re_enable_restores_interactivity(
-    app_with_agent: SeededApp, page: Page
-) -> None:
+def test_studio_re_enable_restores_interactivity(app_with_agent: SeededApp, page: Page) -> None:
     """Operator-disable BEFORE goto → row disabled. Operator re-enables
     via API AFTER goto → ``refreshToolConfigsCache`` only fires inside
     ``doSelect`` / ``doEnterCreateMode``, so we MUST trigger a re-mount
@@ -124,9 +116,7 @@ def test_studio_re_enable_restores_interactivity(
 
 
 @pytest.mark.browser
-def test_studio_override_panel_collapsed_by_default(
-    app_with_agent: SeededApp, page: Page
-) -> None:
+def test_studio_override_panel_collapsed_by_default(app_with_agent: SeededApp, page: Page) -> None:
     """Each enabled tool row has a sibling `<details
     class="tool-row-overrides">` collapsed by default (no `open` attr).
     The body contains a `<p class="loading">Loading…</p>` placeholder
@@ -140,15 +130,11 @@ def test_studio_override_panel_collapsed_by_default(
     open_attr = panel.get_attribute("open")
     assert open_attr is None, f"override panel unexpectedly open: {open_attr!r}"
     # The body has the Loading… placeholder pre-condition for lazy-fetch.
-    expect(panel.locator(".tool-row-overrides-body p.loading")).to_have_text(
-        "Loading…"
-    )
+    expect(panel.locator(".tool-row-overrides-body p.loading")).to_have_text("Loading…")
 
 
 @pytest.mark.browser
-def test_studio_override_panel_lazy_loads_schema(
-    app_with_agent: SeededApp, page: Page
-) -> None:
+def test_studio_override_panel_lazy_loads_schema(app_with_agent: SeededApp, page: Page) -> None:
     """Open the http_request override panel: schema fetch fires once,
     fields render. Close + reopen: schema fetch is a cache hit (no
     second request); fields appear immediately (no Loading… placeholder
@@ -175,9 +161,9 @@ def test_studio_override_panel_lazy_loads_schema(
     # First open — fires the fetch + renders fields.
     panel.locator("summary").click()
     # Wait for at least one rendered field as the "fields rendered" signal.
-    expect(
-        panel.locator('input[data-tool-override-field="timeout_seconds_max"]')
-    ).to_be_visible(timeout=5000)
+    expect(panel.locator('input[data-tool-override-field="timeout_seconds_max"]')).to_be_visible(
+        timeout=5000
+    )
     # Loading… placeholder gone after the fetch resolves.
     expect(panel.locator(".tool-row-overrides-body p.loading")).to_have_count(0)
 
@@ -185,15 +171,11 @@ def test_studio_override_panel_lazy_loads_schema(
     panel.locator("summary").click()
     panel.locator("summary").click()
     # Field is already in the DOM (no Loading… placeholder ever appeared).
-    expect(
-        panel.locator('input[data-tool-override-field="timeout_seconds_max"]')
-    ).to_be_visible()
+    expect(panel.locator('input[data-tool-override-field="timeout_seconds_max"]')).to_be_visible()
     expect(panel.locator(".tool-row-overrides-body p.loading")).to_have_count(0)
 
     # The schema fetch fired exactly once across both opens.
-    assert len(requests_seen) == 1, (
-        f"expected exactly one schema fetch, saw: {requests_seen}"
-    )
+    assert len(requests_seen) == 1, f"expected exactly one schema fetch, saw: {requests_seen}"
 
 
 @pytest.mark.browser
@@ -222,9 +204,7 @@ def test_studio_override_narrow_int_uses_operator_max(
 
 
 @pytest.mark.browser
-def test_studio_override_unmarked_field_hidden(
-    app_with_agent: SeededApp, page: Page
-) -> None:
+def test_studio_override_unmarked_field_hidden(app_with_agent: SeededApp, page: Page) -> None:
     """Agent mode HIDES un-marked fields — `redirect_cap` is operator-only
     (no marker per F5 Decision 9), so the override panel for http_request
     must NOT render a `redirect_cap` widget.
@@ -233,15 +213,11 @@ def test_studio_override_unmarked_field_hidden(
     panel = page.locator('details.tool-row-overrides[data-tool="http_request"]')
     panel.locator("summary").click()
     # Wait for at least one field to confirm the panel rendered.
-    expect(
-        panel.locator(
-            'input[data-tool-override-field="timeout_seconds_max"]'
-        )
-    ).to_be_visible(timeout=5000)
+    expect(panel.locator('input[data-tool-override-field="timeout_seconds_max"]')).to_be_visible(
+        timeout=5000
+    )
     # redirect_cap field NOT rendered (un-marked → operator-only).
-    expect(
-        panel.locator('input[data-tool-override-field="redirect_cap"]')
-    ).to_have_count(0)
+    expect(panel.locator('input[data-tool-override-field="redirect_cap"]')).to_have_count(0)
 
 
 @pytest.mark.browser
@@ -261,22 +237,16 @@ def test_studio_override_narrow_superset_locked_chips(
     _open_tools_tab(app_with_agent, page)
     panel = page.locator('details.tool-row-overrides[data-tool="shell"]')
     panel.locator("summary").click()
-    chip_list = panel.locator(
-        '.chip-list-editor[data-tool-override-field="command_denylist"]'
-    )
+    chip_list = panel.locator('.chip-list-editor[data-tool-override-field="command_denylist"]')
     expect(chip_list).to_be_visible(timeout=5000)
     locked_chips = chip_list.locator('.chip[data-locked="true"]')
     expect(locked_chips).to_have_count(2)
     # Locked chips render WITHOUT the remove button — not just hidden.
-    expect(
-        chip_list.locator('.chip[data-locked="true"] .chip-remove')
-    ).to_have_count(0)
+    expect(chip_list.locator('.chip[data-locked="true"] .chip-remove')).to_have_count(0)
 
 
 @pytest.mark.browser
-def test_studio_override_save_round_trips_via_api(
-    app_with_agent: SeededApp, page: Page
-) -> None:
+def test_studio_override_save_round_trips_via_api(app_with_agent: SeededApp, page: Page) -> None:
     """Open http_request panel → add `localhost` to extra_allowed_hosts
     chip-list → Save agent → API GET on agent confirms
     `tool_overrides.http_request.extra_allowed_hosts == ["localhost"]`.
@@ -284,9 +254,7 @@ def test_studio_override_save_round_trips_via_api(
     _open_tools_tab(app_with_agent, page)
     panel = page.locator('details.tool-row-overrides[data-tool="http_request"]')
     panel.locator("summary").click()
-    chip_list = panel.locator(
-        '.chip-list-editor[data-tool-override-field="extra_allowed_hosts"]'
-    )
+    chip_list = panel.locator('.chip-list-editor[data-tool-override-field="extra_allowed_hosts"]')
     expect(chip_list).to_be_visible(timeout=5000)
     chip_input = chip_list.locator(".chip-list-input")
     chip_input.fill("localhost")

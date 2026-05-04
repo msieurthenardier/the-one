@@ -101,10 +101,12 @@ class Agent:
                 if tc.name == "continue":
                     # Acknowledge the continue — feed it back so the model sees it worked
                     reason = tc.arguments.get("reason", "")
-                    tool_msg = Message.tool(ToolResult(
-                        tool_call_id=tc.id,
-                        content=reason or "continuing...",
-                    ))
+                    tool_msg = Message.tool(
+                        ToolResult(
+                            tool_call_id=tc.id,
+                            content=reason or "continuing...",
+                        )
+                    )
                     self.messages.append(tool_msg)
                     has_real_tool = True  # keep the loop going
                 else:

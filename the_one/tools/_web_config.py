@@ -331,9 +331,7 @@ def _url_check(url: str, cfg: WebConfig) -> str:
     if not host:
         raise ConstraintError(f"URL missing host: {url!r}")
     if cfg.host_allowlist and host not in cfg.host_allowlist:
-        raise ConstraintError(
-            f"host '{host}' not in host_allowlist {cfg.host_allowlist}"
-        )
+        raise ConstraintError(f"host '{host}' not in host_allowlist {cfg.host_allowlist}")
     if host in cfg.host_denylist:
         raise ConstraintError(f"host '{host}' is in host_denylist")
     return url
@@ -402,10 +400,7 @@ def _truncate_response(
     if len(body) > cap:
         dropped = len(body) - cap
         tail = body[-cap:]
-        marker = (
-            f"[... truncated {dropped} bytes; showing last {cap} bytes "
-            f"of response ...]\n"
-        )
+        marker = f"[... truncated {dropped} bytes; showing last {cap} bytes of response ...]\n"
         text = marker + tail.decode(errors="replace")
         return text, True
     return body.decode(errors="replace"), False
@@ -468,9 +463,7 @@ class SSRFGuardedTransport(httpx.AsyncHTTPTransport):
         # mutate state shared with the operator's WebConfig view.
         self._extra_allowed: tuple[str, ...] = tuple(extra_allowed_hosts)
 
-    async def handle_async_request(
-        self, request: httpx.Request
-    ) -> httpx.Response:
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         original_host = request.url.host
 
         # IP-literal short-circuit: if the URL host is already an IP, no
@@ -480,14 +473,10 @@ class SSRFGuardedTransport(httpx.AsyncHTTPTransport):
         # cloud-metadata literals BEFORE any connect attempt.
         try:
             ipaddress.ip_address(original_host)
-            if any(
-                _host_matches(original_host, entry) for entry in self._extra_allowed
-            ):
+            if any(_host_matches(original_host, entry) for entry in self._extra_allowed):
                 return await super().handle_async_request(request)
             if _is_ssrf_blocked(original_host):
-                raise ConstraintError(
-                    f"IP literal {original_host} is in the SSRF block list"
-                )
+                raise ConstraintError(f"IP literal {original_host} is in the SSRF block list")
             return await super().handle_async_request(request)
         except ValueError:
             pass  # Not an IP literal; fall through to resolve+pin.
@@ -500,9 +489,7 @@ class SSRFGuardedTransport(httpx.AsyncHTTPTransport):
 
         port = request.url.port or (443 if request.url.scheme == "https" else 80)
         loop = asyncio.get_running_loop()
-        resolved = await loop.getaddrinfo(
-            original_host, port, type=socket.SOCK_STREAM
-        )
+        resolved = await loop.getaddrinfo(original_host, port, type=socket.SOCK_STREAM)
 
         for _family, _stype, _proto, _canonname, sockaddr in resolved:
             ip = sockaddr[0]
@@ -522,6 +509,5 @@ class SSRFGuardedTransport(httpx.AsyncHTTPTransport):
                 return await super().handle_async_request(request)
 
         raise ConstraintError(
-            f"all resolved IPs for {original_host} are blocked: "
-            f"{[s[4][0] for s in resolved]}"
+            f"all resolved IPs for {original_host} are blocked: {[s[4][0] for s in resolved]}"
         )

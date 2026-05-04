@@ -292,6 +292,203 @@ class TestProviderAPI:
         assert resp.json()["api_key"] is None
 
 
+# ── Provider URL safety validation ─────────────────────────────────────
+
+
+class TestProviderUrlValidation:
+    """Tests for ``_is_safe_provider_url`` enforcement on the three save paths.
+
+    Contract:
+      - ``https://`` always passes.
+      - ``http://`` passes iff host is ``localhost``/``127.0.0.1``/``::1``
+        or ends in ``.localdomain``.
+      - ``mock`` and ``ollama`` types skip validation.
+      - Failures return 422 (refusal, not warning — pinned contract).
+      - Update path validates the RESOLVED ``base_url`` so an unchanged
+        ``http://example.com`` cannot survive a touched-elsewhere update
+        that uses ``__MASKED__`` to preserve the api_key.
+    """
+
+    async def test_create_openai_compatible_http_non_localhost_rejected(
+        self, client: AsyncClient
+    ) -> None:
+        resp = await client.post(
+            "/api/providers",
+            json={
+                "name": "Risky",
+                "type": "openai-compatible",
+                "base_url": "http://example.com:5000",
+                "api_key": "sk-leak-bait",
+            },
+        )
+        assert resp.status_code == 422
+        assert "cleartext" in resp.json()["detail"].lower()
+
+    async def test_create_ollama_localhost_passes(self, client: AsyncClient) -> None:
+        resp = await client.post(
+            "/api/providers",
+            json={
+                "name": "OllamaOK",
+                "type": "ollama",
+                "base_url": "http://localhost:11434",
+            },
+        )
+        assert resp.status_code == 201
+
+    async def test_create_ollama_non_localhost_passes(self, client: AsyncClient) -> None:
+        """Ollama skips validation entirely; non-localhost http is allowed."""
+        resp = await client.post(
+            "/api/providers",
+            json={
+                "name": "OllamaRemote",
+                "type": "ollama",
+                "base_url": "http://host.docker.internal:11434",
+            },
+        )
+        assert resp.status_code == 201
+
+    async def test_create_openai_compatible_localhost_passes(self, client: AsyncClient) -> None:
+        resp = await client.post(
+            "/api/providers",
+            json={
+                "name": "LMStudio",
+                "type": "openai-compatible",
+                "base_url": "http://localhost:1234/v1",
+                "api_key": "lm-studio-key",
+            },
+        )
+        assert resp.status_code == 201
+
+    async def test_create_openai_https_passes(self, client: AsyncClient) -> None:
+        resp = await client.post(
+            "/api/providers",
+            json={
+                "name": "OpenAI",
+                "type": "openai",
+                "base_url": "https://api.openai.com/v1",
+                "api_key": "sk-test1234",
+            },
+        )
+        assert resp.status_code == 201
+
+    async def test_update_to_unsafe_url_rejected(self, client: AsyncClient) -> None:
+        create_resp = await client.post(
+            "/api/providers",
+            json={
+                "name": "Safe",
+                "type": "openai",
+                "base_url": "https://api.openai.com/v1",
+                "api_key": "sk-key1234",
+            },
+        )
+        pid = create_resp.json()["id"]
+        resp = await client.put(
+            f"/api/providers/{pid}",
+            json={
+                "name": "Safe",
+                "type": "openai",
+                "base_url": "http://example.com:5000",
+                "api_key": "__MASKED__",
+            },
+        )
+        assert resp.status_code == 422
+
+    async def test_update_with_masked_key_validates_resolved_base_url(
+        self, client: AsyncClient
+    ) -> None:
+        """A pre-existing http://example.com survives validation only because
+        ``create_provider`` would have rejected it. We force-insert one via the
+        repository to simulate legacy data, then verify ``update_provider`` —
+        even one that only renames the provider and sends ``__MASKED__`` for
+        api_key — refuses on the resolved (post-merge) base_url.
+
+        Uses the API module's already-patched ``get_connection`` /
+        ``get_encryptor`` references so the legacy row lands in the
+        fixture's isolated DB rather than the operator's real one.
+        """
+        from the_one.db.models import LLMProviderConfig
+        from the_one.db.repositories import LLMProviderRepository
+        from the_one.interfaces.web import api as api_mod
+
+        conn = await api_mod.get_connection()
+        encryptor = api_mod.get_encryptor(api_mod.settings.data_dir)
+        repo = LLMProviderRepository(conn, encryptor)
+        legacy = LLMProviderConfig(
+            id="legacy-leak",
+            name="Legacy",
+            type="openai-compatible",
+            base_url="http://example.com:5000",
+            api_key="sk-legacy",
+        )
+        await repo.create(legacy)
+
+        # Now: an update that only renames + preserves the masked api_key
+        # MUST still 422 because the resolved base_url is the unchanged
+        # legacy http://example.com:5000.
+        resp = await client.put(
+            f"/api/providers/{legacy.id}",
+            json={
+                "name": "Renamed",
+                "type": "openai-compatible",
+                "base_url": "http://example.com:5000",
+                "api_key": "__MASKED__",
+            },
+        )
+        assert resp.status_code == 422
+
+    async def test_test_provider_against_legacy_unsafe_stored_url_rejected(
+        self, client: AsyncClient
+    ) -> None:
+        """``test_provider`` is the belt-and-suspenders gate for legacy data."""
+        from the_one.db.models import LLMProviderConfig
+        from the_one.db.repositories import LLMProviderRepository
+        from the_one.interfaces.web import api as api_mod
+
+        conn = await api_mod.get_connection()
+        encryptor = api_mod.get_encryptor(api_mod.settings.data_dir)
+        repo = LLMProviderRepository(conn, encryptor)
+        legacy = LLMProviderConfig(
+            id="legacy-test",
+            name="LegacyTest",
+            type="openai-compatible",
+            base_url="http://example.com:5000",
+            api_key="sk-legacy-test",
+        )
+        await repo.create(legacy)
+
+        resp = await client.post(f"/api/providers/{legacy.id}/test")
+        assert resp.status_code == 422
+        assert "cleartext" in resp.json()["detail"].lower()
+
+    async def test_is_safe_provider_url_helper_unit(self) -> None:
+        """Direct unit coverage for the helper itself."""
+        from the_one.interfaces.web.api import _is_safe_provider_url
+
+        # https always passes
+        ok, msg = _is_safe_provider_url("https://api.openai.com/v1")
+        assert ok and msg is None
+
+        # http localhost variants pass
+        for url in (
+            "http://localhost:8080",
+            "http://127.0.0.1:5000",
+            "http://[::1]:9999",
+            "http://box.localdomain:1234",
+        ):
+            ok, msg = _is_safe_provider_url(url)
+            assert ok, f"expected pass for {url!r}, got {msg}"
+
+        # http non-localhost fails
+        ok, msg = _is_safe_provider_url("http://example.com:5000")
+        assert not ok
+        assert msg and "cleartext" in msg.lower()
+
+        # unsupported scheme fails
+        ok, msg = _is_safe_provider_url("ftp://example.com")
+        assert not ok
+        assert msg and "ftp" in msg.lower()
+
+
 # ── Encryption rotation ────────────────────────────────────────────────
 
 

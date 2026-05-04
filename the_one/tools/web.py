@@ -122,9 +122,7 @@ class HttpRequestTool(Tool):
                 follow_redirects=follow,
                 max_redirects=max_redirs,
             ) as client:
-                resp = await client.request(
-                    method, url, headers=merged_headers, content=body
-                )
+                resp = await client.request(method, url, headers=merged_headers, content=body)
                 text, _ = _truncate_response(
                     resp.content,
                     cfg,
@@ -206,15 +204,11 @@ class FetchUrlTool(Tool):
 
                     summary_html = Document(resp.text).summary()
                     markdown = markdownify(summary_html, heading_style="ATX")
-                    text, _ = _truncate_response(
-                        markdown.encode("utf-8"), cfg, content_type=None
-                    )
+                    text, _ = _truncate_response(markdown.encode("utf-8"), cfg, content_type=None)
                     return f"[{resp.status_code}]\n{text}"
                 # Other text (text/plain, application/json, etc.) — pass
                 # through ``_truncate_response`` directly.
-                text, _ = _truncate_response(
-                    resp.content, cfg, content_type=ct
-                )
+                text, _ = _truncate_response(resp.content, cfg, content_type=ct)
                 return f"[{resp.status_code}]\n{text}"
         except ConstraintError as e:
             return f"[error] [constraint] {e}"
@@ -272,9 +266,7 @@ class DownloadFileTool(Tool):
         target: Any = None
         try:
             _url_check(url, cfg)
-            target = _filesystem_check(
-                path, fs_cfg, mode=CheckMode.WRITE_EXISTING_PARENT
-            )
+            target = _filesystem_check(path, fs_cfg, mode=CheckMode.WRITE_EXISTING_PARENT)
             transport = self._build_transport(cfg)
             if cfg.redirect_cap == 0:
                 follow = False
@@ -305,8 +297,7 @@ class DownloadFileTool(Tool):
                             async for chunk in resp.aiter_bytes():
                                 if total_bytes + len(chunk) > cap:
                                     raise ConstraintError(
-                                        f"response exceeded {cap} bytes; "
-                                        "partial file removed"
+                                        f"response exceeded {cap} bytes; partial file removed"
                                     )
                                 fh.write(chunk)
                                 total_bytes += len(chunk)
@@ -376,9 +367,7 @@ class WebSearchTool(Tool):
             results = await backend.search(query, max_results)
             if not results:
                 return "No results found."
-            return "\n\n".join(
-                f"- {r.title}\n  {r.url}\n  {r.snippet}" for r in results
-            )
+            return "\n\n".join(f"- {r.title}\n  {r.url}\n  {r.snippet}" for r in results)
         except ConstraintError as e:
             # Defensive — current `DDGSearchBackend` does not raise these,
             # but a future operator-policy-aware backend may.

@@ -68,13 +68,15 @@ class TestToolExecution:
     async def test_tool_call_then_final_response(self) -> None:
         """LLM calls a tool, gets result, then responds with text."""
         tool_a = StubTool("tool_a")
-        llm = FakeLLM([
-            Message.assistant(
-                "",
-                tool_calls=[ToolCall(id="1", name="tool_a", arguments={})],
-            ),
-            Message.assistant("done"),
-        ])
+        llm = FakeLLM(
+            [
+                Message.assistant(
+                    "",
+                    tool_calls=[ToolCall(id="1", name="tool_a", arguments={})],
+                ),
+                Message.assistant("done"),
+            ]
+        )
         agent = Agent(llm=llm, tools=_make_registry(tool_a), system_prompt="test")
         msgs = await _collect(agent, "use tool_a")
 
@@ -93,15 +95,19 @@ class TestContinueSignal:
     async def test_continue_not_yielded_to_caller(self) -> None:
         """Continue tool result is NOT yielded, but the loop continues."""
         tool_a = StubTool("tool_a")
-        llm = FakeLLM([
-            # Iteration 1: LLM calls continue
-            Message.assistant(
-                "thinking...",
-                tool_calls=[ToolCall(id="1", name="continue", arguments={"reason": "more work"})],
-            ),
-            # Iteration 2: LLM responds with final text
-            Message.assistant("all done"),
-        ])
+        llm = FakeLLM(
+            [
+                # Iteration 1: LLM calls continue
+                Message.assistant(
+                    "thinking...",
+                    tool_calls=[
+                        ToolCall(id="1", name="continue", arguments={"reason": "more work"})
+                    ],
+                ),
+                # Iteration 2: LLM responds with final text
+                Message.assistant("all done"),
+            ]
+        )
         agent = Agent(llm=llm, tools=_make_registry(tool_a), system_prompt="test")
         msgs = await _collect(agent, "think hard")
 
@@ -149,13 +155,15 @@ class TestToolError:
     async def test_tool_exception_yields_error_result(self) -> None:
         """Tool raises exception — yields ToolResult with is_error=True."""
         bad = ErrorTool("bad_tool")
-        llm = FakeLLM([
-            Message.assistant(
-                "",
-                tool_calls=[ToolCall(id="1", name="bad_tool", arguments={})],
-            ),
-            Message.assistant("sorry about that"),
-        ])
+        llm = FakeLLM(
+            [
+                Message.assistant(
+                    "",
+                    tool_calls=[ToolCall(id="1", name="bad_tool", arguments={})],
+                ),
+                Message.assistant("sorry about that"),
+            ]
+        )
         agent = Agent(llm=llm, tools=_make_registry(bad), system_prompt="test")
         msgs = await _collect(agent, "call bad_tool")
 

@@ -43,9 +43,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 
 if os.name == "nt":
-    raise NotImplementedError(
-        "Windows ConPTY support deferred to a future mission"
-    )
+    raise NotImplementedError("Windows ConPTY support deferred to a future mission")
 
 # Imports below this guard are POSIX-only — ``fcntl``, ``pty``, ``select``,
 # and ``signal`` are all stdlib modules that exist only on Unix. Importing
@@ -404,10 +402,7 @@ class UnixPtySession(PtySession):
                 # No data this window. If buffer is non-empty AND the
                 # last-byte time is at least ``idle_window`` ago, we're
                 # idle-stable: return.
-                if (
-                    buffer
-                    and (time.monotonic() - last_byte_time) >= idle_window
-                ):
+                if buffer and (time.monotonic() - last_byte_time) >= idle_window:
                     return bytes(buffer)
 
             # Timeout budget check (after each iteration so a single
@@ -415,9 +410,7 @@ class UnixPtySession(PtySession):
             if time.monotonic() - start_time >= timeout:
                 if buffer:
                     return bytes(buffer)
-                raise asyncio.TimeoutError(
-                    f"PTY read timed out after {timeout}s with no output"
-                )
+                raise asyncio.TimeoutError(f"PTY read timed out after {timeout}s with no output")
 
     def _close_blocking(self) -> None:
         """SIGTERM, wait up to 1s, SIGKILL if still alive, close
@@ -490,6 +483,4 @@ def create_pty_session(
     """
     if os.name == "posix":
         return UnixPtySession(cwd=cwd, shell=shell)
-    raise NotImplementedError(
-        f"PTY sessions not supported on os.name={os.name!r}"
-    )
+    raise NotImplementedError(f"PTY sessions not supported on os.name={os.name!r}")

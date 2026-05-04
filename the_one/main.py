@@ -13,12 +13,15 @@ def cli_entry() -> None:
 
     if not args or args[0] == "chat":
         from the_one.interfaces.cli import run
+
         run()
     elif args[0] == "serve":
         from the_one.interfaces.web.app import app
+
         uvicorn.run(app, host=settings.host, port=settings.port)
     elif args[0] == "version":
         from the_one import __version__
+
         print(f"the-one v{__version__}")
     else:
         print("Usage: the-one [chat|serve|version]")

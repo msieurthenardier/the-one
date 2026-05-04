@@ -315,9 +315,7 @@ def _patch_getaddrinfo(monkeypatch, results_per_call: list[list[tuple]]) -> None
         chosen = results_per_call[min(idx, len(results_per_call) - 1)]
         return chosen
 
-    monkeypatch.setattr(
-        asyncio.base_events.BaseEventLoop, "getaddrinfo", fake_getaddrinfo
-    )
+    monkeypatch.setattr(asyncio.base_events.BaseEventLoop, "getaddrinfo", fake_getaddrinfo)
 
 
 # ---------------------------------------------------------------------------
@@ -350,9 +348,7 @@ class TestSSRFGuardedTransport:
         assert captured.headers["Host"] == "example.com"
         assert captured.extensions.get("sni_hostname") == "example.com"
 
-    async def test_all_resolved_blocked_raises_constraint_error(
-        self, monkeypatch
-    ) -> None:
+    async def test_all_resolved_blocked_raises_constraint_error(self, monkeypatch) -> None:
         _patch_getaddrinfo(
             monkeypatch,
             [
@@ -401,9 +397,7 @@ class TestSSRFGuardedTransport:
         # Iterates resolved list; first non-blocked wins.
         assert captured.url.host == "1.2.3.4"
 
-    async def test_extra_allowed_hosts_short_circuits_resolve(
-        self, monkeypatch
-    ) -> None:
+    async def test_extra_allowed_hosts_short_circuits_resolve(self, monkeypatch) -> None:
         """If the host matches ``extra_allowed_hosts``, the resolve+pin path
         is skipped entirely — request reaches super with original host
         (no rewrite)."""
@@ -416,9 +410,7 @@ class TestSSRFGuardedTransport:
             called["n"] += 1
             return [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("127.0.0.1", port))]
 
-        monkeypatch.setattr(
-            asyncio.base_events.BaseEventLoop, "getaddrinfo", should_not_be_called
-        )
+        monkeypatch.setattr(asyncio.base_events.BaseEventLoop, "getaddrinfo", should_not_be_called)
         recorder = _Recorder()
         _patch_super_dispatch(monkeypatch, recorder)
 
@@ -434,9 +426,7 @@ class TestSSRFGuardedTransport:
         # Host NOT rewritten to an IP — short-circuit preserved the original.
         assert captured.url.host == "localhost"
 
-    async def test_extra_allowed_hosts_with_port_matches_on_host(
-        self, monkeypatch
-    ) -> None:
+    async def test_extra_allowed_hosts_with_port_matches_on_host(self, monkeypatch) -> None:
         """``"localhost:11434"`` should match ``localhost`` regardless of
         the actual request port (F5 simplification)."""
         called = {"n": 0}
@@ -445,9 +435,7 @@ class TestSSRFGuardedTransport:
             called["n"] += 1
             return [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("127.0.0.1", port))]
 
-        monkeypatch.setattr(
-            asyncio.base_events.BaseEventLoop, "getaddrinfo", should_not_be_called
-        )
+        monkeypatch.setattr(asyncio.base_events.BaseEventLoop, "getaddrinfo", should_not_be_called)
         recorder = _Recorder()
         _patch_super_dispatch(monkeypatch, recorder)
 
@@ -468,9 +456,7 @@ class TestSSRFGuardedTransport:
             called["n"] += 1
             return []
 
-        monkeypatch.setattr(
-            asyncio.base_events.BaseEventLoop, "getaddrinfo", should_not_be_called
-        )
+        monkeypatch.setattr(asyncio.base_events.BaseEventLoop, "getaddrinfo", should_not_be_called)
         recorder = _Recorder()
         _patch_super_dispatch(monkeypatch, recorder)
 
@@ -557,9 +543,7 @@ class TestSSRFGuardedTransport:
         # Host NOT rewritten (no resolve happened — IP literal).
         assert recorder.requests[0].url.host == "1.2.3.4"
 
-    async def test_ip_literal_extra_allowed_hosts_override(
-        self, monkeypatch
-    ) -> None:
+    async def test_ip_literal_extra_allowed_hosts_override(self, monkeypatch) -> None:
         """Operator override: with ``extra_allowed_hosts=["127.0.0.1"]``,
         the IP literal ``http://127.0.0.1/`` passes — the operator
         explicitly opted into the loopback target. This preserves the

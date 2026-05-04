@@ -92,9 +92,11 @@ def messages_to_ui_events(messages: list[Message]) -> list[dict[str, Any]]:
                     events.append({"type": "tool_call", "name": tc.name, "arguments": tc.arguments})
         elif msg.role == Role.TOOL:
             if msg.tool_result:
-                events.append({
-                    "type": "tool_result",
-                    "content": msg.tool_result.content,
-                    "is_error": msg.tool_result.is_error,
-                })
+                events.append(
+                    {
+                        "type": "tool_result",
+                        "content": msg.tool_result.content,
+                        "is_error": msg.tool_result.is_error,
+                    }
+                )
     return events

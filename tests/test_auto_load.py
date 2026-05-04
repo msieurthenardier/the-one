@@ -6,21 +6,19 @@ from unittest.mock import AsyncMock, patch
 
 import aiosqlite
 import pytest
+from conftest import FakeLLM
 
 from the_one.agent.config import AgentConfig
 from the_one.agent.core import Agent
 from the_one.db.models import LLMProviderConfig
-from the_one.db.repositories import ChatSessionRepository, LLMProviderRepository, SQLiteAgentStore
+from the_one.db.repositories import LLMProviderRepository, SQLiteAgentStore
 from the_one.db.schema import ensure_schema
 from the_one.encryption import Encryptor
-from the_one.llm.base import Message
-
-from conftest import FakeLLM
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 async def conn(tmp_path):
@@ -36,6 +34,7 @@ async def conn(tmp_path):
 @pytest.fixture
 def encryptor():
     from cryptography.fernet import Fernet
+
     return Encryptor(Fernet.generate_key())
 
 
@@ -96,11 +95,13 @@ async def openai_agent(conn, openai_provider):
 
 def _make_fake_agent() -> Agent:
     from the_one.tools.base import ToolRegistry
+
     return Agent(llm=FakeLLM([]), tools=ToolRegistry(), system_prompt="test")
 
 
 def _make_session(app_module, agent_name: str | None, session_id: str = "test-session"):
     from the_one.interfaces.web.app import Session
+
     session = Session(
         id=session_id,
         agent=_make_fake_agent(),
@@ -134,6 +135,7 @@ def patched_app(conn, encryptor, tmp_path):
 # Tests for _ensure_ollama_model_loaded
 # ---------------------------------------------------------------------------
 
+
 class TestEnsureOllamaModelLoaded:
     async def test_loads_model_when_not_running(self, patched_app, ollama_agent):
         """Should send loading message and call load_model when model is not loaded."""
@@ -153,10 +155,7 @@ class TestEnsureOllamaModelLoaded:
 
         # Check system message was sent
         calls = mock_ws.send_json.call_args_list
-        assert any(
-            c.args[0] == {"type": "system", "content": "Loading model..."}
-            for c in calls
-        )
+        assert any(c.args[0] == {"type": "system", "content": "Loading model..."} for c in calls)
 
     async def test_skips_when_model_already_loaded(self, patched_app, ollama_agent):
         """Should not send message or call load_model when model is running."""
@@ -249,7 +248,7 @@ class TestEnsureOllamaModelLoaded:
             # qwen2.5:7b won't match qwen2.5:7b:latest exactly —
             # the :latest logic handles "name" == "model:latest" case
             # Since "qwen2.5:7b:latest" != "qwen2.5:7b" and
-            # "qwen2.5:7b:latest" != "qwen2.5:7b:latest" (f"{model_name}:latest" = "qwen2.5:7b:latest")
+            # "qwen2.5:7b:latest" != "qwen2.5:7b:latest" (f"{model_name}:latest" = "qwen2.5:7b:latest")  # noqa: E501
             # Actually it DOES match: f"{model_name}:latest" == "qwen2.5:7b:latest"
             mock_load.assert_not_called()
 

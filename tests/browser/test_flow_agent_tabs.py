@@ -48,9 +48,7 @@ def _wait_editor_ready(page: Page, expected_tab: str = "general") -> None:
     # the editor mount is already in flight via the async wrapper — wait for
     # it to complete instead of clicking a tile (the tile becomes hidden
     # the moment the editor renders, racing the click).
-    deep_linked = page.evaluate(
-        "() => /^#?studio\\/agents\\/[^/]/i.test(location.hash)"
-    )
+    deep_linked = page.evaluate("() => /^#?studio\\/agents\\/[^/]/i.test(location.hash)")
     if not deep_linked:
         editor_hidden = page.evaluate(
             "() => document.querySelector('.studio-editor')?.classList.contains('is-hidden')"
@@ -77,15 +75,11 @@ def test_tablist_renders_with_three_tabs(app_with_agent: SeededApp, page: Page) 
     tabs = page.locator('[role="tab"]')
     expect(tabs).to_have_count(3)
 
-    expect(page.locator('[data-testid="tab-general"]')).to_have_attribute(
-        "aria-selected", "true"
-    )
+    expect(page.locator('[data-testid="tab-general"]')).to_have_attribute("aria-selected", "true")
     expect(page.locator('[data-testid="tab-knowledge"]')).to_have_attribute(
         "aria-selected", "false"
     )
-    expect(page.locator('[data-testid="tab-tools"]')).to_have_attribute(
-        "aria-selected", "false"
-    )
+    expect(page.locator('[data-testid="tab-tools"]')).to_have_attribute("aria-selected", "false")
 
 
 @pytest.mark.browser
@@ -107,7 +101,6 @@ def test_default_tab_is_general_on_select(app_with_agent: SeededApp, page: Page)
 def test_arrow_keys_move_focus_only(app_with_agent: SeededApp, page: Page) -> None:
     """Arrow Left/Right move focus + visual highlight only; URL stays."""
     base_url = app_with_agent.base_url
-    agent_name = app_with_agent.agent_name
     page.goto(f"{base_url}#studio")
     _wait_editor_ready(page)
 
@@ -125,9 +118,7 @@ def test_arrow_keys_move_focus_only(app_with_agent: SeededApp, page: Page) -> No
     assert page.evaluate("location.hash") == initial_hash
 
     # aria-selected unchanged (still General).
-    expect(page.locator('[data-testid="tab-general"]')).to_have_attribute(
-        "aria-selected", "true"
-    )
+    expect(page.locator('[data-testid="tab-general"]')).to_have_attribute("aria-selected", "true")
     expect(page.locator('[data-testid="tab-knowledge"]')).to_have_attribute(
         "aria-selected", "false"
     )
@@ -149,20 +140,12 @@ def test_enter_commits_focused_tab(app_with_agent: SeededApp, page: Page) -> Non
     expected = f"#studio/agents/{urllib.parse.quote(agent_name)}/knowledge"
     assert page.evaluate("location.hash") == expected
 
-    expect(page.locator('[data-testid="tab-knowledge"]')).to_have_attribute(
-        "aria-selected", "true"
-    )
-    expect(page.locator('[data-testid="tab-general"]')).to_have_attribute(
-        "aria-selected", "false"
-    )
+    expect(page.locator('[data-testid="tab-knowledge"]')).to_have_attribute("aria-selected", "true")
+    expect(page.locator('[data-testid="tab-general"]')).to_have_attribute("aria-selected", "false")
 
     # Roving tabindex: now Knowledge is the only tabindex="0".
-    expect(page.locator('[data-testid="tab-knowledge"]')).to_have_attribute(
-        "tabindex", "0"
-    )
-    expect(page.locator('[data-testid="tab-general"]')).to_have_attribute(
-        "tabindex", "-1"
-    )
+    expect(page.locator('[data-testid="tab-knowledge"]')).to_have_attribute("tabindex", "0")
+    expect(page.locator('[data-testid="tab-general"]')).to_have_attribute("tabindex", "-1")
 
     # Knowledge panel visible; General hidden.
     knowledge_stub = page.locator('[data-testid="agent-knowledge-tab-stub"]')
@@ -209,12 +192,8 @@ def test_refresh_on_knowledge_tab_persists(app_with_agent: SeededApp, page: Page
     page.goto(target)
     _wait_editor_ready(page, expected_tab="knowledge")
 
-    expect(page.locator('[data-testid="agent-knowledge-tab-stub"]')).to_be_visible(
-        timeout=8000
-    )
-    expect(page.locator('[data-testid="tab-knowledge"]')).to_have_attribute(
-        "aria-selected", "true"
-    )
+    expect(page.locator('[data-testid="agent-knowledge-tab-stub"]')).to_be_visible(timeout=8000)
+    expect(page.locator('[data-testid="tab-knowledge"]')).to_have_attribute("aria-selected", "true")
 
 
 @pytest.mark.browser
@@ -226,18 +205,12 @@ def test_refresh_on_tools_tab_persists(app_with_agent: SeededApp, page: Page) ->
     page.goto(target)
     _wait_editor_ready(page, expected_tab="tools")
 
-    expect(page.locator('[data-testid="agent-mcp-tools-stub"]')).to_be_visible(
-        timeout=8000
-    )
-    expect(page.locator('[data-testid="tab-tools"]')).to_have_attribute(
-        "aria-selected", "true"
-    )
+    expect(page.locator('[data-testid="agent-mcp-tools-stub"]')).to_be_visible(timeout=8000)
+    expect(page.locator('[data-testid="tab-tools"]')).to_have_attribute("aria-selected", "true")
 
 
 @pytest.mark.browser
-def test_tools_tab_renders_builtin_checkboxes(
-    app_with_agent: SeededApp, page: Page
-) -> None:
+def test_tools_tab_renders_builtin_checkboxes(app_with_agent: SeededApp, page: Page) -> None:
     """Tools tab contains built-in tool checkboxes; interactive."""
     base_url = app_with_agent.base_url
     page.goto(f"{base_url}#studio")

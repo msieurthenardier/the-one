@@ -10,7 +10,6 @@ import pytest
 
 from the_one.platform.shell import run_shell, select_shell
 
-
 # ---------------------------------------------------------------------------
 # select_shell
 # ---------------------------------------------------------------------------
@@ -78,8 +77,6 @@ class TestRunShell:
         assert elapsed < 1.0, f"run_shell timeout took {elapsed:.3f}s; kill+reap likely broken"
 
     async def test_env_override(self) -> None:
-        stdout, _, returncode = await run_shell(
-            "echo $FOO", timeout=5, env={"FOO": "bar"}
-        )
+        stdout, _, returncode = await run_shell("echo $FOO", timeout=5, env={"FOO": "bar"})
         assert returncode == 0
         assert stdout.strip() == b"bar"

@@ -59,9 +59,7 @@ from the_one.tools.web import (
 )
 
 
-def _patch_transport(
-    monkeypatch, handler: Callable[[httpx.Request], httpx.Response]
-) -> None:
+def _patch_transport(monkeypatch, handler: Callable[[httpx.Request], httpx.Response]) -> None:
     """Replace ``HttpRequestTool._build_transport`` to inject a
     ``MockTransport`` carrying ``handler``. Bypasses SSRF for
     tool-behavior tests; the SSRFGuardedTransport's own coverage lives
@@ -127,9 +125,7 @@ class TestHttpRequestTool:
         # Closes the formatter contract loop on the POST happy path too.
         assert "[200]" in result
 
-    async def test_network_error_returns_error_string(
-        self, monkeypatch
-    ) -> None:
+    async def test_network_error_returns_error_string(self, monkeypatch) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
             raise httpx.ConnectError("nope")
 
@@ -155,17 +151,11 @@ class TestHttpRequestToolConstraints:
         import asyncio.base_events
 
         async def fake_getaddrinfo(self, host, port, *args, **kwargs):
-            return [
-                (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("127.0.0.1", 80))
-            ]
+            return [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("127.0.0.1", 80))]
 
-        monkeypatch.setattr(
-            asyncio.base_events.BaseEventLoop, "getaddrinfo", fake_getaddrinfo
-        )
+        monkeypatch.setattr(asyncio.base_events.BaseEventLoop, "getaddrinfo", fake_getaddrinfo)
 
-        result = await HttpRequestTool(WebConfig()).execute(
-            method="GET", url="http://example.com/"
-        )
+        result = await HttpRequestTool(WebConfig()).execute(method="GET", url="http://example.com/")
         assert "[error] [constraint]" in result
         assert "all resolved IPs" in result
 
@@ -182,9 +172,7 @@ class TestHttpRequestToolConstraints:
 
         _patch_transport(monkeypatch, handler)
         cfg = WebConfig(redirect_cap=0)
-        result = await HttpRequestTool(cfg).execute(
-            method="GET", url="https://example.test/"
-        )
+        result = await HttpRequestTool(cfg).execute(method="GET", url="https://example.test/")
         assert result.startswith("[302]")
         assert "<redirect-body>" in result
 
@@ -204,9 +192,7 @@ class TestHttpRequestToolConstraints:
 
         _patch_transport(monkeypatch, handler)
         cfg = WebConfig(redirect_cap=1)
-        result = await HttpRequestTool(cfg).execute(
-            method="GET", url="https://example.test/"
-        )
+        result = await HttpRequestTool(cfg).execute(method="GET", url="https://example.test/")
         assert result == "[error] [constraint] exceeded redirect cap of 1"
 
     async def test_response_size_cap_truncated(self, monkeypatch) -> None:
@@ -219,9 +205,7 @@ class TestHttpRequestToolConstraints:
 
         _patch_transport(monkeypatch, handler)
         cfg = WebConfig(response_size_cap_bytes=1024)
-        result = await HttpRequestTool(cfg).execute(
-            method="GET", url="https://example.test/"
-        )
+        result = await HttpRequestTool(cfg).execute(method="GET", url="https://example.test/")
         assert result.startswith("[200]")
         assert "[... truncated" in result
         assert "showing last 1024 bytes" in result
@@ -233,9 +217,7 @@ class TestHttpRequestToolConstraints:
 
         # No transport patch needed — _url_check refuses before transport.
         cfg = WebConfig(host_allowlist=["github.com"])
-        result = await HttpRequestTool(cfg).execute(
-            method="GET", url="http://other.com/"
-        )
+        result = await HttpRequestTool(cfg).execute(method="GET", url="http://other.com/")
         assert result.startswith("[error] [constraint]")
         assert "not in host_allowlist" in result
 
@@ -244,9 +226,7 @@ class TestHttpRequestToolConstraints:
         ``[error] [constraint] host '...' is in host_denylist``."""
 
         cfg = WebConfig(host_denylist=["evil.com"])
-        result = await HttpRequestTool(cfg).execute(
-            method="GET", url="http://evil.com/"
-        )
+        result = await HttpRequestTool(cfg).execute(method="GET", url="http://evil.com/")
         assert result.startswith("[error] [constraint]")
         assert "host_denylist" in result
 
@@ -276,20 +256,14 @@ class TestHttpRequestToolConstraints:
         import asyncio.base_events
 
         async def fake_getaddrinfo(self, host, port, *args, **kwargs):
-            return [
-                (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("127.0.0.1", 80))
-            ]
+            return [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("127.0.0.1", 80))]
 
-        monkeypatch.setattr(
-            asyncio.base_events.BaseEventLoop, "getaddrinfo", fake_getaddrinfo
-        )
+        monkeypatch.setattr(asyncio.base_events.BaseEventLoop, "getaddrinfo", fake_getaddrinfo)
 
         # Operator config would have extra_allowed_hosts=["localhost"];
         # agent override narrowed to []. Tool sees the narrowed cfg.
         agent_cfg = WebConfig(extra_allowed_hosts=[])
-        result = await HttpRequestTool(agent_cfg).execute(
-            method="GET", url="http://localhost/"
-        )
+        result = await HttpRequestTool(agent_cfg).execute(method="GET", url="http://localhost/")
         assert "[error] [constraint]" in result
         assert "all resolved IPs" in result
 
@@ -299,9 +273,7 @@ class TestHttpRequestToolConstraints:
 # ---------------------------------------------------------------------------
 
 
-def _patch_fetch_transport(
-    monkeypatch, handler: Callable[[httpx.Request], httpx.Response]
-) -> None:
+def _patch_fetch_transport(monkeypatch, handler: Callable[[httpx.Request], httpx.Response]) -> None:
     """Replace ``FetchUrlTool._build_transport`` to inject a
     ``MockTransport`` carrying ``handler``. Mirrors the
     ``_patch_transport`` shape used for ``HttpRequestTool``."""
@@ -369,9 +341,8 @@ class TestHttpRequestToolUserAgent:
 
         _patch_transport(monkeypatch, handler)
         from the_one.tools._web_config import _DEFAULT_USER_AGENT
-        await HttpRequestTool(WebConfig()).execute(
-            method="GET", url="https://example.test/"
-        )
+
+        await HttpRequestTool(WebConfig()).execute(method="GET", url="https://example.test/")
         assert captured["ua"] == _DEFAULT_USER_AGENT
 
     async def test_operator_override_sent(self, monkeypatch) -> None:
@@ -383,9 +354,7 @@ class TestHttpRequestToolUserAgent:
 
         _patch_transport(monkeypatch, handler)
         cfg = WebConfig(default_user_agent="Mozilla/5.0 OperatorOverride")
-        await HttpRequestTool(cfg).execute(
-            method="GET", url="https://example.test/"
-        )
+        await HttpRequestTool(cfg).execute(method="GET", url="https://example.test/")
         assert captured["ua"] == "Mozilla/5.0 OperatorOverride"
 
     async def test_agent_per_call_header_wins(self, monkeypatch) -> None:
@@ -424,9 +393,7 @@ class TestFetchUrlTool:
             )
 
         _patch_fetch_transport(monkeypatch, handler)
-        result = await FetchUrlTool(WebConfig()).execute(
-            url="https://example.test/article"
-        )
+        result = await FetchUrlTool(WebConfig()).execute(url="https://example.test/article")
         assert "[200]" in result
         assert "# The Title" in result
         assert "Para 1" in result
@@ -443,9 +410,7 @@ class TestFetchUrlTool:
             )
 
         _patch_fetch_transport(monkeypatch, handler)
-        result = await FetchUrlTool(WebConfig()).execute(
-            url="https://example.test/plain"
-        )
+        result = await FetchUrlTool(WebConfig()).execute(url="https://example.test/plain")
         assert result.startswith("[200]")
         assert "hello plain text body" in result
 
@@ -462,9 +427,7 @@ class TestFetchUrlTool:
             )
 
         _patch_fetch_transport(monkeypatch, handler)
-        result = await FetchUrlTool(WebConfig()).execute(
-            url="https://example.test/api"
-        )
+        result = await FetchUrlTool(WebConfig()).execute(url="https://example.test/api")
         assert result.startswith("[200]")
         assert '{"key": "value", "n": 42}' in result
 
@@ -482,9 +445,7 @@ class TestFetchUrlTool:
             )
 
         _patch_fetch_transport(monkeypatch, handler)
-        result = await FetchUrlTool(WebConfig()).execute(
-            url="https://example.test/file.pdf"
-        )
+        result = await FetchUrlTool(WebConfig()).execute(url="https://example.test/file.pdf")
         assert result == (
             "[error] binary content (50 bytes; type=application/pdf) "
             "— use download_file for binary downloads"
@@ -494,9 +455,7 @@ class TestFetchUrlTool:
         """Non-http/https scheme → ``_url_check`` raises
         ``ConstraintError``; tool surfaces ``[error] [constraint]
         scheme 'ftp' refused; ...``. Mock not invoked."""
-        result = await FetchUrlTool(WebConfig()).execute(
-            url="ftp://example.test/file"
-        )
+        result = await FetchUrlTool(WebConfig()).execute(url="ftp://example.test/file")
         assert result.startswith("[error] [constraint]")
         assert "scheme 'ftp' refused" in result
 
@@ -509,9 +468,7 @@ class TestFetchUrlTool:
         big_paragraph = "lorem ipsum dolor sit amet " * 30  # ~ 800 chars
         big_html = (
             "<html><body><article><h1>Big Title</h1>"
-            + "".join(
-                f"<p>{big_paragraph}</p>" for _ in range(8)
-            )
+            + "".join(f"<p>{big_paragraph}</p>" for _ in range(8))
             + "</article></body></html>"
         )
 
@@ -524,9 +481,7 @@ class TestFetchUrlTool:
 
         _patch_fetch_transport(monkeypatch, handler)
         cfg = WebConfig(response_size_cap_bytes=1024)
-        result = await FetchUrlTool(cfg).execute(
-            url="https://example.test/big"
-        )
+        result = await FetchUrlTool(cfg).execute(url="https://example.test/big")
         assert result.startswith("[200]")
         assert "[... truncated" in result
         assert "showing last 1024 bytes" in result
@@ -541,9 +496,7 @@ class TestFetchUrlTool:
 
         _patch_fetch_transport(monkeypatch, handler)
         cfg = WebConfig(timeout_seconds_default=2, timeout_seconds_max=2)
-        result = await FetchUrlTool(cfg).execute(
-            url="https://example.test/slow"
-        )
+        result = await FetchUrlTool(cfg).execute(url="https://example.test/slow")
         assert result == "[error] Fetch timed out after 2s"
 
     def test_construction_shape(self) -> None:
@@ -606,18 +559,12 @@ class TestDownloadFileTool:
 
         _patch_download_transport(monkeypatch, handler)
         target = tmp_path / "out.bin"
-        tool = _make_download_tool(
-            fs_cfg=FilesystemConfig(path_allowlist=[str(tmp_path)])
-        )
-        result = await tool.execute(
-            url="https://example.test/file.bin", path=str(target)
-        )
+        tool = _make_download_tool(fs_cfg=FilesystemConfig(path_allowlist=[str(tmp_path)]))
+        result = await tool.execute(url="https://example.test/file.bin", path=str(target))
         assert result == f"[200] downloaded 1024 bytes to {target}"
         assert target.read_bytes() == body
 
-    async def test_path_outside_allowlist_refused(
-        self, monkeypatch, tmp_path
-    ) -> None:
+    async def test_path_outside_allowlist_refused(self, monkeypatch, tmp_path) -> None:
         """When ``path`` is outside the allowlist, the L0 ``_filesystem_check``
         raises ``ConstraintError``; tool surfaces ``[error] [constraint]
         path '...' outside allowlist`` and the file is not created."""
@@ -627,19 +574,13 @@ class TestDownloadFileTool:
             return httpx.Response(200, content=b"should not be written")
 
         _patch_download_transport(monkeypatch, handler)
-        tool = _make_download_tool(
-            fs_cfg=FilesystemConfig(path_allowlist=[str(tmp_path)])
-        )
+        tool = _make_download_tool(fs_cfg=FilesystemConfig(path_allowlist=[str(tmp_path)]))
         # /etc/passwd resolves outside the tmp_path allowlist.
-        result = await tool.execute(
-            url="https://example.test/x", path="/etc/passwd"
-        )
+        result = await tool.execute(url="https://example.test/x", path="/etc/passwd")
         assert result.startswith("[error] [constraint]")
         assert "outside allowlist" in result
 
-    async def test_mid_stream_size_cap_aborts(
-        self, monkeypatch, tmp_path
-    ) -> None:
+    async def test_mid_stream_size_cap_aborts(self, monkeypatch, tmp_path) -> None:
         """``response_size_cap_bytes=1024``; mock returns 5KB; tool aborts
         mid-stream, unlinks the partial file, returns
         ``[error] [constraint] response exceeded 1024 bytes; partial file
@@ -657,13 +598,8 @@ class TestDownloadFileTool:
             web_cfg=cfg,
             fs_cfg=FilesystemConfig(path_allowlist=[str(tmp_path)]),
         )
-        result = await tool.execute(
-            url="https://example.test/big", path=str(target)
-        )
-        assert result == (
-            "[error] [constraint] response exceeded 1024 bytes; "
-            "partial file removed"
-        )
+        result = await tool.execute(url="https://example.test/big", path=str(target))
+        assert result == ("[error] [constraint] response exceeded 1024 bytes; partial file removed")
         assert not target.exists()
 
     async def test_url_check_refused(self, monkeypatch, tmp_path) -> None:
@@ -671,12 +607,8 @@ class TestDownloadFileTool:
         tool surfaces ``[error] [constraint] scheme 'ftp' refused; ...``.
         No file created."""
         target = tmp_path / "shouldnotexist.bin"
-        tool = _make_download_tool(
-            fs_cfg=FilesystemConfig(path_allowlist=[str(tmp_path)])
-        )
-        result = await tool.execute(
-            url="ftp://example.test/file", path=str(target)
-        )
+        tool = _make_download_tool(fs_cfg=FilesystemConfig(path_allowlist=[str(tmp_path)]))
+        result = await tool.execute(url="ftp://example.test/file", path=str(target))
         assert result.startswith("[error] [constraint]")
         assert "scheme 'ftp' refused" in result
         assert not target.exists()
@@ -691,11 +623,7 @@ class TestDownloadFileTool:
             call_count["n"] += 1
             return httpx.Response(
                 302,
-                headers={
-                    "Location": (
-                        f"https://example.test/next-{call_count['n']}"
-                    )
-                },
+                headers={"Location": (f"https://example.test/next-{call_count['n']}")},
                 text=f"redirect-{call_count['n']}",
             )
 
@@ -706,15 +634,11 @@ class TestDownloadFileTool:
             web_cfg=cfg,
             fs_cfg=FilesystemConfig(path_allowlist=[str(tmp_path)]),
         )
-        result = await tool.execute(
-            url="https://example.test/", path=str(target)
-        )
+        result = await tool.execute(url="https://example.test/", path=str(target))
         assert result == "[error] [constraint] exceeded redirect cap of 1"
         assert not target.exists()
 
-    async def test_timeout_via_httpx_readtimeout(
-        self, monkeypatch, tmp_path
-    ) -> None:
+    async def test_timeout_via_httpx_readtimeout(self, monkeypatch, tmp_path) -> None:
         """Mock raises ``httpx.ReadTimeout`` → tool surfaces F5 wording
         ``[error] Download timed out after Ns`` (distinct from L2's
         ``Request timed out`` and L3's ``Fetch timed out``). No file
@@ -730,15 +654,11 @@ class TestDownloadFileTool:
             web_cfg=cfg,
             fs_cfg=FilesystemConfig(path_allowlist=[str(tmp_path)]),
         )
-        result = await tool.execute(
-            url="https://example.test/slow", path=str(target)
-        )
+        result = await tool.execute(url="https://example.test/slow", path=str(target))
         assert result == "[error] Download timed out after 2s"
         assert not target.exists()
 
-    async def test_relative_path_resolves_against_cwd(
-        self, monkeypatch, tmp_path
-    ) -> None:
+    async def test_relative_path_resolves_against_cwd(self, monkeypatch, tmp_path) -> None:
         """Relative ``path`` resolves against the process CWD. Use
         ``monkeypatch.chdir(tmp_path)`` to control CWD; agent passes
         ``path="file.bin"`` (parent is ``tmp_path``, which exists, so
@@ -750,21 +670,15 @@ class TestDownloadFileTool:
 
         _patch_download_transport(monkeypatch, handler)
         monkeypatch.chdir(tmp_path)
-        tool = _make_download_tool(
-            fs_cfg=FilesystemConfig(path_allowlist=[str(tmp_path)])
-        )
-        result = await tool.execute(
-            url="https://example.test/x", path="file.bin"
-        )
+        tool = _make_download_tool(fs_cfg=FilesystemConfig(path_allowlist=[str(tmp_path)]))
+        result = await tool.execute(url="https://example.test/x", path="file.bin")
         expected = tmp_path / "file.bin"
         assert "[200]" in result
         assert "downloaded 21 bytes" in result
         assert expected.exists()
         assert expected.read_bytes() == b"relative-path-content"
 
-    async def test_partial_file_cleaned_on_unexpected_error(
-        self, monkeypatch, tmp_path
-    ) -> None:
+    async def test_partial_file_cleaned_on_unexpected_error(self, monkeypatch, tmp_path) -> None:
         """Simulate a generic ``RuntimeError`` from inside the
         ``aiter_bytes()`` loop. The tool's generic ``except Exception``
         clause must unlink the partial file; ``target.exists()`` is False
@@ -786,12 +700,8 @@ class TestDownloadFileTool:
 
         _patch_download_transport(monkeypatch, handler)
         target = tmp_path / "partial.bin"
-        tool = _make_download_tool(
-            fs_cfg=FilesystemConfig(path_allowlist=[str(tmp_path)])
-        )
-        result = await tool.execute(
-            url="https://example.test/x", path=str(target)
-        )
+        tool = _make_download_tool(fs_cfg=FilesystemConfig(path_allowlist=[str(tmp_path)]))
+        result = await tool.execute(url="https://example.test/x", path=str(target))
         assert result.startswith("[error]")
         assert "boom mid-stream" in result
         assert not target.exists()
@@ -842,9 +752,7 @@ class _StubBackend:
         self._raise_exc = raise_exc
         self._capture_max = capture_max
 
-    async def search(
-        self, query: str, max_results: int
-    ) -> list[SearchResult]:
+    async def search(self, query: str, max_results: int) -> list[SearchResult]:
         if self._capture_max is not None:
             self._capture_max.append(max_results)
         if self._raise_exc is not None:

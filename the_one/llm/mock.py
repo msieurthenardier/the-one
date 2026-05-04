@@ -24,7 +24,7 @@ class MockProvider(LLMProvider):
                 ]
             },
             "stream_chunks": ["Hello, ", "world", "!"], # optional; if set, stream() yields each
-            "delay_ms": 200,                            # optional; latency between chunks (and on complete)
+            "delay_ms": 200,                            # optional; latency between chunks/complete
         }
 
     If ``response`` is not set, returns a fixed default content.

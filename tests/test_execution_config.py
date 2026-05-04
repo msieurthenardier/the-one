@@ -78,9 +78,7 @@ class TestBounds:
 
     def test_timeout_default_above_ceiling_raises(self) -> None:
         with pytest.raises(ValidationError):
-            ExecutionConfig(
-                timeout_seconds_default=3601, timeout_seconds_max=3601
-            )
+            ExecutionConfig(timeout_seconds_default=3601, timeout_seconds_max=3601)
 
     def test_timeout_max_below_floor_raises(self) -> None:
         with pytest.raises(ValidationError):
@@ -437,10 +435,10 @@ class TestPythonExecConfig:
         same hoisted ``_TIMEOUT_DEFAULT_UI_CHOICES`` source; admin UI
         renders identical choices for either tool (the only legitimate
         difference is which value is the default)."""
-        exec_choices = ExecutionConfig.model_json_schema()["properties"][
-            "timeout_seconds_default"
-        ]["ui_choices"]
-        py_choices = PythonExecConfig.model_json_schema()["properties"][
-            "timeout_seconds_default"
-        ]["ui_choices"]
+        exec_choices = ExecutionConfig.model_json_schema()["properties"]["timeout_seconds_default"][
+            "ui_choices"
+        ]
+        py_choices = PythonExecConfig.model_json_schema()["properties"]["timeout_seconds_default"][
+            "ui_choices"
+        ]
         assert exec_choices == py_choices

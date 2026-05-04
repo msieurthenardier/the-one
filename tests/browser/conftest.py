@@ -34,7 +34,6 @@ import pytest
 from browser.seeders import SeededApp, seed_mock_agent, seed_mock_provider
 from playwright.sync_api import Browser, Page, Playwright, sync_playwright
 
-
 # ── pytest CLI extension ──────────────────────────────────────────────────
 
 
@@ -65,6 +64,7 @@ def pytest_configure(config: pytest.Config) -> None:
     """
     if config.getoption("--snapshot-update"):
         os.environ["_PYTEST_SNAPSHOT_UPDATE"] = "1"
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────
 

@@ -25,7 +25,6 @@ import pytest
 # ``browser.design_tokens`` importable as a top-level package.
 from browser.design_tokens import DARK, LIGHT
 
-
 # ---------------------------------------------------------------------------
 # Contrast helpers (WCAG 2.1 sRGB luminance + contrast ratio formula)
 # ---------------------------------------------------------------------------
@@ -104,8 +103,7 @@ def test_body_text_passes_aa(theme: str, fg_key: str, bg_key: str) -> None:
     palette = _palette(theme)
     ratio = contrast_ratio(palette[fg_key], palette[bg_key])
     assert ratio >= 4.5, (
-        f"{theme} body text fails AA: {fg_key} on {bg_key} = "
-        f"{ratio:.2f}:1 (need ≥ 4.5:1)"
+        f"{theme} body text fails AA: {fg_key} on {bg_key} = {ratio:.2f}:1 (need ≥ 4.5:1)"
     )
 
 
@@ -142,8 +140,7 @@ def test_large_or_ui_passes_aa(theme: str, fg_key: str, bg_key: str) -> None:
     palette = _palette(theme)
     ratio = contrast_ratio(palette[fg_key], palette[bg_key])
     assert ratio >= 3.0, (
-        f"{theme} large/UI fails AA: {fg_key} on {bg_key} = "
-        f"{ratio:.2f}:1 (need ≥ 3.0:1)"
+        f"{theme} large/UI fails AA: {fg_key} on {bg_key} = {ratio:.2f}:1 (need ≥ 3.0:1)"
     )
 
 
@@ -178,9 +175,7 @@ def test_large_or_ui_passes_aa(theme: str, fg_key: str, bg_key: str) -> None:
         ("light", "status_danger", "surface", 4.5),
     ],
 )
-def test_text_on_color(
-    theme: str, fg_key: str, bg_key: str, threshold: float
-) -> None:
+def test_text_on_color(theme: str, fg_key: str, bg_key: str, threshold: float) -> None:
     """Text-on-color and status-token contrast checks."""
     palette = _palette(theme)
     ratio = contrast_ratio(palette[fg_key], palette[bg_key])
@@ -204,9 +199,7 @@ def test_text_on_color(
 def test_fg_faint_dark_is_intentional_low_contrast() -> None:
     """`--fg-faint` (dark) is intentionally below body AA — faint contexts only."""
     ratio = contrast_ratio("#444444", DARK["bg"])
-    assert 1.0 < ratio < 4.5, (
-        f"--fg-faint dark drifted out of expected band: ratio={ratio:.2f}:1"
-    )
+    assert 1.0 < ratio < 4.5, f"--fg-faint dark drifted out of expected band: ratio={ratio:.2f}:1"
 
 
 # DELIBERATE EXCEPTION (2/2): --fg-faint (light) #94a3b8 on #fafbfc ≈ 2.47:1.
@@ -220,6 +213,4 @@ def test_fg_faint_dark_is_intentional_low_contrast() -> None:
 def test_fg_faint_light_is_intentional_low_contrast() -> None:
     """`--fg-faint` (light) is intentionally below body AA — faint contexts only."""
     ratio = contrast_ratio("#94a3b8", LIGHT["bg"])
-    assert 1.5 < ratio < 4.5, (
-        f"--fg-faint light drifted out of expected band: ratio={ratio:.2f}:1"
-    )
+    assert 1.5 < ratio < 4.5, f"--fg-faint light drifted out of expected band: ratio={ratio:.2f}:1"

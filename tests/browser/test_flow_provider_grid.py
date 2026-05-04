@@ -79,7 +79,7 @@ def test_tile_click_navigates_to_provider_detail(app_with_provider: SeededApp, p
         f"expected /providers/<id>, got {current_hash}"
     )
     # The id portion should not be 'new' (we clicked an existing tile)
-    suffix = current_hash[len("#admin/providers/"):]
+    suffix = current_hash[len("#admin/providers/") :]
     assert suffix != "new"
 
 

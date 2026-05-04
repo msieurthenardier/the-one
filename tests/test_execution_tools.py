@@ -112,13 +112,28 @@ class TestShellTool:
         result = await _make_shell().execute(command="pwd")
         assert result == str(Path.home().resolve())
 
-    async def test_relative_cwd_refused_when_outside_allowlist(self) -> None:
-        """``cwd='.'`` resolves against the FastAPI process CWD (typically
-        ``/app`` in the dev container), which is OUTSIDE the default
-        ``path_allowlist=["~"]`` → refused. Pinning per leg-spec edge case
-        documentation: operators wanting ``.``-style relative cwds must
-        broaden the allowlist."""
-        result = await _make_shell().execute(command="ls", cwd=".")
+    async def test_relative_cwd_refused_when_outside_allowlist(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``cwd='.'`` resolves against the process CWD; the test must
+        guarantee that CWD is OUTSIDE the configured ``path_allowlist``.
+
+        Previously this test relied on the implicit assumption that the
+        process CWD was the FastAPI dev-container path (``/app``), which
+        the default ``path_allowlist=["~"]`` rejects. On host runs from
+        the project root (under ``~``), the default allowlist accepts the
+        CWD and the assertion flips. Reparametrized to be CWD-independent
+        by construction:
+
+        - ``monkeypatch.chdir(tmp_path)`` pins the process CWD to a known
+          tmpdir (under ``/tmp``).
+        - ``FilesystemConfig(path_allowlist=["/nonexistent"])`` excludes
+          ``tmp_path`` explicitly so the resolved cwd is guaranteed to
+          fall outside the allowlist.
+        """
+        monkeypatch.chdir(tmp_path)
+        fs_cfg = FilesystemConfig(path_allowlist=["/nonexistent"])
+        result = await _make_shell(fs_cfg=fs_cfg).execute(command="ls", cwd=".")
         assert result.startswith("[error] [constraint]")
         assert "outside allowlist" in result
 
@@ -127,12 +142,8 @@ class TestShellTool:
         ``timeout_seconds_max=2`` → silent clip to 2 (Decision 1's
         default-and-clip framing). The error message reflects the CLIPPED
         value, not the agent's raw value."""
-        exec_cfg = ExecutionConfig(
-            timeout_seconds_default=2, timeout_seconds_max=2
-        )
-        result = await _make_shell(exec_cfg=exec_cfg).execute(
-            command="sleep 5", timeout=10
-        )
+        exec_cfg = ExecutionConfig(timeout_seconds_default=2, timeout_seconds_max=2)
+        result = await _make_shell(exec_cfg=exec_cfg).execute(command="sleep 5", timeout=10)
         assert result == "[error] Command timed out after 2s"
 
     async def test_output_truncated_at_cap(self) -> None:
@@ -144,9 +155,7 @@ class TestShellTool:
         )
         assert "[... truncated" in result
 
-    async def test_env_allowlist_invariant(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_env_allowlist_invariant(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """End-to-end: spawn ``env`` and assert the subprocess sees ONLY
         the eight-key allowlist. Hermetic — sets a leak key first and
         asserts it is absent in the child env."""
@@ -176,9 +185,7 @@ class TestShellTool:
         # is vacuously True. Real subprocess always inherits at least PATH.
         assert len(keys) > 0, f"no env keys parsed from output: {result!r}"
         assert "THE_ONE_TEST_LEAK" not in keys, f"leak: {keys}"
-        assert keys.issubset(expected | shell_added), (
-            f"extras: {keys - expected - shell_added}"
-        )
+        assert keys.issubset(expected | shell_added), f"extras: {keys - expected - shell_added}"
 
     async def test_constraint_error_two_clause_envelope(self) -> None:
         """Pin the ``[error] [constraint] ...`` prefix for ConstraintError
@@ -217,9 +224,7 @@ class TestPythonExecTool:
         assert result == "4"
 
     async def test_stderr_appended(self) -> None:
-        result = await _make_python().execute(
-            code="import sys; print('err', file=sys.stderr)"
-        )
+        result = await _make_python().execute(code="import sys; print('err', file=sys.stderr)")
         assert "[stderr]" in result and "err" in result
 
     async def test_nonzero_exit_appends_exit_code_suffix(self) -> None:
@@ -239,9 +244,7 @@ class TestPythonExecTool:
         # PRESERVED divergence: PythonExecTool says "Timed out after Ns"
         # (not "Command timed out after Ns" like ShellTool).
         t0 = time.monotonic()
-        result = await _make_python().execute(
-            code="import time; time.sleep(5)", timeout=0.5
-        )
+        result = await _make_python().execute(code="import time; time.sleep(5)", timeout=0.5)
         elapsed = time.monotonic() - t0
         assert result == "[error] Timed out after 0.5s"
         assert elapsed < 3.0, f"kill+reap blocked: {elapsed}s"
@@ -261,28 +264,20 @@ class TestPythonExecTool:
         substring-wise inside an ``os.system`` call) surfaces as
         ``[error] [constraint] command contains denylisted token '...'``
         BEFORE any subprocess is spawned."""
-        result = await _make_python().execute(
-            code="import os; os.system('sudo whoami')"
-        )
-        assert (
-            result == "[error] [constraint] command contains denylisted token 'sudo '"
-        )
+        result = await _make_python().execute(code="import os; os.system('sudo whoami')")
+        assert result == "[error] [constraint] command contains denylisted token 'sudo '"
 
     async def test_cwd_outside_allowlist_refused(self) -> None:
         """``cwd='/etc'`` hits the default denylist; refused with the
         constraint prefix BEFORE any subprocess is spawned."""
-        result = await _make_python().execute(
-            code="import os; print(os.getcwd())", cwd="/etc"
-        )
+        result = await _make_python().execute(code="import os; print(os.getcwd())", cwd="/etc")
         assert result.startswith("[error] [constraint]")
         assert "/etc" in result
 
     async def test_cwd_default_is_home(self) -> None:
         """When ``cwd`` is omitted, the tool uses ``Path.home()`` — the
         default ``FilesystemConfig.path_allowlist=["~"]`` accepts it."""
-        result = await _make_python().execute(
-            code="import os; print(os.getcwd())"
-        )
+        result = await _make_python().execute(code="import os; print(os.getcwd())")
         assert result == str(Path.home().resolve())
 
     async def test_timeout_clipped_to_max(self) -> None:
@@ -290,9 +285,7 @@ class TestPythonExecTool:
         ``timeout_seconds_max=2`` → silent clip to 2 (Decision 1's
         default-and-clip framing). The error message reflects the CLIPPED
         value, not the agent's raw value. PRESERVED Python wording."""
-        exec_cfg = PythonExecConfig(
-            timeout_seconds_default=2, timeout_seconds_max=2
-        )
+        exec_cfg = PythonExecConfig(timeout_seconds_default=2, timeout_seconds_max=2)
         result = await _make_python(exec_cfg=exec_cfg).execute(
             code="import time; time.sleep(5)", timeout=10
         )
@@ -307,9 +300,7 @@ class TestPythonExecTool:
         )
         assert "[... truncated" in result
 
-    async def test_env_allowlist_invariant(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_env_allowlist_invariant(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """End-to-end: spawn a Python child that dumps ``os.environ`` and
         assert the subprocess sees ONLY the eight-key allowlist (plus a
         small set of C-runtime-injected extras: ``PWD`` from ``cwd=``,
@@ -317,10 +308,7 @@ class TestPythonExecTool:
         asserts it is absent in the child env."""
         monkeypatch.setenv("THE_ONE_TEST_LEAK", "secret")
         result = await _make_python().execute(
-            code=(
-                "import os; "
-                "print('\\n'.join(f'{k}={v}' for k, v in sorted(os.environ.items())))"
-            )
+            code=("import os; print('\\n'.join(f'{k}={v}' for k, v in sorted(os.environ.items())))")
         )
         keys = {
             line.split("=", 1)[0]
@@ -346,18 +334,14 @@ class TestPythonExecTool:
         # is vacuously True. Real subprocess always inherits at least PATH.
         assert len(keys) > 0, f"no env keys parsed from output: {result!r}"
         assert "THE_ONE_TEST_LEAK" not in keys, f"leak: {keys}"
-        assert keys.issubset(expected | runtime_added), (
-            f"extras: {keys - expected - runtime_added}"
-        )
+        assert keys.issubset(expected | runtime_added), f"extras: {keys - expected - runtime_added}"
 
     async def test_constraint_error_two_clause_envelope(self) -> None:
         """Pin the ``[error] [constraint] ...`` prefix for ConstraintError
         paths — distinct from the bare ``[error] ...`` prefix used by the
         generic Exception clause. Small-model agents key on the prefix to
         distinguish policy refusals from runtime failures."""
-        result = await _make_python().execute(
-            code="import os; os.system('sudo whoami')"
-        )
+        result = await _make_python().execute(code="import os; os.system('sudo whoami')")
         assert result.startswith("[error] [constraint] ")
         assert not result.startswith("[error] command")
 

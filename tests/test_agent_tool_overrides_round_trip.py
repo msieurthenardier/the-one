@@ -59,9 +59,7 @@ class TestAgentToolOverridesRoundTrip:
         body = resp.json()
         assert body["tool_overrides"] is None
 
-    async def test_agent_put_with_tool_overrides_round_trips(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_agent_put_with_tool_overrides_round_trips(self, client: AsyncClient) -> None:
         """PUT agent with `tool_overrides={...}` → GET returns the exact
         same dict shape (str → dict[str, Any] preservation)."""
         await client.post("/api/agents", json={"name": "test-overrides"})

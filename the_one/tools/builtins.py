@@ -122,9 +122,7 @@ class BuiltinToolProvider:
                 continue
             if cls.Config in cross_configs:
                 continue
-            cross_configs[cls.Config] = resolve(
-                cls.Config, tool_configs.get(name), None
-            )
+            cross_configs[cls.Config] = resolve(cls.Config, tool_configs.get(name), None)
 
         # F5 L6: inject the SearchBackend service alongside the Pydantic
         # Config entries. F5 ships only DDG; F6 admin will let operators

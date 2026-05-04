@@ -155,9 +155,7 @@ class TestUnixPtySession:
         s = UnixPtySession(shell="/bin/bash")
         try:
             await s.start()
-            out = await s.send(
-                "env | grep THE_ONE_TEST_LEAK || echo NOT_FOUND_OK"
-            )
+            out = await s.send("env | grep THE_ONE_TEST_LEAK || echo NOT_FOUND_OK")
             assert b"NOT_FOUND_OK" in out, out
             assert b"secret-pty-allowlist" not in out, out
         finally:

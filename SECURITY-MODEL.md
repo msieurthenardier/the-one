@@ -1,0 +1,125 @@
+# Security Model
+
+This project is a single-user local development tool. The threat model and
+security posture below are deliberate design choices, not gaps to fix.
+
+## Threat Model
+
+- **Audience**: solo developer/operator running the agent on their own
+  machine. No multi-user scenarios. No internet exposure. No untrusted
+  LLM-supplied tool inputs from external clients.
+- **Trust boundary**: the operator is trusted. Tool inputs from agents are
+  constrained by per-tool config (resolver-narrowed) but are NOT treated as
+  hostile.
+- **F3 Decision 10**: "operator-trusted setup, NOT malicious filesystem
+  actor." This decision is inherited by F4 / F5 / F6 and is the canonical
+  citation for any future "should we add auth/sandboxing/...?" question.
+
+## Authentication
+
+- **No auth on HTTP/WebSocket routes by design.** Every endpoint, including
+  state-mutating routes (`POST /api/encryption/rotate`,
+  `PUT /api/agents/{name}`, etc.), is unauthenticated. Adding auth would
+  violate the single-user posture documented above.
+- The **Origin-allowlist middleware** (M06 F1 L5) enforces same-origin
+  requests on state-mutating methods (POST/PUT/PATCH/DELETE) and on
+  WebSocket upgrade handshakes, closing the drive-by-LAN attack surface
+  without adding auth. Implementation:
+  `the_one/interfaces/web/middleware.py::OriginAllowlistMiddleware`. Allowed
+  origins default to `scheme://host:port` derived from
+  `settings.host`/`settings.port`; operators behind a reverse proxy extend
+  via `THE_ONE_ORIGIN_ALLOWLIST` (`.env.example` carries a commented
+  example). `GET` requests and missing-`Origin` callers (curl,
+  server-to-server) pass through.
+- Provider URL validation (M06 F1 L5) refuses non-`https://` `base_url`
+  values for non-localhost hosts at all three create/update/test endpoints
+  (HTTP 422). `mock` and `ollama` provider types are skipped.
+
+## Network Bind
+
+- Default `host=127.0.0.1` (localhost only).
+- `docker-compose.yml` overrides to `0.0.0.0` so the dev container is
+  reachable from the host loopback. This is intentional for the dev form
+  factor; the operator owns the docker bridge network.
+- A future production form factor (e.g., desktop app) reverts to
+  localhost-only. Any deployment exposing the app over a network is
+  responsible for fronting it with a reverse proxy that adds auth — that
+  configuration is out of scope for this project.
+
+## Tool Execution Boundary
+
+The per-category Pydantic Configs (`FilesystemConfig`, `ExecutionConfig`,
+`PythonExecConfig`, `WebConfig`) and the resolver semantics
+(`Narrow`/`NarrowPrefix`/`NarrowSuperset`/`Substitute`) are documented in
+detail in [CLAUDE.md](CLAUDE.md) under "Tool Configuration Layer (M05
+Flight 2)". The security-relevant invariants are:
+
+- **Filesystem (M05 F3)**: per-tool path allowlist + denylist (default
+  19-entry curated denylist covering system secrets, browser/app data,
+  agent internals), read-size cap, binary-file refusal. See
+  [CLAUDE.md](CLAUDE.md) "Filesystem constraint surface (F3)".
+- **Execution (M05 F4)**: timeout/output caps, command denylist
+  (trip-wire, not fence — see CLAUDE.md), per-agent PTY session isolation
+  keyed on `(agent_name, session_id)`, per-call denylist re-check on
+  `shell_session_send` so agents cannot pre-stage a denylisted command
+  behind an open session.
+- **Subprocess environment**: hardcoded 8-key allowlist (`PATH`, `HOME`,
+  `USER`, `LOGNAME`, `LANG`, `LC_ALL`, `TERM`, `TZ`) lives at
+  `the_one/platform/env.py` and is **NOT operator-configurable** by
+  design. See [CLAUDE.md](CLAUDE.md) line 128 for the canonical
+  description and the three enforcement call sites
+  (`shell.py::run_shell`, `interpreter.py::run_python`,
+  `pty.py::UnixPtySession`).
+- **Web (M05 F5)**: two-layer SSRF enforcement — `_url_check` at the tool
+  boundary plus `SSRFGuardedTransport` resolving DNS once and pinning the
+  connect target to that IP, refusing loopback / RFC1918 / link-local /
+  cloud-metadata / IPv6 ULA + ULL by default. IP-literal hosts are gated
+  on the same default-block list. See [CLAUDE.md](CLAUDE.md) lines
+  142-144 for the canonical mechanism description and the **mission
+  invariant** that `WebConfig` deliberately has no `disable_ssrf` field
+  — SSRF protection is always-on; operators reaching specific internal
+  hosts list them in `extra_allowed_hosts`.
+
+## Secrets
+
+- **LLM provider API keys**: encrypted at rest via `Encryptor` (Fernet
+  symmetric encryption). The encryption key file (`encryption.key` in the
+  project data dir) is created with mode `0o600`. See
+  [CLAUDE.md](CLAUDE.md) line 74 for the `Encryptor` integration with
+  `LLMProviderRepository`. Key rotation is exposed via
+  `POST /api/encryption/rotate` (gated by the Origin-allowlist
+  middleware).
+- **`__MASKED__` sentinel**: provider edit form preserves stored API keys
+  when the operator hasn't touched the field. See [CLAUDE.md](CLAUDE.md)
+  "`__MASKED__` sentinel for API key updates".
+- `.env` is gitignored.
+- `THE_ONE_CONCOURSE_PASS` is a local-Concourse-only credential; rotation
+  happens out-of-band (M06 F1 L6 documented the rotation procedure).
+- No secrets land in `.env.example`, `Dockerfile`, `docker-compose.yml`,
+  or `ci/pipeline.yml`.
+
+## What This Model Excludes
+
+The following are explicitly out of scope. A future flight extending into
+any of these would need to revisit (and likely revise) the threat model
+above before implementation:
+
+- Multi-user / multi-tenant deployments
+- Public internet exposure (without a reverse proxy adding auth)
+- Hostile LLM provider scenarios — the LLM provider's responses are
+  trusted (the project does NOT defend against an adversarial provider
+  that returns malicious tool-call payloads)
+- Hostile filesystem actor scenarios — the operator owns the local
+  environment; the filesystem denylist is defense-in-depth against
+  agent-side mistakes, not against an attacker on the same machine
+
+## Future Work (NOT in scope today)
+
+- **Secrets manager**: would replace `THE_ONE_CONCOURSE_PASS`-style env
+  vars and unify with the existing API-key encryption surface
+- **MCP server trust boundaries**: each MCP server is a separate trust
+  domain; connecting to a third-party MCP server widens the trust
+  boundary in ways the current model does not address
+- **Multi-user form factor**: would require auth + per-user tool
+  isolation + per-user encryption keys — a substantial change that
+  inverts F3 Decision 10

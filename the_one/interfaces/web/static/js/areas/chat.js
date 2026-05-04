@@ -68,9 +68,9 @@ App.registerArea({
         '<div class="header"><h2 class="session-agent-badge"></h2>' +
           '<button class="btn-outlined-cyan new-chat-header" type="button" data-testid="new-chat-btn" aria-label="Start a new conversation with this agent">' +
             App.icon('square-pen') + '<span>New Chat</span></button></div>' +
-        '<div class="messages"></div>' +
+        '<div class="messages" role="log" aria-live="polite" aria-relevant="additions" aria-atomic="false"></div>' +
         '<div class="input-area">' +
-          '<input data-testid="chat-input" placeholder="Type a message..." autocomplete="off" />' +
+          '<input data-testid="chat-input" placeholder="Type a message..." autocomplete="off" aria-label="Message" />' +
           '<button class="btn-filled-cyan" data-testid="chat-send-btn">Send</button></div>' +
       '</div>';
 
@@ -180,6 +180,7 @@ App.registerArea({
     }
 
     function renderHistory(history, agentName) {
+      messagesEl.setAttribute('aria-busy', 'true');
       messagesEl.innerHTML = '';
       var agentLabel = agentName || 'agent';
       for (var i = 0; i < history.length; i++) {
@@ -200,6 +201,7 @@ App.registerArea({
           addMsg('system', ev.content, null, histOpts);
         }
       }
+      messagesEl.removeAttribute('aria-busy');
     }
 
     function joinSession(id) {

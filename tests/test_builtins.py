@@ -150,9 +150,7 @@ class TestBuiltinToolProviderL1b:
             assert FilesystemConfig in tool._cross_configs, (
                 f"tool {tool.name} missing FilesystemConfig in cross_configs"
             )
-            assert isinstance(
-                tool._cross_configs[FilesystemConfig], FilesystemConfig
-            )
+            assert isinstance(tool._cross_configs[FilesystemConfig], FilesystemConfig)
 
     def test_introspection_path_has_empty_cross_configs(self) -> None:
         # Zero-arg / both-None calls must not invoke the resolver; tools come
@@ -198,9 +196,7 @@ class TestBuiltinToolProviderL1b:
         tools = BuiltinToolProvider().get_tools({}, {}, agent_name="alpha")
         fixture = next(t for t in tools if t.name == "fixture_requires_fs")
         assert FilesystemConfig in fixture._cross_configs
-        assert isinstance(
-            fixture._cross_configs[FilesystemConfig], FilesystemConfig
-        )
+        assert isinstance(fixture._cross_configs[FilesystemConfig], FilesystemConfig)
         assert fixture._agent_name == "alpha"
 
     def test_cross_configs_skips_empty_config(self) -> None:

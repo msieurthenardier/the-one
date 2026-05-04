@@ -48,9 +48,7 @@ class TestToolsEditorAssets:
         # the marker class.
         assert "editor-error-banner" in resp.text
 
-    async def test_index_html_includes_tools_editor_script(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_index_html_includes_tools_editor_script(self, client: AsyncClient) -> None:
         # The SPA shell lives at /static/index.html; the prod / route serves it
         # via FileResponse, but the static mount serves the same bytes here.
         resp = await client.get("/static/index.html")

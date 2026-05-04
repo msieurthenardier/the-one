@@ -14,7 +14,6 @@ import pytest
 from browser.seeders import SeededApp
 from playwright.sync_api import Page, expect
 
-
 # ── Header / scaffold ────────────────────────────────────────────────────
 
 
@@ -39,9 +38,7 @@ def test_editor_renders_canonical_header_in_create_mode(app_clean: str, page: Pa
 
 
 @pytest.mark.browser
-def test_editor_action_cluster_order_in_edit_mode(
-    app_with_provider: SeededApp, page: Page
-) -> None:
+def test_editor_action_cluster_order_in_edit_mode(app_with_provider: SeededApp, page: Page) -> None:
     page.goto(f"{app_with_provider.base_url}#admin/providers/{app_with_provider.provider_id}")
     expect(page.locator(".form-actions .back-btn")).to_be_visible(timeout=8000)
     expect(page.locator(".form-actions .cancel-btn")).to_be_visible()
@@ -65,9 +62,7 @@ def test_editor_action_cluster_order_in_create_mode(app_clean: str, page: Page) 
 
 
 @pytest.mark.browser
-def test_save_and_cancel_disabled_when_clean(
-    app_with_provider: SeededApp, page: Page
-) -> None:
+def test_save_and_cancel_disabled_when_clean(app_with_provider: SeededApp, page: Page) -> None:
     page.goto(f"{app_with_provider.base_url}#admin/providers/{app_with_provider.provider_id}")
     expect(page.locator(".editor-title")).to_have_text("mock", timeout=8000)
     expect(page.locator(".save-btn")).to_be_disabled()
@@ -75,9 +70,7 @@ def test_save_and_cancel_disabled_when_clean(
 
 
 @pytest.mark.browser
-def test_save_and_cancel_enabled_when_dirty(
-    app_with_provider: SeededApp, page: Page
-) -> None:
+def test_save_and_cancel_enabled_when_dirty(app_with_provider: SeededApp, page: Page) -> None:
     page.goto(f"{app_with_provider.base_url}#admin/providers/{app_with_provider.provider_id}")
     expect(page.locator(".editor-title")).to_have_text("mock", timeout=8000)
     page.locator("#pf-name").fill("mock-edited")
@@ -86,9 +79,7 @@ def test_save_and_cancel_enabled_when_dirty(
 
 
 @pytest.mark.browser
-def test_cancel_reverts_in_edit_mode(
-    app_with_provider: SeededApp, page: Page
-) -> None:
+def test_cancel_reverts_in_edit_mode(app_with_provider: SeededApp, page: Page) -> None:
     page.goto(f"{app_with_provider.base_url}#admin/providers/{app_with_provider.provider_id}")
     expect(page.locator(".editor-title")).to_have_text("mock", timeout=8000)
     page.locator("#pf-name").fill("mock-edited")
@@ -111,9 +102,7 @@ def test_create_cancel_navigates_to_grid_when_dirty(app_clean: str, page: Page) 
 
 
 @pytest.mark.browser
-def test_back_button_always_enabled(
-    app_with_provider: SeededApp, page: Page
-) -> None:
+def test_back_button_always_enabled(app_with_provider: SeededApp, page: Page) -> None:
     page.goto(f"{app_with_provider.base_url}#admin/providers/{app_with_provider.provider_id}")
     expect(page.locator(".back-btn")).to_be_visible(timeout=8000)
     expect(page.locator(".back-btn")).not_to_be_disabled()
@@ -123,9 +112,7 @@ def test_back_button_always_enabled(
 
 
 @pytest.mark.browser
-def test_danger_zone_renders_in_edit_mode(
-    app_with_provider: SeededApp, page: Page
-) -> None:
+def test_danger_zone_renders_in_edit_mode(app_with_provider: SeededApp, page: Page) -> None:
     page.goto(f"{app_with_provider.base_url}#admin/providers/{app_with_provider.provider_id}")
     expect(page.locator(".editor-section.danger-zone")).to_be_visible(timeout=8000)
     expect(page.locator(".section-title.danger-zone-title")).to_have_text("Danger Zone")
@@ -140,9 +127,7 @@ def test_danger_zone_omitted_in_create_mode(app_clean: str, page: Page) -> None:
 
 
 @pytest.mark.browser
-def test_delete_two_step_confirm(
-    app_with_provider: SeededApp, page: Page
-) -> None:
+def test_delete_two_step_confirm(app_with_provider: SeededApp, page: Page) -> None:
     page.goto(f"{app_with_provider.base_url}#admin/providers/{app_with_provider.provider_id}")
     delete_btn = page.locator('[data-testid="delete-provider-btn"]')
     expect(delete_btn).to_be_visible(timeout=8000)
@@ -158,9 +143,7 @@ def test_delete_two_step_confirm(
 
 
 @pytest.mark.browser
-def test_delete_blocked_when_provider_in_use(
-    app_with_agent: SeededApp, page: Page
-) -> None:
+def test_delete_blocked_when_provider_in_use(app_with_agent: SeededApp, page: Page) -> None:
     """Provider with an agent attached must hard-block (no confirm flow).
 
     Hard-block message lives in a sibling banner below the button, NOT
@@ -194,17 +177,13 @@ def test_test_button_omitted_in_create_mode(app_clean: str, page: Page) -> None:
 
 
 @pytest.mark.browser
-def test_test_button_visible_in_edit_mode(
-    app_with_provider: SeededApp, page: Page
-) -> None:
+def test_test_button_visible_in_edit_mode(app_with_provider: SeededApp, page: Page) -> None:
     page.goto(f"{app_with_provider.base_url}#admin/providers/{app_with_provider.provider_id}")
     expect(page.locator('[data-testid="test-connection-btn"]')).to_be_visible(timeout=8000)
 
 
 @pytest.mark.browser
-def test_test_result_uses_canonical_class(
-    app_with_provider: SeededApp, page: Page
-) -> None:
+def test_test_result_uses_canonical_class(app_with_provider: SeededApp, page: Page) -> None:
     page.goto(f"{app_with_provider.base_url}#admin/providers/{app_with_provider.provider_id}")
     test_btn = page.locator('[data-testid="test-connection-btn"]')
     expect(test_btn).to_be_visible(timeout=8000)

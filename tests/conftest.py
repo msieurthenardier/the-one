@@ -13,6 +13,7 @@ from the_one.tools.base import Tool, ToolRegistry
 # FakeLLM
 # ---------------------------------------------------------------------------
 
+
 class FakeLLM(LLMProvider):
     """LLM provider that returns pre-scripted responses in order."""
 
@@ -29,18 +30,21 @@ class FakeLLM(LLMProvider):
         temperature: float = 0.0,
         max_tokens: int = 16384,
     ) -> Message:
-        self.calls.append({
-            "messages": messages,
-            "tools": tools,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-        })
+        self.calls.append(
+            {
+                "messages": messages,
+                "tools": tools,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            }
+        )
         return self.responses.pop(0)
 
 
 # ---------------------------------------------------------------------------
 # StubTool
 # ---------------------------------------------------------------------------
+
 
 class StubTool(Tool):
     """Tool that records calls and returns a canned response."""
@@ -77,6 +81,7 @@ class StubTool(Tool):
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def make_registry() -> ToolRegistry:

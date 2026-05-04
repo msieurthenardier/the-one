@@ -102,12 +102,20 @@
     // tweak after re-testing scenario 3.
     var label = '<label for="' + idAttr + '">' + escapeHtml(labelText) + '</label>';
     var infoIcon = '';
+    var descId = '';
     if (prop.description) {
       var iconHtml = (window.App && window.App.icon) ? window.App.icon('info') : '';
       if (!iconHtml) iconHtml = 'ⓘ';  // ⓘ
       var descAttr = escapeAttr(prop.description);
-      infoIcon = '<span class="field-info-icon" title="' + descAttr + '" aria-label="' + descAttr + '">' +
-                 iconHtml + '</span>';
+      descId = idAttr + '-desc';
+      // Render as a focusable <button> so keyboard users can reach the
+      // tooltip and screen readers announce the description via
+      // aria-describedby. Keep `title=` for mouse-hover UX (and to
+      // preserve compatibility with browser tests that assert on the
+      // title attribute).
+      infoIcon = '<button type="button" class="field-info-icon" title="' + descAttr + '" aria-describedby="' + descId + '">' +
+                 iconHtml + '</button>' +
+                 '<span id="' + descId + '" class="visually-hidden">' + escapeHtml(prop.description) + '</span>';
     }
     var input = '';
     var ftype = prop.type;
@@ -118,6 +126,11 @@
     var dataAttrs = attrPrefix + '="' + safeName + '"';
     if (mode === 'agent' && toolName) {
       dataAttrs += ' data-tool-override-tool="' + escapeAttr(toolName) + '"';
+    }
+    // Wire the input to the same description span so focusing the input
+    // (not just the info-icon button) announces the field description.
+    if (descId) {
+      dataAttrs += ' aria-describedby="' + descId + '"';
     }
 
     if (ftype === 'boolean') {
@@ -279,14 +292,14 @@
         // Locked chip: NO chip-remove button — keyboard tab order skips
         // it, screen readers don't announce a remove affordance. The
         // data-locked attribute keys the visual differentiation in CSS.
-        html += '<span class="chip" data-locked="true">' + escapeHtml(v) + '</span>';
+        html += '<span class="chip" data-locked="true" aria-label="' + escapeAttr(v) + ' (locked by operator)">' + escapeHtml(v) + '</span>';
       } else {
         html += '<span class="chip">' + escapeHtml(v) +
                 '<button type="button" class="chip-remove" aria-label="Remove ' + escapeAttr(v) + '">×</button>' +
                 '</span>';
       }
     }
-    html += '<input type="text" class="chip-list-input" placeholder="Add entry…" />';
+    html += '<input type="text" class="chip-list-input" placeholder="Add entry…" aria-label="Add entry" />';
     html += '</div>';
     return html;
   }

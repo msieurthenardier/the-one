@@ -37,9 +37,7 @@ def _json_response(data: dict, status_code: int = 200) -> MagicMock:
     resp.status_code = status_code
     resp.json.return_value = data
     if status_code >= 400:
-        http_error = httpx.HTTPStatusError(
-            "error", request=MagicMock(), response=resp
-        )
+        http_error = httpx.HTTPStatusError("error", request=MagicMock(), response=resp)
         resp.raise_for_status.side_effect = http_error
     else:
         resp.raise_for_status = MagicMock()
@@ -63,7 +61,6 @@ class TestStripV1OllamaApi:
 
     def test_no_change_needed(self) -> None:
         assert ollama_api.strip_v1("http://host:1234") == "http://host:1234"
-
 
 
 # ---------------------------------------------------------------------------
@@ -306,9 +303,7 @@ class TestPullModel:
         instance = AsyncMock()
         instance.__aenter__ = AsyncMock(return_value=instance)
         instance.__aexit__ = AsyncMock(return_value=False)
-        instance.stream = MagicMock(
-            side_effect=httpx.ConnectError("refused")
-        )
+        instance.stream = MagicMock(side_effect=httpx.ConnectError("refused"))
 
         with patch("the_one.llm.ollama_api.httpx.AsyncClient") as mock_cls:
             mock_cls.return_value = instance
@@ -414,8 +409,10 @@ class TestUnloadModel:
         ps_resp = _json_response({"models": []})
         instance = _mock_client(resp)
         instance.get = AsyncMock(return_value=ps_resp)
-        with patch("the_one.llm.ollama_api.httpx.AsyncClient") as mock_cls, \
-             patch("asyncio.sleep", new_callable=AsyncMock):
+        with (
+            patch("the_one.llm.ollama_api.httpx.AsyncClient") as mock_cls,
+            patch("asyncio.sleep", new_callable=AsyncMock),
+        ):
             mock_cls.return_value = instance
             await ollama_api.unload_model(BASE, "llama3:8b")
         instance.post.assert_called_once_with(

@@ -23,7 +23,6 @@ when used as ``DARK["fg_secondary"]`` in test parametrisations.
 
 from __future__ import annotations
 
-
 # ---------------------------------------------------------------------------
 # Dark theme — mirrors tokens.css [data-theme="dark"] block (lines ~22-87).
 # ---------------------------------------------------------------------------

@@ -98,9 +98,7 @@ async def test_lifespan_drains_session_registry(_isolated_data_dir) -> None:
 
     async with lifespan(app):
         for session in sessions:
-            await register(
-                "test-agent", new_session_id(), session, ttl_seconds=300
-            )
+            await register("test-agent", new_session_id(), session, ttl_seconds=300)
         assert await count_for_agent("test-agent") == 3
         assert reg._reaper_task is not None
 
