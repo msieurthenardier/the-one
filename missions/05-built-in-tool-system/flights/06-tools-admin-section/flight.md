@@ -1,6 +1,6 @@
 # Flight: Tools Admin Section
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Built-In Tool System](../../mission.md)
 
 ## Contributing to Criteria
