@@ -45,3 +45,28 @@ def test_chat_send_receives_mock_response(app_with_agent: SeededApp, page: Page)
 
     # 7. Send button re-enabled after `done` event (busy=false).
     expect(page.locator('[data-testid="chat-send-btn"]')).to_be_enabled()
+
+
+@pytest.mark.browser
+def test_chat_message_log_has_live_region(app_with_agent: SeededApp, page: Page) -> None:
+    """A11y leg 02 regression: the chat message log container is exposed as
+    an ARIA live region so screen readers announce assistant replies.
+
+    Acceptance criteria from missions/06-maintenance/.../02-chat-a11y-baseline.md:
+    - <div class="messages"> has role="log" + aria-live="polite"
+    - the chat input has an accessible name (aria-label="Message")
+    """
+    base_url = app_with_agent.base_url
+    agent_name = app_with_agent.agent_name
+
+    page.goto(base_url)
+    page.locator(".chat-welcome-item").filter(has_text=agent_name).click()
+    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
+
+    log = page.locator("[role='log']")
+    expect(log).to_be_visible()
+    assert log.get_attribute("aria-live") == "polite"
+    assert log.get_attribute("aria-relevant") == "additions"
+
+    chat_input = page.locator('[data-testid="chat-input"]')
+    assert chat_input.get_attribute("aria-label") == "Message"

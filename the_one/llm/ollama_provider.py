@@ -132,9 +132,7 @@ class OllamaProvider(LLMProvider):
                 yield StreamChunk(content=text, is_final=False)
             for tc_delta in delta.get("tool_calls", []) or []:
                 idx = tc_delta.get("index", 0)
-                entry = tool_calls_acc.setdefault(
-                    idx, {"id": "", "name": "", "arguments": ""}
-                )
+                entry = tool_calls_acc.setdefault(idx, {"id": "", "name": "", "arguments": ""})
                 if tc_delta.get("id"):
                     entry["id"] = tc_delta["id"]
                 fn = tc_delta.get("function", {}) or {}
@@ -163,9 +161,7 @@ class OllamaProvider(LLMProvider):
                 args_obj = json.loads(e["arguments"]) if e["arguments"] else {}
             except json.JSONDecodeError:
                 args_obj = {}
-            tool_calls.append(
-                ToolCall(id=e["id"] or e["name"], name=e["name"], arguments=args_obj)
-            )
+            tool_calls.append(ToolCall(id=e["id"] or e["name"], name=e["name"], arguments=args_obj))
 
         msg = Message.assistant(content=content, tool_calls=tool_calls, usage=usage)
         yield StreamChunk(

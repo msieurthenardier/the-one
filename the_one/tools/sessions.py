@@ -91,8 +91,7 @@ class ShellSessionStartTool(Tool):
             "cwd": {
                 "type": "string",
                 "description": (
-                    "Working directory; defaults to $HOME. "
-                    "Refused if outside the path allowlist."
+                    "Working directory; defaults to $HOME. Refused if outside the path allowlist."
                 ),
             },
         },
@@ -220,8 +219,7 @@ class ShellSessionSendTool(Tool):
             session = await _session_registry.get(agent_name, session_id)
             if session is None:
                 raise ConstraintError(
-                    f"session '{session_id}' not owned by this agent or "
-                    f"does not exist"
+                    f"session '{session_id}' not owned by this agent or does not exist"
                 )
             output = await session.send(input, timeout=clipped_timeout)
             # PTY merges stderr into stdout via the master fd; pass
@@ -246,10 +244,7 @@ class ShellSessionSendTool(Tool):
 
 class ShellSessionCloseTool(Tool):
     name = "shell_session_close"
-    description = (
-        "Terminate an interactive shell session. session_id from "
-        "shell_session_start."
-    )
+    description = "Terminate an interactive shell session. session_id from shell_session_start."
     parameters = {
         "type": "object",
         "properties": {
@@ -271,8 +266,7 @@ class ShellSessionCloseTool(Tool):
             if closed:
                 return f"closed {session_id}"
             raise ConstraintError(
-                f"session '{session_id}' not owned by this agent or does "
-                f"not exist"
+                f"session '{session_id}' not owned by this agent or does not exist"
             )
         except ConstraintError as e:
             return f"[error] [constraint] {e}"

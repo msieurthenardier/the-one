@@ -47,9 +47,7 @@ def test_back_when_clean_no_dialog(app_with_provider: SeededApp, page: Page) -> 
     _open_editor(page, app_with_provider)
     page.locator('[data-testid="back-provider-btn"]').click()
     expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_have_count(0)
-    expect(page.locator(".area-admin .page-title")).to_have_text(
-        "LLM Providers", timeout=5000
-    )
+    expect(page.locator(".area-admin .page-title")).to_have_text("LLM Providers", timeout=5000)
     assert page.evaluate("location.hash") == "#admin/providers"
 
 
@@ -59,15 +57,11 @@ def test_back_when_dirty_shows_dialog(app_with_provider: SeededApp, page: Page) 
     _open_editor(page, app_with_provider)
     _make_dirty(page)
     page.locator('[data-testid="back-provider-btn"]').click()
-    expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_be_visible(
-        timeout=3000
-    )
+    expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_be_visible(timeout=3000)
 
 
 @pytest.mark.browser
-def test_back_dialog_cancel_keeps_editor(
-    app_with_provider: SeededApp, page: Page
-) -> None:
+def test_back_dialog_cancel_keeps_editor(app_with_provider: SeededApp, page: Page) -> None:
     """Cancel ('Stay') in the Back-dirty dialog keeps the editor + URL."""
     _open_editor(page, app_with_provider)
     initial_hash = page.evaluate("location.hash")
@@ -83,9 +77,7 @@ def test_back_dialog_cancel_keeps_editor(
 
 
 @pytest.mark.browser
-def test_back_dialog_confirm_navigates_to_grid(
-    app_with_provider: SeededApp, page: Page
-) -> None:
+def test_back_dialog_confirm_navigates_to_grid(app_with_provider: SeededApp, page: Page) -> None:
     """Confirm ('Continue') in the Back-dirty dialog navigates to the grid."""
     _open_editor(page, app_with_provider)
     _make_dirty(page)
@@ -95,16 +87,12 @@ def test_back_dialog_confirm_navigates_to_grid(
 
     page.locator('[data-testid="modal-confirm-btn"]').click()
     expect(overlay).to_have_count(0)
-    expect(page.locator(".area-admin .page-title")).to_have_text(
-        "LLM Providers", timeout=5000
-    )
+    expect(page.locator(".area-admin .page-title")).to_have_text("LLM Providers", timeout=5000)
     assert page.evaluate("location.hash") == "#admin/providers"
 
 
 @pytest.mark.browser
-def test_section_nav_when_clean_no_dialog(
-    app_with_provider: SeededApp, page: Page
-) -> None:
+def test_section_nav_when_clean_no_dialog(app_with_provider: SeededApp, page: Page) -> None:
     """Section-nav click when editor is clean does NOT open dialog."""
     _open_editor(page, app_with_provider)
     page.locator('.section-nav-item[data-section="system"]').click()
@@ -113,22 +101,16 @@ def test_section_nav_when_clean_no_dialog(
 
 
 @pytest.mark.browser
-def test_section_nav_when_dirty_shows_dialog(
-    app_with_provider: SeededApp, page: Page
-) -> None:
+def test_section_nav_when_dirty_shows_dialog(app_with_provider: SeededApp, page: Page) -> None:
     """Section-nav click when editor is dirty opens the modal."""
     _open_editor(page, app_with_provider)
     _make_dirty(page)
     page.locator('.section-nav-item[data-section="system"]').click()
-    expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_be_visible(
-        timeout=3000
-    )
+    expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_be_visible(timeout=3000)
 
 
 @pytest.mark.browser
-def test_section_nav_dialog_cancel_keeps_editor(
-    app_with_provider: SeededApp, page: Page
-) -> None:
+def test_section_nav_dialog_cancel_keeps_editor(app_with_provider: SeededApp, page: Page) -> None:
     """Stay on the section-nav dialog keeps the editor + hash."""
     _open_editor(page, app_with_provider)
     initial_hash = page.evaluate("location.hash")
@@ -169,9 +151,7 @@ def test_section_nav_from_grid_no_dialog_after_prior_discard(
     _make_dirty(page)
     page.locator('[data-testid="back-provider-btn"]').click()
     page.locator('[data-testid="modal-confirm-btn"]').click()
-    expect(page.locator(".area-admin .page-title")).to_have_text(
-        "LLM Providers", timeout=5000
-    )
+    expect(page.locator(".area-admin .page-title")).to_have_text("LLM Providers", timeout=5000)
     # Now navigate from the grid to System — no dialog because no editor.
     page.locator('.section-nav-item[data-section="system"]').click()
     expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_have_count(0)
@@ -185,21 +165,15 @@ def test_save_resets_dirty(app_with_provider: SeededApp, page: Page) -> None:
     _make_dirty(page)
     page.locator('[data-testid="save-provider-btn"]').click()
     # Save flash signals success; then the editor stays mounted in edit mode.
-    expect(page.locator('[data-testid="save-provider-btn"]')).to_be_disabled(
-        timeout=5000
-    )
+    expect(page.locator('[data-testid="save-provider-btn"]')).to_be_disabled(timeout=5000)
 
     page.locator('[data-testid="back-provider-btn"]').click()
     expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_have_count(0)
-    expect(page.locator(".area-admin .page-title")).to_have_text(
-        "LLM Providers", timeout=5000
-    )
+    expect(page.locator(".area-admin .page-title")).to_have_text("LLM Providers", timeout=5000)
 
 
 @pytest.mark.browser
-def test_cancel_button_resets_dirty_in_edit(
-    app_with_provider: SeededApp, page: Page
-) -> None:
+def test_cancel_button_resets_dirty_in_edit(app_with_provider: SeededApp, page: Page) -> None:
     """Cancel button reverts form + clears dirty; subsequent Back has no dialog."""
     _open_editor(page, app_with_provider)
     original_name = page.locator("#pf-name").input_value()

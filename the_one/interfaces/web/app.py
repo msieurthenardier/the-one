@@ -32,6 +32,7 @@ from the_one.db.models import ChatSession as ChatSessionModel
 from the_one.db.repositories import ChatSessionRepository, LLMProviderRepository, SQLiteAgentStore
 from the_one.encryption import get_encryptor
 from the_one.interfaces.web.api import router as api_router
+from the_one.interfaces.web.middleware import OriginAllowlistMiddleware, build_default_allowlist
 from the_one.llm.base import Role
 from the_one.tools._session_registry import shutdown_drain as _session_registry_shutdown_drain
 
@@ -74,6 +75,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="the-one", lifespan=lifespan)
+# Origin allowlist must be registered BEFORE other middleware/routes so it
+# intercepts WebSocket upgrades before the `/ws` route handler can call
+# `ws.accept()` (Depends() runs after accept and is too late). See
+# the_one/interfaces/web/middleware.py for the matching/closing semantics.
+app.add_middleware(
+    OriginAllowlistMiddleware,
+    allowlist=build_default_allowlist(settings.host, settings.port),
+)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 app.include_router(api_router)
 
@@ -292,21 +301,27 @@ async def _restore_session(session_id: str) -> RestoredSession:
     except ProviderNotFoundError as exc:
         logger.warning(
             "Session %s degraded: status=provider_missing agent=%r exc=%s",
-            session_id, db_session.agent_name, exc,
+            session_id,
+            db_session.agent_name,
+            exc,
         )
         _sessions.pop(session_id, None)
         return RestoredSession(None, SESSION_STATUS_PROVIDER_MISSING, db_session)
     except ProviderNotConfiguredError as exc:
         logger.warning(
             "Session %s degraded: status=provider_missing agent=%r exc=%s",
-            session_id, db_session.agent_name, exc,
+            session_id,
+            db_session.agent_name,
+            exc,
         )
         _sessions.pop(session_id, None)
         return RestoredSession(None, SESSION_STATUS_PROVIDER_MISSING, db_session)
     except AgentNotFoundError as exc:
         logger.warning(
             "Session %s degraded: status=agent_deleted agent=%r exc=%s",
-            session_id, db_session.agent_name, exc,
+            session_id,
+            db_session.agent_name,
+            exc,
         )
         _sessions.pop(session_id, None)
         return RestoredSession(None, SESSION_STATUS_AGENT_DELETED, db_session)
@@ -384,9 +399,7 @@ def _build_session_joined_ok(session: Session) -> dict[str, Any]:
     away from an in-flight session and back leaves the UI's per-WS
     busy flag stale).
     """
-    is_processing = bool(
-        session.processing_lock is not None and session.processing_lock.locked()
-    )
+    is_processing = bool(session.processing_lock is not None and session.processing_lock.locked())
     return {
         "type": "session_joined",
         "session_id": session.id,
@@ -871,9 +884,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
             # (e.g. a `sleep 200` clipped to 120s by the F4 timeout cap).
             # The session's `processing_lock` serializes successive messages
             # on the same session; broadcasts go to all current subscribers.
-            task = asyncio.create_task(
-                _spawn_message_processing(session, user_input, "web", ws)
-            )
+            task = asyncio.create_task(_spawn_message_processing(session, user_input, "web", ws))
             _inflight_tasks.add(task)
             task.add_done_callback(_inflight_tasks.discard)
 

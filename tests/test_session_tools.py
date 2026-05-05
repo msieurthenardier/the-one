@@ -117,14 +117,11 @@ async def test_start_max_concurrent_sessions(monkeypatch, tmp_path) -> None:
     )
     out = await tool.execute(cwd=str(tmp_path))
     assert out == (
-        "[error] [constraint] max concurrent sessions reached (5); "
-        "close an existing session first"
+        "[error] [constraint] max concurrent sessions reached (5); close an existing session first"
     )
 
 
-async def test_start_default_cwd_validates_via_cwd_check(
-    monkeypatch, tmp_path
-) -> None:
+async def test_start_default_cwd_validates_via_cwd_check(monkeypatch, tmp_path) -> None:
     """Even the $HOME default path is run through ``_cwd_check`` — if
     $HOME is not in the allowlist, ``start`` refuses."""
     cfg = ExecutionConfig()
@@ -147,9 +144,7 @@ async def test_start_default_cwd_validates_via_cwd_check(
 
 
 async def test_send_rejects_none_agent_name() -> None:
-    tool = ShellSessionSendTool(
-        ExecutionConfig(), cross_configs=_cross(), agent_name=None
-    )
+    tool = ShellSessionSendTool(ExecutionConfig(), cross_configs=_cross(), agent_name=None)
     out = await tool.execute(session_id="pty-anything", input="echo hi")
     assert out == "[error] [constraint] session tools require an agent context"
 
@@ -157,18 +152,14 @@ async def test_send_rejects_none_agent_name() -> None:
 async def test_send_denylist_trip() -> None:
     """``shell_session_send`` re-applies ``_command_check`` per call
     (Decision 11). ``sudo whoami`` trips the ``"sudo "`` token."""
-    tool = ShellSessionSendTool(
-        ExecutionConfig(), cross_configs=_cross(), agent_name="alpha"
-    )
+    tool = ShellSessionSendTool(ExecutionConfig(), cross_configs=_cross(), agent_name="alpha")
     out = await tool.execute(session_id="pty-anything", input="sudo whoami")
     assert out == "[error] [constraint] command contains denylisted token 'sudo '"
 
 
 async def test_send_unknown_session_id() -> None:
     """Unknown session_id → constraint refusal naming the id."""
-    tool = ShellSessionSendTool(
-        ExecutionConfig(), cross_configs=_cross(), agent_name="alpha"
-    )
+    tool = ShellSessionSendTool(ExecutionConfig(), cross_configs=_cross(), agent_name="alpha")
     out = await tool.execute(session_id="pty-does-not-exist", input="echo hi")
     assert out.startswith("[error] [constraint] session 'pty-does-not-exist'")
     assert "not owned" in out or "does not exist" in out
@@ -177,12 +168,8 @@ async def test_send_unknown_session_id() -> None:
 async def test_send_cross_agent_isolation() -> None:
     """Agent B cannot ``send`` against agent A's session id."""
     sid = _session_registry.new_session_id()
-    await _session_registry.register(
-        "alpha", sid, MockPtySession(), ttl_seconds=300
-    )
-    tool_b = ShellSessionSendTool(
-        ExecutionConfig(), cross_configs=_cross(), agent_name="beta"
-    )
+    await _session_registry.register("alpha", sid, MockPtySession(), ttl_seconds=300)
+    tool_b = ShellSessionSendTool(ExecutionConfig(), cross_configs=_cross(), agent_name="beta")
     out = await tool_b.execute(session_id=sid, input="echo hi")
     assert out.startswith(f"[error] [constraint] session '{sid}'")
     assert "not owned" in out or "does not exist" in out
@@ -195,9 +182,7 @@ async def test_send_happy_path_returns_truncated_text() -> None:
     mock = MockPtySession()
     mock.send_response = b"hello world\n"
     await _session_registry.register("alpha", sid, mock, ttl_seconds=300)
-    tool = ShellSessionSendTool(
-        ExecutionConfig(), cross_configs=_cross(), agent_name="alpha"
-    )
+    tool = ShellSessionSendTool(ExecutionConfig(), cross_configs=_cross(), agent_name="alpha")
     out = await tool.execute(session_id=sid, input="echo hello world")
     assert "hello world" in out
     # No ``[stderr]`` marker — PTY merges streams; we pass b"" for stderr.
@@ -211,9 +196,7 @@ async def test_send_clips_timeout_above_max() -> None:
     sid = _session_registry.new_session_id()
     mock = MockPtySession()
     await _session_registry.register("alpha", sid, mock, ttl_seconds=300)
-    tool = ShellSessionSendTool(
-        ExecutionConfig(), cross_configs=_cross(), agent_name="alpha"
-    )
+    tool = ShellSessionSendTool(ExecutionConfig(), cross_configs=_cross(), agent_name="alpha")
     await tool.execute(session_id=sid, input="echo hi", timeout=999)
     assert mock.sent == [("echo hi", 120.0)]
 
@@ -225,15 +208,15 @@ async def test_send_timeout_emits_send_timed_out_message() -> None:
 
     class TimeoutMock(MockPtySession):
         async def send(
-            self, input: str, timeout: float = 30.0  # noqa: A002
+            self,
+            input: str,
+            timeout: float = 30.0,  # noqa: A002
         ) -> bytes:
             raise asyncio.TimeoutError()
 
     sid = _session_registry.new_session_id()
     await _session_registry.register("alpha", sid, TimeoutMock(), ttl_seconds=300)
-    tool = ShellSessionSendTool(
-        ExecutionConfig(), cross_configs=_cross(), agent_name="alpha"
-    )
+    tool = ShellSessionSendTool(ExecutionConfig(), cross_configs=_cross(), agent_name="alpha")
     out = await tool.execute(session_id=sid, input="sleep 60", timeout=5)
     assert out == "[error] Send timed out after 5s"
 
@@ -244,15 +227,15 @@ async def test_send_generic_exception_envelope() -> None:
 
     class BoomMock(MockPtySession):
         async def send(
-            self, input: str, timeout: float = 30.0  # noqa: A002
+            self,
+            input: str,
+            timeout: float = 30.0,  # noqa: A002
         ) -> bytes:
             raise OSError("EIO from closed master_fd")
 
     sid = _session_registry.new_session_id()
     await _session_registry.register("alpha", sid, BoomMock(), ttl_seconds=300)
-    tool = ShellSessionSendTool(
-        ExecutionConfig(), cross_configs=_cross(), agent_name="alpha"
-    )
+    tool = ShellSessionSendTool(ExecutionConfig(), cross_configs=_cross(), agent_name="alpha")
     out = await tool.execute(session_id=sid, input="ls")
     assert out == "[error] EIO from closed master_fd"
 
@@ -263,9 +246,7 @@ async def test_send_generic_exception_envelope() -> None:
 
 
 async def test_close_rejects_none_agent_name() -> None:
-    tool = ShellSessionCloseTool(
-        ExecutionConfig(), cross_configs=_cross(), agent_name=None
-    )
+    tool = ShellSessionCloseTool(ExecutionConfig(), cross_configs=_cross(), agent_name=None)
     out = await tool.execute(session_id="pty-anything")
     assert out == "[error] [constraint] session tools require an agent context"
 
@@ -274,9 +255,7 @@ async def test_close_removes_session_and_reports_success() -> None:
     sid = _session_registry.new_session_id()
     mock = MockPtySession()
     await _session_registry.register("alpha", sid, mock, ttl_seconds=300)
-    tool = ShellSessionCloseTool(
-        ExecutionConfig(), cross_configs=_cross(), agent_name="alpha"
-    )
+    tool = ShellSessionCloseTool(ExecutionConfig(), cross_configs=_cross(), agent_name="alpha")
     out = await tool.execute(session_id=sid)
     assert out == f"closed {sid}"
     assert mock.close_count == 1
@@ -284,9 +263,7 @@ async def test_close_removes_session_and_reports_success() -> None:
 
 
 async def test_close_unknown_session() -> None:
-    tool = ShellSessionCloseTool(
-        ExecutionConfig(), cross_configs=_cross(), agent_name="alpha"
-    )
+    tool = ShellSessionCloseTool(ExecutionConfig(), cross_configs=_cross(), agent_name="alpha")
     out = await tool.execute(session_id="pty-nope")
     assert out.startswith("[error] [constraint] session 'pty-nope'")
     assert "not owned" in out or "does not exist" in out
@@ -298,17 +275,13 @@ async def test_close_unknown_session() -> None:
 
 
 async def test_list_rejects_none_agent_name() -> None:
-    tool = ShellSessionListTool(
-        ExecutionConfig(), cross_configs=_cross(), agent_name=None
-    )
+    tool = ShellSessionListTool(ExecutionConfig(), cross_configs=_cross(), agent_name=None)
     out = await tool.execute()
     assert out == "[error] [constraint] session tools require an agent context"
 
 
 async def test_list_empty_returns_no_open_sessions() -> None:
-    tool = ShellSessionListTool(
-        ExecutionConfig(), cross_configs=_cross(), agent_name="alpha"
-    )
+    tool = ShellSessionListTool(ExecutionConfig(), cross_configs=_cross(), agent_name="alpha")
     out = await tool.execute()
     assert out == "(no open sessions)"
 
@@ -316,19 +289,13 @@ async def test_list_empty_returns_no_open_sessions() -> None:
 async def test_list_returns_newline_joined_sids() -> None:
     sid_a = _session_registry.new_session_id()
     sid_b = _session_registry.new_session_id()
-    await _session_registry.register(
-        "alpha", sid_a, MockPtySession(), ttl_seconds=300
-    )
-    await _session_registry.register(
-        "alpha", sid_b, MockPtySession(), ttl_seconds=300
-    )
+    await _session_registry.register("alpha", sid_a, MockPtySession(), ttl_seconds=300)
+    await _session_registry.register("alpha", sid_b, MockPtySession(), ttl_seconds=300)
     # Cross-agent session is NOT included.
     await _session_registry.register(
         "beta", _session_registry.new_session_id(), MockPtySession(), ttl_seconds=300
     )
-    tool = ShellSessionListTool(
-        ExecutionConfig(), cross_configs=_cross(), agent_name="alpha"
-    )
+    tool = ShellSessionListTool(ExecutionConfig(), cross_configs=_cross(), agent_name="alpha")
     out = await tool.execute()
     lines = out.split("\n")
     assert set(lines) == {sid_a, sid_b}

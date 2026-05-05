@@ -37,9 +37,7 @@ async def client(tmp_path):
 
 
 class TestToolsTestButtonAssets:
-    async def test_tools_editor_js_exposes_test_button_wiring(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_tools_editor_js_exposes_test_button_wiring(self, client: AsyncClient) -> None:
         resp = await client.get("/static/js/areas/admin/tools-editor.js")
         assert resp.status_code == 200
         body = resp.text

@@ -73,9 +73,7 @@ class AnthropicProvider(LLMProvider):
             if block.type == "text":
                 content += block.text
             elif block.type == "tool_use":
-                tool_calls.append(
-                    ToolCall(id=block.id, name=block.name, arguments=block.input)
-                )
+                tool_calls.append(ToolCall(id=block.id, name=block.name, arguments=block.input))
 
         usage = None
         if response.usage:
@@ -127,9 +125,7 @@ class AnthropicProvider(LLMProvider):
             if block.type == "text":
                 content += block.text
             elif block.type == "tool_use":
-                tool_calls.append(
-                    ToolCall(id=block.id, name=block.name, arguments=block.input)
-                )
+                tool_calls.append(ToolCall(id=block.id, name=block.name, arguments=block.input))
 
         usage = None
         if final.usage:

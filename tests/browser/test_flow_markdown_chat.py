@@ -30,9 +30,7 @@ from playwright.sync_api import Page, expect
 
 
 @pytest.mark.browser
-def test_streaming_assistant_renders_markdown_on_done(
-    app_clean: str, page: Page
-) -> None:
+def test_streaming_assistant_renders_markdown_on_done(app_clean: str, page: Page) -> None:
     """Assistant message with ``**bold**`` in chunks renders ``<strong>`` on done.
 
     The mock provider is configured with three chunks
@@ -70,9 +68,7 @@ def test_streaming_assistant_renders_markdown_on_done(
 
 
 @pytest.mark.browser
-def test_user_message_renders_textcontent_not_markdown(
-    app_with_agent, page: Page
-) -> None:
+def test_user_message_renders_textcontent_not_markdown(app_with_agent, page: Page) -> None:
     """User message containing ``**bold**`` renders as literal text.
 
     Markdown is assistant-only — the ``shouldRenderAsMarkdown`` helper
@@ -132,18 +128,14 @@ def test_streaming_assistant_code_block_renders_with_copy_button(
 
     expect(page.locator('[data-testid="chat-send-btn"]')).to_be_enabled(timeout=10000)
     bubble = page.locator('[data-testid="message"].assistant').last
-    expect(bubble.locator("pre code.language-js")).to_have_text(
-        "console.log(1);\n", timeout=5000
-    )
+    expect(bubble.locator("pre code.language-js")).to_have_text("console.log(1);\n", timeout=5000)
     # Presence assertion — the copy button is opacity-controlled, so we
     # assert it exists in the DOM rather than asserting visibility.
     expect(bubble.locator(".markdown-copy-btn")).to_have_count(1)
 
 
 @pytest.mark.browser
-def test_session_rejoin_renders_assistant_markdown(
-    app_clean: str, page: Page
-) -> None:
+def test_session_rejoin_renders_assistant_markdown(app_clean: str, page: Page) -> None:
     """Reloading the page rejoins the session and renders historical markdown.
 
     Persistence contract (leg 04) + rendering swap (leg 05): the

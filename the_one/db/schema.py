@@ -258,13 +258,16 @@ PRAGMA foreign_keys=ON;
         # interpretation: the operator wanted only a removed tool, so
         # widening their scope back to all-tools would be a silent
         # privilege escalation.
-        REMOVED = {
-            "self_deploy", "rollback", "restart", "run_tests",
-            "git", "memory", "mission_control",
+        removed = {
+            "self_deploy",
+            "rollback",
+            "restart",
+            "run_tests",
+            "git",
+            "memory",
+            "mission_control",
         }
-        async with conn.execute(
-            "SELECT name, enabled_tools, disabled_tools FROM agents"
-        ) as cursor:
+        async with conn.execute("SELECT name, enabled_tools, disabled_tools FROM agents") as cursor:
             rows = await cursor.fetchall()
         for row in rows:
             name = row[0]
@@ -272,11 +275,8 @@ PRAGMA foreign_keys=ON;
             disabled_json = row[2]
             enabled = json.loads(enabled_json) if enabled_json else None
             disabled = json.loads(disabled_json or "[]")
-            new_enabled = (
-                [t for t in enabled if t not in REMOVED]
-                if enabled is not None else None
-            )
-            new_disabled = [t for t in disabled if t not in REMOVED]
+            new_enabled = [t for t in enabled if t not in removed] if enabled is not None else None
+            new_disabled = [t for t in disabled if t not in removed]
             await conn.execute(
                 "UPDATE agents SET enabled_tools = ?, disabled_tools = ? WHERE name = ?",
                 (
@@ -325,13 +325,9 @@ CREATE TABLE IF NOT EXISTS tool_configs (
         async with conn.execute("PRAGMA table_info(agents)") as cursor:
             existing_cols = {row[1] for row in await cursor.fetchall()}
         if "tool_overrides" not in existing_cols:
-            await conn.execute(
-                "ALTER TABLE agents ADD COLUMN tool_overrides TEXT"
-            )
+            await conn.execute("ALTER TABLE agents ADD COLUMN tool_overrides TEXT")
 
-        await conn.execute(
-            "INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (8,)
-        )
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (8,))
         await conn.commit()
         version = 8
 
@@ -349,12 +345,9 @@ CREATE TABLE IF NOT EXISTS tool_configs (
             existing_cols = {row[1] for row in await cursor.fetchall()}
         if "enabled" not in existing_cols:
             await conn.execute(
-                "ALTER TABLE tool_configs ADD COLUMN "
-                "enabled INTEGER NOT NULL DEFAULT 1"
+                "ALTER TABLE tool_configs ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1"
             )
 
-        await conn.execute(
-            "INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (9,)
-        )
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (9,))
         await conn.commit()
         version = 9

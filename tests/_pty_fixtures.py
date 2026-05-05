@@ -30,9 +30,7 @@ class MockPtySession(PtySession):
 
     def __init__(self, last_activity: float | None = None) -> None:
         self._alive = True
-        self._last_activity = (
-            last_activity if last_activity is not None else time.monotonic()
-        )
+        self._last_activity = last_activity if last_activity is not None else time.monotonic()
         self.close_count = 0
         # Test purchase: record what the tool layer wrote into ``send``.
         self.sent: list[tuple[str, float]] = []
@@ -44,7 +42,9 @@ class MockPtySession(PtySession):
         pass
 
     async def send(
-        self, input: str, timeout: float = 30.0  # noqa: A002
+        self,
+        input: str,
+        timeout: float = 30.0,  # noqa: A002
     ) -> bytes:
         self.sent.append((input, timeout))
         return self.send_response

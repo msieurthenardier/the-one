@@ -176,7 +176,9 @@
       html += '<div class="editor-section tools-editor-test-section">';
       html += '<div class="section-title-row">';
       html += '<span class="section-title">Test connection</span>';
-      html += '<span class="field-info-icon" title="' + testHintAttr + '" aria-label="' + testHintAttr + '">' + infoIconHtml + '</span>';
+      var testDescId = 'test-connection-' + escapeAttr(name) + '-desc';
+      html += '<button type="button" class="field-info-icon" title="' + testHintAttr + '" aria-describedby="' + testDescId + '">' + infoIconHtml + '</button>';
+      html += '<span id="' + testDescId + '" class="visually-hidden">' + escapeHtml(testHint) + '</span>';
       html += '</div>';
       html += '<div class="form-actions tools-editor-test-actions">';
       // F6 HAT addition — editable input pre-filled with the per-tool

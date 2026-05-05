@@ -56,7 +56,9 @@ def test_hash_routing_admin_subpage_persists_on_refresh(app_clean: str, page: Pa
 
 
 @pytest.mark.browser
-def test_hash_routing_chat_session_persists_on_refresh(app_with_agent: SeededApp, page: Page) -> None:
+def test_hash_routing_chat_session_persists_on_refresh(
+    app_with_agent: SeededApp, page: Page
+) -> None:
     """Session auto-created, URL becomes #chat/sessions/<id>, persists on refresh."""
     base_url = app_with_agent.base_url
 
@@ -66,12 +68,16 @@ def test_hash_routing_chat_session_persists_on_refresh(app_with_agent: SeededApp
 
     # 2. session_joined fires; agent badge updates and URL becomes
     #    #chat/sessions/<id>.
-    expect(page.locator(".session-agent-badge")).to_have_text(app_with_agent.agent_name, timeout=8000)
+    expect(page.locator(".session-agent-badge")).to_have_text(
+        app_with_agent.agent_name, timeout=8000
+    )
 
     # 3. URL should now be #chat/sessions/<id> (set by session_joined handler).
     current_hash = page.evaluate("location.hash")
-    assert current_hash.startswith("#chat/sessions/"), f"Expected #chat/sessions/<id>, got: {current_hash}"
-    session_id = current_hash[len("#chat/sessions/"):]
+    assert current_hash.startswith("#chat/sessions/"), (
+        f"Expected #chat/sessions/<id>, got: {current_hash}"
+    )
+    session_id = current_hash[len("#chat/sessions/") :]
     assert session_id, "Session ID should not be empty"
 
     # 4. A session item should be selected in the sidebar.
@@ -92,8 +98,10 @@ def test_hash_routing_chat_session_persists_on_refresh(app_with_agent: SeededApp
 
 
 @pytest.mark.browser
-def test_hash_routing_studio_agent_persists_on_refresh(app_with_agent: SeededApp, page: Page) -> None:
-    """Navigate to studio, select an agent — URL becomes #studio/agents/<name>, persists on refresh."""
+def test_hash_routing_studio_agent_persists_on_refresh(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    """Navigate to studio, select an agent — URL becomes #studio/agents/<name>, persists on refresh."""  # noqa: E501
     base_url = app_with_agent.base_url
     agent_name = app_with_agent.agent_name  # "test-agent"
 
@@ -112,6 +120,7 @@ def test_hash_routing_studio_agent_persists_on_refresh(app_with_agent: SeededApp
     # 4. URL should now be #studio/agents/<name>.
     current_hash = page.evaluate("location.hash")
     import urllib.parse
+
     expected_hash = f"#studio/agents/{urllib.parse.quote(agent_name)}/general"
     assert current_hash == expected_hash, f"Expected {expected_hash}, got: {current_hash}"
 

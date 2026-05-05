@@ -129,18 +129,20 @@ async def _build_factory(
     mock_provider_repo = AsyncMock()
     mock_provider_repo.get = AsyncMock(return_value=_make_provider_config())
 
-    with patch("the_one.agent.factory.get_provider", _fake_get_provider), \
-         patch("the_one.agent.factory.settings") as mock_settings, \
-         patch(
-             "the_one.db.connection.get_connection",
-             new_callable=AsyncMock,
-             return_value=conn,
-         ), \
-         patch("the_one.encryption.get_encryptor", return_value=AsyncMock()), \
-         patch(
-             "the_one.db.repositories.LLMProviderRepository",
-             return_value=mock_provider_repo,
-         ):
+    with (
+        patch("the_one.agent.factory.get_provider", _fake_get_provider),
+        patch("the_one.agent.factory.settings") as mock_settings,
+        patch(
+            "the_one.db.connection.get_connection",
+            new_callable=AsyncMock,
+            return_value=conn,
+        ),
+        patch("the_one.encryption.get_encryptor", return_value=AsyncMock()),
+        patch(
+            "the_one.db.repositories.LLMProviderRepository",
+            return_value=mock_provider_repo,
+        ),
+    ):
         mock_settings.agents_dir = Path("/tmp/test-agents")
         mock_settings.data_dir = Path("/tmp/test-data")
         mock_settings.ensure_dirs = lambda: None
@@ -219,9 +221,7 @@ class TestDisableEnforcement:
         assert "web_search" not in agent.tools.tool_names
         assert "fetch_url" in agent.tools.tool_names
 
-    async def test_factory_does_not_call_list_all(
-        self, db_conn, store: InMemoryStore
-    ) -> None:
+    async def test_factory_does_not_call_list_all(self, db_conn, store: InMemoryStore) -> None:
         """Light regression net: the L1 projection switches the factory's
         repo call from `list_all()` to `list()`. Spy on the repository
         and verify `list_all` is never invoked on the factory path."""
@@ -256,29 +256,29 @@ class TestDisableEnforcement:
         real_repo.list_all = tracked_list_all  # type: ignore[assignment]
         real_repo.list = tracked_list  # type: ignore[assignment]
 
-        with patch("the_one.agent.factory.get_provider", _fake_get_provider), \
-             patch("the_one.agent.factory.settings") as mock_settings, \
-             patch(
-                 "the_one.db.connection.get_connection",
-                 new_callable=AsyncMock,
-                 return_value=db_conn,
-             ), \
-             patch("the_one.encryption.get_encryptor", return_value=AsyncMock()), \
-             patch(
-                 "the_one.db.repositories.LLMProviderRepository",
-                 return_value=mock_provider_repo,
-             ), \
-             patch(
-                 "the_one.db.repositories.ToolConfigRepository",
-                 return_value=real_repo,
-             ):
+        with (
+            patch("the_one.agent.factory.get_provider", _fake_get_provider),
+            patch("the_one.agent.factory.settings") as mock_settings,
+            patch(
+                "the_one.db.connection.get_connection",
+                new_callable=AsyncMock,
+                return_value=db_conn,
+            ),
+            patch("the_one.encryption.get_encryptor", return_value=AsyncMock()),
+            patch(
+                "the_one.db.repositories.LLMProviderRepository",
+                return_value=mock_provider_repo,
+            ),
+            patch(
+                "the_one.db.repositories.ToolConfigRepository",
+                return_value=real_repo,
+            ),
+        ):
             mock_settings.agents_dir = Path("/tmp/test-agents")
             mock_settings.data_dir = Path("/tmp/test-data")
             mock_settings.ensure_dirs = lambda: None
 
-            factory = AgentFactory(
-                store=store, tool_providers=[StubProvider()]
-            )
+            factory = AgentFactory(store=store, tool_providers=[StubProvider()])
             await factory.create(cfg.name)
 
         assert list_all_calls == 0, "factory must not call repo.list_all() in L1+"

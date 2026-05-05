@@ -14,7 +14,6 @@ Covers:
 
 from __future__ import annotations
 
-import json
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -26,7 +25,6 @@ from the_one.llm import ollama_api
 from the_one.llm.base import LLMProvider, Message, Role, StreamChunk, TokenUsage, ToolCall
 from the_one.llm.mock import MockProvider
 from the_one.tools.base import ToolRegistry
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -126,9 +124,7 @@ class TestMockStreamWithChunks:
                 "delay_ms": 0,
                 "response": {
                     "content": "ignored — synthesized from chunks",
-                    "tool_calls": [
-                        {"id": "tc1", "name": "echo", "arguments": {"text": "hi"}}
-                    ],
+                    "tool_calls": [{"id": "tc1", "name": "echo", "arguments": {"text": "hi"}}],
                 },
             },
         )
@@ -243,9 +239,7 @@ class TestAnthropicStreamRetry:
         provider = AnthropicProvider(model="claude-test", api_key="test-key")
 
         bad_cm = MagicMock()
-        bad_cm.__aenter__ = AsyncMock(
-            side_effect=_make_bad_request("Some unrelated 400 reason.")
-        )
+        bad_cm.__aenter__ = AsyncMock(side_effect=_make_bad_request("Some unrelated 400 reason."))
         bad_cm.__aexit__ = AsyncMock(return_value=False)
         provider.client.messages.stream = MagicMock(return_value=bad_cm)
 
@@ -489,15 +483,19 @@ class TestMultiIterationChunksSeenInvariant:
         async def _fake_ensure(s):
             pass
 
-        with patch(
-            "the_one.interfaces.web.app._send_to_session",
-            new=_fake_send_to_session,
-        ), patch(
-            "the_one.interfaces.web.app._save_session_to_db",
-            new=_fake_save,
-        ), patch(
-            "the_one.interfaces.web.app._ensure_ollama_model_loaded",
-            new=_fake_ensure,
+        with (
+            patch(
+                "the_one.interfaces.web.app._send_to_session",
+                new=_fake_send_to_session,
+            ),
+            patch(
+                "the_one.interfaces.web.app._save_session_to_db",
+                new=_fake_save,
+            ),
+            patch(
+                "the_one.interfaces.web.app._ensure_ollama_model_loaded",
+                new=_fake_ensure,
+            ),
         ):
             await _process_and_broadcast(session, "go")
 
@@ -507,9 +505,7 @@ class TestMultiIterationChunksSeenInvariant:
         # Trailing: done
         # Specifically, NO `assistant` event must appear on either iteration —
         # both had chunks (chunks_seen=True for both).
-        assert "assistant" not in types, (
-            f"Unexpected legacy `assistant` event in stream: {types}"
-        )
+        assert "assistant" not in types, f"Unexpected legacy `assistant` event in stream: {types}"
         assert types.count("assistant_chunk") == 2, (
             f"Expected 2 assistant_chunk events (one per iteration); got: {types}"
         )

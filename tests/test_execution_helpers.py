@@ -95,9 +95,7 @@ class TestCwdCheck:
         with pytest.raises(ConstraintError):
             _cwd_check("/etc", cfg)
 
-    def test_in_scope_existing_directory_returns_canonical(
-        self, tmp_path: Path
-    ) -> None:
+    def test_in_scope_existing_directory_returns_canonical(self, tmp_path: Path) -> None:
         cfg = FilesystemConfig(path_allowlist=[str(tmp_path)], path_denylist=[])
         result = _cwd_check(str(tmp_path), cfg)
         assert result == tmp_path.resolve()
@@ -111,9 +109,7 @@ class TestCwdCheck:
             _cwd_check(str(leaf), cfg)
         assert "is not a directory" in str(exc.value)
 
-    def test_in_scope_nonexistent_raises_with_combined_message(
-        self, tmp_path: Path
-    ) -> None:
+    def test_in_scope_nonexistent_raises_with_combined_message(self, tmp_path: Path) -> None:
         cfg = FilesystemConfig(path_allowlist=[str(tmp_path)], path_denylist=[])
         ghost = tmp_path / "does_not_exist"
         with pytest.raises(ConstraintError) as exc:
@@ -122,9 +118,7 @@ class TestCwdCheck:
         # non-directory paths — combined message per leg spec.
         assert "does not exist or is not a directory" in str(exc.value)
 
-    def test_out_of_scope_raises_via_filesystem_check(
-        self, tmp_path: Path
-    ) -> None:
+    def test_out_of_scope_raises_via_filesystem_check(self, tmp_path: Path) -> None:
         """Allowlist check is delegated to ``_filesystem_check`` — out-of-scope
         paths raise the filesystem-style refusal, NOT the cwd-shape one."""
         cfg = FilesystemConfig(path_allowlist=[str(tmp_path)], path_denylist=[])
@@ -182,8 +176,7 @@ class TestTruncateOutput:
         assert was_truncated is True
         # Marker line first.
         expected_marker = (
-            "[... truncated 1976 bytes; showing last 1024 bytes "
-            "of combined stdout+stderr ...]"
+            "[... truncated 1976 bytes; showing last 1024 bytes of combined stdout+stderr ...]"
         )
         assert text.startswith(expected_marker)
         # Tail = LAST 1024 A's preserved.
@@ -244,7 +237,7 @@ class TestTruncateOutput:
         cfg = ExecutionConfig(output_cap_bytes=1024)
         # 'é' = b'\xc3\xa9' (2 bytes); craft a payload where the tail starts
         # mid-sequence. We just need it to not blow up.
-        payload = (b"\xc3\xa9" * 600)  # 1200 bytes > cap of 1024
+        payload = b"\xc3\xa9" * 600  # 1200 bytes > cap of 1024
         text, was_truncated = _truncate_output(payload, b"", 0, cfg)
         assert was_truncated is True
         # Should not raise; exact decoded shape depends on slice point.
@@ -257,25 +250,19 @@ class TestTruncateOutput:
 
 
 class TestBuildSubprocessEnv:
-    def test_returns_only_allowlisted_keys(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_returns_only_allowlisted_keys(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("THE_ONE_TEST_LEAK", "secret")
         env = _build_subprocess_env()
         assert "THE_ONE_TEST_LEAK" not in env
         for k in env:
             assert k in _ENV_ALLOWLIST
 
-    def test_setenv_allowlisted_key_appears(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_setenv_allowlisted_key_appears(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("LANG", "C.UTF-8")
         env = _build_subprocess_env()
         assert env.get("LANG") == "C.UTF-8"
 
-    def test_missing_allowlist_key_absent_no_raise(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_missing_allowlist_key_absent_no_raise(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("TZ", raising=False)
         env = _build_subprocess_env()  # no KeyError
         assert "TZ" not in env
@@ -294,9 +281,7 @@ class TestBuildSubprocessEnv:
             "TZ",
         )
 
-    def test_returns_dict_str_str(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_returns_dict_str_str(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("PATH", "/usr/bin:/bin")
         env = _build_subprocess_env()
         assert isinstance(env, dict)

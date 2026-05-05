@@ -119,9 +119,7 @@ class SQLiteAgentStore:
             # string both deserialize to None. Missing-column safety
             # comes from the v8 migration having run, not from this
             # expression — `aiosqlite.Row[<missing>]` raises IndexError.
-            tool_overrides=(
-                json.loads(row["tool_overrides"]) if row["tool_overrides"] else None
-            ),
+            tool_overrides=(json.loads(row["tool_overrides"]) if row["tool_overrides"] else None),
         )
 
 
@@ -338,9 +336,7 @@ class ToolConfigRepository:
         return {item.name: item.config for item in items}
 
     async def get(self, name: str) -> ToolConfig:
-        async with self.conn.execute(
-            "SELECT * FROM tool_configs WHERE name = ?", (name,)
-        ) as cur:
+        async with self.conn.execute("SELECT * FROM tool_configs WHERE name = ?", (name,)) as cur:
             row = await cur.fetchone()
         if row is None:
             raise KeyError(f"Tool config not found: {name}")
@@ -381,9 +377,7 @@ class ToolConfigRepository:
         await self.conn.commit()
 
     async def exists(self, name: str) -> bool:
-        async with self.conn.execute(
-            "SELECT 1 FROM tool_configs WHERE name = ?", (name,)
-        ) as cur:
+        async with self.conn.execute("SELECT 1 FROM tool_configs WHERE name = ?", (name,)) as cur:
             return await cur.fetchone() is not None
 
     @staticmethod

@@ -32,6 +32,7 @@ class TestWebConfigDefaults:
 
     def test_default_values(self) -> None:
         from the_one.tools._web_config import _DEFAULT_USER_AGENT
+
         c = WebConfig()
         assert c.timeout_seconds_default == 30
         assert c.timeout_seconds_max == 120
@@ -267,11 +268,13 @@ class TestDefaultUserAgent:
 
     def test_default_value_is_the_one_ua(self) -> None:
         from the_one.tools._web_config import _DEFAULT_USER_AGENT
+
         c = WebConfig()
         assert c.default_user_agent == _DEFAULT_USER_AGENT
 
     def test_substitute_marker_allows_agent_replacement(self) -> None:
         from the_one.tools.resolver import resolve
+
         operator_cfg = {"default_user_agent": "the-one/0.2"}
         agent_override = {"default_user_agent": "Mozilla/5.0 ResearchAgent/1.0"}
         merged = resolve(WebConfig, operator_cfg, agent_override)
@@ -282,6 +285,7 @@ class TestDefaultUserAgent:
         no ordering is checked. A string `"Z"` overrides an operator-set
         `"A"` without raising."""
         from the_one.tools.resolver import resolve
+
         # Both directions work: operator long, agent short, and vice versa.
         for op_val, agent_val in [
             ("the-one/0.2", "ShortUA/1"),

@@ -107,7 +107,11 @@ class TestMessagesToUIEvents:
         msgs = [Message.assistant("", tool_calls=[tc1, tc2])]
         events = messages_to_ui_events(msgs)
         assert len(events) == 2
-        assert events[0] == {"type": "tool_call", "name": "read_file", "arguments": {"path": "/tmp/x"}}
+        assert events[0] == {
+            "type": "tool_call",
+            "name": "read_file",
+            "arguments": {"path": "/tmp/x"},
+        }
         assert events[1] == {"type": "tool_call", "name": "shell", "arguments": {"cmd": "ls"}}
 
     def test_assistant_with_both_text_and_tool_calls(self) -> None:
@@ -116,14 +120,22 @@ class TestMessagesToUIEvents:
         events = messages_to_ui_events(msgs)
         assert len(events) == 2
         assert events[0] == {"type": "assistant", "content": "Let me check that"}
-        assert events[1] == {"type": "tool_call", "name": "read_file", "arguments": {"path": "/tmp/x"}}
+        assert events[1] == {
+            "type": "tool_call",
+            "name": "read_file",
+            "arguments": {"path": "/tmp/x"},
+        }
 
     def test_tool_result(self) -> None:
         tr = ToolResult(tool_call_id="tc-1", content="file contents here")
         msgs = [Message.tool(tr)]
         events = messages_to_ui_events(msgs)
         assert len(events) == 1
-        assert events[0] == {"type": "tool_result", "content": "file contents here", "is_error": False}
+        assert events[0] == {
+            "type": "tool_result",
+            "content": "file contents here",
+            "is_error": False,
+        }
 
     def test_tool_result_error(self) -> None:
         tr = ToolResult(tool_call_id="tc-1", content="boom", is_error=True)
@@ -141,7 +153,9 @@ class TestMessagesToUIEvents:
             Message.user("Hi"),
             Message.assistant("Hello!"),
             Message.user("Read a file"),
-            Message.assistant("Sure", tool_calls=[ToolCall(id="t1", name="read_file", arguments={"path": "/x"})]),
+            Message.assistant(
+                "Sure", tool_calls=[ToolCall(id="t1", name="read_file", arguments={"path": "/x"})]
+            ),
             Message.tool(ToolResult(tool_call_id="t1", content="file data")),
             Message.assistant("Here's the file content"),
         ]

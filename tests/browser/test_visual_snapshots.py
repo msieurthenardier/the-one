@@ -88,8 +88,7 @@ def _wait_for_render(page: Page) -> None:
     """
     page.evaluate("async () => { await document.fonts.ready; }")
     page.evaluate(
-        "() => new Promise(r => requestAnimationFrame(() => "
-        "requestAnimationFrame(() => r())))"
+        "() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => r())))"
     )
 
 
@@ -188,9 +187,7 @@ def test_snapshot_chat_empty(app_clean: str, page: Page, theme: str) -> None:
 
 @pytest.mark.pixel
 @pytest.mark.parametrize("theme", ["dark", "light"])
-def test_snapshot_chat_with_messages(
-    app_with_agent: SeededApp, page: Page, theme: str
-) -> None:
+def test_snapshot_chat_with_messages(app_with_agent: SeededApp, page: Page, theme: str) -> None:
     """Chat with one user + one assistant message via mock provider."""
     page.set_viewport_size(VIEWPORT)
     page.goto(app_with_agent.base_url)
@@ -215,9 +212,7 @@ def test_snapshot_chat_with_messages(
 
 @pytest.mark.pixel
 @pytest.mark.parametrize("theme", ["dark", "light"])
-def test_snapshot_studio_empty(
-    app_with_provider: SeededApp, page: Page, theme: str
-) -> None:
+def test_snapshot_studio_empty(app_with_provider: SeededApp, page: Page, theme: str) -> None:
     """Empty Studio — provider seeded, no agents yet."""
     page.set_viewport_size(VIEWPORT)
     page.goto(f"{app_with_provider.base_url}#studio")
@@ -229,9 +224,7 @@ def test_snapshot_studio_empty(
 
 @pytest.mark.pixel
 @pytest.mark.parametrize("theme", ["dark", "light"])
-def test_snapshot_studio_with_agent(
-    app_with_agent: SeededApp, page: Page, theme: str
-) -> None:
+def test_snapshot_studio_with_agent(app_with_agent: SeededApp, page: Page, theme: str) -> None:
     """Studio with one agent visible in sidebar."""
     page.set_viewport_size(VIEWPORT)
     page.goto(f"{app_with_agent.base_url}#studio")
@@ -259,9 +252,7 @@ def test_snapshot_admin_empty(app_clean: str, page: Page, theme: str) -> None:
 
 @pytest.mark.pixel
 @pytest.mark.parametrize("theme", ["dark", "light"])
-def test_snapshot_admin_with_provider(
-    app_with_provider: SeededApp, page: Page, theme: str
-) -> None:
+def test_snapshot_admin_with_provider(app_with_provider: SeededApp, page: Page, theme: str) -> None:
     """Admin → LLM Providers with one mock provider card visible."""
     page.set_viewport_size(VIEWPORT)
     page.goto(f"{app_with_provider.base_url}#admin")

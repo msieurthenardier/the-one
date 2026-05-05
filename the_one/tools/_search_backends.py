@@ -111,10 +111,7 @@ class SearchBackend(Protocol):
 
     name: ClassVar[str]
 
-    async def search(
-        self, query: str, max_results: int
-    ) -> list[SearchResult]:
-        ...
+    async def search(self, query: str, max_results: int) -> list[SearchResult]: ...
 
 
 # ---------------------------------------------------------------------------
@@ -146,21 +143,25 @@ class DDGSearchBackend:
     def __init__(self, http_client: httpx.AsyncClient | None = None) -> None:
         self._client = http_client
 
-    async def search(
-        self, query: str, max_results: int
-    ) -> list[SearchResult]:
+    async def search(self, query: str, max_results: int) -> list[SearchResult]:
         headers = {"User-Agent": _DDG_BROWSER_UA}
         url = "https://html.duckduckgo.com/html/"
         data = {"q": query}
 
         if self._client is not None:
             resp = await self._client.post(
-                url, data=data, headers=headers, follow_redirects=True,
+                url,
+                data=data,
+                headers=headers,
+                follow_redirects=True,
             )
         else:
             async with httpx.AsyncClient(timeout=15) as client:
                 resp = await client.post(
-                    url, data=data, headers=headers, follow_redirects=True,
+                    url,
+                    data=data,
+                    headers=headers,
+                    follow_redirects=True,
                 )
 
         if resp.status_code != 200:
@@ -172,9 +173,7 @@ class DDGSearchBackend:
 
         text = resp.text
         if "result__a" not in text:
-            logger.warning(
-                "DDG response has no result markers (interstitial?)"
-            )
+            logger.warning("DDG response has no result markers (interstitial?)")
             return []
 
         results: list[SearchResult] = []
@@ -182,9 +181,7 @@ class DDGSearchBackend:
             href, title_html, snippet_html = match.groups()
             title = _HTML_TAG_REGEX.sub("", title_html).strip()
             snippet = _HTML_TAG_REGEX.sub("", snippet_html).strip()
-            results.append(
-                SearchResult(title=title, url=href, snippet=snippet)
-            )
+            results.append(SearchResult(title=title, url=href, snippet=snippet))
             if len(results) >= max_results:
                 break
         return results

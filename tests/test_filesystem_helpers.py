@@ -350,17 +350,13 @@ class TestCheckModeDispatch:
         result = _filesystem_check(str(target), cfg, CheckMode.WRITE_NEW)
         assert result == (tmp_path / "missing_dir" / "file.txt").resolve()
 
-    def test_write_existing_parent_raises_fnf_for_missing_parent(
-        self, tmp_path: Path
-    ) -> None:
+    def test_write_existing_parent_raises_fnf_for_missing_parent(self, tmp_path: Path) -> None:
         cfg = FilesystemConfig(path_allowlist=[str(tmp_path)])
         target = tmp_path / "missing_dir" / "file.txt"
         with pytest.raises(FileNotFoundError):
             _filesystem_check(str(target), cfg, CheckMode.WRITE_EXISTING_PARENT)
 
-    def test_write_existing_parent_succeeds_when_parent_exists(
-        self, tmp_path: Path
-    ) -> None:
+    def test_write_existing_parent_succeeds_when_parent_exists(self, tmp_path: Path) -> None:
         cfg = FilesystemConfig(path_allowlist=[str(tmp_path)])
         target = tmp_path / "newfile.txt"  # parent IS tmp_path
         result = _filesystem_check(str(target), cfg, CheckMode.WRITE_EXISTING_PARENT)
@@ -370,9 +366,7 @@ class TestCheckModeDispatch:
         f = tmp_path / "file.txt"
         f.write_text("x")
         cfg = FilesystemConfig(path_allowlist=[str(tmp_path)])
-        with pytest.raises(
-            ConstraintError, match="does not exist or is not a directory"
-        ):
+        with pytest.raises(ConstraintError, match="does not exist or is not a directory"):
             _filesystem_check(str(f), cfg, CheckMode.DIRECTORY)
 
     def test_directory_mode_succeeds_for_dir(self, tmp_path: Path) -> None:
@@ -388,9 +382,7 @@ class TestCheckModeDispatch:
             with pytest.raises(ConstraintError, match="outside allowlist"):
                 _filesystem_check(str(outside / "anything"), cfg, mode)
 
-    def test_write_modes_resolve_leaf_symlink_to_out_of_scope(
-        self, tmp_path: Path
-    ) -> None:
+    def test_write_modes_resolve_leaf_symlink_to_out_of_scope(self, tmp_path: Path) -> None:
         # Regression net: WRITE_NEW and WRITE_EXISTING_PARENT must
         # canonicalize the COMPOSED path (parent + leaf), so a leaf
         # that's a symlink to an out-of-scope target is rejected.

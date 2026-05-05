@@ -24,9 +24,7 @@ from playwright.sync_api import Page, expect
 
 
 @pytest.mark.browser
-def test_streaming_chunks_accumulate_in_single_bubble(
-    app_clean: str, page: Page
-) -> None:
+def test_streaming_chunks_accumulate_in_single_bubble(app_clean: str, page: Page) -> None:
     """Streaming chunks render delta-by-delta into one assistant bubble.
 
     Configures the mock provider with ``stream_chunks=["Hello, ", "world", "!"]``

@@ -106,9 +106,7 @@ def test_editor_renders_all_web_config_fields(app_clean: str, page: Page) -> Non
 
 
 @pytest.mark.browser
-def test_editor_field_descriptions_are_info_icon_tooltips(
-    app_clean: str, page: Page
-) -> None:
+def test_editor_field_descriptions_are_info_icon_tooltips(app_clean: str, page: Page) -> None:
     """HAT inline fix #4: per-field descriptions become tooltips on a
     sibling info-icon (positioned AFTER the input), NOT inline
     `<p class="field-description">` paragraphs.
@@ -165,9 +163,7 @@ def test_editor_cancel_restores_snapshot(app_clean: str, page: Page) -> None:
     expect(page.locator(".cancel-btn")).not_to_be_disabled()
     page.locator(".cancel-btn").click()
     # Re-mount idempotent — selector resolves against the new DOM.
-    expect(page.locator('input[data-field="timeout_seconds_max"]')).to_have_value(
-        original
-    )
+    expect(page.locator('input[data-field="timeout_seconds_max"]')).to_have_value(original)
     expect(page.locator(".save-btn")).to_be_disabled()
     expect(page.locator(".cancel-btn")).to_be_disabled()
 
@@ -189,9 +185,7 @@ def test_editor_save_persists_across_reload(app_clean: str, page: Page) -> None:
 
 
 @pytest.mark.browser
-def test_editor_model_validator_422_shows_banner(
-    app_clean: str, page: Page
-) -> None:
+def test_editor_model_validator_422_shows_banner(app_clean: str, page: Page) -> None:
     """Narrow `timeout_seconds_max` to 10 (< default 30) → 422 from the
     model-validator → `.editor-error-banner` visible with humanized text
     (no "Value error," prefix per HAT inline fix #6) AND
@@ -205,21 +199,17 @@ def test_editor_model_validator_422_shows_banner(
     banner = page.locator(".editor-error-banner")
     expect(banner).to_be_visible(timeout=5000)
     text = banner.inner_text()
-    assert "Value error," not in text, (
-        f"banner should strip 'Value error,' prefix — got: {text!r}"
-    )
+    assert "Value error," not in text, f"banner should strip 'Value error,' prefix — got: {text!r}"
     # Both offending field rows highlighted (heuristic in the editor:
     # the model-validator msg names both fields).
     expect(
         page.locator(
-            '.tools-editor-field[data-field-name="timeout_seconds_max"]'
-            ".field-error-highlight"
+            '.tools-editor-field[data-field-name="timeout_seconds_max"].field-error-highlight'
         )
     ).to_be_visible()
     expect(
         page.locator(
-            '.tools-editor-field[data-field-name="timeout_seconds_default"]'
-            ".field-error-highlight"
+            '.tools-editor-field[data-field-name="timeout_seconds_default"].field-error-highlight'
         )
     ).to_be_visible()
 
@@ -236,16 +226,14 @@ def test_editor_field_change_clears_highlight(app_clean: str, page: Page) -> Non
     page.locator(".save-btn").click()
     expect(page.locator(".editor-error-banner")).to_be_visible(timeout=5000)
     highlighted_row = page.locator(
-        '.tools-editor-field[data-field-name="timeout_seconds_max"]'
-        ".field-error-highlight"
+        '.tools-editor-field[data-field-name="timeout_seconds_max"].field-error-highlight'
     )
     expect(highlighted_row).to_be_visible()
     # Type into the highlighted field — clears its row's highlight.
     page.locator('input[data-field="timeout_seconds_max"]').fill("60")
     expect(
         page.locator(
-            '.tools-editor-field[data-field-name="timeout_seconds_max"]'
-            ".field-error-highlight"
+            '.tools-editor-field[data-field-name="timeout_seconds_max"].field-error-highlight'
         )
     ).to_have_count(0)
 
@@ -273,9 +261,7 @@ def test_editor_back_button_dirty_gate(app_clean: str, page: Page) -> None:
     page.locator('[data-testid="back-tool-btn"]').click()
     expect(overlay).to_be_visible(timeout=5000)
     page.locator('[data-testid="modal-confirm-btn"]').click()
-    expect(page.locator(".area-admin .page-title")).to_have_text(
-        "Built-in Tools", timeout=5000
-    )
+    expect(page.locator(".area-admin .page-title")).to_have_text("Built-in Tools", timeout=5000)
     assert page.evaluate("location.hash") == "#admin/tools"
 
 
@@ -290,9 +276,7 @@ def test_editor_section_nav_dirty_gate(app_clean: str, page: Page) -> None:
     expect(page.locator(".editor-title")).to_have_text("web_search", timeout=8000)
     page.locator('input[data-field="timeout_seconds_max"]').fill("90")
 
-    page.locator(
-        '.area-admin .section-nav-item', has_text="System"
-    ).click()
+    page.locator(".area-admin .section-nav-item", has_text="System").click()
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
     expect(overlay).to_be_visible(timeout=5000)
 
@@ -302,14 +286,10 @@ def test_editor_section_nav_dirty_gate(app_clean: str, page: Page) -> None:
     expect(page.locator(".editor-title")).to_have_text("web_search")
 
     # Re-trigger and confirm — navigates to the System page.
-    page.locator(
-        '.area-admin .section-nav-item', has_text="System"
-    ).click()
+    page.locator(".area-admin .section-nav-item", has_text="System").click()
     expect(overlay).to_be_visible(timeout=5000)
     page.locator('[data-testid="modal-confirm-btn"]').click()
-    expect(page.locator(".area-admin .page-title")).to_have_text(
-        "System", timeout=5000
-    )
+    expect(page.locator(".area-admin .page-title")).to_have_text("System", timeout=5000)
 
 
 @pytest.mark.browser

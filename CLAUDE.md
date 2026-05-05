@@ -315,6 +315,10 @@ When `THE_ONE_DEV_MODE=true` is set, a fifth provider type `mock` becomes availa
 - UI dropdown filters out `mock` when dev mode is off (driven by `GET /api/providers/types`)
 - Existing mock providers continue to render correctly in the admin UI even after dev mode is later disabled (the `TYPE_DEFAULTS` defaults and the `KNOWN_BADGE_TYPES` array are unconditional, so the badge styling resolves regardless of dev_mode)
 
+## Security posture
+
+See [SECURITY-MODEL.md](SECURITY-MODEL.md) for the project's threat model and intentional security choices (no-auth-by-design, single-user local-only, Origin-allowlist mitigation, SSRF/subprocess boundaries).
+
 ## Conventions
 
 - Python 3.11+, async throughout

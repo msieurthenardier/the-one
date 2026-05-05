@@ -126,13 +126,8 @@ class AgentFactory:
         # disable (config.is_tool_enabled) — both must pass.
         registry = ToolRegistry()
         for provider in self.tool_providers:
-            for tool in provider.get_tools(
-                tool_configs_by_name, agent_overrides, agent_name=name
-            ):
-                if (
-                    tool.name not in disabled_names
-                    and config.is_tool_enabled(tool.name)
-                ):
+            for tool in provider.get_tools(tool_configs_by_name, agent_overrides, agent_name=name):
+                if tool.name not in disabled_names and config.is_tool_enabled(tool.name):
                     registry.register(tool)
 
         # 3. Resolve system prompt

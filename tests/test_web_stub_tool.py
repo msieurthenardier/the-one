@@ -53,9 +53,7 @@ class _StubWebTool(Tool):
         cfg: WebConfig = self._config  # type: ignore[assignment]
         try:
             _url_check(url, cfg)
-            transport = SSRFGuardedTransport(
-                extra_allowed_hosts=cfg.extra_allowed_hosts
-            )
+            transport = SSRFGuardedTransport(extra_allowed_hosts=cfg.extra_allowed_hosts)
             async with httpx.AsyncClient(
                 transport=transport,
                 timeout=cfg.timeout_seconds_default,
@@ -83,9 +81,7 @@ def _patch_getaddrinfo(monkeypatch, results: list[tuple]) -> None:
     async def fake_getaddrinfo(self, host, port, *args, **kwargs):
         return results
 
-    monkeypatch.setattr(
-        asyncio.base_events.BaseEventLoop, "getaddrinfo", fake_getaddrinfo
-    )
+    monkeypatch.setattr(asyncio.base_events.BaseEventLoop, "getaddrinfo", fake_getaddrinfo)
 
 
 def _patch_super_dispatch(monkeypatch, response_factory) -> list[httpx.Request]:
@@ -199,9 +195,7 @@ class TestStubWebToolSSRFBlock:
         assert "all resolved IPs" in result
         assert "127.0.0.1" in result
 
-    async def test_url_check_failure_returns_constraint_envelope(
-        self, monkeypatch
-    ) -> None:
+    async def test_url_check_failure_returns_constraint_envelope(self, monkeypatch) -> None:
         # No resolver/transport patches needed — _url_check refuses before
         # the transport is ever invoked.
         tool = _StubWebTool(config=WebConfig())

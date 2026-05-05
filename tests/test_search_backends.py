@@ -129,9 +129,7 @@ class TestSearchBackendProtocol:
         class _HasSearch:
             name = "stub"
 
-            async def search(
-                self, query: str, max_results: int
-            ) -> list[SearchResult]:
+            async def search(self, query: str, max_results: int) -> list[SearchResult]:
                 return []
 
         assert isinstance(_HasSearch(), SearchBackend)
@@ -212,9 +210,7 @@ class TestDDGSearchBackend:
 
         assert results == []
 
-    async def test_anti_bot_interstitial_returns_empty(
-        self, monkeypatch, caplog
-    ) -> None:
+    async def test_anti_bot_interstitial_returns_empty(self, monkeypatch, caplog) -> None:
         """Mock returns 202 + interstitial HTML (no result markers). Backend
         returns ``[]`` and logs a warning."""
 
@@ -228,8 +224,7 @@ class TestDDGSearchBackend:
 
         assert results == []
         assert any(
-            "non-200" in record.message or "202" in record.message
-            for record in caplog.records
+            "non-200" in record.message or "202" in record.message for record in caplog.records
         )
 
     async def test_owned_client_lifecycle(self, monkeypatch) -> None:

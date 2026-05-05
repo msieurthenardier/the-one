@@ -74,14 +74,14 @@
     var html = '';
 
     // MCP subsection — stub.
-    html += '<h3 class="section-title">MCP tools</h3>';
+    html += '<h2 class="section-title">MCP tools</h2>';
     html += '<div class="empty-state" data-testid="agent-mcp-tools-stub">' +
       'MCP servers will be configured in the Tools section, then attached here. Tools can be attached to multiple agents.' +
       '</div>';
 
     // Built-in subsection — checkbox UI carried verbatim from pre-leg-03,
     // extended for F6 L5: disabled-tool styling + per-tool override panel.
-    html += '<h3 class="section-title">Built-in tools</h3>';
+    html += '<h2 class="section-title">Built-in tools</h2>';
     html += '<div class="tool-actions">' +
       '<button type="button" class="btn-outlined-cyan tool-select-all">All</button>' +
       '<button type="button" class="btn-outlined-cyan tool-select-none">None</button>' +

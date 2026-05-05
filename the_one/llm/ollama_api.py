@@ -54,7 +54,6 @@ def _parse_parameter_size(raw: str | None) -> int | None:
         return None
 
 
-
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -132,9 +131,7 @@ async def show_model(base_url: str, model: str) -> dict[str, Any]:
     return result
 
 
-async def chat_stream(
-    provider_url: str, body: dict[str, Any]
-) -> AsyncIterator[dict[str, Any]]:
+async def chat_stream(provider_url: str, body: dict[str, Any]) -> AsyncIterator[dict[str, Any]]:
     """Stream ``/v1/chat/completions`` SSE chunks from an OpenAI-compatible Ollama endpoint.
 
     Yields parsed JSON dicts for each ``data: {...}`` line. Stops on
@@ -153,7 +150,7 @@ async def chat_stream(
                         continue
                     if not raw_line.startswith("data:"):
                         continue
-                    payload = raw_line[len("data:"):].strip()
+                    payload = raw_line[len("data:") :].strip()
                     if payload == "[DONE]":
                         return
                     try:
@@ -175,15 +172,12 @@ async def pull_model(base_url: str, model: str) -> AsyncIterator[dict[str, Any]]
     url = strip_v1(base_url)
     try:
         async with httpx.AsyncClient(timeout=600) as client:
-            async with client.stream(
-                "POST", f"{url}/api/pull", json={"model": model}
-            ) as resp:
+            async with client.stream("POST", f"{url}/api/pull", json={"model": model}) as resp:
                 resp.raise_for_status()
                 async for line in resp.aiter_lines():
                     if not line:
                         continue
                     try:
-
                         yield json.loads(line)
                     except ValueError:
                         continue
@@ -210,9 +204,7 @@ async def delete_model(base_url: str, model: str) -> None:
         raise
 
 
-async def load_model(
-    base_url: str, model: str, keep_alive: str = "24h"
-) -> None:
+async def load_model(base_url: str, model: str, keep_alive: str = "24h") -> None:
     """Load a model into VRAM via ``/api/generate`` with ``keep_alive``.
 
     Ollama loads the model when it receives a generate request.
@@ -228,9 +220,7 @@ async def load_model(
     except httpx.ConnectError as exc:
         raise ConnectionError(f"Cannot connect to Ollama at {url}: {exc}") from exc
     except httpx.TimeoutException as exc:
-        raise ConnectionError(
-            f"Timeout loading model '{model}' on Ollama at {url}: {exc}"
-        ) from exc
+        raise ConnectionError(f"Timeout loading model '{model}' on Ollama at {url}: {exc}") from exc
 
 
 async def unload_model(base_url: str, model: str) -> None:
@@ -263,5 +253,3 @@ async def unload_model(base_url: str, model: str) -> None:
         raise ConnectionError(
             f"Timeout unloading model '{model}' on Ollama at {url}: {exc}"
         ) from exc
-
-

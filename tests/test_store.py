@@ -65,17 +65,13 @@ class TestDelete:
         store.delete("test-agent")
         assert store.exists("test-agent") is False
 
-    def test_delete_nonexistent_raises_key_error(
-        self, store: FilesystemConfigStore
-    ) -> None:
+    def test_delete_nonexistent_raises_key_error(self, store: FilesystemConfigStore) -> None:
         with pytest.raises(KeyError, match="Agent config not found"):
             store.delete("ghost")
 
 
 class TestLoadErrors:
-    def test_load_nonexistent_raises_key_error(
-        self, store: FilesystemConfigStore
-    ) -> None:
+    def test_load_nonexistent_raises_key_error(self, store: FilesystemConfigStore) -> None:
         with pytest.raises(KeyError, match="Agent config not found"):
             store.load("missing")
 

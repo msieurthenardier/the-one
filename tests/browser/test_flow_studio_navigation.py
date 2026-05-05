@@ -17,7 +17,6 @@ import pytest
 from browser.seeders import SeededApp
 from playwright.sync_api import Page, expect
 
-
 KNOWLEDGE_TEXT = "Knowledge bases will be created and managed here in a future mission."
 TOOLS_TEXT = "MCP servers and built-in tools will be configured here in a future mission."
 
@@ -248,7 +247,9 @@ def test_studio_section_round_trip_preserves_agent_selection(
     page.locator('.section-nav-item[data-section="agents"]').click()
     expect(page.locator(".editor-title")).to_have_text(agent_name, timeout=5000)
     expect(page.locator(".studio-editor")).not_to_have_class("studio-editor is-hidden")
-    expect(page.locator(".studio-section-content")).to_have_class("studio-section-content is-hidden")
+    expect(page.locator(".studio-section-content")).to_have_class(
+        "studio-section-content is-hidden"
+    )
 
 
 @pytest.mark.browser

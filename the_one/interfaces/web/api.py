@@ -72,9 +72,7 @@ async def _tool_config_repo() -> ToolConfigRepository:
     return ToolConfigRepository(conn)
 
 
-def _enrich_schema_with_markers(
-    schema: dict[str, Any], config_class: type
-) -> dict[str, Any]:
+def _enrich_schema_with_markers(schema: dict[str, Any], config_class: type) -> dict[str, Any]:
     """Inject `x_marker` per top-level property by reading
     `config_class.model_fields[name].metadata`. Pydantic v2 does not
     surface marker classes in `model_json_schema()`; the resolver
@@ -242,9 +240,7 @@ async def upsert_tool_config(name: str, request: Request) -> dict[str, Any]:
             # operator narrowed `timeout_seconds_max < timeout_seconds_default`
             # and the resulting model-validator ValueError crashed the JSON
             # encoder, surfacing as 500 instead of 422.
-            raise HTTPException(
-                status_code=422, detail=e.errors(include_context=False)
-            )
+            raise HTTPException(status_code=422, detail=e.errors(include_context=False))
         new_config = validated.model_dump()
     else:
         new_config = current_config
@@ -637,6 +633,47 @@ async def _provider_repo() -> LLMProviderRepository:
 
 _MASKED_API_KEY_SENTINEL = "__MASKED__"
 
+# Provider types that skip URL safety validation. ``mock`` has no real URL;
+# ``ollama`` is local-by-design and operators frequently point it at
+# ``http://host.docker.internal:11434`` or similar non-localhost hostnames
+# that are nonetheless trusted.
+_URL_VALIDATION_SKIPPED_TYPES = frozenset({"mock", "ollama"})
+
+
+def _is_safe_provider_url(url: str) -> tuple[bool, str | None]:
+    """Validate an LLM provider ``base_url``.
+
+    Returns ``(True, None)`` for ``https://...`` always; for ``http://...``
+    only when the host is one of ``localhost``/``127.0.0.1``/``::1`` or ends
+    with ``.localdomain``. Any other scheme/host combination is rejected
+    with a human-readable explanation suitable for ``HTTPException.detail``.
+
+    Rationale: API keys for ``openai``/``anthropic``/``openai-compatible``
+    are sent via the ``Authorization: Bearer ...`` header. Routing these
+    over plaintext ``http://`` to a non-localhost host would leak the key
+    on-wire to anything tapping the LAN. Refusing at save time is cheaper
+    than detecting after exposure.
+    """
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url)
+    if parsed.scheme == "https":
+        return True, None
+    if parsed.scheme == "http":
+        host = (parsed.hostname or "").lower()
+        if host in {"localhost", "127.0.0.1", "::1"} or host.endswith(".localdomain"):
+            return True, None
+        return (
+            False,
+            "Provider base_url uses http:// for a non-localhost host. "
+            "API keys would be sent in cleartext. Use https:// or restrict to localhost.",
+        )
+    return (
+        False,
+        f"Provider base_url scheme '{parsed.scheme}' not supported. "
+        "Use http:// (localhost only) or https://.",
+    )
+
 
 def _mask_api_key(key: str | None) -> str | None:
     if not key:
@@ -729,6 +766,12 @@ async def create_provider(request: Request) -> dict[str, Any]:
     if "id" not in data:
         data["id"] = uuid.uuid4().hex[:12]
     provider = LLMProviderConfig.model_validate(data)
+    # URL safety: refuse non-https for non-localhost when the provider type
+    # actually transmits an API key (skips ``mock`` / ``ollama``).
+    if provider.type not in _URL_VALIDATION_SKIPPED_TYPES:
+        ok, msg = _is_safe_provider_url(provider.base_url)
+        if not ok:
+            raise HTTPException(status_code=422, detail=msg)
     repo = await _provider_repo()
     await repo.create(provider)
     return _provider_response(provider)
@@ -759,6 +802,15 @@ async def update_provider(provider_id: str, request: Request) -> dict[str, Any]:
         data["api_key"] = existing.api_key
 
     updated = existing.model_copy(update=data)
+    # URL safety check on the RESOLVED base_url — i.e. after
+    # ``model_copy(update=data)`` has merged any ``__MASKED__``-preserved
+    # fields. This blocks the regression where a request that does not
+    # touch ``base_url`` would otherwise let an unsafe stored value
+    # survive an update.
+    if updated.type not in _URL_VALIDATION_SKIPPED_TYPES:
+        ok, msg = _is_safe_provider_url(updated.base_url)
+        if not ok:
+            raise HTTPException(status_code=422, detail=msg)
     await repo.update(updated)
     return _provider_response(updated)
 
@@ -804,6 +856,14 @@ async def test_provider(provider_id: str) -> dict[str, Any]:
         provider = await repo.get(provider_id)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Provider not found: {provider_id}")
+
+    # Belt-and-suspenders URL safety check: ``create_provider``/``update_provider``
+    # already enforce this, but operators may have data loaded from a
+    # pre-leg backup. Refuse to send the API key over an unsafe URL.
+    if provider.type not in _URL_VALIDATION_SKIPPED_TYPES:
+        ok, msg = _is_safe_provider_url(provider.base_url)
+        if not ok:
+            raise HTTPException(status_code=422, detail=msg)
 
     try:
         if provider.type == "mock":

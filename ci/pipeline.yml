@@ -7,7 +7,7 @@ jobs:
           platform: linux
           image_resource:
             type: registry-image
-            source: { repository: docker, tag: cli }
+            source: { repository: docker, tag: 25.0.3-cli }
           params:
             DOCKER_HOST: ((docker-host))
             WORKSPACE_PATH: ((workspace-path))
@@ -21,7 +21,7 @@ jobs:
                   -e THE_ONE_DEV_MODE="${THE_ONE_DEV_MODE}" \
                   -v "${WORKSPACE_PATH}:/src:ro" \
                   mcr.microsoft.com/playwright/python:v1.58.0-jammy \
-                  sh -c "cp -r /src /work && cd /work && pip install --no-cache-dir '.[dev]' -q && python -m pytest tests/ --tb=short -q && python -m pytest -m browser tests/browser/ --tb=short -q"
+                  sh -c "cp -r /src /work && cd /work && pip install --no-cache-dir '.[dev]' -q && ruff check the_one/ tests/ && ruff format --check the_one/ tests/ && python -m pytest tests/ --tb=short -q && python -m pytest -m browser tests/browser/ --tb=short -q"
 
       - task: build-and-deploy
         privileged: true
@@ -29,7 +29,7 @@ jobs:
           platform: linux
           image_resource:
             type: registry-image
-            source: { repository: docker, tag: cli }
+            source: { repository: docker, tag: 25.0.3-cli }
           params:
             DOCKER_HOST: ((docker-host))
             WORKSPACE_PATH: ((workspace-path))
@@ -45,14 +45,14 @@ jobs:
                   -v "${WORKSPACE_PATH}:/src" \
                   -v /var/run/docker.sock:/var/run/docker.sock \
                   -w /src \
-                  docker:cli \
+                  docker:25.0.3-cli \
                   docker build -t the-one:latest .
 
                 # Deploy: run deploy.sh from the host workspace via docker
                 docker run --rm \
                   -v "${WORKSPACE_PATH}:/src:ro" \
                   -v /var/run/docker.sock:/var/run/docker.sock \
-                  docker:cli \
+                  docker:25.0.3-cli \
                   sh /src/ci/deploy.sh latest
 
       - task: health-check
@@ -60,7 +60,7 @@ jobs:
           platform: linux
           image_resource:
             type: registry-image
-            source: { repository: curlimages/curl, tag: latest }
+            source: { repository: curlimages/curl, tag: 8.6.0 }
           params:
             APP_URL: ((app-url))
           run:
@@ -70,14 +70,20 @@ jobs:
               - |
                 # Wait for the app to come up
                 echo "Waiting for app to start..."
+                up=false
                 for i in $(seq 1 12); do
                   if curl -sf "${APP_URL}/api/info" > /dev/null 2>&1; then
                     echo "App is up after attempt $i"
+                    up=true
                     break
                   fi
                   echo "Attempt $i/12 — not ready, waiting 5s..."
                   sleep 5
                 done
+                if [ "$up" != "true" ]; then
+                  echo "ERROR: app never came up after 60s. Pipeline failing fast."
+                  exit 1
+                fi
 
                 # Run selftest (LLM + tool smoke test)
                 echo "Running selftest..."
@@ -96,7 +102,7 @@ jobs:
             platform: linux
             image_resource:
               type: registry-image
-              source: { repository: docker, tag: cli }
+              source: { repository: docker, tag: 25.0.3-cli }
             params:
               DOCKER_HOST: ((docker-host))
               WORKSPACE_PATH: ((workspace-path))
@@ -108,6 +114,6 @@ jobs:
                   docker run --rm \
                     -v "${WORKSPACE_PATH}:/src:ro" \
                     -v /var/run/docker.sock:/var/run/docker.sock \
-                    docker:cli \
+                    docker:25.0.3-cli \
                     sh /src/ci/deploy.sh rollback
                   echo "Rolled back to previous image"

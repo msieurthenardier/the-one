@@ -15,6 +15,7 @@ These tests verify the spawn-and-lock contract at the helper level
 without standing up a real WebSocket — that's covered by the live
 container smoke during HAT.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -147,9 +148,7 @@ class TestProcessingLock:
         original = app_module._process_and_broadcast
         app_module._process_and_broadcast = quick  # type: ignore[assignment]
         try:
-            task = asyncio.create_task(
-                _spawn_message_processing(s, "hi", "web", None)
-            )
+            task = asyncio.create_task(_spawn_message_processing(s, "hi", "web", None))
             _inflight_tasks.add(task)
             task.add_done_callback(_inflight_tasks.discard)
             await task
@@ -190,9 +189,13 @@ class TestRestoreSkipsRebuildDuringInflight:
             async def get(self, _sid):
                 # Returns a minimal db_session-shaped object.
                 from the_one.db.models import ChatSession as ChatSessionModel
+
                 return ChatSessionModel(
-                    id=s.id, agent_name=None, title="Old",
-                    messages="[]", created_at="2020-01-01T00:00:00",
+                    id=s.id,
+                    agent_name=None,
+                    title="Old",
+                    messages="[]",
+                    created_at="2020-01-01T00:00:00",
                     updated_at="2020-01-01T00:00:00",
                 )
 
@@ -238,9 +241,13 @@ class TestRestoreSkipsRebuildDuringInflight:
         class FakeRepo:
             async def get(self, _sid):
                 from the_one.db.models import ChatSession as ChatSessionModel
+
                 return ChatSessionModel(
-                    id=s.id, agent_name=None, title="DBTitle",
-                    messages="[]", created_at="2020-01-01T00:00:00",
+                    id=s.id,
+                    agent_name=None,
+                    title="DBTitle",
+                    messages="[]",
+                    created_at="2020-01-01T00:00:00",
                     updated_at="2020-01-01T00:00:00",
                 )
 

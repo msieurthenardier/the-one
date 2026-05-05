@@ -117,8 +117,7 @@ class TestSchemaV7:
         # exercises the exact same code path the migration would hit
         # against a real legacy DB.
         await conn.execute(
-            "INSERT INTO agents (name, enabled_tools, disabled_tools) "
-            "VALUES (?, ?, ?)",
+            "INSERT INTO agents (name, enabled_tools, disabled_tools) VALUES (?, ?, ?)",
             (
                 "mixed",
                 json.dumps(["self_deploy", "git", "memory", "shell"]),
@@ -126,13 +125,11 @@ class TestSchemaV7:
             ),
         )
         await conn.execute(
-            "INSERT INTO agents (name, enabled_tools, disabled_tools) "
-            "VALUES (?, ?, ?)",
+            "INSERT INTO agents (name, enabled_tools, disabled_tools) VALUES (?, ?, ?)",
             ("nullwhitelist", None, json.dumps(["git"])),
         )
         await conn.execute(
-            "INSERT INTO agents (name, enabled_tools, disabled_tools) "
-            "VALUES (?, ?, ?)",
+            "INSERT INTO agents (name, enabled_tools, disabled_tools) VALUES (?, ?, ?)",
             (
                 "removedonly",
                 json.dumps(["self_deploy"]),
@@ -141,8 +138,7 @@ class TestSchemaV7:
         )
         # All-kept row — proves the migration doesn't over-strip.
         await conn.execute(
-            "INSERT INTO agents (name, enabled_tools, disabled_tools) "
-            "VALUES (?, ?, ?)",
+            "INSERT INTO agents (name, enabled_tools, disabled_tools) VALUES (?, ?, ?)",
             (
                 "allkept",
                 json.dumps(["shell", "read_file", "write_file"]),
@@ -169,8 +165,7 @@ class TestSchemaV7:
 
         # Assertion 2: NULL whitelist preserved as NULL (not coerced to []).
         async with conn.execute(
-            "SELECT enabled_tools, disabled_tools FROM agents "
-            "WHERE name = 'nullwhitelist'"
+            "SELECT enabled_tools, disabled_tools FROM agents WHERE name = 'nullwhitelist'"
         ) as cur:
             row = await cur.fetchone()
         assert row["enabled_tools"] is None
@@ -179,8 +174,7 @@ class TestSchemaV7:
         # Assertion 3: whitelist of only removed names becomes empty list
         # (locked-down — never widened to NULL).
         async with conn.execute(
-            "SELECT enabled_tools, disabled_tools FROM agents "
-            "WHERE name = 'removedonly'"
+            "SELECT enabled_tools, disabled_tools FROM agents WHERE name = 'removedonly'"
         ) as cur:
             row = await cur.fetchone()
         assert json.loads(row["enabled_tools"]) == []
@@ -198,9 +192,8 @@ class TestSchemaV7:
         # design time; advanced to 8 in F2/L2 — the v7 strip ran AND the
         # later migrations followed).
         from the_one.db.schema import CURRENT_VERSION
-        async with conn.execute(
-            "SELECT MAX(version) FROM schema_version"
-        ) as cur:
+
+        async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
             row = await cur.fetchone()
         assert row[0] == CURRENT_VERSION
 
@@ -210,9 +203,7 @@ class TestSchemaV7:
 class TestSchemaV8:
     """Tests for the v8 migration that adds tool_configs + agents.tool_overrides."""
 
-    async def test_v8_fresh_db_includes_tool_configs_and_tool_overrides(
-        self, tmp_path
-    ) -> None:
+    async def test_v8_fresh_db_includes_tool_configs_and_tool_overrides(self, tmp_path) -> None:
         """Fresh DB → ensure_schema → v8 surfaces exist.
 
         Acts as the regression-loud-fail guard: if a future bump to
@@ -268,18 +259,14 @@ class TestSchemaV8:
         # CURRENT_VERSION (which advances past 8 in later legs — the
         # invariant this test guards is "v8 migration ran", not "no
         # later migration ran").
-        async with conn.execute(
-            "SELECT version FROM schema_version ORDER BY version"
-        ) as cur:
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
             versions = [r[0] for r in await cur.fetchall()]
         assert 8 in versions, versions
         assert max(versions) == CURRENT_VERSION, versions
 
         await conn.close()
 
-    async def test_v8_migration_on_v7_fixture_db_preserves_existing_rows(
-        self, tmp_path
-    ) -> None:
+    async def test_v8_migration_on_v7_fixture_db_preserves_existing_rows(self, tmp_path) -> None:
         """v7 → v8: existing agent rows survive with tool_overrides=NULL,
         tool_configs is created empty, schema_version lands at 8."""
         db_path = tmp_path / "v8-from-v7.db"
@@ -292,8 +279,7 @@ class TestSchemaV8:
 
         # Seed a v7-shaped agent row with enabled_tools set.
         await conn.execute(
-            "INSERT INTO agents (name, enabled_tools, disabled_tools) "
-            "VALUES (?, ?, ?)",
+            "INSERT INTO agents (name, enabled_tools, disabled_tools) VALUES (?, ?, ?)",
             ("seed", json.dumps(["shell", "read_file"]), json.dumps([])),
         )
 
@@ -332,9 +318,7 @@ class TestSchemaV8:
         # subsequent migrations on top.
         from the_one.db.schema import CURRENT_VERSION
 
-        async with conn.execute(
-            "SELECT version FROM schema_version ORDER BY version"
-        ) as cur:
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
             versions = [r[0] for r in await cur.fetchall()]
         assert 8 in versions, versions
         assert max(versions) == CURRENT_VERSION, versions
@@ -353,9 +337,7 @@ class TestSchemaV8:
         await ensure_schema(conn)  # second call — must be a no-op
 
         # Exactly one schema_version row for v8.
-        async with conn.execute(
-            "SELECT COUNT(*) FROM schema_version WHERE version = 8"
-        ) as cur:
+        async with conn.execute("SELECT COUNT(*) FROM schema_version WHERE version = 8") as cur:
             row = await cur.fetchone()
         assert row[0] == 1
 
@@ -385,8 +367,7 @@ class TestSchemaV8:
         # Seed an agent row with a removed tool name in enabled_tools so
         # the v7 strip has something to do.
         await conn.execute(
-            "INSERT INTO agents (name, enabled_tools, disabled_tools) "
-            "VALUES (?, ?, ?)",
+            "INSERT INTO agents (name, enabled_tools, disabled_tools) VALUES (?, ?, ?)",
             (
                 "chained",
                 json.dumps(["self_deploy", "shell"]),
@@ -423,9 +404,7 @@ class TestSchemaV8:
         # migrations on top; the v7→v8 chain still applies cleanly).
         from the_one.db.schema import CURRENT_VERSION
 
-        async with conn.execute(
-            "SELECT version FROM schema_version ORDER BY version"
-        ) as cur:
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
             versions = [r[0] for r in await cur.fetchall()]
         assert 7 in versions, versions
         assert 8 in versions, versions
@@ -437,9 +416,7 @@ class TestSchemaV8:
 class TestSchemaV9:
     """Tests for the v9 migration that adds tool_configs.enabled."""
 
-    async def test_v9_fresh_db_has_enabled_column_with_default_1(
-        self, tmp_path
-    ) -> None:
+    async def test_v9_fresh_db_has_enabled_column_with_default_1(self, tmp_path) -> None:
         from the_one.db.schema import CURRENT_VERSION
 
         db_path = tmp_path / "v9-fresh.db"
@@ -474,17 +451,13 @@ class TestSchemaV9:
             r = await cur.fetchone()
         assert r["enabled"] == 1, r["enabled"]
 
-        async with conn.execute(
-            "SELECT MAX(version) FROM schema_version"
-        ) as cur:
+        async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
             row = await cur.fetchone()
         assert row[0] == 9
 
         await conn.close()
 
-    async def test_v9_migration_on_v8_fixture_db_preserves_existing_rows(
-        self, tmp_path
-    ) -> None:
+    async def test_v9_migration_on_v8_fixture_db_preserves_existing_rows(self, tmp_path) -> None:
         db_path = tmp_path / "v9-from-v8.db"
         conn = await aiosqlite.connect(str(db_path))
         conn.row_factory = aiosqlite.Row
@@ -514,9 +487,7 @@ class TestSchemaV9:
         assert json.loads(row["config"]) == {"timeout_sec_default": 30.0}
         assert row["enabled"] == 1
 
-        async with conn.execute(
-            "SELECT MAX(version) FROM schema_version"
-        ) as cur:
+        async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
             row = await cur.fetchone()
         assert row[0] == 9
 
@@ -531,9 +502,7 @@ class TestSchemaV9:
         await ensure_schema(conn)
         await ensure_schema(conn)
 
-        async with conn.execute(
-            "SELECT COUNT(*) FROM schema_version WHERE version = 9"
-        ) as cur:
+        async with conn.execute("SELECT COUNT(*) FROM schema_version WHERE version = 9") as cur:
             row = await cur.fetchone()
         assert row[0] == 1
 
@@ -562,9 +531,7 @@ class TestSchemaV9:
 
         await ensure_schema(conn)
 
-        async with conn.execute(
-            "SELECT enabled FROM tool_configs WHERE name = 'chained'"
-        ) as cur:
+        async with conn.execute("SELECT enabled FROM tool_configs WHERE name = 'chained'") as cur:
             row = await cur.fetchone()
         assert row["enabled"] == 1
 

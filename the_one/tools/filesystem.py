@@ -28,6 +28,7 @@ class CheckMode(str, Enum):
     WRITE_EXISTING_PARENT = "write_existing_parent"  # WRITE_NEW + parent.exists()
     DIRECTORY = "directory"  # READ + is_dir()
 
+
 DEFAULT_PATH_DENYLIST: tuple[str, ...] = (
     # System secrets / credentials (8)
     "~/.ssh",
@@ -213,21 +214,15 @@ def _filesystem_check(
         # explicitly rather than via ``assert`` so behavior is identical
         # under ``python -O`` (which strips asserts).
         if canonical_parent is None:
-            raise RuntimeError(
-                "unreachable: canonical_parent unset in WRITE_EXISTING_PARENT"
-            )
+            raise RuntimeError("unreachable: canonical_parent unset in WRITE_EXISTING_PARENT")
         if not canonical_parent.exists():
-            raise FileNotFoundError(
-                f"parent does not exist for path '{path}': {canonical_parent}"
-            )
+            raise FileNotFoundError(f"parent does not exist for path '{path}': {canonical_parent}")
     elif mode == CheckMode.DIRECTORY:
         if not canonical.is_dir():
             # ``Path.is_dir()`` returns False for both nonexistent and
             # non-directory paths; the combined wording is the F4 contract
             # downstream agents depend on — DO NOT change.
-            raise ConstraintError(
-                f"cwd '{canonical}' does not exist or is not a directory"
-            )
+            raise ConstraintError(f"cwd '{canonical}' does not exist or is not a directory")
     # READ and WRITE_NEW have no post-check.
 
     return canonical

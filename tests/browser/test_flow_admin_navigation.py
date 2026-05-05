@@ -29,9 +29,7 @@ def test_admin_legacy_general_redirects_to_system(app_clean: str, page: Page) ->
 
 
 @pytest.mark.browser
-def test_admin_picker_click_from_providers_redirects_to_system(
-    app_clean: str, page: Page
-) -> None:
+def test_admin_picker_click_from_providers_redirects_to_system(app_clean: str, page: Page) -> None:
     """Clicking the Settings picker while already in admin (from /providers)
     sets bare `#admin` — must redirect to `#admin/system`, not strand the URL.
 
