@@ -13,23 +13,11 @@
   .area-admin .admin-note { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; font-size: var(--font-size-body-sm); color: var(--fg-secondary); margin-bottom: 16px; line-height: var(--line-height-normal); }
   .area-admin .admin-section { padding: 16px 0; border-top: 1px solid var(--border); }
   .area-admin .admin-section:first-of-type { border-top: none; padding-top: 0; }
-  /* Read-only field-VALUE display — distinct from shared editable .field-row. */
-  .area-admin .admin-field-row { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
-  .area-admin .admin-field-label { width: 120px; font-size: var(--font-size-body-sm); color: var(--fg-secondary); flex-shrink: 0; }
-  .area-admin .admin-field-value { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; color: var(--fg); font-size: var(--font-size-body); font-family: inherit; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-  .area-admin .admin-field-not-set { color: var(--fg-muted); font-style: italic; }
-  .area-admin .admin-field-env { font-family: var(--font-family-mono); font-size: var(--font-size-tiny); color: var(--fg-faint); flex-shrink: 0; min-width: 180px; }
   .area-admin .admin-placeholder { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; }
   .area-admin .admin-placeholder-title { font-size: var(--font-size-h2); font-weight: var(--font-weight-bold); color: var(--fg); }
   .area-admin .admin-placeholder-text { font-size: var(--font-size-body-lg); color: var(--fg-muted); }
 
-  /* === System Page (F6 leg 01: combined Environment + Appearance + Encryption) === */
-  /* Environment subsection labels (Paths / Server / Concourse CI). */
-  .area-admin .admin-environment-subsection { margin-bottom: 16px; }
-  .area-admin .admin-environment-subsection:last-child { margin-bottom: 0; }
-  .area-admin .admin-environment-subtitle { font-family: var(--font-family-mono); font-size: var(--font-size-tiny); font-weight: var(--font-weight-bold); text-transform: uppercase; letter-spacing: 1px; color: var(--fg-secondary); margin-bottom: 8px; }
-
-  /* === System Panel === */
+  /* === System Panel (Appearance + Encryption + Base Prompt) === */
   .area-admin .admin-system-section { padding: 16px 0; border-top: 1px solid var(--border); }
   .area-admin .admin-system-section:first-of-type { border-top: none; padding-top: 0; }
   .area-admin .admin-system-text { font-size: var(--font-size-body); color: var(--fg-secondary); line-height: var(--line-height-normal); margin-bottom: 12px; }
@@ -149,7 +137,6 @@
   }
   .area-admin .admin-tool-badge--filesystem { background: var(--badge-filesystem); }
   .area-admin .admin-tool-badge--execution { background: var(--badge-execution); }
-  .area-admin .admin-tool-badge--python { background: var(--badge-python); }
   .area-admin .admin-tool-badge--web { background: var(--badge-web); }
   .area-admin .admin-tool-badge--unknown { background: var(--badge-unknown); }
 

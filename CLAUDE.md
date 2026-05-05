@@ -82,7 +82,7 @@ The provider edit form sends the literal string `__MASKED__` as the `api_key` fi
 The web UI has three functional areas sharing a sidebar + content panel layout:
 - **Chat** — Multi-session chat with agent selection, WebSocket streaming, context telemetry
 - **Studio** — Agent configuration editor (CRUD agents, tool toggles, connections)
-- **Administration** — Settings display from `GET /api/settings`, provider management via `/api/providers` endpoints (CRUD, connection test, model discovery, key rotation). Provider configurations are stored in the database with encrypted API keys.
+- **Administration** — System page (Appearance theme toggle, Encryption key rotation, read-only Base Prompt), provider management via `/api/providers` endpoints (CRUD, connection test, model discovery, key rotation), and the Built-in Tools admin grid via `/api/tools/configs`. Provider configurations are stored in the database with encrypted API keys.
 
 Areas register via `App.registerArea({ id, label, icon, order, init, activate, deactivate })`. The `init(sidebar, content)` function receives DOM elements on first activation; `activate()` fires on every switch-to (use for data refresh); `deactivate()` fires on switch-away. CSS is scoped under `.area-{id}`. Shared utilities like `App.escapeHtml()` are available on the `App` object.
 

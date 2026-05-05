@@ -73,14 +73,13 @@ def test_admin_tools_tab_click_switches_panel(app_clean: str, page: Page) -> Non
 
 @pytest.mark.browser
 def test_admin_tools_each_tab_renders_correct_tile_count(app_clean: str, page: Page) -> None:
-    """All four panels' tile counts: 9/5/1/4 = 19 tools total."""
+    """All three panels' tile counts: 9/6/4 = 19 tools total."""
     page.goto(f"{app_clean}#admin/tools")
     expect(page.locator(".area-admin .page-title")).to_have_text("Built-in Tools", timeout=8000)
 
     expected = {
         "filesystem": 9,
-        "execution": 5,
-        "python": 1,
+        "execution": 6,
         "web": 4,
     }
     for cat, count in expected.items():

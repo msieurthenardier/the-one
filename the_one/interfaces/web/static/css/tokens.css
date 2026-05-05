@@ -78,7 +78,6 @@
        badges so the visual grouping reads as "tool category" not "provider type". */
     --badge-filesystem: #008b8b;  /* dark cyan */
     --badge-execution: #b8860b;   /* dark goldenrod */
-    --badge-python: #306998;      /* python blue */
     --badge-web: #c71585;         /* medium violet red */
 
     /* panel design tokens */
@@ -176,7 +175,6 @@
        contrast while still meeting AA against --fg-on-accent (#ffffff). */
     --badge-filesystem: #0e8e8e;
     --badge-execution: #c5912a;
-    --badge-python: #4178a8;
     --badge-web: #d63a93;
 
     /* panel design tokens — drop-shadow style replaces dark's glow shadows.

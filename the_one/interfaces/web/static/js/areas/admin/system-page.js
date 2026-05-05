@@ -3,21 +3,10 @@
   window.App = window.App || {};
   window.App.admin = window.App.admin || {};
 
-  // Combined System page — Environment (read-only env-var-derived rows) +
-  // Appearance (theme toggle) + Encryption (rotate flow). Replaces the
-  // previously-separate General + System pages (F6 leg 01).
-
-  var SETTING_SECTIONS = [
-    { title: 'Paths', fields: ['data_dir'] },
-    { title: 'Server', fields: ['host', 'port', 'dev_mode'] }
-  ];
-
-  var FIELD_LABELS = {
-    data_dir: 'Data Directory',
-    host: 'Host',
-    port: 'Port',
-    dev_mode: 'Dev Mode'
-  };
+  // Combined System page — Appearance (theme toggle) + Encryption (rotate
+  // flow) + Base Prompt (read-only). The Environment env-var display block
+  // was removed (no editable affordance, low diagnostic value vs prime
+  // real estate); equivalent info is reachable via /api/info.
 
   function renderSystemPage(container) {
     container.innerHTML =
@@ -25,14 +14,6 @@
         '<h1 class="page-title">System</h1>' +
       '</div>' +
       '<div class="admin-form">' +
-        '<div class="admin-system-section">' +
-          '<div class="section-title admin-section-title">Environment</div>' +
-          '<div class="admin-note">' +
-            'Environment settings are configured via environment variables. ' +
-            'Restart the server after changing values.' +
-          '</div>' +
-          '<div class="admin-environment-rows"><div class="admin-loading">Loading settings…</div></div>' +
-        '</div>' +
         '<div class="admin-system-section">' +
           '<div class="section-title admin-section-title" id="admin-appearance-heading">Appearance</div>' +
           '<p class="admin-system-text">' +
@@ -63,35 +44,9 @@
         '</div>' +
       '</div>';
 
-    fetchSettings(container);
     fetchBasePrompt(container);
     mountThemeToggle(container);
     wireEncryptionRotate(container);
-  }
-
-  function fetchSettings(container) {
-    fetch('/api/settings')
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        var rowsEl = container.querySelector('.admin-environment-rows');
-        if (!rowsEl) return;
-        var html = '';
-        for (var s = 0; s < SETTING_SECTIONS.length; s++) {
-          var section = SETTING_SECTIONS[s];
-          html += '<div class="admin-environment-subsection">';
-          html += '<div class="admin-environment-subtitle">' + window.App.escapeHtml(section.title) + '</div>';
-          for (var f = 0; f < section.fields.length; f++) {
-            var field = section.fields[f];
-            var label = FIELD_LABELS[field] || field;
-            var value = data[field];
-            var envVar = 'THE_ONE_' + field.toUpperCase();
-            html += settingRow(label, value, envVar);
-          }
-          html += '</div>';
-        }
-        rowsEl.innerHTML = html;
-      })
-      .catch(function () { /* loading message stays */ });
   }
 
   function fetchBasePrompt(container) {
@@ -110,21 +65,6 @@
         var preEl = container.querySelector('.admin-base-prompt');
         if (preEl) preEl.textContent = '(failed to load)';
       });
-  }
-
-  function settingRow(label, value, envVar) {
-    var escapeHtml = window.App.escapeHtml;
-    var displayValue;
-    if (value === null || value === undefined || value === '') {
-      displayValue = '<span class="admin-field-not-set">not set</span>';
-    } else {
-      displayValue = escapeHtml(String(value));
-    }
-    return '<div class="admin-field-row">' +
-      '<div class="admin-field-label">' + escapeHtml(label) + '</div>' +
-      '<div class="admin-field-value">' + displayValue + '</div>' +
-      '<div class="admin-field-env">' + escapeHtml(envVar) + '</div>' +
-    '</div>';
   }
 
   function mountThemeToggle(container) {

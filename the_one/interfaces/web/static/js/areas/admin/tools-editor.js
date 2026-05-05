@@ -76,7 +76,7 @@
     shell_session_send: 'execution',
     shell_session_close: 'execution',
     shell_session_list: 'execution',
-    python_exec: 'python',
+    python_exec: 'execution',
     http_request: 'web',
     fetch_url: 'web',
     download_file: 'web',

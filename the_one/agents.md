@@ -267,7 +267,7 @@ class SearchBackend(Protocol):
 
 ### Built-in tool admin (F6)
 
-Operators manage built-in tool defaults via `Settings → Built-in Tools` in the web UI (route `#admin/tools`). The grid renders the 19 builtins under 4 category tabs (Filesystem / Execution / Python / Web) with one tile per tool — each carrying a category badge, name, prompt, and an enable/disable toggle. Toggling persists immediately via `PUT /api/tools/configs/{name}` with `{enabled: bool}` (REPLACE-not-merge — omitting `config` preserves the saved row's config).
+Operators manage built-in tool defaults via `Settings → Built-in Tools` in the web UI (route `#admin/tools`). The grid renders the 19 builtins under 3 category tabs (Filesystem / Execution / Web) with one tile per tool — each carrying a category badge, name, prompt, and an enable/disable toggle. `python_exec` is filed under Execution alongside `shell` and the four `shell_session_*` tools (it shares `PythonExecConfig`, a subclass of `ExecutionConfig`). Toggling persists immediately via `PUT /api/tools/configs/{name}` with `{enabled: bool}` (REPLACE-not-merge — omitting `config` preserves the saved row's config).
 
 The per-tool editor (`#admin/tools/{name}`) drives form rendering from `_enrich_schema_with_markers(Config.model_json_schema(), Config)` (`the_one/interfaces/web/api.py:75-115`) which injects `x_marker` per top-level property. Field-widget dispatch lives in `App.adminFormHelpers.renderField` at `the_one/interfaces/web/static/js/areas/admin/tools-form-helpers.js`:
 
@@ -447,7 +447,7 @@ The F4 leg 02 lift consolidates per-area duplications into shared primitives in 
 
 **Shared class catalog** (in `components.css` `@layer components`):
 - `.list-item` + `.list-item-delete` — sidebar/category list rows with a focus-within-revealed inline delete affordance. Used in chat (`.session-item`), studio (`.agent-item`), admin (`.admin-category-item`).
-- `.field-row` + `.field-input` + `.field-textarea` + `.field-select` — editable form rows with label + input. Used in studio (agent editor) and admin (provider form). Note: admin's `.admin-field-row` (read-only field-VALUE display, e.g., encryption status) is a DIFFERENT pattern and remains admin-only — distinct widths (label 120px vs 100px) and read-only `<div>` value vs editable `<input>`.
+- `.field-row` + `.field-input` + `.field-textarea` + `.field-select` — editable form rows with label + input. Used in studio (agent editor) and admin (provider form).
 - `.section-title` (with `// PREFIX` `::before`) — section headers in editor / form contexts.
 - `.btn-outlined-cyan` — secondary affordance buttons (transparent + 1px solid accent border).
 - `.btn-filled-cyan` — primary CTAs (accent fill + glow).

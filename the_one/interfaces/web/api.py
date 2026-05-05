@@ -17,7 +17,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import ValidationError
 
-from the_one.config import Settings, settings
+from the_one.config import settings
 from the_one.db.connection import get_connection
 from the_one.db.models import ChatSession, KBItem, KnowledgeBase, LLMProviderConfig, MCPSource
 from the_one.db.repositories import (
@@ -112,18 +112,6 @@ def _enrich_schema_with_markers(schema: dict[str, Any], config_class: type) -> d
                 prop["x_marker"] = marker_name
                 break
     return schema
-
-
-# ── Settings ──────────────────────────────────────────────────────────────
-
-
-@router.get("/settings")
-async def get_settings() -> dict[str, Any]:
-    return {
-        name: str(val) if isinstance(val, Path) else val
-        for name in Settings.model_fields
-        for val in [getattr(settings, name)]
-    }
 
 
 # ── Tools ─────────────────────────────────────────────────────────────────

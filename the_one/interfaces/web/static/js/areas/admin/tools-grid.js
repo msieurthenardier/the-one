@@ -20,14 +20,13 @@
     glob: 'filesystem',
     grep: 'filesystem',
     list_dir: 'filesystem',
-    // execution (5)
+    // execution (6) — shell + the four PTY session tools + python_exec
     shell: 'execution',
     shell_session_start: 'execution',
     shell_session_send: 'execution',
     shell_session_close: 'execution',
     shell_session_list: 'execution',
-    // python (1)
-    python_exec: 'python',
+    python_exec: 'execution',
     // web (4)
     http_request: 'web',
     fetch_url: 'web',
@@ -36,15 +35,14 @@
   };
 
   // F6 L6 (HAT inline fix): the admin Tools grid groups tiles under
-  // per-category tabs (Filesystem / Execution / Python / Web) rather
-  // than a single alphabetic list. Operator HAT scenario 1 surfaced the
+  // per-category tabs (Filesystem / Execution / Web) rather than a
+  // single alphabetic list. Operator HAT scenario 1 surfaced the
   // single-list layout as a UX gap once the tool count crossed ~10.
   // Tab declaration order (also tab visual order):
-  var CATEGORY_ORDER = ['filesystem', 'execution', 'python', 'web'];
+  var CATEGORY_ORDER = ['filesystem', 'execution', 'web'];
   var CATEGORY_LABELS = {
     filesystem: 'Filesystem',
     execution: 'Execution',
-    python: 'Python',
     web: 'Web'
   };
 
