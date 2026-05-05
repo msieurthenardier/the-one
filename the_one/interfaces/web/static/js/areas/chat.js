@@ -44,13 +44,13 @@ App.registerArea({
     var availableAgents = [];
     var setupState = { hasProviders: false, hasAgents: false };
 
-    // Sidebar header drops the redundant area title — the topbar app-picker
-    // pill names the active area. A visible "Select Agent" label sits above
-    // the picker so the dropdown reads clearly even when no agent is
-    // chosen yet (the placeholder "Select agent…" disappears post-selection).
+    // Sidebar headers use the app's `// SECTION` idiom (.section-title) so the
+    // chat sidebar reads consistently with admin/studio. The label still owns
+    // a `for=` association with the agent select for screen-reader form
+    // semantics; .section-title controls the visual treatment.
     sidebar.innerHTML =
       '<div id="sidebar-header">' +
-        '<label class="agent-select-label" for="chat-agent-select">Select Agent</label>' +
+        '<label class="section-title" for="chat-agent-select">Select Agent</label>' +
         '<div class="sidebar-actions">' +
           '<select id="chat-agent-select" class="agent-select" data-testid="agent-select">' +
             '<option value="" disabled selected>Select agent…</option>' +
@@ -72,8 +72,11 @@ App.registerArea({
           '<div class="chat-welcome-list" role="listbox" aria-label="Available agents"></div>' +
         '</div></div>' +
       '<div class="chat-chrome">' +
+        // New-chat button sits inline next to the agent badge — icon-only at
+        // rest, expands into the full pill on hover/focus. Pure-CSS
+        // hover-expand via max-width transition; no JS state needed.
         '<div class="header"><h2 class="session-agent-badge"></h2>' +
-          '<button class="btn-outlined-cyan new-chat-header" type="button" data-testid="new-chat-btn" aria-label="Start a new conversation with this agent">' +
+          '<button class="new-chat-header" type="button" data-testid="new-chat-btn" aria-label="Start a new conversation with this agent">' +
             App.icon('square-pen') + '<span>New Chat</span></button></div>' +
         '<div class="messages" role="log" aria-live="polite" aria-relevant="additions" aria-atomic="false"></div>' +
         '<div class="input-area">' +

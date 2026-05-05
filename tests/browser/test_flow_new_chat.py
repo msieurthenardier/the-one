@@ -214,7 +214,7 @@ def test_chat_history_today_group_renders(app_with_agent: SeededApp, page: Page)
         app_with_agent.agent_name, timeout=8000
     )
 
-    expect(page.locator(".session-list-heading")).to_have_text("Chat History")
+    expect(page.locator(".session-list > .section-title")).to_have_text("Chat History")
     expect(page.locator(".session-group-label").filter(has_text="Today")).to_be_visible(
         timeout=5000
     )

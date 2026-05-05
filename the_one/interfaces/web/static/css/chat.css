@@ -1,9 +1,14 @@
 @layer areas {
   /* === Chat Area: Sidebar === */
-  .area-chat #sidebar-header { padding: 12px 16px; display: flex; flex-direction: column; gap: 6px; }
-  .area-chat .agent-select-label { font-size: var(--font-size-caption); font-weight: var(--font-weight-semibold); color: var(--fg-muted); text-transform: uppercase; letter-spacing: 0.06em; }
-  .area-chat .sidebar-actions { display: flex; gap: 6px; align-items: center; }
-  .area-chat .session-list-heading { padding: 12px 16px 4px 16px; font-size: var(--font-size-caption); font-weight: var(--font-weight-semibold); color: var(--fg-muted); text-transform: uppercase; letter-spacing: 0.06em; }
+  /* Section headers in the chat sidebar use the shared .section-title class
+     for the `// HEADER` idiom. The :first-child rule on .section-title kills
+     the default 24px top margin in both #sidebar-header and .session-list,
+     so vertical rhythm is driven by section-title's 12px bottom margin. */
+  .area-chat #sidebar-header { padding: 12px 16px 0 16px; display: flex; flex-direction: column; }
+  .area-chat .sidebar-actions { display: flex; gap: 6px; align-items: center; padding-bottom: 12px; }
+  /* Pad the in-list `// CHAT HISTORY` heading to align with session-group
+     labels (which are at 8px parent-pad + 16px self-pad = 24px from edge). */
+  .area-chat .session-list > .section-title { padding: 0 16px; margin-bottom: 4px; }
   .area-chat .session-group { display: flex; flex-direction: column; }
   .area-chat .session-group-label { padding: 8px 16px 4px 16px; font-size: var(--font-size-tiny); color: var(--fg-faint); text-transform: uppercase; letter-spacing: 0.05em; }
   .area-chat .agent-select { flex: 1; min-width: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; color: var(--fg); font-family: inherit; font-size: var(--font-size-body-sm); outline: none; cursor: pointer; overflow: hidden; text-overflow: ellipsis; }
@@ -18,11 +23,43 @@
   /* Chrome wraps header/messages/input; toggled with welcome via `hidden`. */
   .area-chat .chat-chrome { display: flex; flex-direction: column; flex: 1; min-height: 0; position: relative; }
   .area-chat .chat-chrome[hidden] { display: none; }
-  .area-chat .header { padding: 14px 20px; font-size: var(--font-size-body-sm); color: var(--fg-tertiary); display: flex; align-items: center; gap: 12px; }
+  .area-chat .header { padding: 14px 20px; font-size: var(--font-size-body-sm); color: var(--fg-tertiary); display: flex; align-items: center; gap: 8px; }
   .area-chat .session-agent-badge { font-size: var(--font-size-h2); font-weight: var(--font-weight-semibold); color: var(--fg); padding: 0; background: transparent; border: none; border-radius: 0; }
-  /* New-chat header button — layout-only override; cosmetics from .btn-outlined-cyan. */
-  .area-chat .new-chat-header { margin-left: auto; white-space: nowrap; flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; }
-  .area-chat .new-chat-header svg { width: 14px; height: 14px; }
+  /* New-chat button: icon-only at rest, expands to the full pill on hover/focus.
+     Pure-CSS animation via max-width + padding transitions; <span> opacity
+     fades in over the same window so the label appears as the pill grows.
+     overflow:hidden clips the label inside the icon-only width so it doesn't
+     spill out before the hover state. */
+  .area-chat .new-chat-header {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--panel-radius-sm);
+    color: var(--accent);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: var(--font-size-body-sm);
+    padding: 4px 8px;
+    max-width: 32px;
+    overflow: hidden;
+    white-space: nowrap;
+    transition: max-width 0.2s ease, padding 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+  }
+  .area-chat .new-chat-header svg { width: 16px; height: 16px; flex-shrink: 0; }
+  .area-chat .new-chat-header span { opacity: 0; transition: opacity 0.15s ease 0.05s; }
+  .area-chat .new-chat-header:hover,
+  .area-chat .new-chat-header:focus-visible {
+    max-width: 200px;
+    padding: 4px 10px;
+    background: var(--accent-translucent-hover);
+    border-color: var(--accent);
+  }
+  .area-chat .new-chat-header:hover span,
+  .area-chat .new-chat-header:focus-visible span { opacity: 1; }
+  .area-chat .new-chat-header:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 3px var(--accent-glow); }
 
   /* Telemetry overlay — hover/focus expands details, lifts opacity to 1. */
   .area-chat .telemetry-overlay { position: absolute; right: 20px; bottom: 76px; display: flex; align-items: center; gap: 10px; font-size: var(--font-size-caption); color: var(--fg-muted); opacity: 0.4; transition: opacity 0.25s ease; z-index: 1; }

@@ -103,8 +103,10 @@
     }
 
     // Render heading first, then each non-empty bucket as a role=group.
+    // section-title gives the `// CHAT HISTORY` idiom shared with the
+    // sidebar's `// SELECT AGENT` and the admin/studio section headers.
     var headingEl = document.createElement('div');
-    headingEl.className = 'session-list-heading';
+    headingEl.className = 'section-title';
     headingEl.textContent = 'Chat History';
     sessionListEl.appendChild(headingEl);
 
