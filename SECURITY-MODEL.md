@@ -123,3 +123,19 @@ above before implementation:
 - **Multi-user form factor**: would require auth + per-user tool
   isolation + per-user encryption keys — a substantial change that
   inverts F3 Decision 10
+- **CORS / OPTIONS preflight**: `OriginAllowlistMiddleware` does not
+  gate `OPTIONS` requests (see code comment above `GATED_METHODS` in
+  `the_one/interfaces/web/middleware.py`). The project has no CORS
+  need today (single-origin local-only). If a CORS need arises, gate
+  `OPTIONS` AND emit explicit `Access-Control-Allow-Origin` headers
+  from a dedicated CORS middleware. Do NOT enable wildcard CORS —
+  preserve the same-origin posture.
+- **X-Forwarded-Host / trusted proxy**: the middleware reads the raw
+  `Origin` request header. The reverse-proxy guidance at L30 above
+  assumes the proxy preserves `Origin` end-to-end (most modern
+  proxies do). If the proxy strips or rewrites `Origin`, the
+  operator must either (a) configure the proxy to forward it, or
+  (b) replace the middleware with one that consults `X-Forwarded-Host`
+  after explicitly validating the proxy's trustworthiness (e.g. via
+  IP allowlist on the proxy's source). The current single-user
+  local-only deployment has no proxy and does not need this.
