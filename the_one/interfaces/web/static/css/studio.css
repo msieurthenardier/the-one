@@ -50,6 +50,13 @@
   .area-studio .studio-vram-warning { display: none; margin-top: 6px; padding: 6px 10px; border-left: 3px solid var(--status-warning); background: var(--status-warning-bg-soft); border-radius: 0 4px 4px 0; font-size: var(--font-size-body-sm); color: var(--status-warning); line-height: 1.4; }
   .area-studio .studio-vram-warning.visible { display: block; }
 
+  /* Capability panel — surfaces /api/show capabilities under the model
+     selector. The danger-coloured `no tools` chip carries the warning by
+     itself; no separate banner. */
+  .area-studio .model-capabilities { margin-top: 6px; padding-left: 112px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: var(--font-size-caption); color: var(--fg-secondary); }
+  .area-studio .model-capabilities:empty { display: none; }
+  .area-studio .model-capabilities-label { color: var(--fg-tertiary); text-transform: uppercase; letter-spacing: 0.5px; font-size: var(--font-size-tiny); }
+
   /* === Studio Area: Tools tab — operator-disabled rows + override panels === */
   /* F6 leg 05. Operator-disabled tools: dim row + cursor:not-allowed +
      strikethrough name. Override panel (`<details>`): nested under each

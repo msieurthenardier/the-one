@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import secrets
@@ -927,10 +928,28 @@ async def list_provider_models(provider_id: str) -> list[dict[str, Any]]:
         try:
             base = ollama_api.strip_v1(provider.base_url)
             models = await ollama_api.list_models(base)
-            return [
-                {"id": m.get("name", ""), "name": m.get("name", ""), "size": m.get("size")}
-                for m in models
+            # Capabilities come from /api/show — cached per (base, model) so
+            # repeat renders are free. Gather in parallel; on failure, return
+            # `null` capabilities so the UI renders the row without chips
+            # rather than failing the whole list.
+            cap_tasks = [
+                ollama_api.get_model_capabilities(base, m.get("name", "")) for m in models
             ]
+            caps_list = await asyncio.gather(*cap_tasks, return_exceptions=True)
+            enriched = []
+            for m, caps in zip(models, caps_list, strict=False):
+                cap_array = (
+                    sorted(caps) if isinstance(caps, frozenset | set) else None
+                )
+                enriched.append(
+                    {
+                        "id": m.get("name", ""),
+                        "name": m.get("name", ""),
+                        "size": m.get("size"),
+                        "capabilities": cap_array,
+                    }
+                )
+            return enriched
         except Exception as e:
             raise HTTPException(status_code=502, detail=str(e))
     elif provider.type == "openai-compatible":

@@ -75,6 +75,11 @@
     html += '<span class="model-loading" aria-live="polite"></span>';
     html += '</div></div>';
 
+    // Capability panel — Ollama models surface their /api/show capabilities
+    // here so operators see at a glance whether the selected model supports
+    // tools (and get a load-bearing warning when it doesn't).
+    html += '<div class="model-capabilities" data-testid="model-capabilities" role="status" aria-live="polite"></div>';
+
     // VRAM warning placeholder (ollama only) — preserved verbatim so
     // checkVramForModel logic in studio.js continues to find this element.
     html += '<div class="studio-vram-warning" role="status" aria-live="polite"></div>';

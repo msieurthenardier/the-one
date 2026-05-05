@@ -107,6 +107,13 @@
   /* admin-pf-model-btn retained as a JS hook only — styling comes from
      canonical .btn-outlined-cyan / .btn-muted-destructive + .btn-sm. */
   .area-admin .admin-pf-model-error { font-size: var(--font-size-tiny); color: var(--status-danger); padding: 2px 0; width: 100%; }
+  /* Capability chips — surfaced on each Ollama model row + reused by Studio
+     under the model selector. Positive capabilities use the canonical grey
+     .chip; .cap-chip-no-tools uses the danger palette so the absence of
+     tool support stands out at a glance. */
+  .cap-chip-row { display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+  .cap-chip { font-size: var(--font-size-tiny); padding: 2px 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .cap-chip-no-tools { background: var(--status-danger-bg-soft); border-color: var(--status-danger); color: var(--status-danger); cursor: help; }
 
   /* === Pull UI === */
   .area-admin .admin-pf-pull-input { display: flex; align-items: center; gap: 8px; padding: 8px 0; }

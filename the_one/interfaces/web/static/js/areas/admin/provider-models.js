@@ -22,6 +22,28 @@
   var escapeHtml = window.App.escapeHtml;
   var escapeAttr = window.App.escapeAttr;
 
+  // Render the Ollama capability list as a row of chips. `caps` is the
+  // array returned by /api/show (e.g. ['completion', 'tools', 'vision']);
+  // null means the capability lookup failed (network/missing model) and
+  // we render nothing rather than misleadingly implying "no capabilities".
+  // The `tools` capability gets a positive emphasis class; absence of
+  // `tools` adds a muted "no tools" chip so the operator sees it at a glance.
+  function renderCapabilityChips(caps) {
+    if (!Array.isArray(caps) || caps.length === 0) return '';
+    var chips = '';
+    for (var i = 0; i < caps.length; i++) {
+      chips += '<span class="chip cap-chip">' + escapeHtml(caps[i]) + '</span>';
+    }
+    if (caps.indexOf('tools') === -1) {
+      chips += '<span class="chip cap-chip cap-chip-no-tools" ' +
+        'title="This model does not support tool calling — agents will run in single-shot chat mode.">no tools</span>';
+    }
+    return '<span class="cap-chip-row">' + chips + '</span>';
+  }
+
+  // Exposed so Studio's model selector can reuse the same chip vocabulary.
+  window.App.admin.renderCapabilityChips = renderCapabilityChips;
+
   function renderProviderModels(container, provider) {
     if (!provider || !provider.id) return;
     if (provider.type === 'ollama') {
@@ -286,6 +308,16 @@
           if (rm.size_vram) totalVram += rm.size_vram;
         }
 
+        // Capability lookup keyed by model name. Sourced from /models (which
+        // enriches each entry with capabilities); /models/status doesn't
+        // carry them, so the Running section also reads from this map.
+        var capsBy = {};
+        for (var ci = 0; ci < allModels.length; ci++) {
+          var cm = allModels[ci];
+          var cname = cm.name || cm.id || '';
+          if (cname) capsBy[cname] = cm.capabilities || null;
+        }
+
         // VRAM summary
         if (runningModels.length === 0) {
           vramEl.textContent = 'No models loaded';
@@ -314,6 +346,7 @@
               '<div class="admin-pf-model-row">' +
                 '<span class="admin-pf-model-dot loaded"></span>' +
                 '<span class="admin-pf-model-name">' + escapeHtml(runName) + '</span>' +
+                renderCapabilityChips(capsBy[runName]) +
                 '<span class="admin-pf-model-size">' + escapeHtml(runVram) + '</span>' +
                 '<div class="admin-pf-model-actions">' +
                   '<button class="btn-outlined-cyan btn-sm admin-pf-model-btn admin-pf-model-unload" data-model="' + escapeAttr(runName) + '">Unload</button>' +
@@ -342,6 +375,7 @@
               '<div class="admin-pf-model-row">' +
                 '<span class="admin-pf-model-dot"></span>' +
                 '<span class="admin-pf-model-name">' + escapeHtml(availName) + '</span>' +
+                renderCapabilityChips(capsBy[availName]) +
                 '<span class="admin-pf-model-size">' + escapeHtml(availSize) + '</span>' +
                 '<div class="admin-pf-model-actions">' +
                   '<button class="btn-outlined-cyan btn-sm admin-pf-model-btn admin-pf-model-load" data-model="' + escapeAttr(availName) + '">Load</button>' +

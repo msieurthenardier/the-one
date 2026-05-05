@@ -666,6 +666,25 @@ App.registerArea({
         });
     }
 
+    // Capability lookup keyed by model id. Populated by fetchModelsForProvider
+    // and consumed by renderModelCapabilities on change. Reset per fetch so
+    // a provider switch doesn't bleed stale caps into the new dropdown.
+    var modelCapsBy = {};
+
+    function renderModelCapabilities() {
+      var capsEl = editorEl.querySelector('.model-capabilities');
+      var selectEl = editorEl.querySelector('#studio-model');
+      if (!capsEl || !selectEl) return;
+      var modelId = selectEl.value;
+      var caps = modelCapsBy[modelId];
+      var renderer = window.App.admin && window.App.admin.renderCapabilityChips;
+      if (!modelId || !renderer || caps === undefined || caps === null) {
+        capsEl.innerHTML = '';
+        return;
+      }
+      capsEl.innerHTML = '<span class="model-capabilities-label">Capabilities:</span> ' + renderer(caps);
+    }
+
     function fetchModelsForProvider(providerId) {
       var selectEl = editorEl.querySelector('#studio-model');
       var loadingEl = editorEl.querySelector('.model-loading');
@@ -676,6 +695,8 @@ App.registerArea({
       if (!providerId) {
         selectEl.innerHTML = '<option value="" disabled selected>Select a provider first</option>';
         if (loadingEl) loadingEl.textContent = '';
+        modelCapsBy = {};
+        renderModelCapabilities();
         return;
       }
 
@@ -687,11 +708,18 @@ App.registerArea({
           return r.json();
         })
         .then(function (models) {
+          modelCapsBy = {};
           var html = '<option value="" disabled>Choose a model</option>';
           for (var i = 0; i < models.length; i++) {
             var modelId = models[i].id || models[i].name;
             var sel = modelId === currentVal ? ' selected' : '';
             html += '<option value="' + escapeAttr(modelId) + '"' + sel + '>' + escapeHtml(modelId) + '</option>';
+            // Store the caps payload (may be null for non-Ollama providers
+            // or when /api/show fails — renderModelCapabilities treats that
+            // as "no chips to render").
+            if (Object.prototype.hasOwnProperty.call(models[i], 'capabilities')) {
+              modelCapsBy[modelId] = models[i].capabilities;
+            }
           }
           selectEl.innerHTML = html;
           if (currentVal && !selectEl.querySelector('option[value="' + CSS.escape(currentVal) + '"]')) {
@@ -702,10 +730,13 @@ App.registerArea({
             loadingEl.textContent = models.length === 0 ? 'No models discovered' : '';
           }
           delete selectEl.dataset.pendingValue;
+          renderModelCapabilities();
         })
         .catch(function () {
           selectEl.innerHTML = '<option value="" disabled selected>Failed to load models</option>';
           if (loadingEl) loadingEl.textContent = '';
+          modelCapsBy = {};
+          renderModelCapabilities();
         });
     }
 
@@ -744,10 +775,11 @@ App.registerArea({
         }
       }
 
-      // Model change → debounced VRAM check.
+      // Model change → debounced VRAM check + capability panel refresh.
       var modelInput = editorEl.querySelector('#studio-model');
       if (modelInput) {
         modelInput.addEventListener('change', debouncedVramCheck);
+        modelInput.addEventListener('change', renderModelCapabilities);
         if (cfg.llm_model && cfg.provider_config_id) {
           debouncedVramCheck();
         }
