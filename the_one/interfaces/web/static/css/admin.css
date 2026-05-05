@@ -303,40 +303,13 @@
      against the input by default, with `flex-shrink:0` so it never collapses.
      For chip-list rows the chips can wrap to multiple lines; we top-align
      the icon there so it stays anchored to the first chip row. */
-  .area-admin .tools-editor-field .field-info-icon {
-    /* Native button reset — neutralises browser button defaults so the
-       <button> renders identically to the prior <span>. */
-    background: none;
-    border: 0;
-    padding: 0;
-    font: inherit;
-    line-height: 1;
-    color: inherit;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 14px;
-    height: 14px;
-    flex-shrink: 0;
-    align-self: center;
-    color: var(--fg-secondary);
-    cursor: help;
-    transition: color 0.15s ease;
-  }
-  /* When the input is the chip-list-editor wrapper (variable-height,
-     wraps), top-align the icon so it sits next to the first row of chips
-     rather than the geometric centre of a tall multi-row wrapper. */
+  /* Per-field info-icon layout context — base reset lives in components.css.
+     The admin-only override is the chip-list-row top-alignment so the icon
+     anchors to the first chip row instead of the wrapper's geometric centre. */
+  .area-admin .tools-editor-field .field-info-icon { align-self: center; }
   .area-admin .tools-editor-field:has(.chip-list-editor) .field-info-icon {
     align-self: flex-start;
     padding-top: 8px;
-  }
-  .area-admin .field-info-icon:hover {
-    color: var(--accent);
-  }
-  .area-admin .field-info-icon svg {
-    width: 14px;
-    height: 14px;
-    display: block;
   }
 
   /* === Field error highlight (F6 HAT inline fix #7) ==========================
@@ -469,35 +442,8 @@
     gap: 6px;
     margin-bottom: 8px;
   }
-  /* Section-title-row info-icon is now a <button> (a11y leg 02) — apply the
-     same native-button reset as `.tools-editor-field .field-info-icon` so it
-     renders identically to the prior <span>. The selector here is scoped to
-     `.section-title-row` so it doesn't redundantly apply to the per-field
-     icon (which already gets the reset via the rule above). */
-  .area-admin .section-title-row .field-info-icon {
-    background: none;
-    border: 0;
-    padding: 0;
-    font: inherit;
-    line-height: 1;
-    color: var(--fg-secondary);
-    cursor: help;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 14px;
-    height: 14px;
-    flex-shrink: 0;
-    transition: color 0.15s ease;
-  }
-  .area-admin .section-title-row .field-info-icon:hover {
-    color: var(--accent);
-  }
-  .area-admin .section-title-row .field-info-icon svg {
-    width: 14px;
-    height: 14px;
-    display: block;
-  }
+  /* Section-title-row info-icon — base reset lives in components.css; no
+     admin-specific overrides needed. */
   /* Visually hidden utility — used by aria-describedby description spans
      (a11y leg 02). Content is exposed to screen readers but not visible
      on screen. Standard sr-only pattern. */

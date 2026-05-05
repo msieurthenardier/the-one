@@ -45,6 +45,7 @@
   var PANEL_IDS = {
     general: 'agent-tab-panel-general',
     knowledge: 'agent-tab-panel-knowledge',
+    mcps: 'agent-tab-panel-mcps',
     tools: 'agent-tab-panel-tools'
   };
 
@@ -94,9 +95,15 @@
     html += '<button type="button" role="tab" class="tab" id="agent-tab-knowledge" ' +
       'aria-controls="' + PANEL_IDS.knowledge + '" data-tab-id="knowledge" ' +
       'data-testid="tab-knowledge" aria-selected="false" tabindex="-1">Knowledge</button>';
+    html += '<button type="button" role="tab" class="tab" id="agent-tab-mcps" ' +
+      'aria-controls="' + PANEL_IDS.mcps + '" data-tab-id="mcps" ' +
+      'data-testid="tab-mcps" aria-selected="false" tabindex="-1">MCPs</button>';
+    // `data-tab-id="tools"` + `data-testid="tab-tools"` preserved (browser
+    // tests + URL routing still key off "tools"); only the visible label
+    // and panel content semantics narrow to "Built-in Tools".
     html += '<button type="button" role="tab" class="tab" id="agent-tab-tools" ' +
       'aria-controls="' + PANEL_IDS.tools + '" data-tab-id="tools" ' +
-      'data-testid="tab-tools" aria-selected="false" tabindex="-1">Tools</button>';
+      'data-testid="tab-tools" aria-selected="false" tabindex="-1">Built-in Tools</button>';
     html += '</div>';
 
     // === Tab panels ================================================
@@ -105,6 +112,8 @@
       '" data-tab-id="general" aria-labelledby="agent-tab-general" hidden></div>';
     html += '<div role="tabpanel" class="tabpanel" id="' + PANEL_IDS.knowledge +
       '" data-tab-id="knowledge" aria-labelledby="agent-tab-knowledge" hidden></div>';
+    html += '<div role="tabpanel" class="tabpanel" id="' + PANEL_IDS.mcps +
+      '" data-tab-id="mcps" aria-labelledby="agent-tab-mcps" hidden></div>';
     html += '<div role="tabpanel" class="tabpanel" id="' + PANEL_IDS.tools +
       '" data-tab-id="tools" aria-labelledby="agent-tab-tools" hidden></div>';
     html += '</div>';
@@ -130,6 +139,7 @@
     // [data-field="..."] selectors immediately on agent select.
     var generalPanel = container.querySelector('#' + PANEL_IDS.general);
     var knowledgePanel = container.querySelector('#' + PANEL_IDS.knowledge);
+    var mcpsPanel = container.querySelector('#' + PANEL_IDS.mcps);
     var toolsPanel = container.querySelector('#' + PANEL_IDS.tools);
 
     window.App.studio.renderGeneralTab(generalPanel, agent, providers, {
@@ -137,6 +147,7 @@
       onDelete: callbacks.onDelete
     });
     window.App.studio.renderKnowledgeTab(knowledgePanel);
+    window.App.studio.renderMcpsTab(mcpsPanel);
     window.App.studio.renderToolsTab(toolsPanel, agent, {
       toolCategories: callbacks.toolCategories,
       allTools: callbacks.allTools,

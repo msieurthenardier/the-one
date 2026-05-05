@@ -73,15 +73,9 @@
 
     var html = '';
 
-    // MCP subsection — stub.
-    html += '<h2 class="section-title">MCP tools</h2>';
-    html += '<div class="empty-state" data-testid="agent-mcp-tools-stub">' +
-      'MCP servers will be configured in the Tools section, then attached here. Tools can be attached to multiple agents.' +
-      '</div>';
-
-    // Built-in subsection — checkbox UI carried verbatim from pre-leg-03,
-    // extended for F6 L5: disabled-tool styling + per-tool override panel.
-    html += '<h2 class="section-title">Built-in tools</h2>';
+    // The MCPs subsection moved to a sibling tab; the parent tab label
+    // ("Built-in Tools") supplies the page-level header here, so this tab
+    // now starts with category sections directly.
     html += '<div class="tool-actions">' +
       '<button type="button" class="btn-outlined-cyan tool-select-all">All</button>' +
       '<button type="button" class="btn-outlined-cyan tool-select-none">None</button>' +
@@ -90,7 +84,7 @@
     for (var c = 0; c < catKeys.length; c++) {
       var cat = catKeys[c];
       var toolNames = TOOL_CATEGORIES[cat];
-      html += '<div class="tool-group">' + escapeHtml(cat) + '</div>';
+      html += '<h2 class="section-title">' + escapeHtml(cat) + '</h2>';
       for (var t = 0; t < toolNames.length; t++) {
         var tName = toolNames[t];
         var toolInfo = findTool(tName);
@@ -112,7 +106,7 @@
         // entry survives in saved JSON regardless of panel state.
         if (!disabled) {
           html += '<details class="tool-row-overrides" data-tool="' + escapeAttr(tName) + '">';
-          html += '<summary>Narrow constraints</summary>';
+          html += '<summary>Details</summary>';
           html += '<div class="tool-row-overrides-body">';
           html += '<p class="loading">Loading…</p>';
           html += '</div>';

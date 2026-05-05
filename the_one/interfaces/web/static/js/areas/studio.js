@@ -48,7 +48,7 @@ App.registerArea({
   // F5 leg 03: extended to parse 'agents/<name>/<tab>'. Four cases:
   //   - 'agents/{name}'         → activeTab='general' (router rewrites URL)
   //   - 'agents/{name}/'        → activeTab='general' (defensive trailing-slash)
-  //   - 'agents/{name}/general|knowledge|tools' → use that tab
+  //   - 'agents/{name}/general|knowledge|mcps|tools' → use that tab
   //   - 'agents/{name}/<other>' → defensively default to 'general'
   // Encoding note: agent names with literal '/' are encoded as '%2F' by
   // encodeURIComponent, so rest.indexOf('/') unambiguously finds the segment
@@ -75,7 +75,7 @@ App.registerArea({
       } else {
         pending = decodeURIComponent(rest.slice(0, slashIdx));
         var tab = rest.slice(slashIdx + 1);
-        if (tab === 'general' || tab === 'knowledge' || tab === 'tools') {
+        if (tab === 'general' || tab === 'knowledge' || tab === 'mcps' || tab === 'tools') {
           pendingTab = tab;
         } else {
           pendingTab = 'general';
@@ -150,8 +150,7 @@ App.registerArea({
 
     var TOOL_CATEGORIES = {
       'Filesystem': ['read_file', 'write_file', 'edit_file', 'delete_file', 'move_file', 'mkdir', 'glob', 'grep', 'list_dir'],
-      'Execution': ['shell', 'python_exec'],
-      'Sessions': ['shell_session_start', 'shell_session_send', 'shell_session_close', 'shell_session_list'],
+      'Execution': ['shell', 'python_exec', 'shell_session_start', 'shell_session_send', 'shell_session_close', 'shell_session_list'],
       'Web': ['download_file', 'fetch_url', 'http_request', 'web_search']
     };
 
@@ -199,8 +198,8 @@ App.registerArea({
           commit();
         }
       },
-      header: 'Studio',
-      ariaLabel: 'Studio sections'
+      header: 'Agent Studio',
+      ariaLabel: 'Agent Studio sections'
     });
 
     function renderAgentsSection() {
@@ -316,6 +315,36 @@ App.registerArea({
       return p;
     }
 
+    // Capability lookup keyed `providerId → modelName → ['completion', ...]`.
+    // Populated by `loadAll`; the agent-tile renderer reads from it to show
+    // capability chips per agent. Only Ollama providers populate entries
+    // — other provider types don't expose per-model capabilities.
+    self._modelCapsByProvider = {};
+
+    function fetchProviderModelCaps(providers) {
+      var ollamaProviders = (providers || []).filter(function (p) { return p.type === 'ollama'; });
+      var fetches = ollamaProviders.map(function (p) {
+        return fetch('/api/providers/' + encodeURIComponent(p.id) + '/models')
+          .then(function (r) { return r.ok ? r.json() : []; })
+          .then(function (models) {
+            var byModel = {};
+            for (var i = 0; i < models.length; i++) {
+              var name = models[i].id || models[i].name;
+              if (name) byModel[name] = models[i].capabilities || null;
+            }
+            return { providerId: p.id, byModel: byModel };
+          })
+          .catch(function () { return { providerId: p.id, byModel: {} }; });
+      });
+      return Promise.all(fetches).then(function (results) {
+        var map = {};
+        for (var i = 0; i < results.length; i++) {
+          map[results[i].providerId] = results[i].byModel;
+        }
+        return map;
+      });
+    }
+
     function loadAll() {
       return Promise.all([fetchAgents(), fetchTools(), fetchMcpSources(), fetchKnowledgeBases(), fetchProviders()])
         .then(function (results) {
@@ -324,7 +353,13 @@ App.registerArea({
           self._allMcpSources = results[2];
           self._allKnowledgeBases = results[3];
           self._allProviders = results[4];
-          if (self._activeSection === 'agents') renderAgentList();
+          // Capability fetch chains off providers — separate Promise.all
+          // because it depends on results[4]. Failures are non-fatal:
+          // tiles render without chips rather than blocking the list.
+          return fetchProviderModelCaps(self._allProviders).then(function (caps) {
+            self._modelCapsByProvider = caps;
+            if (self._activeSection === 'agents') renderAgentList();
+          });
         });
     }
 
@@ -388,6 +423,22 @@ App.registerArea({
             metaSpan.textContent = 'no provider';
           }
           tileEl.appendChild(metaSpan);
+
+          // Capability chips — only render when we have caps for this
+          // (provider, model) pair. Non-Ollama providers won't populate
+          // the lookup; tiles render without chips in that case.
+          var renderer = window.App.admin && window.App.admin.renderCapabilityChips;
+          var caps = null;
+          if (agent.provider_config_id && agent.llm_model) {
+            var byModel = self._modelCapsByProvider[agent.provider_config_id];
+            if (byModel) caps = byModel[agent.llm_model];
+          }
+          if (renderer && Array.isArray(caps)) {
+            var capsWrap = document.createElement('span');
+            capsWrap.className = 'agent-tile-caps';
+            capsWrap.innerHTML = renderer(caps);
+            tileEl.appendChild(capsWrap);
+          }
 
           tileEl.onclick = function () { selectAgent(agent); };
           tileEl.addEventListener('keydown', function (e) {

@@ -28,7 +28,6 @@
   /* Tool-actions buttons use .btn-outlined-cyan; this override drops to caption-size + tighter padding. */
   .area-studio .tool-actions { display: flex; gap: 8px; margin-bottom: 12px; }
   .area-studio .tool-actions .btn-outlined-cyan { padding: 3px 10px; font-size: var(--font-size-caption); }
-  .area-studio .tool-group { font-size: var(--font-size-caption); color: var(--fg-tertiary); margin: 12px 0 6px; text-transform: uppercase; letter-spacing: 0.5px; }
   .area-studio .tool-row { display: flex; align-items: center; gap: 10px; padding: 4px 0; cursor: pointer; }
   .area-studio .tool-toggle { display: none; }
   .area-studio .tool-switch { width: 32px; height: 18px; background: var(--surface-elevated); border-radius: 9px; position: relative; flex-shrink: 0; transition: background 0.2s; }
@@ -57,6 +56,9 @@
   .area-studio .model-capabilities:empty { display: none; }
   .area-studio .model-capabilities-label { color: var(--fg-tertiary); text-transform: uppercase; letter-spacing: 0.5px; font-size: var(--font-size-tiny); }
 
+  /* Capability chips on agent tiles — sit below the meta line. */
+  .area-studio .agent-tile-caps { margin-top: 4px; }
+
   /* === Studio Area: Tools tab — operator-disabled rows + override panels === */
   /* F6 leg 05. Operator-disabled tools: dim row + cursor:not-allowed +
      strikethrough name. Override panel (`<details>`): nested under each
@@ -68,8 +70,8 @@
   .area-studio .tool-row-disabled .tool-toggle,
   .area-studio .tool-row-disabled .tool-switch { cursor: not-allowed; }
   .area-studio .tool-name-strike { text-decoration: line-through; color: var(--fg-faint); }
-  .area-studio .tool-row-overrides { margin: 4px 0 8px 28px; padding: 0; border-left: 2px solid var(--border-strong); }
-  .area-studio .tool-row-overrides[open] { padding: 4px 0 8px 12px; }
+  .area-studio .tool-row-overrides { margin: 4px 0 8px 28px; padding: 0; }
+  .area-studio .tool-row-overrides[open] { padding: 4px 0 8px 0; }
   .area-studio .tool-row-overrides summary { cursor: pointer; padding: 4px 8px; font-size: var(--font-size-body-sm); color: var(--fg-secondary); user-select: none; }
   .area-studio .tool-row-overrides summary:hover { color: var(--accent); }
   .area-studio .tool-row-overrides-body { padding: 4px 8px 0; }

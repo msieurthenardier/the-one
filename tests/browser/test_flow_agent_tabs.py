@@ -180,7 +180,8 @@ def test_click_commits_tab(app_with_agent: SeededApp, page: Page) -> None:
 
     expected = f"#studio/agents/{urllib.parse.quote(agent_name)}/tools"
     assert page.evaluate("location.hash") == expected
-    expect(page.locator('[data-testid="agent-mcp-tools-stub"]')).to_be_visible()
+    # Built-in Tools tab renders the per-tool toggles directly.
+    expect(page.locator('.tool-toggle').first).to_be_visible()
 
 
 @pytest.mark.browser
@@ -198,14 +199,15 @@ def test_refresh_on_knowledge_tab_persists(app_with_agent: SeededApp, page: Page
 
 @pytest.mark.browser
 def test_refresh_on_tools_tab_persists(app_with_agent: SeededApp, page: Page) -> None:
-    """Refresh on /tools URL returns the user to the Tools tab."""
+    """Refresh on /tools URL returns the user to the Built-in Tools tab."""
     base_url = app_with_agent.base_url
     agent_name = app_with_agent.agent_name
     target = f"{base_url}#studio/agents/{urllib.parse.quote(agent_name)}/tools"
     page.goto(target)
     _wait_editor_ready(page, expected_tab="tools")
 
-    expect(page.locator('[data-testid="agent-mcp-tools-stub"]')).to_be_visible(timeout=8000)
+    # Built-in Tools tab renders the per-tool toggles directly.
+    expect(page.locator('.tool-toggle').first).to_be_visible(timeout=8000)
     expect(page.locator('[data-testid="tab-tools"]')).to_have_attribute("aria-selected", "true")
 
 

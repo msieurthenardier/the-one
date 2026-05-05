@@ -202,6 +202,30 @@
   .field-select option { background: var(--surface); color: var(--fg); }
   .field-select option:disabled { color: var(--fg-muted); }
 
+  /* === Info icon (<button> reset for tooltip-on-hover affordance) ===
+     The form helper renders this as a `<button>` for a11y; without a reset
+     it picks up the browser's native button styling (grey background,
+     border) wherever the helper is reused outside admin. Layout/context
+     specifics live in area files; the base reset is un-scoped. */
+  .field-info-icon {
+    background: none;
+    border: 0;
+    padding: 0;
+    font: inherit;
+    line-height: 1;
+    color: var(--fg-secondary);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+    cursor: help;
+    transition: color 0.15s ease;
+  }
+  .field-info-icon:hover { color: var(--accent); }
+  .field-info-icon svg { width: 14px; height: 14px; display: block; }
+
   /* === Section Title (// PREFIX) === */
   .section-title {
     font-family: var(--font-family-mono);
@@ -210,8 +234,14 @@
     text-transform: uppercase;
     letter-spacing: 1px;
     color: var(--fg-secondary);
+    margin-top: 24px;
     margin-bottom: 12px;
   }
+  /* First section-title inside any container has no leading gap — its
+     parent (`.editor-section`, `.tabpanel`, etc.) already supplies the
+     top padding. The 24px above kicks in only for sibling headers, where
+     the operator wanted more breathing room. */
+  .section-title:first-child { margin-top: 0; }
   .section-title::before {
     content: "//";
     padding-right: 0.4em;
