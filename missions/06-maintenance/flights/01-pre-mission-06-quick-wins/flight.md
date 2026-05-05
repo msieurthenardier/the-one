@@ -1,6 +1,6 @@
 # Flight: Pre-Mission-06 Quick Wins
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Maintenance — Pre-Mission-06 Quick Wins](../../mission.md)
 
 ## Contributing to Criteria

@@ -62,4 +62,5 @@ N/A — issues are tracked in maintenance/2026-05-04.md and `missions/05-built-i
 > **Note:** These are tentative suggestions, not commitments. Flights are planned and created one at a time as work progresses.
 
 - [x] Flight 1: **Pre-Mission-06 Quick Wins** — 7 atomic legs covering all 14 Action Required findings from maintenance/2026-05-04.md
-- [ ] Flight 2 *(optional, separable)*: **Dependency Refresh** — one-shot bulk update of 16 outdated deps + verify tests green
+- [x] Flight 2: **Debrief Follow-ups** — 5 legs absorbing the action items surfaced in Flight 01's debrief (doc patches, edge-case tests, Origin-allowlist hardening, host-env dependency clarity, cross-project admin-pass rotation)
+- [ ] Flight 3 *(optional, separable)*: **Dependency Refresh** — one-shot bulk update of 16 outdated deps + verify tests green
