@@ -1,6 +1,6 @@
 # Mission: Maintenance — Pre-Mission-06 Quick Wins
 
-**Status**: active
+**Status**: completed
 
 ## Outcome
 

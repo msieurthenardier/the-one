@@ -96,6 +96,7 @@ Providers are lazy-loaded on first `get_provider(name)` call. Each converts mess
 |------|---------|---------|
 | `cli.py` | `run()` | Rich + prompt-toolkit REPL |
 | `web/app.py` | `app` | FastAPI server with WebSocket sessions |
+| `web/middleware.py` | `OriginAllowlistMiddleware`, `_is_safe_origin` | F1 L5 — ASGI middleware gating state-mutating HTTP + WS upgrades by `Origin`/`Referer` against `THE_ONE_ORIGIN_ALLOWLIST` |
 
 Both use `AgentFactory.create()` to get agents. The web app adds session management.
 
@@ -248,6 +249,10 @@ PTY sessions ship via `the_one/platform/pty.py::PtySession` ABC (Unix concrete; 
 **No-full-disable invariant**: `WebConfig` deliberately has no `disable_ssrf` / `ssrf_disabled` / `disable_ssrf_protection` field. SSRF protection is always-on; operators reaching specific internal hosts must list them in `extra_allowed_hosts` (host-by-host opt-in), not flip a global kill-switch. The invariant is encoded by the absence of the field — no enforcement code is needed because the field doesn't exist. The F5 regression sweep `grep -rn 'disable_ssrf\|ssrf_disabled\|disable_ssrf_protection' the_one/` returns zero source-code hits (only documentation comments in `_web_config.py` describing the invariant itself); preserve this property in any future changes.
 
 **Transport acquisition**: each of the three HTTP tools (`http_request`, `fetch_url`, `download_file`) calls a per-tool `_build_transport(cfg) → SSRFGuardedTransport(extra_allowed_hosts=cfg.extra_allowed_hosts)` helper at execute-time and constructs an `httpx.AsyncClient(transport=...)` for the request. `WebSearchTool` does NOT use the SSRF transport — `BuiltinToolProvider.get_tools` constructs `DDGSearchBackend()` with no injected client (`cross_configs[SearchBackend] = DDGSearchBackend()`), so `DDGSearchBackend.search` falls back to its own `httpx.AsyncClient(timeout=15)` per call. F5's accepted posture: `html.duckduckgo.com` is a public domain so search-engine traffic is acceptable as-is; SSRF-pinning of search-backend traffic is a future enhancement once non-DDG backends ship or operator config calls for it.
+
+### Origin allowlist (M06 F1 L5)
+
+`OriginAllowlistMiddleware` (`the_one/interfaces/web/middleware.py`) is an ASGI middleware that gates state-mutating HTTP requests (`POST` / `PUT` / `PATCH` / `DELETE`) and WebSocket upgrades by `Origin` / `Referer` against `THE_ONE_ORIGIN_ALLOWLIST`. Default allowlist is `http://127.0.0.1:*` and `http://localhost:*` — port-wildcard with strict-digits enforcement to reject `http://127.0.0.1.evil.com`-class confusion attacks. Missing-Origin requests pass through (server-to-server clients are NOT browser-originating). WS upgrade gating fires at the ASGI layer with `{"type": "websocket.close", "code": 1008}` BEFORE the route handler can `accept()` — `Depends()` cannot do this because it runs post-`accept()`. Policy and rationale: `SECURITY-MODEL.md`.
 
 ### SearchBackend Protocol (F5)
 
@@ -1123,6 +1128,10 @@ The chat.js wire-up renders chunks via a `currentStreamingMsg` pointer that hold
 To add a new LLM provider type, six layers must coordinate. Missing any one of them causes either silent rejection (validation) or runtime errors.
 
 > **History**: The M04 flight that added the `mock` provider type initially missed the SQLite CHECK constraint (#4 below) during state-machine reachability audit. First test run failed with `IntegrityError: CHECK constraint failed`, requiring schema migration v6. The checklist below is the post-incident enumeration.
+
+### Provider URL validation (M06 F1 L5)
+
+`_is_safe_provider_url` (`the_one/interfaces/web/api.py`) enforces `https://` for non-localhost hosts on LLM provider `base_url`. Called at endpoint time from `create_provider` (L772), `update_provider` (L811), and `test_provider` (L864) — NOT a Pydantic validator. Reason: `update_provider` accepts `__MASKED__` for unchanged fields (see `### __MASKED__ sentinel for API key updates` in `CLAUDE.md`); the validator must run on the **resolved** `base_url` post-`model_copy(update=data)`, not the request payload. Two skip layers: (a) provider types in `_URL_VALIDATION_SKIPPED_TYPES = frozenset({"mock", "ollama"})` bypass URL validation entirely; (b) for the remaining types, `http://` is allowed only when the host is `localhost`, `127.0.0.1`, `::1`, or any `*.localdomain` name. RFC1918 / link-local / `0.0.0.0` are NOT exempt — they require `https://`.
 
 1. **Pydantic `Literal`** — `db/models.py` `LLMProviderConfig.type`. Add the new value to the `Literal[...]` tuple. Without this, `model_validate` rejects.
 2. **`_PROVIDER_TYPE_MAP`** — `agent/factory.py`. Add `"<type>": "<registry-name>"`. Without this, `AgentFactory.create()` raises `ValueError` for agents pointing at the new type.

@@ -319,6 +319,8 @@ When `THE_ONE_DEV_MODE=true` is set, a fifth provider type `mock` becomes availa
 
 See [SECURITY-MODEL.md](SECURITY-MODEL.md) for the project's threat model and intentional security choices (no-auth-by-design, single-user local-only, Origin-allowlist mitigation, SSRF/subprocess boundaries).
 
+**Origin allowlist override**: set `THE_ONE_ORIGIN_ALLOWLIST` to a comma-separated list of `scheme://host:port` patterns (port supports `*` wildcard) to extend the default `http://127.0.0.1:*` / `http://localhost:*` allowlist. See `SECURITY-MODEL.md` for the threat-model context.
+
 ## Conventions
 
 - Python 3.11+, async throughout

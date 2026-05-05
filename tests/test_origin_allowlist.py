@@ -168,6 +168,21 @@ class TestWebSocketGating:
                 ws.send_text("hello")
                 assert ws.receive_text() == "echo:hello"
 
+    def test_websocket_with_no_origin_passes(self) -> None:
+        """Server-to-server WS clients (no Origin header) pass through.
+
+        The middleware's WS gate is ``if origin and not self._is_allowed(origin)``
+        — when ``Origin`` is absent, ``_extract_origin`` returns ``""`` and the
+        truthy-check short-circuits. Locks in the pass-through so a future
+        change to gate missing-Origin WS can't silently break non-browser
+        clients.
+        """
+        app = _make_app(["http://127.0.0.1:8484"])
+        with TestClient(app) as client:
+            with client.websocket_connect("/ws") as ws:
+                ws.send_text("hello")
+                assert ws.receive_text() == "echo:hello"
+
     def test_websocket_with_port_wildcard_origin_accepts(self) -> None:
         app = _make_app(["http://127.0.0.1:*"])
         with TestClient(app) as client:

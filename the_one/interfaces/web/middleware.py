@@ -51,6 +51,9 @@ class OriginAllowlistMiddleware:
           prevents false positives like ``http://127.0.0.1.evil.com``.
     """
 
+    # OPTIONS intentionally NOT gated — see SECURITY-MODEL.md "Future Work"
+    # (CORS / OPTIONS preflight). Gating without Access-Control-Allow-Origin
+    # headers would silently break any future preflight.
     GATED_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
     def __init__(self, app, allowlist: Iterable[str]):
