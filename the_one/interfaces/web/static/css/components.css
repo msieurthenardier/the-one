@@ -33,19 +33,40 @@
   }
 
   /* === App Picker === */
+  /* Pill-style button reading "<icon> <Current area> <chevron>" — the
+     standard app-switcher affordance. Accent-outlined at rest so the
+     control reads as a primary navigation target; glow on hover; filled
+     when the popover is open ([aria-expanded="true"]). */
   .app-picker-button {
-    width: 36px;
     height: 36px;
+    padding: 0 10px 0 8px;
     display: flex;
     align-items: center;
-    justify-content: center;
+    gap: 8px;
     border-radius: 8px;
     background: transparent;
-    border: none;
+    border: 1px solid var(--accent);
     cursor: pointer;
-    color: var(--nav-fg);
+    color: var(--accent);
+    font-family: inherit;
+    font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-semibold);
+    transition: background 0.15s ease, box-shadow 0.15s ease;
   }
-  .app-picker-button:hover { background: var(--nav-bg-active); color: var(--nav-fg-hover); }
+  .app-picker-button-icon { display: inline-flex; align-items: center; justify-content: center; }
+  .app-picker-button-icon svg { width: 18px; height: 18px; display: block; }
+  .app-picker-button-label { white-space: nowrap; }
+  .app-picker-button-chevron { display: inline-flex; align-items: center; transition: transform 0.15s ease; opacity: 0.7; }
+  .app-picker-button-chevron svg { width: 14px; height: 14px; display: block; }
+  .app-picker-button:hover {
+    background: var(--accent-translucent);
+    box-shadow: 0 0 0 3px var(--accent-glow);
+  }
+  .app-picker-button[aria-expanded="true"] {
+    background: var(--accent-translucent-hover);
+    box-shadow: 0 0 0 3px var(--accent-glow);
+  }
+  .app-picker-button[aria-expanded="true"] .app-picker-button-chevron { transform: rotate(180deg); }
   .app-picker-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
   .app-picker-popover {

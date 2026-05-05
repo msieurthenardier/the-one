@@ -225,7 +225,8 @@ App.registerArea({
     }
     App.layout.renderSectionNav(sectionNavEl, categories, currentCategory, {
       onSelect: setCategory,
-      header: 'Settings',
+      // Sidebar header omitted — the topbar's app-picker pill already names
+      // the active area, so a duplicate <h2> in the sidebar is redundant.
       ariaLabel: 'Settings sections'
     });
     categoryListEl = sectionNavEl; // helper rendered into the container

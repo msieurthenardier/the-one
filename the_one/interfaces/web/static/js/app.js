@@ -16,8 +16,15 @@
     topbar.innerHTML =
       '<h1 class="app-topbar-title">the-one</h1>' +
       '<div class="app-topbar-actions">' +
+        // App-picker button reads as a current-area pill with icon + label
+        // + chevron, the standard "tap to switch app" affordance (Notion
+        // sidebar header, Linear team switcher pattern). Inner spans are
+        // populated by updatePickerButton() and refreshed on every
+        // switchTo() so the button always reflects the active area.
         '<button class="app-picker-button" aria-label="Switch app" aria-haspopup="true" aria-expanded="false">' +
-          App.icons.menu +
+          '<span class="app-picker-button-icon"></span>' +
+          '<span class="app-picker-button-label"></span>' +
+          '<span class="app-picker-button-chevron">' + App.icons['chevron-down'] + '</span>' +
         '</button>' +
       '</div>' +
       '<nav class="app-picker-popover" aria-label="App areas" data-open="false"></nav>';
@@ -179,6 +186,16 @@
       // a <nav> landmark; aria-current="page" closes the navigation semantic).
       if (isActiveOpt) pickerOpts[i].setAttribute('aria-current', 'page');
       else pickerOpts[i].removeAttribute('aria-current');
+    }
+    // Sync the picker button's content with the active area so the pill
+    // reads as the current-area-icon + name + dropdown chevron.
+    var pickerBtn = document.querySelector('.app-picker-button');
+    if (pickerBtn) {
+      var iconEl = pickerBtn.querySelector('.app-picker-button-icon');
+      var labelEl = pickerBtn.querySelector('.app-picker-button-label');
+      if (iconEl) iconEl.innerHTML = areas[areaId].icon || '';
+      if (labelEl) labelEl.textContent = areas[areaId].label || '';
+      pickerBtn.setAttribute('aria-label', 'Switch app — current: ' + (areas[areaId].label || ''));
     }
 
     currentId = areaId;

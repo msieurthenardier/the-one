@@ -44,12 +44,19 @@ App.registerArea({
     var availableAgents = [];
     var setupState = { hasProviders: false, hasAgents: false };
 
+    // Sidebar header drops the redundant area title — the topbar app-picker
+    // pill names the active area. A visible "Select Agent" label sits above
+    // the picker so the dropdown reads clearly even when no agent is
+    // chosen yet (the placeholder "Select agent…" disappears post-selection).
     sidebar.innerHTML =
-      '<div id="sidebar-header"><span class="title">Agent Chat</span>' +
-      '<div class="sidebar-actions">' +
-        '<select class="agent-select" data-testid="agent-select" aria-label="Switch agent (starts new conversation)">' +
-          '<option value="" disabled selected>Select agent…</option>' +
-        '</select></div></div>' +
+      '<div id="sidebar-header">' +
+        '<label class="agent-select-label" for="chat-agent-select">Select Agent</label>' +
+        '<div class="sidebar-actions">' +
+          '<select id="chat-agent-select" class="agent-select" data-testid="agent-select">' +
+            '<option value="" disabled selected>Select agent…</option>' +
+          '</select>' +
+        '</div>' +
+      '</div>' +
       '<div class="session-list" role="listbox" aria-label="Chat sessions"></div>';
 
     sessionListEl = sidebar.querySelector('.session-list');

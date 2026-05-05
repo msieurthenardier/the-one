@@ -198,7 +198,9 @@ App.registerArea({
           commit();
         }
       },
-      header: 'Agent Studio',
+      // Sidebar header omitted — the topbar's app-picker pill already names
+      // the active area (e.g. "Agent Studio ▾"), so a duplicate <h2> in the
+      // sidebar is redundant.
       ariaLabel: 'Agent Studio sections'
     });
 
