@@ -171,7 +171,10 @@ App.registerArea({
     agentsContentEl.innerHTML =
       '<div class="page-header">' +
         '<h1 class="page-title">Agents</h1>' +
-        '<button class="btn-outlined-cyan new-entity-btn" type="button" data-testid="new-agent-btn">' +
+        // Header CTA renders icon-only at rest; expands on hover. CSS hides
+        // it entirely when the grid below is empty, deferring the affordance
+        // to the empty-canvas's centered CTA (rendered by renderAgentList).
+        '<button class="new-entity-btn" type="button" data-testid="new-agent-btn" aria-label="New agent">' +
           App.icon('square-pen') + '<span>New Agent</span>' +
         '</button>' +
       '</div>' +
@@ -375,7 +378,18 @@ App.registerArea({
         var inner = document.createElement('div');
         inner.className = 'empty-canvas-inner agent-empty';
         inner.setAttribute('data-testid', 'agent-empty');
-        inner.textContent = 'No agents yet. Click New Agent to create one.';
+        // Message wrapped in a div so the inline-flex CTA below sits on a
+        // new line; .empty-canvas-inner's text-align: center centers both.
+        var msg = document.createElement('div');
+        msg.textContent = 'No agents yet. Create one to get started.';
+        inner.appendChild(msg);
+        var emptyBtn = document.createElement('button');
+        emptyBtn.type = 'button';
+        emptyBtn.className = 'new-entity-btn is-expanded';
+        emptyBtn.setAttribute('data-testid', 'new-agent-btn-empty');
+        emptyBtn.innerHTML = App.icon('square-pen') + '<span>New Agent</span>';
+        emptyBtn.addEventListener('click', enterCreateMode);
+        inner.appendChild(emptyBtn);
         canvas.appendChild(inner);
         agentListEl.appendChild(canvas);
         return;

@@ -32,7 +32,10 @@
     container.innerHTML =
       '<div class="page-header">' +
         '<h1 class="page-title">LLM Providers</h1>' +
-        '<button class="btn-outlined-cyan new-entity-btn" type="button" data-testid="new-provider-btn">' +
+        // Header CTA renders icon-only at rest; expands on hover. CSS hides
+        // it entirely when the grid below is empty, deferring the affordance
+        // to the empty-canvas's centered CTA.
+        '<button class="new-entity-btn" type="button" data-testid="new-provider-btn" aria-label="New provider">' +
           window.App.icon('square-pen') + '<span>New Provider</span>' +
         '</button>' +
       '</div>' +
@@ -53,9 +56,14 @@
       gridEl.innerHTML =
         '<div class="empty-canvas">' +
           '<div class="empty-canvas-inner admin-provider-empty">' +
-            'No providers configured. Add one to get started.' +
+            '<div>No providers configured. Add one to get started.</div>' +
+            '<button class="new-entity-btn is-expanded" type="button" data-testid="new-provider-btn-empty">' +
+              window.App.icon('square-pen') + '<span>New Provider</span>' +
+            '</button>' +
           '</div>' +
         '</div>';
+      var emptyBtn = gridEl.querySelector('[data-testid="new-provider-btn-empty"]');
+      emptyBtn.addEventListener('click', function () { onCreateProvider(); });
       return;
     }
 

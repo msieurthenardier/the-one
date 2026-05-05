@@ -490,18 +490,72 @@
     color: var(--fg);
     margin: 0;
   }
+  /* New-entity button (header CTA): icon-only at rest, expands into the
+     full pill on hover/focus. Mirrors chat's .new-chat-header pattern;
+     pure-CSS animation via max-width + padding transitions; <span> opacity
+     fades in over the same window. The .is-expanded modifier overrides
+     all of this for the always-expanded empty-state CTA. */
   .new-entity-btn {
-    margin-left: auto;
-    white-space: nowrap;
-    flex-shrink: 0;
     display: inline-flex;
     align-items: center;
     gap: 6px;
+    flex-shrink: 0;
+    margin-left: auto;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--panel-radius-sm);
+    color: var(--accent);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: var(--font-size-body-sm);
+    padding: 4px 8px;
+    max-width: 32px;
+    overflow: hidden;
+    white-space: nowrap;
+    transition: max-width 0.2s ease, padding 0.2s ease, background 0.2s ease, border-color 0.2s ease;
   }
-  .new-entity-btn svg {
-    width: 14px;
-    height: 14px;
+  .new-entity-btn svg { width: 16px; height: 16px; flex-shrink: 0; }
+  .new-entity-btn span { opacity: 0; transition: opacity 0.15s ease 0.05s; }
+  .new-entity-btn:hover,
+  .new-entity-btn:focus-visible {
+    max-width: 240px;
+    padding: 4px 10px;
+    background: var(--accent-translucent-hover);
+    border-color: var(--accent);
   }
+  .new-entity-btn:hover span,
+  .new-entity-btn:focus-visible span { opacity: 1; }
+  .new-entity-btn:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 3px var(--accent-glow);
+  }
+
+  /* Always-expanded variant — used as the CTA inside an empty-canvas. The
+     .empty-canvas-inner parent has text-align: center, so the inline-flex
+     button auto-centers; margin-top creates breathing room below the
+     message. */
+  .new-entity-btn.is-expanded {
+    max-width: none;
+    margin: 16px 0 0 0;
+    padding: 8px 18px;
+    background: var(--accent-translucent);
+    border-color: var(--accent);
+    font-size: var(--font-size-body);
+  }
+  .new-entity-btn.is-expanded span { opacity: 1; }
+  .new-entity-btn.is-expanded svg { width: 18px; height: 18px; }
+  .new-entity-btn.is-expanded:hover,
+  .new-entity-btn.is-expanded:focus-visible {
+    max-width: none;
+    padding: 8px 18px;
+    background: var(--accent-translucent-hover);
+  }
+
+  /* Hide the header create-button when the inventory below is empty —
+     the empty-canvas's centered CTA owns the call-to-action affordance
+     until the user has at least one entity. */
+  .page-header:has(+ .entity-tile-grid > .empty-canvas) .new-entity-btn:not(.is-expanded) { display: none; }
 
   /* === Section Navigation (sidebar sub-section nav) === */
   /* Vertical list of <button> elements representing in-area section navigation.
