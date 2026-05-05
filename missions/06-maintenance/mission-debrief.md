@@ -136,11 +136,14 @@ Direct improvements proposed for Mission Control's skills:
 - [ ] Schedule next `/routine-maintenance` cycle to absorb F3 work (dependency refresh) + the small follow-ups listed above
 
 ### Methodology (mission-control repo)
-- [ ] Update `/flight` skill: pre-flight reconnaissance step + multi-leg-decision checklist
-- [ ] Update `/leg` skill: auto-grep line numbers + substitute stable identifiers
-- [ ] Update `/agentic-workflow` skill: stacked-flight branch strategy + guided-manual leg protocol
-- [ ] Update `/routine-maintenance` skill: stable-identifier convention + CI image pin staleness check
-- [ ] Update maintenance-mission template: reframe "≤4 file touches" → "≤4 semantically distinct changes"
+- [x] Update `/flight` skill: pre-flight reconnaissance step (#1) — shipped in [mission-control PR #5](https://github.com/msieurthenardier/mission-control/pull/5) as Phase 1b: Upstream Reconnaissance. Empirically tested by spinning up two agents on M06 F02 from a pinned pre-flight commit; treatment agent caught 2 of 3 ghost items at flight design (control caught 0).
+- [ ] Update `/flight` skill: multi-leg-decision checklist (#2) — deferred
+- [x] Update `/leg` skill: citation verification + stable identifiers (#3) — shipped in [mission-control PR #5](https://github.com/msieurthenardier/mission-control/pull/5) as Phase 3b: Citation Verification + a "Citing Code Locations" guideline establishing durable forms (`file:symbol`, `file:line — "snippet"`, `file:CONSTANT_NAME`)
+- [ ] Update `/agentic-workflow` skill: stacked-flight branch strategy + guided-manual leg protocol (#4, #5) — deferred
+- [ ] Update `/routine-maintenance` skill: stable-identifier convention + CI image pin staleness check (#6, #7) — deferred
+- [ ] Update maintenance-mission template: reframe "≤4 file touches" → "≤4 semantically distinct changes" (#8) — deferred (likely doesn't belong in mission-control)
+
+**Adoption plan**: Run Phase 1b + Phase 3b on the next backward-looking flight in this project; capture friction or wins in that flight's debrief. If the workflow holds up, address remaining recommendations; if friction surfaces, refine via follow-up PR before adoption stabilizes.
 
 ### Forward-looking (future missions)
 - [ ] When dependency refresh becomes urgent, bundle into next maintenance cycle rather than spawning a mini-mission
