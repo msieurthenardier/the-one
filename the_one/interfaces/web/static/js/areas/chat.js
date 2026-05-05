@@ -381,8 +381,16 @@ App.registerArea({
 
     function handleSystem(data) {
       if (data.content === 'Loading model...') {
+        // Server will run `agent.step` only AFTER the load finishes — until
+        // then, suppress the "thinking" indicator we optimistically showed
+        // on send so the operator sees a single, accurate state.
+        hideThinking();
         var loadEl = document.createElement('div');
-        loadEl.className = 'msg system model-loading';
+        // `system-model-loading` is a system-only class so the
+        // `Model loaded.` handler below can target this row exclusively
+        // without accidentally matching the thinking indicator (which
+        // also carries `.model-loading` for shared dot-animation styling).
+        loadEl.className = 'msg system model-loading system-model-loading';
         loadEl.innerHTML = '<span class="model-loading-text">Loading model</span><span class="model-loading-dots"></span>';
         messagesEl.appendChild(loadEl);
         messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -391,13 +399,20 @@ App.registerArea({
         var frameIdx = 0;
         loadEl._dotTimer = setInterval(function () { frameIdx = (frameIdx + 1) % frames.length; dotEl.textContent = ' ' + frames[frameIdx]; }, 120);
       } else if (data.content === 'Model loaded.') {
-        var loadingMsg = messagesEl.querySelector('.model-loading');
+        var loadingMsg = messagesEl.querySelector('.system-model-loading');
         if (loadingMsg) {
           if (loadingMsg._dotTimer) clearInterval(loadingMsg._dotTimer);
           loadingMsg.classList.remove('model-loading');
+          loadingMsg.classList.remove('system-model-loading');
           loadingMsg.innerHTML = '';
           loadingMsg.textContent = 'Model loaded.';
         } else { addMsg('system', data.content); }
+        // Restore the "thinking" state — the agent step is about to run
+        // and we still owe the user a response indicator until the first
+        // chunk arrives.
+        if (currentSessionId && inFlightSessions[currentSessionId]) {
+          showThinking();
+        }
       } else {
         hideThinking();
         addMsg('system', data.content);
