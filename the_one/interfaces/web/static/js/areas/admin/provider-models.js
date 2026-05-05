@@ -80,13 +80,11 @@
     container.innerHTML =
       '<div class="admin-pf-models-header">' +
         '<button class="btn-outlined-cyan refresh-btn admin-pf-models-refresh">' + window.App.icon('refresh-cw') + ' Refresh</button>' +
-        '<button class="btn-outlined-cyan btn-sm admin-pf-pull-btn">Pull Model</button>' +
       '</div>' +
-      '<div class="admin-pf-pull-input is-hidden">' +
-        '<div class="admin-pf-pull-search-wrap">' +
-          '<input class="field-input admin-pf-input admin-pf-pull-name" placeholder="Search Ollama library..." autocomplete="off" />' +
-          '<div class="admin-pf-pull-suggestions is-hidden"></div>' +
-        '</div>' +
+      '<div class="admin-pf-pull-input">' +
+        '<select class="field-input admin-pf-select admin-pf-pull-name" disabled>' +
+          '<option value="">Loading library…</option>' +
+        '</select>' +
         '<button class="btn-filled-cyan btn-sm admin-pf-pull-go" disabled>Pull</button>' +
       '</div>' +
       '<div class="admin-pf-pull-progress is-hidden">' +
@@ -104,8 +102,6 @@
     });
 
     // Pull UI wiring
-    var pullBtn = container.querySelector('.admin-pf-pull-btn');
-    var pullInputRow = container.querySelector('.admin-pf-pull-input');
     var pullNameInput = container.querySelector('.admin-pf-pull-name');
     var pullGoBtn = container.querySelector('.admin-pf-pull-go');
     var pullProgress = container.querySelector('.admin-pf-pull-progress');
@@ -113,80 +109,45 @@
     var pullText = container.querySelector('.admin-pf-pull-text');
     var pullError = container.querySelector('.admin-pf-pull-error');
 
-    var suggestionsEl = container.querySelector('.admin-pf-pull-suggestions');
     var pullAbort = null;
 
-    pullBtn.addEventListener('click', function () {
-      pullInputRow.classList.toggle('is-hidden');
-      pullError.classList.add('is-hidden');
-      suggestionsEl.classList.add('is-hidden');
-      pullNameInput.value = '';
-      pullGoBtn.disabled = true;
-      pullNameInput.focus();
-    });
+    function loadLibraryOptions() {
+      pullNameInput.disabled = true;
+      pullNameInput.innerHTML = '<option value="">Loading library…</option>';
+      fetch('/api/ollama-library/search')
+        .then(function (r) { return r.ok ? r.json() : []; })
+        .then(function (models) {
+          if (!models.length) {
+            pullNameInput.innerHTML = '<option value="">Library unavailable</option>';
+            pullNameInput.disabled = true;
+            return;
+          }
+          var html = '<option value="">Select a model…</option>';
+          for (var i = 0; i < models.length; i++) {
+            var sz = models[i].size && Number(models[i].size) > 0
+              ? ' (' + formatBytes(Number(models[i].size)) + ')'
+              : '';
+            html += '<option value="' + escapeAttr(models[i].name) + '">' +
+              escapeHtml(models[i].name) + escapeHtml(sz) + '</option>';
+          }
+          pullNameInput.innerHTML = html;
+          pullNameInput.disabled = false;
+        })
+        .catch(function () {
+          pullNameInput.innerHTML = '<option value="">Library unavailable</option>';
+          pullNameInput.disabled = true;
+        });
+    }
 
     pullGoBtn.addEventListener('click', function () { startPull(); });
 
-    // Dynamic model search from Ollama library
-    var pullSearchTimer = null;
-    pullNameInput.addEventListener('input', function () {
-      clearTimeout(pullSearchTimer);
-      var q = pullNameInput.value.trim();
-      pullGoBtn.disabled = !q;
-      if (q.length < 2) {
-        suggestionsEl.classList.add('is-hidden');
-        suggestionsEl.innerHTML = '';
-        return;
-      }
-      pullSearchTimer = setTimeout(function () {
-        fetch('/api/ollama-library/search?q=' + encodeURIComponent(q))
-          .then(function (r) { return r.ok ? r.json() : []; })
-          .then(function (models) {
-            if (!models.length) {
-              suggestionsEl.classList.add('is-hidden');
-              return;
-            }
-            var html = '';
-            for (var i = 0; i < models.length && i < 15; i++) {
-              var sz = models[i].size ? ' (' + formatBytes(Number(models[i].size)) + ')' : '';
-              html += '<div class="admin-pf-pull-suggestion" data-model="' +
-                escapeAttr(models[i].name) + '">' +
-                escapeHtml(models[i].name) +
-                '<span class="admin-pf-pull-suggestion-size">' + escapeHtml(sz) + '</span></div>';
-            }
-            suggestionsEl.innerHTML = html;
-            suggestionsEl.classList.remove('is-hidden');
-
-            // Wire click handlers on suggestions
-            var items = suggestionsEl.querySelectorAll('.admin-pf-pull-suggestion');
-            for (var j = 0; j < items.length; j++) {
-              items[j].addEventListener('click', function () {
-                pullNameInput.value = this.getAttribute('data-model');
-                suggestionsEl.classList.add('is-hidden');
-                pullGoBtn.disabled = false;
-              });
-            }
-          })
-          .catch(function () {
-            suggestionsEl.classList.add('is-hidden');
-          });
-      }, 300);
+    pullNameInput.addEventListener('change', function () {
+      pullGoBtn.disabled = !pullNameInput.value;
     });
 
-    // Hide suggestions on blur (with delay so clicks register)
-    pullNameInput.addEventListener('blur', function () {
-      setTimeout(function () { suggestionsEl.classList.add('is-hidden'); }, 200);
-    });
-    // Re-show on focus if there's content
-    pullNameInput.addEventListener('focus', function () {
-      if (suggestionsEl.innerHTML && pullNameInput.value.trim().length >= 2) {
-        suggestionsEl.classList.remove('is-hidden');
-      }
-    });
-    // Enter in input does nothing (must click Pull button)
-    pullNameInput.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter') e.preventDefault();
-    });
+    // Load the library on render so the dropdown is populated immediately.
+    // Refresh re-enters renderOllamaModels which re-runs this.
+    loadLibraryOptions();
 
     // Cancel button
     var pullCancelBtn = container.querySelector('.admin-pf-pull-cancel');
@@ -207,7 +168,6 @@
       pullGoBtn.disabled = true;
       pullBtn.disabled = true;
       pullNameInput.disabled = true;
-      suggestionsEl.classList.add('is-hidden');
       pullError.classList.add('is-hidden');
       pullProgress.classList.remove('is-hidden');
       pullFill.style.width = '0%';
@@ -279,7 +239,6 @@
       pullError.classList.remove('is-hidden');
       pullError.textContent = escapeHtml(msg);
       pullGoBtn.disabled = false;
-      pullBtn.disabled = false;
       pullNameInput.disabled = false;
     }
 
@@ -287,10 +246,8 @@
       pullAbort = null;
       pullProgress.classList.add('is-hidden');
       pullGoBtn.disabled = false;
-      pullBtn.disabled = false;
       pullNameInput.disabled = false;
       pullNameInput.value = '';
-      pullInputRow.classList.add('is-hidden');
       if (success) {
         window.App.showFlash(container, 'Model pulled successfully');
         renderOllamaModels(providerId, container);

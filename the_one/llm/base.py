@@ -117,6 +117,18 @@ class LLMProvider(ABC):
             message=msg,
         )
 
+    async def supports_tools(self) -> bool:
+        """Whether this provider/model can accept a `tools` payload.
+
+        Default ``True`` covers the cloud providers (OpenAI, Anthropic) and
+        any model whose capabilities aren't queryable. Ollama overrides this
+        to consult ``/api/show`` per-model — Gemma variants, for example,
+        report no ``tools`` capability and reject the request with 400 if
+        any tool (including the agent's virtual ``continue`` signal) is
+        included in the payload.
+        """
+        return True
+
     def tool_schema(self, tool_def: dict[str, Any]) -> dict[str, Any]:
         """Convert a canonical tool definition to this provider's format.
 

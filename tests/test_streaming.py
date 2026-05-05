@@ -316,6 +316,7 @@ class TestChatStreamSSE:
         ]
 
         stream_resp = AsyncMock()
+        stream_resp.status_code = 200
         stream_resp.raise_for_status = MagicMock()
         stream_resp.aiter_lines = lambda: _async_iter_lines(sse_lines)
 
@@ -349,6 +350,7 @@ class TestChatStreamSSE:
             "data: [DONE]",
         ]
         stream_resp = AsyncMock()
+        stream_resp.status_code = 200
         stream_resp.raise_for_status = MagicMock()
         stream_resp.aiter_lines = lambda: _async_iter_lines(sse_lines)
         stream_cm = AsyncMock()

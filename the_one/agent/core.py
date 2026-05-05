@@ -63,12 +63,30 @@ class Agent:
         """
         self.messages.append(Message.user(user_input))
 
+        # Resolve tool schemas once per step. If the model can't accept tools
+        # (e.g. Ollama Gemma), refuse outright when real tools are configured;
+        # otherwise drop the virtual `continue` signal too and run a single
+        # LLM iteration (no agent loop, since the model can't ask to continue).
+        real_schemas = self.tools.all_schemas() or []
+        tools_supported = await self.llm.supports_tools()
+        if not tools_supported and real_schemas:
+            raise ValueError(
+                f"Model does not support tool-calling, but this agent has "
+                f"{len(real_schemas)} tool(s) configured. Disable all tools "
+                f"on this agent or pick a tool-capable model "
+                f"(e.g., qwen2.5, llama3.1, mistral)."
+            )
+        if tools_supported:
+            tool_schemas = real_schemas + [CONTINUE_SCHEMA]
+        else:
+            tool_schemas = []
+
         for _ in range(self.max_iterations):
             accumulated_text = ""
             final_chunk = None
             async for chunk in self.llm.stream(
                 messages=self.messages,
-                tools=self._tool_schemas() or None,
+                tools=tool_schemas or None,
             ):
                 if chunk.content:
                     accumulated_text += chunk.content

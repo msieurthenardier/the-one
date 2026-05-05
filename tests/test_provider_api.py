@@ -1285,19 +1285,33 @@ class TestOllamaLibrarySearch:
             resp = await client.get("/api/ollama-library/search?q=llama")
         assert resp.status_code == 200
         data = resp.json()
-        assert len(data) == 2
-        assert data[0]["name"] == "llama3:8b"
-        assert data[1]["name"] == "llama3:70b"
+        # Filtered by substring "llama" then sorted alphabetically — `:7` <
+        # `:8` so the 70b variant sorts before 8b.
+        assert [m["name"] for m in data] == ["llama3:70b", "llama3:8b"]
 
-    async def test_empty_query(self, client: AsyncClient) -> None:
-        resp = await client.get("/api/ollama-library/search?q=")
+    async def test_empty_query_returns_full_library(self, client: AsyncClient) -> None:
+        # Empty q lists the full library (used to populate the Pull Model
+        # dropdown). Result is alphabetically sorted.
+        models = [
+            {"name": "qwen2.5:7b", "size": 4_500_000_000},
+            {"name": "llama3:8b", "size": 5_000_000_000},
+        ]
+        with self._mock_httpx(models):
+            resp = await client.get("/api/ollama-library/search?q=")
         assert resp.status_code == 200
-        assert resp.json() == []
+        assert [m["name"] for m in resp.json()] == ["llama3:8b", "qwen2.5:7b"]
 
-    async def test_short_query(self, client: AsyncClient) -> None:
-        resp = await client.get("/api/ollama-library/search?q=a")
+    async def test_short_query_still_filters(self, client: AsyncClient) -> None:
+        # The legacy `len(q) < 2` short-circuit was removed when the dropdown
+        # replaced the typeahead — single-char queries now filter normally.
+        models = [
+            {"name": "llama3:8b", "size": 1},
+            {"name": "qwen2.5:7b", "size": 1},
+        ]
+        with self._mock_httpx(models):
+            resp = await client.get("/api/ollama-library/search?q=q")
         assert resp.status_code == 200
-        assert resp.json() == []
+        assert [m["name"] for m in resp.json()] == ["qwen2.5:7b"]
 
     async def test_results_capped_at_30(self, client: AsyncClient) -> None:
         models = [{"name": f"model-x-{i}", "size": 100} for i in range(50)]

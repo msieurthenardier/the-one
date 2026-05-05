@@ -333,11 +333,14 @@ App.registerArea({
       agentListEl.innerHTML = '';
       var agents = self._agents;
       if (agents.length === 0 && !self._createMode) {
-        var empty = document.createElement('div');
-        empty.className = 'empty-state agent-empty';
-        empty.setAttribute('data-testid', 'agent-empty');
-        empty.textContent = 'No agents yet. Click New Agent to create one.';
-        agentListEl.appendChild(empty);
+        var canvas = document.createElement('div');
+        canvas.className = 'empty-canvas';
+        var inner = document.createElement('div');
+        inner.className = 'empty-canvas-inner agent-empty';
+        inner.setAttribute('data-testid', 'agent-empty');
+        inner.textContent = 'No agents yet. Click New Agent to create one.';
+        canvas.appendChild(inner);
+        agentListEl.appendChild(canvas);
         return;
       }
       for (var i = 0; i < agents.length; i++) {

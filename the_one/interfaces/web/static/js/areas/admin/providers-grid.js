@@ -51,8 +51,10 @@
 
     if (providers.length === 0) {
       gridEl.innerHTML =
-        '<div class="empty-state admin-provider-empty">' +
-          'No providers configured. Add one to get started.' +
+        '<div class="empty-canvas">' +
+          '<div class="empty-canvas-inner admin-provider-empty">' +
+            'No providers configured. Add one to get started.' +
+          '</div>' +
         '</div>';
       return;
     }

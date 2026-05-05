@@ -9,12 +9,19 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
 
 logger = logging.getLogger(__name__)
+
+# Model-capabilities cache: (base_url, model) → (capabilities_set, fetched_at).
+# Avoids a /api/show round-trip on every chat turn. TTL is short enough that a
+# `make rebuild` or new model pull is reflected within minutes.
+_CAPABILITIES_TTL = 300  # seconds
+_capabilities_cache: dict[tuple[str, str], tuple[frozenset[str], float]] = {}
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -131,6 +138,35 @@ async def show_model(base_url: str, model: str) -> dict[str, Any]:
     return result
 
 
+async def get_model_capabilities(base_url: str, model: str) -> frozenset[str] | None:
+    """Return the set of capabilities reported by ``/api/show`` for ``model``.
+
+    Returns ``None`` if the capabilities can't be determined (model missing,
+    network error, etc.) — callers should treat ``None`` as "unknown" and
+    fall through to the actual request rather than fail-closed.
+
+    Result is cached per (base_url, model) for ``_CAPABILITIES_TTL`` seconds.
+    """
+    url = strip_v1(base_url)
+    key = (url, model)
+    cached = _capabilities_cache.get(key)
+    now = time.time()
+    if cached and now - cached[1] < _CAPABILITIES_TTL:
+        return cached[0]
+
+    try:
+        data = await show_model(url, model)
+    except (ConnectionError, ValueError, httpx.HTTPError):
+        return None
+
+    raw = data.get("capabilities")
+    if not isinstance(raw, list):
+        return None
+    caps = frozenset(c for c in raw if isinstance(c, str))
+    _capabilities_cache[key] = (caps, now)
+    return caps
+
+
 async def chat_stream(provider_url: str, body: dict[str, Any]) -> AsyncIterator[dict[str, Any]]:
     """Stream ``/v1/chat/completions`` SSE chunks from an OpenAI-compatible Ollama endpoint.
 
@@ -144,7 +180,18 @@ async def chat_stream(provider_url: str, body: dict[str, Any]) -> AsyncIterator[
             async with client.stream(
                 "POST", f"{url}/chat/completions", json={**body, "stream": True}
             ) as resp:
-                resp.raise_for_status()
+                if resp.status_code >= 400:
+                    # Read the (still-unconsumed) body so the raised error
+                    # surfaces Ollama's explanation (e.g. "model X does not
+                    # support tools") instead of a bare HTTP-status link.
+                    body_bytes = await resp.aread()
+                    detail = body_bytes.decode("utf-8", errors="replace").strip()
+                    raise httpx.HTTPStatusError(
+                        f"Ollama returned {resp.status_code} from "
+                        f"{resp.request.url}: {detail or '(empty body)'}",
+                        request=resp.request,
+                        response=resp,
+                    )
                 async for raw_line in resp.aiter_lines():
                     if not raw_line:
                         continue

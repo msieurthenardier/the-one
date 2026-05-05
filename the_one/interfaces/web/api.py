@@ -1048,10 +1048,10 @@ _LIBRARY_CACHE_TTL = 300  # seconds
 
 @router.get("/ollama-library/search")
 async def search_ollama_library(q: str = "") -> list[dict[str, str]]:
-    """Search the public Ollama model library for available models."""
+    """Return Ollama library models. Empty `q` lists the full cached library
+    (alphabetical), used to populate the Pull Model dropdown. Non-empty `q`
+    filters by substring."""
     q = q.strip().lower()
-    if len(q) < 2:
-        return []
 
     now = time.time()
     if now - _library_cache["timestamp"] >= _LIBRARY_CACHE_TTL:
@@ -1069,9 +1069,13 @@ async def search_ollama_library(q: str = "") -> list[dict[str, str]]:
     results = []
     for m in _library_cache["models"]:
         name = m.get("name", "")
-        if q in name.lower():
+        if not q or q in name.lower():
             results.append({"name": name, "size": str(m.get("size", 0))})
-    return results[:30]
+    results.sort(key=lambda r: r["name"].lower())
+    # Empty query: return the full library (capped at 500 — current Ollama
+    # library is ~100 models, headroom for growth). Filtered query keeps
+    # the legacy 30-item cap.
+    return results[:500] if not q else results[:30]
 
 
 # ── Encryption ───────────────────────────────────────────────────────────

@@ -298,6 +298,36 @@
     text-align: center;
   }
 
+  /* Page-level empty canvas — mirrors `.chat-welcome` centering for empty
+     entity inventories (LLM Providers, Studio Agents, Knowledge, Tools).
+     Sits as a flex-1 sibling of `.page-header`, claims the remaining
+     vertical space below the header, centers its inner block. */
+  .empty-canvas {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 24px;
+    overflow-y: auto;
+  }
+  .empty-canvas-inner {
+    width: 100%;
+    max-width: 520px;
+    text-align: center;
+    color: var(--fg-muted);
+    font-size: var(--font-size-body-lg);
+    line-height: var(--line-height-normal);
+  }
+  /* When `.empty-canvas` sits inside a `.entity-tile-grid` (used by
+     LLM Providers + Studio Agents — both reuse the grid container as
+     their inventory mount), override the grid's CSS-grid layout so
+     the canvas's flex-1 centering takes the full space. */
+  .entity-tile-grid:has(> .empty-canvas) {
+    display: flex;
+    padding: 0;
+  }
+
   /* === Entity Tile (CSS-grid tile primitive for entity inventories) === */
   /* The tile is a single <button class="entity-tile"> that opens the editor
      on click. Deletion lives inside the editor's General-tab Danger Zone

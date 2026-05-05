@@ -29,13 +29,13 @@
       guidance.className = 'chat-welcome-guidance';
       if (!setupState.hasProviders && !setupState.hasAgents) {
         guidance.appendChild(document.createTextNode('Add a provider in '));
-        guidance.appendChild(welcomeLink('Settings', 'admin'));
+        guidance.appendChild(welcomeLink('LLM Settings', 'admin/providers'));
         guidance.appendChild(document.createTextNode(', then create an agent in '));
         guidance.appendChild(welcomeLink('Agent Studio', 'studio'));
         guidance.appendChild(document.createTextNode(' to start chatting.'));
       } else if (!setupState.hasProviders) {
         guidance.appendChild(document.createTextNode('Add a provider in '));
-        guidance.appendChild(welcomeLink('Settings', 'admin'));
+        guidance.appendChild(welcomeLink('LLM Settings', 'admin/providers'));
         guidance.appendChild(document.createTextNode(' to start chatting.'));
       } else {
         guidance.appendChild(document.createTextNode('Create an agent in '));

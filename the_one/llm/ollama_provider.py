@@ -29,6 +29,16 @@ class OllamaProvider(LLMProvider):
         self.model = model
         self.base_url = ollama_api.ensure_v1(base_url or "http://localhost:11434/v1")
 
+    async def supports_tools(self) -> bool:
+        """Returns False if the Ollama model is known not to advertise the
+        ``tools`` capability via ``/api/show`` (e.g. Gemma variants). Returns
+        True when capabilities can't be determined (network blip, model
+        missing) so the request still goes out and any error surfaces with
+        the improved 400-body diagnostic.
+        """
+        caps = await ollama_api.get_model_capabilities(self.base_url, self.model)
+        return caps is None or "tools" in caps
+
     async def complete(
         self,
         messages: list[Message],
@@ -52,7 +62,14 @@ class OllamaProvider(LLMProvider):
                 f"{self.base_url}/chat/completions",
                 json=payload,
             )
-            resp.raise_for_status()
+            if resp.status_code >= 400:
+                detail = resp.text.strip() or "(empty body)"
+                raise httpx.HTTPStatusError(
+                    f"Ollama returned {resp.status_code} from "
+                    f"{resp.request.url}: {detail}",
+                    request=resp.request,
+                    response=resp,
+                )
             data = resp.json()
 
         choice = data["choices"][0]

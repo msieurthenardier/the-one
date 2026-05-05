@@ -104,21 +104,13 @@
   .area-admin .admin-pf-model-name { flex: 1; font-family: var(--font-family-mono); font-size: var(--font-size-body-sm); color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
   .area-admin .admin-pf-model-size { font-family: var(--font-family-mono); font-size: var(--font-size-caption); color: var(--fg-secondary); flex-shrink: 0; min-width: 60px; text-align: right; }
   .area-admin .admin-pf-model-actions { display: flex; gap: 4px; flex-shrink: 0; }
-  /* admin-pf-model-btn + admin-pf-pull-btn now retained ONLY as JS hooks
-     and for layout (.admin-pf-pull-btn margin-left). Styling provided by
+  /* admin-pf-model-btn retained as a JS hook only — styling comes from
      canonical .btn-outlined-cyan / .btn-muted-destructive + .btn-sm. */
-  .area-admin .admin-pf-pull-btn { margin-left: auto; }
   .area-admin .admin-pf-model-error { font-size: var(--font-size-tiny); color: var(--status-danger); padding: 2px 0; width: 100%; }
 
   /* === Pull UI === */
   .area-admin .admin-pf-pull-input { display: flex; align-items: center; gap: 8px; padding: 8px 0; }
-  .area-admin .admin-pf-pull-search-wrap { flex: 1; position: relative; }
-  .area-admin .admin-pf-pull-name { width: 100%; }
-  .area-admin .admin-pf-pull-suggestions { position: absolute; top: 100%; left: 0; right: 0; max-height: 240px; overflow-y: auto; background: var(--surface); border: 1px solid var(--border); border-top: none; border-radius: 0 0 6px 6px; z-index: 10; }
-  .area-admin .admin-pf-pull-suggestion { padding: 6px 12px; font-size: var(--font-size-body-sm); color: var(--fg); cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
-  .area-admin .admin-pf-pull-suggestion:hover { background: var(--accent); color: var(--fg-on-accent); }
-  .area-admin .admin-pf-pull-suggestion-size { font-size: var(--font-size-tiny); color: var(--fg-secondary); }
-  .area-admin .admin-pf-pull-suggestion:hover .admin-pf-pull-suggestion-size { color: var(--fg-on-accent-muted); }
+  .area-admin .admin-pf-pull-name { flex: 1; }
   .area-admin .admin-pf-pull-go { padding: 6px 14px; font-size: var(--font-size-caption); }
   .area-admin .admin-pf-pull-progress { display: flex; align-items: center; gap: 10px; padding: 6px 0; height: 28px; background: var(--surface); border-radius: 4px; overflow: hidden; position: relative; }
   .area-admin .admin-pf-pull-fill { position: absolute; top: 0; left: 0; height: 100%; background: var(--accent); opacity: 0.15; transition: width 0.3s ease; border-radius: 4px; }

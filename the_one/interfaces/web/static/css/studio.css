@@ -4,6 +4,9 @@
      section-nav primitive is canonical (see components.css); only the per-area
      section-content host + its agents-section overrides live here. */
   .area-studio .studio-section-content { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
+  /* Pass the column-flex chain through to .entity-tile-grid so it (and its
+     `.empty-canvas` empty state) can fill the remaining vertical space. */
+  .area-studio .studio-agents-content { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 
   /* === Studio Area: Editor === */
   /* `.editor-header` lifted to components.css in F5 leg 03 (canonical
