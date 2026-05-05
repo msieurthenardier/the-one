@@ -8,11 +8,10 @@ import os
 import secrets
 import time
 import uuid
-from pathlib import Path
 from typing import Any
 
 import httpx
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, InvalidToken
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import ValidationError
@@ -55,7 +54,8 @@ async def _kb_item_repo() -> KBItemRepository:
 
 async def _mcp_repo() -> MCPSourceRepository:
     conn = await get_connection()
-    return MCPSourceRepository(conn)
+    encryptor = get_encryptor(settings.data_dir)
+    return MCPSourceRepository(conn, encryptor)
 
 
 async def _chat_repo() -> ChatSessionRepository:
@@ -481,11 +481,174 @@ async def delete_kb_item(kb_id: str, item_id: str) -> dict[str, str]:
 # ── MCP Sources ───────────────────────────────────────────────────────────
 
 
+def _mask_secret_value(value: Any) -> Any:
+    """Mask a single secret value mirroring ``_mask_api_key``'s shape.
+
+    Type signature is ``Any -> Any`` (not ``str -> str``) because the
+    secrets dict is ``dict[str, Any]`` per L2's MCPSource model — a
+    client could in principle send a non-string value, and we want to
+    mask it defensively rather than crash. Empty/None passes through
+    unchanged; ≤4-char string values mask as ``***``; longer string
+    values mask as ``***...{tail4}``; non-string values mask wholesale
+    as ``***`` (no leakage of nested structure). Same per-decoded-value
+    semantic as ``_mask_api_key``, kept separate so future MCP-secret
+    shape changes don't drift LLM-provider behavior.
+    """
+    if not value:
+        return value
+    if not isinstance(value, str):
+        # Non-string secret values (e.g., a nested dict for OAuth tokens
+        # in F5) — mask wholesale to avoid leaking nested structure.
+        # F5 will revisit this when access/refresh tokens land.
+        return "***"
+    if len(value) <= 4:
+        return "***"
+    return f"***...{value[-4:]}"
+
+
+def _mask_secrets(secrets: dict[str, Any]) -> dict[str, Any]:
+    """Apply per-key masking to a decoded secrets dict.
+
+    Iterates the dict; replaces each value with its masked form via
+    ``_mask_secret_value``. Returns a NEW dict — does not mutate the
+    input. Used by ``_mcp_source_response`` to produce the masked GET
+    response shape.
+    """
+    return {k: _mask_secret_value(v) for k, v in secrets.items()}
+
+
+def _mcp_source_response(source: MCPSource) -> dict[str, Any]:
+    """Render an MCPSource into the masked HTTP response shape.
+
+    Mirrors ``_provider_response`` — the response contains masked
+    secret values per ``_mask_secrets``; ``config`` is passed through
+    unchanged (operator-marked-non-sensitive).
+
+    INVARIANT: ``model_dump()`` populates ``data["secrets"]`` with the
+    decrypted plaintext dict; we OVERWRITE that key with the masked
+    form before returning. Any future refactor that removes the
+    overwrite would leak plaintext via the API. The
+    ``test_list_returns_masked_secrets`` assertion
+    ``"ghp_realsecretvalue" not in resp.text`` is the regression net.
+    """
+    data = source.model_dump()
+    data["secrets"] = _mask_secrets(source.secrets)
+    return data
+
+
+def _validate_mcp_source_config(source: MCPSource) -> None:
+    """Transport-aware shape validation for MCPSource.config.
+
+    Raises HTTPException(422, detail=...) on shape mismatch. Validation
+    lives at the API layer so the error path returns a clean 422 with a
+    human-readable detail string; Pydantic's literal validation already
+    gates the ``type`` field at model validation time.
+
+    Stdio: config.command is required (non-empty string); config.args
+      must be a list[str] if present; config.cwd must be a string if
+      present.
+    Streamable-HTTP: config.url is required (non-empty string);
+      config.headers must be a dict[str, str] if present; config.oauth
+      if present must include {issuer_url, client_id, scopes (list),
+      redirect_uri} as strings (oauth.scopes is a list[str]).
+    """
+    cfg = source.config
+
+    if source.type == "stdio":
+        command = cfg.get("command")
+        if not isinstance(command, str) or not command.strip():
+            raise HTTPException(
+                status_code=422,
+                detail="MCP source of type 'stdio' requires config.command (non-empty string).",
+            )
+        args = cfg.get("args", [])
+        if not isinstance(args, list) or not all(isinstance(a, str) for a in args):
+            raise HTTPException(
+                status_code=422,
+                detail="MCP source config.args must be a list of strings.",
+            )
+        cwd = cfg.get("cwd")
+        if cwd is not None and not isinstance(cwd, str):
+            raise HTTPException(
+                status_code=422,
+                detail="MCP source config.cwd must be a string if present.",
+            )
+
+    elif source.type == "streamable-http":
+        url = cfg.get("url")
+        if not isinstance(url, str) or not url.strip():
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "MCP source of type 'streamable-http' requires "
+                    "config.url (non-empty string)."
+                ),
+            )
+        headers = cfg.get("headers", {})
+        if not isinstance(headers, dict) or not all(
+            isinstance(k, str) and isinstance(v, str) for k, v in headers.items()
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="MCP source config.headers must be a dict of string-to-string.",
+            )
+        oauth = cfg.get("oauth")
+        if oauth is not None:
+            if not isinstance(oauth, dict):
+                raise HTTPException(
+                    status_code=422,
+                    detail="MCP source config.oauth must be a dict if present.",
+                )
+            for key in ("issuer_url", "client_id", "redirect_uri"):
+                if key in oauth and not isinstance(oauth[key], str):
+                    raise HTTPException(
+                        status_code=422,
+                        detail=f"MCP source config.oauth.{key} must be a string.",
+                    )
+            if "scopes" in oauth:
+                scopes = oauth["scopes"]
+                if not isinstance(scopes, list) or not all(isinstance(s, str) for s in scopes):
+                    raise HTTPException(
+                        status_code=422,
+                        detail="MCP source config.oauth.scopes must be a list of strings.",
+                    )
+
+    else:
+        # Defensive exhaustiveness — Pydantic's Literal validator
+        # already rejects unknown types at MCPSource.model_validate
+        # time, so this branch is unreachable for properly-validated
+        # input. But if a future contributor adds a new transport
+        # literal to the model and forgets to extend this helper,
+        # that omission would silently permit any config shape. This
+        # raise locks the contract: a new transport must add a
+        # validation block here, or this raise fires.
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unsupported MCP source type: {source.type}",
+        )
+
+
 @router.get("/mcp-sources")
 async def list_mcp_sources() -> list[dict[str, Any]]:
     repo = await _mcp_repo()
     sources = await repo.list()
-    return [s.model_dump() for s in sources]
+    return [_mcp_source_response(s) for s in sources]
+
+
+@router.get("/mcp-sources/types")
+async def list_mcp_source_types() -> list[dict[str, str]]:
+    """Return the list of MCP source transport types selectable in the UI.
+
+    NOTE: This route MUST be registered BEFORE ``/mcp-sources/{source_id}``
+    because FastAPI matches routes in registration order. If reordered, a
+    GET to ``/mcp-sources/types`` would resolve to ``get_mcp_source`` with
+    ``source_id="types"`` and 404. Mirrors the provider precedent at
+    ``list_provider_types``.
+    """
+    return [
+        {"value": "stdio", "label": "Stdio"},
+        {"value": "streamable-http", "label": "Streamable HTTP"},
+    ]
 
 
 @router.get("/mcp-sources/{source_id}")
@@ -495,7 +658,7 @@ async def get_mcp_source(source_id: str) -> dict[str, Any]:
         source = await repo.get(source_id)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"MCP source not found: {source_id}")
-    return source.model_dump()
+    return _mcp_source_response(source)
 
 
 @router.post("/mcp-sources", status_code=201)
@@ -503,10 +666,17 @@ async def create_mcp_source(request: Request) -> dict[str, Any]:
     data = await request.json()
     if "id" not in data:
         data["id"] = uuid.uuid4().hex[:12]
-    source = MCPSource.model_validate(data)
+    try:
+        source = MCPSource.model_validate(data)
+    except ValidationError as e:
+        # ``include_context=False`` so the response stays JSON-encodable
+        # — ``model_validator`` paths populate ``ctx['error']`` with raw
+        # exceptions that aren't JSON-serializable.
+        raise HTTPException(status_code=422, detail=e.errors(include_context=False))
+    _validate_mcp_source_config(source)
     repo = await _mcp_repo()
     await repo.create(source)
-    return source.model_dump()
+    return _mcp_source_response(source)
 
 
 @router.put("/mcp-sources/{source_id}")
@@ -518,9 +688,42 @@ async def update_mcp_source(source_id: str, request: Request) -> dict[str, Any]:
         existing = await repo.get(source_id)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"MCP source not found: {source_id}")
-    updated = existing.model_copy(update=data)
+
+    # Per-key __MASKED__ handling inside the secrets dict — a sentinel
+    # value preserves the corresponding existing stored value;
+    # non-sentinel values overwrite. Keys absent from the incoming
+    # secrets dict are dropped (REST PUT replace semantic, applied
+    # per-key — operator explicitly drops a secret by omitting its
+    # key). Note: ``_MASKED_API_KEY_SENTINEL`` is reused across the
+    # provider single-``api_key`` column and the per-key MCP secrets
+    # dict; the constant name is slightly misleading but renaming is a
+    # cosmetic refactor out of scope for this leg.
+    incoming_secrets = data.get("secrets")
+    if incoming_secrets is not None:
+        if not isinstance(incoming_secrets, dict):
+            raise HTTPException(
+                status_code=422,
+                detail="secrets must be a dict.",
+            )
+        resolved_secrets: dict[str, Any] = {}
+        for key, value in incoming_secrets.items():
+            if value == _MASKED_API_KEY_SENTINEL:
+                if key in existing.secrets:
+                    resolved_secrets[key] = existing.secrets[key]
+                # else: client sent __MASKED__ for a key we don't have;
+                # drop it silently — same as if the client had omitted
+                # the key entirely.
+            else:
+                resolved_secrets[key] = value
+        data["secrets"] = resolved_secrets
+
+    try:
+        updated = existing.model_copy(update=data)
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=e.errors(include_context=False))
+    _validate_mcp_source_config(updated)
     await repo.update(updated)
-    return updated.model_dump()
+    return _mcp_source_response(updated)
 
 
 @router.delete("/mcp-sources/{source_id}")
@@ -1092,11 +1295,18 @@ async def search_ollama_library(q: str = "") -> list[dict[str, str]]:
 async def rotate_encryption_key() -> dict[str, str]:
     """Rotate the encryption key with crash-safe ordering.
 
-    Re-encrypts every provider row using a freshly generated key in memory and
-    commits the DB transaction *before* the new key file replaces the old one
-    via temp-file + ``os.replace``. If the DB commit fails, the on-disk key
-    file is left byte-identical to its pre-rotation contents so existing
-    ciphertext remains decryptable.
+    Re-encrypts every LLM provider row's ``api_key`` AND every MCP source
+    row's ``secrets`` blob using a freshly generated key in memory and
+    commits the DB transaction *before* the new key file replaces the old
+    one via temp-file + ``os.replace``. Both surfaces commit atomically —
+    a partial rotation that handled only one would leave the other
+    encrypted under a key that no longer exists on disk. If the DB commit
+    fails, the on-disk key file is left byte-identical to its pre-rotation
+    contents so existing ciphertext on both surfaces remains decryptable.
+
+    Migration-residue MCP rows (plaintext ``'{}'`` carried over from the
+    v10 column default) are tolerated via InvalidToken-swallowing decrypt;
+    they are normalized to proper ciphertext for ``{}`` as a side-effect.
     """
     encryptor = get_encryptor(settings.data_dir)
     if encryptor.key_path is None:
@@ -1104,12 +1314,39 @@ async def rotate_encryption_key() -> dict[str, str]:
     key_path = encryptor.key_path
     conn = await get_connection()
 
-    # 1. Decrypt existing rows with the current encryptor.
+    # 1. Decrypt existing rows with the current encryptor. NOTE: Between this
+    #    first SELECT and the final commit() below, this function MUST issue
+    #    only DML statements (SELECT/UPDATE). Per the schema.py v8 docstring,
+    #    aiosqlite silently COMMITs before any non-DML statement (PRAGMA,
+    #    DDL, BEGIN), which would split the rotation into two separately-
+    #    committed transactions and break the atomicity contract.
     async with conn.execute(
         "SELECT id, api_key FROM llm_providers WHERE api_key IS NOT NULL AND api_key != ''"
     ) as cur:
         rows = await cur.fetchall()
     decrypted = [(row["id"], encryptor.decrypt(row["api_key"])) for row in rows]
+
+    async with conn.execute("SELECT id, secrets FROM mcp_sources") as cur:
+        mcp_rows = await cur.fetchall()
+
+    # Tolerant decrypt mirrors MCPSourceRepository._ciphertext_to_secrets at
+    # repositories.py:258-280 — pre-L2-write rows or v10-migration-residue
+    # rows carry the column default '{}' (plaintext) which Fernet rejects
+    # with InvalidToken. Treat those as empty secrets and let rotation
+    # incidentally normalize them to proper ciphertext for {}. JSON decode
+    # errors are NOT swallowed — they indicate real corruption.
+    decrypted_mcps: list[tuple[str, dict[str, Any]]] = []
+    for row in mcp_rows:
+        ciphertext = row["secrets"]
+        if not ciphertext:
+            secrets_dict: dict[str, Any] = {}
+        else:
+            try:
+                plaintext = encryptor.decrypt(ciphertext)
+                secrets_dict = json.loads(plaintext)
+            except InvalidToken:
+                secrets_dict = {}
+        decrypted_mcps.append((row["id"], secrets_dict))
 
     # 2. Generate a new key + Encryptor in memory only (no disk writes yet).
     new_key = Fernet.generate_key()
@@ -1117,17 +1354,28 @@ async def rotate_encryption_key() -> dict[str, str]:
 
     # 3. Re-encrypt every row using the new encryptor.
     reencrypted = [(pid, new_encryptor.encrypt(pt)) for pid, pt in decrypted]
+    reencrypted_mcps = [
+        (sid, new_encryptor.encrypt(json.dumps(secrets_dict)))
+        for sid, secrets_dict in decrypted_mcps
+    ]
 
     # 4. Write all rows in a single transaction and commit. If anything in
     #    this block raises, roll the transaction back so the connection
     #    cache does not surface uncommitted ciphertext encrypted with the
     #    new (not-yet-on-disk) key. The key file is untouched at this
-    #    point, so re-raising leaves the system fully recoverable.
+    #    point, so re-raising leaves the system fully recoverable. The
+    #    single commit() covers BOTH tables — a failure in either UPDATE
+    #    loop rolls back BOTH atomically.
     try:
         for pid, ct in reencrypted:
             await conn.execute(
                 "UPDATE llm_providers SET api_key = ? WHERE id = ?",
                 (ct, pid),
+            )
+        for sid, ct in reencrypted_mcps:
+            await conn.execute(
+                "UPDATE mcp_sources SET secrets = ? WHERE id = ?",
+                (ct, sid),
             )
         await conn.commit()
     except Exception:

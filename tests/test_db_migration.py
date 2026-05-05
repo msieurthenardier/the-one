@@ -220,9 +220,11 @@ class TestSchemaV8:
 
         await ensure_schema(conn)
 
-        # CURRENT_VERSION assertion — pins the leg's version bump.
-        assert CURRENT_VERSION == 9, (
-            f"CURRENT_VERSION must be 9 after F6 L0 (got {CURRENT_VERSION})"
+        # CURRENT_VERSION assertion — pins that v8 surfaces are present at
+        # the current version (updated from 9→10 when M07 F01 L01 bumped the
+        # version; the v8 block itself was not removed).
+        assert CURRENT_VERSION == 10, (
+            f"CURRENT_VERSION must be 10 after M07 F01 L01 (got {CURRENT_VERSION})"
         )
 
         # tool_configs table must exist.
@@ -425,7 +427,7 @@ class TestSchemaV9:
         await conn.execute("PRAGMA foreign_keys=ON")
         await ensure_schema(conn)
 
-        assert CURRENT_VERSION == 9, CURRENT_VERSION
+        assert CURRENT_VERSION == 10, CURRENT_VERSION
 
         async with conn.execute("PRAGMA table_info(tool_configs)") as cur:
             cols = {r["name"]: r for r in await cur.fetchall()}
@@ -453,7 +455,7 @@ class TestSchemaV9:
 
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
             row = await cur.fetchone()
-        assert row[0] == 9
+        assert row[0] == 10  # ensure_schema advances to CURRENT_VERSION (10)
 
         await conn.close()
 
@@ -489,7 +491,7 @@ class TestSchemaV9:
 
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
             row = await cur.fetchone()
-        assert row[0] == 9
+        assert row[0] == 10  # ensure_schema advances to CURRENT_VERSION (10)
 
         await conn.close()
 
@@ -534,5 +536,201 @@ class TestSchemaV9:
         async with conn.execute("SELECT enabled FROM tool_configs WHERE name = 'chained'") as cur:
             row = await cur.fetchone()
         assert row["enabled"] == 1
+
+        await conn.close()
+
+
+class TestSchemaV10:
+    """Tests for the v10 migration that rebuilds mcp_sources with a new CHECK
+    constraint (type IN ('stdio', 'streamable-http')) and a secrets column."""
+
+    async def test_v10_fresh_db_has_secrets_column_and_streamable_http_check(
+        self, tmp_path
+    ) -> None:
+        from the_one.db.schema import CURRENT_VERSION
+
+        db_path = tmp_path / "v10-fresh.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+        await ensure_schema(conn)
+
+        assert CURRENT_VERSION == 10, CURRENT_VERSION
+
+        async with conn.execute("PRAGMA table_info(mcp_sources)") as cur:
+            cols = {r["name"]: r for r in await cur.fetchall()}
+        assert "secrets" in cols
+        col = cols["secrets"]
+        assert col["type"] == "TEXT", col["type"]
+
+        # Behavioural cross-check: INSERT with type='streamable-http' and no
+        # secrets value succeeds and lands secrets='{}' via the column DEFAULT.
+        await conn.execute(
+            "INSERT INTO mcp_sources (id, name, type, config) VALUES (?, ?, ?, ?)",
+            ("sh-1", "StreamableHTTP", "streamable-http", "{}"),
+        )
+        await conn.commit()
+        async with conn.execute(
+            "SELECT secrets FROM mcp_sources WHERE id = 'sh-1'"
+        ) as cur:
+            r = await cur.fetchone()
+        assert r["secrets"] == "{}", r["secrets"]
+
+        # Behavioural cross-check: INSERT with type='sse' raises IntegrityError.
+        with pytest.raises(aiosqlite.IntegrityError):
+            await conn.execute(
+                "INSERT INTO mcp_sources (id, name, type, config) VALUES (?, ?, ?, ?)",
+                ("sse-1", "OldSSE", "sse", "{}"),
+            )
+            await conn.commit()
+
+        async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
+            row = await cur.fetchone()
+        assert row[0] == 10
+
+        await conn.close()
+
+    async def test_v10_migration_on_v9_fixture_db_preserves_existing_rows(
+        self, tmp_path
+    ) -> None:
+        db_path = tmp_path / "v10-from-v9.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+        await ensure_schema(conn)
+
+        # Programmatic rewind to v9 state: drop v10 mcp_sources, recreate with
+        # the v1 CHECK shape (type IN ('stdio', 'sse')), remove v10 version row.
+        await conn.execute("DROP TABLE mcp_sources")
+        await conn.execute("""\
+CREATE TABLE mcp_sources (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL CHECK (type IN ('stdio', 'sse')),
+    config TEXT DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+)""")
+        await conn.execute("DELETE FROM schema_version WHERE version = 10")
+        await conn.commit()
+
+        # Seed two rows: one 'sse' with non-empty config, one 'stdio' with non-empty config.
+        await conn.execute(
+            "INSERT INTO mcp_sources (id, name, type, config, created_at, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            ("sse-row", "SSE Source", "sse", '{"url": "http://example.com/sse"}',
+             "2025-01-01T00:00:00", "2025-01-02T00:00:00"),
+        )
+        await conn.execute(
+            "INSERT INTO mcp_sources (id, name, type, config, created_at, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            ("stdio-row", "STDIO Source", "stdio", '{"command": "python"}',
+             "2025-01-03T00:00:00", "2025-01-04T00:00:00"),
+        )
+        await conn.commit()
+
+        # Re-run ensure_schema — should apply v10.
+        await ensure_schema(conn)
+
+        # Assert 'sse' row migrated to 'streamable-http'.
+        async with conn.execute(
+            "SELECT id, name, type, config, secrets, created_at, updated_at"
+            " FROM mcp_sources WHERE id = 'sse-row'"
+        ) as cur:
+            sse = await cur.fetchone()
+        assert sse is not None
+        assert sse["type"] == "streamable-http", sse["type"]
+        assert sse["secrets"] == "{}", sse["secrets"]
+        assert sse["name"] == "SSE Source"
+        assert json.loads(sse["config"]) == {"url": "http://example.com/sse"}
+        assert sse["created_at"] == "2025-01-01T00:00:00"
+        assert sse["updated_at"] == "2025-01-02T00:00:00"
+
+        # Assert 'stdio' row type is unchanged.
+        async with conn.execute(
+            "SELECT id, name, type, config, secrets, created_at, updated_at"
+            " FROM mcp_sources WHERE id = 'stdio-row'"
+        ) as cur:
+            stdio = await cur.fetchone()
+        assert stdio is not None
+        assert stdio["type"] == "stdio", stdio["type"]
+        assert stdio["secrets"] == "{}", stdio["secrets"]
+        assert stdio["name"] == "STDIO Source"
+        assert json.loads(stdio["config"]) == {"command": "python"}
+        assert stdio["created_at"] == "2025-01-03T00:00:00"
+        assert stdio["updated_at"] == "2025-01-04T00:00:00"
+
+        async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
+            row = await cur.fetchone()
+        assert row[0] == 10
+
+        await conn.close()
+
+    async def test_v10_migration_is_idempotent(self, tmp_path) -> None:
+        db_path = tmp_path / "v10-idempotent.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await ensure_schema(conn)
+        await ensure_schema(conn)
+
+        async with conn.execute(
+            "SELECT COUNT(*) FROM schema_version WHERE version = 10"
+        ) as cur:
+            row = await cur.fetchone()
+        assert row[0] == 1
+
+        async with conn.execute("PRAGMA table_info(mcp_sources)") as cur:
+            cols = {r["name"] for r in await cur.fetchall()}
+        assert "secrets" in cols
+
+        await conn.close()
+
+    async def test_v9_to_v10_chained_migration(self, tmp_path) -> None:
+        """Rewind to v9 with an 'sse' row seeded, then run v10. The seeded
+        row must emerge as type='streamable-http' with secrets='{}'."""
+        db_path = tmp_path / "v10-chain.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+        await ensure_schema(conn)
+
+        # Rewind to v9 state.
+        await conn.execute("DROP TABLE mcp_sources")
+        await conn.execute("""\
+CREATE TABLE mcp_sources (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL CHECK (type IN ('stdio', 'sse')),
+    config TEXT DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+)""")
+        await conn.execute("DELETE FROM schema_version WHERE version = 10")
+        await conn.commit()
+
+        # Seed an 'sse' row.
+        await conn.execute(
+            "INSERT INTO mcp_sources (id, name, type, config)"
+            " VALUES ('seed', 'Test', 'sse', '{\"command\": \"python\"}')",
+        )
+        await conn.commit()
+
+        # Re-run ensure_schema — should apply v10.
+        await ensure_schema(conn)
+
+        async with conn.execute(
+            "SELECT type, secrets, config FROM mcp_sources WHERE id = 'seed'"
+        ) as cur:
+            row = await cur.fetchone()
+        assert row is not None
+        assert row["type"] == "streamable-http", row["type"]
+        assert row["secrets"] == "{}", row["secrets"]
+        assert json.loads(row["config"]) == {"command": "python"}
+
+        async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
+            row = await cur.fetchone()
+        assert row[0] == 10
 
         await conn.close()
