@@ -106,7 +106,7 @@ App.registerArea({
 
   init: function (sidebar, content) {
     var categories = [
-      { id: 'system', label: 'System' },
+      { id: 'system', label: 'General' },
       { id: 'providers', label: 'LLM Providers' },
       // F6 HAT inline fix #5: "Tools" → "Built-in Tools" — distinguishes
       // from future MCP / external tool surfaces. id stays 'tools' so URL

@@ -33,7 +33,7 @@ def test_hash_routing_admin_subpage_persists_on_refresh(app_clean: str, page: Pa
     page.locator('.app-picker-option[data-area="admin"]').click()
 
     # 3. Admin area is now active — System category is the default (F6 leg 01).
-    expect(page.locator(".page-title")).to_have_text("System", timeout=5000)
+    expect(page.locator(".page-title")).to_have_text("General", timeout=5000)
 
     # 4. Click the Providers category.
     providers_item = page.locator(".area-admin .section-nav-item").filter(has_text="LLM Providers")
@@ -207,7 +207,7 @@ def test_hash_routing_replacestate_no_history_growth(app_clean: str, page: Page)
       - Start on chat (baseline history.length = N)
       - Click picker → admin  (cross-area: pushes, length = N+1)
       - Click Providers        (replaceState: no push, length = N+1)
-      - Click System           (replaceState: no push, length = N+1)
+      - Click General          (replaceState: no push, length = N+1)
 
     Final length must equal baseline + 1.
     """
@@ -223,7 +223,7 @@ def test_hash_routing_replacestate_no_history_growth(app_clean: str, page: Page)
     # 3. Navigate to Admin via picker (cross-area — pushes history).
     page.locator(".app-picker-button").click()
     page.locator('.app-picker-option[data-area="admin"]').click()
-    expect(page.locator(".page-title")).to_have_text("System", timeout=5000)
+    expect(page.locator(".page-title")).to_have_text("General", timeout=5000)
 
     after_cross_area = page.evaluate("history.length")
     assert after_cross_area == baseline + 1, (
@@ -242,10 +242,10 @@ def test_hash_routing_replacestate_no_history_growth(app_clean: str, page: Page)
         f"after_cross_area={after_cross_area}, after_providers={after_providers}"
     )
 
-    # 5. Click System (another sub-page change — replaceState, no push).
-    system_item = page.locator(".area-admin .section-nav-item").filter(has_text="System")
+    # 5. Click General (another sub-page change — replaceState, no push).
+    system_item = page.locator(".area-admin .section-nav-item").filter(has_text="General")
     system_item.click()
-    expect(page.locator(".page-title")).to_have_text("System", timeout=5000)
+    expect(page.locator(".page-title")).to_have_text("General", timeout=5000)
 
     after_system = page.evaluate("history.length")
     assert after_system == baseline + 1, (

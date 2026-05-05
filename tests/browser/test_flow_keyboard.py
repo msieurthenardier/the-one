@@ -148,7 +148,7 @@ def test_admin_category_keyboard_select(app_clean: str, page: Page) -> None:
     # Active section-nav item has tabindex=0 (roving tabindex contract)
     expect(category_item).to_have_attribute("tabindex", "0")
 
-    # The first section-nav item is "System" which is active by default
+    # The first section-nav item is "General" which is active by default
     # Click the second item (LLM Providers) then keyboard-activate the first
     page.locator(".area-admin .section-nav-item").nth(1).click()
 

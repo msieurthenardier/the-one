@@ -11,7 +11,7 @@
   function renderSystemPage(container) {
     container.innerHTML =
       '<div class="page-header">' +
-        '<h1 class="page-title">System</h1>' +
+        '<h1 class="page-title">General</h1>' +
       '</div>' +
       '<div class="admin-form">' +
         '<div class="admin-system-section">' +

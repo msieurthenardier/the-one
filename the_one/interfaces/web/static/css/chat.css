@@ -6,9 +6,11 @@
      so vertical rhythm is driven by section-title's 12px bottom margin. */
   .area-chat #sidebar-header { padding: 12px 16px 0 16px; display: flex; flex-direction: column; }
   .area-chat .sidebar-actions { display: flex; gap: 6px; align-items: center; padding-bottom: 12px; }
-  /* Pad the in-list `// CHAT HISTORY` heading to align with session-group
-     labels (which are at 8px parent-pad + 16px self-pad = 24px from edge). */
-  .area-chat .session-list > .section-title { padding: 0 16px; margin-bottom: 4px; }
+  /* Align the in-list `// CHAT HISTORY` heading to the same 16px indent as
+     `// SELECT AGENT` in the sidebar header above. .session-list has 8px
+     parent padding, so 8px self-padding lands the text at 16px from the
+     sidebar's left edge — matching the select dropdown directly above it. */
+  .area-chat .session-list > .section-title { padding: 0 8px; margin-bottom: 4px; }
   .area-chat .session-group { display: flex; flex-direction: column; }
   .area-chat .session-group-label { padding: 8px 16px 4px 16px; font-size: var(--font-size-tiny); color: var(--fg-faint); text-transform: uppercase; letter-spacing: 0.05em; }
   .area-chat .agent-select { flex: 1; min-width: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; color: var(--fg); font-family: inherit; font-size: var(--font-size-body-sm); outline: none; cursor: pointer; overflow: hidden; text-overflow: ellipsis; }

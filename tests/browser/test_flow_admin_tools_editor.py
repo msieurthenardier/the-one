@@ -267,7 +267,7 @@ def test_editor_back_button_dirty_gate(app_clean: str, page: Page) -> None:
 
 @pytest.mark.browser
 def test_editor_section_nav_dirty_gate(app_clean: str, page: Page) -> None:
-    """Modify a field → click "System" in left nav → App.confirmDialog
+    """Modify a field → click "General" in left nav → App.confirmDialog
     opens. Cancel keeps the editor; confirm navigates away. Same dialog
     pattern as the Back button — admin.js routes both paths through
     `App.confirmDialog`.
@@ -276,7 +276,7 @@ def test_editor_section_nav_dirty_gate(app_clean: str, page: Page) -> None:
     expect(page.locator(".editor-title")).to_have_text("web_search", timeout=8000)
     page.locator('input[data-field="timeout_seconds_max"]').fill("90")
 
-    page.locator(".area-admin .section-nav-item", has_text="System").click()
+    page.locator(".area-admin .section-nav-item", has_text="General").click()
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
     expect(overlay).to_be_visible(timeout=5000)
 
@@ -285,11 +285,11 @@ def test_editor_section_nav_dirty_gate(app_clean: str, page: Page) -> None:
     expect(overlay).to_have_count(0)
     expect(page.locator(".editor-title")).to_have_text("web_search")
 
-    # Re-trigger and confirm — navigates to the System page.
-    page.locator(".area-admin .section-nav-item", has_text="System").click()
+    # Re-trigger and confirm — navigates to the General page.
+    page.locator(".area-admin .section-nav-item", has_text="General").click()
     expect(overlay).to_be_visible(timeout=5000)
     page.locator('[data-testid="modal-confirm-btn"]').click()
-    expect(page.locator(".area-admin .page-title")).to_have_text("System", timeout=5000)
+    expect(page.locator(".area-admin .page-title")).to_have_text("General", timeout=5000)
 
 
 @pytest.mark.browser
