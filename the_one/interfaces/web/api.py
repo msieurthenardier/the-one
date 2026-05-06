@@ -546,7 +546,7 @@ def _validate_mcp_source_config(source: MCPSource) -> None:
 
     Stdio: config.command is required (non-empty string); config.args
       must be a list[str] if present; config.cwd must be a string if
-      present.
+      present; config.env must be a dict[str, str] if present.
     Streamable-HTTP: config.url is required (non-empty string);
       config.headers must be a dict[str, str] if present; config.oauth
       if present must include {issuer_url, client_id, scopes (list),
@@ -572,6 +572,14 @@ def _validate_mcp_source_config(source: MCPSource) -> None:
             raise HTTPException(
                 status_code=422,
                 detail="MCP source config.cwd must be a string if present.",
+            )
+        env = cfg.get("env", {})
+        if not isinstance(env, dict) or not all(
+            isinstance(k, str) and isinstance(v, str) for k, v in env.items()
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="MCP source config.env must be a dict of string-to-string.",
             )
 
     elif source.type == "streamable-http":

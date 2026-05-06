@@ -55,6 +55,15 @@ Database repositories including `LLMProviderRepository` for CRUD on `llm_provide
 
 **OAuth `client_secret` payload key** is locked to `secrets["oauth_client_secret"]` (top-level on the `secrets` dict), NOT `config.oauth.client_secret` — F5's live OAuth flow MUST look up by this exact key. Routing the secret elsewhere would leak through any code path reading `config` plaintext.
 
+**F2 (MCP Client Foundation) contracts** — for full text, see CLAUDE.md "F2 (MCP Client Foundation) Contracts":
+
+- **F2 module home**: `the_one/mcp/` (peer of `the_one/llm/`, NOT under `the_one/tools/`); MCPClient is a service abstraction. F6 wraps MCPClient → Tool via MCPToolProvider.
+- **F2 SDK pin + protocol revision**: `mcp==1.27.0` exact pin; `_PINNED_PROTOCOL_VERSION = "2025-11-25"` constant in `the_one/mcp/__init__.py` (read at call time, not import-bound).
+- **F2 fail-hard version policy**: `connect()` raises `MCPVersionMismatch` on any mismatch with `_PINNED_PROTOCOL_VERSION`; narrower than the SDK's `SUPPORTED_PROTOCOL_VERSIONS` whitelist; pre-release stance, revisit at 1.0.
+- **F2 F4-pool compat**: MCPClient exposes `is_alive: bool` and `last_activity: float` (PtySession-aligned); `disconnect()` is idempotent; instances are picklable-free (no thread-locals, no module-globals).
+- **F2 stdio environ helper**: `build_stdio_environ(source, allowlist_env)` does 2-layer flat merge of `the_one.platform.env._ENV_ALLOWLIST` + (config.env ∪ secrets); **do NOT consume `MCPSource.merged_config()`** for stdio environ (that's a flat top-level merge that injects `command`/`args` as env-var keys).
+- **F2 dataclasses**: `MCPTool` and `MCPToolResult` are frozen dataclasses in `the_one/mcp/types.py`; `MCPToolResult.text` for agent, `.raw` for F7 inspector, `.structured` for typed-object form.
+
 ### `the_one/agent/`
 
 | File | Exports | Purpose |

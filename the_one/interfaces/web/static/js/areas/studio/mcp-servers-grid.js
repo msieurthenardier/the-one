@@ -1,9 +1,12 @@
 (function () {
   'use strict';
   window.App = window.App || {};
-  window.App.admin = window.App.admin || {};
+  window.App.studio = window.App.studio || {};
 
-  // Renders the MCP Servers page-header + tile grid.
+  // Renders the MCP Servers page-header + tile grid (Studio nav).
+  // Originally placed in admin nav (M07 F1 L5); relocated to studio post-F2
+  // retrofit because MCP sources are user-managed entities, not system
+  // settings. App.studio.* namespace; consumed by studio.js.
   //
   // Filename note: this file is `mcp-servers-grid.js` (plural servers,
   // matching the user-facing label "MCP Servers"); the URL category and
@@ -110,5 +113,5 @@
     }
   }
 
-  window.App.admin.renderMcpServersGrid = renderMcpServersGrid;
+  window.App.studio.renderMcpServersGrid = renderMcpServersGrid;
 })();

@@ -17,6 +17,16 @@
   .area-studio .editor-empty { flex: 1; display: flex; align-items: center; justify-content: center; font-size: var(--font-size-body-lg); }
   .area-studio .tabpanel { padding: 16px 20px 80px; }
   /* `.editor-section` + sibling-adjacent divider lifted to components.css in F6 leg 03 (un-scoped, consumed by admin's provider editor). */
+
+  /* === Studio MCP Servers section (post-F2 retrofit, relocated from admin) === */
+  /* The MCP Servers grid + editor were originally placed in the admin nav
+     (M07 F1 L5/L6) and moved to studio post-F2 retrofit. The editor mounts
+     directly into .studio-section-content (no tablist wrapper), so we scope
+     padding + loading-text rules here that mirror the admin equivalents. */
+  .area-studio .editor-section { padding-left: 20px; padding-right: 20px; }
+  .area-studio .admin-loading { color: var(--fg-muted); font-size: var(--font-size-body); padding: 20px 0; }
+  .area-studio .admin-pf-input:focus-visible, .area-studio .admin-pf-select:focus-visible { border-color: var(--accent); outline: 1px solid var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+
   .area-studio .field-input-short { max-width: 100px; }
   .area-studio .field-model-wrap { flex: 1; display: flex; align-items: center; gap: 8px; }
   .area-studio .field-model-wrap .field-input { flex: 1; }

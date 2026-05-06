@@ -1,4 +1,10 @@
-"""MCP source editor browser tests for M07 F1 L6.
+"""MCP source editor browser tests (Studio nav).
+
+Originally `test_flow_admin_mcp_editor.py` (M07 F1 L6 — admin nav);
+relocated to studio post-F2 retrofit because MCP sources are user-managed
+entities, not system settings. URL hash + section host changed from
+`#admin/mcp-sources/...` + `.area-admin` to `#studio/mcp-sources/...` +
+`.area-studio`. Editor behavior contract is unchanged.
 
 Covers:
 - Create stdio source via the form; tile appears in grid
@@ -50,7 +56,7 @@ def _list_sources(base_url: str) -> list[dict]:
 @pytest.mark.browser
 def test_create_stdio_source(app_clean: str, page: Page) -> None:
     """Fill the create form for a stdio source, save, see it in the grid."""
-    page.goto(f"{app_clean}#admin/mcp-sources/new")
+    page.goto(f"{app_clean}#studio/mcp-sources/new")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     page.locator('[data-field="name"]').fill("github-mcp")
@@ -66,14 +72,14 @@ def test_create_stdio_source(app_clean: str, page: Page) -> None:
 
     # Back to grid.
     page.locator('[data-testid="back-mcp-source-btn"]').click()
-    expect(page.locator(".area-admin .page-title")).to_have_text("MCP Servers", timeout=5000)
+    expect(page.locator(".area-studio .page-title")).to_have_text("MCP Servers", timeout=5000)
     expect(page.locator('[data-testid="mcp-source-card"]', has_text="github-mcp")).to_be_visible()
 
 
 @pytest.mark.browser
 def test_create_streamable_http_source_with_oauth(app_clean: str, page: Page) -> None:
     """Create streamable-http with OAuth, edit, verify all OAuth fields round-trip."""
-    page.goto(f"{app_clean}#admin/mcp-sources/new")
+    page.goto(f"{app_clean}#studio/mcp-sources/new")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     page.locator('[data-field="name"]').fill("remote-mcp")
@@ -124,7 +130,7 @@ def test_edit_stdio_source_preserves_unchanged_secrets(app_clean: str, page: Pag
         "secrets": {"GITHUB_TOKEN": "ghp_realsecretvalue"},
     })
 
-    page.goto(f"{app_clean}#admin/mcp-sources/{sid}")
+    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     # Sensitive env var pre-fills with the masked tail (***...alue).
@@ -161,7 +167,7 @@ def test_edit_streamable_http_source_changes_one_secret(app_clean: str, page: Pa
         },
     })
 
-    page.goto(f"{app_clean}#admin/mcp-sources/{sid}")
+    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     # Identify which row is which by inspecting the key inputs.
@@ -194,7 +200,7 @@ def test_delete_stdio_source(app_clean: str, page: Page) -> None:
         "config": {"command": "x"},
         "secrets": {},
     })
-    page.goto(f"{app_clean}#admin/mcp-sources/{sid}")
+    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
     delete_btn = page.locator('[data-testid="delete-mcp-source-btn"]')
     expect(delete_btn).to_be_visible(timeout=8000)
     # First click arms.
@@ -204,7 +210,7 @@ def test_delete_stdio_source(app_clean: str, page: Page) -> None:
     # Second click commits.
     delete_btn.click()
     # Land back on the grid; tile is gone.
-    expect(page.locator(".area-admin .page-title")).to_have_text("MCP Servers", timeout=5000)
+    expect(page.locator(".area-studio .page-title")).to_have_text("MCP Servers", timeout=5000)
     assert _list_sources(app_clean) == []
 
 
@@ -216,20 +222,20 @@ def test_delete_streamable_http_source(app_clean: str, page: Page) -> None:
         "config": {"url": "https://example.com/mcp"},
         "secrets": {},
     })
-    page.goto(f"{app_clean}#admin/mcp-sources/{sid}")
+    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
     delete_btn = page.locator('[data-testid="delete-mcp-source-btn"]')
     expect(delete_btn).to_be_visible(timeout=8000)
     delete_btn.click()
     expect(delete_btn).to_have_text(re.compile(r"Confirm Delete\?", re.IGNORECASE))
     delete_btn.click()
-    expect(page.locator(".area-admin .page-title")).to_have_text("MCP Servers", timeout=5000)
+    expect(page.locator(".area-studio .page-title")).to_have_text("MCP Servers", timeout=5000)
     assert _list_sources(app_clean) == []
 
 
 @pytest.mark.browser
 def test_dirty_back_confirm_dialog(app_clean: str, page: Page) -> None:
     """Dirty editor + Back → confirmDialog; Cancel keeps editor mounted."""
-    page.goto(f"{app_clean}#admin/mcp-sources/new")
+    page.goto(f"{app_clean}#studio/mcp-sources/new")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     # Make the form dirty.
@@ -251,7 +257,7 @@ def test_dirty_back_confirm_dialog(app_clean: str, page: Page) -> None:
 def test_type_change_swaps_field_visibility(app_clean: str, page: Page) -> None:
     """Switch type stdio→streamable-http: command hidden, url visible,
     kv-label changes, OAuth section reveals."""
-    page.goto(f"{app_clean}#admin/mcp-sources/new")
+    page.goto(f"{app_clean}#studio/mcp-sources/new")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     page.locator('[data-field="type"]').select_option("stdio")
@@ -273,7 +279,7 @@ def test_type_change_swaps_field_visibility(app_clean: str, page: Page) -> None:
 def test_save_with_empty_kv_key_row_silently_skips(app_clean: str, page: Page) -> None:
     """Add an empty kv row PLUS a populated row; save; only the populated
     row persists. Empty key is dropped at partition time."""
-    page.goto(f"{app_clean}#admin/mcp-sources/new")
+    page.goto(f"{app_clean}#studio/mcp-sources/new")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     page.locator('[data-field="name"]').fill("test-skip-empty")
