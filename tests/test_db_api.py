@@ -340,6 +340,38 @@ class TestMCPSourceAPI:
         )
         assert resp.status_code == 422  # Pydantic Literal rejection
 
+    async def test_validation_rejects_stdio_config_env_non_string_value(
+        self, client: AsyncClient
+    ) -> None:
+        """L1: F1 API validator extended to reject non-string env values."""
+        resp = await client.post(
+            "/api/mcp-sources",
+            json={
+                "name": "test-stdio-bad-env",
+                "type": "stdio",
+                "config": {"command": "echo", "env": {"FOO": 42}},
+                "secrets": {},
+            },
+        )
+        assert resp.status_code == 422
+        assert "config.env" in resp.json()["detail"]
+
+    async def test_validation_rejects_stdio_config_env_non_dict(
+        self, client: AsyncClient
+    ) -> None:
+        """L1: F1 API validator extended to reject non-dict env."""
+        resp = await client.post(
+            "/api/mcp-sources",
+            json={
+                "name": "test-stdio-bad-env-2",
+                "type": "stdio",
+                "config": {"command": "echo", "env": "not-a-dict"},
+                "secrets": {},
+            },
+        )
+        assert resp.status_code == 422
+        assert "config.env" in resp.json()["detail"]
+
     async def test_types_endpoint_returns_two_transports(self, client: AsyncClient) -> None:
         resp = await client.get("/api/mcp-sources/types")
         assert resp.status_code == 200
