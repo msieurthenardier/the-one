@@ -1,6 +1,6 @@
 # Flight: Encrypted MCP Source Persistence + Settings Page
 
-**Status**: landed
+**Status**: completed
 **Mission**: [MCP Integration](../../mission.md)
 
 ## Contributing to Criteria
