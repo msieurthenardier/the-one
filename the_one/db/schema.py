@@ -6,7 +6,7 @@ import json
 
 import aiosqlite
 
-CURRENT_VERSION = 9
+CURRENT_VERSION = 10
 
 SCHEMA_V1 = """\
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -351,3 +351,52 @@ CREATE TABLE IF NOT EXISTS tool_configs (
         await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (9,))
         await conn.commit()
         version = 9
+
+    if version < 10:
+        # Rebuild mcp_sources to (a) replace the deprecated 'sse' transport
+        # literal with the spec-aligned 'streamable-http' in the CHECK
+        # constraint, and (b) add the `secrets TEXT DEFAULT '{}'` column
+        # for field-segregated encryption (mission 07 flight 01 design).
+        # SQLite has no ALTER TABLE DROP CONSTRAINT, so this is a v3/v5/v6-
+        # style table-rename ceremony — but built from individual
+        # `await conn.execute(...)` calls (NOT executescript) and with
+        # `INSERT OR IGNORE INTO schema_version` LAST, mirroring v8/v9's
+        # idempotency contract.
+        #
+        # The 'sse' → 'streamable-http' rename happens via CASE-WHEN in
+        # the INSERT-SELECT step, NOT a pre-rebuild UPDATE — the still-
+        # active CHECK on the old table is `type IN ('stdio', 'sse')`,
+        # which would reject the literal 'streamable-http'.
+        #
+        # Defensive DROP IF EXISTS on mcp_sources_new clears any stale
+        # state from a prior partial-apply (the v8/v9 pattern's stronger
+        # idempotency standard).
+        await conn.execute("DROP TABLE IF EXISTS mcp_sources_new")
+
+        await conn.execute("""\
+CREATE TABLE mcp_sources_new (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL CHECK (type IN ('stdio', 'streamable-http')),
+    config TEXT DEFAULT '{}',
+    secrets TEXT DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+)""")
+
+        await conn.execute("""\
+INSERT INTO mcp_sources_new (id, name, type, config, secrets, created_at, updated_at)
+    SELECT id, name,
+           CASE WHEN type = 'sse' THEN 'streamable-http' ELSE type END,
+           config,
+           '{}',
+           created_at,
+           updated_at
+    FROM mcp_sources""")
+
+        await conn.execute("DROP TABLE mcp_sources")
+        await conn.execute("ALTER TABLE mcp_sources_new RENAME TO mcp_sources")
+
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (10,))
+        await conn.commit()
+        version = 10

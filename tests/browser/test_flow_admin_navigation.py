@@ -51,15 +51,20 @@ def test_admin_section_nav_renders_three_sections(app_clean: str, page: Page) ->
     third entry "Built-in Tools" (HAT relabeled from "Tools" to
     distinguish from future MCP / external tool surfaces). The "System"
     label was later renamed to "General" — id stayed `system`.
+
+    M07 F1 L5: nav widened to 4 entries with the addition of "MCP Servers"
+    at index 3. Function name retained for git-blame continuity; assertions
+    updated to count 4 and to include the new label.
     """
     page.goto(f"{app_clean}#admin/system")
     nav = page.locator(".area-admin .section-nav")
     expect(nav).to_be_visible(timeout=5000)
     items = nav.locator(".section-nav-item")
-    expect(items).to_have_count(3)
+    expect(items).to_have_count(4)
     expect(items.nth(0)).to_have_text("General")
     expect(items.nth(1)).to_have_text("LLM Providers")
     expect(items.nth(2)).to_have_text("Built-in Tools")
+    expect(items.nth(3)).to_have_text("MCP Servers")
 
 
 @pytest.mark.browser

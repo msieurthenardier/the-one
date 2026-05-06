@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -48,14 +48,27 @@ class KBItem(BaseModel):
 
 
 class MCPSource(BaseModel):
-    """An MCP source definition — stub for future protocol connection."""
+    """An MCP source definition — operator-registered server entry."""
 
     id: str
     name: str
-    type: Literal["stdio", "sse"]
-    config: dict = Field(default_factory=dict)
+    type: Literal["stdio", "streamable-http"]
+    config: dict[str, Any] = Field(default_factory=dict)
+    secrets: dict[str, Any] = Field(default_factory=dict)
     created_at: str = Field(default_factory=_now_iso)
     updated_at: str = Field(default_factory=_now_iso)
+
+    def merged_config(self) -> dict[str, Any]:
+        """Return a flat dict combining `config` and `secrets`.
+
+        Used by F2's bearer-token-from-config / env-var resolution path at
+        MCP-process spawn time. F4's resolver path keeps the split — do not
+        call this method from the resolver.
+
+        Secrets win on key collision so an operator-marked-sensitive field
+        overrides any plaintext default of the same name.
+        """
+        return {**self.config, **self.secrets}
 
 
 class ToolConfig(BaseModel):

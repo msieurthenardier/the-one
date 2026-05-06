@@ -29,6 +29,18 @@ App.registerArea({
       }
       return 'tools';
     }
+    if (this._currentCategory === 'mcp-sources') {
+      if (this._mcpSourceFormMode === 'add') return 'mcp-sources/new';
+      if (this._mcpSourceFormMode === 'edit' && this._editingMcpSource) {
+        return 'mcp-sources/' + encodeURIComponent(this._editingMcpSource.id);
+      }
+      // Hydrate-vs-fetch race: pending id known but source not yet loaded.
+      if (this._pendingMcpSourceFormMode === 'add') return 'mcp-sources/new';
+      if (this._pendingMcpSourceId) {
+        return 'mcp-sources/' + encodeURIComponent(this._pendingMcpSourceId);
+      }
+      return 'mcp-sources';
+    }
     return this._currentCategory || 'system';
   },
   hydrateState: function (sub) {
@@ -42,6 +54,8 @@ App.registerArea({
       this._pendingFormMode = null;
       this._pendingToolName = null;
       this._pendingToolFormMode = null;
+      this._pendingMcpSourceId = null;
+      this._pendingMcpSourceFormMode = null;
       return;
     }
     var origSub = sub;
@@ -52,6 +66,8 @@ App.registerArea({
     var pendingFormMode = null;
     var pendingToolName_local = null;
     var pendingToolFormMode_local = null;
+    var pendingMcpSourceId_local = null;
+    var pendingMcpSourceFormMode_local = null;
     if (origSub === 'providers/new') {
       sub = 'providers';
       pendingFormMode = 'add';
@@ -78,9 +94,23 @@ App.registerArea({
       var tslashIdx = trest.indexOf('/');
       if (tslashIdx !== -1) trest = trest.slice(0, tslashIdx);
       pendingToolName_local = trest ? decodeURIComponent(trest) : null;
+    } else if (origSub === 'mcp-sources/new') {
+      sub = 'mcp-sources';
+      pendingMcpSourceFormMode_local = 'add';
+    } else if (origSub && origSub.indexOf('mcp-sources/') === 0) {
+      // M07 F1 L5: parse the source id out of `mcp-sources/{id}` so the
+      // editor opens on direct-load / refresh. Mirrors providers parsing.
+      sub = 'mcp-sources';
+      pendingMcpSourceFormMode_local = 'edit';
+      var mrest = origSub.slice('mcp-sources/'.length);
+      if (mrest.charAt(mrest.length - 1) === '/') mrest = mrest.slice(0, -1);
+      // Defensive: if extra path segments, take only the first.
+      var mslashIdx = mrest.indexOf('/');
+      if (mslashIdx !== -1) mrest = mrest.slice(0, mslashIdx);
+      pendingMcpSourceId_local = mrest ? decodeURIComponent(mrest) : null;
     }
 
-    var validIds = ['system', 'providers', 'tools'];
+    var validIds = ['system', 'providers', 'tools', 'mcp-sources'];
     if (validIds.indexOf(sub) === -1) return;
 
     // Set category FIRST — _setCategory wipes pending state on category change,
@@ -94,6 +124,8 @@ App.registerArea({
     this._pendingFormMode = pendingFormMode;
     this._pendingToolName = pendingToolName_local;
     this._pendingToolFormMode = pendingToolFormMode_local;
+    this._pendingMcpSourceId = pendingMcpSourceId_local;
+    this._pendingMcpSourceFormMode = pendingMcpSourceFormMode_local;
 
     // Sub-state changes within the same category (e.g.,
     // #admin/providers → #admin/providers/new) do NOT trigger _setCategory's
@@ -102,6 +134,7 @@ App.registerArea({
     // editor.
     if (this._tryConsumePendingProvider) this._tryConsumePendingProvider();
     if (this._tryConsumePendingTool) this._tryConsumePendingTool();
+    if (this._tryConsumePendingMcpSource) this._tryConsumePendingMcpSource();
   },
 
   init: function (sidebar, content) {
@@ -111,7 +144,11 @@ App.registerArea({
       // F6 HAT inline fix #5: "Tools" → "Built-in Tools" — distinguishes
       // from future MCP / external tool surfaces. id stays 'tools' so URL
       // routing (#admin/tools/{name}) is unchanged.
-      { id: 'tools', label: 'Built-in Tools' }
+      { id: 'tools', label: 'Built-in Tools' },
+      // M07 F1 L5: MCP Servers section. UI label uses "Servers" (plural)
+      // tracking the user-facing concept; the URL slug `mcp-sources` and
+      // most JS identifiers track the storage entity (matches API path).
+      { id: 'mcp-sources', label: 'MCP Servers' }
     ];
     var currentCategory = 'system';
     var categoryListEl;
@@ -137,6 +174,13 @@ App.registerArea({
     var PROVIDER_TYPES = [];
     var providerTypesReady = null;
 
+    // MCP source type list — fetched from /api/mcp-sources/types. Populated by
+    // fetchMcpSourceTypes(). Mirrors PROVIDER_TYPES lifecycle: cached once at
+    // init, never invalidated mid-session. New transport literals require a
+    // page reload to surface (M07 F1 L6).
+    var MCP_TYPES = [];
+    var mcpTypesReady = null;
+
     // Tools state (F6 leg 02)
     var toolConfigs = null; // null until first fetch resolves; helper shows loading placeholder.
     // Per-tool in-flight PUT tracker — second click while a PUT is pending is
@@ -150,12 +194,27 @@ App.registerArea({
     var pendingToolName = null; // hydrate-vs-fetch race
     var pendingToolFormMode = null; // null | 'edit'
 
+    // MCP Sources state (M07 F1 L5)
+    var mcpSources = null; // null until first fetch resolves
+    var mcpSourceFormMode = null; // null | 'add' | 'edit'
+    var editingMcpSource = null;
+    var pendingMcpSourceId = null;
+    var pendingMcpSourceFormMode = null;
+
     function fetchProviderTypes() {
       providerTypesReady = fetch('/api/providers/types')
         .then(function (r) { return r.json(); })
         .then(function (types) { PROVIDER_TYPES = types; })
         .catch(function () { PROVIDER_TYPES = []; });
       return providerTypesReady;
+    }
+
+    function fetchMcpSourceTypes() {
+      mcpTypesReady = fetch('/api/mcp-sources/types')
+        .then(function (r) { return r.json(); })
+        .then(function (types) { MCP_TYPES = types; })
+        .catch(function () { MCP_TYPES = []; });
+      return mcpTypesReady;
     }
 
     // TYPE_DEFAULTS is static metadata kept unconditional — existing mock
@@ -206,6 +265,10 @@ App.registerArea({
       editingTool = null;
       pendingToolName = null;
       pendingToolFormMode = null;
+      mcpSourceFormMode = null;
+      editingMcpSource = null;
+      pendingMcpSourceId = null;
+      pendingMcpSourceFormMode = null;
       dirty = false;
       if (window.App && window.App.router) App.router.replaceSub(currentCategory);
       App.layout.updateActiveSection(categoryListEl, currentCategory);
@@ -216,7 +279,8 @@ App.registerArea({
       // Same-category clicks short-circuit naturally (no state change).
       // Mirrors studio.js:190-201 (F5 leg 04 setActiveSection).
       var inEditor = (currentCategory === 'providers' && providerFormMode)
-                  || (currentCategory === 'tools' && toolFormMode);
+                  || (currentCategory === 'tools' && toolFormMode)
+                  || (currentCategory === 'mcp-sources' && mcpSourceFormMode);
       if (dirty && inEditor) {
         App.confirmDialog({ onConfirm: function () { doSetCategory(catId); } });
         return;
@@ -244,6 +308,8 @@ App.registerArea({
         renderProvidersPanel();
       } else if (currentCategory === 'tools') {
         renderToolsPanel();
+      } else if (currentCategory === 'mcp-sources') {
+        renderMcpSourcesPanel();
       }
     }
 
@@ -557,6 +623,143 @@ App.registerArea({
       });
     }
 
+    // ── MCP Sources Panel (M07 F1 L5) ────────────────────────────────
+
+    function renderMcpSourcesPanel() {
+      // Editor branch (M07 F1 L6 — replaces the L5 placeholder). Mirrors
+      // renderProvidersPanel's editor branch shape: wait for type list,
+      // then delegate to App.admin.renderMcpSourceEditor with the
+      // orchestrator-side callbacks bridging dirty-state + navigation.
+      if (mcpSourceFormMode) {
+        // Reset orchestrator's dirty mirror BEFORE editor mount (mirrors
+        // provider-editor pattern). The fresh editor closure starts at
+        // dirty=false; the onDirtyChange bridge fires on first user input.
+        dirty = false;
+        var ready = mcpTypesReady || fetchMcpSourceTypes();
+        ready.then(function () {
+          function doHandleBack() {
+            mcpSourceFormMode = null;
+            editingMcpSource = null;
+            dirty = false;
+            if (window.App && window.App.router) App.router.replaceSub('mcp-sources');
+            renderMcpSourcesPanel();
+          }
+          App.admin.renderMcpSourceEditor(contentEl, editingMcpSource, MCP_TYPES, {
+            onBack: function () {
+              if (dirty) {
+                App.confirmDialog({ onConfirm: doHandleBack });
+                return;
+              }
+              doHandleBack();
+            },
+            onCancel: function () {
+              // Create-mode Cancel: navigate back to grid. Cancel-when-dirty
+              // is intentional discard — no dialog gate. Edit-mode Cancel
+              // reverts the form in-place and never reaches this callback.
+              mcpSourceFormMode = null;
+              editingMcpSource = null;
+              dirty = false;
+              if (window.App && window.App.router) App.router.replaceSub('mcp-sources');
+              renderMcpSourcesPanel();
+            },
+            onSaveSuccess: function (updated, isCreate) {
+              editingMcpSource = updated;
+              mcpSourceFormMode = 'edit';
+              dirty = false;
+              if (window.App && window.App.router) {
+                App.router.replaceSub(self.serializeState());
+              }
+              if (isCreate) {
+                // create→edit transition: re-render the editor so the
+                // Danger Zone + edit-mode subtitle render with the
+                // newly-assigned id.
+                renderMcpSourcesPanel();
+              }
+            },
+            onDeleteSuccess: function () {
+              mcpSourceFormMode = null;
+              editingMcpSource = null;
+              dirty = false;
+              if (window.App && window.App.router) App.router.replaceSub('mcp-sources');
+              renderMcpSourcesPanel();
+            },
+            onDirtyChange: function (d) { dirty = d; }
+          });
+        });
+        return;
+      }
+      // Grid branch
+      App.admin.renderMcpServersGrid(contentEl, mcpSources, {
+        selectedId: editingMcpSource ? editingMcpSource.id : null,
+        onSelectMcpSource: selectMcpSource,
+        onCreateMcpSource: enterCreateMcpSourceMode
+      });
+      fetchMcpSources();
+    }
+
+    function fetchMcpSources() {
+      return fetch('/api/mcp-sources')
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          // Stricter stale-then guard at cache-write (mirrors tools pattern
+          // at fetchToolConfigs; deliberately diverges from the older
+          // providers pattern which writes the cache unconditionally).
+          if (currentCategory !== 'mcp-sources') return;
+          mcpSources = data;
+          populateMcpSourcesGrid();
+          self._tryConsumePendingMcpSource();
+        })
+        .catch(function () {
+          if (currentCategory !== 'mcp-sources') return;
+          var gridEl = contentEl.querySelector('.entity-tile-grid');
+          if (gridEl) gridEl.innerHTML = '<div class="admin-loading">Failed to load MCP sources.</div>';
+        });
+    }
+
+    function populateMcpSourcesGrid() {
+      // Stale-then guard: bail when no longer on mcp-sources (mirrors
+      // providers/tools), OR when the editor placeholder is mounted.
+      if (currentCategory !== 'mcp-sources') return;
+      if (mcpSourceFormMode) return;
+      App.admin.renderMcpServersGrid(contentEl, mcpSources, {
+        selectedId: editingMcpSource ? editingMcpSource.id : null,
+        onSelectMcpSource: selectMcpSource,
+        onCreateMcpSource: enterCreateMcpSourceMode
+      });
+    }
+
+    function selectMcpSource(id) {
+      var source = findMcpSource(id);
+      if (!source) return; // pending-id race; will be re-attempted after fetch
+      mcpSourceFormMode = 'edit';
+      editingMcpSource = source;
+      pendingMcpSourceId = null;
+      pendingMcpSourceFormMode = null;
+      if (window.App && window.App.router) {
+        App.router.replaceSub(self.serializeState());
+      }
+      renderMcpSourcesPanel();
+    }
+
+    function enterCreateMcpSourceMode() {
+      mcpSourceFormMode = 'add';
+      editingMcpSource = null;
+      pendingMcpSourceId = null;
+      pendingMcpSourceFormMode = null;
+      if (window.App && window.App.router) {
+        App.router.replaceSub(self.serializeState());
+      }
+      renderMcpSourcesPanel();
+    }
+
+    function findMcpSource(id) {
+      if (!mcpSources) return null;
+      for (var i = 0; i < mcpSources.length; i++) {
+        if (mcpSources[i].id === id) return mcpSources[i];
+      }
+      return null;
+    }
+
     // ── Provider Form / Delete / Models / Ollama ─────────────────────
     // Migrated to admin/provider-editor.js + admin/provider-models.js in
     // F6 leg 03. The orchestrator's renderProvidersPanel above delegates
@@ -591,6 +794,8 @@ App.registerArea({
         selectTool(editingTool.name);
       } else if (currentCategory === 'tools') {
         fetchToolConfigs();
+      } else if (currentCategory === 'mcp-sources') {
+        fetchMcpSources();
       }
     };
     Object.defineProperty(self, '_currentCategory', {
@@ -637,6 +842,26 @@ App.registerArea({
       set: function (v) { pendingToolFormMode = v; },
       configurable: true
     });
+    Object.defineProperty(self, '_mcpSourceFormMode', {
+      get: function () { return mcpSourceFormMode; },
+      set: function (v) { mcpSourceFormMode = v; },
+      configurable: true
+    });
+    Object.defineProperty(self, '_editingMcpSource', {
+      get: function () { return editingMcpSource; },
+      set: function (v) { editingMcpSource = v; },
+      configurable: true
+    });
+    Object.defineProperty(self, '_pendingMcpSourceId', {
+      get: function () { return pendingMcpSourceId; },
+      set: function (v) { pendingMcpSourceId = v; },
+      configurable: true
+    });
+    Object.defineProperty(self, '_pendingMcpSourceFormMode', {
+      get: function () { return pendingMcpSourceFormMode; },
+      set: function (v) { pendingMcpSourceFormMode = v; },
+      configurable: true
+    });
     self._setCategory = function (sub) {
       if (currentCategory !== sub) {
         currentCategory = sub;
@@ -648,6 +873,10 @@ App.registerArea({
         editingTool = null;
         pendingToolName = null;
         pendingToolFormMode = null;
+        mcpSourceFormMode = null;
+        editingMcpSource = null;
+        pendingMcpSourceId = null;
+        pendingMcpSourceFormMode = null;
         App.layout.updateActiveSection(categoryListEl, currentCategory);
         renderContent();
       }
@@ -684,10 +913,33 @@ App.registerArea({
         selectTool(name);
       }
     };
+    self._tryConsumePendingMcpSource = function () {
+      if (!pendingMcpSourceId && !pendingMcpSourceFormMode) return;
+      if (pendingMcpSourceFormMode === 'add') {
+        mcpSourceFormMode = 'add';
+        editingMcpSource = null;
+        pendingMcpSourceFormMode = null;
+        pendingMcpSourceId = null;
+        renderMcpSourcesPanel();
+        return;
+      }
+      if (pendingMcpSourceFormMode === 'edit' && pendingMcpSourceId) {
+        var found = findMcpSource(pendingMcpSourceId);
+        if (found) {
+          mcpSourceFormMode = 'edit';
+          editingMcpSource = found;
+          pendingMcpSourceId = null;
+          pendingMcpSourceFormMode = null;
+          renderMcpSourcesPanel();
+        }
+        // else: source not in cache; will be re-attempted after fetchMcpSources resolves.
+      }
+    };
 
     // ── Init ──────────────────────────────────────────────────────────
 
     fetchProviderTypes();
+    fetchMcpSourceTypes();
     renderContent();
   },
 

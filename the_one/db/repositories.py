@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+from typing import Any
 
 import aiosqlite
+from cryptography.fernet import InvalidToken
 
 from the_one.agent.config import AgentConfig
 from the_one.db.models import (
@@ -245,8 +247,38 @@ class KBItemRepository:
 class MCPSourceRepository:
     """Async CRUD for MCP sources."""
 
-    def __init__(self, conn: aiosqlite.Connection) -> None:
+    def __init__(self, conn: aiosqlite.Connection, encryptor: Encryptor) -> None:
         self.conn = conn
+        self.encryptor = encryptor  # Reference, NOT copy. install_key() post-rotation
+                                    # must propagate to live repository instances.
+                                    # Mirrors LLMProviderRepository:489.
+
+    def _secrets_to_ciphertext(self, secrets: dict[str, Any]) -> str:
+        return self.encryptor.encrypt(json.dumps(secrets))
+
+    def _ciphertext_to_secrets(self, ciphertext: str | None) -> dict[str, Any]:
+        """Decrypt the secrets column. Empty/None ciphertext returns empty dict.
+
+        InvalidToken is the migration-residue path — pre-L2 rows or rows
+        migrated by v10 carry the column default '{}' (plaintext) which
+        Fernet.decrypt rejects. Silently fall back to {} for that case;
+        the next update() rewrites the column with proper ciphertext.
+
+        JSONDecodeError is NOT swallowed — it means decrypt() succeeded
+        but the cleartext bytes were not valid JSON. That indicates real
+        data corruption (e.g., manual DB tampering, key reuse mishap)
+        and must surface, not be silently masked.
+        """
+        if not ciphertext:
+            return {}
+        try:
+            plaintext = self.encryptor.decrypt(ciphertext)
+        except InvalidToken:
+            # Migration-residue: column default '{}' is plaintext, not
+            # ciphertext. Treat as empty secrets. Will be rewritten with
+            # real ciphertext on the next update().
+            return {}
+        return json.loads(plaintext)  # JSONDecodeError propagates
 
     async def list(self) -> list[MCPSource]:
         async with self.conn.execute("SELECT * FROM mcp_sources ORDER BY name") as cur:
@@ -261,13 +293,14 @@ class MCPSourceRepository:
 
     async def create(self, source: MCPSource) -> None:
         await self.conn.execute(
-            "INSERT INTO mcp_sources (id, name, type, config, created_at, updated_at)"
-            " VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO mcp_sources (id, name, type, config, secrets, created_at, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
             (
                 source.id,
                 source.name,
                 source.type,
                 json.dumps(source.config),
+                self._secrets_to_ciphertext(source.secrets),
                 source.created_at,
                 source.updated_at,
             ),
@@ -279,8 +312,15 @@ class MCPSourceRepository:
             if await cur.fetchone() is None:
                 raise KeyError(f"MCP source not found: {source.id}")
         await self.conn.execute(
-            "UPDATE mcp_sources SET name=?, type=?, config=?, updated_at=? WHERE id=?",
-            (source.name, source.type, json.dumps(source.config), _now_iso(), source.id),
+            "UPDATE mcp_sources SET name=?, type=?, config=?, secrets=?, updated_at=? WHERE id=?",
+            (
+                source.name,
+                source.type,
+                json.dumps(source.config),
+                self._secrets_to_ciphertext(source.secrets),
+                _now_iso(),
+                source.id,
+            ),
         )
         await self.conn.commit()
 
@@ -291,13 +331,13 @@ class MCPSourceRepository:
         await self.conn.execute("DELETE FROM mcp_sources WHERE id = ?", (source_id,))
         await self.conn.commit()
 
-    @staticmethod
-    def _row_to_model(row: aiosqlite.Row) -> MCPSource:
+    def _row_to_model(self, row: aiosqlite.Row) -> MCPSource:
         return MCPSource(
             id=row["id"],
             name=row["name"],
             type=row["type"],
             config=json.loads(row["config"] or "{}"),
+            secrets=self._ciphertext_to_secrets(row["secrets"]),
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )

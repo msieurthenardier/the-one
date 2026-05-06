@@ -43,11 +43,17 @@ Key properties: `data_dir` (`~/.the-one`), `agents_dir` (`data_dir / "agents"`),
 
 ### `the_one/encryption.py`
 
-Fernet-based encryption for API keys stored in the database. Generates and caches an `Encryptor` per `data_dir`. Provides an `install_key()` helper plus a public `key_path` property; the API rotation path (`POST /api/encryption/rotate`) re-encrypts all provider credentials, commits the DB, then atomically replaces the key file via `os.replace`. The legacy `rotate_key()` callback API is retained for non-API callers.
+Fernet-based encryption for API keys stored in the database. Generates and caches an `Encryptor` per `data_dir`. Provides an `install_key()` helper plus a public `key_path` property; the API rotation path (`POST /api/encryption/rotate`) re-encrypts all provider credentials AND all MCP source secrets in a single crash-safe transaction, commits the DB, then atomically replaces the key file via `os.replace`. The single-pass rotation is the authoritative invariant: a partial rotation that handled only one of the two surfaces would leave the other encrypted under a key no longer on disk. The legacy `rotate_key()` callback API is retained for non-API callers.
 
 ### `the_one/db/repositories.py`
 
 Database repositories including `LLMProviderRepository` for CRUD on `llm_provider_configs` table. Provider configs store `name`, `type`, `base_url`, and encrypted `api_key`. Referenced by `AgentConfig.provider_config_id`.
+
+`MCPSourceRepository` (M07 F1) handles CRUD on `mcp_sources` (schema v10). Storage shape is **field-segregated encryption with two columns**: `config TEXT DEFAULT '{}'` holds plaintext non-sensitive fields (transport-aware: `command`/`args`/`env` for `'stdio'`, `url`/`headers`/OAuth client config for `'streamable-http'`); `secrets TEXT DEFAULT '{}'` holds a single Fernet-encrypted JSON blob whose decoded value is a dict of operator-marked sensitive field values (env-var values, `oauth_client_secret`, bearer headers, future `access_token` / `refresh_token` slots). Encryption is per-row, one `Fernet.encrypt`/`decrypt` per row — NOT per-field inside the JSON. The repository stores the `Encryptor` **as a reference, not a copy**, so post-rotation `install_key()` propagates to live repository instances (mirrors `LLMProviderRepository`'s pattern). The deprecated `'sse'` transport literal was renamed to `'streamable-http'` per MCP spec revision 2025-11-25 in v10's table-rebuild migration via `CASE WHEN type='sse' THEN 'streamable-http' ELSE type END` inside the `INSERT INTO mcp_sources_new SELECT ...` step. The `MCPSource` Pydantic model exposes both fields and a `merged_config()` helper for callers (F2 connect path) that need a flat dict; UI / masking / rotation / F4 resolver consumers keep the split visible.
+
+**`__MASKED__` per-key sentinel on `secrets`**: extends the LLM-provider `__MASKED__` sentinel pattern (single-column) to a per-key semantic on the `secrets` dict. GET `/api/mcp-sources/{id}` returns `{config: {...plaintext...}, secrets: {key: "***...{tail4}", ...}}` with each VALUE masked individually (`***...{tail4}` for `>4` chars, `***` otherwise; mirrors `_mask_api_key`). On PUT, `secrets[key] == "__MASKED__"` preserves the existing stored value for that key; other keys overwrite. This per-key handling is what lets the operator save form edits without re-typing every secret.
+
+**OAuth `client_secret` payload key** is locked to `secrets["oauth_client_secret"]` (top-level on the `secrets` dict), NOT `config.oauth.client_secret` — F5's live OAuth flow MUST look up by this exact key. Routing the secret elsewhere would leak through any code path reading `config` plaintext.
 
 ### `the_one/agent/`
 
