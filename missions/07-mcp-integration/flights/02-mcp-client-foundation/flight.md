@@ -1,6 +1,6 @@
 # Flight: MCP Client Foundation — stdio + Streamable HTTP
 
-**Status**: landed
+**Status**: completed
 **Mission**: [MCP Integration](../../mission.md)
 
 ## Contributing to Criteria
