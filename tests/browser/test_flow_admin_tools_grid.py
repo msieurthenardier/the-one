@@ -197,12 +197,15 @@ def test_admin_tools_grid_tile_keyboard_navigation(app_clean: str, page: Page) -
 @pytest.mark.browser
 def test_admin_tools_section_nav_label_is_built_in_tools(app_clean: str, page: Page) -> None:
     """HAT inline fix #5: the third nav entry's label is "Built-in Tools"
-    (was "Tools"). Distinguishes from future MCP / external tool surfaces
+    (was "Tools"). Distinguishes from MCP / external tool surfaces
     while keeping the URL slug stable at #admin/tools.
+
+    Post-F2 retrofit: the admin nav has 3 entries (System | LLM Providers
+    | Built-in Tools). MCP Servers was relocated to the Studio nav.
     """
     page.goto(f"{app_clean}#admin/system")
     items = page.locator(".area-admin .section-nav .section-nav-item")
-    expect(items).to_have_count(4, timeout=5000)
+    expect(items).to_have_count(3, timeout=5000)
     expect(items.nth(2)).to_have_text("Built-in Tools")
 
 

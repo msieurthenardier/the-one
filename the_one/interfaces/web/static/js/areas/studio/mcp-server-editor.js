@@ -1,4 +1,5 @@
-// App.admin.renderMcpSourceEditor — MCP source editor (M07 F1 L6).
+// App.studio.renderMcpSourceEditor — MCP source editor (M07 F1 L6;
+// relocated from admin → studio post-F2 retrofit).
 //
 // Mirrors provider-editor.js structural shape:
 //   <div class="editor-header"> … </div>
@@ -27,7 +28,7 @@
 (function () {
   'use strict';
   window.App = window.App || {};
-  window.App.admin = window.App.admin || {};
+  window.App.studio = window.App.studio || {};
 
   var MASKED_SENTINEL = '__MASKED__';
 
@@ -863,5 +864,5 @@
     }
   }
 
-  window.App.admin.renderMcpSourceEditor = renderMcpSourceEditor;
+  window.App.studio.renderMcpSourceEditor = renderMcpSourceEditor;
 })();

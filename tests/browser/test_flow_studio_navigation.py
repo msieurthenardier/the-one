@@ -1,7 +1,9 @@
 """End-to-end flow tests: studio section navigation (F5 leg 01).
 
-Covers the three-section sidebar (Agents / Knowledge / Tools) introduced in
-F5 leg 01:
+Covers the three-section sidebar (Agents / Knowledge / MCP Servers).
+Post-F2 retrofit: the third section was originally a "Tools" stub and
+became the relocated "MCP Servers" surface (moved from the admin nav
+because MCP sources are user-managed entities, not system settings).
 
 - Section nav buttons render with correct ARIA + roving tabindex
 - Click navigation updates URL hash + active section
@@ -18,17 +20,22 @@ from browser.seeders import SeededApp
 from playwright.sync_api import Page, expect
 
 KNOWLEDGE_TEXT = "Knowledge bases will be created and managed here in a future mission."
-TOOLS_TEXT = "MCP servers and built-in tools will be configured here in a future mission."
 
 
 def _wait_studio_ready(page: Page) -> None:
-    """Wait for the studio area to mount (section-nav + Studio header visible)."""
-    expect(page.locator(".section-nav-header")).to_have_text("Studio", timeout=8000)
+    """Wait for the studio area to mount.
+
+    Sidebar headers were removed (commit 0d3d42e: "drop redundant sidebar
+    headers"); the topbar's app-picker pill names the active area instead.
+    Wait for the section-nav buttons to render — that's the canonical
+    "studio mounted" signal once the headers are gone.
+    """
+    expect(page.locator(".area-studio .section-nav-item").first).to_be_visible(timeout=8000)
 
 
 @pytest.mark.browser
 def test_studio_section_nav_renders_three_buttons(app_clean: str, page: Page) -> None:
-    """The section-nav has three buttons (Agents / Knowledge / Tools)."""
+    """The section-nav has three buttons (Agents / Knowledge / MCP Servers)."""
     page.goto(f"{app_clean}#studio")
     _wait_studio_ready(page)
 
@@ -36,7 +43,7 @@ def test_studio_section_nav_renders_three_buttons(app_clean: str, page: Page) ->
     expect(buttons).to_have_count(3)
     expect(buttons.nth(0)).to_have_text("Agents")
     expect(buttons.nth(1)).to_have_text("Knowledge")
-    expect(buttons.nth(2)).to_have_text("Tools")
+    expect(buttons.nth(2)).to_have_text("MCP Servers")
 
 
 @pytest.mark.browser
@@ -66,11 +73,11 @@ def test_studio_section_nav_roving_tabindex(app_clean: str, page: Page) -> None:
 
     agents_btn = page.locator('.section-nav-item[data-section="agents"]')
     knowledge_btn = page.locator('.section-nav-item[data-section="knowledge"]')
-    tools_btn = page.locator('.section-nav-item[data-section="tools"]')
+    mcp_btn = page.locator('.section-nav-item[data-section="mcp-sources"]')
 
     expect(agents_btn).to_have_attribute("tabindex", "0")
     expect(knowledge_btn).to_have_attribute("tabindex", "-1")
-    expect(tools_btn).to_have_attribute("tabindex", "-1")
+    expect(mcp_btn).to_have_attribute("tabindex", "-1")
 
 
 @pytest.mark.browser
@@ -96,22 +103,27 @@ def test_studio_click_knowledge_section(app_clean: str, page: Page) -> None:
 
 
 @pytest.mark.browser
-def test_studio_click_tools_section(app_clean: str, page: Page) -> None:
-    """Clicking the Tools section button updates URL and shows the stub."""
+def test_studio_click_mcp_sources_section(app_clean: str, page: Page) -> None:
+    """Clicking the MCP Servers section button updates URL and shows the grid.
+
+    Post-F2 retrofit: replaces the test that previously clicked the
+    "Tools" stub. The grid renders a page-header with title "MCP Servers"
+    and either an empty-state CTA or a tile grid depending on inventory.
+    """
     page.goto(f"{app_clean}#studio")
     _wait_studio_ready(page)
 
-    page.locator('.section-nav-item[data-section="tools"]').click()
+    page.locator('.section-nav-item[data-section="mcp-sources"]').click()
 
-    assert page.evaluate("location.hash") == "#studio/tools"
+    assert page.evaluate("location.hash") == "#studio/mcp-sources"
 
-    stub = page.locator('[data-testid="studio-tools-stub"]')
-    expect(stub).to_be_visible(timeout=2000)
-    expect(stub).to_have_text(TOOLS_TEXT)
+    expect(page.locator(".area-studio .page-title")).to_have_text(
+        "MCP Servers", timeout=5000
+    )
 
     active = page.locator('.section-nav-item[aria-current="page"]')
     expect(active).to_have_count(1)
-    expect(active).to_have_text("Tools")
+    expect(active).to_have_text("MCP Servers")
 
 
 @pytest.mark.browser
@@ -132,29 +144,29 @@ def test_studio_keyboard_arrow_navigation(app_clean: str, page: Page) -> None:
     focused_section = page.evaluate("() => document.activeElement?.dataset?.section")
     assert focused_section == "knowledge"
 
-    # ArrowDown → Tools.
+    # ArrowDown → MCP Servers.
     page.keyboard.press("ArrowDown")
     focused_section = page.evaluate("() => document.activeElement?.dataset?.section")
-    assert focused_section == "tools"
+    assert focused_section == "mcp-sources"
 
     # ArrowDown wraps → Agents.
     page.keyboard.press("ArrowDown")
     focused_section = page.evaluate("() => document.activeElement?.dataset?.section")
     assert focused_section == "agents"
 
-    # ArrowUp wraps backward → Tools.
+    # ArrowUp wraps backward → MCP Servers.
     page.keyboard.press("ArrowUp")
     focused_section = page.evaluate("() => document.activeElement?.dataset?.section")
-    assert focused_section == "tools"
+    assert focused_section == "mcp-sources"
 
-    # End → Tools (already there); Home → Agents.
+    # End → MCP Servers (already there); Home → Agents.
     page.keyboard.press("Home")
     focused_section = page.evaluate("() => document.activeElement?.dataset?.section")
     assert focused_section == "agents"
 
     page.keyboard.press("End")
     focused_section = page.evaluate("() => document.activeElement?.dataset?.section")
-    assert focused_section == "tools"
+    assert focused_section == "mcp-sources"
 
     # Focus moved but URL did NOT change (manual activation).
     assert page.evaluate("location.hash") == "#studio/agents"
@@ -200,22 +212,31 @@ def test_studio_knowledge_section_persists_on_refresh(app_clean: str, page: Page
 
 
 @pytest.mark.browser
-def test_studio_tools_section_persists_on_refresh(app_clean: str, page: Page) -> None:
-    """Navigating to #studio/tools + refreshing returns to that section."""
-    page.goto(f"{app_clean}#studio/tools")
+def test_studio_mcp_sources_section_persists_on_refresh(app_clean: str, page: Page) -> None:
+    """Navigating to #studio/mcp-sources + refreshing returns to that section.
+
+    Post-F2 retrofit: replaces the test that previously asserted the
+    "Tools" stub persists on refresh. The MCP Servers section is the new
+    third nav entry.
+    """
+    page.goto(f"{app_clean}#studio/mcp-sources")
     _wait_studio_ready(page)
 
-    expect(page.locator('[data-testid="studio-tools-stub"]')).to_be_visible(timeout=5000)
-    assert page.evaluate("location.hash") == "#studio/tools"
+    expect(page.locator(".area-studio .page-title")).to_have_text(
+        "MCP Servers", timeout=5000
+    )
+    assert page.evaluate("location.hash") == "#studio/mcp-sources"
 
     page.reload()
     _wait_studio_ready(page)
 
-    expect(page.locator('[data-testid="studio-tools-stub"]')).to_be_visible(timeout=5000)
-    assert page.evaluate("location.hash") == "#studio/tools"
+    expect(page.locator(".area-studio .page-title")).to_have_text(
+        "MCP Servers", timeout=5000
+    )
+    assert page.evaluate("location.hash") == "#studio/mcp-sources"
 
     active = page.locator('.section-nav-item[aria-current="page"]')
-    expect(active).to_have_text("Tools")
+    expect(active).to_have_text("MCP Servers")
 
 
 @pytest.mark.browser
@@ -254,7 +275,7 @@ def test_studio_section_round_trip_preserves_agent_selection(
 
 @pytest.mark.browser
 def test_studio_editor_hidden_on_knowledge_section(app_with_agent: SeededApp, page: Page) -> None:
-    """When Knowledge/Tools is active, the studio-editor is hidden."""
+    """When Knowledge or MCP Servers is active, the studio-editor is hidden."""
     base_url = app_with_agent.base_url
 
     page.goto(f"{base_url}#studio/knowledge")

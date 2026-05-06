@@ -422,6 +422,40 @@ Verified F1 debrief F2-targeted citations + mapped current codebase landscape.
 
 > Runtime decisions not in the original plan. Populated during execution.
 
+### Post-flight UX correction: MCP Servers relocated admin → studio
+
+**Context**: surfaced after F2 close while reviewing the F2 → F3 transition. F1's L5/L6 had placed the new "MCP Servers" section in the admin/Settings sidebar nav as a peer of LLM Providers and Built-in Tools, with URL hash `#admin/mcp-sources`, JS namespace `App.admin.*`, source files under `static/js/areas/admin/`, and browser tests `test_flow_admin_mcp_*.py`. This was identified as a UX placement bug.
+
+**Decision**: relocate the MCP Servers UI to the Studio sidebar nav, replacing the never-functional Tools stub. Apply this as a single retrofit commit on top of the F2 + L7 commits on the `flight/02-mcp-client-foundation` branch (post-F2 cleanup, before F3 design).
+
+**Rationale**:
+- **Admin nav is for system settings** (rare changes — LLM provider credentials, built-in tool toggles, encryption rotation). The operator interacts with admin during one-time system setup or infrequent maintenance.
+- **Studio nav is for user-managed entities** (frequent changes — agents, knowledge bases, MCP sources). The operator interacts with Studio as part of normal product use.
+- MCP sources are first-class user-managed entities — the operator registers, configures, and removes them as part of normal product use. They belong in Studio.
+- F1's original "match the API path slug `/api/mcp-sources`" rationale was non-binding on the area choice — the slug `mcp-sources` is preserved either way; only the area parent changed.
+- The Studio Tools section was a stub at `static/js/areas/studio/stub-tools.js` whose own placeholder text said *"MCP servers and built-in tools will be configured here in a future mission"*. Replacing it with the real MCP Servers section loses nothing and was literally the stub's intended future home.
+
+**Scope** (pure UI relocation — no functional changes):
+- Admin nav: now 3 sections (System | LLM Providers | Built-in Tools); was 4
+- Studio nav: still 3 sections (Agents | Knowledge | MCP Servers); the Tools stub was replaced by MCP Servers
+- URL hash: `#admin/mcp-sources*` → `#studio/mcp-sources*`
+- JS namespace: `App.admin.renderMcpServersGrid` / `App.admin.renderMcpSourceEditor` → `App.studio.*`
+- Source files: `static/js/areas/admin/mcp-{servers-grid,server-editor}.js` → `static/js/areas/studio/mcp-{servers-grid,server-editor}.js` (history preserved via `git mv`)
+- Browser tests renamed: `tests/browser/test_flow_admin_mcp_navigation.py` → `test_flow_studio_mcp_navigation.py`; `tests/browser/test_flow_admin_mcp_editor.py` → `test_flow_studio_mcp_editor.py`. Selectors flipped from `.area-admin` to `.area-studio`; URL hashes flipped from `#admin/...` to `#studio/...`. The hash-routing test that asserted the Tools stub persists was rewritten to assert the MCP Servers section persists. Studio nav tests' "Tools" assertions became "MCP Servers" assertions.
+- Admin section-count assertion in `test_flow_admin_tools_grid.py` updated from 4 to 3.
+- F1 flight artifact: Retrospective design correction note appended documenting the original choice + correction.
+- Mission spec: lead block updated with the post-F2 retrospective correction reference.
+- The L5 closure-mirror enumeration (18 touchpoints) was applied in parallel to studio.js; admin.js's MCP touchpoints were removed in the same commit.
+
+**Impact**:
+- API path `/api/mcp-sources` unchanged (REST layer not touched).
+- F2 runtime code (`the_one/mcp/`) untouched.
+- L7 leg artifact (HAT walkthrough + disconnect-teardown defect) untouched.
+- Test count: 1169 passing + 1 skipped — no new tests added; existing tests renamed + selectors updated.
+- F1 retrospective: original L5 design's "Settings sidebar label" / "URL slug" decisions corrected — the slug remains `mcp-sources`, only the area parent moved.
+
+**F2 flight status math**: 4 commits on `flight/02-mcp-client-foundation` (design + planning, MCP client foundation, L7 HAT, this UX correction). F2's flight status remains `landed` — this commit retrofits a UX placement decision from F1, not F2 functionality.
+
 ### `MCPClient.disconnect` teardown-noise defect: defer to F4
 
 **Context**: discovered during L7 HAT — `RuntimeError: generator didn't stop` raised inside `disconnect()` and suppressed by the existing `except Exception:` clause. Subprocess cleanup verified working; defect is cosmetic but will be amplified by F4's pool eviction patterns.

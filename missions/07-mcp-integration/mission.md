@@ -2,6 +2,20 @@
 
 **Status**: active
 
+> **Post-F2 retrospective correction (2026-05)**: F1 originally placed the
+> MCP Servers UI in the admin/Settings sidebar nav (URL `#admin/mcp-sources`).
+> Post-F2 close, this was relocated to the Studio sidebar nav (URL
+> `#studio/mcp-sources`), replacing the never-functional "Tools" stub that
+> Studio had carried since F5. Rationale: admin = system settings (rare
+> changes — LLM providers, built-in tools); Studio = user-managed entities
+> (frequent changes — agents, knowledge bases, MCP sources). The
+> "Settings surface" / "Settings page" / "Settings detail page" / "Settings
+> MCP section" phrasing throughout this spec should be read as "the
+> dedicated MCP Servers UI surface" — F1 chose admin, post-F2 corrected to
+> Studio. See F1 flight artifact's "Retrospective design correction" note
+> for the full rationale. Pure UI move; API path `/api/mcp-sources`
+> unchanged.
+
 ## Outcome
 
 MCPs become a first-class user-managed capability in the-one. The operator can register, configure, and test MCP servers from a Settings surface; configurations are persisted with sensitive fields encrypted at rest using the same Fernet key + rotation path that already protects LLM-provider credentials. Both transports defined in the current Model Context Protocol specification are supported — process-spawned stdio servers, and remote streaming-HTTP servers with OAuth 2.1 + PKCE token flows. Local stdio servers run inside an OS-level sandbox with a fixed environment allowlist, no inherited host secrets, and an idle-TTL reaper that releases server processes after a period of disuse — mirroring the lifecycle pattern that the interactive shell session tool already uses for ptys. A simplified inspector surfaced from each server's Settings detail page lets the operator verify a connection, list the server's tools, and invoke any tool with form-driven inputs against the live server — covering the minimum needed to prove a configured MCP works before any agent attaches to it. Resources, prompts, sampling, and notifications are deliberately deferred — the inspector and the runtime cover tools-list and tools-call only in this mission. Once configured, an MCP source can be attached to any number of agents through the Studio agent editor's existing MCPs tab, which stops being a stub. Each agent attachment composes through the same two-layer resolver that the built-in tools already use: shared defaults at the source level, narrow-or-substitute overrides at the agent level — so the operator can have one GitHub MCP source defined globally and two agents each with their own substituted personal access token, without duplicating the source. The agent's tool registry is extended to include MCP tools alongside built-in tools, with stable name-spacing so tool names from different servers cannot collide. The runtime is architected for cross-platform support — the sandbox layer is isolated behind a clear abstraction and verified on Linux now; macOS and Windows backends are explicit follow-up work, not in this mission's scope.

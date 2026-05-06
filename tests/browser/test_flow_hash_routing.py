@@ -178,21 +178,25 @@ def test_studio_knowledge_section_persists_on_refresh(app_clean: str, page: Page
 
 
 @pytest.mark.browser
-def test_studio_tools_section_persists_on_refresh(app_clean: str, page: Page) -> None:
-    """Navigating to #studio/tools shows the stub; refresh preserves the section."""
+def test_studio_mcp_sources_section_persists_on_refresh(app_clean: str, page: Page) -> None:
+    """Navigating to #studio/mcp-sources shows the page; refresh preserves the section.
+
+    Post-F2 retrofit: replaces the test that previously asserted the
+    "Tools" stub at #studio/tools — the third nav slot is now MCP Servers.
+    """
     base_url = app_clean
 
-    page.goto(f"{base_url}#studio/tools")
-    expect(page.locator(".section-nav-header")).to_have_text("Studio", timeout=8000)
-
-    stub = page.locator('[data-testid="studio-tools-stub"]')
-    expect(stub).to_be_visible(timeout=5000)
-    assert page.evaluate("location.hash") == "#studio/tools"
+    page.goto(f"{base_url}#studio/mcp-sources")
+    expect(page.locator(".area-studio .page-title")).to_have_text(
+        "MCP Servers", timeout=8000
+    )
+    assert page.evaluate("location.hash") == "#studio/mcp-sources"
 
     page.reload()
-    expect(page.locator(".section-nav-header")).to_have_text("Studio", timeout=8000)
-    expect(page.locator('[data-testid="studio-tools-stub"]')).to_be_visible(timeout=5000)
-    assert page.evaluate("location.hash") == "#studio/tools"
+    expect(page.locator(".area-studio .page-title")).to_have_text(
+        "MCP Servers", timeout=8000
+    )
+    assert page.evaluate("location.hash") == "#studio/mcp-sources"
 
 
 @pytest.mark.browser
