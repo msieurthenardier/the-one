@@ -383,15 +383,69 @@ Verified F1 debrief F2-targeted citations + mapped current codebase landscape.
 
 ---
 
+### L7: HAT walkthrough (manual, post-flight-landing)
+
+**Status**: completed
+**Started**: 2026-05-06T18:00:00Z
+**Completed**: 2026-05-06T18:15:00Z
+
+#### Changes Made
+
+- Created lightweight L7 leg artifact at `legs/07-hat-mcp-foundation.md`
+- Operator manually configured the in-repo FastMCP `hello_server.py` fixture as a stdio MCP source via the F1 Settings UI at `http://localhost:8484/#admin/mcp-sources`
+- Walked through 5-step verification + bonus structured-result step using a one-shot Python script (`/tmp/hat.py` in container) that loaded the source via `MCPSourceRepository`, instantiated `MCPClient`, exercised `connect/list_tools/call_tool/disconnect` end-to-end
+- Captured all results in the leg artifact
+
+#### Notes
+
+**All 5 required HAT steps + bonus PASSED**:
+- Step 2: F1 UI flow + encryption pipeline + per-key __MASKED__ round-trip all working — operator added `MY_HAT_SECRET=test-value-123` (sensitive) and `PYTHONPATH=/app` (plaintext); list view rendered cleanly; edit view round-tripped with `***...-123` masking
+- Step 3: `MCPClient.connect()` returned `is_alive=True`, `negotiated_protocol_version="2025-11-25"`, `server_capabilities` populated with all 7 SDK keys (`experimental, logging, prompts, resources, tools, completions, tasks`)
+- Step 4: `list_tools()` returned `["add", "echo"]` with proper `input_schema` properties
+- Step 5: `call_tool("echo", {"message": "hello HAT"})` → `text="hello HAT", is_error=False`
+- Bonus 6: `call_tool("add", {"a": 2, "b": 3})` → `text="5", structured={"result": 5}, is_error=False`
+
+**Decryption round-trip verified**: `MY_HAT_SECRET` decrypted back to `test-value-123` from the encrypted-at-rest blob — F1 encryption pipeline + L4/L5 secrets-overlay work end-to-end.
+
+**Defect discovered (forwarded to F4)**: `MCPClient.disconnect()` raises `RuntimeError: generator didn't stop` from inside `self._transport_cm.__aexit__(...)` on every disconnect cycle. The exception is caught by L2's `except Exception: logger.warning(...)` and suppressed; subprocess cleanup is functionally correct (verified via `/proc` scan — no orphan processes survive script exit). The warning is teardown-noise, not a leak. Root cause is the `@asynccontextmanager`+nested-`async with` interaction with the SDK's anyio task-group-managed CMs (`stdio_client`, `streamable_http_client`, `ClientSession`). Canonical fix is to refactor to `contextlib.AsyncExitStack` for nested-context cleanup. Deferred to F4 because F4's warm-pool will exercise disconnect heavily and the fix is best validated against pool eviction races.
+
+**Workaround until fixed**: current behavior is correct (subprocess dies, state cleared); just noisy log line per disconnect.
+
+#### Test count / lint impact
+
+- No code changes made during HAT — leg artifact + flight.md + flight-log.md only. No test changes; lint not affected.
+- HAT script `/tmp/hat.py` is throwaway (lives in container `/tmp`; not committed).
+
+---
+
 ## Decisions
 
 > Runtime decisions not in the original plan. Populated during execution.
+
+### `MCPClient.disconnect` teardown-noise defect: defer to F4
+
+**Context**: discovered during L7 HAT — `RuntimeError: generator didn't stop` raised inside `disconnect()` and suppressed by the existing `except Exception:` clause. Subprocess cleanup verified working; defect is cosmetic but will be amplified by F4's pool eviction patterns.
+
+**Decision**: capture as a forward action item; do NOT fix in F2. Rationale:
+- Fix requires touching `client.py` + both transport modules (refactor to AsyncExitStack)
+- Fix's correctness depends on validation under F4's pool-eviction race conditions
+- F2 is already landed + committed; reopening to apply a refactor adds risk without clear benefit (no functional improvement; only log-noise reduction)
+
+**Captures**: F2 flight debrief action item; mission-level Known Issue; L7 leg artifact's "Defect discovered" section.
 
 ---
 
 ## Anomalies
 
 > Populated as encountered during execution.
+
+### A01: `MCPClient.disconnect` teardown noise (`generator didn't stop`)
+
+- **Discovered**: L7 HAT walkthrough (post-flight-landing)
+- **Severity**: cosmetic / forward-concern (no functional regression in F2 scope)
+- **Location**: `the_one/mcp/client.py:255` in `disconnect()`; root cause in nested `async with` inside `@asynccontextmanager` bodies in `transports/stdio.py::connect_stdio` and `transports/streamable_http.py::connect_streamable_http`
+- **Reproduction**: any `MCPClient.connect() → ... → disconnect()` sequence triggers the warning. Affects all integration tests in `tests/test_mcp_integration.py` (currently silent because tests don't assert clean stderr)
+- **Mitigation**: deferred to F4's warm-pool flight — see Decisions above
 
 ---
 
