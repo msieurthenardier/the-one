@@ -14,9 +14,23 @@ from the_one.llm.registry import register_provider
 class OpenAIProvider(LLMProvider):
     name = "openai"
 
-    def __init__(self, model: str = "gpt-4o", api_key: str | None = None, **kwargs: Any):
+    def __init__(
+        self,
+        model: str = "gpt-4o",
+        api_key: str | None = None,
+        base_url: str | None = None,
+        **kwargs: Any,
+    ):
+        # NOTE: any new instance attribute added here MUST also be set in
+        # OpenRouterProvider.__init__ (which deliberately does NOT call
+        # super().__init__() — see test_instance_attribute_parity).
         self.model = model
-        self.client = openai.AsyncOpenAI(api_key=api_key or os.environ.get("OPENAI_API_KEY"))
+        client_kwargs: dict[str, Any] = {
+            "api_key": api_key or os.environ.get("OPENAI_API_KEY"),
+        }
+        if base_url is not None:
+            client_kwargs["base_url"] = base_url
+        self.client = openai.AsyncOpenAI(**client_kwargs)
 
     async def complete(
         self,

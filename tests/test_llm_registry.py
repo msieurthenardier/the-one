@@ -49,3 +49,25 @@ class TestLazyLoading:
         assert provider is not None
         # After lazy load, 'ollama' should be in the providers dict
         assert "ollama" in llm_registry._providers
+
+
+class TestOpenAIProviderBaseURL:
+    def test_openai_provider_accepts_base_url(self) -> None:
+        """OpenAIProvider must thread base_url into the AsyncOpenAI client."""
+        from the_one.llm.openai_provider import OpenAIProvider
+
+        prov = OpenAIProvider(
+            model="gpt-4o",
+            api_key="sk-test",
+            base_url="https://example.com/v1",
+        )
+        # openai SDK exposes the resolved base_url on the client
+        assert str(prov.client.base_url).rstrip("/") == "https://example.com/v1"
+
+    def test_openai_provider_default_base_url(self) -> None:
+        """Without base_url the SDK uses the OpenAI default."""
+        from the_one.llm.openai_provider import OpenAIProvider
+
+        prov = OpenAIProvider(model="gpt-4o", api_key="sk-test")
+        # The SDK default is https://api.openai.com/v1
+        assert "openai.com" in str(prov.client.base_url)
