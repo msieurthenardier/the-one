@@ -66,12 +66,29 @@
     }
     html += '</select></div>';
 
-    // Model select dropdown
+    // Model picker — provider-type-aware. OpenRouter has ~370 models so we
+    // use a <datalist>-backed <input> for native filter UX. Other provider
+    // types keep the plain <select> for click-pick simplicity.
+    var currentProviderType = (function () {
+      if (!cfg || !cfg.provider_config_id) return '';
+      for (var pi = 0; pi < providers.length; pi++) {
+        if (providers[pi].id === cfg.provider_config_id) return providers[pi].type;
+      }
+      return '';
+    })();
     html += '<div class="field-row"><label for="studio-model">Model</label>';
     html += '<div class="field-model-wrap">';
-    html += '<select id="studio-model" class="field-input field-select" data-field="llm_model">';
-    html += '<option value="" disabled selected>Select a provider first</option>';
-    html += '</select>';
+    if (currentProviderType === 'openrouter') {
+      html += '<input type="text" id="studio-model" class="field-input"'
+        + ' list="studio-model-list" data-field="llm_model"'
+        + ' value="' + escapeAttr(cfg.llm_model || '') + '"'
+        + ' placeholder="Type to filter (e.g. anthropic/claude)" />';
+      html += '<datalist id="studio-model-list"></datalist>';
+    } else {
+      html += '<select id="studio-model" class="field-input field-select" data-field="llm_model">';
+      html += '<option value="" disabled selected>Select a provider first</option>';
+      html += '</select>';
+    }
     html += '<span class="model-loading" aria-live="polite"></span>';
     html += '</div></div>';
 

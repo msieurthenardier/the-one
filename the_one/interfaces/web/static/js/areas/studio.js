@@ -760,7 +760,12 @@ App.registerArea({
       var currentVal = selectEl.dataset.pendingValue || selectEl.value;
 
       if (!providerId) {
-        selectEl.innerHTML = '<option value="" disabled selected>Select a provider first</option>';
+        if (selectEl.tagName === 'SELECT') {
+          selectEl.innerHTML = '<option value="" disabled selected>Select a provider first</option>';
+        } else {
+          selectEl.value = '';
+          selectEl.placeholder = 'Select a provider first';
+        }
         if (loadingEl) loadingEl.textContent = '';
         modelCapsBy = {};
         renderModelCapabilities();
@@ -776,22 +781,42 @@ App.registerArea({
         })
         .then(function (models) {
           modelCapsBy = {};
-          var html = '<option value="" disabled>Choose a model</option>';
+          var isInput = selectEl.tagName === 'INPUT';
+          var datalistEl = isInput ? document.getElementById('studio-model-list') : null;
+          var optsHtml = '';
+          if (!isInput) {
+            optsHtml = '<option value="" disabled>Choose a model</option>';
+          }
           for (var i = 0; i < models.length; i++) {
             var modelId = models[i].id || models[i].name;
-            var sel = modelId === currentVal ? ' selected' : '';
-            html += '<option value="' + escapeAttr(modelId) + '"' + sel + '>' + escapeHtml(modelId) + '</option>';
-            // Store the caps payload (may be null for non-Ollama providers
-            // or when /api/show fails — renderModelCapabilities treats that
-            // as "no chips to render").
-            if (Object.prototype.hasOwnProperty.call(models[i], 'capabilities')) {
-              modelCapsBy[modelId] = models[i].capabilities;
+            if (isInput) {
+              optsHtml += '<option value="' + escapeAttr(modelId) + '">' + escapeHtml(modelId) + '</option>';
+            } else {
+              var sel = modelId === currentVal ? ' selected' : '';
+              optsHtml += '<option value="' + escapeAttr(modelId) + '"' + sel + '>' + escapeHtml(modelId) + '</option>';
+            }
+            // Capability cache shape: dict<model_id, list|null>.
+            // Both ollama (`capabilities`) and openrouter (`supported_parameters`,
+            // server-side aliased to `capabilities`) flow through this single
+            // path. Empty list \u2192 null (fail-open: "fetched but no caps known"
+            // \u2192 no chip, mirrors openrouter_api.get_model_capabilities).
+            // Absent field \u2192 cache entry stays unset \u2192 no chip.
+            var capsRaw = models[i].capabilities;
+            if (Array.isArray(capsRaw) && capsRaw.length > 0) {
+              modelCapsBy[modelId] = capsRaw;
+            } else if (Array.isArray(capsRaw) && capsRaw.length === 0) {
+              modelCapsBy[modelId] = null;
             }
           }
-          selectEl.innerHTML = html;
-          if (currentVal && !selectEl.querySelector('option[value="' + CSS.escape(currentVal) + '"]')) {
-            var customOpt = '<option value="' + escapeAttr(currentVal) + '" selected>' + escapeHtml(currentVal) + ' (custom)</option>';
-            selectEl.insertAdjacentHTML('beforeend', customOpt);
+          if (isInput) {
+            if (datalistEl) datalistEl.innerHTML = optsHtml;
+            if (currentVal) selectEl.value = currentVal;
+          } else {
+            selectEl.innerHTML = optsHtml;
+            if (currentVal && !selectEl.querySelector('option[value="' + CSS.escape(currentVal) + '"]')) {
+              var customOpt = '<option value="' + escapeAttr(currentVal) + '" selected>' + escapeHtml(currentVal) + ' (custom)</option>';
+              selectEl.insertAdjacentHTML('beforeend', customOpt);
+            }
           }
           if (loadingEl) {
             loadingEl.textContent = models.length === 0 ? 'No models discovered' : '';
@@ -800,7 +825,12 @@ App.registerArea({
           renderModelCapabilities();
         })
         .catch(function () {
-          selectEl.innerHTML = '<option value="" disabled selected>Failed to load models</option>';
+          if (selectEl.tagName === 'SELECT') {
+            selectEl.innerHTML = '<option value="" disabled selected>Failed to load models</option>';
+          } else {
+            selectEl.value = '';
+            selectEl.placeholder = 'Failed to load models';
+          }
           if (loadingEl) loadingEl.textContent = '';
           modelCapsBy = {};
           renderModelCapabilities();
@@ -814,6 +844,50 @@ App.registerArea({
       testBtn.disabled = !providerSelect || !providerSelect.value;
     }
 
+    // Swap the model picker element when the operator switches between
+    // provider types that require different picker UX. OpenRouter (~370
+    // models) uses <input list="…"> + <datalist>; all others use <select>.
+    // Uses replaceWith() so stale event listeners are GC'd and exactly one
+    // #studio-model element always exists in the DOM.
+    function swapModelPicker(newProviderType) {
+      var oldNode = editorEl.querySelector('#studio-model');
+      if (!oldNode) return;
+      var wantInput = newProviderType === 'openrouter';
+      var isInput = oldNode.tagName === 'INPUT';
+      if (wantInput === isInput) return;  // already the right type — no swap needed
+
+      var newNode;
+      if (wantInput) {
+        newNode = document.createElement('input');
+        newNode.type = 'text';
+        newNode.id = 'studio-model';
+        newNode.className = 'field-input';
+        newNode.setAttribute('list', 'studio-model-list');
+        newNode.dataset.field = 'llm_model';
+        newNode.placeholder = 'Type to filter (e.g. anthropic/claude)';
+        // Ensure the datalist sibling exists next to the new input.
+        if (!editorEl.querySelector('#studio-model-list')) {
+          var dl = document.createElement('datalist');
+          dl.id = 'studio-model-list';
+          oldNode.parentNode.insertBefore(dl, oldNode.nextSibling);
+        }
+      } else {
+        newNode = document.createElement('select');
+        newNode.id = 'studio-model';
+        newNode.className = 'field-input field-select';
+        newNode.dataset.field = 'llm_model';
+        // Remove orphan datalist if present.
+        var dl2 = editorEl.querySelector('#studio-model-list');
+        if (dl2) dl2.remove();
+      }
+      oldNode.replaceWith(newNode);
+      // Re-attach change handlers that were on the old node.
+      newNode.addEventListener('change', debouncedVramCheck);
+      newNode.addEventListener('change', renderModelCapabilities);
+      newNode.addEventListener('input', checkDirty);
+      newNode.addEventListener('change', checkDirty);
+    }
+
     function wireEditorEvents(isCreate, cfg) {
       // Dirty tracking on all inputs (skips disabled Advanced stubs).
       var inputs = editorEl.querySelectorAll('.field-input, .field-textarea, .field-select, .tool-toggle');
@@ -823,16 +897,26 @@ App.registerArea({
         inputs[i].addEventListener('change', checkDirty);
       }
 
-      // Provider change → fetch models + clear VRAM warning + recompute Test btn.
-      // The Test-button-disabled recompute chains into the existing change
-      // handler (locality preferred over a second listener).
+      // Provider change → swap model picker (select ↔ input+datalist) if
+      // provider type changed, then fetch models + clear VRAM warning +
+      // recompute Test btn. swapModelPicker() is a no-op if the type hasn't
+      // changed. fetchModelsForProvider re-queries #studio-model after swap.
       var providerSelect = editorEl.querySelector('#studio-provider');
       if (providerSelect) {
         providerSelect.addEventListener('change', function () {
-          var modelSelect = editorEl.querySelector('#studio-model');
-          if (modelSelect) modelSelect.selectedIndex = 0;
+          var selectedProviderId = providerSelect.value;
+          var selectedProviderType = '';
+          for (var pi = 0; pi < self._allProviders.length; pi++) {
+            if (String(self._allProviders[pi].id) === String(selectedProviderId)) {
+              selectedProviderType = self._allProviders[pi].type;
+              break;
+            }
+          }
+          swapModelPicker(selectedProviderType);
+          var modelEl = editorEl.querySelector('#studio-model');
+          if (modelEl && modelEl.tagName === 'SELECT') modelEl.selectedIndex = 0;
           clearVramWarning();
-          fetchModelsForProvider(providerSelect.value);
+          fetchModelsForProvider(selectedProviderId);
           recomputeTestDisabled();
         });
         if (cfg.provider_config_id) {
