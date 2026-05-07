@@ -372,6 +372,53 @@ class TestMCPSourceAPI:
         assert resp.status_code == 422
         assert "config.env" in resp.json()["detail"]
 
+    async def test_validation_rejects_stdio_config_sandbox_writable_paths_non_string_entry(
+        self, client: AsyncClient
+    ) -> None:
+        """L1b: F1 API validator extended for config.sandbox sub-block per F3 §4."""
+        resp = await client.post(
+            "/api/mcp-sources",
+            json={
+                "name": "test-stdio-bad-sandbox-writable",
+                "type": "stdio",
+                "config": {"command": "echo", "sandbox": {"writable_paths": ["/data", 42]}},
+                "secrets": {},
+            },
+        )
+        assert resp.status_code == 422
+        assert "config.sandbox.writable_paths" in resp.json()["detail"]
+
+    async def test_validation_rejects_stdio_config_sandbox_network_allowed_non_bool(
+        self, client: AsyncClient
+    ) -> None:
+        """L1b: F1 API validator extended for config.sandbox sub-block per F3 §4."""
+        resp = await client.post(
+            "/api/mcp-sources",
+            json={
+                "name": "test-stdio-bad-sandbox-network",
+                "type": "stdio",
+                "config": {"command": "echo", "sandbox": {"network_allowed": "yes"}},
+                "secrets": {},
+            },
+        )
+        assert resp.status_code == 422
+        assert "config.sandbox.network_allowed" in resp.json()["detail"]
+
+    async def test_validation_accepts_stdio_config_empty_sandbox_dict(
+        self, client: AsyncClient
+    ) -> None:
+        """L1b: empty sandbox dict is valid — both writable_paths and network_allowed optional."""
+        resp = await client.post(
+            "/api/mcp-sources",
+            json={
+                "name": "test-stdio-empty-sandbox",
+                "type": "stdio",
+                "config": {"command": "echo", "sandbox": {}},
+                "secrets": {},
+            },
+        )
+        assert resp.status_code in (200, 201)
+
     async def test_types_endpoint_returns_two_transports(self, client: AsyncClient) -> None:
         resp = await client.get("/api/mcp-sources/types")
         assert resp.status_code == 200
