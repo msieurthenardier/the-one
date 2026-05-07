@@ -1,6 +1,6 @@
 # Flight: Idle-TTL Lifecycle + Per-(Agent, Source) Process Registry
 
-**Status**: landed
+**Status**: completed
 **Mission**: [MCP Integration](../../mission.md)
 
 ## Contributing to Criteria
