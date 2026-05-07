@@ -102,8 +102,35 @@ class TestOpenAIProviderBaseURL:
 
 class TestLazyLoadOpenRouter:
     def test_get_openrouter_lazy_loads(self) -> None:
-        """get_provider('openrouter') should lazy-import openrouter_provider."""
+        """get_provider('openrouter') must lazy-import openrouter_provider via
+        the registry loader (not via a side-effecting top-of-test import)."""
+        # Do NOT pre-import — the whole point is that the registry loader fires.
+        prov = llm_registry.get_provider("openrouter", model="m", api_key="x")
+        assert "openrouter" in llm_registry._providers
         from the_one.llm.openrouter_provider import OpenRouterProvider
 
-        prov = llm_registry.get_provider("openrouter", model="m", api_key="x")
         assert isinstance(prov, OpenRouterProvider)
+
+
+class TestRegistryImportErrorMessage:
+    def test_openrouter_import_error_names_openai_extra(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """ImportError for openrouter references the [openai] extra (not [openrouter])."""
+        import builtins
+
+        # Ensure the loader will be exercised: openrouter_provider must NOT
+        # be in sys.modules (autouse fixture handles this, but be explicit)
+        monkeypatch.delitem(sys.modules, "the_one.llm.openrouter_provider", raising=False)
+
+        real_import = builtins.__import__
+
+        def stub_import(name, *args, **kwargs):
+            if name == "the_one.llm.openrouter_provider":
+                raise ImportError("openai sdk not installed")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", stub_import)
+
+        with pytest.raises(ImportError, match=r"the-one\[openai\]"):
+            llm_registry.get_provider("openrouter")
