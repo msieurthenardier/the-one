@@ -17,22 +17,38 @@ def _isolate_env(monkeypatch):
 
 class TestNoLeakInvariant:
     def test_no_leak_with_api_key_none(self, monkeypatch):
-        from the_one.llm.openrouter_provider import _NO_KEY_PLACEHOLDER, OpenRouterProvider
+        """Behavior contract: when neither the explicit arg nor
+        OPENROUTER_API_KEY is set, the SDK client's api_key MUST be
+        non-empty (so the SDK skips its OPENAI_API_KEY env fallback) AND
+        MUST NOT equal the leaked OPENAI_API_KEY value.
+
+        See ``test_no_leak_uses_documented_placeholder`` for the
+        sentinel-equality contract.
+        """
+        from the_one.llm.openrouter_provider import OpenRouterProvider
 
         monkeypatch.setenv("OPENAI_API_KEY", "sk-leaked")
         prov = OpenRouterProvider(model="m", api_key=None)
-        # No-leak invariant: when no openrouter key is set, we MUST pass a
-        # non-empty placeholder (NOT the OpenAI env value) so the SDK skips
-        # its env fallback.
-        assert prov.client.api_key == _NO_KEY_PLACEHOLDER
+        # Behavior assertion (no-leak): non-empty AND not the OpenAI env value.
+        assert prov.client.api_key, "api_key must be non-empty so the SDK skips env fallback"
+        assert prov.client.api_key != "sk-leaked", "OpenAI env value leaked into OpenRouter client"
+
+    def test_no_leak_uses_documented_placeholder(self, monkeypatch):
+        """Sentinel-equality contract: pin the public placeholder string so
+        operators reading server logs see a consistent identifier."""
+        from the_one.llm.openrouter_provider import OpenRouterProvider
+
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-leaked")
+        prov = OpenRouterProvider(model="m", api_key=None)
+        assert prov.client.api_key == OpenRouterProvider._NO_KEY_PLACEHOLDER
 
     def test_no_leak_with_empty_string_api_key(self, monkeypatch):
-        from the_one.llm.openrouter_provider import _NO_KEY_PLACEHOLDER, OpenRouterProvider
+        from the_one.llm.openrouter_provider import OpenRouterProvider
 
         monkeypatch.setenv("OPENAI_API_KEY", "sk-leaked")
         prov = OpenRouterProvider(model="m", api_key="")
         # Empty string is treated identically to "no key set" — same placeholder.
-        assert prov.client.api_key == _NO_KEY_PLACEHOLDER
+        assert prov.client.api_key == OpenRouterProvider._NO_KEY_PLACEHOLDER
 
     def test_uses_openrouter_env_when_arg_none(self, monkeypatch):
         from the_one.llm.openrouter_provider import OpenRouterProvider

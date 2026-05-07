@@ -14,26 +14,32 @@ that test fails and forces a sync.
 from __future__ import annotations
 
 import os
-from typing import Any
+from typing import Any, ClassVar
 
 import openai
 
 from the_one.llm.openai_provider import OpenAIProvider
 from the_one.llm.registry import register_provider
 
-# Sentinel that fills the api_key when neither the constructor arg nor
-# OPENROUTER_API_KEY is set. Decision 5 originally specified an
-# empty-string opt-out, but openai>=2.16 raises ``OpenAIError`` on
-# ``api_key=""`` at construction time and the only escape (the private
-# ``_enforce_credentials=False`` kwarg) is unsafe to depend on. A
-# non-empty placeholder satisfies the SDK's public contract; OpenRouter
-# returns a clean 401 with the placeholder in the bearer header, and
-# the agent loop surfaces that error verbatim.
-_NO_KEY_PLACEHOLDER = "openrouter-no-key-set"
-
 
 class OpenRouterProvider(OpenAIProvider):
     name = "openrouter"
+
+    # Sentinel that fills the api_key when neither the constructor arg
+    # nor OPENROUTER_API_KEY is set. Decision 5 originally specified an
+    # empty-string opt-out, but openai>=2.16 raises ``OpenAIError`` on
+    # ``api_key=""`` at construction time and the only escape (the
+    # private ``_enforce_credentials=False`` kwarg) is unsafe to depend
+    # on. A non-empty placeholder satisfies the SDK's public contract;
+    # OpenRouter returns a clean 401 with the placeholder in the bearer
+    # header, and the agent loop surfaces that error verbatim.
+    #
+    # ClassVar — subclasses can override the placeholder string without
+    # reaching for a module-level global. Tests prefer the qualified
+    # access (``OpenRouterProvider._NO_KEY_PLACEHOLDER``) over importing
+    # a module-level constant so the contract belongs to the class, not
+    # the file.
+    _NO_KEY_PLACEHOLDER: ClassVar[str] = "openrouter-no-key-set"
 
     def __init__(
         self,
@@ -57,7 +63,7 @@ class OpenRouterProvider(OpenAIProvider):
         # an obvious 401 upstream.
         resolved_key = api_key if api_key is not None else os.environ.get("OPENROUTER_API_KEY")
         if resolved_key is None or resolved_key == "":
-            resolved_key = _NO_KEY_PLACEHOLDER
+            resolved_key = self._NO_KEY_PLACEHOLDER
 
         cfg = config or {}
         headers: dict[str, str] = {}
