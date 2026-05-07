@@ -17,7 +17,7 @@ class LLMProviderConfig(BaseModel):
 
     id: str
     name: str
-    type: Literal["ollama", "openai-compatible", "openai", "anthropic", "mock"]
+    type: Literal["ollama", "openai-compatible", "openai", "anthropic", "mock", "openrouter"]
     base_url: str
     api_key: str | None = None
     config: dict = Field(default_factory=dict)

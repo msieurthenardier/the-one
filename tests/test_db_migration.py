@@ -221,8 +221,8 @@ class TestSchemaV8:
         await ensure_schema(conn)
 
         # CURRENT_VERSION assertion — pins the leg's version bump.
-        assert CURRENT_VERSION == 9, (
-            f"CURRENT_VERSION must be 9 after F6 L0 (got {CURRENT_VERSION})"
+        assert CURRENT_VERSION == 10, (
+            f"CURRENT_VERSION must be 10 after openrouter v10 migration (got {CURRENT_VERSION})"
         )
 
         # tool_configs table must exist.
@@ -425,7 +425,7 @@ class TestSchemaV9:
         await conn.execute("PRAGMA foreign_keys=ON")
         await ensure_schema(conn)
 
-        assert CURRENT_VERSION == 9, CURRENT_VERSION
+        assert CURRENT_VERSION == 10, CURRENT_VERSION
 
         async with conn.execute("PRAGMA table_info(tool_configs)") as cur:
             cols = {r["name"]: r for r in await cur.fetchall()}
@@ -453,11 +453,13 @@ class TestSchemaV9:
 
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
             row = await cur.fetchone()
-        assert row[0] == 9
+        assert row[0] == CURRENT_VERSION
 
         await conn.close()
 
     async def test_v9_migration_on_v8_fixture_db_preserves_existing_rows(self, tmp_path) -> None:
+        from the_one.db.schema import CURRENT_VERSION
+
         db_path = tmp_path / "v9-from-v8.db"
         conn = await aiosqlite.connect(str(db_path))
         conn.row_factory = aiosqlite.Row
@@ -489,7 +491,7 @@ class TestSchemaV9:
 
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
             row = await cur.fetchone()
-        assert row[0] == 9
+        assert row[0] == CURRENT_VERSION
 
         await conn.close()
 
@@ -535,4 +537,89 @@ class TestSchemaV9:
             row = await cur.fetchone()
         assert row["enabled"] == 1
 
+        await conn.close()
+
+
+class TestMigrationV10:
+    """v9→v10: extend llm_providers.type CHECK to include 'openrouter'."""
+
+    async def test_v10_accepts_openrouter_type(self, tmp_path):
+        """A fresh schema (CURRENT_VERSION=10) must accept openrouter rows."""
+        db_path = tmp_path / "v10.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+        await ensure_schema(conn)
+
+        await conn.execute(
+            "INSERT INTO llm_providers (id, name, type, base_url) "
+            "VALUES (?, ?, ?, ?)",
+            ("p1", "OpenRouter", "openrouter", "https://openrouter.ai/api/v1"),
+        )
+        await conn.commit()
+
+        async with conn.execute(
+            "SELECT type FROM llm_providers WHERE id = ?", ("p1",)
+        ) as cursor:
+            row = await cursor.fetchone()
+        assert row["type"] == "openrouter"
+        await conn.close()
+
+    async def test_v10_idempotent_rerun(self, tmp_path):
+        """Calling ensure_schema twice on a fresh DB is a no-op the second time."""
+        db_path = tmp_path / "idem.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await ensure_schema(conn)
+        await ensure_schema(conn)  # second call must not raise
+
+        async with conn.execute("SELECT MAX(version) FROM schema_version") as cursor:
+            row = await cursor.fetchone()
+        assert row[0] == 10
+        await conn.close()
+
+    async def test_v10_preserves_existing_rows_and_fk(self, tmp_path):
+        """Simulate a v9 DB with an llm_providers row referenced by an agent,
+        then run ensure_schema; row + FK reference must survive the rebuild."""
+        db_path = tmp_path / "upgrade.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        # Bootstrap a v9 schema by manually applying v1..v9 — easiest path
+        # is to call ensure_schema on a fresh DB which lands at CURRENT_VERSION.
+        # Then simulate "stuck at v9" by deleting the v10 row and re-running.
+        await ensure_schema(conn)
+        await conn.execute("DELETE FROM schema_version WHERE version = 10")
+        await conn.commit()
+
+        # Insert a row + agent referencing it under the v9 CHECK constraint
+        # (we just dropped the v10 marker, so the table has v10 columns; the
+        # v10 migration is idempotent and must still work cleanly).
+        await conn.execute(
+            "INSERT INTO llm_providers (id, name, type, base_url) "
+            "VALUES (?, ?, ?, ?)",
+            ("p-keep", "MyOllama", "ollama", "http://localhost:11434/v1"),
+        )
+        await conn.execute(
+            "INSERT INTO agents (name, provider_config_id) VALUES (?, ?)",
+            ("alice", "p-keep"),
+        )
+        await conn.commit()
+
+        # Re-run migration — v10 block re-applies (idempotent rebuild)
+        await ensure_schema(conn)
+
+        async with conn.execute(
+            "SELECT id, type FROM llm_providers WHERE id = ?", ("p-keep",)
+        ) as cursor:
+            prov = await cursor.fetchone()
+        async with conn.execute(
+            "SELECT name, provider_config_id FROM agents WHERE name = ?", ("alice",)
+        ) as cursor:
+            agent = await cursor.fetchone()
+        assert prov is not None and prov["type"] == "ollama"
+        assert agent is not None and agent["provider_config_id"] == "p-keep"
         await conn.close()

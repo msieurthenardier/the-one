@@ -6,7 +6,7 @@ import json
 
 import aiosqlite
 
-CURRENT_VERSION = 9
+CURRENT_VERSION = 10
 
 SCHEMA_V1 = """\
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -351,3 +351,45 @@ CREATE TABLE IF NOT EXISTS tool_configs (
         await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (9,))
         await conn.commit()
         version = 9
+
+    if version < 10:
+        # Extend llm_providers.type CHECK constraint to allow 'openrouter'.
+        # SQLite has no `ALTER TABLE DROP CONSTRAINT`, so rebuild the table
+        # following the v6 pattern (which added 'mock'). FK enforcement is
+        # ON at connection-time (connection.py:20) and `agents.provider_config_id`
+        # references this table — the OFF/ON bracket prevents the DROP from
+        # tripping referential integrity. INSERT OR IGNORE INTO schema_version
+        # is LAST so a partial-apply leaves version=9 and the next call retries
+        # cleanly.
+        await conn.executescript("""\
+PRAGMA foreign_keys=OFF;
+
+CREATE TABLE llm_providers_new (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL CHECK (
+        type IN ('ollama', 'openai-compatible', 'openai',
+                 'anthropic', 'mock', 'openrouter')
+    ),
+    base_url TEXT NOT NULL,
+    api_key TEXT,
+    config TEXT DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+INSERT INTO llm_providers_new
+    (id, name, type, base_url, api_key, config, created_at, updated_at)
+    SELECT id, name, type, base_url, api_key, config, created_at, updated_at
+    FROM llm_providers;
+
+DROP TABLE llm_providers;
+ALTER TABLE llm_providers_new RENAME TO llm_providers;
+
+PRAGMA foreign_keys=ON;
+""")
+        await conn.execute(
+            "INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (10,)
+        )
+        await conn.commit()
+        version = 10
