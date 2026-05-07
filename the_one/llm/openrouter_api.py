@@ -17,6 +17,8 @@ Cache:
 from __future__ import annotations
 
 import hashlib
+import json
+import os
 import time
 from typing import Any
 
@@ -51,9 +53,6 @@ async def list_models(base_url: str, api_key: str | None) -> list[dict[str, Any]
     browser-test subprocesses that cannot share in-process cache state
     with the test runner.
     """
-    import json
-    import os
-
     test_json = os.environ.get("THE_ONE_OPENROUTER_TEST_MODELS_JSON")
     if test_json:
         models = json.loads(test_json)

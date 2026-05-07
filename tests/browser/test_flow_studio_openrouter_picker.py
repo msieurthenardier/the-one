@@ -100,11 +100,8 @@ def test_studio_openrouter_tools_model_no_no_tools_chip(
     page.locator("#studio-model").fill("anthropic/claude-3.5-sonnet")
     page.locator("#studio-model").dispatch_event("change")
 
-    # Brief settle window, then assert no chip.
-    page.wait_for_timeout(300)
-    assert page.locator(".cap-chip-no-tools").count() == 0, (
-        "Expected no .cap-chip-no-tools chip for a tools-capable model"
-    )
+    # Auto-retrying assertion: chip must be absent (or disappear within timeout).
+    expect(page.locator(".cap-chip-no-tools")).to_have_count(0, timeout=2000)
 
 
 @pytest.mark.browser
@@ -127,11 +124,8 @@ def test_studio_openrouter_empty_caps_no_chip(
     page.locator("#studio-model").fill("empty-caps-model")
     page.locator("#studio-model").dispatch_event("change")
 
-    # Fail-open: no chip rendered for unknown / empty caps.
-    page.wait_for_timeout(300)
-    assert page.locator(".cap-chip-no-tools").count() == 0, (
-        "Expected no chip for a model with empty supported_parameters"
-    )
+    # Fail-open: auto-retrying assertion — no chip for unknown / empty caps.
+    expect(page.locator(".cap-chip-no-tools")).to_have_count(0, timeout=2000)
 
 
 @pytest.mark.browser
@@ -166,14 +160,8 @@ def test_studio_picker_lifecycle_on_type_switch(
 
     for prov_id, expected_tag in sequence:
         page.locator("#studio-provider").select_option(prov_id)
-        # Brief wait for the provider-change handler to fire and DOM to settle.
-        page.wait_for_timeout(200)
-
-        count = page.locator("#studio-model").count()
-        assert count == 1, (
-            f"Expected exactly 1 #studio-model element after switching to "
-            f"{prov_id!r}, found {count}"
-        )
+        # Auto-retrying assertion: exactly one #studio-model element after DOM settles.
+        expect(page.locator("#studio-model")).to_have_count(1, timeout=2000)
 
         actual_tag = page.evaluate("document.getElementById('studio-model').tagName")
         assert actual_tag == expected_tag, (
