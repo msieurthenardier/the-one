@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import aiosqlite
 import pytest
@@ -14,6 +14,7 @@ from the_one.db.models import LLMProviderConfig
 from the_one.db.repositories import LLMProviderRepository, SQLiteAgentStore
 from the_one.db.schema import ensure_schema
 from the_one.encryption import Encryptor
+from the_one.llm.openrouter_provider import OpenRouterProvider
 
 
 @pytest.mark.asyncio
@@ -56,26 +57,24 @@ async def test_factory_resolves_openrouter_provider(tmp_path, monkeypatch):
     # Patch the _connection singleton so get_connection() returns the test conn
     monkeypatch.setattr("the_one.db.connection._connection", conn)
 
-    # ToolConfigRepository: empty list to skip full resolver wiring
-    mock_tool_repo = AsyncMock()
-    mock_tool_repo.list = AsyncMock(return_value=[])
-
+    # Patch get_encryptor at its definition module — factory.py uses a
+    # lazy `from the_one.encryption import get_encryptor` INSIDE create(),
+    # so the binding is resolved at call-time against the_one.encryption
+    # module, not the factory namespace.
     with (
         patch("the_one.agent.factory.settings") as mock_settings,
         patch("the_one.encryption.get_encryptor", return_value=enc),
-        patch("the_one.db.repositories.ToolConfigRepository", return_value=mock_tool_repo),
     ):
         mock_settings.data_dir = tmp_path
         mock_settings.ensure_dirs = lambda: None
 
         # Build factory with no tool providers — avoids touching filesystem
-        # allowlist / cross-config wiring in this test.
+        # allowlist / cross-config wiring. The real ToolConfigRepository runs
+        # against the test DB and returns [] (no rows in tool_configs table).
         factory = AgentFactory(store=agent_store, tool_providers=[])
         agent = await factory.create("alice")
 
     # Assert llm is an OpenRouterProvider with the decrypted key + headers
-    from the_one.llm.openrouter_provider import OpenRouterProvider
-
     assert isinstance(agent.llm, OpenRouterProvider)
     assert agent.llm.client.api_key == "sk-stored"
     assert agent.llm.model == "anthropic/claude-3.5-sonnet"
