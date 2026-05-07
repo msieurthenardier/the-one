@@ -628,7 +628,25 @@ F3 §6 catalogs four `MCPSandboxError` messages: bwrap-not-found (L3 implements 
 
 ## Flight Director Notes
 
-> Populated by the orchestrator (mission-control) during agentic-workflow execution.
+### 2026-05-06 — Flight Landed
+
+**Status**: `landed`. Autonomous legs L1a→L5b committed in `67374e0`; post-commit styling polish L5c committed in `c489986`. [PR #30](https://github.com/msieurthenardier/the-one/pull/30) covers both. L6 HAT skipped by user — argument was that real-MCP HAT mostly proves operator-owns-pip-install (matching Claude Code/Cline/Cursor norm) rather than anything F3-specific that L5a's 10 integration tests don't already cover.
+
+**Test totals at landing**:
+- 63 new tests across 7 autonomous legs (L1b: 3, L2: 14, L3: 16, L4: 9, L5a: 10, L5b: 11) — L1a is bash probe, no pytest tests
+- F1/F2 regression: 30 tests pass unmodified
+- Full non-browser suite: 1221 passed / 1 skipped / 0 failed
+- Browser suite (mcp-editor): 20/20 pass post-L5c restyling
+- ruff clean
+
+**Known issues (deferred to follow-up routine-maintenance)**:
+- **A02**: bwrap-side post-setup error translation (writable_paths nonexistent, EPERM on unshare) deferred — surfaces as F2 `MCPConnectionError` rather than §6-cataloged `MCPSandboxError` messages. Routine-maintenance candidate via stderr scraping.
+- **A03** (L5a-documented): bwrap argv emits `--bind` before `--tmpfs /tmp`, so `writable_paths` under `/tmp` are silently shadowed. Operators must use paths outside `/tmp`; future routine-maintenance candidate to reorder L3's argv compiler.
+- **Install affordance gap**: operators `pip install` MCP servers themselves (matches Claude Code / Cline / Cursor / Claude Desktop ecosystem norm). Mission-debrief candidate: revisit whether the-one ships an installer surface in a future mission.
+
+---
+
+> Per-leg orchestrator notes (kept for traceability)
 
 ### 2026-05-06 — Flight start
 
