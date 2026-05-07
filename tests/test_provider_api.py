@@ -1425,26 +1425,27 @@ class TestEnsureV1:
 class TestProviderTypesEndpoint:
     """Tests for GET /api/providers/types (dev-mode-aware list)."""
 
-    async def test_returns_4_types_when_dev_mode_off(self, client: AsyncClient) -> None:
+    async def test_returns_5_types_when_dev_mode_off(self, client: AsyncClient) -> None:
         with patch("the_one.interfaces.web.api.settings") as mock_settings:
             mock_settings.dev_mode = False
             resp = await client.get("/api/providers/types")
         assert resp.status_code == 200
         data = resp.json()
         values = [t["value"] for t in data]
-        assert set(values) == {"ollama", "openai-compatible", "openai", "anthropic"}
+        assert set(values) == {"ollama", "openai-compatible", "openai", "anthropic", "openrouter"}
         # Each entry has the expected shape
         for entry in data:
             assert set(entry.keys()) == {"value", "label"}
 
-    async def test_returns_5_types_when_dev_mode_on(self, client: AsyncClient) -> None:
+    async def test_returns_6_types_when_dev_mode_on(self, client: AsyncClient) -> None:
         with patch("the_one.interfaces.web.api.settings") as mock_settings:
             mock_settings.dev_mode = True
             resp = await client.get("/api/providers/types")
         assert resp.status_code == 200
         values = [t["value"] for t in resp.json()]
         assert "mock" in values
-        assert len(values) == 5
+        assert "openrouter" in values
+        assert len(values) == 6
 
     async def test_types_route_does_not_collide_with_id_route(self, client: AsyncClient) -> None:
         """Regression: /providers/types must be registered before /providers/{id}.
@@ -1554,3 +1555,94 @@ class TestMockProviderRoutes:
         assert resp.status_code == 200
         ids = [m["id"] for m in resp.json()]
         assert ids == ["mock-fast", "mock-thinking"]
+
+
+class TestOpenRouterTypes:
+    @pytest.mark.asyncio
+    async def test_types_includes_openrouter(self, client) -> None:
+        resp = await client.get("/api/providers/types")
+        assert resp.status_code == 200
+        types = resp.json()
+        values = {t["value"] for t in types}
+        assert "openrouter" in values
+
+
+class TestOpenRouterValidation:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "bad_referer",
+        [
+            "https://x.com\r\nX-Injected: 1",
+            "https://x.com\nX-Injected: 1",
+            "https://x.com\x00",
+            "not-a-url",
+            "ftp://example.com",
+        ],
+    )
+    async def test_referer_invalid_rejected_with_422(self, client, bad_referer) -> None:
+        body = {
+            "name": "OR",
+            "type": "openrouter",
+            "base_url": "https://openrouter.ai/api/v1",
+            "api_key": "k",
+            "config": {"referer": bad_referer},
+        }
+        resp = await client.post("/api/providers", json=body)
+        assert resp.status_code == 422, resp.text
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "bad_title",
+        [
+            "with\r\nbreak",
+            "with\nbreak",
+            "with\x00null",
+            "x" * 65,
+        ],
+    )
+    async def test_title_invalid_rejected_with_422(self, client, bad_title) -> None:
+        body = {
+            "name": "OR",
+            "type": "openrouter",
+            "base_url": "https://openrouter.ai/api/v1",
+            "api_key": "k",
+            "config": {"title": bad_title},
+        }
+        resp = await client.post("/api/providers", json=body)
+        assert resp.status_code == 422, resp.text
+
+    @pytest.mark.asyncio
+    async def test_round_trip_omits_empty_config_keys(self, client) -> None:
+        body = {
+            "name": "OR",
+            "type": "openrouter",
+            "base_url": "https://openrouter.ai/api/v1",
+            "api_key": "k",
+            "config": {"referer": "", "title": ""},
+        }
+        resp = await client.post("/api/providers", json=body)
+        assert resp.status_code in (200, 201), resp.text
+        prov_id = resp.json()["id"]
+
+        get_resp = await client.get(f"/api/providers/{prov_id}")
+        cfg = get_resp.json()["config"]
+        assert "referer" not in cfg
+        assert "title" not in cfg
+
+    @pytest.mark.asyncio
+    async def test_round_trip_preserves_valid_config(self, client) -> None:
+        body = {
+            "name": "OR",
+            "type": "openrouter",
+            "base_url": "https://openrouter.ai/api/v1",
+            "api_key": "k",
+            "config": {"referer": "https://myapp.example", "title": "MyApp"},
+        }
+        resp = await client.post("/api/providers", json=body)
+        assert resp.status_code in (200, 201), resp.text
+        prov_id = resp.json()["id"]
+
+        get_resp = await client.get(f"/api/providers/{prov_id}")
+        cfg = get_resp.json()["config"]
+        assert cfg.get("referer") == "https://myapp.example"
+        assert cfg.get("title") == "MyApp"

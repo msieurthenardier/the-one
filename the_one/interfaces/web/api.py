@@ -8,7 +8,6 @@ import os
 import secrets
 import time
 import uuid
-from pathlib import Path
 from typing import Any
 
 import httpx
@@ -66,6 +65,61 @@ async def _chat_repo() -> ChatSessionRepository:
 # ── Tool config helpers (F6 L1) ───────────────────────────────────────────
 
 _TESTABLE_TOOLS = frozenset({"web_search", "fetch_url"})
+
+# OpenRouter ranking-header validation (Decision 6).
+# httpx 0.28.1 does NOT sanitize CR/LF/NUL in header values, so we reject
+# them at the API boundary before storing.
+_FORBIDDEN_HEADER_CHARS = ("\r", "\n", "\x00")
+_OPENROUTER_TITLE_MAX = 64
+
+
+def _validate_openrouter_config(config: dict | None) -> dict:
+    """Sanitize the openrouter ranking-header config.
+
+    - Rejects ``referer`` / ``title`` containing CR / LF / NUL.
+    - Requires ``referer`` to parse as ``http(s)://`` URL with a non-empty netloc.
+    - Bounds ``title`` length to 64.
+    - Empty strings are dropped from the returned dict (absent stays absent
+      on round-trip).
+
+    Raises ``HTTPException(422, ...)`` on validation failure.
+    """
+    from urllib.parse import urlparse
+
+    cfg = dict(config or {})
+    referer = cfg.get("referer")
+    if isinstance(referer, str):
+        if any(c in referer for c in _FORBIDDEN_HEADER_CHARS):
+            raise HTTPException(
+                status_code=422,
+                detail="config.referer contains a forbidden control character",
+            )
+        if referer.strip() == "":
+            cfg.pop("referer", None)
+        else:
+            parsed = urlparse(referer)
+            if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+                raise HTTPException(
+                    status_code=422,
+                    detail="config.referer must be an http(s):// URL",
+                )
+
+    title = cfg.get("title")
+    if isinstance(title, str):
+        if any(c in title for c in _FORBIDDEN_HEADER_CHARS):
+            raise HTTPException(
+                status_code=422,
+                detail="config.title contains a forbidden control character",
+            )
+        if title.strip() == "":
+            cfg.pop("title", None)
+        elif len(title) > _OPENROUTER_TITLE_MAX:
+            raise HTTPException(
+                status_code=422,
+                detail=f"config.title must be ≤ {_OPENROUTER_TITLE_MAX} chars",
+            )
+
+    return cfg
 
 
 async def _tool_config_repo() -> ToolConfigRepository:
@@ -728,6 +782,7 @@ async def list_provider_types() -> list[dict[str, str]]:
         {"value": "openai-compatible", "label": "OpenAI-Compatible"},
         {"value": "openai", "label": "OpenAI"},
         {"value": "anthropic", "label": "Anthropic"},
+        {"value": "openrouter", "label": "OpenRouter"},
     ]
     if settings.dev_mode:
         types.append({"value": "mock", "label": "Mock (dev)"})
@@ -755,6 +810,8 @@ async def create_provider(request: Request) -> dict[str, Any]:
     if "id" not in data:
         data["id"] = uuid.uuid4().hex[:12]
     provider = LLMProviderConfig.model_validate(data)
+    if provider.type == "openrouter":
+        provider.config = _validate_openrouter_config(provider.config)
     # URL safety: refuse non-https for non-localhost when the provider type
     # actually transmits an API key (skips ``mock`` / ``ollama``).
     if provider.type not in _URL_VALIDATION_SKIPPED_TYPES:
@@ -791,6 +848,8 @@ async def update_provider(provider_id: str, request: Request) -> dict[str, Any]:
         data["api_key"] = existing.api_key
 
     updated = existing.model_copy(update=data)
+    if updated.type == "openrouter":
+        updated.config = _validate_openrouter_config(updated.config)
     # URL safety check on the RESOLVED base_url — i.e. after
     # ``model_copy(update=data)`` has merged any ``__MASKED__``-preserved
     # fields. This blocks the regression where a request that does not
@@ -889,6 +948,37 @@ async def test_provider(provider_id: str) -> dict[str, Any]:
                 return {"status": "ok", "detail": "Connected to Anthropic"}
             except anthropic.AnthropicError as e:
                 return {"status": "error", "detail": str(e)}
+        elif provider.type == "openrouter":
+            from the_one.llm import openrouter_api
+
+            key = (provider.api_key or "").strip()
+            try:
+                if key:
+                    await openrouter_api.verify_key(provider.base_url, key)
+                    models = await openrouter_api.list_models(provider.base_url, key)
+                    return {
+                        "status": "ok",
+                        "detail": f"Connected. Key valid; {len(models)} models available.",
+                    }
+                else:
+                    models = await openrouter_api.list_models(provider.base_url, "")
+                    return {
+                        "status": "ok",
+                        "detail": (
+                            f"Reachable. Add an API key to enable chat. "
+                            f"{len(models)} models available."
+                        ),
+                    }
+            except httpx.HTTPStatusError as e:
+                body_text = (e.response.text or "")[:200]
+                return {
+                    "status": "error",
+                    "detail": f"HTTP {e.response.status_code}: {body_text}",
+                }
+            except httpx.RequestError as e:
+                return {"status": "error", "detail": f"Network error: {e}"}
+            except Exception as e:  # noqa: BLE001 — endpoint must never 5xx
+                return {"status": "error", "detail": str(e)}
         return {"status": "error", "detail": f"Unknown provider type: {provider.type}"}
     except httpx.HTTPError as e:
         # Expected: connection/timeout/HTTP-status from upstream
@@ -920,15 +1010,11 @@ async def list_provider_models(provider_id: str) -> list[dict[str, Any]]:
             # repeat renders are free. Gather in parallel; on failure, return
             # `null` capabilities so the UI renders the row without chips
             # rather than failing the whole list.
-            cap_tasks = [
-                ollama_api.get_model_capabilities(base, m.get("name", "")) for m in models
-            ]
+            cap_tasks = [ollama_api.get_model_capabilities(base, m.get("name", "")) for m in models]
             caps_list = await asyncio.gather(*cap_tasks, return_exceptions=True)
             enriched = []
             for m, caps in zip(models, caps_list, strict=False):
-                cap_array = (
-                    sorted(caps) if isinstance(caps, frozenset | set) else None
-                )
+                cap_array = sorted(caps) if isinstance(caps, frozenset | set) else None
                 enriched.append(
                     {
                         "id": m.get("name", ""),
@@ -940,6 +1026,25 @@ async def list_provider_models(provider_id: str) -> list[dict[str, Any]]:
             return enriched
         except Exception as e:
             raise HTTPException(status_code=502, detail=str(e))
+    elif provider.type == "openrouter":
+        from the_one.llm import openrouter_api
+
+        try:
+            raw = await openrouter_api.list_models(provider.base_url, provider.api_key)
+        except (httpx.HTTPStatusError, httpx.RequestError, ValueError) as e:
+            raise HTTPException(status_code=502, detail=f"OpenRouter unreachable: {e}")
+        return [
+            {
+                "id": m.get("id"),
+                "name": m.get("name", m.get("id")),
+                "supported_parameters": m.get("supported_parameters") or [],
+                "context_length": m.get("context_length"),
+                "description": m.get("description", ""),
+                # alias for the Studio capability chip — frontend reads `capabilities`
+                "capabilities": m.get("supported_parameters") or [],
+            }
+            for m in raw
+        ]
     elif provider.type == "openai-compatible":
         try:
             async with httpx.AsyncClient(timeout=10) as client:
