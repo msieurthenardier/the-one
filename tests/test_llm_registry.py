@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from typing import Any
 
 import pytest
@@ -27,8 +28,25 @@ class _DummyProvider(LLMProvider):
 
 @pytest.fixture(autouse=True)
 def _clean_providers(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Isolate each test from provider state pollution."""
+    """Isolate each test from provider state pollution.
+
+    Two layers of state to scrub:
+    1. ``llm_registry._providers`` dict — cleared so each test starts with
+       no registrations.
+    2. ``sys.modules`` entries for ``the_one.llm.*_provider`` modules —
+       evicted so the registry's lazy-loader (``__import__``) actually
+       re-executes the module body (which contains the
+       ``register_provider(...)`` call). Without this eviction, any prior
+       test or test file that imported a provider module at top-level
+       leaves the module cached in ``sys.modules``, ``__import__`` becomes
+       a no-op, and the lazy-load test sees an empty ``_providers`` dict.
+    """
     monkeypatch.setattr(llm_registry, "_providers", {})
+    for mod_name in list(sys.modules):
+        if mod_name.startswith("the_one.llm.") and (
+            mod_name.endswith("_provider") or mod_name == "the_one.llm.mock"
+        ):
+            monkeypatch.delitem(sys.modules, mod_name, raising=False)
 
 
 class TestRegisterProvider:
