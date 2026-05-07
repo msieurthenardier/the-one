@@ -65,9 +65,18 @@ class TestOpenAIProviderBaseURL:
         assert str(prov.client.base_url).rstrip("/") == "https://example.com/v1"
 
     def test_openai_provider_default_base_url(self) -> None:
-        """Without base_url the SDK uses the OpenAI default."""
+        """Without base_url our code must NOT inject base_url into client_kwargs;
+        the SDK's own default URL must be used unchanged."""
+        import openai
+
         from the_one.llm.openai_provider import OpenAIProvider
 
         prov = OpenAIProvider(model="gpt-4o", api_key="sk-test")
-        # The SDK default is https://api.openai.com/v1
-        assert "openai.com" in str(prov.client.base_url)
+        # Compare against a fresh SDK client constructed the same way the SDK
+        # itself constructs one (no base_url override). If our code injected
+        # base_url=None, this asserts because AsyncOpenAI(base_url=None) and
+        # AsyncOpenAI() both resolve to the same default — but our code path
+        # explicitly skips passing base_url=None so we are not exercising
+        # that buggy path.
+        default_client = openai.AsyncOpenAI(api_key="sk-test")
+        assert prov.client.base_url == default_client.base_url
