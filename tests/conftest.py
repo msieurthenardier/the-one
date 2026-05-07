@@ -10,9 +10,35 @@ from typing import Any
 import pytest
 
 from the_one.llm.base import LLMProvider, Message
+from the_one.platform.sandbox import SandboxProfile
 from the_one.tools.base import Tool, ToolRegistry
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent  # tests/conftest.py → project root
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Set ``THE_ONE_TEST_MODE=1`` for all pytest runs (F3 §10).
+
+    Per F3 §10, this is the ONLY place the flag is set in non-production
+    code (the companion ``THE_ONE_SANDBOX_DISABLED`` is set only by the
+    Playwright browser-test CI workflow's ``pytest -m browser``
+    invocation). With only ``THE_ONE_TEST_MODE=1``, the sandbox wrap
+    stays active for unit + integration tests in environments where
+    ``bwrap`` is present (dev container post-L1a). The double-flag
+    bypass in ``the_one.mcp.transports.stdio._sandbox_disabled_for_tests``
+    only fires when BOTH flags are set.
+
+    Uses ``setdefault`` so existing values are preserved — the CI
+    workflow may set both flags before pytest runs, and we must not
+    clobber that.
+
+    The sibling ``tests/browser/conftest.py`` also defines a
+    ``pytest_configure`` (snapshot-update bridge); pytest collects both
+    top-level and browser-subdir conftest hooks and runs them in turn,
+    so there is no conflict between the two.
+    """
+    del config  # unused; signature mandated by pytest hookspec
+    os.environ.setdefault("THE_ONE_TEST_MODE", "1")
 
 # ---------------------------------------------------------------------------
 # FakeLLM
@@ -126,6 +152,25 @@ def mcp_fixture_stdio_params() -> dict[str, Any]:
         "env": env,
         "cwd": None,
     }
+
+
+@pytest.fixture
+def mcp_fixture_sandbox_profile() -> SandboxProfile:
+    """Strict-floor ``SandboxProfile`` for L4+ sandbox-aware integration tests.
+
+    Returns the dataclass defaults: empty ``writable_paths``,
+    ``network_allowed=False``, all three namespace-unshare flags True.
+    Tests needing writable paths or network construct a
+    ``SandboxProfile(...)`` inline (the dataclass is frozen, so use
+    ``dataclasses.replace`` or build a fresh instance per test).
+
+    NOTE: no L4 test consumes this fixture — it is added in L4 per the
+    F3 flight spec as a forward-looking co-fixture for L5a's integration
+    tests, where it will be used to compose strict-floor + per-test
+    profile overrides. Documented up-front so reviewers don't flag it as
+    dead code.
+    """
+    return SandboxProfile()
 
 
 @pytest.fixture

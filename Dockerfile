@@ -1,10 +1,11 @@
 FROM python:3.11-slim
 
-# Install git and curl (health check + fly CLI download at runtime)
+# Install git, curl (healthcheck + fly CLI), ca-certificates, and bubblewrap (MCP sandbox runtime — F3 §10)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        git \
+        bubblewrap \
         ca-certificates \
         curl \
+        git \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

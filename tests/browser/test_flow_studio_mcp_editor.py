@@ -306,3 +306,249 @@ def test_save_with_empty_kv_key_row_silently_skips(app_clean: str, page: Page) -
     # Empty-key row was NOT persisted.
     assert "" not in sources[0]["config"].get("env", {})
     assert "" not in sources[0].get("secrets", {})
+
+
+# ── F3 L5b: Sandbox section ───────────────────────────────────────────────
+
+
+@pytest.mark.browser
+def test_sandbox_section_renders_for_stdio_mode(app_clean: str, page: Page) -> None:
+    """Selecting stdio reveals the Sandbox section with checkbox + chip-list."""
+    page.goto(f"{app_clean}#studio/mcp-sources/new")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+
+    page.locator('[data-field="type"]').select_option("stdio")
+
+    section = page.locator('[data-testid="mcp-sandbox-section"]')
+    expect(section).not_to_have_class(re.compile(r"\bis-hidden\b"))
+    expect(section.locator('[data-field="sandbox-network-allowed"]')).to_be_visible()
+    expect(section.locator('[data-field="sandbox-writable-paths"].chip-list-editor')).to_be_visible()
+
+
+@pytest.mark.browser
+def test_sandbox_section_hidden_for_streamable_http_mode(app_clean: str, page: Page) -> None:
+    """Selecting streamable-http hides the Sandbox section."""
+    page.goto(f"{app_clean}#studio/mcp-sources/new")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+
+    page.locator('[data-field="type"]').select_option("streamable-http")
+
+    section = page.locator('[data-testid="mcp-sandbox-section"]')
+    expect(section).to_have_class(re.compile(r"\bis-hidden\b"))
+
+
+@pytest.mark.browser
+def test_sandbox_section_visibility_toggles_on_transport_switch(app_clean: str, page: Page) -> None:
+    """Switch type stdio→streamable-http→stdio; Sandbox section follows."""
+    page.goto(f"{app_clean}#studio/mcp-sources/new")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+
+    section = page.locator('[data-testid="mcp-sandbox-section"]')
+
+    page.locator('[data-field="type"]').select_option("stdio")
+    expect(section).not_to_have_class(re.compile(r"\bis-hidden\b"))
+
+    page.locator('[data-field="type"]').select_option("streamable-http")
+    expect(section).to_have_class(re.compile(r"\bis-hidden\b"))
+
+    page.locator('[data-field="type"]').select_option("stdio")
+    expect(section).not_to_have_class(re.compile(r"\bis-hidden\b"))
+
+
+@pytest.mark.browser
+def test_sandbox_save_round_trip(app_clean: str, page: Page) -> None:
+    """Set network_allowed=true + writable_paths=[/data,/cache]; save; API GET round-trips."""
+    page.goto(f"{app_clean}#studio/mcp-sources/new")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+
+    page.locator('[data-field="name"]').fill("sandbox-stdio")
+    page.locator('[data-field="type"]').select_option("stdio")
+    page.locator('[data-field="command"]').fill("x")
+
+    # Toggle network_allowed checkbox (use check() to be explicit).
+    page.locator('[data-field="sandbox-network-allowed"]').check()
+    # Add two writable paths via the chip-list input.
+    paths_input = page.locator(
+        '[data-field="sandbox-writable-paths"].chip-list-editor .chip-list-input'
+    )
+    paths_input.fill("/data")
+    paths_input.press("Enter")
+    paths_input.fill("/cache")
+    paths_input.press("Enter")
+
+    page.locator('[data-testid="save-mcp-source-btn"]').click()
+    expect(page.locator(".editor-section.danger-zone")).to_be_visible(timeout=8000)
+
+    sources = _list_sources(app_clean)
+    assert len(sources) == 1
+    sandbox_cfg = sources[0]["config"].get("sandbox")
+    assert sandbox_cfg is not None
+    assert sandbox_cfg["network_allowed"] is True
+    assert sandbox_cfg["writable_paths"] == ["/data", "/cache"]
+
+
+@pytest.mark.browser
+def test_sandbox_edit_round_trip_populates_fields(app_clean: str, page: Page) -> None:
+    """Pre-seed source with sandbox config; open in edit; fields populated."""
+    sid = _seed_mcp_source(app_clean, {
+        "name": "sandboxed",
+        "type": "stdio",
+        "config": {
+            "command": "x",
+            "sandbox": {"network_allowed": True, "writable_paths": ["/x"]},
+        },
+        "secrets": {},
+    })
+
+    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+
+    expect(page.locator('[data-field="sandbox-network-allowed"]')).to_be_checked()
+    chips = page.locator('[data-field="sandbox-writable-paths"].chip-list-editor .chip')
+    expect(chips).to_have_count(1)
+    expect(chips.first).to_contain_text("/x")
+
+
+@pytest.mark.browser
+def test_sandbox_empty_defaults_for_new_stdio_source(app_clean: str, page: Page) -> None:
+    """New stdio source: checkbox unchecked + chip-list empty."""
+    page.goto(f"{app_clean}#studio/mcp-sources/new")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+
+    page.locator('[data-field="type"]').select_option("stdio")
+    expect(page.locator('[data-field="sandbox-network-allowed"]')).not_to_be_checked()
+    chips = page.locator('[data-field="sandbox-writable-paths"].chip-list-editor .chip')
+    expect(chips).to_have_count(0)
+
+
+@pytest.mark.browser
+def test_sandbox_save_emits_explicit_defaults(app_clean: str, page: Page) -> None:
+    """New stdio source saved without touching Sandbox section emits explicit defaults."""
+    page.goto(f"{app_clean}#studio/mcp-sources/new")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+
+    page.locator('[data-field="name"]').fill("default-sandbox")
+    page.locator('[data-field="type"]').select_option("stdio")
+    page.locator('[data-field="command"]').fill("x")
+    # Do NOT touch the Sandbox section.
+
+    page.locator('[data-testid="save-mcp-source-btn"]').click()
+    expect(page.locator(".editor-section.danger-zone")).to_be_visible(timeout=8000)
+
+    sources = _list_sources(app_clean)
+    assert len(sources) == 1
+    sandbox_cfg = sources[0]["config"].get("sandbox")
+    # Explicit defaults emitted (NOT omitted) — matches L1b validator contract.
+    assert sandbox_cfg == {"network_allowed": False, "writable_paths": []}
+
+
+@pytest.mark.browser
+def test_streamable_http_source_has_no_sandbox_key(app_clean: str, page: Page) -> None:
+    """streamable-http source created via the editor has no config.sandbox."""
+    page.goto(f"{app_clean}#studio/mcp-sources/new")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+
+    page.locator('[data-field="name"]').fill("remote-no-sandbox")
+    page.locator('[data-field="type"]').select_option("streamable-http")
+    page.locator('[data-field="url"]').fill("https://example.com/mcp")
+
+    page.locator('[data-testid="save-mcp-source-btn"]').click()
+    expect(page.locator(".editor-section.danger-zone")).to_be_visible(timeout=8000)
+
+    sources = _list_sources(app_clean)
+    assert len(sources) == 1
+    assert "sandbox" not in sources[0]["config"]
+
+
+@pytest.mark.browser
+def test_sandbox_checkbox_toggle_marks_form_dirty(app_clean: str, page: Page) -> None:
+    """Toggling the sandbox checkbox enables Save (form dirty)."""
+    sid = _seed_mcp_source(app_clean, {
+        "name": "edit-toggle",
+        "type": "stdio",
+        "config": {"command": "x", "sandbox": {"network_allowed": False, "writable_paths": []}},
+        "secrets": {},
+    })
+
+    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    save_btn = page.locator('[data-testid="save-mcp-source-btn"]')
+    expect(save_btn).to_be_visible(timeout=8000)
+    expect(save_btn).to_be_disabled()
+
+    page.locator('[data-field="sandbox-network-allowed"]').check()
+    expect(save_btn).not_to_be_disabled()
+
+
+@pytest.mark.browser
+def test_sandbox_chip_add_remove_marks_form_dirty(app_clean: str, page: Page) -> None:
+    """Adding/removing a sandbox writable_paths chip marks the form dirty."""
+    sid = _seed_mcp_source(app_clean, {
+        "name": "edit-chips",
+        "type": "stdio",
+        "config": {"command": "x", "sandbox": {"network_allowed": False, "writable_paths": []}},
+        "secrets": {},
+    })
+
+    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    save_btn = page.locator('[data-testid="save-mcp-source-btn"]')
+    expect(save_btn).to_be_visible(timeout=8000)
+    expect(save_btn).to_be_disabled()
+
+    paths_input = page.locator(
+        '[data-field="sandbox-writable-paths"].chip-list-editor .chip-list-input'
+    )
+    paths_input.fill("/data")
+    paths_input.press("Enter")
+    expect(save_btn).not_to_be_disabled()
+
+    # Remove the chip we just added — form remains dirty (different from
+    # the initial empty-list snapshot? actually equal, so back to clean).
+    # Re-add a different chip then remove to verify remove fires dirty.
+    paths_input.fill("/extra")
+    paths_input.press("Enter")
+    chips = page.locator('[data-field="sandbox-writable-paths"].chip-list-editor .chip')
+    expect(chips).to_have_count(2)
+    # Remove /data (first chip)
+    chips.nth(0).locator('.chip-remove').click()
+    # Save still enabled (form still dirty: list now has /extra not just nothing).
+    expect(save_btn).not_to_be_disabled()
+
+
+@pytest.mark.browser
+def test_sandbox_cancel_revert_restores_state(app_clean: str, page: Page) -> None:
+    """Edit existing source's sandbox state then Cancel — fields restore."""
+    sid = _seed_mcp_source(app_clean, {
+        "name": "edit-revert",
+        "type": "stdio",
+        "config": {
+            "command": "x",
+            "sandbox": {"network_allowed": True, "writable_paths": ["/x"]},
+        },
+        "secrets": {},
+    })
+
+    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+
+    # Pre-cancel state: checkbox checked, single chip /x.
+    expect(page.locator('[data-field="sandbox-network-allowed"]')).to_be_checked()
+    initial_chips = page.locator('[data-field="sandbox-writable-paths"].chip-list-editor .chip')
+    expect(initial_chips).to_have_count(1)
+
+    # Mutate: uncheck + remove the chip.
+    page.locator('[data-field="sandbox-network-allowed"]').uncheck()
+    initial_chips.first.locator('.chip-remove').click()
+    after_chips = page.locator(
+        '[data-field="sandbox-writable-paths"].chip-list-editor .chip'
+    )
+    expect(after_chips).to_have_count(0)
+
+    cancel_btn = page.locator('[data-testid="cancel-mcp-source-btn"]')
+    expect(cancel_btn).not_to_be_disabled()
+    cancel_btn.click()
+
+    # Post-cancel: checkbox checked again, /x chip restored.
+    expect(page.locator('[data-field="sandbox-network-allowed"]')).to_be_checked()
+    restored_chips = page.locator('[data-field="sandbox-writable-paths"].chip-list-editor .chip')
+    expect(restored_chips).to_have_count(1)
+    expect(restored_chips.first).to_contain_text("/x")

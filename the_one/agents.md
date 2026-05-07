@@ -64,6 +64,16 @@ Database repositories including `LLMProviderRepository` for CRUD on `llm_provide
 - **F2 stdio environ helper**: `build_stdio_environ(source, allowlist_env)` does 2-layer flat merge of `the_one.platform.env._ENV_ALLOWLIST` + (config.env ∪ secrets); **do NOT consume `MCPSource.merged_config()`** for stdio environ (that's a flat top-level merge that injects `command`/`args` as env-var keys).
 - **F2 dataclasses**: `MCPTool` and `MCPToolResult` are frozen dataclasses in `the_one/mcp/types.py`; `MCPToolResult.text` for agent, `.raw` for F7 inspector, `.structured` for typed-object form.
 
+**F3 (MCP Sandbox) contracts** — for full text, see CLAUDE.md "F3 (MCP Sandbox) Contracts":
+
+- **F3 module home**: `the_one/platform/sandbox/{__init__.py, base.py, bubblewrap.py}` (peer of `the_one/platform/env.py`); `MCPSandboxError` canonical at `the_one/mcp/errors.py`. **L2 lands the package.**
+- **F3 trust model**: strict by default — read-only FS outside `writable_paths`; network OFF unless `network_allowed=True`. Operator's responsibility to scope writable paths and network policy per source.
+- **F3 sandbox-profile storage**: `MCPSource.config["sandbox"] = {"writable_paths": list[str], "network_allowed": bool}` plaintext; both fields optional; defaults `[]` / `false`; namespace-flag fields (`pid_unshare`, `ipc_unshare`, `uts_unshare`) JSON-edit-only via API. **L1b extends the F1 API validator; L2 lands `SandboxProfile.from_dict`.**
+- **F3 Protocol shape**: `MCPSandbox.prepare_spawn(profile, command, args, env, cwd) -> SpawnSpec`; `SpawnSpec` is frozen with command/args/env/cwd + Windows-only `creation_flags`/`attribute_list`. Linux/macOS callers feed `spec.command/args/env/cwd` into `StdioServerParameters`. **L2 lands.**
+- **F3 failure boundary**: `MCPSandboxError(MCPClientError)` for setup failures (bwrap missing, writable_paths nonexistent, EPERM on unshare); F2's `MCPConnectionError` for post-spawn failures. No unsandboxed fallback. **L2 adds the exception class; L4 enforces.**
+- **F3 privilege model**: dev container `cap_add: [SYS_ADMIN]` + `security_opt: [seccomp:unconfined]` (both required); Playwright CI uses pytest-only `THE_ONE_SANDBOX_DISABLED=1 + THE_ONE_TEST_MODE=1` double-flag bypass; production sandbox always on. **L1a applied the dev-container grants; L4 wires the bypass.**
+- **F3 HOME override**: `BubblewrapSandbox` forces `env["HOME"] = "/tmp"` so `~/.cache`-writing MCPs find a usable home dir under `--tmpfs /tmp`. Sandbox policy, not operator-configurable. **L3 implements.**
+
 ### `the_one/agent/`
 
 | File | Exports | Purpose |

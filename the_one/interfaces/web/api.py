@@ -551,6 +551,15 @@ def _validate_mcp_source_config(source: MCPSource) -> None:
       config.headers must be a dict[str, str] if present; config.oauth
       if present must include {issuer_url, client_id, scopes (list),
       redirect_uri} as strings (oauth.scopes is a list[str]).
+
+    Stdio config.sandbox is optional and may carry
+    ``{writable_paths: list[str], network_allowed: bool}``; both fields
+    are optional within the sandbox sub-block. List-shape and bool-shape
+    are validated; absolute-path semantics are NOT enforced at the API
+    layer — the runtime (``BubblewrapSandbox.prepare_spawn``, F3 L3)
+    raises ``MCPSandboxError`` when bwrap rejects the path at spawn
+    time. Streamable-HTTP sources silently ignore ``config.sandbox``
+    (the field is meaningless for non-spawning transports).
     """
     cfg = source.config
 
@@ -581,6 +590,49 @@ def _validate_mcp_source_config(source: MCPSource) -> None:
                 status_code=422,
                 detail="MCP source config.env must be a dict of string-to-string.",
             )
+        sandbox = cfg.get("sandbox")
+        # IMPORTANT: use ``is not None`` (NOT a truthy check). Empty dict
+        # ``{}`` must pass through — the operator may post a sandbox
+        # sub-block with no fields, and both writable_paths and
+        # network_allowed are individually optional. Per F3 §4 + §12,
+        # unknown keys (e.g. namespace-flag fields ``pid_unshare``,
+        # ``ipc_unshare``, ``uts_unshare``) pass through untouched —
+        # ``SandboxProfile.from_dict`` (L2 lands) is responsible for
+        # type-checking advanced knobs at runtime construction time.
+        # Path-shape (absolute / no ``..``) is NOT enforced here per
+        # "trust the runtime" — bwrap will reject malformed paths at
+        # spawn time via ``MCPSandboxError`` (L3 lands).
+        if sandbox is not None:
+            if not isinstance(sandbox, dict):
+                raise HTTPException(
+                    status_code=422,
+                    detail="MCP source config.sandbox must be a dict if present.",
+                )
+            if "writable_paths" in sandbox:
+                writable_paths = sandbox["writable_paths"]
+                if not isinstance(writable_paths, list) or not all(
+                    isinstance(p, str) for p in writable_paths
+                ):
+                    raise HTTPException(
+                        status_code=422,
+                        detail=(
+                            "MCP source config.sandbox.writable_paths must be a "
+                            "list of strings."
+                        ),
+                    )
+            if "network_allowed" in sandbox:
+                network_allowed = sandbox["network_allowed"]
+                # ``bool`` is a subclass of ``int`` in Python; the
+                # ``isinstance(value, bool)`` check (NOT ``int``) means
+                # a JSON ``1`` from a buggy client gets a 422.
+                if not isinstance(network_allowed, bool):
+                    raise HTTPException(
+                        status_code=422,
+                        detail=(
+                            "MCP source config.sandbox.network_allowed must be a "
+                            "boolean."
+                        ),
+                    )
 
     elif source.type == "streamable-http":
         url = cfg.get("url")

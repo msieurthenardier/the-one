@@ -74,6 +74,36 @@
     html += renderConnectionFields(source, mcpTypes);
     html += '</div>';
 
+    // ── Sandbox section (stdio only) ──────────────────────────────────
+    // F3 L5b: surfaces SandboxProfile fields for stdio sources. Auto-hides
+    // for streamable-http via the existing mcp-stdio-only CSS class. The
+    // chip-list mounts post-innerHTML in mountChipListEditors.
+    var sandboxHidden = (type !== 'stdio');
+    var sandbox = (!isCreate && source.config && source.config.sandbox) || {};
+    var networkAllowed = sandbox.network_allowed === true;
+    html += '<div class="editor-section mcp-stdio-only' + (sandboxHidden ? ' is-hidden' : '') + '" data-testid="mcp-sandbox-section">';
+    html += '<div class="section-title">Sandbox</div>';
+    // Network allowed: 2-column field-row (label left, iOS-style toggle right).
+    // Mirrors admin tools-editor's renderEnabledRow pattern. The
+    // class="field-input" on the checkbox keeps attachStaticListeners wiring
+    // dirty-tracking via change events.
+    var netTitleText = networkAllowed
+      ? 'Network access enabled'
+      : 'Network access disabled';
+    html += '<div class="field-row admin-pf-row mf-sandbox-network-row">';
+    html += '<label for="mf-sandbox-network-allowed">Allow network access</label>';
+    html += '<label class="tool-enable-switch" title="' + escapeAttr(netTitleText) + '">';
+    html += '<input type="checkbox" class="field-input" id="mf-sandbox-network-allowed" data-field="sandbox-network-allowed"' + (networkAllowed ? ' checked' : '') + ' aria-label="Allow network access" />';
+    html += '<span class="tool-enable-switch-track" aria-hidden="true"></span>';
+    html += '</label>';
+    html += '</div>';
+    // Writable paths chip-list (mounted via App.adminFormHelpers post-innerHTML).
+    html += '<div class="field-row admin-pf-row">';
+    html += '<label for="mf-sandbox-writable-paths">Writable paths</label>';
+    html += '<div class="chip-list-editor" id="mf-sandbox-writable-paths" data-field="sandbox-writable-paths" data-field-type="array"></div>';
+    html += '</div>';
+    html += '</div>';
+
     // ── Environment / Headers section ─────────────────────────────────
     var kvLabel = (type === 'streamable-http') ? 'Custom Headers' : 'Environment Variables';
     html += '<div class="editor-section">';
@@ -294,6 +324,14 @@
       var scopesItems = (source && source.config && source.config.oauth && source.config.oauth.scopes) || [];
       scopesHost.outerHTML = helpers.renderChipListEditor('oauth-scopes', scopesItems, null, {});
     }
+    // F3 L5b: sandbox writable_paths chip-list (stdio only, but mount for
+    // any type — visibility is controlled by the section's mcp-stdio-only
+    // class).
+    var sandboxPathsHost = container.querySelector('[data-field="sandbox-writable-paths"].chip-list-editor');
+    if (sandboxPathsHost) {
+      var sandboxPathsItems = (source && source.config && source.config.sandbox && source.config.sandbox.writable_paths) || [];
+      sandboxPathsHost.outerHTML = helpers.renderChipListEditor('sandbox-writable-paths', sandboxPathsItems, null, {});
+    }
   }
 
   function wireChipLists(container, onChange) {
@@ -312,20 +350,29 @@
        collision since multiple kv rows share data-field="kv-key" etc.). */
     var helpers = window.App.adminFormHelpers;
     var staticData = {};
+    // F3 L5b: sandbox-network-allowed is a checkbox; the loop below reads
+    // el.checked for type === 'checkbox' and el.value otherwise.
     var staticFields = ['name', 'type', 'command', 'cwd', 'url',
                         'oauth-issuer-url', 'oauth-client-id',
-                        'oauth-redirect-uri', 'oauth-client-secret'];
+                        'oauth-redirect-uri', 'oauth-client-secret',
+                        'sandbox-network-allowed'];
     for (var i = 0; i < staticFields.length; i++) {
       var el = container.querySelector('[data-field="' + staticFields[i] + '"]:not(.chip-list-editor)');
-      staticData[staticFields[i]] = el ? el.value : '';
+      if (el && el.type === 'checkbox') {
+        staticData[staticFields[i]] = !!el.checked;
+      } else {
+        staticData[staticFields[i]] = el ? el.value : '';
+      }
     }
 
-    var chips = { args: [], 'oauth-scopes': [] };
+    var chips = { args: [], 'oauth-scopes': [], 'sandbox-writable-paths': [] };
     if (helpers && helpers.readChipListValue) {
       var argsHost = container.querySelector('[data-field="args"].chip-list-editor');
       if (argsHost) chips.args = helpers.readChipListValue(argsHost);
       var scopesHost = container.querySelector('[data-field="oauth-scopes"].chip-list-editor');
       if (scopesHost) chips['oauth-scopes'] = helpers.readChipListValue(scopesHost);
+      var sandboxPathsHost = container.querySelector('[data-field="sandbox-writable-paths"].chip-list-editor');
+      if (sandboxPathsHost) chips['sandbox-writable-paths'] = helpers.readChipListValue(sandboxPathsHost);
     }
 
     var kvRows = [];
@@ -678,6 +725,13 @@
       var el = container.querySelector('[data-field="' + key + '"]:not(.chip-list-editor)');
       if (el) el.value = staticMap[key];
     });
+    // F3 L5b: sandbox-network-allowed is a checkbox — its display state
+    // is controlled by .checked, not .value. Pulled out of the loop above
+    // so el.value = ... doesn't no-op the visible checked state.
+    var sandboxNetEl = container.querySelector('[data-field="sandbox-network-allowed"]:not(.chip-list-editor)');
+    if (sandboxNetEl) {
+      sandboxNetEl.checked = !!(source.config && source.config.sandbox && source.config.sandbox.network_allowed === true);
+    }
 
     // 2. Visibility
     applyTransportVisibility(container, source.type || '');
@@ -723,6 +777,19 @@
           helpers.wireChipListEditor(newScopes, function () { /* dirty-tracking handled externally */ });
         }
       }
+      // F3 L5b: sandbox writable_paths chip-list re-mount.
+      var sandboxPathsHost = container.querySelector('[data-field="sandbox-writable-paths"].chip-list-editor');
+      if (sandboxPathsHost && sandboxPathsHost.parentNode) {
+        var wrapper3 = document.createElement('div');
+        wrapper3.innerHTML = helpers.renderChipListEditor('sandbox-writable-paths',
+          (source.config && source.config.sandbox && source.config.sandbox.writable_paths) || [],
+          null, {});
+        var newSandboxPaths = wrapper3.firstChild;
+        sandboxPathsHost.parentNode.replaceChild(newSandboxPaths, sandboxPathsHost);
+        if (helpers.wireChipListEditor) {
+          helpers.wireChipListEditor(newSandboxPaths, function () { /* dirty-tracking handled externally */ });
+        }
+      }
     }
   }
 
@@ -765,6 +832,14 @@
       if (argsList.length > 0) config.args = argsList;
       config.env = {};
       partitionKvRows(container, config.env, secrets);
+      // F3 L5b: sandbox profile (stdio only). Always-emit precedent
+      // matches config.env above: empty defaults are written explicitly,
+      // not omitted. The L1b API validator accepts the default shape.
+      var sandboxNetEl = container.querySelector('[data-field="sandbox-network-allowed"]');
+      var networkAllowed = !!(sandboxNetEl && sandboxNetEl.checked);
+      var sandboxPathsList = container.querySelector('[data-field="sandbox-writable-paths"].chip-list-editor');
+      var writablePaths = (sandboxPathsList && helpers && helpers.readChipListValue) ? helpers.readChipListValue(sandboxPathsList) : [];
+      config.sandbox = { network_allowed: networkAllowed, writable_paths: writablePaths };
     } else if (type === 'streamable-http') {
       var urlEl = container.querySelector('[data-field="url"]');
       var urlValue = urlEl ? urlEl.value.trim() : '';

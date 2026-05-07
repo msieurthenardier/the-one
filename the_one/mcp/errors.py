@@ -36,6 +36,14 @@ class MCPConnectionError(MCPClientError):
     """Spawn failed, stream closed, network unreachable, transport-level error."""
 
 
+class MCPSandboxError(MCPClientError):
+    """Local MCP sandbox setup failed before bwrap successfully wraps-and-execs
+    the target command: bwrap binary missing, ``writable_paths`` entry
+    nonexistent, ``EPERM`` on ``unshare``, container lacks the §10 privilege
+    grants, or other pre-spawn failure (F3 §6).
+    """
+
+
 class MCPToolNotFoundError(MCPClientError):
     """call_tool was invoked with a tool name not present in the server's tool list."""
 

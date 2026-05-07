@@ -39,6 +39,15 @@ services:
       - THE_ONE_DEV_MODE=true
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    # Sandbox privilege model (F3 §10): bubblewrap requires unprivileged
+    # user-namespace creation, which docker's default seccomp profile
+    # filters regardless of capabilities. Both grants are necessary —
+    # SYS_ADMIN alone won't unblock unshare(CLONE_NEWUSER). See flight
+    # spec §10 for the threat-model justification.
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - seccomp:unconfined
     networks:
       - default
 
