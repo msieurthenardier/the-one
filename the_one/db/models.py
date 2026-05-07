@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Literal, get_args
 
 from pydantic import BaseModel, Field
+
+from the_one.db._provider_types import PROVIDER_TYPES
 
 
 def _now_iso() -> str:
@@ -17,12 +19,26 @@ class LLMProviderConfig(BaseModel):
 
     id: str
     name: str
+    # NOTE: keep this ``Literal[...]`` spelled out explicitly — Pydantic /
+    # static type checkers cannot consume ``Literal[*PROVIDER_TYPES]``
+    # unpacking. The module-load assertion below pins the two in sync.
     type: Literal["ollama", "openai-compatible", "openai", "anthropic", "mock", "openrouter"]
     base_url: str
     api_key: str | None = None
     config: dict = Field(default_factory=dict)
     created_at: str = Field(default_factory=_now_iso)
     updated_at: str = Field(default_factory=_now_iso)
+
+
+# Pin the explicit ``Literal`` arg-set to ``PROVIDER_TYPES`` at import time so
+# any future drift between ``_provider_types.py`` and the model annotation
+# trips immediately rather than at first DB write.
+assert set(get_args(LLMProviderConfig.model_fields["type"].annotation)) == set(
+    PROVIDER_TYPES
+), (
+    "LLMProviderConfig.type Literal drifted from PROVIDER_TYPES — "
+    "update both in lockstep."
+)
 
 
 class KnowledgeBase(BaseModel):

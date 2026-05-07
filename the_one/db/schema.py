@@ -6,9 +6,17 @@ import json
 
 import aiosqlite
 
+from the_one.db._provider_types import PROVIDER_TYPES
+
 CURRENT_VERSION = 10
 
-SCHEMA_V1 = """\
+# Render the provider-type CHECK constraint as a comma-separated SQL
+# literal list, sourced from PROVIDER_TYPES. Both SCHEMA_V1 (fresh-DB
+# path) and the v10 migration (existing-DB path) inject this so a future
+# addition only needs to touch ``_provider_types.py``.
+_PROVIDER_TYPES_SQL = ", ".join(f"'{t}'" for t in PROVIDER_TYPES)
+
+SCHEMA_V1 = f"""\
 CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY,
     applied_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -17,10 +25,10 @@ CREATE TABLE IF NOT EXISTS schema_version (
 CREATE TABLE IF NOT EXISTS llm_providers (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
-    type TEXT NOT NULL CHECK (type IN ('ollama', 'openai-compatible', 'openai', 'anthropic')),
+    type TEXT NOT NULL CHECK (type IN ({_PROVIDER_TYPES_SQL})),
     base_url TEXT NOT NULL,
     api_key TEXT,
-    config TEXT DEFAULT '{}',
+    config TEXT DEFAULT '{{}}',
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -62,7 +70,7 @@ CREATE TABLE IF NOT EXISTS mcp_sources (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     type TEXT NOT NULL CHECK (type IN ('stdio', 'sse')),
-    config TEXT DEFAULT '{}',
+    config TEXT DEFAULT '{{}}',
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -361,19 +369,16 @@ CREATE TABLE IF NOT EXISTS tool_configs (
         # tripping referential integrity. INSERT OR IGNORE INTO schema_version
         # is LAST so a partial-apply leaves version=9 and the next call retries
         # cleanly.
-        await conn.executescript("""\
+        await conn.executescript(f"""\
 PRAGMA foreign_keys=OFF;
 
 CREATE TABLE llm_providers_new (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
-    type TEXT NOT NULL CHECK (
-        type IN ('ollama', 'openai-compatible', 'openai',
-                 'anthropic', 'mock', 'openrouter')
-    ),
+    type TEXT NOT NULL CHECK (type IN ({_PROVIDER_TYPES_SQL})),
     base_url TEXT NOT NULL,
     api_key TEXT,
-    config TEXT DEFAULT '{}',
+    config TEXT DEFAULT '{{}}',
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

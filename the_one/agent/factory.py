@@ -6,12 +6,16 @@ from the_one.agent.config import AgentConfig
 from the_one.agent.core import Agent
 from the_one.agent.store import AgentConfigStore
 from the_one.config import settings
+from the_one.db._provider_types import PROVIDER_TYPES
 from the_one.llm import get_provider
 from the_one.tools.base import ToolRegistry
 from the_one.tools.builtins import BuiltinToolProvider
 from the_one.tools.provider import ToolProvider
 
-# Map provider config type to LLM registry name
+# Map provider config type to LLM registry name. Keys MUST equal
+# ``PROVIDER_TYPES`` exactly (pinned by
+# ``tests/test_provider_types_consistency.py``); the ``openai-compatible`` →
+# ``ollama`` re-route is the one historical alias and lives here only.
 _PROVIDER_TYPE_MAP = {
     "ollama": "ollama",
     "openai-compatible": "ollama",
@@ -20,6 +24,11 @@ _PROVIDER_TYPE_MAP = {
     "mock": "mock",
     "openrouter": "openrouter",
 }
+
+assert set(_PROVIDER_TYPE_MAP.keys()) == set(PROVIDER_TYPES), (
+    "_PROVIDER_TYPE_MAP keys drifted from PROVIDER_TYPES — "
+    "every type declared in db/_provider_types.py must dispatch to a registry name."
+)
 
 
 class AgentNotFoundError(KeyError):
