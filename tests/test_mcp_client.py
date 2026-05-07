@@ -11,9 +11,10 @@ L6b: input validation + error paths + non-text content blocks.
 
 import asyncio
 import dataclasses
+import logging
 import re
-from contextlib import asynccontextmanager
-from unittest.mock import AsyncMock, MagicMock
+from contextlib import AsyncExitStack, asynccontextmanager
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import anyio
 import httpx
@@ -127,6 +128,21 @@ async def _mock_transport_cm(session_mock):
         yield session_mock
     finally:
         pass
+
+
+@asynccontextmanager
+async def _anyio_backed_transport_cm(session_mock):
+    """Transport CM whose body holds a real anyio task group.
+
+    Used by L1a stake-test probes (`TestAsyncExitStackContract`) to ensure
+    cross-task ``__aexit__`` trips anyio's CancelScope guard for real (vs
+    simulating it via a string-equal RuntimeError). The ``session_mock``
+    argument is the existing mock session — the body just yields it; the
+    anyio task group is what makes the guard fire when ``__aexit__`` runs
+    on a different task than ``__aenter__``.
+    """
+    async with anyio.create_task_group():
+        yield session_mock
 
 
 @pytest.fixture
@@ -490,6 +506,247 @@ class TestMCPClientLifecycle:
             assert c.last_activity > t0
         finally:
             await c.disconnect()
+
+
+# ---------------------------------------------------------------------------
+# L1a: AsyncExitStack contract + cross-task safety net stake-test probe
+# ---------------------------------------------------------------------------
+
+
+class TestAsyncExitStackContract:
+    """Stake-test probe + regression suite for the L1a AsyncExitStack refactor.
+
+    Locks the four observable invariants of the disconnect contract:
+
+    1. Same-task disconnect (the canonical ``async with MCPClient(s) as c:``
+       pattern) produces NO ``WARNING`` log line — anyio guard not
+       triggered, swallow not invoked.
+       Lock: ``test_same_task_disconnect_no_safety_net_log``.
+
+    2. Cross-task disconnect (``MCPClient`` constructed/connected on task A,
+       ``disconnect()`` awaited on task B) DOES log via the cross-task
+       safety net — anyio guard fires from inside ``stack.aclose()``,
+       swallow catches the ``RuntimeError``.
+       Lock: ``test_cross_task_disconnect_logs_via_safety_net``.
+
+    3. Worker-task-per-entry pattern (the F4 L3 pool shape: a worker task
+       holds connect, awaits an evict_event, then runs disconnect in its
+       ``finally`` — connect AND disconnect on the same task) produces
+       NO ``WARNING`` log. Experimental verification that L3's chosen
+       pattern actually circumvents the anyio guard against a real
+       ``anyio.create_task_group()``.
+       Lock: ``test_worker_task_pattern_no_safety_net_log``.
+
+    4. Stack ``aclose()`` is called on connect-failure paths and the
+       disconnect contract is idempotent under double-call and
+       reconnect-after-disconnect.
+       Locks: ``test_connect_failure_runs_stack_aclose``,
+       ``test_disconnect_idempotent_with_stack``.
+
+    Per F2 debrief KL #1: when integration tests stake on a specific
+    SDK pattern, commit a stake-test probe as a regression test so
+    future maintainers can mechanically re-verify the contract.
+    """
+
+    async def test_same_task_disconnect_no_safety_net_log(
+        self, monkeypatch, mock_session, caplog
+    ) -> None:
+        """Same-task connect/disconnect: anyio guard NOT triggered, swallow NOT invoked.
+
+        Meaningful BECAUSE the mock holds a real ``anyio.create_task_group()``:
+        the test proves the guard does NOT fire on same-task exit.
+        """
+        monkeypatch.setattr(
+            client_mod,
+            "_transport_connect",
+            lambda source: _anyio_backed_transport_cm(mock_session),
+        )
+        caplog.set_level(logging.WARNING, logger="the_one.mcp.client")
+        async with MCPClient(_stdio_source()) as c:
+            assert c.is_alive is True
+        assert c.is_alive is False
+        warns = [
+            r for r in caplog.records
+            if r.message == "MCPClient transport close failed"
+        ]
+        assert warns == [], f"unexpected safety-net warnings: {warns}"
+
+    async def test_cross_task_disconnect_logs_via_safety_net(
+        self, monkeypatch, mock_session, caplog
+    ) -> None:
+        """Cross-task disconnect: anyio's REAL CancelScope guard fires; safety net catches.
+
+        Connect runs on the test task (anyio's _host_task). Disconnect runs on
+        a worker task. anyio's ``CancelScope.__exit__`` checks
+        ``current_task() is self._host_task`` and raises a real
+        ``RuntimeError("Attempted to exit cancel scope in a different task...")``.
+        The safety-net swallow at ``client.py::disconnect`` catches it and logs
+        via ``logger.warning("MCPClient transport close failed", ...)``.
+        """
+        monkeypatch.setattr(
+            client_mod,
+            "_transport_connect",
+            lambda source: _anyio_backed_transport_cm(mock_session),
+        )
+        caplog.set_level(logging.WARNING, logger="the_one.mcp.client")
+        c = MCPClient(_stdio_source())
+        await c.connect()  # entered on test task (host task for anyio scope)
+        try:
+            disconnect_task = asyncio.create_task(c.disconnect())
+            await disconnect_task
+            # Must not raise — the safety-net swallow absorbed the RuntimeError.
+            assert disconnect_task.exception() is None
+        finally:
+            assert c.is_alive is False
+        warns = [
+            r for r in caplog.records
+            if r.message == "MCPClient transport close failed"
+        ]
+        assert len(warns) == 1, f"expected exactly one safety-net warning, got {warns}"
+        assert warns[0].levelno == logging.WARNING
+
+    async def test_worker_task_pattern_no_safety_net_log(
+        self, monkeypatch, mock_session, caplog
+    ) -> None:
+        """L3 worker-task-per-entry pattern: connect + disconnect on same task; guard NOT triggered.
+
+        Experimental verification that the F4 L3 worker-task-per-entry shape
+        actually works against a real ``anyio.create_task_group()`` — this is
+        the load-bearing assumption L3's design rests on.
+        """
+        monkeypatch.setattr(
+            client_mod,
+            "_transport_connect",
+            lambda source: _anyio_backed_transport_cm(mock_session),
+        )
+        caplog.set_level(logging.WARNING, logger="the_one.mcp.client")
+        ready = asyncio.Event()
+        evict = asyncio.Event()
+        c = MCPClient(_stdio_source())
+
+        async def _worker() -> None:
+            await c.connect()
+            ready.set()
+            try:
+                await evict.wait()
+            finally:
+                await c.disconnect()
+
+        worker = asyncio.create_task(_worker())
+        await ready.wait()
+        evict.set()
+        await worker
+        assert worker.exception() is None
+        assert c.is_alive is False
+        warns = [
+            r for r in caplog.records
+            if r.message == "MCPClient transport close failed"
+        ]
+        assert warns == [], f"worker-task pattern leaked safety-net warning: {warns}"
+
+    async def test_connect_failure_runs_stack_aclose(
+        self, monkeypatch, mock_session
+    ) -> None:
+        """Connect failure (initialize raises) calls _transport_stack.aclose() and resets state.
+
+        Spy via narrowly-scoped ``patch.object(AsyncExitStack, "aclose", ...)``
+        with ``wraps=`` so real cleanup behavior is preserved while calls are
+        recorded. ``>= 1`` smoke check; load-bearing observation is the
+        post-cleanup state (``_transport_stack is None``, ``_session is None``,
+        ``is_alive is False``).
+        """
+        # Use ValueError (not RuntimeError) — connect()'s `except RuntimeError`
+        # branch translates RuntimeErrors as version mismatches; ValueError
+        # falls through to the catch-all that wraps as MCPConnectionError.
+        mock_session.initialize = AsyncMock(side_effect=ValueError("init failed"))
+        monkeypatch.setattr(
+            client_mod,
+            "_transport_connect",
+            lambda source: _anyio_backed_transport_cm(mock_session),
+        )
+        c = MCPClient(_stdio_source())
+        with patch.object(
+            AsyncExitStack,
+            "aclose",
+            autospec=True,
+            wraps=AsyncExitStack.aclose,
+        ) as spy:
+            with pytest.raises(MCPConnectionError):
+                await c.connect()
+            assert spy.call_count >= 1, (
+                f"expected aclose to be called at least once, got {spy.call_count}"
+            )
+        assert c.is_alive is False
+        assert c._transport_stack is None
+        assert c._session is None
+
+    async def test_disconnect_idempotent_with_stack(
+        self, monkeypatch, mock_session, caplog
+    ) -> None:
+        """Idempotent disconnect across four scenarios with the new _transport_stack field.
+
+        (a) never-connected disconnect is a no-op
+        (b) connect → disconnect → disconnect is a no-op on the second
+        (c) reconnect-after-disconnect produces a FRESH AsyncExitStack instance
+            (live-ref ``is not`` comparison, NOT ``id()`` — CPython recycles
+            ids of GC'd objects)
+        (d) post-``_cleanup_after_failed_connect`` state: is_alive is False AND
+            _transport_stack is None AND _session is None
+        """
+        monkeypatch.setattr(
+            client_mod,
+            "_transport_connect",
+            lambda source: _anyio_backed_transport_cm(mock_session),
+        )
+
+        # (a) never-connected disconnect — no raise, no state change.
+        c_a = MCPClient(_stdio_source())
+        await c_a.disconnect()
+        assert c_a.is_alive is False
+        assert c_a._transport_stack is None
+        assert c_a._session is None
+
+        # (b) connect → disconnect → disconnect: second is a no-op.
+        c_b = MCPClient(_stdio_source())
+        await c_b.connect()
+        stack_first = c_b._transport_stack
+        assert stack_first is not None
+        await c_b.disconnect()
+        assert c_b.is_alive is False
+        assert c_b._transport_stack is None
+        await c_b.disconnect()  # no raise; short-circuits via the early-return guard
+        assert c_b._transport_stack is None
+
+        # (c) reconnect-after-disconnect produces a fresh stack instance.
+        # `is not` against the live `stack_first` ref — id-recycling-safe.
+        await c_b.connect()
+        stack_second = c_b._transport_stack
+        assert stack_second is not None
+        assert stack_second is not stack_first, (
+            "reconnect must allocate a fresh AsyncExitStack — re-entry of a "
+            "consumed stack is undefined behavior"
+        )
+        await c_b.disconnect()
+
+        # (d) post-_cleanup_after_failed_connect state.
+        # Use a fresh client whose initialize raises — drives the failure path.
+        # ValueError (not RuntimeError) so connect()'s version-mismatch branch
+        # doesn't claim it; the catch-all wraps it as MCPConnectionError.
+        bad_session = MagicMock()
+        bad_session.initialize = AsyncMock(side_effect=ValueError("bad init"))
+        bad_session.list_tools = AsyncMock()
+        bad_session.call_tool = AsyncMock()
+        monkeypatch.setattr(
+            client_mod,
+            "_transport_connect",
+            lambda source: _anyio_backed_transport_cm(bad_session),
+        )
+        c_d = MCPClient(_stdio_source())
+        with pytest.raises(MCPConnectionError):
+            await c_d.connect()
+        assert c_d.is_alive is False
+        assert c_d._transport_stack is None
+        assert c_d._session is None
 
 
 # ---------------------------------------------------------------------------

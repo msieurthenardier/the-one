@@ -15,7 +15,7 @@ import asyncio
 import logging
 import re
 import time
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from typing import TYPE_CHECKING, Any, AsyncIterator
 
 import anyio
@@ -131,7 +131,7 @@ class MCPClient:
         # system, so `last_activity > 0.0` is meaningful. None would crash
         # __repr__'s `f"{x:.2f}"` — see flight §9 / leg AC.
         self._last_activity: float = 0.0
-        self._transport_cm: Any = None  # holds the _transport_connect cm
+        self._transport_stack: AsyncExitStack | None = None  # owns the _transport_connect cm
         # Tools cache — populated on first list_tools() or first call_tool()
         # (whichever fires first). Used by call_tool's unknown-tool guard and
         # by L6b's input-schema validation. Cleared on disconnect so a re-
@@ -184,8 +184,13 @@ class MCPClient:
         result: Any = None
         try:
             async with asyncio.timeout(self.timeout_seconds):
-                self._transport_cm = _transport_connect(self.source)
-                session = await self._transport_cm.__aenter__()
+                # Single-line construction-and-enter to make the "stack is
+                # always entered when assigned" invariant locally obvious.
+                # AsyncExitStack.__aenter__ returns self.
+                self._transport_stack = await AsyncExitStack().__aenter__()
+                session = await self._transport_stack.enter_async_context(
+                    _transport_connect(self.source)
+                )
                 self._session = session
                 try:
                     result = await session.initialize()
@@ -229,14 +234,30 @@ class MCPClient:
         self._touch_activity()
 
     async def _cleanup_after_failed_connect(self) -> None:
-        """Best-effort teardown of partial state from a failed connect()."""
+        """Best-effort teardown of partial state from a failed connect().
+
+        Suppresses non-MCPClientError teardown exceptions (anyio cancel
+        scope drift, broken pipes, etc.) but lets ``MCPClientError``
+        subclasses (notably ``MCPSandboxError`` from F4 leg 02's
+        bwrap-stderr translation) propagate. Translation runs in
+        ``connect_stdio``'s `finally` and surfaces during the
+        ``transport_stack.aclose()`` walk; that diagnostic — "bwrap
+        rejected the spawn for these reasons" — strictly dominates the
+        downstream "connection closed" wrapping that ``connect()`` would
+        otherwise emit.
+        """
+        cleanup_err: BaseException | None = None
         try:
-            if self._transport_cm is not None:
-                await self._transport_cm.__aexit__(None, None, None)
+            if self._transport_stack is not None:
+                await self._transport_stack.aclose()
+        except MCPClientError as e:
+            cleanup_err = e
         except Exception:
             logger.debug("transport cleanup raised; suppressing", exc_info=True)
-        self._transport_cm = None
+        self._transport_stack = None
         self._session = None
+        if cleanup_err is not None:
+            raise cleanup_err
 
     async def disconnect(self) -> None:
         """Idempotent teardown. Never raises — F4-pool contract.
@@ -246,17 +267,24 @@ class MCPClient:
         progress state correctly. Python's GIL makes single-attribute reads/
         writes of bool/float atomic, so no explicit lock is needed.
         """
-        if not self._is_alive and self._transport_cm is None:
+        if not self._is_alive and self._transport_stack is None:
             return
         # Flip the flag FIRST so concurrent readers see correct state.
         self._is_alive = False
         try:
-            if self._transport_cm is not None:
-                await self._transport_cm.__aexit__(None, None, None)
+            if self._transport_stack is not None:
+                await self._transport_stack.aclose()
         except Exception:
+            # Cross-task safety net — the real fix for cross-task disconnect
+            # is the F4 pool's worker-task pattern, NOT AsyncExitStack
+            # (anyio's cancel-scope guard fires on cross-task __aexit__
+            # regardless of how the CM is wrapped). See flight 04 design
+            # §2-detail. This swallow remains intentionally; pool callers
+            # use _pool._entry_worker (F4 L3) which runs disconnect on the
+            # same task that ran connect, never tripping this branch.
             logger.warning("MCPClient transport close failed", exc_info=True)
         finally:
-            self._transport_cm = None
+            self._transport_stack = None
             self._session = None
             # _tools_cache is per-session — clear so re-connect rebuilds fresh
             # (tools may change between sessions; stale cache could leak).

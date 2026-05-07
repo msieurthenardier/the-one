@@ -70,7 +70,7 @@ Database repositories including `LLMProviderRepository` for CRUD on `llm_provide
 - **F3 trust model**: strict by default — read-only FS outside `writable_paths`; network OFF unless `network_allowed=True`. Operator's responsibility to scope writable paths and network policy per source.
 - **F3 sandbox-profile storage**: `MCPSource.config["sandbox"] = {"writable_paths": list[str], "network_allowed": bool}` plaintext; both fields optional; defaults `[]` / `false`; namespace-flag fields (`pid_unshare`, `ipc_unshare`, `uts_unshare`) JSON-edit-only via API. **L1b extends the F1 API validator; L2 lands `SandboxProfile.from_dict`.**
 - **F3 Protocol shape**: `MCPSandbox.prepare_spawn(profile, command, args, env, cwd) -> SpawnSpec`; `SpawnSpec` is frozen with command/args/env/cwd + Windows-only `creation_flags`/`attribute_list`. Linux/macOS callers feed `spec.command/args/env/cwd` into `StdioServerParameters`. **L2 lands.**
-- **F3 failure boundary**: `MCPSandboxError(MCPClientError)` for setup failures (bwrap missing, writable_paths nonexistent, EPERM on unshare); F2's `MCPConnectionError` for post-spawn failures. No unsandboxed fallback. **L2 adds the exception class; L4 enforces.**
+- **F3 failure boundary**: `MCPSandboxError(MCPClientError)` for setup failures (bwrap missing, writable_paths nonexistent, EPERM on unshare, generic bwrap exit-code != 0); F2's `MCPConnectionError` for post-spawn failures. The bwrap-prefix discriminator (`^\s*bwrap:`) gates the directionality so inner-process failures stay in `MCPConnectionError`. No unsandboxed fallback. **L2 adds the exception class AND enforces the boundary in `connect_stdio` via stderr-capture-and-translate.**
 - **F3 privilege model**: dev container `cap_add: [SYS_ADMIN]` + `security_opt: [seccomp:unconfined]` (both required); Playwright CI uses pytest-only `THE_ONE_SANDBOX_DISABLED=1 + THE_ONE_TEST_MODE=1` double-flag bypass; production sandbox always on. **L1a applied the dev-container grants; L4 wires the bypass.**
 - **F3 HOME override**: `BubblewrapSandbox` forces `env["HOME"] = "/tmp"` so `~/.cache`-writing MCPs find a usable home dir under `--tmpfs /tmp`. Sandbox policy, not operator-configurable. **L3 implements.**
 
@@ -96,6 +96,20 @@ Database repositories including `LLMProviderRepository` for CRUD on `llm_provide
 | `anthropic_provider.py` | `AnthropicProvider` | Claude (claude-sonnet-4-6 default) |
 
 Providers are lazy-loaded on first `get_provider(name)` call. Each converts messages/tools to its wire format and back.
+
+### `the_one/mcp/`
+
+| File | Exports | Purpose |
+|------|---------|---------|
+| `__init__.py` | `MCPClient`, `MCP_DEFAULT_TIMEOUT_SECONDS`, `_PINNED_PROTOCOL_VERSION`, `acquire`, `shutdown_drain`, `MCPClientError`, `MCPConnectionError`, `MCPSandboxError`, `MCPVersionMismatch`, `MCPTool`, `MCPToolResult` | Public surface — re-exports the client class, the lifecycle helpers (`acquire`, `shutdown_drain`), the error hierarchy, and the result dataclasses. `_PINNED_PROTOCOL_VERSION` and `MCP_DEFAULT_TIMEOUT_SECONDS` are read at call time from `the_one.mcp` (NOT bound at module load) so monkeypatching from tests works (see `the_one/mcp/README.md` §5). |
+| `client.py` | `MCPClient` | Core client class — `connect`/`disconnect`/`list_tools`/`call_tool`. Uses an owned `AsyncExitStack` for transport composition (see `the_one/mcp/README.md` §3). `disconnect` is idempotent and never raises (cross-task safety net documented in §2). The `_DEFAULT = object()` sentinel preserves "caller passed nothing vs caller passed None" — DO NOT refactor to None-with-default (see `the_one/mcp/README.md` §4). |
+| `errors.py` | `MCPClientError`, `MCPConnectionError`, `MCPSandboxError`, `MCPVersionMismatch` | Exception hierarchy. `MCPSandboxError` is canonical here per the project's `canonical-import + convenience-re-export` convention; `the_one.platform.sandbox.__init__` re-exports it for convenience but the canonical import is `from the_one.mcp.errors import MCPSandboxError`. |
+| `types.py` | `MCPTool`, `MCPToolResult` | Frozen dataclasses for tool metadata + tool-call results. `MCPToolResult.text` is the agent-facing string; `.raw` is the F7 inspector view; `.structured` is the typed-object form. |
+| `transports/stdio.py` | `connect_stdio`, `build_stdio_environ` | Stdio transport context manager (kept as `@asynccontextmanager` per the L1a scope-reduction deviation; see `the_one/mcp/README.md` §3) + the 2-layer flat-merge env-var assembly helper (allowlist + config.env + secrets, secrets win on collision; see `the_one/mcp/README.md` §6). Owns the bwrap stderr capture + translation to `MCPSandboxError` (post-L2 A02 RESOLVED; see `the_one/mcp/README.md` §7). |
+| `transports/streamable_http.py` | `connect_streamable_http`, `build_request_headers`, `_test_http_client_override` | Streamable-HTTP transport context manager + headers flat-merge (mirrors stdio's env-var pattern). `_test_http_client_override` is the canonical test seam (3-property contract: underscore prefix + `__all__` exclusion + `# TEST-ONLY` tag; see `the_one/mcp/README.md` §1). |
+| `_pool.py` | `acquire`, `shutdown_drain`, `_clear_for_test`, `_RegistryEntry` | Per-`(agent_name, source_id)` worker-task pool of warm `MCPClient` instances (F4). Lazy demand-paged spawn, idle-TTL reap (default 300s, env-tunable via `MCP_POOL_IDLE_TTL_SECONDS`), worker-task-per-entry pattern that satisfies anyio's cross-task `CancelScope.__aexit__` guard mechanically. `shutdown_drain` is wired into FastAPI's `lifespan` shutdown branch in PTY → MCP → DB order (see `the_one/mcp/README.md` §8). |
+
+For the full set of runtime invariants (test-seam pattern, F4-pool-compat invariants, AsyncExitStack pattern, `_DEFAULT` sentinel rationale, `_PINNED_PROTOCOL_VERSION` read-at-call-time invariant, env-var assembly contract, sandbox-wrap composition, F4 pool semantics, cross-references), see `the_one/mcp/README.md`.
 
 ### `the_one/tools/`
 
@@ -151,6 +165,56 @@ The chat area's pure-helper layer lives at `the_one/interfaces/web/static/js/are
 The orchestrator (`chat.js`) owns closure state — `ws`, `currentSessionId`, `currentAgentName`, `pendingJoinId`, `availableAgents`, `setupState`, the WS lifecycle, the welcome-listbox roving-tabindex keydown handler, and the system-message `Loading model...` / `Model loaded.` flow. It wires WS events to helpers via the callbacks above.
 
 Load order (set in `index.html`): `app.js` → `icons.js` → `markdown.js` → `areas/chat/welcome.js` → `areas/chat/history-buckets.js` → `areas/chat/message-bubble.js` → `areas/chat/telemetry-overlay.js` → `areas/chat/thinking-indicator.js` → `areas/chat.js` → `areas/studio.js` → `areas/admin.js`. Helpers MUST load before `chat.js` because the orchestrator calls `App.chat.renderTelemetry()` synchronously during `init`.
+
+---
+
+## Project Conventions
+
+Four named project-wide patterns canonicalised from F3's debrief (M07). These apply across the codebase, NOT only to `the_one/mcp/`. Each pattern names a recurring decision shape so future authors can apply it consistently and code reviewers can flag deviations by name.
+
+### `trust-the-runtime`
+
+Don't validate at the API layer what the runtime will catch with a clear error. Pre-validation duplicates the runtime's check, introduces TOCTOU windows (the file-system or environment may change between the pre-check and the runtime call), and bloats the surface with branches that exist purely to translate good-enough runtime errors into hand-written API errors.
+
+**Live example**: F3's `BubblewrapSandbox.prepare_spawn` does NOT pre-validate `writable_paths` for existence. bwrap fails at exec time with `Can't find source path`, which L2's stderr-capture-and-translate path converts to a clean `MCPSandboxError` with catalog message #1 (see `CLAUDE.md`'s F3 contracts §5). The runtime's check is authoritative; the API layer trusts it.
+
+**Counter-example (what NOT to do)**: pre-validating `os.path.isdir(path)` on every entry of `writable_paths` inside `prepare_spawn` would (a) duplicate bwrap's check, (b) introduce a TOCTOU window between the check and the bwrap exec (the directory could be deleted in between), and (c) couple the API to the host filesystem at API-construction time, which the strict-by-default trust model deliberately avoids.
+
+The pattern applies whenever the runtime emits a clear, actionable error message that can be matched + translated. It does NOT apply when the runtime's error is opaque (a generic `OSError` with no discriminator), in which case a pre-check + named exception is the right call. The judgment call is: "does the runtime's error carry enough information for a clean translation?" If yes, trust the runtime; if no, pre-check.
+
+### `canonical-import + convenience-re-export`
+
+Each symbol has ONE canonical import path; lower-level packages re-export for convenience. The authoritative path is the canonical one — code that touches the symbol's identity (subclassing, isinstance checks, exception handlers) MUST use the canonical path. Convenience re-exports are for surface ergonomics only.
+
+**Live example**: `MCPSandboxError` is canonical at `the_one.mcp.errors`; `the_one.platform.sandbox.__init__` re-exports it for convenience. The canonical path is `from the_one.mcp.errors import MCPSandboxError`. Inside `the_one/platform/sandbox/`, `from .errors import MCPSandboxError` could be a convenience import, but production code outside the sandbox package uses the canonical `the_one.mcp.errors` path.
+
+**Counter-example (what NOT to do)**: defining `MCPSandboxError` at `the_one.platform.sandbox.errors` AND `the_one.mcp.errors` (two parallel definitions) would mean `isinstance(exc, the_one.mcp.errors.MCPSandboxError)` returns False for an exception raised through the platform path, even though they "look like" the same class. Re-export, never re-define.
+
+The convention also forbids "re-export only" — every symbol has ONE place that defines it (the canonical home) and zero or more re-exports. The canonical home is named after the symbol's primary semantics (errors live with errors, types with types, the `MCPClient` lives in the client module).
+
+### `structural-Protocol-satisfaction`
+
+Classes structurally satisfy `runtime_checkable` Protocols WITHOUT inheriting from them. Inheritance couples the implementation class to the Protocol's identity in a way that is rarely useful (the `runtime_checkable` decorator already gives `isinstance` semantics) and constrains future Protocol evolution (adding a method to the Protocol would force a no-op default in every implementer).
+
+**Live example**: `BubblewrapSandbox` structurally satisfies the `MCPSandbox` Protocol (defined in `the_one.platform.sandbox.base`) but does NOT inherit from it. `runtime_checkable` is what gives `isinstance(BubblewrapSandbox(), MCPSandbox) == True`; the absence of inheritance means future Protocol additions can land with `@runtime_checkable` semantics extended over the existing implementer surface, with no forced default-method propagation.
+
+The pattern decouples implementation from the abstract contract and allows multiple unrelated classes to satisfy the same Protocol — for instance, a future `WindowsSandbox` could satisfy `MCPSandbox` without sharing a base class with `BubblewrapSandbox`. Inheritance would have made that future work lift-and-shift; structural satisfaction makes it net-new with zero retrofit.
+
+**Counter-example (what NOT to do)**: declaring `class BubblewrapSandbox(MCPSandbox):` would couple the two and make Protocol changes a coordinated change across all implementers. The `Protocol` ABC stays a contract; implementers stay independent.
+
+### `verbatim-message-equality`
+
+Error messages are tested via verbatim string equality (or substring `in str(exc)` when the message includes interpolated values), NOT via regex or fuzzy matching. Verbatim equality:
+
+- Pins the exact operator-facing wording, so future authors cannot accidentally rephrase an error message and pass tests with the rewording in place.
+- Surfaces typo fixes as deliberate test updates, NOT silent regressions.
+- Avoids regex-overkill: the message is a string literal in source; the test asserts on the same literal.
+
+**Live example**: F3 §6 catalog messages (the three `MCPSandboxError` interpolation templates) are checked via `assert str(exc) == expected` for the no-interpolation message and via substring `in str(exc)` for the interpolated forms. The catalog text lives in `CLAUDE.md`'s F3 contracts §5 verbatim; the test asserts on the same verbatim text.
+
+**Counter-example (what NOT to do)**: matching `re.match(r"MCP sandbox setup failed.*writable_paths", str(exc))` would pass even if the message were silently rephrased to `"sandbox setup failed for the writable_paths field"`. Operator-facing wording would drift; the test would not flag it.
+
+The pattern applies only to error messages and other operator-facing strings. It does NOT apply to log messages (which evolve more freely) or to internal debug strings (which are not part of the contract surface).
 
 ---
 

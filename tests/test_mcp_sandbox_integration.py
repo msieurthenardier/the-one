@@ -25,10 +25,20 @@ Coverage matrix:
        network-unreachable error string (IP-literal avoids DNS).
 * #5   Network allowed — same call under ``network_allowed=True``
        returns ``"connected"``. Skipped if test-runner has no outbound.
-* #6   Writable-path nonexistent — surfaces as ``MCPConnectionError``
-       per L4 Anomaly A02 (deferred bwrap-side translation; NOT
-       ``MCPSandboxError``). Locks the deferred-translation gap as a
-       positive test.
+* #6   Writable-path nonexistent — surfaces as ``MCPSandboxError``
+       catalog #1 per L2 (mission 07 flight 04). Asserts the
+       operator-actionable substring (``writable_paths entry`` /
+       ``does not exist``) so regressions in the regex are caught.
+* #6b  Generic bwrap failure — monkeypatched ``prepare_spawn`` injects
+       an unknown bwrap flag; bwrap rejects with ``bwrap: Unknown
+       option ...`` (prefix-gated, no #1/#3 match) → catalog #2.
+* #6c  EPERM on unshare — only meaningful in privilege-stripped envs;
+       the dev container has SYS_ADMIN so this test SKIPS there. Asserts
+       catalog #3 substring when runnable.
+* #6d  Inner-process failure (post-bwrap-success) MUST surface as
+       ``MCPConnectionError``, NOT ``MCPSandboxError`` — locks the
+       OTHER side of F3 §6's directionality contract via the
+       bwrap-prefix discriminator.
 * #7   No host-env leakage — process-env-only sentinel key is filtered
        by the 8-key allowlist + ``--clearenv`` defense-in-depth.
 * #8   ``--with-naughty-tools`` opt-in registers all five tools.
@@ -39,10 +49,9 @@ Coverage matrix:
        signal for accidental autoregistration regressions before the
        slow integration tests run.
 
-Edge case documented in the flight log: L3's argv compiler emits
-``--bind`` BEFORE ``--tmpfs /tmp``, so any ``writable_paths`` entry
-under ``/tmp`` is shadowed by the later ``--tmpfs /tmp``. Operators
-must use writable_paths OUTSIDE ``/tmp`` for persistent scratch.
+Post-A03 (F4 L1b), ``--tmpfs /tmp`` is emitted BEFORE the
+``--bind PATH PATH`` loop, so writable_paths under ``/tmp`` persist
+correctly (the bind layers on top of the tmpfs).
 """
 
 from __future__ import annotations
@@ -132,12 +141,9 @@ def _build_naughty_source(
 def writable_scratch_dir() -> Any:
     """Session-scoped writable scratch dir at /var/tmp/sandbox_l5a_<uuid>.
 
-    Uses /var/tmp (NOT /tmp) to dodge the L3 argv-compilation edge case:
-    L3 emits ``--bind`` BEFORE ``--tmpfs /tmp``, so a
-    ``writable_paths=["/tmp/foo"]`` entry would be shadowed by the
-    later ``--tmpfs /tmp`` (the bind mount becomes invisible).
-    Operators wanting persistent writable scratch must use paths
-    outside ``/tmp`` until L3's argv is reordered.
+    Uses /var/tmp for parallel-safe pytest-xdist isolation alongside
+    the unconditional ``HOME=/tmp`` sandbox override (avoids collision
+    with the bwrap tmpfs-rooted HOME).
 
     UUID-suffixed for parallel safety under pytest-xdist; teardown
     removes the directory tree even if individual probe files remain.
@@ -166,6 +172,30 @@ def _has_outbound_network() -> bool:
             return True
     except OSError:
         return False
+
+
+def _has_sys_admin() -> bool:
+    """Return True if the current process has CAP_SYS_ADMIN (effective).
+
+    Mechanism: parse ``/proc/self/status``'s ``CapEff`` line and check
+    bit 21 (``CAP_SYS_ADMIN`` per ``<linux/capability.h>``). No
+    subprocess required; robust against locale changes; returns False
+    on non-Linux hosts (where ``/proc`` doesn't exist) so Test #6c
+    gates correctly there too.
+
+    Used by Test #6c to SKIP in the dev container (which has SYS_ADMIN)
+    and RUN only in privilege-stripped envs where bwrap actually fails
+    on ``unshare(CLONE_NEWUSER)``.
+    """
+    try:
+        with open("/proc/self/status") as f:
+            for line in f:
+                if line.startswith("CapEff:"):
+                    cap_eff = int(line.split()[1], 16)
+                    return bool(cap_eff & (1 << 21))  # CAP_SYS_ADMIN
+    except (OSError, ValueError):
+        return False
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -343,43 +373,214 @@ async def test_sandbox_network_allowed_when_network_allowed_true() -> None:
 
 
 # ---------------------------------------------------------------------------
-# #6 — Writable_paths nonexistent → MCPConnectionError per L4 Anomaly A02
+# #6 — Writable_paths nonexistent → MCPSandboxError catalog #1 per L2
 # ---------------------------------------------------------------------------
 
 
 @requires_bwrap
 async def test_sandbox_writable_paths_nonexistent_raises_at_connect() -> None:
-    """Nonexistent writable_paths entry surfaces as MCPConnectionError.
+    """Nonexistent writable_paths entry surfaces as MCPSandboxError #1.
 
-    Per L4 Anomaly A02: bwrap-side post-setup errors (writable_paths
-    nonexistent, EPERM on unshare, etc.) are NOT translated to
-    ``MCPSandboxError`` in F3 — they surface as F2's
-    ``MCPConnectionError`` via ``MCPClient.connect``'s
-    ``except Exception`` translation. Empirically: bwrap exits non-zero
-    with ``bwrap: Can't find source path /var/does/not/exist_<uuid>``;
-    stdio_client sees broken pipe; SDK initialize() raises;
-    MCPClient.connect catches and translates.
+    Per F3 §6 + L2 (mission 07 flight 04): bwrap-side post-setup errors
+    (writable_paths nonexistent) are translated to ``MCPSandboxError``
+    inside ``connect_stdio`` via the SDK's ``errlog=`` parameter. bwrap
+    emits ``bwrap: Can't find source path /var/does/not/exist_<uuid>:
+    No such file or directory``; the stderr-capture buffer collects
+    that; ``_translate_bwrap_stderr`` matches
+    ``_BWRAP_NONEXISTENT_PATH_RE`` and raises catalog message #1.
 
-    Locks the deferred-translation gap as a positive test (rather than
-    skipping). The substring assertion on bwrap stderr is omitted —
-    whether stderr propagates up the stdio_client chain to the
-    exception message is empirically variable.
+    Asserts the operator-actionable substring so regex regressions are
+    caught — the message must include ``writable_paths entry`` and
+    ``does not exist``.
     """
     nonexistent = f"/var/does/not/exist_{uuid.uuid4().hex}"
     source = _build_naughty_source(
         sandbox={"writable_paths": [nonexistent], "network_allowed": False},
     )
 
-    with pytest.raises(MCPConnectionError) as exc_info:
+    with pytest.raises(MCPSandboxError) as exc_info:
         async with MCPClient(source):
             pass
 
-    # Critical directionality: MCPSandboxError is a sibling of
-    # MCPConnectionError (both subclass MCPClientError), NOT a parent —
-    # so an MCPSandboxError instance would NOT satisfy isinstance(...,
-    # MCPConnectionError) anyway. We still assert NOT MCPSandboxError to
-    # lock the directionality explicitly per L4 Anomaly A02.
-    assert not isinstance(exc_info.value, MCPSandboxError)
+    message = str(exc_info.value)
+    assert "writable_paths entry" in message, (
+        f"expected catalog #1 substring 'writable_paths entry', got: {message!r}"
+    )
+    assert "does not exist" in message, (
+        f"expected catalog #1 substring 'does not exist', got: {message!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# #6b — Bwrap unrecognised failure (with bwrap: prefix) → MCPSandboxError #2
+# ---------------------------------------------------------------------------
+
+
+@requires_bwrap
+async def test_sandbox_bwrap_unrecognised_exit_code_raises_msc_sandbox_error_msg2(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A bwrap failure with no #1/#3 signature surfaces as catalog #2.
+
+    Mechanism: monkeypatch ``BubblewrapSandbox.prepare_spawn`` to inject
+    an unknown bwrap flag (``--no-such-flag-for-test-6b``) into the
+    returned ``SpawnSpec.args``. bwrap rejects unknown flags with
+    ``bwrap: Unknown option --no-such-flag-for-test-6b``, which has the
+    bwrap-prefix discriminator, doesn't match patterns #1 or #3, and
+    triggers catalog #2.
+
+    Asserts the catalog #2 substrings (``bubblewrap exited non-zero``
+    and ``bwrap stderr:``) so an operator can see both the
+    F3-§10-pointed remediation and the underlying bwrap message.
+    """
+    from the_one.platform.sandbox import BubblewrapSandbox, SpawnSpec
+
+    _real_prepare_spawn = BubblewrapSandbox.prepare_spawn
+
+    def _patched_prepare_spawn(self, profile, command, args, env, cwd=None):
+        spec = _real_prepare_spawn(self, profile, command, args, env, cwd)
+        # Inject a flag bwrap will reject. Place AFTER the namespace flags,
+        # BEFORE the `--` separator (which is the last block before the
+        # command). Find `--` and insert just before it.
+        sep_idx = spec.args.index("--")
+        new_args = (
+            spec.args[:sep_idx]
+            + ["--no-such-flag-for-test-6b"]
+            + spec.args[sep_idx:]
+        )
+        return SpawnSpec(
+            command=spec.command,
+            args=new_args,
+            env=spec.env,
+            cwd=spec.cwd,
+        )
+
+    monkeypatch.setattr(
+        BubblewrapSandbox, "prepare_spawn", _patched_prepare_spawn
+    )
+
+    source = _build_naughty_source(
+        sandbox={"writable_paths": [], "network_allowed": False},
+    )
+    with pytest.raises(MCPSandboxError) as exc_info:
+        async with MCPClient(source):
+            pass
+    message = str(exc_info.value)
+    assert "bubblewrap exited non-zero" in message, (
+        f"expected catalog #2 prefix, got: {message!r}"
+    )
+    # And the `bwrap stderr:` snippet preserves the underlying message
+    # so an operator can debug.
+    assert "bwrap stderr:" in message, (
+        f"expected catalog #2 to embed bwrap stderr snippet, got: {message!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# #6c — EPERM on unshare → MCPSandboxError catalog #3 (skip if SYS_ADMIN)
+# ---------------------------------------------------------------------------
+
+
+@requires_bwrap
+@pytest.mark.skipif(
+    _has_sys_admin(),
+    reason="Test exercises the no-privilege-grants path; dev container has SYS_ADMIN",
+)
+async def test_sandbox_eperm_on_unshare_raises_mcp_sandbox_error_msg3() -> None:
+    """EPERM on unshare surfaces as MCPSandboxError catalog #3.
+
+    Only meaningful in environments WITHOUT ``cap_add: SYS_ADMIN`` +
+    ``security_opt: seccomp:unconfined``. The dev container has both;
+    this test SKIPS there. CI without those grants exercises this
+    path. The probe at L2 design captured ``bwrap: No permissions to
+    create new namespace ...`` as the actual stderr in a privilege-
+    stripped env — ``_BWRAP_EPERM_UNSHARE_RE`` matches that wording
+    AND the generic ``unshare ... Operation not permitted`` form.
+    """
+    source = _build_naughty_source(
+        sandbox={"writable_paths": [], "network_allowed": False},
+    )
+    with pytest.raises(MCPSandboxError) as exc_info:
+        async with MCPClient(source):
+            pass
+    message = str(exc_info.value)
+    assert "namespace creation refused" in message, (
+        f"expected catalog #3 substring, got: {message!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# #6d — Inner-process failure does NOT translate (directionality contract)
+# ---------------------------------------------------------------------------
+
+
+@requires_bwrap
+async def test_inner_process_failure_does_not_translate_to_sandbox_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Inner-process failure (post-bwrap-success) → MCPConnectionError, NOT MCPSandboxError.
+
+    Locks the OTHER side of F3 §6's directionality contract via the
+    bwrap-prefix discriminator (``_BWRAP_OWN_PREFIX_RE``). bwrap
+    successfully wraps and execs the inner command; the inner command
+    immediately exits non-zero AND writes distinctive (but
+    bwrap-prefix-LACKING) bytes to its stderr. If the prefix gate
+    weren't there, those bytes might match catalog #2 (or even #3
+    superficially); with the gate, the captured stderr does NOT start
+    with ``bwrap:`` and ``_translate_bwrap_stderr`` returns None,
+    letting F2's ``MCPConnectionError`` translation handle it.
+
+    Mechanism: monkeypatch ``prepare_spawn`` to replace the inner
+    command (the ``--`` separator's tail) with ``/bin/sh -c "echo
+    'unshare failed: Operation not permitted' >&2; exit 1"``. The
+    stderr deliberately includes wording that WOULD match
+    ``_BWRAP_EPERM_UNSHARE_RE`` if the prefix gate were absent — the
+    gate is what makes this test meaningful.
+    """
+    from the_one.platform.sandbox import BubblewrapSandbox, SpawnSpec
+
+    _real_prepare_spawn = BubblewrapSandbox.prepare_spawn
+
+    def _patched_prepare_spawn(self, profile, command, args, env, cwd=None):
+        spec = _real_prepare_spawn(self, profile, command, args, env, cwd)
+        # Find `--` separator; replace the tail (inner command + args)
+        # with a /bin/sh that writes inner-process noise to stderr and
+        # exits 1. The bwrap setup itself succeeds; the failure is
+        # post-exec.
+        sep_idx = spec.args.index("--")
+        inner_payload = (
+            "echo 'unshare failed: Operation not permitted "
+            "(inner process noise, not bwrap)' >&2; exit 1"
+        )
+        new_args = list(spec.args[: sep_idx + 1]) + [
+            "/bin/sh",
+            "-c",
+            inner_payload,
+        ]
+        return SpawnSpec(
+            command=spec.command,
+            args=new_args,
+            env=spec.env,
+            cwd=spec.cwd,
+        )
+
+    monkeypatch.setattr(
+        BubblewrapSandbox, "prepare_spawn", _patched_prepare_spawn
+    )
+
+    source = _build_naughty_source(
+        sandbox={"writable_paths": [], "network_allowed": False},
+    )
+    with pytest.raises(MCPConnectionError) as exc_info:
+        async with MCPClient(source):
+            pass
+    # Critical directionality: inner-process failures must NOT mistranslate
+    # to MCPSandboxError. The bwrap-prefix discriminator is the
+    # load-bearing test.
+    assert not isinstance(exc_info.value, MCPSandboxError), (
+        f"inner-process failure mistranslated to MCPSandboxError: "
+        f"{exc_info.value!r}"
+    )
 
 
 # ---------------------------------------------------------------------------

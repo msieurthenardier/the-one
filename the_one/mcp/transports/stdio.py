@@ -49,14 +49,20 @@ and by the Playwright browser-test CI workflow for the companion flag).
 ``MCPSandboxError`` from sandbox setup (e.g., ``bwrap`` binary missing)
 propagates without translation; post-spawn errors continue to surface as
 F2's ``MCPConnectionError`` via ``MCPClient.connect()``. Per F3 §6's
-boundary, bwrap-side post-setup errors (``--bind`` failures, ``EPERM``
-on ``unshare``) are not currently translated to ``MCPSandboxError``
-inside this transport — see flight log Anomaly A02.
+boundary, bwrap-side post-setup errors (``writable_paths`` nonexistent,
+``EPERM`` on ``unshare``, generic exit-code != 0) are translated to
+``MCPSandboxError`` via the SDK's ``errlog=`` parameter — see leg
+``02-bwrap-error-translation`` (mission 07 flight 04). The
+bwrap-prefix discriminator (``_BWRAP_OWN_PREFIX_RE``) gates patterns
+#2/#3 so inner-process failures (post-bwrap-success) continue to
+surface as F2's ``MCPConnectionError`` — F3 §6's directionality contract.
 """
 
 from __future__ import annotations
 
 import os
+import re
+import tempfile
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
@@ -64,10 +70,129 @@ from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
 from the_one.db.models import MCPSource
+from the_one.mcp.errors import MCPSandboxError
 from the_one.platform.env import _build_subprocess_env
 from the_one.platform.sandbox import BubblewrapSandbox, SandboxProfile
 
 __all__ = ["build_stdio_environ", "connect_stdio"]
+
+
+# ---------------------------------------------------------------------------
+# Bwrap stderr → MCPSandboxError translation (F3 §6)
+# ---------------------------------------------------------------------------
+#
+# Probe results captured 2026-05-07 against bwrap inside the dev container
+# (mcr.microsoft.com/playwright/python:v1.58.0-jammy + bwrap apt install,
+# dev container running bwrap 0.11.0). EPERM probe via privilege-stripped
+# `docker run --rm mcr.microsoft.com/playwright/python:v1.58.0-jammy ...
+# su nobody ...` (bwrap 0.9.0 from Ubuntu noble). See flight log L2 Leg
+# Progress entry for full output.
+#
+# Pattern 1 — writable_paths nonexistent (no prefix gate; `Can't find
+# source path` is unambiguously a bwrap message):
+#   probe stderr (verbatim):
+#       bwrap: Can't find source path /this/path/does/not/exist: No such file or directory
+#   regex: r"Can't find source path '?(?P<path>[^'\n:]+?)'?(?:\s*:\s*[^\n]*)?$"
+#   exit-code: !=0 (typically 1)
+#
+# Pattern 2 — generic bwrap failure (prefix-gated; matches any "bwrap:"
+# line that doesn't match #1 or #3):
+#   probe stderr (verbatim, malformed-flag probe):
+#       bwrap: Unknown option --invalid-flag-xyz
+#   regex: (no match → fallback). The bwrap-prefix discriminator
+#       (_BWRAP_OWN_PREFIX_RE) gates this path so inner-process failures
+#       are NOT mistranslated as MCPSandboxError.
+#
+# Pattern 3 — EPERM / namespace creation refused (prefix-gated):
+#   probe stderr (verbatim, kernel without unprivileged_userns_clone):
+#       bwrap: No permissions to create new namespace, likely because the
+#       kernel does not allow non-privileged user namespaces. See
+#       <https://deb.li/bubblewrap> or <file:///usr/share/doc/bubblewrap/README.Debian.gz>.
+#   The probe environment (Ubuntu noble bwrap 0.9.0 under su nobody)
+#   emits the "No permissions to create new namespace" form, NOT the
+#   generic "Operation not permitted" string. The regex below accepts
+#   either bwrap variant: the "No permissions to create new namespace"
+#   wording from kernel-disabled-userns environments AND the Operation-
+#   not-permitted ↔ unshare/user ns ordering for kernels that emit the
+#   raw errno-strerror form. Both are catalog #3 cases.
+#   regex: r"(No permissions to create new namespace|"
+#          r"(?:unshare|user ns|create user namespace).*?(?:Operation not permitted|EPERM)|"
+#          r"(?:Operation not permitted|EPERM).*?(?:unshare|user ns|create user namespace))"
+#   exit-code: !=0 (typically 1)
+
+
+# Compiled at module scope (CPython ~free since they're tiny).
+_BWRAP_NONEXISTENT_PATH_RE = re.compile(
+    r"Can't find source path '?(?P<path>[^'\n:]+?)'?(?:\s*:\s*[^\n]*)?$",
+    re.MULTILINE,
+)
+# bwrap's error-line convention is `<context>: <errno-strerror>`. The
+# context comes FIRST (e.g. `bwrap: setting up uid map: Operation not
+# permitted` or `bwrap: unshare user ns: Operation not permitted`).
+# This pattern accepts either order to be forgiving of bwrap minor-
+# version drift, AND additionally matches the "No permissions to create
+# new namespace" form that bwrap 0.9.0+ emits on kernels with
+# unprivileged_userns_clone disabled (probe-confirmed 2026-05-07).
+_BWRAP_EPERM_UNSHARE_RE = re.compile(
+    r"(?:No permissions to create new namespace)"
+    r"|(?:(?:unshare|user ns|create user namespace).*?(?:Operation not permitted|EPERM))"
+    r"|(?:(?:Operation not permitted|EPERM).*?(?:unshare|user ns|create user namespace))",
+    re.IGNORECASE | re.DOTALL,
+)
+# Discriminator: bwrap's own error lines start with "bwrap:". A captured
+# stderr that does NOT start with "bwrap:" indicates the bwrap setup
+# succeeded and the inner child wrote those bytes — F2's
+# MCPConnectionError must handle that case, not us. This is the
+# load-bearing test that prevents inner-process failures from being
+# mistranslated as MCPSandboxError (F3 §6 directionality contract;
+# Test #6d locks it).
+_BWRAP_OWN_PREFIX_RE = re.compile(r"^\s*bwrap:", re.MULTILINE)
+
+
+def _translate_bwrap_stderr(stderr_text: str) -> MCPSandboxError | None:
+    """Pattern-match captured bwrap stderr → MCPSandboxError per F3 §6.
+
+    Returns ``None`` if the capture indicates a non-bwrap failure
+    (e.g., the child target spawned successfully under bwrap and itself
+    failed mid-handshake — no translation needed; F2's
+    ``MCPConnectionError`` handles it). The bwrap-prefix discriminator
+    is the load-bearing check; if the captured stderr does NOT contain a
+    ``bwrap:`` line, this helper returns ``None`` for patterns #2/#3.
+
+    Pattern #1 (``Can't find source path``) is exempt from the prefix
+    gate because that message is unambiguously a bwrap signature and is
+    the most operator-actionable case.
+
+    Returns an :class:`MCPSandboxError` for any of the three §6 catalog
+    signatures.
+    """
+    # Path-#1 check is exempt from the prefix gate.
+    m = _BWRAP_NONEXISTENT_PATH_RE.search(stderr_text)
+    if m:
+        path = m.group("path").strip()
+        return MCPSandboxError(
+            f"MCP sandbox setup failed: writable_paths entry "
+            f"{path!r} does not exist. "
+            f"Create the directory or remove from writable_paths."
+        )
+    # Path-#3 (EPERM) and path-#2 (generic) require the bwrap-prefix
+    # gate to discriminate from inner-process failures.
+    if not _BWRAP_OWN_PREFIX_RE.search(stderr_text):
+        return None
+    if _BWRAP_EPERM_UNSHARE_RE.search(stderr_text):
+        return MCPSandboxError(
+            "MCP sandbox setup failed: namespace creation refused "
+            "(EPERM on unshare). The container likely lacks the "
+            "privilege grants required by §10."
+        )
+    # bwrap printed something to stderr that we don't recognise → catalog #2.
+    snippet = stderr_text.strip()[:500]
+    return MCPSandboxError(
+        "MCP sandbox setup failed: bubblewrap exited non-zero. "
+        "Check that the dev/CI environment has cap_add: SYS_ADMIN "
+        "AND security_opt: seccomp:unconfined per F3 design decision §10. "
+        f"bwrap stderr: {snippet!r}"
+    )
 
 
 def build_stdio_environ(
@@ -183,8 +308,58 @@ async def connect_stdio(source: MCPSource) -> AsyncIterator[ClientSession]:
     failures propagate as ``MCPSandboxError``; post-spawn failures
     continue to surface via F2's existing ``MCPConnectionError``
     translation in ``MCPClient.connect``.
+
+    On the sandboxed path, bwrap stderr is captured via the SDK's
+    ``errlog=`` parameter into a ``SpooledTemporaryFile``; on transport-
+    CM failure the captured text is pattern-matched against the F3 §6
+    catalog signatures and re-raised as the appropriate
+    ``MCPSandboxError``. The bypass path retains the SDK's default
+    ``errlog=sys.stderr`` passthrough.
     """
     params = _build_stdio_params(source)
-    async with stdio_client(params) as (read, write):
-        async with ClientSession(read, write) as session:
-            yield session
+    sandboxed = not _sandbox_disabled_for_tests()
+    if sandboxed:
+        # Sandboxed path: capture bwrap stderr for translation.
+        #
+        # Translation runs in a `finally` (not just an `except`) because
+        # MCPClient.connect()'s outer `except Exception:` catches an
+        # initialize-time McpError BEFORE the AsyncExitStack is unwound
+        # — so by the time `transport_stack.aclose()` calls our
+        # generator's __aexit__(None, None, None), no exception is
+        # flowing through the yield. We can't rely on the except branch.
+        #
+        # bwrap writes to stderr ONLY on failure (verified via probe
+        # 2026-05-07: success path = empty stderr; any of the three §6
+        # failure modes = non-empty bwrap-prefixed stderr). So if the
+        # buffer holds content matching `_translate_bwrap_stderr`, we
+        # raise even on the "clean exit" path — the upstream caller's
+        # connection-close error is downstream of bwrap's failure.
+        original_exc: BaseException | None = None
+        with tempfile.SpooledTemporaryFile(
+            mode="w+", encoding="utf-8", errors="replace"
+        ) as errbuf:
+            try:
+                async with stdio_client(params, errlog=errbuf) as (read, write):
+                    async with ClientSession(read, write) as session:
+                        yield session
+            except BaseException as exc:
+                original_exc = exc
+                raise
+            finally:
+                # Read whatever bwrap wrote to stderr (success → empty).
+                try:
+                    errbuf.seek(0)
+                    stderr_text = errbuf.read()
+                except Exception:
+                    stderr_text = ""
+                if stderr_text:
+                    sandbox_err = _translate_bwrap_stderr(stderr_text)
+                    if sandbox_err is not None:
+                        if original_exc is not None:
+                            raise sandbox_err from original_exc
+                        raise sandbox_err
+    else:
+        # Test bypass path: SDK's default errlog=sys.stderr passthrough.
+        async with stdio_client(params) as (read, write):
+            async with ClientSession(read, write) as session:
+                yield session
