@@ -623,3 +623,26 @@ Anomalies resolved this flight: A01 (`RuntimeError: generator didn't stop` swall
 Runtime deviations carried forward: L1a transport-API scope reduction (kept `connect_stdio` / `connect_streamable_http` and the dispatcher as `@asynccontextmanager` to preserve 9 prior callers; the AsyncExitStack ownership lives at the `MCPClient.connect/disconnect` level instead). L2 EPERM regex extension (matches bwrap 0.9.0's "No permissions to create new namespace" wording in addition to "Operation not permitted ... unshare").
 
 Commit composes all 12 modified files + 4 untracked files (`tests/test_mcp_pool.py`, `the_one/mcp/_pool.py`, `the_one/mcp/README.md`, `missions/07-mcp-integration/flights/04-idle-ttl-lifecycle/legs/`) under one flight-final commit per agentic-workflow §2c. Flight transitions to `landed` on commit; legs L1a-L5 transition to `completed`; mission-level Flight 4 checkbox flipped to `[x]`. L6 HAT remains `pending` — orchestrator-guided human verification step, scheduled post-commit.
+
+### L6 HAT outcome (2026-05-07T15:00Z)
+
+- **Overall: PASS with findings.** 4/5 required steps PASS end-to-end against real `mcp-server-fetch`; Step 5 PARTIAL (automated coverage from L4 tests #8 + #9; live-lifespan E2E deferred to F6 HAT). Bonus per-(agent, source) PASSED.
+- Per-step: Step 1 ✅ (after installing `procps`); Step 2 ✅ (lazy spawn — `is_alive=True`, fetch tool listed, bwrap subtree visible); Step 3 ✅ (5 warm acquires, same client, same PIDs, last_activity advances); Step 4 ✅ (forced reap → pool empty → fresh respawn with different PIDs); Step 5 ⚠️ PARTIAL; Bonus ✅ (different clients per agent, both pool keys present).
+- **Finding #1 — F2-known-issue not transitively fixed by L1a deviation**: `RuntimeError: generator didn't stop` still emits via the cross-task safety net swallow on EVERY disconnect (including under explicit `shutdown_drain()`). L1a's transport-API scope reduction (kept transport modules as `@asynccontextmanager`) means the dispatcher's nested `async with` still has the generator-protocol incompatibility. Safety net catches; functional behavior correct (no orphan subprocesses from this root cause). The mission known-issue ("MCPClient.disconnect teardown noise") status is updated below: still present, will require a follow-on fix that moves the dispatcher to AsyncExitStack-internal use of the existing transports, OR rewrites the transports to non-CM helpers in a way that doesn't break the 9 prior callers (e.g., introduce new `_open_stdio_transport_stack` helper alongside the CM version).
+- **Finding #2 — 7 defunct bwrap zombies in dev container (May06, predating HAT)**: process-reaping gap in the SDK's `anyio.open_process` path. Not a leak; zombies hold no resources beyond PID + struct task. Investigate at debrief.
+- **Finding #3 — `procps` HAT prereq**: dev container's playwright base image lacks `pgrep`/`ps`. Add to Dockerfile OR document as HAT-setup step.
+
+### Mission known issue update — "MCPClient.disconnect teardown noise" (2026-05-07)
+
+- Status: **still present after F4**. L1a's runtime deviation kept transport modules unchanged; the AsyncExitStack refactor on `MCPClient` alone doesn't transitively fix the dispatcher's `@asynccontextmanager` generator-protocol incompatibility.
+- HAT empirically confirmed: `RuntimeError: generator didn't stop` emits on every disconnect, including under explicit `shutdown_drain()`. Safety net catches; subprocess cleanup functionally correct.
+- Carry forward into mission Known Issues: needs follow-on fix in F5 or F6 (whichever first touches the transport surface). Suggested approach: introduce parallel non-CM transport helpers (`_open_stdio_transport_stack`, `_open_streamable_http_transport_stack`) alongside the CM versions; the dispatcher uses the new non-CM helpers; the existing CM versions stay for back-compat with the 9 prior callers.
+
+### Flight close
+
+- All 6 legs `completed`. C1a-C5 ✅; C6 PASS (with PARTIAL on Step 5 deferred to F6 HAT) — checkboxed.
+- 148 collected, 147 passed + 1 skipped (Test #6c EPERM expected skip). Lint clean. PR #31 open as draft.
+- Three flight findings logged above for debrief consumption.
+- Next step (post-merge): `/flight-debrief` to capture lessons learned and methodology improvements.
+
+[COMPLETE:flight]
