@@ -153,7 +153,8 @@
        wraps above it. */
     padding-bottom: 36px;
   }
-  .area-admin .tool-enable-switch {
+  .area-admin .tool-enable-switch,
+  .area-studio .tool-enable-switch {
     position: absolute;
     bottom: 12px;
     right: 12px;
@@ -161,7 +162,8 @@
     height: 20px;
     cursor: pointer;
   }
-  .area-admin .tool-enable-switch input[type="checkbox"] {
+  .area-admin .tool-enable-switch input[type="checkbox"],
+  .area-studio .tool-enable-switch input[type="checkbox"] {
     /* Visually-hidden but keyboard-operable. position:absolute removes from
        layout; opacity:0 hides without breaking screen-reader access. */
     position: absolute;
@@ -174,7 +176,8 @@
        (avoids label-click-through quirks in older WebKit). */
     z-index: 1;
   }
-  .area-admin .tool-enable-switch-track {
+  .area-admin .tool-enable-switch-track,
+  .area-studio .tool-enable-switch-track {
     display: block;
     width: 36px;
     height: 20px;
@@ -187,7 +190,8 @@
     /* Track must NOT eat the click — the wrapping <label> + <input> handle it. */
     pointer-events: none;
   }
-  .area-admin .tool-enable-switch-track::after {
+  .area-admin .tool-enable-switch-track::after,
+  .area-studio .tool-enable-switch-track::after {
     content: '';
     position: absolute;
     top: 2px;
@@ -198,18 +202,22 @@
     border-radius: 50%;
     transition: transform 0.2s ease;
   }
-  .area-admin .tool-enable-switch input[type="checkbox"]:checked + .tool-enable-switch-track {
+  .area-admin .tool-enable-switch input[type="checkbox"]:checked + .tool-enable-switch-track,
+  .area-studio .tool-enable-switch input[type="checkbox"]:checked + .tool-enable-switch-track {
     background: var(--accent);
   }
-  .area-admin .tool-enable-switch input[type="checkbox"]:checked + .tool-enable-switch-track::after {
+  .area-admin .tool-enable-switch input[type="checkbox"]:checked + .tool-enable-switch-track::after,
+  .area-studio .tool-enable-switch input[type="checkbox"]:checked + .tool-enable-switch-track::after {
     transform: translateX(16px);
   }
-  .area-admin .tool-enable-switch input[type="checkbox"]:focus-visible + .tool-enable-switch-track {
+  .area-admin .tool-enable-switch input[type="checkbox"]:focus-visible + .tool-enable-switch-track,
+  .area-studio .tool-enable-switch input[type="checkbox"]:focus-visible + .tool-enable-switch-track {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
   }
   /* Disabled state during in-flight PUT (orchestrator sets disabled attr) */
-  .area-admin .tool-enable-switch input[type="checkbox"]:disabled + .tool-enable-switch-track {
+  .area-admin .tool-enable-switch input[type="checkbox"]:disabled + .tool-enable-switch-track,
+  .area-studio .tool-enable-switch input[type="checkbox"]:disabled + .tool-enable-switch-track {
     opacity: 0.5;
     cursor: wait;
   }
@@ -226,7 +234,8 @@
      Inside the editor row it must flow inline next to the label, so
      unpin it. The inner checkbox + track + thumb mechanics stay
      identical — only the wrapper's positioning differs. */
-  .area-admin .tools-editor-enabled-row .tool-enable-switch {
+  .area-admin .tools-editor-enabled-row .tool-enable-switch,
+  .area-studio .mf-sandbox-network-row .tool-enable-switch {
     position: relative;
     bottom: auto;
     right: auto;
@@ -328,7 +337,7 @@
      studio.css) is preserved as it overrides only the single rule it
      needs to. */
   .area-admin .chip-list-editor,
-  .area-studio .tool-row-overrides .chip-list-editor {
+  .area-studio .chip-list-editor {
     flex: 1;
     display: flex;
     flex-wrap: wrap;
@@ -341,7 +350,7 @@
     background: var(--surface);
   }
   .area-admin .chip-list-editor .chip,
-  .area-studio .tool-row-overrides .chip-list-editor .chip {
+  .area-studio .chip-list-editor .chip {
     display: inline-flex;
     align-items: center;
     gap: 4px;
@@ -353,7 +362,7 @@
     color: var(--fg);
   }
   .area-admin .chip-list-editor .chip-remove,
-  .area-studio .tool-row-overrides .chip-list-editor .chip-remove {
+  .area-studio .chip-list-editor .chip-remove {
     background: none;
     border: 0;
     color: var(--fg-faint);
@@ -363,11 +372,11 @@
     line-height: 1;
   }
   .area-admin .chip-list-editor .chip-remove:hover,
-  .area-studio .tool-row-overrides .chip-list-editor .chip-remove:hover {
+  .area-studio .chip-list-editor .chip-remove:hover {
     color: var(--accent);
   }
   .area-admin .chip-list-input,
-  .area-studio .tool-row-overrides .chip-list-input {
+  .area-studio .chip-list-input {
     flex: 1;
     min-width: 100px;
     border: 0;

@@ -83,12 +83,18 @@
     var networkAllowed = sandbox.network_allowed === true;
     html += '<div class="editor-section mcp-stdio-only' + (sandboxHidden ? ' is-hidden' : '') + '" data-testid="mcp-sandbox-section">';
     html += '<div class="section-title">Sandbox</div>';
-    // Network allowed checkbox (class="field-input" so attachStaticListeners
-    // wires dirty-tracking via change events).
-    html += '<div class="field-row admin-pf-row">';
-    html += '<label for="mf-sandbox-network-allowed">';
-    html += '<input type="checkbox" class="field-input" id="mf-sandbox-network-allowed" data-field="sandbox-network-allowed"' + (networkAllowed ? ' checked' : '') + ' />';
-    html += ' Allow network access';
+    // Network allowed: 2-column field-row (label left, iOS-style toggle right).
+    // Mirrors admin tools-editor's renderEnabledRow pattern. The
+    // class="field-input" on the checkbox keeps attachStaticListeners wiring
+    // dirty-tracking via change events.
+    var netTitleText = networkAllowed
+      ? 'Network access enabled'
+      : 'Network access disabled';
+    html += '<div class="field-row admin-pf-row mf-sandbox-network-row">';
+    html += '<label for="mf-sandbox-network-allowed">Allow network access</label>';
+    html += '<label class="tool-enable-switch" title="' + escapeAttr(netTitleText) + '">';
+    html += '<input type="checkbox" class="field-input" id="mf-sandbox-network-allowed" data-field="sandbox-network-allowed"' + (networkAllowed ? ' checked' : '') + ' aria-label="Allow network access" />';
+    html += '<span class="tool-enable-switch-track" aria-hidden="true"></span>';
     html += '</label>';
     html += '</div>';
     // Writable paths chip-list (mounted via App.adminFormHelpers post-innerHTML).
