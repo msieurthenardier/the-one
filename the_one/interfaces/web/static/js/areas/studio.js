@@ -856,6 +856,13 @@ App.registerArea({
       var isInput = oldNode.tagName === 'INPUT';
       if (wantInput === isInput) return;  // already the right type — no swap needed
 
+      // Preserve the prior model value across the swap (review I5). Without
+      // this, switching provider types as a means of comparison silently
+      // wipes the saved model name and leaves the form falsely dirty with
+      // an empty input. Read both `value` and `dataset.pendingValue` so we
+      // also carry through values queued for an in-flight model fetch.
+      var preservedValue = (oldNode.value || oldNode.dataset.pendingValue || '');
+
       var newNode;
       if (wantInput) {
         newNode = document.createElement('input');
@@ -865,6 +872,11 @@ App.registerArea({
         newNode.setAttribute('list', 'studio-model-list');
         newNode.dataset.field = 'llm_model';
         newNode.placeholder = 'Type to filter (e.g. anthropic/claude)';
+        // Seed the visible input value so the operator's prior selection
+        // survives the swap. Whether or not the new provider exposes the
+        // same model id, the value remains in the input — datalist filter
+        // shows the user the closest matches; agent can re-pick if needed.
+        if (preservedValue) newNode.value = preservedValue;
         // Ensure the datalist sibling exists next to the new input.
         if (!editorEl.querySelector('#studio-model-list')) {
           var dl = document.createElement('datalist');
@@ -876,6 +888,10 @@ App.registerArea({
         newNode.id = 'studio-model';
         newNode.className = 'field-input field-select';
         newNode.dataset.field = 'llm_model';
+        // The select has no options yet; the upcoming
+        // fetchModelsForProvider populates them and then honors
+        // `dataset.pendingValue` to restore the selection.
+        if (preservedValue) newNode.dataset.pendingValue = preservedValue;
         // Remove orphan datalist if present.
         var dl2 = editorEl.querySelector('#studio-model-list');
         if (dl2) dl2.remove();

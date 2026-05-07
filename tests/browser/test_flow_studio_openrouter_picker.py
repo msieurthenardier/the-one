@@ -167,3 +167,65 @@ def test_studio_picker_lifecycle_on_type_switch(
         assert actual_tag == expected_tag, (
             f"After switching to provider {prov_id!r}: expected {expected_tag}, got {actual_tag!r}"
         )
+
+
+@pytest.mark.browser
+def test_picker_preserves_value_across_type_switch(
+    app_with_two_providers,
+    page: Page,
+) -> None:
+    """Switching provider types preserves the typed/selected model value.
+
+    Operators frequently switch provider types as a means of comparison
+    (e.g. "what does Anthropic charge for the same model?"). The model
+    name should NOT silently disappear from the input on every flip —
+    the form would go falsely "dirty" with an empty value, and the user
+    has to retype the same identifier on every switch.
+
+    Sequence:
+      1. Select OpenRouter, type a model name into the input
+      2. Switch to Ollama (picker swaps INPUT -> SELECT)
+      3. Switch back to OpenRouter (picker swaps SELECT -> INPUT)
+      4. The original model name is still in the input
+    """
+    base_url = app_with_two_providers["base_url"]
+    openrouter_id = app_with_two_providers["openrouter_id"]
+    ollama_id = app_with_two_providers["ollama_id"]
+
+    page.goto(f"{base_url}#studio")
+    expect(page.locator(".page-title")).to_have_text("Agents", timeout=8000)
+    page.locator('[data-testid="new-agent-btn-empty"]').click()
+    expect(page.locator(".editor-title")).to_have_text("New Agent", timeout=8000)
+
+    # Step 1: select OpenRouter, wait for INPUT picker to be ready.
+    page.locator("#studio-provider").select_option(openrouter_id)
+    expect(page.locator("#studio-model")).to_have_count(1, timeout=3000)
+    tag = page.evaluate("document.getElementById('studio-model').tagName")
+    assert tag == "INPUT"
+
+    # Type a custom model name.
+    page.locator("#studio-model").fill("anthropic/claude-3.5-sonnet")
+    # Read it back to confirm it landed.
+    expect(page.locator("#studio-model")).to_have_value(
+        "anthropic/claude-3.5-sonnet", timeout=2000
+    )
+
+    # Step 2: switch to Ollama — picker swaps to SELECT.
+    page.locator("#studio-provider").select_option(ollama_id)
+    expect(page.locator("#studio-model")).to_have_count(1, timeout=2000)
+    tag = page.evaluate("document.getElementById('studio-model').tagName")
+    assert tag == "SELECT"
+
+    # Step 3: switch back to OpenRouter — picker swaps to INPUT again.
+    page.locator("#studio-provider").select_option(openrouter_id)
+    expect(page.locator("#studio-model")).to_have_count(1, timeout=2000)
+    tag = page.evaluate("document.getElementById('studio-model').tagName")
+    assert tag == "INPUT"
+
+    # Step 4: the original model name should still be present.
+    # Either as the visible value (if SELECT preserved pendingValue and
+    # the new INPUT was seeded), or as the datalist-resolved value after
+    # fetchModelsForProvider re-applied pendingValue.
+    expect(page.locator("#studio-model")).to_have_value(
+        "anthropic/claude-3.5-sonnet", timeout=3000
+    )
