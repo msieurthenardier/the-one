@@ -1646,3 +1646,29 @@ class TestOpenRouterValidation:
         cfg = get_resp.json()["config"]
         assert cfg.get("referer") == "https://myapp.example"
         assert cfg.get("title") == "MyApp"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("non_string_referer", [42, ["x"], {"a": 1}])
+    async def test_referer_non_string_rejected_with_422(self, client, non_string_referer) -> None:
+        body = {
+            "name": "OR",
+            "type": "openrouter",
+            "base_url": "https://openrouter.ai/api/v1",
+            "api_key": "k",
+            "config": {"referer": non_string_referer},
+        }
+        resp = await client.post("/api/providers", json=body)
+        assert resp.status_code == 422, resp.text
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("non_string_title", [42, ["x"], {"a": 1}])
+    async def test_title_non_string_rejected_with_422(self, client, non_string_title) -> None:
+        body = {
+            "name": "OR",
+            "type": "openrouter",
+            "base_url": "https://openrouter.ai/api/v1",
+            "api_key": "k",
+            "config": {"title": non_string_title},
+        }
+        resp = await client.post("/api/providers", json=body)
+        assert resp.status_code == 422, resp.text

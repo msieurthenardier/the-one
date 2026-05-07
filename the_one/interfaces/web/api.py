@@ -103,6 +103,8 @@ def _validate_openrouter_config(config: dict | None) -> dict:
                     status_code=422,
                     detail="config.referer must be an http(s):// URL",
                 )
+    elif referer is not None:
+        raise HTTPException(status_code=422, detail="config.referer must be a string")
 
     title = cfg.get("title")
     if isinstance(title, str):
@@ -118,6 +120,8 @@ def _validate_openrouter_config(config: dict | None) -> dict:
                 status_code=422,
                 detail=f"config.title must be ≤ {_OPENROUTER_TITLE_MAX} chars",
             )
+    elif title is not None:
+        raise HTTPException(status_code=422, detail="config.title must be a string")
 
     return cfg
 
