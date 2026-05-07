@@ -105,7 +105,11 @@ async def list_running(base_url: str) -> list[dict[str, Any]]:
     return data.get("models", [])
 
 
-async def show_model(base_url: str, model: str) -> dict[str, Any]:
+async def show_model(
+    base_url: str,
+    model: str,
+    headers: dict[str, str] | None = None,
+) -> dict[str, Any]:
     """Return model details from ``/api/show``.
 
     The returned dict always includes the keys ``parameter_size`` (int or
@@ -114,7 +118,7 @@ async def show_model(base_url: str, model: str) -> dict[str, Any]:
     """
     url = strip_v1(base_url)
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with httpx.AsyncClient(timeout=30, headers=headers or {}) as client:
             resp = await client.post(f"{url}/api/show", json={"model": model})
             resp.raise_for_status()
             data = resp.json()
@@ -167,7 +171,11 @@ async def get_model_capabilities(base_url: str, model: str) -> frozenset[str] | 
     return caps
 
 
-async def chat_stream(provider_url: str, body: dict[str, Any]) -> AsyncIterator[dict[str, Any]]:
+async def chat_stream(
+    provider_url: str,
+    body: dict[str, Any],
+    headers: dict[str, str] | None = None,
+) -> AsyncIterator[dict[str, Any]]:
     """Stream ``/v1/chat/completions`` SSE chunks from an OpenAI-compatible Ollama endpoint.
 
     Yields parsed JSON dicts for each ``data: {...}`` line. Stops on
@@ -176,7 +184,7 @@ async def chat_stream(provider_url: str, body: dict[str, Any]) -> AsyncIterator[
     """
     url = ensure_v1(provider_url)
     try:
-        async with httpx.AsyncClient(timeout=600) as client:
+        async with httpx.AsyncClient(timeout=600, headers=headers or {}) as client:
             async with client.stream(
                 "POST", f"{url}/chat/completions", json={**body, "stream": True}
             ) as resp:

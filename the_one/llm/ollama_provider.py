@@ -24,10 +24,20 @@ class OllamaProvider(LLMProvider):
         self,
         model: str = "",
         base_url: str = "http://localhost:11434/v1",
+        api_key: str | None = None,
         **kwargs: Any,
     ):
         self.model = model
         self.base_url = ollama_api.ensure_v1(base_url or "http://localhost:11434/v1")
+        self.api_key = api_key
+
+    def _auth_headers(self) -> dict[str, str]:
+        """Return ``{Authorization: Bearer <key>}`` only when api_key is
+        present and non-empty after strip. Empty / whitespace / None all
+        produce ``{}`` so OSS Ollama (which rejects empty bearer) keeps
+        working unchanged."""
+        key = (self.api_key or "").strip()
+        return {"Authorization": f"Bearer {key}"} if key else {}
 
     async def supports_tools(self) -> bool:
         """Returns False if the Ollama model is known not to advertise the
@@ -57,7 +67,7 @@ class OllamaProvider(LLMProvider):
         if tools:
             payload["tools"] = [self.tool_schema(t) for t in tools]
 
-        async with httpx.AsyncClient(timeout=300) as client:
+        async with httpx.AsyncClient(timeout=300, headers=self._auth_headers()) as client:
             resp = await client.post(
                 f"{self.base_url}/chat/completions",
                 json=payload,
@@ -65,8 +75,7 @@ class OllamaProvider(LLMProvider):
             if resp.status_code >= 400:
                 detail = resp.text.strip() or "(empty body)"
                 raise httpx.HTTPStatusError(
-                    f"Ollama returned {resp.status_code} from "
-                    f"{resp.request.url}: {detail}",
+                    f"Ollama returned {resp.status_code} from {resp.request.url}: {detail}",
                     request=resp.request,
                     response=resp,
                 )
@@ -132,7 +141,9 @@ class OllamaProvider(LLMProvider):
         tool_calls_acc: dict[int, dict[str, str]] = {}
         usage: TokenUsage | None = None
 
-        async for chunk_dict in ollama_api.chat_stream(self.base_url, body):
+        async for chunk_dict in ollama_api.chat_stream(
+            self.base_url, body, headers=self._auth_headers()
+        ):
             choices = chunk_dict.get("choices") or []
             if not choices:
                 if "usage" in chunk_dict:
