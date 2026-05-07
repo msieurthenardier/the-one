@@ -23,9 +23,31 @@ import time
 from typing import Any
 
 import httpx
+from pydantic import BaseModel, ConfigDict
+
+
+class OpenRouterModelEntry(BaseModel):
+    """Typed shape for a single entry returned by ``GET /models``.
+
+    Only the fields read by the Studio model-list / capability chip are
+    declared explicitly; everything else flows through via
+    ``extra='allow'`` so future OpenRouter response additions don't
+    require a release here. ``description`` defaults to ``""`` (matching
+    the previous ``m.get("description", "")`` callsite); the rest default
+    to ``None`` so a minimal ``{"id": "..."}`` payload validates.
+    """
+
+    id: str
+    name: str | None = None
+    supported_parameters: list[str] | None = None
+    context_length: int | None = None
+    description: str = ""
+
+    model_config = ConfigDict(extra="allow")
+
 
 _CACHE_TTL = 300  # seconds
-_models_cache: dict[tuple[str, str], tuple[list[dict[str, Any]], float]] = {}
+_models_cache: dict[tuple[str, str], tuple[list[OpenRouterModelEntry], float]] = {}
 
 
 def _cache_key(base_url: str, api_key: str | None) -> tuple[str, str]:
@@ -39,8 +61,10 @@ def _auth_headers(api_key: str | None) -> dict[str, str]:
     return {"Authorization": f"Bearer {key}"} if key else {}
 
 
-async def list_models(base_url: str, api_key: str | None) -> list[dict[str, Any]]:
+async def list_models(base_url: str, api_key: str | None) -> list[OpenRouterModelEntry]:
     """Fetch and cache ``GET {base_url}/models``.
+
+    Returns a list of ``OpenRouterModelEntry`` (typed, extra-fields allowed).
 
     Raises:
         httpx.HTTPStatusError: on 4xx / 5xx response.
@@ -49,16 +73,16 @@ async def list_models(base_url: str, api_key: str | None) -> list[dict[str, Any]
 
     Test seam: if the environment variable
     ``THE_ONE_OPENROUTER_TEST_MODELS_JSON`` is set, its JSON value is
-    returned directly without any network call.  Intended only for
-    browser-test subprocesses that cannot share in-process cache state
-    with the test runner.
+    parsed into ``OpenRouterModelEntry`` instances directly without any
+    network call.  Intended only for browser-test subprocesses that
+    cannot share in-process cache state with the test runner.
     """
     test_json = os.environ.get("THE_ONE_OPENROUTER_TEST_MODELS_JSON")
     if test_json:
-        models = json.loads(test_json)
-        if not isinstance(models, list):
+        raw = json.loads(test_json)
+        if not isinstance(raw, list):
             raise ValueError("THE_ONE_OPENROUTER_TEST_MODELS_JSON must be a JSON array")
-        return models
+        return [OpenRouterModelEntry.model_validate(item) for item in raw]
 
     cache_key = _cache_key(base_url, api_key)
     cached = _models_cache.get(cache_key)
@@ -72,9 +96,10 @@ async def list_models(base_url: str, api_key: str | None) -> list[dict[str, Any]
         data = resp.json()
     if not isinstance(data, dict) or "data" not in data:
         raise ValueError(f"Unexpected payload shape from {url}: missing 'data' key")
-    models = data["data"]
-    if not isinstance(models, list):
-        raise ValueError(f"Unexpected 'data' type from {url}: {type(models).__name__}")
+    raw = data["data"]
+    if not isinstance(raw, list):
+        raise ValueError(f"Unexpected 'data' type from {url}: {type(raw).__name__}")
+    models = [OpenRouterModelEntry.model_validate(item) for item in raw]
     _models_cache[cache_key] = (models, time.time())
     return models
 
@@ -115,8 +140,8 @@ async def get_model_capabilities(
         return None
 
     for entry in models:
-        if entry.get("id") == model:
-            params = entry.get("supported_parameters")
+        if entry.id == model:
+            params = entry.supported_parameters
             if not isinstance(params, list) or len(params) == 0:
                 return None
             return frozenset(p for p in params if isinstance(p, str))

@@ -8,6 +8,7 @@ import httpx
 import pytest
 
 from the_one.llm import openrouter_api
+from the_one.llm.openrouter_api import OpenRouterModelEntry
 
 
 @pytest.fixture(autouse=True)
@@ -37,7 +38,75 @@ class TestListModels:
         _mock_async_client(monkeypatch, handler)
 
         result = await openrouter_api.list_models("https://openrouter.ai/api/v1", "k1")
-        assert result == [{"id": "m1"}, {"id": "m2"}]
+        # list_models now returns OpenRouterModelEntry objects (typed shape).
+        assert all(isinstance(entry, OpenRouterModelEntry) for entry in result)
+        assert [entry.id for entry in result] == ["m1", "m2"]
+
+    async def test_entry_attribute_access(self, monkeypatch):
+        """The returned entries expose attribute access — ``entry.id``,
+        ``entry.name``, ``entry.supported_parameters`` — matching the
+        Studio capability-chip / list-models renderer's expectations."""
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                json={
+                    "data": [
+                        {
+                            "id": "m1",
+                            "name": "Model One",
+                            "supported_parameters": ["tools"],
+                            "context_length": 128_000,
+                            "description": "A model.",
+                        }
+                    ]
+                },
+            )
+
+        _mock_async_client(monkeypatch, handler)
+
+        result = await openrouter_api.list_models("https://openrouter.ai/api/v1", "k")
+        entry = result[0]
+        assert entry.id == "m1"
+        assert entry.name == "Model One"
+        assert entry.supported_parameters == ["tools"]
+        assert entry.context_length == 128_000
+        assert entry.description == "A model."
+
+    async def test_entry_forward_compat_extra_fields(self, monkeypatch):
+        """``OpenRouterModelEntry`` is ``extra='allow'``; an unknown field
+        from a future OpenRouter response shape must NOT raise."""
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                json={"data": [{"id": "m1", "future_field": "value"}]},
+            )
+
+        _mock_async_client(monkeypatch, handler)
+
+        result = await openrouter_api.list_models("https://openrouter.ai/api/v1", "k")
+        assert result[0].id == "m1"
+        # Extra-allowed fields are accessible via model_extra in pydantic v2.
+        assert result[0].model_extra["future_field"] == "value"
+
+    async def test_entry_optional_fields_default_to_none(self, monkeypatch):
+        """A minimal payload (``id`` only) must validate with ``name`` /
+        ``supported_parameters`` / ``context_length`` defaulted, and
+        ``description`` empty-string."""
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={"data": [{"id": "m1"}]})
+
+        _mock_async_client(monkeypatch, handler)
+
+        result = await openrouter_api.list_models("https://openrouter.ai/api/v1", "k")
+        entry = result[0]
+        assert entry.id == "m1"
+        assert entry.name is None
+        assert entry.supported_parameters is None
+        assert entry.context_length is None
+        assert entry.description == ""
 
     async def test_sends_authorization_when_key_set(self, monkeypatch):
         captured: list[httpx.Request] = []

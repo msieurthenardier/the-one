@@ -1042,13 +1042,13 @@ async def list_provider_models(provider_id: str) -> list[dict[str, Any]]:
             raise HTTPException(status_code=502, detail=f"OpenRouter unreachable: {e}")
         return [
             {
-                "id": m.get("id"),
-                "name": m.get("name", m.get("id")),
-                "supported_parameters": m.get("supported_parameters") or [],
-                "context_length": m.get("context_length"),
-                "description": m.get("description", ""),
+                "id": m.id,
+                "name": m.name if m.name else m.id,
+                "supported_parameters": m.supported_parameters or [],
+                "context_length": m.context_length,
+                "description": m.description,
                 # alias for the Studio capability chip — frontend reads `capabilities`
-                "capabilities": m.get("supported_parameters") or [],
+                "capabilities": m.supported_parameters or [],
             }
             for m in raw
         ]
