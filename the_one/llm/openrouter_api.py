@@ -44,7 +44,23 @@ async def list_models(base_url: str, api_key: str | None) -> list[dict[str, Any]
         httpx.HTTPStatusError: on 4xx / 5xx response.
         httpx.RequestError: on network failure.
         ValueError: on JSON parse / shape failure.
+
+    Test seam: if the environment variable
+    ``THE_ONE_OPENROUTER_TEST_MODELS_JSON`` is set, its JSON value is
+    returned directly without any network call.  Intended only for
+    browser-test subprocesses that cannot share in-process cache state
+    with the test runner.
     """
+    import json
+    import os
+
+    test_json = os.environ.get("THE_ONE_OPENROUTER_TEST_MODELS_JSON")
+    if test_json:
+        models = json.loads(test_json)
+        if not isinstance(models, list):
+            raise ValueError("THE_ONE_OPENROUTER_TEST_MODELS_JSON must be a JSON array")
+        return models
+
     cache_key = _cache_key(base_url, api_key)
     cached = _models_cache.get(cache_key)
     if cached is not None and (time.time() - cached[1]) < _CACHE_TTL:
