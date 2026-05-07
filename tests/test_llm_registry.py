@@ -98,3 +98,12 @@ class TestOpenAIProviderBaseURL:
         # that buggy path.
         default_client = openai.AsyncOpenAI(api_key="sk-test")
         assert prov.client.base_url == default_client.base_url
+
+
+class TestLazyLoadOpenRouter:
+    def test_get_openrouter_lazy_loads(self) -> None:
+        """get_provider('openrouter') should lazy-import openrouter_provider."""
+        from the_one.llm.openrouter_provider import OpenRouterProvider
+
+        prov = llm_registry.get_provider("openrouter", model="m", api_key="x")
+        assert isinstance(prov, OpenRouterProvider)

@@ -380,3 +380,10 @@ class TestListAgents:
         assert "default" in names
         assert "alpha" in names
         assert "bravo" in names
+
+
+class TestProviderTypeMap:
+    def test_openrouter_in_provider_type_map(self) -> None:
+        from the_one.agent.factory import _PROVIDER_TYPE_MAP
+
+        assert _PROVIDER_TYPE_MAP.get("openrouter") == "openrouter"

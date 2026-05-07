@@ -18,6 +18,7 @@ _PROVIDER_TYPE_MAP = {
     "openai": "openai",
     "anthropic": "anthropic",
     "mock": "mock",
+    "openrouter": "openrouter",
 }
 
 
