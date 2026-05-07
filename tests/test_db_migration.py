@@ -475,7 +475,7 @@ class TestSchemaV9:
         )
 
         # Rewind to v8.
-        await conn.execute("DELETE FROM schema_version WHERE version = 9")
+        await conn.execute("DELETE FROM schema_version WHERE version >= 9")
         await conn.commit()
 
         # Re-run — idempotent guard skips ALTER, INSERT OR IGNORE skips dup.
@@ -528,7 +528,7 @@ class TestSchemaV9:
             "INSERT INTO tool_configs (name, config) VALUES (?, ?)",
             ("chained", json.dumps({})),
         )
-        await conn.execute("DELETE FROM schema_version WHERE version = 9")
+        await conn.execute("DELETE FROM schema_version WHERE version >= 9")
         await conn.commit()
 
         await ensure_schema(conn)
@@ -543,7 +543,7 @@ class TestSchemaV9:
 class TestMigrationV10:
     """v9→v10: extend llm_providers.type CHECK to include 'openrouter'."""
 
-    async def test_v10_accepts_openrouter_type(self, tmp_path):
+    async def test_v10_accepts_openrouter_type(self, tmp_path) -> None:
         """A fresh schema (CURRENT_VERSION=10) must accept openrouter rows."""
         db_path = tmp_path / "v10.db"
         conn = await aiosqlite.connect(str(db_path))
@@ -552,21 +552,20 @@ class TestMigrationV10:
         await ensure_schema(conn)
 
         await conn.execute(
-            "INSERT INTO llm_providers (id, name, type, base_url) "
-            "VALUES (?, ?, ?, ?)",
+            "INSERT INTO llm_providers (id, name, type, base_url) VALUES (?, ?, ?, ?)",
             ("p1", "OpenRouter", "openrouter", "https://openrouter.ai/api/v1"),
         )
         await conn.commit()
 
-        async with conn.execute(
-            "SELECT type FROM llm_providers WHERE id = ?", ("p1",)
-        ) as cursor:
+        async with conn.execute("SELECT type FROM llm_providers WHERE id = ?", ("p1",)) as cursor:
             row = await cursor.fetchone()
         assert row["type"] == "openrouter"
         await conn.close()
 
-    async def test_v10_idempotent_rerun(self, tmp_path):
+    async def test_v10_idempotent_rerun(self, tmp_path) -> None:
         """Calling ensure_schema twice on a fresh DB is a no-op the second time."""
+        from the_one.db.schema import CURRENT_VERSION
+
         db_path = tmp_path / "idem.db"
         conn = await aiosqlite.connect(str(db_path))
         conn.row_factory = aiosqlite.Row
@@ -577,12 +576,19 @@ class TestMigrationV10:
 
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cursor:
             row = await cursor.fetchone()
-        assert row[0] == 10
+        assert row[0] == CURRENT_VERSION
         await conn.close()
 
-    async def test_v10_preserves_existing_rows_and_fk(self, tmp_path):
-        """Simulate a v9 DB with an llm_providers row referenced by an agent,
-        then run ensure_schema; row + FK reference must survive the rebuild."""
+    async def test_v10_preserves_existing_rows_and_fk(self, tmp_path) -> None:
+        """Idempotent re-apply: bootstrap to v10, delete the v10 schema_version
+        marker to simulate a partial-apply state, insert a row + FK reference,
+        then re-run ensure_schema. The migration block must be re-entered safely
+        and the row + FK reference must survive the table rebuild.
+
+        NOTE: This does NOT simulate a true v9→v10 upgrade because we cannot
+        reconstruct the v9 CHECK constraint shape via the current ensure_schema
+        path. The idempotent re-apply path it does cover is the more common
+        production hazard (process crash mid-migration)."""
         db_path = tmp_path / "upgrade.db"
         conn = await aiosqlite.connect(str(db_path))
         conn.row_factory = aiosqlite.Row
@@ -599,8 +605,7 @@ class TestMigrationV10:
         # (we just dropped the v10 marker, so the table has v10 columns; the
         # v10 migration is idempotent and must still work cleanly).
         await conn.execute(
-            "INSERT INTO llm_providers (id, name, type, base_url) "
-            "VALUES (?, ?, ?, ?)",
+            "INSERT INTO llm_providers (id, name, type, base_url) VALUES (?, ?, ?, ?)",
             ("p-keep", "MyOllama", "ollama", "http://localhost:11434/v1"),
         )
         await conn.execute(

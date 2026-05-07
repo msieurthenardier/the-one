@@ -388,8 +388,6 @@ ALTER TABLE llm_providers_new RENAME TO llm_providers;
 
 PRAGMA foreign_keys=ON;
 """)
-        await conn.execute(
-            "INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (10,)
-        )
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (10,))
         await conn.commit()
         version = 10
