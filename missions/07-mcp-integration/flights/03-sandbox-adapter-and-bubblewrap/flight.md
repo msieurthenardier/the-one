@@ -1,6 +1,6 @@
 # Flight: Local MCP Sandbox — Adapter Contract + Bubblewrap Linux Backend
 
-**Status**: landed
+**Status**: completed
 **Mission**: [MCP Integration](../../mission.md)
 
 ## Contributing to Criteria
