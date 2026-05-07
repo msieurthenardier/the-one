@@ -1672,3 +1672,135 @@ class TestOpenRouterValidation:
         }
         resp = await client.post("/api/providers", json=body)
         assert resp.status_code == 422, resp.text
+
+
+# ── api_key normalization at the Pydantic layer ──────────────────────────
+
+
+class TestApiKeyNormalization:
+    """Provider api_key is stripped to canonical form by the Pydantic
+    validator on ``LLMProviderConfig`` — the SAME canonical form for the
+    `/test`, `/models`, chat-create-time, and CRUD paths. Pre-normalization
+    each path stripped (or didn't strip) on its own which produced the
+    "works in /test, fails in chat" class of bug.
+
+    The model-level test pins the unit contract; the round-trip test pins
+    the API surface stores the canonical form (so a later GET masks the
+    stripped key, not the leading-spaces literal).
+    """
+
+    def test_pydantic_strips_whitespace(self) -> None:
+        from the_one.db.models import LLMProviderConfig
+
+        cfg = LLMProviderConfig(
+            id="x",
+            name="X",
+            type="openai",
+            base_url="https://api.openai.com/v1",
+            api_key="  sk-x  ",
+        )
+        assert cfg.api_key == "sk-x"
+
+    def test_pydantic_empty_after_strip_becomes_none(self) -> None:
+        from the_one.db.models import LLMProviderConfig
+
+        cfg = LLMProviderConfig(
+            id="x",
+            name="X",
+            type="openai",
+            base_url="https://api.openai.com/v1",
+            api_key="   ",
+        )
+        assert cfg.api_key is None
+
+    def test_pydantic_none_stays_none(self) -> None:
+        from the_one.db.models import LLMProviderConfig
+
+        cfg = LLMProviderConfig(
+            id="x",
+            name="X",
+            type="openai",
+            base_url="https://api.openai.com/v1",
+            api_key=None,
+        )
+        assert cfg.api_key is None
+
+    @pytest.mark.asyncio
+    async def test_create_strips_whitespace_round_trip(
+        self, client: AsyncClient
+    ) -> None:
+        """A POST with leading/trailing whitespace should mask to the stripped
+        last-4 (``sk-x`` → ``***``), not to ``  sk-x  ``."""
+        resp = await client.post(
+            "/api/providers",
+            json={
+                "name": "Whitespace",
+                "type": "openai",
+                "base_url": "https://api.openai.com/v1",
+                "api_key": "  sk-roundtrip-key  ",
+            },
+        )
+        assert resp.status_code == 201, resp.text
+        provider_id = resp.json()["id"]
+        # Mask format ``***...XXXX`` reads from the canonical (stripped) key.
+        assert resp.json()["api_key"] == "***...-key"
+
+        # GET reflects the stored canonical form.
+        get_resp = await client.get(f"/api/providers/{provider_id}")
+        assert get_resp.json()["api_key"] == "***...-key"
+
+    @pytest.mark.asyncio
+    async def test_create_whitespace_only_stored_as_none(
+        self, client: AsyncClient
+    ) -> None:
+        """A POST with only whitespace must be stored as NULL — masking returns
+        ``None`` rather than ``"   "`` or ``""``."""
+        resp = await client.post(
+            "/api/providers",
+            json={
+                "name": "WhitespaceOnly",
+                "type": "ollama",
+                "base_url": "http://localhost:11434/v1",
+                "api_key": "   ",
+            },
+        )
+        assert resp.status_code == 201, resp.text
+        provider_id = resp.json()["id"]
+        assert resp.json()["api_key"] is None
+
+        get_resp = await client.get(f"/api/providers/{provider_id}")
+        assert get_resp.json()["api_key"] is None
+
+    @pytest.mark.asyncio
+    async def test_masked_sentinel_path_unchanged(self, client: AsyncClient) -> None:
+        """The ``__MASKED__`` sentinel path runs BEFORE Pydantic validates the
+        new value (api.py:849-852) — the sentinel is replaced by the existing
+        stored key (already canonical) and re-validated. This test pins that
+        the canonical-storage and sentinel-preserve paths compose correctly:
+        a saved ``  sk-y  `` lands as ``sk-y``, and a subsequent rename via
+        ``__MASKED__`` keeps it as ``sk-y``."""
+        create_resp = await client.post(
+            "/api/providers",
+            json={
+                "name": "Sentinel",
+                "type": "openai",
+                "base_url": "https://api.openai.com/v1",
+                "api_key": "  sk-sentinel-key  ",
+            },
+        )
+        provider_id = create_resp.json()["id"]
+        # Stored key is canonical: last-4 of "sk-sentinel-key" is "-key".
+        assert create_resp.json()["api_key"] == "***...-key"
+
+        update_resp = await client.put(
+            f"/api/providers/{provider_id}",
+            json={
+                "name": "Renamed",
+                "type": "openai",
+                "base_url": "https://api.openai.com/v1",
+                "api_key": "__MASKED__",
+            },
+        )
+        assert update_resp.status_code == 200
+        # Same canonical mask survives the masked-update.
+        assert update_resp.json()["api_key"] == "***...-key"

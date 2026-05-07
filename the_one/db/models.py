@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Literal, get_args
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from the_one.db._provider_types import PROVIDER_TYPES
 
@@ -28,6 +28,29 @@ class LLMProviderConfig(BaseModel):
     config: dict = Field(default_factory=dict)
     created_at: str = Field(default_factory=_now_iso)
     updated_at: str = Field(default_factory=_now_iso)
+
+    @field_validator("api_key", mode="after")
+    @classmethod
+    def _normalize_api_key(cls, value: str | None) -> str | None:
+        """Strip whitespace and collapse empty results to ``None``.
+
+        This is the canonical-form contract for ``api_key``. Callers
+        (``/test``, ``/models``, chat-create, the SDK constructors) MUST
+        NOT re-strip — the stored value is already canonical, so any
+        downstream ``.strip()`` is a sign that an old code path is
+        defending against a bug that's already fixed at this layer.
+
+        The ``__MASKED__`` sentinel path in
+        ``the_one/interfaces/web/api.py::update_provider`` runs BEFORE
+        this validator (it overwrites ``data["api_key"]`` with the
+        existing-stored value, which is itself already canonical), so the
+        sentinel literal is never asked to round-trip through this
+        validator. Verified by ``test_masked_sentinel_path_unchanged``.
+        """
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
 
 
 # Pin the explicit ``Literal`` arg-set to ``PROVIDER_TYPES`` at import time so

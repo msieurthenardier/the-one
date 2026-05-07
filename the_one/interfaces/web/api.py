@@ -955,7 +955,10 @@ async def test_provider(provider_id: str) -> dict[str, Any]:
         elif provider.type == "openrouter":
             from the_one.llm import openrouter_api
 
-            key = (provider.api_key or "").strip()
+            # provider.api_key is already canonical-form (whitespace stripped,
+            # empty → None) by the LLMProviderConfig field validator, so a
+            # truthy check on the stored value is sufficient. No re-strip.
+            key = provider.api_key
             try:
                 if key:
                     await openrouter_api.verify_key(provider.base_url, key)
@@ -965,7 +968,7 @@ async def test_provider(provider_id: str) -> dict[str, Any]:
                         "detail": f"Connected. Key valid; {len(models)} models available.",
                     }
                 else:
-                    models = await openrouter_api.list_models(provider.base_url, "")
+                    models = await openrouter_api.list_models(provider.base_url, None)
                     return {
                         "status": "ok",
                         "detail": (
