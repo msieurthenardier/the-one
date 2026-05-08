@@ -63,7 +63,7 @@ from __future__ import annotations
 import os
 import re
 import tempfile
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from typing import AsyncIterator
 
 from mcp import ClientSession
@@ -363,3 +363,96 @@ async def connect_stdio(source: MCPSource) -> AsyncIterator[ClientSession]:
         async with stdio_client(params) as (read, write):
             async with ClientSession(read, write) as session:
                 yield session
+
+
+async def _open_stdio_transport_stack(
+    source: MCPSource,
+) -> tuple[ClientSession, AsyncExitStack]:
+    """Open an entered ClientSession over (sandboxed) stdio transport.
+
+    SAME-TASK CONTRACT: caller MUST drive ``stack.aclose()`` from the same task.
+
+    L2's bwrap-stderr translation must fire on EVERY teardown (matching
+    the existing ``connect_stdio`` ``finally:`` semantics). bwrap setup
+    can fail asynchronously: setup may succeed enough that
+    ``stdio_client.__aenter__`` returns, but bwrap then dies before the
+    MCP handshake completes — the ``McpError`` surfaces from
+    ``session.initialize()`` (run by the caller, OUTSIDE this helper).
+    Translation therefore CANNOT live in our ``except BaseException``
+    clause alone; it must run when the caller eventually closes the
+    returned stack.
+
+    Mechanism: push a translation callback onto the stack BEFORE
+    entering ``stdio_client``. AsyncExitStack runs callbacks in LIFO
+    order, so on unwind the order is:
+
+        ClientSession.__aexit__
+        stdio_client.__aexit__   (flushes bwrap stderr into errbuf)
+        translation callback     (reads errbuf, raises MCPSandboxError if matched)
+        SpooledTemporaryFile.__exit__  (closes errbuf — but only AFTER
+                                        translation has read it)
+
+    The translation callback raises the translated ``MCPSandboxError``
+    if the captured stderr matches an F3 §6 catalog pattern, replacing
+    any in-flight exception so the caller sees the bwrap diagnostic
+    rather than the downstream ``McpError`` / ``Connection closed``
+    wrapping.
+
+    The existing ``connect_stdio`` ``@asynccontextmanager`` continues to
+    exist for back-compat with its 9 prior async-CM callers in
+    ``tests/test_mcp_stdio_sandbox.py``.
+    """
+    params = _build_stdio_params(source)
+    sandboxed = not _sandbox_disabled_for_tests()
+    stack = AsyncExitStack()
+    # cycle-1 M1: init before try so the except-clause guard is safe even
+    # if `enter_context(SpooledTemporaryFile(...))` raises before assignment.
+    errbuf = None
+    try:
+        if sandboxed:
+            errbuf = stack.enter_context(
+                tempfile.SpooledTemporaryFile(
+                    mode="w+", encoding="utf-8", errors="replace"
+                )
+            )
+
+            # Push translation callback BEFORE entering stdio_client so
+            # that LIFO unwind runs translation AFTER stdio_client's
+            # __aexit__ flushes stderr and BEFORE SpooledTemporaryFile
+            # closes. The closure captures errbuf by reference; the
+            # callback reads it, pattern-matches, and raises the
+            # translated MCPSandboxError on match.
+            errbuf_ref = errbuf
+
+            def _translate_on_unwind() -> None:
+                stderr_text = ""
+                try:
+                    errbuf_ref.seek(0)
+                    stderr_text = errbuf_ref.read()
+                except Exception:
+                    stderr_text = ""
+                if not stderr_text:
+                    return
+                sandbox_err = _translate_bwrap_stderr(stderr_text)
+                if sandbox_err is not None:
+                    raise sandbox_err
+
+            stack.callback(_translate_on_unwind)
+
+            read, write = await stack.enter_async_context(
+                stdio_client(params, errlog=errbuf)
+            )
+        else:
+            read, write = await stack.enter_async_context(stdio_client(params))
+        session = await stack.enter_async_context(ClientSession(read, write))
+        return session, stack
+    except BaseException as exc:
+        # Entry-failure path: stdio_client or ClientSession entry raised
+        # before we could return. Drain the stack (which runs the
+        # translation callback if it was registered) and let any
+        # MCPSandboxError replace the original exception.
+        try:
+            await stack.aclose()
+        except MCPSandboxError as sandbox_err:
+            raise sandbox_err from exc
+        raise

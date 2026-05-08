@@ -6,6 +6,7 @@ import json
 import logging
 import uuid
 from contextlib import asynccontextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -33,7 +34,7 @@ from the_one.db.repositories import ChatSessionRepository, LLMProviderRepository
 from the_one.encryption import get_encryptor
 from the_one.interfaces.web.api import router as api_router
 from the_one.interfaces.web.middleware import OriginAllowlistMiddleware, build_default_allowlist
-from the_one.llm.base import Role
+from the_one.llm.base import Message, Role
 from the_one.mcp import shutdown_drain as _mcp_pool_shutdown_drain
 from the_one.tools._session_registry import shutdown_drain as _session_registry_shutdown_drain
 
@@ -53,6 +54,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     store = SQLiteAgentStore(conn)
     await migrate_json_to_sqlite(store)
     _state["factory"] = AgentFactory(store=store)
+    # F5 L2: start the OAuth pending-flow TTL sweep task. The
+    # ``_state`` (OAuth) module is reached via the public lifespan
+    # hooks ``start_periodic_sweep`` / ``stop_periodic_sweep`` — NOT
+    # imported directly — to avoid shadowing this module's existing
+    # ``_state: dict[str, Any]`` global at app.py:103.
+    from the_one.mcp.oauth import start_periodic_sweep
+    start_periodic_sweep()
     yield
     # Drain the PTY session registry on shutdown — cancels the idle
     # reaper task and closes any live sessions. Wrapped in
@@ -68,6 +76,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if _inflight_tasks:
         with contextlib.suppress(Exception):
             await asyncio.gather(*list(_inflight_tasks), return_exceptions=True)
+    # F5 L3: drain in-flight resume tasks alongside the message-processing
+    # tasks. Resume tasks are spawned by the OAuth-callback route via
+    # ``asyncio.create_task(_resume_paused_session(...))``.
+    for task in list(_inflight_resume_tasks):
+        task.cancel()
+    if _inflight_resume_tasks:
+        with contextlib.suppress(Exception):
+            await asyncio.gather(
+                *list(_inflight_resume_tasks), return_exceptions=True
+            )
     try:
         await _session_registry_shutdown_drain()
     except Exception:
@@ -82,6 +100,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await _mcp_pool_shutdown_drain()
     except Exception:
         logger.exception("MCP pool shutdown failed")
+    # F5 L2: stop the OAuth pending-flow TTL sweep task. Runs AFTER the
+    # MCP pool drain so any in-flight OAuth refreshes triggered by
+    # pool teardown can complete first.
+    from the_one.mcp.oauth import stop_periodic_sweep
+    try:
+        await stop_periodic_sweep()
+    except Exception:
+        logger.exception("OAuth periodic sweep shutdown failed")
     await close_connection()
 
 
@@ -152,6 +178,38 @@ _sessions: dict[str, Session] = {}
 # detached coroutine). Tasks self-discard on completion via `add_done_callback`.
 _inflight_tasks: set[asyncio.Task] = set()
 
+# F5 L3: tasks driving ``_resume_paused_session`` after the OAuth-callback
+# route resolves a paused agent. Tracked separately from ``_inflight_tasks``
+# so the lifespan teardown can drain both in one pass; the OAuth-callback
+# route adds tasks here via ``asyncio.create_task``.
+_inflight_resume_tasks: set[asyncio.Task] = set()
+
+
+# F5 L5: per-task ContextVar carrying the chat session id of the currently-
+# dispatching agent step. Set at the boundary of ``_spawn_message_processing``
+# / ``_resume_paused_session`` so the F4 pool's ``_entry_worker`` (which
+# constructs ``MCPClient`` ahead of any tool call) can read the value when
+# building the OAuth provider via ``build_oauth_provider_for_source`` —
+# the SDK's ``redirect_handler`` then broadcasts ``auth_required`` to the
+# right session.
+#
+# Architectural debt (carried to F6): the proper boundary for setting this
+# is INSIDE ``Agent._execute_tool``, one set-per-tool-dispatch with the
+# tool_call_id available too. F6 will move it there. For L5, setting it at
+# the message-processing boundary is sufficient because each chat session
+# has at most one in-flight ``agent.step`` at a time (per-session
+# processing_lock at app.py:153).
+#
+# Best-effort fallback: when the contextvar is unset (e.g. pool spawn
+# triggered outside an agent dispatch — rare but possible during cold
+# startup if the operator pre-warms the pool via direct API), the OAuth
+# handlers' lazy ``_sessions`` lookup falls back to the most-recently-
+# active session in ``_sessions``. May misroute in multi-tab scenarios;
+# documented as a known issue in the F5 flight log A17 notes.
+current_chat_session_id: ContextVar[str | None] = ContextVar(
+    "current_chat_session_id", default=None
+)
+
 
 async def _spawn_message_processing(
     session: Session,
@@ -171,6 +229,11 @@ async def _spawn_message_processing(
     if session.processing_lock is None:
         session.processing_lock = asyncio.Lock()
     async with session.processing_lock:
+        # F5 L5: bind the current chat_session_id into the per-task
+        # ContextVar so any pool-spawned MCP OAuth provider construction
+        # below (via ``_entry_worker`` → ``build_oauth_provider_for_source``)
+        # can route ``auth_required`` broadcasts back to THIS session.
+        token = current_chat_session_id.set(session.id)
         try:
             await _process_and_broadcast(
                 session, user_input, source=source, exclude_user_echo=exclude_user_echo
@@ -189,6 +252,8 @@ async def _spawn_message_processing(
                         "content": "An error occurred while processing your message.",
                     },
                 )
+        finally:
+            current_chat_session_id.reset(token)
 
 
 # ── Session health classification ────────────────────────────────────────
@@ -514,6 +579,112 @@ async def _ensure_ollama_model_loaded(session: Session) -> None:
         )
 
 
+def _auth_required_event_from_metadata(meta: dict[str, Any]) -> dict[str, Any]:
+    """Build the ``auth_required`` WebSocket event payload from ``ToolResult.metadata``.
+
+    Used by ``_broadcast_one`` (lazy-path step + resume) and the
+    WebSocket reconnect snapshot. Field set must match L2's
+    ``redirect_handler`` payload in
+    ``the_one/mcp/oauth/handlers.py`` — they share the UI consumer.
+
+    F5 L3 cross-leg seam (cycle-1 D10): the lazy path MAY emit
+    ``consent_url=None`` because the SDK flow has not yet constructed
+    the authorize URL when the pause fires. The chat UI renders a
+    "Login required" button on the first event; clicking it triggers
+    L4's SDK flow, which routes through L2's ``redirect_handler`` and
+    broadcasts a SECOND ``auth_required`` event with the real
+    ``consent_url``. The UI uses the second event's URL to open the
+    consent tab. L4 + L5 lock the trigger mechanism (likely a new POST
+    endpoint owned by L4).
+    """
+    return {
+        "type": "auth_required",
+        "source_id": meta.get("source_id"),
+        "resource_metadata_url": meta.get("resource_metadata_url"),
+        "tool_call_id": meta.get("tool_call_id"),
+        "consent_url": meta.get("consent_url"),  # MAY be None on lazy path
+    }
+
+
+def _is_auth_required_pause(msg: Message) -> bool:
+    """Return True if a yielded message is the auth_required pause surface."""
+    return bool(
+        msg.role == Role.TOOL
+        and msg.tool_result is not None
+        and msg.tool_result.metadata
+        and msg.tool_result.metadata.get("is_auth_required")
+    )
+
+
+async def _broadcast_one(
+    session: Session,
+    msg: Message,
+    source: str = "step",
+    chunks_seen: bool = False,
+) -> None:
+    """Translate a single yielded ``Message`` to its WebSocket event(s).
+
+    Used by both ``_process_and_broadcast`` (step path) and
+    ``_resume_paused_session`` (resume path). For the auth_required
+    pause surface, broadcasts the ``auth_required`` event INSTEAD of
+    ``tool_result``; callers must check ``_is_auth_required_pause(msg)``
+    after invoking this helper to decide whether to skip the trailing
+    ``done`` event.
+
+    ``chunks_seen``: assistant-streaming flag from the caller. When
+    True (chunks already fanned out via ``assistant_chunk``), the
+    legacy ``assistant`` event is suppressed to avoid a duplicate
+    render in the chat UI.
+
+    ``source``: included in the user event for chat-UI provenance
+    (only forwarded into the user echo by ``_process_and_broadcast``;
+    ``_broadcast_one`` itself only handles assistant + tool messages).
+    """
+    if msg.role == Role.ASSISTANT:
+        if msg.usage:
+            usage_event = {
+                "type": "usage",
+                "input_tokens": msg.usage.input_tokens,
+                "output_tokens": msg.usage.output_tokens,
+                "context_tokens": msg.usage.input_tokens,
+                "max_context_tokens": session.agent.llm.max_context_tokens,
+            }
+            await _send_to_session(session, usage_event)
+
+        if msg.content:
+            event: dict[str, Any] = {"type": "assistant", "content": msg.content}
+            session.add_event(event)
+            if not chunks_seen:
+                await _send_to_session(session, event)
+        if msg.tool_calls:
+            for tc in msg.tool_calls:
+                tc_event = {
+                    "type": "tool_call",
+                    "name": tc.name,
+                    "arguments": tc.arguments,
+                }
+                session.add_event(tc_event)
+                await _send_to_session(session, tc_event)
+
+    elif msg.role == Role.TOOL and msg.tool_result is not None:
+        meta = msg.tool_result.metadata
+        if meta and meta.get("is_auth_required"):
+            # F5 L3: pause path — broadcast ``auth_required`` INSTEAD of
+            # ``tool_result``. Caller is responsible for skipping the
+            # trailing ``done`` event (the step is paused, not finished).
+            await _send_to_session(
+                session, _auth_required_event_from_metadata(meta)
+            )
+            return
+        tr_event = {
+            "type": "tool_result",
+            "content": msg.tool_result.content[:2000],
+            "is_error": msg.tool_result.is_error,
+        }
+        session.add_event(tr_event)
+        await _send_to_session(session, tr_event)
+
+
 async def _process_and_broadcast(
     session: Session,
     user_input: str,
@@ -543,6 +714,7 @@ async def _process_and_broadcast(
     # still renders). Reset UNCONDITIONALLY at the end of each Role.ASSISTANT
     # block so iteration N+1 starts clean (multi-iteration agent loops).
     chunks_seen = False
+    paused = False
 
     async def _broadcast_chunk(content: str) -> None:
         nonlocal chunks_seen
@@ -553,6 +725,11 @@ async def _process_and_broadcast(
         async for msg in session.agent.step(user_input, on_chunk=_broadcast_chunk):
             if msg.role == Role.ASSISTANT:
                 if msg.usage:
+                    # Per-step usage accumulators are tracked here (NOT in
+                    # ``_broadcast_one``) because they are step-scoped —
+                    # resume re-enters the iteration loop with a fresh
+                    # ``_broadcast_one`` that emits per-iteration usage
+                    # events without double-counting.
                     total_input += msg.usage.input_tokens
                     total_output += msg.usage.output_tokens
                     last_input = msg.usage.input_tokens
@@ -595,6 +772,19 @@ async def _process_and_broadcast(
                 chunks_seen = False
 
             elif msg.role == Role.TOOL and msg.tool_result:
+                meta = msg.tool_result.metadata
+                if meta and meta.get("is_auth_required"):
+                    # F5 L3 pause path: broadcast ``auth_required`` INSTEAD
+                    # of ``tool_result``; do NOT append to result_messages
+                    # (the API caller would otherwise see a partial result
+                    # set with no clear pause signal); SKIP the trailing
+                    # ``done`` event below — the WS subscribers are still
+                    # awaiting the auth resolution.
+                    await _send_to_session(
+                        session, _auth_required_event_from_metadata(meta)
+                    )
+                    paused = True
+                    break
                 tr_event = {
                     "type": "tool_result",
                     "content": msg.tool_result.content[:2000],
@@ -626,8 +816,112 @@ async def _process_and_broadcast(
     except Exception:
         logger.warning("Failed to save session %s after exchange", session.id, exc_info=True)
 
-    await _send_to_session(session, {"type": "done"})
+    if not paused:
+        # F5 L3: do NOT broadcast ``done`` when paused — the chat UI is
+        # still awaiting auth resolution; the resume path will broadcast
+        # ``done`` after re-dispatching the deferred tool calls.
+        await _send_to_session(session, {"type": "done"})
     return result_messages
+
+
+async def _resume_paused_session(session: Session) -> None:
+    """Drive ``Agent.resume_after_auth`` and broadcast its yielded messages.
+
+    Called from the OAuth-callback route via ``asyncio.create_task``.
+    Guarded by the caller — only invoked when the session's agent has
+    ``_deferred_tool_calls != None`` — but we re-check on entry for
+    race protection (cycle-1 D13: another resume may have cleared the
+    state between the route's ``create_task`` and this coroutine
+    actually running).
+
+    Cycle-2 NEW-M3: ``_ensure_ollama_model_loaded`` is called before
+    re-issuing LLM calls. Operator may have walked away long enough
+    for Ollama to evict the model; without this, the resume's first
+    ``stream()`` would hit an unloaded model and return a slow first
+    chunk while the runtime spins up.
+    """
+    if session.agent._deferred_tool_calls is None:
+        return  # race protection — another resume already cleared state
+
+    # Operator may have been away long enough for Ollama to evict the
+    # model. Re-load before resume re-enters the iteration loop.
+    await _ensure_ollama_model_loaded(session)
+
+    # F5 L5: bind chat_session_id for any pool / OAuth provider construction
+    # the resumed tool dispatch may trigger. Symmetric with
+    # ``_spawn_message_processing``'s set/reset pattern.
+    csid_token = current_chat_session_id.set(session.id)
+    try:
+        re_paused = False
+        async for msg in session.agent.resume_after_auth():
+            await _broadcast_one(session, msg, source="resumed")
+            if _is_auth_required_pause(msg):
+                re_paused = True
+                break
+        if not re_paused:
+            await _send_to_session(session, {"type": "done"})
+    except Exception:
+        logger.exception("Resume after auth failed for session %s", session.id)
+        with contextlib.suppress(Exception):
+            await _send_to_session(
+                session,
+                {
+                    "type": "system",
+                    "content": "Failed to resume after authentication. "
+                    "Please re-trigger the action.",
+                },
+            )
+    finally:
+        current_chat_session_id.reset(csid_token)
+
+    # Persist the resumed exchange so re-joiners see the new messages.
+    try:
+        await _save_session_to_db(session)
+    except Exception:
+        logger.warning(
+            "Failed to save session %s after resume", session.id, exc_info=True
+        )
+
+
+async def _send_pause_snapshot_if_needed(
+    session: Session, websocket: WebSocket
+) -> None:
+    """Send the cached ``auth_required`` event to a NEW subscriber.
+
+    Called immediately after ``session.subscribers.add(websocket)`` in
+    any branch (join, new_session, auto-create). No-op if the session's
+    agent has no pending pause. Existing subscribers don't receive
+    duplicates because the send targets only the new websocket.
+
+    Walks ``agent.messages`` BACKWARDS to find the last tool message
+    with ``metadata.is_auth_required`` (cycle-1 D12 + suggestion: the
+    agent is the single source of truth; no per-session cached field).
+    The walk-backwards (NOT ``messages[-1]``) handles the case where
+    additional non-tool messages were appended between the pause and
+    the reconnect.
+    """
+    if session.agent._deferred_tool_calls is None:
+        return
+    for past_msg in reversed(session.agent.messages):
+        if (
+            past_msg.role == Role.TOOL
+            and past_msg.tool_result is not None
+            and past_msg.tool_result.metadata
+            and past_msg.tool_result.metadata.get("is_auth_required")
+        ):
+            try:
+                await websocket.send_json(
+                    _auth_required_event_from_metadata(
+                        past_msg.tool_result.metadata
+                    )
+                )
+            except (RuntimeError, WebSocketDisconnect):
+                # New subscriber's WS broke before snapshot delivery —
+                # nothing to clean up; the existing dead-subscriber
+                # detection in ``_send_to_session`` will catch it on
+                # the next broadcast.
+                pass
+            return
 
 
 # ── Routes ───────────────────────────────────────────────────────────────
@@ -779,6 +1073,9 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                         if ws not in session.subscribers:
                             session.subscribers.add(ws)
                         await ws.send_json(_build_session_joined_ok(session))
+                        # F5 L3: replay a cached auth_required event to
+                        # the new subscriber if the session is paused.
+                        await _send_pause_snapshot_if_needed(session, ws)
                         continue
                     if restored.is_degraded:
                         # Don't operate on a degraded session in this connection.
@@ -792,6 +1089,9 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                     if ws not in session.subscribers:
                         session.subscribers.add(ws)
                     await ws.send_json(_build_session_joined_ok(session))
+                    # F5 L3: replay a cached auth_required event on
+                    # idempotent re-bind too.
+                    await _send_pause_snapshot_if_needed(session, ws)
                     continue
                 # else: no session_id AND no outer session → auto-create below.
 
@@ -805,6 +1105,9 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 if ws not in session.subscribers:
                     session.subscribers.add(ws)
                 await ws.send_json(_build_session_joined_ok(session))
+                # F5 L3: brand-new session has no pause state — the helper
+                # is a no-op here, included for code-pattern consistency.
+                await _send_pause_snapshot_if_needed(session, ws)
                 continue
 
             if action == "list_sessions":
@@ -844,6 +1147,9 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                     continue
                 session.subscribers.add(ws)
                 await ws.send_json(_build_session_joined_ok(session))
+                # F5 L3: brand-new session — no-op, included for code-
+                # pattern consistency.
+                await _send_pause_snapshot_if_needed(session, ws)
                 continue
 
             if action == "delete_session":
@@ -880,6 +1186,9 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                     continue
                 session.subscribers.add(ws)
                 await ws.send_json(_build_session_joined_ok(session))
+                # F5 L3: brand-new session — no-op, included for code-
+                # pattern consistency.
+                await _send_pause_snapshot_if_needed(session, ws)
 
             if user_input == "/reset":
                 session.agent.reset()

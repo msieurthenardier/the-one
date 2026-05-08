@@ -168,7 +168,26 @@ async def _entry_worker(source: MCPSource, entry: _RegistryEntry) -> None:
     """
     assert entry.client_ready is not None  # invariant: set at construction
     assert entry.evict_event is not None
-    client = MCPClient(source)
+    # F5 L5: build an OAuth provider for this source if dcr_credentials are
+    # populated. The factory returns ``None`` when not configured, in which
+    # case ``MCPClient`` connects without auth and the lazy-path 401 surfaces
+    # via L4's ``MCPAuthRequired`` translation. The chat_session_id comes
+    # from the per-task ContextVar set by the agent dispatch boundary
+    # (``_spawn_message_processing`` / ``_resume_paused_session``); falls
+    # back to a sentinel when unset (e.g. cold-startup pre-warm via direct
+    # API). The handlers' lazy ``_sessions`` lookup tolerates the sentinel
+    # by falling back to the most-recently-active session — see app.py
+    # ``current_chat_session_id`` docstring + F5 flight log A17.
+    from the_one.interfaces.web.app import current_chat_session_id
+    from the_one.mcp.oauth import build_oauth_provider_for_source
+    csid = current_chat_session_id.get(None) or "_pool_default"
+    conn = await get_connection()
+    encryptor = get_encryptor(settings.data_dir)
+    repo = MCPSourceRepository(conn, encryptor)
+    auth_provider = build_oauth_provider_for_source(
+        source, repo, csid, source_id=source.id
+    )
+    client = MCPClient(source, auth_provider=auth_provider)
     try:
         await client.connect()
     except BaseException as exc:
@@ -219,6 +238,29 @@ async def _evict(key: tuple[str, str]) -> None:
         entry.worker.cancel()
         with contextlib.suppress(BaseException):
             await entry.worker
+
+
+async def _evict_all_for_source(source_id: str) -> None:
+    """Evict every pool entry whose key matches ``source_id`` across all agents.
+
+    F5 L5: ``/api/oauth/start`` calls this after persisting fresh
+    ``dcr_credentials`` so the next ``acquire(agent_name, source_id)`` for the
+    same source spawns a fresh worker that re-runs the factory and picks up
+    the populated provider. Without this, the pool's warm cache would hand
+    out a no-provider ``MCPClient`` indefinitely.
+
+    Walks all ``(agent_name, sid)`` keys; calls ``_evict`` for each match.
+    Each ``_evict`` has its own 10s per-entry timeout — large pools with many
+    agents per source could block this call for ~10s × N. In practice each
+    source has ~1-3 agent_name keys; the cost is bounded.
+
+    Idempotent on no-match — silently returns if no entries reference
+    ``source_id``.
+    """
+    async with _lock:
+        keys = [key for key in _pool if key[1] == source_id]
+    for key in keys:
+        await _evict(key)
 
 
 async def _ensure_reaper_running_locked() -> None:

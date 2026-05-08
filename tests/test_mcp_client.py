@@ -748,6 +748,43 @@ class TestAsyncExitStackContract:
         assert c_d._transport_stack is None
         assert c_d._session is None
 
+    async def test_direct_cross_task_still_warns(
+        self, monkeypatch, mock_session, caplog
+    ) -> None:
+        """F5 L1: control test — direct cross-task disconnect (outside
+        pool routing) STILL produces the warning via the safety net.
+
+        Locks the contract scope: F2-known-issue retirement applies only
+        to F4-pool-routed (same-task) disconnects. Direct
+        ``MCPClient(source)`` usage with cross-task disconnect continues
+        to hit the safety net swallow.
+
+        Mock-based (uses ``_anyio_backed_transport_cm``) is sufficient
+        here because the test exercises the cross-task safety-net's
+        ``except Exception`` clause, which is independent of the SDK
+        transport stack.
+        """
+        monkeypatch.setattr(
+            client_mod,
+            "_transport_connect",
+            lambda source: _anyio_backed_transport_cm(mock_session),
+        )
+
+        caplog.set_level(logging.WARNING, logger="the_one.mcp.client")
+        client = MCPClient(_stdio_source())
+        await client.connect()  # connect on test task (host task)
+
+        # Cross-task disconnect — exits the cancel scope on a different
+        # task; anyio's guard fires; safety-net swallow catches it.
+        disconnect_task = asyncio.create_task(client.disconnect())
+        await disconnect_task
+
+        messages = [r.getMessage() for r in caplog.records]
+        assert any(
+            "MCPClient transport close failed" in m for m in messages
+        ), f"expected cross-task warning; got: {messages}"
+        assert client.is_alive is False
+
 
 # ---------------------------------------------------------------------------
 # L6a: list_tools + call_tool happy path — TestListToolsAndCallTool
