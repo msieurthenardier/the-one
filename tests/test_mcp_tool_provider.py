@@ -311,21 +311,24 @@ class TestMCPClientTool:
 
 class TestApplyOverride:
     def test_apply_override_stdio_overlay_merge(self) -> None:
+        # F2 contract: source.secrets IS the flat env kv table for
+        # stdio (transports/stdio.py::build_stdio_environ at line 224-225).
+        # NOT nested under "env". Test post-HAT-A4 fix.
         src = _stub_source(
             type="stdio",
-            secrets={"env": {"A": "1", "B": "2"}},
+            secrets={"A": "1", "B": "2"},
         )
         override_payload = {"env": {"B": "3", "C": "4"}}
         result = _apply_override(src, override_payload)
         # operator-only keys preserve; agent wins on collisions; agent-only added.
-        assert result.secrets["env"] == {"A": "1", "B": "3", "C": "4"}
+        assert result.secrets == {"A": "1", "B": "3", "C": "4"}
         # Source unchanged (model_copy returns NEW).
-        assert src.secrets["env"] == {"A": "1", "B": "2"}
+        assert src.secrets == {"A": "1", "B": "2"}
 
     def test_apply_override_stdio_no_payload_returns_unchanged(self) -> None:
         src = _stub_source(
             type="stdio",
-            secrets={"env": {"A": "1"}},
+            secrets={"A": "1"},
         )
         # None payload.
         result = _apply_override(src, None)
@@ -334,50 +337,60 @@ class TestApplyOverride:
         result2 = _apply_override(src, {})
         assert result2 is src
 
-    def test_apply_override_streamable_http_replaces_headers(self) -> None:
+    def test_apply_override_streamable_http_overlays_headers(self) -> None:
+        # F2 contract: source.secrets IS the flat header kv table for
+        # streamable-http (transports/streamable_http.py::build_request_headers
+        # at line 68-69). NOT nested under "headers". Test post-HAT-A4 fix.
+        # Overlay-merge — operator-only headers preserve; agent wins on
+        # collisions. Cycle-1 medium #3's "REPLACE" disposition was
+        # structurally unsafe against the F2 contract; corrected inline.
         src = _stub_source(
             type="streamable-http",
-            secrets={
-                "headers": {"X-Operator": "true", "X-Tenant": "acme"},
-                "bearer_token": "operator-token",
-            },
+            secrets={"X-Operator": "true", "X-Tenant": "acme"},
         )
-        override_payload = {"headers": {"X-Agent": "true"}}
+        override_payload = {"headers": {"X-Agent": "true", "X-Tenant": "agent-acme"}}
         result = _apply_override(src, override_payload)
-        # REPLACE wholesale — operator headers are gone.
-        assert result.secrets["headers"] == {"X-Agent": "true"}
-        # bearer_token preserved (only headers were overridden).
-        assert result.secrets["bearer_token"] == "operator-token"
+        # operator-only X-Operator preserves; X-Tenant collision goes to agent;
+        # agent-only X-Agent added.
+        assert result.secrets == {
+            "X-Operator": "true",
+            "X-Tenant": "agent-acme",
+            "X-Agent": "true",
+        }
 
-    def test_apply_override_streamable_http_replaces_bearer_token(self) -> None:
+    def test_apply_override_streamable_http_bearer_token_becomes_authorization(
+        self,
+    ) -> None:
+        # bearer_token translates to a flat Authorization: Bearer <token>
+        # header in source.secrets (post-HAT-A4 fix).
         src = _stub_source(
             type="streamable-http",
-            secrets={
-                "headers": {"X-Op": "true"},
-                "bearer_token": "operator-token",
-            },
+            secrets={"X-Op": "true"},
         )
         override_payload = {"bearer_token": "agent-token"}
         result = _apply_override(src, override_payload)
-        assert result.secrets["bearer_token"] == "agent-token"
-        # headers preserved.
-        assert result.secrets["headers"] == {"X-Op": "true"}
+        assert result.secrets["Authorization"] == "Bearer agent-token"
+        # X-Op preserved (operator-only).
+        assert result.secrets["X-Op"] == "true"
 
     def test_apply_override_streamable_http_partial_keeps_other_secrets(self) -> None:
+        # Operator-only secrets preserve under partial overlay; agent's
+        # `headers` override overlays flat without touching unrelated keys.
         src = _stub_source(
             type="streamable-http",
             secrets={
-                "headers": {"X-Op": "true"},
-                "bearer_token": "op-token",
+                "X-Op": "true",
                 "extra_secret": "preserve_me",
             },
         )
-        # Only headers overridden.
         override_payload = {"headers": {"X-Agent": "yes"}}
         result = _apply_override(src, override_payload)
-        assert result.secrets["headers"] == {"X-Agent": "yes"}
-        assert result.secrets["bearer_token"] == "op-token"
-        assert result.secrets["extra_secret"] == "preserve_me"
+        # Operator's X-Op + extra_secret preserve; agent's X-Agent added.
+        assert result.secrets == {
+            "X-Op": "true",
+            "extra_secret": "preserve_me",
+            "X-Agent": "yes",
+        }
 
     def test_apply_override_schema_mismatch_propagates(self) -> None:
         # Operator put a streamable-http key (bearer_token) under a stdio source.
@@ -736,11 +749,13 @@ class TestMCPToolProvider:
     ) -> None:
         """``acquire`` was called with ``source_override`` reflecting
         the agent's override (env merged for stdio)."""
+        # F2 contract (post-HAT-A4): source.secrets IS the flat env kv
+        # table for stdio. NOT nested under "env".
         src = _stub_source(
             source_id="src-1",
             name="github",
             type="stdio",
-            secrets={"env": {"OPERATOR": "1"}},
+            secrets={"OPERATOR": "1"},
         )
         patch_provider_deps.get = AsyncMock(return_value=src)
 
@@ -762,8 +777,9 @@ class TestMCPToolProvider:
         await MCPToolProvider().get_tools_for_agent(cfg, agent_name="agent-a")
 
         override = captured["source_override"]
-        # operator preserved + agent merged in.
-        assert override.secrets["env"] == {"OPERATOR": "1", "AGENT": "2"}
+        # operator preserved + agent merged in flat at top level
+        # (post-HAT-A4 fix; matches transports/stdio.py:224-225 contract).
+        assert override.secrets == {"OPERATOR": "1", "AGENT": "2"}
 
 
 # ===========================================================================

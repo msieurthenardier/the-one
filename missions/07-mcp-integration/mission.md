@@ -101,7 +101,7 @@ Today, the Studio agent editor's MCPs tab renders a one-line stub message; the `
 
 > Populated as flights surface them.
 
-- [ ] **`MCPClient.disconnect` teardown noise** — discovered in F2 L7 HAT. `disconnect()` raises `RuntimeError: generator didn't stop` from inside `self._transport_cm.__aexit__(...)` on every disconnect; caught and suppressed by the existing `except Exception: logger.warning(...)` clause; subprocess cleanup is functionally correct (verified — no orphans). Cosmetic noise in F2 scope, but will be amplified by F4's warm-pool eviction patterns. Fix: refactor `transports/stdio.py::connect_stdio` and `transports/streamable_http.py::connect_streamable_http` to use `contextlib.AsyncExitStack` for nested-context cleanup; update `MCPClient.disconnect()` to drive `aclose()` directly. Deferred to F4 because the fix is best validated against pool eviction races.
+- [x] **`MCPClient.disconnect` teardown noise** — discovered in F2 L7 HAT; F5 L1 landed `_open_*_transport_stack` non-CM helpers + dispatcher rewrite to retire the warning under F4-pool-routed paths; **F6 Tier-1 HAT verified retirement on 2026-05-08** (caplog count = 0 across 3 agent builds, 2 tool calls, and 1 full lifespan shutdown_drain — including a uvicorn WatchFiles reload that exercised the per-entry `_evict` → worker `finally` → disconnect path under real bwrap subprocess teardown). F4's worker-task-per-entry pattern + L1's dispatcher-owned-stack mechanism work as designed against real subprocess teardown.
 
 ## Flights
 

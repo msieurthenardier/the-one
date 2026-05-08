@@ -228,6 +228,40 @@ Leg L0 IG step 2 specified the `MCPRegistrationError` docstring text including t
 
 (append as unexpected issues surface)
 
+### 2026-05-08 — A4 — `_apply_override` nesting bug found + fixed during HAT step 3
+
+The L2 leg's `_apply_override` was nesting the agent's overlay under `secrets["env"]` (stdio) / `secrets["headers"]` + `secrets["bearer_token"]` (streamable-http) — but the F2 transport contract treats `source.secrets` as a **flat kv table at top level** (`transports/stdio.py:224-225`: `{**allowlist_env, **config_env, **source.secrets}`; `transports/streamable_http.py:68-69`: `{**config_headers, **source.secrets}`). The nesting caused `StdioServerParameters` to receive `env={"env": {"HAT_AGENT": "A"}}` — the SDK rejected with `string_type` validation error because the env-var VALUE was a dict, not a string.
+
+The bug surfaced as a `MCPConnectionError: ValidationError: 2 validation errors for StdioServerParameters` at HAT step 3 (agent build → list_tools → bwrap spawn). HAT's failure-class #2 graceful-degrade caught it (agent built with 0 MCP tools + a WARNING log), so F6's runtime contract held — but the override path was non-functional.
+
+**Root cause**: cycle-1 medium #3's "REPLACE for streamable-http headers" disposition was structurally unsafe against the F2 contract — would nuke every operator header (including OAuth-managed keys living in `source.secrets`). The "OVERLAY for stdio env via `secrets['env']`" framing was likewise wrong against the same flat-secrets contract.
+
+**Fix** (inline during HAT, before re-running step 3):
+- `the_one/mcp/_tool_provider.py::_apply_override` — both branches now flat-merge into `source.secrets` directly:
+  - stdio: `{**source.secrets, **resolved.env}` (overlay; agent wins on collision)
+  - streamable-http: overlay `headers` flat; `bearer_token` translates to `secrets["Authorization"] = f"Bearer {bearer_value}"`
+- 4 affected tests in `tests/test_mcp_tool_provider.py::TestApplyOverride` updated to assert flat-merge + the new `Authorization` translation; renamed `test_apply_override_streamable_http_replaces_*` → `test_apply_override_streamable_http_overlays_*` / `test_apply_override_streamable_http_bearer_token_becomes_authorization`.
+- `test_override_applies_correctly` in `TestMCPToolProvider` updated for flat-secrets shape.
+- 31 tests still pass (post-fix): `pytest tests/test_mcp_tool_provider.py -v --timeout=10` → 31 passed in 0.09s.
+
+**Documentation**: the `_apply_override` docstring is rewritten to cite the F2 contract and the cycle-1 M3 disposition correction. Future schema additions to `StdioMCPOverride` / `StreamableHttpMCPOverride` MUST flat-merge into `source.secrets` to match the transport contract.
+
+**HAT continuation**: post-fix, HAT step 3 PASSED (1 MCP tool registered with `--setenv HAT_AGENT A` in the bwrap argv, proving end-to-end override application). HAT steps 4a, 4b, 5, and the caplog gate all PASSED — F2-known-issue retired.
+
+### 2026-05-08 — Tier-1 HAT PASS (full sequence; F2-known-issue retired)
+
+5-step verification + caplog gate executed end-to-end against the dev container's bwrap-spawned `mcp-server-fetch`:
+
+- **Step 1**: source registered via Studio UI — `fetch_local` (stdio, network_allowed=true).
+- **Step 2**: `hat_agent_a` + `hat_agent_b` PUT via API with `mcp_source_ids=[<id>]` and distinct `mcp_overrides[fetch_local].env.HAT_AGENT` values (A vs B). Builtin web tools (`fetch_url`, `download_file`, `http_request`) disabled on both agents to force the MCP path during step 4 chat dispatch (qwen2.5:7b's tool-pick heuristic favored the simpler-named `fetch_url` builtin in the first 4a attempt; disabling forced the MCP route).
+- **Step 3**: agent A registry inspection (REPL) — 16 builtins + 1 MCP tool (`mcp__fetch_local__fetch`).
+- **Step 4a**: chat dispatch via `hat_agent_a` UI — agent invoked `mcp__fetch_local__fetch(url="https://example.com/")`; one bwrap subprocess tree alive with `--setenv HAT_AGENT A`.
+- **Step 4b**: chat dispatch via `hat_agent_b` UI — second bwrap subprocess tree spawned with `--setenv HAT_AGENT B`. F4's per-`(agent, source)` keying with distinct env overrides spawned distinct subprocesses end-to-end.
+- **Step 5**: source deleted via Studio UI; agent A rebuilt in REPL — 16 tools, 0 MCP tools. Two WARNINGs fired: failure class #1 (`agent 'hat_agent_a' references deleted MCP source ...; skipping`) + cycle-1 M4 orphan-warn (`mcp_overrides references unknown source name 'fetch_local'`).
+- **Caplog gate**: `docker compose logs --since="$HAT_START" the-one | grep "MCPClient transport close failed" | wc -l` → **0**. Includes a uvicorn WatchFiles reload (triggered by editing `_tool_provider.py` for the A4 fix mid-HAT) which exercised the full lifespan shutdown_drain path → per-entry `_evict` → worker `finally:` → `disconnect()` for every warm pool entry. **F2-known-issue retirement: PASS.**
+
+`mission.md::Known Issues` line 104 updated: F2-known-issue checkbox flipped to `[x]` with a one-line retirement note citing 2026-05-08 HAT.
+
 ### 2026-05-08 — A3 — L2 leg-artifact targeted gate over-broad; pool tests hang outside docker
 
 L2's leg artifact IG step 9 included `tests/test_mcp_pool.py` in the targeted-gate command. The implementer-Developer ran this gate and hung — same root cause as A1/A2: `_entry_worker` calls `get_connection()` for OAuth provider construction (`_pool.py:184`), which blocks on aiosqlite worker-thread setup outside docker. The hang affects EVERY test in `test_mcp_pool.py` (all 23 tests + the new `test_acquire_with_source_override`), not just the new test.

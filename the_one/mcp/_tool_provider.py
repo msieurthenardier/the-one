@@ -63,16 +63,32 @@ def _apply_override(
     """Apply a per-agent override to a source.
 
     Returns a NEW :class:`MCPSource` with ``secrets`` updated — does
-    NOT mutate the input. The shape depends on transport:
+    NOT mutate the input. Both transports use **overlay-merge flat
+    into source.secrets** to match the F2 transport contract:
 
-    - ``stdio``: agent's ``env`` overlays operator's ``secrets["env"]``
-      dict (agent wins on key collision; operator-only keys preserve).
-      Per F6 §1: "operator-set env vars not overridden by the agent
+    - ``stdio``: ``source.secrets`` IS the flat env kv table (read at
+      :func:`build_stdio_environ`'s ``{**allowlist_env, **config_env,
+      **source.secrets}`` merge in ``transports/stdio.py``). The
+      agent's ``env`` dict overlays flat into ``source.secrets`` —
+      agent wins on key collision; operator-only keys preserve. Per
+      F6 §1: "operator-set env vars not overridden by the agent
       pass through unchanged."
-    - ``streamable-http``: agent's ``headers`` REPLACES
-      ``secrets["headers"]`` wholesale; agent's ``bearer_token``
-      REPLACES ``secrets["bearer_token"]``. No merge — the override
-      IS the credential set.
+    - ``streamable-http``: ``source.secrets`` IS the flat header kv
+      table (read at :func:`build_request_headers`'s
+      ``{**config_headers, **source.secrets}`` merge in
+      ``transports/streamable_http.py``). The agent's ``headers``
+      dict overlays flat; the agent's ``bearer_token`` translates
+      to a flat ``Authorization: Bearer <token>`` entry in
+      ``source.secrets``. The L2 cycle-1 medium #3 "REPLACE-headers"
+      disposition was structurally unsafe against the F2 contract
+      (would nuke every operator header including OAuth-managed
+      keys); corrected to overlay-merge inline during the F6 HAT
+      (see flight-log A4).
+
+    NEVER nest the override under a ``secrets["env"]`` /
+    ``secrets["headers"]`` key — the transport reads ``source.secrets``
+    flat and would inject the dict as a header / env-var VALUE, which
+    Pydantic rejects with a ``string_type`` validation error.
 
     When ``override_payload`` is ``None`` or empty, returns the source
     unchanged (cheap fast-path).
@@ -85,23 +101,28 @@ def _apply_override(
         return source
     if source.type == "stdio":
         resolved = resolve(StdioMCPOverride, None, override_payload)
-        # Cast: resolve returns BaseModel; we know it's StdioMCPOverride.
         env_value = getattr(resolved, "env", None)
         if env_value is None:
             return source
-        new_env = {**(source.secrets.get("env") or {}), **env_value}
-        new_secrets = {**source.secrets, "env": new_env}
+        # F2 contract: source.secrets IS the flat env kv table for
+        # stdio. Flat-merge agent's env into source.secrets at top
+        # level (NOT nested under "env"). Agent wins on key collision;
+        # operator-only keys preserve.
+        new_secrets = {**source.secrets, **env_value}
         return source.model_copy(update={"secrets": new_secrets})
     elif source.type == "streamable-http":
         resolved = resolve(StreamableHttpMCPOverride, None, override_payload)
         headers_value = getattr(resolved, "headers", None)
         bearer_value = getattr(resolved, "bearer_token", None)
-        updates: dict[str, Any] = dict(source.secrets)
+        # F2 contract: source.secrets IS the flat header kv table for
+        # streamable-http. Overlay-merge headers flat; bearer_token
+        # translates to a flat Authorization header.
+        new_secrets: dict[str, Any] = dict(source.secrets)
         if headers_value is not None:
-            updates["headers"] = headers_value
+            new_secrets.update(headers_value)
         if bearer_value is not None:
-            updates["bearer_token"] = bearer_value
-        return source.model_copy(update={"secrets": updates})
+            new_secrets["Authorization"] = f"Bearer {bearer_value}"
+        return source.model_copy(update={"secrets": new_secrets})
     else:
         # Unknown type — preserve source unchanged. The pool will
         # error on connect; that's the right surface for an
