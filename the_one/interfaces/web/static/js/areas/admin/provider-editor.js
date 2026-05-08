@@ -339,6 +339,10 @@
             }
           })
           .catch(function (err) {
+            // Surface the trace to DevTools so backend stacks (which
+            // would otherwise die with the next click as errorEl.textContent
+            // is overwritten) survive for debugging.
+            console.error('provider save failed', err);
             errorEl.textContent = err.message || String(err);
           });
       });
@@ -486,6 +490,13 @@
     }
     var apiKeyInput = container.querySelector('[data-field="api_key"]');
     var apiKey = apiKeyInput ? apiKeyInput.value : null;
+    /* Trim whitespace BEFORE the truthy check so a paste like "  sk-x  "
+       canonicalizes to "sk-x" client-side, and a whitespace-only paste
+       collapses to null instead of silently round-tripping to a 401.
+       The backend Pydantic validator does the same on the server side
+       (defense in depth + UX: avoids the round-trip to discover the
+       whitespace was a no-op). */
+    if (apiKey !== null) apiKey = apiKey.trim();
     if (!apiKey) apiKey = null;
     /* MASKED_SENTINEL: if editing and the user did not modify the pre-filled
        (masked) value, send the sentinel so the backend preserves the existing
