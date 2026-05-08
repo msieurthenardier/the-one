@@ -43,11 +43,36 @@ Key properties: `data_dir` (`~/.the-one`), `agents_dir` (`data_dir / "agents"`),
 
 ### `the_one/encryption.py`
 
-Fernet-based encryption for API keys stored in the database. Generates and caches an `Encryptor` per `data_dir`. Provides an `install_key()` helper plus a public `key_path` property; the API rotation path (`POST /api/encryption/rotate`) re-encrypts all provider credentials, commits the DB, then atomically replaces the key file via `os.replace`. The legacy `rotate_key()` callback API is retained for non-API callers.
+Fernet-based encryption for API keys stored in the database. Generates and caches an `Encryptor` per `data_dir`. Provides an `install_key()` helper plus a public `key_path` property; the API rotation path (`POST /api/encryption/rotate`) re-encrypts all provider credentials AND all MCP source secrets in a single crash-safe transaction, commits the DB, then atomically replaces the key file via `os.replace`. The single-pass rotation is the authoritative invariant: a partial rotation that handled only one of the two surfaces would leave the other encrypted under a key no longer on disk. The legacy `rotate_key()` callback API is retained for non-API callers.
 
 ### `the_one/db/repositories.py`
 
 Database repositories including `LLMProviderRepository` for CRUD on `llm_provider_configs` table. Provider configs store `name`, `type`, `base_url`, and encrypted `api_key`. Referenced by `AgentConfig.provider_config_id`.
+
+`MCPSourceRepository` (M07 F1) handles CRUD on `mcp_sources` (schema v10). Storage shape is **field-segregated encryption with two columns**: `config TEXT DEFAULT '{}'` holds plaintext non-sensitive fields (transport-aware: `command`/`args`/`env` for `'stdio'`, `url`/`headers`/OAuth client config for `'streamable-http'`); `secrets TEXT DEFAULT '{}'` holds a single Fernet-encrypted JSON blob whose decoded value is a dict of operator-marked sensitive field values (env-var values, `oauth_client_secret`, bearer headers, future `access_token` / `refresh_token` slots). Encryption is per-row, one `Fernet.encrypt`/`decrypt` per row — NOT per-field inside the JSON. The repository stores the `Encryptor` **as a reference, not a copy**, so post-rotation `install_key()` propagates to live repository instances (mirrors `LLMProviderRepository`'s pattern). The deprecated `'sse'` transport literal was renamed to `'streamable-http'` per MCP spec revision 2025-11-25 in v10's table-rebuild migration via `CASE WHEN type='sse' THEN 'streamable-http' ELSE type END` inside the `INSERT INTO mcp_sources_new SELECT ...` step. The `MCPSource` Pydantic model exposes both fields and a `merged_config()` helper for callers (F2 connect path) that need a flat dict; UI / masking / rotation / F4 resolver consumers keep the split visible.
+
+**`__MASKED__` per-key sentinel on `secrets`**: extends the LLM-provider `__MASKED__` sentinel pattern (single-column) to a per-key semantic on the `secrets` dict. GET `/api/mcp-sources/{id}` returns `{config: {...plaintext...}, secrets: {key: "***...{tail4}", ...}}` with each VALUE masked individually (`***...{tail4}` for `>4` chars, `***` otherwise; mirrors `_mask_api_key`). On PUT, `secrets[key] == "__MASKED__"` preserves the existing stored value for that key; other keys overwrite. This per-key handling is what lets the operator save form edits without re-typing every secret.
+
+**OAuth `client_secret` payload key** is locked to `secrets["oauth_client_secret"]` (top-level on the `secrets` dict), NOT `config.oauth.client_secret` — F5's live OAuth flow MUST look up by this exact key. Routing the secret elsewhere would leak through any code path reading `config` plaintext.
+
+**F2 (MCP Client Foundation) contracts** — for full text, see CLAUDE.md "F2 (MCP Client Foundation) Contracts":
+
+- **F2 module home**: `the_one/mcp/` (peer of `the_one/llm/`, NOT under `the_one/tools/`); MCPClient is a service abstraction. F6 wraps MCPClient → Tool via MCPToolProvider.
+- **F2 SDK pin + protocol revision**: `mcp==1.27.0` exact pin; `_PINNED_PROTOCOL_VERSION = "2025-11-25"` constant in `the_one/mcp/__init__.py` (read at call time, not import-bound).
+- **F2 fail-hard version policy**: `connect()` raises `MCPVersionMismatch` on any mismatch with `_PINNED_PROTOCOL_VERSION`; narrower than the SDK's `SUPPORTED_PROTOCOL_VERSIONS` whitelist; pre-release stance, revisit at 1.0.
+- **F2 F4-pool compat**: MCPClient exposes `is_alive: bool` and `last_activity: float` (PtySession-aligned); `disconnect()` is idempotent; instances are picklable-free (no thread-locals, no module-globals).
+- **F2 stdio environ helper**: `build_stdio_environ(source, allowlist_env)` does 2-layer flat merge of `the_one.platform.env._ENV_ALLOWLIST` + (config.env ∪ secrets); **do NOT consume `MCPSource.merged_config()`** for stdio environ (that's a flat top-level merge that injects `command`/`args` as env-var keys).
+- **F2 dataclasses**: `MCPTool` and `MCPToolResult` are frozen dataclasses in `the_one/mcp/types.py`; `MCPToolResult.text` for agent, `.raw` for F7 inspector, `.structured` for typed-object form.
+
+**F3 (MCP Sandbox) contracts** — for full text, see CLAUDE.md "F3 (MCP Sandbox) Contracts":
+
+- **F3 module home**: `the_one/platform/sandbox/{__init__.py, base.py, bubblewrap.py}` (peer of `the_one/platform/env.py`); `MCPSandboxError` canonical at `the_one/mcp/errors.py`. **L2 lands the package.**
+- **F3 trust model**: strict by default — read-only FS outside `writable_paths`; network OFF unless `network_allowed=True`. Operator's responsibility to scope writable paths and network policy per source.
+- **F3 sandbox-profile storage**: `MCPSource.config["sandbox"] = {"writable_paths": list[str], "network_allowed": bool}` plaintext; both fields optional; defaults `[]` / `false`; namespace-flag fields (`pid_unshare`, `ipc_unshare`, `uts_unshare`) JSON-edit-only via API. **L1b extends the F1 API validator; L2 lands `SandboxProfile.from_dict`.**
+- **F3 Protocol shape**: `MCPSandbox.prepare_spawn(profile, command, args, env, cwd) -> SpawnSpec`; `SpawnSpec` is frozen with command/args/env/cwd + Windows-only `creation_flags`/`attribute_list`. Linux/macOS callers feed `spec.command/args/env/cwd` into `StdioServerParameters`. **L2 lands.**
+- **F3 failure boundary**: `MCPSandboxError(MCPClientError)` for setup failures (bwrap missing, writable_paths nonexistent, EPERM on unshare); F2's `MCPConnectionError` for post-spawn failures. No unsandboxed fallback. **L2 adds the exception class; L4 enforces.**
+- **F3 privilege model**: dev container `cap_add: [SYS_ADMIN]` + `security_opt: [seccomp:unconfined]` (both required); Playwright CI uses pytest-only `THE_ONE_SANDBOX_DISABLED=1 + THE_ONE_TEST_MODE=1` double-flag bypass; production sandbox always on. **L1a applied the dev-container grants; L4 wires the bypass.**
+- **F3 HOME override**: `BubblewrapSandbox` forces `env["HOME"] = "/tmp"` so `~/.cache`-writing MCPs find a usable home dir under `--tmpfs /tmp`. Sandbox policy, not operator-configurable. **L3 implements.**
 
 ### `the_one/agent/`
 

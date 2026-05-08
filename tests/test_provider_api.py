@@ -609,6 +609,310 @@ class TestEncryptionRotation:
         assert row is not None
         assert Fernet(key_before).decrypt(row["api_key"].encode()).decode() == "sk-failuretest9999"
 
+    async def test_rotate_mcp_source_secrets(self, client: AsyncClient) -> None:
+        """After rotation, MCP source secrets still decrypt under the new key."""
+        create_resp = await client.post(
+            "/api/mcp-sources",
+            json={
+                "name": "GH",
+                "type": "stdio",
+                "config": {"command": "github-mcp"},
+                "secrets": {"GITHUB_TOKEN": "ghp_rotationtest5678"},
+            },
+        )
+        assert create_resp.status_code in (200, 201)
+        sid = create_resp.json()["id"]
+
+        resp = await client.post("/api/encryption/rotate")
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "ok"}
+
+        # GET-after-rotate proves the cached encryptor decrypts under the new key
+        get_resp = await client.get(f"/api/mcp-sources/{sid}")
+        assert get_resp.status_code == 200
+        assert get_resp.json()["secrets"]["GITHUB_TOKEN"] == "***...5678"
+
+    async def test_rotate_mixed_providers_and_mcps(
+        self, client: AsyncClient
+    ) -> None:
+        """One rotation re-encrypts both surfaces atomically."""
+        prov_resp = await client.post(
+            "/api/providers",
+            json={
+                "name": "MixedProv",
+                "type": "openai",
+                "base_url": "https://api.openai.com/v1",
+                "api_key": "sk-mixedrotateprovider",
+            },
+        )
+        pid = prov_resp.json()["id"]
+
+        mcp_resp = await client.post(
+            "/api/mcp-sources",
+            json={
+                "name": "MixedMCP",
+                "type": "streamable-http",
+                "config": {"url": "https://mcp.example.com"},
+                "secrets": {"AUTH": "bearer-mixedrotatemcptoken"},
+            },
+        )
+        sid = mcp_resp.json()["id"]
+
+        rot_resp = await client.post("/api/encryption/rotate")
+        assert rot_resp.status_code == 200
+        assert rot_resp.json() == {"status": "ok"}
+
+        # Both surfaces still decrypt under the new key
+        prov_get = await client.get(f"/api/providers/{pid}")
+        assert prov_get.json()["api_key"] == "***...ider"
+        mcp_get = await client.get(f"/api/mcp-sources/{sid}")
+        assert mcp_get.json()["secrets"]["AUTH"] == "***...oken"
+
+    async def test_rotate_preserves_mcp_secrets_on_db_failure(
+        self, client: AsyncClient, tmp_path: Path
+    ) -> None:
+        """A DB commit failure during rotation leaves MCP ciphertext intact.
+
+        Mirrors test_rotate_preserves_key_on_db_failure for the MCP surface:
+        on-disk key file unchanged, cached encryptor unchanged, on-disk
+        ciphertext unchanged, direct decrypt with the pre-rotation key
+        still yields the original plaintext.
+        """
+        import json as _json
+
+        create_resp = await client.post(
+            "/api/mcp-sources",
+            json={
+                "name": "FailMCP",
+                "type": "stdio",
+                "config": {"command": "x"},
+                "secrets": {"K": "preservedmcpsecretvalue"},
+            },
+        )
+        sid = create_resp.json()["id"]
+
+        key_path = tmp_path / "test.key"
+        key_before = key_path.read_bytes()
+
+        # Capture pre-rotation ciphertext directly from the DB so we can
+        # assert it's byte-identical post-failure.
+        direct_conn = await aiosqlite.connect(str(tmp_path / "test.db"))
+        direct_conn.row_factory = aiosqlite.Row
+        try:
+            async with direct_conn.execute(
+                "SELECT secrets FROM mcp_sources WHERE id = ?", (sid,)
+            ) as cur:
+                row = await cur.fetchone()
+            ct_before = row["secrets"]
+        finally:
+            await direct_conn.close()
+
+        with (
+            patch(
+                "aiosqlite.Connection.commit",
+                side_effect=RuntimeError("simulated DB failure"),
+            ),
+            pytest.raises(RuntimeError, match="simulated DB failure"),
+        ):
+            await client.post("/api/encryption/rotate")
+
+        # (i) Key file byte-identical to its pre-rotation contents
+        assert key_path.read_bytes() == key_before
+
+        # (ii) Cached encryptor still decrypts (proves install_key NOT called)
+        get_resp = await client.get(f"/api/mcp-sources/{sid}")
+        assert get_resp.status_code == 200
+        assert get_resp.json()["secrets"]["K"] == "***...alue"
+
+        # (iii) On-disk ciphertext byte-identical (catches a regression where
+        # the UPDATE loop wrote new ciphertext before the commit failed)
+        direct_conn = await aiosqlite.connect(str(tmp_path / "test.db"))
+        direct_conn.row_factory = aiosqlite.Row
+        try:
+            async with direct_conn.execute(
+                "SELECT secrets FROM mcp_sources WHERE id = ?", (sid,)
+            ) as cur:
+                row = await cur.fetchone()
+        finally:
+            await direct_conn.close()
+        assert row is not None
+        assert row["secrets"] == ct_before
+        # Direct decrypt with the pre-rotation key still works on disk ciphertext
+        decrypted = Fernet(key_before).decrypt(row["secrets"].encode()).decode()
+        assert _json.loads(decrypted) == {"K": "preservedmcpsecretvalue"}
+
+    async def test_rotate_with_migration_residue_mcp_row(
+        self, client: AsyncClient, tmp_path: Path
+    ) -> None:
+        """A v10-migrated row with plaintext '{}' rotates without crashing.
+
+        Pre-L2 rows + v10-migration-residue rows have secrets='{}' (the
+        column default — plaintext, not ciphertext). Rotation must tolerate
+        these via the same InvalidToken-swallow semantic as
+        MCPSourceRepository._ciphertext_to_secrets, and normalize them to
+        proper ciphertext as a side-effect.
+
+        Pattern: create the row through the API (so it's established via the
+        fixture's cached connection — guaranteed visible to subsequent API
+        reads), then reach in via a fresh aiosqlite connection to OVERWRITE
+        the secrets column with literal '{}' (simulating migration-residue).
+        This is the inverse of the existing failure-path test's pattern
+        (write via API conn, read via fresh conn) — same proven cross-
+        connection commit-visibility ordering.
+        """
+        # Step 1: create the row through the API. This goes through the L2
+        # repository's encrypted-write path and the row is established via
+        # the fixture's cached connection.
+        create_resp = await client.post(
+            "/api/mcp-sources",
+            json={
+                "name": "Residue",
+                "type": "stdio",
+                "config": {"command": "x"},
+                "secrets": {},  # The L2 repo encrypts '{}' as proper ciphertext
+            },
+        )
+        assert create_resp.status_code in (200, 201)
+        sid = create_resp.json()["id"]
+
+        # Step 2: open a fresh aiosqlite connection and overwrite the secrets
+        # column with literal '{}', simulating a migration-residue row that
+        # has never been written by the L2 repo. The fresh connection's
+        # commit is visible to the API's cached connection on its next
+        # SELECT (standard SQLite cross-connection visibility — proven by
+        # the existing test_rotate_preserves_key_on_db_failure pattern).
+        direct_conn = await aiosqlite.connect(str(tmp_path / "test.db"))
+        direct_conn.row_factory = aiosqlite.Row
+        try:
+            await direct_conn.execute(
+                "UPDATE mcp_sources SET secrets = '{}' WHERE id = ?",
+                (sid,),
+            )
+            await direct_conn.commit()
+        finally:
+            await direct_conn.close()
+
+        # Pre-rotation: residue row reads as empty secrets (tolerant decode)
+        pre_get = await client.get(f"/api/mcp-sources/{sid}")
+        assert pre_get.status_code == 200
+        assert pre_get.json()["secrets"] == {}
+
+        # Rotate — must NOT crash on the residue row
+        rot_resp = await client.post("/api/encryption/rotate")
+        assert rot_resp.status_code == 200
+        assert rot_resp.json() == {"status": "ok"}
+
+        # Post-rotation: residue row reads as empty secrets, AND the on-disk
+        # column is no longer the literal '{}' — it's proper Fernet
+        # ciphertext for the JSON string '{}'
+        post_get = await client.get(f"/api/mcp-sources/{sid}")
+        assert post_get.status_code == 200
+        assert post_get.json()["secrets"] == {}
+
+        direct_conn = await aiosqlite.connect(str(tmp_path / "test.db"))
+        direct_conn.row_factory = aiosqlite.Row
+        try:
+            async with direct_conn.execute(
+                "SELECT secrets FROM mcp_sources WHERE id = ?", (sid,)
+            ) as cur:
+                row = await cur.fetchone()
+        finally:
+            await direct_conn.close()
+        assert row is not None
+        assert row["secrets"] != "{}"  # Normalized to ciphertext
+        # New key on disk decrypts the normalized ciphertext to '{}'
+        new_key = (tmp_path / "test.key").read_bytes()
+        assert Fernet(new_key).decrypt(row["secrets"].encode()) == b"{}"
+
+    async def test_rotate_dual_surface_atomicity_on_db_failure(
+        self, client: AsyncClient, tmp_path: Path
+    ) -> None:
+        """A commit failure rolls back BOTH surfaces atomically.
+
+        Populates both an LLM provider AND an MCP source, simulates
+        aiosqlite.Connection.commit failure, and asserts that the on-disk
+        ciphertext on BOTH surfaces is byte-identical to its pre-rotation
+        contents. This is the dual-surface counterpart of the existing
+        test_rotate_preserves_key_on_db_failure (LLM-only) and the new
+        test_rotate_preserves_mcp_secrets_on_db_failure (MCP-only) —
+        proves the single-try / single-commit / single-rollback structure
+        rolls back BOTH UPDATE loops together.
+        """
+        prov_resp = await client.post(
+            "/api/providers",
+            json={
+                "name": "DualFailProv",
+                "type": "openai",
+                "base_url": "https://api.openai.com/v1",
+                "api_key": "sk-dualfailureprovider",
+            },
+        )
+        pid = prov_resp.json()["id"]
+
+        mcp_resp = await client.post(
+            "/api/mcp-sources",
+            json={
+                "name": "DualFailMCP",
+                "type": "stdio",
+                "config": {"command": "x"},
+                "secrets": {"K": "dualfailuremcpsecret"},
+            },
+        )
+        sid = mcp_resp.json()["id"]
+
+        # Capture pre-rotation ciphertext for both surfaces
+        direct_conn = await aiosqlite.connect(str(tmp_path / "test.db"))
+        direct_conn.row_factory = aiosqlite.Row
+        try:
+            async with direct_conn.execute(
+                "SELECT api_key FROM llm_providers WHERE id = ?", (pid,)
+            ) as cur:
+                prov_ct_before = (await cur.fetchone())["api_key"]
+            async with direct_conn.execute(
+                "SELECT secrets FROM mcp_sources WHERE id = ?", (sid,)
+            ) as cur:
+                mcp_ct_before = (await cur.fetchone())["secrets"]
+        finally:
+            await direct_conn.close()
+
+        key_path = tmp_path / "test.key"
+        key_before = key_path.read_bytes()
+
+        with (
+            patch(
+                "aiosqlite.Connection.commit",
+                side_effect=RuntimeError("simulated DB failure"),
+            ),
+            pytest.raises(RuntimeError, match="simulated DB failure"),
+        ):
+            await client.post("/api/encryption/rotate")
+
+        # (i) Key file untouched
+        assert key_path.read_bytes() == key_before
+
+        # (ii) BOTH on-disk ciphertexts byte-identical to pre-rotation
+        direct_conn = await aiosqlite.connect(str(tmp_path / "test.db"))
+        direct_conn.row_factory = aiosqlite.Row
+        try:
+            async with direct_conn.execute(
+                "SELECT api_key FROM llm_providers WHERE id = ?", (pid,)
+            ) as cur:
+                assert (await cur.fetchone())["api_key"] == prov_ct_before
+            async with direct_conn.execute(
+                "SELECT secrets FROM mcp_sources WHERE id = ?", (sid,)
+            ) as cur:
+                assert (await cur.fetchone())["secrets"] == mcp_ct_before
+        finally:
+            await direct_conn.close()
+
+        # (iii) Cached encryptor still decrypts both surfaces (proves
+        # install_key was NOT called — masked tail equality round-trips
+        # through the cached encryptor)
+        prov_get = await client.get(f"/api/providers/{pid}")
+        assert prov_get.json()["api_key"] == "***...ider"
+        mcp_get = await client.get(f"/api/mcp-sources/{sid}")
+        assert mcp_get.json()["secrets"]["K"] == "***...cret"
+
 
 # ── Provider helper ────────────────────────────────────────────────────
 

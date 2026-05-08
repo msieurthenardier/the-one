@@ -48,8 +48,21 @@ def kb_item_repo(conn):
 
 
 @pytest.fixture
-def mcp_repo(conn):
-    return MCPSourceRepository(conn)
+def mcp_repo_encryptor(tmp_path):
+    # Function-scoped (default). Do NOT promote to module/session scope —
+    # would outlive the per-test `conn` fixture and create cross-test
+    # state leakage on the encryptor's in-memory key.
+    from cryptography.fernet import Fernet
+
+    from the_one.encryption import Encryptor
+
+    key = Fernet.generate_key()
+    return Encryptor(key, key_path=tmp_path / "mcp.key")
+
+
+@pytest.fixture
+def mcp_repo(conn, mcp_repo_encryptor):
+    return MCPSourceRepository(conn, mcp_repo_encryptor)
 
 
 @pytest.fixture
@@ -227,7 +240,7 @@ class TestMCPSourceRepository:
         assert loaded.config == {"command": "python"}
 
     async def test_list(self, mcp_repo: MCPSourceRepository) -> None:
-        await mcp_repo.create(MCPSource(id="b", name="Bravo", type="sse"))
+        await mcp_repo.create(MCPSource(id="b", name="Bravo", type="streamable-http"))
         await mcp_repo.create(MCPSource(id="a", name="Alpha", type="stdio"))
         sources = await mcp_repo.list()
         assert [s.name for s in sources] == ["Alpha", "Bravo"]
@@ -241,10 +254,85 @@ class TestMCPSourceRepository:
         assert loaded.name == "New"
 
     async def test_delete(self, mcp_repo: MCPSourceRepository) -> None:
-        await mcp_repo.create(MCPSource(id="s1", name="Doomed", type="sse"))
+        await mcp_repo.create(MCPSource(id="s1", name="Doomed", type="streamable-http"))
         await mcp_repo.delete("s1")
         with pytest.raises(KeyError):
             await mcp_repo.get("s1")
+
+    async def test_secrets_round_trip(self, mcp_repo: MCPSourceRepository) -> None:
+        """secrets dict round-trips through the encryption envelope."""
+        source = MCPSource(
+            id="s1",
+            name="GitHub MCP",
+            type="stdio",
+            config={"command": "github-mcp"},
+            secrets={"GITHUB_TOKEN": "ghp_secret_value_123"},
+        )
+        await mcp_repo.create(source)
+        fetched = await mcp_repo.get("s1")
+        assert fetched.config == {"command": "github-mcp"}
+        assert fetched.secrets == {"GITHUB_TOKEN": "ghp_secret_value_123"}
+
+    async def test_secrets_encrypted_at_rest(self, mcp_repo: MCPSourceRepository) -> None:
+        """Raw DB read of the secrets column yields a ciphertext, NOT plaintext JSON."""
+        import json
+
+        source = MCPSource(
+            id="s1", name="Test", type="stdio",
+            secrets={"TOKEN": "super-secret-value"},
+        )
+        await mcp_repo.create(source)
+        async with mcp_repo.conn.execute(
+            "SELECT secrets FROM mcp_sources WHERE id = ?", ("s1",)
+        ) as cur:
+            row = await cur.fetchone()
+        raw = row["secrets"]
+        assert raw is not None
+        assert "super-secret-value" not in raw
+        assert "TOKEN" not in raw
+        # Fernet ciphertext is base64; sanity-check it decrypts back via the
+        # repo's encryptor.
+        decrypted = mcp_repo.encryptor.decrypt(raw)
+        assert json.loads(decrypted) == {"TOKEN": "super-secret-value"}
+
+    async def test_empty_secrets_default(self, mcp_repo: MCPSourceRepository) -> None:
+        """A source created without secrets= round-trips with secrets={}."""
+        source = MCPSource(id="s1", name="Test", type="stdio", config={"x": 1})
+        await mcp_repo.create(source)
+        fetched = await mcp_repo.get("s1")
+        assert fetched.secrets == {}
+
+    async def test_install_key_post_create_decrypts_via_same_instance(
+        self, mcp_repo: MCPSourceRepository
+    ) -> None:
+        """Post install_key, the same repo instance decrypts new writes.
+
+        Locks the reference-not-copy invariant: install_key() mutates the
+        Encryptor in place; the repository's stored reference sees the
+        mutation. Re-creates a row after the key swap and round-trips.
+        """
+        from cryptography.fernet import Fernet
+
+        new_key = Fernet.generate_key()
+        mcp_repo.encryptor.install_key(new_key)
+
+        source = MCPSource(
+            id="s1", name="PostKey", type="stdio",
+            secrets={"K": "value-after-rotation"},
+        )
+        await mcp_repo.create(source)
+        fetched = await mcp_repo.get("s1")
+        assert fetched.secrets == {"K": "value-after-rotation"}
+
+    def test_merged_config_overlays_secrets_on_config(self) -> None:
+        """secrets win on key collision; non-overlapping keys merge."""
+        source = MCPSource(
+            id="s1", name="T", type="stdio",
+            config={"command": "x", "TOKEN": "plaintext-default"},
+            secrets={"TOKEN": "encrypted-real"},
+        )
+        merged = source.merged_config()
+        assert merged == {"command": "x", "TOKEN": "encrypted-real"}
 
 
 # ── Chat Session Repository ──────────────────────────────────────────────

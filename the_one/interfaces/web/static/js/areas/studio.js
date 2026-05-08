@@ -9,7 +9,8 @@ App.registerArea({
   //
   // serializeState branch order (explicit):
   //   1. _activeSection === 'knowledge' → 'knowledge'
-  //   2. _activeSection === 'tools' → 'tools'
+  //   2. _activeSection === 'mcp-sources' → 'mcp-sources' | 'mcp-sources/new'
+  //      | 'mcp-sources/<id>' (post-F2 retrofit; relocated from admin)
   //   3. _activeSection === 'agents' && agent selected && !createMode →
   //      'agents/<encoded-name>/<tab>'   (F5 leg 03 — appended /{tab})
   //   4. otherwise (no agent OR createMode) → 'agents'
@@ -21,7 +22,18 @@ App.registerArea({
   // (no new redirect logic in studio.js).
   serializeState: function () {
     if (this._activeSection === 'knowledge') return 'knowledge';
-    if (this._activeSection === 'tools') return 'tools';
+    if (this._activeSection === 'mcp-sources') {
+      if (this._mcpSourceFormMode === 'add') return 'mcp-sources/new';
+      if (this._mcpSourceFormMode === 'edit' && this._editingMcpSource) {
+        return 'mcp-sources/' + encodeURIComponent(this._editingMcpSource.id);
+      }
+      // Hydrate-vs-fetch race: pending id known but source not yet loaded.
+      if (this._pendingMcpSourceFormMode === 'add') return 'mcp-sources/new';
+      if (this._pendingMcpSourceId) {
+        return 'mcp-sources/' + encodeURIComponent(this._pendingMcpSourceId);
+      }
+      return 'mcp-sources';
+    }
     if (this._activeSection === 'agents' && this._selectedAgent && !this._createMode) {
       return 'agents/' + encodeURIComponent(this._selectedAgent.name) +
         '/' + (this._activeTab || 'general');
@@ -57,10 +69,27 @@ App.registerArea({
     var section = 'agents';
     var pending = null;
     var pendingTab = 'general';
+    var pendingMcpSourceId_local = null;
+    var pendingMcpSourceFormMode_local = null;
     if (sub === 'knowledge') {
       section = 'knowledge';
-    } else if (sub === 'tools') {
-      section = 'tools';
+    } else if (sub === 'mcp-sources') {
+      section = 'mcp-sources';
+    } else if (sub === 'mcp-sources/new') {
+      section = 'mcp-sources';
+      pendingMcpSourceFormMode_local = 'add';
+    } else if (sub && sub.indexOf('mcp-sources/') === 0) {
+      // Direct-load on mcp-sources/{id}: parse the source id so the editor
+      // opens on refresh. Mirrors admin.js's L5 parsing pattern (now
+      // relocated to studio post-F2 retrofit).
+      section = 'mcp-sources';
+      pendingMcpSourceFormMode_local = 'edit';
+      var mrest = sub.slice('mcp-sources/'.length);
+      if (mrest.charAt(mrest.length - 1) === '/') mrest = mrest.slice(0, -1);
+      // Defensive: if extra path segments, take only the first.
+      var mslashIdx = mrest.indexOf('/');
+      if (mslashIdx !== -1) mrest = mrest.slice(0, mslashIdx);
+      pendingMcpSourceId_local = mrest ? decodeURIComponent(mrest) : null;
     } else if (sub && sub.indexOf('agents/') === 0) {
       section = 'agents';
       var rest = sub.slice('agents/'.length);
@@ -97,9 +126,18 @@ App.registerArea({
       this._pendingSelectName = null;
       this._pendingTabName = null;
     }
+    // Always overwrite pending MCP state (including with nulls when sub is
+    // not mcp-sources/...) so navigation away clears stale pending.
+    this._pendingMcpSourceId = pendingMcpSourceId_local;
+    this._pendingMcpSourceFormMode = pendingMcpSourceFormMode_local;
     if (this._setActiveSection) {
       this._setActiveSection(section, { writeUrl: false });
     }
+    // Within-mcp-sources sub-navigation (e.g. mcp-sources → mcp-sources/new)
+    // doesn't change _activeSection, so _setActiveSection's renderContent
+    // path won't re-enter the editor branch. Fire consume unconditionally
+    // so within-section direct-loads open the editor.
+    if (this._tryConsumePendingMcpSource) this._tryConsumePendingMcpSource();
   },
 
   init: function (sidebar, content) {
@@ -123,6 +161,46 @@ App.registerArea({
     // Tab handle returned by App.studio.renderAgentEditor — used for
     // imperative activate(tabId) calls after hydrate.
     var tabHandle = null;
+
+    // ── MCP Sources state (post-F2 retrofit; relocated from admin.js) ───
+    // The MCP Servers section was originally an admin.js sub-section
+    // (M07 F1 L5/L6); moved here post-F2 retrofit because MCP sources are
+    // user-managed entities, not system settings. State shape mirrors the
+    // admin pattern: type list cached at init, source list lazily fetched
+    // on section render, formMode + editingMcpSource drive grid-vs-editor
+    // dispatch, pending* slots handle the hydrate-vs-fetch race.
+    //
+    // formMode + editingMcpSource + pending* are exposed via Object
+    // .defineProperty getter/setters so serializeState (called from outside
+    // init) can read them. Mirrors admin.js's exposure pattern. The
+    // closure-local `var`s remain the single source of truth.
+    var MCP_TYPES = [];
+    var mcpTypesReady = null;
+    var mcpSources = null; // null until first fetch resolves
+    var mcpSourceFormMode = null; // null | 'add' | 'edit'
+    var editingMcpSource = null;
+    var pendingMcpSourceId = self._pendingMcpSourceId || null;
+    var pendingMcpSourceFormMode = self._pendingMcpSourceFormMode || null;
+    Object.defineProperty(self, '_mcpSourceFormMode', {
+      get: function () { return mcpSourceFormMode; },
+      set: function (v) { mcpSourceFormMode = v; },
+      configurable: true
+    });
+    Object.defineProperty(self, '_editingMcpSource', {
+      get: function () { return editingMcpSource; },
+      set: function (v) { editingMcpSource = v; },
+      configurable: true
+    });
+    Object.defineProperty(self, '_pendingMcpSourceId', {
+      get: function () { return pendingMcpSourceId; },
+      set: function (v) { pendingMcpSourceId = v; },
+      configurable: true
+    });
+    Object.defineProperty(self, '_pendingMcpSourceFormMode', {
+      get: function () { return pendingMcpSourceFormMode; },
+      set: function (v) { pendingMcpSourceFormMode = v; },
+      configurable: true
+    });
 
     // ── beforeunload listener (F5 leg 04) ────────────────────────────────
     //
@@ -187,14 +265,22 @@ App.registerArea({
     App.layout.renderSectionNav(sectionNavEl, [
       { id: 'agents', label: 'Agents' },
       { id: 'knowledge', label: 'Knowledge' },
-      { id: 'tools', label: 'Tools' }
+      // Post-F2 retrofit: replaced 'Tools' stub (id: 'tools') with the
+      // real MCP Servers section (id: 'mcp-sources'). The URL slug uses
+      // 'mcp-sources' (matches the /api/mcp-sources REST path) while the
+      // user-facing label uses "MCP Servers" (mirrors the storage entity
+      // vs. UI label asymmetry from M07 F1).
+      { id: 'mcp-sources', label: 'MCP Servers' }
     ], self._activeSection, {
       onSelect: function (section) {
-        // F5 leg 04: dirty gate — only fires when leaving the
-        // Agents-section + selected-agent context. Knowledge → Tools
-        // transitions (no editor mounted) navigate immediately.
+        // F5 leg 04: dirty gate — fires when leaving an editor-mounted
+        // context. Two surfaces now host editors: the agent editor in
+        // Agents and the MCP source editor in MCP Servers. Knowledge has
+        // no editor.
         var commit = function () { setActiveSection(section); };
-        var inEditingContext = self._activeSection === 'agents' && self._selectedAgent;
+        var inEditingContext =
+          (self._activeSection === 'agents' && self._selectedAgent) ||
+          (self._activeSection === 'mcp-sources' && mcpSourceFormMode);
         if (dirty && inEditingContext) {
           App.confirmDialog({ onConfirm: commit });
         } else {
@@ -218,20 +304,219 @@ App.registerArea({
       App.studio.renderKnowledgeStub(sectionContentEl);
     }
 
-    function renderToolsSection() {
+    // MCP Servers section — relocated from admin (post-F2 retrofit). Mirrors
+    // admin.js's renderMcpSourcesPanel: editor branch waits for type list
+    // then delegates to App.studio.renderMcpSourceEditor; grid branch
+    // delegates to App.studio.renderMcpServersGrid. The orchestrator-side
+    // callbacks bridge dirty-state + navigation.
+    function renderMcpSourcesSection() {
       sectionContentEl.innerHTML = '';
-      App.studio.renderToolsStub(sectionContentEl);
+      // If a hash-route pending-create is queued (e.g. direct-load on
+      // #studio/mcp-sources/new), promote it to mcpSourceFormMode='add'
+      // BEFORE deciding grid vs editor so the editor mounts on first paint
+      // (no transient grid flash). Pending-edit can't promote here because
+      // the source needs to be in the cache; tryConsumePendingMcpSource
+      // handles that path after fetchMcpSources_ resolves.
+      if (!mcpSourceFormMode && self._pendingMcpSourceFormMode === 'add') {
+        mcpSourceFormMode = 'add';
+        editingMcpSource = null;
+        self._pendingMcpSourceFormMode = null;
+        self._pendingMcpSourceId = null;
+      }
+      if (mcpSourceFormMode) {
+        // Reset orchestrator dirty mirror BEFORE editor mount (mirrors the
+        // provider-editor pattern). Editor's onDirtyChange fires on first
+        // user input.
+        dirty = false;
+        var ready = mcpTypesReady || fetchMcpSourceTypes();
+        ready.then(function () {
+          // Re-check formMode at resolution time — operator may have
+          // navigated away mid-fetch.
+          if (mcpSourceFormMode == null || self._activeSection !== 'mcp-sources') return;
+          function doHandleBack() {
+            mcpSourceFormMode = null;
+            editingMcpSource = null;
+            dirty = false;
+            if (window.App && window.App.router) App.router.replaceSub('mcp-sources');
+            renderMcpSourcesSection();
+          }
+          App.studio.renderMcpSourceEditor(sectionContentEl, editingMcpSource, MCP_TYPES, {
+            onBack: function () {
+              if (dirty) {
+                App.confirmDialog({ onConfirm: doHandleBack });
+                return;
+              }
+              doHandleBack();
+            },
+            onCancel: function () {
+              // Create-mode Cancel: navigate back to grid. Cancel-when-dirty
+              // is intentional discard — no dialog gate. Edit-mode Cancel
+              // reverts the form in-place and never reaches this callback.
+              mcpSourceFormMode = null;
+              editingMcpSource = null;
+              dirty = false;
+              if (window.App && window.App.router) App.router.replaceSub('mcp-sources');
+              renderMcpSourcesSection();
+            },
+            onSaveSuccess: function (updated, isCreate) {
+              editingMcpSource = updated;
+              mcpSourceFormMode = 'edit';
+              dirty = false;
+              if (window.App && window.App.router) {
+                App.router.replaceSub(self.serializeState());
+              }
+              if (isCreate) {
+                // create→edit transition: re-render so Danger Zone +
+                // edit-mode subtitle render with the newly-assigned id.
+                renderMcpSourcesSection();
+              }
+            },
+            onDeleteSuccess: function () {
+              mcpSourceFormMode = null;
+              editingMcpSource = null;
+              dirty = false;
+              if (window.App && window.App.router) App.router.replaceSub('mcp-sources');
+              renderMcpSourcesSection();
+            },
+            onDirtyChange: function (d) { dirty = d; }
+          });
+        });
+        return;
+      }
+      // Grid branch
+      App.studio.renderMcpServersGrid(sectionContentEl, mcpSources, {
+        selectedId: editingMcpSource ? editingMcpSource.id : null,
+        onSelectMcpSource: selectMcpSource,
+        onCreateMcpSource: enterCreateMcpSourceMode
+      });
+      fetchMcpSources_().then(function () {
+        // After fetch resolves, attempt to consume any pending hash-route
+        // selection (e.g. direct-load on #studio/mcp-sources/{id}).
+        tryConsumePendingMcpSource();
+      });
     }
+
+    function fetchMcpSourceTypes() {
+      mcpTypesReady = fetch('/api/mcp-sources/types')
+        .then(function (r) { return r.json(); })
+        .then(function (types) { MCP_TYPES = types; })
+        .catch(function () { MCP_TYPES = []; });
+      return mcpTypesReady;
+    }
+
+    // Distinct from the existing Promise-only `fetchMcpSources()` (which is
+    // consumed by loadAll for agent-editor MCP attach lookups). This wrapper
+    // populates the section-local cache + triggers grid re-render.
+    function fetchMcpSources_() {
+      return fetch('/api/mcp-sources')
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          // Stale-then guard: bail if user navigated away mid-fetch.
+          if (self._activeSection !== 'mcp-sources') return;
+          mcpSources = data;
+          populateMcpSourcesGrid();
+        })
+        .catch(function () {
+          if (self._activeSection !== 'mcp-sources') return;
+          var gridEl = sectionContentEl.querySelector('.entity-tile-grid');
+          if (gridEl) gridEl.innerHTML = '<div class="admin-loading">Failed to load MCP sources.</div>';
+        });
+    }
+
+    function populateMcpSourcesGrid() {
+      // Stale-then guard: bail when no longer on mcp-sources OR when the
+      // editor is mounted (no grid in the DOM to populate).
+      if (self._activeSection !== 'mcp-sources') return;
+      if (mcpSourceFormMode) return;
+      App.studio.renderMcpServersGrid(sectionContentEl, mcpSources, {
+        selectedId: editingMcpSource ? editingMcpSource.id : null,
+        onSelectMcpSource: selectMcpSource,
+        onCreateMcpSource: enterCreateMcpSourceMode
+      });
+    }
+
+    function selectMcpSource(id) {
+      var source = findMcpSource(id);
+      if (!source) return; // pending-id race; will be re-attempted after fetch
+      mcpSourceFormMode = 'edit';
+      editingMcpSource = source;
+      pendingMcpSourceId = null;
+      pendingMcpSourceFormMode = null;
+      self._pendingMcpSourceId = null;
+      self._pendingMcpSourceFormMode = null;
+      if (window.App && window.App.router) {
+        App.router.replaceSub(self.serializeState());
+      }
+      renderMcpSourcesSection();
+    }
+
+    function enterCreateMcpSourceMode() {
+      mcpSourceFormMode = 'add';
+      editingMcpSource = null;
+      pendingMcpSourceId = null;
+      pendingMcpSourceFormMode = null;
+      self._pendingMcpSourceId = null;
+      self._pendingMcpSourceFormMode = null;
+      if (window.App && window.App.router) {
+        App.router.replaceSub(self.serializeState());
+      }
+      renderMcpSourcesSection();
+    }
+
+    function findMcpSource(id) {
+      if (!mcpSources) return null;
+      for (var i = 0; i < mcpSources.length; i++) {
+        if (mcpSources[i].id === id) return mcpSources[i];
+      }
+      return null;
+    }
+
+    function tryConsumePendingMcpSource() {
+      // Pull pending state from instance properties — hydrateState may have
+      // set them after init() already captured the closure-locals.
+      var pid = self._pendingMcpSourceId;
+      var pmode = self._pendingMcpSourceFormMode;
+      if (!pid && !pmode) return;
+      if (pmode === 'add') {
+        mcpSourceFormMode = 'add';
+        editingMcpSource = null;
+        self._pendingMcpSourceId = null;
+        self._pendingMcpSourceFormMode = null;
+        renderMcpSourcesSection();
+        return;
+      }
+      if (pmode === 'edit' && pid) {
+        var found = findMcpSource(pid);
+        if (found) {
+          mcpSourceFormMode = 'edit';
+          editingMcpSource = found;
+          self._pendingMcpSourceId = null;
+          self._pendingMcpSourceFormMode = null;
+          renderMcpSourcesSection();
+        }
+        // else: not in cache; will retry after fetchMcpSources_ resolves.
+      }
+    }
+    self._tryConsumePendingMcpSource = tryConsumePendingMcpSource;
 
     function setActiveSection(section, options) {
       options = options || {};
       var writeUrl = options.writeUrl !== false; // default true
+      var prevSection = self._activeSection;
       self._activeSection = section;
       App.layout.updateActiveSection(sectionNavEl, section);
+      // Reset MCP-section local state when leaving mcp-sources for another
+      // section — closes the editor + clears formMode so a re-entry
+      // re-mounts the grid.
+      if (prevSection === 'mcp-sources' && section !== 'mcp-sources') {
+        mcpSourceFormMode = null;
+        editingMcpSource = null;
+        dirty = false;
+      }
       if (section === 'knowledge') {
         renderKnowledgeSection();
-      } else if (section === 'tools') {
-        renderToolsSection();
+      } else if (section === 'mcp-sources') {
+        renderMcpSourcesSection();
       } else {
         renderAgentsSection();
       }
@@ -240,15 +525,18 @@ App.registerArea({
     }
     self._setActiveSection = setActiveSection;
 
-    // Section-content (tile grid / Knowledge / Tools stub) and the editor
-    // share the main panel; only one is visible at a time. The editor takes
-    // over when an agent is selected or being created in the Agents section;
-    // otherwise section-content is the visible child.
+    // Section-content (tile grid / Knowledge stub / MCP Servers) and the
+    // agent editor share the main panel; only one is visible at a time. The
+    // agent editor takes over when an agent is selected or being created in
+    // the Agents section; otherwise section-content is the visible child.
+    // The MCP Servers section renders both grid and editor INSIDE
+    // sectionContentEl (its own dispatch lives in renderMcpSourcesSection),
+    // so editorEl stays hidden whenever _activeSection !== 'agents'.
     function updateContentVisibility() {
-      var inEditor = self._activeSection === 'agents' &&
-                     (self._selectedAgent || self._createMode);
-      sectionContentEl.classList.toggle('is-hidden', !!inEditor);
-      editorEl.classList.toggle('is-hidden', !inEditor);
+      var inAgentEditor = self._activeSection === 'agents' &&
+                          (self._selectedAgent || self._createMode);
+      sectionContentEl.classList.toggle('is-hidden', !!inAgentEditor);
+      editorEl.classList.toggle('is-hidden', !inAgentEditor);
     }
 
     // ── Single URL-write call site ──────────────────────────────────────
@@ -1300,8 +1588,18 @@ App.registerArea({
           else renderEmptyEditor();
         }
       });
+      // Also refresh the MCP-sources section if active (e.g. another tab
+      // mutated the inventory while studio was deactivated).
+      if (self._activeSection === 'mcp-sources' && !mcpSourceFormMode) {
+        fetchMcpSources_();
+      }
     };
     self._tryConsumePendingSelect = function () { tryConsumePendingSelect(); };
+
+    // Pre-fetch MCP source types so the editor mount path doesn't have to
+    // wait on the first network round-trip when the operator clicks "New
+    // MCP Server" or deep-links to mcp-sources/{id}.
+    fetchMcpSourceTypes();
 
     setActiveSection(self._activeSection || 'agents', { writeUrl: false });
 

@@ -109,8 +109,10 @@ App.registerArea({
       { id: 'system', label: 'General' },
       { id: 'providers', label: 'LLM Providers' },
       // F6 HAT inline fix #5: "Tools" → "Built-in Tools" — distinguishes
-      // from future MCP / external tool surfaces. id stays 'tools' so URL
-      // routing (#admin/tools/{name}) is unchanged.
+      // from MCP / external tool surfaces. id stays 'tools' so URL routing
+      // (#admin/tools/{name}) is unchanged. The MCP Servers section that
+      // M07 F1 L5 originally placed here was relocated to the Studio nav
+      // post-F2 retrofit (admin = system settings, studio = user-managed).
       { id: 'tools', label: 'Built-in Tools' }
     ];
     var currentCategory = 'system';
@@ -215,7 +217,7 @@ App.registerArea({
     function setCategory(catId) {
       // Dirty gate fires only when leaving an editor-mounted context.
       // Same-category clicks short-circuit naturally (no state change).
-      // Mirrors studio.js:190-201 (F5 leg 04 setActiveSection).
+      // Mirrors studio.js's setActiveSection dirty gate.
       var inEditor = (currentCategory === 'providers' && providerFormMode)
                   || (currentCategory === 'tools' && toolFormMode);
       if (dirty && inEditor) {

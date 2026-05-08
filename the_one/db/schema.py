@@ -8,7 +8,7 @@ import aiosqlite
 
 from the_one.db._provider_types import PROVIDER_TYPES
 
-CURRENT_VERSION = 10
+CURRENT_VERSION = 11
 
 # Render the provider-type CHECK constraint as a comma-separated SQL
 # literal list, sourced from PROVIDER_TYPES. Both SCHEMA_V1 (fresh-DB
@@ -361,16 +361,65 @@ CREATE TABLE IF NOT EXISTS tool_configs (
         version = 9
 
     if version < 10:
+        # Rebuild mcp_sources to (a) replace the deprecated 'sse' transport
+        # literal with the spec-aligned 'streamable-http' in the CHECK
+        # constraint, and (b) add the `secrets TEXT DEFAULT '{}'` column
+        # for field-segregated encryption (mission 07 flight 01 design).
+        # SQLite has no ALTER TABLE DROP CONSTRAINT, so this is a v3/v5/v6-
+        # style table-rename ceremony — but built from individual
+        # `await conn.execute(...)` calls (NOT executescript) and with
+        # `INSERT OR IGNORE INTO schema_version` LAST, mirroring v8/v9's
+        # idempotency contract.
+        #
+        # The 'sse' → 'streamable-http' rename happens via CASE-WHEN in
+        # the INSERT-SELECT step, NOT a pre-rebuild UPDATE — the still-
+        # active CHECK on the old table is `type IN ('stdio', 'sse')`,
+        # which would reject the literal 'streamable-http'.
+        #
+        # Defensive DROP IF EXISTS on mcp_sources_new clears any stale
+        # state from a prior partial-apply (the v8/v9 pattern's stronger
+        # idempotency standard).
+        await conn.execute("DROP TABLE IF EXISTS mcp_sources_new")
+
+        await conn.execute("""\
+CREATE TABLE mcp_sources_new (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL CHECK (type IN ('stdio', 'streamable-http')),
+    config TEXT DEFAULT '{}',
+    secrets TEXT DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+)""")
+
+        await conn.execute("""\
+INSERT INTO mcp_sources_new (id, name, type, config, secrets, created_at, updated_at)
+    SELECT id, name,
+           CASE WHEN type = 'sse' THEN 'streamable-http' ELSE type END,
+           config,
+           '{}',
+           created_at,
+           updated_at
+    FROM mcp_sources""")
+
+        await conn.execute("DROP TABLE mcp_sources")
+        await conn.execute("ALTER TABLE mcp_sources_new RENAME TO mcp_sources")
+
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (10,))
+        await conn.commit()
+        version = 10
+
+    if version < 11:
         # Extend llm_providers.type CHECK constraint to allow 'openrouter'.
         # SQLite has no `ALTER TABLE DROP CONSTRAINT`, so rebuild the table
         # following the v6 pattern (which added 'mock'). FK enforcement is
         # ON at connection-time (connection.py:20) and `agents.provider_config_id`
         # references this table — the OFF/ON bracket prevents the DROP from
         # tripping referential integrity. INSERT OR IGNORE INTO schema_version
-        # is LAST so a partial-apply leaves version=9 and the next call retries
+        # is LAST so a partial-apply leaves version=10 and the next call retries
         # cleanly.
         #
-        # ``executescript`` (vs the v9 individual-execute pattern documented
+        # ``executescript`` (vs the v9/v10 individual-execute pattern documented
         # in CLAUDE.md) is REQUIRED here: ``PRAGMA foreign_keys=OFF`` only
         # takes effect within the same script as the DROP/RENAME — separate
         # ``conn.execute`` calls re-evaluate FK state between statements.
@@ -403,6 +452,6 @@ ALTER TABLE llm_providers_new RENAME TO llm_providers;
 
 PRAGMA foreign_keys=ON;
 """)
-        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (10,))
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (11,))
         await conn.commit()
-        version = 10
+        version = 11

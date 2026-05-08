@@ -21,6 +21,7 @@ dependencies = [
     "jinja2>=3.1",
     "aiosqlite>=0.20",
     "cryptography>=43.0",
+    "mcp==1.27.0",
 ]
 
 [project.optional-dependencies]
@@ -32,7 +33,7 @@ dependencies = [
 openai = ["openai>=2.16"]
 anthropic = ["anthropic>=0.40"]
 all-llms = ["openai>=2.16", "anthropic>=0.40"]
-dev = ["pytest>=8.0", "pytest-asyncio>=0.24", "ruff>=0.6", "playwright==1.58.0", "pytest-playwright>=0.5", "pillow>=10.0", "pixelmatch>=0.3"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.24", "pytest-timeout>=2.4", "ruff>=0.6", "playwright==1.58.0", "pytest-playwright>=0.5", "pillow>=10.0", "pixelmatch>=0.3", "asgi-lifespan>=2.0"]
 
 [project.scripts]
 the-one = "the_one.main:cli_entry"
