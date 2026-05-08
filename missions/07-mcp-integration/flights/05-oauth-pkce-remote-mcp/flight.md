@@ -1,6 +1,6 @@
 # Flight: Lazy OAuth 2.1 + PKCE for Remote MCP Servers
 
-**Status**: in-flight
+**Status**: completed
 **Mission**: [MCP Integration](../../mission.md)
 
 ## Contributing to Criteria
