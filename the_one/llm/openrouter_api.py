@@ -18,12 +18,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import time
 from typing import Any
 
 import httpx
 from pydantic import BaseModel, ConfigDict
+
+logger = logging.getLogger(__name__)
 
 
 class OpenRouterModelEntry(BaseModel):
@@ -71,18 +74,35 @@ async def list_models(base_url: str, api_key: str | None) -> list[OpenRouterMode
         httpx.RequestError: on network failure.
         ValueError: on JSON parse / shape failure.
 
-    Test seam: if the environment variable
-    ``THE_ONE_OPENROUTER_TEST_MODELS_JSON`` is set, its JSON value is
-    parsed into ``OpenRouterModelEntry`` instances directly without any
-    network call.  Intended only for browser-test subprocesses that
-    cannot share in-process cache state with the test runner.
+    Test seam: when ``settings.dev_mode`` is True AND the environment
+    variable ``THE_ONE_OPENROUTER_TEST_MODELS_JSON`` is set, its JSON
+    value is parsed into ``OpenRouterModelEntry`` instances directly
+    without any network call. Intended only for browser-test subprocesses
+    that cannot share in-process cache state with the test runner.
+
+    The dev_mode gate ensures an accidentally-exported env var in a
+    production environment cannot silently substitute fake models for
+    real ones.
     """
     test_json = os.environ.get("THE_ONE_OPENROUTER_TEST_MODELS_JSON")
     if test_json:
-        raw = json.loads(test_json)
-        if not isinstance(raw, list):
-            raise ValueError("THE_ONE_OPENROUTER_TEST_MODELS_JSON must be a JSON array")
-        return [OpenRouterModelEntry.model_validate(item) for item in raw]
+        from the_one.config import settings
+
+        if settings.dev_mode:
+            logger.info(
+                "Using THE_ONE_OPENROUTER_TEST_MODELS_JSON test seam (dev_mode=true)"
+            )
+            raw = json.loads(test_json)
+            if not isinstance(raw, list):
+                raise ValueError("THE_ONE_OPENROUTER_TEST_MODELS_JSON must be a JSON array")
+            return [OpenRouterModelEntry.model_validate(item) for item in raw]
+        # In production (dev_mode=False) the env var is silently
+        # ignored. A warning surfaces operator awareness without
+        # disrupting the actual /models fetch below.
+        logger.warning(
+            "THE_ONE_OPENROUTER_TEST_MODELS_JSON is set but dev_mode is False — "
+            "the test seam is ignored. Unset the env var to silence this warning."
+        )
 
     cache_key = _cache_key(base_url, api_key)
     cached = _models_cache.get(cache_key)
@@ -136,7 +156,19 @@ async def get_model_capabilities(
     """
     try:
         models = await list_models(base_url, api_key)
-    except (httpx.HTTPError, ValueError):
+    except (httpx.HTTPError, ValueError) as e:
+        # Fail-open user-side (no chip rendered), but log server-side
+        # so a contract violation (ValueError) or persistent auth
+        # failure (401) is observable in production logs. Swallowing
+        # silently was the previous behavior — the chip absence was
+        # the only signal, which is opaque for debugging.
+        logger.warning(
+            "get_model_capabilities failed for model=%s base=%s: %s",
+            model,
+            base_url,
+            e,
+            exc_info=True,
+        )
         return None
 
     for entry in models:

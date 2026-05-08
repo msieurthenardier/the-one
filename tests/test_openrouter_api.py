@@ -274,3 +274,94 @@ class TestGetModelCapabilities:
             "https://openrouter.ai/api/v1", "k", "m1"
         )
         assert caps is None
+
+
+@pytest.mark.asyncio
+class TestGetCapabilitiesLogging:
+    """Fail-open is correct for the UI (no chip rendered) but the
+    swallowed exception MUST be logged server-side so contract
+    violations and persistent auth failures are observable."""
+
+    async def test_logs_warning_on_fetch_failure(self, monkeypatch, caplog):
+        import logging
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("network down")
+
+        _mock_async_client(monkeypatch, handler)
+        caplog.set_level(logging.WARNING, logger="the_one.llm.openrouter_api")
+
+        caps = await openrouter_api.get_model_capabilities(
+            "https://openrouter.ai/api/v1", "k", "m1"
+        )
+        assert caps is None
+        assert any(
+            "get_model_capabilities failed" in rec.message
+            for rec in caplog.records
+        )
+
+    async def test_logs_warning_on_value_error(self, monkeypatch, caplog):
+        import logging
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={"oops": "bad shape"})
+
+        _mock_async_client(monkeypatch, handler)
+        caplog.set_level(logging.WARNING, logger="the_one.llm.openrouter_api")
+
+        caps = await openrouter_api.get_model_capabilities(
+            "https://openrouter.ai/api/v1", "k", "m1"
+        )
+        assert caps is None
+        assert any(
+            "get_model_capabilities failed" in rec.message
+            for rec in caplog.records
+        )
+
+
+@pytest.mark.asyncio
+class TestTestSeamDevModeGate:
+    """THE_ONE_OPENROUTER_TEST_MODELS_JSON is gated on settings.dev_mode.
+    A stray export in production must NOT silently substitute scripted
+    models for real ones."""
+
+    async def test_seam_honored_when_dev_mode_true(self, monkeypatch):
+        from the_one.config import settings
+
+        monkeypatch.setattr(settings, "dev_mode", True)
+        monkeypatch.setenv(
+            "THE_ONE_OPENROUTER_TEST_MODELS_JSON",
+            '[{"id": "fake/model", "supported_parameters": ["tools"]}]',
+        )
+        models = await openrouter_api.list_models(
+            "https://openrouter.ai/api/v1", "k"
+        )
+        assert len(models) == 1 and models[0].id == "fake/model"
+
+    async def test_seam_ignored_when_dev_mode_false(self, monkeypatch, caplog):
+        import logging
+
+        from the_one.config import settings
+
+        monkeypatch.setattr(settings, "dev_mode", False)
+        monkeypatch.setenv(
+            "THE_ONE_OPENROUTER_TEST_MODELS_JSON",
+            '[{"id": "fake/model"}]',
+        )
+
+        # Stub the real network so the post-seam fetch is deterministic.
+        def handler(req: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={"data": [{"id": "real/model"}]})
+
+        _mock_async_client(monkeypatch, handler)
+        caplog.set_level(logging.WARNING, logger="the_one.llm.openrouter_api")
+
+        models = await openrouter_api.list_models(
+            "https://openrouter.ai/api/v1", "k"
+        )
+        # Real fetch wins — fake/model from env was ignored.
+        assert len(models) == 1 and models[0].id == "real/model"
+        # Operator gets a warning about the stray env var.
+        assert any(
+            "test seam is ignored" in rec.message for rec in caplog.records
+        )
