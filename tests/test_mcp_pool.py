@@ -642,3 +642,38 @@ async def test_reap_loop_drains_on_cancellation(patch_client, monkeypatch):
     assert pool_mod._pool == {}
     c1.disconnect.assert_awaited_once()
     c2.disconnect.assert_awaited_once()
+
+
+# ─────────────────────────────────────────────────────────────────
+# F6 L2 — ``source_override`` kwarg widening
+# ─────────────────────────────────────────────────────────────────
+
+
+async def test_acquire_with_source_override(monkeypatch):
+    """``acquire(..., source_override=fake)`` uses the override INSTEAD
+    of calling ``_load_source``. Locks the F6 L2 widening so a future
+    revision can't re-route override-applied sources back through the
+    DB read silently.
+    """
+    load_source_calls: list[str] = []
+
+    async def _spy_load_source(source_id: str):
+        load_source_calls.append(source_id)
+        return _make_stub_source(source_id, name="from-db")
+
+    monkeypatch.setattr(pool_mod, "MCPClient", _MockClient)
+    monkeypatch.setattr(pool_mod, "_load_source", _spy_load_source)
+
+    override = _make_stub_source("src-1", name="from-override")
+    client = await acquire(
+        "agent-a", "src-1", source_override=override
+    )
+
+    # The override propagated to the worker — the mock client stored
+    # the source, so we can verify which source was used.
+    assert client.source.name == "from-override"
+    # _load_source was NOT called when the override was supplied.
+    assert load_source_calls == []
+    # And the entry is in the pool with the override's identity.
+    entry = pool_mod._pool[("agent-a", "src-1")]
+    assert entry.client is client

@@ -29,6 +29,7 @@ from mcp.shared.exceptions import McpError, UrlElicitationRequiredError
 from the_one.db.models import MCPSource
 from the_one.mcp.errors import (
     MCPArgumentError,
+    MCPAuthRequired,
     MCPCallError,
     MCPCapabilityMissing,
     MCPClientError,
@@ -37,12 +38,6 @@ from the_one.mcp.errors import (
     MCPVersionMismatch,
 )
 from the_one.mcp.types import MCPTool, MCPToolResult
-
-# F5 L4: ``MCPAuthRequired`` is imported lazily inside ``call_tool``
-# to break the circular import chain
-# (mcp.client → mcp.oauth.errors → mcp.oauth.__init__ → mcp.oauth.storage
-#  → db.repositories → agent.config → agent → agent.core). Same pattern
-# as agent/core.py's lazy import.
 
 if TYPE_CHECKING:
     from mcp import ClientSession  # type-only; SDK not loaded at module-load
@@ -431,9 +426,6 @@ class MCPClient:
                 "MCPClient is not connected; cannot call tool."
             )
         self._touch_activity()
-
-        # Lazy import — see module docstring near the import block.
-        from the_one.mcp.oauth.errors import MCPAuthRequired
 
         # Lazy-populate the tool cache for unknown-tool detection. Runs OUTSIDE
         # the call_timeout_seconds budget — list_tools has its own 30s timeout.
