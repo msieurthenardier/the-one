@@ -79,6 +79,30 @@ class TestBaseUrl:
         assert "example.com/api/v1" in str(prov.client.base_url)
 
 
+class TestTimeout:
+    """The openai SDK's default 600s timeout means a stuck upstream model
+    holds the WebSocket open for 10 minutes with no user feedback. The
+    provider applies a sensible default and accepts an override."""
+
+    def test_default_timeout_applied(self):
+        from the_one.llm.openai_provider import DEFAULT_OPENAI_TIMEOUT
+        from the_one.llm.openrouter_provider import OpenRouterProvider
+
+        prov = OpenRouterProvider(model="m", api_key="x")
+        # The openai SDK exposes the configured timeout on the client.
+        # Read tolerates either dict or httpx.Timeout shape.
+        assert prov.client.timeout.read == DEFAULT_OPENAI_TIMEOUT.read
+
+    def test_explicit_timeout_overrides_default(self):
+        import httpx
+
+        from the_one.llm.openrouter_provider import OpenRouterProvider
+
+        custom = httpx.Timeout(connect=2.0, read=5.0, write=2.0, pool=2.0)
+        prov = OpenRouterProvider(model="m", api_key="x", timeout=custom)
+        assert prov.client.timeout.read == 5.0
+
+
 class TestRankingHeaders:
     def test_referer_header_set_when_config_referer(self):
         from the_one.llm.openrouter_provider import OpenRouterProvider

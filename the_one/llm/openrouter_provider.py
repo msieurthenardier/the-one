@@ -16,10 +16,11 @@ from __future__ import annotations
 import os
 from typing import Any, ClassVar
 
+import httpx
 import openai
 
 from the_one.llm import openrouter_api
-from the_one.llm.openai_provider import OpenAIProvider
+from the_one.llm.openai_provider import DEFAULT_OPENAI_TIMEOUT, OpenAIProvider
 from the_one.llm.registry import register_provider
 
 
@@ -48,6 +49,7 @@ class OpenRouterProvider(OpenAIProvider):
         api_key: str | None = None,
         base_url: str = "https://openrouter.ai/api/v1",
         config: dict | None = None,
+        timeout: httpx.Timeout | None = None,
         **kwargs: Any,
     ):
         # Override constructor entirely — do NOT call super().__init__() —
@@ -76,7 +78,11 @@ class OpenRouterProvider(OpenAIProvider):
         if cfg.get("title"):
             headers["X-Title"] = cfg["title"]
 
-        client_kwargs: dict[str, Any] = {"api_key": resolved_key, "base_url": base_url}
+        client_kwargs: dict[str, Any] = {
+            "api_key": resolved_key,
+            "base_url": base_url,
+            "timeout": timeout if timeout is not None else DEFAULT_OPENAI_TIMEOUT,
+        }
         if headers:
             client_kwargs["default_headers"] = headers
         self.client = openai.AsyncOpenAI(**client_kwargs)
