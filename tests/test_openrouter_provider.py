@@ -128,6 +128,109 @@ class TestInstanceAttributeParity:
 
 
 @pytest.mark.asyncio
+class TestSupportsTools:
+    """Capability gate: OpenRouterProvider.supports_tools must consult
+    the OpenRouter ``/models`` listing so tool-less models are run as
+    plain chat instead of failing at the wire."""
+
+    async def test_returns_false_when_model_lacks_tools(self, monkeypatch):
+        from the_one.llm import openrouter_api
+        from the_one.llm.openrouter_provider import OpenRouterProvider
+
+        openrouter_api._models_cache.clear()
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                json={
+                    "data": [
+                        {"id": "google/gemma-2", "supported_parameters": ["temperature"]}
+                    ]
+                },
+            )
+
+        transport = httpx.MockTransport(handler)
+        original_init = httpx.AsyncClient.__init__
+
+        def patched_init(self, *args, **kwargs):
+            kwargs["transport"] = transport
+            original_init(self, *args, **kwargs)
+
+        monkeypatch.setattr(httpx.AsyncClient, "__init__", patched_init)
+        prov = OpenRouterProvider(model="google/gemma-2", api_key="k")
+        assert await prov.supports_tools() is False
+
+    async def test_returns_true_when_model_lists_tools(self, monkeypatch):
+        from the_one.llm import openrouter_api
+        from the_one.llm.openrouter_provider import OpenRouterProvider
+
+        openrouter_api._models_cache.clear()
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                json={
+                    "data": [
+                        {"id": "anthropic/claude-3.5", "supported_parameters": ["tools"]}
+                    ]
+                },
+            )
+
+        transport = httpx.MockTransport(handler)
+        original_init = httpx.AsyncClient.__init__
+
+        def patched_init(self, *args, **kwargs):
+            kwargs["transport"] = transport
+            original_init(self, *args, **kwargs)
+
+        monkeypatch.setattr(httpx.AsyncClient, "__init__", patched_init)
+        prov = OpenRouterProvider(model="anthropic/claude-3.5", api_key="k")
+        assert await prov.supports_tools() is True
+
+    async def test_returns_true_when_capabilities_unknown(self, monkeypatch):
+        """Fail-open: network error / 5xx / model-missing all → True so the
+        request still goes out and surfaces the real error."""
+        from the_one.llm import openrouter_api
+        from the_one.llm.openrouter_provider import OpenRouterProvider
+
+        openrouter_api._models_cache.clear()
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("boom")
+
+        transport = httpx.MockTransport(handler)
+        original_init = httpx.AsyncClient.__init__
+
+        def patched_init(self, *args, **kwargs):
+            kwargs["transport"] = transport
+            original_init(self, *args, **kwargs)
+
+        monkeypatch.setattr(httpx.AsyncClient, "__init__", patched_init)
+        prov = OpenRouterProvider(model="x/y", api_key="k")
+        assert await prov.supports_tools() is True
+
+    async def test_no_placeholder_leak_to_capability_lookup(self, monkeypatch):
+        """When api_key is unset, the provider must call
+        ``get_model_capabilities`` with ``None`` (NOT the bearer
+        placeholder) — /models is publicly accessible and a placeholder
+        in the auth header would just waste a cache slot."""
+        from the_one.llm import openrouter_api
+        from the_one.llm.openrouter_provider import OpenRouterProvider
+
+        openrouter_api._models_cache.clear()
+        captured_keys: list[str | None] = []
+
+        async def fake_get_caps(base_url, api_key, model):
+            captured_keys.append(api_key)
+            return None
+
+        monkeypatch.setattr(openrouter_api, "get_model_capabilities", fake_get_caps)
+        prov = OpenRouterProvider(model="x/y", api_key=None)
+        await prov.supports_tools()
+        assert captured_keys == [None]
+
+
+@pytest.mark.asyncio
 class TestStreaming:
     async def test_stream_without_trailing_usage_chunk(self):
         """If upstream omits the trailing usage chunk, stream must not crash

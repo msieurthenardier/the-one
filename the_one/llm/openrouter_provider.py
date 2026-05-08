@@ -18,6 +18,7 @@ from typing import Any, ClassVar
 
 import openai
 
+from the_one.llm import openrouter_api
 from the_one.llm.openai_provider import OpenAIProvider
 from the_one.llm.registry import register_provider
 
@@ -79,6 +80,30 @@ class OpenRouterProvider(OpenAIProvider):
         if headers:
             client_kwargs["default_headers"] = headers
         self.client = openai.AsyncOpenAI(**client_kwargs)
+
+        # Stash the resolved-but-pre-placeholder key for capability lookups.
+        # Passing ``_NO_KEY_PLACEHOLDER`` to ``openrouter_api`` would just
+        # waste a cache slot — ``/models`` is publicly accessible without
+        # auth — so we record None when no real key was provided.
+        self._lookup_api_key: str | None = (
+            api_key if (api_key is not None and api_key != "")
+            else os.environ.get("OPENROUTER_API_KEY")
+        )
+        self._lookup_base_url = base_url
+
+    async def supports_tools(self) -> bool:
+        """Return False if the OpenRouter model is known not to advertise
+        ``tools`` in its ``supported_parameters``. Returns True when
+        capabilities can't be determined (network blip, model missing,
+        non-functional key) so the request still goes out — mirrors
+        ``OllamaProvider.supports_tools`` fail-open semantics.
+        """
+        caps = await openrouter_api.get_model_capabilities(
+            self._lookup_base_url,
+            self._lookup_api_key,
+            self.model,
+        )
+        return caps is None or "tools" in caps
 
 
 register_provider("openrouter", OpenRouterProvider)
