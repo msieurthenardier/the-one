@@ -1,6 +1,6 @@
 # Flight: Per-agent MCP attach + tool-routing in agent loop
 
-**Status**: landed
+**Status**: completed
 **Mission**: [MCP Integration](../../mission.md)
 
 ## Contributing to Criteria

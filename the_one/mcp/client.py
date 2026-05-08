@@ -334,11 +334,23 @@ class MCPClient:
                 f"MCP connect failed: {type(e).__name__}: {e}"
             ) from e
 
-        # F2 strict check (narrower than the SDK's SUPPORTED_PROTOCOL_VERSIONS).
-        # When session.initialize is wholly mocked in tests, the SDK's own
-        # version-set check never runs — F2's strict-equality gate is the
-        # only one that fires. See test_pinned_constant_read_at_call_time.
-        if result.protocolVersion != pinned:
+        # F6 A6 fix (post-F2-debrief): align with the SDK's supported set
+        # rather than a single pinned revision. F2 chose strict-equality
+        # ``result.protocolVersion != pinned`` per mission constraint #59's
+        # "pin in code" framing — but the same constraint also says
+        # "capability-gate spec features so an interaction with a server
+        # announcing a different revision degrades rather than crashes."
+        # The strict-equality interpretation was too narrow: every MCP
+        # server in the wild that announces an older revision (Cloudflare
+        # at 2025-06-18, GitHub MCP at 2025-03-26, etc.) tripped the gate
+        # despite being in the SDK's SUPPORTED_PROTOCOL_VERSIONS set. F6
+        # Tier-2 HAT against Cloudflare Docs MCP surfaced this — the
+        # source connect failed at version-check before F5's lazy-OAuth
+        # flow could fire. Loosen to "in the SDK's supported set"; the
+        # PINNED constant remains as documentation/marker for the
+        # primary-targeted revision but no longer enforces equality.
+        from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
+        if result.protocolVersion not in SUPPORTED_PROTOCOL_VERSIONS:
             await self._cleanup_after_failed_connect()
             raise MCPVersionMismatch(pinned=pinned, observed=result.protocolVersion)
 

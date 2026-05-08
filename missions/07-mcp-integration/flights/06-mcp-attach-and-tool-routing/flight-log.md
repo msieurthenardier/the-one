@@ -212,6 +212,51 @@ Orchestration started 2026-05-08 via `/agentic-workflow`. Branch `flight/06-mcp-
 
 (append as runtime decisions surface)
 
+### 2026-05-08 — Next flight is "OAuth simplification" (strip GitHub-legacy manual-entry fallback)
+
+User decision (post-A6 fix, pre-F6 close): the next flight in mission 7's queue is dedicated to ripping out the GitHub-legacy OAuth manual-entry path entirely. Rationale: the spec-compliant DCR-based path (verified end-to-end against Cloudflare Docs MCP at this debrief) is operationally invisible — operator pastes URL, OAuth runs transparent. The GitHub-legacy fallback (manual-entry modal, F1's `config.oauth.*` editor fields that nothing reads, `ManualOAuthClientProvider`, etc.) was added because GitHub doesn't honor RFC 7591 DCR. The complexity isn't worth it for a single non-compliant vendor when the rest of the modern OAuth-protected MCP ecosystem (Cloudflare, Auth0-backed FastMCP servers, etc.) just works. Be forward-looking; let GitHub catch up to RFC 7591 (or operators paste a PAT into a Bearer header — F1 already supports that path).
+
+**Scope for the OAuth-simplification flight (filed in next mission planning cycle)**:
+
+- Remove `the_one/mcp/oauth/manual_metadata.py::ManualOAuthClientProvider` and `ManualOAuthMetadata` (~50 LOC).
+- Remove the `dcr_credentials.registration_method == "manual"` branch in `the_one/mcp/oauth/provider_factory.py::build_oauth_provider_for_source` (~15 LOC).
+- Remove the `/api/oauth/manual-register` endpoint in `the_one/interfaces/web/api.py` (~30 LOC).
+- Remove `the_one/interfaces/web/static/js/oauth-modal.js`'s manual-entry form (the manual_registration_required sub-event branch + the three input fields + the manual-register POST).
+- Remove F1's Studio MCP Servers OAuth-config-editor section in `mcp-server-editor.js` (lines ~121-322, the entire `mcp-oauth-section` div + helper functions). F1 built this anticipating F5 would read `config.oauth.*`; F5 chose `secrets["dcr_credentials"]` instead and never reconciled. The fields are dead-letter today.
+- Remove `secrets["oauth_client_secret"]` field handling everywhere it lives (Studio editor, GET-strip, PUT-preserve list).
+- Update `agents.md` to drop references to the manual-entry path + the `oauth_client_secret` payload key.
+- Update `tests/HAT.md` to drop Tier-2 GitHub-via-manual-entry procedure; add a Tier-2 Cloudflare-API-MCP procedure (real OAuth-protected target with DCR).
+- Update related tests: `test_oauth_manual_register.py` (delete), `test_mcp_server_editor.py` if any browser test exists for the OAuth section (delete), `test_oauth_provider_factory.py`'s manual-method tests (delete).
+- Mission Open Question L94 ("OAuth flow shape: device-code vs auth-code-with-loopback-redirect... and the client-registration path") gets a final disposition: ONLY auth-code-with-loopback-redirect with DCR. Device-code stays out of scope. Pre-registration / CIMD / user-entered fall back paths are dropped.
+
+This is filed as next-flight scope, NOT in F6. F6 closes with A6's version-loosening fix only; the strip-out is dedicated work.
+
+### 2026-05-08 — F5 lazy-Login-required-button-in-chat NOT yet verified live (deferred to OAuth-simplification flight)
+
+User attempted Tier-2 verification of F5's full lazy-OAuth flow against Cloudflare API MCP (`https://mcp.cloudflare.com/mcp`) — the operator-facing "Login required button in chat → modal → consent in popup → resume" sequence. Result: agent build graceful-degrade-skipped because Cloudflare API MCP requires auth on `tools/list` (server-side spec posture), so the build's list_tools call 401'd at registry-build time, BEFORE any chat interaction. F5's lazy-OAuth design fires from `tools/call` (in-chat, with chat-session bound, with modal-surface-able context). It does NOT fire from `tools/list` (at-build, no chat-session, no modal target).
+
+User experience: agent registry has zero MCP tools → qwen falls back to the `shell` builtin → hallucinates a `mcp` CLI → fails with "typer is required" or similar. Login-required button never surfaces because there's no MCP tool for the LLM to call.
+
+This is the **cycle-2 H1 carry-forward** I documented as deferred to F7 (extend list_tools with except* OAuth translation). Three MCP-server auth postures behave differently in F6 today:
+
+| Server posture | F6 behavior |
+|---|---|
+| No auth | Build registers tools cleanly; chat dispatches normally. **Verified end-to-end against Cloudflare Docs MCP.** ✓ |
+| Auth on tools/call only | Build registers tools (no auth needed for list); first chat tool call 401s → F5 lazy flow fires → Login-required button in chat. **NOT yet verified live** — need a server that auths-on-call-but-not-list, none readily available in the public OAuth-protected MCP ecosystem. |
+| Auth on tools/list (Cloudflare API + most production OAuth MCPs) | Build's list_tools 401s → graceful-degrade-skip → 0 MCP tools registered → chat has nothing to call → no Login-required button surfaces → **operator-blocking gap**. |
+
+The third case — which is the COMMON real-world posture — is broken in F6 as shipped. Fix scope (≈30 LOC + tests, deferred to OAuth-simplification flight per user decision):
+
+1. Extend `MCPClient.list_tools` with `except* (OAuthFlowError, OAuthTokenError)` and `except* httpx.HTTPStatusError` (mirror call_tool's F5 L4 pattern at `client.py:481-535`). Translate 401 to `MCPAuthRequired`.
+2. Extend `MCPToolProvider.get_tools_for_agent` with a new `except MCPAuthRequired` branch that registers a single placeholder tool `mcp__{source}__authenticate_to_use_this_source` (the LLM sees a tool, attempts to use it, the call surfaces MCPAuthRequired → chat UI Login-required button → modal → consent → tokens persist → next agent build registers real tools).
+3. HAT against Cloudflare API MCP (or any auth-on-list_tools server) is the binding go/no-go for the OAuth-simplification flight.
+
+F6 as shipped: spec-compliant happy path (no-auth servers) verified ✓; auth-on-call-only path designed but not verified; auth-on-list path BROKEN with documented carry-forward to OAuth-simplification flight.
+
+### 2026-05-08 — Forward-looking note on F1↔F5 storage-shape mismatch
+
+F1's Studio MCP Servers source-editor UI ships an OAuth-section that writes operator-pasted client_id, auth_endpoint, etc. to `source.config.oauth.*` (and `secrets["oauth_client_secret"]`). F5's runtime in `_pool::_entry_worker` calls `build_oauth_provider_for_source` which reads `secrets["dcr_credentials"]` and `secrets["oauth_client_secret"]`. **The `config.oauth.*` write target has zero Python consumers** — verified via `grep -rn 'config.oauth' the_one/*.py` returns no hits (only JS UI files). F1's OAuth fields are dead-letter for runtime purposes today. The OAuth-simplification flight (above) drops them entirely; until then, operators who paste OAuth config into the F1 editor get silent failure (their pasted client_id is stored but never used by the OAuth flow).
+
 ---
 
 ## Deviations
@@ -227,6 +272,40 @@ Leg L0 IG step 2 specified the `MCPRegistrationError` docstring text including t
 ## Anomalies
 
 (append as unexpected issues surface)
+
+### 2026-05-08 — A6 — F2's strict version pin blocks every non-2025-11-25 server (found during Cloudflare verification)
+
+User pivoted Tier-2 from GitHub MCP (legacy non-DCR OAuth, hit A5) to Cloudflare's hosted MCP servers (modern DCR-compliant) to verify F5's spec-compliant happy path against a real DCR-supporting AS. Probing `https://docs.mcp.cloudflare.com/mcp` revealed:
+
+- Initialize handshake returns `protocolVersion: "2025-06-18"` — the spec revision Cloudflare's MCP servers target. This IS in `mcp.shared.version.SUPPORTED_PROTOCOL_VERSIONS` (the SDK's own gate accepts it), but **F2's strict-equality check** at `the_one/mcp/client.py::MCPClient.connect` rejected it because the pinned constant is `2025-11-25`.
+- AS metadata at `https://mcp.cloudflare.com/.well-known/oauth-authorization-server` advertises a fully spec-compliant OAuth flow: RFC 7591 DCR (`registration_endpoint`), RFC 9728 PRM, RFC 8414 AS metadata, S256 PKCE, `none` token-endpoint auth (public client).
+
+So F2's strict-equality interpretation of mission constraint #59 ("pin in code") was too narrow — the same constraint also says "capability-gate spec features so an interaction with a server announcing a different revision degrades rather than crashes." Strict equality crashes (via graceful-degrade-skip), not degrades. F6's Tier-2 verification surfaced this as a production gap blocking the entire pre-current MCP ecosystem.
+
+**Production impact**: every public MCP server announcing `2024-11-05`, `2025-03-26`, or `2025-06-18` (Cloudflare, plus most other production MCPs in the wild) silently fails F6's agent-build version-check, graceful-degrade-skips, and never has a chance to advertise tools. Operators see "MCP source X failed to connect" and assume the URL is wrong; the actual cause is the pin mismatch.
+
+**Fix** (one-line change to `the_one/mcp/client.py::MCPClient.connect` at the post-`session.initialize()` strict check):
+
+```python
+# Pre-A6:
+if result.protocolVersion != pinned:
+    raise MCPVersionMismatch(pinned=pinned, observed=result.protocolVersion)
+
+# Post-A6:
+from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
+if result.protocolVersion not in SUPPORTED_PROTOCOL_VERSIONS:
+    raise MCPVersionMismatch(pinned=pinned, observed=result.protocolVersion)
+```
+
+The `_PINNED_PROTOCOL_VERSION` module constant remains as documentation/marker for the primary-targeted revision but no longer gates connect(). Two existing tests inverted+renamed per the "test-that-pins-broken-behavior" leg-spec convention:
+- `test_connect_version_mismatch_strict` → `test_connect_supported_non_pinned_version_passes` (asserts `2025-06-18` is now ACCEPTED, not raised)
+- `test_pinned_constant_read_at_call_time` → `test_pinned_constant_no_longer_gates_connect` (asserts monkeypatching PINNED has no effect on connect's gate)
+
+Plus 1 NEW test `test_connect_unsupported_version_raises_mismatch` that asserts `1999-01-01` (truly unsupported, not in SDK's set) STILL raises MCPVersionMismatch — locking the post-A6 gate.
+
+123 targeted tests pass + lint clean. Cloudflare Docs MCP build verified end-to-end post-A6: source registered with just URL → agent built in 0.4s → 2 MCP tools (`mcp__cloudflare_docs__search_cloudflare_documentation`, `mcp__cloudflare_docs__migrate_pages_to_workers_guide`) registered with proper prefix.
+
+**Carry-forward for the next flight (OAuth-cleanup; see Decisions below)**: A6 + A5 + cycle-2 H1's "extend list_tools/connect with except* OAuth translation" all flow into the same target — make F5's spec-compliant happy path the canonical (and only) path. Strip the GitHub-legacy manual-entry fallback (`ManualOAuthClientProvider`, the chat-UI manual-entry modal, F1's Studio MCP Servers OAuth-config-editor section that F5 doesn't read, the `dcr_credentials.registration_method == "manual"` branch in `provider_factory.py`, the `secrets["oauth_client_secret"]` field). Be forward-looking; don't carry GitHub-legacy debt for a vendor that doesn't honor RFC 7591 in 2026.
 
 ### 2026-05-08 — A5 — OAuth-protected source without credentials crashes agent build (found + fixed during Tier-2 HAT)
 
