@@ -149,26 +149,20 @@ class TestConstructorRejectsHeaderInjection:
     layer is a defense-in-depth check.
     """
 
-    @staticmethod
-    def _constructor_has_crlf_check() -> bool:
-        import inspect
-
-        src = inspect.getsource(OpenRouterProvider.__init__)
-        # Heuristic: look for CR/LF / NUL rejection in the constructor body.
-        markers = ("\\r", "\\n", "\\x00", "_FORBIDDEN_HEADER_CHARS", "ValueError")
-        return any(m in src for m in markers) and "ValueError" in src
-
     def test_constructor_rejects_referer_with_crlf(self) -> None:
-        if not self._constructor_has_crlf_check():
-            pytest.skip(
-                "pending Agent A defensive header check in OpenRouterProvider.__init__ "
-                "(API-layer rejection is covered by test_provider_api.py)"
-            )
         with pytest.raises(ValueError):
             OpenRouterProvider(
                 model="m",
                 api_key="x",
                 config={"referer": "https://x.com\r\nX-Injected: y"},
+            )
+
+    def test_constructor_rejects_title_with_nul(self) -> None:
+        with pytest.raises(ValueError):
+            OpenRouterProvider(
+                model="m",
+                api_key="x",
+                config={"title": "evil\x00injected"},
             )
 
 

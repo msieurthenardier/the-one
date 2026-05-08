@@ -24,6 +24,25 @@ from the_one.llm.openai_provider import DEFAULT_OPENAI_TIMEOUT, OpenAIProvider
 from the_one.llm.registry import register_provider
 
 
+_FORBIDDEN_HEADER_CHARS = ("\r", "\n", "\x00")
+
+
+def _assert_safe_header(name: str, value: str) -> None:
+    """Reject CR/LF/NUL in header values. The API write boundary
+    (``_validate_openrouter_config``) rejects these with a 422; this
+    constructor-level check is defense-in-depth so any future code path
+    that bypasses the API (CLI, scripts, tests, programmatic creation)
+    can't smuggle a header injection through. httpx 0.28.1 sends control
+    chars verbatim — so the constructor is the right boundary to refuse
+    them at type-construction time."""
+    for ch in _FORBIDDEN_HEADER_CHARS:
+        if ch in value:
+            raise ValueError(
+                f"OpenRouter {name} contains forbidden control character "
+                f"{ch!r}; refused at constructor."
+            )
+
+
 class OpenRouterProvider(OpenAIProvider):
     name = "openrouter"
 
@@ -72,10 +91,15 @@ class OpenRouterProvider(OpenAIProvider):
         headers: dict[str, str] = {}
         # referer / title are validated at the POST /api/providers
         # boundary (Decision 6); this code trusts the saved value but
-        # still skips empty strings so absent headers stay absent.
+        # still skips empty strings so absent headers stay absent. The
+        # CR/LF/NUL check below is defense-in-depth so any code path
+        # that bypasses the API write boundary can't smuggle a header
+        # injection through (review C3 + type-design recommendation).
         if cfg.get("referer"):
+            _assert_safe_header("referer", cfg["referer"])
             headers["HTTP-Referer"] = cfg["referer"]
         if cfg.get("title"):
+            _assert_safe_header("title", cfg["title"])
             headers["X-Title"] = cfg["title"]
 
         client_kwargs: dict[str, Any] = {
