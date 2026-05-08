@@ -1577,6 +1577,12 @@ class TestOpenRouterValidation:
             "https://x.com\x00",
             "not-a-url",
             "ftp://example.com",
+            # Whitespace-in-host (truthy netloc, but not a real host).
+            "https:// invalid host /path",
+            # Uppercase host — refused outright (not silently downcased).
+            "https://EXAMPLE.com",
+            # Netloc collapses to whitespace-only.
+            "http://  ",
         ],
     )
     async def test_referer_invalid_rejected_with_422(self, client, bad_referer) -> None:
@@ -1984,3 +1990,78 @@ class TestOpenRouterModelsEndpointErrorMapping:
         resp = await client.get(f"/api/providers/{provider_id}/models")
         assert resp.status_code == 502
         assert "unreachable" in resp.json()["detail"].lower()
+
+
+# ── update_provider config-revalidation behavior ──────────────────────
+
+
+class TestUpdateProviderConfigRevalidation:
+    """update_provider re-validates the openrouter config ONLY when
+    'config' is in the request body. Without this, a name-only rename
+    would re-validate the existing stored config — and if validation
+    rules tightened, an unrelated field change could 422 on a previously
+    valid stored value. Validate-on-write, not validate-on-rebroadcast.
+    """
+
+    async def test_name_only_update_does_not_revalidate_config(
+        self, client: AsyncClient
+    ) -> None:
+        # Create with a valid config.
+        create = await client.post(
+            "/api/providers",
+            json={
+                "name": "OR",
+                "type": "openrouter",
+                "base_url": "https://openrouter.ai/api/v1",
+                "api_key": "k",
+                "config": {"referer": "https://valid.example", "title": "App"},
+            },
+        )
+        assert create.status_code in (200, 201), create.text
+        pid = create.json()["id"]
+
+        # Name-only PUT with masked api_key — config NOT in body.
+        upd = await client.put(
+            f"/api/providers/{pid}",
+            json={
+                "name": "Renamed",
+                "type": "openrouter",
+                "base_url": "https://openrouter.ai/api/v1",
+                "api_key": "__MASKED__",
+            },
+        )
+        assert upd.status_code == 200, upd.text
+        assert upd.json()["name"] == "Renamed"
+
+    async def test_invalid_config_in_body_returns_422_and_preserves_existing(
+        self, client: AsyncClient
+    ) -> None:
+        create = await client.post(
+            "/api/providers",
+            json={
+                "name": "OR",
+                "type": "openrouter",
+                "base_url": "https://openrouter.ai/api/v1",
+                "api_key": "k",
+                "config": {"referer": "https://valid.example"},
+            },
+        )
+        pid = create.json()["id"]
+
+        # PUT with masked key + invalid referer — should 422.
+        upd = await client.put(
+            f"/api/providers/{pid}",
+            json={
+                "name": "OR",
+                "type": "openrouter",
+                "base_url": "https://openrouter.ai/api/v1",
+                "api_key": "__MASKED__",
+                "config": {"referer": "javascript:alert(1)"},
+            },
+        )
+        assert upd.status_code == 422, upd.text
+
+        # Config and key on disk unchanged.
+        get_resp = await client.get(f"/api/providers/{pid}")
+        body = get_resp.json()
+        assert body["config"]["referer"] == "https://valid.example"

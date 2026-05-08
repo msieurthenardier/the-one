@@ -5,10 +5,12 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import secrets
 import time
 import uuid
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 from cryptography.fernet import Fernet
@@ -73,19 +75,27 @@ _FORBIDDEN_HEADER_CHARS = ("\r", "\n", "\x00")
 _OPENROUTER_TITLE_MAX = 64
 
 
+# RFC-1123-ish hostname regex with optional :port suffix. Allows ASCII
+# letters/digits/hyphens/dots — rejects spaces, uppercase (port-aware
+# lowercase check below), unicode, embedded control chars (already
+# filtered upstream by _FORBIDDEN_HEADER_CHARS but cheap to confirm).
+_REFERER_HOSTNAME_RE = re.compile(r"^[a-z0-9.\-]+(?::\d+)?$")
+
+
 def _validate_openrouter_config(config: dict | None) -> dict:
     """Sanitize the openrouter ranking-header config.
 
     - Rejects ``referer`` / ``title`` containing CR / LF / NUL.
-    - Requires ``referer`` to parse as ``http(s)://`` URL with a non-empty netloc.
+    - Requires ``referer`` to parse as ``http(s)://`` URL with a strict
+      ASCII-hostname netloc (no spaces, no uppercase, no unicode). The
+      pre-fix ``not parsed.netloc`` check let whitespace-only netlocs
+      through because ``" "`` is truthy.
     - Bounds ``title`` length to 64.
     - Empty strings are dropped from the returned dict (absent stays absent
       on round-trip).
 
     Raises ``HTTPException(422, ...)`` on validation failure.
     """
-    from urllib.parse import urlparse
-
     cfg = dict(config or {})
     referer = cfg.get("referer")
     if isinstance(referer, str):
@@ -98,10 +108,29 @@ def _validate_openrouter_config(config: dict | None) -> dict:
             cfg.pop("referer", None)
         else:
             parsed = urlparse(referer)
-            if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            if parsed.scheme not in {"http", "https"}:
                 raise HTTPException(
                     status_code=422,
-                    detail="config.referer must be an http(s):// URL",
+                    detail="config.referer must use http(s):// scheme",
+                )
+            netloc = (parsed.netloc or "").strip()
+            if not netloc or not _REFERER_HOSTNAME_RE.fullmatch(netloc.lower()):
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "config.referer must have a valid ASCII host "
+                        "(letters/digits/hyphens/dots, optional :port; "
+                        "no spaces, no unicode)"
+                    ),
+                )
+            # Reject case-insensitive mismatch outright. RFC 3986 says
+            # hosts are case-insensitive but most client/server libs
+            # treat them as canonical lowercase. If the operator typed
+            # uppercase, we refuse rather than silently downcasing.
+            if netloc != netloc.lower():
+                raise HTTPException(
+                    status_code=422,
+                    detail="config.referer host must be lowercase ASCII",
                 )
     elif referer is not None:
         raise HTTPException(status_code=422, detail="config.referer must be a string")
@@ -701,8 +730,6 @@ def _is_safe_provider_url(url: str) -> tuple[bool, str | None]:
     on-wire to anything tapping the LAN. Refusing at save time is cheaper
     than detecting after exposure.
     """
-    from urllib.parse import urlparse
-
     parsed = urlparse(url)
     if parsed.scheme == "https":
         return True, None
@@ -853,7 +880,14 @@ async def update_provider(provider_id: str, request: Request) -> dict[str, Any]:
 
     updated = existing.model_copy(update=data)
     if updated.type == "openrouter":
-        updated.config = _validate_openrouter_config(updated.config)
+        # Re-validate ONLY when config is in the request body. Without
+        # this, an update that doesn't touch config (e.g., name-only
+        # rename) would re-validate the existing stored config — and if
+        # validation rules tighten over time, an unrelated update could
+        # 422 on a previously-valid stored value. Validate-on-write,
+        # not validate-on-rebroadcast.
+        if "config" in data:
+            updated.config = _validate_openrouter_config(updated.config)
     # URL safety check on the RESOLVED base_url — i.e. after
     # ``model_copy(update=data)`` has merged any ``__MASKED__``-preserved
     # fields. This blocks the regression where a request that does not
