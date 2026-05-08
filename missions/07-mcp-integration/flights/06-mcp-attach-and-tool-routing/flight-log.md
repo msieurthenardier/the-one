@@ -228,6 +228,36 @@ Leg L0 IG step 2 specified the `MCPRegistrationError` docstring text including t
 
 (append as unexpected issues surface)
 
+### 2026-05-08 — A5 — OAuth-protected source without credentials crashes agent build (found + fixed during Tier-2 HAT)
+
+User opted to do Tier-2 HAT (live GitHub MCP via streamable-http). Registered `https://api.githubcopilot.com/mcp/` as a streamable-http source with no auth credentials, attached to a fresh `hat_github` agent (no `mcp_overrides`, GitHub MCP requires OAuth/PAT and we passed neither). Per cycle-2 H1 disposition, the registry-build path was supposed to graceful-degrade-skip via failure class #2 with "MCPConnectionError: failed to connect" diagnostic. **It crashed instead.**
+
+**Root cause cascade**:
+1. `MCPClient.connect()` (`the_one/mcp/client.py`) calls `session.initialize()` — the SDK's first JSON-RPC call to the server.
+2. GitHub returns 401. SDK's `streamable_http_client` async-context-manager's anyio task group hits `httpx.HTTPStatusError`.
+3. The task group's `__aexit__` runs cleanup on a different task than the one that opened it → `RuntimeError: Attempted to exit cancel scope in a different task than it was entered in` (the F2-class cross-task-cancel-scope guard).
+4. The cancel-scope chain converts the error into `asyncio.CancelledError` by the time it reaches `MCPClient.connect()`'s exception handlers.
+5. **Cycle-2 H1's pre-existing claim** ("`list_tools` translates 401 to `MCPConnectionError`") was correct as far as it went — but `connect()` calls `initialize()` BEFORE `list_tools` ever runs, and `connect()`'s pre-A5 `except Exception as e: raise MCPConnectionError(...) from e` did NOT catch `asyncio.CancelledError` (which extends `BaseException` only, per Python 3.8+ PEP 656).
+6. CancelledError propagated up: `_entry_worker` → `acquire` → `MCPToolProvider.get_tools_for_agent`, whose class #2 handler `(MCPSandboxError, MCPConnectionError, MCPVersionMismatch)` also missed it. Agent build crashed.
+
+**Production impact**: operator registers a streamable-http MCP source without credentials → first chat message after attaching it → entire agent build crashes, chat dies. NOT graceful-degrade as F6 §8 + cycle-2 H1 documented.
+
+**Inherited from F5, amplified by F6**: F5's lazy-401 design assumed the 401 surfaces from `call_tool`, not from build-time `connect()` → `initialize()`. F6 §4's eager-at-AgentFactory.create choice (calling `acquire` + `list_tools` at build) put the 401 ahead of the user's first tool call. F2/F4/F5 didn't exercise OAuth-protected streamable-http sources at agent-BUILD time because nothing called `acquire` at build pre-F6.
+
+**Fix** (inline during HAT, post-A4-fix-tested-clean):
+
+`the_one/mcp/client.py::MCPClient.connect` exception handlers extended:
+
+1. **NEW first handler `except asyncio.CancelledError`** — translates the cross-task cancel-scope cancellation to `MCPConnectionError`; **abandons** the transport stack reference (sets `self._transport_stack = None` and `self._session = None`) **without** calling `_cleanup_after_failed_connect`. Calling cleanup would re-trigger the SDK's wedged task group and either hang or re-cancel; we accept the partial-connection leak (GC + process shutdown reaps) in exchange for not deadlocking the agent build.
+2. **NEW second handler `except (Exception, BaseExceptionGroup)`** — extends the catch list with `BaseExceptionGroup` so any non-cancelled SDK task-group exception groups also collapse to `MCPConnectionError` (with optional 401 walk → `MCPAuthRequired` if the SDK ever surfaces a clean-grouped HTTPStatusError).
+3. **`_safe_cleanup` helper** — wraps `_cleanup_after_failed_connect` in `asyncio.wait_for(timeout=3.0)` for the non-cancelled path, narrows catch to `(asyncio.TimeoutError, Exception, BaseExceptionGroup)` (does NOT catch CancelledError so caller cancellations propagate cleanly), abandons stack on cleanup failure.
+
+**Tests**: 1 new regression test `test_connect_cancelled_error_translates_to_connection_error` in `tests/test_mcp_client.py::TestConnectDisconnectLifecycle`. Mocks `session.initialize` to raise `asyncio.CancelledError` directly (avoids needing a real anyio task group + cross-task setup); asserts `MCPConnectionError` raised, `is_alive=False`, abandon-cleanup invariant (`_transport_stack is None`, `_session is None`). 121 → 122 targeted regression tests pass.
+
+**HAT continuation**: post-A5-fix, `factory.create('hat_github')` succeeds in 0.3s with 16 builtins + 0 MCP tools. The expected WARNING fires: `MCP source 'GitHub' failed to connect: MCPConnectionError: MCP connect failed: cancelled during initialize (cross-task cleanup deadlock; original cause likely 401 Unauthorized or transport error): Cancelled via cancel scope ...; skipping`. Operator UX: chat works for `hat_github`, GitHub tools simply absent.
+
+**Carry-forward to F7**: the diagnostic message "cancelled during initialize" is lossy — the actual cause is a 401 but the cross-task cancel-scope cleanup chain loses the `httpx.HTTPStatusError` context by the time we catch. F7 (inspector) was already getting cycle-2 H1's "extend list_tools/connect with except* OAuth translation" carry-forward; A5's cleaner-diagnostic improvement folds in. The current message is acceptable for v1 because the pattern "create source without credentials → see WARNING in logs / no MCP tools in agent registry → realize you need OAuth or PAT" is operator-discoverable.
+
 ### 2026-05-08 — A4 — `_apply_override` nesting bug found + fixed during HAT step 3
 
 The L2 leg's `_apply_override` was nesting the agent's overlay under `secrets["env"]` (stdio) / `secrets["headers"]` + `secrets["bearer_token"]` (streamable-http) — but the F2 transport contract treats `source.secrets` as a **flat kv table at top level** (`transports/stdio.py:224-225`: `{**allowlist_env, **config_env, **source.secrets}`; `transports/streamable_http.py:68-69`: `{**config_headers, **source.secrets}`). The nesting caused `StdioServerParameters` to receive `env={"env": {"HAT_AGENT": "A"}}` — the SDK rejected with `string_type` validation error because the env-var VALUE was a dict, not a string.

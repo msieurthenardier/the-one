@@ -250,8 +250,86 @@ class MCPClient:
         except (MCPClientError, NotImplementedError):
             await self._cleanup_after_failed_connect()
             raise
-        except Exception as e:
-            await self._cleanup_after_failed_connect()
+        except asyncio.CancelledError as e:
+            # F6 A5: SDK's anyio task-group cleanup chain after a 401 (or
+            # other transport-level failure) ends with the surrounding task
+            # cancelled. Calling _cleanup_after_failed_connect from this
+            # path re-triggers the cross-task cancel-scope guard inside the
+            # SDK and either hangs or re-raises CancelledError. Abandon the
+            # transport stack reference (leak the partial connection — GC
+            # + process shutdown will clean up) and translate to
+            # MCPConnectionError so MCPToolProvider's class #2 graceful-
+            # degrade catches it. Do NOT await further cleanup.
+            self._transport_stack = None
+            self._session = None
+            raise MCPConnectionError(
+                f"MCP connect failed: cancelled during initialize "
+                f"(cross-task cleanup deadlock; original cause likely "
+                f"401 Unauthorized or transport error): {e}"
+            ) from e
+        except (Exception, BaseExceptionGroup) as e:
+            # F6 A5 fix: extend catch list to BaseExceptionGroup. The SDK's
+            # streamable-http transport wraps cleanup in an anyio task group;
+            # when the inner task hits an HTTP error (e.g. 401) AND the
+            # cleanup tries to exit the task-group's cancel scope on a
+            # different task, the result is a ``BaseExceptionGroup`` (not
+            # an ``Exception`` — BaseExceptionGroup extends BaseException
+            # only). Without this catch, the group escapes upward,
+            # ``MCPToolProvider.get_tools_for_agent``'s class #2 handler
+            # (which catches MCPSandboxError/MCPConnectionError/
+            # MCPVersionMismatch) misses it, and the agent build crashes
+            # rather than graceful-degrade-skipping the source. Walk the
+            # group recursively for an inner 401 to translate to
+            # MCPAuthRequired; otherwise collapse to MCPConnectionError so
+            # graceful-degrade catches uniformly.
+            #
+            # Cleanup is wrapped in a 3s timeout because the SDK's anyio
+            # task group can deadlock on aclose() when the cross-task
+            # cancel-scope guard already fired during initialize() — the
+            # cleanup chain re-enters the same machinery and waits on a
+            # task that will never complete. Abandoning the transport stack
+            # leaks the partially-open subprocess/HTTP connection; the F4
+            # pool's _entry_worker exit handler (or process shutdown) will
+            # eventually GC it. Better to leak than to hang the agent build.
+            async def _safe_cleanup() -> None:
+                try:
+                    await asyncio.wait_for(
+                        self._cleanup_after_failed_connect(), timeout=3.0
+                    )
+                except (asyncio.TimeoutError, Exception, BaseExceptionGroup):
+                    logger.warning(
+                        "MCP transport cleanup timed out or raised after "
+                        "connect-failure; abandoning the transport stack "
+                        "(F6 A5: SDK task-group cross-task deadlock)",
+                    )
+                    # Abandon the stack reference so future operations don't
+                    # try to re-enter the wedged cleanup chain. The leak is
+                    # a partially-open subprocess/HTTP connection; bounded
+                    # by process lifetime. Note: ``except BaseException``
+                    # would also catch CancelledError + KeyboardInterrupt;
+                    # we narrow to (Exception, BaseExceptionGroup) so the
+                    # caller's cancellation propagates cleanly.
+                    self._transport_stack = None
+                    self._session = None
+
+            if isinstance(e, BaseExceptionGroup):
+                http_subgroup = e.subgroup(httpx.HTTPStatusError)
+                if http_subgroup is not None:
+                    for sub in http_subgroup.exceptions:
+                        if (
+                            isinstance(sub, httpx.HTTPStatusError)
+                            and sub.response.status_code == 401
+                        ):
+                            await _safe_cleanup()
+                            rmd = extract_field_from_www_auth(
+                                sub.response, "resource_metadata"
+                            )
+                            raise MCPAuthRequired(
+                                source_id=self.source.id,
+                                resource_metadata_url=rmd,
+                                consent_url=None,
+                            ) from None
+            await _safe_cleanup()
             raise MCPConnectionError(
                 f"MCP connect failed: {type(e).__name__}: {e}"
             ) from e

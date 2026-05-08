@@ -385,6 +385,42 @@ class TestMCPClientLifecycle:
         )
         assert c.is_alive is False
 
+    async def test_connect_cancelled_error_translates_to_connection_error(
+        self, patch_transport, mock_session
+    ) -> None:
+        """F6 A5 regression: ``CancelledError`` raised from ``session.initialize()``
+        translates to :class:`MCPConnectionError` with the abandon-cleanup
+        path active (no hang).
+
+        Reproduces the production cascade against an OAuth-protected
+        streamable-http source without credentials: the SDK's anyio
+        task-group cleanup chain, after the inner 401, ends with the
+        surrounding task cancelled. The pre-A5 ``except Exception``
+        handler missed ``CancelledError`` (PEP 656: extends BaseException
+        only, not Exception) and the cancel propagated up through the
+        F4 pool's ``_entry_worker`` into ``MCPToolProvider.get_tools_for_agent``
+        whose class #2 handler ``(MCPSandboxError, MCPConnectionError,
+        MCPVersionMismatch)`` also missed it — agent build crashed
+        instead of graceful-degrade-skip. Post-fix, A5's dedicated
+        ``except CancelledError`` translates to ``MCPConnectionError``,
+        the abandon-cleanup branch sets ``_transport_stack`` and
+        ``_session`` to None (avoiding re-trip on the wedged SDK task
+        group), and class #2 catches uniformly.
+        """
+        mock_session.initialize = AsyncMock(side_effect=asyncio.CancelledError())
+        patch_transport(mock_session)
+        c = MCPClient(_stdio_source())
+        with pytest.raises(MCPConnectionError) as exc_info:
+            await c.connect()
+        # Verbatim substring lock per `verbatim-message-equality` convention.
+        assert "cancelled during initialize" in str(exc_info.value)
+        assert c.is_alive is False
+        # Abandon-cleanup invariant: stack + session cleared so a subsequent
+        # disconnect() is a no-op (mirrors the F2-known-issue idempotent-
+        # disconnect contract).
+        assert c._transport_stack is None
+        assert c._session is None
+
     async def test_disconnect_idempotent(self, patch_transport, mock_session) -> None:
         """Disconnect on never-connected client is a no-op; double-disconnect is a no-op."""
         # Never-connected disconnect: must not raise.
