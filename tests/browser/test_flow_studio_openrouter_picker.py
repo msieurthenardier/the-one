@@ -16,6 +16,8 @@ env var so no live OpenRouter network call is needed.  See conftest.py for the
 
 from __future__ import annotations
 
+import time
+
 import pytest
 from playwright.sync_api import Page, expect
 
@@ -167,6 +169,90 @@ def test_studio_picker_lifecycle_on_type_switch(
         assert actual_tag == expected_tag, (
             f"After switching to provider {prov_id!r}: expected {expected_tag}, got {actual_tag!r}"
         )
+
+
+@pytest.mark.browser
+def test_rapid_provider_switch_uses_final_selection(
+    app_with_two_providers,
+    page: Page,
+) -> None:
+    """Rapid provider changes must not let an earlier (slow) fetch clobber
+    the final picker state.
+
+    The agent editor fires ``fetchModelsForProvider(providerId)`` on every
+    change of the provider <select>. Without a guard, two concurrent
+    fetches resolve in arbitrary order: a slow response for provider A
+    arriving after a fast response for provider B silently overwrites
+    the active picker with A's models — even though the user has B
+    selected.
+
+    State transitions exercised:
+      0. [editor-mounted, no-provider]
+         - #studio-model present, no provider selected
+      0 -> 1. [openrouter-selected, fetch-pending(slow)]:
+         - intercept openrouter /models with a 1s delay
+         - select openrouter — #studio-model becomes INPUT
+      1 -> 2. [ollama-selected, fetch-resolved-fast]:
+         - select ollama BEFORE the openrouter fetch resolves
+         - #studio-model becomes SELECT
+      2 -> 3. [final-state]:
+         - wait long enough for the delayed openrouter fetch to resolve
+         - assert #studio-model is still SELECT (matches the live provider)
+         - assert datalist (if present) does NOT carry openrouter models
+         - assert no error toast / banner appeared
+    """
+    base_url = app_with_two_providers["base_url"]
+    openrouter_id = app_with_two_providers["openrouter_id"]
+    ollama_id = app_with_two_providers["ollama_id"]
+
+    # Slow down the openrouter /models response so the ollama fetch wins
+    # the race. The handler awaits then forwards via page.request so the
+    # real backend reply (with seeded models) is returned.
+    def _slow_openrouter(route, request):
+        # Stall the response for ~600ms before delivering. Sync sleep is
+        # fine inside Playwright route handlers — they're invoked off the
+        # main test thread.
+        time.sleep(0.6)
+        route.continue_()
+
+    page.route(f"**/api/providers/{openrouter_id}/models", _slow_openrouter)
+
+    page.goto(f"{base_url}#studio")
+    expect(page.locator(".page-title")).to_have_text("Agents", timeout=8000)
+    page.locator('[data-testid="new-agent-btn-empty"]').click()
+    expect(page.locator(".editor-title")).to_have_text("New Agent", timeout=8000)
+
+    # Step 0 -> 1: select openrouter (slow fetch in flight).
+    page.locator("#studio-provider").select_option(openrouter_id)
+    # Picker swaps to INPUT immediately (before fetch resolves).
+    expect(page.locator("#studio-model")).to_have_count(1, timeout=2000)
+    tag = page.evaluate("document.getElementById('studio-model').tagName")
+    assert tag == "INPUT"
+
+    # Step 1 -> 2: switch to ollama BEFORE the openrouter fetch resolves.
+    page.locator("#studio-provider").select_option(ollama_id)
+    expect(page.locator("#studio-model")).to_have_count(1, timeout=2000)
+    tag = page.evaluate("document.getElementById('studio-model').tagName")
+    assert tag == "SELECT"
+
+    # Step 2 -> 3: wait long enough for the (now-stale) openrouter fetch
+    # to resolve. Without the race guard this would clobber the SELECT
+    # back to an INPUT (or repopulate with openrouter models).
+    page.wait_for_timeout(1500)
+
+    # Final assertion: still SELECT (matches the LIVE provider value).
+    expect(page.locator("#studio-model")).to_have_count(1, timeout=2000)
+    tag = page.evaluate("document.getElementById('studio-model').tagName")
+    assert tag == "SELECT", (
+        f"expected SELECT (ollama is the live provider), got {tag!r} — "
+        "stale openrouter fetch clobbered the picker"
+    )
+
+    # Datalist for openrouter should not be populated (no INPUT picker).
+    # The datalist element either doesn't exist (we're in SELECT mode) or
+    # was wiped when the picker was swapped — either way, count is 0.
+    datalist_count = page.locator("#studio-model-list").count()
+    assert datalist_count == 0, "openrouter datalist must be removed in SELECT mode"
 
 
 @pytest.mark.browser

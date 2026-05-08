@@ -752,10 +752,31 @@ App.registerArea({
       capsEl.innerHTML = '<span class="model-capabilities-label">Capabilities:</span> ' + renderer(caps);
     }
 
+    // Race-condition guard for fetchModelsForProvider (review I6). Rapid
+    // provider switching fires concurrent fetches; without a guard a slow
+    // earlier response silently clobbers a fresh later one. Two layers:
+    //   1. AbortController cancels the in-flight request on the next call.
+    //   2. providerId equality check on resolution drops any response that
+    //      no longer matches the live selection (covers AbortController
+    //      gaps and any future fetch path that doesn't honor signals).
+    var _modelsFetchController = null;
+    var _activeProviderId = null;
+
     function fetchModelsForProvider(providerId) {
       var selectEl = editorEl.querySelector('#studio-model');
       var loadingEl = editorEl.querySelector('.model-loading');
       if (!selectEl) return;
+
+      // Cancel any in-flight fetch from a prior provider selection.
+      if (_modelsFetchController) {
+        try { _modelsFetchController.abort(); } catch (_) { /* noop */ }
+      }
+      _modelsFetchController = (typeof AbortController !== 'undefined')
+        ? new AbortController()
+        : null;
+      _activeProviderId = providerId;
+      var fetchProviderId = providerId;
+      var fetchSignal = _modelsFetchController ? _modelsFetchController.signal : undefined;
 
       var currentVal = selectEl.dataset.pendingValue || selectEl.value;
 
@@ -774,12 +795,18 @@ App.registerArea({
 
       if (loadingEl) loadingEl.textContent = 'Loading models…';
 
-      fetch('/api/providers/' + encodeURIComponent(providerId) + '/models')
+      fetch('/api/providers/' + encodeURIComponent(providerId) + '/models', {
+        signal: fetchSignal,
+      })
         .then(function (r) {
           if (!r.ok) throw new Error('Failed');
           return r.json();
         })
         .then(function (models) {
+          // Drop the response if the user has since switched providers.
+          // Without this guard a slow A-fetch arriving after B-fetch
+          // would clobber the picker with A's models while B is selected.
+          if (_activeProviderId !== fetchProviderId) return;
           modelCapsBy = {};
           var isInput = selectEl.tagName === 'INPUT';
           var datalistEl = isInput ? document.getElementById('studio-model-list') : null;
@@ -824,9 +851,19 @@ App.registerArea({
           delete selectEl.dataset.pendingValue;
           renderModelCapabilities();
         })
-        .catch(function () {
+        .catch(function (err) {
+          // Aborted fetches (provider changed mid-flight) are not errors —
+          // skip the failure UI so the next fetch's success can paint
+          // cleanly without a flash of "Failed to load models".
+          if (err && err.name === 'AbortError') return;
+          if (_activeProviderId !== fetchProviderId) return;
           if (selectEl.tagName === 'SELECT') {
-            selectEl.innerHTML = '<option value="" disabled selected>Failed to load models</option>';
+            var failOpt = document.createElement('option');
+            failOpt.value = '';
+            failOpt.disabled = true;
+            failOpt.selected = true;
+            failOpt.textContent = 'Failed to load models';
+            selectEl.replaceChildren(failOpt);
           } else {
             selectEl.value = '';
             selectEl.placeholder = 'Failed to load models';
