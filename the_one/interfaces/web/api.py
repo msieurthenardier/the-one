@@ -969,23 +969,33 @@ async def test_provider(provider_id: str) -> dict[str, Any]:
                     }
                 else:
                     models = await openrouter_api.list_models(provider.base_url, None)
+                    # Reachable but non-functional for chat: status="warning"
+                    # so the JS handler renders an amber chip + the
+                    # explanatory text, not a green "Connection successful".
                     return {
-                        "status": "ok",
+                        "status": "warning",
                         "detail": (
                             f"Reachable. Add an API key to enable chat. "
                             f"{len(models)} models available."
                         ),
                     }
             except httpx.HTTPStatusError as e:
-                body_text = (e.response.text or "")[:200]
+                body_text = (e.response.text or "")[:200].strip()
                 return {
                     "status": "error",
                     "detail": f"HTTP {e.response.status_code}: {body_text}",
                 }
             except httpx.RequestError as e:
                 return {"status": "error", "detail": f"Network error: {e}"}
-            except Exception as e:  # noqa: BLE001 — endpoint must never 5xx
-                return {"status": "error", "detail": str(e)}
+            except ValueError as e:
+                # Shape contract violation from openrouter_api (malformed
+                # /models payload). Distinct from network/HTTP — surface
+                # explicitly so operators don't chase a non-existent
+                # connectivity issue.
+                return {
+                    "status": "error",
+                    "detail": f"OpenRouter API contract violation: {e}",
+                }
         return {"status": "error", "detail": f"Unknown provider type: {provider.type}"}
     except httpx.HTTPError as e:
         # Expected: connection/timeout/HTTP-status from upstream
@@ -1038,8 +1048,27 @@ async def list_provider_models(provider_id: str) -> list[dict[str, Any]]:
 
         try:
             raw = await openrouter_api.list_models(provider.base_url, provider.api_key)
-        except (httpx.HTTPStatusError, httpx.RequestError, ValueError) as e:
+        except httpx.TimeoutException:
+            raise HTTPException(status_code=504, detail="OpenRouter timed out")
+        except httpx.HTTPStatusError as e:
+            # Mirror upstream status code + body excerpt; collapse 5xx → 502.
+            upstream = e.response.status_code
+            mapped = 502 if upstream >= 500 else upstream
+            body_text = (e.response.text or "")[:200].strip()
+            raise HTTPException(
+                status_code=mapped,
+                detail=f"OpenRouter HTTP {upstream}: {body_text}",
+            )
+        except httpx.RequestError as e:
             raise HTTPException(status_code=502, detail=f"OpenRouter unreachable: {e}")
+        except ValueError as e:
+            # Shape contract violation — NOT unreachability. Distinct
+            # status so operators don't chase a network problem that
+            # isn't there.
+            raise HTTPException(
+                status_code=500,
+                detail=f"OpenRouter API contract violation: {e}",
+            )
         return [
             {
                 "id": m.id,

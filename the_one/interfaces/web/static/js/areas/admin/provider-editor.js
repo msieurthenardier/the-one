@@ -355,17 +355,35 @@
           .then(function (r) { return r.json(); })
           .then(function (result) {
             testBtn.disabled = false;
+            // Render via DOM API (textContent on a class-tagged span) so
+            // operator-supplied detail text cannot break out of the
+            // surrounding markup. Three states: ok / warning / error.
+            var span = document.createElement('span');
             if (result.status === 'ok') {
-              resultEl.innerHTML = '<span class="test-result-ok">✓ ' + window.App.escapeHtml(result.detail || 'Connected') + '</span>';
+              span.className = 'test-result-ok';
+              span.textContent = '✓ ' + (result.detail || 'Connected');
+              resultEl.replaceChildren(span);
               window.App.showFlash(container, 'Connection successful');
-              // OQ4 resolution: editor sub-module owns its own DOM children.
-              // Refresh the Models panel directly (no orchestrator round-trip).
               var modelsHost = container.querySelector('.provider-models');
               if (modelsHost && window.App.admin.renderProviderModels) {
                 window.App.admin.renderProviderModels(modelsHost, provider);
               }
+            } else if (result.status === 'warning') {
+              // Reachable but non-functional (e.g., openrouter with no
+              // key). Distinct chip from the green ✓ so the user knows
+              // configuration is incomplete.
+              span.className = 'test-result-warning';
+              span.textContent = '⚠ ' + (result.detail || 'Warning');
+              resultEl.replaceChildren(span);
+              window.App.showFlash(container, 'Connection reachable, action required', true);
+              var modelsHost2 = container.querySelector('.provider-models');
+              if (modelsHost2 && window.App.admin.renderProviderModels) {
+                window.App.admin.renderProviderModels(modelsHost2, provider);
+              }
             } else {
-              resultEl.innerHTML = '<span class="test-result-fail">✗ ' + window.App.escapeHtml(result.detail || 'Failed') + '</span>';
+              span.className = 'test-result-fail';
+              span.textContent = '✗ ' + (result.detail || 'Failed');
+              resultEl.replaceChildren(span);
               window.App.showFlash(container, 'Connection failed', true);
             }
           })
