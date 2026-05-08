@@ -369,8 +369,18 @@ CREATE TABLE IF NOT EXISTS tool_configs (
         # tripping referential integrity. INSERT OR IGNORE INTO schema_version
         # is LAST so a partial-apply leaves version=9 and the next call retries
         # cleanly.
+        #
+        # ``executescript`` (vs the v9 individual-execute pattern documented
+        # in CLAUDE.md) is REQUIRED here: ``PRAGMA foreign_keys=OFF`` only
+        # takes effect within the same script as the DROP/RENAME — separate
+        # ``conn.execute`` calls re-evaluate FK state between statements.
+        # ``DROP TABLE IF EXISTS llm_providers_new`` is the defensive prelude
+        # that makes a re-run after a crash AFTER ``CREATE TABLE
+        # llm_providers_new`` (but BEFORE the rename) recover cleanly.
         await conn.executescript(f"""\
 PRAGMA foreign_keys=OFF;
+
+DROP TABLE IF EXISTS llm_providers_new;
 
 CREATE TABLE llm_providers_new (
     id TEXT PRIMARY KEY,
