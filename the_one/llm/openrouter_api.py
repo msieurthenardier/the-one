@@ -21,6 +21,7 @@ import json
 import logging
 import os
 import time
+from collections import OrderedDict
 from typing import Any
 
 import httpx
@@ -50,7 +51,22 @@ class OpenRouterModelEntry(BaseModel):
 
 
 _CACHE_TTL = 300  # seconds
-_models_cache: dict[tuple[str, str], tuple[list[OpenRouterModelEntry], float]] = {}
+_CACHE_MAX_ENTRIES = 32  # LRU bound — evict least-recently-used past this
+_models_cache: OrderedDict[tuple[str, str], tuple[list[OpenRouterModelEntry], float]] = (
+    OrderedDict()
+)
+
+
+def _cache_set(key: tuple[str, str], value: tuple[list[OpenRouterModelEntry], float]) -> None:
+    """Insert / move-to-MRU and evict the LRU entry if past the cap.
+    Keeps the cache from growing without bound under heavy provider
+    rotation (operator with many keys / proxies, or a per-request key).
+    """
+    if key in _models_cache:
+        _models_cache.move_to_end(key)
+    _models_cache[key] = value
+    while len(_models_cache) > _CACHE_MAX_ENTRIES:
+        _models_cache.popitem(last=False)
 
 
 def _cache_key(base_url: str, api_key: str | None) -> tuple[str, str]:
@@ -107,6 +123,8 @@ async def list_models(base_url: str, api_key: str | None) -> list[OpenRouterMode
     cache_key = _cache_key(base_url, api_key)
     cached = _models_cache.get(cache_key)
     if cached is not None and (time.time() - cached[1]) < _CACHE_TTL:
+        # Touch on hit so LRU eviction sees this as recently-used.
+        _models_cache.move_to_end(cache_key)
         return cached[0]
 
     url = base_url.rstrip("/") + "/models"
@@ -120,7 +138,7 @@ async def list_models(base_url: str, api_key: str | None) -> list[OpenRouterMode
     if not isinstance(raw, list):
         raise ValueError(f"Unexpected 'data' type from {url}: {type(raw).__name__}")
     models = [OpenRouterModelEntry.model_validate(item) for item in raw]
-    _models_cache[cache_key] = (models, time.time())
+    _cache_set(cache_key, (models, time.time()))
     return models
 
 
@@ -130,12 +148,22 @@ async def verify_key(base_url: str, api_key: str) -> dict[str, Any]:
     Raises:
         httpx.HTTPStatusError: on 401 (invalid key) / 4xx / 5xx.
         httpx.RequestError: on network failure.
+        ValueError: on non-JSON response body (proxy mis-route, captive
+            portal, etc). Without this branch the caller's generic
+            ``except Exception`` would surface ``json.JSONDecodeError``'s
+            cryptic ``"Expecting value: line 1 column 1 (char 0)"`` to
+            the operator.
     """
     url = base_url.rstrip("/") + "/auth/key"
     async with httpx.AsyncClient(timeout=15, headers=_auth_headers(api_key)) as client:
         resp = await client.get(url)
         resp.raise_for_status()
-        return resp.json()
+        try:
+            return resp.json()
+        except json.JSONDecodeError as e:
+            raise ValueError(
+                f"OpenRouter /auth/key returned non-JSON body: {e}"
+            ) from e
 
 
 async def get_model_capabilities(

@@ -207,6 +207,89 @@ class TestVerifyKey:
             await openrouter_api.verify_key("https://openrouter.ai/api/v1", "bad")
         assert excinfo.value.response.status_code == 401
 
+    async def test_raises_value_error_on_non_json_body(self, monkeypatch):
+        """A 200 with non-JSON body (proxy mis-route, captive portal,
+        etc) MUST surface as ValueError, not as a cryptic
+        json.JSONDecodeError that the caller's generic except clause
+        can't distinguish from other failures."""
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200, content="<html>Login required</html>",
+                headers={"content-type": "text/html"},
+            )
+
+        _mock_async_client(monkeypatch, handler)
+        with pytest.raises(ValueError) as excinfo:
+            await openrouter_api.verify_key("https://openrouter.ai/api/v1", "good")
+        assert "non-JSON" in str(excinfo.value)
+
+
+@pytest.mark.asyncio
+class TestCacheLruBound:
+    """The TTL alone leaves never-re-queried entries in the cache
+    forever — heavy provider rotation could grow it without bound. LRU
+    eviction caps at _CACHE_MAX_ENTRIES."""
+
+    async def test_evicts_least_recently_used_when_full(self, monkeypatch):
+        def handler(req: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={"data": [{"id": "m"}]})
+
+        _mock_async_client(monkeypatch, handler)
+
+        cap = openrouter_api._CACHE_MAX_ENTRIES
+        # Fill the cache with ``cap`` distinct keys (vary api_key).
+        for i in range(cap):
+            await openrouter_api.list_models(
+                "https://openrouter.ai/api/v1", f"key-{i}"
+            )
+        assert len(openrouter_api._models_cache) == cap
+
+        # Insert one more — eviction kicks in, oldest goes.
+        await openrouter_api.list_models(
+            "https://openrouter.ai/api/v1", "key-overflow"
+        )
+        assert len(openrouter_api._models_cache) == cap
+
+        # The first inserted (key-0) was the LRU and should be gone.
+        first_key = openrouter_api._cache_key(
+            "https://openrouter.ai/api/v1", "key-0"
+        )
+        assert first_key not in openrouter_api._models_cache
+
+    async def test_cache_hit_promotes_to_mru(self, monkeypatch):
+        """A cache hit moves the entry to most-recently-used so the
+        eviction policy doesn't drop frequently-used entries."""
+
+        def handler(req: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={"data": [{"id": "m"}]})
+
+        _mock_async_client(monkeypatch, handler)
+        cap = openrouter_api._CACHE_MAX_ENTRIES
+
+        # Insert key-0 first, then fill the rest.
+        await openrouter_api.list_models("https://openrouter.ai/api/v1", "key-0")
+        for i in range(1, cap):
+            await openrouter_api.list_models(
+                "https://openrouter.ai/api/v1", f"key-{i}"
+            )
+
+        # Hit key-0 — this should promote it to MRU.
+        await openrouter_api.list_models("https://openrouter.ai/api/v1", "key-0")
+
+        # Insert overflow — key-1 (now LRU) should be evicted instead of key-0.
+        await openrouter_api.list_models(
+            "https://openrouter.ai/api/v1", "key-overflow"
+        )
+        first_key = openrouter_api._cache_key(
+            "https://openrouter.ai/api/v1", "key-0"
+        )
+        second_key = openrouter_api._cache_key(
+            "https://openrouter.ai/api/v1", "key-1"
+        )
+        assert first_key in openrouter_api._models_cache, "MRU promotion failed"
+        assert second_key not in openrouter_api._models_cache
+
 
 @pytest.mark.asyncio
 class TestGetModelCapabilities:
