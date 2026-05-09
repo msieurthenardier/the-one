@@ -667,14 +667,6 @@ App.registerArea({
           var failMsg = 'OAuth failed: ' + (data.description || data.error || 'unknown error');
           addMsg('system', failMsg);
         }
-        else if (data.type === 'oauth_manual_registration_required') {
-          // F5 L5: server detected the AS does not support DCR. Open
-          // (or reroute) the modal to the manual-entry form, pre-filled
-          // with any auto-discovered endpoints.
-          if (App.oauthModal && App.oauthModal.openManual) {
-            App.oauthModal.openManual(data);
-          }
-        }
         else if (data.type === 'done') {
           hideThinking();
           // End of agent step — finalize so the streaming bubble swaps

@@ -169,23 +169,35 @@ async def _entry_worker(source: MCPSource, entry: _RegistryEntry) -> None:
     assert entry.client_ready is not None  # invariant: set at construction
     assert entry.evict_event is not None
     # F6 L3: build an OAuth provider for this source if dcr_credentials are
-    # populated AND a chat session is bound to the current task. The factory
-    # returns ``None`` when not configured (or when csid is None), in which
-    # case ``MCPClient`` connects without auth and the lazy-path 401 surfaces
-    # via L4's ``MCPAuthRequired`` translation. csid + tcid are read from the
-    # canonical agent-layer ContextVars (set by ``_spawn_message_processing``
-    # / ``_resume_paused_session`` for csid; by ``Agent._execute_tool`` for
-    # tcid). When csid is None (no chat session in the current task scope —
-    # e.g. agent build via CLI / REST / tests), pass None to the factory; the
-    # factory returns None and the MCPClient connects without auth. The lazy
-    # 401 path surfaces MCPAuthRequired at next call_tool, which DOES have
-    # per-tool-dispatch context bound via Agent._execute_tool's wrapper. The
-    # F5's "most-recently-active session" silent-fallback sentinel (which
-    # misrouted broadcasts in multi-tab scenarios) is retired here.
+    # populated AND a chat session is bound to the current task. csid + tcid
+    # come from the canonical agent-layer ContextVars (set by
+    # ``_spawn_message_processing`` / ``_resume_paused_session`` for csid;
+    # by ``Agent._execute_tool`` for tcid).
+    #
+    # F6.5 L4 (HAT fix): when csid is None AND the source has persisted
+    # OAuth tokens (operator already ran the Test connection button or
+    # completed a chat-path lazy-OAuth in a prior session), we MUST still
+    # build the provider so the cached tokens get applied. Without this,
+    # agent build via REST/CLI/tests connects auth-less, the server 401s,
+    # and the source graceful-skips even though valid tokens are sitting
+    # in the DB. The flight's "Test button establishes tokens; subsequent
+    # agent builds register real tools" promise depends on this path.
+    #
+    # Synthetic csid ``f"agent_build:{source.id}"`` is unique per source
+    # so multi-tab broadcasts can't misroute (the F5-retired bug). The
+    # ``_sessions.get(synthetic_csid)`` lookup in handlers.py returns
+    # None, so the auth_required broadcast is a no-op — appropriate for
+    # the agent-build path where there's no chat UI to surface a modal.
+    # If the SDK invokes redirect_handler on stale tokens (refresh
+    # failed), callback_handler awaits a code that never arrives; the
+    # outer ``MCPClient.connect`` timeout fires and graceful-skip kicks
+    # in via L2's MCPAuthRequired translation.
     from the_one.agent._context import current_chat_session_id, current_tool_call_id
     from the_one.mcp.oauth import build_oauth_provider_for_source
     csid = current_chat_session_id.get(None)
     tcid = current_tool_call_id.get(None)
+    if csid is None and source.secrets.get("access_token"):
+        csid = f"agent_build:{source.id}"
     conn = await get_connection()
     encryptor = get_encryptor(settings.data_dir)
     repo = MCPSourceRepository(conn, encryptor)

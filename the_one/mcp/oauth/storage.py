@@ -7,8 +7,7 @@ Persists OAuth tokens and DCR client_info into the four named keys of an
   - ``refresh_token``     — str | None
   - ``token_expires_at``  — float (Unix epoch seconds at issuance + expires_in)
   - ``dcr_credentials``   — dict | None (full ``OAuthClientInformationFull``
-                            JSON, plus a ``registration_method`` discriminator
-                            so L4 can pick the right provider class)
+                            JSON)
 
 The SDK's ``OAuthToken.expires_in`` is a relative duration (seconds at
 issuance, NOT a Unix epoch). The storage layer translates between the
@@ -33,6 +32,32 @@ from mcp.client.auth import TokenStorage
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
 from the_one.db.repositories import MCPSourceRepository
+
+# F6.5 L4 (HAT fix): canonical set of secret keys managed exclusively by
+# MCPSourceTokenStorage. Used by:
+#   - api.py to strip-and-preserve these on PUT (operator-facing API
+#     never sees / cannot overwrite token state)
+#   - transports/streamable_http.py to FILTER these out of the merged
+#     HTTP-headers dict (they're not headers — token_expires_at is a
+#     float, dcr_credentials is a dict, etc., and httpx rejects non-
+#     string header values with TypeError)
+#   - editor UI to avoid showing OAuth-managed values as operator-
+#     editable Custom Headers rows
+# Keep this constant in sync with every key this module's get_tokens /
+# set_tokens / get_client_info / set_client_info methods write to secrets.
+# F6.5 L4 expansion: token_type and scope are also written by set_tokens
+# (storage.py:96-101) — original frozenset missed them, causing them to
+# leak into the editor's Custom Headers kv-table after OAuth completes.
+OAUTH_MANAGED_SECRET_KEYS: frozenset[str] = frozenset(
+    {
+        "access_token",
+        "refresh_token",
+        "token_expires_at",
+        "token_type",
+        "scope",
+        "dcr_credentials",
+    }
+)
 
 
 class MCPSourceTokenStorage(TokenStorage):
@@ -110,17 +135,13 @@ class MCPSourceTokenStorage(TokenStorage):
         """Load the persisted DCR client_info, if any.
 
         Stored under ``secrets["dcr_credentials"]`` as a JSON dict
-        plus a ``registration_method`` discriminator (``"dcr"`` or
-        ``"manual"``) the L4 connect path uses to pick the right
-        provider class.
+        (the OAuthClientInformationFull payload).
         """
         source = await self._repo.get(self._source_id)
         creds = source.secrets.get("dcr_credentials")
         if not isinstance(creds, dict):
             return None
-        # The discriminator is OUR field, not part of the SDK schema —
-        # strip it before validating against OAuthClientInformationFull.
-        payload = {k: v for k, v in creds.items() if k != "registration_method"}
+        payload = dict(creds)
         if not payload:
             return None
         try:
@@ -132,28 +153,10 @@ class MCPSourceTokenStorage(TokenStorage):
             return None
 
     async def set_client_info(self, client_info: OAuthClientInformationFull) -> None:
-        """Persist DCR client_info under ``secrets["dcr_credentials"]``.
-
-        The ``registration_method`` discriminator defaults to ``"dcr"``;
-        ``ManualOAuthClientProvider`` overrides ``set_client_info`` (or
-        sets the discriminator at registration time) to mark its
-        synthesized client_info as ``"manual"``. Future L4 connect-path
-        logic reads this field to decide whether to construct a
-        ``ManualOAuthClientProvider`` vs the default
-        ``OAuthClientProvider``.
-        """
+        """Persist DCR client_info under ``secrets["dcr_credentials"]``."""
         source = await self._repo.get(self._source_id)
         secrets: dict[str, Any] = dict(source.secrets)
         payload = client_info.model_dump(mode="json", exclude_none=False)
-        # Preserve the discriminator if the prior store had one, else
-        # default to "dcr". The manual-entry path should overwrite this
-        # via a follow-up ``set_client_info`` whose stored payload has
-        # ``registration_method="manual"`` — see manual_metadata.py.
-        prior = secrets.get("dcr_credentials")
-        if isinstance(prior, dict) and prior.get("registration_method"):
-            payload["registration_method"] = prior["registration_method"]
-        else:
-            payload.setdefault("registration_method", "dcr")
         secrets["dcr_credentials"] = payload
         source.secrets = secrets
         await self._repo.update(source)

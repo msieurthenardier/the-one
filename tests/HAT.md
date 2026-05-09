@@ -5,7 +5,7 @@
 **Scope**: Two tiers.
 
 - **Tier 1** (required, per F6 flight §7): in-repo dev-container procedure against `mcp-server-fetch`. The binary go/no-go for retiring the F2-known-issue (`MCPClient transport close failed` warning) from `missions/07-mcp-integration/mission.md::Known Issues`.
-- **Tier 2** (optional, quarterly): live-GitHub-MCP procedure against the F5 manual-entry OAuth path. Verifies F5 + F6 wiring against a production-grade server. Not blocking; not part of any merge gate.
+- **Tier 2** (binding for F6.5 close): live Cloudflare API MCP procedure against F6.5's Test connection button + F5's DCR happy path. Per F6.5 Design Decision §4 — flight cannot land without this PASS. Replaces the prior GitHub manual-entry procedure (deleted at F6.5 L0+L1 along with the manual-entry OAuth surface).
 
 **Prerequisites**:
 
@@ -228,33 +228,42 @@ The Flight Director files a follow-up flight with this scope:
 
 ---
 
-## Tier 2 — Optional (live GitHub MCP, quarterly)
+## Tier 2 — Binding (live Cloudflare API MCP, F6.5 close gate)
 
-Manual operator verification against `https://api.githubcopilot.com/mcp/` via F5's manual-entry OAuth path. Documents that F5 + F6 work together against a production server. Not blocking; not part of CI.
+Manual operator verification against `https://mcp.cloudflare.com/mcp` via F6.5's Test connection button + F5's RFC 7591 DCR happy path. Binding go/no-go for F6.5 flight close per Design Decision §4 — flight cannot transition to `landed` without a PASS.
 
 ### Setup
 
-1. Register an OAuth app at <https://github.com/settings/developers> → "OAuth Apps" → "New OAuth App". Set the callback URL to `http://127.0.0.1:8484/api/oauth/callback`.
-2. Copy the `client_id` (and `client_secret` if confidential).
-3. Confirm `the-one` is up at `http://localhost:8484`.
+1. Operator has a Cloudflare account (free-tier acceptable — sign up at <https://dash.cloudflare.com/sign-up> if needed).
+2. `the-one` dev container is up at `http://localhost:8484` (verify: `docker compose ps`).
+3. Operator's browser allows popups for `localhost:8484`.
 
 ### Procedure
 
-1. Register a streamable-http MCP source pointing at `https://api.githubcopilot.com/mcp/` (no OAuth fields populated — manual-entry path).
-2. Configure an agent with `mcp_source_ids` including the GitHub source.
-3. Open the chat UI for that agent. Send: *"List my five most recently updated repositories."*
-4. The agent dispatches the GitHub tool call; the chat surfaces a Login-required button (lazy 401 path per F5 §1).
-5. Click Login-required → modal opens with a manual-entry form (per F5 §2 — GitHub doesn't advertise a DCR endpoint).
-6. Paste `client_id` + `auth_endpoint = https://github.com/login/oauth/authorize` + `token_endpoint = https://github.com/login/oauth/access_token` into the manual-entry form. Submit.
-7. The modal opens GitHub's consent page in a new tab. Consent.
-8. The loopback redirect resolves at `/api/oauth/callback`. Modal closes; agent loop resumes the original tool call (per F5 L3 pause/resume).
-9. Verify: the agent returns the repo list.
+1. **Register source**. In Studio, navigate to `#studio/mcp-sources/new`. Fill: name=`cloudflare_api`, type=`streamable-http`, url=`https://mcp.cloudflare.com/mcp`. Click Save. Verify: editor transitions to edit-mode and the Test connection section appears below the form.
+2. **First Test click**. Click the Test connection button. Verify within 15 seconds: result panel shows "Opening consent popup..."; a popup opens at the Cloudflare consent URL; Test button is disabled while the popup is open.
+3. **Cloudflare consent**. Complete Cloudflare login + authorize the-one in the popup. Verify: popup redirects to `http://127.0.0.1:8484/api/oauth/callback?code=...&state=...`; popup body renders "Login successful". Close the popup tab.
+4. **Auto re-test**. Within ~500ms of popup close, the UI auto-runs the Test re-POST. Verify: result panel updates to "Connected. Tools (N): ..." with N > 0; the tool list includes Cloudflare-API tools (e.g. `accounts_list`, `zones_list` — exact list depends on Cloudflare's server scope at HAT time); Test button re-enabled.
+5. **Agent build**. Navigate to `#studio/agents/new`. Create agent `hat_cloudflare_api`: pick any configured LLM provider; in MCPs tab, attach `cloudflare_api`; Save. Verify: agent build succeeds with no error toast and the agent appears in the grid.
+6. **Chat tool call**. Open chat with `hat_cloudflare_api`. Send: *"List my Cloudflare accounts using your MCP tool."* Verify: agent dispatches a `mcp__cloudflare_api__*` tool (most likely `accounts_list`); tool result lands in chat as a non-empty list of accounts; no "Login required" button surfaces (tokens valid from Step 3-4).
+7. **Cleanup**. Delete the test source and agent (run from host):
+   ```bash
+   curl -X DELETE http://localhost:8484/api/agents/hat_cloudflare_api
+   curl -X DELETE http://localhost:8484/api/mcp-sources/<source_id>
+   ```
+   `<source_id>` is the id assigned at Step 1 (read from the Studio MCP Servers list URL or via `curl -s http://localhost:8484/api/mcp-sources | jq '.[] | select(.name=="cloudflare_api") | .id'`). Verify both DELETEs return 204 No Content.
 
-### Bonus — revoke + re-auth
+### Caplog gate
 
-10. At <https://github.com/settings/applications>, revoke the OAuth app's grant.
-11. Trigger another tool call from the agent. The next 401 should surface a fresh Login-required button. Re-consent. Verify the new token roundtrips.
+After Step 7, check the dev container logs for `MCPClient.disconnect` warnings:
+```bash
+docker compose logs the-one --since 30m | grep -i "transport close failed\|disconnect" | wc -l
+```
+
+Expected: 0 occurrences. Carry-forward from F6 Tier-1 HAT — F4's worker-task-per-entry pattern + F5 L1's dispatcher-owned-stack mechanism work as designed against real subprocess teardown.
 
 ### Tier-2 outcome
 
-There is no binary gate for Tier 2 — it's a live integration smoke test. If anything fails, file a follow-up flight with the specific failure mode + reproduction steps. Pass is informational; does not gate F2-known-issue retirement.
+**On PASS** — record date + caplog count in `flight-log.md` L4 entry; mark flight `landed`; tick mission.md flight 6.5 checkbox; mark PR ready-for-review.
+
+**On FAIL** — record the specific failure mode + reproduction steps in `flight-log.md` Anomalies. The flight cannot transition to `landed` without addressing the failure (either a code fix landing as a fixup commit on this branch, or a follow-up flight). Per Design Decision §4 + flight Adaptation Criteria: if no DCR target reachable within 1 hour of L4 kickoff, abort flight.

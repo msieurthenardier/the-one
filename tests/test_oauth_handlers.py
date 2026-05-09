@@ -141,6 +141,45 @@ async def test_redirect_registers_state_broadcasts_and_callback_returns_code(
         assert e.tool_call_id == f"tc-{i}"
 
 
+async def test_make_oauth_handlers_resolves_consent_url_future() -> None:
+    """F6.5 L3 — redirect_handler resolves consent_url_future with the
+    authorization_url AFTER registering the state token.
+
+    Verifies:
+    - future.result() == authorization_url after redirect fires
+    - _state.register ran BEFORE future resolved (register-before-resolve
+      invariant: entry is peeked-able as soon as the future is done)
+    - double-call (SDK retry) does NOT raise InvalidStateError
+    """
+    consent_url_future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
+    redirect_handler, _ = make_oauth_handlers(
+        chat_session_id="test-csid",
+        source_id="src-1",
+        tool_call_id=None,
+        resource_metadata_url=None,
+        consent_url_future=consent_url_future,
+    )
+
+    auth_url = "https://example.com/auth?state=abc123&client_id=x"
+    await redirect_handler(auth_url)
+
+    assert consent_url_future.done()
+    assert consent_url_future.result() == auth_url
+
+    # Register-before-resolve: state entry must be peeked immediately.
+    entry = _state.peek("abc123")
+    assert entry is not None
+    assert entry.source_id == "src-1"
+
+    # Double-call (SDK retry) with a DIFFERENT state token (same URL structure
+    # but new state) must NOT raise InvalidStateError on the future — the guard
+    # `if not consent_url_future.done()` is a no-op so the future is not
+    # double-resolved. We use a different state to avoid _state.register's
+    # duplicate-state-token guard (which is a separate protection layer).
+    auth_url2 = "https://example.com/auth?state=abc124&client_id=x"
+    await redirect_handler(auth_url2)  # guard: future already done → no-op
+
+
 async def test_callback_propagates_state_failure(stub_session) -> None:
     """A6 — when ``_state.fail`` is called by another task, the awaiting
     ``callback_handler`` re-raises the SDK's actual ``OAuthFlowError``

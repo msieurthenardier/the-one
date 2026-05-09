@@ -27,6 +27,7 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
 from the_one.db.models import MCPSource
+from the_one.mcp.oauth.storage import OAUTH_MANAGED_SECRET_KEYS
 
 __all__ = ["build_request_headers", "connect_streamable_http"]
 
@@ -59,14 +60,27 @@ _test_http_client_override: httpx.AsyncClient | _HttpClientFactory | None = None
 def build_request_headers(source: MCPSource) -> dict[str, str]:
     """Materialize the HTTP request headers for a streamable-http MCP source.
 
-    Flat-merge of source.config.get("headers", {}) and source.secrets, with
-    secrets winning on collision. Mirrors the env-var-assembly pattern
-    in transports/stdio.py (L5).
+    Flat-merge of source.config.get("headers", {}) and the operator-supplied
+    subset of source.secrets, with secrets winning on collision. OAuth-managed
+    secret keys (access_token, refresh_token, token_expires_at, dcr_credentials)
+    are FILTERED OUT — they are token state, not request headers, and several
+    have non-string types (token_expires_at is a float; dcr_credentials is a
+    dict) that would crash httpx with ``TypeError: Header value must be str
+    or bytes``. The Authorization header is injected separately by the
+    SDK's OAuthClientProvider via ``httpx.AsyncClient(auth=provider, ...)``.
 
-    Trusts F1's API validator to have gated the shape — does not re-validate.
+    Mirrors the env-var-assembly pattern in transports/stdio.py (L5).
+
+    Trusts F1's API validator to have gated the operator-supplied shape —
+    does not re-validate.
     """
     config_headers: dict[str, str] = source.config.get("headers", {}) or {}
-    return {**config_headers, **source.secrets}
+    operator_secrets = {
+        k: v
+        for k, v in source.secrets.items()
+        if k not in OAUTH_MANAGED_SECRET_KEYS
+    }
+    return {**config_headers, **operator_secrets}
 
 
 def _build_production_httpx_kwargs(
@@ -80,7 +94,7 @@ def _build_production_httpx_kwargs(
 
     F5 L4: auth_provider is provided pre-built by the caller; provider
     construction (factory function that reads secrets["dcr_credentials"]
-    and instantiates OAuthClientProvider/ManualOAuthClientProvider with
+    and instantiates OAuthClientProvider with
     handlers) is L6's scope. L6 builds the factory and the agent-layer
     wiring that calls it.
     """
@@ -99,7 +113,7 @@ async def connect_streamable_http(
     http_client: httpx.AsyncClient | None = None,
     # F5 L4: auth_provider is provided pre-built by the caller; provider
     # construction (factory function that reads secrets["dcr_credentials"]
-    # and instantiates OAuthClientProvider/ManualOAuthClientProvider with
+    # and instantiates OAuthClientProvider with
     # handlers) is L6's scope. L6 builds the factory and the agent-layer
     # wiring that calls it.
     auth_provider: httpx.Auth | None = None,
@@ -174,7 +188,7 @@ async def _open_streamable_http_transport_stack(
     http_client: httpx.AsyncClient | None = None,
     # F5 L4: auth_provider is provided pre-built by the caller; provider
     # construction (factory function that reads secrets["dcr_credentials"]
-    # and instantiates OAuthClientProvider/ManualOAuthClientProvider with
+    # and instantiates OAuthClientProvider with
     # handlers) is L6's scope. L6 builds the factory and the agent-layer
     # wiring that calls it.
     auth_provider: httpx.Auth | None = None,

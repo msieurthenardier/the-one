@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import aiosqlite
 import httpx
 import pytest
@@ -13,7 +15,6 @@ from the_one.db.repositories import MCPSourceRepository
 from the_one.db.schema import ensure_schema
 from the_one.encryption import Encryptor
 from the_one.mcp.oauth import (
-    ManualOAuthClientProvider,
     build_oauth_provider_for_source,
 )
 
@@ -61,45 +62,19 @@ async def test_factory_returns_none_when_dcr_credentials_absent(repo_with_source
 
 
 async def test_factory_returns_oauth_client_provider_for_dcr(repo_with_source) -> None:
-    """A1 — registration_method != 'manual' → ``OAuthClientProvider`` (DCR path)."""
+    """A1 — dcr_credentials present with client_id → ``OAuthClientProvider`` (DCR path)."""
     repo, source = repo_with_source
     source.secrets["dcr_credentials"] = {
         "client_id": "dcr-cid-1",
-        "registration_method": "dcr",
     }
     result = build_oauth_provider_for_source(
         source, repo, "csid-1", source_id="src-factory-1"
     )
     assert result is not None
-    # The DCR path returns the standard SDK provider, NOT our manual subclass.
+    # The DCR path returns the standard SDK provider.
     assert isinstance(result, OAuthClientProvider)
-    assert not isinstance(result, ManualOAuthClientProvider)
     # And conforms to httpx.Auth (so callers can pass via auth=).
     assert isinstance(result, httpx.Auth)
-
-
-async def test_factory_returns_manual_provider_for_manual_method(repo_with_source) -> None:
-    """A1 — registration_method == 'manual' → ``ManualOAuthClientProvider``.
-
-    The synthesized OAuthMetadata derives from the operator-supplied
-    auth/token endpoints; no PRM/OASM discovery + no DCR happens at flow time.
-    """
-    repo, source = repo_with_source
-    source.secrets["dcr_credentials"] = {
-        "client_id": "manual-cid-1",
-        "auth_endpoint": "https://github.com/login/oauth/authorize",
-        "token_endpoint": "https://github.com/login/oauth/access_token",
-        "registration_method": "manual",
-    }
-    result = build_oauth_provider_for_source(
-        source, repo, "csid-1", source_id="src-factory-1"
-    )
-    assert result is not None
-    assert isinstance(result, ManualOAuthClientProvider)
-    # The synthesized OAuthMetadata carries the operator's endpoints.
-    metadata = result._synthesized_oauth_metadata()
-    assert str(metadata.authorization_endpoint) == "https://github.com/login/oauth/authorize"
-    assert str(metadata.token_endpoint) == "https://github.com/login/oauth/access_token"
 
 
 async def test_factory_wires_client_metadata_with_loopback_redirect(repo_with_source) -> None:
@@ -112,7 +87,6 @@ async def test_factory_wires_client_metadata_with_loopback_redirect(repo_with_so
     repo, source = repo_with_source
     source.secrets["dcr_credentials"] = {
         "client_id": "any-cid",
-        "registration_method": "dcr",
     }
     result = build_oauth_provider_for_source(
         source, repo, "csid-1", source_id="src-factory-1"
@@ -128,3 +102,32 @@ async def test_factory_wires_client_metadata_with_loopback_redirect(repo_with_so
     redirect = str(cm.redirect_uris[0])
     assert redirect.startswith(f"http://127.0.0.1:{settings.port}")
     assert redirect.endswith("/api/oauth/callback")
+
+
+async def test_factory_threads_consent_url_future(repo_with_source) -> None:
+    """F6.5 L3 — consent_url_future is forwarded to make_oauth_handlers.
+
+    Verify by constructing a provider with a real future, then invoking
+    the provider's redirect_handler with an auth URL that includes a
+    state param, and confirming the future resolves with that URL.
+    """
+    repo, source = repo_with_source
+    source.secrets["dcr_credentials"] = {"client_id": "dcr-cid-test"}
+
+    consent_url_future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
+    provider = build_oauth_provider_for_source(
+        source,
+        repo,
+        "test:src-factory-1",
+        source_id="src-factory-1",
+        consent_url_future=consent_url_future,
+    )
+    assert provider is not None
+    assert isinstance(provider, OAuthClientProvider)
+
+    # Invoke the redirect_handler (accessible via the provider's context).
+    auth_url = "https://example.com/auth?state=test-state-xyz&client_id=dcr-cid-test"
+    await provider.context.redirect_handler(auth_url)
+
+    assert consent_url_future.done()
+    assert consent_url_future.result() == auth_url

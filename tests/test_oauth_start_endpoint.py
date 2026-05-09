@@ -70,7 +70,7 @@ async def test_start_400_when_dcr_credentials_absent(client_and_repo) -> None:
         json={"source_id": "src-start-1", "chat_session_id": "cs-x"},
     )
     assert resp.status_code == 400
-    assert "Configure manual registration" in resp.json()["detail"]
+    assert "DCR" in resp.json()["detail"]
 
 
 async def test_start_404_on_unknown_source(client_and_repo) -> None:
@@ -97,7 +97,6 @@ async def test_start_schedules_drive_flow_and_evicts_pool(client_and_repo) -> No
         "client_id": "manual-cid-1",
         "auth_endpoint": "https://example.com/authorize",
         "token_endpoint": "https://example.com/token",
-        "registration_method": "manual",
     }
     await repo.update(src)
 

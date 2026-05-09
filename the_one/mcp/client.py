@@ -136,8 +136,8 @@ class MCPClient:
         call_timeout_seconds: int | float | object = _DEFAULT,
         # F5 L4: auth_provider is provided pre-built by the caller; provider
         # construction (factory function that reads secrets["dcr_credentials"]
-        # and instantiates OAuthClientProvider/ManualOAuthClientProvider) is
-        # L6's scope. L4 only adds the passthrough seam.
+        # and instantiates OAuthClientProvider) is L6's scope. L4 only adds
+        # the passthrough seam.
         auth_provider: httpx.Auth | None = None,
     ) -> None:
         # Lazy read of constants from the_one.mcp keeps the read-at-call-time
@@ -453,13 +453,69 @@ class MCPClient:
         # of McpError (verified at L6b design review) — re-raise BEFORE the
         # McpError clause or it gets silently swallowed into MCPConnectionError,
         # breaking F3+'s ability to surface URL elicitation prompts.
+        #
+        # F6.5 L2: mirrors call_tool's F5 L4 (A8/A9) pattern. SDK auth-flow
+        # failures and no-provider 401 responses surface from inside the SDK's
+        # anyio TaskGroup wrapped as a BaseExceptionGroup (probe-confirmed at
+        # F5 L4). The two except* clauses sit inside asyncio.timeout BEFORE the
+        # outer except translations so OAuth-aware paths run first; non-OAuth
+        # failures translate exactly as before. The explicit `except
+        # MCPAuthRequired: raise` below is defensive — without it, a
+        # MCPAuthRequired raised by the inner except* block would propagate out
+        # of the try and be caught by the outer except McpError clause,
+        # silently rewrapping it as MCPConnectionError.
         try:
             async with asyncio.timeout(self.timeout_seconds):
-                result = await self._session.list_tools()
+                # The except*-group below catches OAuth/auth exceptions whether
+                # they bubble bare (test stubs) or wrapped in a
+                # BaseExceptionGroup from the SDK's anyio TaskGroup
+                # (production SDK path). `except*` matches both shapes.
+                # F6.5 L2 mirrors call_tool's F5 L4 (A8/A9) pattern — see
+                # client.py:555-603 for the original.
+                try:
+                    result = await self._session.list_tools()
+                except* (OAuthFlowError, OAuthTokenError):
+                    # SDK auth-flow failed. Provider attached but couldn't
+                    # complete (refresh failed / discovery failed / DCR
+                    # failed). Translate to MCPAuthRequired so
+                    # get_tools_for_agent can skip cleanly + log the right
+                    # discriminator.
+                    raise MCPAuthRequired(
+                        source_id=self.source.id,
+                        resource_metadata_url=None,
+                        consent_url=None,
+                    ) from None
+                except* httpx.HTTPStatusError as eg:
+                    # No-provider 401 path. The SDK's transport surfaces 401
+                    # as an ExceptionGroup wrapping HTTPStatusError. Walk the
+                    # group; translate 401 to MCPAuthRequired (parsing the
+                    # WWW-Authenticate `resource_metadata` field per RFC 9728
+                    # §5.1); re-raise other statuses for the outer except to
+                    # translate.
+                    auth_error: httpx.HTTPStatusError | None = None
+                    for sub in eg.exceptions:
+                        if (
+                            isinstance(sub, httpx.HTTPStatusError)
+                            and sub.response.status_code == 401
+                        ):
+                            auth_error = sub
+                            break
+                    if auth_error is not None:
+                        rmd = extract_field_from_www_auth(
+                            auth_error.response, "resource_metadata"
+                        )
+                        raise MCPAuthRequired(
+                            source_id=self.source.id,
+                            resource_metadata_url=rmd,
+                            consent_url=None,
+                        ) from None
+                    raise eg.exceptions[0] from None
         except asyncio.TimeoutError:
             raise MCPConnectionError(
                 f"MCP list_tools exceeded {self.timeout_seconds} seconds"
             ) from None
+        except MCPAuthRequired:
+            raise
         except UrlElicitationRequiredError:
             raise
         except McpError as e:

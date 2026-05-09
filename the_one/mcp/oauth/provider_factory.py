@@ -1,13 +1,11 @@
-"""Factory: build an OAuthClientProvider (or ManualOAuthClientProvider) for a source.
+"""Factory: build an OAuthClientProvider for a source.
 
 Centralizes the per-source provider construction that was sketched at L4 design
 time and deferred via Option B. The factory reads ``source.secrets["dcr_credentials"]``
 and dispatches:
 
   - Absent / no ``client_id`` → returns ``None`` (caller proceeds with no auth).
-  - ``registration_method == "manual"`` → ``ManualOAuthClientProvider`` with
-    operator-supplied ``client_id`` + auth/token endpoints.
-  - Else (DCR-registered) → standard SDK ``OAuthClientProvider``.
+  - DCR-registered → standard SDK ``OAuthClientProvider``.
 
 In both non-None cases the provider is wired with handlers from
 ``make_oauth_handlers`` (L2) and a ``MCPSourceTokenStorage`` instance (L2),
@@ -43,6 +41,8 @@ retired; multi-tab cross-routing bug is fixed.
 
 from __future__ import annotations
 
+import asyncio
+
 import httpx
 from mcp.client.auth import OAuthClientProvider
 from mcp.shared.auth import OAuthClientMetadata
@@ -51,7 +51,6 @@ from the_one.config import settings
 from the_one.db.models import MCPSource
 from the_one.db.repositories import MCPSourceRepository
 from the_one.mcp.oauth.handlers import make_oauth_handlers
-from the_one.mcp.oauth.manual_metadata import ManualOAuthClientProvider, ManualOAuthMetadata
 from the_one.mcp.oauth.storage import MCPSourceTokenStorage
 
 
@@ -62,23 +61,35 @@ def build_oauth_provider_for_source(
     source_id: str | None = None,
     tool_call_id: str | None = None,
     resource_metadata_url: str | None = None,
+    *,
+    consent_url_future: asyncio.Future[str] | None = None,
+    allow_dcr_bootstrap: bool = False,
 ) -> httpx.Auth | None:
     """Construct the appropriate OAuthClientProvider for ``source``, or None.
 
     Returns ``None`` when ``source.secrets["dcr_credentials"]`` is absent or
-    missing a ``client_id`` — callers then connect without an auth provider
-    (the lazy-path 401 surfaces via L4's ``MCPAuthRequired`` translation).
+    missing a ``client_id`` AND ``allow_dcr_bootstrap`` is False — callers
+    then connect without an auth provider (the lazy-path 401 surfaces via
+    L4's ``MCPAuthRequired`` translation).
 
-    When ``dcr_credentials`` is populated:
-      - ``registration_method == "manual"`` returns a
-        ``ManualOAuthClientProvider`` (skips RFC 7591 DCR + RFC 8414 OASM
-        discovery; uses the operator-supplied auth + token endpoints).
-      - Anything else returns a standard ``OAuthClientProvider`` that goes
-        through full RFC 9728 PRM + RFC 8414 OASM + RFC 7591 DCR.
+    When ``dcr_credentials`` is populated, returns a standard
+    ``OAuthClientProvider`` that goes through full RFC 9728 PRM + RFC 8414
+    OASM + RFC 7591 DCR.
+
+    When ``allow_dcr_bootstrap=True`` AND ``dcr_credentials`` is absent, the
+    function still constructs an ``OAuthClientProvider``; the SDK's auth
+    flow runs DCR on first request (``MCPSourceTokenStorage.get_client_info``
+    returns None → SDK falls through to DCR registration). This is the F6.5
+    L3 Test endpoint path: the operator clicks Test on a freshly-saved source
+    with no creds, the SDK runs DCR + auth in one round-trip, tokens persist.
 
     The handlers + storage are constructed fresh per call (closure-capture
     invariant from L2's ``make_oauth_handlers`` — five concurrent flows
     register five distinct state tokens).
+
+    ``consent_url_future`` is forwarded to ``make_oauth_handlers``; when
+    supplied, the redirect_handler resolves it with the authorization_url.
+    The F6.5 L3 Test endpoint uses this; production chat paths pass None.
     """
     # F6 L3: when no chat session is bound to the current task, no
     # provider can be constructed — the redirect_handler would have
@@ -92,7 +103,7 @@ def build_oauth_provider_for_source(
     if chat_session_id is None:
         return None
     dcr = source.secrets.get("dcr_credentials")
-    if not dcr or not dcr.get("client_id"):
+    if (not dcr or not dcr.get("client_id")) and not allow_dcr_bootstrap:
         return None
 
     sid = source_id or source.id
@@ -101,6 +112,7 @@ def build_oauth_provider_for_source(
         source_id=sid,
         tool_call_id=tool_call_id,
         resource_metadata_url=resource_metadata_url,
+        consent_url_future=consent_url_future,
     )
     storage = MCPSourceTokenStorage(repo, source.id)
     client_metadata = OAuthClientMetadata(
@@ -112,20 +124,6 @@ def build_oauth_provider_for_source(
     )
 
     server_url = source.config.get("url", "")
-    if dcr.get("registration_method") == "manual":
-        manual = ManualOAuthMetadata(
-            client_id=dcr["client_id"],
-            auth_endpoint=dcr["auth_endpoint"],
-            token_endpoint=dcr["token_endpoint"],
-        )
-        return ManualOAuthClientProvider(
-            server_url=server_url,
-            client_metadata=client_metadata,
-            storage=storage,
-            redirect_handler=redirect_handler,
-            callback_handler=callback_handler,
-            manual_metadata=manual,
-        )
     return OAuthClientProvider(
         server_url=server_url,
         client_metadata=client_metadata,

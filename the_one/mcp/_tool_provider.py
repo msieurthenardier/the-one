@@ -12,10 +12,14 @@ Failure modes (graceful-degrade per F6 §8):
    ``KeyError`` → log + skip; agent build continues.
 #. **Source fails to start** — :func:`acquire` or
    :meth:`MCPClient.list_tools` raises :class:`MCPSandboxError` /
-   :class:`MCPConnectionError` / :class:`MCPVersionMismatch` → log +
-   skip. Covers OAuth-at-build per cycle-2 H1
-   (:meth:`MCPClient.list_tools` translates 401 to
-   :class:`MCPConnectionError`, NOT :class:`MCPAuthRequired`).
+   :class:`MCPConnectionError` / :class:`MCPVersionMismatch` /
+   :class:`MCPAuthRequired` → log + skip the source, continue with
+   others. The agent builds with whatever sources connected successfully
+   and were authorized; auth-required sources are skipped with a
+   discriminator log line so ops engineers can distinguish auth-pending
+   from connect-failed. (F6.5 L2: :meth:`MCPClient.list_tools` now
+   translates 401 to :class:`MCPAuthRequired` — same as
+   :meth:`MCPClient.call_tool` post-F5-L4.)
 #. **Source fails mid-session** — handled by
    :meth:`MCPClientTool.execute` returning the ``[error]`` envelope.
 #. **Prefix collision** — two source names normalize to the same prefix
@@ -46,6 +50,7 @@ from the_one.mcp._overrides import StdioMCPOverride, StreamableHttpMCPOverride
 from the_one.mcp._pool import acquire
 from the_one.mcp._tool import MCPClientTool
 from the_one.mcp.errors import (
+    MCPAuthRequired,
     MCPConnectionError,
     MCPRegistrationError,
     MCPSandboxError,
@@ -222,6 +227,14 @@ class MCPToolProvider:
                     source_override=effective_source,
                 )
                 mcp_tools = await client.list_tools()
+            except MCPAuthRequired as e:
+                logger.warning(
+                    "MCP source %r requires authorization; skipping "
+                    "(auth_required, source_id=%s)",
+                    source.name,
+                    e.source_id,
+                )
+                continue
             except (
                 MCPSandboxError,
                 MCPConnectionError,

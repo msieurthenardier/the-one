@@ -41,6 +41,8 @@ def make_oauth_handlers(
     source_id: str,
     tool_call_id: str | None,
     resource_metadata_url: str | None,
+    *,
+    consent_url_future: asyncio.Future[str] | None = None,
 ) -> tuple[
     Callable[[str], Awaitable[None]],
     Callable[[], Awaitable[tuple[str, str | None]]],
@@ -64,6 +66,13 @@ def make_oauth_handlers(
     (``from the_one.interfaces.web.app import _sessions, _send_to_session``
     inside the handler body) to avoid the ``api.py ↔ app.py`` circular
     import at module-load time.
+
+    When ``consent_url_future`` is supplied, the redirect_handler resolves
+    it with the authorization_url AFTER registering the state token
+    (preserving the register-BEFORE-resolve invariant from the existing
+    closure-capture contract). The Test connection endpoint (F6.5 L3)
+    supplies this future and awaits it to surface the consent_url to the
+    source-edit UI without requiring a chat WebSocket subscription.
     """
 
     state_box: asyncio.Future[str] = asyncio.get_running_loop().create_future()
@@ -85,6 +94,12 @@ def make_oauth_handlers(
         )
         if not state_box.done():
             state_box.set_result(state)
+        # F6.5 L3: surface authorization_url to the test-connection endpoint
+        # if the caller supplied a future (test path); production chat path
+        # passes None and falls through to the WebSocket broadcast below.
+        # Guard `done()` defensively — SDK retries could call redirect twice.
+        if consent_url_future is not None and not consent_url_future.done():
+            consent_url_future.set_result(authorization_url)
         # Lazy import — see module docstring.
         from the_one.interfaces.web.app import _send_to_session, _sessions
 
