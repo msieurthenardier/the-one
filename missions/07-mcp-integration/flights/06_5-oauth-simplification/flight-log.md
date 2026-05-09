@@ -225,7 +225,34 @@ Source artifact: F6 flight debrief (`flights/06-mcp-attach-and-tool-routing/flig
   - MCPClient patching in unit test: lazy import inside endpoint body means `patch("the_one.interfaces.web.api.MCPClient")` fails (`AttributeError`); correct target is `patch("the_one.mcp.client.MCPClient")`.
   - Browser test compromise documented in Anomaly A2 and in `test_mcp_test_connection_button.py` docstring.
 
-> Append leg-execution entries below as L4 lands.
+### L4
+
+- **Status**: landed (Tier-2 HAT PASS)
+- **Started**: 2026-05-08
+- **Completed**: 2026-05-08
+- **Operator**: msieurthenardier (free-tier Cloudflare account verified)
+- **Caplog count**: 0 occurrences of `MCPClient.disconnect` warnings over the full HAT session (carry-forward F6 Tier-1 HAT contract preserved)
+- **Verification outcomes**:
+  - Step 1 (register source): PASS — name `cloudflare_api`, type `streamable-http`, url `https://mcp.cloudflare.com/mcp`; editor transitioned to edit-mode
+  - Step 2 (first Test click): INITIAL FAIL — endpoint returned `{status: "error", error: "No OAuth credentials configured for this source"}` because `build_oauth_provider_for_source` short-circuited on absent `dcr_credentials`. **L3 carry-over bug.** Fixed inline (see "Inline fixes" below); retest PASSED — popup opened on Cloudflare AS URL, button correctly disabled
+  - Step 3 (Cloudflare consent): PASS — popup redirected to `/api/oauth/callback?code=...&state=...`; "Login successful" rendered; tokens persisted to `secrets["access_token"]` + `secrets["dcr_credentials"]`
+  - Step 4 (auto re-test): INITIAL FAIL — Phase A returned `MCPConnectionError: Header value must be str or bytes, not <class 'dict'>` because `build_request_headers` flat-merged ALL of `source.secrets` into HTTP headers, including `dcr_credentials` (dict) and `token_expires_at` (float). **F1-era latent bug, surfaced post-L3 by the new Phase A code path.** Fixed inline; retest PASSED — Tools section rendered Cloudflare's tool list (search, execute) with collapsible descriptions
+  - Step 5 (agent build): PASS — agent `hat_cloudflare_api` created via UI; `mcp_source_ids` attached via API (UI MCPs tab is F8 stub); model `qwen2.5:7b`
+  - Step 6 (chat tool call): INITIAL FAIL — agent dispatched MCP tools but with empty tool list (graceful-degrade-skipped at agent build). **F6 L3 architecture gap**: `_pool._entry_worker` returned None auth_provider when no `chat_session_id` ContextVar bound, so cached tokens never applied at agent-build time. Fixed inline (synthetic `f"agent_build:{source.id}"` csid pattern, mirroring Test endpoint's pattern); retest PASSED — agent dispatched `mcp__CloudFlare_API__search` and `mcp__CloudFlare_API__execute`, real Cloudflare API data flowed through MCP protocol round-trip end-to-end. Truncation noted server-side (Cloudflare's MCP search results) — recorded as mission known-issue (mission.md), not blocking.
+  - Step 7 (cleanup): PASS — agent + source DELETEd via curl; both endpoints return 404 post-cleanup
+- **Inline fixes during HAT** (committed as part of the L4 changeset):
+  - `provider_factory.py` — added `allow_dcr_bootstrap: bool = False` kwarg; bypasses `dcr_credentials` short-circuit when supplied (Test endpoint passes `True` so SDK can run DCR + auth in one round-trip on a fresh source). Without this, the Test button was unusable for source-creation-time OAuth.
+  - `api.py::test_mcp_connection` — passes `allow_dcr_bootstrap=True` in Phase B
+  - `oauth/storage.py` — added `OAUTH_MANAGED_SECRET_KEYS` frozenset (lifted + expanded from `api.py:_OAUTH_MANAGED_SECRET_KEYS`); added `token_type` and `scope` (previously missing — they're written by `set_tokens` but were leaking into editor's Custom Headers kv-table after OAuth completes)
+  - `transports/streamable_http.py::build_request_headers` — filters `OAUTH_MANAGED_SECRET_KEYS` out of merged headers dict (was sending dict-typed values to httpx, causing `TypeError`)
+  - `interfaces/web/api.py` — replaced local `_OAUTH_MANAGED_SECRET_KEYS` with import from `oauth/storage.py` (de-dup)
+  - `_pool.py::_entry_worker` — when `csid is None` AND tokens are present, use synthetic `f"agent_build:{source.id}"` csid so the auth_provider gets built and cached tokens apply at agent-build time. Prior behavior returned None auth_provider → connect 401 → graceful-skip → agent built with zero MCP tools.
+  - `mcp-server-editor.js` — UX restructure per operator feedback: Test button moved into Connection section (was its own block); new Tools section between Headers and Danger Zone with collapsible `<details>` per tool (Cloudflare-class verbose descriptions stay scannable); popup centered on parent window viewport.
+  - `studio.css` — Tools section + collapsible-tool-item styling
+  - `mission.md::Known Issues` — added entry for server-side truncation of verbose tool results (Cloudflare's `search` returns mid-string-truncated JSON with no pagination indicator)
+  - `tests/HAT.md` — Tier-2 procedure replaced (GitHub manual-entry → Cloudflare DCR happy path)
+- **Test runs after fixes**: 113/113 OAuth + MCP unit tests pass; pre-existing failures unchanged
+- **Notes**: L4 surfaced 4 distinct bugs (1 from L3, 1 F1-era latent, 1 F6 architecture gap, 1 frozenset gap). All are textbook examples of why live-target HAT was made binding per Design Decision §4 — none would have surfaced under in-repo fixture testing. The Test connection button's "operator authenticates at source-creation time so subsequent agent builds register real tools" promise NOW actually works end-to-end against a real DCR-supporting OAuth-protected MCP server.
 
 ---
 

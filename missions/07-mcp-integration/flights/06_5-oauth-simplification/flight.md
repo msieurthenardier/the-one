@@ -1,6 +1,6 @@
 # Flight: OAuth simplification + Test connection button
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [MCP Integration](../../mission.md)
 
 ## Contributing to Criteria
@@ -333,7 +333,7 @@ Pass criteria: all 7 + cleanup steps succeed; caplog `MCPClient.disconnect` warn
 - [x] `01-oauth-frontend-strip` — Delete `mcp-oauth-section` block in `mcp-server-editor.js` (4 regions: :122 HTML, :269-271 + :692-772 form-population, :891-938 save-mode payload), delete manual-entry form + `manual_registration_required` switch in `oauth-modal.js`, delete `oauth_manual_registration_required` chat handler in `chat.js:670`, delete `tests/browser/test_oauth_modal_flow.py` (manual-entry flow), update `tests/browser/test_flow_studio_mcp_editor.py:120` to drop `oauth_client_secret` field assertion
 - [x] `02-list-tools-401-translation` — Add `try / except* (OAuthFlowError, OAuthTokenError)` and `except* httpx.HTTPStatusError` around `MCPClient.list_tools`'s `session.list_tools()` call, mirroring `call_tool`'s F5 L4 pattern; extend `MCPToolProvider.get_tools_for_agent`'s except list to include `MCPAuthRequired`; new unit tests cover 4 surfaces
 - [x] `03-test-connection-button` — Add `consent_url_future` parameter to `make_oauth_handlers` + `build_oauth_provider_for_source`; new endpoint `POST /api/mcp-sources/{id}/test/connect` (two-call dance); UI button + result-panel rendering in `mcp-server-editor.js`; unit tests for endpoint phase-1 and phase-2; browser test for popup-flow against in-repo OAuth fixture
-- [ ] `04-tier2-hat-cloudflare` — Replace `tests/HAT.md` Tier-2 GitHub procedure with Cloudflare API MCP procedure (7 steps + automated teardown step deleting test source + agent); binding human verification; flight cannot land without PASS
+- [x] `04-tier2-hat-cloudflare` — Replace `tests/HAT.md` Tier-2 GitHub procedure with Cloudflare API MCP procedure (7 steps + automated teardown step deleting test source + agent); binding human verification; flight cannot land without PASS
 
 ---
 

@@ -63,16 +63,25 @@ def build_oauth_provider_for_source(
     resource_metadata_url: str | None = None,
     *,
     consent_url_future: asyncio.Future[str] | None = None,
+    allow_dcr_bootstrap: bool = False,
 ) -> httpx.Auth | None:
     """Construct the appropriate OAuthClientProvider for ``source``, or None.
 
     Returns ``None`` when ``source.secrets["dcr_credentials"]`` is absent or
-    missing a ``client_id`` — callers then connect without an auth provider
-    (the lazy-path 401 surfaces via L4's ``MCPAuthRequired`` translation).
+    missing a ``client_id`` AND ``allow_dcr_bootstrap`` is False — callers
+    then connect without an auth provider (the lazy-path 401 surfaces via
+    L4's ``MCPAuthRequired`` translation).
 
     When ``dcr_credentials`` is populated, returns a standard
     ``OAuthClientProvider`` that goes through full RFC 9728 PRM + RFC 8414
     OASM + RFC 7591 DCR.
+
+    When ``allow_dcr_bootstrap=True`` AND ``dcr_credentials`` is absent, the
+    function still constructs an ``OAuthClientProvider``; the SDK's auth
+    flow runs DCR on first request (``MCPSourceTokenStorage.get_client_info``
+    returns None → SDK falls through to DCR registration). This is the F6.5
+    L3 Test endpoint path: the operator clicks Test on a freshly-saved source
+    with no creds, the SDK runs DCR + auth in one round-trip, tokens persist.
 
     The handlers + storage are constructed fresh per call (closure-capture
     invariant from L2's ``make_oauth_handlers`` — five concurrent flows
@@ -94,7 +103,7 @@ def build_oauth_provider_for_source(
     if chat_session_id is None:
         return None
     dcr = source.secrets.get("dcr_credentials")
-    if not dcr or not dcr.get("client_id"):
+    if (not dcr or not dcr.get("client_id")) and not allow_dcr_bootstrap:
         return None
 
     sid = source_id or source.id

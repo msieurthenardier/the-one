@@ -33,6 +33,32 @@ from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 
 from the_one.db.repositories import MCPSourceRepository
 
+# F6.5 L4 (HAT fix): canonical set of secret keys managed exclusively by
+# MCPSourceTokenStorage. Used by:
+#   - api.py to strip-and-preserve these on PUT (operator-facing API
+#     never sees / cannot overwrite token state)
+#   - transports/streamable_http.py to FILTER these out of the merged
+#     HTTP-headers dict (they're not headers — token_expires_at is a
+#     float, dcr_credentials is a dict, etc., and httpx rejects non-
+#     string header values with TypeError)
+#   - editor UI to avoid showing OAuth-managed values as operator-
+#     editable Custom Headers rows
+# Keep this constant in sync with every key this module's get_tokens /
+# set_tokens / get_client_info / set_client_info methods write to secrets.
+# F6.5 L4 expansion: token_type and scope are also written by set_tokens
+# (storage.py:96-101) — original frozenset missed them, causing them to
+# leak into the editor's Custom Headers kv-table after OAuth completes.
+OAUTH_MANAGED_SECRET_KEYS: frozenset[str] = frozenset(
+    {
+        "access_token",
+        "refresh_token",
+        "token_expires_at",
+        "token_type",
+        "scope",
+        "dcr_credentials",
+    }
+)
+
 
 class MCPSourceTokenStorage(TokenStorage):
     """TokenStorage Protocol impl backed by MCPSourceRepository.

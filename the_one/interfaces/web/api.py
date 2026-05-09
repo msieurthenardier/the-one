@@ -522,9 +522,7 @@ def _mask_secret_value(value: Any) -> Any:
 # defined AFTER ``_mcp_source_response`` — a forward reference would
 # fail at module import time, so the constant lives here instead. See
 # leg L02 flight-log entry for the deliberate placement rationale).
-_OAUTH_MANAGED_SECRET_KEYS = frozenset(
-    {"access_token", "refresh_token", "token_expires_at", "dcr_credentials"}
-)
+from the_one.mcp.oauth.storage import OAUTH_MANAGED_SECRET_KEYS as _OAUTH_MANAGED_SECRET_KEYS
 
 
 def _mask_secrets(secrets: dict[str, Any]) -> dict[str, Any]:
@@ -903,7 +901,13 @@ async def test_mcp_connection(source_id: str) -> dict[str, Any]:
             # F7's typed-diagnostic widening for clean Test-button UX.
             return {"status": "error", "error": f"{type(e).__name__}: {e}"}
 
-    # Phase B: kick OAuth flow with consent_url_future
+    # Phase B: kick OAuth flow with consent_url_future. Pass
+    # allow_dcr_bootstrap=True so the factory constructs a provider even
+    # when dcr_credentials is absent — the SDK runs DCR + auth in one
+    # round-trip via MCPSourceTokenStorage.get_client_info → None →
+    # OAuthClientProvider's discovery + DCR fallback. This is the
+    # source-creation-time happy path: operator saves a fresh source,
+    # clicks Test, SDK does the registration + consent + token exchange.
     consent_url_future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
     test_csid = f"test:{source_id}"
 
@@ -915,13 +919,13 @@ async def test_mcp_connection(source_id: str) -> dict[str, Any]:
         tool_call_id=None,
         resource_metadata_url=None,
         consent_url_future=consent_url_future,
+        allow_dcr_bootstrap=True,
     )
     if provider is None:
-        # No dcr_credentials: the source has no OAuth registration yet.
-        # The SDK will run DCR when it first hits the server. Since we
-        # can't construct an OAuthClientProvider without dcr_credentials,
-        # build_oauth_provider_for_source returned None. Return error.
-        return {"status": "error", "error": "No OAuth credentials configured for this source"}
+        # With allow_dcr_bootstrap=True, the only way provider is None is
+        # chat_session_id is None — but we passed a synthetic test_csid,
+        # so this branch is unreachable. Defensive return.
+        return {"status": "error", "error": "OAuth provider construction failed"}
 
     await _evict_all_for_source(source_id)
 

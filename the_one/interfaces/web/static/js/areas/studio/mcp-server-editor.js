@@ -67,6 +67,16 @@
     html += '<div class="editor-section">';
     html += '<div class="section-title">Connection</div>';
     html += renderConnectionFields(source, mcpTypes);
+    // F6.5 L4: Test connection button lives at the bottom of the
+    // Connection section in edit-mode for streamable-http sources.
+    // The result panel previously inline here renders into the
+    // dedicated Tools section below the Headers section.
+    if (!isCreate && source && source.type === 'streamable-http') {
+      html += '<div class="field-row admin-pf-row mcp-test-row">';
+      html += '<label></label>';
+      html += '<button type="button" class="btn-outlined-cyan" data-testid="mcp-test-connection">Test connection</button>';
+      html += '</div>';
+    }
     html += '</div>';
 
     // ── Sandbox section (stdio only) ──────────────────────────────────
@@ -112,12 +122,18 @@
             're-type to keep it.</p>';
     html += '</div>';
 
-    // ── Test Connection (edit only, streamable-http only) ─────────────
+    // ── Tools section (edit only, streamable-http only) ───────────────
+    // Populated by handleTestConnection after a successful test. Empty
+    // state until first test runs. Verbose tool descriptions (e.g.
+    // Cloudflare API MCP) get a collapsible <details> per tool so the
+    // section stays scannable.
     if (!isCreate && source && source.type === 'streamable-http') {
-      html += '<div class="editor-section mcp-test-section">';
-      html += '<div class="section-title">Test Connection</div>';
-      html += '<button type="button" class="btn-outlined-cyan" data-testid="mcp-test-connection">Test connection</button>';
-      html += '<div class="mcp-test-result" data-testid="mcp-test-result" hidden></div>';
+      html += '<div class="editor-section mcp-tools-section">';
+      html += '<div class="section-title">Tools</div>';
+      html += '<div class="mcp-tools-status" data-testid="mcp-test-status">';
+      html += 'Click <strong>Test connection</strong> above to discover the tools this server exposes.';
+      html += '</div>';
+      html += '<div class="mcp-tools-list" data-testid="mcp-tools-list" hidden></div>';
       html += '</div>';
     }
 
@@ -805,9 +821,12 @@
 
   function handleTestConnection(sourceId, container, testBtn) {
     var escapeHtml = window.App.escapeHtml;
-    var resultEl = container.querySelector('[data-testid="mcp-test-result"]');
-    resultEl.hidden = false;
-    resultEl.textContent = 'Testing connection...';
+    var statusEl = container.querySelector('[data-testid="mcp-test-status"]');
+    var listEl = container.querySelector('[data-testid="mcp-tools-list"]');
+    statusEl.textContent = 'Testing connection…';
+    statusEl.hidden = false;
+    listEl.hidden = true;
+    listEl.innerHTML = '';
     testBtn.disabled = true; // concurrent-Test guard: re-enabled only on final state
 
     function settle() {
@@ -821,28 +840,58 @@
       .then(function (resp) { return resp.json(); })
       .then(function (data) {
         if (data.status === 'ok') {
-          var html = '<div class="test-success">Connected. Tools (' + data.tools.length + '):</div>';
-          html += '<ul class="test-tools-list">';
+          // Render summary + collapsible tool list. Cloudflare-class servers
+          // ship verbose multi-paragraph descriptions; <details> keeps the
+          // section scannable while preserving full content.
+          statusEl.innerHTML = (
+            '<span class="mcp-tools-success">✓ Connected.</span> ' +
+            'Server exposes <strong>' + data.tools.length + '</strong> tool' +
+            (data.tools.length === 1 ? '' : 's') + '.'
+          );
+          var html = '';
           for (var i = 0; i < data.tools.length; i++) {
             var t = data.tools[i];
-            html += '<li><strong>' + escapeHtml(t.name) + '</strong>';
+            html += '<details class="mcp-tool-item">';
+            html += '<summary class="mcp-tool-summary"><span class="mcp-tool-name">' + escapeHtml(t.name) + '</span></summary>';
             if (t.description) {
-              html += ': ' + escapeHtml(t.description);
+              // Preserve newlines from server-supplied descriptions; they
+              // are typically structured (multi-paragraph or with code blocks).
+              // Escape first, then convert \n → <br> via .replace on the
+              // already-escaped string (no XSS path: escapeHtml handles all
+              // angle brackets before <br> is introduced).
+              var safeDesc = escapeHtml(t.description).replace(/\n/g, '<br>');
+              html += '<div class="mcp-tool-description">' + safeDesc + '</div>';
+            } else {
+              html += '<div class="mcp-tool-description mcp-tool-description-empty">(no description provided)</div>';
             }
-            html += '</li>';
+            html += '</details>';
           }
-          html += '</ul>';
-          resultEl.innerHTML = html;
+          listEl.innerHTML = html;
+          listEl.hidden = false;
           settle();
         } else if (data.status === 'auth_required') {
           // Keep button disabled across popup-flow; re-enabled only when
           // the Phase 2 re-POST settles (in this same function).
-          resultEl.textContent = 'Opening consent popup...';
-          var popup = window.open(
-            data.consent_url, 'mcp-oauth-consent', 'width=600,height=700'
+          statusEl.textContent = 'Opening consent popup…';
+          var popupW = 600;
+          var popupH = 700;
+          // Center on the parent window's viewport. screenX/Y account for
+          // multi-monitor setups where the parent window isn't on the
+          // primary display; outerWidth/Height are the parent window size.
+          var parentX = window.screenX !== undefined ? window.screenX : window.screenLeft;
+          var parentY = window.screenY !== undefined ? window.screenY : window.screenTop;
+          var parentW = window.outerWidth || window.innerWidth || screen.width;
+          var parentH = window.outerHeight || window.innerHeight || screen.height;
+          var popupLeft = parentX + Math.max(0, (parentW - popupW) / 2);
+          var popupTop = parentY + Math.max(0, (parentH - popupH) / 2);
+          var features = (
+            'width=' + popupW + ',height=' + popupH +
+            ',left=' + Math.round(popupLeft) +
+            ',top=' + Math.round(popupTop)
           );
+          var popup = window.open(data.consent_url, 'mcp-oauth-consent', features);
           if (!popup) {
-            resultEl.textContent = 'Popup blocked — please allow popups and retry.';
+            statusEl.textContent = 'Popup blocked — please allow popups and retry.';
             settle();
             return;
           }
@@ -854,12 +903,12 @@
             }
           }, 500);
         } else {
-          resultEl.textContent = 'Error: ' + (data.error || 'unknown');
+          statusEl.innerHTML = '<span class="mcp-tools-error">✗ Error:</span> ' + escapeHtml(data.error || 'unknown');
           settle();
         }
       })
       .catch(function (err) {
-        resultEl.textContent = 'Network error: ' + err.message;
+        statusEl.innerHTML = '<span class="mcp-tools-error">✗ Network error:</span> ' + escapeHtml(err.message);
         settle();
       });
   }
