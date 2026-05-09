@@ -1265,7 +1265,11 @@ App.registerArea({
         }
       }
 
-      var toggles = editorEl.querySelectorAll('.tool-toggle');
+      // F8 L4: scope to built-in-tool toggles only — F8's MCP source toggles
+      // also use class="tool-toggle" for visual parity but carry data-mcp-source-id
+      // (NOT data-tool); without the [data-tool] filter, they'd contaminate
+      // enabled_tools/disabled_tools with `undefined` (from `dataset.tool`).
+      var toggles = editorEl.querySelectorAll('.tool-toggle[data-tool]');
       var enabledNames = [];
       var disabledNames = [];
       var allOn = true;
@@ -1297,11 +1301,17 @@ App.registerArea({
       // The new override chip-list editors carry data-tool-override-tool
       // (NOT data-type), so they don't match the [data-type] selector
       // here and are picked up below in the override walk.
-      var mcpChips = editorEl.querySelectorAll('.chip-area[data-type="mcp"] .chip');
+      // F8 L4 — MCPs tab uses tool-row toggles instead of chip-area.
+      // Walk the new [data-mcp-source-toggle]:checked selector to collect
+      // attached source IDs. KB chips still use the chip-area pattern (KB
+      // tab is a stub; whenever it lands, it can pick its own selector).
+      var mcpToggles = editorEl.querySelectorAll('[data-mcp-source-toggle][data-mcp-source-id]');
       var kbChips = editorEl.querySelectorAll('.chip-area[data-type="kb"] .chip');
       data.mcp_source_ids = [];
       data.kb_ids = [];
-      for (var m = 0; m < mcpChips.length; m++) data.mcp_source_ids.push(mcpChips[m].dataset.id);
+      for (var m = 0; m < mcpToggles.length; m++) {
+        if (mcpToggles[m].checked) data.mcp_source_ids.push(mcpToggles[m].dataset.mcpSourceId);
+      }
       for (var k = 0; k < kbChips.length; k++) data.kb_ids.push(kbChips[k].dataset.id);
 
       // F6 leg 05 — collect tool_overrides from per-tool override panels.

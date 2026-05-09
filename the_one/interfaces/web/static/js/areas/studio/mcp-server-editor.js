@@ -584,7 +584,14 @@
     var testBtn = container.querySelector('[data-testid="mcp-test-connection"]');
     if (testBtn) {
       testBtn.addEventListener('click', function () {
-        handleTestConnection(source.id, container, testBtn);
+        // F8 L4: pass a no-op error-clearer so collectFormData's
+        // validation messages don't accidentally show up in the editor's
+        // generic .editor-error div for the Test path; if validation
+        // fails (missing name / type / url), the form data is null and
+        // we fall through to the no-payload path which uses persisted
+        // state — same behavior as before.
+        var formData = collectFormData(container, source, true);
+        handleTestConnection(source.id, container, testBtn, formData);
       });
     }
 
@@ -844,7 +851,7 @@
   // zero async/await. Diverging would create a stylistic outlier and may
   // not transpile if the build pipeline targets ES5.
 
-  function handleTestConnection(sourceId, container, testBtn) {
+  function handleTestConnection(sourceId, container, testBtn, formData) {
     var escapeHtml = window.App.escapeHtml;
     var statusEl = container.querySelector('[data-testid="mcp-test-status"]');
     var listEl = container.querySelector('[data-testid="mcp-tools-list"]');
@@ -858,10 +865,22 @@
       testBtn.disabled = false; // re-enable on final state
     }
 
-    fetch('/api/mcp-sources/' + encodeURIComponent(sourceId) + '/test/connect', {
+    // F8 L4: send the operator's in-flight form values so Test connection
+    // tests what's in the field, not what's in the DB. Backend mirrors PUT's
+    // secrets-resolution (per-key __MASKED__ + OAuth-managed-key preservation).
+    // Empty body falls back to persisted state — preserves the prior contract.
+    var fetchOpts = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-    })
+    };
+    if (formData) {
+      fetchOpts.body = JSON.stringify({
+        type: formData.type,
+        config: formData.config || {},
+        secrets: formData.secrets || {},
+      });
+    }
+    fetch('/api/mcp-sources/' + encodeURIComponent(sourceId) + '/test/connect', fetchOpts)
       .then(function (resp) { return resp.json(); })
       .then(function (data) {
         if (data.status === 'ok') {
@@ -940,7 +959,9 @@
             if (popup.closed) {
               clearInterval(interval);
               // Phase 2 re-POST. Recursive call handles its own settle().
-              handleTestConnection(sourceId, container, testBtn);
+              // Pass through the same formData so the second POST hits the
+              // same in-flight values the operator initiated the test with.
+              handleTestConnection(sourceId, container, testBtn, formData);
             }
           }, 500);
         } else {

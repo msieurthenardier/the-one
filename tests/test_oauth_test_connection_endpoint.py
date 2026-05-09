@@ -231,10 +231,31 @@ async def test_test_connect_returns_auth_required_when_no_creds(client_and_repo)
     # (required for redirect_handler to exist on the provider).
     src = await _repo.get("src-test-connect-1")
     src.secrets["dcr_credentials"] = {"client_id": "dcr-cid-test"}
-    # No access_token → Phase A skips; Phase B runs.
+    # No access_token → Phase A's bare-client attempt raises MCPAuthRequired
+    # (mocked below); Phase B then runs.
     await _repo.update(src)
 
-    with patch("the_one.interfaces.web.api.httpx.AsyncClient", _StubHttpxClient):
+    # F8 L4 fix: Phase A now ALWAYS tries first (bare client when no tokens),
+    # so we must mock MCPClient to raise MCPAuthRequired for the no-creds case
+    # so the endpoint falls through to Phase B's DCR + consent_url flow.
+    from the_one.mcp.errors import MCPAuthRequired
+
+    class _AuthRequiredMCPClient:
+        def __init__(self, *, source, auth_provider=None, **kwargs):
+            self._source = source
+
+        async def __aenter__(self):
+            raise MCPAuthRequired(
+                source_id=self._source.id,
+                resource_metadata_url=None,
+                consent_url=None,
+            )
+
+        async def __aexit__(self, *args):
+            pass
+
+    with patch("the_one.mcp.client.MCPClient", _AuthRequiredMCPClient), \
+         patch("the_one.interfaces.web.api.httpx.AsyncClient", _StubHttpxClient):
         resp = await c.post("/api/mcp-sources/src-test-connect-1/test/connect")
 
     assert resp.status_code == 200
@@ -375,10 +396,147 @@ async def test_test_connect_consent_url_timeout(client_and_repo, monkeypatch) ->
             # Never resolves → consent_url_future times out.
             await asyncio.sleep(999)
 
-    with patch("the_one.interfaces.web.api.httpx.AsyncClient", _StubHttpxClient):
+    # F8 L4 fix: Phase A now ALWAYS tries first. Mock MCPClient to raise
+    # MCPAuthRequired so the endpoint falls through to Phase B's consent flow.
+    from the_one.mcp.errors import MCPAuthRequired
+
+    class _AuthRequiredMCPClient:
+        def __init__(self, *, source, auth_provider=None, **kwargs):
+            self._source = source
+
+        async def __aenter__(self):
+            raise MCPAuthRequired(
+                source_id=self._source.id,
+                resource_metadata_url=None,
+                consent_url=None,
+            )
+
+        async def __aexit__(self, *args):
+            pass
+
+    with patch("the_one.mcp.client.MCPClient", _AuthRequiredMCPClient), \
+         patch("the_one.interfaces.web.api.httpx.AsyncClient", _StubHttpxClient):
         resp = await c.post("/api/mcp-sources/src-test-connect-1/test/connect")
 
     assert resp.status_code == 200
     body = resp.json()
     assert body["status"] == "error"
     assert body["error"] == "consent_url_timeout"
+
+
+async def test_test_connect_uses_override_payload_url(client_and_repo) -> None:
+    """F8 L4 — operator's in-flight URL in the request body is used by Test connection,
+    not the persisted URL. Verifies the operator-asked-for fix: 'Test should work
+    with whats in the field, not whats in the db'.
+    """
+    c, repo = client_and_repo
+    src = await repo.get("src-test-connect-1")
+    # Persisted URL is https://api.example.com/mcp; populate tokens so Phase A fires.
+    src.secrets["dcr_credentials"] = {"client_id": "dcr-cid-override"}
+    src.secrets["access_token"] = "tok-override"
+    await repo.update(src)
+
+    # Capture the URL the MCPClient is constructed with — must be the OVERRIDE
+    # URL from the request body, NOT the persisted one.
+    captured_urls: list[str] = []
+
+    class _CapturingMCPClient:
+        def __init__(self, *, source, auth_provider=None, **kwargs):
+            captured_urls.append(source.config.get("url"))
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def list_tools(self):
+            return []
+
+        @property
+        def server_capabilities(self):
+            return {"tools": {}, "resources": None, "prompts": None, "logging": None, "experimental": None}
+
+    override_url = "https://operator-edited.example.com/mcp"
+    with patch("the_one.mcp.client.MCPClient", _CapturingMCPClient):
+        resp = await c.post(
+            "/api/mcp-sources/src-test-connect-1/test/connect",
+            json={
+                "type": "streamable-http",
+                "config": {"url": override_url},
+                "secrets": {},
+            },
+        )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "ok"
+    assert captured_urls == [override_url], (
+        f"Test connection used persisted URL instead of override; "
+        f"captured: {captured_urls}, expected: [{override_url!r}]"
+    )
+
+
+async def test_test_connect_override_preserves_oauth_managed_secrets(client_and_repo) -> None:
+    """F8 L4 — operator's in-flight `secrets` payload cannot overwrite OAuth-managed
+    keys (`access_token`, `dcr_credentials`, etc.). Mirrors the PUT endpoint's
+    canonical secret-protection logic.
+    """
+    c, repo = client_and_repo
+    src = await repo.get("src-test-connect-1")
+    src.secrets["dcr_credentials"] = {"client_id": "dcr-real"}
+    src.secrets["access_token"] = "tok-real"
+    await repo.update(src)
+
+    captured_secrets: list[dict] = []
+
+    class _CapturingMCPClient:
+        def __init__(self, *, source, auth_provider=None, **kwargs):
+            captured_secrets.append(dict(source.secrets))
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def list_tools(self):
+            return []
+
+        @property
+        def server_capabilities(self):
+            return {"tools": {}, "resources": None, "prompts": None, "logging": None, "experimental": None}
+
+    with patch("the_one.mcp.client.MCPClient", _CapturingMCPClient):
+        resp = await c.post(
+            "/api/mcp-sources/src-test-connect-1/test/connect",
+            json={
+                "type": "streamable-http",
+                "config": {"url": "https://api.example.com/mcp"},
+                "secrets": {
+                    # Operator tries to inject fake tokens — must be ignored.
+                    "access_token": "fake-injected",
+                    "dcr_credentials": {"client_id": "fake-injected-cid"},
+                    # Operator-editable header — must pass through.
+                    "X-Custom-Header": "operator-value",
+                },
+            },
+        )
+
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ok"
+    assert len(captured_secrets) == 1
+    secrets = captured_secrets[0]
+    # OAuth-managed keys preserved from DB, not overwritten by injection.
+    assert secrets["access_token"] == "tok-real"
+    assert secrets["dcr_credentials"] == {"client_id": "dcr-real"}
+    # Operator-editable secret passes through.
+    assert secrets["X-Custom-Header"] == "operator-value"
+
+
+# NOTE: A `test_test_connect_no_auth_server_succeeds_without_phase_b` test
+# was attempted during F8 L4 but removed when the underlying Phase A.5
+# bare-client probe was disabled (Anomaly A6 in flight log — anyio cross-
+# task cancel-scope leak crashed the FastAPI handler). No-auth MCP server
+# detection is deferred to a follow-up flight that introduces an explicit
+# `auth_required: bool | None` hint on `MCPSource`.

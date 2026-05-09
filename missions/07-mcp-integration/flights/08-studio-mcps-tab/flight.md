@@ -1,6 +1,6 @@
 # Flight: Studio MCPs tab + inspector polish
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [MCP Integration](../../mission.md)
 
 ## Contributing to Criteria
@@ -200,7 +200,7 @@ Caplog gate: 0 occurrences of `MCPClient.disconnect` warnings across the HAT (ma
 - [x] `01-overrides-and-capabilities` — Schema extension for reserved keys + provider filter integration + `/test/connect` capabilities; ~250-350 LOC, ≥5 new unit tests.
 - [x] `02-source-edit-tools-polish` — UI on top of L1: capability flags one-liner + collapsible input-schema; ~200-300 LOC, ≥2 new browser tests.
 - [x] `03-agent-editor-mcps-tab` — Replace stub with attach + override + per-tool toggle UI + hash routing + App.areas lock-test + browser tests folded in; ~700-900 LOC.
-- [ ] `04-hat-cloudflare-attach-and-toggle` — Tier-2 HAT against live Cloudflare API MCP; 11-step procedure; binding per Design Decision §6.
+- [x] `04-hat-cloudflare-attach-and-toggle` — Tier-2 HAT against live Cloudflare API MCP; 11-step procedure; binding per Design Decision §6.
 
 ---
 

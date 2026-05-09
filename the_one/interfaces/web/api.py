@@ -819,7 +819,7 @@ async def delete_mcp_source(source_id: str) -> dict[str, str]:
 
 
 @router.post("/mcp-sources/{source_id}/test/connect")
-async def test_mcp_connection(source_id: str) -> dict[str, Any]:
+async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any]:
     """Connect + list_tools probe; kicks OAuth flow if needed via popup-callback dance.
 
     Behavior:
@@ -835,6 +835,14 @@ async def test_mcp_connection(source_id: str) -> dict[str, Any]:
     for popup close, re-POSTs. The second POST hits the {status: "ok"}
     path because tokens have landed via the SDK's callback_handler.
 
+    F8 L4 — accepts an optional request body shaped like the PUT payload
+    (`{type, config, secrets}`); if present, the operator's in-flight
+    form values override the persisted source for the connection test.
+    OAuth-managed secret keys (`access_token`, `dcr_credentials`, etc.)
+    are ALWAYS sourced from the persisted DB row — only the OAuth flow
+    writes them. `source_id` is preserved for OAuth callback routing
+    and token persistence regardless of the override.
+
     F6.5 L3 — see flight artifact Design Decision §2 for the protocol.
     """
     from the_one.interfaces.web.app import _inflight_resume_tasks
@@ -848,6 +856,54 @@ async def test_mcp_connection(source_id: str) -> dict[str, Any]:
         source = await repo.get(source_id)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"MCP source not found: {source_id}")
+    # F8 L4: optionally override the persisted source with operator's
+    # in-flight form values. Mirrors the PUT endpoint's secrets-resolution
+    # logic (per-key __MASKED__ → existing; OAUTH-managed → always
+    # preserved from existing). Body is optional — empty body preserves
+    # the prior single-arg behavior verbatim.
+    try:
+        body_bytes = await request.body()
+    except Exception:
+        body_bytes = b""
+    if body_bytes:
+        try:
+            payload = json.loads(body_bytes)
+        except Exception as e:
+            return {"status": "error", "error": f"invalid JSON body: {e}"}
+        if not isinstance(payload, dict):
+            return {"status": "error", "error": "request body must be a JSON object"}
+        override_type = payload.get("type")
+        override_config = payload.get("config")
+        override_secrets = payload.get("secrets")
+        if override_type and override_type != source.type:
+            # Test against the operator's in-flight type. Build a
+            # transient MCPSource shape; preserve id + name.
+            source = MCPSource(
+                id=source.id,
+                name=source.name,
+                type=override_type,
+                config=override_config if isinstance(override_config, dict) else {},
+                secrets=dict(source.secrets),
+                created_at=source.created_at,
+                updated_at=source.updated_at,
+            )
+        elif isinstance(override_config, dict):
+            source = source.model_copy(update={"config": override_config})
+        if isinstance(override_secrets, dict):
+            resolved_secrets: dict[str, Any] = {}
+            for k, v in override_secrets.items():
+                if v == _MASKED_API_KEY_SENTINEL:
+                    if k in source.secrets:
+                        resolved_secrets[k] = source.secrets[k]
+                else:
+                    resolved_secrets[k] = v
+            # OAuth-managed keys ALWAYS come from the persisted row.
+            for k in _OAUTH_MANAGED_SECRET_KEYS:
+                if k in source.secrets:
+                    resolved_secrets[k] = source.secrets[k]
+                elif k in resolved_secrets:
+                    del resolved_secrets[k]
+            source = source.model_copy(update={"secrets": resolved_secrets})
 
     if source.type != "streamable-http":
         return {
@@ -888,20 +944,64 @@ async def test_mcp_connection(source_id: str) -> dict[str, Any]:
             }
         except MCPAuthRequired:
             # Token expired/revoked. Bust pool cache BEFORE Phase B builds
-            # a fresh provider — otherwise the F4 cache may hand out an
-            # MCPClient with the stale auth_provider and the SDK gets
-            # confused mid-refresh. Mirrors oauth_start's eviction timing.
+            # a fresh provider so the F4 cache doesn't hand out an MCPClient
+            # with the stale auth_provider mid-refresh.
             await _evict_all_for_source(source_id)
             # fall through to Phase B
-        except (MCPConnectionError, MCPVersionMismatch) as e:
-            # Per Design Decision §3, F6.5 defers connect-time 401
-            # translation to F7. So a `connect()` 401 surfaces here as
-            # MCPConnectionError ("cancelled during initialize") and
-            # the operator sees a generic error. The Test button is
-            # functional for list_tools-401 servers (Cloudflare API MCP,
-            # most production OAuth MCPs); connect-401 servers will need
-            # F7's typed-diagnostic widening for clean Test-button UX.
+        except MCPConnectionError as e:
+            # F8 L4 (Anomaly A6): Phase A's connect can hang/time out when
+            # refresh_token is no longer accepted by the AS (refresh token
+            # rotation, IdP invalidation, server-side revoke). The SDK's
+            # auth flow doesn't reliably surface this as MCPAuthRequired —
+            # it manifests as an initialize timeout. Treat as "tokens are
+            # stale, kick a fresh OAuth flow" by clearing the stored OAuth
+            # state and falling through to Phase B.
+            #
+            # IMPORTANT: only clear tokens when the error message matches
+            # the initialize-timeout / cleanup-deadlock signature.
+            # MCPConnectionError is also raised for transient network
+            # failures (DNS NXDOMAIN, ECONNREFUSED, httpx transport
+            # errors) — clearing tokens on those would destroy valid
+            # OAuth sessions for an operator on a flaky link.
+            err_msg = str(e).lower()
+            looks_like_token_failure = (
+                "did not respond" in err_msg
+                or "cancelled during initialize" in err_msg
+            )
+            if looks_like_token_failure:
+                try:
+                    cleared = source.model_copy(update={"secrets": {
+                        k: v for k, v in source.secrets.items()
+                        if k not in _OAUTH_MANAGED_SECRET_KEYS
+                    }})
+                    await repo.update(cleared)
+                    source = cleared
+                except Exception:
+                    pass
+                await _evict_all_for_source(source_id)
+                # fall through to Phase B
+            else:
+                return {"status": "error", "error": f"{type(e).__name__}: {e}"}
+        except MCPVersionMismatch as e:
             return {"status": "error", "error": f"{type(e).__name__}: {e}"}
+
+    # F8 L4 known gap (Anomaly A6): no-auth MCP servers (e.g.
+    # `mcp.cloudflare.com/docs`) hit Phase B's consent-url flow which
+    # never resolves for them — `_drive_flow_test` gets 200 OK instead of
+    # 401, so the SDK never invokes redirect_handler, and consent_url_future
+    # times out at `_TEST_CONNECT_TIMEOUT`. An attempted Phase A.5
+    # (bare-MCPClient probe to detect no-auth servers via 200 vs 401) was
+    # implemented and then removed during HAT — the bare-client 401 path
+    # leaks an anyio cross-task cancel-scope error that propagates as
+    # CancelledError up to the FastAPI handler, 500'ing the response.
+    # Even broad `except` clauses don't catch it (CancelledError is
+    # BaseException; the SDK's cleanup runs in a sibling task that cancels
+    # the parent on its next yield). The right fix is an explicit
+    # `auth_required: bool | None` hint on `MCPSource` set by the operator
+    # at registration, or a separate operator-driven "Test (no auth)"
+    # surface — deferred to a follow-up flight. For F8: OAuth servers
+    # (the binding HAT target) work; no-auth servers surface
+    # `consent_url_timeout`, which operators can read.
 
     # Phase B: kick OAuth flow with consent_url_future. Pass
     # allow_dcr_bootstrap=True so the factory constructs a provider even

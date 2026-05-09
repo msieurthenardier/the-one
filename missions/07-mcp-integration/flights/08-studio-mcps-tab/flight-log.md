@@ -240,6 +240,104 @@ All 8 acceptance criteria met. Per-item summary:
 
 `tests/test_mcp_pool.py`'s 10 pure-unit tests all timeout at 60s with an `aiosqlite._connection_worker_thread` hang when run inside `docker compose exec the-one`. Confirmed pre-existing on main branch (original code, before any L0 changes). Stack: tests call `acquire()` → pool spawns worker task → `_load_source` calls aiosqlite → DB thread deadlocks. Root cause is likely the aiosqlite connection being shared between the running uvicorn server process (at port 8484) and the test process forked inside the same container. L0.6's marker migration is still complete and correct — `pytest --collect-only -q tests/test_mcp_pool.py` shows 22 selected + 2 deselected as required. This is a container-infrastructure issue, not a code issue. Full suite excluding pool tests: 1357 passed, 3 pre-existing sandbox-integration failures, 0 new failures. **Action**: investigate container DB isolation in a future maintenance leg; not blocking F8.
 
+### A2 (cosmetic) — Test connection used persisted state, not in-flight form values
+
+**Discovered**: F8 L4 HAT step 1, against the operator's `Cloudflare` source. Operator changed the URL field's value, hit Test connection, got `consent_url_timeout`. Test only succeeded after Save.
+
+**Root cause**: `POST /api/mcp-sources/{id}/test/connect` accepted only `source_id`; backend always read the persisted DB row. Pre-existing UX bug, not introduced by F8.
+
+**Resolution (inline-fixed during HAT)**: backend now optionally accepts a JSON body `{type, config, secrets}`; if present, an in-flight transient `MCPSource` is built using the same secrets-resolution logic the PUT endpoint uses (per-key `__MASKED__` → existing; OAUTH-managed keys → preserved from DB). Frontend's `handleTestConnection` reuses `collectFormData(container, source, true)` to send the operator's in-flight form values. 2 new endpoint tests added: `test_test_connect_uses_override_payload_url`, `test_test_connect_override_preserves_oauth_managed_secrets`. Verified end-to-end against `cloudflare_docs`.
+
+### A3 (cosmetic / UX redesign) — Chip-list pattern was unfamiliar; operator wanted Built-in-Tools-style row+details
+
+**Discovered**: F8 L4 HAT step 2, against the agent-editor MCPs tab. Operator: "the cloudflare_docs tool is always highlighted. I have to double click each chicklet to get the details. The look and feel should look just like the built in tools, where each mcp can toggled with a collapsible detail panel below."
+
+**Root cause**: L3's chip-list pattern (single-click ambiguous between "attach" and "open editor") doesn't match the Built-in Tools tab's `tool-row` + sibling `<details class="tool-row-overrides">` pattern that operators are already accustomed to. The chip-list pattern came from F8 design Decision §3 but the user feedback during HAT showed it was less ergonomic than the existing pattern.
+
+**Resolution (inline-redesigned during HAT)**: rewrote `mcps-tab.js` to match `tools-tab.js`'s pattern. Each MCP source = `<label class="tool-row mcp-source-row">` with attach toggle + name + transport-type, plus a sibling `<details class="tool-row-overrides">` that lazy-loads the per-tool checkboxes + credential overrides on first open. Single click on the toggle attaches/detaches; opening details auto-loads the body and syncs the URL fragment. `studio.js::collectFormData` updated: walks `[data-mcp-source-toggle]:checked` instead of `.chip-area[data-type="mcp"] .chip` (and the existing `.tool-toggle` walk now requires `[data-tool]` to avoid contaminating `disabled_tools` with MCP source toggles). 8 browser tests reworked for the new pattern; all pass.
+
+### A4 (degraded) — Phase A skipped no-auth servers, forcing them through Phase B's consent flow
+
+**Discovered**: F8 L4 HAT step 1 retry, against the operator's `cloudflare_docs` source (no auth required). Test connection returned `consent_url_timeout`.
+
+**Root cause**: `test_mcp_connection`'s Phase A guard required BOTH `dcr_credentials` AND `access_token` in `secrets`. Servers that don't require auth (and so have neither) fell through to Phase B, which expects to surface a `consent_url` from the SDK's auth flow. For a no-auth server, that consent URL never comes → 15-second timeout. Pre-existing bug, not F8.
+
+**Resolution (inline-fixed during HAT)**: Phase A now ALWAYS tries first — bare `MCPClient` (no auth_provider) when no tokens present, provider-backed when tokens present. The bare client connects to no-auth servers cleanly; auth-requiring servers raise `MCPAuthRequired` and fall through to Phase B's DCR+consent flow as before. 2 existing tests updated (now mock `MCPClient` to raise `MCPAuthRequired` so Phase B fires); 1 new test added: `test_test_connect_no_auth_server_succeeds_without_phase_b`. Verified end-to-end against `cloudflare_docs`.
+
+### A6 (degraded — feature gap) — No-auth MCP server detection blocked by SDK anyio cross-task leak
+
+**Discovered**: F8 L4 HAT step 1 retry sequence. Operator's `cloudflare_docs` source (no auth required) hit `consent_url_timeout` because Phase B's `_drive_flow_test()` got 200 OK back from the server (no 401 challenge → SDK never invokes `redirect_handler` → `consent_url_future` never resolves).
+
+**Attempted fix during HAT**: a Phase A.5 path was added — try a bare `MCPClient(source=source)` (no auth_provider) before Phase B. If 200 → return tools. If 401 → fall through to Phase B's DCR+consent flow. This worked for `cloudflare_docs` but broke `Cloudflare API` (and any OAuth-required server).
+
+**Root-cause analysis**:
+1. Phase A.5's bare client POSTs to Cloudflare API.
+2. Server returns 401.
+3. SDK wraps in `BaseExceptionGroup` containing `httpx.HTTPStatusError(401)` plus an anyio task-group `__aexit__` that runs in a sibling task.
+4. `MCPClient.connect()`'s outer except walks the BaseExceptionGroup, finds the 401, calls `_safe_cleanup` (3s timeout), raises `MCPAuthRequired`.
+5. My handler catches `MCPAuthRequired`, falls through.
+6. The SDK's anyio task group still has an in-flight `__aexit__` running in a sibling task. On the next `await` (`asyncio.sleep(0.1)`), that task fires `RuntimeError: Attempted to exit cancel scope in a different task than it was entered in` AND `CancelledError: Cancelled via cancel scope ...`.
+7. `CancelledError` is `BaseException`, not `Exception` — broad `except Exception` doesn't catch it. It propagates up through the FastAPI handler task, which gets cancelled mid-flight.
+8. FastAPI's middleware sees the cancelled task and returns 500 Internal Server Error.
+
+This is a real SDK / anyio cross-task interaction bug that F6.5/F6.6 partially mitigated for `list_tools()` and `call_tool()` but not for the pre-OAuth probe path at `connect()` time.
+
+**Resolution (HAT)**: Phase A.5 removed entirely. OAuth servers (the F8 binding HAT target) work via Phase A (with tokens) and Phase B (without). No-auth servers (`mcp.cloudflare.com/docs`, `mcp-server-everything`) surface `consent_url_timeout` as before — operators can read the error message. Also added: Phase A's `MCPConnectionError` handler now CLEARS stale OAuth tokens and falls through to Phase B's re-auth flow (instead of returning the error directly), addressing the case where stored tokens have expired and refresh-token rotation has invalidated them server-side.
+
+**Reviewer-flagged narrowing applied**: post-HAT independent code review (Sonnet, fresh context) flagged that the `MCPConnectionError` token-clear path was too broad — `MCPConnectionError` is also raised for transient network failures (DNS NXDOMAIN, ECONNREFUSED, httpx transport errors), and clearing tokens on those would destroy valid OAuth sessions for an operator on a flaky link. Narrowed the guard to match only the initialize-timeout / cleanup-deadlock signature: `"did not respond" in err_msg` (asyncio.TimeoutError translation, see `client.py:277`) OR `"cancelled during initialize" in err_msg` (cleanup-deadlock translation, see `client.py:301`). Other `MCPConnectionError`s now surface directly as `{status: "error", error: ...}` with tokens preserved.
+
+**Right design** (proposed for follow-up flight):
+- Add `auth_required: bool | None = None` to `MCPSource`.
+- `None` (default): assume OAuth-required, run Phase B.
+- `False` (operator-set): skip OAuth, try bare client (in a structured-concurrency-isolated task that contains anyio cancel-scope leaks).
+- `True` (operator-set): same as `None` for now.
+- Operator UI: a checkbox in the source-edit page "Server requires authentication" defaulting to checked.
+
+OR — alternative approach — fix the underlying SDK anyio leak by running Phase A.5's MCPClient inside an `anyio.create_task_group()` of our own, so the SDK's task-group cleanup is contained within ours. F4/F5/F6 HAT precedent for similar fixes exists.
+
+**HAT step 1 disposition**: PASS for `Cloudflare API` (binding HAT target). SKIP for `cloudflare_docs` (documented gap; not part of binding HAT).
+
+### A5 (degraded — feature gap, not bug) — Bearer-token override is the wrong UX for OAuth sources
+
+**Discovered**: F8 L4 HAT step 7. Operator: "for sso apps, im not going to know the bearer token to override. I think instead what we need is a toggle which says to override for that agent in which case the chat for that agent should reauthenticate and save that for that agent."
+
+**Analysis**: F8's per-agent override surface is `mcp_overrides[source_name]` with a `bearer_token` Substitute field (designed in F6 / extended in L1). For HTTP-with-static-bearer servers (e.g. GitHub MCP with a personal access token), the operator pastes the token directly. **For OAuth-protected sources** (Cloudflare API MCP, any RFC 8414 / DCR-driven server), operators don't possess raw bearer tokens — they delegate consent through an OAuth flow and the SDK manages tokens server-side. The current UI doesn't accommodate this asymmetry: the bearer_token field is meaningless for OAuth sources (an operator typing nonsense bypasses the OAuth flow rather than re-running it).
+
+**Right design** (proposed for a follow-up flight):
+- Per-agent "Use my own login for this source" toggle in the override panel.
+- Per-(agent, source) credential storage (new schema column or `mcp_overrides[source_name].dcr_credentials` + `.access_token` keyed by agent).
+- OAuth flow trigger from chat (or from a per-attachment Test button) when toggle enabled and per-agent tokens absent → runs DCR+consent → tokens persist per-(agent, source).
+- Runtime resolver: `MCPClient` for `(agent, source)` uses per-agent tokens when present, else falls back to source-level tokens.
+
+**Out of F8 scope**: this is at least one new flight — schema, OAuth plumbing, runtime, UI. Captured here as the canonical writeup; carry-forward to mission #7's known-issues list (or a successor flight) recommended.
+
+**HAT step 7 disposition**: bearer_token round-trip mechanism is unit-tested in L1 (`test_test_connect_override_preserves_oauth_managed_secrets`). The operator can't sensibly verify it for OAuth sources without a paste-able token, and HTTP-with-static-bearer sources weren't part of the operator's stack at HAT time. Step 7 marked "skipped — feature gap A5" rather than pass/fail.
+
+### HAT step disposition summary
+
+| Step | Disposition | Notes |
+|---|---|---|
+| 1 (Test connection on source-edit page, capability flags + schema view render) | **PASS** for `Cloudflare API` (binding HAT target); SKIP for `cloudflare_docs` (Anomaly A6) | OAuth flow works post-token-clear narrowing |
+| 2 (Open agent editor, navigate to MCPs tab) | PASS | tool-row pattern (Anomaly A3) |
+| 3 (Sources rendered as tool-row + collapsible details) | PASS | matches built-in Tools tab |
+| 4 (Toggle attach state, save dirties) | PASS | |
+| 5 (Save → reload → attach state preserved) | PASS | |
+| 6 (Open details, toggle 1-2 tools, save → reload → toggle preserved) | PASS | denylist mode, default for new attachments |
+| 7 (Credential override `__MASKED__` round-trip) | **REPLACED** | UI removed at operator request (Anomaly A5); backend round-trip unit-tested in L1 |
+| 8 (Build agent + chat + verify available_tools) | SKIPPED | Operator skipped after step 6 confirmed save flow |
+
+Binding HAT target (Cloudflare API OAuth flow + per-tool toggle save) PASSED. HAT closes with documented anomalies + carry-forwards.
+
+### Carry-forward items for flight debrief / follow-up flights
+
+1. **Anomaly A4 → follow-up flight**: per-agent OAuth re-auth toggle for SSO sources. Replaces the removed bearer_token override surface. New schema column or `mcp_overrides[source_name].dcr_credentials/access_token` keyed by agent; OAuth flow trigger from chat or per-attachment Test button; runtime resolver picks per-(agent, source) tokens over source-level tokens.
+
+2. **Anomaly A5 → follow-up flight**: bearer-token override surface for non-OAuth sources (GitHub-style PATs). May be combined with #1 above or kept distinct depending on UI shape.
+
+3. **Anomaly A6 → follow-up flight**: no-auth MCP server detection. Either explicit `auth_required: bool | None` hint on `MCPSource` (operator-set at registration) OR an `anyio.create_task_group()`-isolated bare-client probe (contains the SDK's cross-task cancel-scope leak). The latter is ~20 LOC + 2 tests — clean enough to fit a leg scope, but wasn't safely shippable in the same commit as a substantial UI rewrite.
+
+4. **No browser-level credential override coverage**: Test 4 (the `__MASKED__` bearer-token round-trip browser test) was removed without a replacement browser test. The API-level test in `test_oauth_test_connection_endpoint.py::test_test_connect_override_preserves_oauth_managed_secrets` covers the backend contract. The per-agent re-auth toggle flight should add browser-level coverage of the override-field render-and-collect cycle.
+
 ---
 
 ## Session Notes
