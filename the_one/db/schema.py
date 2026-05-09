@@ -6,7 +6,7 @@ import json
 
 import aiosqlite
 
-CURRENT_VERSION = 10
+CURRENT_VERSION = 11
 
 SCHEMA_V1 = """\
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -400,3 +400,23 @@ INSERT INTO mcp_sources_new (id, name, type, config, secrets, created_at, update
         await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (10,))
         await conn.commit()
         version = 10
+
+    if version < 11:
+        # Add `mcp_overrides` JSON column to `agents` for per-agent MCP
+        # source override dispatch (mission 07 flight 06 leg 01 design).
+        # Mirrors the v8 ALTER pattern for `tool_overrides` — TEXT column,
+        # nullable, NO `DEFAULT NULL` clause (the explicit clause would
+        # surface in PRAGMA table_info as the literal string "NULL"
+        # rather than Python None — see v8 comment block).
+        #
+        # Idempotency: PRAGMA-check the column presence so a re-run after
+        # partial-apply is a no-op. `INSERT OR IGNORE` on schema_version
+        # LAST, mirroring the v8/v9/v10 pattern.
+        async with conn.execute("PRAGMA table_info(agents)") as cursor:
+            existing_cols = {row[1] for row in await cursor.fetchall()}
+        if "mcp_overrides" not in existing_cols:
+            await conn.execute("ALTER TABLE agents ADD COLUMN mcp_overrides TEXT")
+
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (11,))
+        await conn.commit()
+        version = 11

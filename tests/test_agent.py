@@ -8,6 +8,7 @@ from conftest import FakeLLM, StubTool
 
 from the_one.agent.core import Agent
 from the_one.llm.base import Message, Role, ToolCall, ToolResult
+from the_one.mcp.errors import MCPAuthRequired
 from the_one.tools.base import Tool, ToolRegistry
 
 # ---------------------------------------------------------------------------
@@ -654,7 +655,6 @@ async def test_execute_tool_translates_mcp_auth_required_to_metadata() -> None:
     the real production catch. This test exercises the real catch
     directly (no monkeypatch).
     """
-    from the_one.mcp.oauth.errors import MCPAuthRequired
 
     class AuthRequiredTool(Tool):
         def __init__(self) -> None:

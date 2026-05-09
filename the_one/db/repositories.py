@@ -60,8 +60,9 @@ class SQLiteAgentStore:
             INSERT INTO agents (
                 name, description, provider_config_id, llm_model,
                 system_prompt, enabled_tools, disabled_tools, max_iterations,
-                kb_ids, mcp_source_ids, tool_overrides, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                kb_ids, mcp_source_ids, tool_overrides, mcp_overrides,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(name) DO UPDATE SET
                 description=excluded.description,
                 provider_config_id=excluded.provider_config_id,
@@ -73,6 +74,7 @@ class SQLiteAgentStore:
                 kb_ids=excluded.kb_ids,
                 mcp_source_ids=excluded.mcp_source_ids,
                 tool_overrides=excluded.tool_overrides,
+                mcp_overrides=excluded.mcp_overrides,
                 updated_at=excluded.updated_at
             """,
             (
@@ -87,6 +89,7 @@ class SQLiteAgentStore:
                 json.dumps(config.kb_ids),
                 json.dumps(config.mcp_source_ids),
                 json.dumps(config.tool_overrides) if config.tool_overrides is not None else None,
+                json.dumps(config.mcp_overrides) if config.mcp_overrides is not None else None,
                 now,
                 now,
             ),
@@ -122,6 +125,7 @@ class SQLiteAgentStore:
             # comes from the v8 migration having run, not from this
             # expression — `aiosqlite.Row[<missing>]` raises IndexError.
             tool_overrides=(json.loads(row["tool_overrides"]) if row["tool_overrides"] else None),
+            mcp_overrides=(json.loads(row["mcp_overrides"]) if row["mcp_overrides"] else None),
         )
 
 

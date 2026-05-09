@@ -4,9 +4,20 @@ Mirrors the_one/mcp/errors.py's pattern: single base class with narrow
 subclasses; each subclass formats a clean single-sentence __str__ for
 small-model consumption (mission constraint #75); no nested causes,
 no rich tracebacks visible in tool-result strings.
+
+MCPAuthRequired is canonical at the_one.mcp.errors as of F6 L0; re-exported
+here for back-compat with F5 callers.
 """
 
-from the_one.mcp.errors import MCPClientError
+from the_one.mcp.errors import MCPAuthRequired, MCPClientError  # noqa: F401
+
+__all__ = [
+    "MCPAuthRequired",
+    "MCPOAuthError",
+    "MCPOAuthDiscoveryError",
+    "MCPOAuthRegistrationError",
+    "MCPOAuthRefreshFailed",
+]
 
 
 class MCPOAuthError(MCPClientError):
@@ -47,34 +58,3 @@ class MCPOAuthRefreshFailed(MCPOAuthError):  # noqa: N818  (mandated by F5 §11 
     call surfaces a fresh auth_required event so the operator can re-consent.
     Operator sees: 'OAuth token refresh failed: <reason>. Please re-authenticate.'
     """
-
-
-class MCPAuthRequired(MCPClientError):  # noqa: N818  (control-flow signal, not "Error" semantically; subclass of MCPClientError)
-    """Raised when an MCP tool call requires user re-authentication.
-
-    Control-flow signal (NOT an OAuth-flow failure — see MCPOAuthError
-    for those). The agent loop catches it via Agent._execute_tool and
-    returns a ToolResult with metadata.is_auth_required=True so the
-    L3 pause/resume primitive fires. Chat UI surfaces a Login-required
-    button; user consents at the IDP; tokens persist; agent loop
-    resumes.
-
-    Carries source_id (always), resource_metadata_url (when parsed
-    from a 401 WWW-Authenticate header), consent_url (when the SDK
-    exposes it; usually None on the lazy path).
-
-    Inherits from MCPClientError (NOT MCPOAuthError) — it is a
-    control-flow signal, not a "the OAuth flow itself failed" error.
-    """
-
-    def __init__(
-        self,
-        source_id: str,
-        *,
-        resource_metadata_url: str | None = None,
-        consent_url: str | None = None,
-    ) -> None:
-        super().__init__(f"Authorization required for MCP source {source_id}")
-        self.source_id = source_id
-        self.resource_metadata_url = resource_metadata_url
-        self.consent_url = consent_url

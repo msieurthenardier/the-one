@@ -31,11 +31,14 @@ Production callers (L5):
     broadcast the second ``auth_required`` event (carrying the real
     ``consent_url``).
 
-Architectural debt (carried to F6): the factory takes ``chat_session_id`` as
-a positional parameter because L5 has no agent-layer plumbing for per-tool-
-dispatch session routing. F6 will replace this with a ContextVar set inside
-``Agent._execute_tool`` so the factory can read it without parameter
-threading. See L5 flight log A17 notes.
+F6 L3 retirement (2026-05-08): chat_session_id remains a positional
+parameter, but the_one/mcp/_pool::_entry_worker now reads it from the
+canonical the_one.agent._context ContextVar (set by Agent._execute_tool
+at per-tool-dispatch entry). When the ContextVar is unset (e.g. pool
+spawn outside a tool dispatch), this factory returns None — no provider
+construction — and the lazy 401 path surfaces at the next call_tool
+boundary, where csid IS bound. The F5 silent-fallback sentinel is
+retired; multi-tab cross-routing bug is fixed.
 """
 
 from __future__ import annotations
@@ -55,7 +58,7 @@ from the_one.mcp.oauth.storage import MCPSourceTokenStorage
 def build_oauth_provider_for_source(
     source: MCPSource,
     repo: MCPSourceRepository,
-    chat_session_id: str,
+    chat_session_id: str | None,
     source_id: str | None = None,
     tool_call_id: str | None = None,
     resource_metadata_url: str | None = None,
@@ -77,6 +80,17 @@ def build_oauth_provider_for_source(
     invariant from L2's ``make_oauth_handlers`` — five concurrent flows
     register five distinct state tokens).
     """
+    # F6 L3: when no chat session is bound to the current task, no
+    # provider can be constructed — the redirect_handler would have
+    # nowhere to broadcast auth_required. Return None; the MCPClient
+    # connects without auth and the lazy 401 path surfaces
+    # MCPAuthRequired at next call_tool. That dispatch DOES have a
+    # csid bound (via the agent layer's _execute_tool wrapper) and
+    # routes correctly. This short-circuit MUST run BEFORE any
+    # ``source.secrets.get`` / ``make_oauth_handlers`` work — handlers
+    # parameterised on a None csid would have nowhere to broadcast.
+    if chat_session_id is None:
+        return None
     dcr = source.secrets.get("dcr_credentials")
     if not dcr or not dcr.get("client_id"):
         return None

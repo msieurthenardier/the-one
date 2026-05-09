@@ -168,24 +168,29 @@ async def _entry_worker(source: MCPSource, entry: _RegistryEntry) -> None:
     """
     assert entry.client_ready is not None  # invariant: set at construction
     assert entry.evict_event is not None
-    # F5 L5: build an OAuth provider for this source if dcr_credentials are
-    # populated. The factory returns ``None`` when not configured, in which
+    # F6 L3: build an OAuth provider for this source if dcr_credentials are
+    # populated AND a chat session is bound to the current task. The factory
+    # returns ``None`` when not configured (or when csid is None), in which
     # case ``MCPClient`` connects without auth and the lazy-path 401 surfaces
-    # via L4's ``MCPAuthRequired`` translation. The chat_session_id comes
-    # from the per-task ContextVar set by the agent dispatch boundary
-    # (``_spawn_message_processing`` / ``_resume_paused_session``); falls
-    # back to a sentinel when unset (e.g. cold-startup pre-warm via direct
-    # API). The handlers' lazy ``_sessions`` lookup tolerates the sentinel
-    # by falling back to the most-recently-active session — see app.py
-    # ``current_chat_session_id`` docstring + F5 flight log A17.
-    from the_one.interfaces.web.app import current_chat_session_id
+    # via L4's ``MCPAuthRequired`` translation. csid + tcid are read from the
+    # canonical agent-layer ContextVars (set by ``_spawn_message_processing``
+    # / ``_resume_paused_session`` for csid; by ``Agent._execute_tool`` for
+    # tcid). When csid is None (no chat session in the current task scope —
+    # e.g. agent build via CLI / REST / tests), pass None to the factory; the
+    # factory returns None and the MCPClient connects without auth. The lazy
+    # 401 path surfaces MCPAuthRequired at next call_tool, which DOES have
+    # per-tool-dispatch context bound via Agent._execute_tool's wrapper. The
+    # F5's "most-recently-active session" silent-fallback sentinel (which
+    # misrouted broadcasts in multi-tab scenarios) is retired here.
+    from the_one.agent._context import current_chat_session_id, current_tool_call_id
     from the_one.mcp.oauth import build_oauth_provider_for_source
-    csid = current_chat_session_id.get(None) or "_pool_default"
+    csid = current_chat_session_id.get(None)
+    tcid = current_tool_call_id.get(None)
     conn = await get_connection()
     encryptor = get_encryptor(settings.data_dir)
     repo = MCPSourceRepository(conn, encryptor)
     auth_provider = build_oauth_provider_for_source(
-        source, repo, csid, source_id=source.id
+        source, repo, csid, source_id=source.id, tool_call_id=tcid,
     )
     client = MCPClient(source, auth_provider=auth_provider)
     try:
@@ -398,7 +403,12 @@ async def shutdown_drain() -> None:
     _reaper_task = None
 
 
-async def acquire(agent_name: str, source_id: str) -> MCPClient:
+async def acquire(
+    agent_name: str,
+    source_id: str,
+    *,
+    source_override: MCPSource | None = None,
+) -> MCPClient:
     """Look up or spawn the warm ``MCPClient`` for ``(agent, source)``.
 
     Per flight §2: pre-load source OUTSIDE the lock; check
@@ -420,10 +430,22 @@ async def acquire(agent_name: str, source_id: str) -> MCPClient:
     waiting caller observes the failure, pops the entry idempotently
     (using ``_pool.pop(key, None)``) and re-raises. The next acquire on
     the same key spawns a fresh worker.
+
+    F6 L2: ``source_override`` lets ``MCPToolProvider`` apply per-agent
+    overrides BEFORE the pool reads the source. When provided, the worker
+    uses the override instead of calling ``_load_source(source_id)``.
+    The override is pinned to the FIRST acquire of the ``(agent_name,
+    source_id)`` key for the entry's lifetime — mid-session edits to
+    ``mcp_overrides`` don't take effect until idle reap or restart
+    (carry-forward of F4's task-pinning trade-off).
     """
     # Pre-load OUTSIDE the lock (cycle-2 medium #2). Different-key
-    # acquires must not serialize on the F1 DB read.
-    source = await _load_source(source_id)
+    # acquires must not serialize on the F1 DB read. F6 L2: when
+    # ``source_override`` is provided, use it instead of the DB read
+    # — MCPToolProvider applies per-agent overrides before calling
+    # acquire, and the override-applied source is the one the pool
+    # caches for this (agent, source) entry's lifetime.
+    source = source_override if source_override is not None else await _load_source(source_id)
 
     async with _lock:
         if _shutting_down:

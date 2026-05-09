@@ -308,21 +308,47 @@ class TestMCPClientLifecycle:
             await c.disconnect()
         assert c.is_alive is False
 
-    async def test_connect_version_mismatch_strict(
+    async def test_connect_supported_non_pinned_version_passes(
         self, patch_transport, mock_session
     ) -> None:
-        """SDK-supported but not-pinned version is caught by F2's strict check."""
-        # 2025-06-18 IS in SUPPORTED_PROTOCOL_VERSIONS so the SDK's own
-        # check would pass — F2's strict-equality gate is what fires here.
+        """F6 A6 fix: SDK-supported-but-not-pinned versions are accepted.
+
+        Inversion of pre-A6 ``test_connect_version_mismatch_strict`` —
+        F2's original strict-equality (``protocolVersion != pinned``)
+        rejected every server that didn't announce the exact pinned
+        revision, even when the announced version was in the SDK's
+        ``SUPPORTED_PROTOCOL_VERSIONS`` set. F6 Tier-2 HAT against
+        Cloudflare Docs MCP (announces 2025-06-18) surfaced this as a
+        production gap; the source failed version-check before F5's
+        lazy-OAuth flow could fire. Post-A6, the check loosens to "in
+        the SDK's supported set" per mission constraint #59's
+        "capability-gate, don't crash" framing. The pinned constant
+        remains as documentation/marker.
+        """
         mock_session.initialize = AsyncMock(
             return_value=_make_init_result(protocol_version="2025-06-18")
         )
         patch_transport(mock_session)
         c = MCPClient(_stdio_source())
+        # Pre-A6 this raised MCPVersionMismatch; post-A6 it succeeds.
+        await c.connect()
+        assert c.is_alive is True
+        assert c.negotiated_protocol_version == "2025-06-18"
+        await c.disconnect()
+
+    async def test_connect_unsupported_version_raises_mismatch(
+        self, patch_transport, mock_session
+    ) -> None:
+        """Server announcing a version NOT in SDK's SUPPORTED_PROTOCOL_VERSIONS
+        raises MCPVersionMismatch. Locks the post-A6 check site."""
+        mock_session.initialize = AsyncMock(
+            return_value=_make_init_result(protocol_version="1999-01-01")
+        )
+        patch_transport(mock_session)
+        c = MCPClient(_stdio_source())
         with pytest.raises(MCPVersionMismatch) as exc_info:
             await c.connect()
-        assert exc_info.value.pinned == "2025-11-25"
-        assert exc_info.value.observed == "2025-06-18"
+        assert exc_info.value.observed == "1999-01-01"
         assert c.is_alive is False
 
     async def test_connect_version_mismatch_via_sdk_runtime_error(
@@ -384,6 +410,42 @@ class TestMCPClientLifecycle:
             exc_info.value
         )
         assert c.is_alive is False
+
+    async def test_connect_cancelled_error_translates_to_connection_error(
+        self, patch_transport, mock_session
+    ) -> None:
+        """F6 A5 regression: ``CancelledError`` raised from ``session.initialize()``
+        translates to :class:`MCPConnectionError` with the abandon-cleanup
+        path active (no hang).
+
+        Reproduces the production cascade against an OAuth-protected
+        streamable-http source without credentials: the SDK's anyio
+        task-group cleanup chain, after the inner 401, ends with the
+        surrounding task cancelled. The pre-A5 ``except Exception``
+        handler missed ``CancelledError`` (PEP 656: extends BaseException
+        only, not Exception) and the cancel propagated up through the
+        F4 pool's ``_entry_worker`` into ``MCPToolProvider.get_tools_for_agent``
+        whose class #2 handler ``(MCPSandboxError, MCPConnectionError,
+        MCPVersionMismatch)`` also missed it — agent build crashed
+        instead of graceful-degrade-skip. Post-fix, A5's dedicated
+        ``except CancelledError`` translates to ``MCPConnectionError``,
+        the abandon-cleanup branch sets ``_transport_stack`` and
+        ``_session`` to None (avoiding re-trip on the wedged SDK task
+        group), and class #2 catches uniformly.
+        """
+        mock_session.initialize = AsyncMock(side_effect=asyncio.CancelledError())
+        patch_transport(mock_session)
+        c = MCPClient(_stdio_source())
+        with pytest.raises(MCPConnectionError) as exc_info:
+            await c.connect()
+        # Verbatim substring lock per `verbatim-message-equality` convention.
+        assert "cancelled during initialize" in str(exc_info.value)
+        assert c.is_alive is False
+        # Abandon-cleanup invariant: stack + session cleared so a subsequent
+        # disconnect() is a no-op (mirrors the F2-known-issue idempotent-
+        # disconnect contract).
+        assert c._transport_stack is None
+        assert c._session is None
 
     async def test_disconnect_idempotent(self, patch_transport, mock_session) -> None:
         """Disconnect on never-connected client is a no-op; double-disconnect is a no-op."""
@@ -458,28 +520,34 @@ class TestMCPClientLifecycle:
         finally:
             await c.disconnect()
 
-    async def test_pinned_constant_read_at_call_time(
+    async def test_pinned_constant_no_longer_gates_connect(
         self, monkeypatch, patch_transport, mock_session
     ) -> None:
-        """Monkeypatching _PINNED_PROTOCOL_VERSION must affect connect()'s strict check.
+        """F6 A6 inversion: ``_PINNED_PROTOCOL_VERSION`` is documentation/marker only.
 
-        Mocked session.initialize bypasses the SDK's own SUPPORTED_PROTOCOL_VERSIONS
-        gate — F2's strict-equality check is the only one that fires. Server returns
-        2025-11-25 (the original pin), but we've monkeypatched the pin to 2099-01-01,
-        so connect() must raise MCPVersionMismatch(pinned=2099-01-01, observed=2025-11-25).
+        Pre-A6, F2's strict-equality gate read the PINNED constant at call time
+        and rejected any non-equal version. Post-A6, the gate reads the SDK's
+        ``SUPPORTED_PROTOCOL_VERSIONS`` set; the PINNED constant remains in
+        ``the_one.mcp.__init__`` as a documentation/marker for the
+        primary-targeted revision but no longer affects the runtime check.
+        Locks the new contract: monkeypatching PINNED has no effect on connect()
+        when the server announces a version IN the SDK's supported set.
         """
+        # Monkeypatch PINNED to nonsense; would have caused connect() to fail
+        # pre-A6 (server returns 2025-11-25, pinned now reads 2099-01-01,
+        # strict equality fails). Post-A6, irrelevant — gate reads
+        # SUPPORTED_PROTOCOL_VERSIONS, server's 2025-11-25 IS in that set,
+        # connect() succeeds.
         monkeypatch.setattr("the_one.mcp._PINNED_PROTOCOL_VERSION", "2099-01-01")
-        # Server returns the original pinned version (which is now "wrong").
         mock_session.initialize = AsyncMock(
             return_value=_make_init_result(protocol_version="2025-11-25")
         )
         patch_transport(mock_session)
         c = MCPClient(_stdio_source())
-        with pytest.raises(MCPVersionMismatch) as exc_info:
-            await c.connect()
-        assert exc_info.value.pinned == "2099-01-01"
-        assert exc_info.value.observed == "2025-11-25"
-        assert c.is_alive is False
+        await c.connect()
+        assert c.is_alive is True
+        assert c.negotiated_protocol_version == "2025-11-25"
+        await c.disconnect()
 
     async def test_last_activity_updates_via_list_tools(
         self, patch_transport, mock_session

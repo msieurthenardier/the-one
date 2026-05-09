@@ -64,6 +64,16 @@ class AgentConfig(BaseModel):
     # and Pydantic skips inner-value validation.
     tool_overrides: dict[str, dict[str, Any]] | None = None
 
+    # Per-agent MCP source override dict — shape parallels `tool_overrides`
+    # but keys by source NAME (NOT tool name). The outer dict's key is the
+    # MCPSource.name; the inner dict's keys are validated against the
+    # transport-specific schema in `the_one/mcp/_overrides.py`
+    # (StdioMCPOverride or StreamableHttpMCPOverride). None = no overrides
+    # set (locked-down NULL semantic, mirrors `tool_overrides` and
+    # `enabled_tools`). Inner type is `dict[str, Any]` (NOT bare `dict`)
+    # for the same Pydantic v2 inner-validation reason as `tool_overrides`.
+    mcp_overrides: dict[str, dict[str, Any]] | None = None
+
     # Behavior
     max_iterations: int = 20
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from the_one.agent.config import AgentConfig
 from the_one.agent.core import Agent
 from the_one.agent.store import AgentConfigStore
@@ -10,6 +12,13 @@ from the_one.llm import get_provider
 from the_one.tools.base import ToolRegistry
 from the_one.tools.builtins import BuiltinToolProvider
 from the_one.tools.provider import ToolProvider
+
+if TYPE_CHECKING:
+    # Type-only import — ``MCPToolProvider`` is lazy-imported at __init__
+    # call time (see comment in ``AgentFactory.__init__``). This block
+    # only runs under static type checkers; no runtime cost. Without
+    # this, ruff F821 flags the string-quoted annotation as undefined.
+    from the_one.mcp._tool_provider import MCPToolProvider
 
 # Map provider config type to LLM registry name
 _PROVIDER_TYPE_MAP = {
@@ -52,9 +61,19 @@ class AgentFactory:
         self,
         store: AgentConfigStore | None = None,
         tool_providers: list[ToolProvider] | None = None,
+        mcp_provider: "MCPToolProvider | None" = None,
     ) -> None:
         self.store = store
         self.tool_providers = tool_providers or [BuiltinToolProvider()]
+        # F6 L2: MCPToolProvider injected for testability; default to
+        # fresh instance. Tests pass None to disable MCP wiring. Lazy
+        # import inside __init__ avoids a circular-import risk because
+        # ``mcp._tool_provider`` imports ``agent.config`` (indirectly via
+        # the resolver chain). Keep this import lazy.
+        from the_one.mcp._tool_provider import MCPToolProvider as _MCPToolProvider
+        self.mcp_provider = (
+            mcp_provider if mcp_provider is not None else _MCPToolProvider()
+        )
 
     async def create(self, name: str = "default") -> Agent:
         """Create an Agent instance from a named config."""
@@ -127,6 +146,19 @@ class AgentFactory:
         registry = ToolRegistry()
         for provider in self.tool_providers:
             for tool in provider.get_tools(tool_configs_by_name, agent_overrides, agent_name=name):
+                if tool.name not in disabled_names and config.is_tool_enabled(tool.name):
+                    registry.register(tool)
+
+        # F6 L2: MCP attach. After the built-in tool loop registers
+        # disabled-aware tools, the MCPToolProvider produces the
+        # per-agent MCP tool list; the same enabled/disabled filter
+        # applies (operators can disable an MCP tool by its prefixed
+        # name — `disabled_tools=["mcp__github__delete_repo"]`).
+        if self.mcp_provider is not None and config.mcp_source_ids:
+            mcp_tools = await self.mcp_provider.get_tools_for_agent(
+                config, agent_name=name
+            )
+            for tool in mcp_tools:
                 if tool.name not in disabled_names and config.is_tool_enabled(tool.name):
                     registry.register(tool)
 

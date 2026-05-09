@@ -6,7 +6,6 @@ import json
 import logging
 import uuid
 from contextlib import asynccontextmanager
-from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,6 +16,16 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from the_one.agent import Agent
+
+# F6 L3: ContextVar definitions moved to the_one/agent/_context.py
+# (canonical home). Re-exported here for back-compat with F5's
+# existing set-sites at _spawn_message_processing (line ~236) and
+# _resume_paused_session (line ~853). New consumers should import
+# from the_one.agent._context directly.
+from the_one.agent._context import (
+    current_chat_session_id,  # noqa: F401  back-compat re-export
+    current_tool_call_id,  # noqa: F401  re-export for future consumers
+)
 from the_one.agent.config import BASE_PROMPT
 from the_one.agent.factory import (
     AgentFactory,
@@ -183,32 +192,6 @@ _inflight_tasks: set[asyncio.Task] = set()
 # so the lifespan teardown can drain both in one pass; the OAuth-callback
 # route adds tasks here via ``asyncio.create_task``.
 _inflight_resume_tasks: set[asyncio.Task] = set()
-
-
-# F5 L5: per-task ContextVar carrying the chat session id of the currently-
-# dispatching agent step. Set at the boundary of ``_spawn_message_processing``
-# / ``_resume_paused_session`` so the F4 pool's ``_entry_worker`` (which
-# constructs ``MCPClient`` ahead of any tool call) can read the value when
-# building the OAuth provider via ``build_oauth_provider_for_source`` —
-# the SDK's ``redirect_handler`` then broadcasts ``auth_required`` to the
-# right session.
-#
-# Architectural debt (carried to F6): the proper boundary for setting this
-# is INSIDE ``Agent._execute_tool``, one set-per-tool-dispatch with the
-# tool_call_id available too. F6 will move it there. For L5, setting it at
-# the message-processing boundary is sufficient because each chat session
-# has at most one in-flight ``agent.step`` at a time (per-session
-# processing_lock at app.py:153).
-#
-# Best-effort fallback: when the contextvar is unset (e.g. pool spawn
-# triggered outside an agent dispatch — rare but possible during cold
-# startup if the operator pre-warms the pool via direct API), the OAuth
-# handlers' lazy ``_sessions`` lookup falls back to the most-recently-
-# active session in ``_sessions``. May misroute in multi-tab scenarios;
-# documented as a known issue in the F5 flight log A17 notes.
-current_chat_session_id: ContextVar[str | None] = ContextVar(
-    "current_chat_session_id", default=None
-)
 
 
 async def _spawn_message_processing(

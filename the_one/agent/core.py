@@ -2,15 +2,10 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Awaitable, Callable
 
+from the_one.agent._context import current_tool_call_id
 from the_one.llm.base import LLMProvider, Message, ToolCall, ToolResult
+from the_one.mcp.errors import MCPAuthRequired
 from the_one.tools.base import ToolRegistry
-
-# F5 L4: ``MCPAuthRequired`` is imported lazily inside ``_execute_tool``
-# to break the circular import chain
-# (agent.core → mcp.oauth.errors → mcp.oauth.__init__ → mcp.oauth.storage
-#  → db.repositories → agent.config → agent → agent.core). Direct submodule
-# import doesn't help because Python still loads ``mcp.oauth.__init__``
-# when resolving ``mcp.oauth.errors``.
 
 # The agent can call this to keep its turn. It's a signal, not a real tool.
 CONTINUE_SCHEMA = {
@@ -247,36 +242,44 @@ class Agent:
             yield msg
 
     async def _execute_tool(self, tool_call: ToolCall) -> ToolResult:
-        # Lazy import — see module docstring at the top of this file.
-        from the_one.mcp.oauth.errors import MCPAuthRequired
-
+        # F6 L3: bind tool_call_id into the per-task ContextVar so the
+        # MCP pool's _entry_worker (and the OAuth handlers it wires)
+        # can attach the originating tool_call_id to any auth_required
+        # broadcast. Reset in finally — the inner try/except blocks
+        # handle MCPAuthRequired translation (F5 L4) and generic
+        # exception fall-through, both of which return through the
+        # outer finally.
+        token = current_tool_call_id.set(tool_call.id)
         try:
-            tool = self.tools.get(tool_call.name)
-            output = await tool.execute(**tool_call.arguments)
-            return ToolResult(tool_call_id=tool_call.id, content=output)
-        except MCPAuthRequired as e:
-            # F5 L4 (A10): MCP tool requires user re-authentication.
-            # Translate the control-flow signal into a ToolResult with
-            # ``metadata.is_auth_required=True`` so the L3 step loop's
-            # auth-required check fires (defers remaining tool calls and
-            # surfaces the Login-required affordance to chat UI).
-            return ToolResult(
-                tool_call_id=tool_call.id,
-                content="<auth required>",
-                metadata={
-                    "is_auth_required": True,
-                    "source_id": e.source_id,
-                    "resource_metadata_url": e.resource_metadata_url,
-                    "tool_call_id": tool_call.id,
-                    "consent_url": e.consent_url,
-                },
-            )
-        except Exception as e:
-            return ToolResult(
-                tool_call_id=tool_call.id,
-                content=f"[error] Tool execution failed: {e}",
-                is_error=True,
-            )
+            try:
+                tool = self.tools.get(tool_call.name)
+                output = await tool.execute(**tool_call.arguments)
+                return ToolResult(tool_call_id=tool_call.id, content=output)
+            except MCPAuthRequired as e:
+                # F5 L4 (A10): MCP tool requires user re-authentication.
+                # Translate the control-flow signal into a ToolResult with
+                # ``metadata.is_auth_required=True`` so the L3 step loop's
+                # auth-required check fires (defers remaining tool calls and
+                # surfaces the Login-required affordance to chat UI).
+                return ToolResult(
+                    tool_call_id=tool_call.id,
+                    content="<auth required>",
+                    metadata={
+                        "is_auth_required": True,
+                        "source_id": e.source_id,
+                        "resource_metadata_url": e.resource_metadata_url,
+                        "tool_call_id": tool_call.id,
+                        "consent_url": e.consent_url,
+                    },
+                )
+            except Exception as e:
+                return ToolResult(
+                    tool_call_id=tool_call.id,
+                    content=f"[error] Tool execution failed: {e}",
+                    is_error=True,
+                )
+        finally:
+            current_tool_call_id.reset(token)
 
     def reset(self) -> None:
         """Reset messages to the system prompt and clear pause state."""

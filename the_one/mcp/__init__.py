@@ -41,13 +41,17 @@ from the_one.mcp._pool import (  # noqa: E402  (constants first per F2 contract)
     acquire,
     shutdown_drain,
 )
+from the_one.mcp._tool import MCPClientTool  # noqa: E402  (constants first per F2)
+from the_one.mcp._tool_provider import MCPToolProvider  # noqa: E402  (constants first per F2)
 from the_one.mcp.client import MCPClient  # noqa: E402  (constants first per F2 contract)
 from the_one.mcp.errors import (  # noqa: E402  (constants first per F2 contract)
     MCPArgumentError,
+    MCPAuthRequired,
     MCPCallError,
     MCPCapabilityMissing,
     MCPClientError,
     MCPConnectionError,
+    MCPRegistrationError,
     MCPToolNotFoundError,
     MCPVersionMismatch,
 )
@@ -67,9 +71,13 @@ __all__ = [
     "MCPVersionMismatch",
     "MCPCapabilityMissing",
     "MCPConnectionError",
+    "MCPRegistrationError",
     "MCPToolNotFoundError",
     "MCPArgumentError",
+    "MCPAuthRequired",
     "MCPCallError",
+    "MCPClientTool",
+    "MCPToolProvider",
     "acquire",
     "shutdown_drain",
 ]
