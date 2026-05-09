@@ -1,6 +1,6 @@
 # Flight: Cleanup + connect-time 401 translation
 
-**Status**: landed
+**Status**: completed
 **Mission**: [MCP Integration](../../mission.md)
 
 ## Contributing to Criteria
