@@ -8,7 +8,7 @@ These tests drive the chat-area UI through the OAuth modal flow by:
     avoids needing a real OAuth Authorization Server in-the-loop for L5
     UI verification (L6 HAT exercises the full RFC-compliant fixture).
   - Asserting the resulting DOM transitions: inline Login button →
-    modal → form-toggle → manual-entry submit → modal close.
+    modal → modal close on auth_resolved.
 
 The ``app_with_agent`` fixture seeds a mock provider + agent so the chat
 area is reachable; the OAuth UI surface is independent of the mock agent
@@ -95,85 +95,6 @@ def test_modal_opens_on_button_click(
     expect(overlay).to_be_visible()
     title = page.locator(".oauth-modal-overlay .modal-dialog-title")
     expect(title).to_have_text("Login required for src-2")
-
-
-@pytest.mark.browser
-def test_manual_entry_disclosure_toggles(
-    app_with_agent: SeededApp, page: Page
-) -> None:
-    """A11 — clicking "Use manual entry instead" reveals the 3-field form."""
-    _open_chat(page, app_with_agent.base_url, app_with_agent.agent_name)
-    _emit_ws_event(page, {"type": "auth_required", "source_id": "src-3"})
-    page.locator(".login-required-btn").click()
-    form = page.locator('[data-testid="oauth-modal-manual-form"]')
-    expect(form).to_be_hidden()
-    page.locator('[data-testid="oauth-modal-manual-toggle-btn"]').click()
-    expect(form).to_be_visible()
-    expect(page.locator('input[name="client_id"]')).to_be_visible()
-    expect(page.locator('input[name="auth_endpoint"]')).to_be_visible()
-    expect(page.locator('input[name="token_endpoint"]')).to_be_visible()
-
-
-@pytest.mark.browser
-def test_manual_register_submission_persists_dcr_credentials(
-    app_with_agent: SeededApp, page: Page
-) -> None:
-    """A11 — manual-entry form submit POSTs to /api/oauth/manual-register
-    and the source's dcr_credentials are persisted server-side.
-
-    We seed an MCPSource via the API first so the manual-register call
-    has a target. The form submit also fires /api/oauth/start (the modal's
-    chained call) but with no real OAuth AS, that POST will 404/500
-    silently — we only assert manual-register persisted.
-    """
-    import httpx
-
-    base_url = app_with_agent.base_url
-    # Seed a streamable-http source.
-    httpx.post(
-        f"{base_url}/api/mcp-sources",
-        json={
-            "id": "src-mr",
-            "name": "Source for manual-register",
-            "type": "streamable-http",
-            "config": {"url": "https://example.com/mcp"},
-        },
-        timeout=5.0,
-    )
-
-    _open_chat(page, base_url, app_with_agent.agent_name)
-    # Open modal directly via openManual so we don't need a button-click intercept.
-    _emit_ws_event(
-        page,
-        {
-            "type": "oauth_manual_registration_required",
-            "source_id": "src-mr",
-        },
-    )
-    expect(page.locator('[data-testid="oauth-modal-overlay"]')).to_be_visible()
-    page.locator('input[name="client_id"]').fill("operator-cid-1")
-    page.locator('input[name="auth_endpoint"]').fill(
-        "https://example.com/authorize"
-    )
-    page.locator('input[name="token_endpoint"]').fill("https://example.com/token")
-    page.locator('[data-testid="oauth-modal-manual-submit-btn"]').click()
-
-    # Poll the API for the persisted dcr_credentials.
-    persisted = None
-    for _ in range(30):
-        r = httpx.get(f"{base_url}/api/mcp-sources/src-mr", timeout=3.0)
-        if r.status_code == 200:
-            secrets = r.json().get("secrets", {})
-            if "dcr_credentials" in secrets:
-                persisted = secrets["dcr_credentials"]
-                break
-        page.wait_for_timeout(100)
-    assert persisted is not None, (
-        "dcr_credentials never appeared in source after manual-register submit"
-    )
-    # ``client_id`` is masked under L2's _OAUTH_MANAGED_SECRET_KEYS GET
-    # contract — verify the structure / registration_method instead.
-    assert persisted.get("registration_method") == "manual"
 
 
 @pytest.mark.browser

@@ -19,6 +19,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import anyio
 import httpx
 import pytest
+from mcp.client.auth.exceptions import OAuthFlowError, OAuthTokenError
 from mcp.shared.exceptions import McpError, UrlElicitationRequiredError
 from mcp.types import ErrorData
 
@@ -27,6 +28,7 @@ from the_one.mcp import client as client_mod
 from the_one.mcp.client import MCPClient
 from the_one.mcp.errors import (
     MCPArgumentError,
+    MCPAuthRequired,
     MCPCallError,
     MCPCapabilityMissing,
     MCPConnectionError,
@@ -929,6 +931,87 @@ class TestListToolsAndCallTool:
         c = MCPClient(_stdio_source())
         with pytest.raises(MCPConnectionError, match="not connected"):
             await c.list_tools()
+
+    # F6.5 L2: 401 / OAuth → MCPAuthRequired translation tests
+
+    async def test_list_tools_401_in_exception_group_raises_mcp_auth_required(
+        self, patch_transport, mock_session
+    ) -> None:
+        """list_tools translates a 401 HTTPStatusError (inside BaseExceptionGroup)
+        to MCPAuthRequired, parsing resource_metadata_url from WWW-Authenticate."""
+        patch_transport(mock_session)
+        response_401 = httpx.Response(
+            status_code=401,
+            headers={
+                "WWW-Authenticate": (
+                    'Bearer resource_metadata="https://example.com/.well-known/oauth-protected-resource"'
+                )
+            },
+            request=httpx.Request("POST", "https://example.com/mcp"),
+        )
+        inner = httpx.HTTPStatusError(
+            "401 Unauthorized",
+            request=response_401.request,
+            response=response_401,
+        )
+        eg = BaseExceptionGroup("test group", [inner])
+        mock_session.list_tools = AsyncMock(side_effect=eg)
+
+        c = MCPClient(_stdio_source())
+        await c.connect()
+        try:
+            with pytest.raises(MCPAuthRequired) as exc_info:
+                await c.list_tools()
+        finally:
+            await c.disconnect()
+
+        assert exc_info.value.source_id == c.source.id
+        assert exc_info.value.resource_metadata_url == (
+            "https://example.com/.well-known/oauth-protected-resource"
+        )
+        assert exc_info.value.consent_url is None
+
+    async def test_list_tools_oauth_flow_error_raises_mcp_auth_required(
+        self, patch_transport, mock_session
+    ) -> None:
+        """list_tools translates OAuthFlowError (bare or grouped) to MCPAuthRequired."""
+        patch_transport(mock_session)
+        mock_session.list_tools = AsyncMock(
+            side_effect=OAuthFlowError("discovery failed")
+        )
+
+        c = MCPClient(_stdio_source())
+        await c.connect()
+        try:
+            with pytest.raises(MCPAuthRequired) as exc_info:
+                await c.list_tools()
+        finally:
+            await c.disconnect()
+
+        assert exc_info.value.source_id == c.source.id
+        assert exc_info.value.resource_metadata_url is None
+        assert exc_info.value.consent_url is None
+
+    async def test_list_tools_oauth_token_error_raises_mcp_auth_required(
+        self, patch_transport, mock_session
+    ) -> None:
+        """list_tools translates OAuthTokenError (bare or grouped) to MCPAuthRequired."""
+        patch_transport(mock_session)
+        mock_session.list_tools = AsyncMock(
+            side_effect=OAuthTokenError("refresh failed")
+        )
+
+        c = MCPClient(_stdio_source())
+        await c.connect()
+        try:
+            with pytest.raises(MCPAuthRequired) as exc_info:
+                await c.list_tools()
+        finally:
+            await c.disconnect()
+
+        assert exc_info.value.source_id == c.source.id
+        assert exc_info.value.resource_metadata_url is None
+        assert exc_info.value.consent_url is None
 
     async def test_call_tool_text_only_result(
         self, patch_transport, mock_session

@@ -587,6 +587,49 @@ class TestMCPToolProvider:
         assert any("failed to connect" in rec.getMessage() and "github" in rec.getMessage()
                    for rec in caplog.records)
 
+    async def test_get_tools_for_agent_graceful_skips_on_mcp_auth_required(
+        self, patch_provider_deps, monkeypatch, caplog
+    ) -> None:
+        """F6.5 L2: MCPAuthRequired during list_tools skips the source with the
+        AUTH discriminator log line; other sources' tools are still returned."""
+        src1 = _stub_source(source_id="src-1", name="github")
+        src2 = _stub_source(source_id="src-2", name="filesystem")
+
+        async def _get(source_id):
+            return {"src-1": src1, "src-2": src2}[source_id]
+
+        patch_provider_deps.get = AsyncMock(side_effect=_get)
+
+        # src-1 raises MCPAuthRequired on list_tools; src-2 returns one tool.
+        client1 = _stub_mcp_client(MCPAuthRequired(source_id="src-1"))
+        client2 = _stub_mcp_client([_stub_mcp_tool("read_file")])
+
+        async def _stub_acquire(agent_name, source_id, **kwargs):
+            return {"src-1": client1, "src-2": client2}[source_id]
+
+        monkeypatch.setattr(provider_mod, "acquire", _stub_acquire)
+
+        cfg = AgentConfig(name="a", mcp_source_ids=["src-1", "src-2"])
+        with caplog.at_level(logging.WARNING, logger="the_one.mcp._tool_provider"):
+            tools = await MCPToolProvider().get_tools_for_agent(cfg, agent_name="agent-a")
+
+        # Only the healthy source's tool is present.
+        assert len(tools) == 1
+        assert tools[0].name == "mcp__filesystem__read_file"
+
+        # Log line carries the AUTH discriminator, not the generic "failed to connect".
+        auth_log = [
+            r for r in caplog.records
+            if "auth_required" in r.getMessage()
+        ]
+        assert len(auth_log) == 1
+        assert "github" in auth_log[0].getMessage()
+        # The connect-failure discriminator must NOT appear for the auth-required source.
+        assert not any(
+            "failed to connect" in r.getMessage() and "github" in r.getMessage()
+            for r in caplog.records
+        )
+
     async def test_failure_class_4_prefix_collision_first_wins(
         self, patch_provider_deps, monkeypatch, caplog
     ) -> None:

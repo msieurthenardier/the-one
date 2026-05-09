@@ -132,8 +132,10 @@ async def test_token_storage_full_contract(
 
 
 async def test_client_info_round_trip(repo_with_source) -> None:
-    """A2 — get/set OAuthClientInformationFull through ``dcr_credentials``,
-    with the ``registration_method`` discriminator default of ``"dcr"``.
+    """A2 — get/set OAuthClientInformationFull through ``dcr_credentials``.
+
+    Verifies that set_client_info persists the OAuthClientInformationFull
+    payload and get_client_info returns an equal value.
     """
     repo, sid = repo_with_source
     storage = MCPSourceTokenStorage(repo, sid)
@@ -149,7 +151,6 @@ async def test_client_info_round_trip(repo_with_source) -> None:
 
     source = await repo.get(sid)
     assert isinstance(source.secrets["dcr_credentials"], dict)
-    assert source.secrets["dcr_credentials"]["registration_method"] == "dcr"
     assert source.secrets["dcr_credentials"]["client_id"] == "cid-1"
 
     loaded = await storage.get_client_info()

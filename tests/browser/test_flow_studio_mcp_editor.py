@@ -77,50 +77,6 @@ def test_create_stdio_source(app_clean: str, page: Page) -> None:
 
 
 @pytest.mark.browser
-def test_create_streamable_http_source_with_oauth(app_clean: str, page: Page) -> None:
-    """Create streamable-http with OAuth, edit, verify all OAuth fields round-trip."""
-    page.goto(f"{app_clean}#studio/mcp-sources/new")
-    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
-
-    page.locator('[data-field="name"]').fill("remote-mcp")
-    page.locator('[data-field="type"]').select_option("streamable-http")
-    page.locator('[data-field="url"]').fill("https://example.com/mcp")
-
-    # OAuth fields
-    page.locator('[data-field="oauth-issuer-url"]').fill("https://auth.example.com")
-    page.locator('[data-field="oauth-client-id"]').fill("client-abc")
-    page.locator('[data-field="oauth-redirect-uri"]').fill("http://127.0.0.1:53682/callback")
-    page.locator('[data-field="oauth-client-secret"]').fill("super-secret-value")
-
-    # OAuth scopes chip-list — type Enter to add a chip
-    scope_input = page.locator('[data-field="oauth-scopes"].chip-list-editor .chip-list-input')
-    scope_input.fill("read")
-    scope_input.press("Enter")
-    scope_input.fill("write")
-    scope_input.press("Enter")
-
-    save_btn = page.locator('[data-testid="save-mcp-source-btn"]')
-    expect(save_btn).not_to_be_disabled()
-    save_btn.click()
-    expect(page.locator(".editor-section.danger-zone")).to_be_visible(timeout=8000)
-
-    # Verify via API: OAuth fields stored, client_secret encrypted (masked tail).
-    sources = _list_sources(app_clean)
-    assert len(sources) == 1
-    src = sources[0]
-    assert src["name"] == "remote-mcp"
-    assert src["type"] == "streamable-http"
-    assert src["config"]["url"] == "https://example.com/mcp"
-    oauth = src["config"]["oauth"]
-    assert oauth["issuer_url"] == "https://auth.example.com"
-    assert oauth["client_id"] == "client-abc"
-    assert oauth["redirect_uri"] == "http://127.0.0.1:53682/callback"
-    assert set(oauth["scopes"]) == {"read", "write"}
-    # client_secret was 18 chars → masked tail "***...alue".
-    assert src["secrets"]["oauth_client_secret"] == "***...alue"
-
-
-@pytest.mark.browser
 def test_edit_stdio_source_preserves_unchanged_secrets(app_clean: str, page: Page) -> None:
     """Edit only the name; per-key __MASKED__ preserves stored secret."""
     sid = _seed_mcp_source(app_clean, {
@@ -256,7 +212,7 @@ def test_dirty_back_confirm_dialog(app_clean: str, page: Page) -> None:
 @pytest.mark.browser
 def test_type_change_swaps_field_visibility(app_clean: str, page: Page) -> None:
     """Switch type stdio→streamable-http: command hidden, url visible,
-    kv-label changes, OAuth section reveals."""
+    kv-label changes."""
     page.goto(f"{app_clean}#studio/mcp-sources/new")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
@@ -265,14 +221,12 @@ def test_type_change_swaps_field_visibility(app_clean: str, page: Page) -> None:
     expect(page.locator('.mcp-stdio-only').first).not_to_have_class(re.compile(r"\bis-hidden\b"))
     expect(page.locator('.mcp-streamable-http-only').first).to_have_class(re.compile(r"\bis-hidden\b"))
     expect(page.locator('.kv-section-title')).to_have_text("Environment Variables")
-    expect(page.locator('[data-testid="mcp-oauth-section"]')).to_have_class(re.compile(r"\bis-hidden\b"))
 
     # Switch to streamable-http
     page.locator('[data-field="type"]').select_option("streamable-http")
     expect(page.locator('.mcp-stdio-only').first).to_have_class(re.compile(r"\bis-hidden\b"))
     expect(page.locator('.mcp-streamable-http-only').first).not_to_have_class(re.compile(r"\bis-hidden\b"))
     expect(page.locator('.kv-section-title')).to_have_text("Custom Headers")
-    expect(page.locator('[data-testid="mcp-oauth-section"]')).not_to_have_class(re.compile(r"\bis-hidden\b"))
 
 
 @pytest.mark.browser

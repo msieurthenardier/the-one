@@ -1,0 +1,281 @@
+"""Tests for the FastAPI ``POST /api/mcp-sources/{id}/test/connect`` route (F6.5 L3)."""
+
+from __future__ import annotations
+
+import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import aiosqlite
+import pytest
+from cryptography.fernet import Fernet
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
+
+from the_one.db.models import MCPSource
+from the_one.db.repositories import MCPSourceRepository
+from the_one.db.schema import ensure_schema
+from the_one.encryption import Encryptor
+from the_one.interfaces.web import api as api_mod
+from the_one.interfaces.web.api import router
+from the_one.mcp import _pool
+
+
+@pytest.fixture(autouse=True)
+async def _clear_pool():
+    """Reset the F4 pool between tests so eviction-counts don't bleed."""
+    await _pool._clear_for_test()
+    yield
+    await _pool._clear_for_test()
+
+
+@pytest.fixture
+async def client_and_repo(tmp_path):
+    """FastAPI client + DB-backed repo with one seeded streamable-http source."""
+    db_path = tmp_path / "test-connect-endpoint.db"
+    conn = await aiosqlite.connect(str(db_path))
+    conn.row_factory = aiosqlite.Row
+    await conn.execute("PRAGMA foreign_keys=ON")
+    await ensure_schema(conn)
+    encryptor = Encryptor(Fernet.generate_key(), key_path=tmp_path / "test.key")
+    repo = MCPSourceRepository(conn, encryptor)
+    await repo.create(
+        MCPSource(
+            id="src-test-connect-1",
+            name="Test connection source",
+            type="streamable-http",
+            config={"url": "https://api.example.com/mcp"},
+        )
+    )
+
+    with (
+        patch("the_one.interfaces.web.api.get_connection", return_value=conn),
+        patch("the_one.interfaces.web.api.get_encryptor", return_value=encryptor),
+    ):
+        test_app = FastAPI()
+        test_app.include_router(router)
+        transport = ASGITransport(app=test_app)
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            yield c, repo
+
+    await conn.close()
+
+
+async def test_test_connect_404_when_source_missing(client_and_repo) -> None:
+    """A3 — POST returns 404 with detail message when source_id does not exist."""
+    c, _repo = client_and_repo
+    resp = await c.post("/api/mcp-sources/nonexistent/test/connect")
+    assert resp.status_code == 404
+    assert "nonexistent" in resp.json()["detail"]
+
+
+async def test_test_connect_returns_ok_when_tokens_present(client_and_repo) -> None:
+    """A4 — Phase A: dcr_credentials + access_token present; MCPClient.connect()
+    + list_tools() succeeds; endpoint returns {status: "ok", tools: [...]}.
+
+    Also verifies that auth_provider is threaded through to MCPClient (not bare).
+    """
+    c, repo = client_and_repo
+    src = await repo.get("src-test-connect-1")
+    src.secrets["dcr_credentials"] = {"client_id": "dcr-cid-1"}
+    src.secrets["access_token"] = "tok-abc"
+    await repo.update(src)
+
+    # Mock MCPTool objects
+    tool1 = MagicMock()
+    tool1.name = "search"
+    tool1.description = "Search the web"
+    tool1.input_schema = {"type": "object", "properties": {}}
+
+    tool2 = MagicMock()
+    tool2.name = "fetch"
+    tool2.description = "Fetch a URL"
+    tool2.input_schema = {"type": "object", "properties": {}}
+
+    # Track whether MCPClient was constructed with auth_provider
+    constructed_with_auth: list[bool] = []
+
+    class _MockMCPClient:
+        def __init__(self, *, source, auth_provider=None, **kwargs):
+            constructed_with_auth.append(auth_provider is not None)
+            self._auth_provider = auth_provider
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def list_tools(self):
+            return [tool1, tool2]
+
+    # MCPClient is lazily imported inside the endpoint handler, so we patch
+    # it at its source module (not at api.py which doesn't hold a module-level ref).
+    with patch("the_one.mcp.client.MCPClient", _MockMCPClient):
+        resp = await c.post("/api/mcp-sources/src-test-connect-1/test/connect")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "ok"
+    assert len(body["tools"]) == 2
+    assert body["tools"][0]["name"] == "search"
+    assert body["tools"][1]["name"] == "fetch"
+
+    # Verify auth_provider was threaded through (not a bare MCPClient).
+    assert constructed_with_auth == [True], (
+        "MCPClient must be constructed with auth_provider (not bare) in Phase A"
+    )
+
+
+async def test_test_connect_returns_auth_required_when_no_creds(client_and_repo) -> None:
+    """A5 — Phase B: no creds; mock _drive_flow_test to resolve the future
+    with a synthetic consent URL; endpoint returns {status: "auth_required"}.
+
+    The mock resolves the future by intercepting httpx.AsyncClient's __aenter__
+    so the flow doesn't need a real OAuth server.
+    """
+    c, _repo = client_and_repo
+    # Source has no dcr_credentials and no access_token — Phase B path.
+
+    # We need the mock to call consent_url_future.set_result before the
+    # endpoint's asyncio.wait_for times out. We intercept _drive_flow_test
+    # indirectly by patching httpx.AsyncClient used inside it.
+
+    # Monkeypatch timeout to something generous for this test (it should
+    # resolve quickly since we're mocking the flow).
+
+    # Strategy: patch the build_oauth_provider_for_source to return a
+    # provider whose httpx.Auth.__call__ resolves the future immediately.
+    # The cleanest approach is to patch the _drive_flow_test coroutine itself
+    # by intercepting asyncio.create_task inside the endpoint.
+
+    # Simplest approach: patch httpx.AsyncClient in api.py to immediately
+    # resolve the consent_url_future via the provider's redirect_handler.
+    # We capture the provider object from build_oauth_provider_for_source.
+
+    captured_provider = {}
+
+    original_build = api_mod.__dict__.get(
+        "build_oauth_provider_for_source",
+        None,
+    )
+
+    # We'll patch build_oauth_provider_for_source to capture the provider
+    # and then inject a future-resolving httpx client.
+    consent_url_called = []
+
+    class _FakeProvider:
+        """Minimal httpx.Auth that resolves the future when auth_flow is applied."""
+
+        def auth_flow(self, request):
+            # Yield the request unchanged — we just need the flow to run.
+            yield request
+
+        async def async_auth_flow(self, request):
+            # The async variant called by httpx.AsyncClient.
+            yield request
+
+    async def _mock_drive_and_resolve(*args, **kwargs):
+        pass  # no-op; the test resolves via the patched flow
+
+    # Use a different strategy: patch the internal _drive_flow_test
+    # by making httpx.AsyncClient's post() call resolve the future
+    # by calling the provider's redirect_handler. To do this cleanly,
+    # we capture the consent_url_future by wrapping the endpoint's
+    # asyncio.get_running_loop().create_future() call.
+
+    # Cleanest approach: patch build_oauth_provider_for_source to return
+    # a provider whose redirect_handler resolves the consent_url_future
+    # that the endpoint creates. But we can't access that future from outside
+    # without injecting into the endpoint's execution.
+
+    # Final approach: patch httpx.AsyncClient inside api.py so that its
+    # post() method immediately calls the redirect_handler on the provider
+    # that was passed as auth=. We capture the provider from the call to
+    # httpx.AsyncClient(auth=provider).
+
+    captured = {}
+
+    class _StubHttpxClient:
+        def __init__(self, *, auth=None, timeout=None, **kwargs):
+            captured["auth"] = auth
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def post(self, url, **kwargs):
+            # The provider's redirect_handler must be called with an auth URL
+            # containing a state param so the endpoint's consent_url_future
+            # gets resolved. Trigger it directly.
+            auth = captured.get("auth")
+            if auth is not None and hasattr(auth, "context") and auth.context.redirect_handler:
+                test_auth_url = (
+                    "https://example.com/auth?state=test-state-001"
+                    "&client_id=dcr-cid-test&code_challenge=abc&code_challenge_method=S256"
+                )
+                await auth.context.redirect_handler(test_auth_url)
+
+            class _Resp:
+                status_code = 200
+
+            return _Resp()
+
+    # Seed dcr_credentials so build_oauth_provider_for_source returns a provider
+    # (required for redirect_handler to exist on the provider).
+    src = await _repo.get("src-test-connect-1")
+    src.secrets["dcr_credentials"] = {"client_id": "dcr-cid-test"}
+    # No access_token → Phase A skips; Phase B runs.
+    await _repo.update(src)
+
+    with patch("the_one.interfaces.web.api.httpx.AsyncClient", _StubHttpxClient):
+        resp = await c.post("/api/mcp-sources/src-test-connect-1/test/connect")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "auth_required"
+    assert "consent_url" in body
+    assert "state=test-state-001" in body["consent_url"]
+
+
+async def test_test_connect_consent_url_timeout(client_and_repo, monkeypatch) -> None:
+    """A6 — consent_url_timeout: monkeypatch _TEST_CONNECT_TIMEOUT to a short
+    value; SDK never calls redirect_handler; endpoint returns
+    {status: "error", error: "consent_url_timeout"} within timeout + epsilon.
+    """
+    c, repo = client_and_repo
+
+    # Short timeout so the test doesn't take 15 seconds.
+    monkeypatch.setattr(api_mod, "_TEST_CONNECT_TIMEOUT", 0.3)
+
+    # Seed dcr_credentials so Phase B runs (and has a provider to work with).
+    src = await repo.get("src-test-connect-1")
+    src.secrets["dcr_credentials"] = {"client_id": "dcr-cid-timeout"}
+    # No access_token → Phase A skips; Phase B runs.
+    await repo.update(src)
+
+    class _StubHttpxClient:
+        """httpx.AsyncClient that blocks indefinitely — simulates a slow server
+        that never triggers the auth flow."""
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def post(self, url, **kwargs):
+            # Never resolves → consent_url_future times out.
+            await asyncio.sleep(999)
+
+    with patch("the_one.interfaces.web.api.httpx.AsyncClient", _StubHttpxClient):
+        resp = await c.post("/api/mcp-sources/src-test-connect-1/test/connect")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "error"
+    assert body["error"] == "consent_url_timeout"

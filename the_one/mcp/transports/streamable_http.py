@@ -80,7 +80,7 @@ def _build_production_httpx_kwargs(
 
     F5 L4: auth_provider is provided pre-built by the caller; provider
     construction (factory function that reads secrets["dcr_credentials"]
-    and instantiates OAuthClientProvider/ManualOAuthClientProvider with
+    and instantiates OAuthClientProvider with
     handlers) is L6's scope. L6 builds the factory and the agent-layer
     wiring that calls it.
     """
@@ -99,7 +99,7 @@ async def connect_streamable_http(
     http_client: httpx.AsyncClient | None = None,
     # F5 L4: auth_provider is provided pre-built by the caller; provider
     # construction (factory function that reads secrets["dcr_credentials"]
-    # and instantiates OAuthClientProvider/ManualOAuthClientProvider with
+    # and instantiates OAuthClientProvider with
     # handlers) is L6's scope. L6 builds the factory and the agent-layer
     # wiring that calls it.
     auth_provider: httpx.Auth | None = None,
@@ -174,7 +174,7 @@ async def _open_streamable_http_transport_stack(
     http_client: httpx.AsyncClient | None = None,
     # F5 L4: auth_provider is provided pre-built by the caller; provider
     # construction (factory function that reads secrets["dcr_credentials"]
-    # and instantiates OAuthClientProvider/ManualOAuthClientProvider with
+    # and instantiates OAuthClientProvider with
     # handlers) is L6's scope. L6 builds the factory and the agent-layer
     # wiring that calls it.
     auth_provider: httpx.Auth | None = None,

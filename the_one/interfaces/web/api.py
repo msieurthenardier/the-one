@@ -68,6 +68,12 @@ async def _chat_repo() -> ChatSessionRepository:
 
 _TESTABLE_TOOLS = frozenset({"web_search", "fetch_url"})
 
+# F6.5 L3: Test connection endpoint timeout (seconds). Bounds the await
+# on consent_url_future so a slow / hanging SDK auth flow doesn't pin
+# the request indefinitely. 15s is the Design Decision §2 ceiling;
+# tests monkeypatch this to drive the timeout path quickly.
+_TEST_CONNECT_TIMEOUT: float = 15.0
+
 
 async def _tool_config_repo() -> ToolConfigRepository:
     conn = await get_connection()
@@ -573,9 +579,7 @@ def _validate_mcp_source_config(source: MCPSource) -> None:
       must be a list[str] if present; config.cwd must be a string if
       present; config.env must be a dict[str, str] if present.
     Streamable-HTTP: config.url is required (non-empty string);
-      config.headers must be a dict[str, str] if present; config.oauth
-      if present must include {issuer_url, client_id, scopes (list),
-      redirect_uri} as strings (oauth.scopes is a list[str]).
+      config.headers must be a dict[str, str] if present.
 
     Stdio config.sandbox is optional and may carry
     ``{writable_paths: list[str], network_allowed: bool}``; both fields
@@ -677,26 +681,6 @@ def _validate_mcp_source_config(source: MCPSource) -> None:
                 status_code=422,
                 detail="MCP source config.headers must be a dict of string-to-string.",
             )
-        oauth = cfg.get("oauth")
-        if oauth is not None:
-            if not isinstance(oauth, dict):
-                raise HTTPException(
-                    status_code=422,
-                    detail="MCP source config.oauth must be a dict if present.",
-                )
-            for key in ("issuer_url", "client_id", "redirect_uri"):
-                if key in oauth and not isinstance(oauth[key], str):
-                    raise HTTPException(
-                        status_code=422,
-                        detail=f"MCP source config.oauth.{key} must be a string.",
-                    )
-            if "scopes" in oauth:
-                scopes = oauth["scopes"]
-                if not isinstance(scopes, list) or not all(isinstance(s, str) for s in scopes):
-                    raise HTTPException(
-                        status_code=422,
-                        detail="MCP source config.oauth.scopes must be a list of strings.",
-                    )
 
     else:
         # Defensive exhaustiveness — Pydantic's Literal validator
@@ -836,6 +820,152 @@ async def delete_mcp_source(source_id: str) -> dict[str, str]:
     return {"status": "ok"}
 
 
+@router.post("/mcp-sources/{source_id}/test/connect")
+async def test_mcp_connection(source_id: str) -> dict[str, Any]:
+    """Connect + list_tools probe; kicks OAuth flow if needed via popup-callback dance.
+
+    Behavior:
+      - 404 if source not found
+      - {status: "ok", tools: [...]} if connect + list_tools succeed
+      - {status: "auth_required", consent_url} if creds absent or
+        MCPAuthRequired raised; SDK's auth flow runs as a background
+        task waiting for /oauth/callback to deliver the code
+      - {status: "error", error} for other failures (transport, version
+        mismatch, non-streamable-http source, consent_url_timeout)
+
+    Two-call dance: UI POSTs once; on auth_required opens a popup, waits
+    for popup close, re-POSTs. The second POST hits the {status: "ok"}
+    path because tokens have landed via the SDK's callback_handler.
+
+    F6.5 L3 — see flight artifact Design Decision §2 for the protocol.
+    """
+    from the_one.interfaces.web.app import _inflight_resume_tasks
+    from the_one.mcp._pool import _evict_all_for_source
+    from the_one.mcp.client import MCPClient
+    from the_one.mcp.errors import MCPAuthRequired, MCPConnectionError, MCPVersionMismatch
+    from the_one.mcp.oauth import build_oauth_provider_for_source
+
+    repo = await _mcp_repo()
+    try:
+        source = await repo.get(source_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"MCP source not found: {source_id}")
+
+    if source.type != "streamable-http":
+        return {
+            "status": "error",
+            "error": f"Test only supports streamable-http; got {source.type!r}",
+        }
+
+    # Phase A: tokens present → build provider WITH consent_url_future=None
+    # (test path doesn't kick the OAuth flow yet) and try connect + list_tools.
+    # MUST thread auth_provider through MCPClient or the SDK has no way to
+    # apply the cached tokens — bare MCPClient sends Bearer-less requests
+    # and always 401s, defeating the "tokens present" fast path.
+    if source.secrets.get("dcr_credentials") and source.secrets.get("access_token"):
+        provider_a = build_oauth_provider_for_source(
+            source,
+            repo,
+            f"test:{source_id}",
+            source_id=source_id,
+            tool_call_id=None,
+            resource_metadata_url=None,
+            consent_url_future=None,  # Phase A doesn't kick a flow
+        )
+        try:
+            async with MCPClient(source=source, auth_provider=provider_a) as client:
+                tools = await client.list_tools()
+            return {
+                "status": "ok",
+                "tools": [
+                    {
+                        "name": t.name,
+                        "description": t.description,
+                        "input_schema": t.input_schema,
+                    }
+                    for t in tools
+                ],
+            }
+        except MCPAuthRequired:
+            # Token expired/revoked. Bust pool cache BEFORE Phase B builds
+            # a fresh provider — otherwise the F4 cache may hand out an
+            # MCPClient with the stale auth_provider and the SDK gets
+            # confused mid-refresh. Mirrors oauth_start's eviction timing.
+            await _evict_all_for_source(source_id)
+            # fall through to Phase B
+        except (MCPConnectionError, MCPVersionMismatch) as e:
+            # Per Design Decision §3, F6.5 defers connect-time 401
+            # translation to F7. So a `connect()` 401 surfaces here as
+            # MCPConnectionError ("cancelled during initialize") and
+            # the operator sees a generic error. The Test button is
+            # functional for list_tools-401 servers (Cloudflare API MCP,
+            # most production OAuth MCPs); connect-401 servers will need
+            # F7's typed-diagnostic widening for clean Test-button UX.
+            return {"status": "error", "error": f"{type(e).__name__}: {e}"}
+
+    # Phase B: kick OAuth flow with consent_url_future
+    consent_url_future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
+    test_csid = f"test:{source_id}"
+
+    provider = build_oauth_provider_for_source(
+        source,
+        repo,
+        test_csid,
+        source_id=source_id,
+        tool_call_id=None,
+        resource_metadata_url=None,
+        consent_url_future=consent_url_future,
+    )
+    if provider is None:
+        # No dcr_credentials: the source has no OAuth registration yet.
+        # The SDK will run DCR when it first hits the server. Since we
+        # can't construct an OAuthClientProvider without dcr_credentials,
+        # build_oauth_provider_for_source returned None. Return error.
+        return {"status": "error", "error": "No OAuth credentials configured for this source"}
+
+    await _evict_all_for_source(source_id)
+
+    server_url = source.config.get("url", "")
+
+    async def _drive_flow_test() -> None:
+        """Hit the source URL with the provider attached; SDK runs auth flow."""
+        try:
+            async with httpx.AsyncClient(auth=provider, timeout=30.0) as client:
+                await client.post(
+                    server_url,
+                    json={
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "initialize",
+                        "params": {
+                            "protocolVersion": "2025-11-25",
+                            "clientInfo": {"name": "the-one", "version": "0.1"},
+                            "capabilities": {},
+                        },
+                    },
+                )
+        except Exception as exc:
+            if not consent_url_future.done():
+                consent_url_future.set_exception(
+                    RuntimeError(f"auth flow failed before consent_url surfaced: {exc}")
+                )
+
+    task = asyncio.create_task(_drive_flow_test())
+    _inflight_resume_tasks.add(task)
+    task.add_done_callback(_inflight_resume_tasks.discard)
+
+    try:
+        consent_url = await asyncio.wait_for(
+            asyncio.shield(consent_url_future), timeout=_TEST_CONNECT_TIMEOUT
+        )
+    except asyncio.TimeoutError:
+        return {"status": "error", "error": "consent_url_timeout"}
+    except Exception as e:
+        return {"status": "error", "error": f"auth_flow_error: {e}"}
+
+    return {"status": "auth_required", "consent_url": consent_url}
+
+
 # ── OAuth callback (F5 §9) ────────────────────────────────────────────────
 
 
@@ -956,56 +1086,6 @@ async def oauth_callback(
     )
 
 
-@router.post("/oauth/manual-register")
-async def oauth_manual_register(request: Request) -> dict[str, Any]:
-    """Persist operator-supplied OAuth client credentials for a non-DCR AS.
-
-    Used when the IDP does not implement RFC 7591 Dynamic Client Registration
-    (e.g. GitHub). The operator pre-registers an OAuth app at the IDP UI,
-    pastes the resulting ``client_id`` + auth/token endpoints into the chat
-    UI's manual-entry form, and the form POSTs here. Persists the four-key
-    ``dcr_credentials`` blob into ``MCPSource.secrets``; the ``registration_method``
-    discriminator (``"manual"``) tells L5's provider factory which provider
-    class to instantiate.
-
-    Body: ``{source_id, client_id, auth_endpoint, token_endpoint}``.
-    All four fields required; 400 on missing/empty.
-    404 if ``source_id`` does not match any MCPSource.
-
-    The endpoint does NOT trigger the auth flow — the chat UI follows up
-    with a POST to ``/api/oauth/start`` once the credentials are stored.
-    """
-    from datetime import datetime, timezone
-
-    data = await request.json()
-    source_id = data.get("source_id")
-    client_id = data.get("client_id")
-    auth_endpoint = data.get("auth_endpoint")
-    token_endpoint = data.get("token_endpoint")
-    if not all([source_id, client_id, auth_endpoint, token_endpoint]):
-        raise HTTPException(
-            status_code=400,
-            detail="Missing required fields: source_id, client_id, "
-            "auth_endpoint, token_endpoint",
-        )
-    repo = await _mcp_repo()
-    try:
-        source = await repo.get(source_id)
-    except KeyError:
-        raise HTTPException(
-            status_code=404, detail=f"MCP source not found: {source_id}"
-        )
-    source.secrets["dcr_credentials"] = {
-        "client_id": client_id,
-        "auth_endpoint": auth_endpoint,
-        "token_endpoint": token_endpoint,
-        "registration_method": "manual",
-        "registered_at": datetime.now(timezone.utc).isoformat(),
-    }
-    await repo.update(source)
-    return {"status": "registered", "source_id": source_id}
-
-
 @router.post("/oauth/start")
 async def oauth_start(request: Request) -> dict[str, Any]:
     """Drive the OAuth 2.1 + PKCE flow for an MCP source until consent_url surfaces.
@@ -1014,9 +1094,8 @@ async def oauth_start(request: Request) -> dict[str, Any]:
 
     Behavior:
       - 404 if ``source_id`` does not exist.
-      - 400 if ``source.secrets["dcr_credentials"]`` is absent (the operator
-        must call ``/api/oauth/manual-register`` first, or the AS must support
-        DCR — handled by L6's HAT scope).
+      - 400 if ``source.secrets["dcr_credentials"]`` is absent (the AS must
+        support DCR — surfaces a 400 if ``secrets['dcr_credentials']`` is absent).
       - Otherwise: build a provider via ``build_oauth_provider_for_source``,
         evict any cached F4 pool entries for this source (so the next tool
         call reconstructs ``MCPClient`` with the freshly-built provider),
@@ -1063,7 +1142,7 @@ async def oauth_start(request: Request) -> dict[str, Any]:
     if not source.secrets.get("dcr_credentials"):
         raise HTTPException(
             status_code=400,
-            detail="Configure manual registration or use a DCR-supporting AS",
+            detail="DCR-supporting AS required; OAuth flow not available for this source",
         )
 
     provider = build_oauth_provider_for_source(

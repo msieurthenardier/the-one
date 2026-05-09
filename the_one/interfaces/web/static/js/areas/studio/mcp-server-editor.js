@@ -6,7 +6,6 @@
 //   <div class="editor-section">Connection</div>          (name, type, transport-fields)
 //   <div class="editor-section">Environment Variables /
 //                               Custom Headers</div>      (unified kv table)
-//   <div class="editor-section mcp-oauth-section"> … </div>  (streamable-http only)
 //   <div class="editor-section danger-zone"> … </div>     (edit only)
 //
 // Per-row UI shape (option c): unified kv table with key / value / sensitive
@@ -19,10 +18,6 @@
 // mount via data-original-masked attribute. At save time, if value ===
 // _originalMasked AND sensitive=true, payload sends '__MASKED__' for that key
 // and the L3 endpoint preserves the stored secret.
-//
-// OAuth client_secret is locked sensitive=true and routes to
-// secrets["oauth_client_secret"] (top-level, NOT nested under config.oauth).
-// F5 looks up the secret by this exact key.
 //
 // callbacks: { onBack, onCancel, onSaveSuccess, onDeleteSuccess, onDirtyChange }
 (function () {
@@ -117,12 +112,14 @@
             're-type to keep it.</p>';
     html += '</div>';
 
-    // ── OAuth section (streamable-http only) ──────────────────────────
-    var oauthHidden = (type !== 'streamable-http');
-    html += '<div class="editor-section mcp-oauth-section' + (oauthHidden ? ' is-hidden' : '') + '" data-testid="mcp-oauth-section">';
-    html += '<div class="section-title">OAuth Client Configuration</div>';
-    html += renderOAuthFields(source);
-    html += '</div>';
+    // ── Test Connection (edit only, streamable-http only) ─────────────
+    if (!isCreate && source && source.type === 'streamable-http') {
+      html += '<div class="editor-section mcp-test-section">';
+      html += '<div class="section-title">Test Connection</div>';
+      html += '<button type="button" class="btn-outlined-cyan" data-testid="mcp-test-connection">Test connection</button>';
+      html += '<div class="mcp-test-result" data-testid="mcp-test-result" hidden></div>';
+      html += '</div>';
+    }
 
     // ── Danger Zone (edit only) ───────────────────────────────────────
     if (!isCreate) {
@@ -219,11 +216,9 @@
         seen[k] = true;
       }
     }
-    // Sensitive rows next, skipping the OAuth client_secret which lives in
-    // its own dedicated field.
+    // Sensitive rows.
     for (var sk in secrets) {
       if (!Object.prototype.hasOwnProperty.call(secrets, sk)) continue;
-      if (sk === 'oauth_client_secret') continue;
       if (seen[sk]) continue; // operator may have a duplicate key; plaintext wins.
       var maskedVal = String(secrets[sk] == null ? '' : secrets[sk]);
       rows.push({ key: sk, value: maskedVal, sensitive: true, _originalMasked: maskedVal });
@@ -264,50 +259,6 @@
     return html;
   }
 
-  function renderOAuthFields(source) {
-    var escapeAttr = window.App.escapeAttr;
-    var oauth = (source && source.config && source.config.oauth) || {};
-    var clientSecret = (source && source.secrets && source.secrets.oauth_client_secret) || '';
-
-    var html = '';
-
-    // issuer_url
-    html += '<div class="field-row admin-pf-row">';
-    html += '<label for="mf-oauth-issuer-url">Issuer URL</label>';
-    html += '<input class="field-input admin-pf-input" id="mf-oauth-issuer-url" data-field="oauth-issuer-url" value="' + escapeAttr(oauth.issuer_url || '') + '" placeholder="https://auth.example.com" />';
-    html += '</div>';
-
-    // client_id
-    html += '<div class="field-row admin-pf-row">';
-    html += '<label for="mf-oauth-client-id">Client ID</label>';
-    html += '<input class="field-input admin-pf-input" id="mf-oauth-client-id" data-field="oauth-client-id" value="' + escapeAttr(oauth.client_id || '') + '" placeholder="(optional — DCR auto-registers)" />';
-    html += '</div>';
-
-    // scopes (chip-list — mounted post-innerHTML)
-    html += '<div class="field-row admin-pf-row">';
-    html += '<label for="mf-oauth-scopes">Scopes</label>';
-    html += '<div class="chip-list-editor" id="mf-oauth-scopes" data-field="oauth-scopes" data-field-type="array"></div>';
-    html += '</div>';
-
-    // redirect_uri
-    html += '<div class="field-row admin-pf-row">';
-    html += '<label for="mf-oauth-redirect-uri">Redirect URI</label>';
-    html += '<input class="field-input admin-pf-input" id="mf-oauth-redirect-uri" data-field="oauth-redirect-uri" value="' + escapeAttr(oauth.redirect_uri || '') + '" placeholder="http://127.0.0.1:53682/callback" />';
-    html += '</div>';
-
-    // client_secret (always sensitive, locked checkbox)
-    html += '<div class="field-row admin-pf-row">';
-    html += '<label for="mf-oauth-client-secret">Client Secret</label>';
-    html += '<div class="api-key-wrap">';
-    html += '<input class="field-input admin-pf-input admin-pf-password" id="mf-oauth-client-secret" type="password" data-field="oauth-client-secret" value="' + escapeAttr(clientSecret) + '" data-original-masked="' + escapeAttr(clientSecret) + '" placeholder="(optional)" />';
-    html += '<button class="api-key-eye oauth-client-secret-eye" type="button" aria-label="Show client secret">' + window.App.icon('eye') + '</button>';
-    html += '</div>';
-    html += '<input type="checkbox" class="kv-sensitive-checkbox" checked disabled aria-label="OAuth client secret is always sensitive" data-testid="oauth-client-secret-locked-sensitive" />';
-    html += '</div>';
-
-    return html;
-  }
-
   // ── Chip-list mount helpers ─────────────────────────────────────────
 
   function mountChipListEditors(container, source) {
@@ -318,11 +269,6 @@
     if (argsHost) {
       var argsItems = (source && source.config && source.config.args) || [];
       argsHost.outerHTML = helpers.renderChipListEditor('args', argsItems, null, {});
-    }
-    var scopesHost = container.querySelector('[data-field="oauth-scopes"].chip-list-editor');
-    if (scopesHost) {
-      var scopesItems = (source && source.config && source.config.oauth && source.config.oauth.scopes) || [];
-      scopesHost.outerHTML = helpers.renderChipListEditor('oauth-scopes', scopesItems, null, {});
     }
     // F3 L5b: sandbox writable_paths chip-list (stdio only, but mount for
     // any type — visibility is controlled by the section's mcp-stdio-only
@@ -353,8 +299,6 @@
     // F3 L5b: sandbox-network-allowed is a checkbox; the loop below reads
     // el.checked for type === 'checkbox' and el.value otherwise.
     var staticFields = ['name', 'type', 'command', 'cwd', 'url',
-                        'oauth-issuer-url', 'oauth-client-id',
-                        'oauth-redirect-uri', 'oauth-client-secret',
                         'sandbox-network-allowed'];
     for (var i = 0; i < staticFields.length; i++) {
       var el = container.querySelector('[data-field="' + staticFields[i] + '"]:not(.chip-list-editor)');
@@ -365,12 +309,10 @@
       }
     }
 
-    var chips = { args: [], 'oauth-scopes': [], 'sandbox-writable-paths': [] };
+    var chips = { args: [], 'sandbox-writable-paths': [] };
     if (helpers && helpers.readChipListValue) {
       var argsHost = container.querySelector('[data-field="args"].chip-list-editor');
       if (argsHost) chips.args = helpers.readChipListValue(argsHost);
-      var scopesHost = container.querySelector('[data-field="oauth-scopes"].chip-list-editor');
-      if (scopesHost) chips['oauth-scopes'] = helpers.readChipListValue(scopesHost);
       var sandboxPathsHost = container.querySelector('[data-field="sandbox-writable-paths"].chip-list-editor');
       if (sandboxPathsHost) chips['sandbox-writable-paths'] = helpers.readChipListValue(sandboxPathsHost);
     }
@@ -521,23 +463,6 @@
       });
     }
 
-    // ── OAuth client_secret eye-toggle ────────────────────────────────
-    var oauthEye = container.querySelector('.oauth-client-secret-eye');
-    var oauthSecretInput = container.querySelector('[data-field="oauth-client-secret"]');
-    if (oauthEye && oauthSecretInput) {
-      oauthEye.addEventListener('click', function () {
-        if (oauthSecretInput.type === 'password') {
-          oauthSecretInput.type = 'text';
-          oauthEye.innerHTML = window.App.icon('eye-off');
-          oauthEye.setAttribute('aria-label', 'Hide client secret');
-        } else {
-          oauthSecretInput.type = 'password';
-          oauthEye.innerHTML = window.App.icon('eye');
-          oauthEye.setAttribute('aria-label', 'Show client secret');
-        }
-      });
-    }
-
     // ── Back ──────────────────────────────────────────────────────────
     var backBtn = container.querySelector('.back-btn');
     if (backBtn && callbacks.onBack) {
@@ -611,6 +536,14 @@
           .catch(function (err) {
             if (errorEl) errorEl.textContent = err.message || String(err);
           });
+      });
+    }
+
+    // ── Test Connection (edit only, streamable-http only) ─────────────
+    var testBtn = container.querySelector('[data-testid="mcp-test-connection"]');
+    if (testBtn) {
+      testBtn.addEventListener('click', function () {
+        handleTestConnection(source.id, container, testBtn);
       });
     }
 
@@ -689,9 +622,6 @@
     for (var j = 0; j < streamableRows.length; j++) {
       streamableRows[j].classList.toggle('is-hidden', type !== 'streamable-http');
     }
-    var oauthSection = container.querySelector('.mcp-oauth-section');
-    if (oauthSection) oauthSection.classList.toggle('is-hidden', type !== 'streamable-http');
-
     var kvLabel = container.querySelector('.kv-section-title');
     if (kvLabel) {
       var stdioLabel = kvLabel.getAttribute('data-stdio-label') || 'Environment Variables';
@@ -715,11 +645,7 @@
       'type': source.type || '',
       'command': (source.config && source.config.command) || '',
       'cwd': (source.config && source.config.cwd) || '',
-      'url': (source.config && source.config.url) || '',
-      'oauth-issuer-url': (source.config && source.config.oauth && source.config.oauth.issuer_url) || '',
-      'oauth-client-id': (source.config && source.config.oauth && source.config.oauth.client_id) || '',
-      'oauth-redirect-uri': (source.config && source.config.oauth && source.config.oauth.redirect_uri) || '',
-      'oauth-client-secret': (source.secrets && source.secrets.oauth_client_secret) || ''
+      'url': (source.config && source.config.url) || ''
     };
     Object.keys(staticMap).forEach(function (key) {
       var el = container.querySelector('[data-field="' + key + '"]:not(.chip-list-editor)');
@@ -763,18 +689,6 @@
             // captures dirty-tracking via its own checkDirty closure. After
             // a Cancel revert, we recaptureSnapshot externally.
           });
-        }
-      }
-      var scopesHost = container.querySelector('[data-field="oauth-scopes"].chip-list-editor');
-      if (scopesHost && scopesHost.parentNode) {
-        var wrapper2 = document.createElement('div');
-        wrapper2.innerHTML = helpers.renderChipListEditor('oauth-scopes',
-          (source.config && source.config.oauth && source.config.oauth.scopes) || [],
-          null, {});
-        var newScopes = wrapper2.firstChild;
-        scopesHost.parentNode.replaceChild(newScopes, scopesHost);
-        if (helpers.wireChipListEditor) {
-          helpers.wireChipListEditor(newScopes, function () { /* dirty-tracking handled externally */ });
         }
       }
       // F3 L5b: sandbox writable_paths chip-list re-mount.
@@ -850,8 +764,6 @@
       config.url = urlValue;
       config.headers = {};
       partitionKvRows(container, config.headers, secrets);
-      // OAuth section
-      collectOAuthSection(container, source, config, secrets, isEdit);
     } else {
       if (errorEl) errorEl.textContent = 'Unsupported transport type: ' + type;
       return null;
@@ -886,57 +798,70 @@
     }
   }
 
-  function collectOAuthSection(container, source, config, secrets, isEdit) {
-    /* Reads OAuth plaintext fields + client_secret. Behavior:
-       - If all plaintext fields and client_secret are empty, omit
-         config.oauth entirely (create-mode).
-       - Otherwise build config.oauth with only non-empty plaintext fields,
-         and route client_secret into secrets["oauth_client_secret"] using
-         per-row MASKED_SENTINEL semantic.
-       - Stranded-secret edge case (edit mode): if the operator cleared the
-         OAuth config but the source previously had oauth_client_secret,
-         emit secrets["oauth_client_secret"] = "" so backend's per-key
-         MASKED handler treats it as overwrite-with-empty. */
-    var helpers = window.App.adminFormHelpers;
-    var issuerEl = container.querySelector('[data-field="oauth-issuer-url"]');
-    var clientIdEl = container.querySelector('[data-field="oauth-client-id"]');
-    var redirectEl = container.querySelector('[data-field="oauth-redirect-uri"]');
-    var secretEl = container.querySelector('[data-field="oauth-client-secret"]');
-    var scopesHost = container.querySelector('[data-field="oauth-scopes"].chip-list-editor');
+  // ── Test Connection handler ─────────────────────────────────────────
+  // Promise-chain style ONLY — the entire file uses .then().catch() with
+  // zero async/await. Diverging would create a stylistic outlier and may
+  // not transpile if the build pipeline targets ES5.
 
-    var issuer = issuerEl ? issuerEl.value.trim() : '';
-    var clientId = clientIdEl ? clientIdEl.value.trim() : '';
-    var redirect = redirectEl ? redirectEl.value.trim() : '';
-    var secretValue = secretEl ? (secretEl.value || '') : '';
-    var origSecretMasked = secretEl ? (secretEl.dataset.originalMasked || '') : '';
-    var scopes = (scopesHost && helpers && helpers.readChipListValue) ? helpers.readChipListValue(scopesHost) : [];
+  function handleTestConnection(sourceId, container, testBtn) {
+    var escapeHtml = window.App.escapeHtml;
+    var resultEl = container.querySelector('[data-testid="mcp-test-result"]');
+    resultEl.hidden = false;
+    resultEl.textContent = 'Testing connection...';
+    testBtn.disabled = true; // concurrent-Test guard: re-enabled only on final state
 
-    var hasAnyOAuth = !!(issuer || clientId || redirect || (scopes && scopes.length > 0) || secretValue);
-    var hadStoredSecret = !!(source && source.secrets && source.secrets.oauth_client_secret);
-
-    if (hasAnyOAuth) {
-      var oauth = {};
-      if (issuer) oauth.issuer_url = issuer;
-      if (clientId) oauth.client_id = clientId;
-      if (redirect) oauth.redirect_uri = redirect;
-      if (scopes && scopes.length > 0) oauth.scopes = scopes;
-      config.oauth = oauth;
-
-      if (secretValue) {
-        if (origSecretMasked && secretValue === origSecretMasked) {
-          // Unchanged masked tail — preserve stored secret.
-          secrets.oauth_client_secret = MASKED_SENTINEL;
-        } else {
-          secrets.oauth_client_secret = secretValue;
-        }
-      }
-      // If secretValue is empty but operator has populated other OAuth fields,
-      // we omit oauth_client_secret from secrets (no stored secret to preserve).
-    } else if (isEdit && hadStoredSecret) {
-      // Stranded-secret: operator cleared the entire OAuth section; drop the
-      // ciphertext blob explicitly.
-      secrets.oauth_client_secret = '';
+    function settle() {
+      testBtn.disabled = false; // re-enable on final state
     }
+
+    fetch('/api/mcp-sources/' + encodeURIComponent(sourceId) + '/test/connect', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    })
+      .then(function (resp) { return resp.json(); })
+      .then(function (data) {
+        if (data.status === 'ok') {
+          var html = '<div class="test-success">Connected. Tools (' + data.tools.length + '):</div>';
+          html += '<ul class="test-tools-list">';
+          for (var i = 0; i < data.tools.length; i++) {
+            var t = data.tools[i];
+            html += '<li><strong>' + escapeHtml(t.name) + '</strong>';
+            if (t.description) {
+              html += ': ' + escapeHtml(t.description);
+            }
+            html += '</li>';
+          }
+          html += '</ul>';
+          resultEl.innerHTML = html;
+          settle();
+        } else if (data.status === 'auth_required') {
+          // Keep button disabled across popup-flow; re-enabled only when
+          // the Phase 2 re-POST settles (in this same function).
+          resultEl.textContent = 'Opening consent popup...';
+          var popup = window.open(
+            data.consent_url, 'mcp-oauth-consent', 'width=600,height=700'
+          );
+          if (!popup) {
+            resultEl.textContent = 'Popup blocked — please allow popups and retry.';
+            settle();
+            return;
+          }
+          var interval = setInterval(function () {
+            if (popup.closed) {
+              clearInterval(interval);
+              // Phase 2 re-POST. Recursive call handles its own settle().
+              handleTestConnection(sourceId, container, testBtn);
+            }
+          }, 500);
+        } else {
+          resultEl.textContent = 'Error: ' + (data.error || 'unknown');
+          settle();
+        }
+      })
+      .catch(function (err) {
+        resultEl.textContent = 'Network error: ' + err.message;
+        settle();
+      });
   }
 
   window.App.studio.renderMcpSourceEditor = renderMcpSourceEditor;
