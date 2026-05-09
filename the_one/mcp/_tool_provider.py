@@ -104,8 +104,21 @@ def _apply_override(
     """
     if not override_payload:
         return source
+    # F8 L1: strip reserved tool-filter keys before passing to resolve().
+    # The resolver requires a Narrow/Substitute marker on every dispatched
+    # field (resolver.py:244-248); the L1 reserved keys are intentionally
+    # untagged because they're not credential substitutions — they're
+    # consumed by the post-list_tools() filter in get_tools_for_agent.
+    # Stripping here keeps the resolver contract clean.
+    resolver_payload = {
+        k: v for k, v in override_payload.items()
+        if k not in ("enabled_tools", "disabled_tools")
+    }
+    if not resolver_payload:
+        # Payload had ONLY tool-filter keys — no credential mutation needed.
+        return source
     if source.type == "stdio":
-        resolved = resolve(StdioMCPOverride, None, override_payload)
+        resolved = resolve(StdioMCPOverride, None, resolver_payload)
         env_value = getattr(resolved, "env", None)
         if env_value is None:
             return source
@@ -116,7 +129,7 @@ def _apply_override(
         new_secrets = {**source.secrets, **env_value}
         return source.model_copy(update={"secrets": new_secrets})
     elif source.type == "streamable-http":
-        resolved = resolve(StreamableHttpMCPOverride, None, override_payload)
+        resolved = resolve(StreamableHttpMCPOverride, None, resolver_payload)
         headers_value = getattr(resolved, "headers", None)
         bearer_value = getattr(resolved, "bearer_token", None)
         # F2 contract: source.secrets IS the flat header kv table for
@@ -247,6 +260,28 @@ class MCPToolProvider:
                     e,
                 )
                 continue
+
+            # F8 L1: per-source allow/deny filter. Read enabled_tools /
+            # disabled_tools from the validated override model. Filter on
+            # un-prefixed mt.name. Semantics mirror AgentConfig.is_tool_enabled:
+            # if enabled_tools is non-None, only those tools pass;
+            # disabled_tools is always subtracted.
+            # NOTE: model_validate is used directly (NOT resolve()) because the
+            # resolver raises ValueError on untagged fields (resolver.py:244-248).
+            override_model: StdioMCPOverride | StreamableHttpMCPOverride | None = None
+            if override_payload:
+                if source.type == "stdio":
+                    override_model = StdioMCPOverride.model_validate(override_payload)
+                elif source.type == "streamable-http":
+                    override_model = StreamableHttpMCPOverride.model_validate(override_payload)
+
+            if override_model is not None:
+                enabled = override_model.enabled_tools
+                disabled = override_model.disabled_tools or []
+                if enabled is not None:
+                    mcp_tools = [mt for mt in mcp_tools if mt.name in enabled]
+                if disabled:
+                    mcp_tools = [mt for mt in mcp_tools if mt.name not in disabled]
 
             # Wrap each MCPTool. 64-char ceiling caught per-tool
             # (cycle-1 M2 — OTHER tools from the same source survive).

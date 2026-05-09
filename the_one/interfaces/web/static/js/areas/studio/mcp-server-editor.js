@@ -27,6 +27,31 @@
 
   var MASKED_SENTINEL = '__MASKED__';
 
+  // ── F8 L2: Capability flags ─────────────────────────────────────────
+  // Server capability keys per the installed `mcp` SDK's ServerCapabilities
+  // model. 'experimental' is intentionally excluded — it's a free-form
+  // sub-namespace dict (per-server custom keys), not a typed presence flag.
+  // Update this allowlist when bumping to a newer SDK that adds new typed flags.
+  var SPEC_CAPABILITY_KEYS = ['tools', 'resources', 'prompts', 'logging', 'completions', 'tasks'];
+
+  function renderCapabilityFlags(capabilities) {
+    if (!capabilities) return ''; // capabilities key missing entirely (pre-L1 server, defensive)
+    var present = SPEC_CAPABILITY_KEYS.filter(function (k) {
+      var v = capabilities[k];
+      return v !== null && v !== undefined;
+    });
+    if (present.length === 0) {
+      // Pathological but documented: server announced no capabilities.
+      // Render an explicit message so operators don't see a blank status area.
+      return '<div class="mcp-capability-flags mcp-capability-flags-empty">Server announced no capabilities.</div>';
+    }
+    return (
+      '<div class="mcp-capability-flags">' +
+      'Server supports: <strong>' + present.join(', ') + '</strong>' +
+      '</div>'
+    );
+  }
+
   // ── Public entry point ──────────────────────────────────────────────
 
   function renderMcpSourceEditor(container, source, mcpTypes, callbacks) {
@@ -843,10 +868,12 @@
           // Render summary + collapsible tool list. Cloudflare-class servers
           // ship verbose multi-paragraph descriptions; <details> keeps the
           // section scannable while preserving full content.
+          // F8 L2: append capability-flags one-liner after the tools count.
           statusEl.innerHTML = (
             '<span class="mcp-tools-success">✓ Connected.</span> ' +
             'Server exposes <strong>' + data.tools.length + '</strong> tool' +
-            (data.tools.length === 1 ? '' : 's') + '.'
+            (data.tools.length === 1 ? '' : 's') + '.' +
+            renderCapabilityFlags(data.capabilities)
           );
           var html = '';
           for (var i = 0; i < data.tools.length; i++) {
@@ -863,6 +890,20 @@
               html += '<div class="mcp-tool-description">' + safeDesc + '</div>';
             } else {
               html += '<div class="mcp-tool-description mcp-tool-description-empty">(no description provided)</div>';
+            }
+            // F8 L2: nested input-schema view. Pretty-print JSON for operator
+            // inspection. Render only when input_schema is non-null and non-empty —
+            // the closed-by-default outer details already handles the no-schema
+            // case cleanly without an empty nested toggle.
+            if (t.input_schema && Object.keys(t.input_schema).length > 0) {
+              var schemaJson = JSON.stringify(t.input_schema, null, 2);
+              // escapeHtml the JSON to defang any control chars in property names.
+              // The pretty-printed form preserves whitespace via <pre>'s default
+              // rendering; no <br> conversion needed.
+              html += '<details class="mcp-tool-schema">';
+              html += '<summary class="mcp-tool-schema-summary">Input schema</summary>';
+              html += '<pre class="mcp-tool-schema-content">' + escapeHtml(schemaJson) + '</pre>';
+              html += '</details>';
             }
             html += '</details>';
           }

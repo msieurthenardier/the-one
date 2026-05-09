@@ -108,6 +108,11 @@ async def test_test_connect_returns_ok_when_tokens_present(client_and_repo) -> N
         async def list_tools(self):
             return [tool1, tool2]
 
+        @property
+        def server_capabilities(self):
+            # Minimal capabilities dict for this test (shape not asserted here).
+            return {"tools": {}, "resources": None, "prompts": None, "logging": None, "experimental": None}
+
     # MCPClient is lazily imported inside the endpoint handler, so we patch
     # it at its source module (not at api.py which doesn't hold a module-level ref).
     with patch("the_one.mcp.client.MCPClient", _MockMCPClient):
@@ -237,6 +242,104 @@ async def test_test_connect_returns_auth_required_when_no_creds(client_and_repo)
     assert body["status"] == "auth_required"
     assert "consent_url" in body
     assert "state=test-state-001" in body["consent_url"]
+
+
+async def test_test_connect_success_includes_capabilities(client_and_repo) -> None:
+    """L1.3 + L1.6: Phase A success return surfaces server_capabilities verbatim."""
+    c, repo = client_and_repo
+    src = await repo.get("src-test-connect-1")
+    src.secrets["dcr_credentials"] = {"client_id": "dcr-cid-caps"}
+    src.secrets["access_token"] = "tok-caps"
+    await repo.update(src)
+
+    # Simulate server capabilities (as model_dump(mode="json") would produce)
+    fake_capabilities = {
+        "tools": {},
+        "resources": None,
+        "prompts": {"listChanged": True},
+        "logging": None,
+        "experimental": None,
+    }
+
+    class _MockMCPClientWithCaps:
+        def __init__(self, *, source, auth_provider=None, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def list_tools(self):
+            return []
+
+        @property
+        def server_capabilities(self):
+            return fake_capabilities
+
+    with patch("the_one.mcp.client.MCPClient", _MockMCPClientWithCaps):
+        resp = await c.post("/api/mcp-sources/src-test-connect-1/test/connect")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "ok"
+    assert "capabilities" in body
+    caps = body["capabilities"]
+    assert caps["tools"] == {}
+    assert caps["prompts"] == {"listChanged": True}
+
+
+async def test_test_connect_capabilities_preserves_none_values(client_and_repo) -> None:
+    """L1.6: model_dump shape preserved verbatim — None values are NOT dropped or renamed.
+
+    Edge case: server announcing {tools: {}, resources: None} produces
+    capabilities.resources is None in the response (no key invention).
+    """
+    c, repo = client_and_repo
+    src = await repo.get("src-test-connect-1")
+    src.secrets["dcr_credentials"] = {"client_id": "dcr-cid-none"}
+    src.secrets["access_token"] = "tok-none"
+    await repo.update(src)
+
+    # Capabilities with all-None except tools (empty dict)
+    sparse_capabilities = {
+        "tools": {},
+        "resources": None,
+        "prompts": None,
+        "logging": None,
+        "experimental": None,
+    }
+
+    class _MockMCPClientSparse:
+        def __init__(self, *, source, auth_provider=None, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def list_tools(self):
+            return []
+
+        @property
+        def server_capabilities(self):
+            return sparse_capabilities
+
+    with patch("the_one.mcp.client.MCPClient", _MockMCPClientSparse):
+        resp = await c.post("/api/mcp-sources/src-test-connect-1/test/connect")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "ok"
+    caps = body["capabilities"]
+    # None values must be present (not dropped by FastAPI serializer)
+    assert "resources" in caps
+    assert caps["resources"] is None
+    assert "tools" in caps
+    assert caps["tools"] == {}
 
 
 async def test_test_connect_consent_url_timeout(client_and_repo, monkeypatch) -> None:

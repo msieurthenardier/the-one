@@ -10,8 +10,8 @@ Coverage:
    7. acquire-cancellation-leaves-worker-running
    8. ``_load_source`` runs OUTSIDE the lock
    9. ``_clear_for_test`` cancels workers and empties pool
-  10. real-bwrap end-to-end (integration; ``@requires_bwrap``)
-  11. ``_evict`` primitive (integration; ``@requires_bwrap``)
+  10. real-bwrap end-to-end (integration; ``@pytest.mark.requires_bwrap``)
+  11. ``_evict`` primitive (integration; ``@pytest.mark.requires_bwrap``)
   12. ``_evict`` idempotent on missing key (smoke)
 
 Project-level pytest-asyncio is in ``auto`` mode (``pyproject.toml`` line
@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import shutil
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -32,11 +31,6 @@ from the_one.db.models import MCPSource
 from the_one.mcp import _pool as pool_mod
 from the_one.mcp._pool import acquire
 from the_one.mcp.errors import MCPConnectionError, MCPSandboxError
-
-requires_bwrap = pytest.mark.skipif(
-    shutil.which("bwrap") is None,
-    reason="bwrap required for real-subprocess integration tests",
-)
 
 
 # Autouse cleanup. The project uses pytest-asyncio in `auto` mode (verified
@@ -319,7 +313,7 @@ async def test_clear_for_test_cancels_workers_and_empties_pool(patch_client):
 # ─────────────────────────────────────────────────────────────────
 
 
-@requires_bwrap
+@pytest.mark.requires_bwrap
 async def test_acquire_real_bwrap_end_to_end_with_strict_floor_profile(
     monkeypatch,
     mcp_fixture_sandbox_profile,
@@ -351,7 +345,7 @@ async def test_acquire_real_bwrap_end_to_end_with_strict_floor_profile(
     assert len(tools) > 0
 
 
-@requires_bwrap
+@pytest.mark.requires_bwrap
 async def test_acquire_then_evict_via_internal_helper(
     monkeypatch,
     mcp_fixture_sandbox_profile,

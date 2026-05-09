@@ -147,7 +147,15 @@
       onDelete: callbacks.onDelete
     });
     window.App.studio.renderKnowledgeTab(knowledgePanel);
-    window.App.studio.renderMcpsTab(mcpsPanel);
+    // F8 L3 — extended signature: pass agent + allMcpSources + callbacks so
+    // the MCPs tab can render the chip-list, per-attachment editor, and
+    // credential override fields. Mirrors renderToolsTab's call site below.
+    window.App.studio.renderMcpsTab(mcpsPanel, agent, callbacks.allMcpSources, {
+      fetchMcpSourceTools: callbacks.fetchMcpSourceTools,
+      onChange: callbacks.onChange,
+      onSelectedSourceChange: callbacks.onSelectedMcpSourceChange,
+      pendingSourceId: callbacks.pendingMcpAgentSourceId
+    });
     window.App.studio.renderToolsTab(toolsPanel, agent, {
       toolCategories: callbacks.toolCategories,
       allTools: callbacks.allTools,

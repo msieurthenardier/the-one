@@ -107,4 +107,36 @@
   .area-studio .mcp-tool-name { font-family: var(--font-family-mono, monospace); font-size: var(--font-size-body-sm); font-weight: 600; }
   .area-studio .mcp-tool-description { padding: 4px 12px 12px 32px; font-size: var(--font-size-body-sm); color: var(--fg-secondary); line-height: 1.5; word-break: break-word; }
   .area-studio .mcp-tool-description-empty { font-style: italic; opacity: 0.7; }
+
+  /* F8 L2: Capability flags + per-tool schema view */
+  .area-studio .mcp-capability-flags { font-size: var(--font-size-body-sm); color: var(--fg-secondary); margin-top: 4px; }
+  .area-studio .mcp-capability-flags-empty { font-style: italic; opacity: 0.7; }
+  .area-studio .mcp-tool-schema { margin: 0 12px 8px 32px; }
+  .area-studio .mcp-tool-schema-summary { cursor: pointer; padding: 4px 0; font-size: var(--font-size-body-sm); color: var(--fg-secondary); user-select: none; }
+  .area-studio .mcp-tool-schema-summary:hover { color: var(--accent); }
+  .area-studio .mcp-tool-schema-content { font-family: var(--font-family-mono, monospace); font-size: var(--font-size-body-sm); background: var(--surface-elevated); border: 1px solid var(--border); border-radius: 4px; padding: 8px; margin: 4px 0 0; overflow-x: auto; max-height: 400px; overflow-y: auto; white-space: pre; word-break: normal; }
+
+  /* === Agent-editor MCPs tab: chip-list, per-attachment editor (F8 L3) === */
+  .area-studio .mcp-chip-list-header { font-size: var(--font-size-body-sm); color: var(--fg-secondary); margin: 0 0 8px; }
+  .area-studio .mcp-attach-chip-list { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 0; }
+  .area-studio .mcp-attach-chip-list .chip { padding: 6px 12px; border: 1px solid var(--border); border-radius: 16px; cursor: pointer; user-select: none; background: var(--surface); color: var(--fg-secondary); display: inline-flex; align-items: center; gap: 4px; }
+  .area-studio .mcp-attach-chip-list .chip:hover { border-color: var(--accent); color: var(--accent); }
+  .area-studio .mcp-attach-chip-list .chip-attached { background: var(--accent); color: var(--fg-on-accent, white); border-color: var(--accent); }
+  .area-studio .mcp-attach-chip-list .chip-attached:hover { opacity: 0.85; }
+  .area-studio .mcp-attach-chip-list .chip-transport-badge { font-size: 10px; opacity: 0.7; }
+  .area-studio .mcp-empty-state { padding: 24px; text-align: center; color: var(--fg-secondary); }
+  .area-studio .mcp-empty-state a { color: var(--accent); text-decoration: underline; }
+  .area-studio .mcp-editor-back-btn { margin-bottom: 12px; }
+  .area-studio .mcp-attachment-editor { display: flex; flex-direction: column; gap: 12px; }
+  .area-studio .mcp-editor-title { margin: 0; font-size: var(--font-size-body); }
+  .area-studio .mcp-editor-section { margin-top: 12px; }
+  .area-studio .mcp-editor-section h4 { margin: 0 0 8px; font-size: var(--font-size-body-sm); color: var(--fg-secondary); text-transform: uppercase; letter-spacing: 0.05em; }
+  .area-studio .mcp-refresh-tools-btn { margin-bottom: 8px; font-size: var(--font-size-body-sm); }
+  .area-studio .mcp-tools-body { margin-top: 4px; }
+  .area-studio .mcp-tools-checkbox-group { display: flex; flex-direction: column; gap: 4px; }
+  .area-studio .mcp-tool-toggle-label { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: var(--font-size-body-sm); }
+  .area-studio .mcp-tool-toggle-name { font-family: var(--font-family-mono, monospace); }
+  .area-studio .mcp-tool-toggle-hint { color: var(--fg-faint); font-size: 11px; }
+  .area-studio .mcp-auth-required-notice { padding: 12px; background: var(--surface-elevated); border-left: 3px solid var(--accent); border-radius: 4px; font-size: var(--font-size-body-sm); }
+  .area-studio .mcp-auth-required-notice a { color: var(--accent); text-decoration: underline; }
 }

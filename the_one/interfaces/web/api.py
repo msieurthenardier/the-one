@@ -873,6 +873,7 @@ async def test_mcp_connection(source_id: str) -> dict[str, Any]:
         try:
             async with MCPClient(source=source, auth_provider=provider_a) as client:
                 tools = await client.list_tools()
+                capabilities = client.server_capabilities  # F8 L1: snapshot inside async-with
             return {
                 "status": "ok",
                 "tools": [
@@ -883,6 +884,7 @@ async def test_mcp_connection(source_id: str) -> dict[str, Any]:
                     }
                     for t in tools
                 ],
+                "capabilities": capabilities,
             }
         except MCPAuthRequired:
             # Token expired/revoked. Bust pool cache BEFORE Phase B builds

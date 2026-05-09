@@ -35,8 +35,14 @@ App.registerArea({
       return 'mcp-sources';
     }
     if (this._activeSection === 'agents' && this._selectedAgent && !this._createMode) {
-      return 'agents/' + encodeURIComponent(this._selectedAgent.name) +
+      var base = 'agents/' + encodeURIComponent(this._selectedAgent.name) +
         '/' + (this._activeTab || 'general');
+      // F8 L3 Patch B — when on the MCPs tab AND a source-id is selected,
+      // append it so refresh preserves the per-attachment editor view.
+      if (this._activeTab === 'mcps' && this._selectedMcpAgentSourceId) {
+        return base + '/' + encodeURIComponent(this._selectedMcpAgentSourceId);
+      }
+      return base;
     }
     // Hydrate-before-loadAll race: when the user lands on
     // #studio/agents/{name}/{tab} but agents fetch hasn't completed,
@@ -104,11 +110,21 @@ App.registerArea({
       } else {
         pending = decodeURIComponent(rest.slice(0, slashIdx));
         var tab = rest.slice(slashIdx + 1);
+        // F8 L3 Patch A — split deeper "mcps/{source-id}" BEFORE the
+        // four-tab whitelist check. Without this, the whitelist would
+        // reject "mcps/some-uuid" and default to "general", breaking
+        // deep-link navigation (AC L3.6 + Browser Test 6).
+        var pendingMcpAgentSourceId = null;
+        if (tab.indexOf('mcps/') === 0) {
+          pendingMcpAgentSourceId = decodeURIComponent(tab.slice('mcps/'.length));
+          tab = 'mcps';
+        }
         if (tab === 'general' || tab === 'knowledge' || tab === 'mcps' || tab === 'tools') {
           pendingTab = tab;
         } else {
           pendingTab = 'general';
         }
+        this._pendingMcpAgentSourceId = pendingMcpAgentSourceId;  // consumed by renderMcpsTab
       }
     } else if (sub === 'agents' || !sub) {
       section = 'agents';
@@ -156,6 +172,10 @@ App.registerArea({
     self._createMode = false;
     self._activeSection = self._activeSection || 'agents';
     self._activeTab = self._activeTab || 'general';
+    // F8 L3 Patch C — selected source-id within the agent MCPs tab.
+    // Written by renderMcpsTab when a chip is clicked or a deep-link hydrates.
+    // Read by serializeState to append /{source-id} to the URL.
+    self._selectedMcpAgentSourceId = null;
     var dirty = false;
     var snapshot = '';
     // Tab handle returned by App.studio.renderAgentEditor — used for
@@ -594,6 +614,55 @@ App.registerArea({
     // survives across agent changes; schemas are static.
     var _schemaPromiseCache = {};
 
+    // F8 L3 — Lazy MCP-source tools fetcher. Closure-cached promise per
+    // sourceId (mirrors fetchToolSchema's pattern above). The cache stores
+    // the in-flight promise so concurrent callers reuse it. The cache
+    // survives across agent changes within the studio area lifetime; tools
+    // are static within a session (no rename within a session).
+    //
+    // On API `{status: "ok"}`: resolves with the full response object
+    // `{tools, capabilities, ...}`.
+    // On API `{status: "auth_required"}`: rejects with an Error whose
+    // .name === "AuthRequired" and .consent_url is the OAuth redirect URL.
+    // UI surfaces an inline notice; NEVER auto-trigger the popup from this
+    // surface — the source-edit page is the OAuth affordance.
+    // On API `{status: "error"}` or HTTP error: rejects with a generic
+    // Error; drops the cache entry so retries land on a fresh promise.
+    var _mcpSourceToolsCache = {};
+
+    function fetchMcpSourceTools(sourceId, options) {
+      options = options || {};
+      if (options.forceRefresh) {
+        delete _mcpSourceToolsCache[sourceId];
+      }
+      if (_mcpSourceToolsCache[sourceId]) return _mcpSourceToolsCache[sourceId];
+
+      var p = fetch('/api/mcp-sources/' + encodeURIComponent(sourceId) + '/test/connect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      }).then(function (r) {
+        if (!r.ok) {
+          throw new Error('fetchMcpSourceTools: HTTP ' + r.status);
+        }
+        return r.json();
+      }).then(function (data) {
+        if (data.status === 'ok') return data;
+        if (data.status === 'auth_required') {
+          var err = new Error('auth_required');
+          err.name = 'AuthRequired';
+          err.consent_url = data.consent_url;
+          throw err;
+        }
+        throw new Error(data.error || 'unknown error from fetchMcpSourceTools');
+      }).catch(function (err) {
+        // Drop the cached promise on any error so next call retries.
+        delete _mcpSourceToolsCache[sourceId];
+        throw err;
+      });
+      _mcpSourceToolsCache[sourceId] = p;
+      return p;
+    }
+
     function fetchToolSchema(name) {
       if (_schemaPromiseCache[name]) return _schemaPromiseCache[name];
       var p = fetch('/api/tools/configs/' + encodeURIComponent(name)).then(function (r) {
@@ -868,7 +937,18 @@ App.registerArea({
         // schema fetcher is closure-cached and survives agent changes.
         disabledTools: self._disabledTools,
         operatorConfigs: self._operatorConfigs,
-        fetchToolSchema: fetchToolSchema
+        fetchToolSchema: fetchToolSchema,
+        // F8 L3 — MCP source list + per-source tools fetcher for MCPs tab.
+        allMcpSources: self._allMcpSources,
+        fetchMcpSourceTools: fetchMcpSourceTools,
+        pendingMcpAgentSourceId: self._pendingMcpAgentSourceId || null,
+        // Callback so renderMcpsTab can notify studio.js when the selected
+        // source changes (chip click → per-attachment editor). studio.js
+        // updates _selectedMcpAgentSourceId and syncs the URL.
+        onSelectedMcpSourceChange: function (sourceId) {
+          self._selectedMcpAgentSourceId = sourceId;
+          writeUrl_();
+        }
       });
 
       // Wire field-level dirty tracking + provider-change side-effects.
@@ -889,6 +969,9 @@ App.registerArea({
     function setActiveTab(tab, options) {
       options = options || {};
       var writeUrl = options.writeUrl !== false;
+      // F8 L3: clear per-source selection when leaving the MCPs tab so the
+      // URL doesn't carry a stale /{source-id} when switching to another tab.
+      if (tab !== 'mcps') self._selectedMcpAgentSourceId = null;
       self._activeTab = tab;
       if (tabHandle && tabHandle.getActive() !== tab) {
         tabHandle.activate(tab);
@@ -909,6 +992,7 @@ App.registerArea({
       self._createMode = false;
       dirty = false;
       self._activeTab = 'general';
+      self._selectedMcpAgentSourceId = null;  // F8 L3: clear per-source selection
       renderEmptyEditor();
       renderAgentList();
       updateContentVisibility();
@@ -1246,6 +1330,76 @@ App.registerArea({
         overrides[toolName][fieldName] = v;
       }
       data.tool_overrides = Object.keys(overrides).length > 0 ? overrides : null;
+
+      // F8 L3 — Walk mcp_overrides selectors. Mirrors the tool_overrides
+      // walk above, but groups by source-name (data-mcp-override-source)
+      // instead of tool-name. Per-tool checkboxes are handled separately
+      // below via [data-mcp-tool-toggle][data-mcp-source].
+      var mcpOverrideEls = editorEl.querySelectorAll(
+        '[data-mcp-override-source][data-mcp-override-field]'
+      );
+      var mcpOverrides = {};
+      for (var mi = 0; mi < mcpOverrideEls.length; mi++) {
+        var me = mcpOverrideEls[mi];
+        if (me.classList && me.classList.contains('field-row')) continue;
+        var mSourceName = me.dataset.mcpOverrideSource;
+        var mFieldName = me.dataset.mcpOverrideField;
+        if (!mSourceName || !mFieldName) continue;
+        var mv = helpers ? helpers.readFieldValue(me) : null;
+        if (mv === null || mv === undefined) continue;
+        if (Array.isArray(mv) && mv.length === 0) continue;
+        if (typeof mv === 'string' && mv === '') continue;
+        if (!mcpOverrides[mSourceName]) mcpOverrides[mSourceName] = {};
+        mcpOverrides[mSourceName][mFieldName] = mv;
+      }
+
+      // Per-tool checkbox toggles within each attached source. Each
+      // checkbox carries `data-mcp-tool-toggle` (un-prefixed tool name)
+      // and `data-mcp-source` (source name). The wrapping group element
+      // carries `data-mcp-tool-mode={"allowlist"|"denylist"}` declared at
+      // render time based on the agent's existing override shape.
+      //
+      // Mode semantics:
+      //   - denylist (default for new attachments): collect un-checked
+      //     tools into disabled_tools.
+      //   - allowlist (when agent already has enabled_tools set): collect
+      //     checked tools into enabled_tools.
+      var toggleEls = editorEl.querySelectorAll('[data-mcp-tool-toggle][data-mcp-source]');
+      var enabledBySource = {};
+      var disabledBySource = {};
+      var modeBySource = {};
+      for (var ti = 0; ti < toggleEls.length; ti++) {
+        var te = toggleEls[ti];
+        var srcName = te.dataset.mcpSource;
+        var tlName = te.dataset.mcpToolToggle;
+        if (!srcName || !tlName) continue;
+        var groupEl = te.closest('[data-mcp-tool-group]');
+        var mode = (groupEl && groupEl.dataset.mcpToolMode) || 'denylist';
+        modeBySource[srcName] = mode;
+        if (mode === 'allowlist') {
+          if (te.checked) {
+            if (!enabledBySource[srcName]) enabledBySource[srcName] = [];
+            enabledBySource[srcName].push(tlName);
+          }
+        } else {
+          if (!te.checked) {
+            if (!disabledBySource[srcName]) disabledBySource[srcName] = [];
+            disabledBySource[srcName].push(tlName);
+          }
+        }
+      }
+      for (var sname in modeBySource) {
+        if (!mcpOverrides[sname]) mcpOverrides[sname] = {};
+        if (modeBySource[sname] === 'allowlist') {
+          mcpOverrides[sname].enabled_tools = enabledBySource[sname] || [];
+        } else {
+          if (disabledBySource[sname] && disabledBySource[sname].length > 0) {
+            mcpOverrides[sname].disabled_tools = disabledBySource[sname];
+          }
+        }
+      }
+
+      data.mcp_overrides = Object.keys(mcpOverrides).length > 0 ? mcpOverrides : null;
 
       return data;
     }

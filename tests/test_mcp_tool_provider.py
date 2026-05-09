@@ -787,6 +787,226 @@ class TestMCPToolProvider:
         names = sorted(t.name for t in tools)
         assert names == ["mcp__github__do_a", "mcp__github__do_b"]
 
+    # ===========================================================================
+    # F8 L1 — per-source tool allow/deny filter tests
+    # ===========================================================================
+
+    async def test_get_tools_for_agent_applies_enabled_tools_allowlist(
+        self, patch_provider_deps, monkeypatch
+    ) -> None:
+        """L1.5: enabled_tools allowlist: only the named tool passes the filter."""
+        src = _stub_source(source_id="src-1", name="src", type="stdio")
+        patch_provider_deps.get = AsyncMock(return_value=src)
+
+        client = _stub_mcp_client([
+            _stub_mcp_tool("read"),
+            _stub_mcp_tool("write"),
+            _stub_mcp_tool("delete"),
+        ])
+
+        async def _stub_acquire(*args, **kwargs):
+            return client
+
+        monkeypatch.setattr(provider_mod, "acquire", _stub_acquire)
+
+        cfg = AgentConfig(
+            name="a",
+            mcp_source_ids=["src-1"],
+            mcp_overrides={"src": {"enabled_tools": ["read"]}},
+        )
+        tools = await MCPToolProvider().get_tools_for_agent(cfg, agent_name="agent-a")
+        names = [t.name for t in tools]
+        assert names == ["mcp__src__read"]
+
+    async def test_get_tools_for_agent_applies_disabled_tools_denylist(
+        self, patch_provider_deps, monkeypatch
+    ) -> None:
+        """L1.5: disabled_tools denylist: named tool removed, others pass."""
+        src = _stub_source(source_id="src-1", name="src", type="stdio")
+        patch_provider_deps.get = AsyncMock(return_value=src)
+
+        client = _stub_mcp_client([
+            _stub_mcp_tool("read"),
+            _stub_mcp_tool("write"),
+            _stub_mcp_tool("delete"),
+        ])
+
+        async def _stub_acquire(*args, **kwargs):
+            return client
+
+        monkeypatch.setattr(provider_mod, "acquire", _stub_acquire)
+
+        cfg = AgentConfig(
+            name="a",
+            mcp_source_ids=["src-1"],
+            mcp_overrides={"src": {"disabled_tools": ["delete"]}},
+        )
+        tools = await MCPToolProvider().get_tools_for_agent(cfg, agent_name="agent-a")
+        names = sorted(t.name for t in tools)
+        assert names == ["mcp__src__read", "mcp__src__write"]
+
+    async def test_get_tools_for_agent_applies_intersection_filter(
+        self, patch_provider_deps, monkeypatch
+    ) -> None:
+        """L1.5: intersection — enabled_tools + disabled_tools overlap: disabled wins."""
+        src = _stub_source(source_id="src-1", name="src", type="stdio")
+        patch_provider_deps.get = AsyncMock(return_value=src)
+
+        client = _stub_mcp_client([
+            _stub_mcp_tool("read"),
+            _stub_mcp_tool("write"),
+            _stub_mcp_tool("delete"),
+        ])
+
+        async def _stub_acquire(*args, **kwargs):
+            return client
+
+        monkeypatch.setattr(provider_mod, "acquire", _stub_acquire)
+
+        cfg = AgentConfig(
+            name="a",
+            mcp_source_ids=["src-1"],
+            mcp_overrides={"src": {"enabled_tools": ["read", "write"], "disabled_tools": ["write"]}},
+        )
+        tools = await MCPToolProvider().get_tools_for_agent(cfg, agent_name="agent-a")
+        names = [t.name for t in tools]
+        assert names == ["mcp__src__read"]
+
+    async def test_get_tools_for_agent_empty_enabled_list_drops_all(
+        self, patch_provider_deps, monkeypatch
+    ) -> None:
+        """L1.5: empty enabled_tools list filters out ALL tools from the source."""
+        src = _stub_source(source_id="src-1", name="src", type="stdio")
+        patch_provider_deps.get = AsyncMock(return_value=src)
+
+        client = _stub_mcp_client([
+            _stub_mcp_tool("read"),
+            _stub_mcp_tool("write"),
+        ])
+
+        async def _stub_acquire(*args, **kwargs):
+            return client
+
+        monkeypatch.setattr(provider_mod, "acquire", _stub_acquire)
+
+        cfg = AgentConfig(
+            name="a",
+            mcp_source_ids=["src-1"],
+            mcp_overrides={"src": {"enabled_tools": []}},
+        )
+        tools = await MCPToolProvider().get_tools_for_agent(cfg, agent_name="agent-a")
+        assert tools == []
+
+    async def test_get_tools_for_agent_disabled_unknown_tool_is_noop(
+        self, patch_provider_deps, monkeypatch
+    ) -> None:
+        """L1.5: disabled_tools naming a non-existent tool: no-op, no error."""
+        src = _stub_source(source_id="src-1", name="src", type="stdio")
+        patch_provider_deps.get = AsyncMock(return_value=src)
+
+        client = _stub_mcp_client([
+            _stub_mcp_tool("read"),
+            _stub_mcp_tool("write"),
+        ])
+
+        async def _stub_acquire(*args, **kwargs):
+            return client
+
+        monkeypatch.setattr(provider_mod, "acquire", _stub_acquire)
+
+        cfg = AgentConfig(
+            name="a",
+            mcp_source_ids=["src-1"],
+            mcp_overrides={"src": {"disabled_tools": ["nonexistent_tool"]}},
+        )
+        tools = await MCPToolProvider().get_tools_for_agent(cfg, agent_name="agent-a")
+        names = sorted(t.name for t in tools)
+        assert names == ["mcp__src__read", "mcp__src__write"]
+
+    async def test_get_tools_for_agent_no_override_entry_passes_through_full_list(
+        self, patch_provider_deps, monkeypatch
+    ) -> None:
+        """L1.5: no override entry for the source → full tool list registered (current behavior preserved)."""
+        src = _stub_source(source_id="src-1", name="src", type="stdio")
+        patch_provider_deps.get = AsyncMock(return_value=src)
+
+        client = _stub_mcp_client([
+            _stub_mcp_tool("read"),
+            _stub_mcp_tool("write"),
+            _stub_mcp_tool("delete"),
+        ])
+
+        async def _stub_acquire(*args, **kwargs):
+            return client
+
+        monkeypatch.setattr(provider_mod, "acquire", _stub_acquire)
+
+        cfg = AgentConfig(
+            name="a",
+            mcp_source_ids=["src-1"],
+            # No mcp_overrides for "src"
+        )
+        tools = await MCPToolProvider().get_tools_for_agent(cfg, agent_name="agent-a")
+        names = sorted(t.name for t in tools)
+        assert names == ["mcp__src__delete", "mcp__src__read", "mcp__src__write"]
+
+    async def test_get_tools_for_agent_filter_uses_unprefixed_names(
+        self, patch_provider_deps, monkeypatch
+    ) -> None:
+        """L1.2: filter matches un-prefixed mt.name (e.g. 'read_file', NOT 'mcp__src__read_file')."""
+        src = _stub_source(source_id="src-1", name="src", type="stdio")
+        patch_provider_deps.get = AsyncMock(return_value=src)
+
+        client = _stub_mcp_client([
+            _stub_mcp_tool("read_file"),
+            _stub_mcp_tool("write_file"),
+        ])
+
+        async def _stub_acquire(*args, **kwargs):
+            return client
+
+        monkeypatch.setattr(provider_mod, "acquire", _stub_acquire)
+
+        cfg = AgentConfig(
+            name="a",
+            mcp_source_ids=["src-1"],
+            # Using un-prefixed name in allowlist
+            mcp_overrides={"src": {"enabled_tools": ["read_file"]}},
+        )
+        tools = await MCPToolProvider().get_tools_for_agent(cfg, agent_name="agent-a")
+        assert len(tools) == 1
+        assert tools[0].name == "mcp__src__read_file"
+
+    async def test_get_tools_for_agent_filter_with_streamable_http_source(
+        self, patch_provider_deps, monkeypatch
+    ) -> None:
+        """L1.5: filter applies to streamable-http sources, not just stdio."""
+        src = _stub_source(
+            source_id="src-1", name="src", type="streamable-http",
+            secrets={"dcr_credentials": {"client_id": "x"}, "access_token": "tok"},
+        )
+        patch_provider_deps.get = AsyncMock(return_value=src)
+
+        client = _stub_mcp_client([
+            _stub_mcp_tool("search"),
+            _stub_mcp_tool("fetch"),
+            _stub_mcp_tool("embed"),
+        ])
+
+        async def _stub_acquire(*args, **kwargs):
+            return client
+
+        monkeypatch.setattr(provider_mod, "acquire", _stub_acquire)
+
+        cfg = AgentConfig(
+            name="a",
+            mcp_source_ids=["src-1"],
+            mcp_overrides={"src": {"enabled_tools": ["search", "fetch"]}},
+        )
+        tools = await MCPToolProvider().get_tools_for_agent(cfg, agent_name="agent-a")
+        names = sorted(t.name for t in tools)
+        assert names == ["mcp__src__fetch", "mcp__src__search"]
+
     async def test_override_applies_correctly(
         self, patch_provider_deps, monkeypatch
     ) -> None:

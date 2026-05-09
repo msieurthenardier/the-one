@@ -19,6 +19,7 @@ Any browser-test compromises are documented in the flight log Anomalies section.
 from __future__ import annotations
 
 import httpx
+import json
 import pytest
 from playwright.sync_api import Page, expect
 
@@ -176,3 +177,199 @@ def test_test_connection_button_click_shows_result(
 
     # Button is re-enabled (settle() ran on terminal state).
     expect(test_btn).not_to_be_disabled()
+
+
+# ─── F8 L2: Tools-polish browser tests ────────────────────────────────────
+# These tests use page.route() to mock /api/mcp-sources/{id}/test/connect with
+# a synthetic JSON payload so the UI renders without a real MCP server.
+#
+# PATTERN (first use of page.route() in this codebase — referenceable for L3):
+#   1. Seed a real source via _seed_mcp_source (so the page loads its edit form).
+#   2. Register a route handler with page.route() BEFORE page.goto() so the
+#      interceptor is in place when the page loads and the user clicks Test.
+#   3. The handler calls route.fulfill(status=..., content_type=..., body=...)
+#      synchronously — no await needed (Playwright Python sync API).
+#   4. Assert the rendered DOM after clicking the Test connection button.
+#
+# Use route.fulfill(body=json.dumps(...)) rather than route.fulfill(json={...})
+# because the sync Playwright API (1.x) doesn't always support the `json=`
+# keyword shorthand. Passing `body` + `content_type` is explicit and portable.
+
+
+@pytest.mark.browser
+def test_capability_flags_render_for_announced_capabilities(
+    app_clean: str, page: Page
+) -> None:
+    """L2.1: capability flags show the spec-defined keys whose values are non-null.
+
+    Stubs /test/connect to return capabilities with tools+resources announced
+    (non-null) and prompts/logging/completions/tasks as None. Asserts the
+    rendered .mcp-capability-flags one-liner contains exactly the announced
+    capabilities and none of the un-announced ones.
+    """
+    sid = _seed_mcp_source(app_clean, {
+        "name": "polish-cap-source",
+        "type": "streamable-http",
+        "config": {"url": "https://example.com/mcp"},
+        "secrets": {},
+    })
+
+    stub_payload = {
+        "status": "ok",
+        "tools": [{"name": "echo", "description": "echo back", "input_schema": {}}],
+        "capabilities": {
+            "tools": {},
+            "resources": {},
+            "prompts": None,
+            "logging": None,
+            "completions": None,
+            "tasks": None,
+        },
+    }
+
+    def handle_test_connect(route):
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(stub_payload),
+        )
+
+    page.route(f"**/api/mcp-sources/{sid}/test/connect", handle_test_connect)
+
+    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+
+    test_btn = page.locator('[data-testid="mcp-test-connection"]')
+    test_btn.click()
+
+    flags = page.locator(".mcp-capability-flags")
+    expect(flags).to_be_visible(timeout=4000)
+    # Positive assertions: tools and resources were non-null → rendered.
+    expect(flags).to_contain_text("tools")
+    expect(flags).to_contain_text("resources")
+    # Negative assertions: prompts/logging/completions/tasks were null → not rendered.
+    flags_text = flags.inner_text()
+    assert "prompts" not in flags_text
+    assert "logging" not in flags_text
+    assert "completions" not in flags_text
+    assert "tasks" not in flags_text
+
+
+@pytest.mark.browser
+def test_input_schema_collapsible_renders_pretty_json(
+    app_clean: str, page: Page
+) -> None:
+    """L2.3: input_schema renders inside a nested <details>; opens to show pretty JSON.
+
+    Stubs /test/connect to return one tool with a non-empty input_schema.
+    Expands the outer tool <details>, then the inner schema <details>, and
+    asserts the <pre> body contains the exact pretty-printed JSON.
+    """
+    sid = _seed_mcp_source(app_clean, {
+        "name": "polish-schema-source",
+        "type": "streamable-http",
+        "config": {"url": "https://example.com/mcp"},
+        "secrets": {},
+    })
+
+    schema = {"type": "object", "properties": {"x": {"type": "string"}}}
+    stub_payload = {
+        "status": "ok",
+        "tools": [{"name": "echo", "description": "echo back", "input_schema": schema}],
+        "capabilities": {
+            "tools": {},
+            "resources": None,
+            "prompts": None,
+            "logging": None,
+            "completions": None,
+            "tasks": None,
+        },
+    }
+
+    def handle_test_connect(route):
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(stub_payload),
+        )
+
+    page.route(f"**/api/mcp-sources/{sid}/test/connect", handle_test_connect)
+
+    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+
+    page.locator('[data-testid="mcp-test-connection"]').click()
+
+    # Wait for the tools list to render.
+    expect(page.locator('[data-testid="mcp-tools-list"]')).to_be_visible(timeout=4000)
+
+    # Expand the outer tool <details> to reveal the nested schema toggle.
+    outer_details = page.locator(".mcp-tool-item").first
+    outer_details.locator(".mcp-tool-summary").click()
+
+    # The nested schema <details> and its summary should now be visible.
+    schema_summary = page.locator(".mcp-tool-schema-summary")
+    expect(schema_summary).to_be_visible(timeout=4000)
+
+    # Click to expand the schema <details>.
+    schema_summary.click()
+
+    # The <pre> content block should become visible with the exact JSON.
+    pre = page.locator(".mcp-tool-schema-content")
+    expect(pre).to_be_visible()
+    expected_json = json.dumps(schema, indent=2)
+    expect(pre).to_have_text(expected_json)
+
+
+@pytest.mark.browser
+def test_empty_input_schema_does_not_render_schema_details(
+    app_clean: str, page: Page
+) -> None:
+    """L2.4 (negative): tools with input_schema: {} do NOT get a nested schema view.
+
+    Stubs /test/connect to return one tool with an empty dict input_schema.
+    Expands the outer tool <details> and asserts .mcp-tool-schema is absent.
+    """
+    sid = _seed_mcp_source(app_clean, {
+        "name": "polish-empty-schema-source",
+        "type": "streamable-http",
+        "config": {"url": "https://example.com/mcp"},
+        "secrets": {},
+    })
+
+    stub_payload = {
+        "status": "ok",
+        "tools": [{"name": "echo", "description": "echo back", "input_schema": {}}],
+        "capabilities": {
+            "tools": {},
+            "resources": None,
+            "prompts": None,
+            "logging": None,
+            "completions": None,
+            "tasks": None,
+        },
+    }
+
+    def handle_test_connect(route):
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(stub_payload),
+        )
+
+    page.route(f"**/api/mcp-sources/{sid}/test/connect", handle_test_connect)
+
+    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+
+    page.locator('[data-testid="mcp-test-connection"]').click()
+
+    # Wait for the tools list to render.
+    expect(page.locator('[data-testid="mcp-tools-list"]')).to_be_visible(timeout=4000)
+
+    # Expand the outer tool <details> — schema toggle must NOT appear.
+    outer_details = page.locator(".mcp-tool-item").first
+    outer_details.locator(".mcp-tool-summary").click()
+
+    # Negative assertion: empty input_schema → no .mcp-tool-schema element.
+    expect(page.locator(".mcp-tool-schema")).to_have_count(0)
