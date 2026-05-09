@@ -337,6 +337,18 @@ The F3 sandbox layer wraps every locally-spawned stdio MCP server in a strict-by
 
 - Forward-references in this section name symbols (`MCPSandbox`, `SandboxProfile`, `SpawnSpec`, `MCPSandboxError`) that L2 lands; this F3 contract section is authoritative for the contracts, and the symbols themselves are authoritative for the implementation. Readers landing between L1b and L2 should treat the symbols as named-but-not-yet-importable.
 
+## MCP Error Translation Contracts
+
+`MCPClient.{connect, list_tools, call_tool}` raise one of: `MCPVersionMismatch`, `MCPAuthRequired`, `MCPSandboxError` (stdio only), or `MCPConnectionError` (catchall). `MCPToolProvider.get_tools_for_agent` graceful-skips all four. Adding a fifth typed exception requires updating BOTH the translator and the consumer's match list.
+
+**Nested `try/except*` for `connect()`** — Python (PEP 654) forbids mixing `except` and `except*` in one block, so when an existing `except RuntimeError` must stay (version-mismatch path), the new OAuth `except*` nests inside its own innermost `try`. See `the_one/mcp/client.py:238-273`. `list_tools`/`call_tool` use a flat shape because they have no `except` siblings to preserve. Don't "tidy up" the asymmetry.
+
+**`connect()` translates 401 from three distinct sources** — inner `except* (OAuthFlowError, OAuthTokenError)` (SDK auth pre-HTTP), outer `BaseExceptionGroup.subgroup(httpx.HTTPStatusError)` walk (server 401 with `WWW-Authenticate` → `resource_metadata_url`), and `except asyncio.CancelledError` (cleanup-deadlock races, post-F6.6 narrowed to non-OAuth/non-401 only — narrowing is preserved by comments, not structure). Don't collapse them.
+
+**No `except MCPAuthRequired: raise` guard needed in `connect()`** — its outer `except (MCPClientError, NotImplementedError): … raise` already propagates `MCPAuthRequired` cleanly. `list_tools`/`call_tool` DO need the guard because their outer `except McpError` would re-wrap. Asymmetry by design.
+
+**Synthetic chat-session-id pattern** — three csid shapes pass through `the_one/mcp/oauth/handlers.py::redirect_handler`: real csids (12-char `[0-9a-f]` hex, per chat WS), `f"test:{source_id}"` (Test connection endpoint), `f"agent_build:{source.id}"` (`_pool._entry_worker` when OAuth tokens persisted outside a chat path). Disjoint by character-set construction — hex cannot produce `:`. Synthetic csids no-op the `auth_required` broadcast (no chat UI to surface a modal). Full contract in `handlers.py` module docstring.
+
 **iOS-toggle CSS positioning trap** — the grid tile's `.tool-enable-switch` is `position: absolute; bottom: 12px; right: 12px;` (designed for a `position: relative` tile container). Reusing the same widget inside an editor row requires an unpinning override (`.tools-editor-enabled-row .tool-enable-switch { position: relative; bottom: auto; right: auto; }`) — without this, the toggle floats off-screen relative to the document. See `admin.css:243-252` for the override.
 
 **Shared form helpers** — `window.App.adminFormHelpers` (at `the_one/interfaces/web/static/js/areas/admin/tools-form-helpers.js`) is the canonical form-rendering substrate, consumed by both admin (`tools-editor.js`) and Studio (`studio/tools-tab.js`). Future flights extending tool-config UI consume these helpers via the context object: `{mode: 'admin' | 'agent', operatorValue?: any, attrPrefix: 'data-field' | 'data-tool-override-field', toolName?: string}`. Owned by `admin/` because admin was the first consumer; future migration to `shared/` if a third area imports.
@@ -344,6 +356,10 @@ The F3 sandbox layer wraps every locally-spawned stdio MCP server in a strict-by
 **Lazy schema fetch caches the PROMISE** — Studio's per-agent override panels lazy-fetch each tool's schema on first `<details>` open. The closure cache stores the in-flight Promise (NOT the resolved value), so concurrent callers (operator opens + closes + opens fast) reuse the same fetch. The cache survives across agent changes within the studio area lifetime — schemas are static at runtime. Operator's saved `tool_configs` and `disabledTools` are RE-fetched on every agent-edit mount (those can change between tabs).
 
 **Validation-error humanization** — Pydantic v2's raw error messages start with prefixes like `"Value error, "` / `"Input should be "` / `"Assertion failed, "`. The L3 editor's `humanizeValidationMsg` helper (mirrored in `tools-editor.js` and `tools-form-helpers.js`) strips these and capitalizes the first character. Model-level errors (`loc: []`) render in the prominent `.editor-error-banner` above the Configuration section; field-level errors (`loc` matching a `[data-field-name]` row) render inline next to the field via `.field-error`. Heuristic field-name matching for model-level errors highlights the offending rows via `.field-error-highlight` (red border + label tint).
+
+## MCP Sources operator workflows
+
+**Test connection button** — Each MCP source's Studio source-edit page (Studio → MCP Sources → select source → Edit) exposes a Test connection button. Clicking it invokes `POST /api/mcp-sources/{id}/test/connect` against the live source: `MCPClient.connect()` runs the lifecycle handshake and `list_tools()` returns the server's tool catalogue. For OAuth-protected sources, the first click drives the spec-compliant DCR + auth-code flow in a popup — operator completes consent at the IdP, tokens persist encrypted in `secrets`, and the second click renders the tool list. Side effect: subsequent agent builds attached to the source see fresh tokens (`access_token`, `refresh_token`, `dcr_credentials`) and register the server's real tools, closing the auth-on-`tools/list` blocking gap.
 
 ## Configuration
 

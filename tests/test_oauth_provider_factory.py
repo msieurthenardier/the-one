@@ -104,6 +104,41 @@ async def test_factory_wires_client_metadata_with_loopback_redirect(repo_with_so
     assert redirect.endswith("/api/oauth/callback")
 
 
+async def test_factory_with_allow_dcr_bootstrap_constructs_provider_for_unregistered_source(
+    repo_with_source,
+) -> None:
+    """F6.5 L3 — ``allow_dcr_bootstrap=True`` constructs an
+    ``OAuthClientProvider`` even when ``dcr_credentials`` is absent.
+
+    The Test connection endpoint uses this path: an operator clicks Test on
+    a freshly-saved source with no creds; the SDK runs DCR + auth in one
+    round-trip; tokens persist. Without ``allow_dcr_bootstrap=True`` the
+    factory returns None (the lazy 401 path), which is the chat-path default.
+    """
+    repo, source = repo_with_source
+    # Negative control — same call without the bootstrap flag returns None
+    # because ``dcr_credentials`` is absent. Documents the boundary in one
+    # test.
+    no_bootstrap = build_oauth_provider_for_source(
+        source, repo, "test:src-factory-1"
+    )
+    assert no_bootstrap is None
+
+    # Bootstrap path — non-None ``OAuthClientProvider`` is returned even
+    # though ``dcr_credentials`` is absent. Reached only when
+    # ``allow_dcr_bootstrap=True`` AND ``chat_session_id`` is non-None
+    # AND ``dcr_credentials`` is absent.
+    result = build_oauth_provider_for_source(
+        source,
+        repo,
+        "test:src-factory-1",
+        source_id="src-factory-1",
+        allow_dcr_bootstrap=True,
+    )
+    assert result is not None
+    assert isinstance(result, OAuthClientProvider)
+
+
 async def test_factory_threads_consent_url_future(repo_with_source) -> None:
     """F6.5 L3 — consent_url_future is forwarded to make_oauth_handlers.
 

@@ -442,12 +442,86 @@ class TestMCPClientLifecycle:
             await c.connect()
         # Verbatim substring lock per `verbatim-message-equality` convention.
         assert "cancelled during initialize" in str(exc_info.value)
+        # F6.6 L1: post-narrowing, the CancelledError block's message no
+        # longer speculates about "401 Unauthorized" — OAuth-flow
+        # exceptions are caught upstream by the inner `except*` block,
+        # and transport-layer 401s are caught by the outer
+        # BaseExceptionGroup walk. Neither path reaches CancelledError.
+        assert "401" not in str(exc_info.value)
         assert c.is_alive is False
         # Abandon-cleanup invariant: stack + session cleared so a subsequent
         # disconnect() is a no-op (mirrors the F2-known-issue idempotent-
         # disconnect contract).
         assert c._transport_stack is None
         assert c._session is None
+
+    async def test_connect_oauth_flow_error_raises_mcp_auth_required(
+        self, patch_transport, mock_session
+    ) -> None:
+        """F6.6 L1: OAuthFlowError raised inside session.initialize() translates
+        to MCPAuthRequired with the standard auth-pending discriminator shape.
+
+        Mirrors F6.5 L2's list_tools pattern against the same SDK exception
+        surface (mcp.client.auth.exceptions), but at the connect-time entry
+        point. The new innermost `except* (OAuthFlowError, OAuthTokenError)`
+        block in MCPClient.connect translates the SDK's auth-flow exception
+        to MCPAuthRequired, closing the F6.5 Design Decision §3 deferral.
+        """
+        mock_session.initialize = AsyncMock(
+            side_effect=OAuthFlowError("auth flow failed during initialize")
+        )
+        patch_transport(mock_session)
+        c = MCPClient(_stdio_source())
+        with pytest.raises(MCPAuthRequired) as exc_info:
+            await c.connect()
+        assert exc_info.value.source_id == c.source.id
+        assert exc_info.value.resource_metadata_url is None
+        assert exc_info.value.consent_url is None
+
+    async def test_connect_oauth_token_error_raises_mcp_auth_required(
+        self, patch_transport, mock_session
+    ) -> None:
+        """F6.6 L1: OAuthTokenError raised inside session.initialize() translates
+        to MCPAuthRequired (same shape as the OAuthFlowError case).
+
+        OAuthTokenError covers the refresh-failure subset of the SDK's auth
+        exceptions; OAuthFlowError covers discovery + DCR. Both are members
+        of the `except*` tuple and resolve identically via the new
+        innermost translation block.
+        """
+        mock_session.initialize = AsyncMock(
+            side_effect=OAuthTokenError("token error during initialize")
+        )
+        patch_transport(mock_session)
+        c = MCPClient(_stdio_source())
+        with pytest.raises(MCPAuthRequired) as exc_info:
+            await c.connect()
+        assert exc_info.value.source_id == c.source.id
+        assert exc_info.value.resource_metadata_url is None
+        assert exc_info.value.consent_url is None
+
+    async def test_connect_oauth_error_in_exception_group_raises_mcp_auth_required(
+        self, patch_transport, mock_session
+    ) -> None:
+        """F6.6 L1: the SDK's anyio task-group can wrap OAuth exceptions in a
+        BaseExceptionGroup; `except*` matches both bare and grouped shapes.
+
+        Mirrors F6.5 L2's `except*` semantics — a regression that uses bare
+        `except` instead of `except*` would fail this test specifically
+        because BaseExceptionGroup is a BaseException, not the wrapped
+        OAuthFlowError, and a non-`except*` clause would not unwrap it.
+        """
+        mock_session.initialize = AsyncMock(
+            side_effect=BaseExceptionGroup(
+                "auth-flow-group",
+                [OAuthFlowError("inner auth-flow failure")],
+            )
+        )
+        patch_transport(mock_session)
+        c = MCPClient(_stdio_source())
+        with pytest.raises(MCPAuthRequired) as exc_info:
+            await c.connect()
+        assert exc_info.value.source_id == c.source.id
 
     async def test_disconnect_idempotent(self, patch_transport, mock_session) -> None:
         """Disconnect on never-connected client is a no-op; double-disconnect is a no-op."""

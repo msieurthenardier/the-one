@@ -266,6 +266,15 @@
   window.App = window.App || {};
   Object.assign(window.App, {
     registerArea: registerArea,
+    // F6.6 L0: export the area registry as an ARRAY (the closure-private
+    // ``order`` list, not the dict ``areas``) so consumers can use
+    // ``Array.prototype.find`` semantics. The chat-area browser-test helper
+    // at ``tests/browser/test_oauth_modal_flow.py:42`` calls
+    // ``window.App.areas.find(a => a.id === 'chat')`` — ``.find()`` is
+    // ``Array.prototype``, NOT a method on plain objects, so a dict export
+    // (``areas: areas``) would mechanically fail. See flight log
+    // ``Deviations`` for the rationale.
+    areas: order,
     router: {
       parseHash: parseHash,
       /**
