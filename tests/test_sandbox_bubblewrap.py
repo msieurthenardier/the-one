@@ -119,6 +119,32 @@ def test_prepare_spawn_with_writable_paths() -> None:
     assert d_idx < c_idx
 
 
+def test_prepare_spawn_argv_three_way_order_ro_bind_tmpfs_bind() -> None:
+    """A03 fix: --ro-bind / / precedes --tmpfs /tmp precedes --bind PATH PATH.
+
+    This locks the post-A03 ordering so a future refactor can't
+    silently re-introduce the shadowing bug where writable paths
+    under /tmp got overlaid by the tmpfs.
+    """
+    sb = BubblewrapSandbox()
+    spec = sb.prepare_spawn(
+        SandboxProfile(writable_paths=["/data"]),
+        "/bin/echo",
+        [],
+        {},
+    )
+    a = spec.args
+    ro_bind_idx = a.index("--ro-bind")
+    tmpfs_idx = a.index("--tmpfs")
+    data_idx = a.index("/data")
+    bind_idx = data_idx - 1  # --bind precedes the path
+    assert a[bind_idx] == "--bind"
+    assert ro_bind_idx < tmpfs_idx < bind_idx, (
+        f"Expected --ro-bind ({ro_bind_idx}) < --tmpfs ({tmpfs_idx}) "
+        f"< --bind ({bind_idx}); got argv: {a}"
+    )
+
+
 def test_prepare_spawn_with_network_allowed() -> None:
     """network_allowed=True omits --unshare-net."""
     sb = BubblewrapSandbox()

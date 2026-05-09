@@ -34,6 +34,7 @@ from the_one.encryption import get_encryptor
 from the_one.interfaces.web.api import router as api_router
 from the_one.interfaces.web.middleware import OriginAllowlistMiddleware, build_default_allowlist
 from the_one.llm.base import Role
+from the_one.mcp import shutdown_drain as _mcp_pool_shutdown_drain
 from the_one.tools._session_registry import shutdown_drain as _session_registry_shutdown_drain
 
 logger = logging.getLogger(__name__)
@@ -71,6 +72,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await _session_registry_shutdown_drain()
     except Exception:
         logger.exception("session registry shutdown failed")
+    # Drain the MCP source pool AFTER PTY drain (PTY may have shell-tool
+    # work that still needs MCP processes; let it complete first) and
+    # BEFORE DB close (drain may need source config from DB; precautionary
+    # — current design loads at register-time so this is forward-looking).
+    # See flight §12 for the lifespan-ordering contract; the drain-order
+    # spy test (#8) locks it against regression.
+    try:
+        await _mcp_pool_shutdown_drain()
+    except Exception:
+        logger.exception("MCP pool shutdown failed")
     await close_connection()
 
 

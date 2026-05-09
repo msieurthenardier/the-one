@@ -85,15 +85,21 @@ def _stub_stdio_client_factory(
     it receives and yields a (read, write) pair of MagicMocks.
 
     The yielded mocks are async-context-manager-compatible so they
-    interoperate with ``async with stdio_client(params) as (read, write)``.
-    The ``ClientSession`` constructed downstream is also patched (via the
-    caller-side ``patch``); this stub only needs to provide the read/write
-    slots and capture ``params``.
+    interoperate with ``async with stdio_client(params, errlog=...) as
+    (read, write)``. The ``ClientSession`` constructed downstream is also
+    patched (via the caller-side ``patch``); this stub only needs to
+    provide the read/write slots and capture ``params``. The ``errlog=``
+    kwarg (added by F4 L2's bwrap-stderr capture) is accepted but
+    ignored — these unit tests don't drive bwrap stderr through this
+    path; that's covered by ``test_mcp_sandbox_integration.py``'s real-
+    subprocess tests.
     """
 
     @asynccontextmanager
-    async def _stub(params: Any) -> Any:
+    async def _stub(params: Any, *, errlog: Any = None) -> Any:
         captured["params"] = params
+        if errlog is not None:
+            captured["errlog"] = errlog
         yield (MagicMock(name="read"), MagicMock(name="write"))
 
     return _stub

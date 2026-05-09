@@ -37,6 +37,10 @@ MCP_DEFAULT_TIMEOUT_SECONDS = 30
 MCP_DEFAULT_CALL_TIMEOUT_SECONDS = 60
 """Default timeout for call_tool — legitimate tools may run longer (e.g. static analyzer)."""
 
+from the_one.mcp._pool import (  # noqa: E402  (constants first per F2 contract)
+    acquire,
+    shutdown_drain,
+)
 from the_one.mcp.client import MCPClient  # noqa: E402  (constants first per F2 contract)
 from the_one.mcp.errors import (  # noqa: E402  (constants first per F2 contract)
     MCPArgumentError,
@@ -66,4 +70,6 @@ __all__ = [
     "MCPToolNotFoundError",
     "MCPArgumentError",
     "MCPCallError",
+    "acquire",
+    "shutdown_drain",
 ]
