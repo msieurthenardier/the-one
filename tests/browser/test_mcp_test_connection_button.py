@@ -49,9 +49,16 @@ def test_test_connection_button_visible_for_streamable_http_edit_mode(
     expect(test_btn).to_be_visible()
     expect(test_btn).to_have_text("Test connection")
 
-    # Result panel initially hidden.
-    result_panel = page.locator('[data-testid="mcp-test-result"]')
-    expect(result_panel).to_be_hidden()
+    # Tools section: status div renders the empty-state prompt; tools list
+    # is hidden until the first successful Test click. (L4 UX restructure
+    # replaced the prior single `mcp-test-result` panel with the two
+    # status/list testids; see flight log L4 entry.)
+    status_panel = page.locator('[data-testid="mcp-test-status"]')
+    expect(status_panel).to_be_visible()
+    expect(status_panel).to_contain_text("Click")
+    expect(status_panel).to_contain_text("Test connection")
+    tools_list = page.locator('[data-testid="mcp-tools-list"]')
+    expect(tools_list).to_be_hidden()
 
 
 @pytest.mark.browser
@@ -129,8 +136,14 @@ def test_test_connection_button_click_shows_result(
     test_btn = page.locator('[data-testid="mcp-test-connection"]')
     expect(test_btn).to_be_visible(timeout=8000)
 
-    result_panel = page.locator('[data-testid="mcp-test-result"]')
-    expect(result_panel).to_be_hidden()
+    # L4 UX restructure: the prior single `mcp-test-result` panel was split
+    # into a `mcp-test-status` div (always visible; carries status text) and
+    # a `mcp-tools-list` div (hidden until tools render). Pre-click, the
+    # status div carries the empty-state prompt; tools list is hidden.
+    status_panel = page.locator('[data-testid="mcp-test-status"]')
+    tools_list = page.locator('[data-testid="mcp-tools-list"]')
+    expect(status_panel).to_be_visible()
+    expect(tools_list).to_be_hidden()
 
     # Click the button.
     test_btn.click()
@@ -138,28 +151,28 @@ def test_test_connection_button_click_shows_result(
     # Button should be disabled immediately (concurrent-Test guard).
     expect(test_btn).to_be_disabled()
 
-    # Result panel should appear with "Testing connection..." text.
-    expect(result_panel).to_be_visible()
-    expect(result_panel).to_have_text("Testing connection...")
+    # Status panel should update to "Testing connection…" (note: ellipsis
+    # character U+2026, not three ASCII dots).
+    expect(status_panel).to_have_text("Testing connection…")
 
     # Wait for the result to update (endpoint responds with error or auth_required).
     # The endpoint will fail quickly since the URL is unreachable, but we give it
     # up to 20s to avoid flakiness in slow environments. We don't assert on the
-    # specific error message — just that the panel updated from "Testing connection..."
-    # and the button is re-enabled (settle() ran).
+    # specific error message — just that the status panel updated away from
+    # "Testing connection…" and the button is re-enabled (settle() ran).
     page.wait_for_function(
         "() => {"
-        "  var el = document.querySelector('[data-testid=\"mcp-test-result\"]');"
+        "  var el = document.querySelector('[data-testid=\"mcp-test-status\"]');"
         "  var btn = document.querySelector('[data-testid=\"mcp-test-connection\"]');"
-        "  return el && !el.hidden && el.textContent !== 'Testing connection...' && btn && !btn.disabled;"
+        "  return el && el.textContent !== 'Testing connection\\u2026' && btn && !btn.disabled;"
         "}",
         timeout=20000,
     )
 
-    # Result panel has some non-empty text that's not "Testing connection...".
-    result_text = result_panel.inner_text()
-    assert result_text != "Testing connection..."
-    assert len(result_text.strip()) > 0
+    # Status panel has some non-empty text that's not the in-progress text.
+    status_text = status_panel.inner_text()
+    assert status_text != "Testing connection…"
+    assert len(status_text.strip()) > 0
 
     # Button is re-enabled (settle() ran on terminal state).
     expect(test_btn).not_to_be_disabled()
