@@ -26,6 +26,7 @@ class ToolResult:
     tool_call_id: str
     content: str
     is_error: bool = False
+    metadata: dict[str, Any] | None = None  # F5 L3: generic cross-provider payload
 
 
 @dataclass

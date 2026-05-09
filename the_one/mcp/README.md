@@ -145,6 +145,30 @@ deviation is invisible at the pool layer. A future flight that wants to
 collapse the transport CM-shape can do so without disturbing the pool, and
 vice versa.
 
+**F5 L1 update (2026-05-07)**: the `_transport_connect` dispatcher's body has
+been rewritten to remove the the-one-owned `@asynccontextmanager` wrapper
+layer (`connect_streamable_http` / `connect_stdio`) from the dispatcher's
+exit chain. The dispatcher itself remains `@asynccontextmanager`-decorated
+(one layer); the SDK's `streamable_http_client` / `stdio_client` ALSO remain
+`@asynccontextmanager`-decorated (one layer); these two are now composed via
+`AsyncExitStack` (returned by the new
+`_open_streamable_http_transport_stack` / `_open_stdio_transport_stack`
+helpers) instead of via nested `async with`. Total layer reduction: 3 → 2.
+**This MAY retire the F4-HAT-Finding-#1 `RuntimeError: generator didn't stop`
+warning for F4-pool-routed (same-task) disconnects.** Empirical verification
+is at the F5 L6 HAT (Tier-1 in-repo OAuth fixture) — a caplog assertion
+checks for absence of `MCPClient transport close failed` records during the
+5-step OAuth-flow lifecycle. If that assertion fails, L1's mechanism didn't
+help; the F2-known-issue is reinstated as Mission Known Issue and a follow-
+up flight diagnoses the root cause. Cross-task disconnect on a direct
+`MCPClient(source)` instance OUTSIDE the F4 pool STILL fires the safety-net
+swallow — that contract is preserved (locked by
+`tests/test_mcp_client.py::TestAsyncExitStackContract::test_direct_cross_task_still_warns`).
+The existing `connect_streamable_http` / `connect_stdio`
+`@asynccontextmanager` helpers stay UNCHANGED for back-compat with their
+1 + 9 = 10 prior async-CM direct callers (citation-audit-verified at L1
+design 2026-05-07).
+
 The F4 pool's worker-task-per-entry pattern (see §8) is the canonical
 cross-task-safe solution: each pool entry owns a dedicated `asyncio.Task`
 that holds connect AND disconnect on the same task. Anyio's guard is

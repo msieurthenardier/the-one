@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import secrets
@@ -13,7 +14,7 @@ from typing import Any
 import httpx
 from cryptography.fernet import Fernet, InvalidToken
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import ValidationError
 
 from the_one.config import settings
@@ -506,6 +507,20 @@ def _mask_secret_value(value: Any) -> Any:
     return f"***...{value[-4:]}"
 
 
+# OAuth-managed secret keys (F5 §5). These four keys are written ONLY by
+# the OAuth flow's ``MCPSourceTokenStorage`` (``the_one.mcp.oauth.storage``)
+# and are protected from operator overwrite via the strip-on-GET +
+# preserve-on-PUT logic below. Defined ABOVE its first usage in
+# ``_mcp_source_response`` (placement note: the leg's design suggested
+# "near ``_MASKED_API_KEY_SENTINEL`` at api.py:886" but that constant is
+# defined AFTER ``_mcp_source_response`` — a forward reference would
+# fail at module import time, so the constant lives here instead. See
+# leg L02 flight-log entry for the deliberate placement rationale).
+_OAUTH_MANAGED_SECRET_KEYS = frozenset(
+    {"access_token", "refresh_token", "token_expires_at", "dcr_credentials"}
+)
+
+
 def _mask_secrets(secrets: dict[str, Any]) -> dict[str, Any]:
     """Apply per-key masking to a decoded secrets dict.
 
@@ -530,9 +545,19 @@ def _mcp_source_response(source: MCPSource) -> dict[str, Any]:
     overwrite would leak plaintext via the API. The
     ``test_list_returns_masked_secrets`` assertion
     ``"ghp_realsecretvalue" not in resp.text`` is the regression net.
+
+    OAuth-managed keys (F5 §5) are STRIPPED from the visible payload
+    BEFORE masking — the four token/credential keys must not surface
+    via the API at all (not even as masked values). The unmodified
+    source dict remains in memory; only the response payload is
+    stripped. Tests:
+    ``tests/test_oauth_secrets_api.py::test_get_strips_managed_keys``.
     """
     data = source.model_dump()
-    data["secrets"] = _mask_secrets(source.secrets)
+    visible = {
+        k: v for k, v in source.secrets.items() if k not in _OAUTH_MANAGED_SECRET_KEYS
+    }
+    data["secrets"] = _mask_secrets(visible)
     return data
 
 
@@ -775,6 +800,21 @@ async def update_mcp_source(source_id: str, request: Request) -> dict[str, Any]:
                 # the key entirely.
             else:
                 resolved_secrets[key] = value
+        # F5 §5: preserve OAuth-managed keys from existing.secrets and
+        # silently drop any incoming-payload entries for those keys.
+        # Only ``MCPSourceTokenStorage`` (the OAuth flow) writes them;
+        # an operator PUT cannot overwrite them via the API. Applied
+        # AFTER the per-key __MASKED__ resolution so a client-sent
+        # ``access_token: "__MASKED__"`` doesn't fall through unhandled.
+        # Tests: ``tests/test_oauth_secrets_api.py``.
+        for key in _OAUTH_MANAGED_SECRET_KEYS:
+            if key in existing.secrets:
+                resolved_secrets[key] = existing.secrets[key]
+            elif key in resolved_secrets:
+                # Source has no managed key yet; incoming payload tried
+                # to set one. Drop it — only the OAuth flow may write
+                # these keys.
+                del resolved_secrets[key]
         data["secrets"] = resolved_secrets
 
     try:
@@ -794,6 +834,296 @@ async def delete_mcp_source(source_id: str) -> dict[str, str]:
     except KeyError:
         raise HTTPException(status_code=404, detail=f"MCP source not found: {source_id}")
     return {"status": "ok"}
+
+
+# ── OAuth callback (F5 §9) ────────────────────────────────────────────────
+
+
+@router.get("/oauth/callback")
+async def oauth_callback(
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+    error_description: str | None = None,
+) -> HTMLResponse:
+    """Loopback redirect target for the OAuth 2.1 + PKCE flow.
+
+    The operator's IDP consent page redirects the browser tab to
+    ``/api/oauth/callback?code=...&state=...`` (success) or
+    ``?error=...&error_description=...&state=...`` (denial). This
+    handler:
+
+      1. Looks up the pending flow keyed by ``state``.
+      2. On success, calls ``_state.resolve(state, code, state)`` to
+         hand the code back to the SDK's ``callback_handler`` waiting
+         inside the auth flow's yield boundary; broadcasts an
+         ``auth_resolved`` event to the originating chat session.
+      3. On error, calls ``_state.fail`` with an ``OAuthFlowError``;
+         broadcasts an ``auth_failed`` event.
+      4. Returns an HTML body for the operator's browser tab —
+         ``"Login successful"`` / ``"Login failed"`` / ``"Login expired"``
+         per the verbatim-message contract.
+
+    Lazy imports of ``_sessions``, ``_send_to_session``, and
+    ``_state`` avoid the api.py ↔ app.py circular at module-load time.
+
+    Cycle-2 NEW-H2 race: between our ``peek`` and ``resolve``, the
+    periodic TTL sweep may pop the entry and fail the future with a
+    timeout error. ``resolve`` returns False in that case and we
+    short-circuit to a "Login expired" response WITHOUT broadcasting
+    ``auth_resolved`` — the chat UI must not see a successful-login
+    event for a flow that actually failed.
+    """
+    # Lazy imports — see docstring.
+    import html as _html
+
+    from mcp.client.auth.exceptions import OAuthFlowError
+
+    from the_one.interfaces.web.app import _send_to_session, _sessions
+    from the_one.mcp.oauth import _state as oauth_state
+
+    if state is None:
+        raise HTTPException(status_code=401, detail="Missing state parameter")
+    entry = oauth_state.peek(state)
+    if entry is None:
+        raise HTTPException(status_code=401, detail="Unknown or expired state")
+
+    if error is not None:
+        oauth_state.fail(state, OAuthFlowError(error_description or error))
+        session = _sessions.get(entry.chat_session_id)
+        if session is not None:
+            await _send_to_session(
+                session,
+                {
+                    "type": "auth_failed",
+                    "source_id": entry.source_id,
+                    "error": error,
+                    "description": error_description,
+                },
+            )
+        safe_desc = _html.escape(error_description or error)
+        return HTMLResponse(
+            f"<h1>Login failed</h1><p>{safe_desc}</p>",
+            status_code=200,
+        )
+
+    # Cycle-2 NEW-H2: resolve returns False if the sweep raced between
+    # our peek and resolve. Don't broadcast auth_resolved in that case.
+    resolved = oauth_state.resolve(state, code or "", state)
+    if not resolved:
+        return HTMLResponse(
+            "<h1>Login expired</h1>"
+            "<p>The login window has closed. "
+            "Please re-trigger the original action to retry.</p>",
+            status_code=200,
+        )
+    session = _sessions.get(entry.chat_session_id)
+    if session is not None:
+        await _send_to_session(
+            session,
+            {
+                "type": "auth_resolved",
+                "source_id": entry.source_id,
+                "tool_call_id": entry.tool_call_id,
+            },
+        )
+        # F5 L3: schedule resume of the paused agent so the deferred
+        # tool calls can re-dispatch with the freshly-issued tokens.
+        # Guard with ``_deferred_tool_calls is not None`` (cycle-1 D13
+        # race protection): the in-memory pause may already be cleared
+        # by a previous resume that fired between the SDK's redirect
+        # and this callback.
+        from the_one.interfaces.web.app import (
+            _inflight_resume_tasks,
+            _resume_paused_session,
+        )
+
+        # ``session.agent`` is typed Agent but tests can construct
+        # Sessions with ``agent=None`` (degraded fixtures); guard so
+        # we don't AttributeError out of the success-path response.
+        if session.agent is not None and session.agent._deferred_tool_calls is not None:
+            resume_task = asyncio.create_task(
+                _resume_paused_session(session)
+            )
+            _inflight_resume_tasks.add(resume_task)
+            resume_task.add_done_callback(_inflight_resume_tasks.discard)
+    # Verbatim-message contract per F5 §4 — the substring
+    # "Login successful. You may close this tab." must appear
+    # contiguously so the L2 stake test matches.
+    return HTMLResponse(
+        "<h1>Login successful. You may close this tab.</h1>",
+        status_code=200,
+    )
+
+
+@router.post("/oauth/manual-register")
+async def oauth_manual_register(request: Request) -> dict[str, Any]:
+    """Persist operator-supplied OAuth client credentials for a non-DCR AS.
+
+    Used when the IDP does not implement RFC 7591 Dynamic Client Registration
+    (e.g. GitHub). The operator pre-registers an OAuth app at the IDP UI,
+    pastes the resulting ``client_id`` + auth/token endpoints into the chat
+    UI's manual-entry form, and the form POSTs here. Persists the four-key
+    ``dcr_credentials`` blob into ``MCPSource.secrets``; the ``registration_method``
+    discriminator (``"manual"``) tells L5's provider factory which provider
+    class to instantiate.
+
+    Body: ``{source_id, client_id, auth_endpoint, token_endpoint}``.
+    All four fields required; 400 on missing/empty.
+    404 if ``source_id`` does not match any MCPSource.
+
+    The endpoint does NOT trigger the auth flow — the chat UI follows up
+    with a POST to ``/api/oauth/start`` once the credentials are stored.
+    """
+    from datetime import datetime, timezone
+
+    data = await request.json()
+    source_id = data.get("source_id")
+    client_id = data.get("client_id")
+    auth_endpoint = data.get("auth_endpoint")
+    token_endpoint = data.get("token_endpoint")
+    if not all([source_id, client_id, auth_endpoint, token_endpoint]):
+        raise HTTPException(
+            status_code=400,
+            detail="Missing required fields: source_id, client_id, "
+            "auth_endpoint, token_endpoint",
+        )
+    repo = await _mcp_repo()
+    try:
+        source = await repo.get(source_id)
+    except KeyError:
+        raise HTTPException(
+            status_code=404, detail=f"MCP source not found: {source_id}"
+        )
+    source.secrets["dcr_credentials"] = {
+        "client_id": client_id,
+        "auth_endpoint": auth_endpoint,
+        "token_endpoint": token_endpoint,
+        "registration_method": "manual",
+        "registered_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await repo.update(source)
+    return {"status": "registered", "source_id": source_id}
+
+
+@router.post("/oauth/start")
+async def oauth_start(request: Request) -> dict[str, Any]:
+    """Drive the OAuth 2.1 + PKCE flow for an MCP source until consent_url surfaces.
+
+    Body: ``{source_id, chat_session_id, tool_call_id?, resource_metadata_url?}``.
+
+    Behavior:
+      - 404 if ``source_id`` does not exist.
+      - 400 if ``source.secrets["dcr_credentials"]`` is absent (the operator
+        must call ``/api/oauth/manual-register`` first, or the AS must support
+        DCR — handled by L6's HAT scope).
+      - Otherwise: build a provider via ``build_oauth_provider_for_source``,
+        evict any cached F4 pool entries for this source (so the next tool
+        call reconstructs ``MCPClient`` with the freshly-built provider),
+        and schedule a background ``asyncio.Task`` that drives the SDK auth
+        flow. The SDK's ``redirect_handler`` (constructed inside the factory)
+        broadcasts a SECOND ``auth_required`` event to the chat session
+        carrying the real ``consent_url``; the chat UI's modal handler picks
+        it up and opens the consent window.
+
+    Returns 202 with ``{"status": "started"}``. The actual auth-flow result
+    (``auth_resolved`` / ``auth_failed``) reaches the chat UI via WebSocket.
+
+    Architectural debt (carried to F6, see flight log A17): the pool eviction
+    is required because the F4 warm cache hands out pre-provider ``MCPClient``
+    instances. A cleaner design (F6) attaches the provider lazily inside
+    the agent's tool dispatch path so pool entries don't need busting.
+    """
+    from the_one.interfaces.web.app import (
+        _inflight_resume_tasks,
+        _send_to_session,
+        _sessions,
+    )
+    from the_one.mcp._pool import _evict_all_for_source
+    from the_one.mcp.oauth import build_oauth_provider_for_source
+
+    data = await request.json()
+    source_id = data.get("source_id")
+    chat_session_id = data.get("chat_session_id")
+    tool_call_id = data.get("tool_call_id")
+    resource_metadata_url = data.get("resource_metadata_url")
+    if not source_id or not chat_session_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Missing required fields: source_id, chat_session_id",
+        )
+
+    repo = await _mcp_repo()
+    try:
+        source = await repo.get(source_id)
+    except KeyError:
+        raise HTTPException(
+            status_code=404, detail=f"MCP source not found: {source_id}"
+        )
+    if not source.secrets.get("dcr_credentials"):
+        raise HTTPException(
+            status_code=400,
+            detail="Configure manual registration or use a DCR-supporting AS",
+        )
+
+    provider = build_oauth_provider_for_source(
+        source,
+        repo,
+        chat_session_id,
+        source_id=source_id,
+        tool_call_id=tool_call_id,
+        resource_metadata_url=resource_metadata_url,
+    )
+
+    # Bust the F4 pool cache so the next ``acquire`` reconstructs MCPClient
+    # with the now-populated dcr_credentials. See A17 in the flight log.
+    await _evict_all_for_source(source_id)
+
+    server_url = source.config.get("url")
+
+    async def _drive_flow() -> None:
+        """Hit the source URL with the provider attached; SDK runs auth flow."""
+        try:
+            async with httpx.AsyncClient(auth=provider, timeout=30.0) as client:
+                # The ``initialize`` JSON-RPC request returns 401 when no
+                # token is present; the provider's ``async_auth_flow``
+                # intercepts, runs PRM/OASM/DCR/auth, and the
+                # ``redirect_handler`` broadcasts ``auth_required`` with
+                # the real ``consent_url``.
+                await client.post(
+                    server_url,
+                    json={
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "initialize",
+                        "params": {
+                            "protocolVersion": "2025-11-25",
+                            "clientInfo": {"name": "the-one", "version": "0.1"},
+                            "capabilities": {},
+                        },
+                    },
+                )
+        except Exception as exc:
+            # Best-effort: broadcast auth_failed so the chat UI clears the
+            # modal / inline button. The SDK's own logging covers the
+            # detailed traceback; we just signal the user.
+            session = _sessions.get(chat_session_id)
+            if session is not None:
+                with contextlib.suppress(Exception):
+                    await _send_to_session(
+                        session,
+                        {
+                            "type": "auth_failed",
+                            "source_id": source_id,
+                            "error": "start_failed",
+                            "description": str(exc),
+                        },
+                    )
+
+    task = asyncio.create_task(_drive_flow())
+    _inflight_resume_tasks.add(task)
+    task.add_done_callback(_inflight_resume_tasks.discard)
+    return {"status": "started", "source_id": source_id}
 
 
 # ── Chat Sessions ─────────────────────────────────────────────────────────

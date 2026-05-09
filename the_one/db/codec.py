@@ -13,11 +13,16 @@ def _tool_call_to_dict(tc: ToolCall) -> dict[str, Any]:
 
 
 def _tool_result_to_dict(tr: ToolResult) -> dict[str, Any]:
-    return {
+    d: dict[str, Any] = {
         "tool_call_id": tr.tool_call_id,
         "content": tr.content,
         "is_error": tr.is_error,
     }
+    # F5 L3: include `metadata` only when non-None — avoid bloating
+    # historical rows with an explicit null key.
+    if tr.metadata is not None:
+        d["metadata"] = tr.metadata
+    return d
 
 
 def _usage_to_dict(u: TokenUsage) -> dict[str, Any]:
@@ -49,6 +54,7 @@ def message_from_dict(d: dict[str, Any]) -> Message:
             tool_call_id=tr["tool_call_id"],
             content=tr["content"],
             is_error=tr.get("is_error", False),
+            metadata=tr.get("metadata"),  # F5 L3: None when absent (legacy rows)
         )
     usage = None
     if "usage" in d:
@@ -77,7 +83,13 @@ def decode_messages(data: str) -> list[Message]:
 
 
 def messages_to_ui_events(messages: list[Message]) -> list[dict[str, Any]]:
-    """Convert stored Messages to UI event format for session replay."""
+    """Convert stored Messages to UI event format for session replay.
+
+    F5 L3: ``tool_result.metadata`` is intentionally NOT projected here.
+    Pause state is in-memory only; replay shows historical
+    ``auth_required`` tool_msgs as informational text without the
+    Login-required affordance. See ``Agent`` class docstring.
+    """
     events: list[dict[str, Any]] = []
     for msg in messages:
         if msg.role == Role.SYSTEM:

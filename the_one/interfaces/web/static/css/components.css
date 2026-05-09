@@ -903,7 +903,10 @@
     margin: 0 0 12px 0;
     font-size: var(--font-size-body-lg);
     line-height: 1.5;
-    color: var(--fg-secondary);
+    /* F5 L5 a11y review (WCAG 1.4.3): use --fg (13.18:1 on
+       --surface-elevated dark) instead of --fg-secondary (3.56:1 fail)
+       so dynamic error text in modals meets AA body-text contrast. */
+    color: var(--fg);
   }
   /* .modal-actions composes onto .form-actions for layout — the helper emits
      `class="modal-actions form-actions"` so the right-aligned button

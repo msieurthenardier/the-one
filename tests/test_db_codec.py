@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
-from the_one.db.codec import decode_messages, encode_messages, messages_to_ui_events
+from the_one.db.codec import (
+    _tool_result_to_dict,
+    decode_messages,
+    encode_messages,
+    message_from_dict,
+    messages_to_ui_events,
+)
 from the_one.llm.base import Message, Role, TokenUsage, ToolCall, ToolResult
 
 
@@ -169,3 +175,69 @@ class TestMessagesToUIEvents:
         assert events[4] == {"type": "tool_call", "name": "read_file", "arguments": {"path": "/x"}}
         assert events[5] == {"type": "tool_result", "content": "file data", "is_error": False}
         assert events[6] == {"type": "assistant", "content": "Here's the file content"}
+
+
+# ---------------------------------------------------------------------------
+# F5 L3 — ToolResult.metadata round-trip
+# ---------------------------------------------------------------------------
+
+
+def test_tool_result_metadata_round_trip() -> None:
+    """A2: metadata round-trips through serializer + inline deserializer.
+
+    The serializer (``_tool_result_to_dict``) writes ``metadata`` ONLY
+    when non-None; the inline deserializer in ``message_from_dict``
+    reads it back via ``.get("metadata")`` (default None).
+    """
+    metadata = {
+        "is_auth_required": True,
+        "source_id": "s1",
+        "resource_metadata_url": "https://x/.well-known/oauth-protected-resource",
+        "tool_call_id": "t1",
+    }
+    tr = ToolResult(tool_call_id="t1", content="auth required", metadata=metadata)
+
+    # Round-trip through the serializer + inline deserializer
+    serialized = _tool_result_to_dict(tr)
+    assert serialized["metadata"] == metadata
+
+    msg_dict = {"role": "tool", "content": "auth required", "tool_result": serialized}
+    msg = message_from_dict(msg_dict)
+    assert msg.role == Role.TOOL
+    assert msg.tool_result is not None
+    assert msg.tool_result.metadata == metadata
+
+    # Also verify full encode/decode round-trip
+    msgs = [Message.tool(tr)]
+    result = decode_messages(encode_messages(msgs))
+    assert result[0].tool_result is not None
+    assert result[0].tool_result.metadata == metadata
+
+
+def test_tool_result_legacy_no_metadata_round_trip() -> None:
+    """A2: legacy rows without `metadata` key deserialize with metadata=None.
+
+    The serializer omits ``metadata`` when None to avoid bloating
+    historical rows; the deserializer must accept input dicts that
+    lack the key entirely (legacy rows pre-L3 + post-L3 success-path
+    rows).
+    """
+    # Construct a legacy-style dict (no `metadata` key)
+    legacy_dict = {
+        "role": "tool",
+        "content": "ok",
+        "tool_result": {
+            "tool_call_id": "t1",
+            "content": "ok",
+            "is_error": False,
+            # No "metadata" key — represents a pre-L3 stored row.
+        },
+    }
+    msg = message_from_dict(legacy_dict)
+    assert msg.tool_result is not None
+    assert msg.tool_result.metadata is None
+
+    # Also: a None-metadata ToolResult round-trips with no metadata key
+    tr = ToolResult(tool_call_id="t1", content="ok")  # default metadata=None
+    serialized = _tool_result_to_dict(tr)
+    assert "metadata" not in serialized

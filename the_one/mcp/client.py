@@ -22,6 +22,8 @@ import anyio
 import httpx
 from jsonschema import ValidationError
 from jsonschema import validate as jsonschema_validate
+from mcp.client.auth.exceptions import OAuthFlowError, OAuthTokenError
+from mcp.client.auth.utils import extract_field_from_www_auth
 from mcp.shared.exceptions import McpError, UrlElicitationRequiredError
 
 from the_one.db.models import MCPSource
@@ -35,6 +37,12 @@ from the_one.mcp.errors import (
     MCPVersionMismatch,
 )
 from the_one.mcp.types import MCPTool, MCPToolResult
+
+# F5 L4: ``MCPAuthRequired`` is imported lazily inside ``call_tool``
+# to break the circular import chain
+# (mcp.client → mcp.oauth.errors → mcp.oauth.__init__ → mcp.oauth.storage
+#  → db.repositories → agent.config → agent → agent.core). Same pattern
+# as agent/core.py's lazy import.
 
 if TYPE_CHECKING:
     from mcp import ClientSession  # type-only; SDK not loaded at module-load
@@ -55,37 +63,59 @@ _DEFAULT = object()
 
 
 @asynccontextmanager
-async def _transport_connect(source: MCPSource) -> AsyncIterator["ClientSession"]:
-    """Dispatch on source.type to the correct transport. L4/L5 fill in.
+async def _transport_connect(
+    source: MCPSource,
+    *,
+    auth_provider: httpx.Auth | None = None,
+) -> AsyncIterator["ClientSession"]:
+    """Dispatch on source.type. Outward shape preserved for test contract.
+
+    Body uses non-CM transport helpers (introduced in F5 L1) +
+    explicit ``await stack.aclose()`` in finally — collapses the
+    the-one-owned ``@asynccontextmanager`` wrapper layer from the
+    dispatcher's exit chain. MAY retire the F4-HAT-Finding-#1 warning
+    for same-task (F4-pool-routed) disconnects; verified at F5 L6 HAT.
 
     Yields a connected ClientSession (entered, but not yet initialized).
-    Caller is responsible for calling session.initialize() and final cleanup.
+    Caller is responsible for calling ``session.initialize()`` and final
+    cleanup via the returned CM's ``__aexit__``.
 
-    L4 will rewrite the streamable-http branch to nest streamable_http_client +
-    ClientSession context managers and yield the entered session. L5 will do
-    the same for stdio_client + StdioServerParameters. The yield-a-session
-    contract keeps the (read, write) stream-tuple shape inside this helper —
-    MCPClient never sees the raw transport.
+    The existing ``@asynccontextmanager`` ``connect_streamable_http`` and
+    ``connect_stdio`` helpers are NOT consumed by this dispatcher post-F5
+    L1 — they remain in place for back-compat with their direct
+    async-with callers (1 + 9 = 10 tests; citation-audit-verified at L1
+    design 2026-05-07).
+
+    F5 L4: ``auth_provider`` is threaded to the streamable-http transport
+    when the source is streamable-http; the stdio branch ignores it (no
+    auth applicable for local subprocess transports). Provider
+    construction is L6's scope — L4 only adds the passthrough seam.
     """
     if source.type == "streamable-http":
-        from the_one.mcp.transports.streamable_http import connect_streamable_http
+        from the_one.mcp.transports.streamable_http import (
+            _open_streamable_http_transport_stack,
+        )
 
-        async with connect_streamable_http(source) as session:
-            yield session
+        session, stack = await _open_streamable_http_transport_stack(
+            source, auth_provider=auth_provider
+        )
     elif source.type == "stdio":
-        from the_one.mcp.transports.stdio import connect_stdio
+        # F5 L4: auth_provider is transport-irrelevant for stdio (no HTTP);
+        # silently ignored. No assertion or warning — keeps the dispatcher
+        # uniform across transports.
+        from the_one.mcp.transports.stdio import _open_stdio_transport_stack
 
-        async with connect_stdio(source) as session:
-            yield session
+        session, stack = await _open_stdio_transport_stack(source)
     else:
         # Defensive exhaustiveness — Pydantic Literal gates the type at model
         # validation time, so this branch is unreachable in normal flow.
         # Locks the contract that any future transport literal must extend
         # this dispatch (mirrors F1's defensive `else: raise` exhaustiveness).
         raise MCPClientError(f"unknown MCP transport type: {source.type!r}")
-    # asynccontextmanager requires a yield somewhere; this branch is dead but
-    # keeps the contract type-clean. Unreachable at runtime due to raises above.
-    yield  # type: ignore[unreachable]  # noqa: F821
+    try:
+        yield session
+    finally:
+        await stack.aclose()
 
 
 class MCPClient:
@@ -109,6 +139,11 @@ class MCPClient:
         *,
         timeout_seconds: int | float | object = _DEFAULT,
         call_timeout_seconds: int | float | object = _DEFAULT,
+        # F5 L4: auth_provider is provided pre-built by the caller; provider
+        # construction (factory function that reads secrets["dcr_credentials"]
+        # and instantiates OAuthClientProvider/ManualOAuthClientProvider) is
+        # L6's scope. L4 only adds the passthrough seam.
+        auth_provider: httpx.Auth | None = None,
     ) -> None:
         # Lazy read of constants from the_one.mcp keeps the read-at-call-time
         # invariant for any future test that monkeypatches the defaults.
@@ -122,6 +157,7 @@ class MCPClient:
         self.source: MCPSource = source
         self.timeout_seconds: int | float = timeout_seconds  # type: ignore[assignment]
         self.call_timeout_seconds: int | float = call_timeout_seconds  # type: ignore[assignment]
+        self._auth_provider: httpx.Auth | None = auth_provider
 
         self._session: ClientSession | None = None
         self._capabilities: ServerCapabilities | None = None
@@ -188,9 +224,21 @@ class MCPClient:
                 # always entered when assigned" invariant locally obvious.
                 # AsyncExitStack.__aenter__ returns self.
                 self._transport_stack = await AsyncExitStack().__aenter__()
-                session = await self._transport_stack.enter_async_context(
-                    _transport_connect(self.source)
-                )
+                # F5 L4: only thread auth_provider when set, so test
+                # fixtures that monkeypatch ``_transport_connect`` with a
+                # single-positional lambda (e.g. ``patch_transport`` at
+                # ``tests/test_mcp_client.py``) keep working unmodified
+                # per A12's "existing tests pass UNMODIFIED" contract.
+                if self._auth_provider is not None:
+                    session = await self._transport_stack.enter_async_context(
+                        _transport_connect(
+                            self.source, auth_provider=self._auth_provider
+                        )
+                    )
+                else:
+                    session = await self._transport_stack.enter_async_context(
+                        _transport_connect(self.source)
+                    )
                 self._session = session
                 try:
                     result = await session.initialize()
@@ -384,6 +432,9 @@ class MCPClient:
             )
         self._touch_activity()
 
+        # Lazy import — see module docstring near the import block.
+        from the_one.mcp.oauth.errors import MCPAuthRequired
+
         # Lazy-populate the tool cache for unknown-tool detection. Runs OUTSIDE
         # the call_timeout_seconds budget — list_tools has its own 30s timeout.
         if self._tools_cache is None:
@@ -411,13 +462,69 @@ class MCPClient:
         # `issubclass(UrlElicitationRequiredError, McpError) == True`) — the
         # explicit re-raise MUST come BEFORE `except McpError` or URL
         # elicitation prompts get silently swallowed into MCPCallError.
+        #
+        # F5 L4 (A8/A9): SDK auth-flow failures and no-provider 401 responses
+        # surface from inside the SDK's anyio TaskGroup wrapped as a
+        # BaseExceptionGroup (probe-confirmed 2026-05-07; see flight log
+        # "Stake-test probe results: A9 surface type = ExceptionGroup wrapping
+        # httpx.HTTPStatusError"). The two catches sit BEFORE the existing
+        # exception handling so OAuth-aware translation runs first; existing
+        # callers see no behavior change for non-401 / non-OAuth paths.
         try:
             async with asyncio.timeout(self.call_timeout_seconds):
-                result = await self._session.call_tool(name, arguments)
+                # The except*-group below catches OAuth/auth exceptions
+                # whether they bubble bare (test stubs) or wrapped in a
+                # BaseExceptionGroup from the SDK's anyio TaskGroup
+                # (production SDK path). `except*` matches both shapes.
+                try:
+                    result = await self._session.call_tool(name, arguments)
+                except* (OAuthFlowError, OAuthTokenError):
+                    # F5 L4 (A8): SDK auth-flow failed. Provider attached but
+                    # couldn't complete (refresh failed / discovery failed /
+                    # DCR failed). Tell the agent loop to pause and surface
+                    # auth_required to chat UI.
+                    raise MCPAuthRequired(
+                        source_id=self.source.id,
+                        resource_metadata_url=None,  # SDK exception doesn't carry it
+                        consent_url=None,
+                    ) from None
+                except* httpx.HTTPStatusError as eg:
+                    # F5 L4 (A9): no-provider 401 path. The SDK's
+                    # `_post_or_get_message` runs `response.raise_for_status()`
+                    # which surfaces here as an ExceptionGroup wrapping
+                    # HTTPStatusError. Walk the group; translate 401 to
+                    # MCPAuthRequired (parsing the WWW-Authenticate
+                    # `resource_metadata` field per RFC 9728 §5.1 + SDK
+                    # `extract_field_from_www_auth` helper); re-raise other
+                    # statuses for the outer except to translate.
+                    auth_error: httpx.HTTPStatusError | None = None
+                    for sub in eg.exceptions:
+                        if (
+                            isinstance(sub, httpx.HTTPStatusError)
+                            and sub.response.status_code == 401
+                        ):
+                            auth_error = sub
+                            break
+                    if auth_error is not None:
+                        rmd = extract_field_from_www_auth(
+                            auth_error.response, "resource_metadata"
+                        )
+                        raise MCPAuthRequired(
+                            source_id=self.source.id,
+                            resource_metadata_url=rmd,
+                            consent_url=None,
+                        ) from None
+                    # Non-401 HTTP error → re-raise the group so the outer
+                    # block's httpx.HTTPError handler picks it up after
+                    # unwrapping (BaseExceptionGroup itself isn't an
+                    # httpx.HTTPError, so manually re-raise the inner).
+                    raise eg.exceptions[0] from None
         except asyncio.TimeoutError:
             raise MCPConnectionError(
                 f"MCP tool call exceeded {self.call_timeout_seconds} seconds"
             ) from None
+        except MCPAuthRequired:
+            raise
         except UrlElicitationRequiredError:
             raise
         except McpError as e:
