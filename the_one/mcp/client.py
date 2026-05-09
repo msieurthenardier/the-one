@@ -235,8 +235,38 @@ class MCPClient:
                         _transport_connect(self.source)
                     )
                 self._session = session
+                # F6.6 L1: nested innermost try wrapping ONLY session.initialize()
+                # so the SDK's auth-flow exceptions (OAuthFlowError,
+                # OAuthTokenError) are translated to MCPAuthRequired at the same
+                # structural level as the F6.5 L2 list_tools pattern. Python
+                # forbids mixing `except` and `except*` in one try block; the
+                # existing `except RuntimeError` clause for version-mismatch
+                # translation MUST stay at the outer try level. The 401-via-
+                # HTTPStatusError walk in the outer
+                # `except (Exception, BaseExceptionGroup)` block below is F6 A5
+                # work and remains the path for transport-layer 401s; F6.6 only
+                # adds the OAuth-exception path (which currently emerges from
+                # the SDK at a different layer than HTTPStatusError).
                 try:
-                    result = await session.initialize()
+                    try:
+                        result = await session.initialize()
+                    except* (OAuthFlowError, OAuthTokenError):
+                        # SDK's auth flow failed during initialize (refresh /
+                        # discovery / DCR). Translate to MCPAuthRequired so
+                        # MCPToolProvider's graceful-skip path (post-F6.5 L2)
+                        # catches it cleanly via _pool._entry_worker's
+                        # `except BaseException → entry.failure` capture.
+                        # resource_metadata_url and consent_url are None
+                        # because we don't have a WWW-Authenticate response
+                        # at this point — the auth flow failed before the
+                        # server's challenge could surface. F5's chat-path
+                        # lazy-OAuth flow re-runs at next tool call when the
+                        # operator re-establishes credentials.
+                        raise MCPAuthRequired(
+                            source_id=self.source.id,
+                            resource_metadata_url=None,
+                            consent_url=None,
+                        ) from None
                 except RuntimeError as e:
                     m = _UNSUPPORTED_VERSION_RE.match(str(e))
                     observed = m.group(1) if m else str(e)
@@ -251,13 +281,16 @@ class MCPClient:
             await self._cleanup_after_failed_connect()
             raise
         except asyncio.CancelledError as e:
-            # F6 A5: SDK's anyio task-group cleanup chain after a 401 (or
-            # other transport-level failure) ends with the surrounding task
-            # cancelled. Calling _cleanup_after_failed_connect from this
-            # path re-triggers the cross-task cancel-scope guard inside the
-            # SDK and either hangs or re-raises CancelledError. Abandon the
-            # transport stack reference (leak the partial connection — GC
-            # + process shutdown will clean up) and translate to
+            # F6 A5: SDK's anyio task-group cleanup chain after a non-OAuth,
+            # non-401 transport-level failure ends with the surrounding task
+            # cancelled. (Post-F6.6 L1: OAuth-flow exceptions are now caught
+            # by the inner `except*` block above; transport-layer 401s are
+            # caught by the outer BaseExceptionGroup walk below — neither
+            # reaches this path.) Calling _cleanup_after_failed_connect from
+            # this path re-triggers the cross-task cancel-scope guard inside
+            # the SDK and either hangs or re-raises CancelledError. Abandon
+            # the transport stack reference (leak the partial connection —
+            # GC + process shutdown will clean up) and translate to
             # MCPConnectionError so MCPToolProvider's class #2 graceful-
             # degrade catches it. Do NOT await further cleanup.
             self._transport_stack = None
@@ -265,7 +298,7 @@ class MCPClient:
             raise MCPConnectionError(
                 f"MCP connect failed: cancelled during initialize "
                 f"(cross-task cleanup deadlock; original cause likely "
-                f"401 Unauthorized or transport error): {e}"
+                f"transport error or malformed initial response): {e}"
             ) from e
         except (Exception, BaseExceptionGroup) as e:
             # F6 A5 fix: extend catch list to BaseExceptionGroup. The SDK's

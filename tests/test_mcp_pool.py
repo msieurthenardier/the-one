@@ -677,3 +677,94 @@ async def test_acquire_with_source_override(monkeypatch):
     # And the entry is in the pool with the override's identity.
     entry = pool_mod._pool[("agent-a", "src-1")]
     assert entry.client is client
+
+
+async def test_entry_worker_uses_synthetic_csid_when_tokens_present(
+    monkeypatch,
+) -> None:
+    """F6.5 L4 — ``_entry_worker`` synthesizes ``f"agent_build:{source.id}"``
+    when ``current_chat_session_id`` is unset AND the source has persisted
+    OAuth tokens.
+
+    Verifies the bootstrap path at ``_pool.py:197-200``: csid is None
+    (ContextVar default), but ``source.secrets["access_token"]`` is set, so
+    the worker synthesizes ``agent_build:{source.id}`` and forwards it to
+    the OAuth provider factory. Without this, agent build via REST/CLI/
+    tests would connect auth-less, the server would 401, and the source
+    would graceful-skip even though valid tokens are sitting in the DB.
+
+    The test patches ``the_one.mcp.oauth.build_oauth_provider_for_source``
+    (NOT ``the_one.mcp._pool.build_oauth_provider_for_source`` — the
+    function-local ``from … import …`` at ``_pool.py:196`` re-resolves the
+    name from the source module on each call, so patching the source-module
+    binding is the only target that intercepts the lookup). The mock raises
+    a sentinel ``RuntimeError`` so the worker stops before ``MCPClient.connect``
+    runs. The factory call lives OUTSIDE ``_entry_worker``'s
+    ``except BaseException`` branch (which wraps only ``await client.connect()``
+    at ``_pool.py:208-213``), so the RuntimeError propagates out of the
+    worker — the test catches it via ``pytest.raises`` and then asserts
+    on ``mock_factory.call_args`` (MagicMock records args before
+    side_effect raises).
+    """
+    from the_one.agent._context import current_chat_session_id, current_tool_call_id
+    from the_one.mcp._pool import _RegistryEntry, _entry_worker
+
+    # Defensive: ensure no ambient chat session leaked into this test from
+    # an earlier sibling. The ContextVar's ``get(None)`` default is what
+    # the worker reads, but if a sibling test ``set()`` it without
+    # resetting, the synthetic-csid branch would not be exercised.
+    csid_token = current_chat_session_id.set(None)
+    tcid_token = current_tool_call_id.set(None)
+    try:
+        source = MCPSource(
+            id="src-pool-test",
+            name="t",
+            type="streamable-http",
+            config={"url": "https://example.com/mcp"},
+            secrets={
+                "access_token": "tok-1",
+                "dcr_credentials": {"client_id": "c1"},
+            },
+        )
+
+        # MagicMock with side_effect=RuntimeError stops the worker before
+        # MCPClient.connect runs. The mock still records call args even
+        # when side_effect raises (verified at unittest.mock:1124-1183 —
+        # _increment_mock_call records args BEFORE _execute_mock_call
+        # consults side_effect).
+        sentinel = RuntimeError("captured-and-stopped")
+        mock_factory = MagicMock(side_effect=sentinel)
+        # NOTE: target the source module, not _pool — the worker imports
+        # ``build_oauth_provider_for_source`` lazily inside its body via
+        # ``from the_one.mcp.oauth import build_oauth_provider_for_source``,
+        # so the source-module attribute is the binding that re-resolves
+        # on each invocation. Patching ``the_one.mcp._pool.<name>`` would
+        # raise AttributeError because no module-level binding exists at
+        # that path.
+        monkeypatch.setattr(
+            "the_one.mcp.oauth.build_oauth_provider_for_source", mock_factory
+        )
+
+        entry = _RegistryEntry(
+            ttl_seconds=300,
+            client_ready=asyncio.Event(),
+            evict_event=asyncio.Event(),
+        )
+
+        # The factory call at ``_pool.py:204`` lives OUTSIDE the
+        # ``except BaseException`` block (which wraps only
+        # ``await client.connect()``), so the sentinel propagates out of
+        # the worker. We catch it here so the assertion can run on the
+        # mock's recorded call args.
+        with pytest.raises(RuntimeError, match="captured-and-stopped"):
+            await _entry_worker(source, entry)
+
+        # The factory was invoked; the synthetic csid was forwarded as the
+        # third positional argument (per provider_factory.py:60 —
+        # ``chat_session_id`` is the third positional parameter).
+        mock_factory.assert_called_once()
+        call_args = mock_factory.call_args
+        assert call_args.args[2] == f"agent_build:{source.id}"
+    finally:
+        current_chat_session_id.reset(csid_token)
+        current_tool_call_id.reset(tcid_token)

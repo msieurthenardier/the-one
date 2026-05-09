@@ -1,12 +1,12 @@
 # Flight: Cleanup + connect-time 401 translation
 
-**Status**: ready
+**Status**: landed
 **Mission**: [MCP Integration](../../mission.md)
 
 ## Contributing to Criteria
 
-- [ ] **#10** — graceful failure isolation (extends `MCPClient.connect()` 401 surface from lossy `MCPConnectionError("cancelled during initialize")` to typed `MCPAuthRequired`, mirroring F6.5 L2's `list_tools` pattern; `MCPToolProvider.get_tools_for_agent` already graceful-skips on `MCPAuthRequired` per F6.5 L2, so this completes the auth-pending discriminator surface across both connect and list_tools)
-- [ ] **#11** — automated coverage proving each layer's contract (closes F6.5 debrief recommendation #3: 3 unit tests covering F6.5 L4 inline fixes that currently only have non-reproducible HAT verification)
+- [x] **#10** — graceful failure isolation (extends `MCPClient.connect()` 401 surface from lossy `MCPConnectionError("cancelled during initialize")` to typed `MCPAuthRequired`, mirroring F6.5 L2's `list_tools` pattern; `MCPToolProvider.get_tools_for_agent` already graceful-skips on `MCPAuthRequired` per F6.5 L2, so this completes the auth-pending discriminator surface across both connect and list_tools)
+- [x] **#11** — automated coverage proving each layer's contract (closes F6.5 debrief recommendation #3: 3 unit tests covering F6.5 L4 inline fixes that currently only have non-reproducible HAT verification)
 
 ---
 
@@ -153,8 +153,8 @@ Note: a 4th test for the existing 401-via-HTTPStatusError walk is OPTIONAL (the 
 
 ### Checkpoints
 
-- [ ] **L0 landing**: 3 new unit tests pass; `git grep "App.areas" the_one/interfaces/web/static/` returns ≥2 hits (export + at least one consumer); 4 `test_oauth_modal_flow.py` browser tests transition from FAIL → PASS; synthetic-csid docstring includes the 3 known shapes; README has a Test-connection-button entry
-- [ ] **L1 landing**: 3 new unit tests for connect-time 401 translation pass; existing `test_mcp_client.py::TestConnect*` tests untouched and still pass; full unit suite green (modulo the 3 pre-existing `test_mcp_sandbox_integration.py` bwrap failures)
+- [x] **L0 landing**: 3 new unit tests pass; `git grep "App.areas" the_one/interfaces/web/static/` returns ≥2 hits (export + at least one consumer); 4 `test_oauth_modal_flow.py` browser tests transition from FAIL → PASS; synthetic-csid docstring includes the 3 known shapes; README has a Test-connection-button entry
+- [x] **L1 landing**: 3 new unit tests for connect-time 401 translation pass; existing `test_mcp_client.py::TestConnect*` tests untouched and still pass; full unit suite green (modulo the 3 pre-existing `test_mcp_sandbox_integration.py` bwrap failures)
 
 ### Adaptation Criteria
 
@@ -168,8 +168,8 @@ Note: a 4th test for the existing 401-via-HTTPStatusError walk is OPTIONAL (the 
 
 ### Legs
 
-- [ ] `00-cleanup-batch` — 3 unit tests for F6.5 L4 inline fixes + Anomaly A2 (`App.areas` re-export) + synthetic-csid pattern docstring + Test connection README entry. ~150 LOC across ~6 files.
-- [ ] `01-connect-401-translation` — `MCPClient.connect()` `try/except*` mirroring F6.5 L2's `list_tools` pattern; F6 A5 fallback message updated; 3 new unit tests covering the 401-EG / OAuthFlowError / OAuthTokenError surfaces. ~80 LOC.
+- [x] `00-cleanup-batch` — 3 unit tests for F6.5 L4 inline fixes + Anomaly A2 (`App.areas` re-export) + synthetic-csid pattern docstring + Test connection README entry. ~150 LOC across ~6 files.
+- [x] `01-connect-401-translation` — `MCPClient.connect()` `try/except*` mirroring F6.5 L2's `list_tools` pattern; F6 A5 fallback message updated; 3 new unit tests covering the 401-EG / OAuthFlowError / OAuthTokenError surfaces. ~80 LOC.
 
 ---
 
@@ -177,11 +177,11 @@ Note: a 4th test for the existing 401-via-HTTPStatusError walk is OPTIONAL (the 
 
 ### Completion Checklist
 
-- [ ] Both legs completed
+- [x] Both legs completed
 - [ ] Code merged
-- [ ] Tests passing inside `docker compose exec the-one pytest --ignore=tests/test_mcp_pool.py` (full suite, modulo pre-existing failures)
-- [ ] No new mission known-issues introduced
-- [ ] F6.5 debrief action items 1, 2, 3, 4 closed (the binding-HAT codification, the 4 flaky browser failures investigation, and the truncation mitigation are all out of F6.6 scope)
+- [x] Tests passing inside `docker compose exec the-one pytest --ignore=tests/test_mcp_pool.py` (full suite, modulo pre-existing failures)
+- [x] No new mission known-issues introduced
+- [x] F6.5 debrief action items 1, 2, 3, 4 closed (the binding-HAT codification, the 4 flaky browser failures investigation, and the truncation mitigation are all out of F6.6 scope)
 
 ### Verification
 

@@ -345,6 +345,10 @@ The F3 sandbox layer wraps every locally-spawned stdio MCP server in a strict-by
 
 **Validation-error humanization** — Pydantic v2's raw error messages start with prefixes like `"Value error, "` / `"Input should be "` / `"Assertion failed, "`. The L3 editor's `humanizeValidationMsg` helper (mirrored in `tools-editor.js` and `tools-form-helpers.js`) strips these and capitalizes the first character. Model-level errors (`loc: []`) render in the prominent `.editor-error-banner` above the Configuration section; field-level errors (`loc` matching a `[data-field-name]` row) render inline next to the field via `.field-error`. Heuristic field-name matching for model-level errors highlights the offending rows via `.field-error-highlight` (red border + label tint).
 
+## MCP Sources operator workflows
+
+**Test connection button** — Each MCP source's Studio source-edit page (Studio → MCP Sources → select source → Edit) exposes a Test connection button. Clicking it invokes `POST /api/mcp-sources/{id}/test/connect` against the live source: `MCPClient.connect()` runs the lifecycle handshake and `list_tools()` returns the server's tool catalogue. For OAuth-protected sources, the first click drives the spec-compliant DCR + auth-code flow in a popup — operator completes consent at the IdP, tokens persist encrypted in `secrets`, and the second click renders the tool list. Side effect: subsequent agent builds attached to the source see fresh tokens (`access_token`, `refresh_token`, `dcr_credentials`) and register the server's real tools, closing the auth-on-`tools/list` blocking gap.
+
 ## Configuration
 
 Runtime config via env vars prefixed `THE_ONE_` (see `.env.example`): host, port, data_dir, dev_mode. Managed by pydantic-settings in `the_one/config.py`. The `settings` singleton is imported directly. LLM provider configuration is managed through the database (not env vars) — see the `/api/providers` endpoints.

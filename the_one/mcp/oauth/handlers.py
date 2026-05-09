@@ -23,6 +23,25 @@ outside an async context. Production usage is fine — L4's
 ``connect_streamable_http`` calls this from inside an async tool-
 invocation path. Tests MUST construct handlers inside ``async def
 test_...`` bodies; synchronous fixtures cannot construct them.
+
+Synthetic chat-session-id pattern. Three csid shapes pass through
+this module's ``redirect_handler`` closure: real csids (12-char uuid4
+hex, allocated per chat WebSocket connection by
+``the_one.interfaces.web.app``), ``f"test:{source_id}"`` (allocated by
+the F6.5 Test connection endpoint at
+``the_one/interfaces/web/api.py:~867,~912`` when no chat WS
+subscription exists), and ``f"agent_build:{source.id}"`` (allocated by
+``_pool._entry_worker`` at ``the_one/mcp/_pool.py:200`` when an
+OAuth-token-bearing source is connected outside a chat path —
+REST/CLI/agent-build). The two namespaces are disjoint by
+**character-set construction**: real csids are 12-char lowercase hex
+(charset ``[0-9a-f]``); synthetic csids contain a literal ``:``
+separator that the hex charset cannot produce. Collision is impossible
+regardless of the synthetic-prefix length. The redirect_handler's
+``_sessions.get(synthetic_csid)`` lookup returns None for both
+synthetic shapes, so the ``auth_required`` broadcast becomes a guarded
+no-op — appropriate, since neither path has a chat UI to surface a
+modal.
 """
 
 from __future__ import annotations
