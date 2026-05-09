@@ -203,6 +203,24 @@ class MCPClient:
         self._last_activity = time.monotonic()
 
     async def connect(self) -> None:
+        """Run the MCP lifecycle handshake: open transport, initialize, version-gate, capability-gate.
+
+        On success: ``_is_alive=True``, ``_capabilities`` and ``_protocol_version``
+        populated. On failure: state restored to disconnected (transport stack
+        closed or abandoned) and one of the typed exceptions below raised.
+
+        Raises:
+            MCPConnectionError: Already-connected guard; initialize timeout; transport-layer
+                non-401 failures; cleanup-deadlock recovery diagnostics. Catchall.
+            MCPVersionMismatch: Server announces a protocolVersion outside the SDK's
+                SUPPORTED_PROTOCOL_VERSIONS set.
+            MCPAuthRequired: SDK auth-flow exceptions (OAuthFlowError / OAuthTokenError) or
+                transport-level 401 walked out of a BaseExceptionGroup. resource_metadata_url
+                populated only on the WWW-Authenticate path.
+            MCPCapabilityMissing: Server initialize result lacks the tools capability.
+            MCPSandboxError: Stdio transport only — bwrap rejected the spawn (writable_paths
+                invalid, EPERM on unshare, bwrap missing) before the target exec'd.
+        """
         if self._is_alive:
             raise MCPConnectionError("MCPClient is already connected.")
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from unittest.mock import AsyncMock, MagicMock
 
 import aiosqlite
 import pytest
@@ -13,7 +14,7 @@ from the_one.db.models import MCPSource
 from the_one.db.repositories import MCPSourceRepository
 from the_one.db.schema import ensure_schema
 from the_one.encryption import Encryptor
-from the_one.mcp.oauth.storage import MCPSourceTokenStorage
+from the_one.mcp.oauth.storage import OAUTH_MANAGED_SECRET_KEYS, MCPSourceTokenStorage
 
 
 @pytest.fixture
@@ -159,4 +160,49 @@ async def test_client_info_round_trip(repo_with_source) -> None:
     assert loaded.client_secret == "sek-1"
     assert str(loaded.redirect_uris[0]).startswith(
         "http://127.0.0.1:8484/api/oauth/callback"
+    )
+
+
+async def test_set_tokens_writes_only_managed_secret_keys() -> None:
+    """`set_tokens` must NOT write a secrets key absent from OAUTH_MANAGED_SECRET_KEYS.
+
+    Fails loud if a future PR adds a `secrets["foo"] = ...` write without also
+    updating the frozenset; api.py / streamable_http.py rely on the frozenset
+    to strip-and-preserve OAuth state on PUT and to filter non-string values
+    out of the merged HTTP-headers dict.
+    """
+    # Build a stub MCPSource with empty starting secrets.
+    src = MCPSource(
+        id="src-test",
+        name="test",
+        type="streamable-http",
+        config={"url": "https://example.test/mcp"},
+        secrets={},
+    )
+
+    # Recording-stub repo: get returns the seeded src; update captures the
+    # post-write secrets dict for assertion.
+    repo = MagicMock()
+    repo.get = AsyncMock(return_value=src)
+    written: dict = {}
+
+    async def _capture_update(updated):
+        written.update(updated.secrets)
+
+    repo.update = AsyncMock(side_effect=_capture_update)
+
+    storage = MCPSourceTokenStorage(repo, source_id=src.id)
+    token = OAuthToken(
+        access_token="at",
+        token_type="Bearer",
+        expires_in=3600,
+        refresh_token="rt",
+        scope="scope1 scope2",
+    )
+    await storage.set_tokens(token)
+
+    extra_keys = set(written.keys()) - OAUTH_MANAGED_SECRET_KEYS
+    assert not extra_keys, (
+        f"set_tokens wrote keys outside OAUTH_MANAGED_SECRET_KEYS: {extra_keys}. "
+        f"Either update the frozenset or remove the unmanaged write."
     )

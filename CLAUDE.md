@@ -408,7 +408,13 @@ This format caught three bugs during Flight 04 HAT that end-state-only specs mis
 
 ## Testing
 
-**Unit tests** run by default with `pytest tests/` — fast, no external dependencies, ~212 tests in <6s.
+**Canonical command for non-interactive runs**: `docker exec the-one pytest …` (matches the Makefile's `make test*` targets). Do **NOT** use `docker compose exec the-one pytest …` from non-interactive contexts (CI, agents, scripts) — `docker compose exec` defaults to `-it` (interactive + TTY) and hangs forever when stdin isn't a TTY. If you must use compose subcommands, pass `-T` to disable TTY allocation. This applies to anything driven from Claude Code's Bash tool, GitHub Actions, or shell scripts. Interactive shells (operator at terminal) can use either.
+
+**Always pair pytest with `-x`** for autonomous runs unless you specifically want to see full failure surface — pytest-asyncio's per-test loop teardown can hang if a test leaves orphaned state on a torn-down loop, and `-x` exits on first failure before that hang surfaces. Without `-x`, a single broken test can wedge the suite indefinitely.
+
+**Unit tests** run by default with `docker exec the-one pytest tests/` — fast, no external dependencies, ~213 tests in <6s.
+
+**`tests/test_mcp_pool.py`** ships 10 pure-unit pool tests + 2 bwrap-dependent integration tests. The integration tests use `@pytest.mark.requires_bwrap` (registered in `pyproject.toml::markers`) and are deselected by default via the `not requires_bwrap` clause in `addopts`. To run the integration tests on a host with bwrap available: `pytest -m requires_bwrap tests/test_mcp_pool.py`.
 
 **Color contrast tests** (`tests/test_design_tokens_a11y.py`): WCAG 2.1 AA contrast audits for the F2 design tokens. Run via default `pytest tests/`. See `the_one/agents.md` "Color contrast (WCAG AA)" for the audited pairs and any deliberate exceptions.
 

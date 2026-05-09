@@ -99,6 +99,79 @@ class TestResolverDispatch:
         assert not hasattr(merged, "bear_token")
 
 
+class TestToolFilterFieldsSchema:
+    """L1 — per-source tool allow/deny fields on both override classes."""
+
+    def test_stdio_override_accepts_enabled_disabled_tools_alongside_env(self) -> None:
+        """L1.1: enabled_tools + disabled_tools validate alongside env."""
+        o = StdioMCPOverride(
+            env={"K": "V"},
+            enabled_tools=["a", "b"],
+            disabled_tools=["c"],
+        )
+        assert o.env == {"K": "V"}
+        assert o.enabled_tools == ["a", "b"]
+        assert o.disabled_tools == ["c"]
+
+    def test_stdio_override_tool_fields_default_to_none(self) -> None:
+        """L1.1: both new fields default to None (no-op by default)."""
+        o = StdioMCPOverride()
+        assert o.enabled_tools is None
+        assert o.disabled_tools is None
+
+    def test_streamable_http_override_accepts_enabled_disabled_tools_alongside_creds(
+        self,
+    ) -> None:
+        """L1.1: enabled_tools + disabled_tools validate alongside bearer/headers."""
+        o = StreamableHttpMCPOverride(
+            bearer_token="tok",
+            headers={"X": "Y"},
+            enabled_tools=["a"],
+            disabled_tools=[],
+        )
+        assert o.bearer_token == "tok"
+        assert o.enabled_tools == ["a"]
+        assert o.disabled_tools == []
+
+    def test_streamable_http_override_tool_fields_default_to_none(self) -> None:
+        """L1.1: both new fields default to None on StreamableHttpMCPOverride."""
+        o = StreamableHttpMCPOverride()
+        assert o.enabled_tools is None
+        assert o.disabled_tools is None
+
+    def test_stdio_override_extra_fields_ignored(self) -> None:
+        """L1.4: Pydantic extra='ignore' (project default) silently drops unknown keys.
+
+        Documents that a typo'd field name (e.g. ``enabled_tool`` vs ``enabled_tools``)
+        will NOT raise — operator gets the no-op behavior, same as ``bear_token`` vs
+        ``bearer_token`` at _overrides.py:101-103.
+        """
+        # Should NOT raise.
+        o = StdioMCPOverride.model_validate({"enabled_tool": ["typo"]})  # singular
+        assert o.enabled_tools is None  # the typo'd value was dropped
+
+    def test_enabled_tools_not_substitute_annotated(self) -> None:
+        """L1.1 negative: the new fields are NOT Annotated[..., Substitute].
+        The resolver must NOT pick them up (no marker on field metadata).
+        """
+        stdio_meta = StdioMCPOverride.model_fields["enabled_tools"].metadata
+        assert not any(m is Substitute for m in stdio_meta), (
+            "enabled_tools must NOT carry a Substitute marker — "
+            "it is read directly via model_validate, not via resolve()"
+        )
+        http_meta = StreamableHttpMCPOverride.model_fields["enabled_tools"].metadata
+        assert not any(m is Substitute for m in http_meta), (
+            "enabled_tools must NOT carry a Substitute marker on StreamableHttpMCPOverride"
+        )
+
+    def test_disabled_tools_not_substitute_annotated(self) -> None:
+        """L1.1 negative: disabled_tools also carries no resolver marker."""
+        stdio_meta = StdioMCPOverride.model_fields["disabled_tools"].metadata
+        assert not any(m is Substitute for m in stdio_meta)
+        http_meta = StreamableHttpMCPOverride.model_fields["disabled_tools"].metadata
+        assert not any(m is Substitute for m in http_meta)
+
+
 class TestModelsAreFrozen:
     """Both schemas declare `model_config = ConfigDict(frozen=True)` —
     attempts to mutate after construction must raise."""

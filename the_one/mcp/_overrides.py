@@ -58,6 +58,13 @@ class StdioMCPOverride(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     env: Annotated[dict[str, str] | None, Substitute] = None
+    # F8 L1: per-source tool allow/deny. Plain fields (NOT Annotated
+    # with Substitute/Narrow) — read directly from the validated
+    # model in _tool_provider.py, not routed through the resolver.
+    # Un-prefixed server-side tool names. None on enabled_tools means
+    # "no allowlist applied"; an empty list means "no tools enabled".
+    enabled_tools: list[str] | None = None
+    disabled_tools: list[str] | None = None
 
 
 class StreamableHttpMCPOverride(BaseModel):
@@ -81,3 +88,6 @@ class StreamableHttpMCPOverride(BaseModel):
 
     headers: Annotated[dict[str, str] | None, Substitute] = None
     bearer_token: Annotated[str | None, Substitute] = None
+    # F8 L1: see StdioMCPOverride for rationale.
+    enabled_tools: list[str] | None = None
+    disabled_tools: list[str] | None = None
