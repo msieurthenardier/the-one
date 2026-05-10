@@ -10,6 +10,34 @@ Flight log for F10, which pivots from F9's alignment vibing to a new architectur
 
 ## Decisions
 
+### Path B (cache-first agent build) absorbed during F10 HAT vibing (2026-05-10)
+
+**Context**: During F10 HAT, the operator hit a session-creation hang. Chat session creation triggered `AgentFactory.create()` → `MCPToolProvider.get_tools_for_agent()`, which called `acquire() + list_tools()` eagerly per attached MCP source. The operator's `cloudflare_api` source was timing out (~30s per source, SDK connect timeout), making multiple agent builds in a session multiplicatively slow.
+
+**Symptom**: New chat session creation hung for 30s+ when any attached MCP source was unreachable. Multiple agent builds in a session compounded to 60s+.
+
+**Root cause**: `get_tools_for_agent` did not check the `_cache.tools` payload (populated by the source-edit page Refresh action) before attempting a live connect. F10 §10 had designed Path B (cache-first hydration) but explicitly deferred it to a follow-up flight.
+
+**Operator-directed scope blend**: operator directed inline absorb as part of F10's vibing close rather than opening a new flight.
+
+**Fix scope**:
+- `the_one/mcp/_tool_provider.py`: `get_tools_for_agent` Phase B loop now checks `source.config["_cache"]["tools"]` BEFORE the `acquire() + list_tools()` block. If cache is populated: hydrates `MCPTool` dataclasses from the cached payload (same pattern as `factory.py:_build_source_index` lines 91-104), skips acquire entirely. If cache is empty: falls back to existing acquire + list_tools path with all 3 exception handlers preserved (`MCPAuthRequired`, connection errors, unguarded propagate).
+- `MCPClientTool.execute` at `_tool.py:135-175` is UNCHANGED — it already correctly lazy-acquires via the F4 pool at first call. Only the agent-build-time eager-acquire was the problem.
+- F5 pause/resume invariant preserved: dispatch is still via `self.tools.get(name)`, unaffected by acquire timing.
+- The 4 typed MCPClient exceptions contract is UNCHANGED — no 5th type added.
+
+**Expected behavior**: agent builds with a populated-cache source are sub-100ms regardless of server reachability. Only the FIRST actual tool call against an unreachable source pays the 30s timeout.
+
+**Tests**: 2 new tests added to `tests/test_mcp_tool_provider.py`:
+- `test_get_tools_for_agent_uses_cache_when_populated` — verifies `acquire` is NOT called when cache is populated; returned tools match cached payload.
+- `test_get_tools_for_agent_falls_back_to_acquire_when_cache_empty` — verifies `acquire` IS called when cache is empty (Path A fallback).
+
+**Test delta**: 1505 → 1507 pass (+2 new tests). All pre-existing 1505 pass. 2 pre-existing bwrap flakes unchanged.
+
+**Decision**: ship inline on `flight/10-lazy-tool-discovery` branch (PR #41). Mission constraint #71's F10 amendment block updated with a Path B note.
+
+---
+
 ### Architect design review feedback incorporated (2026-05-10)
 **Context**: Per flight skill Phase 5b, spawned an architect agent to validate F10 design against current code. Verdict: **approve with changes**. Three high-severity issues (resolved inline in flight.md), four medium, three low.
 **Decision**: Incorporate all high-severity fixes into the flight artifact at design time; route medium/low items into respective leg designs.

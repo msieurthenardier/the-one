@@ -77,6 +77,8 @@ Today, the Studio agent editor's MCPs tab renders a one-line stub message; the `
   - Capability-gate fallback (no-tool-support providers run plain chat).
   - F5's pause/resume primitive (`auth_required` → modal → resume).
   Further loop-level extensions still need explicit mission-constraint amendment.
+
+  **F10 Path B amendment (2026-05-10, inline vibing absorb)**: F10 §10 deferred Path B (cache-first agent build) to a follow-up flight. During F10 HAT, the operator hit a session-creation hang: `MCPToolProvider.get_tools_for_agent` was calling `acquire() + list_tools()` eagerly per attached source at agent build time, causing 30s+ timeouts when a server was unreachable. This was absorbed inline as part of F10's vibing close. `get_tools_for_agent` now checks `source.config["_cache"]["tools"]` FIRST; if populated, it hydrates `MCPTool` dataclasses from the cache and skips `acquire() + list_tools()`. The lazy connect at first actual tool call (`MCPClientTool.execute`) is unchanged. Agent builds with a populated-cache source are now sub-100ms regardless of server reachability.
 - **Cross-platform-ready architecture, Linux-verified for now**: sandbox layer, process spawn, IPC framing, signal handling — all behind a clear abstraction with no Linux-only assumptions in MCP-specific code. macOS and Windows verification are explicit follow-on work
 - **Preserve M01-M06 functionality**: chat persistence, agent CRUD, provider management, the Built-in Tools admin section, browser tests, the deploy pipeline, and the design language all continue working
 - **Python 3.11+, async throughout**: unchanged

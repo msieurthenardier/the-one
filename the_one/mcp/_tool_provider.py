@@ -262,8 +262,20 @@ class MCPToolProvider:
         resolved_names = {s.name for s in sources}
         _warn_orphan_overrides(agent_name, config.mcp_overrides, resolved_names)
 
-        # Phase B: per source, apply override + acquire + list_tools + wrap.
+        # Phase B: per source, apply override + (cache-first OR acquire) +
+        # list_tools + wrap.
         # Failure classes #2 and #4 + #1 sub-case handled here.
+        #
+        # F10 Path B (cache-first agent build, 2026-05-10):
+        # If the source's _cache.tools is populated (operator refreshed on
+        # source-edit page), hydrate MCPTool dataclasses directly from the
+        # cache and SKIP acquire() + list_tools(). This makes agent builds
+        # sub-100ms regardless of server reachability — the eager connect is
+        # the dominant cost when a server is unreachable (~30s SDK timeout).
+        # The lazy connect at first actual tool call is unchanged; execute()
+        # in _tool.py already calls acquire() via the F4 pool.
+        # If cache is empty (operator never refreshed), fall back to the
+        # existing acquire + list_tools path so the source is still usable.
         tools: list[Tool] = []
         produced_names: dict[str, str] = {}  # prefixed_name → source_id
         for source in sources:
@@ -273,37 +285,64 @@ class MCPToolProvider:
             override_payload = (config.mcp_overrides or {}).get(source.name)
             effective_source = _apply_override(source, override_payload)
 
-            # Acquire (failure class #2 — covers connect AND list_tools).
-            try:
-                client = await acquire(
-                    agent_name,
-                    source.id,
-                    source_override=effective_source,
-                )
-                mcp_tools = await client.list_tools()
-            except MCPAuthRequired as e:
-                logger.warning(
-                    "MCP source %r requires authorization; skipping "
-                    "(auth_required, source_id=%s)",
+            # Path B: hydrate from cache if populated.
+            cached_tools_payload: list[dict] = (
+                source.config.get("_cache", {}).get("tools") or []
+            )
+            if cached_tools_payload:
+                logger.debug(
+                    "MCP source %r: using %d cached tools for agent build "
+                    "(skipping acquire + list_tools)",
                     source.name,
-                    e.source_id,
+                    len(cached_tools_payload),
                 )
-                continue
-            except (
-                MCPSandboxError,
-                MCPConnectionError,
-                MCPVersionMismatch,
-            ) as e:
-                logger.warning(
-                    "MCP source %r failed to connect: %s: %s; skipping",
-                    source.name,
-                    type(e).__name__,
-                    e,
-                )
-                continue
+                mcp_tools = [
+                    MCPTool(
+                        name=t["name"],
+                        description=t.get("description", ""),
+                        input_schema=t.get(
+                            "input_schema", {"type": "object", "properties": {}}
+                        ),
+                        output_schema=None,
+                        annotations=None,
+                    )
+                    for t in cached_tools_payload
+                ]
+            else:
+                # Path A fallback: acquire + list_tools (failure class #2 —
+                # covers connect AND list_tools). Used when operator has never
+                # refreshed the source-edit page.
+                try:
+                    client = await acquire(
+                        agent_name,
+                        source.id,
+                        source_override=effective_source,
+                    )
+                    mcp_tools = await client.list_tools()
+                except MCPAuthRequired as e:
+                    logger.warning(
+                        "MCP source %r requires authorization; skipping "
+                        "(auth_required, source_id=%s)",
+                        source.name,
+                        e.source_id,
+                    )
+                    continue
+                except (
+                    MCPSandboxError,
+                    MCPConnectionError,
+                    MCPVersionMismatch,
+                ) as e:
+                    logger.warning(
+                        "MCP source %r failed to connect: %s: %s; skipping",
+                        source.name,
+                        type(e).__name__,
+                        e,
+                    )
+                    continue
 
             # F10 L3: shared filter helper (same logic as before; extracted
-            # for reuse by SearchMcps).
+            # for reuse by SearchMcps). Applied to BOTH cache-first and
+            # acquire-fallback paths.
             mcp_tools = filter_mcp_tools_by_override(
                 mcp_tools, source, override_payload
             )
