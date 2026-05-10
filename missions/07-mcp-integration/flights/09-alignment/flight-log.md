@@ -285,6 +285,11 @@ Per Flight Design Decision §8, all L1 inline-fix LOC contributes to the L8 bund
 
 ## Decisions
 
+### F9 resume-or-absorb decision (capture pending at F10 close — 2026-05-10)
+**Context**: F9 paused at L3-landed per the F9→F10 pivot Decision above. F10 closes with L5 landing. Operator must decide whether F9's remaining legs (L5/L6/L7/L8) resume under the new lazy-discovery architecture, absorb into a successor mission (M08), or abort with the remaining work captured as M07 known issues.
+**Decision**: TBD at F10 close (operator-facing).
+**Impact**: tracked here; will be amended with the actual decision at F10 close.
+
 ### Shape C absorption (L1, batch 8b)
 **Context**: Operator surfaced F8 A6 (no-auth HTTP MCPs fail) during L1 vibing. Architect's first pass (batch 8) recommended Shape A (operator-declares `auth_required` field). Operator pushed back on operator burden.
 **Decision**: Flight Director proposed Shape C (HTTP-level pre-flight detection via bare httpx — no SDK engagement on probe path). Architect re-evaluated and confirmed Shape C dominates A and B. Operator approved absorb.
@@ -309,6 +314,16 @@ Per Flight Design Decision §8, all L1 inline-fix LOC contributes to the L8 bund
 - L7 multi-MCP attach hand-off unaffected (L7 will set up its own multi-source agent regardless of L4's state).
 - L6 stdio-in-chat hand-off: operator-recreated stdio source during L3 attached to at least one agent. **Operator confirms specific stdio source + attached-agent state at L6 setup time.**
 **Methodology insight for L8 / mission debrief**: when the surface-area is transport-agnostic at the UI layer (as the agent-editor MCPs tab is), exercising both transports in a single leg is operator-felt-equivalent to two legs. Worth flagging at the F1-mission-debrief level for future flight design — "split per transport" defaults may be over-conservative when the implementation surface is shared.
+
+### F9 paused for F10 lazy-tool-discovery pivot (2026-05-10)
+**Context**: Mid-F9, while designing L5 (HTTP MCP in chat), operator surfaced an architectural concern: tool definitions are sent on every LLM call (`agent/core.py:108-111` reads `tools.all_schemas()` once per step), tool catalog grows with attached MCP count (Cloudflare API alone exposes 30+ tools), and there's no mechanism for an agent to discover or use a tool added mid-session. Operator proposed: 2-tool baseline (`search_tools` + `search_mcps`) as the only catalog entries; tools auto-load into the agent's per-session loaded set when a search matches. New chat sessions start blind; loaded set persists per-session.
+**Decision**: Pause F9 at L3-landed; open F10 to ship lazy-tool-discovery architecture. F9's L5/L6/L7/L8 deferred; resume-or-absorb decision at F10 close. Branch lifecycle: new `flight/10-lazy-tool-discovery` checked out off `main` (= F9 L3-landed state). Per F9 §1 + §5 acceptable variations / operator-driven scope adaptation, but stretched from leg-level to flight-level.
+**Impact**:
+- F9's L1+L2+L3 polish stays merged on main; investment preserved.
+- F9's chat-side polish (L5/L6/L7) deferred — under F10's architecture, L5+'s chat-time tool-inventory scenarios change shape (the agent has to search before listing tools), so re-running them as F9 originally framed would be partial waste.
+- M07 close pushes out by F10's duration (~1-2 days estimated).
+- Mission constraint amendment for the agent-loop scope change lands at F10 L5.
+- F9 flight.md status field (`ready`) was never updated to `in-flight`; not F10's fix.
 
 ### F9 §2 cumulative LOC ceiling exceeded (~1193 / ~600)
 **Context**: Per F9 §2 Sizing Thresholds, cumulative production LOC outside vibing-surface UI files crossed the ~600 LOC ceiling around batch 12 of L2. Adaptation Criteria recommends "pause F9, audit cumulative scope with operator, decide per-anomaly which fixes to revert + defer."

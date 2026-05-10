@@ -49,6 +49,7 @@ from the_one.encryption import get_encryptor
 from the_one.mcp._overrides import StdioMCPOverride, StreamableHttpMCPOverride
 from the_one.mcp._pool import acquire
 from the_one.mcp._tool import MCPClientTool
+from the_one.mcp.types import MCPTool
 from the_one.mcp.errors import (
     MCPAuthRequired,
     MCPConnectionError,
@@ -60,6 +61,46 @@ from the_one.tools.base import Tool
 from the_one.tools.resolver import resolve
 
 logger = logging.getLogger(__name__)
+
+
+def filter_mcp_tools_by_override(
+    mcp_tools: list[MCPTool],
+    source: MCPSource,
+    override_payload: dict[str, Any] | None,
+) -> list[MCPTool]:
+    """Apply per-source enabled_tools / disabled_tools filter from override.
+
+    Returns a NEW filtered list. Idempotent on empty/None override
+    (returns input unchanged). Handles stdio and streamable-http
+    transports via the appropriate override model. Unknown source types
+    fall through to returning input unchanged (logged at the call site
+    if needed).
+
+    NOTE: model_validate is used directly (NOT resolve()) because the
+    resolver raises ValueError on untagged fields (resolver.py:244-248).
+
+    F10 L3: extracted from get_tools_for_agent (lines 264-284) so that
+    SearchMcps and MCPToolProvider share one filter implementation.
+    """
+    if not override_payload:
+        return mcp_tools
+
+    override_model: StdioMCPOverride | StreamableHttpMCPOverride | None = None
+    if source.type == "stdio":
+        override_model = StdioMCPOverride.model_validate(override_payload)
+    elif source.type == "streamable-http":
+        override_model = StreamableHttpMCPOverride.model_validate(override_payload)
+    else:
+        return mcp_tools
+
+    enabled = override_model.enabled_tools
+    disabled = override_model.disabled_tools or []
+    out = mcp_tools
+    if enabled is not None:
+        out = [mt for mt in out if mt.name in enabled]
+    if disabled:
+        out = [mt for mt in out if mt.name not in disabled]
+    return out
 
 
 def _apply_override(
@@ -261,27 +302,11 @@ class MCPToolProvider:
                 )
                 continue
 
-            # F8 L1: per-source allow/deny filter. Read enabled_tools /
-            # disabled_tools from the validated override model. Filter on
-            # un-prefixed mt.name. Semantics mirror AgentConfig.is_tool_enabled:
-            # if enabled_tools is non-None, only those tools pass;
-            # disabled_tools is always subtracted.
-            # NOTE: model_validate is used directly (NOT resolve()) because the
-            # resolver raises ValueError on untagged fields (resolver.py:244-248).
-            override_model: StdioMCPOverride | StreamableHttpMCPOverride | None = None
-            if override_payload:
-                if source.type == "stdio":
-                    override_model = StdioMCPOverride.model_validate(override_payload)
-                elif source.type == "streamable-http":
-                    override_model = StreamableHttpMCPOverride.model_validate(override_payload)
-
-            if override_model is not None:
-                enabled = override_model.enabled_tools
-                disabled = override_model.disabled_tools or []
-                if enabled is not None:
-                    mcp_tools = [mt for mt in mcp_tools if mt.name in enabled]
-                if disabled:
-                    mcp_tools = [mt for mt in mcp_tools if mt.name not in disabled]
+            # F10 L3: shared filter helper (same logic as before; extracted
+            # for reuse by SearchMcps).
+            mcp_tools = filter_mcp_tools_by_override(
+                mcp_tools, source, override_payload
+            )
 
             # Wrap each MCPTool. 64-char ceiling caught per-tool
             # (cycle-1 M2 — OTHER tools from the same source survive).
