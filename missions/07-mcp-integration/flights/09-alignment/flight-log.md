@@ -29,6 +29,77 @@ Phase 1b reconnaissance against the F8 debrief's eight action items (the source 
 
 ## Leg Progress
 
+### L3 — `03-http-mcp-attach-to-agent` (covers L4 — stdio attach)
+**Status**: completed
+**Started**: 2026-05-10
+**Completed**: 2026-05-10
+
+#### Operator Scenarios Walked
+
+Followed the L1 + L2 exploratory framing per the methodology insight from L1's flight log. Operator drove via mixed HTTP + stdio attach cycles rather than walking the 6 enumerated scenarios as a script. Coverage achieved across the leg-artifact scenario classes:
+
+- **Tab navigation + list/empty-state branch**: covered via initial agent-editor MCPs tab open with sources from L1 in the list.
+- **Attach toggle + Save + reload preservation**: covered via attach + save + reload cycles on at least one HTTP source AND at least one stdio source. **Transport-agnostic UI confirmed**: the same `mcps-tab.js` code path renders both HTTP and stdio rows; per-transport behavior is the badge text only (`mcps-tab.js:127`).
+- **Details panel + tool list rendering + cross-cut consistency**: covered via the A-L3-2 fix (details-open now reads `_cache.tools` directly).
+- **Per-tool enable/disable + Save + reload preservation**: covered via toggle cycles on attached sources.
+- **Hash-routing deep-link**: implicit via natural navigation; no anomaly surfaced.
+- **Refresh tools button + auth-required notice**: implicit; no anomaly surfaced (cloudflare_api tokens valid throughout L3).
+
+**L4 absorbed into L3 — methodology variation**: operator explicitly tested both HTTP and stdio attach during L3 vibing. The agent-editor MCPs tab is transport-agnostic at the UI layer (single `renderMcpsTab` call, single `_populateDetailsBody`, single tool-list render path); the only transport-specific surface is the badge text. All three L3 anomaly classes (A-L3-1, A-L3-2, A-L3-3) affect both transports because they live in the transport-agnostic UI layer. L4's stated outcome ("Attach a stdio MCP source to an agent analogous to L3") is therefore satisfied by L3's exercise. See Decision below.
+
+Operator-felt sign-off: "that wraps up the leg, and the next leg can be skipped as I tested both types of mcps."
+
+#### Anomalies Captured
+
+L3 had three distinct anomaly classes; all triaged inline-fix; all UI-surface only.
+
+1. **A-L3-1**: New MCP source created on the source-edit page didn't appear in the agent-editor MCPs tab list without a manual page refresh — `allMcpSources` was loaded once at studio area mount and went stale on agent-select. — triage: inline-fix / Implementer batch 1 (bundled with A-L3-2) — resolution: added `refreshMcpSourcesCache()` mirroring the existing `refreshToolConfigsCache` pattern; wired into agent-edit mount fan-out via `Promise.all` so each agent-select re-fetches `/api/mcp-sources`.
+
+2. **A-L3-2 (predicted upfront in leg artifact)**: Tools probe ran on every details-open in the agent-editor MCPs tab instead of consulting the saved `source.config._cache.tools` populated by L1's source-edit Refresh. — triage: inline-fix / Implementer batch 1 (bundled with A-L3-1) — resolution: cache-first read in `_populateDetailsBody.loadTools` — when `forceRefresh=false` and `source.config._cache.tools` is populated, render synchronously without calling `fetchMcpSourceTools`. The Refresh-tools button still triggers a fresh probe via `forceRefresh: true`, preserving the auth-required notice path on revoked tokens. Removed the unconditional "Loading tools…" placeholder so cache-hit renders flicker-free.
+
+3. **A-L3-3**: Agent tile in the agents grid lacked a tool-count metric. Operator wanted both built-in tool count AND MCP tool count, disambiguated into 2 lines. — triage: inline-fix / Implementer batch 2 — resolution: two new `entity-tile-tool-count` spans on each agent tile between the provider·model meta line and capability chips. Built-in count uses the same `enabled_tools` / `disabled_tools` mode-detection as `tools-tab.js`, bounded by `_allTools` membership (matches runtime resolver behavior). MCP count mirrors `mcps-tab.js`'s `isAllowlist` mode-detection across attached sources, summing `_cache.tools` per source after applying overrides.
+
+#### Inline Fixes Implemented (2 batches)
+
+| Batch | Subagent role | Files (high-level) | Notes |
+|-------|---------------|--------------------|-------|
+| 1 | Implementer (A-L3-1 + A-L3-2 bundled) | `studio.js` (+18); `mcps-tab.js` (+24 -1) | 0 LOC outside vibing surfaces; flagged pre-existing `test_flow_agent_tabs.py::test_tablist_renders_with_three_tabs` failure unrelated to L3 (confirmed by stash + retry); deferred regression test for cache-hit path due to fixture infrastructure complexity (server-side `_cache` strip on POST) |
+| 2 | Implementer (A-L3-3 agent tile counts) | `studio.js` (+95); `studio.css` (+15) | 0 LOC outside vibing surfaces; smart-default flag — built-in count bounded by `_allTools` membership rather than naive `enabled_tools` array (matches runtime resolver); deferred regression test (would need agent + connected MCP + cached tools fixture) |
+
+#### Cumulative LOC for L8 review queue
+
+| Bucket | LOC |
+|---|---|
+| Production code OUTSIDE vibing-surface UI files | **0** ✓ (recovers §2 ceiling pressure from L1+L2) |
+| Production code INSIDE vibing-surface UI files | ~158 (studio.js +113; mcps-tab.js +23; studio.css +15) — excluded from §2 cumulative ceiling per the carve-out for the seven vibing surfaces |
+| Test additions | 0 (deferred per leg's "non-trivial fixture rework → defer" guidance; flagged for L8 review queue) |
+
+**Cumulative production LOC outside vibing surfaces L1+L2+L3**: ~409 (L1) + ~784 (L2) + 0 (L3) = **~1193 LOC** — **unchanged from L2 close**. L3 added zero outside-vibing-surface LOC; the §2 ceiling overrun is held flat.
+
+#### Specific items flagged for L8 bundled review
+
+- **Pre-existing browser test failure unrelated to L3**: `tests/browser/test_flow_agent_tabs.py::test_tablist_renders_with_three_tabs` (and 12 sibling tests) fail with `expect(.section-nav-header).to_have_text("Studio")` timing out. Implementer (batch 1) confirmed pre-existing by stashing changes + re-running. Either pre-existing flakes from the F8 baseline (43 known) OR a regression on main from before F9. L8 final regression sweep should diff this against F8 baseline carefully and triage.
+- **A-L3-3 built-in count semantic decision**: bounded by `_allTools` membership (matches runtime). Alternative semantic ("what the agent's config thinks it has") is one-line change. Reviewer should ratify.
+- **Deferred regression tests**: A-L3-2 cache-hit assertion + A-L3-3 tile-count assertion both deferred due to fixture infrastructure complexity (server-side `_cache` strip; agent + connected MCP + cached tools setup). L8 review should evaluate whether to land these as test debt or accept the gap.
+
+#### Caplog Gate
+
+`docker compose logs --tail 200 the-one 2>&1 | grep -c "MCPClient.disconnect"` at leg close: **0** ✓ (target: 0). Held across HTTP attach + stdio attach + per-tool toggle + reload + Refresh tools cycles.
+
+#### State at leg close
+
+- HTTP source `cloudflare_api` (OAuth) and `cloudflare_docs` (no-auth) — both still registered with cached tools; available for L5 (HTTP in chat) and L7 (multi-MCP).
+- Stdio source — operator-recreated during L3 (L2 deleted at its close); attached to at least one agent for the stdio attach exercise. **Operator confirms specific stdio source / attached-agent state at L6 setup time.**
+- Agent-editor MCPs tab UI: A-L3-1 + A-L3-2 fixes shipped; agent tile UI: A-L3-3 counts shipped. All bound for L5/L6/L7 inheritance.
+
+#### Notes
+
+- L3 was the cleanest leg in F9 so far — three anomalies, all UI-surface, two batches, 0 LOC outside vibing surfaces, no architect passes needed. The §9 subagent isolation pattern continued to work — parent context never read full diffs, only return summaries.
+- The §2 cumulative-LOC ceiling overrun from L2 stabilized; L3 added nothing to it. Methodology insight: alignment legs that touch vibing-surface UI ONLY tend to fit the §2 budget cleanly — the overrun comes from legs that close F1-F8 functional gaps (L2's structural prerequisite). Worth surfacing at L8.
+- L4 absorbed into L3 — operator confirmed equivalent coverage during L3 vibing. See Decision below.
+
+---
+
 ### L2 — `02-stdio-mcp-create-and-test`
 **Status**: completed
 **Started**: 2026-05-09
@@ -229,6 +300,16 @@ Per Flight Design Decision §8, all L1 inline-fix LOC contributes to the L8 bund
 **Decision**: NOT ripped out in F9. Documented for follow-up consideration. Operator's reasoning: (a) F3's bwrap layer is correctly-scoped engineering for a state-of-the-project (cross-platform desktop app, third-party MCP marketplace) that doesn't exist yet; (b) ripping is a bigger architectural pivot than F9's alignment scope; (c) the deps-management pivot question (container-first vs native-install) is the actual operator-felt UX issue. Both deferred to mission close (or successor mission).
 **Impact**: L2's `network_allowed` form-default flip + the runtime-cache + the cleanup work all landed within the bwrap-on-default architecture. If a successor flight rips bwrap, those choices become near-trivial inheritances (most cleanup work is bwrap-agnostic; the network_allowed default flip is moot post-rip).
 
+### L4 absorbed into L3 — methodology variation (2026-05-10)
+**Context**: L3's leg artifact specified attach-flow vibing for HTTP MCPs only; L4 was scheduled as the analogous stdio attach exercise. The agent-editor MCPs tab is transport-agnostic at the UI layer (single `renderMcpsTab` call, single `_populateDetailsBody`, single tool-list render path; the only transport-specific surface is the badge text per `mcps-tab.js:127`). All three L3 anomaly classes (A-L3-1 stale-source-list, A-L3-2 probe-on-every-open, A-L3-3 agent-tile counts) live in the transport-agnostic UI layer.
+**Decision**: Operator drove L3 vibing across BOTH HTTP and stdio attach cycles; declared "tested both types of mcps" at leg close; explicitly requested L4 be skipped. Per F9 §1's Adaptation Criteria (acceptable variations include leg ordering changes), this is a stronger variation but consistent with the spirit — operator-driven scope adaptation when redundant coverage is identified at execution time.
+**Impact**:
+- L4 leg artifact never created (no `/leg 4` invocation needed).
+- L4 checkbox in `flight.md` checked off with skip rationale.
+- L7 multi-MCP attach hand-off unaffected (L7 will set up its own multi-source agent regardless of L4's state).
+- L6 stdio-in-chat hand-off: operator-recreated stdio source during L3 attached to at least one agent. **Operator confirms specific stdio source + attached-agent state at L6 setup time.**
+**Methodology insight for L8 / mission debrief**: when the surface-area is transport-agnostic at the UI layer (as the agent-editor MCPs tab is), exercising both transports in a single leg is operator-felt-equivalent to two legs. Worth flagging at the F1-mission-debrief level for future flight design — "split per transport" defaults may be over-conservative when the implementation surface is shared.
+
 ### F9 §2 cumulative LOC ceiling exceeded (~1193 / ~600)
 **Context**: Per F9 §2 Sizing Thresholds, cumulative production LOC outside vibing-surface UI files crossed the ~600 LOC ceiling around batch 12 of L2. Adaptation Criteria recommends "pause F9, audit cumulative scope with operator, decide per-anomaly which fixes to revert + defer."
 **Decision**: Did NOT pause-and-revert. Real-time per-batch operator approval functioned as a continuous audit equivalent to the Adaptation-criteria-mandated pause; each scope expansion was explicit (Shape C absorption in L1; the 3-deliverable structural prerequisite in L2; the cache cleanup work). Continuing F9 with the divert documented and L8 review queue noted.
@@ -368,6 +449,27 @@ Per Flight Design Decision §8, all L1 inline-fix LOC contributes to the L8 bund
 **Triage**: inline-fix / Implementer batch 11
 **Resolution**: form-default flipped to `True` for new sources. Schema-level default left at `False` to avoid silently changing runtime behavior on existing persisted sources without migration. Smart surgical scope.
 
+### A-L3-1 — New MCP doesn't appear on agent-editor MCPs tab without manual page refresh
+**Observed**: Operator creates a new MCP source on Studio → MCP Sources → returns to Studio → Agents → {agent} → MCPs tab. New source missing from list. Manual page refresh fixes it.
+**Severity**: degraded (UX friction; workflow not blocked)
+**Surfaced in**: L3
+**Triage**: inline-fix / Implementer batch 1 (bundled with A-L3-2)
+**Resolution**: added `refreshMcpSourcesCache()` mirroring existing `refreshToolConfigsCache` pattern in `studio.js`; wired into agent-edit mount via `Promise.all` so each agent-select re-fetches `/api/mcp-sources`. Failures fall through to prior cache (no spinner regression).
+
+### A-L3-2 — Tools probe runs on every details-open instead of consulting saved cache
+**Observed**: Each open of an MCP source's details panel in agent-editor MCPs tab triggers a fresh `/api/mcp-sources/{id}/test/connect` POST even when `source.config._cache.tools` is already populated by L1's source-edit Refresh. Predicted upfront in L3 leg artifact (predicted anomaly #1).
+**Severity**: degraded (UX latency; redundant network calls)
+**Surfaced in**: L3
+**Triage**: inline-fix / Implementer batch 1 (bundled with A-L3-1)
+**Resolution**: cache-first read in `mcps-tab.js::_populateDetailsBody.loadTools` — when `forceRefresh=false` and `source.config._cache.tools` populated, render synchronously without calling `fetchMcpSourceTools`. Refresh-tools button still triggers fresh probe via `forceRefresh: true`, preserving the auth-required notice path on revoked tokens. Removed unconditional "Loading tools…" placeholder so cache-hit renders flicker-free.
+
+### A-L3-3 — Agent tile lacks tool-count metrics
+**Observed**: Operator viewing Studio → Agents grid had no visibility into how many tools each agent is equipped with. Tile showed name, description, provider · model meta, capability chips — no count.
+**Severity**: cosmetic (UX gap)
+**Surfaced in**: L3
+**Triage**: inline-fix / Implementer batch 2
+**Resolution**: two new `entity-tile-tool-count` spans on each agent tile between provider·model meta and capability chips, disambiguated as "{N} tools" and "{N} MCP tools" with proper pluralization. Built-in count uses same `enabled_tools`/`disabled_tools` mode-detection as `tools-tab.js`, bounded by `_allTools` membership (matches runtime resolver behavior). MCP count mirrors `mcps-tab.js`'s `isAllowlist` mode-detection across attached sources, summing `_cache.tools` per source after applying overrides. Both lines always rendered (even at 0) for stable tile height.
+
 ### A-L1-7 — F8 A6 carry-forward: no-auth HTTP MCPs fail with consent_url_timeout
 **Observed**: Cloudflare docs MCP (no auth required) returned 200 OK to bare initialize; current code expected 401 to trigger OAuth flow; `consent_url_future` never resolved → 15s timeout → `{"status":"error", "error":"consent_url_timeout"}` rendered in UI.
 **Severity**: blocking (workflow gap; no-auth HTTP MCPs unusable)
@@ -391,6 +493,18 @@ Highlights:
 - §2 cumulative ceiling exceeded (~1193 / ~600 LOC outside vibing surfaces); operator-approved real-time per batch; flagged for L8 review.
 - The §9 subagent-isolation pattern proved its worth at high anomaly density: parent context never read full diffs across 14 batches, only return summaries.
 - Reach for INFO-level logging visibility surfaced as a project-wide gap (cleanup logs were silent because root logger is at WARNING by uvicorn default). Bumped cleanup outcomes to WARNING; broader fix deferred.
+
+### 2026-05-10 — L3 vibing session (L4 absorbed)
+
+Single-day leg execution. Operator drove exploratory vibing across 2 subagent dispatch batches. Caplog clean throughout (verified at leg close: 0 occurrences of `MCPClient.disconnect`).
+
+Highlights:
+- Operator-felt sign-off: "that wraps up the leg, and the next leg can be skipped as I tested both types of mcps."
+- Three anomaly classes (A-L3-1, A-L3-2, A-L3-3); all UI-surface; 0 LOC outside vibing surfaces.
+- L4 absorbed into L3 — agent-editor MCPs tab is transport-agnostic at UI layer, operator confirmed equivalent coverage during L3 vibing. Documented as Decision above.
+- Cumulative production LOC outside vibing surfaces UNCHANGED from L2 close (~1193); L3 added 0.
+- Pre-existing browser test failure (`test_flow_agent_tabs.py::test_tablist_renders_with_three_tabs`) flagged for L8 review queue — confirmed not introduced by L3 batches.
+- Predicted-upfront anomaly (A-L3-2) actually surfaced and was fixed — validates the leg-design "predict + plan triage" approach. Methodology insight for future alignment legs.
 
 ### 2026-05-09 — L1 vibing session
 Single-day leg execution. Operator drove exploratory vibing across 8-9 subagent dispatch batches. Caplog clean throughout (verified at batch transitions and at leg close: 0 occurrences of `MCPClient.disconnect`).

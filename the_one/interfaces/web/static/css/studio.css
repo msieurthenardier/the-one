@@ -69,6 +69,21 @@
   /* Capability chips on agent tiles — sit below the meta line. */
   .area-studio .agent-tile-caps { margin-top: 4px; }
 
+  /* F9 L3 (A-L3-3) — Tool-count metric lines on agent tiles. Rendered
+     between the provider · model meta line and the capability chips.
+     Match the meta line's visual weight (secondary, monospaced caption)
+     so the tile reads as a coherent stack of dim metadata under the
+     bold name + 2-line description. Always-present (even at 0) so tile
+     heights stay uniform across the agents grid. */
+  .area-studio .entity-tile-tool-count {
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-caption);
+    color: var(--fg-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   /* === Studio Area: Tools tab — operator-disabled rows + override panels === */
   /* F6 leg 05. Operator-disabled tools: dim row + cursor:not-allowed +
      strikethrough name. Override panel (`<details>`): nested under each
