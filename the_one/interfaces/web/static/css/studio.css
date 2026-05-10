@@ -93,6 +93,22 @@
 
   /* === MCP source-editor: Test connection + Tools section (F6.5 L3+L4) === */
   .area-studio .mcp-test-row { margin-top: 8px; }
+  /* F9 L1 (vibing follow-up): Reset connection button paired next to
+     Refresh in the Connection block (moved out of Danger Zone). The
+     flex container groups them inline with a small gap so they read as
+     a single "connection actions" cluster. */
+  .area-studio .mcp-connection-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  /* F9 L1 (vibing polish): "Last updated" label relocated from above the
+     Tools list into the connection-actions row. `margin-left: auto`
+     pushes it to the far end of the flex container so Refresh + Reset
+     stay grouped on the left and the timestamp anchors to the right.
+     Low-emphasis tone (--fg-secondary, body-sm) keeps it informational. */
+  .area-studio .mcp-connection-actions .mcp-tools-last-updated {
+    margin-left: auto;
+    font-size: var(--font-size-body-sm);
+    color: var(--fg-secondary);
+  }
+  .area-studio .mcp-connection-actions .mcp-tools-last-updated[hidden] { display: none; }
   .area-studio .mcp-tools-status { font-size: var(--font-size-body); color: var(--fg-secondary); margin-bottom: 12px; }
   .area-studio .mcp-tools-success { color: var(--status-success, var(--accent)); font-weight: 600; }
   .area-studio .mcp-tools-error { color: var(--status-danger); font-weight: 600; }
@@ -139,4 +155,102 @@
   .area-studio .mcp-tool-toggle-hint { color: var(--fg-faint); font-size: 11px; }
   .area-studio .mcp-auth-required-notice { padding: 12px; background: var(--surface-elevated); border-left: 3px solid var(--accent); border-radius: 4px; font-size: var(--font-size-body-sm); }
   .area-studio .mcp-auth-required-notice a { color: var(--accent); text-decoration: underline; }
+
+  /* === F9 L1: MCP source-editor — KV table polish ============================
+     - thead hidden when the table has zero rows (empty state); revealed at
+       row-add time, re-hidden at last-row-remove. JS toggles `is-hidden`.
+     - column headers styled in the studio mono-uppercase column-label idiom
+       (matches `.section-title` tone without the `//` accent prefix; this is
+       a column header, not a section header).
+     - "Sensitive" header info-icon tucks inline next to its label; uses the
+       canonical `.field-info-icon` reset from components.css.
+     - Per-row sensitive control reuses the `.tool-enable-switch` iOS-style
+       toggle (admin.css supplies the track + thumb mechanics); the local
+       override here unpins it from absolute-positioning so it flows inline
+       in the table cell, mirroring `.mf-sandbox-network-row` precedent.
+     - Per-row remove button is now a trash-icon glyph; the icon inherits
+       --fg-secondary and brightens to --status-danger on hover. */
+  /* F9 L1 follow-up: the table is left-justified — its width collapses to the
+     sum of its column widths (plus padding) rather than stretching to fill
+     the parent. `width: auto` on a <table> behaves as shrink-to-fit. */
+  .area-studio .mcp-kv-table { width: auto; border-collapse: collapse; margin-bottom: 8px; }
+  .area-studio .mcp-kv-thead.is-hidden { display: none; }
+  .area-studio .mcp-kv-thead th {
+    text-align: left;
+    padding: 4px 8px;
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-tiny);
+    font-weight: var(--font-weight-bold);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--fg-secondary);
+    border-bottom: 1px solid var(--border);
+  }
+  .area-studio .mcp-kv-th-sensitive {
+    /* Inline-flex keeps the info icon aligned with the header text baseline. */
+    white-space: nowrap;
+  }
+  .area-studio .mcp-kv-th-sensitive .field-info-icon {
+    margin-left: 4px;
+    vertical-align: middle;
+  }
+  .area-studio .mcp-kv-table tbody td { padding: 4px 8px; vertical-align: middle; }
+  .area-studio .mcp-kv-sensitive-cell { width: 1%; white-space: nowrap; }
+  /* Unpin the toggle so it flows inline (default `.tool-enable-switch` is
+     position:absolute, designed for the tile-corner placement). Mirrors the
+     `.mf-sandbox-network-row .tool-enable-switch` override pattern.
+     F9 L1 follow-up: the original selector `.mcp-kv-sensitive-switch`
+     tied with the base `.area-studio .tool-enable-switch` rule on
+     specificity (both 0,2,0). admin.css loads AFTER studio.css and both
+     sit in `@layer areas`, so source order made the base rule win — the
+     toggle was being absolutely positioned out of the cell, leaving the
+     Sensitive column blank. The cell-scoped selector below has 0,3,0
+     specificity (matches the sandbox-row precedent) and wins outright. */
+  .area-studio .mcp-kv-sensitive-cell .tool-enable-switch {
+    position: relative;
+    bottom: auto;
+    right: auto;
+    display: inline-block;
+    vertical-align: middle;
+  }
+  .area-studio .kv-remove-row-btn {
+    background: transparent;
+    border: 0;
+    padding: 4px;
+    cursor: pointer;
+    color: var(--fg-secondary);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 0;
+    transition: color 0.15s ease;
+  }
+  .area-studio .kv-remove-row-btn:hover { color: var(--status-danger); }
+  .area-studio .kv-remove-row-btn svg { width: 16px; height: 16px; display: block; }
+  /* Refresh-connection button (F9 L1 rename of "Test connection"): the
+     refresh icon sits inline before the label, matching the icon-then-text
+     pattern used by .test-provider-btn (▶ Test) and back-btn (← Back). */
+  .area-studio .mcp-refresh-connection-btn { display: inline-flex; align-items: center; gap: 6px; }
+  .area-studio .mcp-refresh-connection-btn svg { width: 14px; height: 14px; }
+  /* F9 L1 (vibing polish): source-level Delete button in the Danger
+     Zone gets a trash glyph on the LEFT of the label, mirroring the
+     Refresh button's icon-then-text idiom. SVG inherits `currentColor`
+     so the glyph picks up .btn-muted-destructive's danger-muted tone
+     and brightens with the label on hover / .confirm-delete. */
+  .area-studio .mcp-delete-btn { display: inline-flex; align-items: center; gap: 6px; }
+  .area-studio .mcp-delete-btn svg { width: 14px; height: 14px; }
+  /* F9 L2 vibing: helper-text hint under the args field for the stdio
+     command-runtime dropdown. Low-emphasis tone (--fg-secondary,
+     body-sm) matches the studio "informational text" idiom used by
+     .mcp-tool-description / .mcp-capability-flags / .model-loading.
+     The .mcp-command-hint-row hides its label slot to keep the hint
+     left-aligned with the args chip-list above; the row inherits the
+     `.mcp-stdio-only.is-hidden` toggle the rest of the stdio rows use
+     for transport-switch visibility. */
+  .area-studio .form-hint {
+    font-size: var(--font-size-body-sm);
+    color: var(--fg-secondary);
+    line-height: 1.4;
+  }
+  .area-studio .mcp-command-hint-row label { /* empty label slot for grid alignment */ }
 }

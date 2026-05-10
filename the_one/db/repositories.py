@@ -335,6 +335,44 @@ class MCPSourceRepository:
         await self.conn.execute("DELETE FROM mcp_sources WHERE id = ?", (source_id,))
         await self.conn.commit()
 
+    async def find_by_runtime_package(
+        self, runtime: str, package: str, exclude_id: str
+    ) -> list[MCPSource]:
+        """Return every other MCP source whose (command, args) decode to
+        the same (runtime, package) pair.
+
+        Used by the delete handler to refcount cache cleanup: if any
+        other source still references the same lazy-install package,
+        skip the cleanup so we don't yank a cache slot the survivor
+        depends on.
+
+        Decoding is done in Python — ``config`` is JSON TEXT in SQLite,
+        and a SQL LIKE on the JSON string would be brittle (arg order,
+        version pins, ``--from`` indirection). The deserialized form
+        runs through :func:`extract_runtime_package` for parity with the
+        delete handler.
+        """
+        # Local import to avoid a circular: cache_cleanup is in the_one.mcp,
+        # which transitively imports db modules through other helpers.
+        from the_one.mcp.cache_cleanup import extract_runtime_package
+
+        async with self.conn.execute(
+            "SELECT * FROM mcp_sources WHERE id != ?", (exclude_id,)
+        ) as cur:
+            rows = await cur.fetchall()
+        matches: list[MCPSource] = []
+        for row in rows:
+            model = self._row_to_model(row)
+            cfg = model.config or {}
+            cmd = cfg.get("command", "")
+            args = cfg.get("args", []) or []
+            if not isinstance(cmd, str) or not isinstance(args, list):
+                continue
+            decoded = extract_runtime_package(cmd, args)
+            if decoded == (runtime, package):
+                matches.append(model)
+        return matches
+
     def _row_to_model(self, row: aiosqlite.Row) -> MCPSource:
         return MCPSource(
             id=row["id"],

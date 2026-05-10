@@ -347,7 +347,12 @@ class MCPClient:
                     await asyncio.wait_for(
                         self._cleanup_after_failed_connect(), timeout=3.0
                     )
-                except (asyncio.TimeoutError, Exception, BaseExceptionGroup):
+                except (
+                    asyncio.TimeoutError,
+                    asyncio.CancelledError,
+                    Exception,
+                    BaseExceptionGroup,
+                ):
                     logger.warning(
                         "MCP transport cleanup timed out or raised after "
                         "connect-failure; abandoning the transport stack "
@@ -356,10 +361,20 @@ class MCPClient:
                     # Abandon the stack reference so future operations don't
                     # try to re-enter the wedged cleanup chain. The leak is
                     # a partially-open subprocess/HTTP connection; bounded
-                    # by process lifetime. Note: ``except BaseException``
-                    # would also catch CancelledError + KeyboardInterrupt;
-                    # we narrow to (Exception, BaseExceptionGroup) so the
-                    # caller's cancellation propagates cleanly.
+                    # by process lifetime. F9 L2: include CancelledError
+                    # in the catch list — both wait_for's timeout-driven
+                    # cancellation of the inner coroutine and the SDK's
+                    # anyio cross-task cancel-scope guard surface as bare
+                    # CancelledError (BaseException, not Exception). The
+                    # outer `except (Exception, BaseExceptionGroup)` arm
+                    # has already committed to translating to
+                    # MCPConnectionError; allowing CancelledError to leak
+                    # from cleanup here violates the four-typed-exceptions
+                    # contract on the D1 stdio Test route. Caller-side
+                    # cancellation is handled by the dedicated outer
+                    # `except asyncio.CancelledError` at line 301, which
+                    # also translates rather than propagates — this stays
+                    # consistent with that policy.
                     self._transport_stack = None
                     self._session = None
 

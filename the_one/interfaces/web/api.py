@@ -562,6 +562,13 @@ def _mcp_source_response(source: MCPSource) -> dict[str, Any]:
         k: v for k, v in source.secrets.items() if k not in _OAUTH_MANAGED_SECRET_KEYS
     }
     data["secrets"] = _mask_secrets(visible)
+    # F9 L1 (vibing): expose a presence-only flag so the editor can decide
+    # whether to render the "Reset connection" Danger-Zone button without
+    # leaking the OAuth-managed secret values themselves. True iff ANY
+    # OAuth-managed key is present in the persisted row's secrets.
+    data["oauth_active"] = any(
+        k in source.secrets for k in _OAUTH_MANAGED_SECRET_KEYS
+    )
     return data
 
 
@@ -799,6 +806,22 @@ async def update_mcp_source(source_id: str, request: Request) -> dict[str, Any]:
                 del resolved_secrets[key]
         data["secrets"] = resolved_secrets
 
+    # F9 L1 (vibing): preserve the existing tools cache across PUT.
+    # The cache is server-managed (written by /test/connect after a
+    # successful list_tools); an operator PUT must not be able to seed
+    # or overwrite it. Mirrors the OAUTH_MANAGED_SECRET_KEYS preservation
+    # pattern above — the operator gets REST replace semantics for keys
+    # they own, but server-managed keys are pinned from `existing`.
+    incoming_config = data.get("config")
+    if isinstance(incoming_config, dict):
+        # Drop any operator-supplied _cache (poisoning attempt or
+        # innocent round-trip of the masked GET response).
+        incoming_config.pop("_cache", None)
+        existing_cache = (existing.config or {}).get("_cache")
+        if existing_cache is not None:
+            incoming_config["_cache"] = existing_cache
+        data["config"] = incoming_config
+
     try:
         updated = existing.model_copy(update=data)
     except ValidationError as e:
@@ -810,12 +833,312 @@ async def update_mcp_source(source_id: str, request: Request) -> dict[str, Any]:
 
 @router.delete("/mcp-sources/{source_id}")
 async def delete_mcp_source(source_id: str) -> dict[str, str]:
+    """Delete an MCP source and reclaim its lazy-install runtime cache.
+
+    F9 L2 vibing follow-up: stdio sources whose ``config.command`` is a
+    lazy-install runtime (``uvx``, ``npx``, ``pipx run``) leave behind a
+    package cache under ``/root/.cache/uv/environments-v2`` or
+    ``/root/.npm/_npx`` after first spawn. Without cleanup, deleting the
+    source orphans that cache indefinitely. This handler:
+
+    1. Reads the source so we can decode its (runtime, package) BEFORE
+       the row is gone.
+    2. Evicts every pool entry referencing the source so the next
+       ``acquire`` doesn't hand out a stale client.
+    3. Refcounts: if any OTHER source decodes to the same (runtime,
+       package), we skip cleanup — the survivor still needs the cache.
+    4. DELETEs the row.
+    5. Best-effort cache cleanup AFTER the delete commits, so a hung
+       ``uv cache clean`` cannot regress the user-facing delete signal.
+       :func:`cleanup_runtime_cache` swallows all exceptions and bounds
+       itself with an internal ``asyncio.wait_for(10.0)`` ceiling.
+
+    Sources whose runtime is unknown (python/node/bash/Custom) skip
+    cleanup entirely — there is no reliably-locatable cache slot to
+    reclaim for those.
+    """
+    from the_one.mcp._pool import _evict_all_for_source
+    from the_one.mcp.cache_cleanup import cleanup_runtime_cache, extract_runtime_package
+
     repo = await _mcp_repo()
+
+    # Step 1: Read the source first so we can decode the runtime+package
+    # BEFORE the row is gone. A 404 on read short-circuits with the
+    # existing semantics — no eviction, no cleanup.
+    try:
+        source = await repo.get(source_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"MCP source not found: {source_id}")
+
+    cfg = source.config or {}
+    command = cfg.get("command", "") if isinstance(cfg.get("command", ""), str) else ""
+    args = cfg.get("args", []) or []
+    runtime, package = (None, None)
+    if isinstance(args, list):
+        runtime, package = extract_runtime_package(command, args)
+
+    # Step 2: Evict pool entries for this source.
+    await _evict_all_for_source(source_id)
+
+    # Step 3: Refcount cleanup — query before delete so the to-be-deleted
+    # row is excluded by id.
+    skip_reason: str | None = None
+    if runtime and package:
+        siblings = await repo.find_by_runtime_package(runtime, package, source_id)
+        if siblings:
+            sibling_ids = ", ".join(s.id for s in siblings)
+            skip_reason = (
+                f"cache for ({runtime}, {package}) still referenced by "
+                f"source(s) {sibling_ids}; skipped"
+            )
+
+    # Step 4: DB delete (existing semantics).
     try:
         await repo.delete(source_id)
     except KeyError:
+        # Race: someone deleted the row between our get() and delete().
         raise HTTPException(status_code=404, detail=f"MCP source not found: {source_id}")
+
+    # Step 5: Best-effort cleanup post-delete. The helper has its own
+    # 10s ceiling and swallows every exception — this await cannot
+    # raise.
+    #
+    # Logs use WARNING (not INFO) so cleanup outcomes surface under
+    # uvicorn's default root-logger threshold without operators
+    # lowering the bar globally. WARNING is semantically loose here
+    # ("operation succeeded normally") but it's the simplest visibility
+    # fix; the alternative is structured response fields, which the
+    # architect ruled out (silent UX).
+    import logging
+    _log = logging.getLogger(__name__)
+    if not (runtime and package):
+        # Unsupported runtime — nothing to reclaim.
+        _log.warning(
+            "delete_mcp_source(%s): no cleanup applicable for command %r",
+            source_id,
+            command,
+        )
+    elif skip_reason:
+        # Refcount survivor — log and skip. The shared cache stays put
+        # for the surviving source.
+        _log.warning(
+            "delete_mcp_source(%s): %s", source_id, skip_reason
+        )
+    else:
+        await cleanup_runtime_cache(runtime, package)
+
     return {"status": "ok"}
+
+
+@router.delete("/mcp-sources/{source_id}/connection")
+async def reset_mcp_connection(source_id: str) -> dict[str, str]:
+    """Clear OAuth tokens + tools cache for a streamable-http MCP source.
+
+    F9 L1 (vibing) — operator-facing affordance for "this connection is
+    in a weird state, start over from a fresh login". Strips every key
+    in ``OAUTH_MANAGED_SECRET_KEYS`` from ``source.secrets`` (access_token,
+    refresh_token, token_expires_at, token_type, scope, dcr_credentials),
+    drops ``source.config["_cache"]`` if present, evicts the F4 pool so
+    the next acquire reconstructs a fresh client, and persists the result.
+    Returns ``{"status": "ok"}`` on success.
+
+    On the next /test/connect, since both ``access_token`` and
+    ``dcr_credentials`` are gone, the endpoint skips Phase A and runs
+    Phase B's full DCR + consent + token-exchange flow — a fresh
+    OAuth session, not a silent token rotation.
+
+    Idempotent: calling on a source that already lacks OAuth state and
+    cache is a no-op (zero keys to strip; ``repo.update`` writes the
+    unchanged shape; eviction is idempotent on no-match).
+
+    Out-of-scope: stdio sources have no OAuth state; calling on a stdio
+    source is harmless (zero keys match) but UI hides the affordance.
+    """
+    from the_one.mcp._pool import _evict_all_for_source
+
+    repo = await _mcp_repo()
+    try:
+        source = await repo.get(source_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"MCP source not found: {source_id}")
+
+    new_secrets = {
+        k: v for k, v in source.secrets.items() if k not in _OAUTH_MANAGED_SECRET_KEYS
+    }
+    new_config = dict(source.config or {})
+    new_config.pop("_cache", None)
+    updated_source = source.model_copy(
+        update={"secrets": new_secrets, "config": new_config}
+    )
+    await _evict_all_for_source(source_id)
+    await repo.update(updated_source)
+    return {"status": "ok"}
+
+
+async def _build_and_test_no_auth_mcp(
+    source: MCPSource, source_id: str, repo: MCPSourceRepository
+) -> dict[str, Any]:
+    """Connect + list_tools against a no-auth streamable-http MCP source.
+
+    F9 L1 Shape C helper: extracted so both Phase 0 success branches
+    (probe-verdict no_auth AND cached-hint no_auth) share one code path.
+    Mirrors the Phase A success branch's persistence shape — tools +
+    capabilities + last_updated + auth_posture all land in
+    ``source.config._cache``.
+
+    NEVER engages Phase B from this helper: a no_auth verdict is
+    definitive; if MCPClient still raises (transport down, capability
+    missing, version mismatch), surface the error inline.
+
+    Args:
+        source: The (possibly body-overridden) MCPSource to test.
+        source_id: The persisted source id used for cache writebacks.
+        repo: The repo for cache persistence.
+
+    Returns:
+        ``{status: "ok", tools, capabilities}`` on success, or
+        ``{status: "error", error}`` on any failure.
+    """
+    from the_one.mcp.client import MCPClient
+    from the_one.mcp.errors import (
+        MCPAuthRequired,
+        MCPCapabilityMissing,
+        MCPConnectionError,
+        MCPVersionMismatch,
+    )
+
+    try:
+        async with MCPClient(source=source, auth_provider=None) as client:
+            tools = await client.list_tools()
+            capabilities = client.server_capabilities
+            tools_cache_payload = [
+                {
+                    "name": t.name,
+                    "description": t.description,
+                    "input_schema": t.input_schema,
+                }
+                for t in tools
+            ]
+            try:
+                persisted = await repo.get(source_id)
+                persisted_config = dict(persisted.config or {})
+                persisted_config["_cache"] = {
+                    "tools": tools_cache_payload,
+                    "capabilities": capabilities,
+                    "last_updated": time.time(),
+                    "auth_posture": "no_auth",
+                }
+                await repo.update(
+                    persisted.model_copy(update={"config": persisted_config})
+                )
+            except Exception:
+                # Best-effort persistence — a write failure must not break the
+                # response contract (mirrors the Phase A persistence pattern).
+                pass
+        return {
+            "status": "ok",
+            "tools": tools_cache_payload,
+            "capabilities": capabilities,
+        }
+    except MCPAuthRequired as e:
+        # Defensive: probe said no_auth but server now wants auth (race).
+        return {"status": "error", "error": f"{type(e).__name__}: {e}"}
+    except (MCPConnectionError, MCPVersionMismatch, MCPCapabilityMissing) as e:
+        return {"status": "error", "error": f"{type(e).__name__}: {e}"}
+    except Exception as e:
+        # F9 L2 vibing: defense-in-depth catch-all. Any exception escaping the
+        # typed catches above (e.g. asyncio.CancelledError leaking from
+        # MCPClient cleanup, or any other unexpected runtime error) is
+        # converted to a 200-response error envelope rather than allowed to
+        # escape the route as a 500 with HTML body. The frontend's resp.ok
+        # check is a parallel guard; this ensures the JSON contract holds.
+        return {"status": "error", "error": f"{type(e).__name__}: {e}"}
+
+
+async def _build_and_test_stdio_mcp(
+    source: MCPSource, source_id: str, repo: MCPSourceRepository
+) -> dict[str, Any]:
+    """Connect + list_tools against a stdio MCP source.
+
+    F9 L2 D1 sibling of ``_build_and_test_no_auth_mcp``: stdio has no
+    OAuth concept (no Phase 0 / Phase A / Phase B), so the Test path is
+    structurally a single transient-client lifecycle. Mirrors the
+    no-auth-http helper's persistence shape for tools + capabilities +
+    last_updated. Does NOT write ``auth_posture`` — that field is an
+    HTTP-path concept (Shape C) that does not generalize to stdio (no
+    HTTP probe surface; "no auth" is the only stdio mode).
+
+    The transient client teardown path runs through the F4/F6.6
+    lifecycle that has been verified clean post-F6.6 cleanup-deadlock
+    fix; caplog is expected to be free of ``MCPClient.disconnect``
+    warnings across this path.
+
+    Args:
+        source: The (possibly body-overridden) MCPSource to test.
+        source_id: The persisted source id used for cache writebacks.
+        repo: The repo for cache persistence.
+
+    Returns:
+        ``{status: "ok", tools, capabilities}`` on success, or
+        ``{status: "error", error}`` on any failure.
+    """
+    from the_one.mcp.client import MCPClient
+    from the_one.mcp.errors import (
+        MCPAuthRequired,
+        MCPCapabilityMissing,
+        MCPConnectionError,
+        MCPSandboxError,
+        MCPVersionMismatch,
+    )
+
+    try:
+        async with MCPClient(source=source, auth_provider=None) as client:
+            tools = await client.list_tools()
+            capabilities = client.server_capabilities
+            tools_cache_payload = [
+                {
+                    "name": t.name,
+                    "description": t.description,
+                    "input_schema": t.input_schema,
+                }
+                for t in tools
+            ]
+            try:
+                persisted = await repo.get(source_id)
+                persisted_config = dict(persisted.config or {})
+                persisted_config["_cache"] = {
+                    "tools": tools_cache_payload,
+                    "capabilities": capabilities,
+                    "last_updated": time.time(),
+                }
+                await repo.update(
+                    persisted.model_copy(update={"config": persisted_config})
+                )
+            except Exception:
+                # Best-effort persistence — a write failure must not break the
+                # response contract (mirrors the http no-auth helper).
+                pass
+        return {
+            "status": "ok",
+            "tools": tools_cache_payload,
+            "capabilities": capabilities,
+        }
+    except MCPAuthRequired as e:
+        # Defensive: stdio shouldn't surface auth-required, but if a server
+        # somehow does, surface it as a regular error rather than crashing.
+        return {"status": "error", "error": f"{type(e).__name__}: {e}"}
+    except (MCPConnectionError, MCPVersionMismatch, MCPCapabilityMissing,
+            MCPSandboxError) as e:
+        return {"status": "error", "error": f"{type(e).__name__}: {e}"}
+    except Exception as e:
+        # F9 L2 vibing: defense-in-depth catch-all. Stdio teardown can leak
+        # asyncio.CancelledError from MCPClient._safe_cleanup under certain
+        # failure modes (Architect is fixing that root cause separately).
+        # Until then — and as a permanent guard against any other unexpected
+        # runtime error — convert escaping exceptions into a 200-response
+        # error envelope so the route's JSON contract holds and the frontend
+        # can render a useful message instead of choking on an HTML 500.
+        return {"status": "error", "error": f"{type(e).__name__}: {e}"}
 
 
 @router.post("/mcp-sources/{source_id}/test/connect")
@@ -905,11 +1228,59 @@ async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any
                     del resolved_secrets[k]
             source = source.model_copy(update={"secrets": resolved_secrets})
 
+    # F9 L2 D1: dispatch stdio sources to their dedicated transient-client
+    # path. Stdio has no OAuth concept (no Phase 0 / Phase A / Phase B), so
+    # the workflow is a straight connect → list_tools → cache → return.
+    # Other unsupported transports continue to surface a clear error.
+    if source.type == "stdio":
+        return await _build_and_test_stdio_mcp(source, source_id, repo)
     if source.type != "streamable-http":
         return {
             "status": "error",
-            "error": f"Test only supports streamable-http; got {source.type!r}",
+            "error": f"Test only supports streamable-http and stdio; got {source.type!r}",
         }
+
+    # Phase 0: HTTP-level auth-posture probe (Shape C — A6 resolution).
+    # Before engaging the SDK, ask the server itself: "do you require auth?"
+    # Persisted result lives at source.config._cache.auth_posture so
+    # subsequent calls skip the probe entirely.
+    #
+    # Skip the probe when live tokens are present — Phase A is the right
+    # path for token-bearing OAuth sources (no extra round trip).
+    from the_one.mcp.transports.streamable_http import _probe_auth_posture
+
+    cached_posture = (source.config.get("_cache") or {}).get("auth_posture")
+    has_live_tokens = bool(
+        source.secrets.get("dcr_credentials")
+        and source.secrets.get("access_token")
+    )
+
+    if cached_posture == "no_auth" and not has_live_tokens:
+        return await _build_and_test_no_auth_mcp(source, source_id, repo)
+
+    if cached_posture is None and not has_live_tokens:
+        server_url = source.config.get("url", "")
+        posture = await _probe_auth_posture(server_url)
+        if posture == "no_auth":
+            return await _build_and_test_no_auth_mcp(source, source_id, repo)
+        if posture == "error":
+            return {"status": "error", "error": "connection probe failed"}
+        # posture == "oauth": persist the hint BEFORE Phase B fires so a
+        # Phase B failure still leaves a definitive signal for the pool
+        # worker (rather than inferring auth-required from dcr_credentials
+        # presence). Then fall through to Phase B below.
+        try:
+            persisted = await repo.get(source_id)
+            persisted_config = dict(persisted.config or {})
+            persisted_cache = dict(persisted_config.get("_cache") or {})
+            persisted_cache["auth_posture"] = "oauth"
+            persisted_config["_cache"] = persisted_cache
+            await repo.update(
+                persisted.model_copy(update={"config": persisted_config})
+            )
+        except Exception:
+            # Best-effort; falling through to Phase B regardless.
+            pass
 
     # Phase A: tokens present → build provider WITH consent_url_future=None
     # (test path doesn't kick the OAuth flow yet) and try connect + list_tools.
@@ -930,16 +1301,45 @@ async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any
             async with MCPClient(source=source, auth_provider=provider_a) as client:
                 tools = await client.list_tools()
                 capabilities = client.server_capabilities  # F8 L1: snapshot inside async-with
-            return {
-                "status": "ok",
-                "tools": [
+                # F9 L1 (vibing): persist tools+capabilities to source.config._cache
+                # so the editor can render the cached state on mount without
+                # forcing the operator to click Refresh. Plaintext (un-encrypted)
+                # — tools/capabilities/timestamp are not secrets and config is
+                # the JSON-blob column already used for non-sensitive fields.
+                # Write happens INSIDE the async-with after list_tools() succeeds
+                # so a list_tools() failure does NOT pollute the cache; the
+                # existing exception-translation contract handles failure paths
+                # unchanged. We refetch the persisted source to avoid clobbering
+                # any in-flight body-override config — the cache is keyed on
+                # the persisted row, not the operator's transient form values.
+                tools_cache_payload = [
                     {
                         "name": t.name,
                         "description": t.description,
                         "input_schema": t.input_schema,
                     }
                     for t in tools
-                ],
+                ]
+                try:
+                    persisted = await repo.get(source_id)
+                    persisted_config = dict(persisted.config or {})
+                    persisted_config["_cache"] = {
+                        "tools": tools_cache_payload,
+                        "capabilities": capabilities,
+                        "last_updated": time.time(),
+                    }
+                    await repo.update(
+                        persisted.model_copy(update={"config": persisted_config})
+                    )
+                except Exception:
+                    # Best-effort persistence — a write failure must not
+                    # break the test/connect response contract. The operator
+                    # still gets the live tools list; cache simply won't
+                    # populate for this round.
+                    pass
+            return {
+                "status": "ok",
+                "tools": tools_cache_payload,
                 "capabilities": capabilities,
             }
         except MCPAuthRequired:
@@ -985,23 +1385,10 @@ async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any
         except MCPVersionMismatch as e:
             return {"status": "error", "error": f"{type(e).__name__}: {e}"}
 
-    # F8 L4 known gap (Anomaly A6): no-auth MCP servers (e.g.
-    # `mcp.cloudflare.com/docs`) hit Phase B's consent-url flow which
-    # never resolves for them — `_drive_flow_test` gets 200 OK instead of
-    # 401, so the SDK never invokes redirect_handler, and consent_url_future
-    # times out at `_TEST_CONNECT_TIMEOUT`. An attempted Phase A.5
-    # (bare-MCPClient probe to detect no-auth servers via 200 vs 401) was
-    # implemented and then removed during HAT — the bare-client 401 path
-    # leaks an anyio cross-task cancel-scope error that propagates as
-    # CancelledError up to the FastAPI handler, 500'ing the response.
-    # Even broad `except` clauses don't catch it (CancelledError is
-    # BaseException; the SDK's cleanup runs in a sibling task that cancels
-    # the parent on its next yield). The right fix is an explicit
-    # `auth_required: bool | None` hint on `MCPSource` set by the operator
-    # at registration, or a separate operator-driven "Test (no auth)"
-    # surface — deferred to a follow-up flight. For F8: OAuth servers
-    # (the binding HAT target) work; no-auth servers surface
-    # `consent_url_timeout`, which operators can read.
+    # A6 (no-auth MCP detection) is now handled by Phase 0 above (Shape C):
+    # bare httpx probe inspects auth posture before SDK engagement, persists
+    # the verdict in _cache.auth_posture for subsequent calls. F8 deferred,
+    # F9 L1 resolved.
 
     # Phase B: kick OAuth flow with consent_url_future. Pass
     # allow_dcr_bootstrap=True so the factory constructs a provider even
@@ -1075,6 +1462,129 @@ async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any
 # ── OAuth callback (F5 §9) ────────────────────────────────────────────────
 
 
+def _render_oauth_callback_page(
+    *,
+    status: str,
+    heading: str,
+    detail_html: str,
+    auto_close: bool,
+) -> str:
+    """Render the loopback callback page in the studio visual idiom.
+
+    The page is a self-contained HTML document served only to the popup
+    window opened by the OAuth modal. It links the same studio CSS the
+    SPA uses (``/static/css/...``) so the operator perceives continuity
+    with the rest of the-one — dark-mode cyan-accent palette, Geist /
+    Geist Mono typography, ``//``-prefixed mono-uppercase eyebrow.
+
+    Args:
+        status: One of ``"success"``, ``"failed"``, ``"expired"``. Drives
+            the eyebrow color (success uses ``--status-success``; the
+            rest use ``--status-danger``).
+        heading: The H1 text. The success path's heading must contain
+            the verbatim contract substring "Login successful. You may
+            close this tab." (F5 §4) so legacy stake tests keep matching.
+        detail_html: Pre-escaped HTML inserted into the supporting
+            paragraph. Callers MUST escape any user-controlled content
+            (e.g. ``error_description``) before passing it in.
+        auto_close: If True, schedule a ``window.close()`` ~1.2s after
+            paint so the operator sees the success state but isn't left
+            staring at a stale popup. Failure pages MUST pass False so
+            the operator can read the error.
+
+    The CSS is intentionally inlined for the page-specific layout
+    (centered card, eyebrow, big heading, hint footer). Theme tokens,
+    fonts, and the data-theme attribute come from the shared studio
+    stylesheets so the page automatically follows the operator's
+    dark/light/auto preference resolved by ``theme.js``.
+    """
+    eyebrow_color = (
+        "var(--status-success)" if status == "success" else "var(--status-danger)"
+    )
+    auto_close_script = (
+        "<script>setTimeout(function () { try { window.close(); } "
+        "catch (e) { /* popup blocker / non-script-opened — ignore */ } }, "
+        "1200);</script>"
+        if auto_close
+        else ""
+    )
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{heading}</title>
+<style>@layer tokens, base, components, areas, utilities;</style>
+<script src="/static/js/theme.js"></script>
+<link rel="stylesheet" href="/static/css/fonts.css">
+<link rel="stylesheet" href="/static/css/tokens.css">
+<style>
+  html, body {{ margin: 0; padding: 0; height: 100%; }}
+  body {{
+    font-family: var(--font-family-sans);
+    background: var(--bg-gradient);
+    color: var(--fg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 24px;
+    box-sizing: border-box;
+  }}
+  .oauth-callback-card {{
+    max-width: 480px;
+    width: 100%;
+    padding: 32px 36px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--panel-radius);
+    box-shadow: var(--panel-shadow), var(--panel-shadow-glow);
+    text-align: left;
+  }}
+  .oauth-callback-eyebrow {{
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-tiny);
+    font-weight: var(--font-weight-bold);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--fg-secondary);
+    margin: 0 0 16px;
+  }}
+  .oauth-callback-eyebrow::before {{
+    content: "//";
+    padding-right: 0.4em;
+    color: {eyebrow_color};
+    font-weight: var(--font-weight-bold);
+  }}
+  .oauth-callback-heading {{
+    font-family: var(--font-family-sans);
+    font-size: var(--font-size-h1);
+    font-weight: var(--font-weight-semibold);
+    color: var(--fg);
+    margin: 0 0 12px;
+    line-height: var(--line-height-tight);
+  }}
+  .oauth-callback-detail {{
+    font-size: var(--font-size-body);
+    color: var(--fg-muted);
+    line-height: var(--line-height-normal);
+    margin: 0;
+    word-break: break-word;
+  }}
+</style>
+</head>
+<body>
+<main class="oauth-callback-card" role="status" aria-live="polite">
+  <p class="oauth-callback-eyebrow">the-one // oauth</p>
+  <h1 class="oauth-callback-heading">{heading}</h1>
+  <p class="oauth-callback-detail">{detail_html}</p>
+</main>
+{auto_close_script}
+</body>
+</html>
+"""
+
+
 @router.get("/oauth/callback")
 async def oauth_callback(
     code: str | None = None,
@@ -1139,7 +1649,12 @@ async def oauth_callback(
             )
         safe_desc = _html.escape(error_description or error)
         return HTMLResponse(
-            f"<h1>Login failed</h1><p>{safe_desc}</p>",
+            _render_oauth_callback_page(
+                status="failed",
+                heading="Login failed",
+                detail_html=safe_desc,
+                auto_close=False,
+            ),
             status_code=200,
         )
 
@@ -1148,9 +1663,15 @@ async def oauth_callback(
     resolved = oauth_state.resolve(state, code or "", state)
     if not resolved:
         return HTMLResponse(
-            "<h1>Login expired</h1>"
-            "<p>The login window has closed. "
-            "Please re-trigger the original action to retry.</p>",
+            _render_oauth_callback_page(
+                status="expired",
+                heading="Login expired",
+                detail_html=(
+                    "The login window has closed. "
+                    "Please re-trigger the original action to retry."
+                ),
+                auto_close=False,
+            ),
             status_code=200,
         )
     session = _sessions.get(entry.chat_session_id)
@@ -1185,9 +1706,22 @@ async def oauth_callback(
             resume_task.add_done_callback(_inflight_resume_tasks.discard)
     # Verbatim-message contract per F5 §4 — the substring
     # "Login successful. You may close this tab." must appear
-    # contiguously so the L2 stake test matches.
+    # contiguously so the L2 stake test matches. The popup also
+    # auto-closes ~1.2s after paint via window.close() so the
+    # operator gets visual confirmation but isn't left with a stale
+    # tab. The auto-close is best-effort: if a browser blocks the
+    # call (e.g. popup not script-opened), the heading still tells
+    # the operator they may close manually.
     return HTMLResponse(
-        "<h1>Login successful. You may close this tab.</h1>",
+        _render_oauth_callback_page(
+            status="success",
+            heading="Login successful. You may close this tab.",
+            detail_html=(
+                "Tokens have been securely persisted. "
+                "This window will close automatically."
+            ),
+            auto_close=True,
+        ),
         status_code=200,
     )
 

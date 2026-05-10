@@ -1,7 +1,8 @@
-"""Browser tests for the F6.5 L3 Test Connection button in the MCP source editor.
+"""Browser tests for the F6.5 L3 Refresh-connection button in the MCP source editor.
 
-Tests the Test connection button that appears in edit-mode for streamable-http
-sources. Verifies button visibility, click behavior, and result panel rendering.
+Tests the Refresh-connection button (renamed from "Test connection" at F9 L1)
+that appears in edit-mode for streamable-http sources. Verifies button
+visibility, click behavior, and result panel rendering.
 
 Because driving a real OAuth popup flow from Playwright is complex (requires
 a popup window fixture and real OAuth server), these tests use the simplified
@@ -45,19 +46,23 @@ def test_test_connection_button_visible_for_streamable_http_edit_mode(
     page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
-    # Test connection button visible in edit-mode for streamable-http.
+    # F9 L1: Refresh-connection button visible in edit-mode for streamable-http.
+    # The data-testid hook stays "mcp-test-connection" (stable selector); the
+    # visible label changed to "Refresh connection" with a refresh icon.
     test_btn = page.locator('[data-testid="mcp-test-connection"]')
     expect(test_btn).to_be_visible()
-    expect(test_btn).to_have_text("Test connection")
+    expect(test_btn).to_contain_text("Refresh connection")
+    # Refresh icon sits inline before the label.
+    expect(test_btn.locator("svg")).to_be_visible()
 
     # Tools section: status div renders the empty-state prompt; tools list
-    # is hidden until the first successful Test click. (L4 UX restructure
+    # is hidden until the first successful Refresh click. (L4 UX restructure
     # replaced the prior single `mcp-test-result` panel with the two
     # status/list testids; see flight log L4 entry.)
     status_panel = page.locator('[data-testid="mcp-test-status"]')
     expect(status_panel).to_be_visible()
     expect(status_panel).to_contain_text("Click")
-    expect(status_panel).to_contain_text("Test connection")
+    expect(status_panel).to_contain_text("Refresh connection")
     tools_list = page.locator('[data-testid="mcp-tools-list"]')
     expect(tools_list).to_be_hidden()
 
@@ -76,10 +81,19 @@ def test_test_connection_button_absent_in_create_mode(
 
 
 @pytest.mark.browser
-def test_test_connection_button_absent_for_stdio_source(
+def test_test_connection_button_present_for_stdio_source(
     app_clean: str, page: Page
 ) -> None:
-    """Test button is NOT rendered for stdio sources (only streamable-http)."""
+    """F9 L2 D1: Refresh-connection button DOES render for stdio sources.
+
+    Inverted from the prior "absent for stdio" assertion: stdio Test
+    connection support shipped as a structural prerequisite for L2's
+    create+test workflow, mirroring streamable-http's surface (capability
+    flags + collapsible schemas + Last-updated label all share one render
+    path now). The stdio backend dispatch is a transient-client lifecycle
+    — no OAuth, no popup — so the Reset button stays absent (gated by
+    hasOAuthState which is false for stdio).
+    """
     sid = _seed_mcp_source(app_clean, {
         "name": "stdio-source",
         "type": "stdio",
@@ -90,9 +104,24 @@ def test_test_connection_button_absent_for_stdio_source(
     page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
-    # Test button must NOT appear for stdio sources.
+    # F9 L2 D1: Refresh button visible for stdio sources too.
     test_btn = page.locator('[data-testid="mcp-test-connection"]')
-    expect(test_btn).to_have_count(0)
+    expect(test_btn).to_be_visible()
+    expect(test_btn).to_contain_text("Refresh connection")
+    # Refresh icon sits inline before the label (shared render path).
+    expect(test_btn.locator("svg")).to_be_visible()
+
+    # Tools section: status div carries the empty-state prompt for stdio
+    # too; tools list hidden until first successful Refresh.
+    status_panel = page.locator('[data-testid="mcp-test-status"]')
+    expect(status_panel).to_be_visible()
+    expect(status_panel).to_contain_text("Refresh connection")
+    tools_list = page.locator('[data-testid="mcp-tools-list"]')
+    expect(tools_list).to_be_hidden()
+
+    # Reset button still absent for stdio (no OAuth state).
+    reset_btn = page.locator('[data-testid="reset-mcp-connection-btn"]')
+    expect(reset_btn).to_have_count(0)
 
 
 @pytest.mark.browser

@@ -120,6 +120,12 @@ test-pixel: ## Run visual snapshot tests (baselines are gitignored — local reg
 test-live: ## Run live-LLM tests (AIAT — requires running provider)
 	docker exec the-one pytest -m live tests/test_aiat.py -v --tb=short
 
+# ── Smoke (F9 L2 D2 generic-runtime) ──────────────────────────────────
+
+.PHONY: smoke-runtimes
+smoke-runtimes: ## Verify uvx / pipx / npx + their cache volumes (F9 L2 D2)
+	docker compose exec -T the-one bash scripts/smoke_runtime_caches.sh
+
 # ── Code quality ───────────────────────────────────────────────────────
 
 .PHONY: lint

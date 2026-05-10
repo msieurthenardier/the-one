@@ -27,12 +27,225 @@
 
   var MASKED_SENTINEL = '__MASKED__';
 
+  // ── F9 L1 (vibing): OAuth-managed-secret-keys allowlist ─────────────
+  // Mirrors the backend's `OAUTH_MANAGED_SECRET_KEYS` constant in
+  // `the_one/mcp/oauth/storage.py`. Used by the Reset-connection-button
+  // visibility check to detect whether a streamable-http source has any
+  // OAuth state worth resetting. Keep in sync with the backend constant.
+  var OAUTH_MANAGED_SECRET_KEYS = [
+    'access_token',
+    'refresh_token',
+    'token_expires_at',
+    'token_type',
+    'scope',
+    'dcr_credentials',
+  ];
+
+  // ── F9 L1 (vibing): inline relative-time helper ─────────────────────
+  // No existing App.formatTimeAgo helper found in the codebase; this
+  // ~10-LOC inline helper renders a Unix epoch (seconds) as a coarse
+  // relative-time string. If a shared helper later lands in app.js or
+  // utils.js, replace this and remove.
+  function formatTimeAgo(epochSeconds) {
+    if (typeof epochSeconds !== 'number' || !isFinite(epochSeconds)) return '';
+    var diffSec = Math.max(0, Math.floor(Date.now() / 1000 - epochSeconds));
+    if (diffSec < 60) return 'just now';
+    var diffMin = Math.floor(diffSec / 60);
+    if (diffMin < 60) return diffMin + ' minute' + (diffMin === 1 ? '' : 's') + ' ago';
+    var diffHr = Math.floor(diffMin / 60);
+    if (diffHr < 24) return diffHr + ' hour' + (diffHr === 1 ? '' : 's') + ' ago';
+    var diffDay = Math.floor(diffHr / 24);
+    return diffDay + ' day' + (diffDay === 1 ? '' : 's') + ' ago';
+  }
+
+  // True iff the source carries any OAuth-managed secret. The masked
+  // GET response strips these keys entirely (never even masked), so the
+  // canonical signal is the presence of ANY managed-key string in the
+  // returned secrets dict — but since the API strips them, the UI has
+  // no direct read on the OAuth state. Pragmatic substitute: treat the
+  // presence of `_cache` (server-written after a successful authenticated
+  // /test/connect) as a strong-but-imperfect proxy. The endpoint itself
+  // is idempotent on already-clean state, so a Reset click on a source
+  // that has no OAuth state is harmless.
+  //
+  // F9 L1 (vibing) refinement: read the `oauth_active` flag the masked
+  // response can carry (server adds it when any managed key is present).
+  // If absent, fall back to the cache-presence proxy.
+  function hasOAuthState(source) {
+    if (!source || source.type !== 'streamable-http') return false;
+    if (source.oauth_active === true) return true;
+    var secrets = source.secrets || {};
+    for (var i = 0; i < OAUTH_MANAGED_SECRET_KEYS.length; i++) {
+      if (Object.prototype.hasOwnProperty.call(secrets, OAUTH_MANAGED_SECRET_KEYS[i])) {
+        return true;
+      }
+    }
+    // Fallback proxy: a populated _cache implies a successful authed
+    // /test/connect happened in the past. Reset is a no-op on already-
+    // clean OAuth state, so a false-positive here is harmless.
+    return !!(source.config && source.config._cache);
+  }
+
   // ── F8 L2: Capability flags ─────────────────────────────────────────
   // Server capability keys per the installed `mcp` SDK's ServerCapabilities
   // model. 'experimental' is intentionally excluded — it's a free-form
   // sub-namespace dict (per-server custom keys), not a typed presence flag.
   // Update this allowlist when bumping to a newer SDK that adds new typed flags.
   var SPEC_CAPABILITY_KEYS = ['tools', 'resources', 'prompts', 'logging', 'completions', 'tasks'];
+
+  // ── F9 L2 vibing: stdio command runtime dropdown ────────────────────
+  // The free-text `command` input let operators type values that would not
+  // resolve at runtime (e.g. `python -m foo` when `foo` isn't pip-installed
+  // inside the container). The dropdown makes the canonical "just works"
+  // runtimes the path of least resistance and keeps a Custom… escape for
+  // power users who need bare paths or wrapper scripts.
+  //
+  // `value` is the dropdown literal (also the saved `config.command` for
+  // single-token runtimes). `__custom__` is the sentinel that swaps in the
+  // free-text input below. `npx -y` and `pipx run` are 2-token runtimes —
+  // at save time they are split into `command=<binary>, args=[<flag>,
+  // ...userArgs]` (option (b) in the leg spec); the reverse split happens
+  // at hydrate time so the dropdown selection round-trips and the
+  // operator's chip-list shows only their own args, not the implicit
+  // `-y`/`run`. The literal `npx -y` / `pipx run` is never written to
+  // `config.command` — keeps the saved JSON transparent to anyone
+  // inspecting it via the API, and avoids the FileNotFoundError that
+  // would result if the spawn layer tried to exec a 2-token string as
+  // a single binary.
+  var STDIO_CUSTOM_SENTINEL = '__custom__';
+  var STDIO_RUNTIME_OPTIONS = [
+    {
+      value: 'uvx',
+      label: 'uvx (Python · PyPI lazy install)',
+      hint: 'Args: package name (e.g. `mcp-server-time`). Fetched + cached on first use.',
+    },
+    {
+      value: 'npx -y',
+      label: 'npx -y (Node · npm lazy install)',
+      hint: 'Args: package name (e.g. `@modelcontextprotocol/server-everything`). Fetched + cached on first use.',
+    },
+    {
+      value: 'pipx run',
+      label: 'pipx run (Python · PyPI alternative)',
+      hint: 'Args: package name. Alternative to uvx.',
+    },
+    {
+      value: 'python',
+      label: 'python (pre-installed module/script)',
+      hint: 'Args: `-m <module>` (module must be pip-installed) or path to script.',
+    },
+    {
+      value: 'node',
+      label: 'node (script path)',
+      hint: 'Args: path to .js file inside container.',
+    },
+    {
+      value: 'bash',
+      label: 'bash (wrapper script)',
+      hint: 'Args: path to shell script.',
+    },
+    {
+      value: STDIO_CUSTOM_SENTINEL,
+      label: 'Custom…',
+      hint: 'Free-text mode — operator owns the command resolution. ' +
+            'Common patterns: `bash /app/script.sh`, absolute paths, custom binaries on container PATH.',
+    },
+  ];
+
+  // True when `value` matches one of the canonical runtime literals (i.e.
+  // not Custom). Used at hydrate time to decide whether to round-trip the
+  // saved command into the dropdown vs. the Custom… free-text field.
+  function findStdioRuntimeOption(value) {
+    if (!value) return null;
+    for (var i = 0; i < STDIO_RUNTIME_OPTIONS.length; i++) {
+      var opt = STDIO_RUNTIME_OPTIONS[i];
+      if (opt.value === STDIO_CUSTOM_SENTINEL) continue;
+      if (opt.value === value) return opt;
+    }
+    return null;
+  }
+
+  // Decompose a stored (command, args) pair into (dropdownValue, displayArgs).
+  // Handles the `npx -y` split (option (b)): command=npx + args[0]=-y →
+  // dropdownValue='npx -y', displayArgs=args.slice(1). Same pattern for
+  // `pipx run`: command=pipx + args[0]=run → dropdownValue='pipx run',
+  // displayArgs=args.slice(1). Falls back to the saved literal for the
+  // other single-token runtimes; everything else (bash /app/x.sh,
+  // absolute paths, etc.) lands on Custom… with the raw command string
+  // preserved into the free-text field.
+  function deriveStdioRuntimeSelection(command, args) {
+    var argsList = Array.isArray(args) ? args.slice() : [];
+    var cmd = (typeof command === 'string') ? command : '';
+    if (!cmd) {
+      // No saved command (newly typed-in row, defensive). Caller decides
+      // the default; we just report "no match".
+      return { dropdownValue: '', displayArgs: argsList, customCommand: '' };
+    }
+    // npx -y round-trip: detect and re-collapse.
+    if (cmd === 'npx' && argsList.length > 0 && argsList[0] === '-y') {
+      return {
+        dropdownValue: 'npx -y',
+        displayArgs: argsList.slice(1),
+        customCommand: '',
+      };
+    }
+    // pipx run round-trip: detect and re-collapse.
+    if (cmd === 'pipx' && argsList.length > 0 && argsList[0] === 'run') {
+      return {
+        dropdownValue: 'pipx run',
+        displayArgs: argsList.slice(1),
+        customCommand: '',
+      };
+    }
+    var match = findStdioRuntimeOption(cmd);
+    if (match) {
+      return { dropdownValue: cmd, displayArgs: argsList, customCommand: '' };
+    }
+    // Anything else falls into Custom… with the full saved string.
+    return {
+      dropdownValue: STDIO_CUSTOM_SENTINEL,
+      displayArgs: argsList,
+      customCommand: cmd,
+    };
+  }
+
+  function lookupStdioRuntimeHint(dropdownValue) {
+    for (var i = 0; i < STDIO_RUNTIME_OPTIONS.length; i++) {
+      if (STDIO_RUNTIME_OPTIONS[i].value === dropdownValue) {
+        return STDIO_RUNTIME_OPTIONS[i].hint;
+      }
+    }
+    return '';
+  }
+
+  // F9 L1 (vibing): tools-list HTML extracted from handleTestConnection
+  // so initial-mount cached render and post-refresh render share one
+  // template. `tools` is the same shape both paths produce — array of
+  // {name, description, input_schema}.
+  function renderToolsListHtml(tools) {
+    var escapeHtml = window.App.escapeHtml;
+    var html = '';
+    for (var i = 0; i < tools.length; i++) {
+      var t = tools[i];
+      html += '<details class="mcp-tool-item">';
+      html += '<summary class="mcp-tool-summary"><span class="mcp-tool-name">' + escapeHtml(t.name) + '</span></summary>';
+      if (t.description) {
+        var safeDesc = escapeHtml(t.description).replace(/\n/g, '<br>');
+        html += '<div class="mcp-tool-description">' + safeDesc + '</div>';
+      } else {
+        html += '<div class="mcp-tool-description mcp-tool-description-empty">(no description provided)</div>';
+      }
+      if (t.input_schema && Object.keys(t.input_schema).length > 0) {
+        var schemaJson = JSON.stringify(t.input_schema, null, 2);
+        html += '<details class="mcp-tool-schema">';
+        html += '<summary class="mcp-tool-schema-summary">Input schema</summary>';
+        html += '<pre class="mcp-tool-schema-content">' + escapeHtml(schemaJson) + '</pre>';
+        html += '</details>';
+      }
+      html += '</details>';
+    }
+    return html;
+  }
 
   function renderCapabilityFlags(capabilities) {
     if (!capabilities) return ''; // capabilities key missing entirely (pre-L1 server, defensive)
@@ -92,14 +305,53 @@
     html += '<div class="editor-section">';
     html += '<div class="section-title">Connection</div>';
     html += renderConnectionFields(source, mcpTypes);
-    // F6.5 L4: Test connection button lives at the bottom of the
-    // Connection section in edit-mode for streamable-http sources.
-    // The result panel previously inline here renders into the
-    // dedicated Tools section below the Headers section.
-    if (!isCreate && source && source.type === 'streamable-http') {
+    // F9 L1: Refresh-connection button (renamed from "Test connection")
+    // lives at the bottom of the Connection section in edit-mode for
+    // streamable-http sources. The result panel renders into the Tools
+    // section below. The data-testid hook stays "mcp-test-connection"
+    // so existing browser-test selectors keep working — it's an
+    // implementation handle, not a label.
+    //
+    // F9 L1 (vibing follow-up): Reset connection button paired with
+    // Refresh in the same row. Reset is reversible (just re-OAuth) — it
+    // belongs next to Refresh as a secondary connection action, not in
+    // Danger Zone. Visible only when the source carries OAuth state
+    // (gated by `hasOAuthState`); hidden for stdio and unauth'd
+    // streamable-http. Uses the same `btn-outlined-cyan` cosmetic as
+    // Refresh so the pair reads as grouped connection controls.
+    //
+    // F9 L1 (vibing polish): "Last updated" label lives inside the
+    // same flex row as Refresh/Reset, pushed to the far end via
+    // `margin-left: auto`. Low-emphasis (--fg-secondary, body-sm) so it
+    // reads as informational, not actionable. Hidden until a successful
+    // refresh seeds source.config._cache.last_updated. Placed AFTER the
+    // buttons in source order so syncResetButtonVisibility can insert
+    // Reset between Refresh and the label without re-shuffling.
+    // F9 L2 D1: Refresh-connection button now renders for BOTH streamable-http
+    // AND stdio sources. Stdio's backend dispatch (api.py /test/connect) is a
+    // straight transient-client lifecycle — no OAuth, no popup. The Reset
+    // button is gated by hasOAuthState() which already returns false for stdio,
+    // so the existing OAuth-state-dependent UI hides itself for stdio without
+    // additional changes here.
+    if (!isCreate && source && (source.type === 'streamable-http' || source.type === 'stdio')) {
       html += '<div class="field-row admin-pf-row mcp-test-row">';
       html += '<label></label>';
-      html += '<button type="button" class="btn-outlined-cyan" data-testid="mcp-test-connection">Test connection</button>';
+      html += '<div class="mcp-connection-actions">';
+      html += '<button type="button" class="btn-outlined-cyan mcp-refresh-connection-btn" data-testid="mcp-test-connection">' +
+              window.App.icon('refresh-cw') + ' Refresh connection</button>';
+      if (hasOAuthState(source)) {
+        var resetTooltip = 'Reset this connection? This clears the stored login and tools list. ' +
+          'You will need to log in again on the next refresh.';
+        html += '<button type="button" class="btn-outlined-cyan mcp-reset-connection-btn" data-testid="reset-mcp-connection-btn" title="' + escapeAttr(resetTooltip) + '" aria-label="' + escapeAttr(resetTooltip) + '" data-name="' + escapeAttr(source.name || '') + '"><span data-confirm-title>Reset connection</span></button>';
+      }
+      var connCache = (source.config && source.config._cache) || null;
+      var connLastUpdatedText = connCache ? formatTimeAgo(connCache.last_updated) : '';
+      var connLastUpdatedHidden = connLastUpdatedText ? '' : ' hidden';
+      html += '<div class="mcp-tools-last-updated" data-testid="mcp-tools-last-updated"' +
+              connLastUpdatedHidden + '>' +
+              (connLastUpdatedText ? 'Last updated: ' + escapeHtml(connLastUpdatedText) : '') +
+              '</div>';
+      html += '</div>';
       html += '</div>';
     }
     html += '</div>';
@@ -110,7 +362,16 @@
     // chip-list mounts post-innerHTML in mountChipListEditors.
     var sandboxHidden = (type !== 'stdio');
     var sandbox = (!isCreate && source.config && source.config.sandbox) || {};
-    var networkAllowed = sandbox.network_allowed === true;
+    // F9 L2 vibing: new-source default is `true` — the lazy-install runtimes
+    // shipped in L2 D2 (uvx, npx, pipx run) all REQUIRE network egress on
+    // first spawn to fetch packages from PyPI/npm. Defaulting to `false`
+    // here means a fresh stdio source's first Refresh fails. Existing
+    // sources preserve their stored value via the explicit `=== true`
+    // check below; only when NO sandbox key is present (new-source path)
+    // do we fall through to the network-on default.
+    var networkAllowed = isCreate
+      ? true
+      : sandbox.network_allowed === true;
     html += '<div class="editor-section mcp-stdio-only' + (sandboxHidden ? ' is-hidden' : '') + '" data-testid="mcp-sandbox-section">';
     html += '<div class="section-title">Sandbox</div>';
     // Network allowed: 2-column field-row (label left, iOS-style toggle right).
@@ -134,7 +395,58 @@
     html += '</div>';
     html += '</div>';
 
+    // ── Tools section (edit only, streamable-http + stdio) ────────────
+    // Populated by handleTestConnection after a successful refresh. Empty
+    // state until first refresh runs. Verbose tool descriptions (e.g.
+    // Cloudflare API MCP) get a collapsible <details> per tool so the
+    // section stays scannable.
+    //
+    // F9 L1: Tools section moved ABOVE the Custom Headers section per
+    // operator feedback — connection diagnostics belong nearer the
+    // Connection block, headers are configuration that lives further down.
+    //
+    // F9 L1 (vibing): if the backend persisted a tools cache to
+    // source.config._cache after a previous successful refresh, render
+    // it on initial mount so the operator sees the tools list without
+    // having to click Refresh first. Cache is updated server-side on
+    // every successful /test/connect.
+    //
+    // F9 L1 (vibing polish): the "Last updated" timestamp moved up to
+    // the connection-actions row (next to Refresh/Reset) so it sits
+    // visually with the controls that drive its value. The label is
+    // rendered above; this section now contains only the connection
+    // status banner + the tool list.
+    //
+    // F9 L2 D1: Tools section renders for stdio sources too so the
+    // post-test render path (capability flags + collapsible schemas)
+    // shares the same code path with streamable-http.
+    if (!isCreate && source && (source.type === 'streamable-http' || source.type === 'stdio')) {
+      html += '<div class="editor-section mcp-tools-section">';
+      html += '<div class="section-title">Tools</div>';
+      var cache = (source.config && source.config._cache) || null;
+      if (cache && Array.isArray(cache.tools)) {
+        var statusInner = (
+          '<span class="mcp-tools-success">✓ Connected.</span> ' +
+          'Server exposes <strong>' + cache.tools.length + '</strong> tool' +
+          (cache.tools.length === 1 ? '' : 's') + '.' +
+          renderCapabilityFlags(cache.capabilities)
+        );
+        html += '<div class="mcp-tools-status" data-testid="mcp-test-status">' + statusInner + '</div>';
+        html += '<div class="mcp-tools-list" data-testid="mcp-tools-list">' +
+                renderToolsListHtml(cache.tools) +
+                '</div>';
+      } else {
+        html += '<div class="mcp-tools-status" data-testid="mcp-test-status">';
+        html += 'Click <strong>Refresh connection</strong> above to discover the tools this server exposes.';
+        html += '</div>';
+        html += '<div class="mcp-tools-list" data-testid="mcp-tools-list" hidden></div>';
+      }
+      html += '</div>';
+    }
+
     // ── Environment / Headers section ─────────────────────────────────
+    // Sits below Tools for streamable-http (F9 L1 reorder); for stdio
+    // there is no Tools section, so it lands right after Sandbox as before.
     var kvLabel = (type === 'streamable-http') ? 'Custom Headers' : 'Environment Variables';
     html += '<div class="editor-section">';
     html += '<div class="section-title kv-section-title" ' +
@@ -142,31 +454,25 @@
             'data-streamable-http-label="Custom Headers">' +
             escapeHtml(kvLabel) + '</div>';
     html += renderKvTable(source, type);
-    html += '<p class="kv-hint" data-testid="kv-hint">Sensitive values are encrypted at rest. ' +
-            'Unchecking <strong>Sensitive</strong> on a stored secret clears the value &mdash; ' +
-            're-type to keep it.</p>';
     html += '</div>';
 
-    // ── Tools section (edit only, streamable-http only) ───────────────
-    // Populated by handleTestConnection after a successful test. Empty
-    // state until first test runs. Verbose tool descriptions (e.g.
-    // Cloudflare API MCP) get a collapsible <details> per tool so the
-    // section stays scannable.
-    if (!isCreate && source && source.type === 'streamable-http') {
-      html += '<div class="editor-section mcp-tools-section">';
-      html += '<div class="section-title">Tools</div>';
-      html += '<div class="mcp-tools-status" data-testid="mcp-test-status">';
-      html += 'Click <strong>Test connection</strong> above to discover the tools this server exposes.';
-      html += '</div>';
-      html += '<div class="mcp-tools-list" data-testid="mcp-tools-list" hidden></div>';
-      html += '</div>';
-    }
-
     // ── Danger Zone (edit only) ───────────────────────────────────────
+    // F9 L1 (vibing follow-up): the "Reset connection" button moved out
+    // of Danger Zone and now sits next to Refresh in the Connection
+    // block — it's a reversible operation (re-OAuth on next Refresh),
+    // not a destructive one. Danger Zone now contains only Delete.
     if (!isCreate) {
       html += '<div class="editor-section danger-zone">';
       html += '<div class="section-title danger-zone-title">Danger Zone</div>';
-      html += '<button type="button" class="btn-muted-destructive delete-btn" data-testid="delete-mcp-source-btn" data-name="' + escapeAttr(source.name || '') + '"><span data-confirm-title>Delete MCP Server</span></button>';
+      // F9 L1 (vibing polish): trash icon to the LEFT of the label,
+      // mirroring the Refresh button's icon-then-text pattern and the
+      // per-row Custom Headers trash glyph. The icon sits OUTSIDE the
+      // `data-confirm-title` span so App.confirmDelete only swaps the
+      // label text on arm; the glyph persists through the confirm flow.
+      html += '<button type="button" class="btn-muted-destructive delete-btn mcp-delete-btn" data-testid="delete-mcp-source-btn" data-name="' + escapeAttr(source.name || '') + '">' +
+              window.App.icon('trash') +
+              '<span data-confirm-title>Delete MCP Server</span>' +
+              '</button>';
       html += '</div>';
     }
 
@@ -207,11 +513,43 @@
     html += '</select>';
     html += '</div>';
 
-    // stdio: command
-    var commandValue = (!isCreate && source.config && source.config.command) ? source.config.command : '';
+    // stdio: command — F9 L2 vibing: replaced free-text input with a
+    // canonical-runtime dropdown + Custom… escape. The dropdown is the
+    // primary affordance; the legacy free-text input still ships in the DOM
+    // (hidden by default) and only surfaces when the operator picks
+    // Custom…. Hydrate flow: derive (dropdownValue, displayArgs,
+    // customCommand) from the saved (command, args) pair so the dropdown
+    // selection round-trips. New stdio source: default to `uvx` (canonical
+    // "just works" path); operator can change.
+    var savedCommand = (!isCreate && source.config && source.config.command) ? source.config.command : '';
+    var savedArgs = (!isCreate && source.config && source.config.args) ? source.config.args : [];
+    var stdioSelection = deriveStdioRuntimeSelection(savedCommand, savedArgs);
+    var dropdownValue = stdioSelection.dropdownValue || (isCreate ? 'uvx' : '');
+    var customCommandValue = stdioSelection.customCommand || '';
+    var customCommandHidden = (dropdownValue !== STDIO_CUSTOM_SENTINEL);
+
     html += '<div class="field-row admin-pf-row mcp-stdio-only' + (stdioHidden ? ' is-hidden' : '') + '">';
-    html += '<label for="mf-command">Command</label>';
-    html += '<input class="field-input admin-pf-input" id="mf-command" data-field="command" value="' + escapeAttr(commandValue) + '" placeholder="github-mcp" />';
+    html += '<label for="mf-command-runtime">Command</label>';
+    html += '<select class="field-input field-select admin-pf-input admin-pf-select" id="mf-command-runtime" data-field="command-runtime" data-testid="mcp-command-runtime">';
+    for (var ri = 0; ri < STDIO_RUNTIME_OPTIONS.length; ri++) {
+      var opt = STDIO_RUNTIME_OPTIONS[ri];
+      var isSelected = (opt.value === dropdownValue);
+      html += '<option value="' + escapeAttr(opt.value) + '"' + (isSelected ? ' selected' : '') + '>' +
+              escapeHtml(opt.label) + '</option>';
+    }
+    html += '</select>';
+    html += '</div>';
+
+    // stdio: custom command (free-text) — only visible when Custom… is
+    // selected. The legacy `mf-command` id + data-field="command" are
+    // preserved so any external selector that pinned to them keeps
+    // working; the field only feeds `config.command` when the dropdown is
+    // on the Custom sentinel (collectFormData enforces this).
+    html += '<div class="field-row admin-pf-row mcp-stdio-only mcp-command-custom-row' +
+            (stdioHidden || customCommandHidden ? ' is-hidden' : '') + '">';
+    html += '<label for="mf-command">Custom command</label>';
+    html += '<input class="field-input admin-pf-input" id="mf-command" data-field="command" data-testid="mcp-command-custom" ' +
+            'value="' + escapeAttr(customCommandValue) + '" placeholder="bash /app/start.sh" />';
     html += '</div>';
 
     // stdio: cwd
@@ -225,6 +563,17 @@
     html += '<div class="field-row admin-pf-row mcp-stdio-only' + (stdioHidden ? ' is-hidden' : '') + '">';
     html += '<label for="mf-args">Arguments</label>';
     html += '<div class="chip-list-editor" id="mf-args" data-field="args" data-field-type="array"></div>';
+    html += '</div>';
+
+    // F9 L2 vibing: helper text below the args field, dynamically updated
+    // on dropdown change. Low-emphasis tone (--fg-secondary, body-sm)
+    // matches the studio token convention; uses .form-hint for the new
+    // class hook (added in studio.css alongside this leg).
+    var initialHint = lookupStdioRuntimeHint(dropdownValue);
+    html += '<div class="field-row admin-pf-row mcp-stdio-only mcp-command-hint-row' + (stdioHidden ? ' is-hidden' : '') + '">';
+    html += '<label></label>';
+    html += '<small class="form-hint mcp-command-hint" data-testid="mcp-command-hint">' +
+            escapeHtml(initialHint) + '</small>';
     html += '</div>';
 
     // streamable-http: url
@@ -267,16 +616,42 @@
     return rows;
   }
 
+  // F9 L1: hint copy migrated from a `<p class="kv-hint">` paragraph below
+  // the table to the title attribute of an info icon next to the
+  // "Sensitive" column header. Single source of truth for the tooltip text.
+  var SENSITIVE_HINT = 'Sensitive values are encrypted at rest. ' +
+    'Unchecking Sensitive on a stored secret clears the value — re-type to keep it.';
+
   function renderKvTable(source, type) {
+    var escapeAttr = window.App.escapeAttr;
+    var escapeHtml = window.App.escapeHtml;
     var existingRows = collectExistingKvRows(source, type);
+    // F9 L1: thead is hidden when the table has zero rows (empty state).
+    // The `is-hidden` class is toggled at row-add / row-remove time so the
+    // header reveals itself with the first data row.
+    var headHiddenClass = existingRows.length === 0 ? ' is-hidden' : '';
+    // F9 L1: info icon (existing studio pattern from tools-form-helpers.js)
+    // next to the "Sensitive" column header. Tooltip explains the
+    // encrypted-at-rest contract and the unchecking-clears-value rule.
+    var infoIconHtml = (window.App && window.App.icon) ? window.App.icon('info') : 'ⓘ';
+    var sensitiveHeader = 'Sensitive ' +
+      '<button type="button" class="field-info-icon mcp-kv-sensitive-info" ' +
+      'title="' + escapeAttr(SENSITIVE_HINT) + '" ' +
+      'aria-label="' + escapeAttr(SENSITIVE_HINT) + '" ' +
+      'data-testid="mcp-kv-sensitive-info">' + infoIconHtml + '</button>';
     var html = '<table class="mcp-kv-table" data-testid="mcp-kv-table">';
-    html += '<thead><tr><th>Key</th><th>Value</th><th>Sensitive</th><th aria-label="Actions"></th></tr></thead>';
+    html += '<thead class="mcp-kv-thead' + headHiddenClass + '" data-testid="mcp-kv-thead">' +
+            '<tr><th>Key</th><th>Value</th>' +
+            '<th class="mcp-kv-th-sensitive">' + sensitiveHeader + '</th>' +
+            '<th aria-label="Actions"></th></tr></thead>';
     html += '<tbody data-testid="mcp-kv-tbody">';
     for (var i = 0; i < existingRows.length; i++) {
       html += renderKvRow(existingRows[i], i);
     }
     html += '</tbody></table>';
     html += '<button type="button" class="btn-outlined-cyan kv-add-row-btn" data-testid="kv-add-row-btn">+ Add row</button>';
+    // Suppress unused-var warning in legacy environments — referenced indirectly above.
+    void escapeHtml;
     return html;
   }
 
@@ -294,8 +669,21 @@
       html += '<button class="api-key-eye kv-eye-btn" type="button" data-row="' + idx + '" aria-label="Show value">' + window.App.icon('eye') + '</button>';
     }
     html += '</div></td>';
-    html += '<td class="mcp-kv-sensitive-cell"><input type="checkbox" class="kv-sensitive-checkbox" data-field="kv-sensitive" data-row="' + idx + '"' + (sensitive ? ' checked' : '') + ' aria-label="Mark sensitive" /></td>';
-    html += '<td><button type="button" class="kv-remove-row-btn" data-row="' + idx + '" aria-label="Remove row">' + window.App.icon('x') + '</button></td>';
+    // F9 L1: per-row sensitive control switched from <input type="checkbox">
+    // to the studio iOS-style toggle pattern (`tool-enable-switch` + track).
+    // The checkbox is visually-hidden inside the label; CSS in admin.css
+    // renders the toggle. The class name `kv-sensitive-checkbox` is kept
+    // on the input element so partitionKvRows / handleSensitiveToggle /
+    // getFormSnapshot continue to match the same selector.
+    html += '<td class="mcp-kv-sensitive-cell">';
+    html += '<label class="tool-enable-switch mcp-kv-sensitive-switch" aria-label="Mark sensitive">';
+    html += '<input type="checkbox" class="kv-sensitive-checkbox" data-field="kv-sensitive" data-row="' + idx + '"' + (sensitive ? ' checked' : '') + ' aria-label="Mark sensitive" />';
+    html += '<span class="tool-enable-switch-track" aria-hidden="true"></span>';
+    html += '</label>';
+    html += '</td>';
+    // F9 L1: per-row remove affordance switched from the `x` close-icon to
+    // the studio `trash` icon used elsewhere for destructive row actions.
+    html += '<td><button type="button" class="kv-remove-row-btn" data-row="' + idx + '" aria-label="Remove row" title="Remove row">' + window.App.icon('trash') + '</button></td>';
     html += '</tr>';
     return html;
   }
@@ -308,8 +696,16 @@
 
     var argsHost = container.querySelector('[data-field="args"].chip-list-editor');
     if (argsHost) {
-      var argsItems = (source && source.config && source.config.args) || [];
-      argsHost.outerHTML = helpers.renderChipListEditor('args', argsItems, null, {});
+      // F9 L2 vibing: when the saved (command, args) pair represents
+      // the `npx -y` or `pipx run` runtime split, the implicit `-y` /
+      // `run` lives at args[0]. The dropdown's hydrate path already
+      // collapses that pair back into the dropdown selection — strip
+      // it from the chip-list so the operator sees only their own args
+      // (the package name + flags they typed).
+      var savedCmd = (source && source.config && source.config.command) || '';
+      var savedArgsList = (source && source.config && source.config.args) || [];
+      var derived = deriveStdioRuntimeSelection(savedCmd, savedArgsList);
+      argsHost.outerHTML = helpers.renderChipListEditor('args', derived.displayArgs || [], null, {});
     }
     // F3 L5b: sandbox writable_paths chip-list (stdio only, but mount for
     // any type — visibility is controlled by the section's mcp-stdio-only
@@ -339,7 +735,11 @@
     var staticData = {};
     // F3 L5b: sandbox-network-allowed is a checkbox; the loop below reads
     // el.checked for type === 'checkbox' and el.value otherwise.
-    var staticFields = ['name', 'type', 'command', 'cwd', 'url',
+    // F9 L2 vibing: `command-runtime` is the new dropdown driving the
+    // stdio command field. It needs to be in the dirty-tracking snapshot
+    // so changing the dropdown alone (e.g. uvx → npx -y without typing in
+    // the Custom field) marks the form dirty.
+    var staticFields = ['name', 'type', 'command', 'command-runtime', 'cwd', 'url',
                         'sandbox-network-allowed'];
     for (var i = 0; i < staticFields.length; i++) {
       var el = container.querySelector('[data-field="' + staticFields[i] + '"]:not(.chip-list-editor)');
@@ -421,10 +821,31 @@
 
     // ── Type-change handler ───────────────────────────────────────────
     var typeSelect = container.querySelector('[data-field="type"]');
+    var runtimeSelect = container.querySelector('[data-field="command-runtime"]');
     if (typeSelect) {
       typeSelect.addEventListener('change', function () {
         applyTransportVisibility(container, typeSelect.value);
+        // F9 L2 vibing: applyTransportVisibility blindly toggles the
+        // `is-hidden` class on every `.mcp-stdio-only` row based on the
+        // selected transport. The Custom-command row is also gated by
+        // the runtime dropdown's state (Custom… vs canonical literal),
+        // so a transport-switch into stdio would otherwise reveal the
+        // Custom row even when the dropdown is on `uvx`. Re-sync here.
+        if (typeSelect.value === 'stdio' && runtimeSelect) {
+          applyStdioRuntimeSelection(container, runtimeSelect.value);
+        }
         // checkDirty already wired via static listener above.
+      });
+    }
+
+    // ── F9 L2 vibing: stdio command-runtime dropdown change handler ──
+    // Toggles the Custom-command free-text row visibility + swaps the
+    // helper-text under the args chip-list. checkDirty is already wired
+    // via attachStaticListeners (the dropdown carries .field-select), so
+    // we don't re-wire that here.
+    if (runtimeSelect) {
+      runtimeSelect.addEventListener('change', function () {
+        applyStdioRuntimeSelection(container, runtimeSelect.value);
       });
     }
 
@@ -479,6 +900,7 @@
           var rrow = removeBtn.closest('tr.mcp-kv-row');
           if (rrow) {
             rrow.parentNode.removeChild(rrow);
+            updateKvHeadVisibility(container);
             checkDirty();
           }
           return;
@@ -499,6 +921,7 @@
         var newTr = tmp.querySelector('tr.mcp-kv-row');
         if (newTr) {
           tbody.appendChild(newTr);
+          updateKvHeadVisibility(container);
           checkDirty();
         }
       });
@@ -546,14 +969,29 @@
         })
           .then(function (r) {
             if (!r.ok) {
-              return r.json().then(function (e) {
-                var detail = e && e.detail;
+              // F9 L2 vibing: read body as text first, then try JSON. A
+              // proper FastAPI error response is JSON {detail: ...}; a
+              // catastrophic 5xx (handler raised before our envelope) is
+              // HTML and would choke r.json() with "Unexpected token <".
+              return r.text().then(function (body) {
+                var detail;
+                try {
+                  var parsed = JSON.parse(body);
+                  detail = parsed && parsed.detail;
+                } catch (_) {
+                  // Non-JSON body — fall through to status-based message.
+                }
                 if (Array.isArray(detail)) {
                   // Pydantic ValidationError shape
                   detail = detail.map(function (d) {
                     var loc = (d.loc || []).join('.');
                     return loc ? (loc + ': ' + d.msg) : d.msg;
                   }).join(' | ');
+                }
+                if (!detail) {
+                  var snippet = (body || '').trim().slice(0, 500);
+                  detail = 'Server error ' + r.status + ' ' + r.statusText +
+                           (snippet ? ': ' + snippet : '');
                 }
                 throw new Error(detail || (isEdit ? 'Save failed' : 'Create failed'));
               });
@@ -583,6 +1021,24 @@
     // ── Test Connection (edit only, streamable-http only) ─────────────
     var testBtn = container.querySelector('[data-testid="mcp-test-connection"]');
     if (testBtn) {
+      // F9 L1 (vibing follow-up): after a successful /test/connect (Phase A
+      // ok OR Phase 2 ok after OAuth popup), refetch the source so any
+      // OAuth-state-dependent UI (currently: the Reset button) reflects
+      // the post-flow truth. Without this, a fresh OAuth grant via the
+      // popup leaves source.oauth_active stale at the value captured on
+      // editor mount, hiding the Reset button until the operator
+      // reloads. Targeted DOM mutation keeps in-flight form edits intact
+      // (a full re-render would clobber dirty form state).
+      function onTestConnectSuccess() {
+        fetch('/api/mcp-sources/' + encodeURIComponent(source.id))
+          .then(function (r) { return r && r.ok ? r.json() : null; })
+          .then(function (refreshed) {
+            if (!refreshed) return;
+            source.oauth_active = !!refreshed.oauth_active;
+            syncResetButtonVisibility(container, source, mcpTypes, callbacks);
+          })
+          .catch(function () { /* best-effort; UI stays consistent on next mount */ });
+      }
       testBtn.addEventListener('click', function () {
         // F8 L4: pass a no-op error-clearer so collectFormData's
         // validation messages don't accidentally show up in the editor's
@@ -591,7 +1047,16 @@
         // we fall through to the no-payload path which uses persisted
         // state — same behavior as before.
         var formData = collectFormData(container, source, true);
-        handleTestConnection(source.id, container, testBtn, formData);
+        // F9 L1 (vibing follow-up): the auto-run-after-create path
+        // (studio.js onSaveSuccess) sets dataset.autoRun on the button
+        // before dispatching click() — signal to handleTestConnection
+        // that it must NOT open the OAuth popup automatically (the
+        // user-gesture context from Save is no longer fresh). Cleared
+        // after read so subsequent manual clicks behave normally.
+        var autoRun = testBtn.dataset.autoRun === '1';
+        if (autoRun) delete testBtn.dataset.autoRun;
+        handleTestConnection(source.id, container, testBtn, formData,
+          onTestConnectSuccess, { noAutoPopup: autoRun });
       });
     }
 
@@ -616,6 +1081,110 @@
         window.App.confirmDelete(deleteBtn, doDelete, { confirmLabel: 'Confirm Delete?' });
       });
     }
+
+    // ── Reset connection (edit only, streamable-http with OAuth state) ─
+    // F9 L1 (vibing): clears tokens + DCR + tools cache server-side and
+    // re-renders the editor from the response shape so the Tools section
+    // collapses to empty-state and the button itself hides (no more
+    // OAuth state to reset). On error, surfaces via showFlash.
+    if (isEdit) {
+      wireResetButton(container, source, mcpTypes, callbacks);
+    }
+  }
+
+  // F9 L1 (vibing follow-up): wire the Reset connection button's click
+  // handler. Extracted from inline wireEditorEvents so it can also fire
+  // after dynamic injection (post-OAuth-grant), where the original
+  // wireEditorEvents pass already ran without finding the button in the
+  // DOM. Idempotent: skips wiring if a marker dataset is already set on
+  // the button (re-runs from syncResetButtonVisibility are no-ops on
+  // already-wired buttons).
+  function wireResetButton(container, source, mcpTypes, callbacks) {
+    var resetBtn = container.querySelector('[data-testid="reset-mcp-connection-btn"]');
+    if (!resetBtn) return;
+    if (resetBtn.dataset.resetWired === '1') return;
+    resetBtn.dataset.resetWired = '1';
+    function doReset(btn, revertFn) {
+      fetch('/api/mcp-sources/' + encodeURIComponent(source.id) + '/connection', { method: 'DELETE' })
+        .then(function (r) {
+          if (!r.ok) return r.json().then(function (e) { throw new Error((e && e.detail) || 'Reset failed'); });
+          return fetch('/api/mcp-sources/' + encodeURIComponent(source.id));
+        })
+        .then(function (r) {
+          if (!r || !r.ok) throw new Error('Failed to refetch source after reset');
+          return r.json();
+        })
+        .then(function (refreshed) {
+          // Re-render from the refreshed source. The Tools section
+          // collapses to empty-state (no _cache); the Reset button
+          // hides itself (no more OAuth state); the kv-table rebuilds
+          // (OAuth-managed keys were stripped from the response anyway,
+          // so the visible kv shape is unchanged for non-OAuth secrets).
+          renderMcpSourceEditor(container, refreshed, mcpTypes, callbacks);
+          window.App.showFlash(container, 'Connection reset');
+        })
+        .catch(function (err) {
+          revertFn();
+          window.App.showFlash(container, 'Error: ' + err.message, true);
+        });
+    }
+    resetBtn.addEventListener('click', function () {
+      window.App.confirmDelete(resetBtn, doReset, { confirmLabel: 'Confirm Reset?' });
+    });
+  }
+
+  // F9 L1 (vibing follow-up): inject or remove the Reset connection button
+  // based on the source's current OAuth-state. Called after a successful
+  // /test/connect refetch reveals oauth_active changed (e.g., after a
+  // fresh OAuth grant via the popup). Targeted DOM mutation — does NOT
+  // re-render the editor (would clobber in-flight form edits).
+  function syncResetButtonVisibility(container, source, mcpTypes, callbacks) {
+    var escapeAttr = window.App.escapeAttr;
+    var actionsHost = container.querySelector('.mcp-connection-actions');
+    if (!actionsHost) return;
+    var existing = actionsHost.querySelector('[data-testid="reset-mcp-connection-btn"]');
+    if (hasOAuthState(source)) {
+      if (existing) return; // already present
+      var resetTooltip = 'Reset this connection? This clears the stored login and tools list. ' +
+        'You will need to log in again on the next refresh.';
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn-outlined-cyan mcp-reset-connection-btn';
+      btn.setAttribute('data-testid', 'reset-mcp-connection-btn');
+      btn.setAttribute('title', resetTooltip);
+      btn.setAttribute('aria-label', resetTooltip);
+      btn.setAttribute('data-name', source.name || '');
+      btn.innerHTML = '<span data-confirm-title>Reset connection</span>';
+      // escapeAttr is used in the static-render path; for dynamic creation
+      // the DOM API handles attribute encoding, so escapeAttr is unused
+      // here. The reference is kept to mirror the static path's import.
+      void escapeAttr;
+      // Insert before the "Last updated" label (if present) so the label
+      // stays the trailing element with `margin-left: auto`. Falls back
+      // to appendChild when no label sibling exists yet.
+      var luSibling = actionsHost.querySelector('[data-testid="mcp-tools-last-updated"]');
+      if (luSibling) {
+        actionsHost.insertBefore(btn, luSibling);
+      } else {
+        actionsHost.appendChild(btn);
+      }
+      wireResetButton(container, source, mcpTypes, callbacks);
+    } else if (existing) {
+      existing.parentNode.removeChild(existing);
+    }
+  }
+
+  // ── KV table head visibility (F9 L1) ────────────────────────────────
+  // The thead is hidden when the table has zero rows (empty-state UX) and
+  // revealed once the operator adds the first row. Toggled in three call
+  // sites: add-row click, remove-row click, and cancel-revert (where the
+  // tbody is rebuilt from the source object).
+
+  function updateKvHeadVisibility(container) {
+    var thead = container.querySelector('.mcp-kv-thead');
+    if (!thead) return;
+    var rowCount = container.querySelectorAll('.mcp-kv-table tbody tr.mcp-kv-row').length;
+    thead.classList.toggle('is-hidden', rowCount === 0);
   }
 
   // ── Sensitive toggle helpers ────────────────────────────────────────
@@ -661,6 +1230,21 @@
 
   // ── Type-change visibility helpers ──────────────────────────────────
 
+  // F9 L2 vibing: keep the Custom… free-text row's visibility + the
+  // args-helper text in sync with the dropdown selection. Called from
+  // the change handler AND from revertEditorToSource so a Cancel-revert
+  // restores the row visibility to match the source's saved command.
+  function applyStdioRuntimeSelection(container, dropdownValue) {
+    var customRow = container.querySelector('.mcp-command-custom-row');
+    if (customRow) {
+      customRow.classList.toggle('is-hidden', dropdownValue !== STDIO_CUSTOM_SENTINEL);
+    }
+    var hintEl = container.querySelector('[data-testid="mcp-command-hint"]');
+    if (hintEl) {
+      hintEl.textContent = lookupStdioRuntimeHint(dropdownValue);
+    }
+  }
+
   function applyTransportVisibility(container, type) {
     var stdioRows = container.querySelectorAll('.mcp-stdio-only');
     var streamableRows = container.querySelectorAll('.mcp-streamable-http-only');
@@ -688,10 +1272,19 @@
     if (!source) return;
 
     // 1. Static fields
+    // F9 L2 vibing: derive the command-runtime dropdown value + the
+    // free-text Custom… field's value from the saved (command, args)
+    // pair. `command` (free-text) is only populated when the saved
+    // command falls into Custom… — for the canonical runtimes the
+    // Custom row is hidden and its value is empty.
+    var savedCmd = (source.config && source.config.command) || '';
+    var savedArgs = (source.config && source.config.args) || [];
+    var sel = deriveStdioRuntimeSelection(savedCmd, savedArgs);
     var staticMap = {
       'name': source.name || '',
       'type': source.type || '',
-      'command': (source.config && source.config.command) || '',
+      'command-runtime': sel.dropdownValue || '',
+      'command': sel.customCommand || '',
       'cwd': (source.config && source.config.cwd) || '',
       'url': (source.config && source.config.url) || ''
     };
@@ -699,6 +1292,9 @@
       var el = container.querySelector('[data-field="' + key + '"]:not(.chip-list-editor)');
       if (el) el.value = staticMap[key];
     });
+    // Sync the Custom-row visibility + helper-text to the restored
+    // dropdown selection.
+    applyStdioRuntimeSelection(container, sel.dropdownValue || '');
     // F3 L5b: sandbox-network-allowed is a checkbox — its display state
     // is controlled by .checked, not .value. Pulled out of the loop above
     // so el.value = ... doesn't no-op the visible checked state.
@@ -719,6 +1315,7 @@
         html += renderKvRow(rows[i], i);
       }
       tbody.innerHTML = html;
+      updateKvHeadVisibility(container);
     }
 
     // 4. Chip-list editors — re-mount fresh
@@ -727,7 +1324,12 @@
       var argsHost = container.querySelector('[data-field="args"].chip-list-editor');
       if (argsHost && argsHost.parentNode) {
         var wrapper = document.createElement('div');
-        wrapper.innerHTML = helpers.renderChipListEditor('args', (source.config && source.config.args) || [], null, {});
+        // F9 L2 vibing: use sel.displayArgs so the operator's chip-list
+        // shows only their own args — the implicit `-y` for `npx -y` and
+        // the implicit `run` for `pipx run` (option (b) split) stay in
+        // the saved JSON but never surface as editable chips the
+        // operator could accidentally remove.
+        wrapper.innerHTML = helpers.renderChipListEditor('args', sel.displayArgs || [], null, {});
         var newArgs = wrapper.firstChild;
         argsHost.parentNode.replaceChild(newArgs, argsHost);
         if (helpers.wireChipListEditor) {
@@ -778,8 +1380,31 @@
     var secrets = {};
 
     if (type === 'stdio') {
-      var commandEl = container.querySelector('[data-field="command"]');
-      var command = commandEl ? commandEl.value.trim() : '';
+      // F9 L2 vibing: command source is the dropdown selection. For all
+      // canonical runtime literals except `npx -y` and `pipx run` the
+      // dropdown value IS `config.command` verbatim. For `npx -y` we
+      // split into `command=npx, args=[-y, ...userArgs]`; for `pipx run`
+      // we split into `command=pipx, args=[run, ...userArgs]` (option
+      // (b)) so the saved JSON stays transparent — and so the spawn
+      // layer doesn't try to exec a 2-token string as a single binary
+      // and FileNotFoundError. For Custom… the free-text input feeds
+      // `config.command` directly (operator owns resolution).
+      var runtimeEl = container.querySelector('[data-field="command-runtime"]');
+      var runtimeValue = runtimeEl ? runtimeEl.value : '';
+      var command = '';
+      var prependArgs = [];
+      if (runtimeValue === STDIO_CUSTOM_SENTINEL) {
+        var customEl = container.querySelector('[data-field="command"]');
+        command = customEl ? customEl.value.trim() : '';
+      } else if (runtimeValue === 'npx -y') {
+        command = 'npx';
+        prependArgs = ['-y'];
+      } else if (runtimeValue === 'pipx run') {
+        command = 'pipx';
+        prependArgs = ['run'];
+      } else if (runtimeValue) {
+        command = runtimeValue;
+      }
       if (!command) {
         if (errorEl) errorEl.textContent = 'Command is required for stdio servers.';
         return null;
@@ -790,7 +1415,8 @@
       if (cwd) config.cwd = cwd;
       var argsHost = container.querySelector('[data-field="args"].chip-list-editor');
       var helpers = window.App.adminFormHelpers;
-      var argsList = (argsHost && helpers && helpers.readChipListValue) ? helpers.readChipListValue(argsHost) : [];
+      var userArgsList = (argsHost && helpers && helpers.readChipListValue) ? helpers.readChipListValue(argsHost) : [];
+      var argsList = prependArgs.concat(userArgsList);
       if (argsList.length > 0) config.args = argsList;
       config.env = {};
       partitionKvRows(container, config.env, secrets);
@@ -851,10 +1477,19 @@
   // zero async/await. Diverging would create a stylistic outlier and may
   // not transpile if the build pipeline targets ES5.
 
-  function handleTestConnection(sourceId, container, testBtn, formData) {
+  function handleTestConnection(sourceId, container, testBtn, formData, onSuccess, opts) {
     var escapeHtml = window.App.escapeHtml;
     var statusEl = container.querySelector('[data-testid="mcp-test-status"]');
     var listEl = container.querySelector('[data-testid="mcp-tools-list"]');
+    // F9 L1 (vibing follow-up): opts.noAutoPopup suppresses the
+    // window.open() call on auth_required and instead renders an
+    // explicit "Sign in" consent button into the status panel. Used by
+    // the auto-run-after-create path (studio.js onSaveSuccess), where
+    // the original Save click's user-gesture context is lost by the
+    // time the create POST resolves and Phase A surfaces auth_required —
+    // popup-blockers reject popups not triggered by direct interaction.
+    // Default false preserves the manual-Refresh-click behavior verbatim.
+    var noAutoPopup = !!(opts && opts.noAutoPopup);
     statusEl.textContent = 'Testing connection…';
     statusEl.hidden = false;
     listEl.hidden = true;
@@ -863,6 +1498,48 @@
 
     function settle() {
       testBtn.disabled = false; // re-enable on final state
+    }
+
+    // F9 L1 (vibing follow-up): popup-launch + close-watcher extracted
+    // so both the auto-popup branch (manual click) and the explicit
+    // "Sign in" consent-button branch (auto-run after create) share one
+    // implementation. `consentUrl` is the auth_required response's URL;
+    // on popup-close the recursive Phase 2 re-POST fires with the same
+    // formData + onSuccess hook, but noAutoPopup is dropped — Phase 2
+    // returns ok or error, never auth_required again.
+    function launchConsentPopup(consentUrl) {
+      statusEl.textContent = 'Opening consent popup…';
+      var popupW = 600;
+      var popupH = 700;
+      var parentX = window.screenX !== undefined ? window.screenX : window.screenLeft;
+      var parentY = window.screenY !== undefined ? window.screenY : window.screenTop;
+      var parentW = window.outerWidth || window.innerWidth || screen.width;
+      var parentH = window.outerHeight || window.innerHeight || screen.height;
+      var popupLeft = parentX + Math.max(0, (parentW - popupW) / 2);
+      var popupTop = parentY + Math.max(0, (parentH - popupH) / 2);
+      var features = (
+        'width=' + popupW + ',height=' + popupH +
+        ',left=' + Math.round(popupLeft) +
+        ',top=' + Math.round(popupTop)
+      );
+      var popup = window.open(consentUrl, 'mcp-oauth-consent', features);
+      if (!popup) {
+        statusEl.textContent = 'Popup blocked — please allow popups and retry.';
+        settle();
+        return;
+      }
+      var interval = setInterval(function () {
+        if (popup.closed) {
+          clearInterval(interval);
+          // Phase 2 re-POST. Recursive call handles its own settle().
+          // Pass through the same formData so the second POST hits the
+          // same in-flight values the operator initiated the test with.
+          // Thread onSuccess through so the post-OAuth refetch fires
+          // when Phase 2 lands ok. noAutoPopup is dropped — Phase 2
+          // never returns auth_required (tokens are now persisted).
+          handleTestConnection(sourceId, container, testBtn, formData, onSuccess);
+        }
+      }, 500);
     }
 
     // F8 L4: send the operator's in-flight form values so Test connection
@@ -881,7 +1558,23 @@
       });
     }
     fetch('/api/mcp-sources/' + encodeURIComponent(sourceId) + '/test/connect', fetchOpts)
-      .then(function (resp) { return resp.json(); })
+      .then(function (resp) {
+        // F9 L2 vibing: defense-in-depth against non-JSON 500s. The backend
+        // helpers now ship a catch-all envelope that converts unexpected
+        // exceptions into 200 {status: "error"}, but if anything escapes
+        // (FastAPI itself raising before our handler, an upstream proxy
+        // returning HTML, etc.) we'd choke on resp.json() with "Unexpected
+        // token <" and surface a useless message. Read the body as text on
+        // !ok so the .catch handler renders something actionable.
+        if (resp.ok) return resp.json();
+        return resp.text().then(function (body) {
+          var snippet = (body || '').trim().slice(0, 500);
+          var err = new Error('Server error ' + resp.status + ' ' + resp.statusText +
+                              (snippet ? ': ' + snippet : ''));
+          err.serverStatus = resp.status;
+          throw err;
+        });
+      })
       .then(function (data) {
         if (data.status === 'ok') {
           // Render summary + collapsible tool list. Cloudflare-class servers
@@ -894,76 +1587,58 @@
             (data.tools.length === 1 ? '' : 's') + '.' +
             renderCapabilityFlags(data.capabilities)
           );
-          var html = '';
-          for (var i = 0; i < data.tools.length; i++) {
-            var t = data.tools[i];
-            html += '<details class="mcp-tool-item">';
-            html += '<summary class="mcp-tool-summary"><span class="mcp-tool-name">' + escapeHtml(t.name) + '</span></summary>';
-            if (t.description) {
-              // Preserve newlines from server-supplied descriptions; they
-              // are typically structured (multi-paragraph or with code blocks).
-              // Escape first, then convert \n → <br> via .replace on the
-              // already-escaped string (no XSS path: escapeHtml handles all
-              // angle brackets before <br> is introduced).
-              var safeDesc = escapeHtml(t.description).replace(/\n/g, '<br>');
-              html += '<div class="mcp-tool-description">' + safeDesc + '</div>';
-            } else {
-              html += '<div class="mcp-tool-description mcp-tool-description-empty">(no description provided)</div>';
-            }
-            // F8 L2: nested input-schema view. Pretty-print JSON for operator
-            // inspection. Render only when input_schema is non-null and non-empty —
-            // the closed-by-default outer details already handles the no-schema
-            // case cleanly without an empty nested toggle.
-            if (t.input_schema && Object.keys(t.input_schema).length > 0) {
-              var schemaJson = JSON.stringify(t.input_schema, null, 2);
-              // escapeHtml the JSON to defang any control chars in property names.
-              // The pretty-printed form preserves whitespace via <pre>'s default
-              // rendering; no <br> conversion needed.
-              html += '<details class="mcp-tool-schema">';
-              html += '<summary class="mcp-tool-schema-summary">Input schema</summary>';
-              html += '<pre class="mcp-tool-schema-content">' + escapeHtml(schemaJson) + '</pre>';
-              html += '</details>';
-            }
-            html += '</details>';
-          }
-          listEl.innerHTML = html;
+          listEl.innerHTML = renderToolsListHtml(data.tools);
           listEl.hidden = false;
+          // F9 L1 (vibing): backend just persisted last_updated to ~now;
+          // mirror that locally so the displayed timestamp updates
+          // immediately (the operator doesn't have to reload to see
+          // "just now"). The exact server-side time is close enough.
+          var luEl = container.querySelector('[data-testid="mcp-tools-last-updated"]');
+          if (luEl) {
+            luEl.textContent = 'Last updated: just now';
+            luEl.hidden = false;
+          }
+          // F9 L1 (vibing follow-up): caller-supplied hook fires after
+          // any successful /test/connect (Phase A or Phase 2). Used to
+          // refetch source state for OAuth-state-dependent UI (Reset
+          // button visibility) — see callsite in wireEditorEvents.
+          if (typeof onSuccess === 'function') {
+            try { onSuccess(); } catch (e) { /* swallow */ }
+          }
           settle();
         } else if (data.status === 'auth_required') {
-          // Keep button disabled across popup-flow; re-enabled only when
-          // the Phase 2 re-POST settles (in this same function).
-          statusEl.textContent = 'Opening consent popup…';
-          var popupW = 600;
-          var popupH = 700;
-          // Center on the parent window's viewport. screenX/Y account for
-          // multi-monitor setups where the parent window isn't on the
-          // primary display; outerWidth/Height are the parent window size.
-          var parentX = window.screenX !== undefined ? window.screenX : window.screenLeft;
-          var parentY = window.screenY !== undefined ? window.screenY : window.screenTop;
-          var parentW = window.outerWidth || window.innerWidth || screen.width;
-          var parentH = window.outerHeight || window.innerHeight || screen.height;
-          var popupLeft = parentX + Math.max(0, (parentW - popupW) / 2);
-          var popupTop = parentY + Math.max(0, (parentH - popupH) / 2);
-          var features = (
-            'width=' + popupW + ',height=' + popupH +
-            ',left=' + Math.round(popupLeft) +
-            ',top=' + Math.round(popupTop)
-          );
-          var popup = window.open(data.consent_url, 'mcp-oauth-consent', features);
-          if (!popup) {
-            statusEl.textContent = 'Popup blocked — please allow popups and retry.';
+          if (noAutoPopup) {
+            // Auto-run-after-create path: render an explicit "Sign in"
+            // consent button instead of opening the popup directly.
+            // Direct user-click on this button restores the gesture
+            // context required for window.open() to bypass popup
+            // blockers. The button is wired one-shot — clicking it
+            // invokes launchConsentPopup() which opens the popup AND
+            // wires the close-watcher → Phase 2 re-POST.
+            statusEl.innerHTML = '';
+            var prompt = document.createElement('span');
+            prompt.textContent = 'This server requires authorization. ';
+            statusEl.appendChild(prompt);
+            var consentBtn = document.createElement('button');
+            consentBtn.type = 'button';
+            consentBtn.className = 'btn-outlined-cyan';
+            consentBtn.setAttribute('data-testid', 'mcp-consent-btn');
+            consentBtn.textContent = 'Sign in';
+            consentBtn.addEventListener('click', function () {
+              launchConsentPopup(data.consent_url);
+            });
+            statusEl.appendChild(consentBtn);
+            // Re-enable Refresh button so the operator can also retry
+            // from there if they prefer; the consent button is the
+            // primary affordance.
             settle();
-            return;
+          } else {
+            // Manual-click path: the original Refresh click IS the user
+            // gesture; open the popup immediately. Keep button disabled
+            // across the popup-flow — re-enabled when Phase 2 re-POST
+            // settles (in this same function).
+            launchConsentPopup(data.consent_url);
           }
-          var interval = setInterval(function () {
-            if (popup.closed) {
-              clearInterval(interval);
-              // Phase 2 re-POST. Recursive call handles its own settle().
-              // Pass through the same formData so the second POST hits the
-              // same in-flight values the operator initiated the test with.
-              handleTestConnection(sourceId, container, testBtn, formData);
-            }
-          }, 500);
         } else {
           statusEl.innerHTML = '<span class="mcp-tools-error">✗ Error:</span> ' + escapeHtml(data.error || 'unknown');
           settle();
