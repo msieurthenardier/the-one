@@ -125,6 +125,13 @@
     font-size: 0.9em;
   }
   .area-chat .msg.assistant blockquote { margin: 0.5em 0; padding-left: 1em; border-left: 3px solid var(--border); }
+  /* GFM table rendering inside assistant bubbles. The parent .msg has
+     white-space: pre-wrap which must be reset for table layout to work. */
+  .area-chat .msg.assistant table { margin: 0.5em 0; border-collapse: collapse; white-space: normal; font-size: 0.95em; width: auto; max-width: 100%; }
+  .area-chat .msg.assistant th,
+  .area-chat .msg.assistant td { border: 1px solid var(--border); padding: 6px 12px; text-align: left; vertical-align: top; }
+  .area-chat .msg.assistant thead th { background: var(--surface); font-weight: var(--font-weight-semibold); }
+  .area-chat .msg.assistant tbody tr:nth-child(even) { background: var(--surface-translucent); }
   /* Two-step delete confirm state on session items lifted to components.css
      in F5 leg 02 as the canonical .list-item.confirm-delete rule. */
   /* Input area — chat input is sized differently from shared .field-input. */
