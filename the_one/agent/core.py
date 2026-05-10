@@ -27,6 +27,55 @@ CONTINUE_SCHEMA = {
     },
 }
 
+# F10 L1: strict 2-tool baseline (§2). These two search tools are the ONLY
+# schemas visible to the LLM at session start. Additional schemas are added
+# to the model-visible set as a side effect of calling these search tools.
+SEARCH_TOOLS_SCHEMA = {
+    "name": "search_tools",
+    "description": (
+        "Search the built-in tool catalog for tools matching a query. "
+        "Matched tools are automatically added to your available toolset "
+        "for the rest of this conversation. Call with an empty query to "
+        "list all available tools."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": (
+                    "Substring to search for in tool names and descriptions. "
+                    "Empty string returns all."
+                ),
+            },
+        },
+        "required": [],
+    },
+}
+
+SEARCH_MCPS_SCHEMA = {
+    "name": "search_mcps",
+    "description": (
+        "Search attached MCP servers for tools matching a query. "
+        "Matched MCP tools are automatically added to your available toolset "
+        "for the rest of this conversation. Call with an empty query to "
+        "list all available MCP tools."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": (
+                    "Substring to search for in MCP tool names and descriptions. "
+                    "Empty string returns all."
+                ),
+            },
+        },
+        "required": [],
+    },
+}
+
 
 class Agent:
     """The core agent loop: take user input, call LLM, execute tools, repeat.
@@ -45,6 +94,9 @@ class Agent:
         tools: ToolRegistry,
         system_prompt: str,
         max_iterations: int = 20,
+        *,
+        loaded_schemas: list[dict] | None = None,
+        loaded_tool_names: set[str] | None = None,
     ) -> None:
         self.llm = llm
         self.tools = tools
@@ -56,11 +108,24 @@ class Agent:
         # ``resume_after_auth``.
         self._deferred_tool_calls: list[ToolCall] | None = None
         self._remaining_iterations: int = 0
+        # F10 L1: visibility filter. SHARED CONTAINERS with the factory-
+        # constructed search-stub tools — mutations from those tools land
+        # in these containers; _compute_visible_schemas reads them.
+        # Defaults to fresh empty containers if omitted (backward-compat
+        # for non-factory Agent construction sites, e.g. tests).
+        self._loaded_schemas: list[dict] = loaded_schemas if loaded_schemas is not None else []
+        self._loaded_tool_names: set[str] = loaded_tool_names if loaded_tool_names is not None else set()
 
-    def _tool_schemas(self) -> list[dict]:
-        """All tool schemas including the continue signal."""
-        schemas = self.tools.all_schemas() or []
-        return schemas + [CONTINUE_SCHEMA]
+    def _compute_visible_schemas(self) -> list[dict]:
+        """F10 L1: per-iteration model-visible schemas.
+
+        Returns the 2-tool baseline (search_tools, search_mcps) + continue
+        + any schemas the search tools have loaded into the visibility set
+        as a side effect of being called. The Agent's ToolRegistry holds
+        the FULL candidate set; this method computes the filtered view
+        the LLM sees on each iteration's tools= array.
+        """
+        return [SEARCH_TOOLS_SCHEMA, SEARCH_MCPS_SCHEMA, CONTINUE_SCHEMA] + self._loaded_schemas
 
     async def step(
         self,
@@ -98,20 +163,28 @@ class Agent:
         remaining iteration budget is preserved on the instance for a
         subsequent ``resume_after_auth`` call.
         """
-        # Resolve tool schemas once per entry. If the model can't accept
-        # tools (e.g. Ollama Gemma), drop everything — including the
-        # virtual ``continue`` signal AND any real tools — and run as a
-        # single-shot chat. Studio surfaces this via the red "no tools"
-        # capability chip on the model selector, so the operator already
-        # had the chance to know; silently degrading is preferable to
+        # Resolve supports_tools ONCE per _run_iterations entry (network call
+        # in some provider implementations). The schemas computation moves
+        # inside the while loop so search-driven additions to _loaded_schemas
+        # show up on the next iteration's tools= array.
+        # If the model can't accept tools (e.g. Ollama Gemma), drop
+        # everything — including the virtual ``continue`` signal AND any real
+        # tools — and run as a single-shot chat. Studio surfaces this via the
+        # red "no tools" capability chip on the model selector, so the operator
+        # already had the chance to know; silently degrading is preferable to
         # refusing the message at send time.
-        if await self.llm.supports_tools():
-            tool_schemas = (self.tools.all_schemas() or []) + [CONTINUE_SCHEMA]
-        else:
-            tool_schemas = []
+        supports_tools = await self.llm.supports_tools()
 
         while self._remaining_iterations > 0:
             self._remaining_iterations -= 1  # F5 L3: consume one iteration up-front
+
+            # F10 L1: per-iteration visibility filter recompute so that
+            # search-driven mutations to _loaded_schemas from iteration N
+            # appear in iteration N+1's tools= array.
+            if supports_tools:
+                tool_schemas = self._compute_visible_schemas()
+            else:
+                tool_schemas = []
 
             accumulated_text = ""
             final_chunk = None
@@ -289,3 +362,9 @@ class Agent:
         # before its own initialization clobbers it.
         self._deferred_tool_calls = None
         self._remaining_iterations = 0
+        # F10 L1: clear visibility filter so the next step starts blind.
+        # Use .clear() (in-place mutation) NOT re-assignment — the same
+        # containers may be referenced by the stub tools' closure-captured
+        # _on_match callbacks; re-assignment would orphan those references.
+        self._loaded_schemas.clear()
+        self._loaded_tool_names.clear()

@@ -1,5 +1,15 @@
 # HAT — F6 Per-agent MCP attach + tool-routing
 
+## F10 contract note
+
+Post-F10 (lazy tool discovery): `agent.tools.all_schemas()` returns the
+full CANDIDATE registry — every tool the agent CAN load via search. The
+LLM only sees `[search_tools, search_mcps, continue] + agent._loaded_schemas`
+per iteration. HAT scripts in this file that script-count `all_schemas()`
+filtered by `mcp__*` prefix are validating registry membership, not
+model-visibility. The assertions still hold; the prose interpretation has
+shifted.
+
 **Type**: Human Acceptance Test. The operator runs each step, observes the result, and reports the outcome. There is no automated assertion — the human's judgment is the gate.
 
 **Scope**: Two tiers.
@@ -108,8 +118,12 @@ async def main():
     conn = await get_connection()
     factory = AgentFactory(store=SQLiteAgentStore(conn))
     agent = await factory.create("hat_agent_a")
+    # NOTE (F10 L1): agent.tools.all_schemas() returns the full CANDIDATE
+    # registry — the tools the agent CAN load via search, not the ones
+    # currently visible to the LLM in tools=. The MCP-prefix count below
+    # still validates "the registry was correctly populated by factory."
     schemas = agent.tools.all_schemas()
-    print(f"Total tools: {len(schemas)}")
+    print(f"Total candidate tools: {len(schemas)}")
     mcp_tools = [s for s in schemas if s["name"].startswith("mcp__")]
     print(f"MCP tools: {[s['name'] for s in mcp_tools]}")
 
@@ -118,6 +132,8 @@ PY
 ```
 
 **Verify**: at least one MCP tool listed under `mcp__fetch_local__*`. `mcp-server-fetch` exposes a `fetch` tool; expect `mcp__fetch_local__fetch`. The full prefix MUST be `mcp__fetch_local__`.
+
+Note (F10): the LLM does NOT see these MCP tools in its `tools=` array at session start. The agent must call `search_mcps` to load them into the model-visible set. This HAT step validates registry membership, not model-visibility.
 
 If you see zero MCP tools but no Python error: check `docker compose logs --tail=50 the-one` for a `WARNING: MCP source 'fetch_local' failed to connect` (failure class #2 — graceful-degrade kicked in). Diagnose + report.
 
@@ -164,6 +180,8 @@ async def main():
     conn = await get_connection()
     factory = AgentFactory(store=SQLiteAgentStore(conn))
     agent = await factory.create("hat_agent_a")
+    # NOTE (F10 L1): all_schemas() returns CANDIDATE registry membership —
+    # validates that the deleted source's tools are absent from the registry.
     mcp_tools = [s["name"] for s in agent.tools.all_schemas() if s["name"].startswith("mcp__")]
     print(f"MCP tools after delete + rebuild: {mcp_tools}")
 

@@ -1007,6 +1007,73 @@ class TestMCPToolProvider:
         names = sorted(t.name for t in tools)
         assert names == ["mcp__src__fetch", "mcp__src__search"]
 
+    # ===========================================================================
+    # F10 Path B — cache-first agent build tests (2026-05-10)
+    # ===========================================================================
+
+    async def test_get_tools_for_agent_uses_cache_when_populated(
+        self, patch_provider_deps, monkeypatch
+    ) -> None:
+        """F10 Path B: when _cache.tools is populated, MCPTool dataclasses are
+        hydrated from the cache and acquire() is NOT called. This makes agent
+        builds sub-100ms even when the MCP server is unreachable."""
+        cached_tools_payload = [
+            {"name": "read_file", "description": "Read a file.", "input_schema": {"type": "object", "properties": {"path": {"type": "string"}}}},
+            {"name": "write_file", "description": "Write a file.", "input_schema": {"type": "object", "properties": {}}},
+        ]
+        src = _stub_source(
+            source_id="src-1",
+            name="filesystem",
+            config={"_cache": {"tools": cached_tools_payload}},
+        )
+        patch_provider_deps.get = AsyncMock(return_value=src)
+
+        acquire_called = {"n": 0}
+
+        async def _failing_acquire(*args, **kwargs):
+            acquire_called["n"] += 1
+            raise MCPConnectionError("server unreachable — should not be called")
+
+        monkeypatch.setattr(provider_mod, "acquire", _failing_acquire)
+
+        cfg = AgentConfig(name="a", mcp_source_ids=["src-1"])
+        tools = await MCPToolProvider().get_tools_for_agent(cfg, agent_name="agent-a")
+
+        # acquire() must NOT have been called — cache path was taken.
+        assert acquire_called["n"] == 0, "acquire() was called despite populated cache"
+        # Both cached tools are registered under the prefixed name scheme.
+        names = sorted(t.name for t in tools)
+        assert names == ["mcp__filesystem__read_file", "mcp__filesystem__write_file"]
+        # Verify input_schema threaded through correctly.
+        read_tool = next(t for t in tools if t.name == "mcp__filesystem__read_file")
+        assert read_tool.parameters == {"type": "object", "properties": {"path": {"type": "string"}}}
+
+    async def test_get_tools_for_agent_falls_back_to_acquire_when_cache_empty(
+        self, patch_provider_deps, monkeypatch
+    ) -> None:
+        """F10 Path B: when _cache.tools is empty/absent, falls back to the
+        existing acquire + list_tools path (Path A). Existing behavior preserved."""
+        # Source with no _cache entry at all — simulates operator never refreshed.
+        src = _stub_source(source_id="src-1", name="github", config={})
+        patch_provider_deps.get = AsyncMock(return_value=src)
+
+        acquire_called = {"n": 0}
+        client = _stub_mcp_client([_stub_mcp_tool("create_issue"), _stub_mcp_tool("list_prs")])
+
+        async def _stub_acquire(*args, **kwargs):
+            acquire_called["n"] += 1
+            return client
+
+        monkeypatch.setattr(provider_mod, "acquire", _stub_acquire)
+
+        cfg = AgentConfig(name="a", mcp_source_ids=["src-1"])
+        tools = await MCPToolProvider().get_tools_for_agent(cfg, agent_name="agent-a")
+
+        # acquire() MUST have been called — cache was empty, Path A fallback used.
+        assert acquire_called["n"] == 1, "acquire() was not called despite empty cache"
+        names = sorted(t.name for t in tools)
+        assert names == ["mcp__github__create_issue", "mcp__github__list_prs"]
+
     async def test_override_applies_correctly(
         self, patch_provider_deps, monkeypatch
     ) -> None:
