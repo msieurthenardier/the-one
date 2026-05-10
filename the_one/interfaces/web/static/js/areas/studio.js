@@ -389,6 +389,34 @@ App.registerArea({
                 // create→edit transition: re-render so Danger Zone +
                 // edit-mode subtitle render with the newly-assigned id.
                 renderMcpSourcesSection();
+                // F9 L1 (vibing follow-up): auto-run Refresh on create.
+                // For streamable-http sources the Refresh button mounts
+                // post-render; clicking it programmatically kicks the
+                // same code path as a manual click — Phase A connect
+                // either succeeds (tools render) or surfaces
+                // auth_required (consent-affordance UX, NO popup —
+                // popup-blockers reject popups not triggered by direct
+                // user gesture, and the gesture context from Save is
+                // already lost). For stdio sources there is no Refresh
+                // button (only streamable-http sources expose it), so
+                // the queryselector returns null and this is a no-op.
+                // setTimeout(0) yields one frame so the editor's
+                // wireEditorEvents finishes attaching the click handler
+                // before we dispatch the synthetic click.
+                setTimeout(function () {
+                  var refreshBtn = sectionContentEl.querySelector(
+                    '[data-testid="mcp-test-connection"]'
+                  );
+                  if (refreshBtn) {
+                    // Signal to the editor's click handler that this is
+                    // the auto-run-after-create path: on auth_required
+                    // it must surface the consent button rather than
+                    // open the popup directly (the Save click's
+                    // user-gesture context is already lost).
+                    refreshBtn.dataset.autoRun = '1';
+                    refreshBtn.click();
+                  }
+                }, 0);
               }
             },
             onDeleteSuccess: function () {

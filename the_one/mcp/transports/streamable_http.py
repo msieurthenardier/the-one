@@ -19,8 +19,9 @@ that this helper mirrors structurally.
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import AsyncExitStack, asynccontextmanager
-from typing import Any, AsyncIterator, Callable
+from typing import Any, AsyncIterator, Callable, Literal
 
 import httpx
 from mcp import ClientSession
@@ -29,7 +30,11 @@ from mcp.client.streamable_http import streamable_http_client
 from the_one.db.models import MCPSource
 from the_one.mcp.oauth.storage import OAUTH_MANAGED_SECRET_KEYS
 
-__all__ = ["build_request_headers", "connect_streamable_http"]
+__all__ = [
+    "_probe_auth_posture",
+    "build_request_headers",
+    "connect_streamable_http",
+]
 
 
 # F5 L4: factory shape for the test seam — invoked with `headers` dict;
@@ -81,6 +86,90 @@ def build_request_headers(source: MCPSource) -> dict[str, str]:
         if k not in OAUTH_MANAGED_SECRET_KEYS
     }
     return {**config_headers, **operator_secrets}
+
+
+async def _probe_auth_posture(
+    server_url: str, *, timeout: float = 5.0
+) -> Literal["no_auth", "oauth", "error"]:
+    """HTTP-level auth-posture probe — bypasses the MCP SDK entirely.
+
+    Issues a single bare ``initialize`` JSON-RPC POST with no auth, then
+    inspects the status code:
+
+    * ``200`` → server processed the initialize handshake → ``"no_auth"``.
+    * ``401`` → server's auth middleware short-circuited (regardless of
+      whether ``WWW-Authenticate`` is present — broken servers without
+      RFC 9728 metadata are still treated as ``"oauth"``) → ``"oauth"``.
+    * Anything else (5xx, transport errors, timeouts) → ``"error"``.
+
+    Why a bare ``httpx.AsyncClient`` (and NOT the MCP SDK) is used here:
+
+    * F9 L1 Anomaly A6 (Shape C resolution): engaging
+      ``mcp.client.streamable_http`` for auth detection leaks an anyio
+      cross-task cancel-scope error that propagates as ``CancelledError``
+      up to the FastAPI handler. A bare ``httpx`` POST has no SDK
+      transport stack to clean up — zero anyio surface.
+    * The MCP spec's auth middleware short-circuits 401 BEFORE the
+      streamable-http handler runs (otherwise auth-required servers
+      would need to validate Accept headers before they could enforce
+      auth). So a 401 is a definitive verdict; we don't need the
+      Accept negotiation to succeed first.
+    * No-auth servers, however, DO require the spec'd Accept and
+      Content-Type headers — without them, a compliant server returns
+      ``406 Not Acceptable`` or ``415 Unsupported Media Type`` which we
+      would miscategorize as ``"error"``. The headers below mirror what
+      the SDK's own client always sends per
+      ``mcp/client/streamable_http.py`` (the ``MCP-Protocol-Version`` /
+      ``Accept`` / ``Content-Type`` bundle).
+
+    Reads ``the_one.mcp._PINNED_PROTOCOL_VERSION`` at call time (NOT at
+    import time) so test monkeypatches stick — same convention as
+    ``MCPClient.connect``.
+
+    The 5s default timeout is tighter than ``_TEST_CONNECT_TIMEOUT``'s
+    15s ceiling — a stuck network surfaces as ``"error"`` faster, and
+    the caller still has 10s of headroom for the subsequent SDK round
+    trip if the probe verdict is ``"oauth"`` and Phase B fires.
+
+    Args:
+        server_url: The streamable-http MCP server URL.
+        timeout: Request timeout in seconds (default 5).
+
+    Returns:
+        ``"no_auth"``, ``"oauth"``, or ``"error"``.
+    """
+    # Lazy import — keeps test monkeypatches on the_one.mcp namespace
+    # alive (read-at-call-time per F2 convention).
+    from the_one import mcp as the_one_mcp
+
+    payload = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": the_one_mcp._PINNED_PROTOCOL_VERSION,
+            "clientInfo": {"name": "the-one", "version": "0.1"},
+            "capabilities": {},
+        },
+    }
+    headers = {
+        "Accept": "application/json, text/event-stream",
+        "Content-Type": "application/json",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout)) as client:
+            resp = await client.post(server_url, json=payload, headers=headers)
+    except (httpx.RequestError, asyncio.TimeoutError):
+        return "error"
+    except Exception:
+        # Defensive — anything else (URL parse errors, etc.) → "error".
+        return "error"
+
+    if resp.status_code == 200:
+        return "no_auth"
+    if resp.status_code == 401:
+        return "oauth"
+    return "error"
 
 
 def _build_production_httpx_kwargs(

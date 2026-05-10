@@ -194,16 +194,25 @@ async def _entry_worker(source: MCPSource, entry: _RegistryEntry) -> None:
     # in via L2's MCPAuthRequired translation.
     from the_one.agent._context import current_chat_session_id, current_tool_call_id
     from the_one.mcp.oauth import build_oauth_provider_for_source
-    csid = current_chat_session_id.get(None)
-    tcid = current_tool_call_id.get(None)
-    if csid is None and source.secrets.get("access_token"):
-        csid = f"agent_build:{source.id}"
-    conn = await get_connection()
-    encryptor = get_encryptor(settings.data_dir)
-    repo = MCPSourceRepository(conn, encryptor)
-    auth_provider = build_oauth_provider_for_source(
-        source, repo, csid, source_id=source.id, tool_call_id=tcid,
-    )
+    # F9 L1 Shape C: skip provider construction entirely when the test
+    # endpoint persisted a definitive no_auth verdict in
+    # source.config._cache.auth_posture. Absent/legacy hint falls through
+    # to the existing logic — its F6.5/F6.6 graceful-skip on 401 is the
+    # safety net for first-time post-deploy sources.
+    cached_posture = (source.config.get("_cache") or {}).get("auth_posture")
+    if cached_posture == "no_auth":
+        auth_provider = None
+    else:
+        csid = current_chat_session_id.get(None)
+        tcid = current_tool_call_id.get(None)
+        if csid is None and source.secrets.get("access_token"):
+            csid = f"agent_build:{source.id}"
+        conn = await get_connection()
+        encryptor = get_encryptor(settings.data_dir)
+        repo = MCPSourceRepository(conn, encryptor)
+        auth_provider = build_oauth_provider_for_source(
+            source, repo, csid, source_id=source.id, tool_call_id=tcid,
+        )
     client = MCPClient(source, auth_provider=auth_provider)
     try:
         await client.connect()

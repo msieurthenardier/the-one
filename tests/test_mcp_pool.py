@@ -762,3 +762,90 @@ async def test_entry_worker_uses_synthetic_csid_when_tokens_present(
     finally:
         current_chat_session_id.reset(csid_token)
         current_tool_call_id.reset(tcid_token)
+
+
+async def test_pool_worker_skips_oauth_provider_when_no_auth_posture_cached(
+    monkeypatch,
+) -> None:
+    """F9 L1 Shape C — `_entry_worker` reads `source.config._cache.auth_posture`
+    and SKIPS the OAuth provider construction when the persisted verdict is
+    "no_auth". MCPClient is constructed with `auth_provider=None`.
+
+    Without this short-circuit, the pool would build a provider for any
+    source with `dcr_credentials` even when the test endpoint already
+    confirmed (via Phase 0) that the server requires no auth.
+    """
+    from the_one.mcp._pool import _RegistryEntry, _entry_worker
+
+    source = MCPSource(
+        id="src-no-auth-cached",
+        name="t",
+        type="streamable-http",
+        config={
+            "url": "https://no-auth-server.example.com/mcp",
+            "_cache": {
+                "tools": [],
+                "capabilities": {},
+                "last_updated": 1_700_000_000.0,
+                "auth_posture": "no_auth",
+            },
+        },
+        secrets={},
+    )
+
+    # If the worker (incorrectly) calls the factory we want to know — the
+    # mock raises a sentinel that would surface as a test failure.
+    factory_called: list[bool] = []
+
+    def _explode(*args, **kwargs):
+        factory_called.append(True)
+        raise AssertionError(
+            "build_oauth_provider_for_source must NOT be called when "
+            "_cache.auth_posture == 'no_auth'"
+        )
+
+    monkeypatch.setattr(
+        "the_one.mcp.oauth.build_oauth_provider_for_source", _explode
+    )
+
+    # Capture how MCPClient was constructed.
+    constructed_with: dict = {}
+
+    class _CapturingClient:
+        def __init__(self, source, auth_provider=None):
+            constructed_with["source"] = source
+            constructed_with["auth_provider"] = auth_provider
+            self.is_alive = False
+
+        async def connect(self):
+            # Stop the worker before it enters the evict-wait loop. The
+            # outer ``except BaseException`` translates this into
+            # ``entry.failure`` so the test can return cleanly.
+            raise RuntimeError("stop-after-construction")
+
+        async def disconnect(self):
+            pass
+
+        def _touch_activity(self):
+            pass
+
+    monkeypatch.setattr(pool_mod, "MCPClient", _CapturingClient)
+
+    entry = _RegistryEntry(
+        ttl_seconds=300,
+        client_ready=asyncio.Event(),
+        evict_event=asyncio.Event(),
+    )
+
+    await _entry_worker(source, entry)
+
+    assert factory_called == [], (
+        "OAuth provider factory was invoked despite cached no_auth verdict"
+    )
+    assert "auth_provider" in constructed_with
+    assert constructed_with["auth_provider"] is None, (
+        "MCPClient must receive auth_provider=None when "
+        "_cache.auth_posture == 'no_auth'"
+    )
+    # Worker stored the sentinel as a connect failure (clean exit).
+    assert isinstance(entry.failure, RuntimeError)

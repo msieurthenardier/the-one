@@ -254,7 +254,17 @@ async def test_test_connect_returns_auth_required_when_no_creds(client_and_repo)
         async def __aexit__(self, *args):
             pass
 
+    # F9 L1 Shape C: Phase 0 probes auth posture before Phase A. For this
+    # test we want the OAuth flow path, so mock the probe to return "oauth"
+    # (the verdict that falls through to Phase B).
+    async def _stub_probe(server_url, *, timeout=5.0):
+        return "oauth"
+
     with patch("the_one.mcp.client.MCPClient", _AuthRequiredMCPClient), \
+         patch(
+             "the_one.mcp.transports.streamable_http._probe_auth_posture",
+             _stub_probe,
+         ), \
          patch("the_one.interfaces.web.api.httpx.AsyncClient", _StubHttpxClient):
         resp = await c.post("/api/mcp-sources/src-test-connect-1/test/connect")
 
@@ -414,7 +424,16 @@ async def test_test_connect_consent_url_timeout(client_and_repo, monkeypatch) ->
         async def __aexit__(self, *args):
             pass
 
+    # F9 L1 Shape C: mock the Phase 0 probe to return "oauth" so the flow
+    # falls through to Phase B (where the consent_url_future timeout fires).
+    async def _stub_probe(server_url, *, timeout=5.0):
+        return "oauth"
+
     with patch("the_one.mcp.client.MCPClient", _AuthRequiredMCPClient), \
+         patch(
+             "the_one.mcp.transports.streamable_http._probe_auth_posture",
+             _stub_probe,
+         ), \
          patch("the_one.interfaces.web.api.httpx.AsyncClient", _StubHttpxClient):
         resp = await c.post("/api/mcp-sources/src-test-connect-1/test/connect")
 
