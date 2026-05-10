@@ -213,12 +213,36 @@
     var toolsBody = document.createElement('div');
     toolsBody.className = 'mcp-tools-body';
     toolsBody.setAttribute('data-testid', 'mcp-tools-body-' + source.id);
-    toolsBody.textContent = 'Loading tools…';
     toolsSection.appendChild(toolsBody);
 
     body.appendChild(toolsSection);
 
+    // F9 L3 (A-L3-2) — cache-first read. L1 persists the tools list to
+    // `source.config._cache.tools` on every successful /test/connect from the
+    // source-edit page (and the /test/connect endpoint writes it server-side
+    // too). When the operator opens the details panel for a source that has
+    // a populated cache, render synchronously from the cache — no probe, no
+    // loading placeholder, no flicker.
+    //
+    // The auth-required notice path is reachable only via the probe (in
+    // loadTools). That's correct: a source with cached tools has been
+    // authenticated successfully at some point, so the cache itself is
+    // auth-affirmative. If tokens are later revoked, the operator's explicit
+    // Refresh-tools click triggers a fresh probe, which surfaces the
+    // auth-required notice via the existing path.
+    function _hasCachedTools(src) {
+      return !!(src && src.config && src.config._cache &&
+                Array.isArray(src.config._cache.tools));
+    }
+
     function loadTools(forceRefresh) {
+      // Cache-first on the initial load; the explicit Refresh-tools button
+      // bypasses by passing forceRefresh=true.
+      if (!forceRefresh && _hasCachedTools(source)) {
+        _renderToolsCheckboxGroup(toolsBody, source, agent,
+          source.config._cache.tools, onChange);
+        return;
+      }
       toolsBody.textContent = 'Loading tools…';
       if (!fetchMcpSourceTools) {
         toolsBody.textContent = 'Tool discovery not available.';

@@ -643,6 +643,19 @@ App.registerArea({
       });
     }
 
+    // F9 L3 (A-L3-1) — re-fetch the MCP sources list on every agent-edit
+    // mount. `_allMcpSources` is otherwise loaded once at studio area mount
+    // (loadAll), so a source created on the source-edit page is invisible
+    // to the agent editor until the operator hard-reloads. Mirrors
+    // refreshToolConfigsCache above. On error, keep the prior cache.
+    function refreshMcpSourcesCache() {
+      return fetchMcpSources().then(function (sources) {
+        self._allMcpSources = sources;
+      }).catch(function () {
+        self._allMcpSources = self._allMcpSources || [];
+      });
+    }
+
     // Lazy schema fetcher — closure-cached. Stores the PROMISE (not the
     // resolved value) so concurrent callers during an in-flight fetch
     // reuse the same in-flight promise (no double-fetch). The cache
@@ -761,6 +774,85 @@ App.registerArea({
     }
 
     // ── Agents tile grid rendering (F5 leg 02) ──────────────────────────
+
+    // F9 L3 (A-L3-3) — Aggregate built-in + MCP tool counts for the tile
+    // metric lines. Both counts are derivable from data already loaded by
+    // loadAll (self._agents, self._allTools, self._allMcpSources), so no
+    // backend round-trip is needed. The MCP override math mirrors the
+    // mode-detection logic in mcps-tab.js (isAllowlist when
+    // overrides.enabled_tools is an array) so the surfaced count matches
+    // what the runtime resolver will actually expose at chat-time.
+    function _countBuiltinTools(agent, allTools) {
+      var enabled = agent && agent.enabled_tools;
+      var disabled = (agent && agent.disabled_tools) || [];
+      // null/undefined enabled_tools means "all - disabled" (the agent is
+      // in denylist mode); array means "exactly these" (allowlist mode).
+      // Counts are bounded by the global tool list — toggles for tools no
+      // longer present in the codebase shouldn't inflate the count.
+      var globalNames = {};
+      for (var i = 0; i < (allTools || []).length; i++) {
+        globalNames[allTools[i].name] = true;
+      }
+      if (Array.isArray(enabled)) {
+        var n = 0;
+        for (var j = 0; j < enabled.length; j++) {
+          if (globalNames[enabled[j]]) n++;
+        }
+        return n;
+      }
+      var disabledMatching = 0;
+      for (var k = 0; k < disabled.length; k++) {
+        if (globalNames[disabled[k]]) disabledMatching++;
+      }
+      return (allTools || []).length - disabledMatching;
+    }
+
+    function _countMcpTools(agent, allMcpSources) {
+      var sourceIds = (agent && agent.mcp_source_ids) || [];
+      if (sourceIds.length === 0) return 0;
+      var byId = {};
+      for (var i = 0; i < (allMcpSources || []).length; i++) {
+        byId[allMcpSources[i].id] = allMcpSources[i];
+      }
+      var overrides = (agent && agent.mcp_overrides) || {};
+      var total = 0;
+      for (var s = 0; s < sourceIds.length; s++) {
+        var src = byId[sourceIds[s]];
+        if (!src) continue; // orphaned attach — defensive; shouldn't happen post A-L3-1
+        var cache = src.config && src.config._cache;
+        var cachedTools = (cache && Array.isArray(cache.tools)) ? cache.tools : [];
+        if (cachedTools.length === 0) continue; // never tested → 0
+        var ov = overrides[src.name] || {};
+        var enabledList = ov.enabled_tools;
+        var disabledList = ov.disabled_tools || [];
+        var nameSet = {};
+        for (var ti = 0; ti < cachedTools.length; ti++) {
+          // Cached tools are objects with `.name`; defensively allow
+          // bare strings if a future shape change shows up.
+          var tn = (typeof cachedTools[ti] === 'string') ? cachedTools[ti] : (cachedTools[ti] && cachedTools[ti].name);
+          if (tn) nameSet[tn] = true;
+        }
+        if (Array.isArray(enabledList)) {
+          // Allowlist: count entries that resolve to a real cached tool.
+          for (var ei = 0; ei < enabledList.length; ei++) {
+            if (nameSet[enabledList[ei]]) total++;
+          }
+        } else {
+          // Denylist (default): full cache minus matching disabled entries.
+          var disMatch = 0;
+          for (var di = 0; di < disabledList.length; di++) {
+            if (nameSet[disabledList[di]]) disMatch++;
+          }
+          total += Math.max(0, cachedTools.length - disMatch);
+        }
+      }
+      return total;
+    }
+
+    function _pluralize(n, singular, plural) {
+      return n + ' ' + (n === 1 ? singular : plural);
+    }
+
     function renderAgentList() {
       agentListEl.innerHTML = '';
       var agents = self._agents;
@@ -832,6 +924,23 @@ App.registerArea({
           }
           tileEl.appendChild(metaSpan);
 
+          // F9 L3 (A-L3-3) — Two metric lines: built-in tool count + MCP
+          // tool count. Both rendered unconditionally (even at 0) so tile
+          // height stays uniform across the grid. Disambiguated by label
+          // ("tools" vs "MCP tools") and by data-testid for browser tests.
+          var builtinCount = _countBuiltinTools(agent, self._allTools);
+          var mcpCount = _countMcpTools(agent, self._allMcpSources);
+          var toolCountSpan = document.createElement('span');
+          toolCountSpan.className = 'entity-tile-tool-count';
+          toolCountSpan.setAttribute('data-testid', 'agent-tile-tool-count');
+          toolCountSpan.textContent = _pluralize(builtinCount, 'tool', 'tools');
+          tileEl.appendChild(toolCountSpan);
+          var mcpCountSpan = document.createElement('span');
+          mcpCountSpan.className = 'entity-tile-tool-count';
+          mcpCountSpan.setAttribute('data-testid', 'agent-tile-mcp-tool-count');
+          mcpCountSpan.textContent = _pluralize(mcpCount, 'MCP tool', 'MCP tools');
+          tileEl.appendChild(mcpCountSpan);
+
           // Capability chips — only render when we have caps for this
           // (provider, model) pair. Non-Ollama providers won't populate
           // the lookup; tiles render without chips in that case.
@@ -897,7 +1006,10 @@ App.registerArea({
       // mount (operator may have flipped a toggle in another tab between
       // agent edits). Render-on-resolve so the Tools tab reflects current
       // disabled state from first paint.
-      refreshToolConfigsCache().then(function () {
+      // F9 L3 (A-L3-1) — also refresh the MCP sources list so a source
+      // created on the source-edit page appears in the MCPs tab without
+      // a manual page reload. Both refreshes run in parallel.
+      Promise.all([refreshToolConfigsCache(), refreshMcpSourcesCache()]).then(function () {
         renderEditor(agent);
         updateContentVisibility();
         writeUrl_();
@@ -923,7 +1035,10 @@ App.registerArea({
       renderAgentList();
       // F6 leg 05 — refresh operator-state caches before rendering so the
       // new-agent Tools tab reflects current operator-disabled state.
-      refreshToolConfigsCache().then(function () {
+      // F9 L3 (A-L3-1) — also refresh the MCP sources list so a freshly
+      // created source is visible from the new-agent MCPs tab without
+      // a manual page reload.
+      Promise.all([refreshToolConfigsCache(), refreshMcpSourcesCache()]).then(function () {
         renderEditor(null);
         updateContentVisibility();
         writeUrl_();
