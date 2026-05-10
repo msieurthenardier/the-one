@@ -455,6 +455,52 @@ class TestMCPClientLifecycle:
         assert c._transport_stack is None
         assert c._session is None
 
+    async def test_connect_cancelled_error_during_cleanup_translates_to_connection_error(
+        self, patch_transport, mock_session
+    ) -> None:
+        """F9 L2 regression: CancelledError raised from inside
+        _cleanup_after_failed_connect (the cleanup-phase cancellation that
+        the D1 stdio Test route surfaced as a 500) is caught by
+        _safe_cleanup's widened except tuple and translated to
+        MCPConnectionError, not propagated as bare CancelledError.
+
+        Distinct from the existing CancelledError test, which exercises the
+        OUTER ``except asyncio.CancelledError`` block by raising from
+        initialize() directly. This test exercises the INNER ``_safe_cleanup``
+        arm by:
+          1. Raising a non-RuntimeError, non-MCPClientError Exception from
+             initialize() (routes to outer ``except (Exception,
+             BaseExceptionGroup)``, which is the only arm that uses
+             ``_safe_cleanup``).
+          2. Raising CancelledError from ``_cleanup_after_failed_connect``,
+             which is what ``_safe_cleanup`` awaits under the 3s timeout.
+
+        Note on exception choice: ``RuntimeError`` would be caught by the
+        inner ``except RuntimeError`` block (version-mismatch translation)
+        and re-raised as ``MCPVersionMismatch`` — that routes to the
+        ``except (MCPClientError, NotImplementedError)`` arm, which
+        bypasses ``_safe_cleanup``. ``ValueError`` is neither, so it
+        falls through to the ``(Exception, BaseExceptionGroup)`` arm.
+
+        Locks the four-typed-exceptions contract: even when cleanup itself
+        is cancelled, connect() raises MCPConnectionError.
+        """
+        mock_session.initialize = AsyncMock(side_effect=ValueError("transport boom"))
+        patch_transport(mock_session)
+        c = MCPClient(_stdio_source())
+        # Monkeypatch the cleanup coroutine to raise CancelledError directly.
+        # ``_safe_cleanup`` wraps this in ``asyncio.wait_for(..., timeout=3.0)``
+        # and the widened except tuple should catch the CancelledError surface.
+        c._cleanup_after_failed_connect = AsyncMock(  # type: ignore[method-assign]
+            side_effect=asyncio.CancelledError()
+        )
+        with pytest.raises(MCPConnectionError) as exc_info:
+            await c.connect()
+        assert "MCP connect failed: ValueError" in str(exc_info.value)
+        assert c.is_alive is False
+        assert c._transport_stack is None
+        assert c._session is None
+
     async def test_connect_oauth_flow_error_raises_mcp_auth_required(
         self, patch_transport, mock_session
     ) -> None:

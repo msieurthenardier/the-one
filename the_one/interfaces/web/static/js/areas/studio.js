@@ -397,13 +397,20 @@ App.registerArea({
                 // auth_required (consent-affordance UX, NO popup —
                 // popup-blockers reject popups not triggered by direct
                 // user gesture, and the gesture context from Save is
-                // already lost). For stdio sources there is no Refresh
-                // button (only streamable-http sources expose it), so
-                // the queryselector returns null and this is a no-op.
+                // already lost).
+                //
+                // F9 L2 D1: stdio sources now also expose the Refresh
+                // button (D1 ungated `mcp-test-connection` for stdio),
+                // but auto-run remains streamable-http-only to preserve
+                // L1's "manual click" flow as the canonical stdio entry
+                // point per L2 Scenario 4. Operators who prefer auto-run
+                // for stdio can drive it via the normal manual click.
+                //
                 // setTimeout(0) yields one frame so the editor's
                 // wireEditorEvents finishes attaching the click handler
                 // before we dispatch the synthetic click.
                 setTimeout(function () {
+                  if (updated && updated.type !== 'streamable-http') return;
                   var refreshBtn = sectionContentEl.querySelector(
                     '[data-testid="mcp-test-connection"]'
                   );

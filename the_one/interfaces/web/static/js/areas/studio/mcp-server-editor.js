@@ -93,6 +93,131 @@
   // Update this allowlist when bumping to a newer SDK that adds new typed flags.
   var SPEC_CAPABILITY_KEYS = ['tools', 'resources', 'prompts', 'logging', 'completions', 'tasks'];
 
+  // ── F9 L2 vibing: stdio command runtime dropdown ────────────────────
+  // The free-text `command` input let operators type values that would not
+  // resolve at runtime (e.g. `python -m foo` when `foo` isn't pip-installed
+  // inside the container). The dropdown makes the canonical "just works"
+  // runtimes the path of least resistance and keeps a Custom… escape for
+  // power users who need bare paths or wrapper scripts.
+  //
+  // `value` is the dropdown literal (also the saved `config.command` for
+  // single-token runtimes). `__custom__` is the sentinel that swaps in the
+  // free-text input below. `npx -y` and `pipx run` are 2-token runtimes —
+  // at save time they are split into `command=<binary>, args=[<flag>,
+  // ...userArgs]` (option (b) in the leg spec); the reverse split happens
+  // at hydrate time so the dropdown selection round-trips and the
+  // operator's chip-list shows only their own args, not the implicit
+  // `-y`/`run`. The literal `npx -y` / `pipx run` is never written to
+  // `config.command` — keeps the saved JSON transparent to anyone
+  // inspecting it via the API, and avoids the FileNotFoundError that
+  // would result if the spawn layer tried to exec a 2-token string as
+  // a single binary.
+  var STDIO_CUSTOM_SENTINEL = '__custom__';
+  var STDIO_RUNTIME_OPTIONS = [
+    {
+      value: 'uvx',
+      label: 'uvx (Python · PyPI lazy install)',
+      hint: 'Args: package name (e.g. `mcp-server-time`). Fetched + cached on first use.',
+    },
+    {
+      value: 'npx -y',
+      label: 'npx -y (Node · npm lazy install)',
+      hint: 'Args: package name (e.g. `@modelcontextprotocol/server-everything`). Fetched + cached on first use.',
+    },
+    {
+      value: 'pipx run',
+      label: 'pipx run (Python · PyPI alternative)',
+      hint: 'Args: package name. Alternative to uvx.',
+    },
+    {
+      value: 'python',
+      label: 'python (pre-installed module/script)',
+      hint: 'Args: `-m <module>` (module must be pip-installed) or path to script.',
+    },
+    {
+      value: 'node',
+      label: 'node (script path)',
+      hint: 'Args: path to .js file inside container.',
+    },
+    {
+      value: 'bash',
+      label: 'bash (wrapper script)',
+      hint: 'Args: path to shell script.',
+    },
+    {
+      value: STDIO_CUSTOM_SENTINEL,
+      label: 'Custom…',
+      hint: 'Free-text mode — operator owns the command resolution. ' +
+            'Common patterns: `bash /app/script.sh`, absolute paths, custom binaries on container PATH.',
+    },
+  ];
+
+  // True when `value` matches one of the canonical runtime literals (i.e.
+  // not Custom). Used at hydrate time to decide whether to round-trip the
+  // saved command into the dropdown vs. the Custom… free-text field.
+  function findStdioRuntimeOption(value) {
+    if (!value) return null;
+    for (var i = 0; i < STDIO_RUNTIME_OPTIONS.length; i++) {
+      var opt = STDIO_RUNTIME_OPTIONS[i];
+      if (opt.value === STDIO_CUSTOM_SENTINEL) continue;
+      if (opt.value === value) return opt;
+    }
+    return null;
+  }
+
+  // Decompose a stored (command, args) pair into (dropdownValue, displayArgs).
+  // Handles the `npx -y` split (option (b)): command=npx + args[0]=-y →
+  // dropdownValue='npx -y', displayArgs=args.slice(1). Same pattern for
+  // `pipx run`: command=pipx + args[0]=run → dropdownValue='pipx run',
+  // displayArgs=args.slice(1). Falls back to the saved literal for the
+  // other single-token runtimes; everything else (bash /app/x.sh,
+  // absolute paths, etc.) lands on Custom… with the raw command string
+  // preserved into the free-text field.
+  function deriveStdioRuntimeSelection(command, args) {
+    var argsList = Array.isArray(args) ? args.slice() : [];
+    var cmd = (typeof command === 'string') ? command : '';
+    if (!cmd) {
+      // No saved command (newly typed-in row, defensive). Caller decides
+      // the default; we just report "no match".
+      return { dropdownValue: '', displayArgs: argsList, customCommand: '' };
+    }
+    // npx -y round-trip: detect and re-collapse.
+    if (cmd === 'npx' && argsList.length > 0 && argsList[0] === '-y') {
+      return {
+        dropdownValue: 'npx -y',
+        displayArgs: argsList.slice(1),
+        customCommand: '',
+      };
+    }
+    // pipx run round-trip: detect and re-collapse.
+    if (cmd === 'pipx' && argsList.length > 0 && argsList[0] === 'run') {
+      return {
+        dropdownValue: 'pipx run',
+        displayArgs: argsList.slice(1),
+        customCommand: '',
+      };
+    }
+    var match = findStdioRuntimeOption(cmd);
+    if (match) {
+      return { dropdownValue: cmd, displayArgs: argsList, customCommand: '' };
+    }
+    // Anything else falls into Custom… with the full saved string.
+    return {
+      dropdownValue: STDIO_CUSTOM_SENTINEL,
+      displayArgs: argsList,
+      customCommand: cmd,
+    };
+  }
+
+  function lookupStdioRuntimeHint(dropdownValue) {
+    for (var i = 0; i < STDIO_RUNTIME_OPTIONS.length; i++) {
+      if (STDIO_RUNTIME_OPTIONS[i].value === dropdownValue) {
+        return STDIO_RUNTIME_OPTIONS[i].hint;
+      }
+    }
+    return '';
+  }
+
   // F9 L1 (vibing): tools-list HTML extracted from handleTestConnection
   // so initial-mount cached render and post-refresh render share one
   // template. `tools` is the same shape both paths produce — array of
@@ -202,7 +327,13 @@
     // refresh seeds source.config._cache.last_updated. Placed AFTER the
     // buttons in source order so syncResetButtonVisibility can insert
     // Reset between Refresh and the label without re-shuffling.
-    if (!isCreate && source && source.type === 'streamable-http') {
+    // F9 L2 D1: Refresh-connection button now renders for BOTH streamable-http
+    // AND stdio sources. Stdio's backend dispatch (api.py /test/connect) is a
+    // straight transient-client lifecycle — no OAuth, no popup. The Reset
+    // button is gated by hasOAuthState() which already returns false for stdio,
+    // so the existing OAuth-state-dependent UI hides itself for stdio without
+    // additional changes here.
+    if (!isCreate && source && (source.type === 'streamable-http' || source.type === 'stdio')) {
       html += '<div class="field-row admin-pf-row mcp-test-row">';
       html += '<label></label>';
       html += '<div class="mcp-connection-actions">';
@@ -231,7 +362,16 @@
     // chip-list mounts post-innerHTML in mountChipListEditors.
     var sandboxHidden = (type !== 'stdio');
     var sandbox = (!isCreate && source.config && source.config.sandbox) || {};
-    var networkAllowed = sandbox.network_allowed === true;
+    // F9 L2 vibing: new-source default is `true` — the lazy-install runtimes
+    // shipped in L2 D2 (uvx, npx, pipx run) all REQUIRE network egress on
+    // first spawn to fetch packages from PyPI/npm. Defaulting to `false`
+    // here means a fresh stdio source's first Refresh fails. Existing
+    // sources preserve their stored value via the explicit `=== true`
+    // check below; only when NO sandbox key is present (new-source path)
+    // do we fall through to the network-on default.
+    var networkAllowed = isCreate
+      ? true
+      : sandbox.network_allowed === true;
     html += '<div class="editor-section mcp-stdio-only' + (sandboxHidden ? ' is-hidden' : '') + '" data-testid="mcp-sandbox-section">';
     html += '<div class="section-title">Sandbox</div>';
     // Network allowed: 2-column field-row (label left, iOS-style toggle right).
@@ -255,7 +395,7 @@
     html += '</div>';
     html += '</div>';
 
-    // ── Tools section (edit only, streamable-http only) ───────────────
+    // ── Tools section (edit only, streamable-http + stdio) ────────────
     // Populated by handleTestConnection after a successful refresh. Empty
     // state until first refresh runs. Verbose tool descriptions (e.g.
     // Cloudflare API MCP) get a collapsible <details> per tool so the
@@ -276,7 +416,11 @@
     // visually with the controls that drive its value. The label is
     // rendered above; this section now contains only the connection
     // status banner + the tool list.
-    if (!isCreate && source && source.type === 'streamable-http') {
+    //
+    // F9 L2 D1: Tools section renders for stdio sources too so the
+    // post-test render path (capability flags + collapsible schemas)
+    // shares the same code path with streamable-http.
+    if (!isCreate && source && (source.type === 'streamable-http' || source.type === 'stdio')) {
       html += '<div class="editor-section mcp-tools-section">';
       html += '<div class="section-title">Tools</div>';
       var cache = (source.config && source.config._cache) || null;
@@ -369,11 +513,43 @@
     html += '</select>';
     html += '</div>';
 
-    // stdio: command
-    var commandValue = (!isCreate && source.config && source.config.command) ? source.config.command : '';
+    // stdio: command — F9 L2 vibing: replaced free-text input with a
+    // canonical-runtime dropdown + Custom… escape. The dropdown is the
+    // primary affordance; the legacy free-text input still ships in the DOM
+    // (hidden by default) and only surfaces when the operator picks
+    // Custom…. Hydrate flow: derive (dropdownValue, displayArgs,
+    // customCommand) from the saved (command, args) pair so the dropdown
+    // selection round-trips. New stdio source: default to `uvx` (canonical
+    // "just works" path); operator can change.
+    var savedCommand = (!isCreate && source.config && source.config.command) ? source.config.command : '';
+    var savedArgs = (!isCreate && source.config && source.config.args) ? source.config.args : [];
+    var stdioSelection = deriveStdioRuntimeSelection(savedCommand, savedArgs);
+    var dropdownValue = stdioSelection.dropdownValue || (isCreate ? 'uvx' : '');
+    var customCommandValue = stdioSelection.customCommand || '';
+    var customCommandHidden = (dropdownValue !== STDIO_CUSTOM_SENTINEL);
+
     html += '<div class="field-row admin-pf-row mcp-stdio-only' + (stdioHidden ? ' is-hidden' : '') + '">';
-    html += '<label for="mf-command">Command</label>';
-    html += '<input class="field-input admin-pf-input" id="mf-command" data-field="command" value="' + escapeAttr(commandValue) + '" placeholder="github-mcp" />';
+    html += '<label for="mf-command-runtime">Command</label>';
+    html += '<select class="field-input field-select admin-pf-input admin-pf-select" id="mf-command-runtime" data-field="command-runtime" data-testid="mcp-command-runtime">';
+    for (var ri = 0; ri < STDIO_RUNTIME_OPTIONS.length; ri++) {
+      var opt = STDIO_RUNTIME_OPTIONS[ri];
+      var isSelected = (opt.value === dropdownValue);
+      html += '<option value="' + escapeAttr(opt.value) + '"' + (isSelected ? ' selected' : '') + '>' +
+              escapeHtml(opt.label) + '</option>';
+    }
+    html += '</select>';
+    html += '</div>';
+
+    // stdio: custom command (free-text) — only visible when Custom… is
+    // selected. The legacy `mf-command` id + data-field="command" are
+    // preserved so any external selector that pinned to them keeps
+    // working; the field only feeds `config.command` when the dropdown is
+    // on the Custom sentinel (collectFormData enforces this).
+    html += '<div class="field-row admin-pf-row mcp-stdio-only mcp-command-custom-row' +
+            (stdioHidden || customCommandHidden ? ' is-hidden' : '') + '">';
+    html += '<label for="mf-command">Custom command</label>';
+    html += '<input class="field-input admin-pf-input" id="mf-command" data-field="command" data-testid="mcp-command-custom" ' +
+            'value="' + escapeAttr(customCommandValue) + '" placeholder="bash /app/start.sh" />';
     html += '</div>';
 
     // stdio: cwd
@@ -387,6 +563,17 @@
     html += '<div class="field-row admin-pf-row mcp-stdio-only' + (stdioHidden ? ' is-hidden' : '') + '">';
     html += '<label for="mf-args">Arguments</label>';
     html += '<div class="chip-list-editor" id="mf-args" data-field="args" data-field-type="array"></div>';
+    html += '</div>';
+
+    // F9 L2 vibing: helper text below the args field, dynamically updated
+    // on dropdown change. Low-emphasis tone (--fg-secondary, body-sm)
+    // matches the studio token convention; uses .form-hint for the new
+    // class hook (added in studio.css alongside this leg).
+    var initialHint = lookupStdioRuntimeHint(dropdownValue);
+    html += '<div class="field-row admin-pf-row mcp-stdio-only mcp-command-hint-row' + (stdioHidden ? ' is-hidden' : '') + '">';
+    html += '<label></label>';
+    html += '<small class="form-hint mcp-command-hint" data-testid="mcp-command-hint">' +
+            escapeHtml(initialHint) + '</small>';
     html += '</div>';
 
     // streamable-http: url
@@ -509,8 +696,16 @@
 
     var argsHost = container.querySelector('[data-field="args"].chip-list-editor');
     if (argsHost) {
-      var argsItems = (source && source.config && source.config.args) || [];
-      argsHost.outerHTML = helpers.renderChipListEditor('args', argsItems, null, {});
+      // F9 L2 vibing: when the saved (command, args) pair represents
+      // the `npx -y` or `pipx run` runtime split, the implicit `-y` /
+      // `run` lives at args[0]. The dropdown's hydrate path already
+      // collapses that pair back into the dropdown selection — strip
+      // it from the chip-list so the operator sees only their own args
+      // (the package name + flags they typed).
+      var savedCmd = (source && source.config && source.config.command) || '';
+      var savedArgsList = (source && source.config && source.config.args) || [];
+      var derived = deriveStdioRuntimeSelection(savedCmd, savedArgsList);
+      argsHost.outerHTML = helpers.renderChipListEditor('args', derived.displayArgs || [], null, {});
     }
     // F3 L5b: sandbox writable_paths chip-list (stdio only, but mount for
     // any type — visibility is controlled by the section's mcp-stdio-only
@@ -540,7 +735,11 @@
     var staticData = {};
     // F3 L5b: sandbox-network-allowed is a checkbox; the loop below reads
     // el.checked for type === 'checkbox' and el.value otherwise.
-    var staticFields = ['name', 'type', 'command', 'cwd', 'url',
+    // F9 L2 vibing: `command-runtime` is the new dropdown driving the
+    // stdio command field. It needs to be in the dirty-tracking snapshot
+    // so changing the dropdown alone (e.g. uvx → npx -y without typing in
+    // the Custom field) marks the form dirty.
+    var staticFields = ['name', 'type', 'command', 'command-runtime', 'cwd', 'url',
                         'sandbox-network-allowed'];
     for (var i = 0; i < staticFields.length; i++) {
       var el = container.querySelector('[data-field="' + staticFields[i] + '"]:not(.chip-list-editor)');
@@ -622,10 +821,31 @@
 
     // ── Type-change handler ───────────────────────────────────────────
     var typeSelect = container.querySelector('[data-field="type"]');
+    var runtimeSelect = container.querySelector('[data-field="command-runtime"]');
     if (typeSelect) {
       typeSelect.addEventListener('change', function () {
         applyTransportVisibility(container, typeSelect.value);
+        // F9 L2 vibing: applyTransportVisibility blindly toggles the
+        // `is-hidden` class on every `.mcp-stdio-only` row based on the
+        // selected transport. The Custom-command row is also gated by
+        // the runtime dropdown's state (Custom… vs canonical literal),
+        // so a transport-switch into stdio would otherwise reveal the
+        // Custom row even when the dropdown is on `uvx`. Re-sync here.
+        if (typeSelect.value === 'stdio' && runtimeSelect) {
+          applyStdioRuntimeSelection(container, runtimeSelect.value);
+        }
         // checkDirty already wired via static listener above.
+      });
+    }
+
+    // ── F9 L2 vibing: stdio command-runtime dropdown change handler ──
+    // Toggles the Custom-command free-text row visibility + swaps the
+    // helper-text under the args chip-list. checkDirty is already wired
+    // via attachStaticListeners (the dropdown carries .field-select), so
+    // we don't re-wire that here.
+    if (runtimeSelect) {
+      runtimeSelect.addEventListener('change', function () {
+        applyStdioRuntimeSelection(container, runtimeSelect.value);
       });
     }
 
@@ -749,14 +969,29 @@
         })
           .then(function (r) {
             if (!r.ok) {
-              return r.json().then(function (e) {
-                var detail = e && e.detail;
+              // F9 L2 vibing: read body as text first, then try JSON. A
+              // proper FastAPI error response is JSON {detail: ...}; a
+              // catastrophic 5xx (handler raised before our envelope) is
+              // HTML and would choke r.json() with "Unexpected token <".
+              return r.text().then(function (body) {
+                var detail;
+                try {
+                  var parsed = JSON.parse(body);
+                  detail = parsed && parsed.detail;
+                } catch (_) {
+                  // Non-JSON body — fall through to status-based message.
+                }
                 if (Array.isArray(detail)) {
                   // Pydantic ValidationError shape
                   detail = detail.map(function (d) {
                     var loc = (d.loc || []).join('.');
                     return loc ? (loc + ': ' + d.msg) : d.msg;
                   }).join(' | ');
+                }
+                if (!detail) {
+                  var snippet = (body || '').trim().slice(0, 500);
+                  detail = 'Server error ' + r.status + ' ' + r.statusText +
+                           (snippet ? ': ' + snippet : '');
                 }
                 throw new Error(detail || (isEdit ? 'Save failed' : 'Create failed'));
               });
@@ -995,6 +1230,21 @@
 
   // ── Type-change visibility helpers ──────────────────────────────────
 
+  // F9 L2 vibing: keep the Custom… free-text row's visibility + the
+  // args-helper text in sync with the dropdown selection. Called from
+  // the change handler AND from revertEditorToSource so a Cancel-revert
+  // restores the row visibility to match the source's saved command.
+  function applyStdioRuntimeSelection(container, dropdownValue) {
+    var customRow = container.querySelector('.mcp-command-custom-row');
+    if (customRow) {
+      customRow.classList.toggle('is-hidden', dropdownValue !== STDIO_CUSTOM_SENTINEL);
+    }
+    var hintEl = container.querySelector('[data-testid="mcp-command-hint"]');
+    if (hintEl) {
+      hintEl.textContent = lookupStdioRuntimeHint(dropdownValue);
+    }
+  }
+
   function applyTransportVisibility(container, type) {
     var stdioRows = container.querySelectorAll('.mcp-stdio-only');
     var streamableRows = container.querySelectorAll('.mcp-streamable-http-only');
@@ -1022,10 +1272,19 @@
     if (!source) return;
 
     // 1. Static fields
+    // F9 L2 vibing: derive the command-runtime dropdown value + the
+    // free-text Custom… field's value from the saved (command, args)
+    // pair. `command` (free-text) is only populated when the saved
+    // command falls into Custom… — for the canonical runtimes the
+    // Custom row is hidden and its value is empty.
+    var savedCmd = (source.config && source.config.command) || '';
+    var savedArgs = (source.config && source.config.args) || [];
+    var sel = deriveStdioRuntimeSelection(savedCmd, savedArgs);
     var staticMap = {
       'name': source.name || '',
       'type': source.type || '',
-      'command': (source.config && source.config.command) || '',
+      'command-runtime': sel.dropdownValue || '',
+      'command': sel.customCommand || '',
       'cwd': (source.config && source.config.cwd) || '',
       'url': (source.config && source.config.url) || ''
     };
@@ -1033,6 +1292,9 @@
       var el = container.querySelector('[data-field="' + key + '"]:not(.chip-list-editor)');
       if (el) el.value = staticMap[key];
     });
+    // Sync the Custom-row visibility + helper-text to the restored
+    // dropdown selection.
+    applyStdioRuntimeSelection(container, sel.dropdownValue || '');
     // F3 L5b: sandbox-network-allowed is a checkbox — its display state
     // is controlled by .checked, not .value. Pulled out of the loop above
     // so el.value = ... doesn't no-op the visible checked state.
@@ -1062,7 +1324,12 @@
       var argsHost = container.querySelector('[data-field="args"].chip-list-editor');
       if (argsHost && argsHost.parentNode) {
         var wrapper = document.createElement('div');
-        wrapper.innerHTML = helpers.renderChipListEditor('args', (source.config && source.config.args) || [], null, {});
+        // F9 L2 vibing: use sel.displayArgs so the operator's chip-list
+        // shows only their own args — the implicit `-y` for `npx -y` and
+        // the implicit `run` for `pipx run` (option (b) split) stay in
+        // the saved JSON but never surface as editable chips the
+        // operator could accidentally remove.
+        wrapper.innerHTML = helpers.renderChipListEditor('args', sel.displayArgs || [], null, {});
         var newArgs = wrapper.firstChild;
         argsHost.parentNode.replaceChild(newArgs, argsHost);
         if (helpers.wireChipListEditor) {
@@ -1113,8 +1380,31 @@
     var secrets = {};
 
     if (type === 'stdio') {
-      var commandEl = container.querySelector('[data-field="command"]');
-      var command = commandEl ? commandEl.value.trim() : '';
+      // F9 L2 vibing: command source is the dropdown selection. For all
+      // canonical runtime literals except `npx -y` and `pipx run` the
+      // dropdown value IS `config.command` verbatim. For `npx -y` we
+      // split into `command=npx, args=[-y, ...userArgs]`; for `pipx run`
+      // we split into `command=pipx, args=[run, ...userArgs]` (option
+      // (b)) so the saved JSON stays transparent — and so the spawn
+      // layer doesn't try to exec a 2-token string as a single binary
+      // and FileNotFoundError. For Custom… the free-text input feeds
+      // `config.command` directly (operator owns resolution).
+      var runtimeEl = container.querySelector('[data-field="command-runtime"]');
+      var runtimeValue = runtimeEl ? runtimeEl.value : '';
+      var command = '';
+      var prependArgs = [];
+      if (runtimeValue === STDIO_CUSTOM_SENTINEL) {
+        var customEl = container.querySelector('[data-field="command"]');
+        command = customEl ? customEl.value.trim() : '';
+      } else if (runtimeValue === 'npx -y') {
+        command = 'npx';
+        prependArgs = ['-y'];
+      } else if (runtimeValue === 'pipx run') {
+        command = 'pipx';
+        prependArgs = ['run'];
+      } else if (runtimeValue) {
+        command = runtimeValue;
+      }
       if (!command) {
         if (errorEl) errorEl.textContent = 'Command is required for stdio servers.';
         return null;
@@ -1125,7 +1415,8 @@
       if (cwd) config.cwd = cwd;
       var argsHost = container.querySelector('[data-field="args"].chip-list-editor');
       var helpers = window.App.adminFormHelpers;
-      var argsList = (argsHost && helpers && helpers.readChipListValue) ? helpers.readChipListValue(argsHost) : [];
+      var userArgsList = (argsHost && helpers && helpers.readChipListValue) ? helpers.readChipListValue(argsHost) : [];
+      var argsList = prependArgs.concat(userArgsList);
       if (argsList.length > 0) config.args = argsList;
       config.env = {};
       partitionKvRows(container, config.env, secrets);
@@ -1267,7 +1558,23 @@
       });
     }
     fetch('/api/mcp-sources/' + encodeURIComponent(sourceId) + '/test/connect', fetchOpts)
-      .then(function (resp) { return resp.json(); })
+      .then(function (resp) {
+        // F9 L2 vibing: defense-in-depth against non-JSON 500s. The backend
+        // helpers now ship a catch-all envelope that converts unexpected
+        // exceptions into 200 {status: "error"}, but if anything escapes
+        // (FastAPI itself raising before our handler, an upstream proxy
+        // returning HTML, etc.) we'd choke on resp.json() with "Unexpected
+        // token <" and surface a useless message. Read the body as text on
+        // !ok so the .catch handler renders something actionable.
+        if (resp.ok) return resp.json();
+        return resp.text().then(function (body) {
+          var snippet = (body || '').trim().slice(0, 500);
+          var err = new Error('Server error ' + resp.status + ' ' + resp.statusText +
+                              (snippet ? ': ' + snippet : ''));
+          err.serverStatus = resp.status;
+          throw err;
+        });
+      })
       .then(function (data) {
         if (data.status === 'ok') {
           // Render summary + collapsible tool list. Cloudflare-class servers

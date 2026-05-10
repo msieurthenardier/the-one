@@ -833,11 +833,100 @@ async def update_mcp_source(source_id: str, request: Request) -> dict[str, Any]:
 
 @router.delete("/mcp-sources/{source_id}")
 async def delete_mcp_source(source_id: str) -> dict[str, str]:
+    """Delete an MCP source and reclaim its lazy-install runtime cache.
+
+    F9 L2 vibing follow-up: stdio sources whose ``config.command`` is a
+    lazy-install runtime (``uvx``, ``npx``, ``pipx run``) leave behind a
+    package cache under ``/root/.cache/uv/environments-v2`` or
+    ``/root/.npm/_npx`` after first spawn. Without cleanup, deleting the
+    source orphans that cache indefinitely. This handler:
+
+    1. Reads the source so we can decode its (runtime, package) BEFORE
+       the row is gone.
+    2. Evicts every pool entry referencing the source so the next
+       ``acquire`` doesn't hand out a stale client.
+    3. Refcounts: if any OTHER source decodes to the same (runtime,
+       package), we skip cleanup — the survivor still needs the cache.
+    4. DELETEs the row.
+    5. Best-effort cache cleanup AFTER the delete commits, so a hung
+       ``uv cache clean`` cannot regress the user-facing delete signal.
+       :func:`cleanup_runtime_cache` swallows all exceptions and bounds
+       itself with an internal ``asyncio.wait_for(10.0)`` ceiling.
+
+    Sources whose runtime is unknown (python/node/bash/Custom) skip
+    cleanup entirely — there is no reliably-locatable cache slot to
+    reclaim for those.
+    """
+    from the_one.mcp._pool import _evict_all_for_source
+    from the_one.mcp.cache_cleanup import cleanup_runtime_cache, extract_runtime_package
+
     repo = await _mcp_repo()
+
+    # Step 1: Read the source first so we can decode the runtime+package
+    # BEFORE the row is gone. A 404 on read short-circuits with the
+    # existing semantics — no eviction, no cleanup.
+    try:
+        source = await repo.get(source_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"MCP source not found: {source_id}")
+
+    cfg = source.config or {}
+    command = cfg.get("command", "") if isinstance(cfg.get("command", ""), str) else ""
+    args = cfg.get("args", []) or []
+    runtime, package = (None, None)
+    if isinstance(args, list):
+        runtime, package = extract_runtime_package(command, args)
+
+    # Step 2: Evict pool entries for this source.
+    await _evict_all_for_source(source_id)
+
+    # Step 3: Refcount cleanup — query before delete so the to-be-deleted
+    # row is excluded by id.
+    skip_reason: str | None = None
+    if runtime and package:
+        siblings = await repo.find_by_runtime_package(runtime, package, source_id)
+        if siblings:
+            sibling_ids = ", ".join(s.id for s in siblings)
+            skip_reason = (
+                f"cache for ({runtime}, {package}) still referenced by "
+                f"source(s) {sibling_ids}; skipped"
+            )
+
+    # Step 4: DB delete (existing semantics).
     try:
         await repo.delete(source_id)
     except KeyError:
+        # Race: someone deleted the row between our get() and delete().
         raise HTTPException(status_code=404, detail=f"MCP source not found: {source_id}")
+
+    # Step 5: Best-effort cleanup post-delete. The helper has its own
+    # 10s ceiling and swallows every exception — this await cannot
+    # raise.
+    #
+    # Logs use WARNING (not INFO) so cleanup outcomes surface under
+    # uvicorn's default root-logger threshold without operators
+    # lowering the bar globally. WARNING is semantically loose here
+    # ("operation succeeded normally") but it's the simplest visibility
+    # fix; the alternative is structured response fields, which the
+    # architect ruled out (silent UX).
+    import logging
+    _log = logging.getLogger(__name__)
+    if not (runtime and package):
+        # Unsupported runtime — nothing to reclaim.
+        _log.warning(
+            "delete_mcp_source(%s): no cleanup applicable for command %r",
+            source_id,
+            command,
+        )
+    elif skip_reason:
+        # Refcount survivor — log and skip. The shared cache stays put
+        # for the surviving source.
+        _log.warning(
+            "delete_mcp_source(%s): %s", source_id, skip_reason
+        )
+    else:
+        await cleanup_runtime_cache(runtime, package)
+
     return {"status": "ok"}
 
 
@@ -956,6 +1045,100 @@ async def _build_and_test_no_auth_mcp(
         return {"status": "error", "error": f"{type(e).__name__}: {e}"}
     except (MCPConnectionError, MCPVersionMismatch, MCPCapabilityMissing) as e:
         return {"status": "error", "error": f"{type(e).__name__}: {e}"}
+    except Exception as e:
+        # F9 L2 vibing: defense-in-depth catch-all. Any exception escaping the
+        # typed catches above (e.g. asyncio.CancelledError leaking from
+        # MCPClient cleanup, or any other unexpected runtime error) is
+        # converted to a 200-response error envelope rather than allowed to
+        # escape the route as a 500 with HTML body. The frontend's resp.ok
+        # check is a parallel guard; this ensures the JSON contract holds.
+        return {"status": "error", "error": f"{type(e).__name__}: {e}"}
+
+
+async def _build_and_test_stdio_mcp(
+    source: MCPSource, source_id: str, repo: MCPSourceRepository
+) -> dict[str, Any]:
+    """Connect + list_tools against a stdio MCP source.
+
+    F9 L2 D1 sibling of ``_build_and_test_no_auth_mcp``: stdio has no
+    OAuth concept (no Phase 0 / Phase A / Phase B), so the Test path is
+    structurally a single transient-client lifecycle. Mirrors the
+    no-auth-http helper's persistence shape for tools + capabilities +
+    last_updated. Does NOT write ``auth_posture`` — that field is an
+    HTTP-path concept (Shape C) that does not generalize to stdio (no
+    HTTP probe surface; "no auth" is the only stdio mode).
+
+    The transient client teardown path runs through the F4/F6.6
+    lifecycle that has been verified clean post-F6.6 cleanup-deadlock
+    fix; caplog is expected to be free of ``MCPClient.disconnect``
+    warnings across this path.
+
+    Args:
+        source: The (possibly body-overridden) MCPSource to test.
+        source_id: The persisted source id used for cache writebacks.
+        repo: The repo for cache persistence.
+
+    Returns:
+        ``{status: "ok", tools, capabilities}`` on success, or
+        ``{status: "error", error}`` on any failure.
+    """
+    from the_one.mcp.client import MCPClient
+    from the_one.mcp.errors import (
+        MCPAuthRequired,
+        MCPCapabilityMissing,
+        MCPConnectionError,
+        MCPSandboxError,
+        MCPVersionMismatch,
+    )
+
+    try:
+        async with MCPClient(source=source, auth_provider=None) as client:
+            tools = await client.list_tools()
+            capabilities = client.server_capabilities
+            tools_cache_payload = [
+                {
+                    "name": t.name,
+                    "description": t.description,
+                    "input_schema": t.input_schema,
+                }
+                for t in tools
+            ]
+            try:
+                persisted = await repo.get(source_id)
+                persisted_config = dict(persisted.config or {})
+                persisted_config["_cache"] = {
+                    "tools": tools_cache_payload,
+                    "capabilities": capabilities,
+                    "last_updated": time.time(),
+                }
+                await repo.update(
+                    persisted.model_copy(update={"config": persisted_config})
+                )
+            except Exception:
+                # Best-effort persistence — a write failure must not break the
+                # response contract (mirrors the http no-auth helper).
+                pass
+        return {
+            "status": "ok",
+            "tools": tools_cache_payload,
+            "capabilities": capabilities,
+        }
+    except MCPAuthRequired as e:
+        # Defensive: stdio shouldn't surface auth-required, but if a server
+        # somehow does, surface it as a regular error rather than crashing.
+        return {"status": "error", "error": f"{type(e).__name__}: {e}"}
+    except (MCPConnectionError, MCPVersionMismatch, MCPCapabilityMissing,
+            MCPSandboxError) as e:
+        return {"status": "error", "error": f"{type(e).__name__}: {e}"}
+    except Exception as e:
+        # F9 L2 vibing: defense-in-depth catch-all. Stdio teardown can leak
+        # asyncio.CancelledError from MCPClient._safe_cleanup under certain
+        # failure modes (Architect is fixing that root cause separately).
+        # Until then — and as a permanent guard against any other unexpected
+        # runtime error — convert escaping exceptions into a 200-response
+        # error envelope so the route's JSON contract holds and the frontend
+        # can render a useful message instead of choking on an HTML 500.
+        return {"status": "error", "error": f"{type(e).__name__}: {e}"}
 
 
 @router.post("/mcp-sources/{source_id}/test/connect")
@@ -1045,10 +1228,16 @@ async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any
                     del resolved_secrets[k]
             source = source.model_copy(update={"secrets": resolved_secrets})
 
+    # F9 L2 D1: dispatch stdio sources to their dedicated transient-client
+    # path. Stdio has no OAuth concept (no Phase 0 / Phase A / Phase B), so
+    # the workflow is a straight connect → list_tools → cache → return.
+    # Other unsupported transports continue to surface a clear error.
+    if source.type == "stdio":
+        return await _build_and_test_stdio_mcp(source, source_id, repo)
     if source.type != "streamable-http":
         return {
             "status": "error",
-            "error": f"Test only supports streamable-http; got {source.type!r}",
+            "error": f"Test only supports streamable-http and stdio; got {source.type!r}",
         }
 
     # Phase 0: HTTP-level auth-posture probe (Shape C — A6 resolution).

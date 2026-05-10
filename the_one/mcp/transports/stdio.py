@@ -70,7 +70,7 @@ from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
 from the_one.db.models import MCPSource
-from the_one.mcp.errors import MCPSandboxError
+from the_one.mcp.errors import MCPConnectionError, MCPSandboxError
 from the_one.platform.env import _build_subprocess_env
 from the_one.platform.sandbox import BubblewrapSandbox, SandboxProfile
 
@@ -193,6 +193,139 @@ def _translate_bwrap_stderr(stderr_text: str) -> MCPSandboxError | None:
         "AND security_opt: seccomp:unconfined per F3 design decision §10. "
         f"bwrap stderr: {snippet!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# F9 L2 D3 — operator-actionable spawn-error translation
+# ---------------------------------------------------------------------------
+#
+# Translates two common spawn-failure modes into messages the operator can
+# act on directly. Runs AFTER the F3 §6 bwrap-stderr discriminator so a
+# bwrap-side failure (sandbox profile misconfiguration, EPERM, missing
+# inner command at the bwrap layer) is NOT mistranslated as a "missing in
+# container" message — those continue to surface as MCPSandboxError per
+# the F3 §6 directionality contract. The two D3 cases:
+#
+#   1. FileNotFoundError on subprocess spawn — the command isn't on PATH.
+#      Translation: "Add to Dockerfile and `make rebuild`, or
+#      `docker compose exec the-one <pkg-mgr> install <pkg>`."
+#
+#   2. ModuleNotFoundError surfaced via inner-process stderr (Python's
+#      `python -m foo` when foo isn't installed). Inner-process stderr is
+#      captured by the SDK's `errlog=` parameter alongside any bwrap
+#      output; the bwrap-prefix gate ensures we only act on inner-process
+#      stderr. Translation: "Use command=uvx args=[<pkg>] for runtime
+#      install, or pre-install via pip."
+
+# Captures the missing command name from FileNotFoundError's args, which
+# typically look like ``[Errno 2] No such file or directory: 'foo'`` or a
+# bare command string in `.filename`. Both forms are covered downstream.
+_MODULE_NOT_FOUND_RE = re.compile(
+    r"(?:^|\n)(?:[^\s:]+:\s+)?(?:ModuleNotFoundError:\s+)?"
+    r"No module named ['\"]?(?P<module>[^'\"\s\n]+)['\"]?",
+    re.MULTILINE,
+)
+
+# F9 L2 vibing: Python launcher's "can't open file" error. Surfaces when the
+# operator runs `python <script>` and the script path is wrong / nonexistent /
+# quote-mangled. CPython 3.10+ prints
+# ``python: can't open file '<path>': [Errno 2] No such file or directory``;
+# pre-3.10 prints ``python: can't open file '<path>': [Errno 2] ...``. We
+# capture the path between matching quote characters — the outer pair is the
+# delimiter and the inner content may itself contain the OTHER quote type
+# (the operator-mangled `args=["\"-m\""]` case literally surfaces as
+# ``'"-m"'`` in stderr, so we must allow `"` inside `'…'` and vice versa).
+_PYTHON_CANT_OPEN_FILE_RE = re.compile(
+    r"can't open file (?:'(?P<sq_path>[^'\n]+)'|\"(?P<dq_path>[^\"\n]+)\")",
+    re.MULTILINE,
+)
+
+
+def _translate_inner_spawn_error(
+    *,
+    exc: BaseException | None,
+    stderr_text: str,
+    command: str,
+) -> MCPConnectionError | None:
+    """Pattern-match spawn-time failures → MCPConnectionError (D3).
+
+    Critical interaction with F3's bwrap-stderr discriminator: this helper
+    MUST run only AFTER ``_translate_bwrap_stderr`` has already been
+    consulted (and returned None) AND the captured stderr does NOT carry a
+    ``bwrap:`` prefix line. Otherwise a sandbox-side failure (bwrap can't
+    find the inner command, e.g., misconfigured sandbox profile) would be
+    mistranslated as "missing in container" when the actual root cause is
+    the sandbox profile.
+
+    Returns ``None`` if no D3 pattern matches; the caller falls back to
+    the existing ``MCPConnectionError`` translation in
+    ``MCPClient.connect``.
+
+    Args:
+        exc: The exception that surfaced (e.g., FileNotFoundError) — None
+            if translation is being driven solely from captured stderr.
+        stderr_text: Captured inner-process stderr (post-bwrap-discriminator
+            gate; safe to scan for ModuleNotFoundError without confusing
+            bwrap-side failures).
+        command: The command the operator configured (e.g., ``uvx``,
+            ``python``, ``npx``) — used in the operator-actionable
+            message. Caller passes ``MCPSource.config["command"]``.
+    """
+    # Pattern 1: command not found on subprocess spawn.
+    if isinstance(exc, FileNotFoundError):
+        # FileNotFoundError.filename is typically the missing executable;
+        # fall back to the configured command if the OS error doesn't carry
+        # one (rare on Linux, possible on Windows variants).
+        missing = getattr(exc, "filename", None) or command
+        return MCPConnectionError(
+            f"The command {missing!r} is not available in the container. "
+            f"Add it to the Dockerfile and run `make rebuild`, or install "
+            f"via `docker compose exec the-one <package-manager> install "
+            f"<pkg>`. For one-off Python/JS MCPs, prefer the runtime-fetch "
+            f"shape: command=uvx args=[<pkg>] (Python), command=npx "
+            f"args=[-y, <pkg>] (JS)."
+        )
+
+    # Pattern 2: ModuleNotFoundError in the inner process's stderr (e.g.,
+    # `python -m foo` when foo isn't installed). The inner-process stderr
+    # flows through the SDK's errlog when bwrap is in front of the inner
+    # process; on the bypass path, anyio.open_process pipes stderr to
+    # errlog directly. The bwrap-discriminator gate ensures the captured
+    # text we're scanning is NOT a bwrap-side message.
+    if stderr_text:
+        m = _MODULE_NOT_FOUND_RE.search(stderr_text)
+        if m:
+            module = m.group("module").strip()
+            return MCPConnectionError(
+                f"The Python module {module!r} is not installed. "
+                f"Use command=uvx args=[{module}] for runtime install, or "
+                f"pre-install via `pip install {module}`. (Inner process "
+                f"reported ModuleNotFoundError before MCP handshake "
+                f"completed.)"
+            )
+
+        # Pattern 3 (F9 L2 vibing): Python launcher couldn't open the script
+        # path it was given. Most common operator cause is args carrying
+        # literal quote characters (e.g., ``["\"-m\""]`` instead of
+        # ``["-m"]``) so Python interprets the quoted token as a script
+        # filename. Same bwrap-discriminator gate applies: the caller has
+        # already filtered out bwrap-prefixed stderr per F3 §6, so any
+        # ``can't open file`` line we see here is from the inner Python
+        # process, not from bwrap's own argv-parsing.
+        m = _PYTHON_CANT_OPEN_FILE_RE.search(stderr_text)
+        if m:
+            # Either the single-quoted or double-quoted alternative matched;
+            # the other group is None. Pick whichever is non-None.
+            path = m.group("sq_path") or m.group("dq_path")
+            return MCPConnectionError(
+                f"Python could not open the script {path!r}. Common causes: "
+                f"the args field has literal quote characters around values "
+                f"(use `-m` not `\"-m\"`); the script path is wrong; or you "
+                f"meant to use command=uvx args=[<package>] for a "
+                f"runtime-fetched MCP."
+            )
+
+    return None
 
 
 def build_stdio_environ(
@@ -318,6 +451,10 @@ async def connect_stdio(source: MCPSource) -> AsyncIterator[ClientSession]:
     """
     params = _build_stdio_params(source)
     sandboxed = not _sandbox_disabled_for_tests()
+    # D3: capture the operator-configured command for translation messages
+    # (the post-prepare-spawn `params.command` is "bwrap" on the sandboxed
+    # path, which would not be operator-actionable in a translated error).
+    operator_command: str = source.config.get("command", "")
     if sandboxed:
         # Sandboxed path: capture bwrap stderr for translation.
         #
@@ -358,11 +495,42 @@ async def connect_stdio(source: MCPSource) -> AsyncIterator[ClientSession]:
                         if original_exc is not None:
                             raise sandbox_err from original_exc
                         raise sandbox_err
+                # F9 L2 D3: after the bwrap-discriminator gate, look for
+                # operator-actionable inner-process failures. Only fires
+                # when no bwrap-side translation matched AND stderr is
+                # non-empty AND lacks the bwrap-prefix (the gate inside
+                # _translate_inner_spawn_error mirrors this contract).
+                if (
+                    stderr_text
+                    and not _BWRAP_OWN_PREFIX_RE.search(stderr_text)
+                ):
+                    inner_err = _translate_inner_spawn_error(
+                        exc=original_exc,
+                        stderr_text=stderr_text,
+                        command=operator_command,
+                    )
+                    if inner_err is not None:
+                        if original_exc is not None:
+                            raise inner_err from original_exc
+                        raise inner_err
     else:
         # Test bypass path: SDK's default errlog=sys.stderr passthrough.
-        async with stdio_client(params) as (read, write):
-            async with ClientSession(read, write) as session:
-                yield session
+        # F9 L2 D3: catch FileNotFoundError synchronously here so the
+        # bypass path also benefits from the operator-actionable
+        # translation. The SDK pipes inner stderr to sys.stderr on this
+        # path so we don't capture it for ModuleNotFoundError translation
+        # — that path remains unchanged for the bypass.
+        try:
+            async with stdio_client(params) as (read, write):
+                async with ClientSession(read, write) as session:
+                    yield session
+        except FileNotFoundError as exc:
+            inner_err = _translate_inner_spawn_error(
+                exc=exc, stderr_text="", command=operator_command,
+            )
+            if inner_err is not None:
+                raise inner_err from exc
+            raise
 
 
 async def _open_stdio_transport_stack(
@@ -404,6 +572,10 @@ async def _open_stdio_transport_stack(
     """
     params = _build_stdio_params(source)
     sandboxed = not _sandbox_disabled_for_tests()
+    # F9 L2 D3: capture the operator-configured command for translation
+    # messages — `params.command` is "bwrap" on the sandboxed path and
+    # would not be operator-actionable in a translated error.
+    operator_command: str = source.config.get("command", "")
     stack = AsyncExitStack()
     # cycle-1 M1: init before try so the except-clause guard is safe even
     # if `enter_context(SpooledTemporaryFile(...))` raises before assignment.
@@ -422,6 +594,12 @@ async def _open_stdio_transport_stack(
             # closes. The closure captures errbuf by reference; the
             # callback reads it, pattern-matches, and raises the
             # translated MCPSandboxError on match.
+            #
+            # F9 L2 D3: callback also runs the inner-spawn translation
+            # AFTER the bwrap-discriminator gate. Bwrap-side translation
+            # takes precedence (preserves F3 §6 directionality contract);
+            # only when no bwrap match fires AND stderr lacks the bwrap-
+            # prefix do we attempt the D3 inner-process patterns.
             errbuf_ref = errbuf
 
             def _translate_on_unwind() -> None:
@@ -436,6 +614,17 @@ async def _open_stdio_transport_stack(
                 sandbox_err = _translate_bwrap_stderr(stderr_text)
                 if sandbox_err is not None:
                     raise sandbox_err
+                # Bwrap-discriminator gate: only translate inner-process
+                # patterns when stderr is NOT bwrap-prefixed.
+                if _BWRAP_OWN_PREFIX_RE.search(stderr_text):
+                    return
+                inner_err = _translate_inner_spawn_error(
+                    exc=None,
+                    stderr_text=stderr_text,
+                    command=operator_command,
+                )
+                if inner_err is not None:
+                    raise inner_err
 
             stack.callback(_translate_on_unwind)
 
@@ -451,8 +640,23 @@ async def _open_stdio_transport_stack(
         # before we could return. Drain the stack (which runs the
         # translation callback if it was registered) and let any
         # MCPSandboxError replace the original exception.
+        #
+        # F9 L2 D3: on the bypass path, FileNotFoundError surfaces here
+        # synchronously (anyio.open_process raises before stack.aclose
+        # walks). Translate to MCPConnectionError with an operator-
+        # actionable message ahead of MCPClient.connect's catchall
+        # translation.
         try:
             await stack.aclose()
         except MCPSandboxError as sandbox_err:
             raise sandbox_err from exc
+        except MCPConnectionError as conn_err:
+            # D3 callback raised an inner-spawn translation.
+            raise conn_err from exc
+        if not sandboxed and isinstance(exc, FileNotFoundError):
+            inner_err = _translate_inner_spawn_error(
+                exc=exc, stderr_text="", command=operator_command,
+            )
+            if inner_err is not None:
+                raise inner_err from exc
         raise

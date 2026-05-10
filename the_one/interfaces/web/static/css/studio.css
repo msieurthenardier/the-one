@@ -239,4 +239,18 @@
      and brightens with the label on hover / .confirm-delete. */
   .area-studio .mcp-delete-btn { display: inline-flex; align-items: center; gap: 6px; }
   .area-studio .mcp-delete-btn svg { width: 14px; height: 14px; }
+  /* F9 L2 vibing: helper-text hint under the args field for the stdio
+     command-runtime dropdown. Low-emphasis tone (--fg-secondary,
+     body-sm) matches the studio "informational text" idiom used by
+     .mcp-tool-description / .mcp-capability-flags / .model-loading.
+     The .mcp-command-hint-row hides its label slot to keep the hint
+     left-aligned with the args chip-list above; the row inherits the
+     `.mcp-stdio-only.is-hidden` toggle the rest of the stdio rows use
+     for transport-switch visibility. */
+  .area-studio .form-hint {
+    font-size: var(--font-size-body-sm);
+    color: var(--fg-secondary);
+    line-height: 1.4;
+  }
+  .area-studio .mcp-command-hint-row label { /* empty label slot for grid alignment */ }
 }

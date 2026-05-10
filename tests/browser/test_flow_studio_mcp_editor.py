@@ -62,6 +62,10 @@ def test_create_stdio_source(app_clean: str, page: Page) -> None:
 
     page.locator('[data-field="name"]').fill("github-mcp")
     page.locator('[data-field="type"]').select_option("stdio")
+    # F9 L2 vibing: command is now a dropdown with `uvx` selected by
+    # default. Switch to Custom… and fill the legacy free-text input so
+    # this test continues to exercise the Custom-escape save path.
+    page.locator('[data-field="command-runtime"]').select_option("__custom__")
     page.locator('[data-field="command"]').fill("github-mcp")
 
     save_btn = page.locator('[data-testid="save-mcp-source-btn"]')
@@ -239,7 +243,7 @@ def test_save_with_empty_kv_key_row_silently_skips(app_clean: str, page: Page) -
 
     page.locator('[data-field="name"]').fill("test-skip-empty")
     page.locator('[data-field="type"]').select_option("stdio")
-    page.locator('[data-field="command"]').fill("x")
+    # F9 L2 vibing: dropdown defaults to `uvx`; no explicit command needed.
 
     # Add two empty rows.
     add_btn = page.locator('[data-testid="kv-add-row-btn"]')
@@ -318,7 +322,7 @@ def test_sandbox_save_round_trip(app_clean: str, page: Page) -> None:
 
     page.locator('[data-field="name"]').fill("sandbox-stdio")
     page.locator('[data-field="type"]').select_option("stdio")
-    page.locator('[data-field="command"]').fill("x")
+    # F9 L2 vibing: dropdown defaults to `uvx`; no explicit command needed.
 
     # Toggle network_allowed checkbox (use check() to be explicit).
     page.locator('[data-field="sandbox-network-allowed"]').check()
@@ -366,25 +370,37 @@ def test_sandbox_edit_round_trip_populates_fields(app_clean: str, page: Page) ->
 
 @pytest.mark.browser
 def test_sandbox_empty_defaults_for_new_stdio_source(app_clean: str, page: Page) -> None:
-    """New stdio source: checkbox unchecked + chip-list empty."""
+    """New stdio source: checkbox checked (network-on by default) + chip-list empty.
+
+    F9 L2 vibing: the lazy-install runtimes shipped in L2 D2 (uvx, npx,
+    pipx run) all REQUIRE network egress on first spawn to fetch packages
+    from PyPI/npm. Defaulting `network_allowed=False` was a footgun — a
+    fresh stdio source's first Refresh would fail. The form-default flips
+    to `True` for new sources only; existing sources preserve their
+    stored value.
+    """
     page.goto(f"{app_clean}#studio/mcp-sources/new")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     page.locator('[data-field="type"]').select_option("stdio")
-    expect(page.locator('[data-field="sandbox-network-allowed"]')).not_to_be_checked()
+    expect(page.locator('[data-field="sandbox-network-allowed"]')).to_be_checked()
     chips = page.locator('[data-field="sandbox-writable-paths"].chip-list-editor .chip')
     expect(chips).to_have_count(0)
 
 
 @pytest.mark.browser
 def test_sandbox_save_emits_explicit_defaults(app_clean: str, page: Page) -> None:
-    """New stdio source saved without touching Sandbox section emits explicit defaults."""
+    """New stdio source saved without touching Sandbox section emits explicit defaults.
+
+    F9 L2 vibing: form-default for new sources is ``network_allowed=True``
+    so lazy-install runtimes can fetch their packages on first spawn.
+    """
     page.goto(f"{app_clean}#studio/mcp-sources/new")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     page.locator('[data-field="name"]').fill("default-sandbox")
     page.locator('[data-field="type"]').select_option("stdio")
-    page.locator('[data-field="command"]').fill("x")
+    # F9 L2 vibing: dropdown defaults to `uvx`; no explicit command needed.
     # Do NOT touch the Sandbox section.
 
     page.locator('[data-testid="save-mcp-source-btn"]').click()
@@ -393,8 +409,10 @@ def test_sandbox_save_emits_explicit_defaults(app_clean: str, page: Page) -> Non
     sources = _list_sources(app_clean)
     assert len(sources) == 1
     sandbox_cfg = sources[0]["config"].get("sandbox")
-    # Explicit defaults emitted (NOT omitted) — matches L1b validator contract.
-    assert sandbox_cfg == {"network_allowed": False, "writable_paths": []}
+    # Explicit defaults emitted (NOT omitted) — matches L1b validator
+    # contract. ``network_allowed`` defaults to True for new sources
+    # (F9 L2 vibing default flip); ``writable_paths`` stays empty.
+    assert sandbox_cfg == {"network_allowed": True, "writable_paths": []}
 
 
 @pytest.mark.browser
@@ -1192,19 +1210,374 @@ def test_create_streamable_http_auto_run_error_renders_inline(
 
 @pytest.mark.browser
 def test_create_stdio_does_not_attempt_auto_run(app_clean: str, page: Page) -> None:
-    """For stdio sources there is no Refresh button (only streamable-http
-    sources expose it), so the auto-run-on-create code path is a no-op.
-    The editor re-renders in edit mode without any auto-run side effect."""
+    """F9 L2 D1: stdio sources DO expose the Refresh button now (post-D1),
+    but the auto-run-on-create code path remains streamable-http-only per
+    studio.js's gate. After save, the editor enters edit mode showing the
+    Refresh button + empty Tools section, but the status panel still
+    reads the empty-state prompt (auto-run did NOT fire — no
+    "Testing connection…" / "✓ Connected" banner)."""
     page.goto(f"{app_clean}#studio/mcp-sources/new")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     page.locator('[data-field="name"]').fill("stdio-no-auto")
     page.locator('[data-field="type"]').select_option("stdio")
+    # F9 L2 vibing: dropdown defaults to `uvx`; switch to Custom… so the
+    # saved command preserves this test's "github-mcp" semantic value.
+    page.locator('[data-field="command-runtime"]').select_option("__custom__")
     page.locator('[data-field="command"]').fill("github-mcp")
     page.locator('[data-testid="save-mcp-source-btn"]').click()
 
-    # Editor enters edit mode; no Refresh button (stdio has none).
+    # Editor enters edit mode; Refresh button + Tools section render (D1).
     expect(page.locator(".editor-section.danger-zone")).to_be_visible(timeout=8000)
-    expect(page.locator('[data-testid="mcp-test-connection"]')).to_have_count(0)
-    # No Tools section either.
-    expect(page.locator(".editor-section.mcp-tools-section")).to_have_count(0)
+    expect(page.locator('[data-testid="mcp-test-connection"]')).to_have_count(1)
+    expect(page.locator(".editor-section.mcp-tools-section")).to_have_count(1)
+    # Auto-run did NOT fire for stdio: status panel still shows the
+    # empty-state prompt asking the operator to click Refresh manually.
+    status_panel = page.locator('[data-testid="mcp-test-status"]')
+    expect(status_panel).to_be_visible()
+    expect(status_panel).to_contain_text("Click")
+    expect(status_panel).to_contain_text("Refresh connection")
+    # Tools list stays hidden (no auto-run populated it).
+    expect(page.locator('[data-testid="mcp-tools-list"]')).to_be_hidden()
+
+
+# ─── F9 L2 vibing: defense-in-depth resp.ok check ───────────────────────
+
+
+@pytest.mark.browser
+def test_test_connection_500_response_renders_useful_error(
+    app_clean: str, page: Page
+) -> None:
+    """A non-JSON 500 from /test/connect renders a useful error.
+
+    F9 L2 vibing — the frontend's resp.ok check converts a 500 with HTML
+    body into a structured Error('Server error 500 …') instead of letting
+    resp.json() choke on "Unexpected token <". This test pins the
+    operator-facing UX: the rendered status panel must contain the HTTP
+    status (so the operator knows it's a server-side fault) AND a snippet
+    of the body (so they have something to grep / report).
+
+    Backend half of the same defense-in-depth (catch-all envelope in the
+    helpers) is covered by test_mcp_stdio_test_connect.py. Both halves
+    must hold for the contract to be solid; either alone would still
+    leave a gap.
+    """
+    sid = _seed_mcp_source(app_clean, {
+        "name": "broken-source",
+        "type": "stdio",
+        "config": {"command": "python", "args": ["-m", "x"]},
+        "secrets": {},
+    })
+
+    # Simulate FastAPI returning a 500 with an HTML body — this is the
+    # exact shape that triggered the original "Unexpected token <" bug.
+    html_500_body = (
+        "<html><body><h1>Internal Server Error</h1>"
+        "<p>asyncio.CancelledError leaked from teardown.</p></body></html>"
+    )
+
+    def handle_test_connect(route):
+        route.fulfill(
+            status=500,
+            content_type="text/html",
+            body=html_500_body,
+        )
+
+    page.route(f"**/api/mcp-sources/{sid}/test/connect", handle_test_connect)
+
+    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+
+    test_btn = page.locator('[data-testid="mcp-test-connection"]')
+    test_btn.click()
+
+    status_panel = page.locator('[data-testid="mcp-test-status"]')
+    # The .catch handler renders "Network error: <err.message>" — the
+    # message must include "Server error 500" (so the operator knows the
+    # server side faulted) and NOT "Unexpected token" (the JSON parse
+    # error that the resp.ok check is preventing).
+    expect(status_panel).to_contain_text("Server error 500", timeout=4000)
+    status_text = status_panel.inner_text()
+    assert "Unexpected token" not in status_text, (
+        f"resp.ok check should prevent JSON parse on HTML body; got: "
+        f"{status_text!r}"
+    )
+
+    # Test button is re-enabled (settle() ran on the .catch terminal state).
+    expect(test_btn).not_to_be_disabled()
+
+
+# ─── F9 L2 vibing: stdio command-runtime dropdown ───────────────────────
+
+
+@pytest.mark.browser
+def test_stdio_command_runtime_default_selection_is_uvx(
+    app_clean: str, page: Page
+) -> None:
+    """New stdio source: dropdown defaults to `uvx`, the Custom-command
+    free-text field is hidden, and the helper text under args reads the
+    uvx hint."""
+    page.goto(f"{app_clean}#studio/mcp-sources/new")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+
+    page.locator('[data-field="type"]').select_option("stdio")
+
+    runtime = page.locator('[data-testid="mcp-command-runtime"]')
+    expect(runtime).to_be_visible()
+    expect(runtime).to_have_value("uvx")
+
+    # Custom row is hidden (uvx is a canonical runtime).
+    custom_row = page.locator(".mcp-command-custom-row")
+    expect(custom_row).to_have_class(re.compile(r"\bis-hidden\b"))
+
+    # Helper text reflects uvx hint copy.
+    hint = page.locator('[data-testid="mcp-command-hint"]')
+    expect(hint).to_be_visible()
+    expect(hint).to_contain_text("package name")
+    expect(hint).to_contain_text("Fetched")
+
+
+@pytest.mark.browser
+def test_stdio_command_runtime_switching_updates_hint_and_saves(
+    app_clean: str, page: Page
+) -> None:
+    """Switching the dropdown selection updates the helper text and the
+    saved (command, args) pair splits a 2-token runtime per option (b).
+
+    `pipx run` saves as command='pipx', args=['run', ...userArgs] —
+    NOT command='pipx run' verbatim, which would FileNotFoundError on
+    spawn (the dropdown literal is not a binary)."""
+    page.goto(f"{app_clean}#studio/mcp-sources/new")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+
+    page.locator('[data-field="name"]').fill("pipx-source")
+    page.locator('[data-field="type"]').select_option("stdio")
+
+    page.locator('[data-field="command-runtime"]').select_option("pipx run")
+    hint = page.locator('[data-testid="mcp-command-hint"]')
+    expect(hint).to_contain_text("Alternative to uvx")
+
+    # Custom row stays hidden for canonical runtimes.
+    expect(page.locator(".mcp-command-custom-row")).to_have_class(
+        re.compile(r"\bis-hidden\b")
+    )
+
+    # Add a user arg via the chip-list (the package name).
+    args_input = page.locator(
+        '[data-field="args"].chip-list-editor .chip-list-input'
+    )
+    args_input.fill("mcp-server-time")
+    args_input.press("Enter")
+
+    page.locator('[data-testid="save-mcp-source-btn"]').click()
+    expect(page.locator(".editor-section.danger-zone")).to_be_visible(timeout=8000)
+
+    sources = _list_sources(app_clean)
+    assert len(sources) == 1
+    cfg = sources[0]["config"]
+    # Option (b): command is just `pipx`; args carry the implicit `run`
+    # plus the operator's typed args.
+    assert cfg["command"] == "pipx"
+    assert cfg["args"] == ["run", "mcp-server-time"]
+
+
+@pytest.mark.browser
+def test_stdio_command_runtime_pipx_run_round_trip_collapses_to_dropdown(
+    app_clean: str, page: Page
+) -> None:
+    """Pre-seed a source with command='pipx', args=['run', ...]; reopening
+    the editor collapses that pair back into the `pipx run` dropdown
+    selection, and the chip-list shows only the operator's args (the
+    implicit `run` is stripped from the displayed chips)."""
+    sid = _seed_mcp_source(app_clean, {
+        "name": "pipx-roundtrip",
+        "type": "stdio",
+        "config": {
+            "command": "pipx",
+            "args": ["run", "mcp-server-time"],
+        },
+        "secrets": {},
+    })
+
+    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+
+    # Dropdown re-collapses to the `pipx run` literal.
+    expect(page.locator('[data-field="command-runtime"]')).to_have_value("pipx run")
+    # Custom-command row is hidden (canonical runtime).
+    expect(page.locator(".mcp-command-custom-row")).to_have_class(
+        re.compile(r"\bis-hidden\b")
+    )
+
+    # Args chip-list shows ONLY the operator's package name — the
+    # implicit `run` is hidden from the editable chips.
+    chips = page.locator('[data-field="args"].chip-list-editor .chip')
+    expect(chips).to_have_count(1)
+    expect(chips.first).to_contain_text("mcp-server-time")
+
+
+@pytest.mark.browser
+def test_stdio_command_runtime_custom_escape_round_trips(
+    app_clean: str, page: Page
+) -> None:
+    """Selecting Custom… reveals the free-text input. Operator types a
+    bare command; save persists it to config.command verbatim; reopen
+    the source and the dropdown lands on Custom… with the saved value
+    restored to the free-text field."""
+    page.goto(f"{app_clean}#studio/mcp-sources/new")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+
+    page.locator('[data-field="name"]').fill("custom-cmd-source")
+    page.locator('[data-field="type"]').select_option("stdio")
+
+    page.locator('[data-field="command-runtime"]').select_option("__custom__")
+    custom_row = page.locator(".mcp-command-custom-row")
+    expect(custom_row).not_to_have_class(re.compile(r"\bis-hidden\b"))
+
+    page.locator('[data-testid="mcp-command-custom"]').fill("bash /app/foo.sh")
+
+    page.locator('[data-testid="save-mcp-source-btn"]').click()
+    expect(page.locator(".editor-section.danger-zone")).to_be_visible(timeout=8000)
+
+    sources = _list_sources(app_clean)
+    assert len(sources) == 1
+    assert sources[0]["config"]["command"] == "bash /app/foo.sh"
+    sid = sources[0]["id"]
+
+    # Reload the editor; dropdown should land on Custom… with the saved
+    # value visible in the free-text field.
+    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+
+    expect(page.locator('[data-field="command-runtime"]')).to_have_value("__custom__")
+    expect(page.locator(".mcp-command-custom-row")).not_to_have_class(
+        re.compile(r"\bis-hidden\b")
+    )
+    expect(page.locator('[data-testid="mcp-command-custom"]')).to_have_value(
+        "bash /app/foo.sh"
+    )
+
+
+@pytest.mark.browser
+def test_stdio_command_runtime_round_trip_canonical_uvx(
+    app_clean: str, page: Page
+) -> None:
+    """Pre-seed a source with config.command='uvx' (matches one of the
+    canonical runtime literals); reopening the editor lands the dropdown
+    on `uvx` selected, the Custom-command row is hidden, and the
+    free-text field is empty (no leakage of the canonical literal into
+    Custom…)."""
+    sid = _seed_mcp_source(app_clean, {
+        "name": "uvx-canonical",
+        "type": "stdio",
+        "config": {"command": "uvx", "args": ["mcp-server-time"]},
+        "secrets": {},
+    })
+
+    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+
+    expect(page.locator('[data-field="command-runtime"]')).to_have_value("uvx")
+    expect(page.locator(".mcp-command-custom-row")).to_have_class(
+        re.compile(r"\bis-hidden\b")
+    )
+    # Free-text input stays empty when dropdown is on a canonical runtime.
+    expect(page.locator('[data-testid="mcp-command-custom"]')).to_have_value("")
+    # Operator's args still surface in the chip-list.
+    chips = page.locator('[data-field="args"].chip-list-editor .chip')
+    expect(chips).to_have_count(1)
+    expect(chips.first).to_contain_text("mcp-server-time")
+
+
+@pytest.mark.browser
+def test_stdio_command_runtime_round_trip_custom_value(
+    app_clean: str, page: Page
+) -> None:
+    """Pre-seed a source with config.command='bash /app/x.sh' (no
+    canonical match); reopening lands the dropdown on Custom… with the
+    saved value populated in the free-text input."""
+    sid = _seed_mcp_source(app_clean, {
+        "name": "custom-bash-source",
+        "type": "stdio",
+        "config": {"command": "bash /app/x.sh"},
+        "secrets": {},
+    })
+
+    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+
+    expect(page.locator('[data-field="command-runtime"]')).to_have_value("__custom__")
+    expect(page.locator(".mcp-command-custom-row")).not_to_have_class(
+        re.compile(r"\bis-hidden\b")
+    )
+    expect(page.locator('[data-testid="mcp-command-custom"]')).to_have_value(
+        "bash /app/x.sh"
+    )
+
+
+@pytest.mark.browser
+def test_stdio_command_runtime_npx_y_save_split(
+    app_clean: str, page: Page
+) -> None:
+    """Selecting `npx -y` and saving splits the literal into
+    command='npx', args=['-y', ...userArgs] (option (b) per leg spec).
+    The implicit `-y` lives in args; the saved command is just `npx`."""
+    page.goto(f"{app_clean}#studio/mcp-sources/new")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+
+    page.locator('[data-field="name"]').fill("npx-y-source")
+    page.locator('[data-field="type"]').select_option("stdio")
+    page.locator('[data-field="command-runtime"]').select_option("npx -y")
+
+    # Add a user arg via the chip-list (the package name).
+    args_input = page.locator(
+        '[data-field="args"].chip-list-editor .chip-list-input'
+    )
+    args_input.fill("@modelcontextprotocol/server-everything")
+    args_input.press("Enter")
+
+    page.locator('[data-testid="save-mcp-source-btn"]').click()
+    expect(page.locator(".editor-section.danger-zone")).to_be_visible(timeout=8000)
+
+    sources = _list_sources(app_clean)
+    assert len(sources) == 1
+    cfg = sources[0]["config"]
+    # Option (b): command is just `npx`; args carry the implicit `-y`
+    # plus the operator's typed args.
+    assert cfg["command"] == "npx"
+    assert cfg["args"] == ["-y", "@modelcontextprotocol/server-everything"]
+
+
+@pytest.mark.browser
+def test_stdio_command_runtime_npx_y_round_trip_collapses_to_dropdown(
+    app_clean: str, page: Page
+) -> None:
+    """Pre-seed a source with command='npx', args=['-y', ...]; reopening
+    the editor collapses that pair back into the `npx -y` dropdown
+    selection, and the chip-list shows only the operator's args (the
+    implicit `-y` is stripped from the displayed chips)."""
+    sid = _seed_mcp_source(app_clean, {
+        "name": "npx-y-roundtrip",
+        "type": "stdio",
+        "config": {
+            "command": "npx",
+            "args": ["-y", "@modelcontextprotocol/server-everything"],
+        },
+        "secrets": {},
+    })
+
+    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+
+    # Dropdown re-collapses to the `npx -y` literal.
+    expect(page.locator('[data-field="command-runtime"]')).to_have_value("npx -y")
+    # Custom-command row is hidden (canonical runtime).
+    expect(page.locator(".mcp-command-custom-row")).to_have_class(
+        re.compile(r"\bis-hidden\b")
+    )
+
+    # Args chip-list shows ONLY the operator's package name — the
+    # implicit `-y` is hidden from the editable chips.
+    chips = page.locator('[data-field="args"].chip-list-editor .chip')
+    expect(chips).to_have_count(1)
+    expect(chips.first).to_contain_text("@modelcontextprotocol/server-everything")
