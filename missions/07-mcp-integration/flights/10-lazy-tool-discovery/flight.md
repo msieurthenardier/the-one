@@ -1,6 +1,6 @@
 # Flight: Lazy tool discovery — search-tools / search-mcps as the only catalog entries
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [MCP Integration](../../mission.md)
 
 ## Contributing to Criteria

@@ -10,6 +10,27 @@ Flight log for F10, which pivots from F9's alignment vibing to a new architectur
 
 ## Decisions
 
+### Phase 3 flight close + operator HAT pass + F9 resume decision (2026-05-10)
+
+**HAT pass**: operator confirmed end-to-end after the cache-first follow-up commit landed:
+- "working great" — chat session creation now sub-100ms; no 30s timeouts during agent builds with `cloudflare_api` attached.
+- Steps 1-5 of `operator-hat-script.md` collapsed into operator-felt sign-off rather than formal walk; the cache-first fix unblocked the surface that the formal HAT was designed to expose.
+
+**Anomaly captured (non-blocking, F10 debrief follow-up)**:
+- **A-F10-1 — SSO HTTP MCP login opens in new tab vs. modal window**: during HAT setup, operator re-authed an OAuth-protected HTTP MCP source. Consent flow opened in a new browser tab rather than the inline OAuth modal (`oauth-modal.js`). Functionality intact (token persisted; tool list rendered after consent), but UX regresses from F5 L5's modal experience. **NOT an F10 regression** — F10 did not touch `oauth-modal.js`, `chat.js` OAuth handlers, or `/api/oauth/start`. Likely environment-specific (popup blocker, WS reconnect-snapshot replay race, or pre-existing F5/F6.6 quirk surfaced by HAT scrutiny). Captured for F10 debrief; investigate during a successor pass.
+
+**F9 resume-or-absorb decision**: **RESUME**. Operator directive: "finish f9" → revive F9 L5/L6/L7/L8 under F10's lazy-discovery architecture. F9's flight log placeholder updated accordingly. The pre-pivot F9 L5 leg draft at `flights/09-alignment/legs/05-http-mcp-in-chat.md` documents pre-F10 intent; needs refresh because chat-time tool inventory scenarios now require the agent to call `search_tools`/`search_mcps` before listing tools (the new "agent searches before listing" UX).
+
+**Phase 3 (per `/agentic-workflow` skill)**:
+- All 5 legs `completed`.
+- Flight log entries for all legs present.
+- Documentation updated: `mission.md` Constraint #71 amended, F10 added to Flights list at flight close.
+- Flight status: `in-flight` → `landed`.
+- PR #41 — operator will mark out of draft + merge when ready.
+- Signal `[COMPLETE:flight]`.
+
+---
+
 ### Path B (cache-first agent build) absorbed during F10 HAT vibing (2026-05-10)
 
 **Context**: During F10 HAT, the operator hit a session-creation hang. Chat session creation triggered `AgentFactory.create()` → `MCPToolProvider.get_tools_for_agent()`, which called `acquire() + list_tools()` eagerly per attached MCP source. The operator's `cloudflare_api` source was timing out (~30s per source, SDK connect timeout), making multiple agent builds in a session multiplicatively slow.
