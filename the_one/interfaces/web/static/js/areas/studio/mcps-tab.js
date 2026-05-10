@@ -252,7 +252,7 @@
         _renderToolsCheckboxGroup(toolsBody, source, agent, data.tools || [], onChange);
       }).catch(function (err) {
         if (err && err.name === 'AuthRequired') {
-          _renderAuthRequiredNotice(toolsBody, source.id);
+          _renderAuthRequiredNotice(toolsBody, source);
         } else {
           toolsBody.innerHTML = '';
           var errEl = document.createElement('div');
@@ -338,12 +338,14 @@
     container.appendChild(group);
   }
 
-  function _renderAuthRequiredNotice(container, sourceId) {
+  function _renderAuthRequiredNotice(container, source) {
+    var sourceId = source.id;
+    var sourceName = source.name || source.id;
     container.innerHTML = '';
     var notice = document.createElement('div');
     notice.className = 'mcp-auth-required-notice';
     notice.setAttribute('data-testid', 'mcp-auth-required-notice-' + sourceId);
-    notice.textContent = 'This source needs Test/auth on the source-edit page first. ';
+    notice.textContent = '“' + sourceName + '” needs Test/auth on the source-edit page first. ';
     var link = document.createElement('a');
     link.href = '#studio/mcp-sources/' + encodeURIComponent(sourceId);
     link.textContent = 'Go to source settings';

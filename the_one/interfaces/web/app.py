@@ -583,6 +583,7 @@ def _auth_required_event_from_metadata(meta: dict[str, Any]) -> dict[str, Any]:
     return {
         "type": "auth_required",
         "source_id": meta.get("source_id"),
+        "source_name": meta.get("source_name"),
         "resource_metadata_url": meta.get("resource_metadata_url"),
         "tool_call_id": meta.get("tool_call_id"),
         "consent_url": meta.get("consent_url"),  # MAY be None on lazy path

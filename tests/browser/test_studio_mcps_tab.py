@@ -357,6 +357,12 @@ def test_auth_required_inline_notice_no_popup(app_clean: str, page: Page) -> Non
     notice = page.locator(f'[data-testid="mcp-auth-required-notice-{sid}"]')
     expect(notice).to_be_visible(timeout=6000)
     expect(notice).to_contain_text("needs Test/auth")
+    # F9 L5: notice must show the human-readable source name, not the DB id.
+    expect(notice).to_contain_text("auth-required-source")
+    notice_text = notice.text_content() or ""
+    assert sid not in notice_text.split('"')[0], (
+        f"Notice text should not show the DB id '{sid}' as the label; got: {notice_text!r}"
+    )
 
     auth_link = page.locator(f'[data-testid="mcp-auth-required-link-{sid}"]')
     expect(auth_link).to_be_visible()
@@ -391,3 +397,58 @@ def test_app_areas_array_shape_lock(app_clean: str, page: Page) -> None:
     assert result["length"] > 0, "App.areas must be non-empty"
     assert result["allHaveKeys"] is True, "Every App.areas entry must have id, label, order"
     assert result["studioFound"] is True, "App.areas must contain the studio area descriptor"
+
+
+# ── Test 9: Auth-required notice uses source name, not DB id ─────────────────
+
+
+@pytest.mark.browser
+def test_auth_required_notice_uses_source_name_not_id(app_clean: str, page: Page) -> None:
+    """F9 L5: _renderAuthRequiredNotice must display the human-readable source
+    name rather than the DB id when authentication is required.
+
+    Uses a source named "test_source_friendly_name" so the DB id (a UUID or
+    integer) is clearly distinct from the display label.
+    """
+    sid = _seed_mcp_source(app_clean, {
+        "name": "test_source_friendly_name",
+        "type": "streamable-http",
+        "config": {"url": "https://example.com/mcp"},
+        "secrets": {},
+    })
+    _seed_agent(app_clean, "name-id-test-agent", {
+        "description": "test",
+        "mcp_source_ids": [sid],
+    })
+
+    def handle_auth_required(route):
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps({
+                "status": "auth_required",
+                "consent_url": "https://idp.example.com/oauth/authorize",
+            }),
+        )
+
+    page.route(f"**/api/mcp-sources/{sid}/test/connect", handle_auth_required)
+
+    _navigate_to_agent_mcps_tab(page, app_clean, "name-id-test-agent")
+    _open_details_panel(page, sid)
+
+    notice = page.locator(f'[data-testid="mcp-auth-required-notice-{sid}"]')
+    expect(notice).to_be_visible(timeout=6000)
+
+    notice_text = notice.text_content() or ""
+    # The friendly name must appear in the notice text.
+    assert "test_source_friendly_name" in notice_text, (
+        f"Notice should contain source name 'test_source_friendly_name'; got: {notice_text!r}"
+    )
+    # The raw DB id must NOT appear as a bare label (it may appear inside the href
+    # of the child link — that is correct — but not as visible text outside quotes).
+    # Strip the link text ("Go to source settings") then check the remaining text.
+    link_text = "Go to source settings"
+    notice_without_link = notice_text.replace(link_text, "").strip()
+    assert sid not in notice_without_link, (
+        f"Notice label text should not expose DB id '{sid}'; got: {notice_without_link!r}"
+    )

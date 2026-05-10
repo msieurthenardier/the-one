@@ -340,6 +340,7 @@ class Agent:
                     metadata={
                         "is_auth_required": True,
                         "source_id": e.source_id,
+                        "source_name": e.source_name,
                         "resource_metadata_url": e.resource_metadata_url,
                         "tool_call_id": tool_call.id,
                         "consent_url": e.consent_url,

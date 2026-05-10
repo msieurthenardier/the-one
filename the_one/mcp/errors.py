@@ -94,11 +94,13 @@ class MCPAuthRequired(MCPClientError):  # noqa: N818  (control-flow signal, not 
         self,
         source_id: str,
         *,
+        source_name: str | None = None,
         resource_metadata_url: str | None = None,
         consent_url: str | None = None,
     ) -> None:
         super().__init__(f"Authorization required for MCP source {source_id}")
         self.source_id = source_id
+        self.source_name = source_name
         self.resource_metadata_url = resource_metadata_url
         self.consent_url = consent_url
 

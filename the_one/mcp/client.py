@@ -282,6 +282,7 @@ class MCPClient:
                         # operator re-establishes credentials.
                         raise MCPAuthRequired(
                             source_id=self.source.id,
+                            source_name=self.source.name,
                             resource_metadata_url=None,
                             consent_url=None,
                         ) from None
@@ -392,6 +393,7 @@ class MCPClient:
                             )
                             raise MCPAuthRequired(
                                 source_id=self.source.id,
+                                source_name=self.source.name,
                                 resource_metadata_url=rmd,
                                 consent_url=None,
                             ) from None
@@ -548,6 +550,7 @@ class MCPClient:
                     # discriminator.
                     raise MCPAuthRequired(
                         source_id=self.source.id,
+                        source_name=self.source.name,
                         resource_metadata_url=None,
                         consent_url=None,
                     ) from None
@@ -572,6 +575,7 @@ class MCPClient:
                         )
                         raise MCPAuthRequired(
                             source_id=self.source.id,
+                            source_name=self.source.name,
                             resource_metadata_url=rmd,
                             consent_url=None,
                         ) from None
@@ -689,6 +693,7 @@ class MCPClient:
                     # auth_required to chat UI.
                     raise MCPAuthRequired(
                         source_id=self.source.id,
+                        source_name=self.source.name,
                         resource_metadata_url=None,  # SDK exception doesn't carry it
                         consent_url=None,
                     ) from None
@@ -715,6 +720,7 @@ class MCPClient:
                         )
                         raise MCPAuthRequired(
                             source_id=self.source.id,
+                            source_name=self.source.name,
                             resource_metadata_url=rmd,
                             consent_url=None,
                         ) from None
