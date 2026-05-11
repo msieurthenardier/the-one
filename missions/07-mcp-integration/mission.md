@@ -1,6 +1,6 @@
 # Mission: MCP Integration
 
-**Status**: active
+**Status**: completed
 
 > **Post-F2 retrospective correction (2026-05)**: F1 originally placed the
 > MCP Servers UI in the admin/Settings sidebar nav (URL `#admin/mcp-sources`).
