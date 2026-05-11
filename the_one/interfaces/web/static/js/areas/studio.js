@@ -1303,12 +1303,7 @@ App.registerArea({
       var currentVal = selectEl.dataset.pendingValue || selectEl.value;
 
       if (!providerId) {
-        if (selectEl.tagName === 'SELECT') {
-          selectEl.innerHTML = '<option value="" disabled selected>Select a provider first</option>';
-        } else {
-          selectEl.value = '';
-          selectEl.placeholder = 'Select a provider first';
-        }
+        selectEl.innerHTML = '<option value="" disabled selected>Select a provider first</option>';
         if (loadingEl) loadingEl.textContent = '';
         modelCapsBy = {};
         renderModelCapabilities();
@@ -1330,20 +1325,11 @@ App.registerArea({
           // would clobber the picker with A's models while B is selected.
           if (_activeProviderId !== fetchProviderId) return;
           modelCapsBy = {};
-          var isInput = selectEl.tagName === 'INPUT';
-          var datalistEl = isInput ? document.getElementById('studio-model-list') : null;
-          var optsHtml = '';
-          if (!isInput) {
-            optsHtml = '<option value="" disabled>Choose a model</option>';
-          }
+          var optsHtml = '<option value="" disabled>Choose a model</option>';
           for (var i = 0; i < models.length; i++) {
             var modelId = models[i].id || models[i].name;
-            if (isInput) {
-              optsHtml += '<option value="' + escapeAttr(modelId) + '">' + escapeHtml(modelId) + '</option>';
-            } else {
-              var sel = modelId === currentVal ? ' selected' : '';
-              optsHtml += '<option value="' + escapeAttr(modelId) + '"' + sel + '>' + escapeHtml(modelId) + '</option>';
-            }
+            var sel = modelId === currentVal ? ' selected' : '';
+            optsHtml += '<option value="' + escapeAttr(modelId) + '"' + sel + '>' + escapeHtml(modelId) + '</option>';
             // Capability cache shape: dict<model_id, list|null>.
             // Both ollama (`capabilities`) and openrouter (`supported_parameters`,
             // server-side aliased to `capabilities`) flow through this single
@@ -1357,34 +1343,14 @@ App.registerArea({
               modelCapsBy[modelId] = null;
             }
           }
-          if (isInput) {
-            if (datalistEl) datalistEl.innerHTML = optsHtml;
-            // Clear a preserved value when it isn't a model the new
-            // provider offers. With <input>+<datalist> the field looks
-            // like a free-form text input, so a stale value from a
-            // prior provider type silently masquerades as a valid
-            // choice — and the browser's datalist filter (input value
-            // → matching options only) makes the dropdown look empty.
-            // Force a re-pick instead of leaving a non-matching
-            // string. The <select> branch below handles this with a
-            // visible "(custom)" option; the input has no equivalent
-            // visual cue, so clearing is the safer default.
-            if (currentVal) {
-              var inList = false;
-              for (var k = 0; k < models.length; k++) {
-                if ((models[k].id || models[k].name) === currentVal) {
-                  inList = true;
-                  break;
-                }
-              }
-              selectEl.value = inList ? currentVal : '';
-            }
-          } else {
-            selectEl.innerHTML = optsHtml;
-            if (currentVal && !selectEl.querySelector('option[value="' + CSS.escape(currentVal) + '"]')) {
-              var customOpt = '<option value="' + escapeAttr(currentVal) + '" selected>' + escapeHtml(currentVal) + ' (custom)</option>';
-              selectEl.insertAdjacentHTML('beforeend', customOpt);
-            }
+          selectEl.innerHTML = optsHtml;
+          // Surface a previously-saved or carried-over value that isn't
+          // in the freshly fetched list as a visible "(custom)" option —
+          // a clear cue that the selection won't match a known model
+          // under this provider, without silently wiping it.
+          if (currentVal && !selectEl.querySelector('option[value="' + CSS.escape(currentVal) + '"]')) {
+            var customOpt = '<option value="' + escapeAttr(currentVal) + '" selected>' + escapeHtml(currentVal) + ' (custom)</option>';
+            selectEl.insertAdjacentHTML('beforeend', customOpt);
           }
           if (loadingEl) {
             loadingEl.textContent = models.length === 0 ? 'No models discovered' : '';
@@ -1398,17 +1364,12 @@ App.registerArea({
           // cleanly without a flash of "Failed to load models".
           if (err && err.name === 'AbortError') return;
           if (_activeProviderId !== fetchProviderId) return;
-          if (selectEl.tagName === 'SELECT') {
-            var failOpt = document.createElement('option');
-            failOpt.value = '';
-            failOpt.disabled = true;
-            failOpt.selected = true;
-            failOpt.textContent = 'Failed to load models';
-            selectEl.replaceChildren(failOpt);
-          } else {
-            selectEl.value = '';
-            selectEl.placeholder = 'Failed to load models';
-          }
+          var failOpt = document.createElement('option');
+          failOpt.value = '';
+          failOpt.disabled = true;
+          failOpt.selected = true;
+          failOpt.textContent = 'Failed to load models';
+          selectEl.replaceChildren(failOpt);
           if (loadingEl) loadingEl.textContent = '';
           modelCapsBy = {};
           renderModelCapabilities();
@@ -1422,66 +1383,6 @@ App.registerArea({
       testBtn.disabled = !providerSelect || !providerSelect.value;
     }
 
-    // Swap the model picker element when the operator switches between
-    // provider types that require different picker UX. OpenRouter (~370
-    // models) uses <input list="…"> + <datalist>; all others use <select>.
-    // Uses replaceWith() so stale event listeners are GC'd and exactly one
-    // #studio-model element always exists in the DOM.
-    function swapModelPicker(newProviderType) {
-      var oldNode = editorEl.querySelector('#studio-model');
-      if (!oldNode) return;
-      var wantInput = newProviderType === 'openrouter';
-      var isInput = oldNode.tagName === 'INPUT';
-      if (wantInput === isInput) return;  // already the right type — no swap needed
-
-      // Preserve the prior model value across the swap (review I5). Without
-      // this, switching provider types as a means of comparison silently
-      // wipes the saved model name and leaves the form falsely dirty with
-      // an empty input. Read both `value` and `dataset.pendingValue` so we
-      // also carry through values queued for an in-flight model fetch.
-      var preservedValue = (oldNode.value || oldNode.dataset.pendingValue || '');
-
-      var newNode;
-      if (wantInput) {
-        newNode = document.createElement('input');
-        newNode.type = 'text';
-        newNode.id = 'studio-model';
-        newNode.className = 'field-input';
-        newNode.setAttribute('list', 'studio-model-list');
-        newNode.dataset.field = 'llm_model';
-        newNode.placeholder = 'Type to filter (e.g. anthropic/claude)';
-        // Seed the visible input value so the operator's prior selection
-        // survives the swap. Whether or not the new provider exposes the
-        // same model id, the value remains in the input — datalist filter
-        // shows the user the closest matches; agent can re-pick if needed.
-        if (preservedValue) newNode.value = preservedValue;
-        // Ensure the datalist sibling exists next to the new input.
-        if (!editorEl.querySelector('#studio-model-list')) {
-          var dl = document.createElement('datalist');
-          dl.id = 'studio-model-list';
-          oldNode.parentNode.insertBefore(dl, oldNode.nextSibling);
-        }
-      } else {
-        newNode = document.createElement('select');
-        newNode.id = 'studio-model';
-        newNode.className = 'field-input field-select';
-        newNode.dataset.field = 'llm_model';
-        // The select has no options yet; the upcoming
-        // fetchModelsForProvider populates them and then honors
-        // `dataset.pendingValue` to restore the selection.
-        if (preservedValue) newNode.dataset.pendingValue = preservedValue;
-        // Remove orphan datalist if present.
-        var dl2 = editorEl.querySelector('#studio-model-list');
-        if (dl2) dl2.remove();
-      }
-      oldNode.replaceWith(newNode);
-      // Re-attach change handlers that were on the old node.
-      newNode.addEventListener('change', debouncedVramCheck);
-      newNode.addEventListener('change', renderModelCapabilities);
-      newNode.addEventListener('input', checkDirty);
-      newNode.addEventListener('change', checkDirty);
-    }
-
     function wireEditorEvents(isCreate, cfg) {
       // Dirty tracking on all inputs (skips disabled Advanced stubs).
       var inputs = editorEl.querySelectorAll('.field-input, .field-textarea, .field-select, .tool-toggle');
@@ -1491,24 +1392,16 @@ App.registerArea({
         inputs[i].addEventListener('change', checkDirty);
       }
 
-      // Provider change → swap model picker (select ↔ input+datalist) if
-      // provider type changed, then fetch models + clear VRAM warning +
-      // recompute Test btn. swapModelPicker() is a no-op if the type hasn't
-      // changed. fetchModelsForProvider re-queries #studio-model after swap.
+      // Provider change → repopulate model select, clear VRAM warning,
+      // recompute Test btn. Model picker is always a <select> (browsers
+      // give us free type-ahead via the native dropdown), so no element
+      // swap is needed across provider types.
       var providerSelect = editorEl.querySelector('#studio-provider');
       if (providerSelect) {
         providerSelect.addEventListener('change', function () {
           var selectedProviderId = providerSelect.value;
-          var selectedProviderType = '';
-          for (var pi = 0; pi < self._allProviders.length; pi++) {
-            if (String(self._allProviders[pi].id) === String(selectedProviderId)) {
-              selectedProviderType = self._allProviders[pi].type;
-              break;
-            }
-          }
-          swapModelPicker(selectedProviderType);
           var modelEl = editorEl.querySelector('#studio-model');
-          if (modelEl && modelEl.tagName === 'SELECT') modelEl.selectedIndex = 0;
+          if (modelEl) modelEl.selectedIndex = 0;
           clearVramWarning();
           fetchModelsForProvider(selectedProviderId);
           recomputeTestDisabled();
