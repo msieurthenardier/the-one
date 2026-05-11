@@ -38,7 +38,14 @@ DARK: dict[str, str] = {
     # fg_on_danger is BLACK in dark — white-on-#ff4a4a only reads at 3.32:1
     # (fails body AA); black reads at 6.33:1.  Retuned in leg 07.
     "fg_on_danger": "#000000",
-    "accent": "#22d3ee",
+    # accent retuned cyan-400 → violet-400 in flight 01 leg 02 (GleepGlorp
+    # rebrand). Dark uses the lighter violet shade so accent-on-bg passes
+    # large/UI AA against #0a0a0a (≈9.5:1).
+    "accent": "#a78bfa",
+    # accent_api shifted from violet (#7c4dff) → cyan-400 (the retired
+    # primary) so the user-vs-API chat message differentiation survives
+    # the primary-accent retune. Used as background for `.msg.user.api`.
+    "accent_api": "#22d3ee",
     "status_success": "#2ecc71",
     "status_warning": "#f5a623",
     "status_danger": "#ff4a4a",
@@ -59,9 +66,14 @@ LIGHT: dict[str, str] = {
     "fg_muted": "#64748b",
     "fg_on_accent": "#ffffff",
     "fg_on_danger": "#ffffff",
-    # accent retuned cyan-600 → cyan-700 in leg 07 for body AA on white
-    # (white-on-accent at 5.36:1; was 4.46:1 with #0891b2).
-    "accent": "#0e7490",
+    # accent retuned cyan-700 → violet-700 in flight 01 leg 02 (GleepGlorp
+    # rebrand). Light uses the deeper violet shade so fg_on_accent (#ffffff)
+    # passes body AA against the accent fill (≈7.10:1).
+    "accent": "#6d28d9",
+    # accent_api shifted from violet (#6d28d9) → cyan-700 (the retired
+    # primary) so the user-vs-API chat message differentiation survives
+    # the primary-accent retune. Used as background for `.msg.user.api`.
+    "accent_api": "#0e7490",
     # success retuned green-600 → green-700 (~4.84:1 on bg/surface).
     "status_success": "#15803d",
     # warning retuned yellow-600 → yellow-700 (~4.75:1 on bg/surface).

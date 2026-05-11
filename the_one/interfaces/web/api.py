@@ -559,17 +559,13 @@ def _mcp_source_response(source: MCPSource) -> dict[str, Any]:
     ``tests/test_oauth_secrets_api.py::test_get_strips_managed_keys``.
     """
     data = source.model_dump()
-    visible = {
-        k: v for k, v in source.secrets.items() if k not in _OAUTH_MANAGED_SECRET_KEYS
-    }
+    visible = {k: v for k, v in source.secrets.items() if k not in _OAUTH_MANAGED_SECRET_KEYS}
     data["secrets"] = _mask_secrets(visible)
     # F9 L1 (vibing): expose a presence-only flag so the editor can decide
     # whether to render the "Reset connection" Danger-Zone button without
     # leaking the OAuth-managed secret values themselves. True iff ANY
     # OAuth-managed key is present in the persisted row's secrets.
-    data["oauth_active"] = any(
-        k in source.secrets for k in _OAUTH_MANAGED_SECRET_KEYS
-    )
+    data["oauth_active"] = any(k in source.secrets for k in _OAUTH_MANAGED_SECRET_KEYS)
     return data
 
 
@@ -651,8 +647,7 @@ def _validate_mcp_source_config(source: MCPSource) -> None:
                     raise HTTPException(
                         status_code=422,
                         detail=(
-                            "MCP source config.sandbox.writable_paths must be a "
-                            "list of strings."
+                            "MCP source config.sandbox.writable_paths must be a list of strings."
                         ),
                     )
             if "network_allowed" in sandbox:
@@ -663,10 +658,7 @@ def _validate_mcp_source_config(source: MCPSource) -> None:
                 if not isinstance(network_allowed, bool):
                     raise HTTPException(
                         status_code=422,
-                        detail=(
-                            "MCP source config.sandbox.network_allowed must be a "
-                            "boolean."
-                        ),
+                        detail=("MCP source config.sandbox.network_allowed must be a boolean."),
                     )
 
     elif source.type == "streamable-http":
@@ -675,8 +667,7 @@ def _validate_mcp_source_config(source: MCPSource) -> None:
             raise HTTPException(
                 status_code=422,
                 detail=(
-                    "MCP source of type 'streamable-http' requires "
-                    "config.url (non-empty string)."
+                    "MCP source of type 'streamable-http' requires config.url (non-empty string)."
                 ),
             )
         headers = cfg.get("headers", {})
@@ -911,6 +902,7 @@ async def delete_mcp_source(source_id: str) -> dict[str, str]:
     # fix; the alternative is structured response fields, which the
     # architect ruled out (silent UX).
     import logging
+
     _log = logging.getLogger(__name__)
     if not (runtime and package):
         # Unsupported runtime — nothing to reclaim.
@@ -922,9 +914,7 @@ async def delete_mcp_source(source_id: str) -> dict[str, str]:
     elif skip_reason:
         # Refcount survivor — log and skip. The shared cache stays put
         # for the surviving source.
-        _log.warning(
-            "delete_mcp_source(%s): %s", source_id, skip_reason
-        )
+        _log.warning("delete_mcp_source(%s): %s", source_id, skip_reason)
     else:
         await cleanup_runtime_cache(runtime, package)
 
@@ -963,14 +953,10 @@ async def reset_mcp_connection(source_id: str) -> dict[str, str]:
     except KeyError:
         raise HTTPException(status_code=404, detail=f"MCP source not found: {source_id}")
 
-    new_secrets = {
-        k: v for k, v in source.secrets.items() if k not in _OAUTH_MANAGED_SECRET_KEYS
-    }
+    new_secrets = {k: v for k, v in source.secrets.items() if k not in _OAUTH_MANAGED_SECRET_KEYS}
     new_config = dict(source.config or {})
     new_config.pop("_cache", None)
-    updated_source = source.model_copy(
-        update={"secrets": new_secrets, "config": new_config}
-    )
+    updated_source = source.model_copy(update={"secrets": new_secrets, "config": new_config})
     await _evict_all_for_source(source_id)
     await repo.update(updated_source)
     return {"status": "ok"}
@@ -1029,9 +1015,7 @@ async def _build_and_test_no_auth_mcp(
                     "last_updated": time.time(),
                     "auth_posture": "no_auth",
                 }
-                await repo.update(
-                    persisted.model_copy(update={"config": persisted_config})
-                )
+                await repo.update(persisted.model_copy(update={"config": persisted_config}))
             except Exception:
                 # Best-effort persistence — a write failure must not break the
                 # response contract (mirrors the Phase A persistence pattern).
@@ -1112,9 +1096,7 @@ async def _build_and_test_stdio_mcp(
                     "capabilities": capabilities,
                     "last_updated": time.time(),
                 }
-                await repo.update(
-                    persisted.model_copy(update={"config": persisted_config})
-                )
+                await repo.update(persisted.model_copy(update={"config": persisted_config}))
             except Exception:
                 # Best-effort persistence — a write failure must not break the
                 # response contract (mirrors the http no-auth helper).
@@ -1128,8 +1110,7 @@ async def _build_and_test_stdio_mcp(
         # Defensive: stdio shouldn't surface auth-required, but if a server
         # somehow does, surface it as a regular error rather than crashing.
         return {"status": "error", "error": f"{type(e).__name__}: {e}"}
-    except (MCPConnectionError, MCPVersionMismatch, MCPCapabilityMissing,
-            MCPSandboxError) as e:
+    except (MCPConnectionError, MCPVersionMismatch, MCPCapabilityMissing, MCPSandboxError) as e:
         return {"status": "error", "error": f"{type(e).__name__}: {e}"}
     except Exception as e:
         # F9 L2 vibing: defense-in-depth catch-all. Stdio teardown can leak
@@ -1252,8 +1233,7 @@ async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any
 
     cached_posture = (source.config.get("_cache") or {}).get("auth_posture")
     has_live_tokens = bool(
-        source.secrets.get("dcr_credentials")
-        and source.secrets.get("access_token")
+        source.secrets.get("dcr_credentials") and source.secrets.get("access_token")
     )
 
     if cached_posture == "no_auth" and not has_live_tokens:
@@ -1276,9 +1256,7 @@ async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any
             persisted_cache = dict(persisted_config.get("_cache") or {})
             persisted_cache["auth_posture"] = "oauth"
             persisted_config["_cache"] = persisted_cache
-            await repo.update(
-                persisted.model_copy(update={"config": persisted_config})
-            )
+            await repo.update(persisted.model_copy(update={"config": persisted_config}))
         except Exception:
             # Best-effort; falling through to Phase B regardless.
             pass
@@ -1329,9 +1307,7 @@ async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any
                         "capabilities": capabilities,
                         "last_updated": time.time(),
                     }
-                    await repo.update(
-                        persisted.model_copy(update={"config": persisted_config})
-                    )
+                    await repo.update(persisted.model_copy(update={"config": persisted_config}))
                 except Exception:
                     # Best-effort persistence — a write failure must not
                     # break the test/connect response contract. The operator
@@ -1366,15 +1342,19 @@ async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any
             # OAuth sessions for an operator on a flaky link.
             err_msg = str(e).lower()
             looks_like_token_failure = (
-                "did not respond" in err_msg
-                or "cancelled during initialize" in err_msg
+                "did not respond" in err_msg or "cancelled during initialize" in err_msg
             )
             if looks_like_token_failure:
                 try:
-                    cleared = source.model_copy(update={"secrets": {
-                        k: v for k, v in source.secrets.items()
-                        if k not in _OAUTH_MANAGED_SECRET_KEYS
-                    }})
+                    cleared = source.model_copy(
+                        update={
+                            "secrets": {
+                                k: v
+                                for k, v in source.secrets.items()
+                                if k not in _OAUTH_MANAGED_SECRET_KEYS
+                            }
+                        }
+                    )
                     await repo.update(cleared)
                     source = cleared
                 except Exception:
@@ -1475,8 +1455,8 @@ def _render_oauth_callback_page(
     The page is a self-contained HTML document served only to the popup
     window opened by the OAuth modal. It links the same studio CSS the
     SPA uses (``/static/css/...``) so the operator perceives continuity
-    with the rest of the-one — dark-mode cyan-accent palette, Geist /
-    Geist Mono typography, ``//``-prefixed mono-uppercase eyebrow.
+    with the rest of GleepGlorp AI — violet-accent design system, Geist
+    Sans / Geist Mono typography, ``//``-prefixed mono-uppercase eyebrow.
 
     Args:
         status: One of ``"success"``, ``"failed"``, ``"expired"``. Drives
@@ -1499,9 +1479,7 @@ def _render_oauth_callback_page(
     stylesheets so the page automatically follows the operator's
     dark/light/auto preference resolved by ``theme.js``.
     """
-    eyebrow_color = (
-        "var(--status-success)" if status == "success" else "var(--status-danger)"
-    )
+    eyebrow_color = "var(--status-success)" if status == "success" else "var(--status-danger)"
     auto_close_script = (
         "<script>setTimeout(function () { try { window.close(); } "
         "catch (e) { /* popup blocker / non-script-opened — ignore */ } }, "
@@ -1576,7 +1554,7 @@ def _render_oauth_callback_page(
 </head>
 <body>
 <main class="oauth-callback-card" role="status" aria-live="polite">
-  <p class="oauth-callback-eyebrow">the-one // oauth</p>
+  <p class="oauth-callback-eyebrow">gleepglorp ai // oauth</p>
   <h1 class="oauth-callback-heading">{heading}</h1>
   <p class="oauth-callback-detail">{detail_html}</p>
 </main>
@@ -1668,8 +1646,7 @@ async def oauth_callback(
                 status="expired",
                 heading="Login expired",
                 detail_html=(
-                    "The login window has closed. "
-                    "Please re-trigger the original action to retry."
+                    "The login window has closed. Please re-trigger the original action to retry."
                 ),
                 auto_close=False,
             ),
@@ -1700,9 +1677,7 @@ async def oauth_callback(
         # Sessions with ``agent=None`` (degraded fixtures); guard so
         # we don't AttributeError out of the success-path response.
         if session.agent is not None and session.agent._deferred_tool_calls is not None:
-            resume_task = asyncio.create_task(
-                _resume_paused_session(session)
-            )
+            resume_task = asyncio.create_task(_resume_paused_session(session))
             _inflight_resume_tasks.add(resume_task)
             resume_task.add_done_callback(_inflight_resume_tasks.discard)
     # Verbatim-message contract per F5 §4 — the substring
@@ -1718,8 +1693,7 @@ async def oauth_callback(
             status="success",
             heading="Login successful. You may close this tab.",
             detail_html=(
-                "Tokens have been securely persisted. "
-                "This window will close automatically."
+                "Tokens have been securely persisted. This window will close automatically."
             ),
             auto_close=True,
         ),
@@ -1777,9 +1751,7 @@ async def oauth_start(request: Request) -> dict[str, Any]:
     try:
         source = await repo.get(source_id)
     except KeyError:
-        raise HTTPException(
-            status_code=404, detail=f"MCP source not found: {source_id}"
-        )
+        raise HTTPException(status_code=404, detail=f"MCP source not found: {source_id}")
     if not source.secrets.get("dcr_credentials"):
         raise HTTPException(
             status_code=400,

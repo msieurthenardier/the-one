@@ -56,7 +56,7 @@
   /* Focus ring for the Ollama icon-only pull-cancel button (still per-area
      since it's a special icon-only affordance). Other Ollama-lifecycle
      buttons (Pull Model, Pull, Load, Unload, Delete) now compose canonical
-     .btn-outlined-cyan / .btn-filled-cyan / .btn-muted-destructive which
+     .btn-outlined-primary / .btn-filled-primary / .btn-muted-destructive which
      provide their own focus-visible. */
   .area-admin .admin-pf-pull-cancel:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 3px var(--accent-glow); }
 
@@ -68,7 +68,7 @@
      now uses canonical .editor-header / .form-actions / .editor-section /
      .api-key-wrap / .api-key-eye / .test-result / .test-result-pending /
      .test-result-ok / .test-result-fail (components.css), and the action
-     cluster composes onto .btn-outlined-cyan / .btn-filled-cyan +
+     cluster composes onto .btn-outlined-primary / .btn-filled-primary +
      .save-btn / .cancel-btn / .back-btn / .test-provider-btn. */
 
   /* === Model List === */
@@ -93,7 +93,7 @@
   .area-admin .admin-pf-model-size { font-family: var(--font-family-mono); font-size: var(--font-size-caption); color: var(--fg-secondary); flex-shrink: 0; min-width: 60px; text-align: right; }
   .area-admin .admin-pf-model-actions { display: flex; gap: 4px; flex-shrink: 0; }
   /* admin-pf-model-btn retained as a JS hook only — styling comes from
-     canonical .btn-outlined-cyan / .btn-muted-destructive + .btn-sm. */
+     canonical .btn-outlined-primary / .btn-muted-destructive + .btn-sm. */
   .area-admin .admin-pf-model-error { font-size: var(--font-size-tiny); color: var(--status-danger); padding: 2px 0; width: 100%; }
   /* Capability chips — surfaced on each Ollama model row + reused by Studio
      under the model selector. Positive capabilities use the canonical grey
@@ -456,11 +456,11 @@
     border: 0;
   }
   /* F6 HAT inline tweak — `.test-tool-btn` SVG icon + label baselines were
-     mis-aligned because the canonical `.btn-outlined-cyan` rule does not
+     mis-aligned because the canonical `.btn-outlined-primary` rule does not
      opinionate on inline-flex/SVG sizing. Pin inline-flex centering + the
      same 16×16 svg sizing the editor-error-banner uses. Provider-editor's
      Test button has no icon so it's unaffected; other admin icon buttons
-     (Back, etc.) inherit `.btn-outlined-cyan` and the icon happens to
+     (Back, etc.) inherit `.btn-outlined-primary` and the icon happens to
      baseline-align there for unrelated reasons — pinning on a class
      specific to the test button avoids regressing them. */
   .area-admin .test-tool-btn {

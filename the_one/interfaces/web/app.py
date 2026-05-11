@@ -120,7 +120,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await close_connection()
 
 
-app = FastAPI(title="the-one", lifespan=lifespan)
+app = FastAPI(title="GleepGlorp AI", lifespan=lifespan)
 # Origin allowlist must be registered BEFORE other middleware/routes so it
 # intercepts WebSocket upgrades before the `/ws` route handler can call
 # `ws.accept()` (Depends() runs after accept and is too late). See

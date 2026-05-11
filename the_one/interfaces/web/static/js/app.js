@@ -14,7 +14,10 @@
   function renderTopBar() {
     var topbar = document.getElementById('app-topbar');
     topbar.innerHTML =
-      '<h1 class="app-topbar-title">the-one</h1>' +
+      '<h1 class="app-topbar-title">' +
+        '<img src="/static/brand/topbar-icon-24.png" width="24" height="24" alt="">' +
+        'GleepGlorp AI' +
+      '</h1>' +
       '<div class="app-topbar-actions">' +
         // App-picker button reads as a current-area pill with icon + label
         // + chevron, the standard "tap to switch app" affordance (Notion

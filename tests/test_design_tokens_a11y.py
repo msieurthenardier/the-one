@@ -152,9 +152,16 @@ def test_large_or_ui_passes_aa(theme: str, fg_key: str, bg_key: str) -> None:
 @pytest.mark.parametrize(
     "theme,fg_key,bg_key,threshold",
     [
-        # Text on accent (cyan) — body threshold (used on filled buttons, etc.)
+        # Text on primary accent — body threshold (used on filled buttons, etc.)
         ("dark", "fg_on_accent", "accent", 4.5),
         ("light", "fg_on_accent", "accent", 4.5),
+        # accent_api is used as a chat message background at chat.css:94 —
+        # text-on-color body threshold applies (foreground inherits --fg-on-accent
+        # from the parent .msg.user rule). Defensive UI/large pair guards against
+        # future use as a border/icon stroke.
+        ("dark", "fg_on_accent", "accent_api", 4.5),
+        ("light", "fg_on_accent", "accent_api", 4.5),
+        ("light", "accent_api", "bg", 3.0),
         # Text on danger (red) — body threshold (delete-confirm states)
         ("dark", "fg_on_danger", "status_danger", 4.5),
         ("light", "fg_on_danger", "status_danger", 4.5),

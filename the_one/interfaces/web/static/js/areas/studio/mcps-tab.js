@@ -205,7 +205,7 @@
 
     var refreshBtn = document.createElement('button');
     refreshBtn.type = 'button';
-    refreshBtn.className = 'btn-outlined-cyan mcp-refresh-tools-btn';
+    refreshBtn.className = 'btn-outlined-primary mcp-refresh-tools-btn';
     refreshBtn.setAttribute('data-testid', 'mcp-refresh-tools-btn-' + source.id);
     refreshBtn.textContent = 'Refresh tools';
     toolsSection.appendChild(refreshBtn);

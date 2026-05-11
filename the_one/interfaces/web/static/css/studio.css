@@ -35,9 +35,9 @@
   .area-studio .test-provider-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
 
   /* === Studio Area: Tool Toggles === */
-  /* Tool-actions buttons use .btn-outlined-cyan; this override drops to caption-size + tighter padding. */
+  /* Tool-actions buttons use .btn-outlined-primary; this override drops to caption-size + tighter padding. */
   .area-studio .tool-actions { display: flex; gap: 8px; margin-bottom: 12px; }
-  .area-studio .tool-actions .btn-outlined-cyan { padding: 3px 10px; font-size: var(--font-size-caption); }
+  .area-studio .tool-actions .btn-outlined-primary { padding: 3px 10px; font-size: var(--font-size-caption); }
   .area-studio .tool-row { display: flex; align-items: center; gap: 10px; padding: 4px 0; cursor: pointer; }
   .area-studio .tool-toggle { display: none; }
   .area-studio .tool-switch { width: 32px; height: 18px; background: var(--surface-elevated); border-radius: 9px; position: relative; flex-shrink: 0; transition: background 0.2s; }

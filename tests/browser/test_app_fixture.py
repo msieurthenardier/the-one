@@ -13,7 +13,9 @@ def test_app_clean_serves_index(app_clean: str, page: Page) -> None:
     page.goto(app_clean)
     # Title is set by the index template; should mention the project name.
     title = page.title()
-    assert "the-one" in title.lower(), f"Expected page title to contain 'the-one', got: {title!r}"
+    assert "gleepglorp" in title.lower(), (
+        f"Expected page title to contain 'gleepglorp', got: {title!r}"
+    )
 
 
 @pytest.mark.browser

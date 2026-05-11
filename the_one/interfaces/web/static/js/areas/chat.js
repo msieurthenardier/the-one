@@ -81,7 +81,7 @@ App.registerArea({
         '<div class="messages" role="log" aria-live="polite" aria-relevant="additions" aria-atomic="false"></div>' +
         '<div class="input-area">' +
           '<input data-testid="chat-input" placeholder="Type a message..." autocomplete="off" aria-label="Message" />' +
-          '<button class="btn-filled-cyan" data-testid="chat-send-btn">Send</button></div>' +
+          '<button class="btn-filled-primary" data-testid="chat-send-btn">Send</button></div>' +
       '</div>';
 
     var chromeEl = content.querySelector('.chat-chrome');
@@ -448,7 +448,7 @@ App.registerArea({
       }
       var btn = document.createElement('button');
       btn.type = 'button';
-      btn.className = 'btn-filled-cyan login-required-btn';
+      btn.className = 'btn-filled-primary login-required-btn';
       btn.dataset.sourceId = data.source_id || '';
       btn.dataset.toolCallId = data.tool_call_id || '';
       btn.dataset.resourceMetadataUrl = data.resource_metadata_url || '';
