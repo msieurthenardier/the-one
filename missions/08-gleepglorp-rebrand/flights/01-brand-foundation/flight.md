@@ -1,6 +1,6 @@
 # Flight: Brand Foundation
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [GleepGlorp AI Rebrand & UX Polish](../../mission.md)
 
 ## Contributing to Criteria
@@ -117,7 +117,7 @@ Verification: `grep -rn "btn-filled-cyan\|btn-outlined-cyan" the_one/ tests/` re
 - [x] Leg 2 done: palette retuned, WCAG audit green, Python mirror in sync
 - [x] Leg 3 done: zero hits for `btn-filled-cyan` / `btn-outlined-cyan` across the repo; all buttons still render correctly
 - [x] Leg 4 done: all user-visible brand-text surfaces read "GleepGlorp AI"; protocol identifiers preserved
-- [ ] Leg 5 done: 12 snapshot baselines regenerated; HAT walkthrough complete; alignment notes captured
+- [x] Leg 5 done: 10 of 12 snapshot baselines regenerated (2 blocked by pre-existing seeder issue, logged as mission Known Issue); HAT walkthrough complete; two tactical fixes applied (icon source-PNG switch + MCP-tab checkbox styling)
 
 ### Adaptation Criteria
 
@@ -139,7 +139,7 @@ Verification: `grep -rn "btn-filled-cyan\|btn-outlined-cyan" the_one/ tests/` re
 - [x] `02-palette-tokens` — Retune `--accent` and related accent-* values in tokens.css for both themes; mirror into tests/browser/design_tokens.py; iterate until WCAG audit is green
 - [x] `03-cyan-class-rename` — Mechanical rename `btn-filled-cyan` / `btn-outlined-cyan` → `*-primary` across components.css, admin.css comments, 10 JS files, and agents.md design-system docs; verify zero hits remain
 - [x] `04-brand-text-sweep` — Apply per-surface brand-text decisions across index.html, app.js topbar, FastAPI title, CLI Rich panel, main.py version print, package docstring, and OAuth callback eyebrow; preserve internal identifiers
-- [ ] `05-snapshot-rebaseline-and-alignment` — `make rebuild`; regenerate 12 visual-snapshot baselines with `UPDATE_SNAPSHOTS=1`; HAT walkthrough across Chat / Studio / Admin in both themes; capture alignment notes and tactical fixes
+- [x] `05-snapshot-rebaseline-and-alignment` — `make rebuild`; regenerated 10 of 12 visual-snapshot baselines (chat-with-messages × 2 blocked by pre-existing seeder bug); HAT walkthrough done; tactical fixes applied: (a) icon source-PNG switched from `gleepglorp_med.png` (full emblem) to `gleepglorp_icon.png` (simpler head-crop, cleaner downscale at favicon sizes); (b) per-tool checkboxes in Studio → agent → MCP tab were rendering as browser defaults (no custom styling) — added scoped CSS in `studio.css` for `.mcp-tools-checkbox-group input[type="checkbox"]` matching the brand purple; (c) stale `.admin-category-item` selector in `test_visual_snapshots.py` updated to `.section-nav-item` (M04/M05 unified the admin sidebar nav class, snapshot test was missed because pixel suite is excluded from default `pytest` runs)
 
 ---
 

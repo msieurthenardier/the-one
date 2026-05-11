@@ -19,6 +19,16 @@ Usage:
     docker exec the-one python /app/scripts/derive_brand_assets.py
     docker exec the-one python /app/scripts/derive_brand_assets.py \\
         --source /app/the_one/interfaces/web/static/brand/gleepglorp_med.png
+
+Source-file evolution:
+    Flight 01 leg 01 originally used `gleepglorp_med.png` (the full circular
+    emblem with baked-in wordmark) as the source. At HAT (leg 05), the
+    operator added `gleepglorp_icon.png` — a simpler head-crop variant that
+    downscales more cleanly at favicon sizes (16x16, 32x32 lose less
+    recognizable detail). Default source switched to `gleepglorp_icon.png`
+    at HAT. The med PNG remains in the brand/ directory as the
+    full-emblem reference; pass it via `--source` to regenerate from the
+    emblem if a future surface needs the wordmark baked into the bitmap.
 """
 
 from __future__ import annotations
@@ -32,7 +42,7 @@ from PIL import Image
 # is /app (Dockerfile), and ./the_one is bind-mounted at /app/the_one (see
 # docker-compose.yml), so these absolute paths resolve correctly under
 # `docker exec the-one ...`.
-DEFAULT_SOURCE = Path("/app/the_one/interfaces/web/static/brand/gleepglorp_med.png")
+DEFAULT_SOURCE = Path("/app/the_one/interfaces/web/static/brand/gleepglorp_icon.png")
 DEFAULT_OUT_DIR = Path("/app/the_one/interfaces/web/static/brand")
 
 # Sized PNG outputs: (target_pixels, filename_template).
