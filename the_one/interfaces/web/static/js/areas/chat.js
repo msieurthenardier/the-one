@@ -376,7 +376,7 @@ App.registerArea({
       btn.dataset.toolCallId = data.tool_call_id || '';
       btn.dataset.resourceMetadataUrl = data.resource_metadata_url || '';
       if (data.consent_url) btn.dataset.consentUrl = data.consent_url;
-      btn.textContent = 'Login required for ' + (data.source_id || '<unknown>');
+      btn.textContent = 'Login required for ' + (data.source_name || data.source_id || '<unknown>');
       btn.addEventListener('click', function () {
         if (App.oauthModal && App.oauthModal.open) {
           App.oauthModal.open({

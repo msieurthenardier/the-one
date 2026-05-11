@@ -174,3 +174,43 @@ def test_session_rejoin_renders_assistant_markdown(app_clean: str, page: Page) -
     rejoined_bubble = page.locator('[data-testid="message"].assistant').last
     # Historical assistant bubble re-renders via markdown (leg-05 default).
     expect(rejoined_bubble.locator("strong")).to_have_text("bold", timeout=8000)
+
+
+@pytest.mark.browser
+def test_streaming_assistant_renders_markdown_table(app_clean: str, page: Page) -> None:
+    """Assistant message containing a GFM table renders as ``<table>`` on done.
+
+    The mock provider streams three chunks that together form a minimal
+    two-column GFM table (header + separator + one data row). After
+    ``finalizeStreamingBubble`` fires on ``done``, the assistant bubble
+    DOM must contain a ``<table>`` with a ``<thead>`` (header cells) and
+    a ``<tbody>`` (data row). The raw pipe characters must no longer appear
+    as visible text — they were consumed by the table parser.
+    """
+    base_url = app_clean
+    provider_id = seed_mock_provider(
+        base_url,
+        config={
+            "stream_chunks": ["| a | b |\n", "| - | - |\n", "| 1 | 2 |"],
+            "delay_ms": 0,
+        },
+    )
+    agent_name = seed_mock_agent(base_url, provider_id)
+
+    page.goto(base_url)
+    page.locator(".chat-welcome-item").filter(has_text=agent_name).click()
+    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
+
+    page.locator('[data-testid="chat-input"]').fill("show me a table")
+    page.locator('[data-testid="chat-send-btn"]').click()
+
+    expect(page.locator('[data-testid="chat-send-btn"]')).to_be_enabled(timeout=10000)
+    bubble = page.locator('[data-testid="message"].assistant').last
+    # GFM table must parse into a <table> element.
+    expect(bubble.locator("table")).to_have_count(1, timeout=5000)
+    # Header cells render as <th>.
+    expect(bubble.locator("th").nth(0)).to_have_text("a")
+    expect(bubble.locator("th").nth(1)).to_have_text("b")
+    # Data cells render as <td>.
+    expect(bubble.locator("td").nth(0)).to_have_text("1")
+    expect(bubble.locator("td").nth(1)).to_have_text("2")
