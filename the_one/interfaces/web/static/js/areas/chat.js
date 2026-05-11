@@ -366,9 +366,86 @@ App.registerArea({
       return String(s).replace(/(["\\])/g, '\\$1');
     }
 
+    // Track per-source consent popups so the WS-delivered consent_url
+    // (which arrives AFTER /api/oauth/start) can navigate the popup that
+    // was opened during the user's click gesture. Opening the popup at
+    // click time (with about:blank as placeholder) preserves the
+    // user-gesture chain — browsers will block window.open() called
+    // later from inside a WS event handler.
+    var oauthPopups = Object.create(null);
+    // Preserve source_name across re-renders. The SECOND auth_required
+    // event (broadcast by the SDK's redirect_handler) carries the real
+    // consent_url but historically lacked source_name; the backend now
+    // includes it, but we keep this map as a defensive cache so a stale
+    // event still renders the friendly name.
+    var sourceNames = Object.create(null);
+
+    function openConsentPopup(url, sourceId) {
+      var popupW = 600;
+      var popupH = 700;
+      var parentX = window.screenX !== undefined ? window.screenX : window.screenLeft;
+      var parentY = window.screenY !== undefined ? window.screenY : window.screenTop;
+      var parentW = window.outerWidth || window.innerWidth || screen.width;
+      var parentH = window.outerHeight || window.innerHeight || screen.height;
+      var popupLeft = parentX + Math.max(0, (parentW - popupW) / 2);
+      var popupTop = parentY + Math.max(0, (parentH - popupH) / 2);
+      var features = (
+        'width=' + popupW + ',height=' + popupH +
+        ',left=' + Math.round(popupLeft) +
+        ',top=' + Math.round(popupTop)
+      );
+      var name = 'mcp-oauth-consent-' + (sourceId || 'unknown');
+      return window.open(url || 'about:blank', name, features);
+    }
+
+    function startLoginFlow(data) {
+      var sourceId = data.source_id;
+      // Open popup synchronously during the click gesture. If consent_url
+      // is already known (idempotent re-emission), navigate the popup
+      // immediately; otherwise open with about:blank and POST
+      // /api/oauth/start, then navigate when the WS event arrives.
+      var popup = openConsentPopup(data.consent_url || 'about:blank', sourceId);
+      if (!popup) {
+        addMsg('system', 'Popup blocked — please allow popups for this site and retry.');
+        return;
+      }
+      oauthPopups[sourceId] = popup;
+      if (data.consent_url) return;
+      fetch('/api/oauth/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          source_id: sourceId,
+          chat_session_id: currentSessionId,
+          tool_call_id: data.tool_call_id,
+          resource_metadata_url: data.resource_metadata_url,
+        }),
+      }).then(function (r) {
+        if (r.ok) return;
+        return r.json().then(function (err) {
+          var detail = (err && err.detail) || 'OAuth start failed';
+          addMsg('system', detail);
+          closeOauthPopup(sourceId);
+        });
+      }).catch(function (e) {
+        addMsg('system', 'Network error: ' + (e && e.message ? e.message : e));
+        closeOauthPopup(sourceId);
+      });
+    }
+
+    function closeOauthPopup(sourceId) {
+      var popup = oauthPopups[sourceId];
+      if (!popup) return;
+      try { if (!popup.closed) popup.close(); } catch (e) { /* ignore */ }
+      delete oauthPopups[sourceId];
+    }
+
     function renderLoginRequiredButton(data) {
       // Drop any prior button for this source first (reconnect idempotency).
       clearLoginRequiredButton(data);
+      if (data.source_id && data.source_name) {
+        sourceNames[data.source_id] = data.source_name;
+      }
       var btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'btn-filled-cyan login-required-btn';
@@ -376,17 +453,13 @@ App.registerArea({
       btn.dataset.toolCallId = data.tool_call_id || '';
       btn.dataset.resourceMetadataUrl = data.resource_metadata_url || '';
       if (data.consent_url) btn.dataset.consentUrl = data.consent_url;
-      btn.textContent = 'Login required for ' + (data.source_name || data.source_id || '<unknown>');
+      var label = data.source_name
+        || (data.source_id && sourceNames[data.source_id])
+        || data.source_id
+        || '<unknown>';
+      btn.textContent = 'Login required for ' + label;
       btn.addEventListener('click', function () {
-        if (App.oauthModal && App.oauthModal.open) {
-          App.oauthModal.open({
-            source_id: data.source_id,
-            chat_session_id: currentSessionId,
-            tool_call_id: data.tool_call_id,
-            resource_metadata_url: data.resource_metadata_url,
-            consent_url: data.consent_url,
-          });
-        }
+        startLoginFlow(data);
       });
       messagesEl.appendChild(btn);
       messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -641,29 +714,39 @@ App.registerArea({
         else if (data.type === 'system') handleSystem(data);
         else if (data.type === 'usage') App.chat.updateTelemetry(content, data);
         else if (data.type === 'auth_required') {
-          // F5 L5: lazy-path → render an inline "Login required for <source_id>"
+          // F5 L5: lazy-path → render an inline "Login required for <source>"
           // button in the chat history. First emission has consent_url=null;
           // a second emission (post /api/oauth/start) carries the real
-          // consent_url, which our re-emitted button click + modal
-          // routing handle. Idempotent: re-rendering after WebSocket
-          // reconnect (see L3 _send_pause_snapshot_if_needed) clears
-          // any prior button before re-creating it.
+          // consent_url. When the second event arrives AND we have a popup
+          // opened from the user's click gesture, navigate it to the
+          // consent_url directly — preserves the gesture chain so the
+          // browser doesn't block the navigation or convert it to a tab.
           hideThinking();
           finalizeStreamingBubble();
+          if (data.consent_url && oauthPopups[data.source_id]) {
+            var p = oauthPopups[data.source_id];
+            try {
+              if (!p.closed) {
+                p.location.href = data.consent_url;
+                p.focus();
+              }
+            } catch (e) { /* cross-origin or closed; ignore */ }
+          }
           renderLoginRequiredButton(data);
         }
         else if (data.type === 'auth_resolved') {
-          // F5 L5: auth completed. Clear inline button, close modal,
+          // F5 L5: auth completed. Clear inline button, close popup,
           // surface a "Resuming…" placeholder until the resumed
-          // tool_result arrives.
+          // tool_result arrives. The callback page's own
+          // window.close() usually fires first; this is a fallback.
           clearLoginRequiredButton(data);
-          if (App.oauthModal && App.oauthModal.close) App.oauthModal.close();
+          closeOauthPopup(data.source_id);
           renderResumingPlaceholder(data);
         }
         else if (data.type === 'auth_failed') {
           // F5 L5: surface the OAuth-flow failure as a system error
-          // notice; close any open modal.
-          if (App.oauthModal && App.oauthModal.close) App.oauthModal.close();
+          // notice; close any open popup for this source.
+          closeOauthPopup(data.source_id);
           var failMsg = 'OAuth failed: ' + (data.description || data.error || 'unknown error');
           addMsg('system', failMsg);
         }

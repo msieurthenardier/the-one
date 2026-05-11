@@ -132,6 +132,10 @@
   .area-chat .msg.assistant td { border: 1px solid var(--border); padding: 6px 12px; text-align: left; vertical-align: top; }
   .area-chat .msg.assistant thead th { background: var(--surface); font-weight: var(--font-weight-semibold); }
   .area-chat .msg.assistant tbody tr:nth-child(even) { background: var(--surface-translucent); }
+  /* MCP OAuth "Login required" button rendered inline in the chat history.
+     The .messages container is a flex column with default align-items:
+     stretch, which would otherwise pull the button to full width. */
+  .area-chat .messages .login-required-btn { align-self: flex-start; }
   /* Two-step delete confirm state on session items lifted to components.css
      in F5 leg 02 as the canonical .list-item.confirm-delete rule. */
   /* Input area — chat input is sized differently from shared .field-input. */

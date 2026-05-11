@@ -112,6 +112,7 @@ def build_oauth_provider_for_source(
         source_id=sid,
         tool_call_id=tool_call_id,
         resource_metadata_url=resource_metadata_url,
+        source_name=source.name,
         consent_url_future=consent_url_future,
     )
     storage = MCPSourceTokenStorage(repo, source.id)
