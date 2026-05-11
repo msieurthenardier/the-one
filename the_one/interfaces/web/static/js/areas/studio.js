@@ -1359,7 +1359,26 @@ App.registerArea({
           }
           if (isInput) {
             if (datalistEl) datalistEl.innerHTML = optsHtml;
-            if (currentVal) selectEl.value = currentVal;
+            // Clear a preserved value when it isn't a model the new
+            // provider offers. With <input>+<datalist> the field looks
+            // like a free-form text input, so a stale value from a
+            // prior provider type silently masquerades as a valid
+            // choice — and the browser's datalist filter (input value
+            // → matching options only) makes the dropdown look empty.
+            // Force a re-pick instead of leaving a non-matching
+            // string. The <select> branch below handles this with a
+            // visible "(custom)" option; the input has no equivalent
+            // visual cue, so clearing is the safer default.
+            if (currentVal) {
+              var inList = false;
+              for (var k = 0; k < models.length; k++) {
+                if ((models[k].id || models[k].name) === currentVal) {
+                  inList = true;
+                  break;
+                }
+              }
+              selectEl.value = inList ? currentVal : '';
+            }
           } else {
             selectEl.innerHTML = optsHtml;
             if (currentVal && !selectEl.querySelector('option[value="' + CSS.escape(currentVal) + '"]')) {
