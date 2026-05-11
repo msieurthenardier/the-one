@@ -8,7 +8,7 @@ import aiosqlite
 
 from the_one.db._provider_types import PROVIDER_TYPES
 
-CURRENT_VERSION = 11
+CURRENT_VERSION = 12
 
 # Render the provider-type CHECK constraint as a comma-separated SQL
 # literal list, sourced from PROVIDER_TYPES. Both SCHEMA_V1 (fresh-DB
@@ -410,13 +410,33 @@ INSERT INTO mcp_sources_new (id, name, type, config, secrets, created_at, update
         version = 10
 
     if version < 11:
+        # Add `mcp_overrides` JSON column to `agents` for per-agent MCP
+        # source override dispatch (mission 07 flight 06 leg 01 design).
+        # Mirrors the v8 ALTER pattern for `tool_overrides` — TEXT column,
+        # nullable, NO `DEFAULT NULL` clause (the explicit clause would
+        # surface in PRAGMA table_info as the literal string "NULL"
+        # rather than Python None — see v8 comment block).
+        #
+        # Idempotency: PRAGMA-check the column presence so a re-run after
+        # partial-apply is a no-op. `INSERT OR IGNORE` on schema_version
+        # LAST, mirroring the v8/v9/v10 pattern.
+        async with conn.execute("PRAGMA table_info(agents)") as cursor:
+            existing_cols = {row[1] for row in await cursor.fetchall()}
+        if "mcp_overrides" not in existing_cols:
+            await conn.execute("ALTER TABLE agents ADD COLUMN mcp_overrides TEXT")
+
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (11,))
+        await conn.commit()
+        version = 11
+
+    if version < 12:
         # Extend llm_providers.type CHECK constraint to allow 'openrouter'.
         # SQLite has no `ALTER TABLE DROP CONSTRAINT`, so rebuild the table
         # following the v6 pattern (which added 'mock'). FK enforcement is
         # ON at connection-time (connection.py:20) and `agents.provider_config_id`
         # references this table — the OFF/ON bracket prevents the DROP from
         # tripping referential integrity. INSERT OR IGNORE INTO schema_version
-        # is LAST so a partial-apply leaves version=10 and the next call retries
+        # is LAST so a partial-apply leaves version=11 and the next call retries
         # cleanly.
         #
         # ``executescript`` (vs the v9/v10 individual-execute pattern documented
@@ -452,6 +472,6 @@ ALTER TABLE llm_providers_new RENAME TO llm_providers;
 
 PRAGMA foreign_keys=ON;
 """)
-        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (11,))
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (12,))
         await conn.commit()
-        version = 11
+        version = 12

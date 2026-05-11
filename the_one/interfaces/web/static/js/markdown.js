@@ -4,7 +4,7 @@
  *
  *   App.markdown.parse(text)  -> { type: 'document', children: Node[] }
  *   App.markdown.render(text) -> DocumentFragment
- *   App.markdown.NodeType     -> frozen object with all 14 node-type string constants
+ *   App.markdown.NodeType     -> frozen object with all 18 node-type string constants
  *
  * AST node shape:
  *   { type: NodeType_value, children?: Node[], value?: string, meta?: object }
@@ -16,11 +16,14 @@
  *   (`---` / `***`), emphasis (`*` / `_`), strong (`**` / `__`),
  *   inline code (backtick), links (`[text](url)`; URLs may contain
  *   balanced parens, e.g. Wikipedia citations), soft breaks (single
- *   `\n`), hard breaks (trailing TWO spaces + `\n`).
+ *   `\n`), hard breaks (trailing TWO spaces + `\n`),
+ *   GFM-style pipe tables (header row + `| --- |` separator + data rows;
+ *   optional leading/trailing pipe; per-cell inline markup).
  *
  * Out of subset (v1 non-goals):
- *   tables, footnotes, definition lists, autolinks (bare URLs),
- *   reference-style links, HTML passthrough, recursive nested emphasis.
+ *   column alignment (`:---`, `---:`, `:---:`), footnotes, definition
+ *   lists, autolinks (bare URLs), reference-style links, HTML passthrough,
+ *   recursive nested emphasis.
  *
  * XSS guarantee:
  *   The renderer constructs DOM via `document.createElement` +
@@ -62,6 +65,10 @@
     LIST: 'list',
     LIST_ITEM: 'listItem',
     HORIZONTAL_RULE: 'horizontalRule',
+    TABLE: 'table',
+    TABLE_HEAD: 'tableHead',
+    TABLE_ROW: 'tableRow',
+    TABLE_CELL: 'tableCell',
     TEXT: 'text',
     EMPHASIS: 'emphasis',
     STRONG: 'strong',
@@ -75,6 +82,20 @@
 
   function isBlankLine(line) {
     return /^\s*$/.test(line);
+  }
+
+  // Split a GFM table row on pipe characters, stripping leading/trailing
+  // pipes and trimming each cell. Returns an array of raw cell strings.
+  function splitTableRow(line) {
+    var s = line.trim();
+    if (s.charAt(0) === '|') s = s.slice(1);
+    if (s.charAt(s.length - 1) === '|') s = s.slice(0, s.length - 1);
+    return s.split('|').map(function (c) { return c.trim(); });
+  }
+
+  // Returns true iff `line` is a GFM separator row (only |, -, :, space).
+  function isTableSeparator(line) {
+    return /^\|?[\s]*:?-{1,}:?[\s]*(\|[\s]*:?-{1,}:?[\s]*)*\|?$/.test(line.trim());
   }
 
   function safeHref(href) {
@@ -164,6 +185,30 @@
         continue;
       }
 
+      // GFM table: header row | separator row | data rows.
+      // Requires at least one pipe in the header line and a valid separator
+      // on the NEXT line. We peek ahead one line before committing.
+      if (line.indexOf('|') !== -1 && i + 1 < endIdx && isTableSeparator(lines[i + 1])) {
+        var headerCells = splitTableRow(line);
+        i += 2; // skip header + separator
+        var headChildren = [];
+        for (var hc = 0; hc < headerCells.length; hc++) {
+          headChildren.push({ type: NodeType.TABLE_CELL, children: parseInline(headerCells[hc]) });
+        }
+        var tableRows = [{ type: NodeType.TABLE_HEAD, children: headChildren }];
+        while (i < endIdx && !isBlankLine(lines[i]) && lines[i].indexOf('|') !== -1) {
+          var dataCells = splitTableRow(lines[i]);
+          var rowChildren = [];
+          for (var dc = 0; dc < dataCells.length; dc++) {
+            rowChildren.push({ type: NodeType.TABLE_CELL, children: parseInline(dataCells[dc]) });
+          }
+          tableRows.push({ type: NodeType.TABLE_ROW, children: rowChildren });
+          i++;
+        }
+        nodes.push({ type: NodeType.TABLE, children: tableRows });
+        continue;
+      }
+
       // Default: paragraph — consume consecutive non-blank, non-block-start lines.
       var paraLines = [line];
       i++;
@@ -176,6 +221,8 @@
         if (/^\s*(-{3,}|\*{3,})\s*$/.test(nl)) break;
         if (/^\s*>/.test(nl)) break;
         if (/^(\s*)([-*+]|\d+\.)\s+/.test(nl)) break;
+        // Table header line followed by separator terminates paragraph.
+        if (nl.indexOf('|') !== -1 && i + 1 < endIdx && isTableSeparator(lines[i + 1])) break;
         paraLines.push(nl);
         i++;
       }
@@ -624,6 +671,38 @@
 
         case NodeType.HORIZONTAL_RULE:
           parent.appendChild(document.createElement('hr'));
+          break;
+
+        case NodeType.TABLE:
+          el = document.createElement('table');
+          // First child is always TABLE_HEAD; rest are TABLE_ROW.
+          var kids = node.children || [];
+          if (kids.length > 0 && kids[0].type === NodeType.TABLE_HEAD) {
+            var thead = document.createElement('thead');
+            var headerRow = document.createElement('tr');
+            var headCells = kids[0].children || [];
+            for (var hIdx = 0; hIdx < headCells.length; hIdx++) {
+              var th = document.createElement('th');
+              renderNodes(headCells[hIdx].children || [], th);
+              headerRow.appendChild(th);
+            }
+            thead.appendChild(headerRow);
+            el.appendChild(thead);
+          }
+          var tbody = document.createElement('tbody');
+          for (var rIdx = 1; rIdx < kids.length; rIdx++) {
+            if (kids[rIdx].type !== NodeType.TABLE_ROW) continue;
+            var tr = document.createElement('tr');
+            var rowCells = kids[rIdx].children || [];
+            for (var cIdx = 0; cIdx < rowCells.length; cIdx++) {
+              var td = document.createElement('td');
+              renderNodes(rowCells[cIdx].children || [], td);
+              tr.appendChild(td);
+            }
+            tbody.appendChild(tr);
+          }
+          el.appendChild(tbody);
+          parent.appendChild(el);
           break;
 
         case NodeType.TEXT:

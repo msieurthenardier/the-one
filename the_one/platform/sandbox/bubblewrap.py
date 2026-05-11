@@ -38,9 +38,9 @@ class BubblewrapSandbox:
         ``[--unshare-ipc]``, ``[--unshare-uts]``, ``[--unshare-net]``,
         ``--clearenv``, ``--setenv KEY VALUE`` per assembled-env entry
         (sorted by key for test determinism), ``--ro-bind / /``,
-        ``--bind PATH PATH`` per ``profile.writable_paths`` entry,
-        ``--proc /proc``, ``--dev /dev``, ``--tmpfs /tmp``,
-        ``[--chdir cwd]``, ``--``, ``command``, ``*args``.
+        ``--tmpfs /tmp``, ``--bind PATH PATH`` per
+        ``profile.writable_paths`` entry, ``--proc /proc``,
+        ``--dev /dev``, ``[--chdir cwd]``, ``--``, ``command``, ``*args``.
 
     HOME is unconditionally overridden to ``/tmp`` (sandbox policy, not
     operator-configurable). Operator-supplied HOME values are silently
@@ -77,8 +77,9 @@ class BubblewrapSandbox:
             ``--die-with-parent``, ``--unshare-user``, ``[--unshare-pid]``,
             ``[--unshare-ipc]``, ``[--unshare-uts]``, ``[--unshare-net]``,
             ``--clearenv``, ``--setenv KEY VALUE`` per assembled-env entry,
-            ``--ro-bind / /``, ``--bind PATH PATH`` per writable_paths entry,
-            ``--proc /proc``, ``--dev /dev``, ``--tmpfs /tmp``,
+            ``--ro-bind / /``, ``--tmpfs /tmp``,
+            ``--bind PATH PATH`` per writable_paths entry,
+            ``--proc /proc``, ``--dev /dev``,
             ``[--chdir cwd]``, ``--``, ``command``, ``*args``.
 
         HOME is unconditionally overridden to ``/tmp`` (sandbox policy).
@@ -105,11 +106,15 @@ class BubblewrapSandbox:
         for key in sorted(assembled_env):
             bwrap_args.extend(["--setenv", key, assembled_env[key]])
         bwrap_args.extend(["--ro-bind", "/", "/"])
+        # --tmpfs /tmp BEFORE the --bind loop so writable_paths under /tmp
+        # actually persist (the tmpfs lays /tmp first; the --bind layers on
+        # top). Pre-A03 ordering had --tmpfs after --bind, silently shadowing
+        # operator-configured writable paths under /tmp. See F3 anomaly A03.
+        bwrap_args.extend(["--tmpfs", "/tmp"])
         for path in profile.writable_paths:
             bwrap_args.extend(["--bind", path, path])
         bwrap_args.extend(["--proc", "/proc"])
         bwrap_args.extend(["--dev", "/dev"])
-        bwrap_args.extend(["--tmpfs", "/tmp"])
         if cwd is not None:
             bwrap_args.extend(["--chdir", cwd])
         bwrap_args.append("--")

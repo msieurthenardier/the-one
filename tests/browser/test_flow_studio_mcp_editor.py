@@ -23,6 +23,7 @@ Covers:
 
 from __future__ import annotations
 
+import json
 import re
 
 import httpx
@@ -61,6 +62,10 @@ def test_create_stdio_source(app_clean: str, page: Page) -> None:
 
     page.locator('[data-field="name"]').fill("github-mcp")
     page.locator('[data-field="type"]').select_option("stdio")
+    # F9 L2 vibing: command is now a dropdown with `uvx` selected by
+    # default. Switch to Custom… and fill the legacy free-text input so
+    # this test continues to exercise the Custom-escape save path.
+    page.locator('[data-field="command-runtime"]').select_option("__custom__")
     page.locator('[data-field="command"]').fill("github-mcp")
 
     save_btn = page.locator('[data-testid="save-mcp-source-btn"]')
@@ -74,50 +79,6 @@ def test_create_stdio_source(app_clean: str, page: Page) -> None:
     page.locator('[data-testid="back-mcp-source-btn"]').click()
     expect(page.locator(".area-studio .page-title")).to_have_text("MCP Servers", timeout=5000)
     expect(page.locator('[data-testid="mcp-source-card"]', has_text="github-mcp")).to_be_visible()
-
-
-@pytest.mark.browser
-def test_create_streamable_http_source_with_oauth(app_clean: str, page: Page) -> None:
-    """Create streamable-http with OAuth, edit, verify all OAuth fields round-trip."""
-    page.goto(f"{app_clean}#studio/mcp-sources/new")
-    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
-
-    page.locator('[data-field="name"]').fill("remote-mcp")
-    page.locator('[data-field="type"]').select_option("streamable-http")
-    page.locator('[data-field="url"]').fill("https://example.com/mcp")
-
-    # OAuth fields
-    page.locator('[data-field="oauth-issuer-url"]').fill("https://auth.example.com")
-    page.locator('[data-field="oauth-client-id"]').fill("client-abc")
-    page.locator('[data-field="oauth-redirect-uri"]').fill("http://127.0.0.1:53682/callback")
-    page.locator('[data-field="oauth-client-secret"]').fill("super-secret-value")
-
-    # OAuth scopes chip-list — type Enter to add a chip
-    scope_input = page.locator('[data-field="oauth-scopes"].chip-list-editor .chip-list-input')
-    scope_input.fill("read")
-    scope_input.press("Enter")
-    scope_input.fill("write")
-    scope_input.press("Enter")
-
-    save_btn = page.locator('[data-testid="save-mcp-source-btn"]')
-    expect(save_btn).not_to_be_disabled()
-    save_btn.click()
-    expect(page.locator(".editor-section.danger-zone")).to_be_visible(timeout=8000)
-
-    # Verify via API: OAuth fields stored, client_secret encrypted (masked tail).
-    sources = _list_sources(app_clean)
-    assert len(sources) == 1
-    src = sources[0]
-    assert src["name"] == "remote-mcp"
-    assert src["type"] == "streamable-http"
-    assert src["config"]["url"] == "https://example.com/mcp"
-    oauth = src["config"]["oauth"]
-    assert oauth["issuer_url"] == "https://auth.example.com"
-    assert oauth["client_id"] == "client-abc"
-    assert oauth["redirect_uri"] == "http://127.0.0.1:53682/callback"
-    assert set(oauth["scopes"]) == {"read", "write"}
-    # client_secret was 18 chars → masked tail "***...alue".
-    assert src["secrets"]["oauth_client_secret"] == "***...alue"
 
 
 @pytest.mark.browser
@@ -256,7 +217,7 @@ def test_dirty_back_confirm_dialog(app_clean: str, page: Page) -> None:
 @pytest.mark.browser
 def test_type_change_swaps_field_visibility(app_clean: str, page: Page) -> None:
     """Switch type stdio→streamable-http: command hidden, url visible,
-    kv-label changes, OAuth section reveals."""
+    kv-label changes."""
     page.goto(f"{app_clean}#studio/mcp-sources/new")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
@@ -265,14 +226,12 @@ def test_type_change_swaps_field_visibility(app_clean: str, page: Page) -> None:
     expect(page.locator('.mcp-stdio-only').first).not_to_have_class(re.compile(r"\bis-hidden\b"))
     expect(page.locator('.mcp-streamable-http-only').first).to_have_class(re.compile(r"\bis-hidden\b"))
     expect(page.locator('.kv-section-title')).to_have_text("Environment Variables")
-    expect(page.locator('[data-testid="mcp-oauth-section"]')).to_have_class(re.compile(r"\bis-hidden\b"))
 
     # Switch to streamable-http
     page.locator('[data-field="type"]').select_option("streamable-http")
     expect(page.locator('.mcp-stdio-only').first).to_have_class(re.compile(r"\bis-hidden\b"))
     expect(page.locator('.mcp-streamable-http-only').first).not_to_have_class(re.compile(r"\bis-hidden\b"))
     expect(page.locator('.kv-section-title')).to_have_text("Custom Headers")
-    expect(page.locator('[data-testid="mcp-oauth-section"]')).not_to_have_class(re.compile(r"\bis-hidden\b"))
 
 
 @pytest.mark.browser
@@ -284,7 +243,7 @@ def test_save_with_empty_kv_key_row_silently_skips(app_clean: str, page: Page) -
 
     page.locator('[data-field="name"]').fill("test-skip-empty")
     page.locator('[data-field="type"]').select_option("stdio")
-    page.locator('[data-field="command"]').fill("x")
+    # F9 L2 vibing: dropdown defaults to `uvx`; no explicit command needed.
 
     # Add two empty rows.
     add_btn = page.locator('[data-testid="kv-add-row-btn"]')
@@ -363,7 +322,7 @@ def test_sandbox_save_round_trip(app_clean: str, page: Page) -> None:
 
     page.locator('[data-field="name"]').fill("sandbox-stdio")
     page.locator('[data-field="type"]').select_option("stdio")
-    page.locator('[data-field="command"]').fill("x")
+    # F9 L2 vibing: dropdown defaults to `uvx`; no explicit command needed.
 
     # Toggle network_allowed checkbox (use check() to be explicit).
     page.locator('[data-field="sandbox-network-allowed"]').check()
@@ -411,25 +370,37 @@ def test_sandbox_edit_round_trip_populates_fields(app_clean: str, page: Page) ->
 
 @pytest.mark.browser
 def test_sandbox_empty_defaults_for_new_stdio_source(app_clean: str, page: Page) -> None:
-    """New stdio source: checkbox unchecked + chip-list empty."""
+    """New stdio source: checkbox checked (network-on by default) + chip-list empty.
+
+    F9 L2 vibing: the lazy-install runtimes shipped in L2 D2 (uvx, npx,
+    pipx run) all REQUIRE network egress on first spawn to fetch packages
+    from PyPI/npm. Defaulting `network_allowed=False` was a footgun — a
+    fresh stdio source's first Refresh would fail. The form-default flips
+    to `True` for new sources only; existing sources preserve their
+    stored value.
+    """
     page.goto(f"{app_clean}#studio/mcp-sources/new")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     page.locator('[data-field="type"]').select_option("stdio")
-    expect(page.locator('[data-field="sandbox-network-allowed"]')).not_to_be_checked()
+    expect(page.locator('[data-field="sandbox-network-allowed"]')).to_be_checked()
     chips = page.locator('[data-field="sandbox-writable-paths"].chip-list-editor .chip')
     expect(chips).to_have_count(0)
 
 
 @pytest.mark.browser
 def test_sandbox_save_emits_explicit_defaults(app_clean: str, page: Page) -> None:
-    """New stdio source saved without touching Sandbox section emits explicit defaults."""
+    """New stdio source saved without touching Sandbox section emits explicit defaults.
+
+    F9 L2 vibing: form-default for new sources is ``network_allowed=True``
+    so lazy-install runtimes can fetch their packages on first spawn.
+    """
     page.goto(f"{app_clean}#studio/mcp-sources/new")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     page.locator('[data-field="name"]').fill("default-sandbox")
     page.locator('[data-field="type"]').select_option("stdio")
-    page.locator('[data-field="command"]').fill("x")
+    # F9 L2 vibing: dropdown defaults to `uvx`; no explicit command needed.
     # Do NOT touch the Sandbox section.
 
     page.locator('[data-testid="save-mcp-source-btn"]').click()
@@ -438,8 +409,10 @@ def test_sandbox_save_emits_explicit_defaults(app_clean: str, page: Page) -> Non
     sources = _list_sources(app_clean)
     assert len(sources) == 1
     sandbox_cfg = sources[0]["config"].get("sandbox")
-    # Explicit defaults emitted (NOT omitted) — matches L1b validator contract.
-    assert sandbox_cfg == {"network_allowed": False, "writable_paths": []}
+    # Explicit defaults emitted (NOT omitted) — matches L1b validator
+    # contract. ``network_allowed`` defaults to True for new sources
+    # (F9 L2 vibing default flip); ``writable_paths`` stays empty.
+    assert sandbox_cfg == {"network_allowed": True, "writable_paths": []}
 
 
 @pytest.mark.browser
@@ -552,3 +525,1059 @@ def test_sandbox_cancel_revert_restores_state(app_clean: str, page: Page) -> Non
     restored_chips = page.locator('[data-field="sandbox-writable-paths"].chip-list-editor .chip')
     expect(restored_chips).to_have_count(1)
     expect(restored_chips.first).to_contain_text("/x")
+
+
+# ── F9 L1: KV-table polish (empty-state thead hide + studio toggle/trash) ──
+
+
+@pytest.mark.browser
+def test_kv_thead_hidden_when_table_is_empty(app_clean: str, page: Page) -> None:
+    """Empty kv-table → thead has `is-hidden` class (column headers not rendered).
+
+    Newly-created streamable-http source with no headers/secrets should land in
+    edit-mode with zero kv-rows; the column headers (Key/Value/Sensitive) must
+    NOT be visible in this empty state.
+    """
+    sid = _seed_mcp_source(app_clean, {
+        "name": "empty-kv",
+        "type": "streamable-http",
+        "config": {"url": "https://example.com/mcp"},
+        "secrets": {},
+    })
+
+    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+
+    rows = page.locator(".mcp-kv-table tbody tr.mcp-kv-row")
+    expect(rows).to_have_count(0)
+    thead = page.locator('[data-testid="mcp-kv-thead"]')
+    expect(thead).to_have_class(re.compile(r"\bis-hidden\b"))
+
+
+@pytest.mark.browser
+def test_kv_thead_reveals_when_first_row_added(app_clean: str, page: Page) -> None:
+    """Adding the first kv row reveals the thead; removing it hides it again."""
+    sid = _seed_mcp_source(app_clean, {
+        "name": "reveal-thead",
+        "type": "streamable-http",
+        "config": {"url": "https://example.com/mcp"},
+        "secrets": {},
+    })
+
+    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+
+    thead = page.locator('[data-testid="mcp-kv-thead"]')
+    expect(thead).to_have_class(re.compile(r"\bis-hidden\b"))
+
+    # Add a row → thead loses is-hidden.
+    page.locator('[data-testid="kv-add-row-btn"]').click()
+    expect(page.locator(".mcp-kv-table tbody tr.mcp-kv-row")).to_have_count(1)
+    expect(thead).not_to_have_class(re.compile(r"\bis-hidden\b"))
+
+    # Remove the row → thead returns to is-hidden.
+    page.locator(".mcp-kv-table tbody tr.mcp-kv-row .kv-remove-row-btn").click()
+    expect(page.locator(".mcp-kv-table tbody tr.mcp-kv-row")).to_have_count(0)
+    expect(thead).to_have_class(re.compile(r"\bis-hidden\b"))
+
+
+@pytest.mark.browser
+def test_kv_sensitive_header_carries_info_icon_with_tooltip(
+    app_clean: str, page: Page
+) -> None:
+    """The Sensitive column header has an info-icon button with the
+    encrypted-at-rest tooltip in its title attr (a11y mirror in aria-label).
+    """
+    sid = _seed_mcp_source(app_clean, {
+        "name": "info-icon-source",
+        "type": "streamable-http",
+        "config": {"url": "https://example.com/mcp"},
+        "secrets": {"X-Api-Key": "abc1234567"},
+    })
+
+    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+
+    info_btn = page.locator('[data-testid="mcp-kv-sensitive-info"]')
+    expect(info_btn).to_be_visible()
+    title = info_btn.get_attribute("title") or ""
+    assert "encrypted at rest" in title.lower(), title
+
+
+@pytest.mark.browser
+def test_kv_remove_row_uses_trash_icon(app_clean: str, page: Page) -> None:
+    """Per-row remove control renders the trash icon (Lucide trash glyph),
+    not a text button or close-x icon. The `kv-remove-row-btn` class is
+    preserved as the click target."""
+    sid = _seed_mcp_source(app_clean, {
+        "name": "trash-icon-source",
+        "type": "streamable-http",
+        "config": {"url": "https://example.com/mcp", "headers": {"X-Plain": "v"}},
+        "secrets": {},
+    })
+
+    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+
+    remove_btn = page.locator(".mcp-kv-table tbody tr.mcp-kv-row .kv-remove-row-btn").first
+    expect(remove_btn).to_be_visible()
+    # Trash icon SVG is rendered inside the button (no text content).
+    expect(remove_btn.locator("svg")).to_be_visible()
+
+
+@pytest.mark.browser
+def test_kv_sensitive_toggle_reuses_studio_switch_pattern(
+    app_clean: str, page: Page
+) -> None:
+    """The per-row Sensitive control is the studio iOS-style toggle
+    (`tool-enable-switch` + track), not a bare checkbox. Clicking the
+    track flips the underlying input.checked state."""
+    sid = _seed_mcp_source(app_clean, {
+        "name": "toggle-sensitive-source",
+        "type": "streamable-http",
+        "config": {"url": "https://example.com/mcp", "headers": {"X-Plain": "v"}},
+        "secrets": {},
+    })
+
+    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+
+    row = page.locator(".mcp-kv-table tbody tr.mcp-kv-row").first
+    sensitive_label = row.locator(".mcp-kv-sensitive-switch")
+    expect(sensitive_label).to_be_visible()
+    # Track element exists (CSS-rendered toggle thumb relies on it).
+    expect(sensitive_label.locator(".tool-enable-switch-track")).to_be_visible()
+
+    checkbox = row.locator("input.kv-sensitive-checkbox")
+    expect(checkbox).not_to_be_checked()
+    # Click the visible label/track to toggle (the input itself is opacity:0).
+    sensitive_label.click()
+    expect(checkbox).to_be_checked()
+
+
+@pytest.mark.browser
+def test_custom_headers_section_lands_below_tools_section(
+    app_clean: str, page: Page
+) -> None:
+    """For streamable-http sources, the Custom Headers section appears
+    BELOW the Tools section in DOM order (F9 L1 reorder). The section
+    title text is the `kv-section-title` "Custom Headers"."""
+    sid = _seed_mcp_source(app_clean, {
+        "name": "section-order-source",
+        "type": "streamable-http",
+        "config": {"url": "https://example.com/mcp"},
+        "secrets": {},
+    })
+
+    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+
+    # Both section titles must exist; Tools must precede Custom Headers in
+    # document order.
+    tools_title = page.locator(".editor-section.mcp-tools-section .section-title")
+    headers_title = page.locator(".kv-section-title")
+    expect(tools_title).to_have_text("Tools")
+    expect(headers_title).to_have_text("Custom Headers")
+
+    # DOM-order check via JS: Node.compareDocumentPosition returns 4
+    # (FOLLOWING) when `tools` is followed by `headers` in document order.
+    same_order = page.evaluate(
+        "() => {"
+        "  var t = document.querySelector('.editor-section.mcp-tools-section .section-title');"
+        "  var h = document.querySelector('.kv-section-title');"
+        "  if (!t || !h) return false;"
+        "  return !!(t.compareDocumentPosition(h) & Node.DOCUMENT_POSITION_FOLLOWING);"
+        "}"
+    )
+    assert same_order, "Custom Headers section must come after Tools section in DOM order"
+
+
+# ── F9 L1 (vibing): persisted tools cache + Reset connection button ───────
+
+
+@pytest.mark.browser
+def test_cached_tools_render_on_initial_mount(app_clean: str, page: Page) -> None:
+    """A streamable-http source with config._cache populated renders the
+    Tools section pre-populated WITHOUT clicking Refresh, plus a "Last
+    updated" relative-time line.
+
+    Seed via the API including a `_cache` block (POST does not strip it).
+    """
+    sid = _seed_mcp_source(app_clean, {
+        "name": "cached-source",
+        "type": "streamable-http",
+        "config": {
+            "url": "https://example.com/mcp",
+            "_cache": {
+                "tools": [
+                    {"name": "echo", "description": "echo back", "input_schema": {}},
+                    {"name": "shout", "description": "shout it", "input_schema": {}},
+                ],
+                "capabilities": {
+                    "tools": {},
+                    "resources": None,
+                    "prompts": None,
+                    "logging": None,
+                    "completions": None,
+                    "tasks": None,
+                },
+                # 30 seconds in the past → "just now" (diffSec < 60).
+                "last_updated": __import__("time").time() - 30,
+            },
+        },
+        "secrets": {},
+    })
+
+    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+
+    # Tools list rendered without clicking Refresh.
+    tool_items = page.locator('[data-testid="mcp-tools-list"] .mcp-tool-item')
+    expect(tool_items).to_have_count(2)
+    expect(page.locator('[data-testid="mcp-test-status"]')).to_contain_text(
+        "Server exposes"
+    )
+
+    # "Last updated" line visible with relative-time format.
+    last_updated = page.locator('[data-testid="mcp-tools-last-updated"]')
+    expect(last_updated).to_be_visible()
+    expect(last_updated).to_contain_text("Last updated:")
+    # F9 L1 (vibing polish): the label lives inside the connection-actions
+    # row (next to Refresh/Reset), not above the Tools list. Locking that
+    # placement here so future re-renders keep it associated with the
+    # controls that drive its value.
+    nested = page.locator('.mcp-connection-actions [data-testid="mcp-tools-last-updated"]')
+    expect(nested).to_have_count(1)
+
+
+@pytest.mark.browser
+def test_last_updated_renders_relative_time_format(app_clean: str, page: Page) -> None:
+    """The "Last updated" line uses coarse relative-time strings (just now,
+    N minutes ago, N hours ago) — not absolute timestamps."""
+    sid = _seed_mcp_source(app_clean, {
+        "name": "relative-time-source",
+        "type": "streamable-http",
+        "config": {
+            "url": "https://example.com/mcp",
+            "_cache": {
+                "tools": [{"name": "t", "description": "", "input_schema": {}}],
+                "capabilities": {"tools": {}},
+                # 7 minutes ago.
+                "last_updated": __import__("time").time() - 7 * 60,
+            },
+        },
+        "secrets": {},
+    })
+
+    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+
+    last_updated = page.locator('[data-testid="mcp-tools-last-updated"]')
+    expect(last_updated).to_be_visible()
+    text = last_updated.inner_text()
+    # Coarse format: "Last updated: 7 minutes ago" (or similar).
+    assert "Last updated:" in text
+    assert "minute" in text or "minutes" in text, text
+
+
+@pytest.mark.browser
+def test_reset_button_hidden_for_stdio_source(app_clean: str, page: Page) -> None:
+    """stdio sources never show the Reset connection button (no OAuth concept)."""
+    sid = _seed_mcp_source(app_clean, {
+        "name": "stdio-source",
+        "type": "stdio",
+        "config": {"command": "x"},
+        "secrets": {},
+    })
+    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    expect(page.locator('[data-testid="delete-mcp-source-btn"]')).to_be_visible(timeout=8000)
+    expect(page.locator('[data-testid="reset-mcp-connection-btn"]')).to_have_count(0)
+
+
+@pytest.mark.browser
+def test_reset_button_hidden_for_streamable_http_without_oauth(
+    app_clean: str, page: Page
+) -> None:
+    """A streamable-http source with no OAuth state shows Delete but not Reset."""
+    sid = _seed_mcp_source(app_clean, {
+        "name": "no-oauth",
+        "type": "streamable-http",
+        "config": {"url": "https://example.com/mcp"},
+        "secrets": {},
+    })
+    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    expect(page.locator('[data-testid="delete-mcp-source-btn"]')).to_be_visible(timeout=8000)
+    expect(page.locator('[data-testid="reset-mcp-connection-btn"]')).to_have_count(0)
+
+
+@pytest.mark.browser
+def test_reset_button_visible_for_streamable_http_with_oauth(
+    app_clean: str, page: Page
+) -> None:
+    """A streamable-http source with OAuth state (access_token + dcr_credentials
+    persisted) shows the Reset connection button alongside Delete."""
+    sid = _seed_mcp_source(app_clean, {
+        "name": "with-oauth",
+        "type": "streamable-http",
+        "config": {"url": "https://example.com/mcp"},
+        "secrets": {
+            "access_token": "tok",
+            "dcr_credentials": {"client_id": "cid"},
+        },
+    })
+    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    expect(page.locator('[data-testid="delete-mcp-source-btn"]')).to_be_visible(timeout=8000)
+    expect(page.locator('[data-testid="reset-mcp-connection-btn"]')).to_be_visible(timeout=8000)
+
+
+@pytest.mark.browser
+def test_reset_button_two_step_confirmation(app_clean: str, page: Page) -> None:
+    """First click on Reset arms the confirm-delete state (label flips,
+    `confirm-delete` class is added); second click commits the DELETE
+    and re-renders the editor with the Tools section back to empty-state
+    and the Reset button hidden."""
+    sid = _seed_mcp_source(app_clean, {
+        "name": "reset-two-step",
+        "type": "streamable-http",
+        "config": {
+            "url": "https://example.com/mcp",
+            "_cache": {
+                "tools": [{"name": "t", "description": "", "input_schema": {}}],
+                "capabilities": {"tools": {}},
+                "last_updated": __import__("time").time() - 30,
+            },
+        },
+        "secrets": {
+            "access_token": "tok",
+            "dcr_credentials": {"client_id": "cid"},
+        },
+    })
+    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    reset_btn = page.locator('[data-testid="reset-mcp-connection-btn"]')
+    expect(reset_btn).to_be_visible(timeout=8000)
+
+    # Pre-click: cached tools render.
+    expect(page.locator('[data-testid="mcp-tools-list"] .mcp-tool-item')).to_have_count(1)
+
+    # First click arms.
+    reset_btn.click()
+    expect(reset_btn).to_have_text(re.compile(r"Confirm Reset\?", re.IGNORECASE))
+    expect(reset_btn).to_have_class(re.compile(r"\bconfirm-delete\b"))
+
+    # Second click commits.
+    reset_btn.click()
+
+    # After re-render: Reset button is gone (no more OAuth state) and the
+    # Tools section collapsed to its empty-state placeholder.
+    expect(page.locator('[data-testid="reset-mcp-connection-btn"]')).to_have_count(0, timeout=5000)
+    expect(page.locator('[data-testid="mcp-test-status"]')).to_contain_text(
+        "Click", timeout=5000
+    )
+    expect(page.locator('[data-testid="mcp-tools-list"]')).to_be_hidden()
+
+
+# ── F9 L1 (vibing follow-up): Reset button placement + post-OAuth visibility +
+#                              auto-run-on-create ─────────────────────────
+
+
+@pytest.mark.browser
+def test_reset_button_renders_in_connection_block_not_danger_zone(
+    app_clean: str, page: Page
+) -> None:
+    """The Reset connection button is rendered next to Refresh in the
+    Connection block (paired secondary action), NOT inside the Danger Zone.
+    Reset is a reversible operation (just re-OAuth) and doesn't belong
+    among destructive actions.
+
+    Asserted invariants:
+    - Reset button is a descendant of `.mcp-connection-actions` (the
+      flex group that pairs it with Refresh).
+    - Reset button is NOT a descendant of `.editor-section.danger-zone`.
+    - Refresh button precedes Reset button in document order (visual
+      hierarchy: primary → secondary).
+    """
+    sid = _seed_mcp_source(app_clean, {
+        "name": "reset-placement",
+        "type": "streamable-http",
+        "config": {"url": "https://example.com/mcp"},
+        "secrets": {
+            "access_token": "tok",
+            "dcr_credentials": {"client_id": "cid"},
+        },
+    })
+    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    expect(page.locator('[data-testid="reset-mcp-connection-btn"]')).to_be_visible(timeout=8000)
+
+    # Reset is inside the connection-actions cluster.
+    expect(
+        page.locator('.mcp-connection-actions [data-testid="reset-mcp-connection-btn"]')
+    ).to_have_count(1)
+
+    # Reset is NOT inside the Danger Zone block.
+    expect(
+        page.locator('.editor-section.danger-zone [data-testid="reset-mcp-connection-btn"]')
+    ).to_have_count(0)
+
+    # Refresh precedes Reset in document order (within the same actions
+    # cluster). compareDocumentPosition returns FOLLOWING (4) when
+    # `refresh` is followed by `reset` in the DOM.
+    refresh_precedes_reset = page.evaluate(
+        "() => {"
+        "  var refresh = document.querySelector('[data-testid=\"mcp-test-connection\"]');"
+        "  var reset = document.querySelector('[data-testid=\"reset-mcp-connection-btn\"]');"
+        "  if (!refresh || !reset) return false;"
+        "  return !!(refresh.compareDocumentPosition(reset) & Node.DOCUMENT_POSITION_FOLLOWING);"
+        "}"
+    )
+    assert refresh_precedes_reset, "Refresh must precede Reset in document order"
+
+
+@pytest.mark.browser
+def test_reset_button_two_step_confirmation_in_connection_block(
+    app_clean: str, page: Page
+) -> None:
+    """The two-step confirmation flow on the Reset button is unchanged
+    after the placement move: first click flips the label to "Confirm
+    Reset?" and adds the `confirm-delete` class; second click commits."""
+    sid = _seed_mcp_source(app_clean, {
+        "name": "reset-two-step-connection-block",
+        "type": "streamable-http",
+        "config": {"url": "https://example.com/mcp"},
+        "secrets": {
+            "access_token": "tok",
+            "dcr_credentials": {"client_id": "cid"},
+        },
+    })
+    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    reset_btn = page.locator(
+        '.mcp-connection-actions [data-testid="reset-mcp-connection-btn"]'
+    )
+    expect(reset_btn).to_be_visible(timeout=8000)
+
+    # First click arms.
+    reset_btn.click()
+    expect(reset_btn).to_have_text(re.compile(r"Confirm Reset\?", re.IGNORECASE))
+    expect(reset_btn).to_have_class(re.compile(r"\bconfirm-delete\b"))
+
+    # Second click commits → re-render with no OAuth state, button hides.
+    reset_btn.click()
+    expect(page.locator('[data-testid="reset-mcp-connection-btn"]')).to_have_count(
+        0, timeout=5000
+    )
+
+
+@pytest.mark.browser
+def test_reset_button_reappears_after_post_oauth_refresh(
+    app_clean: str, page: Page
+) -> None:
+    """After the Reset → Refresh-with-OAuth cycle, the Reset button must
+    reappear without a page reload once /test/connect lands ok.
+
+    Simulates the bug scenario:
+    1. Source starts WITHOUT OAuth state → Reset button hidden.
+    2. Operator clicks Refresh → /test/connect stub returns ok (we
+       cannot drive a real OAuth popup in a browser test, so we stub
+       the response). BEFORE the response lands, we mutate the seeded
+       source server-side to add OAuth state — simulating what the
+       real OAuth flow would do (write tokens via the SDK's callback
+       handler).
+    3. The success-callback refetches GET /api/mcp-sources/{id}; the
+       refetched response carries oauth_active=true; the Reset button
+       gets injected into the DOM.
+
+    The auto-popup branch is NOT exercised by this test because driving
+    a real OAuth flow requires an in-repo OAuth fixture (deferred per
+    flight log). What this test verifies is the targeted UI behavior:
+    after a successful /test/connect that flips oauth_active, the Reset
+    button appears without reload.
+    """
+    sid = _seed_mcp_source(app_clean, {
+        "name": "reset-post-oauth",
+        "type": "streamable-http",
+        "config": {"url": "https://example.com/mcp"},
+        "secrets": {},  # no OAuth state initially
+    })
+
+    # Stub the per-id GET endpoint to return oauth_active=true so the
+    # success-handler refetch sees the post-OAuth state. (We can't drive
+    # the real OAuth flow in a browser test without an OAuth fixture —
+    # what matters is that the success-callback's refetch + Reset-button
+    # injection fires when oauth_active flips from false to true.)
+    #
+    # The initial mount fetches sources via the LIST endpoint
+    # (/api/mcp-sources), not per-id, so the per-id stub only activates
+    # for the post-test-connect refetch — exactly what we want.
+    real_source = httpx.get(f"{app_clean}/api/mcp-sources/{sid}", timeout=5.0).json()
+    post_oauth_get = dict(real_source)
+    post_oauth_get["oauth_active"] = True
+
+    test_connect_payload = {
+        "status": "ok",
+        "tools": [{"name": "echo", "description": "", "input_schema": {}}],
+        "capabilities": {
+            "tools": {},
+            "resources": None,
+            "prompts": None,
+            "logging": None,
+            "completions": None,
+            "tasks": None,
+        },
+    }
+
+    def handle_get(route):
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(post_oauth_get),
+        )
+
+    def handle_test_connect(route):
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(test_connect_payload),
+        )
+
+    page.route(f"**/api/mcp-sources/{sid}", handle_get)
+    page.route(f"**/api/mcp-sources/{sid}/test/connect", handle_test_connect)
+
+    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    expect(page.locator('[data-testid="mcp-test-connection"]')).to_be_visible(timeout=8000)
+
+    # Pre-Refresh: no OAuth state → no Reset button.
+    expect(page.locator('[data-testid="reset-mcp-connection-btn"]')).to_have_count(0)
+
+    # Click Refresh → success-handler issues a GET refetch → the stub
+    # returns oauth_active=true → Reset button gets injected into the
+    # connection-actions cluster.
+    page.locator('[data-testid="mcp-test-connection"]').click()
+    expect(page.locator('[data-testid="mcp-tools-list"]')).to_be_visible(timeout=4000)
+    # After the success callback's GET resolves, the Reset button appears
+    # without requiring a page reload.
+    expect(
+        page.locator('.mcp-connection-actions [data-testid="reset-mcp-connection-btn"]')
+    ).to_be_visible(timeout=4000)
+
+
+# ── Item 3: auto-run Refresh on create-form Save success ─────────────────
+
+
+@pytest.mark.browser
+def test_create_streamable_http_auto_runs_refresh(app_clean: str, page: Page) -> None:
+    """After Save on the create form for a streamable-http source, the
+    Refresh-connection code path fires automatically — operator does NOT
+    need to click Refresh manually.
+
+    Stubs /test/connect to return ok with one tool. Verifies the Tools
+    section populates without any explicit Refresh click after Save.
+    """
+    # Stub /test/connect for any source id (we don't know the id pre-create).
+    stub_payload = {
+        "status": "ok",
+        "tools": [{"name": "echo", "description": "auto-fired", "input_schema": {}}],
+        "capabilities": {
+            "tools": {},
+            "resources": None,
+            "prompts": None,
+            "logging": None,
+            "completions": None,
+            "tasks": None,
+        },
+    }
+
+    def handle_test_connect(route):
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(stub_payload),
+        )
+
+    page.route("**/api/mcp-sources/*/test/connect", handle_test_connect)
+
+    page.goto(f"{app_clean}#studio/mcp-sources/new")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+
+    page.locator('[data-field="name"]').fill("auto-refresh-source")
+    page.locator('[data-field="type"]').select_option("streamable-http")
+    page.locator('[data-field="url"]').fill("https://example.com/mcp")
+
+    save_btn = page.locator('[data-testid="save-mcp-source-btn"]')
+    expect(save_btn).not_to_be_disabled()
+    save_btn.click()
+
+    # Post-Save → editor re-renders in edit mode (Danger Zone visible).
+    expect(page.locator(".editor-section.danger-zone")).to_be_visible(timeout=8000)
+
+    # Auto-run Refresh fires immediately: tools list populates without
+    # operator clicking Refresh.
+    expect(page.locator('[data-testid="mcp-tools-list"]')).to_be_visible(timeout=8000)
+    expect(page.locator('[data-testid="mcp-tools-list"] .mcp-tool-item')).to_have_count(1)
+    expect(page.locator('[data-testid="mcp-test-status"]')).to_contain_text(
+        "Server exposes"
+    )
+
+
+@pytest.mark.browser
+def test_create_streamable_http_auto_run_auth_required_does_not_open_popup(
+    app_clean: str, page: Page
+) -> None:
+    """When the auto-run after Save returns auth_required, the UI must
+    surface a "Sign in" consent button instead of opening the OAuth
+    popup automatically — the Save click's user-gesture context is lost
+    by the time auth_required surfaces, and popup blockers reject popups
+    not driven by direct interaction.
+
+    Spies on window.open to assert it is NOT called by the auto-run
+    code path. Asserts the consent affordance (a button with
+    data-testid="mcp-consent-btn") renders into the status panel.
+    """
+    stub_payload = {
+        "status": "auth_required",
+        "consent_url": "https://example.com/oauth/authorize?fake=1",
+    }
+
+    def handle_test_connect(route):
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(stub_payload),
+        )
+
+    page.route("**/api/mcp-sources/*/test/connect", handle_test_connect)
+
+    page.goto(f"{app_clean}#studio/mcp-sources/new")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+
+    # Spy on window.open BEFORE Save fires; record any invocation.
+    page.evaluate(
+        "() => { window.__popupOpens = 0; "
+        "var orig = window.open; "
+        "window.open = function () { window.__popupOpens += 1; return null; };"
+        "window.__origOpen = orig; }"
+    )
+
+    page.locator('[data-field="name"]').fill("auto-auth-required")
+    page.locator('[data-field="type"]').select_option("streamable-http")
+    page.locator('[data-field="url"]').fill("https://example.com/mcp")
+    page.locator('[data-testid="save-mcp-source-btn"]').click()
+
+    # Editor enters edit mode.
+    expect(page.locator(".editor-section.danger-zone")).to_be_visible(timeout=8000)
+
+    # Consent affordance surfaces.
+    consent_btn = page.locator('[data-testid="mcp-consent-btn"]')
+    expect(consent_btn).to_be_visible(timeout=8000)
+    expect(consent_btn).to_have_text("Sign in")
+
+    # window.open was NOT called by the auto-run path.
+    popup_count = page.evaluate("() => window.__popupOpens")
+    assert popup_count == 0, f"auto-run must not open popup; got {popup_count}"
+
+
+@pytest.mark.browser
+def test_create_streamable_http_auto_run_error_renders_inline(
+    app_clean: str, page: Page
+) -> None:
+    """When the auto-run after Save returns an error (bad config / bogus
+    URL / etc.), the error renders inline in the status panel — operator
+    sees what's wrong without clicking Refresh."""
+    stub_payload = {"status": "error", "error": "transport unreachable"}
+
+    def handle_test_connect(route):
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(stub_payload),
+        )
+
+    page.route("**/api/mcp-sources/*/test/connect", handle_test_connect)
+
+    page.goto(f"{app_clean}#studio/mcp-sources/new")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+
+    page.locator('[data-field="name"]').fill("auto-error-source")
+    page.locator('[data-field="type"]').select_option("streamable-http")
+    page.locator('[data-field="url"]').fill("https://example.com/mcp")
+    page.locator('[data-testid="save-mcp-source-btn"]').click()
+
+    expect(page.locator(".editor-section.danger-zone")).to_be_visible(timeout=8000)
+
+    # Error text surfaces in the status panel.
+    expect(page.locator('[data-testid="mcp-test-status"]')).to_contain_text(
+        "transport unreachable", timeout=8000
+    )
+
+
+@pytest.mark.browser
+def test_create_stdio_does_not_attempt_auto_run(app_clean: str, page: Page) -> None:
+    """F9 L2 D1: stdio sources DO expose the Refresh button now (post-D1),
+    but the auto-run-on-create code path remains streamable-http-only per
+    studio.js's gate. After save, the editor enters edit mode showing the
+    Refresh button + empty Tools section, but the status panel still
+    reads the empty-state prompt (auto-run did NOT fire — no
+    "Testing connection…" / "✓ Connected" banner)."""
+    page.goto(f"{app_clean}#studio/mcp-sources/new")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+
+    page.locator('[data-field="name"]').fill("stdio-no-auto")
+    page.locator('[data-field="type"]').select_option("stdio")
+    # F9 L2 vibing: dropdown defaults to `uvx`; switch to Custom… so the
+    # saved command preserves this test's "github-mcp" semantic value.
+    page.locator('[data-field="command-runtime"]').select_option("__custom__")
+    page.locator('[data-field="command"]').fill("github-mcp")
+    page.locator('[data-testid="save-mcp-source-btn"]').click()
+
+    # Editor enters edit mode; Refresh button + Tools section render (D1).
+    expect(page.locator(".editor-section.danger-zone")).to_be_visible(timeout=8000)
+    expect(page.locator('[data-testid="mcp-test-connection"]')).to_have_count(1)
+    expect(page.locator(".editor-section.mcp-tools-section")).to_have_count(1)
+    # Auto-run did NOT fire for stdio: status panel still shows the
+    # empty-state prompt asking the operator to click Refresh manually.
+    status_panel = page.locator('[data-testid="mcp-test-status"]')
+    expect(status_panel).to_be_visible()
+    expect(status_panel).to_contain_text("Click")
+    expect(status_panel).to_contain_text("Refresh connection")
+    # Tools list stays hidden (no auto-run populated it).
+    expect(page.locator('[data-testid="mcp-tools-list"]')).to_be_hidden()
+
+
+# ─── F9 L2 vibing: defense-in-depth resp.ok check ───────────────────────
+
+
+@pytest.mark.browser
+def test_test_connection_500_response_renders_useful_error(
+    app_clean: str, page: Page
+) -> None:
+    """A non-JSON 500 from /test/connect renders a useful error.
+
+    F9 L2 vibing — the frontend's resp.ok check converts a 500 with HTML
+    body into a structured Error('Server error 500 …') instead of letting
+    resp.json() choke on "Unexpected token <". This test pins the
+    operator-facing UX: the rendered status panel must contain the HTTP
+    status (so the operator knows it's a server-side fault) AND a snippet
+    of the body (so they have something to grep / report).
+
+    Backend half of the same defense-in-depth (catch-all envelope in the
+    helpers) is covered by test_mcp_stdio_test_connect.py. Both halves
+    must hold for the contract to be solid; either alone would still
+    leave a gap.
+    """
+    sid = _seed_mcp_source(app_clean, {
+        "name": "broken-source",
+        "type": "stdio",
+        "config": {"command": "python", "args": ["-m", "x"]},
+        "secrets": {},
+    })
+
+    # Simulate FastAPI returning a 500 with an HTML body — this is the
+    # exact shape that triggered the original "Unexpected token <" bug.
+    html_500_body = (
+        "<html><body><h1>Internal Server Error</h1>"
+        "<p>asyncio.CancelledError leaked from teardown.</p></body></html>"
+    )
+
+    def handle_test_connect(route):
+        route.fulfill(
+            status=500,
+            content_type="text/html",
+            body=html_500_body,
+        )
+
+    page.route(f"**/api/mcp-sources/{sid}/test/connect", handle_test_connect)
+
+    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+
+    test_btn = page.locator('[data-testid="mcp-test-connection"]')
+    test_btn.click()
+
+    status_panel = page.locator('[data-testid="mcp-test-status"]')
+    # The .catch handler renders "Network error: <err.message>" — the
+    # message must include "Server error 500" (so the operator knows the
+    # server side faulted) and NOT "Unexpected token" (the JSON parse
+    # error that the resp.ok check is preventing).
+    expect(status_panel).to_contain_text("Server error 500", timeout=4000)
+    status_text = status_panel.inner_text()
+    assert "Unexpected token" not in status_text, (
+        f"resp.ok check should prevent JSON parse on HTML body; got: "
+        f"{status_text!r}"
+    )
+
+    # Test button is re-enabled (settle() ran on the .catch terminal state).
+    expect(test_btn).not_to_be_disabled()
+
+
+# ─── F9 L2 vibing: stdio command-runtime dropdown ───────────────────────
+
+
+@pytest.mark.browser
+def test_stdio_command_runtime_default_selection_is_uvx(
+    app_clean: str, page: Page
+) -> None:
+    """New stdio source: dropdown defaults to `uvx`, the Custom-command
+    free-text field is hidden, and the helper text under args reads the
+    uvx hint."""
+    page.goto(f"{app_clean}#studio/mcp-sources/new")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+
+    page.locator('[data-field="type"]').select_option("stdio")
+
+    runtime = page.locator('[data-testid="mcp-command-runtime"]')
+    expect(runtime).to_be_visible()
+    expect(runtime).to_have_value("uvx")
+
+    # Custom row is hidden (uvx is a canonical runtime).
+    custom_row = page.locator(".mcp-command-custom-row")
+    expect(custom_row).to_have_class(re.compile(r"\bis-hidden\b"))
+
+    # Helper text reflects uvx hint copy.
+    hint = page.locator('[data-testid="mcp-command-hint"]')
+    expect(hint).to_be_visible()
+    expect(hint).to_contain_text("package name")
+    expect(hint).to_contain_text("Fetched")
+
+
+@pytest.mark.browser
+def test_stdio_command_runtime_switching_updates_hint_and_saves(
+    app_clean: str, page: Page
+) -> None:
+    """Switching the dropdown selection updates the helper text and the
+    saved (command, args) pair splits a 2-token runtime per option (b).
+
+    `pipx run` saves as command='pipx', args=['run', ...userArgs] —
+    NOT command='pipx run' verbatim, which would FileNotFoundError on
+    spawn (the dropdown literal is not a binary)."""
+    page.goto(f"{app_clean}#studio/mcp-sources/new")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+
+    page.locator('[data-field="name"]').fill("pipx-source")
+    page.locator('[data-field="type"]').select_option("stdio")
+
+    page.locator('[data-field="command-runtime"]').select_option("pipx run")
+    hint = page.locator('[data-testid="mcp-command-hint"]')
+    expect(hint).to_contain_text("Alternative to uvx")
+
+    # Custom row stays hidden for canonical runtimes.
+    expect(page.locator(".mcp-command-custom-row")).to_have_class(
+        re.compile(r"\bis-hidden\b")
+    )
+
+    # Add a user arg via the chip-list (the package name).
+    args_input = page.locator(
+        '[data-field="args"].chip-list-editor .chip-list-input'
+    )
+    args_input.fill("mcp-server-time")
+    args_input.press("Enter")
+
+    page.locator('[data-testid="save-mcp-source-btn"]').click()
+    expect(page.locator(".editor-section.danger-zone")).to_be_visible(timeout=8000)
+
+    sources = _list_sources(app_clean)
+    assert len(sources) == 1
+    cfg = sources[0]["config"]
+    # Option (b): command is just `pipx`; args carry the implicit `run`
+    # plus the operator's typed args.
+    assert cfg["command"] == "pipx"
+    assert cfg["args"] == ["run", "mcp-server-time"]
+
+
+@pytest.mark.browser
+def test_stdio_command_runtime_pipx_run_round_trip_collapses_to_dropdown(
+    app_clean: str, page: Page
+) -> None:
+    """Pre-seed a source with command='pipx', args=['run', ...]; reopening
+    the editor collapses that pair back into the `pipx run` dropdown
+    selection, and the chip-list shows only the operator's args (the
+    implicit `run` is stripped from the displayed chips)."""
+    sid = _seed_mcp_source(app_clean, {
+        "name": "pipx-roundtrip",
+        "type": "stdio",
+        "config": {
+            "command": "pipx",
+            "args": ["run", "mcp-server-time"],
+        },
+        "secrets": {},
+    })
+
+    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+
+    # Dropdown re-collapses to the `pipx run` literal.
+    expect(page.locator('[data-field="command-runtime"]')).to_have_value("pipx run")
+    # Custom-command row is hidden (canonical runtime).
+    expect(page.locator(".mcp-command-custom-row")).to_have_class(
+        re.compile(r"\bis-hidden\b")
+    )
+
+    # Args chip-list shows ONLY the operator's package name — the
+    # implicit `run` is hidden from the editable chips.
+    chips = page.locator('[data-field="args"].chip-list-editor .chip')
+    expect(chips).to_have_count(1)
+    expect(chips.first).to_contain_text("mcp-server-time")
+
+
+@pytest.mark.browser
+def test_stdio_command_runtime_custom_escape_round_trips(
+    app_clean: str, page: Page
+) -> None:
+    """Selecting Custom… reveals the free-text input. Operator types a
+    bare command; save persists it to config.command verbatim; reopen
+    the source and the dropdown lands on Custom… with the saved value
+    restored to the free-text field."""
+    page.goto(f"{app_clean}#studio/mcp-sources/new")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+
+    page.locator('[data-field="name"]').fill("custom-cmd-source")
+    page.locator('[data-field="type"]').select_option("stdio")
+
+    page.locator('[data-field="command-runtime"]').select_option("__custom__")
+    custom_row = page.locator(".mcp-command-custom-row")
+    expect(custom_row).not_to_have_class(re.compile(r"\bis-hidden\b"))
+
+    page.locator('[data-testid="mcp-command-custom"]').fill("bash /app/foo.sh")
+
+    page.locator('[data-testid="save-mcp-source-btn"]').click()
+    expect(page.locator(".editor-section.danger-zone")).to_be_visible(timeout=8000)
+
+    sources = _list_sources(app_clean)
+    assert len(sources) == 1
+    assert sources[0]["config"]["command"] == "bash /app/foo.sh"
+    sid = sources[0]["id"]
+
+    # Reload the editor; dropdown should land on Custom… with the saved
+    # value visible in the free-text field.
+    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+
+    expect(page.locator('[data-field="command-runtime"]')).to_have_value("__custom__")
+    expect(page.locator(".mcp-command-custom-row")).not_to_have_class(
+        re.compile(r"\bis-hidden\b")
+    )
+    expect(page.locator('[data-testid="mcp-command-custom"]')).to_have_value(
+        "bash /app/foo.sh"
+    )
+
+
+@pytest.mark.browser
+def test_stdio_command_runtime_round_trip_canonical_uvx(
+    app_clean: str, page: Page
+) -> None:
+    """Pre-seed a source with config.command='uvx' (matches one of the
+    canonical runtime literals); reopening the editor lands the dropdown
+    on `uvx` selected, the Custom-command row is hidden, and the
+    free-text field is empty (no leakage of the canonical literal into
+    Custom…)."""
+    sid = _seed_mcp_source(app_clean, {
+        "name": "uvx-canonical",
+        "type": "stdio",
+        "config": {"command": "uvx", "args": ["mcp-server-time"]},
+        "secrets": {},
+    })
+
+    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+
+    expect(page.locator('[data-field="command-runtime"]')).to_have_value("uvx")
+    expect(page.locator(".mcp-command-custom-row")).to_have_class(
+        re.compile(r"\bis-hidden\b")
+    )
+    # Free-text input stays empty when dropdown is on a canonical runtime.
+    expect(page.locator('[data-testid="mcp-command-custom"]')).to_have_value("")
+    # Operator's args still surface in the chip-list.
+    chips = page.locator('[data-field="args"].chip-list-editor .chip')
+    expect(chips).to_have_count(1)
+    expect(chips.first).to_contain_text("mcp-server-time")
+
+
+@pytest.mark.browser
+def test_stdio_command_runtime_round_trip_custom_value(
+    app_clean: str, page: Page
+) -> None:
+    """Pre-seed a source with config.command='bash /app/x.sh' (no
+    canonical match); reopening lands the dropdown on Custom… with the
+    saved value populated in the free-text input."""
+    sid = _seed_mcp_source(app_clean, {
+        "name": "custom-bash-source",
+        "type": "stdio",
+        "config": {"command": "bash /app/x.sh"},
+        "secrets": {},
+    })
+
+    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+
+    expect(page.locator('[data-field="command-runtime"]')).to_have_value("__custom__")
+    expect(page.locator(".mcp-command-custom-row")).not_to_have_class(
+        re.compile(r"\bis-hidden\b")
+    )
+    expect(page.locator('[data-testid="mcp-command-custom"]')).to_have_value(
+        "bash /app/x.sh"
+    )
+
+
+@pytest.mark.browser
+def test_stdio_command_runtime_npx_y_save_split(
+    app_clean: str, page: Page
+) -> None:
+    """Selecting `npx -y` and saving splits the literal into
+    command='npx', args=['-y', ...userArgs] (option (b) per leg spec).
+    The implicit `-y` lives in args; the saved command is just `npx`."""
+    page.goto(f"{app_clean}#studio/mcp-sources/new")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+
+    page.locator('[data-field="name"]').fill("npx-y-source")
+    page.locator('[data-field="type"]').select_option("stdio")
+    page.locator('[data-field="command-runtime"]').select_option("npx -y")
+
+    # Add a user arg via the chip-list (the package name).
+    args_input = page.locator(
+        '[data-field="args"].chip-list-editor .chip-list-input'
+    )
+    args_input.fill("@modelcontextprotocol/server-everything")
+    args_input.press("Enter")
+
+    page.locator('[data-testid="save-mcp-source-btn"]').click()
+    expect(page.locator(".editor-section.danger-zone")).to_be_visible(timeout=8000)
+
+    sources = _list_sources(app_clean)
+    assert len(sources) == 1
+    cfg = sources[0]["config"]
+    # Option (b): command is just `npx`; args carry the implicit `-y`
+    # plus the operator's typed args.
+    assert cfg["command"] == "npx"
+    assert cfg["args"] == ["-y", "@modelcontextprotocol/server-everything"]
+
+
+@pytest.mark.browser
+def test_stdio_command_runtime_npx_y_round_trip_collapses_to_dropdown(
+    app_clean: str, page: Page
+) -> None:
+    """Pre-seed a source with command='npx', args=['-y', ...]; reopening
+    the editor collapses that pair back into the `npx -y` dropdown
+    selection, and the chip-list shows only the operator's args (the
+    implicit `-y` is stripped from the displayed chips)."""
+    sid = _seed_mcp_source(app_clean, {
+        "name": "npx-y-roundtrip",
+        "type": "stdio",
+        "config": {
+            "command": "npx",
+            "args": ["-y", "@modelcontextprotocol/server-everything"],
+        },
+        "secrets": {},
+    })
+
+    page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
+    expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
+
+    # Dropdown re-collapses to the `npx -y` literal.
+    expect(page.locator('[data-field="command-runtime"]')).to_have_value("npx -y")
+    # Custom-command row is hidden (canonical runtime).
+    expect(page.locator(".mcp-command-custom-row")).to_have_class(
+        re.compile(r"\bis-hidden\b")
+    )
+
+    # Args chip-list shows ONLY the operator's package name — the
+    # implicit `-y` is hidden from the editable chips.
+    chips = page.locator('[data-field="args"].chip-list-editor .chip')
+    expect(chips).to_have_count(1)
+    expect(chips.first).to_contain_text("@modelcontextprotocol/server-everything")

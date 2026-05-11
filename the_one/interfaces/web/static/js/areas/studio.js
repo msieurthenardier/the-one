@@ -35,8 +35,14 @@ App.registerArea({
       return 'mcp-sources';
     }
     if (this._activeSection === 'agents' && this._selectedAgent && !this._createMode) {
-      return 'agents/' + encodeURIComponent(this._selectedAgent.name) +
+      var base = 'agents/' + encodeURIComponent(this._selectedAgent.name) +
         '/' + (this._activeTab || 'general');
+      // F8 L3 Patch B — when on the MCPs tab AND a source-id is selected,
+      // append it so refresh preserves the per-attachment editor view.
+      if (this._activeTab === 'mcps' && this._selectedMcpAgentSourceId) {
+        return base + '/' + encodeURIComponent(this._selectedMcpAgentSourceId);
+      }
+      return base;
     }
     // Hydrate-before-loadAll race: when the user lands on
     // #studio/agents/{name}/{tab} but agents fetch hasn't completed,
@@ -104,11 +110,21 @@ App.registerArea({
       } else {
         pending = decodeURIComponent(rest.slice(0, slashIdx));
         var tab = rest.slice(slashIdx + 1);
+        // F8 L3 Patch A — split deeper "mcps/{source-id}" BEFORE the
+        // four-tab whitelist check. Without this, the whitelist would
+        // reject "mcps/some-uuid" and default to "general", breaking
+        // deep-link navigation (AC L3.6 + Browser Test 6).
+        var pendingMcpAgentSourceId = null;
+        if (tab.indexOf('mcps/') === 0) {
+          pendingMcpAgentSourceId = decodeURIComponent(tab.slice('mcps/'.length));
+          tab = 'mcps';
+        }
         if (tab === 'general' || tab === 'knowledge' || tab === 'mcps' || tab === 'tools') {
           pendingTab = tab;
         } else {
           pendingTab = 'general';
         }
+        this._pendingMcpAgentSourceId = pendingMcpAgentSourceId;  // consumed by renderMcpsTab
       }
     } else if (sub === 'agents' || !sub) {
       section = 'agents';
@@ -156,6 +172,10 @@ App.registerArea({
     self._createMode = false;
     self._activeSection = self._activeSection || 'agents';
     self._activeTab = self._activeTab || 'general';
+    // F8 L3 Patch C — selected source-id within the agent MCPs tab.
+    // Written by renderMcpsTab when a chip is clicked or a deep-link hydrates.
+    // Read by serializeState to append /{source-id} to the URL.
+    self._selectedMcpAgentSourceId = null;
     var dirty = false;
     var snapshot = '';
     // Tab handle returned by App.studio.renderAgentEditor — used for
@@ -369,6 +389,41 @@ App.registerArea({
                 // create→edit transition: re-render so Danger Zone +
                 // edit-mode subtitle render with the newly-assigned id.
                 renderMcpSourcesSection();
+                // F9 L1 (vibing follow-up): auto-run Refresh on create.
+                // For streamable-http sources the Refresh button mounts
+                // post-render; clicking it programmatically kicks the
+                // same code path as a manual click — Phase A connect
+                // either succeeds (tools render) or surfaces
+                // auth_required (consent-affordance UX, NO popup —
+                // popup-blockers reject popups not triggered by direct
+                // user gesture, and the gesture context from Save is
+                // already lost).
+                //
+                // F9 L2 D1: stdio sources now also expose the Refresh
+                // button (D1 ungated `mcp-test-connection` for stdio),
+                // but auto-run remains streamable-http-only to preserve
+                // L1's "manual click" flow as the canonical stdio entry
+                // point per L2 Scenario 4. Operators who prefer auto-run
+                // for stdio can drive it via the normal manual click.
+                //
+                // setTimeout(0) yields one frame so the editor's
+                // wireEditorEvents finishes attaching the click handler
+                // before we dispatch the synthetic click.
+                setTimeout(function () {
+                  if (updated && updated.type !== 'streamable-http') return;
+                  var refreshBtn = sectionContentEl.querySelector(
+                    '[data-testid="mcp-test-connection"]'
+                  );
+                  if (refreshBtn) {
+                    // Signal to the editor's click handler that this is
+                    // the auto-run-after-create path: on auth_required
+                    // it must surface the consent button rather than
+                    // open the popup directly (the Save click's
+                    // user-gesture context is already lost).
+                    refreshBtn.dataset.autoRun = '1';
+                    refreshBtn.click();
+                  }
+                }, 0);
               }
             },
             onDeleteSuccess: function () {
@@ -588,11 +643,73 @@ App.registerArea({
       });
     }
 
+    // F9 L3 (A-L3-1) — re-fetch the MCP sources list on every agent-edit
+    // mount. `_allMcpSources` is otherwise loaded once at studio area mount
+    // (loadAll), so a source created on the source-edit page is invisible
+    // to the agent editor until the operator hard-reloads. Mirrors
+    // refreshToolConfigsCache above. On error, keep the prior cache.
+    function refreshMcpSourcesCache() {
+      return fetchMcpSources().then(function (sources) {
+        self._allMcpSources = sources;
+      }).catch(function () {
+        self._allMcpSources = self._allMcpSources || [];
+      });
+    }
+
     // Lazy schema fetcher — closure-cached. Stores the PROMISE (not the
     // resolved value) so concurrent callers during an in-flight fetch
     // reuse the same in-flight promise (no double-fetch). The cache
     // survives across agent changes; schemas are static.
     var _schemaPromiseCache = {};
+
+    // F8 L3 — Lazy MCP-source tools fetcher. Closure-cached promise per
+    // sourceId (mirrors fetchToolSchema's pattern above). The cache stores
+    // the in-flight promise so concurrent callers reuse it. The cache
+    // survives across agent changes within the studio area lifetime; tools
+    // are static within a session (no rename within a session).
+    //
+    // On API `{status: "ok"}`: resolves with the full response object
+    // `{tools, capabilities, ...}`.
+    // On API `{status: "auth_required"}`: rejects with an Error whose
+    // .name === "AuthRequired" and .consent_url is the OAuth redirect URL.
+    // UI surfaces an inline notice; NEVER auto-trigger the popup from this
+    // surface — the source-edit page is the OAuth affordance.
+    // On API `{status: "error"}` or HTTP error: rejects with a generic
+    // Error; drops the cache entry so retries land on a fresh promise.
+    var _mcpSourceToolsCache = {};
+
+    function fetchMcpSourceTools(sourceId, options) {
+      options = options || {};
+      if (options.forceRefresh) {
+        delete _mcpSourceToolsCache[sourceId];
+      }
+      if (_mcpSourceToolsCache[sourceId]) return _mcpSourceToolsCache[sourceId];
+
+      var p = fetch('/api/mcp-sources/' + encodeURIComponent(sourceId) + '/test/connect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      }).then(function (r) {
+        if (!r.ok) {
+          throw new Error('fetchMcpSourceTools: HTTP ' + r.status);
+        }
+        return r.json();
+      }).then(function (data) {
+        if (data.status === 'ok') return data;
+        if (data.status === 'auth_required') {
+          var err = new Error('auth_required');
+          err.name = 'AuthRequired';
+          err.consent_url = data.consent_url;
+          throw err;
+        }
+        throw new Error(data.error || 'unknown error from fetchMcpSourceTools');
+      }).catch(function (err) {
+        // Drop the cached promise on any error so next call retries.
+        delete _mcpSourceToolsCache[sourceId];
+        throw err;
+      });
+      _mcpSourceToolsCache[sourceId] = p;
+      return p;
+    }
 
     function fetchToolSchema(name) {
       if (_schemaPromiseCache[name]) return _schemaPromiseCache[name];
@@ -657,6 +774,85 @@ App.registerArea({
     }
 
     // ── Agents tile grid rendering (F5 leg 02) ──────────────────────────
+
+    // F9 L3 (A-L3-3) — Aggregate built-in + MCP tool counts for the tile
+    // metric lines. Both counts are derivable from data already loaded by
+    // loadAll (self._agents, self._allTools, self._allMcpSources), so no
+    // backend round-trip is needed. The MCP override math mirrors the
+    // mode-detection logic in mcps-tab.js (isAllowlist when
+    // overrides.enabled_tools is an array) so the surfaced count matches
+    // what the runtime resolver will actually expose at chat-time.
+    function _countBuiltinTools(agent, allTools) {
+      var enabled = agent && agent.enabled_tools;
+      var disabled = (agent && agent.disabled_tools) || [];
+      // null/undefined enabled_tools means "all - disabled" (the agent is
+      // in denylist mode); array means "exactly these" (allowlist mode).
+      // Counts are bounded by the global tool list — toggles for tools no
+      // longer present in the codebase shouldn't inflate the count.
+      var globalNames = {};
+      for (var i = 0; i < (allTools || []).length; i++) {
+        globalNames[allTools[i].name] = true;
+      }
+      if (Array.isArray(enabled)) {
+        var n = 0;
+        for (var j = 0; j < enabled.length; j++) {
+          if (globalNames[enabled[j]]) n++;
+        }
+        return n;
+      }
+      var disabledMatching = 0;
+      for (var k = 0; k < disabled.length; k++) {
+        if (globalNames[disabled[k]]) disabledMatching++;
+      }
+      return (allTools || []).length - disabledMatching;
+    }
+
+    function _countMcpTools(agent, allMcpSources) {
+      var sourceIds = (agent && agent.mcp_source_ids) || [];
+      if (sourceIds.length === 0) return 0;
+      var byId = {};
+      for (var i = 0; i < (allMcpSources || []).length; i++) {
+        byId[allMcpSources[i].id] = allMcpSources[i];
+      }
+      var overrides = (agent && agent.mcp_overrides) || {};
+      var total = 0;
+      for (var s = 0; s < sourceIds.length; s++) {
+        var src = byId[sourceIds[s]];
+        if (!src) continue; // orphaned attach — defensive; shouldn't happen post A-L3-1
+        var cache = src.config && src.config._cache;
+        var cachedTools = (cache && Array.isArray(cache.tools)) ? cache.tools : [];
+        if (cachedTools.length === 0) continue; // never tested → 0
+        var ov = overrides[src.name] || {};
+        var enabledList = ov.enabled_tools;
+        var disabledList = ov.disabled_tools || [];
+        var nameSet = {};
+        for (var ti = 0; ti < cachedTools.length; ti++) {
+          // Cached tools are objects with `.name`; defensively allow
+          // bare strings if a future shape change shows up.
+          var tn = (typeof cachedTools[ti] === 'string') ? cachedTools[ti] : (cachedTools[ti] && cachedTools[ti].name);
+          if (tn) nameSet[tn] = true;
+        }
+        if (Array.isArray(enabledList)) {
+          // Allowlist: count entries that resolve to a real cached tool.
+          for (var ei = 0; ei < enabledList.length; ei++) {
+            if (nameSet[enabledList[ei]]) total++;
+          }
+        } else {
+          // Denylist (default): full cache minus matching disabled entries.
+          var disMatch = 0;
+          for (var di = 0; di < disabledList.length; di++) {
+            if (nameSet[disabledList[di]]) disMatch++;
+          }
+          total += Math.max(0, cachedTools.length - disMatch);
+        }
+      }
+      return total;
+    }
+
+    function _pluralize(n, singular, plural) {
+      return n + ' ' + (n === 1 ? singular : plural);
+    }
+
     function renderAgentList() {
       agentListEl.innerHTML = '';
       var agents = self._agents;
@@ -728,6 +924,23 @@ App.registerArea({
           }
           tileEl.appendChild(metaSpan);
 
+          // F9 L3 (A-L3-3) — Two metric lines: built-in tool count + MCP
+          // tool count. Both rendered unconditionally (even at 0) so tile
+          // height stays uniform across the grid. Disambiguated by label
+          // ("tools" vs "MCP tools") and by data-testid for browser tests.
+          var builtinCount = _countBuiltinTools(agent, self._allTools);
+          var mcpCount = _countMcpTools(agent, self._allMcpSources);
+          var toolCountSpan = document.createElement('span');
+          toolCountSpan.className = 'entity-tile-tool-count';
+          toolCountSpan.setAttribute('data-testid', 'agent-tile-tool-count');
+          toolCountSpan.textContent = _pluralize(builtinCount, 'tool', 'tools');
+          tileEl.appendChild(toolCountSpan);
+          var mcpCountSpan = document.createElement('span');
+          mcpCountSpan.className = 'entity-tile-tool-count';
+          mcpCountSpan.setAttribute('data-testid', 'agent-tile-mcp-tool-count');
+          mcpCountSpan.textContent = _pluralize(mcpCount, 'MCP tool', 'MCP tools');
+          tileEl.appendChild(mcpCountSpan);
+
           // Capability chips — only render when we have caps for this
           // (provider, model) pair. Non-Ollama providers won't populate
           // the lookup; tiles render without chips in that case.
@@ -793,7 +1006,10 @@ App.registerArea({
       // mount (operator may have flipped a toggle in another tab between
       // agent edits). Render-on-resolve so the Tools tab reflects current
       // disabled state from first paint.
-      refreshToolConfigsCache().then(function () {
+      // F9 L3 (A-L3-1) — also refresh the MCP sources list so a source
+      // created on the source-edit page appears in the MCPs tab without
+      // a manual page reload. Both refreshes run in parallel.
+      Promise.all([refreshToolConfigsCache(), refreshMcpSourcesCache()]).then(function () {
         renderEditor(agent);
         updateContentVisibility();
         writeUrl_();
@@ -819,7 +1035,10 @@ App.registerArea({
       renderAgentList();
       // F6 leg 05 — refresh operator-state caches before rendering so the
       // new-agent Tools tab reflects current operator-disabled state.
-      refreshToolConfigsCache().then(function () {
+      // F9 L3 (A-L3-1) — also refresh the MCP sources list so a freshly
+      // created source is visible from the new-agent MCPs tab without
+      // a manual page reload.
+      Promise.all([refreshToolConfigsCache(), refreshMcpSourcesCache()]).then(function () {
         renderEditor(null);
         updateContentVisibility();
         writeUrl_();
@@ -868,7 +1087,18 @@ App.registerArea({
         // schema fetcher is closure-cached and survives agent changes.
         disabledTools: self._disabledTools,
         operatorConfigs: self._operatorConfigs,
-        fetchToolSchema: fetchToolSchema
+        fetchToolSchema: fetchToolSchema,
+        // F8 L3 — MCP source list + per-source tools fetcher for MCPs tab.
+        allMcpSources: self._allMcpSources,
+        fetchMcpSourceTools: fetchMcpSourceTools,
+        pendingMcpAgentSourceId: self._pendingMcpAgentSourceId || null,
+        // Callback so renderMcpsTab can notify studio.js when the selected
+        // source changes (chip click → per-attachment editor). studio.js
+        // updates _selectedMcpAgentSourceId and syncs the URL.
+        onSelectedMcpSourceChange: function (sourceId) {
+          self._selectedMcpAgentSourceId = sourceId;
+          writeUrl_();
+        }
       });
 
       // Wire field-level dirty tracking + provider-change side-effects.
@@ -889,6 +1119,9 @@ App.registerArea({
     function setActiveTab(tab, options) {
       options = options || {};
       var writeUrl = options.writeUrl !== false;
+      // F8 L3: clear per-source selection when leaving the MCPs tab so the
+      // URL doesn't carry a stale /{source-id} when switching to another tab.
+      if (tab !== 'mcps') self._selectedMcpAgentSourceId = null;
       self._activeTab = tab;
       if (tabHandle && tabHandle.getActive() !== tab) {
         tabHandle.activate(tab);
@@ -909,6 +1142,7 @@ App.registerArea({
       self._createMode = false;
       dirty = false;
       self._activeTab = 'general';
+      self._selectedMcpAgentSourceId = null;  // F8 L3: clear per-source selection
       renderEmptyEditor();
       renderAgentList();
       updateContentVisibility();
@@ -1318,7 +1552,11 @@ App.registerArea({
         }
       }
 
-      var toggles = editorEl.querySelectorAll('.tool-toggle');
+      // F8 L4: scope to built-in-tool toggles only — F8's MCP source toggles
+      // also use class="tool-toggle" for visual parity but carry data-mcp-source-id
+      // (NOT data-tool); without the [data-tool] filter, they'd contaminate
+      // enabled_tools/disabled_tools with `undefined` (from `dataset.tool`).
+      var toggles = editorEl.querySelectorAll('.tool-toggle[data-tool]');
       var enabledNames = [];
       var disabledNames = [];
       var allOn = true;
@@ -1350,11 +1588,17 @@ App.registerArea({
       // The new override chip-list editors carry data-tool-override-tool
       // (NOT data-type), so they don't match the [data-type] selector
       // here and are picked up below in the override walk.
-      var mcpChips = editorEl.querySelectorAll('.chip-area[data-type="mcp"] .chip');
+      // F8 L4 — MCPs tab uses tool-row toggles instead of chip-area.
+      // Walk the new [data-mcp-source-toggle]:checked selector to collect
+      // attached source IDs. KB chips still use the chip-area pattern (KB
+      // tab is a stub; whenever it lands, it can pick its own selector).
+      var mcpToggles = editorEl.querySelectorAll('[data-mcp-source-toggle][data-mcp-source-id]');
       var kbChips = editorEl.querySelectorAll('.chip-area[data-type="kb"] .chip');
       data.mcp_source_ids = [];
       data.kb_ids = [];
-      for (var m = 0; m < mcpChips.length; m++) data.mcp_source_ids.push(mcpChips[m].dataset.id);
+      for (var m = 0; m < mcpToggles.length; m++) {
+        if (mcpToggles[m].checked) data.mcp_source_ids.push(mcpToggles[m].dataset.mcpSourceId);
+      }
       for (var k = 0; k < kbChips.length; k++) data.kb_ids.push(kbChips[k].dataset.id);
 
       // F6 leg 05 — collect tool_overrides from per-tool override panels.
@@ -1383,6 +1627,76 @@ App.registerArea({
         overrides[toolName][fieldName] = v;
       }
       data.tool_overrides = Object.keys(overrides).length > 0 ? overrides : null;
+
+      // F8 L3 — Walk mcp_overrides selectors. Mirrors the tool_overrides
+      // walk above, but groups by source-name (data-mcp-override-source)
+      // instead of tool-name. Per-tool checkboxes are handled separately
+      // below via [data-mcp-tool-toggle][data-mcp-source].
+      var mcpOverrideEls = editorEl.querySelectorAll(
+        '[data-mcp-override-source][data-mcp-override-field]'
+      );
+      var mcpOverrides = {};
+      for (var mi = 0; mi < mcpOverrideEls.length; mi++) {
+        var me = mcpOverrideEls[mi];
+        if (me.classList && me.classList.contains('field-row')) continue;
+        var mSourceName = me.dataset.mcpOverrideSource;
+        var mFieldName = me.dataset.mcpOverrideField;
+        if (!mSourceName || !mFieldName) continue;
+        var mv = helpers ? helpers.readFieldValue(me) : null;
+        if (mv === null || mv === undefined) continue;
+        if (Array.isArray(mv) && mv.length === 0) continue;
+        if (typeof mv === 'string' && mv === '') continue;
+        if (!mcpOverrides[mSourceName]) mcpOverrides[mSourceName] = {};
+        mcpOverrides[mSourceName][mFieldName] = mv;
+      }
+
+      // Per-tool checkbox toggles within each attached source. Each
+      // checkbox carries `data-mcp-tool-toggle` (un-prefixed tool name)
+      // and `data-mcp-source` (source name). The wrapping group element
+      // carries `data-mcp-tool-mode={"allowlist"|"denylist"}` declared at
+      // render time based on the agent's existing override shape.
+      //
+      // Mode semantics:
+      //   - denylist (default for new attachments): collect un-checked
+      //     tools into disabled_tools.
+      //   - allowlist (when agent already has enabled_tools set): collect
+      //     checked tools into enabled_tools.
+      var toggleEls = editorEl.querySelectorAll('[data-mcp-tool-toggle][data-mcp-source]');
+      var enabledBySource = {};
+      var disabledBySource = {};
+      var modeBySource = {};
+      for (var ti = 0; ti < toggleEls.length; ti++) {
+        var te = toggleEls[ti];
+        var srcName = te.dataset.mcpSource;
+        var tlName = te.dataset.mcpToolToggle;
+        if (!srcName || !tlName) continue;
+        var groupEl = te.closest('[data-mcp-tool-group]');
+        var mode = (groupEl && groupEl.dataset.mcpToolMode) || 'denylist';
+        modeBySource[srcName] = mode;
+        if (mode === 'allowlist') {
+          if (te.checked) {
+            if (!enabledBySource[srcName]) enabledBySource[srcName] = [];
+            enabledBySource[srcName].push(tlName);
+          }
+        } else {
+          if (!te.checked) {
+            if (!disabledBySource[srcName]) disabledBySource[srcName] = [];
+            disabledBySource[srcName].push(tlName);
+          }
+        }
+      }
+      for (var sname in modeBySource) {
+        if (!mcpOverrides[sname]) mcpOverrides[sname] = {};
+        if (modeBySource[sname] === 'allowlist') {
+          mcpOverrides[sname].enabled_tools = enabledBySource[sname] || [];
+        } else {
+          if (disabledBySource[sname] && disabledBySource[sname].length > 0) {
+            mcpOverrides[sname].disabled_tools = disabledBySource[sname];
+          }
+        }
+      }
+
+      data.mcp_overrides = Object.keys(mcpOverrides).length > 0 ? mcpOverrides : null;
 
       return data;
     }

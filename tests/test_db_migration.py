@@ -12,7 +12,7 @@ import pytest
 from the_one.agent.config import AgentConfig
 from the_one.db.migration import migrate_json_to_sqlite
 from the_one.db.repositories import SQLiteAgentStore
-from the_one.db.schema import ensure_schema
+from the_one.db.schema import CURRENT_VERSION, ensure_schema
 
 
 @pytest.fixture
@@ -220,11 +220,11 @@ class TestSchemaV8:
 
         await ensure_schema(conn)
 
-        # CURRENT_VERSION assertion — pins the version bump for both
-        # M07 F01 L01 (v10: mcp_sources rebuild) and openrouter (v11:
-        # extends llm_providers.type CHECK).
-        assert CURRENT_VERSION == 11, (
-            f"CURRENT_VERSION must be 11 after openrouter v11 migration (got {CURRENT_VERSION})"
+        # CURRENT_VERSION assertion — pins that v8 surfaces are present at
+        # the current version. v11 added agents.mcp_overrides (M07 F06 L01);
+        # v12 extended llm_providers.type CHECK to allow 'openrouter'.
+        assert CURRENT_VERSION == 12, (
+            f"CURRENT_VERSION must be 12 after openrouter v12 migration (got {CURRENT_VERSION})"
         )
 
         # tool_configs table must exist.
@@ -458,7 +458,7 @@ class TestSchemaV9:
 
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
             row = await cur.fetchone()
-        assert row[0] == CURRENT_VERSION
+        assert row[0] == CURRENT_VERSION  # ensure_schema advances to CURRENT_VERSION
 
         await conn.close()
 
@@ -496,7 +496,7 @@ class TestSchemaV9:
 
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
             row = await cur.fetchone()
-        assert row[0] == CURRENT_VERSION
+        assert row[0] == CURRENT_VERSION  # ensure_schema advances to CURRENT_VERSION
 
         await conn.close()
 
@@ -604,7 +604,10 @@ class TestSchemaV10:
         await ensure_schema(conn)
 
         # Programmatic rewind to v9 state: drop v10 mcp_sources, recreate with
-        # the v1 CHECK shape (type IN ('stdio', 'sse')), remove v10 version row.
+        # the v1 CHECK shape (type IN ('stdio', 'sse')), remove v10+ version
+        # rows so MAX(version) drops to 9 and ensure_schema re-enters the v10
+        # block. (Mirrors the v8 precedent's `>= 8` filter — using `= 10`
+        # leaves v11+ intact and ensure_schema skips v10.)
         await conn.execute("DROP TABLE mcp_sources")
         await conn.execute("""\
 CREATE TABLE mcp_sources (
@@ -615,10 +618,7 @@ CREATE TABLE mcp_sources (
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 )""")
-        await conn.execute("DELETE FROM schema_version WHERE version = 10")
-        # Also drop v11 so v10 actually re-runs (otherwise ensure_schema
-        # sees MAX(version)==11 and skips v10).
-        await conn.execute("DELETE FROM schema_version WHERE version = 11")
+        await conn.execute("DELETE FROM schema_version WHERE version >= 10")
         await conn.commit()
 
         # Seed two rows: one 'sse' with non-empty config, one 'stdio' with non-empty config.
@@ -669,9 +669,9 @@ CREATE TABLE mcp_sources (
 
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
             row = await cur.fetchone()
-        # ensure_schema applies BOTH v10 (mcp_sources) and v11 (openrouter)
-        # since the v10 rewind also dropped the v11 marker.
-        assert row[0] == 11
+        # ensure_schema re-applies v10 and any later migrations (v11
+        # mcp_overrides, v12 openrouter) since the rewind dropped them.
+        assert row[0] == CURRENT_VERSION
 
         await conn.close()
 
@@ -705,7 +705,9 @@ CREATE TABLE mcp_sources (
         await conn.execute("PRAGMA foreign_keys=ON")
         await ensure_schema(conn)
 
-        # Rewind to v9 state.
+        # Rewind to v9 state. Delete `>= 10` so MAX(version) drops to 9
+        # and ensure_schema re-enters the v10 block (using `= 10` would
+        # leave v11+ intact and the loop would skip v10).
         await conn.execute("DROP TABLE mcp_sources")
         await conn.execute("""\
 CREATE TABLE mcp_sources (
@@ -716,10 +718,7 @@ CREATE TABLE mcp_sources (
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 )""")
-        await conn.execute("DELETE FROM schema_version WHERE version = 10")
-        # Also drop v11 so v10 actually re-runs (otherwise ensure_schema sees
-        # MAX(version)==11 and skips the v10 block we want to exercise).
-        await conn.execute("DELETE FROM schema_version WHERE version = 11")
+        await conn.execute("DELETE FROM schema_version WHERE version >= 10")
         await conn.commit()
 
         # Seed an 'sse' row.
@@ -743,17 +742,146 @@ CREATE TABLE mcp_sources (
 
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
             row = await cur.fetchone()
-        # After re-running ensure_schema both v10 and v11 should have applied.
-        assert row[0] == 11
+        # After re-running ensure_schema all subsequent migrations should
+        # have applied (v10 mcp_sources, v11 mcp_overrides, v12 openrouter).
+        assert row[0] == CURRENT_VERSION
 
         await conn.close()
 
 
-class TestMigrationV11:
-    """v10→v11: extend llm_providers.type CHECK to include 'openrouter'."""
+class TestSchemaV11:
+    """Tests for the v11 migration that adds agents.mcp_overrides."""
 
-    async def test_v11_accepts_openrouter_type(self, tmp_path) -> None:
-        """A fresh schema (CURRENT_VERSION>=11) must accept openrouter rows."""
+    async def test_v11_fresh_db_includes_mcp_overrides_column(self, tmp_path) -> None:
+        """Fresh DB → ensure_schema → v11 surfaces exist.
+
+        Acts as the regression-loud-fail guard: if a future bump to
+        CURRENT_VERSION silently drops the v11 block, this test
+        will fail with an explicit message naming `mcp_overrides`.
+        """
+        db_path = tmp_path / "v11-fresh.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await ensure_schema(conn)
+
+        assert CURRENT_VERSION >= 11, CURRENT_VERSION
+
+        # agents.mcp_overrides column must exist, be TEXT, nullable, no DEFAULT.
+        async with conn.execute("PRAGMA table_info(agents)") as cur:
+            agent_cols = {r["name"]: r for r in await cur.fetchall()}
+        assert "mcp_overrides" in agent_cols, (
+            "v11 migration missing: column `mcp_overrides` does not exist on "
+            "`agents` after ensure_schema on a fresh DB"
+        )
+        col = agent_cols["mcp_overrides"]
+        assert col["type"] == "TEXT", col["type"]
+        # notnull == 0 means the column is nullable.
+        assert col["notnull"] == 0, col["notnull"]
+        # No explicit DEFAULT clause — dflt_value must be Python None,
+        # not the literal string "NULL".
+        assert col["dflt_value"] is None, col["dflt_value"]
+
+        # schema_version row for v11 exists; the head pointer lands at
+        # CURRENT_VERSION.
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
+            versions = [r[0] for r in await cur.fetchall()]
+        assert 11 in versions, versions
+        assert max(versions) == CURRENT_VERSION, versions
+
+        await conn.close()
+
+    async def test_v11_migration_on_v10_fixture_db_preserves_existing_rows(
+        self, tmp_path
+    ) -> None:
+        """v10 → v11: existing agent rows survive with mcp_overrides=NULL,
+        tool_overrides column from v8 still present + populated, schema_version
+        lands at CURRENT_VERSION."""
+        db_path = tmp_path / "v11-from-v10.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        # Migrate fresh DB straight to current.
+        await ensure_schema(conn)
+
+        # Seed an agent row with tool_overrides set so we can verify the
+        # v8 column survives the v11 migration.
+        await conn.execute(
+            "INSERT INTO agents (name, enabled_tools, disabled_tools, tool_overrides) "
+            "VALUES (?, ?, ?, ?)",
+            (
+                "seed",
+                json.dumps(["shell", "read_file"]),
+                json.dumps([]),
+                json.dumps({"shell": {"timeout": 30}}),
+            ),
+        )
+
+        # Rewind schema_version so ensure_schema sees v10 and reruns v11.
+        # Mirrors the v8 precedent: delete >= 11 so the MAX() head pointer
+        # drops to 10 and the migration loop re-enters the v11 block.
+        await conn.execute("DELETE FROM schema_version WHERE version >= 11")
+        await conn.commit()
+
+        # Re-run the v11 migration. The seeded row pre-existed because the
+        # fresh ensure_schema already added the mcp_overrides column; we
+        # still exercise the migration's idempotent guard (PRAGMA table_info
+        # skips the ALTER) and the INSERT OR IGNORE on schema_version.
+        await ensure_schema(conn)
+
+        # Assertion (a): the agent row survives with mcp_overrides=NULL,
+        # and the tool_overrides v8 column is still present + populated.
+        async with conn.execute(
+            "SELECT name, enabled_tools, disabled_tools, tool_overrides, mcp_overrides "
+            "FROM agents WHERE name = 'seed'"
+        ) as cur:
+            row = await cur.fetchone()
+        assert row is not None
+        assert json.loads(row["enabled_tools"]) == ["shell", "read_file"]
+        assert json.loads(row["disabled_tools"]) == []
+        assert json.loads(row["tool_overrides"]) == {"shell": {"timeout": 30}}
+        assert row["mcp_overrides"] is None
+
+        # Assertion (b): v11 ran (schema_version contains 11). The head
+        # pointer is CURRENT_VERSION.
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
+            versions = [r[0] for r in await cur.fetchall()]
+        assert 11 in versions, versions
+        assert max(versions) == CURRENT_VERSION, versions
+
+        await conn.close()
+
+    async def test_v11_migration_is_idempotent(self, tmp_path) -> None:
+        """Calling ensure_schema twice on a fresh DB is a no-op the second
+        time: no errors, no duplicate schema_version rows for v11."""
+        db_path = tmp_path / "v11-idempotent.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await ensure_schema(conn)
+        await ensure_schema(conn)  # second call — must be a no-op
+
+        # Exactly one schema_version row for v11.
+        async with conn.execute("SELECT COUNT(*) FROM schema_version WHERE version = 11") as cur:
+            row = await cur.fetchone()
+        assert row[0] == 1
+
+        # Surface still present after the second call.
+        async with conn.execute("PRAGMA table_info(agents)") as cur:
+            cols = {r["name"] for r in await cur.fetchall()}
+        assert "mcp_overrides" in cols
+
+        await conn.close()
+
+
+class TestMigrationV12:
+    """v11→v12: extend llm_providers.type CHECK to include 'openrouter'."""
+
+    async def test_v12_accepts_openrouter_type(self, tmp_path) -> None:
+        """A fresh schema (CURRENT_VERSION>=12) must accept openrouter rows."""
         db_path = tmp_path / "v11.db"
         conn = await aiosqlite.connect(str(db_path))
         conn.row_factory = aiosqlite.Row
@@ -771,7 +899,7 @@ class TestMigrationV11:
         assert row["type"] == "openrouter"
         await conn.close()
 
-    async def test_v11_idempotent_rerun(self, tmp_path) -> None:
+    async def test_v12_idempotent_rerun(self, tmp_path) -> None:
         """Calling ensure_schema twice on a fresh DB is a no-op the second time."""
         from the_one.db.schema import CURRENT_VERSION
 
@@ -788,8 +916,8 @@ class TestMigrationV11:
         assert row[0] == CURRENT_VERSION
         await conn.close()
 
-    async def test_v11_real_v10_to_v11_upgrade(self, tmp_path) -> None:
-        """Bootstrap an actual v10-shaped schema (5-type CHECK on
+    async def test_v12_real_v11_to_v12_upgrade(self, tmp_path) -> None:
+        """Bootstrap an actual pre-v12 schema (5-type CHECK on
         llm_providers, no openrouter), seed a provider + agent FK, run
         ensure_schema, and verify:
 
@@ -798,14 +926,17 @@ class TestMigrationV11:
         - the new CHECK constraint still rejects bogus types
         - schema_version reaches CURRENT_VERSION
         """
-        db_path = tmp_path / "v10_to_v11.db"
+        from the_one.db.schema import CURRENT_VERSION
+
+        db_path = tmp_path / "v11_to_v12.db"
         conn = await aiosqlite.connect(str(db_path))
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
-        # Hand-build a real pre-v11 schema. The only difference from v11
-        # in the llm_providers table is the CHECK constraint — pre-v11
-        # accepts 5 types, v11 accepts 6.
+        # Hand-build a real pre-v12 schema. The only difference from v12
+        # in the llm_providers table is the CHECK constraint — pre-v12
+        # accepts 5 types, v12 accepts 6. The hand-built agents table
+        # already carries `mcp_overrides` so v11 is a no-op (PRAGMA guard).
         await conn.executescript("""
             CREATE TABLE schema_version (
                 version INTEGER PRIMARY KEY,
@@ -834,6 +965,7 @@ class TestMigrationV11:
                 max_iterations INTEGER DEFAULT 20,
                 kb_ids TEXT DEFAULT '[]',
                 mcp_source_ids TEXT DEFAULT '[]',
+                mcp_overrides TEXT,
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now'))
             );
@@ -847,21 +979,21 @@ class TestMigrationV11:
                 updated_at TEXT NOT NULL DEFAULT (datetime('now'))
             );
         """)
-        for v in range(1, 11):
+        for v in range(1, 12):
             await conn.execute("INSERT INTO schema_version (version) VALUES (?)", (v,))
 
         # Seed pre-migration data: provider + agent that references it.
         await conn.execute(
             "INSERT INTO llm_providers (id, name, type, base_url) VALUES (?, ?, ?, ?)",
-            ("v10-prov", "Legacy", "anthropic", "https://api.anthropic.com"),
+            ("v11-prov", "Legacy", "anthropic", "https://api.anthropic.com"),
         )
         await conn.execute(
             "INSERT INTO agents (name, provider_config_id) VALUES (?, ?)",
-            ("legacy-agent", "v10-prov"),
+            ("legacy-agent", "v11-prov"),
         )
         await conn.commit()
 
-        # Pre-condition: pre-v11 CHECK rejects 'openrouter'.
+        # Pre-condition: pre-v12 CHECK rejects 'openrouter'.
         with pytest.raises(aiosqlite.IntegrityError):
             await conn.execute(
                 "INSERT INTO llm_providers (id, name, type, base_url) VALUES (?, ?, ?, ?)",
@@ -870,13 +1002,13 @@ class TestMigrationV11:
         await conn.rollback()
 
         # Run the migration. ensure_schema needs ALL prereq schema-version
-        # objects to exist; we already created mcp_sources above so v10 is
-        # a no-op and v11 runs cleanly.
+        # objects to exist; we already created mcp_sources/agents above so
+        # v10/v11 are no-ops and v12 runs cleanly.
         await ensure_schema(conn)
 
         # Existing row survived the rebuild.
         async with conn.execute(
-            "SELECT id, name, type FROM llm_providers WHERE id = ?", ("v10-prov",)
+            "SELECT id, name, type FROM llm_providers WHERE id = ?", ("v11-prov",)
         ) as cursor:
             row = await cursor.fetchone()
         assert row is not None and row["type"] == "anthropic"
@@ -886,7 +1018,7 @@ class TestMigrationV11:
             "SELECT name, provider_config_id FROM agents WHERE name = ?", ("legacy-agent",)
         ) as cursor:
             agent = await cursor.fetchone()
-        assert agent is not None and agent["provider_config_id"] == "v10-prov"
+        assert agent is not None and agent["provider_config_id"] == "v11-prov"
 
         # Post-condition: the new CHECK accepts openrouter.
         await conn.execute(
@@ -903,14 +1035,14 @@ class TestMigrationV11:
             )
         await conn.rollback()
 
-        # schema_version reached 11.
+        # schema_version reached CURRENT_VERSION.
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cursor:
             row = await cursor.fetchone()
-        assert row[0] == 11
+        assert row[0] == CURRENT_VERSION
 
         await conn.close()
 
-    async def test_v11_recovers_from_partial_apply_with_orphan_temp_table(
+    async def test_v12_recovers_from_partial_apply_with_orphan_temp_table(
         self, tmp_path
     ) -> None:
         """Defensive ``DROP TABLE IF EXISTS llm_providers_new`` prelude:
@@ -918,13 +1050,15 @@ class TestMigrationV11:
         BEFORE the rename, re-running ensure_schema must succeed (without
         the prelude, ``CREATE TABLE llm_providers_new`` would fail with
         'table already exists')."""
+        from the_one.db.schema import CURRENT_VERSION
+
         db_path = tmp_path / "partial.db"
         conn = await aiosqlite.connect(str(db_path))
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
 
         await ensure_schema(conn)
-        await conn.execute("DELETE FROM schema_version WHERE version = 11")
+        await conn.execute("DELETE FROM schema_version WHERE version = 12")
         # Synthesize the orphan temp table left by a crashed prior run.
         await conn.execute(
             "CREATE TABLE llm_providers_new (id TEXT, junk TEXT)"
@@ -936,7 +1070,7 @@ class TestMigrationV11:
 
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cursor:
             row = await cursor.fetchone()
-        assert row[0] == 11
+        assert row[0] == CURRENT_VERSION
         # llm_providers_new is fully consumed (renamed); the orphan cleared.
         async with conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='llm_providers_new'"
@@ -944,7 +1078,7 @@ class TestMigrationV11:
             assert await cursor.fetchone() is None
         await conn.close()
 
-    async def test_v11_check_constraint_accepts_each_known_type(self, tmp_path) -> None:
+    async def test_v12_check_constraint_accepts_each_known_type(self, tmp_path) -> None:
         """Each PROVIDER_TYPES member inserts cleanly post-migration."""
         from the_one.db._provider_types import PROVIDER_TYPES
 

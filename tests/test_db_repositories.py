@@ -159,6 +159,32 @@ class TestSQLiteAgentStore:
         loaded = await agent_store.load("no-overrides")
         assert loaded.tool_overrides is None
 
+    async def test_mcp_overrides_round_trip(self, agent_store: SQLiteAgentStore) -> None:
+        """Saving an agent with `mcp_overrides` set roundtrips through
+        the SQLite store cleanly (F6 §1: dict[str, dict[str, Any]] keyed
+        by source name)."""
+        cfg = AgentConfig(
+            name="mcp-override-test",
+            mcp_overrides={
+                "github": {"bearer_token": "tok-a"},
+                "filesystem": {"env": {"ROOT": "/srv"}},
+            },
+        )
+        await agent_store.save(cfg)
+        loaded = await agent_store.load("mcp-override-test")
+        assert loaded.mcp_overrides == {
+            "github": {"bearer_token": "tok-a"},
+            "filesystem": {"env": {"ROOT": "/srv"}},
+        }
+
+    async def test_mcp_overrides_none_default(self, agent_store: SQLiteAgentStore) -> None:
+        """An agent without `mcp_overrides` set roundtrips as None
+        (locked-down NULL semantic, mirrors tool_overrides)."""
+        cfg = AgentConfig(name="no-mcp-overrides")
+        await agent_store.save(cfg)
+        loaded = await agent_store.load("no-mcp-overrides")
+        assert loaded.mcp_overrides is None
+
 
 # ── Knowledge Base Repository ─────────────────────────────────────────────
 

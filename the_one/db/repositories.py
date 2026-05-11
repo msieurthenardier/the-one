@@ -60,8 +60,9 @@ class SQLiteAgentStore:
             INSERT INTO agents (
                 name, description, provider_config_id, llm_model,
                 system_prompt, enabled_tools, disabled_tools, max_iterations,
-                kb_ids, mcp_source_ids, tool_overrides, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                kb_ids, mcp_source_ids, tool_overrides, mcp_overrides,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(name) DO UPDATE SET
                 description=excluded.description,
                 provider_config_id=excluded.provider_config_id,
@@ -73,6 +74,7 @@ class SQLiteAgentStore:
                 kb_ids=excluded.kb_ids,
                 mcp_source_ids=excluded.mcp_source_ids,
                 tool_overrides=excluded.tool_overrides,
+                mcp_overrides=excluded.mcp_overrides,
                 updated_at=excluded.updated_at
             """,
             (
@@ -87,6 +89,7 @@ class SQLiteAgentStore:
                 json.dumps(config.kb_ids),
                 json.dumps(config.mcp_source_ids),
                 json.dumps(config.tool_overrides) if config.tool_overrides is not None else None,
+                json.dumps(config.mcp_overrides) if config.mcp_overrides is not None else None,
                 now,
                 now,
             ),
@@ -122,6 +125,7 @@ class SQLiteAgentStore:
             # comes from the v8 migration having run, not from this
             # expression — `aiosqlite.Row[<missing>]` raises IndexError.
             tool_overrides=(json.loads(row["tool_overrides"]) if row["tool_overrides"] else None),
+            mcp_overrides=(json.loads(row["mcp_overrides"]) if row["mcp_overrides"] else None),
         )
 
 
@@ -330,6 +334,44 @@ class MCPSourceRepository:
                 raise KeyError(f"MCP source not found: {source_id}")
         await self.conn.execute("DELETE FROM mcp_sources WHERE id = ?", (source_id,))
         await self.conn.commit()
+
+    async def find_by_runtime_package(
+        self, runtime: str, package: str, exclude_id: str
+    ) -> list[MCPSource]:
+        """Return every other MCP source whose (command, args) decode to
+        the same (runtime, package) pair.
+
+        Used by the delete handler to refcount cache cleanup: if any
+        other source still references the same lazy-install package,
+        skip the cleanup so we don't yank a cache slot the survivor
+        depends on.
+
+        Decoding is done in Python — ``config`` is JSON TEXT in SQLite,
+        and a SQL LIKE on the JSON string would be brittle (arg order,
+        version pins, ``--from`` indirection). The deserialized form
+        runs through :func:`extract_runtime_package` for parity with the
+        delete handler.
+        """
+        # Local import to avoid a circular: cache_cleanup is in the_one.mcp,
+        # which transitively imports db modules through other helpers.
+        from the_one.mcp.cache_cleanup import extract_runtime_package
+
+        async with self.conn.execute(
+            "SELECT * FROM mcp_sources WHERE id != ?", (exclude_id,)
+        ) as cur:
+            rows = await cur.fetchall()
+        matches: list[MCPSource] = []
+        for row in rows:
+            model = self._row_to_model(row)
+            cfg = model.config or {}
+            cmd = cfg.get("command", "")
+            args = cfg.get("args", []) or []
+            if not isinstance(cmd, str) or not isinstance(args, list):
+                continue
+            decoded = extract_runtime_package(cmd, args)
+            if decoded == (runtime, package):
+                matches.append(model)
+        return matches
 
     def _row_to_model(self, row: aiosqlite.Row) -> MCPSource:
         return MCPSource(

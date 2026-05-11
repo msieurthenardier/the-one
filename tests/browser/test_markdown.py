@@ -9,9 +9,9 @@ Validates the public API contracts:
 The corpus covers each of the 13 user-authored markdown constructs with at
 least 3 cases plus boundary cases (nested-emphasis non-recursive contract,
 javascript:-href XSS hardening, balanced-paren URLs, null-lang code block,
-single-trailing-space soft break, ``parse(null)`` empty document) and one
-end-to-end test of the code-block copy button (clipboard permissions
-granted on the browser context).
+single-trailing-space soft break, ``parse(null)`` empty document), GFM table
+rendering (parser + DOM shape), and one end-to-end test of the code-block copy
+button (clipboard permissions granted on the browser context).
 
 The fixture below spawns a single app subprocess and a single Playwright
 page for the entire module — parametrized cases re-use the same page via
@@ -540,6 +540,88 @@ AST_CASES: list[tuple[str, dict]] = [
             )
         ),
     ),
+    # --- GFM tables (3 cases) ---
+    # Minimal 2-column table with header and one data row.
+    (
+        "| a | b |\n| - | - |\n| 1 | 2 |",
+        _doc(
+            {
+                "type": "table",
+                "children": [
+                    {
+                        "type": "tableHead",
+                        "children": [
+                            {"type": "tableCell", "children": [_text("a")]},
+                            {"type": "tableCell", "children": [_text("b")]},
+                        ],
+                    },
+                    {
+                        "type": "tableRow",
+                        "children": [
+                            {"type": "tableCell", "children": [_text("1")]},
+                            {"type": "tableCell", "children": [_text("2")]},
+                        ],
+                    },
+                ],
+            }
+        ),
+    ),
+    # Table without leading/trailing pipes (GFM relaxed form).
+    (
+        "Name | Age\n---- | ---\nAlice | 30",
+        _doc(
+            {
+                "type": "table",
+                "children": [
+                    {
+                        "type": "tableHead",
+                        "children": [
+                            {"type": "tableCell", "children": [_text("Name")]},
+                            {"type": "tableCell", "children": [_text("Age")]},
+                        ],
+                    },
+                    {
+                        "type": "tableRow",
+                        "children": [
+                            {"type": "tableCell", "children": [_text("Alice")]},
+                            {"type": "tableCell", "children": [_text("30")]},
+                        ],
+                    },
+                ],
+            }
+        ),
+    ),
+    # Table with inline markup in cells.
+    (
+        "| **Key** | Value |\n| --- | --- |\n| `id` | 42 |",
+        _doc(
+            {
+                "type": "table",
+                "children": [
+                    {
+                        "type": "tableHead",
+                        "children": [
+                            {
+                                "type": "tableCell",
+                                "children": [{"type": "strong", "children": [_text("Key")]}],
+                            },
+                            {"type": "tableCell", "children": [_text("Value")]},
+                        ],
+                    },
+                    {
+                        "type": "tableRow",
+                        "children": [
+                            {
+                                "type": "tableCell",
+                                "children": [{"type": "inlineCode", "value": "id"}],
+                            },
+                            {"type": "tableCell", "children": [_text("42")]},
+                        ],
+                    },
+                ],
+            }
+        ),
+    ),
 ]
 
 
@@ -663,6 +745,28 @@ RENDER_CASES: list[tuple[str, str]] = [
     ("a \nb", "<p>a  b</p>"),
     # --- empty input renders empty fragment (caller sees empty host) ---
     ("", ""),
+    # --- GFM tables ---
+    (
+        "| a | b |\n| - | - |\n| 1 | 2 |",
+        "<table>"
+        "<thead><tr><th>a</th><th>b</th></tr></thead>"
+        "<tbody><tr><td>1</td><td>2</td></tr></tbody>"
+        "</table>",
+    ),
+    (
+        "Name | Age\n---- | ---\nAlice | 30",
+        "<table>"
+        "<thead><tr><th>Name</th><th>Age</th></tr></thead>"
+        "<tbody><tr><td>Alice</td><td>30</td></tr></tbody>"
+        "</table>",
+    ),
+    (
+        "| **Key** | Value |\n| --- | --- |\n| `id` | 42 |",
+        "<table>"
+        "<thead><tr><th><strong>Key</strong></th><th>Value</th></tr></thead>"
+        "<tbody><tr><td><code>id</code></td><td>42</td></tr></tbody>"
+        "</table>",
+    ),
 ]
 
 
@@ -686,7 +790,7 @@ def test_markdown_render_html(page_with_app: Page, source: str, expected: str) -
 
 @pytest.mark.browser
 def test_markdown_nodetype_constants(page_with_app: Page) -> None:
-    """``App.markdown.NodeType`` exposes all 14 frozen string constants."""
+    """``App.markdown.NodeType`` exposes all 18 frozen string constants."""
     nt = page_with_app.evaluate("() => Object.assign({}, App.markdown.NodeType)")
     assert nt == {
         "DOCUMENT": "document",
@@ -697,6 +801,10 @@ def test_markdown_nodetype_constants(page_with_app: Page) -> None:
         "LIST": "list",
         "LIST_ITEM": "listItem",
         "HORIZONTAL_RULE": "horizontalRule",
+        "TABLE": "table",
+        "TABLE_HEAD": "tableHead",
+        "TABLE_ROW": "tableRow",
+        "TABLE_CELL": "tableCell",
         "TEXT": "text",
         "EMPHASIS": "emphasis",
         "STRONG": "strong",

@@ -11,13 +11,15 @@ L6b: input validation + error paths + non-text content blocks.
 
 import asyncio
 import dataclasses
+import logging
 import re
-from contextlib import asynccontextmanager
-from unittest.mock import AsyncMock, MagicMock
+from contextlib import AsyncExitStack, asynccontextmanager
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import anyio
 import httpx
 import pytest
+from mcp.client.auth.exceptions import OAuthFlowError, OAuthTokenError
 from mcp.shared.exceptions import McpError, UrlElicitationRequiredError
 from mcp.types import ErrorData
 
@@ -26,6 +28,7 @@ from the_one.mcp import client as client_mod
 from the_one.mcp.client import MCPClient
 from the_one.mcp.errors import (
     MCPArgumentError,
+    MCPAuthRequired,
     MCPCallError,
     MCPCapabilityMissing,
     MCPConnectionError,
@@ -127,6 +130,21 @@ async def _mock_transport_cm(session_mock):
         yield session_mock
     finally:
         pass
+
+
+@asynccontextmanager
+async def _anyio_backed_transport_cm(session_mock):
+    """Transport CM whose body holds a real anyio task group.
+
+    Used by L1a stake-test probes (`TestAsyncExitStackContract`) to ensure
+    cross-task ``__aexit__`` trips anyio's CancelScope guard for real (vs
+    simulating it via a string-equal RuntimeError). The ``session_mock``
+    argument is the existing mock session — the body just yields it; the
+    anyio task group is what makes the guard fire when ``__aexit__`` runs
+    on a different task than ``__aenter__``.
+    """
+    async with anyio.create_task_group():
+        yield session_mock
 
 
 @pytest.fixture
@@ -292,21 +310,47 @@ class TestMCPClientLifecycle:
             await c.disconnect()
         assert c.is_alive is False
 
-    async def test_connect_version_mismatch_strict(
+    async def test_connect_supported_non_pinned_version_passes(
         self, patch_transport, mock_session
     ) -> None:
-        """SDK-supported but not-pinned version is caught by F2's strict check."""
-        # 2025-06-18 IS in SUPPORTED_PROTOCOL_VERSIONS so the SDK's own
-        # check would pass — F2's strict-equality gate is what fires here.
+        """F6 A6 fix: SDK-supported-but-not-pinned versions are accepted.
+
+        Inversion of pre-A6 ``test_connect_version_mismatch_strict`` —
+        F2's original strict-equality (``protocolVersion != pinned``)
+        rejected every server that didn't announce the exact pinned
+        revision, even when the announced version was in the SDK's
+        ``SUPPORTED_PROTOCOL_VERSIONS`` set. F6 Tier-2 HAT against
+        Cloudflare Docs MCP (announces 2025-06-18) surfaced this as a
+        production gap; the source failed version-check before F5's
+        lazy-OAuth flow could fire. Post-A6, the check loosens to "in
+        the SDK's supported set" per mission constraint #59's
+        "capability-gate, don't crash" framing. The pinned constant
+        remains as documentation/marker.
+        """
         mock_session.initialize = AsyncMock(
             return_value=_make_init_result(protocol_version="2025-06-18")
         )
         patch_transport(mock_session)
         c = MCPClient(_stdio_source())
+        # Pre-A6 this raised MCPVersionMismatch; post-A6 it succeeds.
+        await c.connect()
+        assert c.is_alive is True
+        assert c.negotiated_protocol_version == "2025-06-18"
+        await c.disconnect()
+
+    async def test_connect_unsupported_version_raises_mismatch(
+        self, patch_transport, mock_session
+    ) -> None:
+        """Server announcing a version NOT in SDK's SUPPORTED_PROTOCOL_VERSIONS
+        raises MCPVersionMismatch. Locks the post-A6 check site."""
+        mock_session.initialize = AsyncMock(
+            return_value=_make_init_result(protocol_version="1999-01-01")
+        )
+        patch_transport(mock_session)
+        c = MCPClient(_stdio_source())
         with pytest.raises(MCPVersionMismatch) as exc_info:
             await c.connect()
-        assert exc_info.value.pinned == "2025-11-25"
-        assert exc_info.value.observed == "2025-06-18"
+        assert exc_info.value.observed == "1999-01-01"
         assert c.is_alive is False
 
     async def test_connect_version_mismatch_via_sdk_runtime_error(
@@ -368,6 +412,162 @@ class TestMCPClientLifecycle:
             exc_info.value
         )
         assert c.is_alive is False
+
+    async def test_connect_cancelled_error_translates_to_connection_error(
+        self, patch_transport, mock_session
+    ) -> None:
+        """F6 A5 regression: ``CancelledError`` raised from ``session.initialize()``
+        translates to :class:`MCPConnectionError` with the abandon-cleanup
+        path active (no hang).
+
+        Reproduces the production cascade against an OAuth-protected
+        streamable-http source without credentials: the SDK's anyio
+        task-group cleanup chain, after the inner 401, ends with the
+        surrounding task cancelled. The pre-A5 ``except Exception``
+        handler missed ``CancelledError`` (PEP 656: extends BaseException
+        only, not Exception) and the cancel propagated up through the
+        F4 pool's ``_entry_worker`` into ``MCPToolProvider.get_tools_for_agent``
+        whose class #2 handler ``(MCPSandboxError, MCPConnectionError,
+        MCPVersionMismatch)`` also missed it — agent build crashed
+        instead of graceful-degrade-skip. Post-fix, A5's dedicated
+        ``except CancelledError`` translates to ``MCPConnectionError``,
+        the abandon-cleanup branch sets ``_transport_stack`` and
+        ``_session`` to None (avoiding re-trip on the wedged SDK task
+        group), and class #2 catches uniformly.
+        """
+        mock_session.initialize = AsyncMock(side_effect=asyncio.CancelledError())
+        patch_transport(mock_session)
+        c = MCPClient(_stdio_source())
+        with pytest.raises(MCPConnectionError) as exc_info:
+            await c.connect()
+        # Verbatim substring lock per `verbatim-message-equality` convention.
+        assert "cancelled during initialize" in str(exc_info.value)
+        # F6.6 L1: post-narrowing, the CancelledError block's message no
+        # longer speculates about "401 Unauthorized" — OAuth-flow
+        # exceptions are caught upstream by the inner `except*` block,
+        # and transport-layer 401s are caught by the outer
+        # BaseExceptionGroup walk. Neither path reaches CancelledError.
+        assert "401" not in str(exc_info.value)
+        assert c.is_alive is False
+        # Abandon-cleanup invariant: stack + session cleared so a subsequent
+        # disconnect() is a no-op (mirrors the F2-known-issue idempotent-
+        # disconnect contract).
+        assert c._transport_stack is None
+        assert c._session is None
+
+    async def test_connect_cancelled_error_during_cleanup_translates_to_connection_error(
+        self, patch_transport, mock_session
+    ) -> None:
+        """F9 L2 regression: CancelledError raised from inside
+        _cleanup_after_failed_connect (the cleanup-phase cancellation that
+        the D1 stdio Test route surfaced as a 500) is caught by
+        _safe_cleanup's widened except tuple and translated to
+        MCPConnectionError, not propagated as bare CancelledError.
+
+        Distinct from the existing CancelledError test, which exercises the
+        OUTER ``except asyncio.CancelledError`` block by raising from
+        initialize() directly. This test exercises the INNER ``_safe_cleanup``
+        arm by:
+          1. Raising a non-RuntimeError, non-MCPClientError Exception from
+             initialize() (routes to outer ``except (Exception,
+             BaseExceptionGroup)``, which is the only arm that uses
+             ``_safe_cleanup``).
+          2. Raising CancelledError from ``_cleanup_after_failed_connect``,
+             which is what ``_safe_cleanup`` awaits under the 3s timeout.
+
+        Note on exception choice: ``RuntimeError`` would be caught by the
+        inner ``except RuntimeError`` block (version-mismatch translation)
+        and re-raised as ``MCPVersionMismatch`` — that routes to the
+        ``except (MCPClientError, NotImplementedError)`` arm, which
+        bypasses ``_safe_cleanup``. ``ValueError`` is neither, so it
+        falls through to the ``(Exception, BaseExceptionGroup)`` arm.
+
+        Locks the four-typed-exceptions contract: even when cleanup itself
+        is cancelled, connect() raises MCPConnectionError.
+        """
+        mock_session.initialize = AsyncMock(side_effect=ValueError("transport boom"))
+        patch_transport(mock_session)
+        c = MCPClient(_stdio_source())
+        # Monkeypatch the cleanup coroutine to raise CancelledError directly.
+        # ``_safe_cleanup`` wraps this in ``asyncio.wait_for(..., timeout=3.0)``
+        # and the widened except tuple should catch the CancelledError surface.
+        c._cleanup_after_failed_connect = AsyncMock(  # type: ignore[method-assign]
+            side_effect=asyncio.CancelledError()
+        )
+        with pytest.raises(MCPConnectionError) as exc_info:
+            await c.connect()
+        assert "MCP connect failed: ValueError" in str(exc_info.value)
+        assert c.is_alive is False
+        assert c._transport_stack is None
+        assert c._session is None
+
+    async def test_connect_oauth_flow_error_raises_mcp_auth_required(
+        self, patch_transport, mock_session
+    ) -> None:
+        """F6.6 L1: OAuthFlowError raised inside session.initialize() translates
+        to MCPAuthRequired with the standard auth-pending discriminator shape.
+
+        Mirrors F6.5 L2's list_tools pattern against the same SDK exception
+        surface (mcp.client.auth.exceptions), but at the connect-time entry
+        point. The new innermost `except* (OAuthFlowError, OAuthTokenError)`
+        block in MCPClient.connect translates the SDK's auth-flow exception
+        to MCPAuthRequired, closing the F6.5 Design Decision §3 deferral.
+        """
+        mock_session.initialize = AsyncMock(
+            side_effect=OAuthFlowError("auth flow failed during initialize")
+        )
+        patch_transport(mock_session)
+        c = MCPClient(_stdio_source())
+        with pytest.raises(MCPAuthRequired) as exc_info:
+            await c.connect()
+        assert exc_info.value.source_id == c.source.id
+        assert exc_info.value.resource_metadata_url is None
+        assert exc_info.value.consent_url is None
+
+    async def test_connect_oauth_token_error_raises_mcp_auth_required(
+        self, patch_transport, mock_session
+    ) -> None:
+        """F6.6 L1: OAuthTokenError raised inside session.initialize() translates
+        to MCPAuthRequired (same shape as the OAuthFlowError case).
+
+        OAuthTokenError covers the refresh-failure subset of the SDK's auth
+        exceptions; OAuthFlowError covers discovery + DCR. Both are members
+        of the `except*` tuple and resolve identically via the new
+        innermost translation block.
+        """
+        mock_session.initialize = AsyncMock(
+            side_effect=OAuthTokenError("token error during initialize")
+        )
+        patch_transport(mock_session)
+        c = MCPClient(_stdio_source())
+        with pytest.raises(MCPAuthRequired) as exc_info:
+            await c.connect()
+        assert exc_info.value.source_id == c.source.id
+        assert exc_info.value.resource_metadata_url is None
+        assert exc_info.value.consent_url is None
+
+    async def test_connect_oauth_error_in_exception_group_raises_mcp_auth_required(
+        self, patch_transport, mock_session
+    ) -> None:
+        """F6.6 L1: the SDK's anyio task-group can wrap OAuth exceptions in a
+        BaseExceptionGroup; `except*` matches both bare and grouped shapes.
+
+        Mirrors F6.5 L2's `except*` semantics — a regression that uses bare
+        `except` instead of `except*` would fail this test specifically
+        because BaseExceptionGroup is a BaseException, not the wrapped
+        OAuthFlowError, and a non-`except*` clause would not unwrap it.
+        """
+        mock_session.initialize = AsyncMock(
+            side_effect=BaseExceptionGroup(
+                "auth-flow-group",
+                [OAuthFlowError("inner auth-flow failure")],
+            )
+        )
+        patch_transport(mock_session)
+        c = MCPClient(_stdio_source())
+        with pytest.raises(MCPAuthRequired) as exc_info:
+            await c.connect()
+        assert exc_info.value.source_id == c.source.id
 
     async def test_disconnect_idempotent(self, patch_transport, mock_session) -> None:
         """Disconnect on never-connected client is a no-op; double-disconnect is a no-op."""
@@ -442,28 +642,34 @@ class TestMCPClientLifecycle:
         finally:
             await c.disconnect()
 
-    async def test_pinned_constant_read_at_call_time(
+    async def test_pinned_constant_no_longer_gates_connect(
         self, monkeypatch, patch_transport, mock_session
     ) -> None:
-        """Monkeypatching _PINNED_PROTOCOL_VERSION must affect connect()'s strict check.
+        """F6 A6 inversion: ``_PINNED_PROTOCOL_VERSION`` is documentation/marker only.
 
-        Mocked session.initialize bypasses the SDK's own SUPPORTED_PROTOCOL_VERSIONS
-        gate — F2's strict-equality check is the only one that fires. Server returns
-        2025-11-25 (the original pin), but we've monkeypatched the pin to 2099-01-01,
-        so connect() must raise MCPVersionMismatch(pinned=2099-01-01, observed=2025-11-25).
+        Pre-A6, F2's strict-equality gate read the PINNED constant at call time
+        and rejected any non-equal version. Post-A6, the gate reads the SDK's
+        ``SUPPORTED_PROTOCOL_VERSIONS`` set; the PINNED constant remains in
+        ``the_one.mcp.__init__`` as a documentation/marker for the
+        primary-targeted revision but no longer affects the runtime check.
+        Locks the new contract: monkeypatching PINNED has no effect on connect()
+        when the server announces a version IN the SDK's supported set.
         """
+        # Monkeypatch PINNED to nonsense; would have caused connect() to fail
+        # pre-A6 (server returns 2025-11-25, pinned now reads 2099-01-01,
+        # strict equality fails). Post-A6, irrelevant — gate reads
+        # SUPPORTED_PROTOCOL_VERSIONS, server's 2025-11-25 IS in that set,
+        # connect() succeeds.
         monkeypatch.setattr("the_one.mcp._PINNED_PROTOCOL_VERSION", "2099-01-01")
-        # Server returns the original pinned version (which is now "wrong").
         mock_session.initialize = AsyncMock(
             return_value=_make_init_result(protocol_version="2025-11-25")
         )
         patch_transport(mock_session)
         c = MCPClient(_stdio_source())
-        with pytest.raises(MCPVersionMismatch) as exc_info:
-            await c.connect()
-        assert exc_info.value.pinned == "2099-01-01"
-        assert exc_info.value.observed == "2025-11-25"
-        assert c.is_alive is False
+        await c.connect()
+        assert c.is_alive is True
+        assert c.negotiated_protocol_version == "2025-11-25"
+        await c.disconnect()
 
     async def test_last_activity_updates_via_list_tools(
         self, patch_transport, mock_session
@@ -490,6 +696,284 @@ class TestMCPClientLifecycle:
             assert c.last_activity > t0
         finally:
             await c.disconnect()
+
+
+# ---------------------------------------------------------------------------
+# L1a: AsyncExitStack contract + cross-task safety net stake-test probe
+# ---------------------------------------------------------------------------
+
+
+class TestAsyncExitStackContract:
+    """Stake-test probe + regression suite for the L1a AsyncExitStack refactor.
+
+    Locks the four observable invariants of the disconnect contract:
+
+    1. Same-task disconnect (the canonical ``async with MCPClient(s) as c:``
+       pattern) produces NO ``WARNING`` log line — anyio guard not
+       triggered, swallow not invoked.
+       Lock: ``test_same_task_disconnect_no_safety_net_log``.
+
+    2. Cross-task disconnect (``MCPClient`` constructed/connected on task A,
+       ``disconnect()`` awaited on task B) DOES log via the cross-task
+       safety net — anyio guard fires from inside ``stack.aclose()``,
+       swallow catches the ``RuntimeError``.
+       Lock: ``test_cross_task_disconnect_logs_via_safety_net``.
+
+    3. Worker-task-per-entry pattern (the F4 L3 pool shape: a worker task
+       holds connect, awaits an evict_event, then runs disconnect in its
+       ``finally`` — connect AND disconnect on the same task) produces
+       NO ``WARNING`` log. Experimental verification that L3's chosen
+       pattern actually circumvents the anyio guard against a real
+       ``anyio.create_task_group()``.
+       Lock: ``test_worker_task_pattern_no_safety_net_log``.
+
+    4. Stack ``aclose()`` is called on connect-failure paths and the
+       disconnect contract is idempotent under double-call and
+       reconnect-after-disconnect.
+       Locks: ``test_connect_failure_runs_stack_aclose``,
+       ``test_disconnect_idempotent_with_stack``.
+
+    Per F2 debrief KL #1: when integration tests stake on a specific
+    SDK pattern, commit a stake-test probe as a regression test so
+    future maintainers can mechanically re-verify the contract.
+    """
+
+    async def test_same_task_disconnect_no_safety_net_log(
+        self, monkeypatch, mock_session, caplog
+    ) -> None:
+        """Same-task connect/disconnect: anyio guard NOT triggered, swallow NOT invoked.
+
+        Meaningful BECAUSE the mock holds a real ``anyio.create_task_group()``:
+        the test proves the guard does NOT fire on same-task exit.
+        """
+        monkeypatch.setattr(
+            client_mod,
+            "_transport_connect",
+            lambda source: _anyio_backed_transport_cm(mock_session),
+        )
+        caplog.set_level(logging.WARNING, logger="the_one.mcp.client")
+        async with MCPClient(_stdio_source()) as c:
+            assert c.is_alive is True
+        assert c.is_alive is False
+        warns = [
+            r for r in caplog.records
+            if r.message == "MCPClient transport close failed"
+        ]
+        assert warns == [], f"unexpected safety-net warnings: {warns}"
+
+    async def test_cross_task_disconnect_logs_via_safety_net(
+        self, monkeypatch, mock_session, caplog
+    ) -> None:
+        """Cross-task disconnect: anyio's REAL CancelScope guard fires; safety net catches.
+
+        Connect runs on the test task (anyio's _host_task). Disconnect runs on
+        a worker task. anyio's ``CancelScope.__exit__`` checks
+        ``current_task() is self._host_task`` and raises a real
+        ``RuntimeError("Attempted to exit cancel scope in a different task...")``.
+        The safety-net swallow at ``client.py::disconnect`` catches it and logs
+        via ``logger.warning("MCPClient transport close failed", ...)``.
+        """
+        monkeypatch.setattr(
+            client_mod,
+            "_transport_connect",
+            lambda source: _anyio_backed_transport_cm(mock_session),
+        )
+        caplog.set_level(logging.WARNING, logger="the_one.mcp.client")
+        c = MCPClient(_stdio_source())
+        await c.connect()  # entered on test task (host task for anyio scope)
+        try:
+            disconnect_task = asyncio.create_task(c.disconnect())
+            await disconnect_task
+            # Must not raise — the safety-net swallow absorbed the RuntimeError.
+            assert disconnect_task.exception() is None
+        finally:
+            assert c.is_alive is False
+        warns = [
+            r for r in caplog.records
+            if r.message == "MCPClient transport close failed"
+        ]
+        assert len(warns) == 1, f"expected exactly one safety-net warning, got {warns}"
+        assert warns[0].levelno == logging.WARNING
+
+    async def test_worker_task_pattern_no_safety_net_log(
+        self, monkeypatch, mock_session, caplog
+    ) -> None:
+        """L3 worker-task-per-entry pattern: connect + disconnect on same task; guard NOT triggered.
+
+        Experimental verification that the F4 L3 worker-task-per-entry shape
+        actually works against a real ``anyio.create_task_group()`` — this is
+        the load-bearing assumption L3's design rests on.
+        """
+        monkeypatch.setattr(
+            client_mod,
+            "_transport_connect",
+            lambda source: _anyio_backed_transport_cm(mock_session),
+        )
+        caplog.set_level(logging.WARNING, logger="the_one.mcp.client")
+        ready = asyncio.Event()
+        evict = asyncio.Event()
+        c = MCPClient(_stdio_source())
+
+        async def _worker() -> None:
+            await c.connect()
+            ready.set()
+            try:
+                await evict.wait()
+            finally:
+                await c.disconnect()
+
+        worker = asyncio.create_task(_worker())
+        await ready.wait()
+        evict.set()
+        await worker
+        assert worker.exception() is None
+        assert c.is_alive is False
+        warns = [
+            r for r in caplog.records
+            if r.message == "MCPClient transport close failed"
+        ]
+        assert warns == [], f"worker-task pattern leaked safety-net warning: {warns}"
+
+    async def test_connect_failure_runs_stack_aclose(
+        self, monkeypatch, mock_session
+    ) -> None:
+        """Connect failure (initialize raises) calls _transport_stack.aclose() and resets state.
+
+        Spy via narrowly-scoped ``patch.object(AsyncExitStack, "aclose", ...)``
+        with ``wraps=`` so real cleanup behavior is preserved while calls are
+        recorded. ``>= 1`` smoke check; load-bearing observation is the
+        post-cleanup state (``_transport_stack is None``, ``_session is None``,
+        ``is_alive is False``).
+        """
+        # Use ValueError (not RuntimeError) — connect()'s `except RuntimeError`
+        # branch translates RuntimeErrors as version mismatches; ValueError
+        # falls through to the catch-all that wraps as MCPConnectionError.
+        mock_session.initialize = AsyncMock(side_effect=ValueError("init failed"))
+        monkeypatch.setattr(
+            client_mod,
+            "_transport_connect",
+            lambda source: _anyio_backed_transport_cm(mock_session),
+        )
+        c = MCPClient(_stdio_source())
+        with patch.object(
+            AsyncExitStack,
+            "aclose",
+            autospec=True,
+            wraps=AsyncExitStack.aclose,
+        ) as spy:
+            with pytest.raises(MCPConnectionError):
+                await c.connect()
+            assert spy.call_count >= 1, (
+                f"expected aclose to be called at least once, got {spy.call_count}"
+            )
+        assert c.is_alive is False
+        assert c._transport_stack is None
+        assert c._session is None
+
+    async def test_disconnect_idempotent_with_stack(
+        self, monkeypatch, mock_session, caplog
+    ) -> None:
+        """Idempotent disconnect across four scenarios with the new _transport_stack field.
+
+        (a) never-connected disconnect is a no-op
+        (b) connect → disconnect → disconnect is a no-op on the second
+        (c) reconnect-after-disconnect produces a FRESH AsyncExitStack instance
+            (live-ref ``is not`` comparison, NOT ``id()`` — CPython recycles
+            ids of GC'd objects)
+        (d) post-``_cleanup_after_failed_connect`` state: is_alive is False AND
+            _transport_stack is None AND _session is None
+        """
+        monkeypatch.setattr(
+            client_mod,
+            "_transport_connect",
+            lambda source: _anyio_backed_transport_cm(mock_session),
+        )
+
+        # (a) never-connected disconnect — no raise, no state change.
+        c_a = MCPClient(_stdio_source())
+        await c_a.disconnect()
+        assert c_a.is_alive is False
+        assert c_a._transport_stack is None
+        assert c_a._session is None
+
+        # (b) connect → disconnect → disconnect: second is a no-op.
+        c_b = MCPClient(_stdio_source())
+        await c_b.connect()
+        stack_first = c_b._transport_stack
+        assert stack_first is not None
+        await c_b.disconnect()
+        assert c_b.is_alive is False
+        assert c_b._transport_stack is None
+        await c_b.disconnect()  # no raise; short-circuits via the early-return guard
+        assert c_b._transport_stack is None
+
+        # (c) reconnect-after-disconnect produces a fresh stack instance.
+        # `is not` against the live `stack_first` ref — id-recycling-safe.
+        await c_b.connect()
+        stack_second = c_b._transport_stack
+        assert stack_second is not None
+        assert stack_second is not stack_first, (
+            "reconnect must allocate a fresh AsyncExitStack — re-entry of a "
+            "consumed stack is undefined behavior"
+        )
+        await c_b.disconnect()
+
+        # (d) post-_cleanup_after_failed_connect state.
+        # Use a fresh client whose initialize raises — drives the failure path.
+        # ValueError (not RuntimeError) so connect()'s version-mismatch branch
+        # doesn't claim it; the catch-all wraps it as MCPConnectionError.
+        bad_session = MagicMock()
+        bad_session.initialize = AsyncMock(side_effect=ValueError("bad init"))
+        bad_session.list_tools = AsyncMock()
+        bad_session.call_tool = AsyncMock()
+        monkeypatch.setattr(
+            client_mod,
+            "_transport_connect",
+            lambda source: _anyio_backed_transport_cm(bad_session),
+        )
+        c_d = MCPClient(_stdio_source())
+        with pytest.raises(MCPConnectionError):
+            await c_d.connect()
+        assert c_d.is_alive is False
+        assert c_d._transport_stack is None
+        assert c_d._session is None
+
+    async def test_direct_cross_task_still_warns(
+        self, monkeypatch, mock_session, caplog
+    ) -> None:
+        """F5 L1: control test — direct cross-task disconnect (outside
+        pool routing) STILL produces the warning via the safety net.
+
+        Locks the contract scope: F2-known-issue retirement applies only
+        to F4-pool-routed (same-task) disconnects. Direct
+        ``MCPClient(source)`` usage with cross-task disconnect continues
+        to hit the safety net swallow.
+
+        Mock-based (uses ``_anyio_backed_transport_cm``) is sufficient
+        here because the test exercises the cross-task safety-net's
+        ``except Exception`` clause, which is independent of the SDK
+        transport stack.
+        """
+        monkeypatch.setattr(
+            client_mod,
+            "_transport_connect",
+            lambda source: _anyio_backed_transport_cm(mock_session),
+        )
+
+        caplog.set_level(logging.WARNING, logger="the_one.mcp.client")
+        client = MCPClient(_stdio_source())
+        await client.connect()  # connect on test task (host task)
+
+        # Cross-task disconnect — exits the cancel scope on a different
+        # task; anyio's guard fires; safety-net swallow catches it.
+        disconnect_task = asyncio.create_task(client.disconnect())
+        await disconnect_task
+
+        messages = [r.getMessage() for r in caplog.records]
+        assert any(
+            "MCPClient transport close failed" in m for m in messages
+        ), f"expected cross-task warning; got: {messages}"
+        assert client.is_alive is False
 
 
 # ---------------------------------------------------------------------------
@@ -567,6 +1051,87 @@ class TestListToolsAndCallTool:
         c = MCPClient(_stdio_source())
         with pytest.raises(MCPConnectionError, match="not connected"):
             await c.list_tools()
+
+    # F6.5 L2: 401 / OAuth → MCPAuthRequired translation tests
+
+    async def test_list_tools_401_in_exception_group_raises_mcp_auth_required(
+        self, patch_transport, mock_session
+    ) -> None:
+        """list_tools translates a 401 HTTPStatusError (inside BaseExceptionGroup)
+        to MCPAuthRequired, parsing resource_metadata_url from WWW-Authenticate."""
+        patch_transport(mock_session)
+        response_401 = httpx.Response(
+            status_code=401,
+            headers={
+                "WWW-Authenticate": (
+                    'Bearer resource_metadata="https://example.com/.well-known/oauth-protected-resource"'
+                )
+            },
+            request=httpx.Request("POST", "https://example.com/mcp"),
+        )
+        inner = httpx.HTTPStatusError(
+            "401 Unauthorized",
+            request=response_401.request,
+            response=response_401,
+        )
+        eg = BaseExceptionGroup("test group", [inner])
+        mock_session.list_tools = AsyncMock(side_effect=eg)
+
+        c = MCPClient(_stdio_source())
+        await c.connect()
+        try:
+            with pytest.raises(MCPAuthRequired) as exc_info:
+                await c.list_tools()
+        finally:
+            await c.disconnect()
+
+        assert exc_info.value.source_id == c.source.id
+        assert exc_info.value.resource_metadata_url == (
+            "https://example.com/.well-known/oauth-protected-resource"
+        )
+        assert exc_info.value.consent_url is None
+
+    async def test_list_tools_oauth_flow_error_raises_mcp_auth_required(
+        self, patch_transport, mock_session
+    ) -> None:
+        """list_tools translates OAuthFlowError (bare or grouped) to MCPAuthRequired."""
+        patch_transport(mock_session)
+        mock_session.list_tools = AsyncMock(
+            side_effect=OAuthFlowError("discovery failed")
+        )
+
+        c = MCPClient(_stdio_source())
+        await c.connect()
+        try:
+            with pytest.raises(MCPAuthRequired) as exc_info:
+                await c.list_tools()
+        finally:
+            await c.disconnect()
+
+        assert exc_info.value.source_id == c.source.id
+        assert exc_info.value.resource_metadata_url is None
+        assert exc_info.value.consent_url is None
+
+    async def test_list_tools_oauth_token_error_raises_mcp_auth_required(
+        self, patch_transport, mock_session
+    ) -> None:
+        """list_tools translates OAuthTokenError (bare or grouped) to MCPAuthRequired."""
+        patch_transport(mock_session)
+        mock_session.list_tools = AsyncMock(
+            side_effect=OAuthTokenError("refresh failed")
+        )
+
+        c = MCPClient(_stdio_source())
+        await c.connect()
+        try:
+            with pytest.raises(MCPAuthRequired) as exc_info:
+                await c.list_tools()
+        finally:
+            await c.disconnect()
+
+        assert exc_info.value.source_id == c.source.id
+        assert exc_info.value.resource_metadata_url is None
+        assert exc_info.value.consent_url is None
 
     async def test_call_tool_text_only_result(
         self, patch_transport, mock_session

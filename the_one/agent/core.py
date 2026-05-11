@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Awaitable, Callable
 
+from the_one.agent._context import current_tool_call_id
 from the_one.llm.base import LLMProvider, Message, ToolCall, ToolResult
+from the_one.mcp.errors import MCPAuthRequired
 from the_one.tools.base import ToolRegistry
 
 # The agent can call this to keep its turn. It's a signal, not a real tool.
@@ -25,9 +27,66 @@ CONTINUE_SCHEMA = {
     },
 }
 
+# F10 L1: strict 2-tool baseline (§2). These two search tools are the ONLY
+# schemas visible to the LLM at session start. Additional schemas are added
+# to the model-visible set as a side effect of calling these search tools.
+SEARCH_TOOLS_SCHEMA = {
+    "name": "search_tools",
+    "description": (
+        "Search the built-in tool catalog for tools matching a query. "
+        "Matched tools are automatically added to your available toolset "
+        "for the rest of this conversation. Call with an empty query to "
+        "list all available tools."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": (
+                    "Substring to search for in tool names and descriptions. "
+                    "Empty string returns all."
+                ),
+            },
+        },
+        "required": [],
+    },
+}
+
+SEARCH_MCPS_SCHEMA = {
+    "name": "search_mcps",
+    "description": (
+        "Search attached MCP servers for tools matching a query. "
+        "Matched MCP tools are automatically added to your available toolset "
+        "for the rest of this conversation. Call with an empty query to "
+        "list all available MCP tools."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": (
+                    "Substring to search for in MCP tool names and descriptions. "
+                    "Empty string returns all."
+                ),
+            },
+        },
+        "required": [],
+    },
+}
+
 
 class Agent:
-    """The core agent loop: take user input, call LLM, execute tools, repeat."""
+    """The core agent loop: take user input, call LLM, execute tools, repeat.
+
+    Pause state (``_deferred_tool_calls``, ``_remaining_iterations``) is
+    in-memory only — server restart loses the pause and the operator
+    must re-trigger the original tool call. Session replay via
+    ``messages_to_ui_events`` does NOT propagate ``metadata``;
+    historical paused conversations show the auth_required tool_msg as
+    informational text without the Login-required affordance.
+    """
 
     def __init__(
         self,
@@ -35,17 +94,38 @@ class Agent:
         tools: ToolRegistry,
         system_prompt: str,
         max_iterations: int = 20,
+        *,
+        loaded_schemas: list[dict] | None = None,
+        loaded_tool_names: set[str] | None = None,
     ) -> None:
         self.llm = llm
         self.tools = tools
         self.system_prompt = system_prompt
         self.max_iterations = max_iterations
         self.messages: list[Message] = [Message.system(system_prompt)]
+        # F5 L3: pause/resume state (in-memory only; not persisted —
+        # see class docstring). Set by ``step``; consumed by
+        # ``resume_after_auth``.
+        self._deferred_tool_calls: list[ToolCall] | None = None
+        self._remaining_iterations: int = 0
+        # F10 L1: visibility filter. SHARED CONTAINERS with the factory-
+        # constructed search-stub tools — mutations from those tools land
+        # in these containers; _compute_visible_schemas reads them.
+        # Defaults to fresh empty containers if omitted (backward-compat
+        # for non-factory Agent construction sites, e.g. tests).
+        self._loaded_schemas: list[dict] = loaded_schemas if loaded_schemas is not None else []
+        self._loaded_tool_names: set[str] = loaded_tool_names if loaded_tool_names is not None else set()
 
-    def _tool_schemas(self) -> list[dict]:
-        """All tool schemas including the continue signal."""
-        schemas = self.tools.all_schemas() or []
-        return schemas + [CONTINUE_SCHEMA]
+    def _compute_visible_schemas(self) -> list[dict]:
+        """F10 L1: per-iteration model-visible schemas.
+
+        Returns the 2-tool baseline (search_tools, search_mcps) + continue
+        + any schemas the search tools have loaded into the visibility set
+        as a side effect of being called. The Agent's ToolRegistry holds
+        the FULL candidate set; this method computes the filtered view
+        the LLM sees on each iteration's tools= array.
+        """
+        return [SEARCH_TOOLS_SCHEMA, SEARCH_MCPS_SCHEMA, CONTINUE_SCHEMA] + self._loaded_schemas
 
     async def step(
         self,
@@ -62,20 +142,50 @@ class Agent:
         synthesised final ``Message`` flows up via ``yield``.
         """
         self.messages.append(Message.user(user_input))
+        # F5 L3: clear stale pause state at the start of a new step and
+        # re-prime the iteration budget. ``_run_iterations`` decrements
+        # ``_remaining_iterations`` at the top of each iteration body.
+        self._deferred_tool_calls = None
+        self._remaining_iterations = self.max_iterations
+        async for msg in self._run_iterations(on_chunk):
+            yield msg
 
-        # Resolve tool schemas once per step. If the model can't accept tools
-        # (e.g. Ollama Gemma), drop everything — including the virtual
-        # `continue` signal AND any real tools the agent has configured —
-        # and run as a single-shot chat. Studio surfaces this via the red
-        # "no tools" capability chip on the model selector, so the operator
-        # already had the chance to know; silently degrading is preferable
-        # to refusing the message at send time.
-        if await self.llm.supports_tools():
-            tool_schemas = (self.tools.all_schemas() or []) + [CONTINUE_SCHEMA]
-        else:
-            tool_schemas = []
+    async def _run_iterations(
+        self,
+        on_chunk: Callable[[str], Awaitable[None]] | None = None,
+    ) -> AsyncIterator[Message]:
+        """The iteration loop body — extracted for ``resume_after_auth`` re-use.
 
-        for _ in range(self.max_iterations):
+        Reads ``self._remaining_iterations`` and decrements at the top of
+        each iteration body. On pause (any tool returns
+        ``metadata.is_auth_required``), ``_dispatch_tool_calls`` sets
+        ``self._deferred_tool_calls`` and this helper returns; the
+        remaining iteration budget is preserved on the instance for a
+        subsequent ``resume_after_auth`` call.
+        """
+        # Resolve supports_tools ONCE per _run_iterations entry (network call
+        # in some provider implementations). The schemas computation moves
+        # inside the while loop so search-driven additions to _loaded_schemas
+        # show up on the next iteration's tools= array.
+        # If the model can't accept tools (e.g. Ollama Gemma), drop
+        # everything — including the virtual ``continue`` signal AND any real
+        # tools — and run as a single-shot chat. Studio surfaces this via the
+        # red "no tools" capability chip on the model selector, so the operator
+        # already had the chance to know; silently degrading is preferable to
+        # refusing the message at send time.
+        supports_tools = await self.llm.supports_tools()
+
+        while self._remaining_iterations > 0:
+            self._remaining_iterations -= 1  # F5 L3: consume one iteration up-front
+
+            # F10 L1: per-iteration visibility filter recompute so that
+            # search-driven mutations to _loaded_schemas from iteration N
+            # appear in iteration N+1's tools= array.
+            if supports_tools:
+                tool_schemas = self._compute_visible_schemas()
+            else:
+                tool_schemas = []
+
             accumulated_text = ""
             final_chunk = None
             async for chunk in self.llm.stream(
@@ -105,43 +215,157 @@ class Agent:
             yield response
 
             if not response.tool_calls:
-                break
+                return  # text-only response — done
 
-            # Process tool calls — continue is just a signal, everything else executes
-            has_real_tool = False
-            for tc in response.tool_calls:
-                if tc.name == "continue":
-                    # Acknowledge the continue — feed it back so the model sees it worked
-                    reason = tc.arguments.get("reason", "")
-                    tool_msg = Message.tool(
-                        ToolResult(
-                            tool_call_id=tc.id,
-                            content=reason or "continuing...",
-                        )
+            # F5 L3: dispatch tool calls through the helper; if any tool
+            # returns ``metadata.is_auth_required``, the helper captures
+            # current + remaining tool calls into ``_deferred_tool_calls``
+            # and returns; we then exit so the WebSocket layer can
+            # broadcast the auth_required event without a follow-up
+            # ``done``.
+            async for tool_msg in self._dispatch_tool_calls(response.tool_calls):
+                yield tool_msg
+
+            if self._deferred_tool_calls is not None:
+                return  # paused — exit; remaining iterations preserved
+
+    async def _dispatch_tool_calls(
+        self, tcs: list[ToolCall]
+    ) -> AsyncIterator[Message]:
+        """Dispatch a list of tool calls in order.
+
+        ``continue`` virtual signal: appends but does not yield (matches
+        the pre-L3 semantic — the synthesized ToolResult has
+        ``metadata=None`` by construction so the auth_required check
+        short-circuits cleanly).
+
+        Real tools: calls ``_execute_tool``, appends + yields the
+        tool_msg. If any tool returns ``metadata.is_auth_required``,
+        captures current + remaining tool calls into
+        ``self._deferred_tool_calls`` and exits early. Caller is
+        responsible for checking ``self._deferred_tool_calls`` after
+        the iterator drains.
+        """
+        for i, tc in enumerate(tcs):
+            if tc.name == "continue":
+                # Continue virtual signal — preserved verbatim from the
+                # pre-L3 ``Agent.step`` semantic. Acknowledge the
+                # continue by feeding the reason back so the model sees
+                # it worked. NOT yielded — the caller doesn't surface
+                # this to the chat UI. ``metadata=None`` by construction
+                # short-circuits the auth_required check (F5 §4 carve-out).
+                reason = tc.arguments.get("reason", "")
+                tool_msg = Message.tool(
+                    ToolResult(
+                        tool_call_id=tc.id,
+                        content=reason or "continuing...",
                     )
-                    self.messages.append(tool_msg)
-                    has_real_tool = True  # keep the loop going
-                else:
-                    result = await self._execute_tool(tc)
-                    tool_msg = Message.tool(result)
-                    self.messages.append(tool_msg)
-                    yield tool_msg
-                    has_real_tool = True
+                )
+                self.messages.append(tool_msg)
+                continue
 
-            if not has_real_tool:
-                break
+            result = await self._execute_tool(tc)
+            tool_msg = Message.tool(result)
+            self.messages.append(tool_msg)
+            yield tool_msg
+
+            # F5 L3: pause/resume check — must be AFTER append+yield so
+            # chat history reflects the auth_required surface and the
+            # WebSocket layer can broadcast the event. Capture current +
+            # remaining tool calls so ``resume_after_auth`` can re-dispatch
+            # them in order (slice-from-current-index pattern works at
+            # index 0 too — covered by A8b).
+            if result.metadata and result.metadata.get("is_auth_required"):
+                self._deferred_tool_calls = list(tcs[i:])
+                return
+
+    async def resume_after_auth(self) -> AsyncIterator[Message]:
+        """Re-dispatch deferred tool calls after ``auth_resolved``.
+
+        Reads ``self._deferred_tool_calls`` (set by
+        ``_dispatch_tool_calls`` on pause). No-op when None — protects
+        against accidental re-entry.
+
+        On resume:
+          1. Clears the deferred field BEFORE re-dispatch so a re-pause
+             can set it again (A8 re-pause path).
+          2. Re-dispatches via ``_dispatch_tool_calls``.
+          3. If re-paused (deferred set again), exits — caller will
+             receive another ``auth_resolved`` later.
+          4. Otherwise continues the iteration loop with the remaining
+             iteration budget on ``self._remaining_iterations``.
+        """
+        if self._deferred_tool_calls is None:
+            return  # A7 no-op
+
+        deferred = self._deferred_tool_calls
+        self._deferred_tool_calls = None  # consumed before re-dispatch
+
+        async for tool_msg in self._dispatch_tool_calls(deferred):
+            yield tool_msg
+
+        if self._deferred_tool_calls is not None:
+            return  # re-paused (A8)
+
+        # Continue normally with remaining iteration budget. The while-
+        # loop guard in ``_run_iterations`` handles ``=0`` correctly so
+        # we don't blow past ``max_iterations`` even if the original
+        # step had already exhausted the budget.
+        async for msg in self._run_iterations():
+            yield msg
 
     async def _execute_tool(self, tool_call: ToolCall) -> ToolResult:
+        # F6 L3: bind tool_call_id into the per-task ContextVar so the
+        # MCP pool's _entry_worker (and the OAuth handlers it wires)
+        # can attach the originating tool_call_id to any auth_required
+        # broadcast. Reset in finally — the inner try/except blocks
+        # handle MCPAuthRequired translation (F5 L4) and generic
+        # exception fall-through, both of which return through the
+        # outer finally.
+        token = current_tool_call_id.set(tool_call.id)
         try:
-            tool = self.tools.get(tool_call.name)
-            output = await tool.execute(**tool_call.arguments)
-            return ToolResult(tool_call_id=tool_call.id, content=output)
-        except Exception as e:
-            return ToolResult(
-                tool_call_id=tool_call.id,
-                content=f"[error] Tool execution failed: {e}",
-                is_error=True,
-            )
+            try:
+                tool = self.tools.get(tool_call.name)
+                output = await tool.execute(**tool_call.arguments)
+                return ToolResult(tool_call_id=tool_call.id, content=output)
+            except MCPAuthRequired as e:
+                # F5 L4 (A10): MCP tool requires user re-authentication.
+                # Translate the control-flow signal into a ToolResult with
+                # ``metadata.is_auth_required=True`` so the L3 step loop's
+                # auth-required check fires (defers remaining tool calls and
+                # surfaces the Login-required affordance to chat UI).
+                return ToolResult(
+                    tool_call_id=tool_call.id,
+                    content="<auth required>",
+                    metadata={
+                        "is_auth_required": True,
+                        "source_id": e.source_id,
+                        "source_name": e.source_name,
+                        "resource_metadata_url": e.resource_metadata_url,
+                        "tool_call_id": tool_call.id,
+                        "consent_url": e.consent_url,
+                    },
+                )
+            except Exception as e:
+                return ToolResult(
+                    tool_call_id=tool_call.id,
+                    content=f"[error] Tool execution failed: {e}",
+                    is_error=True,
+                )
+        finally:
+            current_tool_call_id.reset(token)
 
     def reset(self) -> None:
+        """Reset messages to the system prompt and clear pause state."""
         self.messages = [Message.system(self.system_prompt)]
+        # F5 L3: clear pause state alongside messages — otherwise a
+        # subsequent ``step`` would see stale ``_deferred_tool_calls``
+        # before its own initialization clobbers it.
+        self._deferred_tool_calls = None
+        self._remaining_iterations = 0
+        # F10 L1: clear visibility filter so the next step starts blind.
+        # Use .clear() (in-place mutation) NOT re-assignment — the same
+        # containers may be referenced by the stub tools' closure-captured
+        # _on_match callbacks; re-assignment would orphan those references.
+        self._loaded_schemas.clear()
+        self._loaded_tool_names.clear()

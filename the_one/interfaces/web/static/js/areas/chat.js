@@ -341,6 +341,65 @@ App.registerArea({
       thinkingEl = null;
     }
 
+    // F5 L5: Login-required inline button helpers.
+    //
+    // Idempotent: clearLoginRequiredButton removes any stale buttons for the
+    // same source_id BEFORE renderLoginRequiredButton appends a new one. This
+    // keeps the L3 reconnect-snapshot replay from creating duplicate buttons
+    // (the cached auth_required event is re-broadcast on every WS reconnect
+    // when the agent has a pending pause).
+    function clearLoginRequiredButton(data) {
+      var sid = data && data.source_id ? data.source_id : null;
+      var sel = sid
+        ? '.login-required-btn[data-source-id="' + cssEscape(sid) + '"]'
+        : '.login-required-btn';
+      var existing = messagesEl.querySelectorAll(sel);
+      for (var i = 0; i < existing.length; i++) {
+        if (existing[i].parentNode) existing[i].parentNode.removeChild(existing[i]);
+      }
+    }
+
+    function cssEscape(s) {
+      // Minimal subset of CSS.escape — escape quotes + backslashes so the
+      // attribute selector parses cleanly. source_ids are always slugs (no
+      // whitespace) per L0/L1 validation, so this is sufficient.
+      return String(s).replace(/(["\\])/g, '\\$1');
+    }
+
+    function renderLoginRequiredButton(data) {
+      // Drop any prior button for this source first (reconnect idempotency).
+      clearLoginRequiredButton(data);
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn-filled-cyan login-required-btn';
+      btn.dataset.sourceId = data.source_id || '';
+      btn.dataset.toolCallId = data.tool_call_id || '';
+      btn.dataset.resourceMetadataUrl = data.resource_metadata_url || '';
+      if (data.consent_url) btn.dataset.consentUrl = data.consent_url;
+      btn.textContent = 'Login required for ' + (data.source_name || data.source_id || '<unknown>');
+      btn.addEventListener('click', function () {
+        if (App.oauthModal && App.oauthModal.open) {
+          App.oauthModal.open({
+            source_id: data.source_id,
+            chat_session_id: currentSessionId,
+            tool_call_id: data.tool_call_id,
+            resource_metadata_url: data.resource_metadata_url,
+            consent_url: data.consent_url,
+          });
+        }
+      });
+      messagesEl.appendChild(btn);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    function renderResumingPlaceholder(data) {
+      // Lightweight system message indicating the resumed tool call is
+      // re-running. The eventual tool_result event renders normally; this
+      // placeholder is purely cosmetic so the chat doesn't go silent
+      // between auth_resolved and the resumed tool_result arrival.
+      addMsg('system', 'Resuming…');
+    }
+
     function send() {
       var text = inputEl.value.trim();
       if (!text || isCurrentBusy()) return;
@@ -581,6 +640,33 @@ App.registerArea({
         }
         else if (data.type === 'system') handleSystem(data);
         else if (data.type === 'usage') App.chat.updateTelemetry(content, data);
+        else if (data.type === 'auth_required') {
+          // F5 L5: lazy-path → render an inline "Login required for <source_id>"
+          // button in the chat history. First emission has consent_url=null;
+          // a second emission (post /api/oauth/start) carries the real
+          // consent_url, which our re-emitted button click + modal
+          // routing handle. Idempotent: re-rendering after WebSocket
+          // reconnect (see L3 _send_pause_snapshot_if_needed) clears
+          // any prior button before re-creating it.
+          hideThinking();
+          finalizeStreamingBubble();
+          renderLoginRequiredButton(data);
+        }
+        else if (data.type === 'auth_resolved') {
+          // F5 L5: auth completed. Clear inline button, close modal,
+          // surface a "Resuming…" placeholder until the resumed
+          // tool_result arrives.
+          clearLoginRequiredButton(data);
+          if (App.oauthModal && App.oauthModal.close) App.oauthModal.close();
+          renderResumingPlaceholder(data);
+        }
+        else if (data.type === 'auth_failed') {
+          // F5 L5: surface the OAuth-flow failure as a system error
+          // notice; close any open modal.
+          if (App.oauthModal && App.oauthModal.close) App.oauthModal.close();
+          var failMsg = 'OAuth failed: ' + (data.description || data.error || 'unknown error');
+          addMsg('system', failMsg);
+        }
         else if (data.type === 'done') {
           hideThinking();
           // End of agent step — finalize so the streaming bubble swaps

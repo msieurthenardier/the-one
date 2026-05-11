@@ -21,6 +21,16 @@ services:
       --reload-dir /app/the_one
     volumes:
       - the_one_data:/root/.the-one
+      # F9 L2 D2: named volumes (NOT bind-mounts — bind-mounts recreate the F8
+      # UID-drift papercut since the container runs as root) for the
+      # generic-runtime caches. First spawn of `uvx <pkg>` / `npx <pkg>` /
+      # `pipx run <pkg>` fetches the package; subsequent spawns hit cache.
+      # Volumes survive `make rebuild` so cache state persists across image
+      # rebuilds. `/root/.cache/uv` covers BOTH `uv` AND `uvx` (uvx is
+      # `uv tool run` — single shared cache, no separate uvx path).
+      - the_one_uv_cache:/root/.cache/uv
+      - the_one_pipx_state:/root/.local/share/pipx
+      - the_one_npm_cache:/root/.npm
       # Dev bind-mounts: host the_one/ becomes the live source seen by both the
       # WORKDIR-resolved import path (/app/the_one) AND the pip-installed site-
       # packages copy. Eliminates the "docker cp into both paths" friction that
@@ -56,3 +66,8 @@ networks:
 
 volumes:
   the_one_data:
+  # F9 L2 D2: generic-runtime caches for stdio MCPs invoked via uvx / npx /
+  # pipx run. See the service `volumes:` block above for path rationale.
+  the_one_uv_cache:
+  the_one_pipx_state:
+  the_one_npm_cache:

@@ -10,6 +10,20 @@ BASE_PROMPT = """\
 You are an AI agent with access to a set of tools. Use them to accomplish what the \
 operator asks.
 
+Tool discovery:
+- At the start of each conversation, you have only `search_tools`, `search_mcps`, and \
+`continue` available.
+- To use any other capability, call `search_tools` (for built-in tools like shell, \
+file operations, web fetch) or `search_mcps` (for tools from attached MCP servers) \
+with a query describing what you need. Empty query lists everything available; a \
+specific query narrows results.
+- Matched tools are automatically added to your available toolset for the rest of \
+this conversation. Once you've searched for a tool, you can call it by name on \
+subsequent turns; no need to search again.
+- New conversations start fresh with the baseline two-tool surface. If the operator \
+attached a new MCP server mid-session, you'll see it in your next session, not the \
+current one.
+
 Tool use:
 - When an action is needed, take the action. Don't describe what you would do.
 - Prefer the right tool for the job. Read files with the file-reading tool, not by \
@@ -63,6 +77,16 @@ class AgentConfig(BaseModel):
     # that each tool's override is itself a dict — bare `dict` is parametric
     # and Pydantic skips inner-value validation.
     tool_overrides: dict[str, dict[str, Any]] | None = None
+
+    # Per-agent MCP source override dict — shape parallels `tool_overrides`
+    # but keys by source NAME (NOT tool name). The outer dict's key is the
+    # MCPSource.name; the inner dict's keys are validated against the
+    # transport-specific schema in `the_one/mcp/_overrides.py`
+    # (StdioMCPOverride or StreamableHttpMCPOverride). None = no overrides
+    # set (locked-down NULL semantic, mirrors `tool_overrides` and
+    # `enabled_tools`). Inner type is `dict[str, Any]` (NOT bare `dict`)
+    # for the same Pydantic v2 inner-validation reason as `tool_overrides`.
+    mcp_overrides: dict[str, dict[str, Any]] | None = None
 
     # Behavior
     max_iterations: int = 20
