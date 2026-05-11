@@ -686,6 +686,7 @@ async def test_execute_tool_translates_mcp_auth_required_to_metadata() -> None:
     assert result.metadata == {
         "is_auth_required": True,
         "source_id": "s1",
+        "source_name": None,
         "resource_metadata_url": "https://x/.well-known/oauth-protected-resource",
         "tool_call_id": "tc1",
         "consent_url": None,

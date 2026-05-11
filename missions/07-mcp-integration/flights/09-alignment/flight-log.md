@@ -315,6 +315,51 @@ Per Flight Design Decision §8, all L1 inline-fix LOC contributes to the L8 bund
 - L6 stdio-in-chat hand-off: operator-recreated stdio source during L3 attached to at least one agent. **Operator confirms specific stdio source + attached-agent state at L6 setup time.**
 **Methodology insight for L8 / mission debrief**: when the surface-area is transport-agnostic at the UI layer (as the agent-editor MCPs tab is), exercising both transports in a single leg is operator-felt-equivalent to two legs. Worth flagging at the F1-mission-debrief level for future flight design — "split per transport" defaults may be over-conservative when the implementation surface is shared.
 
+### F9 close (2026-05-10)
+
+**Operator-felt sign-off**: "lets wrap it up, I think were done." Operator drove F9-resume vibing via direct chat-UI exercise post-F10 close; surfaced and fixed two polish anomalies inline. F9 lands without formally walking the L5/L6/L7/L8 scripted scenarios — consistent with F9 §1's HAT-driven pattern + §2's operator-driven acceptable variations.
+
+**F9-resume inline fixes (2 commits on `flight/09-alignment` post-F10-merge)**:
+
+1. **Commit `688d79c`** — `flight/09: fix MCPs tab auth-required notice to use source.name instead of ID`. Operator-observed: agent-editor MCPs tab login button showed source DB ID instead of human-readable name. Fix threaded `source_name` through `MCPAuthRequired.__init__` → `ToolResult` metadata → WS event payload → both Studio `_renderAuthRequiredNotice` and chat-side `renderLoginRequiredButton`. ~18 LOC net + 1 new browser test (`test_auth_required_notice_uses_source_name_not_id`) + 1 unit test update (`test_execute_tool_translates_mcp_auth_required_to_metadata` for the new `source_name` metadata field).
+
+2. **Commit `e39afc4`** — `flight/09: fix chat-UI markdown table rendering (mode 1 + mode 2)`. Operator-observed: tables not formatting in chat UI. Diagnosed as BOTH parser-missing (markdown.js had no table tokenizer per the v1-non-goal comment) AND CSS-unstyled (no `.area-chat .msg.assistant table` selectors). Fix added: GFM table tokenizer + 4 new NodeType constants (`TABLE/TABLE_HEAD/TABLE_ROW/TABLE_CELL`) + `splitTableRow` + `isTableSeparator` helpers + `<table><thead><tbody>` renderer; plus 5 CSS rules for borders/padding/alternating rows. ~90 LOC production + ~156 LOC tests (3 AST cases + 3 render cases + 1 streaming e2e test).
+
+**L5/L6/L7/L8 disposition** (per the leg-list edit):
+- L5-L7: chat-time scripted scenarios collapsed into the F9-resume vibing. Operator-driven scope adaptation; the polish issues operator surfaced (login button, tables) are the ones that mattered. Remaining scripted-scenario coverage is M07 known-issues / post-mission successor work.
+- L8: mission-close housekeeping done inline — final regression sweep + this Decisions entry. Mission known-issues update at L8's original scope folded into M07's `/mission-debrief` invocation (operator's next step).
+
+**F9 close regression sweep**:
+- Unit suite: 1507 pass / 2 pre-existing bwrap flakes (`test_mcp_sandbox_integration.py`) / 0 net-new failures vs F8 baseline (1376 pass).
+- Browser suite: ~283 pass / 43 pre-existing flakes / 0 net-new failures vs F8 baseline (255 pass / 43 flakes).
+- Caplog gate: 0 `MCPClient.disconnect` warnings.
+- One transient failure mid-sweep (`test_execute_tool_translates_mcp_auth_required_to_metadata`) was the `source_name` metadata field added by commit `688d79c` but missing from the test assertion. Test updated inline as part of F9 close commit (this commit).
+
+**F9 close artifacts**:
+- F9 flight.md leg list — L5/L6/L7/L8 checked off with collapse-rationale notes.
+- F9 flight.md status: `in-flight` → `landed`.
+- F9 flight-log: this entry.
+- mission.md Flights list: F9 ready to check off as `[x]` at mission close.
+
+**Outstanding for `/mission-debrief`**:
+- A-F10-1 (OAuth login opens in new browser tab vs inline modal) — captured in F10 flight log; pending investigation post-mission.
+- Path B duplicate-DB-read in `_build_source_index` vs `get_tools_for_agent`'s cache read — F10 §10 follow-up housekeeping.
+- L8 review queue items accumulated from L1+L2+L3 (pre-existing browser flake `test_flow_agent_tabs.py`, F9 §2 cumulative-LOC ceiling overrun, `uv cache prune` whole-cache approach, etc.) — fold into M07 known-issues at mission-debrief.
+
+`[COMPLETE:flight]` signal — F9 landed.
+
+---
+
+### F9 resume post-F10 (2026-05-10)
+**Context**: F10 (Lazy tool discovery) landed via squash-merge as `6238f7d` on 2026-05-10. F10's bundled Sonnet Reviewer confirmed `[HANDOFF:confirmed]`; operator-felt HAT passed after the cache-first Path B follow-up unblocked agent-build slowness. F9 was paused at L3-landed pending this transition.
+**Decision**: RESUME F9 on the same `flight/09-alignment` branch. The branch rebased cleanly onto post-F10 main (`3bd6bd4..6238f7d`); no F9-specific commits beyond the F10-merge baseline. F9 status updated `ready` → `in-flight`.
+**Scope refresh under F10 architecture**:
+- L5 (HTTP MCP in chat) — original draft preserved at `legs/05-http-mcp-in-chat.md` (pre-F10 design). **Needs refresh** for the lazy-discovery model: Scenario 1 (tool inventory parity) is now an inherent F10 behavior (the agent's listing IS via search); Scenarios 2-7 (happy path, OAuth re-auth, server unreachable, malformed payload, multi-tool-call, no-MCP fallback) mostly unchanged but the "starting tool set" assumption shifts.
+- L6 (stdio in chat) — analogous to L5; refresh in parallel.
+- L7 (multi-MCP in chat) — collision-handling under F10 looks the same; agent discovers via search, sees prefixed names, no semantic change.
+- L8 (mission close housekeeping) — largely unchanged; final regression sweep + mission known-issues + bundled fresh-context review. Carry-forward queue updated with F10 anomalies (A-F10-1 OAuth-new-tab vs modal) + the L8 review queue items already accumulated from L1+L2+L3.
+**Operator HAT continuation**: F9's vibing model is HAT-driven per F9 §1. L5 begins by walking the operator through the F10-aware Scenario 1 ("what tools do you have available?" → agent searches first). Anomalies captured + triaged inline per F9 §2.
+
 ### F9 paused for F10 lazy-tool-discovery pivot (2026-05-10)
 **Context**: Mid-F9, while designing L5 (HTTP MCP in chat), operator surfaced an architectural concern: tool definitions are sent on every LLM call (`agent/core.py:108-111` reads `tools.all_schemas()` once per step), tool catalog grows with attached MCP count (Cloudflare API alone exposes 30+ tools), and there's no mechanism for an agent to discover or use a tool added mid-session. Operator proposed: 2-tool baseline (`search_tools` + `search_mcps`) as the only catalog entries; tools auto-load into the agent's per-session loaded set when a search matches. New chat sessions start blind; loaded set persists per-session.
 **Decision**: Pause F9 at L3-landed; open F10 to ship lazy-tool-discovery architecture. F9's L5/L6/L7/L8 deferred; resume-or-absorb decision at F10 close. Branch lifecycle: new `flight/10-lazy-tool-discovery` checked out off `main` (= F9 L3-landed state). Per F9 §1 + §5 acceptable variations / operator-driven scope adaptation, but stretched from leg-level to flight-level.
