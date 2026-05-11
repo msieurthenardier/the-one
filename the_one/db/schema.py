@@ -6,9 +6,17 @@ import json
 
 import aiosqlite
 
-CURRENT_VERSION = 11
+from the_one.db._provider_types import PROVIDER_TYPES
 
-SCHEMA_V1 = """\
+CURRENT_VERSION = 12
+
+# Render the provider-type CHECK constraint as a comma-separated SQL
+# literal list, sourced from PROVIDER_TYPES. Both SCHEMA_V1 (fresh-DB
+# path) and the v10 migration (existing-DB path) inject this so a future
+# addition only needs to touch ``_provider_types.py``.
+_PROVIDER_TYPES_SQL = ", ".join(f"'{t}'" for t in PROVIDER_TYPES)
+
+SCHEMA_V1 = f"""\
 CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY,
     applied_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -17,10 +25,10 @@ CREATE TABLE IF NOT EXISTS schema_version (
 CREATE TABLE IF NOT EXISTS llm_providers (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
-    type TEXT NOT NULL CHECK (type IN ('ollama', 'openai-compatible', 'openai', 'anthropic')),
+    type TEXT NOT NULL CHECK (type IN ({_PROVIDER_TYPES_SQL})),
     base_url TEXT NOT NULL,
     api_key TEXT,
-    config TEXT DEFAULT '{}',
+    config TEXT DEFAULT '{{}}',
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -62,7 +70,7 @@ CREATE TABLE IF NOT EXISTS mcp_sources (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     type TEXT NOT NULL CHECK (type IN ('stdio', 'sse')),
-    config TEXT DEFAULT '{}',
+    config TEXT DEFAULT '{{}}',
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -420,3 +428,50 @@ INSERT INTO mcp_sources_new (id, name, type, config, secrets, created_at, update
         await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (11,))
         await conn.commit()
         version = 11
+
+    if version < 12:
+        # Extend llm_providers.type CHECK constraint to allow 'openrouter'.
+        # SQLite has no `ALTER TABLE DROP CONSTRAINT`, so rebuild the table
+        # following the v6 pattern (which added 'mock'). FK enforcement is
+        # ON at connection-time (connection.py:20) and `agents.provider_config_id`
+        # references this table — the OFF/ON bracket prevents the DROP from
+        # tripping referential integrity. INSERT OR IGNORE INTO schema_version
+        # is LAST so a partial-apply leaves version=11 and the next call retries
+        # cleanly.
+        #
+        # ``executescript`` (vs the v9/v10 individual-execute pattern documented
+        # in CLAUDE.md) is REQUIRED here: ``PRAGMA foreign_keys=OFF`` only
+        # takes effect within the same script as the DROP/RENAME — separate
+        # ``conn.execute`` calls re-evaluate FK state between statements.
+        # ``DROP TABLE IF EXISTS llm_providers_new`` is the defensive prelude
+        # that makes a re-run after a crash AFTER ``CREATE TABLE
+        # llm_providers_new`` (but BEFORE the rename) recover cleanly.
+        await conn.executescript(f"""\
+PRAGMA foreign_keys=OFF;
+
+DROP TABLE IF EXISTS llm_providers_new;
+
+CREATE TABLE llm_providers_new (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL CHECK (type IN ({_PROVIDER_TYPES_SQL})),
+    base_url TEXT NOT NULL,
+    api_key TEXT,
+    config TEXT DEFAULT '{{}}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+INSERT INTO llm_providers_new
+    (id, name, type, base_url, api_key, config, created_at, updated_at)
+    SELECT id, name, type, base_url, api_key, config, created_at, updated_at
+    FROM llm_providers;
+
+DROP TABLE llm_providers;
+ALTER TABLE llm_providers_new RENAME TO llm_providers;
+
+PRAGMA foreign_keys=ON;
+""")
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (12,))
+        await conn.commit()
+        version = 12

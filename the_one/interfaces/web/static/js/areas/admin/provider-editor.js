@@ -216,7 +216,9 @@
       inputs[i].addEventListener('change', checkDirty);
     }
 
-    /* Type-change: show/hide base_url + api_key + reset base_url default. */
+    /* Type-change: show/hide base_url + api_key rows + reset base_url
+       default. Does NOT clobber api_key so values are preserved across
+       provider-type switches. */
     var typeSelect = container.querySelector('[data-field="type"]');
     var baseUrlRow = container.querySelector('.admin-pf-base-url');
     var baseUrlInput = container.querySelector('[data-field="base_url"]');
@@ -308,6 +310,10 @@
             }
           })
           .catch(function (err) {
+            // Surface the trace to DevTools so backend stacks (which
+            // would otherwise die with the next click as errorEl.textContent
+            // is overwritten) survive for debugging.
+            console.error('provider save failed', err);
             errorEl.textContent = err.message || String(err);
           });
       });
@@ -324,17 +330,35 @@
           .then(function (r) { return r.json(); })
           .then(function (result) {
             testBtn.disabled = false;
+            // Render via DOM API (textContent on a class-tagged span) so
+            // operator-supplied detail text cannot break out of the
+            // surrounding markup. Three states: ok / warning / error.
+            var span = document.createElement('span');
             if (result.status === 'ok') {
-              resultEl.innerHTML = '<span class="test-result-ok">✓ ' + window.App.escapeHtml(result.detail || 'Connected') + '</span>';
+              span.className = 'test-result-ok';
+              span.textContent = '✓ ' + (result.detail || 'Connected');
+              resultEl.replaceChildren(span);
               window.App.showFlash(container, 'Connection successful');
-              // OQ4 resolution: editor sub-module owns its own DOM children.
-              // Refresh the Models panel directly (no orchestrator round-trip).
               var modelsHost = container.querySelector('.provider-models');
               if (modelsHost && window.App.admin.renderProviderModels) {
                 window.App.admin.renderProviderModels(modelsHost, provider);
               }
+            } else if (result.status === 'warning') {
+              // Reachable but non-functional (e.g., openrouter with no
+              // key). Distinct chip from the green ✓ so the user knows
+              // configuration is incomplete.
+              span.className = 'test-result-warning';
+              span.textContent = '⚠ ' + (result.detail || 'Warning');
+              resultEl.replaceChildren(span);
+              window.App.showFlash(container, 'Connection reachable, action required', true);
+              var modelsHost2 = container.querySelector('.provider-models');
+              if (modelsHost2 && window.App.admin.renderProviderModels) {
+                window.App.admin.renderProviderModels(modelsHost2, provider);
+              }
             } else {
-              resultEl.innerHTML = '<span class="test-result-fail">✗ ' + window.App.escapeHtml(result.detail || 'Failed') + '</span>';
+              span.className = 'test-result-fail';
+              span.textContent = '✗ ' + (result.detail || 'Failed');
+              resultEl.replaceChildren(span);
               window.App.showFlash(container, 'Connection failed', true);
             }
           })
@@ -437,6 +461,13 @@
     }
     var apiKeyInput = container.querySelector('[data-field="api_key"]');
     var apiKey = apiKeyInput ? apiKeyInput.value : null;
+    /* Trim whitespace BEFORE the truthy check so a paste like "  sk-x  "
+       canonicalizes to "sk-x" client-side, and a whitespace-only paste
+       collapses to null instead of silently round-tripping to a 401.
+       The backend Pydantic validator does the same on the server side
+       (defense in depth + UX: avoids the round-trip to discover the
+       whitespace was a no-op). */
+    if (apiKey !== null) apiKey = apiKey.trim();
     if (!apiKey) apiKey = null;
     /* MASKED_SENTINEL: if editing and the user did not modify the pre-filled
        (masked) value, send the sentinel so the backend preserves the existing
@@ -444,7 +475,37 @@
     if (isEdit && originalMaskedApiKey && apiKey === originalMaskedApiKey) {
       apiKey = MASKED_SENTINEL;
     }
-    return { name: name, type: selectedType, base_url: baseUrl, api_key: apiKey };
+    var payload = { name: name, type: selectedType, base_url: baseUrl, api_key: apiKey };
+
+    // OpenRouter optional ranking-header inputs (Task 9) — read values,
+    // validate client-side (server re-validates), drop empty values so
+    // the saved config doesn't carry empty-string keys.
+    if (selectedType === 'openrouter') {
+      var refererInput = container.querySelector('[data-field="config.referer"]');
+      var titleInput = container.querySelector('[data-field="config.title"]');
+      var orReferer = refererInput ? refererInput.value.trim() : '';
+      var orTitle = titleInput ? titleInput.value.trim() : '';
+
+      if (orReferer && /[\r\n\x00]/.test(orReferer)) {
+        errorEl.textContent = 'App URL contains an invalid control character.';
+        return null;
+      }
+      if (orReferer && !/^https?:\/\//i.test(orReferer)) {
+        errorEl.textContent = 'App URL must start with http:// or https://.';
+        return null;
+      }
+      if (orTitle && /[\r\n\x00]/.test(orTitle)) {
+        errorEl.textContent = 'App Name contains an invalid control character.';
+        return null;
+      }
+
+      var cfg = {};
+      if (orReferer) cfg.referer = orReferer;
+      if (orTitle) cfg.title = orTitle;
+      payload.config = cfg;
+    }
+
+    return payload;
   }
 
   window.App.admin.renderProviderEditor = renderProviderEditor;

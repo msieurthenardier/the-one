@@ -120,6 +120,7 @@
   .area-admin .admin-provider-badge--openai-compatible { background: var(--badge-openai-compatible); }
   .area-admin .admin-provider-badge--openai { background: var(--badge-openai); }
   .area-admin .admin-provider-badge--anthropic { background: var(--badge-anthropic); }
+  .area-admin .admin-provider-badge--openrouter { background: var(--badge-openrouter); }
   .area-admin .admin-provider-badge--mock { background: var(--badge-mock); }
   .area-admin .admin-provider-badge--unknown { background: var(--badge-unknown); }
 

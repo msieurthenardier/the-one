@@ -1274,10 +1274,31 @@ App.registerArea({
       capsEl.innerHTML = '<span class="model-capabilities-label">Capabilities:</span> ' + renderer(caps);
     }
 
+    // Race-condition guard for fetchModelsForProvider (review I6). Rapid
+    // provider switching fires concurrent fetches; without a guard a slow
+    // earlier response silently clobbers a fresh later one. Two layers:
+    //   1. AbortController cancels the in-flight request on the next call.
+    //   2. providerId equality check on resolution drops any response that
+    //      no longer matches the live selection (covers AbortController
+    //      gaps and any future fetch path that doesn't honor signals).
+    var _modelsFetchController = null;
+    var _activeProviderId = null;
+
     function fetchModelsForProvider(providerId) {
       var selectEl = editorEl.querySelector('#studio-model');
       var loadingEl = editorEl.querySelector('.model-loading');
       if (!selectEl) return;
+
+      // Cancel any in-flight fetch from a prior provider selection.
+      if (_modelsFetchController) {
+        try { _modelsFetchController.abort(); } catch (_) { /* noop */ }
+      }
+      _modelsFetchController = (typeof AbortController !== 'undefined')
+        ? new AbortController()
+        : null;
+      _activeProviderId = providerId;
+      var fetchProviderId = providerId;
+      var fetchSignal = _modelsFetchController ? _modelsFetchController.signal : undefined;
 
       var currentVal = selectEl.dataset.pendingValue || selectEl.value;
 
@@ -1291,26 +1312,42 @@ App.registerArea({
 
       if (loadingEl) loadingEl.textContent = 'Loading models…';
 
-      fetch('/api/providers/' + encodeURIComponent(providerId) + '/models')
+      fetch('/api/providers/' + encodeURIComponent(providerId) + '/models', {
+        signal: fetchSignal,
+      })
         .then(function (r) {
           if (!r.ok) throw new Error('Failed');
           return r.json();
         })
         .then(function (models) {
+          // Drop the response if the user has since switched providers.
+          // Without this guard a slow A-fetch arriving after B-fetch
+          // would clobber the picker with A's models while B is selected.
+          if (_activeProviderId !== fetchProviderId) return;
           modelCapsBy = {};
-          var html = '<option value="" disabled>Choose a model</option>';
+          var optsHtml = '<option value="" disabled>Choose a model</option>';
           for (var i = 0; i < models.length; i++) {
             var modelId = models[i].id || models[i].name;
             var sel = modelId === currentVal ? ' selected' : '';
-            html += '<option value="' + escapeAttr(modelId) + '"' + sel + '>' + escapeHtml(modelId) + '</option>';
-            // Store the caps payload (may be null for non-Ollama providers
-            // or when /api/show fails — renderModelCapabilities treats that
-            // as "no chips to render").
-            if (Object.prototype.hasOwnProperty.call(models[i], 'capabilities')) {
-              modelCapsBy[modelId] = models[i].capabilities;
+            optsHtml += '<option value="' + escapeAttr(modelId) + '"' + sel + '>' + escapeHtml(modelId) + '</option>';
+            // Capability cache shape: dict<model_id, list|null>.
+            // Both ollama (`capabilities`) and openrouter (`supported_parameters`,
+            // server-side aliased to `capabilities`) flow through this single
+            // path. Empty list \u2192 null (fail-open: "fetched but no caps known"
+            // \u2192 no chip, mirrors openrouter_api.get_model_capabilities).
+            // Absent field \u2192 cache entry stays unset \u2192 no chip.
+            var capsRaw = models[i].capabilities;
+            if (Array.isArray(capsRaw) && capsRaw.length > 0) {
+              modelCapsBy[modelId] = capsRaw;
+            } else if (Array.isArray(capsRaw) && capsRaw.length === 0) {
+              modelCapsBy[modelId] = null;
             }
           }
-          selectEl.innerHTML = html;
+          selectEl.innerHTML = optsHtml;
+          // Surface a previously-saved or carried-over value that isn't
+          // in the freshly fetched list as a visible "(custom)" option —
+          // a clear cue that the selection won't match a known model
+          // under this provider, without silently wiping it.
           if (currentVal && !selectEl.querySelector('option[value="' + CSS.escape(currentVal) + '"]')) {
             var customOpt = '<option value="' + escapeAttr(currentVal) + '" selected>' + escapeHtml(currentVal) + ' (custom)</option>';
             selectEl.insertAdjacentHTML('beforeend', customOpt);
@@ -1321,8 +1358,18 @@ App.registerArea({
           delete selectEl.dataset.pendingValue;
           renderModelCapabilities();
         })
-        .catch(function () {
-          selectEl.innerHTML = '<option value="" disabled selected>Failed to load models</option>';
+        .catch(function (err) {
+          // Aborted fetches (provider changed mid-flight) are not errors —
+          // skip the failure UI so the next fetch's success can paint
+          // cleanly without a flash of "Failed to load models".
+          if (err && err.name === 'AbortError') return;
+          if (_activeProviderId !== fetchProviderId) return;
+          var failOpt = document.createElement('option');
+          failOpt.value = '';
+          failOpt.disabled = true;
+          failOpt.selected = true;
+          failOpt.textContent = 'Failed to load models';
+          selectEl.replaceChildren(failOpt);
           if (loadingEl) loadingEl.textContent = '';
           modelCapsBy = {};
           renderModelCapabilities();
@@ -1345,16 +1392,18 @@ App.registerArea({
         inputs[i].addEventListener('change', checkDirty);
       }
 
-      // Provider change → fetch models + clear VRAM warning + recompute Test btn.
-      // The Test-button-disabled recompute chains into the existing change
-      // handler (locality preferred over a second listener).
+      // Provider change → repopulate model select, clear VRAM warning,
+      // recompute Test btn. Model picker is always a <select> (browsers
+      // give us free type-ahead via the native dropdown), so no element
+      // swap is needed across provider types.
       var providerSelect = editorEl.querySelector('#studio-provider');
       if (providerSelect) {
         providerSelect.addEventListener('change', function () {
-          var modelSelect = editorEl.querySelector('#studio-model');
-          if (modelSelect) modelSelect.selectedIndex = 0;
+          var selectedProviderId = providerSelect.value;
+          var modelEl = editorEl.querySelector('#studio-model');
+          if (modelEl) modelEl.selectedIndex = 0;
           clearVramWarning();
-          fetchModelsForProvider(providerSelect.value);
+          fetchModelsForProvider(selectedProviderId);
           recomputeTestDisabled();
         });
         if (cfg.provider_config_id) {

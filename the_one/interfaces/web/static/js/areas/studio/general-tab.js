@@ -66,7 +66,12 @@
     }
     html += '</select></div>';
 
-    // Model select dropdown
+    // Model picker — native <select> for all provider types. Browsers
+    // provide free type-ahead jump (start typing letters to jump to a
+    // matching option), which scales acceptably even for OpenRouter's
+    // ~370 models. A prior datalist+input variant was tried but its
+    // value-driven filter trapped operators with a stale selection (the
+    // dropdown showed only the previously-picked match).
     html += '<div class="field-row"><label for="studio-model">Model</label>';
     html += '<div class="field-model-wrap">';
     html += '<select id="studio-model" class="field-input field-select" data-field="llm_model">';

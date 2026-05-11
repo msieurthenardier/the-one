@@ -10,6 +10,7 @@ import secrets
 import time
 import uuid
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 from cryptography.fernet import Fernet, InvalidToken
@@ -1955,8 +1956,6 @@ def _is_safe_provider_url(url: str) -> tuple[bool, str | None]:
     on-wire to anything tapping the LAN. Refusing at save time is cheaper
     than detecting after exposure.
     """
-    from urllib.parse import urlparse
-
     parsed = urlparse(url)
     if parsed.scheme == "https":
         return True, None
@@ -2040,6 +2039,7 @@ async def list_provider_types() -> list[dict[str, str]]:
         {"value": "openai-compatible", "label": "OpenAI-Compatible"},
         {"value": "openai", "label": "OpenAI"},
         {"value": "anthropic", "label": "Anthropic"},
+        {"value": "openrouter", "label": "OpenRouter"},
     ]
     if settings.dev_mode:
         types.append({"value": "mock", "label": "Mock (dev)"})
@@ -2201,6 +2201,50 @@ async def test_provider(provider_id: str) -> dict[str, Any]:
                 return {"status": "ok", "detail": "Connected to Anthropic"}
             except anthropic.AnthropicError as e:
                 return {"status": "error", "detail": str(e)}
+        elif provider.type == "openrouter":
+            from the_one.llm import openrouter_api
+
+            # provider.api_key is already canonical-form (whitespace stripped,
+            # empty → None) by the LLMProviderConfig field validator, so a
+            # truthy check on the stored value is sufficient. No re-strip.
+            key = provider.api_key
+            try:
+                if key:
+                    await openrouter_api.verify_key(provider.base_url, key)
+                    models = await openrouter_api.list_models(provider.base_url, key)
+                    return {
+                        "status": "ok",
+                        "detail": f"Connected. Key valid; {len(models)} models available.",
+                    }
+                else:
+                    models = await openrouter_api.list_models(provider.base_url, None)
+                    # Reachable but non-functional for chat: status="warning"
+                    # so the JS handler renders an amber chip + the
+                    # explanatory text, not a green "Connection successful".
+                    return {
+                        "status": "warning",
+                        "detail": (
+                            f"Reachable. Add an API key to enable chat. "
+                            f"{len(models)} models available."
+                        ),
+                    }
+            except httpx.HTTPStatusError as e:
+                body_text = (e.response.text or "")[:200].strip()
+                return {
+                    "status": "error",
+                    "detail": f"HTTP {e.response.status_code}: {body_text}",
+                }
+            except httpx.RequestError as e:
+                return {"status": "error", "detail": f"Network error: {e}"}
+            except ValueError as e:
+                # Shape contract violation from openrouter_api (malformed
+                # /models payload). Distinct from network/HTTP — surface
+                # explicitly so operators don't chase a non-existent
+                # connectivity issue.
+                return {
+                    "status": "error",
+                    "detail": f"OpenRouter API contract violation: {e}",
+                }
         return {"status": "error", "detail": f"Unknown provider type: {provider.type}"}
     except httpx.HTTPError as e:
         # Expected: connection/timeout/HTTP-status from upstream
@@ -2232,15 +2276,11 @@ async def list_provider_models(provider_id: str) -> list[dict[str, Any]]:
             # repeat renders are free. Gather in parallel; on failure, return
             # `null` capabilities so the UI renders the row without chips
             # rather than failing the whole list.
-            cap_tasks = [
-                ollama_api.get_model_capabilities(base, m.get("name", "")) for m in models
-            ]
+            cap_tasks = [ollama_api.get_model_capabilities(base, m.get("name", "")) for m in models]
             caps_list = await asyncio.gather(*cap_tasks, return_exceptions=True)
             enriched = []
             for m, caps in zip(models, caps_list, strict=False):
-                cap_array = (
-                    sorted(caps) if isinstance(caps, frozenset | set) else None
-                )
+                cap_array = sorted(caps) if isinstance(caps, frozenset | set) else None
                 enriched.append(
                     {
                         "id": m.get("name", ""),
@@ -2252,6 +2292,44 @@ async def list_provider_models(provider_id: str) -> list[dict[str, Any]]:
             return enriched
         except Exception as e:
             raise HTTPException(status_code=502, detail=str(e))
+    elif provider.type == "openrouter":
+        from the_one.llm import openrouter_api
+
+        try:
+            raw = await openrouter_api.list_models(provider.base_url, provider.api_key)
+        except httpx.TimeoutException:
+            raise HTTPException(status_code=504, detail="OpenRouter timed out")
+        except httpx.HTTPStatusError as e:
+            # Mirror upstream status code + body excerpt; collapse 5xx → 502.
+            upstream = e.response.status_code
+            mapped = 502 if upstream >= 500 else upstream
+            body_text = (e.response.text or "")[:200].strip()
+            raise HTTPException(
+                status_code=mapped,
+                detail=f"OpenRouter HTTP {upstream}: {body_text}",
+            )
+        except httpx.RequestError as e:
+            raise HTTPException(status_code=502, detail=f"OpenRouter unreachable: {e}")
+        except ValueError as e:
+            # Shape contract violation — NOT unreachability. Distinct
+            # status so operators don't chase a network problem that
+            # isn't there.
+            raise HTTPException(
+                status_code=500,
+                detail=f"OpenRouter API contract violation: {e}",
+            )
+        return [
+            {
+                "id": m.id,
+                "name": m.name if m.name else m.id,
+                "supported_parameters": m.supported_parameters or [],
+                "context_length": m.context_length,
+                "description": m.description,
+                # alias for the Studio capability chip — frontend reads `capabilities`
+                "capabilities": m.supported_parameters or [],
+            }
+            for m in raw
+        ]
     elif provider.type == "openai-compatible":
         try:
             async with httpx.AsyncClient(timeout=10) as client:

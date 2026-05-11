@@ -221,10 +221,10 @@ class TestSchemaV8:
         await ensure_schema(conn)
 
         # CURRENT_VERSION assertion — pins that v8 surfaces are present at
-        # the current version (updated from 10→11 when M07 F06 L01 bumped the
-        # version; the v8 block itself was not removed).
-        assert CURRENT_VERSION == 11, (
-            f"CURRENT_VERSION must be 11 after M07 F06 L01 (got {CURRENT_VERSION})"
+        # the current version. v11 added agents.mcp_overrides (M07 F06 L01);
+        # v12 extended llm_providers.type CHECK to allow 'openrouter'.
+        assert CURRENT_VERSION == 12, (
+            f"CURRENT_VERSION must be 12 after openrouter v12 migration (got {CURRENT_VERSION})"
         )
 
         # tool_configs table must exist.
@@ -427,7 +427,10 @@ class TestSchemaV9:
         await conn.execute("PRAGMA foreign_keys=ON")
         await ensure_schema(conn)
 
-        assert CURRENT_VERSION == 11, CURRENT_VERSION
+        # Pin that v9 surfaces are present at the current version (the v9
+        # block itself was not removed when later migrations bumped the
+        # number).
+        assert CURRENT_VERSION >= 9, CURRENT_VERSION
 
         async with conn.execute("PRAGMA table_info(tool_configs)") as cur:
             cols = {r["name"]: r for r in await cur.fetchall()}
@@ -460,6 +463,8 @@ class TestSchemaV9:
         await conn.close()
 
     async def test_v9_migration_on_v8_fixture_db_preserves_existing_rows(self, tmp_path) -> None:
+        from the_one.db.schema import CURRENT_VERSION
+
         db_path = tmp_path / "v9-from-v8.db"
         conn = await aiosqlite.connect(str(db_path))
         conn.row_factory = aiosqlite.Row
@@ -475,7 +480,7 @@ class TestSchemaV9:
         )
 
         # Rewind to v8.
-        await conn.execute("DELETE FROM schema_version WHERE version = 9")
+        await conn.execute("DELETE FROM schema_version WHERE version >= 9")
         await conn.commit()
 
         # Re-run — idempotent guard skips ALTER, INSERT OR IGNORE skips dup.
@@ -528,7 +533,7 @@ class TestSchemaV9:
             "INSERT INTO tool_configs (name, config) VALUES (?, ?)",
             ("chained", json.dumps({})),
         )
-        await conn.execute("DELETE FROM schema_version WHERE version = 9")
+        await conn.execute("DELETE FROM schema_version WHERE version >= 9")
         await conn.commit()
 
         await ensure_schema(conn)
@@ -547,15 +552,11 @@ class TestSchemaV10:
     async def test_v10_fresh_db_has_secrets_column_and_streamable_http_check(
         self, tmp_path
     ) -> None:
-        from the_one.db.schema import CURRENT_VERSION
-
         db_path = tmp_path / "v10-fresh.db"
         conn = await aiosqlite.connect(str(db_path))
         conn.row_factory = aiosqlite.Row
         await conn.execute("PRAGMA foreign_keys=ON")
         await ensure_schema(conn)
-
-        assert CURRENT_VERSION == 11, CURRENT_VERSION
 
         async with conn.execute("PRAGMA table_info(mcp_sources)") as cur:
             cols = {r["name"]: r for r in await cur.fetchall()}
@@ -584,9 +585,12 @@ class TestSchemaV10:
             )
             await conn.commit()
 
-        async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
+        # schema_version reaches v10 (further migrations may bump higher).
+        async with conn.execute(
+            "SELECT COUNT(*) FROM schema_version WHERE version = 10"
+        ) as cur:
             row = await cur.fetchone()
-        assert row[0] == CURRENT_VERSION
+        assert row[0] == 1
 
         await conn.close()
 
@@ -665,6 +669,8 @@ CREATE TABLE mcp_sources (
 
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
             row = await cur.fetchone()
+        # ensure_schema re-applies v10 and any later migrations (v11
+        # mcp_overrides, v12 openrouter) since the rewind dropped them.
         assert row[0] == CURRENT_VERSION
 
         await conn.close()
@@ -736,6 +742,8 @@ CREATE TABLE mcp_sources (
 
         async with conn.execute("SELECT MAX(version) FROM schema_version") as cur:
             row = await cur.fetchone()
+        # After re-running ensure_schema all subsequent migrations should
+        # have applied (v10 mcp_sources, v11 mcp_overrides, v12 openrouter).
         assert row[0] == CURRENT_VERSION
 
         await conn.close()
@@ -748,7 +756,7 @@ class TestSchemaV11:
         """Fresh DB → ensure_schema → v11 surfaces exist.
 
         Acts as the regression-loud-fail guard: if a future bump to
-        CURRENT_VERSION = 12 silently drops the v11 block, this test
+        CURRENT_VERSION silently drops the v11 block, this test
         will fail with an explicit message naming `mcp_overrides`.
         """
         db_path = tmp_path / "v11-fresh.db"
@@ -758,7 +766,7 @@ class TestSchemaV11:
 
         await ensure_schema(conn)
 
-        assert CURRENT_VERSION == 11, CURRENT_VERSION
+        assert CURRENT_VERSION >= 11, CURRENT_VERSION
 
         # agents.mcp_overrides column must exist, be TEXT, nullable, no DEFAULT.
         async with conn.execute("PRAGMA table_info(agents)") as cur:
@@ -866,4 +874,229 @@ class TestSchemaV11:
             cols = {r["name"] for r in await cur.fetchall()}
         assert "mcp_overrides" in cols
 
+        await conn.close()
+
+
+class TestMigrationV12:
+    """v11→v12: extend llm_providers.type CHECK to include 'openrouter'."""
+
+    async def test_v12_accepts_openrouter_type(self, tmp_path) -> None:
+        """A fresh schema (CURRENT_VERSION>=12) must accept openrouter rows."""
+        db_path = tmp_path / "v11.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+        await ensure_schema(conn)
+
+        await conn.execute(
+            "INSERT INTO llm_providers (id, name, type, base_url) VALUES (?, ?, ?, ?)",
+            ("p1", "OpenRouter", "openrouter", "https://openrouter.ai/api/v1"),
+        )
+        await conn.commit()
+
+        async with conn.execute("SELECT type FROM llm_providers WHERE id = ?", ("p1",)) as cursor:
+            row = await cursor.fetchone()
+        assert row["type"] == "openrouter"
+        await conn.close()
+
+    async def test_v12_idempotent_rerun(self, tmp_path) -> None:
+        """Calling ensure_schema twice on a fresh DB is a no-op the second time."""
+        from the_one.db.schema import CURRENT_VERSION
+
+        db_path = tmp_path / "idem.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await ensure_schema(conn)
+        await ensure_schema(conn)  # second call must not raise
+
+        async with conn.execute("SELECT MAX(version) FROM schema_version") as cursor:
+            row = await cursor.fetchone()
+        assert row[0] == CURRENT_VERSION
+        await conn.close()
+
+    async def test_v12_real_v11_to_v12_upgrade(self, tmp_path) -> None:
+        """Bootstrap an actual pre-v12 schema (5-type CHECK on
+        llm_providers, no openrouter), seed a provider + agent FK, run
+        ensure_schema, and verify:
+
+        - existing rows + FK references survive the table rebuild
+        - the new CHECK constraint accepts ``openrouter``
+        - the new CHECK constraint still rejects bogus types
+        - schema_version reaches CURRENT_VERSION
+        """
+        from the_one.db.schema import CURRENT_VERSION
+
+        db_path = tmp_path / "v11_to_v12.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        # Hand-build a real pre-v12 schema. The only difference from v12
+        # in the llm_providers table is the CHECK constraint — pre-v12
+        # accepts 5 types, v12 accepts 6. The hand-built agents table
+        # already carries `mcp_overrides` so v11 is a no-op (PRAGMA guard).
+        await conn.executescript("""
+            CREATE TABLE schema_version (
+                version INTEGER PRIMARY KEY,
+                applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE TABLE llm_providers (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                type TEXT NOT NULL CHECK (
+                    type IN ('ollama', 'openai-compatible', 'openai', 'anthropic', 'mock')
+                ),
+                base_url TEXT NOT NULL,
+                api_key TEXT,
+                config TEXT DEFAULT '{}',
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE TABLE agents (
+                name TEXT PRIMARY KEY,
+                description TEXT DEFAULT '',
+                provider_config_id TEXT REFERENCES llm_providers(id) ON DELETE SET NULL,
+                llm_model TEXT DEFAULT '',
+                system_prompt TEXT DEFAULT '',
+                enabled_tools TEXT,
+                disabled_tools TEXT DEFAULT '[]',
+                max_iterations INTEGER DEFAULT 20,
+                kb_ids TEXT DEFAULT '[]',
+                mcp_source_ids TEXT DEFAULT '[]',
+                mcp_overrides TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE TABLE mcp_sources (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                type TEXT NOT NULL CHECK (type IN ('stdio', 'streamable-http')),
+                config TEXT DEFAULT '{}',
+                secrets TEXT DEFAULT '{}',
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+        """)
+        for v in range(1, 12):
+            await conn.execute("INSERT INTO schema_version (version) VALUES (?)", (v,))
+
+        # Seed pre-migration data: provider + agent that references it.
+        await conn.execute(
+            "INSERT INTO llm_providers (id, name, type, base_url) VALUES (?, ?, ?, ?)",
+            ("v11-prov", "Legacy", "anthropic", "https://api.anthropic.com"),
+        )
+        await conn.execute(
+            "INSERT INTO agents (name, provider_config_id) VALUES (?, ?)",
+            ("legacy-agent", "v11-prov"),
+        )
+        await conn.commit()
+
+        # Pre-condition: pre-v12 CHECK rejects 'openrouter'.
+        with pytest.raises(aiosqlite.IntegrityError):
+            await conn.execute(
+                "INSERT INTO llm_providers (id, name, type, base_url) VALUES (?, ?, ?, ?)",
+                ("rejected", "x", "openrouter", "https://openrouter.ai/api/v1"),
+            )
+        await conn.rollback()
+
+        # Run the migration. ensure_schema needs ALL prereq schema-version
+        # objects to exist; we already created mcp_sources/agents above so
+        # v10/v11 are no-ops and v12 runs cleanly.
+        await ensure_schema(conn)
+
+        # Existing row survived the rebuild.
+        async with conn.execute(
+            "SELECT id, name, type FROM llm_providers WHERE id = ?", ("v11-prov",)
+        ) as cursor:
+            row = await cursor.fetchone()
+        assert row is not None and row["type"] == "anthropic"
+
+        # FK reference survived.
+        async with conn.execute(
+            "SELECT name, provider_config_id FROM agents WHERE name = ?", ("legacy-agent",)
+        ) as cursor:
+            agent = await cursor.fetchone()
+        assert agent is not None and agent["provider_config_id"] == "v11-prov"
+
+        # Post-condition: the new CHECK accepts openrouter.
+        await conn.execute(
+            "INSERT INTO llm_providers (id, name, type, base_url) VALUES (?, ?, ?, ?)",
+            ("p-or", "OR", "openrouter", "https://openrouter.ai/api/v1"),
+        )
+        await conn.commit()
+
+        # ...and still rejects bogus types.
+        with pytest.raises(aiosqlite.IntegrityError):
+            await conn.execute(
+                "INSERT INTO llm_providers (id, name, type, base_url) VALUES (?, ?, ?, ?)",
+                ("evil", "x", "not-a-real-type", "http://x"),
+            )
+        await conn.rollback()
+
+        # schema_version reached CURRENT_VERSION.
+        async with conn.execute("SELECT MAX(version) FROM schema_version") as cursor:
+            row = await cursor.fetchone()
+        assert row[0] == CURRENT_VERSION
+
+        await conn.close()
+
+    async def test_v12_recovers_from_partial_apply_with_orphan_temp_table(
+        self, tmp_path
+    ) -> None:
+        """Defensive ``DROP TABLE IF EXISTS llm_providers_new`` prelude:
+        if a previous run crashed AFTER the temp table was created but
+        BEFORE the rename, re-running ensure_schema must succeed (without
+        the prelude, ``CREATE TABLE llm_providers_new`` would fail with
+        'table already exists')."""
+        from the_one.db.schema import CURRENT_VERSION
+
+        db_path = tmp_path / "partial.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await ensure_schema(conn)
+        await conn.execute("DELETE FROM schema_version WHERE version = 12")
+        # Synthesize the orphan temp table left by a crashed prior run.
+        await conn.execute(
+            "CREATE TABLE llm_providers_new (id TEXT, junk TEXT)"
+        )
+        await conn.commit()
+
+        # Re-run must complete cleanly thanks to DROP IF EXISTS prelude.
+        await ensure_schema(conn)
+
+        async with conn.execute("SELECT MAX(version) FROM schema_version") as cursor:
+            row = await cursor.fetchone()
+        assert row[0] == CURRENT_VERSION
+        # llm_providers_new is fully consumed (renamed); the orphan cleared.
+        async with conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='llm_providers_new'"
+        ) as cursor:
+            assert await cursor.fetchone() is None
+        await conn.close()
+
+    async def test_v12_check_constraint_accepts_each_known_type(self, tmp_path) -> None:
+        """Each PROVIDER_TYPES member inserts cleanly post-migration."""
+        from the_one.db._provider_types import PROVIDER_TYPES
+
+        db_path = tmp_path / "types.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await ensure_schema(conn)
+
+        for i, ptype in enumerate(PROVIDER_TYPES):
+            await conn.execute(
+                "INSERT INTO llm_providers (id, name, type, base_url) VALUES (?, ?, ?, ?)",
+                (f"p-{i}", f"Test{i}", ptype, "http://localhost"),
+            )
+        await conn.commit()
+
+        async with conn.execute(
+            "SELECT COUNT(*) AS c FROM llm_providers"
+        ) as cursor:
+            row = await cursor.fetchone()
+        assert row["c"] == len(PROVIDER_TYPES)
         await conn.close()

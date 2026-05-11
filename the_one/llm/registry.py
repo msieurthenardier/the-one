@@ -27,12 +27,15 @@ def _try_load_builtin(name: str) -> None:
         "anthropic": lambda: __import__("the_one.llm.anthropic_provider", fromlist=["_"]),
         "ollama": lambda: __import__("the_one.llm.ollama_provider", fromlist=["_"]),
         "mock": lambda: __import__("the_one.llm.mock", fromlist=["_"]),
+        "openrouter": lambda: __import__("the_one.llm.openrouter_provider", fromlist=["_"]),
     }
     if name in loaders:
         try:
             loaders[name]()
         except ImportError as e:
+            # OpenRouter rides the openai package — no separate [openrouter] extra.
+            extra = "openai" if name == "openrouter" else name
             raise ImportError(
                 f"Provider '{name}' requires extra dependencies. "
-                f"Install with: pip install 'the-one[{name}]'"
+                f"Install with: pip install 'the-one[{extra}]'"
             ) from e

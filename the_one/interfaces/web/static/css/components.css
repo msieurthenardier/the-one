@@ -703,6 +703,7 @@
   }
   .test-result-ok { color: var(--status-success); }
   .test-result-fail { color: var(--status-danger); }
+  .test-result-warning { color: var(--status-warning); }
   .test-result-pending { color: var(--fg-secondary); }
 
   /* === Save / Cancel button (disabled-SSoT pattern) === */

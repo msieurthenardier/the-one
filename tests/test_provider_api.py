@@ -1729,26 +1729,27 @@ class TestEnsureV1:
 class TestProviderTypesEndpoint:
     """Tests for GET /api/providers/types (dev-mode-aware list)."""
 
-    async def test_returns_4_types_when_dev_mode_off(self, client: AsyncClient) -> None:
+    async def test_returns_5_types_when_dev_mode_off(self, client: AsyncClient) -> None:
         with patch("the_one.interfaces.web.api.settings") as mock_settings:
             mock_settings.dev_mode = False
             resp = await client.get("/api/providers/types")
         assert resp.status_code == 200
         data = resp.json()
         values = [t["value"] for t in data]
-        assert set(values) == {"ollama", "openai-compatible", "openai", "anthropic"}
+        assert set(values) == {"ollama", "openai-compatible", "openai", "anthropic", "openrouter"}
         # Each entry has the expected shape
         for entry in data:
             assert set(entry.keys()) == {"value", "label"}
 
-    async def test_returns_5_types_when_dev_mode_on(self, client: AsyncClient) -> None:
+    async def test_returns_6_types_when_dev_mode_on(self, client: AsyncClient) -> None:
         with patch("the_one.interfaces.web.api.settings") as mock_settings:
             mock_settings.dev_mode = True
             resp = await client.get("/api/providers/types")
         assert resp.status_code == 200
         values = [t["value"] for t in resp.json()]
         assert "mock" in values
-        assert len(values) == 5
+        assert "openrouter" in values
+        assert len(values) == 6
 
     async def test_types_route_does_not_collide_with_id_route(self, client: AsyncClient) -> None:
         """Regression: /providers/types must be registered before /providers/{id}.
@@ -1858,3 +1859,327 @@ class TestMockProviderRoutes:
         assert resp.status_code == 200
         ids = [m["id"] for m in resp.json()]
         assert ids == ["mock-fast", "mock-thinking"]
+
+
+class TestOpenRouterTypes:
+    @pytest.mark.asyncio
+    async def test_types_includes_openrouter(self, client) -> None:
+        resp = await client.get("/api/providers/types")
+        assert resp.status_code == 200
+        types = resp.json()
+        values = {t["value"] for t in types}
+        assert "openrouter" in values
+
+
+# ── api_key normalization at the Pydantic layer ──────────────────────────
+
+
+class TestApiKeyNormalization:
+    """Provider api_key is stripped to canonical form by the Pydantic
+    validator on ``LLMProviderConfig`` — the SAME canonical form for the
+    `/test`, `/models`, chat-create-time, and CRUD paths. Pre-normalization
+    each path stripped (or didn't strip) on its own which produced the
+    "works in /test, fails in chat" class of bug.
+
+    The model-level test pins the unit contract; the round-trip test pins
+    the API surface stores the canonical form (so a later GET masks the
+    stripped key, not the leading-spaces literal).
+    """
+
+    def test_pydantic_strips_whitespace(self) -> None:
+        from the_one.db.models import LLMProviderConfig
+
+        cfg = LLMProviderConfig(
+            id="x",
+            name="X",
+            type="openai",
+            base_url="https://api.openai.com/v1",
+            api_key="  sk-x  ",
+        )
+        assert cfg.api_key == "sk-x"
+
+    def test_pydantic_empty_after_strip_becomes_none(self) -> None:
+        from the_one.db.models import LLMProviderConfig
+
+        cfg = LLMProviderConfig(
+            id="x",
+            name="X",
+            type="openai",
+            base_url="https://api.openai.com/v1",
+            api_key="   ",
+        )
+        assert cfg.api_key is None
+
+    def test_pydantic_none_stays_none(self) -> None:
+        from the_one.db.models import LLMProviderConfig
+
+        cfg = LLMProviderConfig(
+            id="x",
+            name="X",
+            type="openai",
+            base_url="https://api.openai.com/v1",
+            api_key=None,
+        )
+        assert cfg.api_key is None
+
+    @pytest.mark.asyncio
+    async def test_create_strips_whitespace_round_trip(
+        self, client: AsyncClient
+    ) -> None:
+        """A POST with leading/trailing whitespace should mask to the stripped
+        last-4 (``sk-x`` → ``***``), not to ``  sk-x  ``."""
+        resp = await client.post(
+            "/api/providers",
+            json={
+                "name": "Whitespace",
+                "type": "openai",
+                "base_url": "https://api.openai.com/v1",
+                "api_key": "  sk-roundtrip-key  ",
+            },
+        )
+        assert resp.status_code == 201, resp.text
+        provider_id = resp.json()["id"]
+        # Mask format ``***...XXXX`` reads from the canonical (stripped) key.
+        assert resp.json()["api_key"] == "***...-key"
+
+        # GET reflects the stored canonical form.
+        get_resp = await client.get(f"/api/providers/{provider_id}")
+        assert get_resp.json()["api_key"] == "***...-key"
+
+    @pytest.mark.asyncio
+    async def test_create_whitespace_only_stored_as_none(
+        self, client: AsyncClient
+    ) -> None:
+        """A POST with only whitespace must be stored as NULL — masking returns
+        ``None`` rather than ``"   "`` or ``""``."""
+        resp = await client.post(
+            "/api/providers",
+            json={
+                "name": "WhitespaceOnly",
+                "type": "ollama",
+                "base_url": "http://localhost:11434/v1",
+                "api_key": "   ",
+            },
+        )
+        assert resp.status_code == 201, resp.text
+        provider_id = resp.json()["id"]
+        assert resp.json()["api_key"] is None
+
+        get_resp = await client.get(f"/api/providers/{provider_id}")
+        assert get_resp.json()["api_key"] is None
+
+    @pytest.mark.asyncio
+    async def test_masked_sentinel_path_unchanged(self, client: AsyncClient) -> None:
+        """The ``__MASKED__`` sentinel path runs BEFORE Pydantic validates the
+        new value (api.py:849-852) — the sentinel is replaced by the existing
+        stored key (already canonical) and re-validated. This test pins that
+        the canonical-storage and sentinel-preserve paths compose correctly:
+        a saved ``  sk-y  `` lands as ``sk-y``, and a subsequent rename via
+        ``__MASKED__`` keeps it as ``sk-y``."""
+        create_resp = await client.post(
+            "/api/providers",
+            json={
+                "name": "Sentinel",
+                "type": "openai",
+                "base_url": "https://api.openai.com/v1",
+                "api_key": "  sk-sentinel-key  ",
+            },
+        )
+        provider_id = create_resp.json()["id"]
+        # Stored key is canonical: last-4 of "sk-sentinel-key" is "-key".
+        assert create_resp.json()["api_key"] == "***...-key"
+
+        update_resp = await client.put(
+            f"/api/providers/{provider_id}",
+            json={
+                "name": "Renamed",
+                "type": "openai",
+                "base_url": "https://api.openai.com/v1",
+                "api_key": "__MASKED__",
+            },
+        )
+        assert update_resp.status_code == 200
+        # Same canonical mask survives the masked-update.
+        assert update_resp.json()["api_key"] == "***...-key"
+
+
+# ── /test endpoint status semantics + /models error differentiation ───
+
+
+class TestOpenRouterTestEndpointStatus:
+    """The /providers/{id}/test endpoint must distinguish three states for
+    openrouter: ok (key valid), warning (reachable, no key), error (auth
+    failure or upstream failure). The JS handler renders each state with
+    a distinct chip — green ✓ vs amber ⚠ vs red ✗ — so the operator
+    knows whether the provider is ready for chat.
+    """
+
+    async def test_no_key_returns_warning_not_ok(
+        self, client: AsyncClient, monkeypatch
+    ) -> None:
+        from the_one.llm import openrouter_api
+
+        async def fake_list(base_url, api_key):
+            assert api_key in (None, "")
+            return [openrouter_api.OpenRouterModelEntry(id="x/y")]
+
+        monkeypatch.setattr(openrouter_api, "list_models", fake_list)
+
+        create_resp = await client.post(
+            "/api/providers",
+            json={
+                "name": "OR",
+                "type": "openrouter",
+                "base_url": "https://openrouter.ai/api/v1",
+            },
+        )
+        provider_id = create_resp.json()["id"]
+        resp = await client.post(f"/api/providers/{provider_id}/test")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "warning", body
+        assert "Add an API key" in body["detail"]
+
+    async def test_key_set_returns_ok(
+        self, client: AsyncClient, monkeypatch
+    ) -> None:
+        from the_one.llm import openrouter_api
+
+        async def fake_verify(base_url, api_key):
+            return {"data": {"label": "test", "limit": 1}}
+
+        async def fake_list(base_url, api_key):
+            return [openrouter_api.OpenRouterModelEntry(id="x/y")]
+
+        monkeypatch.setattr(openrouter_api, "verify_key", fake_verify)
+        monkeypatch.setattr(openrouter_api, "list_models", fake_list)
+
+        create_resp = await client.post(
+            "/api/providers",
+            json={
+                "name": "OR",
+                "type": "openrouter",
+                "base_url": "https://openrouter.ai/api/v1",
+                "api_key": "sk-or-x",
+            },
+        )
+        provider_id = create_resp.json()["id"]
+        resp = await client.post(f"/api/providers/{provider_id}/test")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "ok", body
+
+    async def test_value_error_returns_error_with_contract_violation_detail(
+        self, client: AsyncClient, monkeypatch
+    ) -> None:
+        """ValueError from /models shape check must NOT collapse to a
+        generic error — the detail must explicitly call out the API
+        contract violation so the operator knows it's not a network
+        problem."""
+        from the_one.llm import openrouter_api
+
+        async def fake_list(base_url, api_key):
+            raise ValueError("Unexpected payload shape")
+
+        monkeypatch.setattr(openrouter_api, "list_models", fake_list)
+
+        create_resp = await client.post(
+            "/api/providers",
+            json={
+                "name": "OR",
+                "type": "openrouter",
+                "base_url": "https://openrouter.ai/api/v1",
+            },
+        )
+        provider_id = create_resp.json()["id"]
+        resp = await client.post(f"/api/providers/{provider_id}/test")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "error"
+        assert "contract violation" in body["detail"].lower()
+
+
+class TestOpenRouterModelsEndpointErrorMapping:
+    """/api/providers/{id}/models must distinguish exception classes —
+    network unreachable (502), auth failure (401), timeout (504),
+    contract violation (500). Pre-fix all four collapsed to '502
+    OpenRouter unreachable: ...' which misled operators into
+    troubleshooting non-existent network problems."""
+
+    async def _create_or(self, client: AsyncClient) -> str:
+        resp = await client.post(
+            "/api/providers",
+            json={
+                "name": "OR",
+                "type": "openrouter",
+                "base_url": "https://openrouter.ai/api/v1",
+                "api_key": "k",
+            },
+        )
+        return resp.json()["id"]
+
+    async def test_value_error_maps_to_500_with_contract_violation_detail(
+        self, client: AsyncClient, monkeypatch
+    ) -> None:
+        from the_one.llm import openrouter_api
+
+        async def fake_list(base_url, api_key):
+            raise ValueError("Unexpected 'data' shape")
+
+        monkeypatch.setattr(openrouter_api, "list_models", fake_list)
+        provider_id = await self._create_or(client)
+        resp = await client.get(f"/api/providers/{provider_id}/models")
+        assert resp.status_code == 500
+        assert "contract violation" in resp.json()["detail"].lower()
+
+    async def test_timeout_maps_to_504(
+        self, client: AsyncClient, monkeypatch
+    ) -> None:
+        import httpx
+
+        from the_one.llm import openrouter_api
+
+        async def fake_list(base_url, api_key):
+            raise httpx.TimeoutException("read timeout")
+
+        monkeypatch.setattr(openrouter_api, "list_models", fake_list)
+        provider_id = await self._create_or(client)
+        resp = await client.get(f"/api/providers/{provider_id}/models")
+        assert resp.status_code == 504
+        assert "timed out" in resp.json()["detail"].lower()
+
+    async def test_http_status_error_mirrors_upstream_status(
+        self, client: AsyncClient, monkeypatch
+    ) -> None:
+        import httpx
+
+        from the_one.llm import openrouter_api
+
+        async def fake_list(base_url, api_key):
+            req = httpx.Request("GET", "https://openrouter.ai/api/v1/models")
+            resp = httpx.Response(401, request=req, text="invalid api key")
+            raise httpx.HTTPStatusError("401", request=req, response=resp)
+
+        monkeypatch.setattr(openrouter_api, "list_models", fake_list)
+        provider_id = await self._create_or(client)
+        resp = await client.get(f"/api/providers/{provider_id}/models")
+        assert resp.status_code == 401
+        assert "401" in resp.json()["detail"]
+
+    async def test_request_error_maps_to_502_unreachable(
+        self, client: AsyncClient, monkeypatch
+    ) -> None:
+        import httpx
+
+        from the_one.llm import openrouter_api
+
+        async def fake_list(base_url, api_key):
+            raise httpx.ConnectError("DNS failure")
+
+        monkeypatch.setattr(openrouter_api, "list_models", fake_list)
+        provider_id = await self._create_or(client)
+        resp = await client.get(f"/api/providers/{provider_id}/models")
+        assert resp.status_code == 502
+        assert "unreachable" in resp.json()["detail"].lower()
+
+

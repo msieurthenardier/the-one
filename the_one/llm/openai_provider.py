@@ -5,18 +5,41 @@ import os
 from collections.abc import AsyncIterator
 from typing import Any
 
+import httpx
 import openai
 
 from the_one.llm.base import LLMProvider, Message, Role, StreamChunk, TokenUsage, ToolCall
 from the_one.llm.registry import register_provider
 
+# Default timeout for openai SDK calls. SDK default is 600s, which means a
+# stuck upstream model holds the WebSocket open for 10 minutes with no user
+# feedback. 300s read covers slow reasoning models without leaving the user
+# hanging indefinitely.
+DEFAULT_OPENAI_TIMEOUT = httpx.Timeout(connect=10.0, read=300.0, write=10.0, pool=10.0)
+
 
 class OpenAIProvider(LLMProvider):
     name = "openai"
 
-    def __init__(self, model: str = "gpt-4o", api_key: str | None = None, **kwargs: Any):
+    def __init__(
+        self,
+        model: str = "gpt-4o",
+        api_key: str | None = None,
+        base_url: str | None = None,
+        timeout: httpx.Timeout | None = None,
+        **kwargs: Any,
+    ):
+        # NOTE: any new instance attribute added here MUST also be set in
+        # OpenRouterProvider.__init__ (which deliberately does NOT call
+        # super().__init__() — see test_instance_attribute_parity).
         self.model = model
-        self.client = openai.AsyncOpenAI(api_key=api_key or os.environ.get("OPENAI_API_KEY"))
+        client_kwargs: dict[str, Any] = {
+            "api_key": api_key or os.environ.get("OPENAI_API_KEY"),
+            "timeout": timeout if timeout is not None else DEFAULT_OPENAI_TIMEOUT,
+        }
+        if base_url is not None:
+            client_kwargs["base_url"] = base_url
+        self.client = openai.AsyncOpenAI(**client_kwargs)
 
     async def complete(
         self,
