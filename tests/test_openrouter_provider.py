@@ -104,33 +104,35 @@ class TestTimeout:
 
 
 class TestRankingHeaders:
-    def test_referer_header_set_when_config_referer(self):
-        from the_one.llm.openrouter_provider import OpenRouterProvider
+    """Ranking headers identify *the app* (the-one), not the operator, so
+    they're hardcoded constants in openrouter_provider.py — always sent,
+    never operator-configurable. The ``config`` kwarg is accepted for
+    factory uniformity but ignored."""
+
+    def test_referer_header_hardcoded_to_app_url(self):
+        from the_one.llm.openrouter_provider import _APP_URL, OpenRouterProvider
+
+        prov = OpenRouterProvider(model="m", api_key="x")
+        assert prov.client.default_headers.get("HTTP-Referer") == _APP_URL
+
+    def test_title_header_hardcoded_to_app_name(self):
+        from the_one.llm.openrouter_provider import _APP_NAME, OpenRouterProvider
+
+        prov = OpenRouterProvider(model="m", api_key="x")
+        assert prov.client.default_headers.get("X-Title") == _APP_NAME
+
+    def test_config_kwarg_is_ignored(self):
+        """Pre-rebrand: operators used to supply config.referer/config.title.
+        Those keys are now ignored — verifies hardcoded values still win."""
+        from the_one.llm.openrouter_provider import _APP_NAME, _APP_URL, OpenRouterProvider
 
         prov = OpenRouterProvider(
-            model="m", api_key="x", config={"referer": "https://myapp.example"}
+            model="m",
+            api_key="x",
+            config={"referer": "https://attacker.example", "title": "Pwned"},
         )
-        assert prov.client.default_headers.get("HTTP-Referer") == "https://myapp.example"
-
-    def test_title_header_set_when_config_title(self):
-        from the_one.llm.openrouter_provider import OpenRouterProvider
-
-        prov = OpenRouterProvider(model="m", api_key="x", config={"title": "MyApp"})
-        assert prov.client.default_headers.get("X-Title") == "MyApp"
-
-    def test_no_ranking_headers_when_config_empty(self):
-        from the_one.llm.openrouter_provider import OpenRouterProvider
-
-        prov = OpenRouterProvider(model="m", api_key="x", config={})
-        assert "HTTP-Referer" not in prov.client.default_headers
-        assert "X-Title" not in prov.client.default_headers
-
-    def test_no_ranking_headers_when_config_keys_empty_string(self):
-        from the_one.llm.openrouter_provider import OpenRouterProvider
-
-        prov = OpenRouterProvider(model="m", api_key="x", config={"referer": "", "title": ""})
-        assert "HTTP-Referer" not in prov.client.default_headers
-        assert "X-Title" not in prov.client.default_headers
+        assert prov.client.default_headers.get("HTTP-Referer") == _APP_URL
+        assert prov.client.default_headers.get("X-Title") == _APP_NAME
 
 
 class TestInstanceAttributeParity:

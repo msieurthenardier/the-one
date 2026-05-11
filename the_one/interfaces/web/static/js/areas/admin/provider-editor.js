@@ -157,31 +157,6 @@
     html += '</div>';
     html += '</div>';
 
-    // OpenRouter ranking headers (Decision 3) — operator-configurable
-    // optional inputs. Always rendered (so the type-change handler can
-    // show/hide them via .is-hidden); hidden initially for non-openrouter
-    // types. Empty values are dropped at save time so the server sees the
-    // headers as absent.
-    var orHidden = defaults.showOpenRouterConfig ? '' : ' is-hidden';
-    var refererVal = (provider && provider.config && provider.config.referer) || '';
-    var titleVal = (provider && provider.config && provider.config.title) || '';
-    html += '<div class="field-row admin-pf-row admin-pf-openrouter-config' + orHidden + '">';
-    html += '<label for="pf-referer">App URL (optional)</label>';
-    html += '<input type="text" id="pf-referer" class="field-input admin-pf-input"';
-    html += ' data-field="config.referer"';
-    html += ' placeholder="https://your-app.example.com"';
-    html += ' value="' + escapeAttr(refererVal) + '" />';
-    html += '<small class="field-hint">Sent as HTTP-Referer for OpenRouter app rankings.</small>';
-    html += '</div>';
-    html += '<div class="field-row admin-pf-row admin-pf-openrouter-config' + orHidden + '">';
-    html += '<label for="pf-title">App Name (optional, max 64)</label>';
-    html += '<input type="text" id="pf-title" class="field-input admin-pf-input"';
-    html += ' data-field="config.title"';
-    html += ' maxlength="64"';
-    html += ' value="' + escapeAttr(titleVal) + '" />';
-    html += '<small class="field-hint">Sent as X-Title for OpenRouter app rankings.</small>';
-    html += '</div>';
-
     return html;
   }
 
@@ -241,23 +216,19 @@
       inputs[i].addEventListener('change', checkDirty);
     }
 
-    /* Type-change: show/hide base_url + api_key + openrouter config rows +
-       reset base_url default. Does NOT clobber api_key or config fields so
-       values are preserved across provider-type switches. */
+    /* Type-change: show/hide base_url + api_key rows + reset base_url
+       default. Does NOT clobber api_key so values are preserved across
+       provider-type switches. */
     var typeSelect = container.querySelector('[data-field="type"]');
     var baseUrlRow = container.querySelector('.admin-pf-base-url');
     var baseUrlInput = container.querySelector('[data-field="base_url"]');
     var apiKeyRow = container.querySelector('.admin-pf-api-key');
-    var openrouterConfigRows = container.querySelectorAll('.admin-pf-openrouter-config');
     if (typeSelect) {
       typeSelect.addEventListener('change', function () {
         var defaults = (callbacks.getTypeDefaults && callbacks.getTypeDefaults(typeSelect.value)) || {};
         baseUrlRow.classList.toggle('is-hidden', !defaults.showBaseUrl);
         apiKeyRow.classList.toggle('is-hidden', !defaults.showApiKey);
         baseUrlInput.value = defaults.base_url || '';
-        for (var k = 0; k < openrouterConfigRows.length; k++) {
-          openrouterConfigRows[k].classList.toggle('is-hidden', !defaults.showOpenRouterConfig);
-        }
         checkDirty();
       });
     }

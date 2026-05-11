@@ -108,127 +108,23 @@ class TestWireNoLeak:
         assert captured[0].headers.get("authorization") == "Bearer sk-or-x"
 
 
-# ── D2: ranking-header presence & injection rejection ───────────────────
+# ── D2: hardcoded ranking headers reach the wire ────────────────────────
 
 
 @pytest.mark.asyncio
 class TestWireRankingHeaders:
-    async def test_referer_and_title_reach_wire_unchanged(self, monkeypatch) -> None:
+    """Ranking headers identify *this app* (the-one). Hardcoded as module
+    constants in openrouter_provider, so every request carries them — no
+    operator-configurable knob, no opt-in/opt-out."""
+
+    async def test_app_identity_headers_reach_wire(self, monkeypatch) -> None:
+        from the_one.llm.openrouter_provider import _APP_NAME, _APP_URL
+
         captured: list[httpx.Request] = []
         _patch_async_client(monkeypatch, captured)
 
-        prov = OpenRouterProvider(
-            model="m",
-            api_key="k",
-            config={"referer": "https://valid.example", "title": "Valid Title"},
-        )
+        prov = OpenRouterProvider(model="m", api_key="k")
         await prov.complete([Message(role=Role.USER, content="hi")])
 
-        assert captured[0].headers.get("http-referer") == "https://valid.example"
-        assert captured[0].headers.get("x-title") == "Valid Title"
-
-    async def test_no_referer_no_title_no_headers(self, monkeypatch) -> None:
-        captured: list[httpx.Request] = []
-        _patch_async_client(monkeypatch, captured)
-
-        prov = OpenRouterProvider(model="m", api_key="k", config={})
-        await prov.complete([Message(role=Role.USER, content="hi")])
-
-        header_keys = {k.lower() for k in captured[0].headers.keys()}
-        assert "http-referer" not in header_keys
-        assert "x-title" not in header_keys
-
-
-class TestConstructorRejectsHeaderInjection:
-    """Defensive header check at the provider constructor.
-
-    If Agent A has landed a CR/LF rejection in OpenRouterProvider.__init__,
-    this test will run and pin the rejection contract. Otherwise it skips
-    with a clear reason — the API-layer rejection is already covered by
-    ``test_provider_api.py::TestOpenRouterValidation``; the constructor
-    layer is a defense-in-depth check.
-    """
-
-    def test_constructor_rejects_referer_with_crlf(self) -> None:
-        with pytest.raises(ValueError):
-            OpenRouterProvider(
-                model="m",
-                api_key="x",
-                config={"referer": "https://x.com\r\nX-Injected: y"},
-            )
-
-    def test_constructor_rejects_title_with_nul(self) -> None:
-        with pytest.raises(ValueError):
-            OpenRouterProvider(
-                model="m",
-                api_key="x",
-                config={"title": "evil\x00injected"},
-            )
-
-
-# ── D6: empty referer/title dropped at API layer (round-trip pin) ───────
-# (Lives here because it complements D1/D2 — the wire layer cannot send a
-# header that the API layer correctly dropped at save time.)
-
-
-import sys
-from pathlib import Path
-from unittest.mock import patch
-
-import aiosqlite
-from cryptography.fernet import Fernet
-from fastapi import FastAPI
-from httpx import ASGITransport, AsyncClient
-
-from the_one.db.schema import ensure_schema
-from the_one.encryption import Encryptor
-from the_one.interfaces.web.api import router
-
-
-@pytest.fixture
-async def api_client(tmp_path):
-    db_path = tmp_path / "test.db"
-    conn = await aiosqlite.connect(str(db_path))
-    conn.row_factory = aiosqlite.Row
-    await conn.execute("PRAGMA foreign_keys=ON")
-    await ensure_schema(conn)
-
-    test_key = Fernet.generate_key()
-    key_path = tmp_path / "test.key"
-    key_path.write_bytes(test_key)
-    test_encryptor = Encryptor(test_key, key_path=key_path)
-
-    with (
-        patch("the_one.interfaces.web.api.get_connection", return_value=conn),
-        patch("the_one.interfaces.web.api.get_encryptor", return_value=test_encryptor),
-    ):
-        test_app = FastAPI()
-        test_app.include_router(router)
-        transport = ASGITransport(app=test_app)
-        async with AsyncClient(transport=transport, base_url="http://test") as c:
-            yield c
-    await conn.close()
-
-
-@pytest.mark.asyncio
-async def test_empty_string_referer_dropped_at_api_layer_round_trip(
-    api_client: AsyncClient,
-) -> None:
-    """``""`` referer / title round-trip as ABSENT keys (not empty strings).
-    Pinned at the API surface — the wire layer tests above assume that no
-    empty-string headers ever enter the constructor."""
-    body = {
-        "name": "ORempty",
-        "type": "openrouter",
-        "base_url": "https://openrouter.ai/api/v1",
-        "api_key": "k",
-        "config": {"referer": "", "title": ""},
-    }
-    resp = await api_client.post("/api/providers", json=body)
-    assert resp.status_code in (200, 201), resp.text
-    prov_id = resp.json()["id"]
-
-    get_resp = await api_client.get(f"/api/providers/{prov_id}")
-    cfg = get_resp.json()["config"]
-    assert "referer" not in cfg
-    assert "title" not in cfg
+        assert captured[0].headers.get("http-referer") == _APP_URL
+        assert captured[0].headers.get("x-title") == _APP_NAME

@@ -14,7 +14,7 @@ from the_one.db.models import LLMProviderConfig
 from the_one.db.repositories import LLMProviderRepository, SQLiteAgentStore
 from the_one.db.schema import ensure_schema
 from the_one.encryption import Encryptor
-from the_one.llm.openrouter_provider import OpenRouterProvider
+from the_one.llm.openrouter_provider import _APP_NAME, _APP_URL, OpenRouterProvider
 
 
 @pytest.mark.asyncio
@@ -42,7 +42,6 @@ async def test_factory_resolves_openrouter_provider(tmp_path, monkeypatch):
         type="openrouter",
         base_url="https://openrouter.ai/api/v1",
         api_key="sk-stored",
-        config={"referer": "https://myapp.example", "title": "MyApp"},
     )
     await prov_repo.create(prov_cfg)
 
@@ -74,12 +73,14 @@ async def test_factory_resolves_openrouter_provider(tmp_path, monkeypatch):
         factory = AgentFactory(store=agent_store, tool_providers=[])
         agent = await factory.create("alice")
 
-    # Assert llm is an OpenRouterProvider with the decrypted key + headers
+    # Assert llm is an OpenRouterProvider with the decrypted key + hardcoded
+    # app-identity headers (HTTP-Referer / X-Title identify the-one, not the
+    # operator — pinned in test_openrouter_provider.TestRankingHeaders).
     assert isinstance(agent.llm, OpenRouterProvider)
     assert agent.llm.client.api_key == "sk-stored"
     assert agent.llm.model == "anthropic/claude-3.5-sonnet"
     assert "openrouter.ai" in str(agent.llm.client.base_url)
-    assert agent.llm.client.default_headers.get("HTTP-Referer") == "https://myapp.example"
-    assert agent.llm.client.default_headers.get("X-Title") == "MyApp"
+    assert agent.llm.client.default_headers.get("HTTP-Referer") == _APP_URL
+    assert agent.llm.client.default_headers.get("X-Title") == _APP_NAME
 
     await conn.close()

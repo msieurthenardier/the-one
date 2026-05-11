@@ -6,7 +6,6 @@ import asyncio
 import contextlib
 import json
 import os
-import re
 import secrets
 import time
 import uuid
@@ -70,98 +69,11 @@ async def _chat_repo() -> ChatSessionRepository:
 
 _TESTABLE_TOOLS = frozenset({"web_search", "fetch_url"})
 
-# OpenRouter ranking-header validation (Decision 6).
-# httpx 0.28.1 does NOT sanitize CR/LF/NUL in header values, so we reject
-# them at the API boundary before storing.
-_FORBIDDEN_HEADER_CHARS = ("\r", "\n", "\x00")
-_OPENROUTER_TITLE_MAX = 64
-
-
-# RFC-1123-ish hostname regex with optional :port suffix. Allows ASCII
-# letters/digits/hyphens/dots — rejects spaces, uppercase (port-aware
-# lowercase check below), unicode, embedded control chars (already
-# filtered upstream by _FORBIDDEN_HEADER_CHARS but cheap to confirm).
-_REFERER_HOSTNAME_RE = re.compile(r"^[a-z0-9.\-]+(?::\d+)?$")
-
-
 # F6.5 L3: Test connection endpoint timeout (seconds). Bounds the await
 # on consent_url_future so a slow / hanging SDK auth flow doesn't pin
 # the request indefinitely. 15s is the Design Decision §2 ceiling;
 # tests monkeypatch this to drive the timeout path quickly.
 _TEST_CONNECT_TIMEOUT: float = 15.0
-
-
-def _validate_openrouter_config(config: dict | None) -> dict:
-    """Sanitize the openrouter ranking-header config.
-
-    - Rejects ``referer`` / ``title`` containing CR / LF / NUL.
-    - Requires ``referer`` to parse as ``http(s)://`` URL with a strict
-      ASCII-hostname netloc (no spaces, no uppercase, no unicode). The
-      pre-fix ``not parsed.netloc`` check let whitespace-only netlocs
-      through because ``" "`` is truthy.
-    - Bounds ``title`` length to 64.
-    - Empty strings are dropped from the returned dict (absent stays absent
-      on round-trip).
-
-    Raises ``HTTPException(422, ...)`` on validation failure.
-    """
-    cfg = dict(config or {})
-    referer = cfg.get("referer")
-    if isinstance(referer, str):
-        if any(c in referer for c in _FORBIDDEN_HEADER_CHARS):
-            raise HTTPException(
-                status_code=422,
-                detail="config.referer contains a forbidden control character",
-            )
-        if referer.strip() == "":
-            cfg.pop("referer", None)
-        else:
-            parsed = urlparse(referer)
-            if parsed.scheme not in {"http", "https"}:
-                raise HTTPException(
-                    status_code=422,
-                    detail="config.referer must use http(s):// scheme",
-                )
-            netloc = (parsed.netloc or "").strip()
-            if not netloc or not _REFERER_HOSTNAME_RE.fullmatch(netloc.lower()):
-                raise HTTPException(
-                    status_code=422,
-                    detail=(
-                        "config.referer must have a valid ASCII host "
-                        "(letters/digits/hyphens/dots, optional :port; "
-                        "no spaces, no unicode)"
-                    ),
-                )
-            # Reject case-insensitive mismatch outright. RFC 3986 says
-            # hosts are case-insensitive but most client/server libs
-            # treat them as canonical lowercase. If the operator typed
-            # uppercase, we refuse rather than silently downcasing.
-            if netloc != netloc.lower():
-                raise HTTPException(
-                    status_code=422,
-                    detail="config.referer host must be lowercase ASCII",
-                )
-    elif referer is not None:
-        raise HTTPException(status_code=422, detail="config.referer must be a string")
-
-    title = cfg.get("title")
-    if isinstance(title, str):
-        if any(c in title for c in _FORBIDDEN_HEADER_CHARS):
-            raise HTTPException(
-                status_code=422,
-                detail="config.title contains a forbidden control character",
-            )
-        if title.strip() == "":
-            cfg.pop("title", None)
-        elif len(title) > _OPENROUTER_TITLE_MAX:
-            raise HTTPException(
-                status_code=422,
-                detail=f"config.title must be ≤ {_OPENROUTER_TITLE_MAX} chars",
-            )
-    elif title is not None:
-        raise HTTPException(status_code=422, detail="config.title must be a string")
-
-    return cfg
 
 
 async def _tool_config_repo() -> ToolConfigRepository:
@@ -2155,8 +2067,6 @@ async def create_provider(request: Request) -> dict[str, Any]:
     if "id" not in data:
         data["id"] = uuid.uuid4().hex[:12]
     provider = LLMProviderConfig.model_validate(data)
-    if provider.type == "openrouter":
-        provider.config = _validate_openrouter_config(provider.config)
     # URL safety: refuse non-https for non-localhost when the provider type
     # actually transmits an API key (skips ``mock`` / ``ollama``).
     if provider.type not in _URL_VALIDATION_SKIPPED_TYPES:
@@ -2193,15 +2103,6 @@ async def update_provider(provider_id: str, request: Request) -> dict[str, Any]:
         data["api_key"] = existing.api_key
 
     updated = existing.model_copy(update=data)
-    if updated.type == "openrouter":
-        # Re-validate ONLY when config is in the request body. Without
-        # this, an update that doesn't touch config (e.g., name-only
-        # rename) would re-validate the existing stored config — and if
-        # validation rules tighten over time, an unrelated update could
-        # 422 on a previously-valid stored value. Validate-on-write,
-        # not validate-on-rebroadcast.
-        if "config" in data:
-            updated.config = _validate_openrouter_config(updated.config)
     # URL safety check on the RESOLVED base_url — i.e. after
     # ``model_copy(update=data)`` has merged any ``__MASKED__``-preserved
     # fields. This blocks the regression where a request that does not

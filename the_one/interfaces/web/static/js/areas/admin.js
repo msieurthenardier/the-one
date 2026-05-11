@@ -171,7 +171,7 @@ App.registerArea({
       'openai': { base_url: 'https://api.openai.com/v1', showBaseUrl: false, showApiKey: true },
       'anthropic': { base_url: 'https://api.anthropic.com', showBaseUrl: false, showApiKey: true },
       'mock': { base_url: '', showBaseUrl: false, showApiKey: false },
-      'openrouter': { base_url: 'https://openrouter.ai/api/v1', showBaseUrl: true, showApiKey: true, showOpenRouterConfig: true }
+      'openrouter': { base_url: 'https://openrouter.ai/api/v1', showBaseUrl: true, showApiKey: true }
     };
 
     // ── beforeunload listener (F6 leg 04) ──────────────────────────────
