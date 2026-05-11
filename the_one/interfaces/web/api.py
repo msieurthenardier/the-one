@@ -18,6 +18,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import ValidationError
 
+from the_one import __version__
 from the_one.config import settings
 from the_one.db.connection import get_connection
 from the_one.db.models import ChatSession, KBItem, KnowledgeBase, LLMProviderConfig, MCPSource
@@ -120,6 +121,20 @@ def _enrich_schema_with_markers(schema: dict[str, Any], config_class: type) -> d
                 prop["x_marker"] = marker_name
                 break
     return schema
+
+
+# ── Client config ─────────────────────────────────────────────────────────
+
+
+@router.get("/config")
+async def get_config() -> dict[str, Any]:
+    """Client-visible configuration — dev mode flag + version.
+
+    Fetched once at boot by the JS client (app.js DOMContentLoaded
+    handler) and cached on window.App.config. The dev_mode flag gates
+    the dev-mode-only Design Language Admin category (Mission 08 F2).
+    """
+    return {"dev_mode": settings.dev_mode, "version": __version__}
 
 
 # ── Tools ─────────────────────────────────────────────────────────────────

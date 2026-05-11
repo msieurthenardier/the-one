@@ -15,6 +15,7 @@ from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
+from the_one import __version__
 from the_one.agent import Agent
 
 # F6 L3: ContextVar definitions moved to the_one/agent/_context.py
@@ -918,7 +919,7 @@ async def index() -> str:
 
 @app.get("/api/info")
 async def info() -> dict[str, Any]:
-    return {"version": "0.1.0", "base_prompt": BASE_PROMPT}
+    return {"version": __version__, "base_prompt": BASE_PROMPT}
 
 
 @app.get("/api/selftest")

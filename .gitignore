@@ -21,3 +21,4 @@ tests/browser/__snapshots__/
 # WSL/Windows Alternate Data Stream sidecar files — created when files are
 # downloaded via Windows browsers and the working tree lives on WSL.
 *:Zone.Identifier
+.claude/scheduled_tasks.lock
