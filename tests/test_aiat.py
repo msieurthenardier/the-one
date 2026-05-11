@@ -126,7 +126,7 @@ def test_tool_use_file_read(base_url: str, session_id: str) -> None:
     )
     text = assistant_text(resp)
     assert has_tool_result(resp), "expected a tool result in response"
-    assert "the-one" in text.lower() or "the_one" in text.lower(), (
+    assert "gleepglorp" in text.lower() or "the_one" in text.lower(), (
         f"expected project name in response, got: {text[:200]}"
     )
 
@@ -148,7 +148,7 @@ def test_self_awareness(base_url: str, session_id: str) -> None:
         base_url, session_id, "What is your name and what directory is your source code in?"
     )
     text = assistant_text(resp)
-    assert "the-one" in text.lower() or "the_one" in text.lower(), (
+    assert "gleepglorp" in text.lower() or "the_one" in text.lower(), (
         f"agent doesn't know its name: {text[:200]}"
     )
 

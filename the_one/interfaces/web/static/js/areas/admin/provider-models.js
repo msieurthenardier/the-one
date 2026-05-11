@@ -58,7 +58,7 @@
 
     modelsEl.innerHTML =
       '<div class="admin-pf-models-header">' +
-        '<button class="btn-outlined-cyan refresh-btn admin-pf-models-refresh">' + window.App.icon('refresh-cw') + ' Refresh</button>' +
+        '<button class="btn-outlined-primary refresh-btn admin-pf-models-refresh">' + window.App.icon('refresh-cw') + ' Refresh</button>' +
       '</div>' +
       '<div class="admin-pf-models-list" aria-live="polite"><span class="admin-loading">Loading models…</span></div>';
 
@@ -101,13 +101,13 @@
 
     container.innerHTML =
       '<div class="admin-pf-models-header">' +
-        '<button class="btn-outlined-cyan refresh-btn admin-pf-models-refresh">' + window.App.icon('refresh-cw') + ' Refresh</button>' +
+        '<button class="btn-outlined-primary refresh-btn admin-pf-models-refresh">' + window.App.icon('refresh-cw') + ' Refresh</button>' +
       '</div>' +
       '<div class="admin-pf-pull-input">' +
         '<select class="field-input admin-pf-select admin-pf-pull-name" disabled>' +
           '<option value="">Loading library…</option>' +
         '</select>' +
-        '<button class="btn-filled-cyan btn-sm admin-pf-pull-go" disabled>Pull</button>' +
+        '<button class="btn-filled-primary btn-sm admin-pf-pull-go" disabled>Pull</button>' +
       '</div>' +
       '<div class="admin-pf-pull-progress is-hidden">' +
         '<div class="admin-pf-pull-fill"></div>' +
@@ -349,7 +349,7 @@
                 renderCapabilityChips(capsBy[runName]) +
                 '<span class="admin-pf-model-size">' + escapeHtml(runVram) + '</span>' +
                 '<div class="admin-pf-model-actions">' +
-                  '<button class="btn-outlined-cyan btn-sm admin-pf-model-btn admin-pf-model-unload" data-model="' + escapeAttr(runName) + '">Unload</button>' +
+                  '<button class="btn-outlined-primary btn-sm admin-pf-model-btn admin-pf-model-unload" data-model="' + escapeAttr(runName) + '">Unload</button>' +
                 '</div>' +
               '</div>';
           }
@@ -378,7 +378,7 @@
                 renderCapabilityChips(capsBy[availName]) +
                 '<span class="admin-pf-model-size">' + escapeHtml(availSize) + '</span>' +
                 '<div class="admin-pf-model-actions">' +
-                  '<button class="btn-outlined-cyan btn-sm admin-pf-model-btn admin-pf-model-load" data-model="' + escapeAttr(availName) + '">Load</button>' +
+                  '<button class="btn-outlined-primary btn-sm admin-pf-model-btn admin-pf-model-load" data-model="' + escapeAttr(availName) + '">Load</button>' +
                   '<button class="btn-muted-destructive btn-sm admin-pf-model-btn admin-pf-model-delete" data-model="' + escapeAttr(availName) + '">Delete</button>' +
                 '</div>' +
               '</div>';

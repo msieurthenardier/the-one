@@ -96,6 +96,12 @@ verify-serving: ## Sanity-check that the running container serves the current so
 		else echo "  ✗ $$f returned $$code — image may be stale, run 'make rebuild'" && exit 1; fi; \
 	done
 
+# ── Brand assets ──────────────────────────────────────────────────────
+
+.PHONY: brand-assets
+brand-assets: ## Derive favicon + topbar icon PNGs from source mascot via Pillow
+	docker exec the-one python /app/scripts/derive_brand_assets.py
+
 # ── Tests ──────────────────────────────────────────────────────────────
 
 .PHONY: test

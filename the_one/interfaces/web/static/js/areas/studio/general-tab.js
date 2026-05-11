@@ -96,7 +96,7 @@
     // co-located with the rest of studio's transport code.
     var testDisabled = !cfg.provider_config_id ? ' disabled' : '';
     html += '<div class="test-provider-row">';
-    html += '<button type="button" class="btn-outlined-cyan test-provider-btn" ' +
+    html += '<button type="button" class="btn-outlined-primary test-provider-btn" ' +
       'data-testid="test-provider-btn"' + testDisabled +
       ' title="Tests provider connectivity. Does not validate the agent’s full config.">' +
       window.App.icon('play') + ' Test</button>';

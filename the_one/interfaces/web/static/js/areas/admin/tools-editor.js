@@ -123,9 +123,9 @@
 
     // ── Action cluster ──────────────────────────────────────────────
     html += '<div class="form-actions">';
-    html += '<button type="button" class="btn-outlined-cyan back-btn" data-testid="back-tool-btn" aria-label="Back to tools list">' + window.App.icon('arrow-left') + ' Back</button>';
-    html += '<button type="button" class="btn-outlined-cyan cancel-btn" data-testid="cancel-tool-btn" disabled>Cancel</button>';
-    html += '<button type="button" class="btn-filled-cyan save-btn" data-testid="save-tool-btn" disabled>Save</button>';
+    html += '<button type="button" class="btn-outlined-primary back-btn" data-testid="back-tool-btn" aria-label="Back to tools list">' + window.App.icon('arrow-left') + ' Back</button>';
+    html += '<button type="button" class="btn-outlined-primary cancel-btn" data-testid="cancel-tool-btn" disabled>Cancel</button>';
+    html += '<button type="button" class="btn-filled-primary save-btn" data-testid="save-tool-btn" disabled>Save</button>';
     html += '<span class="editor-error"></span>';
     html += '</div>';
     html += '</div>'; // .editor-header
@@ -193,7 +193,7 @@
         html += '<input type="text" class="test-tool-input" data-test-param="' + escapeAttr(fixture.param) + '" value="' + escapeAttr(fixture.default) + '" />';
         html += '</label>';
       }
-      html += '<button type="button" class="btn-outlined-cyan test-tool-btn" data-testid="test-tool-btn">';
+      html += '<button type="button" class="btn-outlined-primary test-tool-btn" data-testid="test-tool-btn">';
       html += window.App.icon('play') + ' Test connection';
       html += '</button>';
       html += '<span class="test-result" aria-live="polite"></span>';

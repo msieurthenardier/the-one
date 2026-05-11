@@ -294,9 +294,9 @@
 
     // Action cluster
     html += '<div class="form-actions">';
-    html += '<button type="button" class="btn-outlined-cyan back-btn" data-testid="back-mcp-source-btn" aria-label="Back to MCP server list">' + window.App.icon('arrow-left') + ' Back</button>';
-    html += '<button type="button" class="btn-outlined-cyan cancel-btn" data-testid="cancel-mcp-source-btn" disabled>Cancel</button>';
-    html += '<button type="button" class="btn-filled-cyan save-btn" data-testid="save-mcp-source-btn" disabled>' + (isCreate ? 'Create' : 'Save') + '</button>';
+    html += '<button type="button" class="btn-outlined-primary back-btn" data-testid="back-mcp-source-btn" aria-label="Back to MCP server list">' + window.App.icon('arrow-left') + ' Back</button>';
+    html += '<button type="button" class="btn-outlined-primary cancel-btn" data-testid="cancel-mcp-source-btn" disabled>Cancel</button>';
+    html += '<button type="button" class="btn-filled-primary save-btn" data-testid="save-mcp-source-btn" disabled>' + (isCreate ? 'Create' : 'Save') + '</button>';
     html += '<span class="editor-error"></span>';
     html += '</div>';
     html += '</div>'; // .editor-header
@@ -317,7 +317,7 @@
     // belongs next to Refresh as a secondary connection action, not in
     // Danger Zone. Visible only when the source carries OAuth state
     // (gated by `hasOAuthState`); hidden for stdio and unauth'd
-    // streamable-http. Uses the same `btn-outlined-cyan` cosmetic as
+    // streamable-http. Uses the same `btn-outlined-primary` cosmetic as
     // Refresh so the pair reads as grouped connection controls.
     //
     // F9 L1 (vibing polish): "Last updated" label lives inside the
@@ -337,12 +337,12 @@
       html += '<div class="field-row admin-pf-row mcp-test-row">';
       html += '<label></label>';
       html += '<div class="mcp-connection-actions">';
-      html += '<button type="button" class="btn-outlined-cyan mcp-refresh-connection-btn" data-testid="mcp-test-connection">' +
+      html += '<button type="button" class="btn-outlined-primary mcp-refresh-connection-btn" data-testid="mcp-test-connection">' +
               window.App.icon('refresh-cw') + ' Refresh connection</button>';
       if (hasOAuthState(source)) {
         var resetTooltip = 'Reset this connection? This clears the stored login and tools list. ' +
           'You will need to log in again on the next refresh.';
-        html += '<button type="button" class="btn-outlined-cyan mcp-reset-connection-btn" data-testid="reset-mcp-connection-btn" title="' + escapeAttr(resetTooltip) + '" aria-label="' + escapeAttr(resetTooltip) + '" data-name="' + escapeAttr(source.name || '') + '"><span data-confirm-title>Reset connection</span></button>';
+        html += '<button type="button" class="btn-outlined-primary mcp-reset-connection-btn" data-testid="reset-mcp-connection-btn" title="' + escapeAttr(resetTooltip) + '" aria-label="' + escapeAttr(resetTooltip) + '" data-name="' + escapeAttr(source.name || '') + '"><span data-confirm-title>Reset connection</span></button>';
       }
       var connCache = (source.config && source.config._cache) || null;
       var connLastUpdatedText = connCache ? formatTimeAgo(connCache.last_updated) : '';
@@ -649,7 +649,7 @@
       html += renderKvRow(existingRows[i], i);
     }
     html += '</tbody></table>';
-    html += '<button type="button" class="btn-outlined-cyan kv-add-row-btn" data-testid="kv-add-row-btn">+ Add row</button>';
+    html += '<button type="button" class="btn-outlined-primary kv-add-row-btn" data-testid="kv-add-row-btn">+ Add row</button>';
     // Suppress unused-var warning in legacy environments — referenced indirectly above.
     void escapeHtml;
     return html;
@@ -1149,7 +1149,7 @@
         'You will need to log in again on the next refresh.';
       var btn = document.createElement('button');
       btn.type = 'button';
-      btn.className = 'btn-outlined-cyan mcp-reset-connection-btn';
+      btn.className = 'btn-outlined-primary mcp-reset-connection-btn';
       btn.setAttribute('data-testid', 'reset-mcp-connection-btn');
       btn.setAttribute('title', resetTooltip);
       btn.setAttribute('aria-label', resetTooltip);
@@ -1621,7 +1621,7 @@
             statusEl.appendChild(prompt);
             var consentBtn = document.createElement('button');
             consentBtn.type = 'button';
-            consentBtn.className = 'btn-outlined-cyan';
+            consentBtn.className = 'btn-outlined-primary';
             consentBtn.setAttribute('data-testid', 'mcp-consent-btn');
             consentBtn.textContent = 'Sign in';
             consentBtn.addEventListener('click', function () {

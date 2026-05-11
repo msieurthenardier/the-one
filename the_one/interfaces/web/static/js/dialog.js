@@ -29,10 +29,10 @@
 //       <h2 class="modal-dialog-title" id="<title-id>">{title}</h2>
 //       <p class="modal-dialog-message" id="<message-id>">{message}</p>
 //       <div class="modal-actions form-actions">
-//         <button class="btn-outlined-cyan" data-testid="modal-cancel-btn">
+//         <button class="btn-outlined-primary" data-testid="modal-cancel-btn">
 //           {cancelText}
 //         </button>
-//         <button class="btn-filled-cyan" data-testid="modal-confirm-btn">
+//         <button class="btn-filled-primary" data-testid="modal-confirm-btn">
 //           {confirmText}
 //         </button>
 //       </div>
@@ -122,14 +122,14 @@
 
     var cancelBtn = document.createElement('button');
     cancelBtn.type = 'button';
-    cancelBtn.className = 'btn-outlined-cyan';
+    cancelBtn.className = 'btn-outlined-primary';
     cancelBtn.textContent = cancelText;
     cancelBtn.setAttribute('data-testid', 'modal-cancel-btn');
     actions.appendChild(cancelBtn);
 
     var confirmBtn = document.createElement('button');
     confirmBtn.type = 'button';
-    confirmBtn.className = 'btn-filled-cyan';
+    confirmBtn.className = 'btn-filled-primary';
     confirmBtn.textContent = confirmText;
     confirmBtn.setAttribute('data-testid', 'modal-confirm-btn');
     actions.appendChild(confirmBtn);

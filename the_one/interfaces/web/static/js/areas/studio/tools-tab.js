@@ -77,8 +77,8 @@
     // ("Built-in Tools") supplies the page-level header here, so this tab
     // now starts with category sections directly.
     html += '<div class="tool-actions">' +
-      '<button type="button" class="btn-outlined-cyan tool-select-all">All</button>' +
-      '<button type="button" class="btn-outlined-cyan tool-select-none">None</button>' +
+      '<button type="button" class="btn-outlined-primary tool-select-all">All</button>' +
+      '<button type="button" class="btn-outlined-primary tool-select-none">None</button>' +
       '</div>';
     var catKeys = Object.keys(TOOL_CATEGORIES);
     for (var c = 0; c < catKeys.length; c++) {

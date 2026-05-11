@@ -41,6 +41,12 @@ services:
       # Mount tests/ so test edits are live too (F4 L1b finding —
       # otherwise every leg adding tests would need `docker cp tests/...`).
       - ./tests:/app/tests
+      # Mount scripts/ read-only so utility scripts (e.g. brand-asset
+      # derivation) can be invoked via `docker exec the-one python
+      # /app/scripts/...` without baking them into the image. Read-only
+      # because scripts write outputs into the_one/ (already rw-bound),
+      # never into scripts/ itself.
+      - ./scripts:/app/scripts:ro
     environment:
       - THE_ONE_LLM_PROVIDER=ollama
       - THE_ONE_LLM_MODEL=qwen2.5:7b

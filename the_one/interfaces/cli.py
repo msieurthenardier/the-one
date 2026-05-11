@@ -8,6 +8,7 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
 
+from the_one import __version__
 from the_one.agent.factory import AgentFactory
 from the_one.config import settings
 from the_one.db import close_connection, init_db
@@ -27,9 +28,9 @@ async def _run_cli() -> None:
 
     console.print(
         Panel(
-            "[bold]the-one[/bold] v0.1.0\n"
+            f"[bold]GleepGlorp AI[/bold] v{__version__}\n"
             "Type [bold]/quit[/bold] to exit, [bold]/reset[/bold] to clear context.",
-            title="the-one",
+            title="GleepGlorp AI",
             border_style="blue",
         )
     )

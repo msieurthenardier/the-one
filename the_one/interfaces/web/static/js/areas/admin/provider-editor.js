@@ -59,11 +59,11 @@
 
     // ── Action cluster ──────────────────────────────────────────────
     html += '<div class="form-actions">';
-    html += '<button type="button" class="btn-outlined-cyan back-btn" data-testid="back-provider-btn" aria-label="Back to provider list">' + window.App.icon('arrow-left') + ' Back</button>';
-    html += '<button type="button" class="btn-outlined-cyan cancel-btn" data-testid="cancel-provider-btn" disabled>Cancel</button>';
-    html += '<button type="button" class="btn-filled-cyan save-btn" data-testid="save-provider-btn" disabled>' + (isCreate ? 'Create' : 'Save') + '</button>';
+    html += '<button type="button" class="btn-outlined-primary back-btn" data-testid="back-provider-btn" aria-label="Back to provider list">' + window.App.icon('arrow-left') + ' Back</button>';
+    html += '<button type="button" class="btn-outlined-primary cancel-btn" data-testid="cancel-provider-btn" disabled>Cancel</button>';
+    html += '<button type="button" class="btn-filled-primary save-btn" data-testid="save-provider-btn" disabled>' + (isCreate ? 'Create' : 'Save') + '</button>';
     if (!isCreate) {
-      html += '<button type="button" class="btn-outlined-cyan test-provider-btn" data-testid="test-connection-btn">Test</button>';
+      html += '<button type="button" class="btn-outlined-primary test-provider-btn" data-testid="test-connection-btn">Test</button>';
     }
     html += '<span class="editor-error"></span>';
     html += '</div>';

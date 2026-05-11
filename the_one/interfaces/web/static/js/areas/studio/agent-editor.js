@@ -76,12 +76,12 @@
     // Save and Cancel share `disabled` as the SINGLE source of truth —
     // checkDirty() flips both to mirror the dirty flag.
     html += '<div class="form-actions">';
-    html += '<button type="button" class="btn-outlined-cyan back-btn" ' +
+    html += '<button type="button" class="btn-outlined-primary back-btn" ' +
       'data-testid="back-agent-btn" aria-label="Back to agents list">' +
       window.App.icon('arrow-left') + ' Back</button>';
-    html += '<button type="button" class="btn-outlined-cyan cancel-btn" ' +
+    html += '<button type="button" class="btn-outlined-primary cancel-btn" ' +
       'data-testid="cancel-agent-btn" disabled>Cancel</button>';
-    html += '<button type="button" class="btn-filled-cyan save-btn" ' +
+    html += '<button type="button" class="btn-filled-primary save-btn" ' +
       'data-testid="save-agent-btn" disabled>' + (isCreate ? 'Create' : 'Save') + '</button>';
     html += '<span class="editor-error"></span>';
     html += '</div>';
