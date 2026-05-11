@@ -61,6 +61,7 @@ def make_oauth_handlers(
     tool_call_id: str | None,
     resource_metadata_url: str | None,
     *,
+    source_name: str | None = None,
     consent_url_future: asyncio.Future[str] | None = None,
 ) -> tuple[
     Callable[[str], Awaitable[None]],
@@ -129,6 +130,7 @@ def make_oauth_handlers(
                 {
                     "type": "auth_required",
                     "source_id": source_id,
+                    "source_name": source_name,
                     "resource_metadata_url": resource_metadata_url,
                     "tool_call_id": tool_call_id,
                     "consent_url": authorization_url,
