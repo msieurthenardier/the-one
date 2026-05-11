@@ -20,17 +20,13 @@ from conftest import FakeLLM, StubTool
 
 from the_one.agent.core import (
     CONTINUE_SCHEMA,
-    SEARCH_MCPS_SCHEMA,
     SEARCH_TOOLS_SCHEMA,
     Agent,
 )
 from the_one.llm.base import LLMProvider, Message, ToolCall, ToolResult
 from the_one.mcp.errors import MCPAuthRequired
 from the_one.tools._search_stubs import (
-    SearchMcpsStub,
     SearchToolsStub,
-    _CANNED_MCP_SCHEMA_A,
-    _CANNED_MCP_SCHEMA_B,
     _CANNED_TOOL_SCHEMA_A,
     _CANNED_TOOL_SCHEMA_B,
 )
@@ -68,7 +64,7 @@ def _make_agent_with_stubs(
     extra_tools: list[Tool] | None = None,
     max_iterations: int = 20,
 ) -> tuple[Agent, list[dict], set[str]]:
-    """Build an Agent with stub search tools wired to shared containers.
+    """Build an Agent with the stub search tool wired to shared containers.
 
     Returns (agent, loaded_schemas, loaded_tool_names) so tests can
     inspect and mutate the shared containers directly.
@@ -78,8 +74,7 @@ def _make_agent_with_stubs(
     on_match = _make_on_match(loaded_schemas, loaded_tool_names)
 
     tools_stub = SearchToolsStub(on_match=on_match)
-    mcps_stub = SearchMcpsStub(on_match=on_match)
-    registry = _make_registry(tools_stub, mcps_stub, *(extra_tools or []))
+    registry = _make_registry(tools_stub, *(extra_tools or []))
 
     agent = Agent(
         llm=llm,
@@ -105,14 +100,12 @@ async def _collect(agent: Agent, user_input: str) -> list[Message]:
 
 
 async def test_default_visible_schemas_at_session_start() -> None:
-    """F10 §2: _compute_visible_schemas() on a fresh agent (no stubs called)
-    returns exactly [SEARCH_TOOLS_SCHEMA, SEARCH_MCPS_SCHEMA, CONTINUE_SCHEMA].
-    """
+    """A fresh agent (no stubs called) exposes exactly [search_tools, continue]."""
     agent, _, _ = _make_agent_with_stubs(FakeLLM([]))
     schemas = agent._compute_visible_schemas()
 
-    assert schemas == [SEARCH_TOOLS_SCHEMA, SEARCH_MCPS_SCHEMA, CONTINUE_SCHEMA]
-    assert len(schemas) == 3
+    assert schemas == [SEARCH_TOOLS_SCHEMA, CONTINUE_SCHEMA]
+    assert len(schemas) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -138,7 +131,7 @@ async def test_search_stub_mutates_loaded_schemas() -> None:
 
     # _compute_visible_schemas() reflects the addition
     schemas = agent._compute_visible_schemas()
-    assert len(schemas) == 5  # 3 baseline + 2 canned
+    assert len(schemas) == 4  # 2 baseline + 2 canned
     canned_names = {s["name"] for s in schemas}
     assert _CANNED_TOOL_SCHEMA_A["name"] in canned_names
     assert _CANNED_TOOL_SCHEMA_B["name"] in canned_names
@@ -209,7 +202,7 @@ async def test_per_iteration_recompute() -> None:
 
 async def test_reset_clears_loaded_state() -> None:
     """agent.reset() clears _loaded_schemas and _loaded_tool_names;
-    _compute_visible_schemas() returns the baseline 3 schemas only.
+    _compute_visible_schemas() returns the baseline 2 schemas only.
     """
     agent, loaded_schemas, loaded_tool_names = _make_agent_with_stubs(FakeLLM([]))
 
@@ -231,7 +224,7 @@ async def test_reset_clears_loaded_state() -> None:
 
     # Visible schemas back to baseline
     schemas = agent._compute_visible_schemas()
-    assert schemas == [SEARCH_TOOLS_SCHEMA, SEARCH_MCPS_SCHEMA, CONTINUE_SCHEMA]
+    assert schemas == [SEARCH_TOOLS_SCHEMA, CONTINUE_SCHEMA]
 
 
 # ---------------------------------------------------------------------------
@@ -526,58 +519,3 @@ async def test_search_stub_idempotent() -> None:
     }
 
 
-# ---------------------------------------------------------------------------
-# Test 10: search_mcps stub also mutates shared container
-# ---------------------------------------------------------------------------
-
-
-async def test_search_mcps_stub_mutates_loaded_schemas() -> None:
-    """SearchMcpsStub.execute() appends MCP canned schemas to the shared container."""
-    agent, loaded_schemas, _ = _make_agent_with_stubs(FakeLLM([]))
-
-    mcps_stub = agent.tools.get("search_mcps")
-    assert isinstance(mcps_stub, SearchMcpsStub)
-    await mcps_stub.execute(query="")
-
-    assert len(loaded_schemas) == 2
-    names = {s["name"] for s in loaded_schemas}
-    assert _CANNED_MCP_SCHEMA_A["name"] in names
-    assert _CANNED_MCP_SCHEMA_B["name"] in names
-
-    # _compute_visible_schemas reflects the addition
-    schemas = agent._compute_visible_schemas()
-    assert len(schemas) == 5
-
-
-# ---------------------------------------------------------------------------
-# Test 11: both stubs share the same on_match container (cross-dedup)
-# ---------------------------------------------------------------------------
-
-
-async def test_both_stubs_share_container() -> None:
-    """Calling both search_tools and search_mcps populates the same shared
-    loaded_schemas container; total entries = 4 (2 from each stub), not 8.
-    """
-    agent, loaded_schemas, loaded_tool_names = _make_agent_with_stubs(FakeLLM([]))
-
-    tools_stub = agent.tools.get("search_tools")
-    mcps_stub = agent.tools.get("search_mcps")
-    assert isinstance(tools_stub, SearchToolsStub)
-    assert isinstance(mcps_stub, SearchMcpsStub)
-
-    await tools_stub.execute()
-    await mcps_stub.execute()
-
-    # 4 total: 2 from search_tools + 2 from search_mcps
-    assert len(loaded_schemas) == 4
-    assert len(loaded_tool_names) == 4
-
-    names = {s["name"] for s in loaded_schemas}
-    assert _CANNED_TOOL_SCHEMA_A["name"] in names
-    assert _CANNED_TOOL_SCHEMA_B["name"] in names
-    assert _CANNED_MCP_SCHEMA_A["name"] in names
-    assert _CANNED_MCP_SCHEMA_B["name"] in names
-
-    # _compute_visible_schemas reflects all 4 + baseline 3
-    schemas = agent._compute_visible_schemas()
-    assert len(schemas) == 7

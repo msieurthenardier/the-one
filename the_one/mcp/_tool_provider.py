@@ -79,8 +79,8 @@ def filter_mcp_tools_by_override(
     NOTE: model_validate is used directly (NOT resolve()) because the
     resolver raises ValueError on untagged fields (resolver.py:244-248).
 
-    F10 L3: extracted from get_tools_for_agent (lines 264-284) so that
-    SearchMcps and MCPToolProvider share one filter implementation.
+    Extracted from get_tools_for_agent so SearchTools and MCPToolProvider
+    share one filter implementation.
     """
     if not override_payload:
         return mcp_tools
@@ -340,9 +340,8 @@ class MCPToolProvider:
                     )
                     continue
 
-            # F10 L3: shared filter helper (same logic as before; extracted
-            # for reuse by SearchMcps). Applied to BOTH cache-first and
-            # acquire-fallback paths.
+            # Shared filter helper (extracted for reuse by SearchTools).
+            # Applied to BOTH cache-first and acquire-fallback paths.
             mcp_tools = filter_mcp_tools_by_override(
                 mcp_tools, source, override_payload
             )

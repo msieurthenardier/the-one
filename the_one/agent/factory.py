@@ -11,7 +11,6 @@ from the_one.agent.store import AgentConfigStore
 from the_one.config import settings
 from the_one.db._provider_types import PROVIDER_TYPES
 from the_one.llm import get_provider
-from the_one.tools._search_mcps import SearchMcps
 from the_one.tools._search_tools import SearchTools
 from the_one.tools.base import ToolRegistry
 from the_one.tools.builtins import BuiltinToolProvider
@@ -60,7 +59,7 @@ async def _build_source_index(
     from the_one.mcp._tool import _normalize_source_name
     from the_one.mcp._tool_provider import filter_mcp_tools_by_override
     from the_one.mcp.types import MCPTool
-    from the_one.tools._search_mcps import _build_synthetic_description
+    from the_one.tools._search_tools import _build_synthetic_description
 
     conn = await get_connection()
     encryptor = get_encryptor(settings.data_dir)
@@ -80,7 +79,7 @@ async def _build_source_index(
             logger.warning(
                 "agent %r: MCP source %r has no cached tools; "
                 "refresh on source-edit page to enable discovery "
-                "via search_mcps",
+                "via search_tools",
                 agent_name,
                 source.name,
             )
@@ -275,13 +274,10 @@ class AgentFactory:
                     loaded_schemas.append(s)
                     loaded_tool_names.add(s["name"])
 
-        # F10 L3: build source_index for SearchMcps BEFORE registering
-        # SearchMcps so its constructor receives a fully-populated index.
-        # Uses a separate DB load per attached source (option (b) from
-        # leg artifact §Outputs) — clean separation, ~5 LOC of extra DB
-        # calls, simple to reason about, no public API churn on
-        # get_tools_for_agent. Sources with empty _cache.tools are logged
-        # + skipped (operator state issue, not a code defect).
+        # Build source_index for SearchTools BEFORE registering it so its
+        # constructor receives a fully-populated index. One DB load per
+        # attached source; sources with empty _cache.tools are logged +
+        # skipped (operator state issue, not a code defect).
         source_index: dict[str, Any] = {}
         if config.mcp_source_ids and self.mcp_provider is not None:
             await _build_source_index(
@@ -290,15 +286,20 @@ class AgentFactory:
                 source_index=source_index,
             )
 
-        # Register search tools BEFORE the built-in tool loop. They do not
-        # depend on other tools; registering first ensures dispatch can find
-        # them regardless of the built-in loop's disabled-filter outcomes.
-        # Pass agent_name so the plumbing assertion (_agent_name == factory's
-        # agent name for every registered tool) holds (test_factory.py L1b).
-        registry.register(SearchTools(on_match=_on_search_match, registry=registry, agent_name=name))
-        # F10 L3: register real SearchMcps with the populated source_index.
-        # SearchMcpsStub replaced here.
-        registry.register(SearchMcps(on_match=_on_search_match, registry=registry, source_index=source_index, agent_name=name))
+        # Register the unified search_tools BEFORE the built-in tool loop.
+        # It does not depend on other tools; registering first ensures
+        # dispatch can find it regardless of the built-in loop's disabled-
+        # filter outcomes. Pass agent_name so the plumbing assertion
+        # (_agent_name == factory's agent name for every registered tool)
+        # holds (test_factory.py L1b).
+        registry.register(
+            SearchTools(
+                on_match=_on_search_match,
+                registry=registry,
+                source_index=source_index,
+                agent_name=name,
+            )
+        )
 
         for provider in self.tool_providers:
             for tool in provider.get_tools(tool_configs_by_name, agent_overrides, agent_name=name):

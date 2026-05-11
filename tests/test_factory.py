@@ -205,12 +205,11 @@ class TestToolFiltering:
         )
         await store.save(cfg)
         agent = await factory.create("restricted")
-        # F10 L1: search_tools + search_mcps are always in the registry
-        # (registered before the built-in loop, bypass enabled/disabled filter).
-        # The enabled_tools whitelist still gates the built-in catalog; only
-        # tool_a passes. The full registry is the F10 baseline stubs + tool_a.
+        # search_tools is always in the registry (registered before the
+        # built-in loop, bypassing the enabled/disabled filter). The
+        # enabled_tools whitelist still gates the built-in catalog; only
+        # tool_a passes.
         assert "search_tools" in agent.tools.tool_names
-        assert "search_mcps" in agent.tools.tool_names
         assert "tool_a" in agent.tools.tool_names
         assert "tool_b" not in agent.tools.tool_names
         assert "tool_c" not in agent.tools.tool_names

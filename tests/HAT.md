@@ -4,11 +4,12 @@
 
 Post-F10 (lazy tool discovery): `agent.tools.all_schemas()` returns the
 full CANDIDATE registry — every tool the agent CAN load via search. The
-LLM only sees `[search_tools, search_mcps, continue] + agent._loaded_schemas`
-per iteration. HAT scripts in this file that script-count `all_schemas()`
-filtered by `mcp__*` prefix are validating registry membership, not
-model-visibility. The assertions still hold; the prose interpretation has
-shifted.
+LLM only sees `[search_tools, continue] + agent._loaded_schemas` per
+iteration. The unified `search_tools` covers both built-in and MCP
+catalogs; there is no separate `search_mcps`. HAT scripts in this file
+that script-count `all_schemas()` filtered by `mcp__*` prefix are
+validating registry membership, not model-visibility. The assertions
+still hold; the prose interpretation has shifted.
 
 **Type**: Human Acceptance Test. The operator runs each step, observes the result, and reports the outcome. There is no automated assertion — the human's judgment is the gate.
 
@@ -133,7 +134,7 @@ PY
 
 **Verify**: at least one MCP tool listed under `mcp__fetch_local__*`. `mcp-server-fetch` exposes a `fetch` tool; expect `mcp__fetch_local__fetch`. The full prefix MUST be `mcp__fetch_local__`.
 
-Note (F10): the LLM does NOT see these MCP tools in its `tools=` array at session start. The agent must call `search_mcps` to load them into the model-visible set. This HAT step validates registry membership, not model-visibility.
+Note (F10): the LLM does NOT see these MCP tools in its `tools=` array at session start. The agent must call `search_tools` to load them into the model-visible set (the unified `search_tools` covers both built-in and MCP catalogs). This HAT step validates registry membership, not model-visibility.
 
 If you see zero MCP tools but no Python error: check `docker compose logs --tail=50 the-one` for a `WARNING: MCP source 'fetch_local' failed to connect` (failure class #2 — graceful-degrade kicked in). Diagnose + report.
 

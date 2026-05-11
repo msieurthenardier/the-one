@@ -27,16 +27,20 @@ CONTINUE_SCHEMA = {
     },
 }
 
-# F10 L1: strict 2-tool baseline (§2). These two search tools are the ONLY
-# schemas visible to the LLM at session start. Additional schemas are added
-# to the model-visible set as a side effect of calling these search tools.
+# F10 L1: strict baseline (§2). search_tools is the ONLY non-`continue`
+# schema visible to the LLM at session start. Additional schemas are added
+# to the model-visible set as a side effect of calling search_tools.
+# F10 follow-up: search_tools and search_mcps were merged into a single
+# tool that covers both the built-in catalog and any attached MCP servers.
 SEARCH_TOOLS_SCHEMA = {
     "name": "search_tools",
     "description": (
-        "Search the built-in tool catalog for tools matching a query. "
-        "Matched tools are automatically added to your available toolset "
-        "for the rest of this conversation. Call with an empty query to "
-        "list all available tools."
+        "Search every tool available to you — built-in tools (shell, file "
+        "operations, web fetch, etc.) AND tools from any MCP servers "
+        "attached to this agent — for ones matching a query. Matched tools "
+        "are automatically added to your available toolset for the rest of "
+        "this conversation. Call with an empty query to list every tool "
+        "available to you."
     ),
     "parameters": {
         "type": "object",
@@ -45,29 +49,6 @@ SEARCH_TOOLS_SCHEMA = {
                 "type": "string",
                 "description": (
                     "Substring to search for in tool names and descriptions. "
-                    "Empty string returns all."
-                ),
-            },
-        },
-        "required": [],
-    },
-}
-
-SEARCH_MCPS_SCHEMA = {
-    "name": "search_mcps",
-    "description": (
-        "Search attached MCP servers for tools matching a query. "
-        "Matched MCP tools are automatically added to your available toolset "
-        "for the rest of this conversation. Call with an empty query to "
-        "list all available MCP tools."
-    ),
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "query": {
-                "type": "string",
-                "description": (
-                    "Substring to search for in MCP tool names and descriptions. "
                     "Empty string returns all."
                 ),
             },
@@ -119,13 +100,13 @@ class Agent:
     def _compute_visible_schemas(self) -> list[dict]:
         """F10 L1: per-iteration model-visible schemas.
 
-        Returns the 2-tool baseline (search_tools, search_mcps) + continue
-        + any schemas the search tools have loaded into the visibility set
-        as a side effect of being called. The Agent's ToolRegistry holds
-        the FULL candidate set; this method computes the filtered view
-        the LLM sees on each iteration's tools= array.
+        Returns the baseline (search_tools + continue) plus any schemas the
+        search tool has loaded into the visibility set as a side effect of
+        being called. The Agent's ToolRegistry holds the FULL candidate
+        set; this method computes the filtered view the LLM sees on each
+        iteration's tools= array.
         """
-        return [SEARCH_TOOLS_SCHEMA, SEARCH_MCPS_SCHEMA, CONTINUE_SCHEMA] + self._loaded_schemas
+        return [SEARCH_TOOLS_SCHEMA, CONTINUE_SCHEMA] + self._loaded_schemas
 
     async def step(
         self,
