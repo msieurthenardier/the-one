@@ -213,8 +213,14 @@ async def _entry_worker(source: MCPSource, entry: _RegistryEntry) -> None:
         auth_provider = build_oauth_provider_for_source(
             source, repo, csid, source_id=source.id, tool_call_id=tcid,
         )
-    client = MCPClient(source, auth_provider=auth_provider)
+    # Construction must run INSIDE the try: an exception from MCPClient.__init__
+    # (e.g. a future signature change unmatched by a test double, or a
+    # downstream construction error) escaping this scope would orphan the
+    # worker task without ever setting client_ready, leaving every acquire()
+    # waiter blocked indefinitely. Pool contract: the worker ALWAYS sets
+    # client_ready before returning.
     try:
+        client = MCPClient(source, auth_provider=auth_provider)
         await client.connect()
     except BaseException as exc:
         entry.failure = exc

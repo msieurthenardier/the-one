@@ -66,7 +66,11 @@ class _MockClient:
 
     _instance_count = 0
 
-    def __init__(self, source):
+    def __init__(self, source, **kwargs):
+        # **kwargs absorbs any constructor params the production MCPClient
+        # accepts (e.g. auth_provider) so this mock stays compatible across
+        # MCPClient signature changes. Tests don't exercise those kwargs;
+        # they only care that the mock instantiates cleanly.
         type(self)._instance_count += 1
         self.source = source
         self.is_alive = False
