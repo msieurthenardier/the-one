@@ -574,6 +574,14 @@ The F4 leg 02 lift consolidates per-area duplications into shared primitives in 
 
 JavaScript should toggle visibility via `el.classList.toggle('is-hidden', !visible)` rather than writing `el.style.display = ...` inline. The `@layer utilities` declaration in `index.html` is the highest-precedence named layer, so utilities win over `@layer components` and `@layer areas` rules by design.
 
+### Vibe-leg conventions
+
+Patterns for running interactive vibe legs efficiently:
+
+- **"Land dark, port light."** For vibe legs translating symmetrically across themes, iterate to operator-confirmed dark theme first (the aesthetic anchor); port to light at leg close as a value-swap exercise. Avoids 2× decision load during operator-bandwidth bottleneck. Established in Flight 3.5 (shell chrome). Use when the aesthetic translates symmetrically — if light requires structurally different decisions (not just value swaps), parallel iteration is necessary.
+
+- **Gallery-as-iteration-substrate.** Build vibe variants as `.iter-*`-prefixed gallery samples in the design-language gallery (`#admin/design-language`). Operator picks + hybridizes from side-by-side comparison. Variant code stays in the gallery as reference for the rest of the vibe leg, then ripped at flight-close via the iteration-cleanup grep. Cleaner than direct-iterating on production surfaces. Established in Flights 2 + 3 + 3.5.
+
 ### Mission 08 Flight 02 — Design Language Layer (glass + bezel + motion)
 
 A second layer on top of the M04 affordance patterns: a **glass + bezel + LED + motion** aesthetic that puts a "control-panel chrome with reflective glass" face on the existing token-driven primitives. The tokens are defined in `tokens.css` per theme; primitives compose them rather than encoding aesthetic details inline. Reduced-transparency and reduced-motion fallbacks live at the token layer too, so every consumer degrades automatically.
@@ -606,6 +614,8 @@ A second layer on top of the M04 affordance patterns: a **glass + bezel + LED + 
 3. **Input surfaces** (`.field-input`, `.field-textarea`, `.field-select`) compose `box-shadow: var(--bezel-shadow-inset)` — the OPPOSITE direction from raised bezel (dark on top, light on bottom). Reads as "pressed-in" vs the "raised" output panels.
 
 4. **Asymmetric in/out motion** on hoverable chrome: the base rule's `transition` uses `--motion-base` (slow) and the `:hover` rule's `transition` uses `--motion-fast` (fast). Browser reads the destination state's transition at the moment of state change → entering hover takes 150ms (fast feedback), leaving hover takes 250ms (gentle disengagement). Pattern is established on `.entity-tile`, `.btn-outlined-primary`, `.btn-muted-destructive`, `.app-picker-button`. Reduced-motion users get 0ms in both directions.
+
+5. **Theme generalization via tokenization.** When a chrome/component treatment differs only by value across themes, parametrize through tokens and drop the `[data-theme="..."]` selector prefix. Selectors stay theme-agnostic; tokens carry theme. Example: F3.5's shell rules (`#main-content`, `#app-topbar`, `#app-sidebar`) apply in both themes with values driven entirely by per-theme tokens (`--shell-chamfer`, `--shell-frame-fill`, `--shell-content-fill`, `--shell-chrome-bg`, `--shell-topbar-sheen`). If a treatment requires structurally different selectors per theme (not just value swaps), this rule does not apply — use theme-prefixed selectors.
 
 **Button family — V3b treatment** (supersedes the pre-Mission-08 outlined-primary "transparent + accent border" pattern in `### Affordance patterns` #2 above):
 
@@ -666,6 +676,8 @@ The Admin polish flight surfaced four shared primitives + two cross-cutting stru
 
 - **Ollama lifecycle `.indicator-led` consumer pattern** (Mission 08 F3 L4). Worked example of consuming the F2 `.indicator-led` primitive at a non-`.test-result-*` site: `provider-models.js` emits `<span class="indicator-led indicator-led--success"></span>` for loaded models and `--idle` for available. Retired the prior bespoke `.admin-pf-model-dot` class pair. **Pattern**: when adding a new lit-status surface, prefer composing the canonical primitive at the markup site over defining a new bespoke dot class.
 
+- **Topbar `<img>` CLS contract + legacy class-as-JS-handle pattern**: documented under F3.5 — see F3.5's section `### Mission 08 Flight 3.5 — Shell Chrome Polish Layer` below.
+
 ### Mission 08 Flight 3.5 — Shell Chrome Polish Layer (alien-dashboard housing)
 
 Outer app-shell surfaces (`body` bg, `#app-topbar`, `#app-sidebar`, `#main-content`) take the design-language vocabulary to closure. Aesthetic target: alien-dashboard / Galaxy from GleepGlorp — solid black main panel (white in light theme) framed by a chamfered violet L-bracket border, sitting inside a unified metallic-chrome housing that wraps the topbar + sidebar as one continuous L-shaped component. Reads as a polished phone-screen-style canvas with sci-fi corner detail.
@@ -679,7 +691,7 @@ Outer app-shell surfaces (`body` bg, `#app-topbar`, `#app-sidebar`, `#main-conte
 | `--shell-content-fill` | Main panel interior | `#000` | `#fff` |
 | `--shell-frame-glow` | Inner halo at L-bracket meeting point | `var(--accent-glow)` | `var(--accent-glow)` |
 | `--shell-chrome-bg` | Topbar + sidebar + body bg | gunmetal `#20202a` + white horizontal grain | silver `#d4d8df` + black horizontal grain |
-| `--bg-gradient` | Body backdrop | `var(--shell-chrome-bg)` | `var(--shell-chrome-bg)` |
+| `--shell-bg` | Body backdrop | `var(--shell-chrome-bg)` | `var(--shell-chrome-bg)` |
 
 `color-scheme: dark/light` is set per theme block so browser UA chrome (scrollbars, native form controls) follows the active theme rather than OS preference. Without this, scrollbars surface in the OS-theme color regardless of app theme.
 
@@ -695,7 +707,7 @@ Outer app-shell surfaces (`body` bg, `#app-topbar`, `#app-sidebar`, `#main-conte
 
 5. **Unified L-shaped chrome housing** — `#app-topbar` + `#app-sidebar` share `var(--shell-chrome-bg)` so the topbar's bg continues seamlessly into the sidebar's bg below. **The top-edge sheen** (`linear-gradient(180deg, rgba(255,255,255,0.06) 0%, transparent 6px)`) is stacked separately on `#app-topbar` ONLY (not in the token) — if it also applied to `#app-sidebar`, the sidebar's own top edge (at y=topbar_h in viewport coords, just below the topbar) would also paint a sheen, creating a visible seam against the topbar's already-faded sheen.
 
-6. **Body bg matches chrome** — `--bg-gradient: var(--shell-chrome-bg)`. Body is only visible through `#main-content`'s chamfer cut at the top-left; making body the chrome bg lets that corner read as "the metallic housing continues through the panel cut" rather than as a black hole. Without this, the chamfer would reveal whatever the body bg-gradient was (originally a dark/pale fade, then `#000` before this fix).
+6. **Body bg matches chrome** — `--shell-bg: var(--shell-chrome-bg)`. Body is only visible through `#main-content`'s chamfer cut at the top-left; making body the chrome bg lets that corner read as "the metallic housing continues through the panel cut" rather than as a black hole. Without this, the chamfer would reveal whatever the body bg-gradient was (originally a dark/pale fade, then `#000` before this fix).
 
 **Cross-cutting structural rules** (extend Flight 3's body-overflow + min-height-zero chain):
 

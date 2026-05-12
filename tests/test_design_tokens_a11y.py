@@ -180,6 +180,16 @@ def test_large_or_ui_passes_aa(theme: str, fg_key: str, bg_key: str) -> None:
         ("light", "status_warning", "surface", 4.5),
         ("light", "status_danger", "bg", 4.5),
         ("light", "status_danger", "surface", 4.5),
+        # Primary text on shell chrome bg — body threshold. Chrome is the
+        # topbar/sidebar surface; primary fg is the only production text
+        # consumer there today (titles, menu labels).
+        # Dark:  #e0e0e0 on #20202a ≈ 12.22:1; Light: #0f172a on #d4d8df ≈ 12.49:1.
+        # Muted-text-on-chrome variants deferred — no production consumer
+        # today; light fg_muted (#64748b) on #d4d8df would compute to ≈ 3.33:1
+        # and FAIL body AA 4.5 (passes large/UI 3.0). If Studio's polish work
+        # introduces muted text on chrome, the audit must be revisited.
+        ("dark", "fg", "shell_chrome_bg", 4.5),
+        ("light", "fg", "shell_chrome_bg", 4.5),
     ],
 )
 def test_text_on_color(theme: str, fg_key: str, bg_key: str, threshold: float) -> None:

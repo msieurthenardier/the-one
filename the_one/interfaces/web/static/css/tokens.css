@@ -163,7 +163,7 @@
        making it the chrome bg lets that corner read as "the chrome housing
        continues around the panel" rather than a black hole. Light theme
        retains its existing pale-fade gradient. */
-    --bg-gradient: var(--shell-chrome-bg);
+    --shell-bg: var(--shell-chrome-bg);
 
     /* Shell chrome — Mission 08 F3.5 L1. Theme-aware tokens drive the V1b
        chamfered-with-accent-border treatment on #main-content (and topbar
@@ -177,6 +177,11 @@
     --shell-frame-fill: var(--accent);
     --shell-content-fill: #000;
     --shell-frame-glow: var(--accent-glow);
+    /* Top-edge sheen for #app-topbar ("lit from above"). Stacked above
+       --shell-chrome-bg in the topbar's background. White overlay works
+       on both gunmetal (dark) and silver (light) chrome. Suppressed under
+       prefers-reduced-transparency (see @media block below). */
+    --shell-topbar-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, transparent 6px);
     /* Metallic chrome bg for #app-topbar + #app-sidebar — gunmetal base
        + brushed grain (horizontal stripes). Same treatment on both so they
        read as one unified L-shaped housing component. The top-edge sheen
@@ -189,6 +194,10 @@
          Vertical stripes:              repeating-linear-gradient(90deg,  transparent 0 1px, rgba(255,255,255,0.025) 1px 2px)
          Diagonal 45°:                  repeating-linear-gradient(45deg,  transparent 0 1px, rgba(255,255,255,0.025) 1px 2px)
          Wider horizontal bands:        repeating-linear-gradient(180deg, rgba(255,255,255,0.02) 0 2px, transparent 2px 4px) */
+    /* To strip the grain layer (e.g., under reduced-transparency), edit
+       this token definition or use the @media block below — do NOT try to
+       override via cascade, as the value is a layered background and the
+       `repeating-linear-gradient(...)` cannot be selectively suppressed. */
     --shell-chrome-bg:
       repeating-linear-gradient(180deg, transparent 0 1px, rgba(255, 255, 255, 0.025) 1px 2px),
       #20202a;
@@ -302,6 +311,13 @@
     --shell-frame-fill: var(--accent);
     --shell-content-fill: #fff;
     --shell-frame-glow: var(--accent-glow);
+    /* Top-edge sheen for #app-topbar — same value as dark theme; the white
+       overlay reads on silver chrome as well as gunmetal. */
+    --shell-topbar-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, transparent 6px);
+    /* To strip the grain layer (e.g., under reduced-transparency), edit
+       this token definition or use the @media block below — do NOT try to
+       override via cascade, as the value is a layered background and the
+       `repeating-linear-gradient(...)` cannot be selectively suppressed. */
     --shell-chrome-bg:
       repeating-linear-gradient(180deg, transparent 0 1px, rgba(0, 0, 0, 0.05) 1px 2px),
       #d4d8df;
@@ -346,7 +362,7 @@
     --panel-shadow: 0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
 
     /* body backdrop — subtle but visible cool fade */
-    --bg-gradient: var(--shell-chrome-bg);
+    --shell-bg: var(--shell-chrome-bg);
 
     /* density-and-geometry */
     --sidebar-w: 240px;
@@ -404,6 +420,12 @@
       --bezel-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.10), inset -1px -1px 0 rgba(0, 0, 0, 0.10);
       --bezel-shadow-mini: inset 1px 1px 0 rgba(255, 255, 255, 0.10), inset -1px -1px 0 rgba(0, 0, 0, 0.10);
       --bezel-shadow-inset: inset 0 1px 0 rgba(0, 0, 0, 0.10);
+      /* Shell chrome degrades to its solid base color — grain stripe layer
+         dropped, frame glow + topbar sheen suppressed. Keep #20202a in
+         sync with --shell-chrome-bg base color (see token definition above). */
+      --shell-chrome-bg: #20202a;
+      --shell-frame-glow: transparent;
+      --shell-topbar-sheen: none;
     }
     [data-theme="light"] {
       --glass-bg: var(--surface-elevated);
@@ -415,6 +437,11 @@
       --bezel-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.40), inset -1px -1px 0 rgba(15, 23, 42, 0.10);
       --bezel-shadow-mini: inset 1px 1px 0 rgba(255, 255, 255, 0.40), inset -1px -1px 0 rgba(15, 23, 42, 0.10);
       --bezel-shadow-inset: inset 0 1px 0 rgba(15, 23, 42, 0.06);
+      /* Shell chrome degrades to its solid base color. Keep #d4d8df in
+         sync with --shell-chrome-bg base color (see token definition above). */
+      --shell-chrome-bg: #d4d8df;
+      --shell-frame-glow: transparent;
+      --shell-topbar-sheen: none;
     }
   }
 }

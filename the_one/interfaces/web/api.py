@@ -1516,7 +1516,7 @@ def _render_oauth_callback_page(
   html, body {{ margin: 0; padding: 0; height: 100%; }}
   body {{
     font-family: var(--font-family-sans);
-    background: var(--bg-gradient);
+    background: var(--shell-bg);
     color: var(--fg);
     display: flex;
     align-items: center;

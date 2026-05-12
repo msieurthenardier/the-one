@@ -7,7 +7,7 @@
      min-height: auto can push body's content past 100vh, surfacing a
      document-level scrollbar that runs the full viewport height (visible
      even behind the topbar). */
-  body { font-family: var(--font-family-sans); background: var(--bg-gradient); color: var(--fg); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+  body { font-family: var(--font-family-sans); background: var(--shell-bg); color: var(--fg); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
 
   /* === Top Bar === */
   #app-topbar {
@@ -29,7 +29,7 @@
      on both gunmetal (dark) and silver (light) chrome. */
   #app-topbar {
     background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, transparent 6px),
+      var(--shell-topbar-sheen),
       var(--shell-chrome-bg);
     border-bottom: 0;
   }
