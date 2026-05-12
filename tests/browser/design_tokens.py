@@ -1,10 +1,28 @@
 """Per-theme design-token mirror for browser-side assertions.
 
-Mirrors the values in the_one/interfaces/web/static/css/tokens.css.
-When tokens.css changes, this file must be updated in lockstep.
+Mirrors the values in ``the_one/interfaces/web/static/css/tokens.css``.
+When tokens.css changes, this file must be updated in lockstep — the
+brittleness is intentional and part of the contract that pinned tests
+assert against.
+
+Consumers:
+
+- ``tests/test_design_tokens_a11y.py`` — WCAG AA contrast pairs (imports
+  ``LIGHT_TOKENS`` / ``DARK_TOKENS`` for cross-check at test time).
+- ``tests/browser/test_visual_snapshots.py`` — theme-toggle helpers; no
+  direct token reads today but the module is the canonical place to
+  reach for token values if a future snapshot needs them.
+
+Keys use the CSS-hyphenated form (``"--bg"``) so callers can pass them
+directly into ``getPropertyValue`` / regex matchers against ``tokens.css``
+without an extra translation layer. Only the 15 contrast-relevant tokens
+per theme are mirrored — shadows, badges, geometry, and motion are
+excluded because no test consumes them through this module.
 """
 
-LIGHT_TOKENS = {
+from __future__ import annotations
+
+LIGHT_TOKENS: dict[str, str] = {
     "--bg": "#f8f8f6",
     "--surface": "#ffffff",
     "--surface-2": "#fbfbf9",
@@ -22,7 +40,7 @@ LIGHT_TOKENS = {
     "--danger": "#c5443d",
 }
 
-DARK_TOKENS = {
+DARK_TOKENS: dict[str, str] = {
     "--bg": "#0a0c10",
     "--surface": "#14171c",
     "--surface-2": "#181c22",
