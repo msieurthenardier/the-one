@@ -1,0 +1,2301 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=1280, initial-scale=1" />
+<title>GleepGlorp — Atelier</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,400;1,9..144,500&family=Inter+Tight:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  /* ————— Tokens ————— */
+  :root {
+    --bone:       #f5efe3;
+    --cream:      #ece4d2;
+    --paper:      #fbf7ee;
+    --paper-tint: #f1ead8;
+    --rule:       #d9cfb8;
+    --rule-soft:  #e6dec9;
+    --ink:        #1a1612;
+    --ink-soft:   #2a241d;
+    --ink-mute:   #6a5f50;
+    --ink-faint:  #9c8f78;
+    --ochre:      #b8682b;
+    --ochre-deep: #8d4c1a;
+    --ochre-warm: #d68a4c;
+    --sage:       #6b7d5a;
+    --sage-soft:  #aab69a;
+    --plum:       #6b2f3a;
+
+    --shadow-paper: 0 1px 0 rgba(26,22,18,.04), 0 18px 40px -28px rgba(26,22,18,.18);
+    --shadow-lift:  0 1px 0 rgba(26,22,18,.06), 0 30px 60px -30px rgba(26,22,18,.28);
+
+    --serif: 'Fraunces', 'GT Super', Georgia, serif;
+    --sans:  'Inter Tight', 'Söhne', system-ui, sans-serif;
+    --mono:  'JetBrains Mono', ui-monospace, Menlo, monospace;
+
+    --measure: 68ch;
+    --gutter: clamp(24px, 4vw, 64px);
+
+    --ease: cubic-bezier(.2,.6,.2,1);
+    --ease-slow: cubic-bezier(.16,.84,.32,1);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16.5px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: "ss01", "cv11";
+    overflow-x: hidden;
+    background-image:
+      radial-gradient(rgba(26,22,18,.025) 1px, transparent 1px),
+      radial-gradient(rgba(26,22,18,.018) 1px, transparent 1px);
+    background-size: 3px 3px, 7px 7px;
+    background-position: 0 0, 1px 1px;
+  }
+  ::selection { background: var(--ochre); color: var(--paper); }
+
+  a { color: inherit; text-decoration: none; }
+  button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+
+  .smallcap {
+    font-family: var(--sans);
+    font-size: 11px;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+    font-weight: 500;
+    color: var(--ink-mute);
+  }
+  .smallcap--ochre { color: var(--ochre); }
+  .mono { font-family: var(--mono); font-size: 12.5px; letter-spacing: -0.01em; }
+  .italic-serif { font-family: var(--serif); font-style: italic; font-weight: 400; }
+  .display { font-family: var(--serif); font-weight: 400; letter-spacing: -0.015em; }
+
+  /* ————— Top Nav (the masthead) ————— */
+  .masthead {
+    position: sticky; top: 0; z-index: 50;
+    background: rgba(251, 247, 238, 0.88);
+    backdrop-filter: blur(8px) saturate(1.05);
+    -webkit-backdrop-filter: blur(8px) saturate(1.05);
+    border-bottom: 1px solid var(--rule);
+  }
+  .masthead__inner {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    padding: 14px var(--gutter);
+    gap: 32px;
+  }
+  .masthead__brand {
+    display: flex; align-items: baseline; gap: 12px;
+  }
+  .brand-mark {
+    width: 26px; height: 26px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border: 1px solid var(--ink);
+    color: var(--ink);
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 18px;
+    line-height: 1;
+    transform: translateY(2px);
+  }
+  .brand-name {
+    font-family: var(--serif);
+    font-size: 20px;
+    letter-spacing: -0.01em;
+  }
+  .brand-name em { font-style: italic; color: var(--ochre); font-weight: 500; }
+  .brand-sub {
+    font-family: var(--sans);
+    font-size: 11px;
+    letter-spacing: .22em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin-left: 4px;
+  }
+  .nav-tabs { display: flex; gap: 28px; }
+  .nav-tabs a {
+    position: relative;
+    font-size: 13px;
+    letter-spacing: .05em;
+    color: var(--ink-mute);
+    padding: 6px 2px;
+    transition: color .3s var(--ease);
+  }
+  .nav-tabs a .num {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 11px;
+    color: var(--ink-faint);
+    margin-right: 6px;
+  }
+  .nav-tabs a:hover { color: var(--ink); }
+  .nav-tabs a.is-active { color: var(--ink); }
+  .nav-tabs a.is-active::after {
+    content: ""; position: absolute; left: 18px; right: 0; bottom: -1px;
+    height: 1px; background: var(--ochre);
+  }
+  .masthead__util {
+    display: flex; justify-content: flex-end; align-items: center; gap: 22px;
+    font-size: 12px; color: var(--ink-mute);
+  }
+  .util-dot {
+    display: inline-flex; align-items: center; gap: 8px;
+  }
+  .util-dot::before {
+    content: ""; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--sage);
+    box-shadow: 0 0 0 3px rgba(107,125,90,.18);
+  }
+  .util-action {
+    border-bottom: 1px dotted var(--rule);
+    padding-bottom: 1px;
+    transition: border-color .3s var(--ease);
+  }
+  .util-action:hover { border-color: var(--ochre); }
+
+  /* ————— Section scaffolding ————— */
+  .section { padding: 96px var(--gutter) 120px; position: relative; }
+  .section + .section { border-top: 1px solid var(--rule); }
+  .section--cream { background: var(--cream); }
+  .section--bone { background: var(--bone); }
+
+  .section-head {
+    display: grid;
+    grid-template-columns: 220px 1fr 280px;
+    gap: 48px;
+    align-items: end;
+    margin-bottom: 64px;
+  }
+  .section-head__index {
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .index-num {
+    font-family: var(--serif);
+    font-size: 64px;
+    line-height: .9;
+    font-style: italic;
+    color: var(--ochre);
+    font-weight: 400;
+  }
+  .index-label { color: var(--ink-mute); }
+  .section-head__title {
+    font-family: var(--serif);
+    font-size: clamp(48px, 6vw, 88px);
+    line-height: 1;
+    letter-spacing: -0.025em;
+    font-weight: 300;
+    margin: 0;
+  }
+  .section-head__title em { font-style: italic; font-weight: 400; }
+  .section-head__title .accent { color: var(--ochre); }
+  .section-head__lede {
+    font-family: var(--serif);
+    font-size: 18px;
+    line-height: 1.55;
+    color: var(--ink-soft);
+    font-weight: 300;
+    border-left: 1px solid var(--rule);
+    padding-left: 20px;
+  }
+
+  /* ————— Hero ————— */
+  .hero {
+    padding: 100px var(--gutter) 120px;
+    position: relative;
+    overflow: hidden;
+  }
+  .hero__grid {
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    gap: 80px;
+    align-items: end;
+  }
+  .hero__eyebrow {
+    display: flex; align-items: center; gap: 14px;
+    margin-bottom: 36px;
+  }
+  .hero__eyebrow .rule { width: 56px; height: 1px; background: var(--ochre); }
+  .hero h1 {
+    font-family: var(--serif);
+    font-weight: 300;
+    font-size: clamp(72px, 11vw, 168px);
+    line-height: .92;
+    letter-spacing: -0.04em;
+    margin: 0 0 28px;
+  }
+  .hero h1 em { font-style: italic; font-weight: 400; }
+  .hero h1 .accent { color: var(--ochre); }
+  .hero h1 .delicate { font-weight: 300; opacity: .55; font-style: italic; }
+  .hero__lede {
+    font-family: var(--serif);
+    font-weight: 300;
+    font-size: 22px;
+    line-height: 1.5;
+    color: var(--ink-soft);
+    max-width: 52ch;
+  }
+  .hero__lede strong { font-weight: 500; color: var(--ink); font-style: normal; }
+  .hero__sidecard {
+    border-left: 1px solid var(--rule);
+    padding: 8px 0 8px 28px;
+    display: flex; flex-direction: column; gap: 22px;
+  }
+  .hero__sidecard h4 {
+    font-family: var(--serif);
+    font-style: italic;
+    font-weight: 400;
+    font-size: 17px;
+    margin: 0;
+    color: var(--ink);
+  }
+  .stat {
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .stat__value {
+    font-family: var(--serif);
+    font-size: 36px;
+    line-height: 1;
+    color: var(--ink);
+    letter-spacing: -.02em;
+  }
+  .stat__value em { font-style: italic; color: var(--ochre); }
+  .stat__label { color: var(--ink-mute); font-size: 12px; letter-spacing: .14em; text-transform: uppercase; }
+
+  .hero__signature {
+    margin-top: 80px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    color: var(--ink-mute);
+    font-size: 12px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    border-top: 1px solid var(--rule);
+    padding-top: 22px;
+  }
+  .hero__signature .ornament {
+    font-family: var(--serif);
+    font-style: italic;
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 24px;
+    color: var(--ochre);
+    line-height: 1;
+  }
+
+  /* ————— Chat ————— */
+  .chat-layout {
+    display: grid;
+    grid-template-columns: 280px 1fr 300px;
+    gap: 56px;
+    align-items: flex-start;
+  }
+  /* Sessions rail */
+  .sessions {
+    position: sticky; top: 92px;
+  }
+  .sessions__title {
+    font-family: var(--serif); font-style: italic; font-weight: 400;
+    font-size: 17px;
+    margin: 0 0 4px;
+    color: var(--ink-soft);
+  }
+  .sessions__meta { color: var(--ink-faint); font-size: 12px; margin-bottom: 22px; }
+  .session-item {
+    display: block;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--rule-soft);
+    transition: padding-left .35s var(--ease-slow);
+    cursor: pointer;
+    position: relative;
+  }
+  .session-item:hover { padding-left: 8px; }
+  .session-item .lbl-row {
+    display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+  }
+  .session-item .lbl {
+    font-family: var(--serif); font-size: 17px; line-height: 1.25; color: var(--ink);
+    letter-spacing: -0.005em;
+  }
+  .session-item .when {
+    font-size: 11px; color: var(--ink-faint); letter-spacing: .04em; flex-shrink: 0;
+    font-family: var(--mono);
+  }
+  .session-item .preview {
+    font-family: var(--serif); font-style: italic; font-weight: 300;
+    color: var(--ink-mute); font-size: 13.5px; line-height: 1.45;
+    margin-top: 4px;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .session-item .tags {
+    display: flex; gap: 10px; margin-top: 8px;
+  }
+  .tag {
+    font-family: var(--mono); font-size: 10.5px; color: var(--ink-faint);
+    letter-spacing: .02em;
+  }
+  .tag::before { content: "·"; margin-right: 6px; color: var(--rule); }
+  .session-item.is-current { padding-left: 14px; }
+  .session-item.is-current::before {
+    content: ""; position: absolute; left: 0; top: 18px; bottom: 18px; width: 2px;
+    background: var(--ochre);
+  }
+  .session-item.is-current .lbl { color: var(--ink); font-weight: 500; }
+
+  .sessions__newbtn {
+    margin-top: 20px;
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 12px; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--ink-mute); border-bottom: 1px solid var(--rule);
+    padding: 8px 0 6px;
+    transition: color .3s var(--ease), border-color .3s var(--ease);
+  }
+  .sessions__newbtn:hover { color: var(--ochre); border-color: var(--ochre); }
+  .sessions__newbtn .plus {
+    font-family: var(--serif); font-style: italic; font-size: 16px; line-height: 1;
+    transform: translateY(-1px);
+  }
+
+  /* Main conversation column */
+  .conversation {
+    max-width: var(--measure);
+    margin: 0 auto;
+  }
+  .conv-header {
+    border-bottom: 1px solid var(--rule);
+    padding-bottom: 28px;
+    margin-bottom: 56px;
+  }
+  .conv-header__kicker {
+    display: flex; align-items: center; gap: 14px; margin-bottom: 16px;
+  }
+  .conv-header__kicker .glyph {
+    width: 18px; height: 18px;
+    border: 1px solid var(--ochre);
+    display: inline-flex; align-items: center; justify-content: center;
+    color: var(--ochre); font-family: var(--serif); font-style: italic; font-size: 12px;
+    line-height: 1;
+  }
+  .conv-header h2 {
+    font-family: var(--serif);
+    font-weight: 300;
+    font-size: 44px;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    margin: 0 0 14px;
+  }
+  .conv-header h2 em { font-style: italic; font-weight: 400; color: var(--ochre); }
+  .conv-header__byline {
+    display: flex; gap: 24px; flex-wrap: wrap;
+    font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-mute);
+  }
+  .conv-header__byline span em {
+    font-style: italic; text-transform: none; letter-spacing: 0;
+    font-family: var(--serif); font-size: 13px; color: var(--ink);
+    margin-left: 2px;
+  }
+
+  /* Messages */
+  .message { margin-bottom: 56px; }
+  .message__byline {
+    display: flex; align-items: baseline; gap: 12px;
+    margin-bottom: 14px;
+    font-size: 11px; letter-spacing: .18em; text-transform: uppercase;
+    color: var(--ink-mute);
+  }
+  .message__byline .author {
+    color: var(--ink); font-weight: 500;
+  }
+  .message__byline .sep { color: var(--rule); }
+  .message__byline em {
+    font-family: var(--serif); font-style: italic; font-size: 13px;
+    text-transform: none; letter-spacing: 0;
+    color: var(--ink-faint);
+  }
+  .message__body {
+    font-family: var(--serif);
+    font-weight: 300;
+    font-size: 18px;
+    line-height: 1.65;
+    color: var(--ink-soft);
+  }
+  .message__body p { margin: 0 0 1em; }
+  .message__body p:last-child { margin-bottom: 0; }
+  .message__body strong { font-weight: 500; color: var(--ink); }
+  .message__body em { font-style: italic; }
+  .message__body .first-letter {
+    font-size: 64px;
+    float: left;
+    line-height: .85;
+    padding-right: 8px;
+    padding-top: 4px;
+    font-weight: 400;
+    color: var(--ochre);
+  }
+
+  /* User message */
+  .message--user .message__body {
+    font-family: var(--serif);
+    font-style: italic;
+    font-weight: 400;
+    font-size: 19px;
+    color: var(--ink);
+    padding-left: 20px;
+    border-left: 2px solid var(--ochre);
+  }
+  .message--user .message__byline { color: var(--ochre); }
+  .message--user .message__byline em { color: var(--ochre-deep); }
+
+  /* Tool note (editor's note style) */
+  .tool-note {
+    margin: 14px 0 22px;
+    padding: 14px 18px 14px 22px;
+    background: var(--paper-tint);
+    border-left: 1px solid var(--ochre);
+    font-size: 13.5px;
+    color: var(--ink-mute);
+    transition: background .3s var(--ease);
+  }
+  .tool-note:hover { background: var(--cream); }
+  .tool-note__head {
+    display: flex; justify-content: space-between; align-items: center;
+    cursor: pointer;
+  }
+  .tool-note__title {
+    display: flex; align-items: baseline; gap: 10px;
+    font-family: var(--sans);
+    font-size: 11px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--ink-mute);
+  }
+  .tool-note__title em {
+    font-family: var(--serif);
+    font-style: italic;
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 14.5px;
+    color: var(--ink);
+  }
+  .tool-note__title .marker {
+    font-family: var(--serif);
+    font-style: italic;
+    color: var(--ochre);
+    font-size: 18px;
+    line-height: 1;
+    margin-right: 4px;
+  }
+  .tool-note__status {
+    font-family: var(--mono); font-size: 11px; color: var(--sage);
+    letter-spacing: .04em;
+  }
+  .tool-note__status.is-error { color: var(--plum); }
+  .tool-note__meta { color: var(--ink-faint); font-family: var(--mono); font-size: 11px; }
+  .tool-note__body {
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px dashed var(--rule);
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.65;
+    color: var(--ink-soft);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .tool-note__body .k { color: var(--ochre-deep); }
+  .tool-note__body .s { color: var(--sage); }
+  .tool-note__body .c { color: var(--ink-faint); font-style: italic; }
+  .tool-note.is-collapsed .tool-note__body { display: none; }
+
+  .pull-quote {
+    font-family: var(--serif);
+    font-style: italic;
+    font-weight: 300;
+    font-size: 28px;
+    line-height: 1.3;
+    color: var(--ink);
+    margin: 36px 0;
+    padding: 0 0 0 28px;
+    border-left: 2px solid var(--ochre);
+    letter-spacing: -0.005em;
+  }
+  .pull-quote::before { content: "“"; color: var(--ochre); font-size: 36px; margin-right: 4px; }
+  .pull-quote::after { content: "”"; color: var(--ochre); font-size: 36px; margin-left: 4px; }
+
+  /* Composer */
+  .composer {
+    margin-top: 80px;
+    border-top: 1px solid var(--rule);
+    padding-top: 28px;
+  }
+  .composer__row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: end;
+    gap: 24px;
+  }
+  .composer__input {
+    border: 0;
+    background: transparent;
+    width: 100%;
+    font-family: var(--serif);
+    font-weight: 300;
+    font-style: italic;
+    font-size: 24px;
+    color: var(--ink-soft);
+    line-height: 1.4;
+    padding: 8px 0 14px;
+    border-bottom: 1px solid var(--rule);
+    transition: border-color .4s var(--ease);
+    outline: none;
+    resize: none;
+  }
+  .composer__input::placeholder { color: var(--ink-faint); font-style: italic; }
+  .composer__input:focus { border-color: var(--ochre); }
+  .composer__send {
+    font-size: 11px; letter-spacing: .2em; text-transform: uppercase;
+    padding: 12px 18px;
+    border: 1px solid var(--ink);
+    color: var(--ink);
+    transition: all .35s var(--ease);
+    align-self: flex-end;
+    display: inline-flex; align-items: center; gap: 8px;
+  }
+  .composer__send:hover { background: var(--ink); color: var(--paper); }
+  .composer__send .arrow {
+    font-family: var(--serif); font-style: italic; font-size: 14px;
+    transform: translateX(0);
+    transition: transform .35s var(--ease);
+  }
+  .composer__send:hover .arrow { transform: translateX(4px); }
+  .composer__hint {
+    margin-top: 14px;
+    display: flex; gap: 18px; align-items: center;
+    color: var(--ink-faint); font-size: 11.5px;
+    letter-spacing: .08em;
+  }
+  .composer__hint kbd {
+    font-family: var(--mono);
+    border: 1px solid var(--rule);
+    padding: 2px 6px;
+    font-size: 10px;
+    border-radius: 2px;
+    color: var(--ink-mute);
+    background: var(--paper);
+  }
+
+  /* Right telemetry rail */
+  .telemetry {
+    position: sticky; top: 92px;
+    padding-left: 28px;
+    border-left: 1px solid var(--rule);
+  }
+  .telemetry h5 {
+    font-family: var(--serif); font-style: italic; font-weight: 400;
+    font-size: 17px; margin: 0 0 6px;
+  }
+  .telemetry > .smallcap { display: block; margin-bottom: 26px; }
+  .telemetry-block { margin-bottom: 30px; }
+  .telemetry-block .lbl {
+    font-size: 11px; letter-spacing: .15em; text-transform: uppercase;
+    color: var(--ink-mute); margin-bottom: 6px;
+  }
+  .telemetry-block .val {
+    font-family: var(--serif);
+    font-size: 22px;
+    color: var(--ink);
+    line-height: 1.1;
+  }
+  .telemetry-block .val em { font-style: italic; color: var(--ochre); }
+  .telemetry-block .sub { color: var(--ink-faint); font-size: 12px; margin-top: 4px; font-family: var(--mono); }
+
+  .meter {
+    height: 4px; background: var(--rule-soft); position: relative; margin-top: 10px;
+    overflow: hidden;
+  }
+  .meter__fill {
+    position: absolute; left: 0; top: 0; bottom: 0;
+    background: linear-gradient(90deg, var(--ochre), var(--ochre-warm));
+    width: 38%;
+  }
+  .meter__notch {
+    position: absolute; top: -4px; bottom: -4px; width: 1px; background: var(--ink);
+    left: 75%;
+  }
+  .meter__legend {
+    display: flex; justify-content: space-between;
+    margin-top: 8px;
+    font-family: var(--mono); font-size: 11px; color: var(--ink-faint);
+  }
+  .telemetry-actions {
+    margin-top: 12px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .telemetry-actions a {
+    border-top: 1px solid var(--rule-soft);
+    padding-top: 10px;
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 13px;
+    color: var(--ink-soft);
+    transition: color .3s var(--ease);
+  }
+  .telemetry-actions a:hover { color: var(--ochre); }
+  .telemetry-actions a .small {
+    font-family: var(--mono); font-size: 10.5px; color: var(--ink-faint); letter-spacing: .04em;
+  }
+
+  /* ————— Studio ————— */
+  .studio-layout {
+    display: grid;
+    grid-template-columns: 340px 1fr;
+    gap: 80px;
+  }
+  .studio-directory {
+    border-right: 1px solid var(--rule);
+    padding-right: 40px;
+  }
+  .studio-directory h3 {
+    font-family: var(--serif); font-style: italic; font-weight: 400; font-size: 24px;
+    margin: 0 0 8px;
+  }
+  .studio-directory > p {
+    color: var(--ink-mute); font-size: 13.5px;
+    margin: 0 0 32px;
+    border-bottom: 1px solid var(--rule-soft);
+    padding-bottom: 22px;
+  }
+  .author-card {
+    display: grid;
+    grid-template-columns: 52px 1fr auto;
+    align-items: center;
+    gap: 16px;
+    padding: 16px 0;
+    border-bottom: 1px solid var(--rule-soft);
+    transition: padding-left .35s var(--ease-slow);
+    cursor: pointer;
+  }
+  .author-card:hover { padding-left: 8px; }
+  .author-card.is-current {
+    padding-left: 14px;
+    border-left: 2px solid var(--ochre);
+  }
+  .author-portrait {
+    width: 52px; height: 52px;
+    border-radius: 50%;
+    background: var(--cream);
+    border: 1px solid var(--rule);
+    display: inline-flex; align-items: center; justify-content: center;
+    font-family: var(--serif); font-style: italic; font-size: 22px;
+    color: var(--ochre);
+  }
+  .author-portrait.p1 { background: linear-gradient(135deg, #efe2c8, #d6b88b); color: var(--ochre-deep); }
+  .author-portrait.p2 { background: linear-gradient(135deg, #d4ddcc, #a4b394); color: #455138; }
+  .author-portrait.p3 { background: linear-gradient(135deg, #ecd5cb, #c79a8a); color: var(--plum); }
+  .author-portrait.p4 { background: linear-gradient(135deg, #e0d6e2, #b4a4ba); color: #4a3a52; }
+  .author-portrait.p5 { background: linear-gradient(135deg, #e9e2cf, #b8a988); color: #5a4a2e; }
+
+  .author-name {
+    font-family: var(--serif); font-size: 19px; line-height: 1.1;
+    color: var(--ink);
+  }
+  .author-role {
+    font-family: var(--serif); font-style: italic; font-size: 12.5px;
+    color: var(--ink-mute);
+    letter-spacing: .02em;
+    margin-top: 3px;
+  }
+  .author-card .author-meta {
+    text-align: right;
+    font-family: var(--mono); font-size: 10.5px;
+    color: var(--ink-faint);
+    line-height: 1.6;
+  }
+  .author-meta .green { color: var(--sage); }
+
+  .studio-directory__newbtn {
+    margin-top: 28px;
+    padding: 18px 22px;
+    border: 1px dashed var(--rule);
+    width: 100%;
+    text-align: left;
+    transition: border-color .3s var(--ease), background .3s var(--ease);
+  }
+  .studio-directory__newbtn:hover { border-color: var(--ochre); background: var(--paper-tint); }
+  .studio-directory__newbtn .lbl { font-family: var(--serif); font-style: italic; font-size: 18px; color: var(--ink); }
+  .studio-directory__newbtn .sub { color: var(--ink-mute); font-size: 12px; margin-top: 3px; letter-spacing: .03em; }
+
+  /* Studio main */
+  .studio-main {
+    max-width: 820px;
+  }
+  .studio-main__head {
+    display: flex; justify-content: space-between; align-items: flex-end;
+    padding-bottom: 24px;
+    border-bottom: 1px solid var(--rule);
+    margin-bottom: 40px;
+  }
+  .studio-main__head .meta {
+    font-family: var(--serif); font-style: italic; color: var(--ink-mute);
+    font-size: 14px;
+  }
+  .studio-main__head h2 {
+    font-family: var(--serif); font-weight: 300;
+    font-size: 56px; line-height: 1; letter-spacing: -0.02em;
+    margin: 6px 0 0;
+  }
+  .studio-main__head h2 em { font-style: italic; }
+  .studio-main__actions {
+    display: flex; gap: 10px;
+  }
+  .btn-ghost {
+    font-size: 11px; letter-spacing: .15em; text-transform: uppercase;
+    border: 1px solid var(--rule);
+    padding: 9px 16px;
+    color: var(--ink-mute);
+    transition: all .3s var(--ease);
+  }
+  .btn-ghost:hover { color: var(--ink); border-color: var(--ink); }
+  .btn-primary {
+    font-size: 11px; letter-spacing: .15em; text-transform: uppercase;
+    background: var(--ink); color: var(--paper);
+    padding: 9px 16px;
+    transition: background .3s var(--ease);
+  }
+  .btn-primary:hover { background: var(--ochre-deep); }
+
+  .tabs {
+    display: flex; gap: 28px;
+    border-bottom: 1px solid var(--rule);
+    margin-bottom: 44px;
+  }
+  .tabs__item {
+    position: relative;
+    padding: 4px 0 14px;
+    font-size: 13px;
+    letter-spacing: .04em;
+    color: var(--ink-mute);
+    transition: color .3s var(--ease);
+    cursor: pointer;
+  }
+  .tabs__item .n {
+    font-family: var(--serif); font-style: italic; font-size: 11px;
+    color: var(--ink-faint); margin-right: 8px;
+  }
+  .tabs__item.is-active { color: var(--ink); }
+  .tabs__item.is-active::after {
+    content: ""; position: absolute; left: 18px; right: 0; bottom: -1px;
+    height: 1px; background: var(--ochre);
+  }
+  .tabs__item:hover { color: var(--ink); }
+
+  /* Manuscript editor fields */
+  .field-stack { display: flex; flex-direction: column; gap: 36px; }
+  .field {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    gap: 32px;
+    align-items: start;
+  }
+  .field__lbl {
+    font-family: var(--serif); font-style: italic;
+    font-size: 17px;
+    color: var(--ink-mute);
+    line-height: 1.3;
+  }
+  .field__lbl .hint {
+    display: block;
+    font-style: normal;
+    font-family: var(--sans);
+    font-size: 11.5px;
+    color: var(--ink-faint);
+    margin-top: 6px;
+    line-height: 1.5;
+  }
+  .field__input {
+    font-family: var(--serif);
+    font-weight: 300;
+    font-size: 22px;
+    color: var(--ink);
+    background: transparent;
+    border: 0;
+    border-bottom: 1px solid var(--rule);
+    padding: 4px 0 12px;
+    width: 100%;
+    transition: border-color .35s var(--ease);
+    outline: none;
+  }
+  .field__input:focus { border-color: var(--ochre); }
+  .field__input--mono { font-family: var(--mono); font-size: 14px; }
+  .field__textarea {
+    font-family: var(--serif);
+    font-weight: 300;
+    font-style: italic;
+    font-size: 19px;
+    line-height: 1.65;
+    color: var(--ink);
+    background: var(--paper-tint);
+    border: 0;
+    border-left: 2px solid var(--ochre);
+    padding: 24px 28px;
+    width: 100%;
+    min-height: 220px;
+    outline: none;
+    resize: vertical;
+  }
+  .field__textarea::placeholder { color: var(--ink-faint); }
+  .field__row {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 24px;
+  }
+
+  /* Model select with badge */
+  .select-display {
+    display: flex; align-items: center; gap: 14px;
+    border-bottom: 1px solid var(--rule);
+    padding-bottom: 12px;
+  }
+  .select-display .name {
+    font-family: var(--serif); font-size: 22px;
+    flex: 1;
+  }
+  .select-display .badge {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    border: 1px solid var(--rule);
+    color: var(--ink-mute);
+    padding: 3px 8px;
+    letter-spacing: .04em;
+  }
+  .select-display .caret {
+    font-family: var(--serif); font-style: italic; color: var(--ink-faint);
+  }
+
+  /* Tool toggle grid for studio (tools tab — when active) */
+  .tools-mini-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px;
+    margin-top: 14px;
+  }
+  .tool-mini {
+    padding: 18px 20px;
+    border: 1px solid var(--rule);
+    display: flex; flex-direction: column; gap: 6px;
+    background: var(--paper);
+    transition: border-color .3s var(--ease), background .3s var(--ease);
+  }
+  .tool-mini:hover { border-color: var(--ink); }
+  .tool-mini.is-off { opacity: .45; background: transparent; }
+  .tool-mini__head {
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .tool-mini__name { font-family: var(--mono); font-size: 13px; color: var(--ink); }
+  .tool-mini__desc {
+    font-family: var(--serif); font-style: italic; font-size: 13px;
+    color: var(--ink-mute); line-height: 1.4;
+  }
+  .switch {
+    width: 28px; height: 16px;
+    background: var(--rule);
+    border-radius: 999px;
+    position: relative;
+    transition: background .3s var(--ease);
+  }
+  .switch::after {
+    content: ""; position: absolute; top: 2px; left: 2px;
+    width: 12px; height: 12px; background: var(--paper); border-radius: 50%;
+    transition: left .3s var(--ease);
+    box-shadow: 0 1px 2px rgba(0,0,0,.12);
+  }
+  .switch.is-on { background: var(--ochre); }
+  .switch.is-on::after { left: 14px; }
+
+  /* ————— Admin ————— */
+  .admin-layout {
+    display: grid;
+    grid-template-columns: 240px 1fr;
+    gap: 64px;
+  }
+  .admin-nav {
+    position: sticky; top: 92px;
+    border-right: 1px solid var(--rule);
+    padding-right: 28px;
+  }
+  .admin-nav__item {
+    display: block;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--rule-soft);
+    cursor: pointer;
+    transition: padding-left .35s var(--ease-slow);
+  }
+  .admin-nav__item:hover { padding-left: 6px; }
+  .admin-nav__item .num {
+    font-family: var(--serif); font-style: italic; color: var(--ink-faint);
+    font-size: 13px;
+    margin-right: 8px;
+  }
+  .admin-nav__item .lbl {
+    font-family: var(--serif); font-size: 18px; color: var(--ink);
+  }
+  .admin-nav__item .desc { color: var(--ink-mute); font-size: 12px; margin-top: 3px; }
+  .admin-nav__item.is-active { padding-left: 12px; border-left: 2px solid var(--ochre); }
+
+  /* Provider catalog */
+  .provider-catalog {
+    max-width: 900px;
+  }
+  .provider-catalog__head {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: end;
+    border-bottom: 1px solid var(--rule);
+    padding-bottom: 20px;
+    margin-bottom: 36px;
+  }
+  .provider-catalog__head h3 {
+    font-family: var(--serif); font-weight: 300; font-size: 40px;
+    margin: 0;
+    line-height: 1.05;
+  }
+  .provider-catalog__head h3 em { font-style: italic; color: var(--ochre); }
+  .provider-catalog__head p {
+    color: var(--ink-mute); margin: 8px 0 0; font-size: 14px; font-family: var(--serif);
+  }
+
+  .provider-row {
+    display: grid;
+    grid-template-columns: 48px 1.4fr 1fr 1fr 0.8fr 96px;
+    gap: 28px;
+    align-items: center;
+    padding: 26px 0;
+    border-bottom: 1px solid var(--rule-soft);
+    transition: padding-left .35s var(--ease-slow);
+  }
+  .provider-row:hover { padding-left: 8px; }
+  .provider-row .num {
+    font-family: var(--serif); font-style: italic; color: var(--ink-faint);
+    font-size: 22px; line-height: 1; padding-top: 6px;
+  }
+  .provider-name {
+    font-family: var(--serif); font-size: 22px; color: var(--ink);
+  }
+  .provider-name .sub {
+    display: block;
+    font-family: var(--serif); font-style: italic;
+    font-size: 13px; color: var(--ink-mute); margin-top: 4px;
+  }
+  .provider-type {
+    font-family: var(--mono); font-size: 12px; color: var(--ink-soft);
+    letter-spacing: .04em;
+  }
+  .provider-key {
+    font-family: var(--mono); font-size: 12px; color: var(--ink-mute);
+  }
+  .provider-key span { color: var(--ink); }
+  .provider-stamp {
+    font-family: var(--serif); font-style: italic; font-size: 13px; color: var(--ink-mute);
+  }
+  .provider-stamp .when { display: block; font-family: var(--mono); font-style: normal; font-size: 11px; color: var(--ink-faint); margin-top: 3px; }
+  .provider-brand {
+    text-align: right;
+    font-family: var(--serif); font-style: italic;
+    font-size: 13px;
+    color: var(--ochre);
+    border: 1px solid var(--ochre);
+    padding: 6px 8px;
+    letter-spacing: .04em;
+  }
+  .provider-brand.b-ant { color: var(--plum); border-color: var(--plum); }
+  .provider-brand.b-llama { color: var(--sage); border-color: var(--sage); }
+  .provider-brand.b-azure { color: #2b5599; border-color: #2b5599; }
+  .provider-brand.b-mock { color: var(--ink-mute); border-color: var(--rule); }
+
+  /* Tools library — catalog cards */
+  .tools-section { margin-top: 96px; }
+  .tools-section__head {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: end;
+    border-bottom: 1px solid var(--rule);
+    padding-bottom: 20px;
+    margin-bottom: 36px;
+  }
+  .tools-section__head h3 {
+    font-family: var(--serif); font-weight: 300; font-size: 40px;
+    margin: 0; line-height: 1.05;
+  }
+  .tools-section__head h3 em { font-style: italic; color: var(--ochre); }
+  .tools-section__filters {
+    display: flex; gap: 22px;
+    font-size: 12px; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--ink-mute);
+  }
+  .tools-section__filters .is-active { color: var(--ink); border-bottom: 1px solid var(--ochre); padding-bottom: 4px; }
+
+  .tools-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0;
+    border-top: 1px solid var(--rule-soft);
+    border-left: 1px solid var(--rule-soft);
+  }
+  .tool-card {
+    padding: 24px 26px 22px;
+    border-right: 1px solid var(--rule-soft);
+    border-bottom: 1px solid var(--rule-soft);
+    background: transparent;
+    transition: background .3s var(--ease);
+    display: flex; flex-direction: column; gap: 8px;
+    position: relative;
+  }
+  .tool-card:hover { background: var(--paper-tint); }
+  .tool-card__cat {
+    font-size: 10.5px; letter-spacing: .18em; text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+  .tool-card__cat.cat-fs   { color: var(--ochre-deep); }
+  .tool-card__cat.cat-exec { color: var(--plum); }
+  .tool-card__cat.cat-web  { color: var(--sage); }
+  .tool-card__name {
+    font-family: var(--mono); font-size: 14px;
+    color: var(--ink); letter-spacing: -0.01em;
+  }
+  .tool-card__desc {
+    font-family: var(--serif); font-style: italic;
+    font-size: 13.5px;
+    color: var(--ink-mute);
+    line-height: 1.5;
+    flex-grow: 1;
+  }
+  .tool-card__foot {
+    margin-top: 12px;
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 11px;
+  }
+  .tool-card__bytes { font-family: var(--mono); color: var(--ink-faint); }
+  .tool-card.is-off { opacity: .48; }
+  .tool-card.is-off::after {
+    content: "Disabled";
+    position: absolute; top: 22px; right: 26px;
+    font-family: var(--serif); font-style: italic;
+    color: var(--ink-mute); font-size: 12px;
+  }
+
+  /* Footnote / colophon */
+  .colophon {
+    padding: 60px var(--gutter) 80px;
+    border-top: 1px solid var(--rule);
+    color: var(--ink-mute);
+    background: var(--bone);
+  }
+  .colophon-inner {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 1fr;
+    gap: 56px;
+    align-items: flex-start;
+  }
+  .colophon h6 {
+    font-family: var(--serif); font-weight: 400; font-style: italic;
+    margin: 0 0 14px;
+    color: var(--ink);
+    font-size: 17px;
+  }
+  .colophon ul { list-style: none; padding: 0; margin: 0; }
+  .colophon li { padding: 6px 0; font-size: 13.5px; }
+  .colophon li a {
+    border-bottom: 1px dotted transparent;
+    transition: border-color .3s var(--ease), color .3s var(--ease);
+  }
+  .colophon li a:hover { color: var(--ochre); border-color: var(--ochre); }
+  .colophon__sig {
+    grid-column: 1 / -1;
+    display: flex; justify-content: space-between; align-items: end;
+    border-top: 1px solid var(--rule);
+    padding-top: 26px;
+    margin-top: 36px;
+    font-family: var(--mono); font-size: 11px; letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+  .colophon__sig .glyph {
+    font-family: var(--serif); font-style: italic;
+    font-size: 28px; line-height: 1;
+    text-transform: none; letter-spacing: 0;
+    color: var(--ochre);
+  }
+
+  /* ————— Ornament / decoration ————— */
+  .ornament-row {
+    display: flex; align-items: center; gap: 16px;
+    margin: 96px auto;
+    max-width: var(--measure);
+    color: var(--ink-faint);
+    justify-content: center;
+  }
+  .ornament-row .line { flex: 1; height: 1px; background: var(--rule); }
+  .ornament-row .glyph {
+    font-family: var(--serif); font-style: italic; font-size: 28px; color: var(--ochre);
+    line-height: 1;
+  }
+
+  /* MCP source block in studio (decorative) */
+  .mcp-entry {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 20px;
+    padding: 18px 0;
+    border-bottom: 1px solid var(--rule-soft);
+    align-items: center;
+  }
+  .mcp-entry .seal {
+    width: 36px; height: 36px;
+    border: 1px solid var(--rule);
+    display: inline-flex; align-items: center; justify-content: center;
+    font-family: var(--serif); font-style: italic; font-size: 17px;
+    color: var(--ochre);
+    background: var(--paper-tint);
+  }
+  .mcp-entry .name { font-family: var(--serif); font-size: 18px; color: var(--ink); }
+  .mcp-entry .trans { font-family: var(--mono); font-size: 11.5px; color: var(--ink-faint); margin-top: 3px; }
+  .mcp-entry .health { font-family: var(--mono); font-size: 11px; color: var(--sage); letter-spacing: .03em; }
+  .mcp-entry .health.is-warn { color: var(--ochre-deep); }
+  .mcp-entry .health.is-err  { color: var(--plum); }
+
+  /* Drawer indicator (faux) */
+  .drawer-handle {
+    position: fixed;
+    right: 0; top: 50%;
+    transform: translateY(-50%);
+    width: 28px;
+    background: var(--paper);
+    border-left: 1px solid var(--rule);
+    border-top: 1px solid var(--rule);
+    border-bottom: 1px solid var(--rule);
+    padding: 18px 4px;
+    writing-mode: vertical-rl;
+    font-size: 10px;
+    letter-spacing: .25em;
+    text-transform: uppercase;
+    color: var(--ink-mute);
+    cursor: pointer;
+    z-index: 30;
+    transition: color .3s var(--ease), background .3s var(--ease);
+  }
+  .drawer-handle:hover { color: var(--ochre); background: var(--paper-tint); }
+
+  /* Anim: text fade-in on load (very subtle) */
+  @keyframes inkAppear {
+    from { opacity: 0; transform: translateY(6px); filter: blur(2px); }
+    to   { opacity: 1; transform: translateY(0); filter: none; }
+  }
+  .ink-in { animation: inkAppear 1.2s var(--ease-slow) both; }
+  .ink-in.delay-1 { animation-delay: .12s; }
+  .ink-in.delay-2 { animation-delay: .24s; }
+  .ink-in.delay-3 { animation-delay: .36s; }
+  .ink-in.delay-4 { animation-delay: .48s; }
+  .ink-in.delay-5 { animation-delay: .6s; }
+
+  /* Tabs functionality for sub-views — for visual richness, not required */
+  [data-view] { display: none; }
+  [data-view].is-active { display: block; }
+
+  @media (max-width: 1280px) {
+    .chat-layout { grid-template-columns: 240px 1fr 260px; gap: 36px; }
+    .admin-layout { grid-template-columns: 220px 1fr; gap: 40px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ————— Drawer affordance ————— -->
+<div class="drawer-handle" title="Inspector drawer">Inspector  ·  ⌘ I</div>
+
+<!-- ————— Masthead ————— -->
+<header class="masthead">
+  <div class="masthead__inner">
+    <div class="masthead__brand">
+      <span class="brand-mark">G</span>
+      <span>
+        <span class="brand-name">Gleep<em>Glorp</em></span>
+        <span class="brand-sub">Atelier · Vol. 1</span>
+      </span>
+    </div>
+    <nav class="nav-tabs">
+      <a href="#chat" class="is-active"><span class="num">I.</span> Chat</a>
+      <a href="#studio"><span class="num">II.</span> Studio</a>
+      <a href="#admin"><span class="num">III.</span> Administration</a>
+    </nav>
+    <div class="masthead__util">
+      <span class="util-dot">Local instance · port 8484</span>
+      <a class="util-action" href="#">Theme</a>
+      <a class="util-action" href="#">⌘ K</a>
+    </div>
+  </div>
+</header>
+
+<!-- ————— Hero ————— -->
+<section class="hero" id="top">
+  <div class="hero__grid">
+    <div>
+      <div class="hero__eyebrow ink-in">
+        <span class="rule"></span>
+        <span class="smallcap smallcap--ochre">Issue 04 · The Quiet Machines</span>
+      </div>
+
+      <h1 class="ink-in delay-1">
+        A workshop<br />
+        for <em>thinking</em> <span class="accent">agents,</span><br />
+        <span class="delicate">printed in private.</span>
+      </h1>
+
+      <p class="hero__lede ink-in delay-2">
+        <strong>GleepGlorp</strong> is a single-occupant atelier for shaping personal LLM agents — composed locally, signed by hand, and read at the pace of an essay. No analytics, no audience. Just you and the machines you bring into the room.
+      </p>
+    </div>
+
+    <aside class="hero__sidecard ink-in delay-3">
+      <div>
+        <span class="smallcap">Pressed today</span>
+        <h4>From the bench</h4>
+      </div>
+      <div class="stat">
+        <span class="stat__value"><em>7</em> agents</span>
+        <span class="stat__label">in regular rotation</span>
+      </div>
+      <div class="stat">
+        <span class="stat__value">19 <em>tools</em></span>
+        <span class="stat__label">in the cabinet</span>
+      </div>
+      <div class="stat">
+        <span class="stat__value">4 <em>providers</em></span>
+        <span class="stat__label">on retainer</span>
+      </div>
+      <div class="stat">
+        <span class="stat__value">812k <em>tok</em></span>
+        <span class="stat__label">this week, ingested</span>
+      </div>
+    </aside>
+  </div>
+
+  <div class="hero__signature ink-in delay-4">
+    <span>An operator's quarterly · Composed in Fraunces &amp; Inter Tight</span>
+    <span class="ornament">❦</span>
+    <span>Edition I · May MMXXVI</span>
+  </div>
+</section>
+
+<!-- ————— Chat ————— -->
+<section class="section" id="chat">
+
+  <div class="section-head">
+    <div class="section-head__index">
+      <span class="index-num">I.</span>
+      <span class="smallcap index-label">The conversation room</span>
+    </div>
+    <h2 class="section-head__title">A correspondence with <em>several minds,</em> <span class="accent">on demand.</span></h2>
+    <p class="section-head__lede">
+      Each session is a letter — long, indexed, attributable. The agent's voice is on the page; its tools fold inline like an editor's marginalia.
+    </p>
+  </div>
+
+  <div class="chat-layout">
+
+    <!-- Sessions rail -->
+    <aside class="sessions">
+      <h3 class="sessions__title">Recent correspondence</h3>
+      <p class="sessions__meta">14 sessions · 3 unread</p>
+
+      <a class="session-item is-current">
+        <div class="lbl-row">
+          <span class="lbl">On choosing a vector store, in three letters</span>
+          <span class="when">12:43</span>
+        </div>
+        <p class="preview">A long Sunday with Researcher, on the merits of pgvector versus a dedicated index for an essay on local-first agents.</p>
+        <div class="tags"><span class="tag">researcher</span><span class="tag">gpt-4o</span><span class="tag">+ web</span></div>
+      </a>
+
+      <a class="session-item">
+        <div class="lbl-row">
+          <span class="lbl">Codex audits the import boundary</span>
+          <span class="when">May 11</span>
+        </div>
+        <p class="preview">Forty‑two files inspected. Three lift‑and‑shifts proposed. One opinionated note about Pydantic v2 re‑declaration.</p>
+        <div class="tags"><span class="tag">codex</span><span class="tag">claude-opus-4.7</span></div>
+      </a>
+
+      <a class="session-item">
+        <div class="lbl-row">
+          <span class="lbl">A grocery list, lyrically</span>
+          <span class="when">May 11</span>
+        </div>
+        <p class="preview">Concierge wrote out the week's marketing in iambic couplets. We did, in fact, buy the asparagus.</p>
+        <div class="tags"><span class="tag">concierge</span><span class="tag">llama-3.3</span></div>
+      </a>
+
+      <a class="session-item">
+        <div class="lbl-row">
+          <span class="lbl">Reading: <em>The Anatomy of Type</em></span>
+          <span class="when">May 09</span>
+        </div>
+        <p class="preview">Researcher fetched the table of contents and a generous quote about ink-traps and the legibility of cut steel.</p>
+        <div class="tags"><span class="tag">researcher</span><span class="tag">+ fetch</span></div>
+      </a>
+
+      <a class="session-item">
+        <div class="lbl-row">
+          <span class="lbl">Atlas — three small fires</span>
+          <span class="when">May 07</span>
+        </div>
+        <p class="preview">Three Jira tickets triaged, two re‑titled, one closed. Atlas declined to open the fourth as it had no acceptance criteria.</p>
+        <div class="tags"><span class="tag">atlas</span><span class="tag">mcp · jira</span></div>
+      </a>
+
+      <a class="session-item">
+        <div class="lbl-row">
+          <span class="lbl">A recipe for dal, halved</span>
+          <span class="when">May 04</span>
+        </div>
+        <p class="preview">Concierge halved the lentils, the spice, and the time. Did not, mercifully, halve the ghee.</p>
+        <div class="tags"><span class="tag">concierge</span></div>
+      </a>
+
+      <button class="sessions__newbtn">
+        <span class="plus">+</span>
+        <span>Begin a new letter</span>
+      </button>
+    </aside>
+
+    <!-- Main conversation -->
+    <article class="conversation">
+
+      <header class="conv-header">
+        <div class="conv-header__kicker">
+          <span class="glyph">§</span>
+          <span class="smallcap">Session I · opened 11:08 · 14 turns</span>
+        </div>
+        <h2>On choosing a vector store, in <em>three letters.</em></h2>
+        <div class="conv-header__byline">
+          <span>Agent · <em>Researcher</em></span>
+          <span class="sep">/</span>
+          <span>Model · <em>gpt-4o</em></span>
+          <span class="sep">/</span>
+          <span>Context · <em>14.2k / 128k</em></span>
+          <span class="sep">/</span>
+          <span>Tools · <em>read_file, http_request, mcp_atlassian</em></span>
+        </div>
+      </header>
+
+      <!-- USER -->
+      <div class="message message--user">
+        <div class="message__byline">
+          <span class="author">You</span>
+          <span class="sep">·</span>
+          <em>11:08, set the scene</em>
+        </div>
+        <div class="message__body">
+          I'm writing a short piece on local-first agents for a friend who builds keyboards. Help me decide between keeping vectors in pgvector alongside the rest of the SQLite store, or pulling in a small dedicated index like LanceDB. Cite your reasoning, not just the answer.
+        </div>
+      </div>
+
+      <!-- AGENT -->
+      <div class="message">
+        <div class="message__byline">
+          <span class="author">Researcher</span>
+          <span class="sep">·</span>
+          <em>gpt-4o · 11:08:42 · 1,284 tokens · 2 tools</em>
+        </div>
+        <div class="message__body">
+          <p><span class="first-letter">T</span>here are two honest answers and they disagree only on a question of taste. Before I commit to either, let me read what you already have on disk — I want to know whether your SQLite schema is comfortable with a second specialty store living next to it, or whether it would prefer to absorb the embeddings itself.</p>
+        </div>
+
+        <!-- TOOL CALL: read_file -->
+        <div class="tool-note" data-collapsed="false">
+          <div class="tool-note__head" onclick="this.parentElement.classList.toggle('is-collapsed')">
+            <div class="tool-note__title">
+              <span class="marker">¶</span>
+              <span class="smallcap">read_file</span>
+              <em>the_one/db/schema.py</em>
+            </div>
+            <div>
+              <span class="tool-note__status">completed · 142 ms</span>
+            </div>
+          </div>
+          <div class="tool-note__body"><span class="c"># Editor's note: 380 lines · 14.2 KiB</span>
+<span class="k">async def</span> apply_migrations(conn: <span class="k">aiosqlite.Connection</span>) -> <span class="k">None</span>:
+    cur = <span class="k">await</span> conn.execute(<span class="s">"PRAGMA user_version"</span>)
+    (version,) = <span class="k">await</span> cur.fetchone()
+    <span class="k">if</span> version &lt; SCHEMA_VERSION:
+        <span class="c"># migrations apply in order; idempotent ALTER TABLE ADD COLUMN</span>
+        ...
+<span class="c"># ─── current version: v10 (M07 F1) ─────────────────────</span></div>
+        </div>
+
+        <div class="message__body">
+          <p>Good — schema is at v10, already comfortable with field-segregated columns and reversible migrations. That tells me a great deal. Now let me check what people have actually shipped recently on the LanceDB front.</p>
+        </div>
+
+        <!-- TOOL CALL: http_request -->
+        <div class="tool-note" data-collapsed="true">
+          <div class="tool-note__head" onclick="this.parentElement.classList.toggle('is-collapsed')">
+            <div class="tool-note__title">
+              <span class="marker">¶</span>
+              <span class="smallcap">http_request</span>
+              <em>GET lancedb.github.io/lancedb/changelog</em>
+            </div>
+            <div>
+              <span class="tool-note__status">completed · 412 ms · 24.1 KiB</span>
+            </div>
+          </div>
+          <div class="tool-note__body is-collapsed">Fold expanded · 24.1 KiB body, truncated to 4 KiB tail.</div>
+        </div>
+
+        <div class="message__body">
+          <p>Here is the case for <strong>each</strong>, plainly.</p>
+          <p><strong>Keep them together (pgvector-on-SQLite).</strong> Your store is already encrypted at the column level, already on the rotate-key endpoint, already migrated through ten versions without an outage. A second store is a second backup story, a second permission seam, a second thing to be wrong about when the laptop is on a train and the wifi has the disposition of a sulking cat.</p>
+          <p><strong>Bring a specialty in (LanceDB).</strong> When the agent reaches a few hundred thousand embeddings, the SQLite query planner stops being your friend, and a dedicated index — columnar, IVF-flat, persisted to a single directory — will out-perform the integrated approach by an order of magnitude on the kinds of queries you'd actually run. Your encryption story is still tractable: LanceDB <em>can</em> live inside the same volume; the rotate-key endpoint extends to it with one careful afternoon.</p>
+        </div>
+
+        <div class="pull-quote">
+          For an essay you're writing for a friend, write the integrated answer. For an essay you'll need to defend at scale, write the second.
+        </div>
+
+        <div class="message__body">
+          <p>Would you like me to draft the first half of the piece — the case for integration, written for your keyboard friend — and leave the second open for the rebuttal you'll get from her?</p>
+        </div>
+      </div>
+
+      <!-- USER -->
+      <div class="message message--user">
+        <div class="message__byline">
+          <span class="author">You</span>
+          <span class="sep">·</span>
+          <em>12:41, leaning</em>
+        </div>
+        <div class="message__body">
+          Yes. Draft the first half. And while you're at it, file a ticket on the Atlas board for the LanceDB-rotate-key follow-up — quiet, low priority, just so it doesn't get lost.
+        </div>
+      </div>
+
+      <!-- AGENT -->
+      <div class="message">
+        <div class="message__byline">
+          <span class="author">Researcher</span>
+          <span class="sep">·</span>
+          <em>gpt-4o · 12:43:11 · 642 tokens · 1 tool</em>
+        </div>
+
+        <!-- TOOL CALL: mcp_atlassian -->
+        <div class="tool-note">
+          <div class="tool-note__head" onclick="this.parentElement.classList.toggle('is-collapsed')">
+            <div class="tool-note__title">
+              <span class="marker">¶</span>
+              <span class="smallcap">mcp_atlassian · create_issue</span>
+              <em>project: ATL · type: Task</em>
+            </div>
+            <div>
+              <span class="tool-note__status">completed · 1.4 s</span>
+            </div>
+          </div>
+          <div class="tool-note__body"><span class="k">issue</span>: <span class="s">"ATL-417"</span>
+<span class="k">title</span>: <span class="s">"Investigate LanceDB rotate-key parity with llm_providers + mcp_sources"</span>
+<span class="k">priority</span>: <span class="s">"low"</span>
+<span class="k">labels</span>: [<span class="s">"infra"</span>, <span class="s">"encryption"</span>, <span class="s">"research"</span>]
+<span class="k">link</span>: <span class="s">"https://atl.local/ATL-417"</span>
+<span class="c"># Created at 12:43:09 by mcp:atlassian via Researcher</span></div>
+        </div>
+
+        <div class="message__body">
+          <p>Filed as <strong>ATL-417</strong>, low priority. Now, the draft —</p>
+          <p><em>For a long time the right answer was to keep your vectors with the rest of your data. The schema you wrote on Sunday afternoons knows their shape; the encryption you set up in March can be made to reach them; the migrations you'll write next year will move them along with everything else…</em></p>
+          <p style="opacity:.5">[continued · 19 more paragraphs]</p>
+        </div>
+      </div>
+
+      <!-- Composer -->
+      <div class="composer">
+        <div class="composer__row">
+          <textarea class="composer__input" rows="1" placeholder="Continue the letter…"></textarea>
+          <button class="composer__send">Send <span class="arrow">→</span></button>
+        </div>
+        <div class="composer__hint">
+          <span>Press <kbd>⌘</kbd>+<kbd>↵</kbd> to send · <kbd>⌘</kbd>+<kbd>/</kbd> for tools · <kbd>⌘</kbd>+<kbd>K</kbd> to switch agent</span>
+        </div>
+      </div>
+    </article>
+
+    <!-- Telemetry rail -->
+    <aside class="telemetry">
+      <span class="smallcap">Session notes</span>
+      <h5>On the table</h5>
+
+      <div class="telemetry-block">
+        <div class="lbl">Context window</div>
+        <div class="val"><em>14,218</em> / 128,000</div>
+        <div class="meter">
+          <div class="meter__fill" style="width: 11.1%"></div>
+          <div class="meter__notch" style="left: 75%"></div>
+        </div>
+        <div class="meter__legend">
+          <span>0</span><span>14k</span><span>96k cap</span><span>128k</span>
+        </div>
+      </div>
+
+      <div class="telemetry-block">
+        <div class="lbl">Spent today</div>
+        <div class="val">$0.<em>42</em></div>
+        <div class="sub">3 sessions · 87,402 toks</div>
+      </div>
+
+      <div class="telemetry-block">
+        <div class="lbl">Active tools</div>
+        <div class="val">3 of 12</div>
+        <div class="sub">read_file · http · atlassian</div>
+      </div>
+
+      <div class="telemetry-block">
+        <div class="lbl">Provider</div>
+        <div class="val italic-serif" style="font-style:italic;">OpenAI · personal</div>
+        <div class="sub">last rotated 14 d ago</div>
+      </div>
+
+      <div class="telemetry-actions">
+        <a><span>Fork session</span><span class="small">⌘ ⇧ F</span></a>
+        <a><span>Export as letter</span><span class="small">.md / .pdf</span></a>
+        <a><span>Pin to library</span><span class="small">8 pinned</span></a>
+        <a><span>Inspector</span><span class="small">⌘ I</span></a>
+      </div>
+    </aside>
+
+  </div>
+</section>
+
+<!-- ————— Studio ————— -->
+<section class="section section--cream" id="studio">
+  <div class="section-head">
+    <div class="section-head__index">
+      <span class="index-num">II.</span>
+      <span class="smallcap index-label">The studio</span>
+    </div>
+    <h2 class="section-head__title">A directory of <em>contributors,</em> <span class="accent">in private practice.</span></h2>
+    <p class="section-head__lede">
+      Each agent is a hand. Edit them like manuscripts — title, byline, the long preamble of voice, the cabinet of tools they are allowed to open.
+    </p>
+  </div>
+
+  <div class="studio-layout">
+
+    <aside class="studio-directory">
+      <h3>The Contributors</h3>
+      <p>Seven authors in regular rotation, listed by frequency. Hover to peek the last brief.</p>
+
+      <div class="author-card is-current">
+        <span class="author-portrait p1">R</span>
+        <div>
+          <div class="author-name">Researcher</div>
+          <div class="author-role">essayist · primary correspondent</div>
+        </div>
+        <div class="author-meta">
+          <div class="green">● active</div>
+          <div>284 sessions</div>
+        </div>
+      </div>
+
+      <div class="author-card">
+        <span class="author-portrait p2">C</span>
+        <div>
+          <div class="author-name">Codex</div>
+          <div class="author-role">in residence · the technician</div>
+        </div>
+        <div class="author-meta">
+          <div class="green">● active</div>
+          <div>171 sessions</div>
+        </div>
+      </div>
+
+      <div class="author-card">
+        <span class="author-portrait p3">C</span>
+        <div>
+          <div class="author-name">Concierge</div>
+          <div class="author-role">household · meals, errands, calendar</div>
+        </div>
+        <div class="author-meta">
+          <div class="green">● active</div>
+          <div>104 sessions</div>
+        </div>
+      </div>
+
+      <div class="author-card">
+        <span class="author-portrait p4">A</span>
+        <div>
+          <div class="author-name">Atlas</div>
+          <div class="author-role">project clerk · Jira &amp; Confluence</div>
+        </div>
+        <div class="author-meta">
+          <div>idle 4 d</div>
+          <div>62 sessions</div>
+        </div>
+      </div>
+
+      <div class="author-card">
+        <span class="author-portrait p5">L</span>
+        <div>
+          <div class="author-name">Loom</div>
+          <div class="author-role">in correspondence · letters &amp; reply drafts</div>
+        </div>
+        <div class="author-meta">
+          <div>idle 9 d</div>
+          <div>48 sessions</div>
+        </div>
+      </div>
+
+      <div class="author-card">
+        <span class="author-portrait p1" style="background:linear-gradient(135deg,#e3e0d2,#aeb09a);color:#3f422f">F</span>
+        <div>
+          <div class="author-name">Florilegium</div>
+          <div class="author-role">commonplace · reading notes</div>
+        </div>
+        <div class="author-meta">
+          <div>idle 2 w</div>
+          <div>31 sessions</div>
+        </div>
+      </div>
+
+      <button class="studio-directory__newbtn">
+        <div class="lbl">Commission a new contributor</div>
+        <div class="sub">Begin from a blank page or from an existing voice</div>
+      </button>
+    </aside>
+
+    <article class="studio-main">
+
+      <header class="studio-main__head">
+        <div>
+          <div class="meta">Now editing — folio nº 1</div>
+          <h2>Re<em>searcher</em></h2>
+        </div>
+        <div class="studio-main__actions">
+          <button class="btn-ghost">Duplicate</button>
+          <button class="btn-ghost">Revisions</button>
+          <button class="btn-primary">Save folio</button>
+        </div>
+      </header>
+
+      <nav class="tabs">
+        <div class="tabs__item is-active"><span class="n">i.</span>General</div>
+        <div class="tabs__item"><span class="n">ii.</span>Tools <span style="color:var(--ink-faint);font-family:var(--mono);font-size:11px;margin-left:6px;">7</span></div>
+        <div class="tabs__item"><span class="n">iii.</span>MCP Sources <span style="color:var(--ink-faint);font-family:var(--mono);font-size:11px;margin-left:6px;">3</span></div>
+        <div class="tabs__item"><span class="n">iv.</span>Overrides</div>
+        <div class="tabs__item"><span class="n">v.</span>Memory</div>
+      </nav>
+
+      <div class="field-stack">
+
+        <div class="field">
+          <label class="field__lbl">
+            Folio title
+            <span class="hint">The name on the byline of every letter this agent writes.</span>
+          </label>
+          <input class="field__input" value="Researcher" />
+        </div>
+
+        <div class="field">
+          <label class="field__lbl">
+            Subtitle
+            <span class="hint">A short description, italicised in lists.</span>
+          </label>
+          <input class="field__input" value="Essayist · primary correspondent" />
+        </div>
+
+        <div class="field">
+          <label class="field__lbl">
+            Disposition
+            <span class="hint">The voice — written long, kept under 4,000 characters; this becomes the system prompt.</span>
+          </label>
+          <textarea class="field__textarea" rows="8">You are Researcher, a careful and slow-thinking essayist. You write at the pace of a letter, not a tweet. You cite your sources from the tool calls you make and from the operator's own files; you do not bluff. When asked a binary question, you give both honest answers and indicate which one you would choose if it were your laptop on the train. You are allowed, and indeed encouraged, to be opinionated — but the opinions must be earned from what is on the page.</textarea>
+        </div>
+
+        <div class="field">
+          <label class="field__lbl">
+            Model
+            <span class="hint">The instrument. Researcher prefers a long-context, slow-thinking model.</span>
+          </label>
+          <div class="select-display">
+            <span class="name italic-serif" style="font-style:italic;">gpt-4o</span>
+            <span class="badge">openai · personal</span>
+            <span class="badge" style="color:var(--sage);border-color:var(--sage);">128k ctx</span>
+            <span class="badge">tools ✓</span>
+            <span class="caret">⌄</span>
+          </div>
+        </div>
+
+        <div class="field">
+          <label class="field__lbl">
+            Concurrency &amp; ceilings
+          </label>
+          <div class="field__row">
+            <div>
+              <span class="smallcap" style="display:block;margin-bottom:6px;">Max iterations</span>
+              <input class="field__input field__input--mono" value="20" />
+            </div>
+            <div>
+              <span class="smallcap" style="display:block;margin-bottom:6px;">Temperature</span>
+              <input class="field__input field__input--mono" value="0.4" />
+            </div>
+          </div>
+        </div>
+
+        <div class="field">
+          <label class="field__lbl">
+            Cabinet of tools
+            <span class="hint">Hover any to read its operator-set defaults. Off here is off forever, regardless of what the operator allows globally.</span>
+          </label>
+          <div>
+            <div class="tools-mini-grid">
+              <div class="tool-mini">
+                <div class="tool-mini__head"><span class="tool-mini__name">read_file</span><span class="switch is-on"></span></div>
+                <div class="tool-mini__desc">read disk · narrowed to ~/Documents</div>
+              </div>
+              <div class="tool-mini">
+                <div class="tool-mini__head"><span class="tool-mini__name">write_file</span><span class="switch is-on"></span></div>
+                <div class="tool-mini__desc">write disk · narrowed to ~/Drafts</div>
+              </div>
+              <div class="tool-mini is-off">
+                <div class="tool-mini__head"><span class="tool-mini__name">shell</span><span class="switch"></span></div>
+                <div class="tool-mini__desc">off · Codex's province</div>
+              </div>
+              <div class="tool-mini">
+                <div class="tool-mini__head"><span class="tool-mini__name">http_request</span><span class="switch is-on"></span></div>
+                <div class="tool-mini__desc">fetch web · 120 s ceiling</div>
+              </div>
+              <div class="tool-mini">
+                <div class="tool-mini__head"><span class="tool-mini__name">fetch_url</span><span class="switch is-on"></span></div>
+                <div class="tool-mini__desc">retrieve rendered article body</div>
+              </div>
+              <div class="tool-mini">
+                <div class="tool-mini__head"><span class="tool-mini__name">web_search</span><span class="switch is-on"></span></div>
+                <div class="tool-mini__desc">duckduckgo, 8 results · cached 12 h</div>
+              </div>
+              <div class="tool-mini is-off">
+                <div class="tool-mini__head"><span class="tool-mini__name">python_exec</span><span class="switch"></span></div>
+                <div class="tool-mini__desc">off</div>
+              </div>
+              <div class="tool-mini">
+                <div class="tool-mini__head"><span class="tool-mini__name">grep</span><span class="switch is-on"></span></div>
+                <div class="tool-mini__desc">notebook search</div>
+              </div>
+              <div class="tool-mini">
+                <div class="tool-mini__head"><span class="tool-mini__name">glob</span><span class="switch is-on"></span></div>
+                <div class="tool-mini__desc">path discovery</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="field">
+          <label class="field__lbl">
+            MCP sources
+            <span class="hint">External servers the agent may speak to. Read-only access by default; per-server scopes set in the source itself.</span>
+          </label>
+          <div>
+            <div class="mcp-entry">
+              <span class="seal">A</span>
+              <div>
+                <div class="name">mcp_atlassian <em style="color:var(--ink-faint);font-style:italic;font-size:13px;">— jira &amp; confluence</em></div>
+                <div class="trans">streamable-http · oauth · 14 tools · last call 1m ago</div>
+              </div>
+              <span class="health">● healthy</span>
+            </div>
+            <div class="mcp-entry">
+              <span class="seal">F</span>
+              <div>
+                <div class="name">mcp_filesystem <em style="color:var(--ink-faint);font-style:italic;font-size:13px;">— ~/Notebook</em></div>
+                <div class="trans">stdio · bwrap sandbox · 6 tools · idle 42m</div>
+              </div>
+              <span class="health">● healthy</span>
+            </div>
+            <div class="mcp-entry">
+              <span class="seal">L</span>
+              <div>
+                <div class="name">mcp_library <em style="color:var(--ink-faint);font-style:italic;font-size:13px;">— Calibre, local catalogue</em></div>
+                <div class="trans">stdio · 9 tools · last call 2 h ago</div>
+              </div>
+              <span class="health is-warn">◐ token expires in 3 d</span>
+            </div>
+            <a class="util-action" style="display:inline-block;margin-top:14px;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-mute)">+ attach a fourth source</a>
+          </div>
+        </div>
+
+      </div>
+    </article>
+  </div>
+</section>
+
+<!-- Ornament divider -->
+<div class="ornament-row">
+  <span class="line"></span>
+  <span class="glyph">❦</span>
+  <span class="line"></span>
+</div>
+
+<!-- ————— Admin ————— -->
+<section class="section" id="admin">
+  <div class="section-head">
+    <div class="section-head__index">
+      <span class="index-num">III.</span>
+      <span class="smallcap index-label">Administration</span>
+    </div>
+    <h2 class="section-head__title">The <em>back of house —</em> <span class="accent">keys, suppliers, the cabinet.</span></h2>
+    <p class="section-head__lede">
+      Where the LLM providers are listed like a catalogue of suppliers, the tools are organised like a library's call numbers, and the encryption key is rotated like a séance — quietly, but on a schedule.
+    </p>
+  </div>
+
+  <div class="admin-layout">
+
+    <aside class="admin-nav">
+      <div class="admin-nav__item is-active">
+        <span class="num">i.</span>
+        <span class="lbl">Providers</span>
+        <div class="desc">5 catalogued · 1 idle</div>
+      </div>
+      <div class="admin-nav__item">
+        <span class="num">ii.</span>
+        <span class="lbl">Built-in tools</span>
+        <div class="desc">19 entries · 17 enabled</div>
+      </div>
+      <div class="admin-nav__item">
+        <span class="num">iii.</span>
+        <span class="lbl">Encryption</span>
+        <div class="desc">key rotated 14 d ago</div>
+      </div>
+      <div class="admin-nav__item">
+        <span class="num">iv.</span>
+        <span class="lbl">Base prompt</span>
+        <div class="desc">read-only · v7</div>
+      </div>
+      <div class="admin-nav__item">
+        <span class="num">v.</span>
+        <span class="lbl">Appearance</span>
+        <div class="desc">theme · auto</div>
+      </div>
+      <div class="admin-nav__item">
+        <span class="num">vi.</span>
+        <span class="lbl">System</span>
+        <div class="desc">v0.7.3 · sqlite v10</div>
+      </div>
+    </aside>
+
+    <div>
+
+      <!-- Provider catalog -->
+      <div class="provider-catalog">
+        <header class="provider-catalog__head">
+          <div>
+            <h3>Suppliers <em>on retainer</em></h3>
+            <p>Five model providers configured locally. API keys are stored encrypted at rest with Fernet; the master key lives at <span class="mono" style="color:var(--ink);">{data_dir}/encryption.key</span>.</p>
+          </div>
+          <button class="btn-primary">+ Add provider</button>
+        </header>
+
+        <div class="provider-row">
+          <span class="num">i.</span>
+          <div class="provider-name">
+            OpenAI · personal
+            <span class="sub">primary · the long-context room</span>
+          </div>
+          <div class="provider-type">openai</div>
+          <div class="provider-key">key · <span>sk-…</span>9F2c</div>
+          <div class="provider-stamp">
+            in use
+            <span class="when">last 11:08 today</span>
+          </div>
+          <span class="provider-brand">OpenAI</span>
+        </div>
+
+        <div class="provider-row">
+          <span class="num">ii.</span>
+          <div class="provider-name">
+            Anthropic · personal
+            <span class="sub">the careful room · for code &amp; long letters</span>
+          </div>
+          <div class="provider-type">anthropic</div>
+          <div class="provider-key">key · <span>sk-ant-…</span>4Bk1</div>
+          <div class="provider-stamp">
+            in use
+            <span class="when">last May 11, 21:42</span>
+          </div>
+          <span class="provider-brand b-ant">Anthropic</span>
+        </div>
+
+        <div class="provider-row">
+          <span class="num">iii.</span>
+          <div class="provider-name">
+            Ollama · local
+            <span class="sub">localhost:11434 · for the offline train ride</span>
+          </div>
+          <div class="provider-type">ollama</div>
+          <div class="provider-key">key · <span class="italic-serif" style="font-style:italic;color:var(--ink-faint);">none required</span></div>
+          <div class="provider-stamp">
+            in use
+            <span class="when">last May 10, 18:11</span>
+          </div>
+          <span class="provider-brand b-llama">Local · Llama</span>
+        </div>
+
+        <div class="provider-row">
+          <span class="num">iv.</span>
+          <div class="provider-name">
+            Azure OpenAI · sandbox
+            <span class="sub">eu-west · enterprise rehearsal</span>
+          </div>
+          <div class="provider-type">openai-compatible</div>
+          <div class="provider-key">key · <span>az-…</span>87dE</div>
+          <div class="provider-stamp">
+            idle
+            <span class="when">11 d ago</span>
+          </div>
+          <span class="provider-brand b-azure">Azure</span>
+        </div>
+
+        <div class="provider-row">
+          <span class="num">v.</span>
+          <div class="provider-name">
+            Mock · dev
+            <span class="sub">deterministic stub · browser tests only</span>
+          </div>
+          <div class="provider-type">mock</div>
+          <div class="provider-key">key · <span class="italic-serif" style="font-style:italic;color:var(--ink-faint);">n/a</span></div>
+          <div class="provider-stamp">
+            dev mode
+            <span class="when">always available</span>
+          </div>
+          <span class="provider-brand b-mock">Mock</span>
+        </div>
+
+        <div style="margin-top: 40px; display: flex; justify-content: space-between; align-items: center; padding-top: 24px; border-top: 1px solid var(--rule-soft);">
+          <div>
+            <div class="smallcap" style="margin-bottom: 6px;">Encryption key</div>
+            <div class="italic-serif" style="font-style:italic;font-size:21px;color:var(--ink);">Rotated 14 days ago — well within tolerance.</div>
+            <div style="font-family:var(--mono);font-size:11.5px;color:var(--ink-faint);margin-top:8px;">fingerprint · sha256:9c3b…41af · 256-bit Fernet · auto-rotates 11 providers, 4 mcp secrets</div>
+          </div>
+          <button class="btn-ghost">Rotate now</button>
+        </div>
+      </div>
+
+      <!-- Tools library -->
+      <section class="tools-section">
+        <header class="tools-section__head">
+          <div>
+            <h3>The <em>library</em></h3>
+            <p style="font-family:var(--serif);color:var(--ink-mute);margin:6px 0 0;">Nineteen built-in tools, organised by call number. Each entry sets the operator-level default — agents may narrow these, never widen them.</p>
+          </div>
+          <div class="tools-section__filters">
+            <span class="is-active">All</span>
+            <span>Filesystem</span>
+            <span>Execution</span>
+            <span>Web</span>
+            <span>Session</span>
+          </div>
+        </header>
+
+        <div class="tools-grid">
+
+          <div class="tool-card">
+            <span class="tool-card__cat cat-fs">Filesystem · F.01</span>
+            <span class="tool-card__name">read_file</span>
+            <span class="tool-card__desc">Read a file from disk. Honors the allowlist; refuses anything beyond 1 MiB unless invited.</span>
+            <div class="tool-card__foot">
+              <span class="tool-card__bytes">cap · 1 MiB</span>
+              <span class="switch is-on"></span>
+            </div>
+          </div>
+
+          <div class="tool-card">
+            <span class="tool-card__cat cat-fs">Filesystem · F.02</span>
+            <span class="tool-card__name">write_file</span>
+            <span class="tool-card__desc">Write or overwrite a file, with the same boundaries as read.</span>
+            <div class="tool-card__foot">
+              <span class="tool-card__bytes">allow · ~</span>
+              <span class="switch is-on"></span>
+            </div>
+          </div>
+
+          <div class="tool-card">
+            <span class="tool-card__cat cat-fs">Filesystem · F.03</span>
+            <span class="tool-card__name">edit_file</span>
+            <span class="tool-card__desc">String-replace within a single file. Errors loudly on ambiguous match.</span>
+            <div class="tool-card__foot">
+              <span class="tool-card__bytes">exact match</span>
+              <span class="switch is-on"></span>
+            </div>
+          </div>
+
+          <div class="tool-card">
+            <span class="tool-card__cat cat-fs">Filesystem · F.04</span>
+            <span class="tool-card__name">delete_file</span>
+            <span class="tool-card__desc">Permanently remove a file. No trash, no undo.</span>
+            <div class="tool-card__foot">
+              <span class="tool-card__bytes">irreversible</span>
+              <span class="switch is-on"></span>
+            </div>
+          </div>
+
+          <div class="tool-card">
+            <span class="tool-card__cat cat-fs">Filesystem · F.05</span>
+            <span class="tool-card__name">move_file</span>
+            <span class="tool-card__desc">Rename or relocate. Both ends must be on the allowlist.</span>
+            <div class="tool-card__foot">
+              <span class="tool-card__bytes">atomic rename</span>
+              <span class="switch is-on"></span>
+            </div>
+          </div>
+
+          <div class="tool-card">
+            <span class="tool-card__cat cat-fs">Filesystem · F.06</span>
+            <span class="tool-card__name">mkdir</span>
+            <span class="tool-card__desc">Make a directory, optionally with parents.</span>
+            <div class="tool-card__foot">
+              <span class="tool-card__bytes">recursive · ✓</span>
+              <span class="switch is-on"></span>
+            </div>
+          </div>
+
+          <div class="tool-card">
+            <span class="tool-card__cat cat-fs">Filesystem · F.07</span>
+            <span class="tool-card__name">glob</span>
+            <span class="tool-card__desc">Pattern-match across the filesystem; honors the same allowlist for results.</span>
+            <div class="tool-card__foot">
+              <span class="tool-card__bytes">return ≤ 500</span>
+              <span class="switch is-on"></span>
+            </div>
+          </div>
+
+          <div class="tool-card">
+            <span class="tool-card__cat cat-fs">Filesystem · F.08</span>
+            <span class="tool-card__name">grep</span>
+            <span class="tool-card__desc">Regex search across files, with line numbers and 2-line context windows.</span>
+            <div class="tool-card__foot">
+              <span class="tool-card__bytes">PCRE2</span>
+              <span class="switch is-on"></span>
+            </div>
+          </div>
+
+          <div class="tool-card">
+            <span class="tool-card__cat cat-fs">Filesystem · F.09</span>
+            <span class="tool-card__name">list_dir</span>
+            <span class="tool-card__desc">Directory listing with depth and gitignore awareness.</span>
+            <div class="tool-card__foot">
+              <span class="tool-card__bytes">depth ≤ 4</span>
+              <span class="switch is-on"></span>
+            </div>
+          </div>
+
+          <div class="tool-card">
+            <span class="tool-card__cat cat-exec">Execution · E.01</span>
+            <span class="tool-card__name">shell</span>
+            <span class="tool-card__desc">A single shell command. Output is tail-capped and timed; the denylist is a trip-wire, not a fence.</span>
+            <div class="tool-card__foot">
+              <span class="tool-card__bytes">120 s · 256 KiB</span>
+              <span class="switch is-on"></span>
+            </div>
+          </div>
+
+          <div class="tool-card">
+            <span class="tool-card__cat cat-exec">Execution · E.02</span>
+            <span class="tool-card__name">python_exec</span>
+            <span class="tool-card__desc">A short Python script in a fresh interpreter. Inherits no host environment beyond the 8-key allowlist.</span>
+            <div class="tool-card__foot">
+              <span class="tool-card__bytes">90 s default</span>
+              <span class="switch is-on"></span>
+            </div>
+          </div>
+
+          <div class="tool-card is-off">
+            <span class="tool-card__cat cat-exec">Execution · E.03</span>
+            <span class="tool-card__name">shell_session_start</span>
+            <span class="tool-card__desc">Open a persistent PTY session. Lives until idle TTL or operator close.</span>
+            <div class="tool-card__foot">
+              <span class="tool-card__bytes">disabled by policy</span>
+              <span class="switch"></span>
+            </div>
+          </div>
+
+          <div class="tool-card is-off">
+            <span class="tool-card__cat cat-exec">Execution · E.04</span>
+            <span class="tool-card__name">shell_session_send</span>
+            <span class="tool-card__desc">Send a line into an open PTY; per-call denylist check still applies.</span>
+            <div class="tool-card__foot">
+              <span class="tool-card__bytes">disabled by policy</span>
+              <span class="switch"></span>
+            </div>
+          </div>
+
+          <div class="tool-card">
+            <span class="tool-card__cat cat-exec">Execution · E.05</span>
+            <span class="tool-card__name">shell_session_close</span>
+            <span class="tool-card__desc">Close an open session. Idempotent.</span>
+            <div class="tool-card__foot">
+              <span class="tool-card__bytes">graceful · SIGTERM</span>
+              <span class="switch is-on"></span>
+            </div>
+          </div>
+
+          <div class="tool-card">
+            <span class="tool-card__cat cat-exec">Execution · E.06</span>
+            <span class="tool-card__name">shell_session_list</span>
+            <span class="tool-card__desc">Enumerate open sessions for this agent. Cross-agent leaks are intentional zero.</span>
+            <div class="tool-card__foot">
+              <span class="tool-card__bytes">per-agent</span>
+              <span class="switch is-on"></span>
+            </div>
+          </div>
+
+          <div class="tool-card">
+            <span class="tool-card__cat cat-web">Web · W.01</span>
+            <span class="tool-card__name">http_request</span>
+            <span class="tool-card__desc">An arbitrary HTTP request, SSRF-pinned. Loopback and metadata addresses refused.</span>
+            <div class="tool-card__foot">
+              <span class="tool-card__bytes">cap · 1 MiB · 5 redirects</span>
+              <span class="switch is-on"></span>
+            </div>
+          </div>
+
+          <div class="tool-card">
+            <span class="tool-card__cat cat-web">Web · W.02</span>
+            <span class="tool-card__name">fetch_url</span>
+            <span class="tool-card__desc">Fetch and render the readable body of a page — Mercury-style.</span>
+            <div class="tool-card__foot">
+              <span class="tool-card__bytes">strip · ✓</span>
+              <span class="switch is-on"></span>
+            </div>
+          </div>
+
+          <div class="tool-card">
+            <span class="tool-card__cat cat-web">Web · W.03</span>
+            <span class="tool-card__name">download_file</span>
+            <span class="tool-card__desc">Stream a remote file to a path the operator has named writable.</span>
+            <div class="tool-card__foot">
+              <span class="tool-card__bytes">cap · 100 MB</span>
+              <span class="switch is-on"></span>
+            </div>
+          </div>
+
+          <div class="tool-card">
+            <span class="tool-card__cat cat-web">Web · W.04</span>
+            <span class="tool-card__name">web_search</span>
+            <span class="tool-card__desc">DuckDuckGo HTML search, 8 results, with title + url + snippet.</span>
+            <div class="tool-card__foot">
+              <span class="tool-card__bytes">backend · DDG</span>
+              <span class="switch is-on"></span>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+    </div>
+  </div>
+</section>
+
+<!-- ————— Colophon ————— -->
+<footer class="colophon">
+  <div class="colophon-inner">
+    <div>
+      <h6>The instrument</h6>
+      <ul>
+        <li><a href="#">v0.7.3 · "Atelier"</a></li>
+        <li><a href="#">Python 3.11 · FastAPI</a></li>
+        <li><a href="#">SQLite schema v10</a></li>
+        <li><a href="#">Fernet · 256-bit</a></li>
+      </ul>
+    </div>
+    <div>
+      <h6>Composed of</h6>
+      <ul>
+        <li><a href="#">19 built-in tools</a></li>
+        <li><a href="#">7 contributors</a></li>
+        <li><a href="#">5 providers</a></li>
+        <li><a href="#">3 MCP sources</a></li>
+      </ul>
+    </div>
+    <div>
+      <h6>Read further</h6>
+      <ul>
+        <li><a href="#">SECURITY-MODEL.md</a></li>
+        <li><a href="#">agents.md · conventions</a></li>
+        <li><a href="#">Tool authorship contract</a></li>
+        <li><a href="#">F2 ··· F8 mission notes</a></li>
+      </ul>
+    </div>
+    <div>
+      <h6>Hand-set in</h6>
+      <ul>
+        <li><a href="#">Fraunces (display, serif)</a></li>
+        <li><a href="#">Inter Tight (sans)</a></li>
+        <li><a href="#">JetBrains Mono (code)</a></li>
+        <li><a href="#">A single ochre, used sparingly</a></li>
+      </ul>
+    </div>
+    <div class="colophon__sig">
+      <span>GleepGlorp · Atelier direction · for review by JD Singh · v04 · May 2026</span>
+      <span class="glyph">❦</span>
+      <span>An operator's quarterly · printed locally</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+  // —— minimal: tool-note collapse toggle is inline.
+  //    The composer auto-grows.
+  const ta = document.querySelector('.composer__input');
+  if (ta) {
+    const grow = () => {
+      ta.style.height = 'auto';
+      ta.style.height = (ta.scrollHeight + 4) + 'px';
+    };
+    ta.addEventListener('input', grow);
+    grow();
+  }
+
+  // —— nav-tab active state on scroll (gentle, no jank)
+  const navLinks = document.querySelectorAll('.nav-tabs a');
+  const sections = ['chat','studio','admin'].map(id => document.getElementById(id));
+  const setActive = () => {
+    const y = window.scrollY + 140;
+    let curr = sections[0];
+    for (const s of sections) { if (s && s.offsetTop <= y) curr = s; }
+    navLinks.forEach(a => a.classList.toggle('is-active', a.getAttribute('href') === '#' + (curr ? curr.id : 'chat')));
+  };
+  window.addEventListener('scroll', setActive, { passive: true });
+  setActive();
+
+  // —— admin nav 'active' rotates with click
+  document.querySelectorAll('.admin-nav__item').forEach(el => {
+    el.addEventListener('click', () => {
+      document.querySelectorAll('.admin-nav__item').forEach(x => x.classList.remove('is-active'));
+      el.classList.add('is-active');
+    });
+  });
+
+  // —— author card switching (decorative only)
+  document.querySelectorAll('.author-card').forEach(el => {
+    el.addEventListener('click', () => {
+      document.querySelectorAll('.author-card').forEach(x => x.classList.remove('is-current'));
+      el.classList.add('is-current');
+    });
+  });
+
+  // —— studio tab swap (decorative)
+  document.querySelectorAll('.tabs__item').forEach(el => {
+    el.addEventListener('click', () => {
+      el.parentElement.querySelectorAll('.tabs__item').forEach(x => x.classList.remove('is-active'));
+      el.classList.add('is-active');
+    });
+  });
+</script>
+
+</body>
+</html>

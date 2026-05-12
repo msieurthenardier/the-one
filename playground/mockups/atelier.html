@@ -1,0 +1,1404 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>GleepGlorp AI — Atelier v2</title>
+<meta name="viewport" content="width=1280" />
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  /* -------------- Tokens -------------- */
+  :root {
+    /* Surfaces */
+    --bg:           #fafaf9;   /* page */
+    --bg-elev:     #ffffff;   /* cards, composer */
+    --bg-tint:     #f5f4f0;   /* hover, active sidebar row */
+    --bg-quiet:    #f1efe9;   /* inline code, soft chips */
+
+    /* Lines */
+    --line:        #e8e5dd;
+    --line-strong: #d9d5cb;
+
+    /* Text */
+    --text:        #2a2826;
+    --text-soft:   #5a5754;
+    --text-mute:   #918d86;
+    --text-faint:  #b6b1a8;
+
+    /* Accent — restrained desaturated sage */
+    --accent:      #5f7a5a;
+    --accent-soft: rgba(95, 122, 90, 0.10);
+    --accent-ring: rgba(95, 122, 90, 0.28);
+
+    /* Semantic dots (used sparingly) */
+    --ok:    #5f7a5a;
+    --warn:  #b07d3a;
+    --err:   #a85a4e;
+
+    --radius-sm: 6px;
+    --radius:    8px;
+    --radius-lg: 10px;
+
+    --shadow-card: 0 1px 0 rgba(20,18,15,0.02);
+
+    --font-sans: 'Inter', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: var(--font-sans);
+    background: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: 'cv11', 'ss01';
+    min-width: 1280px;
+  }
+
+  button, input, textarea, select { font: inherit; color: inherit; }
+  button { cursor: pointer; background: none; border: none; padding: 0; }
+  a { color: inherit; text-decoration: none; }
+
+  ::selection { background: var(--accent-soft); }
+
+  /* Focus rings: always visible on keyboard focus */
+  :focus { outline: none; }
+  :focus-visible {
+    outline: 2px solid var(--accent-ring);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+
+  /* -------------- Top nav -------------- */
+  .topnav {
+    height: 56px;
+    border-bottom: 1px solid var(--line);
+    background: var(--bg);
+    display: flex;
+    align-items: center;
+    padding: 0 32px;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  .brand {
+    display: flex; align-items: center; gap: 10px;
+    font-weight: 600; font-size: 14px; letter-spacing: -0.005em;
+  }
+  .brand-mark {
+    width: 22px; height: 22px;
+    border-radius: 6px;
+    background: var(--text);
+    display: grid; place-items: center;
+    color: var(--bg);
+    font-weight: 700; font-size: 11px;
+    letter-spacing: 0;
+  }
+  .brand-name { color: var(--text); }
+  .brand-suffix { color: var(--text-mute); font-weight: 500; }
+
+  .nav-tabs {
+    display: flex;
+    gap: 2px;
+    margin: 0 auto;
+  }
+  .nav-tab {
+    padding: 8px 14px;
+    color: var(--text-soft);
+    font-size: 13.5px;
+    font-weight: 500;
+    border-radius: var(--radius-sm);
+    position: relative;
+    transition: color 160ms ease-out, background 160ms ease-out;
+  }
+  .nav-tab:hover { color: var(--text); background: var(--bg-tint); }
+  .nav-tab.is-active { color: var(--text); }
+  .nav-tab.is-active::after {
+    content: "";
+    position: absolute;
+    left: 14px; right: 14px;
+    bottom: -19px;
+    height: 2px;
+    background: var(--accent);
+    border-radius: 1px;
+  }
+
+  .nav-right {
+    display: flex; align-items: center; gap: 12px;
+    color: var(--text-mute);
+    font-size: 12.5px;
+  }
+  .nav-kbd {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-mute);
+    border: 1px solid var(--line);
+    background: var(--bg-elev);
+    padding: 2px 6px;
+    border-radius: 4px;
+  }
+  .avatar {
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #c9c1b2, #8c8678);
+    color: var(--bg-elev);
+    display: grid; place-items: center;
+    font-size: 11px; font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+
+  /* -------------- Area host -------------- */
+  .area { display: none; }
+  .area.is-active { display: block; }
+
+  /* -------------- Two-pane layout -------------- */
+  .pane {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    min-height: calc(100vh - 56px);
+  }
+  .side {
+    border-right: 1px solid var(--line);
+    padding: 24px 16px;
+    background: var(--bg);
+  }
+  .side-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 8px 12px;
+  }
+  .side-title {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--text-mute);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .icon-btn {
+    width: 26px; height: 26px;
+    border-radius: 6px;
+    color: var(--text-mute);
+    display: grid; place-items: center;
+    transition: background 160ms ease-out, color 160ms ease-out;
+  }
+  .icon-btn:hover { background: var(--bg-tint); color: var(--text); }
+  .icon-btn svg { width: 14px; height: 14px; }
+
+  .side-group {
+    padding: 16px 8px 6px;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-faint);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .sess {
+    display: block;
+    padding: 9px 10px;
+    border-radius: var(--radius-sm);
+    margin-bottom: 1px;
+    transition: background 160ms ease-out;
+    cursor: pointer;
+  }
+  .sess:hover { background: var(--bg-tint); }
+  .sess.is-active { background: var(--bg-tint); }
+  .sess.is-active .sess-title { color: var(--text); }
+  .sess-row {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 10px;
+  }
+  .sess-title {
+    font-size: 13px; font-weight: 500;
+    color: var(--text-soft);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .sess-time {
+    font-size: 11.5px;
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+  }
+  .sess-sub {
+    font-size: 11.5px;
+    color: var(--text-mute);
+    margin-top: 2px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+
+  .content {
+    padding: 40px 56px 80px;
+    max-width: 920px;
+    width: 100%;
+  }
+
+  /* -------------- Chat -------------- */
+  .chat-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding-bottom: 20px;
+    margin-bottom: 32px;
+    border-bottom: 1px solid var(--line);
+  }
+  .chat-title {
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--text);
+  }
+  .chat-meta {
+    display: flex; align-items: center; gap: 12px;
+    color: var(--text-mute);
+    font-size: 12.5px;
+  }
+  .chat-meta-dot { width: 4px; height: 4px; border-radius: 50%; background: var(--text-faint); }
+
+  .msg {
+    margin-bottom: 36px;
+  }
+  .msg-head {
+    font-size: 12px;
+    color: var(--text-mute);
+    margin-bottom: 8px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .msg-author { color: var(--text-soft); font-weight: 500; }
+  .msg-sep { color: var(--text-faint); }
+  .msg-model { font-family: var(--font-mono); font-size: 11.5px; }
+  .msg-time { font-variant-numeric: tabular-nums; }
+
+  .msg-body {
+    color: var(--text);
+    font-size: 14.5px;
+    line-height: 1.65;
+    max-width: 62ch;
+  }
+  .msg-body p { margin: 0 0 12px; }
+  .msg-body p:last-child { margin-bottom: 0; }
+
+  .msg-user { display: flex; justify-content: flex-end; }
+  .msg-user .msg-inner { max-width: 62ch; }
+  .msg-user .msg-head { justify-content: flex-end; }
+  .msg-user .msg-body {
+    background: var(--bg-tint);
+    padding: 12px 16px;
+    border-radius: var(--radius);
+    border: 1px solid var(--line);
+  }
+
+  /* Tool calls */
+  .tool {
+    margin: 12px 0 4px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--bg-elev);
+    overflow: hidden;
+    max-width: 62ch;
+  }
+  .tool-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px;
+    cursor: pointer;
+    transition: background 160ms ease-out;
+  }
+  .tool-head:hover { background: var(--bg-tint); }
+  .tool-chevron {
+    color: var(--text-mute);
+    transition: transform 160ms ease-out;
+  }
+  .tool.is-open .tool-chevron { transform: rotate(90deg); }
+  .tool-chevron svg { width: 12px; height: 12px; display: block; }
+
+  .tool-sig {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    color: var(--text-soft);
+    flex: 1;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .tool-sig .tname { color: var(--text); }
+  .tool-sig .tdim { color: var(--text-mute); }
+  .tool-status {
+    font-size: 11.5px;
+    color: var(--text-mute);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); display: inline-block; }
+  .dot.warn { background: var(--warn); }
+  .dot.err { background: var(--err); }
+  .dot.idle { background: var(--text-faint); }
+
+  .tool-body {
+    display: none;
+    border-top: 1px solid var(--line);
+    padding: 14px 16px;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    color: var(--text-soft);
+    background: #fbfaf7;
+    line-height: 1.6;
+    white-space: pre-wrap;
+  }
+  .tool.is-open .tool-body { display: block; }
+
+  /* Composer */
+  .composer {
+    margin-top: 40px;
+    border: 1px solid var(--line);
+    background: var(--bg-elev);
+    border-radius: var(--radius-lg);
+    padding: 14px 16px 12px;
+    transition: border-color 160ms ease-out, box-shadow 160ms ease-out;
+  }
+  .composer:focus-within {
+    border-color: var(--line-strong);
+    box-shadow: 0 0 0 4px var(--accent-ring);
+  }
+  .composer textarea {
+    width: 100%;
+    border: none;
+    background: transparent;
+    resize: none;
+    font-size: 14.5px;
+    line-height: 1.6;
+    min-height: 56px;
+    padding: 0;
+    color: var(--text);
+  }
+  .composer textarea::placeholder { color: var(--text-faint); }
+  .composer textarea:focus { outline: none; }
+
+  .composer-foot {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-top: 6px;
+  }
+  .composer-tools {
+    display: flex; align-items: center; gap: 4px;
+  }
+  .composer-tools .icon-btn { width: 28px; height: 28px; }
+  .composer-hint {
+    font-size: 11.5px;
+    color: var(--text-faint);
+    margin-left: 4px;
+  }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    height: 30px;
+    padding: 0 14px;
+    border-radius: var(--radius-sm);
+    font-size: 13px; font-weight: 500;
+    transition: background 160ms ease-out, border-color 160ms ease-out;
+    border: 1px solid transparent;
+  }
+  .btn-primary {
+    background: var(--accent);
+    color: #ffffff;
+  }
+  .btn-primary:hover { background: #547052; }
+  .btn-ghost {
+    color: var(--text-soft);
+    border-color: var(--line);
+    background: var(--bg-elev);
+  }
+  .btn-ghost:hover { background: var(--bg-tint); border-color: var(--line-strong); }
+
+  /* -------------- Studio -------------- */
+  .studio-agent {
+    display: flex; align-items: flex-start; gap: 12px;
+    padding: 10px;
+    border-radius: var(--radius-sm);
+    margin-bottom: 1px;
+    transition: background 160ms ease-out;
+    cursor: pointer;
+  }
+  .studio-agent:hover { background: var(--bg-tint); }
+  .studio-agent.is-active { background: var(--bg-tint); }
+  .agent-avatar {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    display: grid; place-items: center;
+    font-size: 12px; font-weight: 600;
+    color: var(--bg-elev);
+    letter-spacing: 0.02em;
+  }
+  .agent-avatar.a { background: linear-gradient(135deg, #8c9d85, #5f7a5a); }
+  .agent-avatar.b { background: linear-gradient(135deg, #a99776, #7d6c4d); }
+  .agent-avatar.c { background: linear-gradient(135deg, #8a8a8a, #5a5a5a); }
+  .agent-avatar.d { background: linear-gradient(135deg, #9d8590, #6f5860); }
+  .agent-info { flex: 1; min-width: 0; }
+  .agent-name { font-size: 13px; font-weight: 500; color: var(--text); }
+  .agent-model {
+    font-size: 11.5px;
+    color: var(--text-mute);
+    font-family: var(--font-mono);
+    margin-top: 2px;
+  }
+  .agent-used {
+    font-size: 11px;
+    color: var(--text-faint);
+    flex-shrink: 0;
+    margin-top: 2px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .studio-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding-bottom: 20px;
+    margin-bottom: 8px;
+    border-bottom: 1px solid var(--line);
+  }
+  .studio-title {
+    display: flex; align-items: center; gap: 14px;
+  }
+  .studio-title h2 {
+    margin: 0; font-size: 18px; font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .studio-meta { font-size: 12.5px; color: var(--text-mute); }
+  .studio-actions { display: flex; gap: 8px; }
+
+  .studio-tabs {
+    display: flex; gap: 24px;
+    margin: 8px 0 32px;
+    border-bottom: 1px solid var(--line);
+  }
+  .studio-tab {
+    padding: 12px 0;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-mute);
+    position: relative;
+    transition: color 160ms ease-out;
+  }
+  .studio-tab:hover { color: var(--text-soft); }
+  .studio-tab.is-active { color: var(--text); }
+  .studio-tab.is-active::after {
+    content: "";
+    position: absolute;
+    left: 0; right: 0; bottom: -1px;
+    height: 2px; background: var(--accent);
+    border-radius: 1px;
+  }
+  .studio-tab .count {
+    font-size: 11px;
+    color: var(--text-faint);
+    margin-left: 6px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Forms */
+  .field { margin-bottom: 28px; }
+  .field-label {
+    display: block;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--text);
+    margin-bottom: 6px;
+  }
+  .field-hint {
+    font-size: 12px;
+    color: var(--text-mute);
+    margin-bottom: 10px;
+    max-width: 56ch;
+  }
+  .input, .textarea, .select {
+    width: 100%;
+    background: var(--bg-elev);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    padding: 9px 12px;
+    font-size: 13.5px;
+    color: var(--text);
+    transition: border-color 160ms ease-out, box-shadow 160ms ease-out;
+  }
+  .textarea { min-height: 140px; resize: vertical; line-height: 1.6; }
+  .input:focus, .textarea:focus, .select:focus {
+    border-color: var(--line-strong);
+    box-shadow: 0 0 0 3px var(--accent-ring);
+    outline: none;
+  }
+  .select {
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path d='M2.5 4.5l3.5 3.5 3.5-3.5' fill='none' stroke='%23918d86' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    padding-right: 32px;
+  }
+
+  .row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+
+  /* Tools peek */
+  .peek {
+    margin-top: 56px;
+    border-top: 1px solid var(--line);
+    padding-top: 32px;
+  }
+  .peek-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    margin-bottom: 16px;
+  }
+  .peek-title {
+    font-size: 13px; font-weight: 600; color: var(--text);
+  }
+  .peek-sub {
+    font-size: 12px; color: var(--text-mute);
+  }
+
+  .tool-cat {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-faint);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin: 24px 0 8px;
+  }
+  .tool-cat:first-child { margin-top: 0; }
+  .tool-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .tool-row:last-child { border-bottom: none; }
+  .tool-info { flex: 1; min-width: 0; }
+  .tool-name {
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    color: var(--text);
+    font-weight: 500;
+  }
+  .tool-desc {
+    font-size: 12.5px;
+    color: var(--text-mute);
+    margin-top: 2px;
+  }
+
+  /* Toggle */
+  .toggle {
+    width: 30px; height: 18px;
+    border-radius: 9px;
+    background: var(--line-strong);
+    position: relative;
+    transition: background 160ms ease-out;
+    flex-shrink: 0;
+  }
+  .toggle::after {
+    content: "";
+    position: absolute;
+    top: 2px; left: 2px;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: #fff;
+    transition: transform 160ms ease-out;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+  }
+  .toggle.is-on { background: var(--accent); }
+  .toggle.is-on::after { transform: translateX(12px); }
+
+  /* -------------- Admin -------------- */
+  .admin-shell {
+    padding: 40px 56px 80px;
+    max-width: 1120px;
+    margin: 0 auto;
+  }
+  .admin-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    margin-bottom: 6px;
+  }
+  .admin-title {
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.012em;
+    margin: 0;
+  }
+  .admin-sub {
+    color: var(--text-mute);
+    font-size: 13px;
+    margin-top: 4px;
+    margin-bottom: 28px;
+  }
+
+  .admin-tabs {
+    display: flex; gap: 24px;
+    margin-bottom: 36px;
+    border-bottom: 1px solid var(--line);
+  }
+  .admin-tab {
+    padding: 12px 0;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-mute);
+    position: relative;
+    transition: color 160ms ease-out;
+  }
+  .admin-tab:hover { color: var(--text-soft); }
+  .admin-tab.is-active { color: var(--text); }
+  .admin-tab.is-active::after {
+    content: "";
+    position: absolute;
+    left: 0; right: 0; bottom: -1px;
+    height: 2px; background: var(--accent);
+    border-radius: 1px;
+  }
+
+  .card {
+    background: var(--bg-elev);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-card);
+  }
+  .card-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 18px 24px;
+    border-bottom: 1px solid var(--line);
+  }
+  .card-title {
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .card-sub {
+    font-size: 12.5px;
+    color: var(--text-mute);
+  }
+
+  /* Providers table */
+  .ptable { width: 100%; border-collapse: collapse; }
+  .ptable th {
+    text-align: left;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-mute);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 12px 24px;
+    border-bottom: 1px solid var(--line);
+    background: var(--bg);
+  }
+  .ptable td {
+    padding: 18px 24px;
+    border-bottom: 1px solid var(--line);
+    font-size: 13.5px;
+    color: var(--text);
+    vertical-align: middle;
+  }
+  .ptable tr:last-child td { border-bottom: none; }
+  .ptable tr:hover td { background: var(--bg); }
+
+  .prov-cell {
+    display: flex; align-items: center; gap: 12px;
+  }
+  .prov-badge {
+    width: 26px; height: 26px;
+    border-radius: var(--radius-sm);
+    display: grid; place-items: center;
+    font-size: 11px;
+    font-weight: 600;
+    color: #fff;
+    letter-spacing: -0.01em;
+    flex-shrink: 0;
+  }
+  .prov-name { font-weight: 500; }
+  .prov-id   { font-size: 11.5px; color: var(--text-mute); font-family: var(--font-mono); }
+
+  .ptype {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-soft);
+    background: var(--bg-quiet);
+    padding: 2px 8px;
+    border-radius: 4px;
+    display: inline-block;
+  }
+  .pnum { font-variant-numeric: tabular-nums; color: var(--text-soft); }
+  .ptime { font-variant-numeric: tabular-nums; color: var(--text-mute); font-size: 12.5px; }
+
+  .pstatus { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-soft); }
+
+  /* Two-column admin grid */
+  .admin-grid {
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    gap: 24px;
+    align-items: start;
+  }
+
+  .activity-row {
+    display: flex; align-items: flex-start; gap: 12px;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--line);
+  }
+  .activity-row:last-child { border-bottom: none; }
+  .activity-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    margin-top: 7px;
+    flex-shrink: 0;
+  }
+  .activity-body { flex: 1; min-width: 0; }
+  .activity-text { font-size: 13px; color: var(--text); line-height: 1.5; }
+  .activity-text .em { color: var(--text-soft); font-weight: 500; }
+  .activity-text .mono { font-family: var(--font-mono); font-size: 12px; color: var(--text-soft); }
+  .activity-time {
+    font-size: 11.5px;
+    color: var(--text-faint);
+    margin-top: 3px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* -------------- Utilities -------------- */
+  .stack-sm { display: flex; flex-direction: column; gap: 6px; }
+  .row { display: flex; align-items: center; }
+  .gap-8 { gap: 8px; }
+  .gap-12 { gap: 12px; }
+  .mute { color: var(--text-mute); }
+  .mono { font-family: var(--font-mono); }
+
+  /* Small page-transition fade */
+  .area { animation: none; }
+  .area.is-active { animation: fade 200ms ease-out; }
+  @keyframes fade {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ============ TOP NAV ============ -->
+<header class="topnav">
+  <div class="brand">
+    <div class="brand-mark">G</div>
+    <span class="brand-name">GleepGlorp</span>
+    <span class="brand-suffix">AI</span>
+  </div>
+  <nav class="nav-tabs" role="tablist" aria-label="Primary">
+    <button class="nav-tab is-active" data-tab="chat">Chat</button>
+    <button class="nav-tab" data-tab="studio">Studio</button>
+    <button class="nav-tab" data-tab="admin">Administration</button>
+  </nav>
+  <div class="nav-right">
+    <span class="nav-kbd">⌘K</span>
+    <div class="avatar" aria-label="Account">JS</div>
+  </div>
+</header>
+
+<!-- ============ CHAT ============ -->
+<main id="chat" class="area is-active" role="tabpanel">
+  <div class="pane">
+    <aside class="side">
+      <div class="side-head">
+        <span class="side-title">Sessions</span>
+        <button class="icon-btn" aria-label="New session">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>
+        </button>
+      </div>
+
+      <div class="side-group">Today</div>
+      <a class="sess is-active">
+        <div class="sess-row">
+          <span class="sess-title">Postgres index audit</span>
+          <span class="sess-time">11:42</span>
+        </div>
+        <div class="sess-sub">Researcher · 14 messages</div>
+      </a>
+      <a class="sess">
+        <div class="sess-row">
+          <span class="sess-title">Refactor settings module</span>
+          <span class="sess-time">09:14</span>
+        </div>
+        <div class="sess-sub">Codex · 31 messages</div>
+      </a>
+      <a class="sess">
+        <div class="sess-row">
+          <span class="sess-title">Draft Q2 update note</span>
+          <span class="sess-time">08:02</span>
+        </div>
+        <div class="sess-sub">Concierge · 6 messages</div>
+      </a>
+
+      <div class="side-group">Yesterday</div>
+      <a class="sess">
+        <div class="sess-row">
+          <span class="sess-title">SSRF guard test plan</span>
+          <span class="sess-time">Tue</span>
+        </div>
+        <div class="sess-sub">Researcher · 22 messages</div>
+      </a>
+      <a class="sess">
+        <div class="sess-row">
+          <span class="sess-title">JIRA triage — atlas-2114</span>
+          <span class="sess-time">Tue</span>
+        </div>
+        <div class="sess-sub">Concierge · 9 messages</div>
+      </a>
+
+      <div class="side-group">This week</div>
+      <a class="sess">
+        <div class="sess-row">
+          <span class="sess-title">Reading list for OAuth spec</span>
+          <span class="sess-time">Mon</span>
+        </div>
+        <div class="sess-sub">Researcher · 18 messages</div>
+      </a>
+      <a class="sess">
+        <div class="sess-row">
+          <span class="sess-title">Migrate Fernet keys</span>
+          <span class="sess-time">Sun</span>
+        </div>
+        <div class="sess-sub">Codex · 11 messages</div>
+      </a>
+    </aside>
+
+    <section class="content">
+      <div class="chat-head">
+        <div>
+          <h1 class="chat-title">Postgres index audit</h1>
+        </div>
+        <div class="chat-meta">
+          <span>Researcher</span>
+          <span class="chat-meta-dot"></span>
+          <span class="mono">gpt-4o</span>
+          <span class="chat-meta-dot"></span>
+          <span>14 messages</span>
+        </div>
+      </div>
+
+      <!-- User -->
+      <div class="msg msg-user">
+        <div class="msg-inner">
+          <div class="msg-head">
+            <span class="msg-time">11:38</span>
+            <span class="msg-sep">·</span>
+            <span class="msg-author">You</span>
+          </div>
+          <div class="msg-body">
+            <p>Can you look through <span class="mono" style="font-size:13px;color:var(--text-soft);">db/schema.py</span> and tell me which indexes look like they were added speculatively versus driven by an actual query pattern? Group your answer by table.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Agent with tool call -->
+      <div class="msg">
+        <div class="msg-head">
+          <span class="msg-author">Researcher</span>
+          <span class="msg-sep">·</span>
+          <span class="msg-model">gpt-4o</span>
+          <span class="msg-sep">·</span>
+          <span class="msg-time">11:39</span>
+        </div>
+        <div class="msg-body">
+          <p>Reading the schema file now. I'll cross-reference index definitions against query call sites before grouping.</p>
+        </div>
+
+        <div class="tool is-open">
+          <div class="tool-head">
+            <span class="tool-chevron"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4.5 3l3 3-3 3"/></svg></span>
+            <span class="tool-sig"><span class="tname">read_file</span><span class="tdim">(path=</span>"the_one/db/schema.py"<span class="tdim">, lines=</span>1-180<span class="tdim">)</span></span>
+            <span class="tool-status"><span class="dot"></span> 8.2 KB · 142ms</span>
+          </div>
+          <div class="tool-body">CREATE TABLE chat_sessions (
+  id TEXT PRIMARY KEY,
+  agent_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  ...
+);
+CREATE INDEX idx_sessions_agent     ON chat_sessions(agent_id);
+CREATE INDEX idx_sessions_updated   ON chat_sessions(updated_at);
+CREATE INDEX idx_sessions_combined  ON chat_sessions(agent_id, updated_at);
+...
+(truncated — 142 more lines)</div>
+        </div>
+
+        <div class="tool">
+          <div class="tool-head">
+            <span class="tool-chevron"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4.5 3l3 3-3 3"/></svg></span>
+            <span class="tool-sig"><span class="tname">grep</span><span class="tdim">(pattern=</span>"ORDER BY|WHERE"<span class="tdim">, glob=</span>"the_one/db/*.py"<span class="tdim">)</span></span>
+            <span class="tool-status"><span class="dot"></span> 47 matches</span>
+          </div>
+        </div>
+
+        <div class="msg-body" style="margin-top:16px;">
+          <p>Three tables stood out. I'll keep this short — full notes are in the trace.</p>
+          <p><strong style="font-weight:600;">chat_sessions</strong> — the two single-column indexes on <span class="mono" style="font-size:13px;color:var(--text-soft);">agent_id</span> and <span class="mono" style="font-size:13px;color:var(--text-soft);">updated_at</span> are subsumed by the composite. Drop the singles.</p>
+          <p><strong style="font-weight:600;">kb_items</strong> — <span class="mono" style="font-size:13px;color:var(--text-soft);">idx_kb_items_kind</span> has no matching <span class="mono" style="font-size:13px;color:var(--text-soft);">WHERE kind = ?</span> usage anywhere. Looks speculative.</p>
+          <p><strong style="font-weight:600;">tool_configs</strong> — the unique index on <span class="mono" style="font-size:13px;color:var(--text-soft);">name</span> is load-bearing for the resolver path. Keep.</p>
+        </div>
+      </div>
+
+      <!-- User follow-up -->
+      <div class="msg msg-user">
+        <div class="msg-inner">
+          <div class="msg-head">
+            <span class="msg-time">11:41</span>
+            <span class="msg-sep">·</span>
+            <span class="msg-author">You</span>
+          </div>
+          <div class="msg-body">
+            <p>Write a migration that drops the two redundant ones. Don't touch <span class="mono" style="font-size:13px;color:var(--text-soft);">kb_items</span> yet — I want to confirm with the team.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Composer -->
+      <div class="composer">
+        <textarea placeholder="Reply to Researcher…" rows="2"></textarea>
+        <div class="composer-foot">
+          <div class="composer-tools">
+            <button class="icon-btn" aria-label="Attach">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M11 5L6 10a2 2 0 102.8 2.8L13 9a3.5 3.5 0 10-5-5L4 8.5"/></svg>
+            </button>
+            <button class="icon-btn" aria-label="Mention agent">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="3"/><path d="M11 8v1.5a2 2 0 002 2h0a2 2 0 002-2V8a7 7 0 10-2.8 5.6" stroke-linecap="round"/></svg>
+            </button>
+            <span class="composer-hint">⌘ + ↵ to send</span>
+          </div>
+          <button class="btn btn-primary">Send</button>
+        </div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<!-- ============ STUDIO ============ -->
+<main id="studio" class="area" role="tabpanel">
+  <div class="pane">
+    <aside class="side">
+      <div class="side-head">
+        <span class="side-title">Agents</span>
+        <button class="icon-btn" aria-label="New agent">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>
+        </button>
+      </div>
+
+      <div class="studio-agent is-active">
+        <div class="agent-avatar a">RS</div>
+        <div class="agent-info">
+          <div class="agent-name">Researcher</div>
+          <div class="agent-model">gpt-4o</div>
+        </div>
+        <div class="agent-used">2m</div>
+      </div>
+      <div class="studio-agent">
+        <div class="agent-avatar b">CX</div>
+        <div class="agent-info">
+          <div class="agent-name">Codex</div>
+          <div class="agent-model">claude-sonnet-4.5</div>
+        </div>
+        <div class="agent-used">28m</div>
+      </div>
+      <div class="studio-agent">
+        <div class="agent-avatar c">CN</div>
+        <div class="agent-info">
+          <div class="agent-name">Concierge</div>
+          <div class="agent-model">gpt-4o-mini</div>
+        </div>
+        <div class="agent-used">3h</div>
+      </div>
+      <div class="studio-agent">
+        <div class="agent-avatar d">AT</div>
+        <div class="agent-info">
+          <div class="agent-name">Atlas</div>
+          <div class="agent-model">llama-3.3-70b</div>
+        </div>
+        <div class="agent-used">2d</div>
+      </div>
+    </aside>
+
+    <section class="content">
+      <div class="studio-head">
+        <div class="studio-title">
+          <div class="agent-avatar a" style="width:36px;height:36px;font-size:13px;">RS</div>
+          <div>
+            <h2>Researcher</h2>
+            <div class="studio-meta">Created Mar 14, 2026 · used 142 times</div>
+          </div>
+        </div>
+        <div class="studio-actions">
+          <button class="btn btn-ghost">Duplicate</button>
+          <button class="btn btn-primary">Save changes</button>
+        </div>
+      </div>
+
+      <div class="studio-tabs">
+        <button class="studio-tab is-active">General</button>
+        <button class="studio-tab">Tools <span class="count">14 / 19</span></button>
+        <button class="studio-tab">MCP Sources <span class="count">3</span></button>
+        <button class="studio-tab">Tool Overrides</button>
+      </div>
+
+      <div class="row-2">
+        <div class="field">
+          <label class="field-label">Name</label>
+          <input class="input" value="Researcher" />
+        </div>
+        <div class="field">
+          <label class="field-label">Provider</label>
+          <select class="select">
+            <option>OpenAI · production</option>
+            <option>Anthropic · production</option>
+            <option>Ollama · local</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="row-2">
+        <div class="field">
+          <label class="field-label">Model</label>
+          <select class="select">
+            <option>gpt-4o</option>
+            <option>gpt-4o-mini</option>
+            <option>o1-preview</option>
+          </select>
+        </div>
+        <div class="field">
+          <label class="field-label">Temperature</label>
+          <input class="input" value="0.2" />
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="field-label">Description</label>
+        <div class="field-hint">A short note that appears in the agent picker. Visible only to you.</div>
+        <input class="input" value="Reads code, traces query patterns, and writes precise audits." />
+      </div>
+
+      <div class="field">
+        <label class="field-label">System prompt</label>
+        <div class="field-hint">Stacked on top of the base prompt. Keep it specific — instruction-style language works best.</div>
+        <textarea class="textarea">You are Researcher, a careful technical assistant. Prefer reading source over speculating. When auditing code, group findings by file or table, cite line ranges, and separate "load-bearing" from "speculative" concerns. Never propose changes without first showing the relevant existing code.</textarea>
+      </div>
+
+      <!-- Tools peek -->
+      <div class="peek">
+        <div class="peek-head">
+          <span class="peek-title">Built-in tools</span>
+          <span class="peek-sub">14 enabled · operator policy applies</span>
+        </div>
+
+        <div class="tool-cat">Filesystem</div>
+        <div class="tool-row">
+          <div class="tool-info">
+            <div class="tool-name">read_file</div>
+            <div class="tool-desc">Read a UTF-8 text file within the path allowlist.</div>
+          </div>
+          <div class="toggle is-on" role="switch" aria-checked="true"></div>
+        </div>
+        <div class="tool-row">
+          <div class="tool-info">
+            <div class="tool-name">write_file</div>
+            <div class="tool-desc">Write or overwrite a file; parent must exist.</div>
+          </div>
+          <div class="toggle is-on" role="switch" aria-checked="true"></div>
+        </div>
+        <div class="tool-row">
+          <div class="tool-info">
+            <div class="tool-name">grep</div>
+            <div class="tool-desc">Regex search across the workspace, ranked by recency.</div>
+          </div>
+          <div class="toggle is-on" role="switch" aria-checked="true"></div>
+        </div>
+
+        <div class="tool-cat">Execution</div>
+        <div class="tool-row">
+          <div class="tool-info">
+            <div class="tool-name">shell</div>
+            <div class="tool-desc">Run a non-interactive command with a 30s default timeout.</div>
+          </div>
+          <div class="toggle is-on" role="switch" aria-checked="true"></div>
+        </div>
+        <div class="tool-row">
+          <div class="tool-info">
+            <div class="tool-name">python_exec</div>
+            <div class="tool-desc">Evaluate a short Python script in a sandboxed interpreter.</div>
+          </div>
+          <div class="toggle" role="switch" aria-checked="false"></div>
+        </div>
+
+        <div class="tool-cat">Web</div>
+        <div class="tool-row">
+          <div class="tool-info">
+            <div class="tool-name">http_request</div>
+            <div class="tool-desc">SSRF-guarded HTTP request to allowlisted hosts.</div>
+          </div>
+          <div class="toggle is-on" role="switch" aria-checked="true"></div>
+        </div>
+        <div class="tool-row">
+          <div class="tool-info">
+            <div class="tool-name">web_search</div>
+            <div class="tool-desc">DuckDuckGo search; returns title, url, snippet.</div>
+          </div>
+          <div class="toggle is-on" role="switch" aria-checked="true"></div>
+        </div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<!-- ============ ADMIN ============ -->
+<main id="admin" class="area" role="tabpanel">
+  <div class="admin-shell">
+    <div class="admin-head">
+      <div>
+        <h1 class="admin-title">Administration</h1>
+        <div class="admin-sub">Settings that apply across all agents and sessions.</div>
+      </div>
+      <button class="btn btn-primary">
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M6 2.5v7M2.5 6h7"/></svg>
+        Add provider
+      </button>
+    </div>
+
+    <nav class="admin-tabs">
+      <button class="admin-tab is-active">Providers</button>
+      <button class="admin-tab">Built-in Tools</button>
+      <button class="admin-tab">General</button>
+    </nav>
+
+    <div class="admin-grid">
+      <!-- Providers table -->
+      <div class="card">
+        <div class="card-head">
+          <span class="card-title">LLM Providers</span>
+          <span class="card-sub">5 configured</span>
+        </div>
+        <table class="ptable">
+          <thead>
+            <tr>
+              <th>Provider</th>
+              <th>Type</th>
+              <th>Models</th>
+              <th>Last tested</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>
+                <div class="prov-cell">
+                  <div class="prov-badge" style="background:#10a37f;">O</div>
+                  <div class="stack-sm">
+                    <div class="prov-name">OpenAI</div>
+                    <div class="prov-id">prov_8a2f</div>
+                  </div>
+                </div>
+              </td>
+              <td><span class="ptype">openai</span></td>
+              <td class="pnum">28</td>
+              <td class="ptime">2 min ago</td>
+              <td><div class="pstatus"><span class="dot"></span> Connected</div></td>
+            </tr>
+            <tr>
+              <td>
+                <div class="prov-cell">
+                  <div class="prov-badge" style="background:#cc785c;">A</div>
+                  <div class="stack-sm">
+                    <div class="prov-name">Anthropic</div>
+                    <div class="prov-id">prov_3c91</div>
+                  </div>
+                </div>
+              </td>
+              <td><span class="ptype">anthropic</span></td>
+              <td class="pnum">7</td>
+              <td class="ptime">14 min ago</td>
+              <td><div class="pstatus"><span class="dot"></span> Connected</div></td>
+            </tr>
+            <tr>
+              <td>
+                <div class="prov-cell">
+                  <div class="prov-badge" style="background:#1f2937;">Ol</div>
+                  <div class="stack-sm">
+                    <div class="prov-name">Ollama</div>
+                    <div class="prov-id">prov_d044</div>
+                  </div>
+                </div>
+              </td>
+              <td><span class="ptype">ollama</span></td>
+              <td class="pnum">12</td>
+              <td class="ptime">1 h ago</td>
+              <td><div class="pstatus"><span class="dot"></span> Connected</div></td>
+            </tr>
+            <tr>
+              <td>
+                <div class="prov-cell">
+                  <div class="prov-badge" style="background:#6b6b6b;">OR</div>
+                  <div class="stack-sm">
+                    <div class="prov-name">OpenRouter</div>
+                    <div class="prov-id">prov_b71a</div>
+                  </div>
+                </div>
+              </td>
+              <td><span class="ptype">openai-compatible</span></td>
+              <td class="pnum">194</td>
+              <td class="ptime">3 h ago</td>
+              <td><div class="pstatus"><span class="dot warn"></span> Rate limited</div></td>
+            </tr>
+            <tr>
+              <td>
+                <div class="prov-cell">
+                  <div class="prov-badge" style="background:#7c6f55;">G</div>
+                  <div class="stack-sm">
+                    <div class="prov-name">Groq</div>
+                    <div class="prov-id">prov_5e2d</div>
+                  </div>
+                </div>
+              </td>
+              <td><span class="ptype">openai-compatible</span></td>
+              <td class="pnum">6</td>
+              <td class="ptime">Yesterday</td>
+              <td><div class="pstatus"><span class="dot idle"></span> Not tested</div></td>
+            </tr>
+            <tr>
+              <td>
+                <div class="prov-cell">
+                  <div class="prov-badge" style="background:#444;">Az</div>
+                  <div class="stack-sm">
+                    <div class="prov-name">Azure OpenAI</div>
+                    <div class="prov-id">prov_9001</div>
+                  </div>
+                </div>
+              </td>
+              <td><span class="ptype">openai-compatible</span></td>
+              <td class="pnum">4</td>
+              <td class="ptime">3 d ago</td>
+              <td><div class="pstatus"><span class="dot err"></span> Auth failed</div></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Side card: recent activity -->
+      <div class="card">
+        <div class="card-head">
+          <span class="card-title">Recent activity</span>
+          <span class="card-sub">Last hour</span>
+        </div>
+
+        <div class="activity-row">
+          <span class="activity-dot" style="background:var(--ok);"></span>
+          <div class="activity-body">
+            <div class="activity-text">
+              <span class="em">Researcher</span> called <span class="mono">read_file</span> on <span class="mono">db/schema.py</span>.
+            </div>
+            <div class="activity-time">11:39 · 142ms</div>
+          </div>
+        </div>
+
+        <div class="activity-row">
+          <span class="activity-dot" style="background:var(--ok);"></span>
+          <div class="activity-body">
+            <div class="activity-text">
+              <span class="em">Codex</span> finished <span class="mono">mcp_atlassian.search</span> with 7 results.
+            </div>
+            <div class="activity-time">11:24 · 880ms</div>
+          </div>
+        </div>
+
+        <div class="activity-row">
+          <span class="activity-dot" style="background:var(--warn);"></span>
+          <div class="activity-body">
+            <div class="activity-text">
+              Provider <span class="em">OpenRouter</span> returned 429 on <span class="mono">claude-3.7</span>.
+            </div>
+            <div class="activity-time">11:08</div>
+          </div>
+        </div>
+
+        <div class="activity-row">
+          <span class="activity-dot" style="background:var(--ok);"></span>
+          <div class="activity-body">
+            <div class="activity-text">
+              <span class="em">Concierge</span> drafted a reply in session <span class="mono">s_4f12</span>.
+            </div>
+            <div class="activity-time">10:52</div>
+          </div>
+        </div>
+
+        <div class="activity-row">
+          <span class="activity-dot" style="background:var(--err);"></span>
+          <div class="activity-body">
+            <div class="activity-text">
+              <span class="mono">http_request</span> blocked — host outside allowlist.
+            </div>
+            <div class="activity-time">10:40</div>
+          </div>
+        </div>
+
+        <div class="activity-row">
+          <span class="activity-dot" style="background:var(--text-faint);"></span>
+          <div class="activity-body">
+            <div class="activity-text">
+              Schema migration v10 applied successfully.
+            </div>
+            <div class="activity-time">09:02</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+  // Tab switch (top nav)
+  const tabs  = document.querySelectorAll('.nav-tab');
+  const areas = document.querySelectorAll('.area');
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      const id = tab.dataset.tab;
+      tabs.forEach(t => t.classList.toggle('is-active', t === tab));
+      areas.forEach(a => a.classList.toggle('is-active', a.id === id));
+    });
+  });
+
+  // Tool-call collapse/expand (Chat)
+  document.querySelectorAll('.tool .tool-head').forEach(head => {
+    head.addEventListener('click', () => {
+      head.parentElement.classList.toggle('is-open');
+    });
+  });
+
+  // Toggles (Studio)
+  document.querySelectorAll('.toggle').forEach(t => {
+    t.addEventListener('click', () => {
+      t.classList.toggle('is-on');
+      t.setAttribute('aria-checked', t.classList.contains('is-on'));
+    });
+  });
+
+  // Studio inner tabs (visual only)
+  document.querySelectorAll('.studio-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.studio-tab').forEach(t => t.classList.toggle('is-active', t === tab));
+    });
+  });
+
+  // Admin sub-tabs (visual only)
+  document.querySelectorAll('.admin-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.admin-tab').forEach(t => t.classList.toggle('is-active', t === tab));
+    });
+  });
+
+  // Session row activation (visual only)
+  document.querySelectorAll('.sess').forEach(s => {
+    s.addEventListener('click', e => {
+      e.preventDefault();
+      document.querySelectorAll('.sess').forEach(x => x.classList.toggle('is-active', x === s));
+    });
+  });
+
+  // Studio agent row activation
+  document.querySelectorAll('.studio-agent').forEach(a => {
+    a.addEventListener('click', () => {
+      document.querySelectorAll('.studio-agent').forEach(x => x.classList.toggle('is-active', x === a));
+    });
+  });
+</script>
+
+</body>
+</html>

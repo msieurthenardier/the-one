@@ -1,0 +1,2255 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=1440" />
+<title>GleepGlorp AI · console</title>
+<style>
+  /* ============================================================
+     GleepGlorp AI — Console direction
+     Power-user cockpit. Dense, monospace, single amber accent.
+     ============================================================ */
+
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');
+
+  :root {
+    /* Surfaces */
+    --bg-0:   #07090c;   /* deepest — frame edge, modal backdrop */
+    --bg-1:   #0a0d12;   /* app background */
+    --bg-2:   #0e1218;   /* panel surface */
+    --bg-3:   #131822;   /* raised / hover */
+    --bg-4:   #1a2030;   /* selected row, tab active */
+    --bg-5:   #232a3c;   /* inline code, badge */
+
+    /* Lines */
+    --line-1: #1c2230;   /* subtle dividers */
+    --line-2: #28303f;   /* visible borders */
+    --line-3: #3a455a;   /* emphasized borders */
+
+    /* Type */
+    --fg-0:   #e8e6e0;   /* primary text — bone */
+    --fg-1:   #c2c0b8;   /* secondary */
+    --fg-2:   #8b8a83;   /* tertiary / labels */
+    --fg-3:   #5e6271;   /* dimmed / hints */
+    --fg-4:   #3f4456;   /* disabled / placeholder */
+
+    /* Accent — amber (single saturated color, used sparingly) */
+    --acc:    #ffb86c;
+    --acc-1:  #ffd09a;
+    --acc-2:  #b87c40;
+    --acc-3:  #4a3520;   /* tinted background */
+    --acc-glow: rgba(255, 184, 108, 0.12);
+
+    /* Status (each tool earns its own quiet color) */
+    --ok:    #6ec48f;
+    --warn:  #d8a352;
+    --err:   #d36b6b;
+    --info:  #6fa8c4;
+    --muted: #5e6271;
+
+    /* Per-agent left rule colors */
+    --agent-researcher: #ffb86c;
+    --agent-codex:      #6fa8c4;
+    --agent-concierge:  #c89eda;
+
+    --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', 'Cascadia Mono', Consolas, monospace;
+    --sans: 'Inter', system-ui, sans-serif;
+
+    --row-h: 26px;
+    --status-h: 28px;
+    --tab-h: 36px;
+    --shadow: none;
+  }
+
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: var(--bg-1);
+    color: var(--fg-0);
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    font-variant-ligatures: none;
+    font-feature-settings: 'tnum' 1, 'cv02' 1, 'cv03' 1, 'cv04' 1;
+    overflow: hidden;
+  }
+  body {
+    min-width: 1440px;
+    display: grid;
+    grid-template-rows: var(--tab-h) 1fr var(--status-h);
+  }
+
+  /* Subtle scanline + grain (very low opacity) */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background:
+      repeating-linear-gradient(0deg, rgba(255,255,255,0.012) 0 1px, transparent 1px 3px);
+    pointer-events: none;
+    z-index: 100;
+    mix-blend-mode: overlay;
+  }
+
+  ::selection { background: var(--acc); color: var(--bg-0); }
+
+  button { font-family: inherit; font-size: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+  input, textarea { font-family: inherit; font-size: inherit; color: inherit; background: transparent; border: 0; outline: 0; }
+
+  /* ------------------------------------------------------------
+     TOP BAR — mode switcher (CHAT / STUDIO / ADMIN)
+     ------------------------------------------------------------ */
+  .topbar {
+    display: grid;
+    grid-template-columns: 280px 1fr auto;
+    align-items: stretch;
+    background: var(--bg-0);
+    border-bottom: 1px solid var(--line-2);
+    height: var(--tab-h);
+    user-select: none;
+  }
+  .brand {
+    display: flex; align-items: center; gap: 10px;
+    padding: 0 14px;
+    border-right: 1px solid var(--line-2);
+    font-family: var(--sans);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    font-size: 13px;
+  }
+  .brand .glyph {
+    font-family: var(--mono);
+    color: var(--acc);
+    font-size: 14px;
+    letter-spacing: -0.06em;
+  }
+  .brand .ver {
+    margin-left: auto;
+    color: var(--fg-3);
+    font-family: var(--mono);
+    font-size: 10.5px;
+    font-weight: 400;
+  }
+
+  .tabs { display: flex; align-items: stretch; }
+  .tab {
+    display: flex; align-items: center; gap: 8px;
+    padding: 0 16px;
+    height: 100%;
+    border-right: 1px solid var(--line-2);
+    color: var(--fg-2);
+    font-size: 11.5px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    position: relative;
+  }
+  .tab .hk { color: var(--fg-3); font-size: 10px; opacity: 0.8; }
+  .tab[data-active="true"] {
+    background: var(--bg-1);
+    color: var(--fg-0);
+  }
+  .tab[data-active="true"]::before {
+    content: '';
+    position: absolute; left: 0; right: 0; bottom: -1px;
+    height: 1px; background: var(--acc);
+  }
+  .tab:hover:not([data-active="true"]) { color: var(--fg-0); background: var(--bg-2); }
+
+  .topbar-right {
+    display: flex; align-items: center; gap: 14px;
+    padding: 0 14px;
+    border-left: 1px solid var(--line-2);
+  }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 2px 8px;
+    border: 1px solid var(--line-3);
+    background: var(--bg-2);
+    color: var(--fg-1);
+    font-size: 10.5px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .chip.mode { color: var(--acc); border-color: var(--acc-2); background: var(--acc-glow); }
+  .chip.mode .dot {
+    width: 6px; height: 6px; background: var(--acc); display: inline-block;
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 0.5; }
+    50%      { opacity: 1; }
+  }
+  .icon-btn {
+    color: var(--fg-2);
+    padding: 4px 6px;
+    border: 1px solid transparent;
+  }
+  .icon-btn:hover { color: var(--fg-0); border-color: var(--line-2); }
+
+  /* ------------------------------------------------------------
+     AREA WRAPPERS
+     ------------------------------------------------------------ */
+  .area { display: none; height: 100%; min-height: 0; }
+  .area[data-active="true"] { display: block; }
+
+  /* ============================================================
+     CHAT AREA — 3 columns
+     ============================================================ */
+  #area-chat {
+    display: none;
+    grid-template-columns: 248px 1fr 376px;
+    height: 100%;
+  }
+  #area-chat[data-active="true"] { display: grid; }
+
+  .panel {
+    background: var(--bg-1);
+    border-right: 1px solid var(--line-2);
+    display: flex; flex-direction: column;
+    min-height: 0;
+  }
+  .panel:last-child { border-right: 0; }
+
+  .panel-head {
+    display: flex; align-items: center; justify-content: space-between;
+    height: 32px;
+    padding: 0 12px;
+    background: var(--bg-2);
+    border-bottom: 1px solid var(--line-2);
+    color: var(--fg-2);
+    font-size: 10.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    flex-shrink: 0;
+  }
+  .panel-head .title { color: var(--fg-1); font-weight: 500; }
+  .panel-head .actions { display: flex; gap: 6px; }
+  .panel-head .actions .hk { color: var(--fg-3); font-size: 10px; }
+
+  /* --- left: agents + sessions tree --- */
+  .tree { padding: 6px 0; overflow-y: auto; flex: 1; min-height: 0; }
+  .tree-group { margin-bottom: 4px; }
+  .tree-group-h {
+    display: flex; align-items: center; gap: 6px;
+    padding: 4px 12px;
+    color: var(--fg-3);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  .tree-group-h .count { margin-left: auto; color: var(--fg-4); }
+  .tree-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 3px 12px 3px 22px;
+    height: var(--row-h);
+    color: var(--fg-1);
+    cursor: pointer;
+    position: relative;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .tree-row .rule {
+    position: absolute; left: 12px; top: 0; bottom: 0; width: 2px;
+    background: transparent;
+  }
+  .tree-row .name { overflow: hidden; text-overflow: ellipsis; flex: 1; }
+  .tree-row .meta { color: var(--fg-3); font-size: 10.5px; }
+  .tree-row:hover { background: var(--bg-2); }
+  .tree-row[data-active="true"] {
+    background: var(--bg-3);
+    color: var(--fg-0);
+  }
+  .tree-row[data-active="true"] .rule { background: var(--acc); }
+  .tree-row .badge {
+    display: inline-block;
+    width: 5px; height: 5px;
+    background: var(--ok);
+    flex-shrink: 0;
+  }
+  .tree-row .badge.idle  { background: var(--fg-4); }
+  .tree-row .badge.warn  { background: var(--warn); }
+  .tree-row .badge.err   { background: var(--err); }
+
+  /* --- center: conversation --- */
+  .conv-head {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    height: 40px;
+    padding: 0 16px;
+    background: var(--bg-2);
+    border-bottom: 1px solid var(--line-2);
+    flex-shrink: 0;
+  }
+  .conv-title {
+    display: flex; align-items: baseline; gap: 10px;
+    font-size: 12px;
+  }
+  .conv-title .session-id { color: var(--fg-3); font-size: 10.5px; }
+  .conv-title .agent-name { color: var(--acc); font-weight: 500; }
+  .conv-title .sep { color: var(--fg-4); }
+  .conv-meta { color: var(--fg-2); font-size: 10.5px; display: flex; gap: 14px; }
+  .conv-meta b { color: var(--fg-0); font-weight: 500; }
+
+  .conv-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 14px 16px 24px 16px;
+    min-height: 0;
+  }
+
+  .msg {
+    position: relative;
+    padding-left: 14px;
+    margin-bottom: 18px;
+    border-left: 2px solid transparent;
+    line-height: 1.55;
+  }
+  .msg .who {
+    display: flex; align-items: baseline; gap: 8px;
+    margin-bottom: 4px;
+    font-size: 10.5px;
+    color: var(--fg-2);
+    text-transform: lowercase;
+    letter-spacing: 0.02em;
+  }
+  .msg .who .pill {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 1px 6px;
+    background: var(--bg-3);
+    border: 1px solid var(--line-2);
+    color: var(--fg-0);
+    font-size: 10.5px;
+    letter-spacing: 0.02em;
+  }
+  .msg .who .ts { color: var(--fg-3); margin-left: auto; font-size: 10px; }
+  .msg .who .dur { color: var(--fg-3); font-size: 10px; }
+  .msg .body { color: var(--fg-0); }
+  .msg .body p { margin: 0 0 8px; }
+  .msg .body p:last-child { margin-bottom: 0; }
+  .msg .body code {
+    background: var(--bg-3);
+    border: 1px solid var(--line-1);
+    padding: 0 4px;
+    font-size: 11.5px;
+  }
+  .msg .body em { font-style: italic; color: var(--fg-1); }
+  .msg.agent.researcher { border-color: var(--agent-researcher); }
+  .msg.agent.researcher .pill { color: var(--agent-researcher); border-color: rgba(255,184,108,0.4); }
+  .msg.agent.codex { border-color: var(--agent-codex); }
+  .msg.agent.codex .pill { color: var(--agent-codex); border-color: rgba(111,168,196,0.4); }
+  .msg.user { border-color: var(--fg-3); }
+  .msg.user .pill { color: var(--fg-0); }
+
+  /* tool call inline block */
+  .toolcall {
+    margin: 8px 0;
+    border: 1px solid var(--line-2);
+    background: var(--bg-2);
+    font-size: 11.5px;
+  }
+  .toolcall-head {
+    display: grid;
+    grid-template-columns: auto 1fr auto auto auto auto;
+    align-items: center;
+    gap: 12px;
+    padding: 6px 10px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .toolcall-head:hover { background: var(--bg-3); }
+  .toolcall .glyph { color: var(--fg-3); width: 10px; }
+  .toolcall .tname { color: var(--acc); }
+  .toolcall .targs { color: var(--fg-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .toolcall .arrow { color: var(--fg-3); }
+  .toolcall .tres { color: var(--fg-1); }
+  .toolcall .tmeta { color: var(--fg-3); font-size: 10.5px; }
+  .toolcall .tdot { color: var(--ok); }
+  .toolcall .tdot.err { color: var(--err); }
+  .toolcall-body {
+    display: none;
+    border-top: 1px solid var(--line-1);
+    padding: 10px 12px;
+    background: var(--bg-1);
+    font-size: 11px;
+    color: var(--fg-1);
+    line-height: 1.55;
+  }
+  .toolcall[data-open="true"] .toolcall-body { display: block; }
+  .toolcall[data-open="true"] .toolcall-head .glyph { color: var(--acc); }
+  .toolcall-body .kv {
+    display: grid; grid-template-columns: 84px 1fr; gap: 4px 12px;
+    margin-bottom: 8px;
+  }
+  .toolcall-body .kv > .k { color: var(--fg-3); }
+  .toolcall-body pre {
+    margin: 0;
+    padding: 8px 10px;
+    background: var(--bg-0);
+    border: 1px solid var(--line-1);
+    font-size: 10.5px;
+    line-height: 1.55;
+    white-space: pre;
+    overflow-x: auto;
+    color: var(--fg-1);
+  }
+  .toolcall-body pre .k  { color: var(--fg-3); }
+  .toolcall-body pre .s  { color: var(--acc-1); }
+  .toolcall-body pre .n  { color: var(--info); }
+  .toolcall-body pre .c  { color: var(--fg-3); font-style: italic; }
+  .toolcall-body pre .b  { color: var(--ok); }
+  .toolcall-body .res-head {
+    display: flex; justify-content: space-between;
+    color: var(--fg-3); font-size: 10.5px; margin: 8px 0 4px;
+    text-transform: uppercase; letter-spacing: 0.06em;
+  }
+
+  /* composer */
+  .composer {
+    border-top: 1px solid var(--line-2);
+    background: var(--bg-2);
+    padding: 10px 16px;
+    flex-shrink: 0;
+  }
+  .composer-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 10px;
+    align-items: center;
+  }
+  .composer .prompt {
+    color: var(--acc);
+    font-weight: 600;
+    user-select: none;
+  }
+  .composer input {
+    width: 100%;
+    color: var(--fg-0);
+    padding: 6px 0;
+    caret-color: var(--acc);
+  }
+  .composer .hk { color: var(--fg-3); font-size: 10.5px; }
+  .composer .ctx-line {
+    display: flex; gap: 14px;
+    margin-top: 6px;
+    color: var(--fg-3);
+    font-size: 10.5px;
+  }
+  .composer .ctx-line b { color: var(--fg-1); font-weight: 500; }
+
+  /* --- right: inspector / telemetry --- */
+  .inspector { overflow-y: auto; flex: 1; min-height: 0; }
+  .inspector-section { border-bottom: 1px solid var(--line-2); }
+  .inspector-section-h {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 12px;
+    color: var(--fg-2);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    background: var(--bg-2);
+    border-bottom: 1px solid var(--line-1);
+  }
+  .inspector-section-h .hk { color: var(--fg-3); }
+  .inspector-section-body { padding: 10px 12px; font-size: 11.5px; }
+
+  /* context bar */
+  .ctx-bar-block { margin-bottom: 10px; }
+  .ctx-bar-block .label-row {
+    display: flex; justify-content: space-between;
+    margin-bottom: 4px;
+    color: var(--fg-2);
+    font-size: 10.5px;
+  }
+  .ctx-bar-block .label-row b { color: var(--fg-0); font-weight: 500; }
+  .ctx-bar {
+    height: 6px;
+    background: var(--bg-3);
+    border: 1px solid var(--line-1);
+    position: relative;
+    overflow: hidden;
+  }
+  .ctx-bar > i {
+    display: block; height: 100%;
+    background: var(--acc);
+  }
+  .ctx-bar.cost > i { background: var(--info); }
+  .ctx-bar.budget > i { background: var(--ok); }
+
+  /* execution tree */
+  .exec-tree { font-size: 11px; line-height: 1.7; }
+  .exec-tree .node {
+    display: grid;
+    grid-template-columns: 18px 1fr auto auto;
+    gap: 8px;
+    padding: 1px 0;
+    color: var(--fg-1);
+    align-items: baseline;
+  }
+  .exec-tree .node .g { color: var(--fg-3); font-size: 10.5px; text-align: center; }
+  .exec-tree .node .lbl { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .exec-tree .node .lbl .k { color: var(--acc); }
+  .exec-tree .node .tk { color: var(--fg-3); font-size: 10.5px; }
+  .exec-tree .node .du { color: var(--fg-2); font-size: 10.5px; }
+  .exec-tree .indent-1 { padding-left: 14px; }
+  .exec-tree .indent-2 { padding-left: 28px; }
+  .exec-tree .node.running .g { color: var(--acc); }
+  .exec-tree .node.running .du { color: var(--acc); }
+
+  /* stat grid */
+  .stat-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: var(--line-1);
+    border: 1px solid var(--line-1);
+  }
+  .stat-grid .cell {
+    padding: 8px 10px;
+    background: var(--bg-1);
+  }
+  .stat-grid .cell .l {
+    color: var(--fg-3);
+    font-size: 9.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 2px;
+  }
+  .stat-grid .cell .v {
+    font-size: 14px;
+    color: var(--fg-0);
+    letter-spacing: -0.01em;
+  }
+  .stat-grid .cell .v .u { color: var(--fg-3); font-size: 11px; margin-left: 2px; }
+  .stat-grid .cell .v.acc { color: var(--acc); }
+  .stat-grid .cell .v.ok  { color: var(--ok); }
+
+  /* attached MCPs strip */
+  .mcp-list .row {
+    display: grid;
+    grid-template-columns: 8px 1fr auto auto;
+    gap: 8px;
+    padding: 3px 0;
+    font-size: 11px;
+    color: var(--fg-1);
+    align-items: center;
+  }
+  .mcp-list .dot {
+    width: 6px; height: 6px;
+    background: var(--ok);
+  }
+  .mcp-list .dot.dim { background: var(--fg-4); }
+  .mcp-list .name { color: var(--fg-0); }
+  .mcp-list .tools { color: var(--fg-3); font-size: 10.5px; }
+  .mcp-list .lat { color: var(--fg-2); font-size: 10.5px; }
+
+  /* ============================================================
+     STUDIO AREA
+     ============================================================ */
+  #area-studio {
+    grid-template-columns: 360px 1fr;
+    height: 100%;
+  }
+  #area-studio[data-active="true"] { display: grid; }
+
+  /* dense table */
+  .dtable {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11.5px;
+  }
+  .dtable thead th {
+    text-align: left;
+    color: var(--fg-3);
+    font-weight: 500;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 6px 10px;
+    background: var(--bg-2);
+    border-bottom: 1px solid var(--line-2);
+    position: sticky; top: 0;
+  }
+  .dtable tbody td {
+    padding: 5px 10px;
+    border-bottom: 1px solid var(--line-1);
+    color: var(--fg-1);
+    height: var(--row-h);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .dtable tbody tr:nth-child(even) td { background: rgba(255,255,255,0.012); }
+  .dtable tbody tr:hover td { background: var(--bg-3); }
+  .dtable tbody tr[data-active="true"] td { background: var(--bg-4); color: var(--fg-0); }
+  .dtable tbody tr[data-active="true"] td:first-child { box-shadow: inset 2px 0 0 0 var(--acc); }
+  .dtable .num { font-variant-numeric: tabular-nums; text-align: right; color: var(--fg-1); }
+  .dtable .name b { color: var(--fg-0); font-weight: 500; }
+  .dtable .sub { color: var(--fg-3); font-size: 10.5px; margin-left: 6px; }
+
+  .pill-sm {
+    display: inline-block;
+    padding: 1px 6px;
+    border: 1px solid var(--line-3);
+    font-size: 10px;
+    color: var(--fg-1);
+    letter-spacing: 0.03em;
+    text-transform: lowercase;
+  }
+  .pill-sm.ok  { color: var(--ok); border-color: rgba(110,196,143,0.35); }
+  .pill-sm.warn { color: var(--warn); border-color: rgba(216,163,82,0.4); }
+  .pill-sm.err  { color: var(--err); border-color: rgba(211,107,107,0.4); }
+  .pill-sm.acc  { color: var(--acc); border-color: rgba(255,184,108,0.4); }
+  .pill-sm.dim  { color: var(--fg-3); border-color: var(--line-2); }
+
+  .chk {
+    display: inline-block;
+    width: 12px; height: 12px;
+    border: 1px solid var(--line-3);
+    background: var(--bg-2);
+    position: relative;
+    vertical-align: -2px;
+    cursor: pointer;
+  }
+  .chk.on { background: var(--acc); border-color: var(--acc-2); }
+  .chk.on::after {
+    content: '';
+    position: absolute;
+    left: 3px; top: 0px;
+    width: 3px; height: 7px;
+    border: solid var(--bg-0); border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+  }
+
+  /* studio editor */
+  .studio-editor { display: flex; flex-direction: column; min-height: 0; }
+  .editor-head {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 0 14px;
+    height: 40px;
+    background: var(--bg-2);
+    border-bottom: 1px solid var(--line-2);
+    flex-shrink: 0;
+  }
+  .editor-head .title {
+    display: flex; align-items: baseline; gap: 10px;
+    font-size: 13px;
+  }
+  .editor-head .title .id { color: var(--fg-3); font-size: 11px; }
+  .editor-head .title b { color: var(--fg-0); font-weight: 500; }
+  .editor-head .actions { display: flex; gap: 8px; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 10px;
+    border: 1px solid var(--line-3);
+    background: var(--bg-2);
+    color: var(--fg-0);
+    font-size: 11px;
+  }
+  .btn:hover { background: var(--bg-3); }
+  .btn.primary { background: var(--acc); color: var(--bg-0); border-color: var(--acc-2); font-weight: 600; }
+  .btn.primary:hover { background: var(--acc-1); }
+  .btn .hk { color: var(--fg-3); font-size: 10px; }
+  .btn.primary .hk { color: rgba(7,9,12,0.6); }
+
+  .editor-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--line-2);
+    padding: 0 14px;
+    background: var(--bg-1);
+    flex-shrink: 0;
+  }
+  .editor-tab {
+    padding: 8px 14px 7px;
+    color: var(--fg-2);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    border-bottom: 1px solid transparent;
+    margin-bottom: -1px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .editor-tab .hk { color: var(--fg-3); font-size: 9.5px; }
+  .editor-tab.active { color: var(--fg-0); border-bottom-color: var(--acc); }
+  .editor-tab:hover:not(.active) { color: var(--fg-1); }
+  .editor-tab .badge {
+    margin-left: 2px;
+    padding: 0 5px;
+    background: var(--bg-3);
+    color: var(--fg-2);
+    font-size: 10px;
+  }
+
+  .editor-body { flex: 1; overflow-y: auto; padding: 16px 18px; min-height: 0; }
+
+  .form-grid {
+    display: grid;
+    grid-template-columns: 160px 1fr auto;
+    gap: 4px 18px;
+    align-items: start;
+    margin-bottom: 18px;
+  }
+  .form-grid .lab {
+    color: var(--fg-2);
+    font-size: 11px;
+    padding-top: 5px;
+    text-transform: lowercase;
+    letter-spacing: 0.02em;
+  }
+  .form-grid .lab .hk { color: var(--fg-3); font-size: 10px; margin-left: 4px; }
+  .form-grid .val {
+    background: var(--bg-2);
+    border: 1px solid var(--line-2);
+    padding: 4px 8px;
+    font-size: 11.5px;
+    color: var(--fg-0);
+    min-height: 22px;
+  }
+  .form-grid .val.full { grid-column: 2 / span 2; }
+  .form-grid .val:focus-within { border-color: var(--acc-2); }
+  .form-grid .val input { width: 100%; }
+  .form-grid .hint {
+    grid-column: 2 / span 2;
+    color: var(--fg-3);
+    font-size: 10.5px;
+    margin-top: 2px;
+  }
+  .form-grid .help { color: var(--fg-3); font-size: 10.5px; padding-top: 5px; }
+
+  /* prompt editor with line numbers */
+  .prompt-edit {
+    display: grid;
+    grid-template-columns: 34px 1fr;
+    background: var(--bg-2);
+    border: 1px solid var(--line-2);
+    font-size: 11.5px;
+    line-height: 1.6;
+  }
+  .prompt-edit .gutter {
+    border-right: 1px solid var(--line-1);
+    padding: 8px 6px;
+    text-align: right;
+    color: var(--fg-4);
+    user-select: none;
+    background: var(--bg-1);
+  }
+  .prompt-edit .gutter span { display: block; }
+  .prompt-edit .code {
+    padding: 8px 12px;
+    color: var(--fg-0);
+    white-space: pre-wrap;
+  }
+  .prompt-edit .code .c { color: var(--fg-3); font-style: italic; }
+  .prompt-edit .code .k { color: var(--acc-1); }
+  .prompt-edit .code .s { color: var(--ok); }
+
+  /* section divider */
+  .sect {
+    display: flex; align-items: center; gap: 10px;
+    margin: 22px 0 10px;
+    color: var(--fg-2);
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  .sect::after {
+    content: '';
+    flex: 1; height: 1px; background: var(--line-2);
+  }
+  .sect .count {
+    padding: 0 6px;
+    background: var(--bg-3);
+    color: var(--fg-1);
+    font-size: 10px;
+  }
+
+  /* ============================================================
+     ADMIN AREA
+     ============================================================ */
+  #area-admin {
+    grid-template-columns: 220px 1fr;
+    height: 100%;
+  }
+  #area-admin[data-active="true"] { display: grid; }
+
+  .admin-nav { padding: 8px 0; }
+  .admin-nav .grp {
+    color: var(--fg-3);
+    font-size: 10px;
+    padding: 8px 14px 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  .admin-nav .item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 4px 14px;
+    color: var(--fg-1);
+    height: 24px;
+    cursor: pointer;
+    position: relative;
+  }
+  .admin-nav .item:hover { background: var(--bg-2); }
+  .admin-nav .item[data-active="true"] {
+    background: var(--bg-3);
+    color: var(--fg-0);
+  }
+  .admin-nav .item[data-active="true"]::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 2px;
+    background: var(--acc);
+  }
+  .admin-nav .item .hk { margin-left: auto; color: var(--fg-3); font-size: 10px; }
+  .admin-nav .item .ct {
+    margin-left: auto;
+    padding: 0 5px;
+    background: var(--bg-3);
+    color: var(--fg-2);
+    font-size: 10px;
+  }
+  .admin-nav .item[data-active="true"] .ct { background: var(--bg-4); }
+
+  .admin-main { display: flex; flex-direction: column; min-height: 0; }
+
+  .admin-head {
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--line-2);
+    background: var(--bg-2);
+    display: flex; justify-content: space-between; align-items: center;
+    flex-shrink: 0;
+  }
+  .admin-head .h {
+    font-family: var(--sans);
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--fg-0);
+    letter-spacing: -0.01em;
+  }
+  .admin-head .sub {
+    color: var(--fg-3);
+    font-size: 11px;
+    margin-top: 2px;
+  }
+  .admin-head .actions { display: flex; gap: 8px; }
+
+  .admin-body { flex: 1; overflow-y: auto; padding: 0; min-height: 0; }
+
+  .ops-panel {
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--line-2);
+    background: var(--bg-1);
+  }
+  .ops-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 1px;
+    background: var(--line-1);
+    border: 1px solid var(--line-1);
+  }
+  .ops-grid .cell {
+    padding: 8px 12px;
+    background: var(--bg-2);
+  }
+  .ops-grid .l {
+    color: var(--fg-3);
+    font-size: 9.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 3px;
+  }
+  .ops-grid .v {
+    font-size: 13px;
+    color: var(--fg-0);
+  }
+  .ops-grid .v.ok  { color: var(--ok); }
+  .ops-grid .v.acc { color: var(--acc); }
+  .ops-grid .v .u  { color: var(--fg-3); font-size: 10.5px; margin-left: 3px; }
+
+  .table-wrap { padding: 0 0 18px 0; }
+
+  /* ============================================================
+     STATUS BAR
+     ============================================================ */
+  .statusbar {
+    display: grid;
+    grid-template-columns: auto auto auto auto 1fr auto;
+    align-items: center;
+    height: var(--status-h);
+    padding: 0 12px;
+    gap: 18px;
+    background: var(--bg-0);
+    border-top: 1px solid var(--line-2);
+    font-size: 11px;
+    color: var(--fg-2);
+    user-select: none;
+  }
+  .statusbar .seg {
+    display: flex; align-items: center; gap: 6px;
+    white-space: nowrap;
+  }
+  .statusbar .seg .lbl { color: var(--fg-3); text-transform: uppercase; font-size: 9.5px; letter-spacing: 0.08em; }
+  .statusbar .seg .v   { color: var(--fg-0); }
+  .statusbar .seg .v.acc { color: var(--acc); }
+  .statusbar .seg .v.ok  { color: var(--ok); }
+  .statusbar .hints {
+    justify-self: end;
+    display: flex; gap: 14px;
+    color: var(--fg-3);
+  }
+  .statusbar .hints b {
+    color: var(--fg-1);
+    font-weight: 500;
+    background: var(--bg-2);
+    border: 1px solid var(--line-2);
+    padding: 0 4px;
+    margin-right: 4px;
+  }
+  .statusbar .lvl {
+    display: inline-block;
+    width: 5px; height: 12px;
+    background: var(--ok);
+  }
+  .statusbar .pulse {
+    display: inline-block;
+    width: 6px; height: 6px;
+    background: var(--acc);
+    animation: pulse 1.4s ease-in-out infinite;
+  }
+
+  /* ============================================================
+     COMMAND PALETTE
+     ============================================================ */
+  .palette-overlay {
+    position: fixed; inset: 0;
+    background: rgba(7, 9, 12, 0.72);
+    backdrop-filter: blur(2px);
+    z-index: 200;
+    display: none;
+    align-items: flex-start;
+    justify-content: center;
+    padding-top: 84px;
+  }
+  .palette-overlay[data-open="true"] { display: flex; }
+  .palette {
+    width: 640px;
+    max-width: calc(100vw - 80px);
+    background: var(--bg-1);
+    border: 1px solid var(--line-3);
+    font-size: 12px;
+    box-shadow: 0 0 0 1px rgba(255,184,108,0.04), 0 30px 80px -20px rgba(0,0,0,0.5);
+  }
+  .palette-input-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--line-2);
+  }
+  .palette-input-row .prompt { color: var(--acc); font-weight: 600; }
+  .palette-input-row .input {
+    color: var(--fg-0);
+    font-size: 13px;
+    letter-spacing: -0.01em;
+  }
+  .palette-input-row .cursor {
+    display: inline-block;
+    width: 7px; height: 14px;
+    background: var(--acc);
+    vertical-align: -2px;
+    animation: blink 1s steps(2) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+  .palette-input-row .scope { color: var(--fg-3); font-size: 10.5px; }
+
+  .palette-list {
+    max-height: 380px;
+    overflow-y: auto;
+  }
+  .palette-grp {
+    color: var(--fg-3);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    padding: 8px 16px 4px;
+    background: var(--bg-2);
+    border-bottom: 1px solid var(--line-1);
+  }
+  .palette-item {
+    display: grid;
+    grid-template-columns: 16px 1fr auto auto;
+    align-items: center;
+    gap: 12px;
+    padding: 6px 16px;
+    color: var(--fg-1);
+    cursor: pointer;
+  }
+  .palette-item .g { color: var(--fg-3); width: 12px; text-align: center; }
+  .palette-item .lbl { color: var(--fg-0); }
+  .palette-item .lbl b { color: var(--acc); font-weight: 500; }
+  .palette-item .desc { color: var(--fg-3); font-size: 10.5px; }
+  .palette-item .hk {
+    color: var(--fg-2);
+    font-size: 10px;
+    background: var(--bg-2);
+    border: 1px solid var(--line-2);
+    padding: 1px 5px;
+    font-family: var(--mono);
+  }
+  .palette-item.active {
+    background: var(--bg-4);
+  }
+  .palette-item.active::before {
+    content: '';
+    width: 2px;
+    background: var(--acc);
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+  }
+  .palette-item.active .g { color: var(--acc); }
+  .palette-item:hover { background: var(--bg-3); }
+  .palette-foot {
+    display: flex; justify-content: space-between;
+    padding: 8px 16px;
+    border-top: 1px solid var(--line-2);
+    color: var(--fg-3);
+    font-size: 10.5px;
+    background: var(--bg-2);
+  }
+  .palette-foot b {
+    color: var(--fg-1);
+    background: var(--bg-3);
+    border: 1px solid var(--line-2);
+    padding: 0 5px;
+    margin-right: 3px;
+    font-weight: 500;
+  }
+  .palette-foot .grp { display: flex; gap: 14px; }
+
+  /* scrollbars */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--line-2); border: 2px solid var(--bg-1); }
+  ::-webkit-scrollbar-thumb:hover { background: var(--line-3); }
+</style>
+</head>
+<body>
+
+  <!-- =====================================================
+       TOP BAR
+       ===================================================== -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="glyph">▎▎▌</span>
+      <span>GleepGlorp&nbsp;AI</span>
+      <span class="ver">v0.11.3-flight03</span>
+    </div>
+
+    <nav class="tabs" id="mode-tabs">
+      <button class="tab" data-area="chat" data-active="true">
+        <span>chat</span><span class="hk">^1</span>
+      </button>
+      <button class="tab" data-area="studio">
+        <span>studio</span><span class="hk">^2</span>
+      </button>
+      <button class="tab" data-area="admin">
+        <span>admin</span><span class="hk">^3</span>
+      </button>
+    </nav>
+
+    <div class="topbar-right">
+      <span class="chip"><span style="color:var(--fg-3)">host</span> 127.0.0.1:8484</span>
+      <span class="chip mode" id="mode-chip"><span class="dot"></span><span id="mode-name">chat</span></span>
+      <button class="icon-btn" title="Command palette" id="open-palette">⌘ palette <span style="color:var(--fg-3);margin-left:4px">^K</span></button>
+    </div>
+  </header>
+
+  <!-- =====================================================
+       AREAS
+       ===================================================== -->
+  <main>
+
+    <!-- ====== CHAT ====== -->
+    <section id="area-chat" class="area" data-active="true">
+
+      <!-- LEFT: sessions tree -->
+      <aside class="panel">
+        <div class="panel-head">
+          <span class="title">sessions</span>
+          <span class="actions">
+            <span class="hk">^N new</span>
+          </span>
+        </div>
+
+        <div class="tree">
+          <div class="tree-group">
+            <div class="tree-group-h">
+              <span>agents</span><span class="count">3</span>
+            </div>
+            <div class="tree-row" data-active="true">
+              <span class="rule"></span>
+              <span class="badge"></span>
+              <span class="name">researcher</span>
+              <span class="meta">claude-opus-4</span>
+            </div>
+            <div class="tree-row">
+              <span class="rule"></span>
+              <span class="badge idle"></span>
+              <span class="name">codex</span>
+              <span class="meta">gpt-4o</span>
+            </div>
+            <div class="tree-row">
+              <span class="rule"></span>
+              <span class="badge idle"></span>
+              <span class="name">concierge</span>
+              <span class="meta">llama3.1:70b</span>
+            </div>
+          </div>
+
+          <div class="tree-group">
+            <div class="tree-group-h">
+              <span>today · researcher</span><span class="count">4</span>
+            </div>
+            <div class="tree-row" data-active="true">
+              <span class="rule"></span>
+              <span class="badge"></span>
+              <span class="name">migrate v9 to v10 schema</span>
+              <span class="meta">16:42</span>
+            </div>
+            <div class="tree-row">
+              <span class="rule"></span>
+              <span class="badge idle"></span>
+              <span class="name">audit ssrf transport...</span>
+              <span class="meta">14:08</span>
+            </div>
+            <div class="tree-row">
+              <span class="rule"></span>
+              <span class="badge warn"></span>
+              <span class="name">flight 03 hat scenari...</span>
+              <span class="meta">11:22</span>
+            </div>
+            <div class="tree-row">
+              <span class="rule"></span>
+              <span class="badge idle"></span>
+              <span class="name">untitled · 09:14</span>
+              <span class="meta">09:14</span>
+            </div>
+          </div>
+
+          <div class="tree-group">
+            <div class="tree-group-h">
+              <span>yesterday</span><span class="count">7</span>
+            </div>
+            <div class="tree-row">
+              <span class="rule"></span>
+              <span class="badge idle"></span>
+              <span class="name">f6 admin tools form...</span>
+              <span class="meta">22:01</span>
+            </div>
+            <div class="tree-row">
+              <span class="rule"></span>
+              <span class="badge idle"></span>
+              <span class="name">mcp oauth client_sec...</span>
+              <span class="meta">19:33</span>
+            </div>
+            <div class="tree-row">
+              <span class="rule"></span>
+              <span class="badge err"></span>
+              <span class="name">retry: ddg search ti...</span>
+              <span class="meta">18:47</span>
+            </div>
+            <div class="tree-row">
+              <span class="rule"></span>
+              <span class="badge idle"></span>
+              <span class="name">walkthrough HAT run</span>
+              <span class="meta">17:10</span>
+            </div>
+            <div class="tree-row">
+              <span class="rule"></span>
+              <span class="badge idle"></span>
+              <span class="name">json_schema_extra dr...</span>
+              <span class="meta">15:55</span>
+            </div>
+            <div class="tree-row">
+              <span class="rule"></span>
+              <span class="badge idle"></span>
+              <span class="name">draft: encryption ro...</span>
+              <span class="meta">14:02</span>
+            </div>
+            <div class="tree-row">
+              <span class="rule"></span>
+              <span class="badge idle"></span>
+              <span class="name">readme: pty session r...</span>
+              <span class="meta">11:49</span>
+            </div>
+          </div>
+
+          <div class="tree-group">
+            <div class="tree-group-h">
+              <span>this week</span><span class="count">23</span>
+            </div>
+            <div class="tree-row">
+              <span class="rule"></span>
+              <span class="badge idle"></span>
+              <span class="name">f5 ssrf transport tests</span>
+              <span class="meta">may 09</span>
+            </div>
+            <div class="tree-row">
+              <span class="rule"></span>
+              <span class="badge idle"></span>
+              <span class="name">design tokens contrast</span>
+              <span class="meta">may 08</span>
+            </div>
+            <div class="tree-row">
+              <span class="rule"></span>
+              <span class="badge idle"></span>
+              <span class="name">m07 f1 mcp source st...</span>
+              <span class="meta">may 07</span>
+            </div>
+            <div class="tree-row">
+              <span class="rule"></span>
+              <span class="badge idle"></span>
+              <span class="name">browser test fixture...</span>
+              <span class="meta">may 06</span>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- CENTER: conversation -->
+      <section class="panel" style="background:var(--bg-1); border-right: 1px solid var(--line-2);">
+        <div class="conv-head">
+          <div class="conv-title">
+            <span class="agent-name">▎ researcher</span>
+            <span class="sep">·</span>
+            <span>migrate v9 to v10 schema</span>
+            <span class="session-id">sess:7a3c91e2</span>
+          </div>
+          <div class="conv-meta">
+            <span><b>opus-4</b> · 200k ctx</span>
+            <span>turn <b>14</b></span>
+            <span>since <b>16:42</b></span>
+            <span>cost <b style="color:var(--acc)">$0.084</b></span>
+          </div>
+        </div>
+
+        <div class="conv-body">
+
+          <div class="msg user">
+            <div class="who">
+              <span class="pill">user ▎ you</span>
+              <span class="dur">·</span>
+              <span class="dur">prompt 412 tok</span>
+              <span class="ts">16:42:08</span>
+            </div>
+            <div class="body">
+              <p>I need to apply schema migration v10 in <code>the_one/db/schema.py</code> — change the <code>mcp_sources</code> CHECK constraint from <code>type IN ('stdio', 'sse')</code> to <code>type IN ('stdio', 'streamable-http')</code>, AND add a <code>secrets TEXT NOT NULL DEFAULT '{}'</code> column. Existing rows with <code>type='sse'</code> should rename to <code>'streamable-http'</code>. Walk me through it before writing.</p>
+            </div>
+          </div>
+
+          <div class="msg agent researcher">
+            <div class="who">
+              <span class="pill">agent ▎ researcher</span>
+              <span class="dur">5 tools · 2.41s</span>
+              <span class="dur">·</span>
+              <span class="dur">in 4,082 · out 1,118 tok</span>
+              <span class="ts">16:42:11</span>
+            </div>
+            <div class="body">
+              <p>Reading the existing migration ceremony first so the new one matches the codebase pattern.</p>
+
+              <div class="toolcall" data-open="true">
+                <div class="toolcall-head" onclick="toggleTool(this)">
+                  <span class="glyph">▾</span>
+                  <span class="tname">read_file</span>
+                  <span class="targs">path=the_one/db/schema.py  range=280:340</span>
+                  <span class="arrow">→</span>
+                  <span class="tres">60 lines · 2.1kb</span>
+                  <span class="tmeta">12ms <span class="tdot">●</span></span>
+                </div>
+                <div class="toolcall-body">
+                  <div class="kv">
+                    <div class="k">tool</div><div>builtin/filesystem · read_file</div>
+                    <div class="k">duration</div><div>12.4ms</div>
+                    <div class="k">bytes_read</div><div>2,127 / cap 1,048,576</div>
+                    <div class="k">tokens</div><div>in 38 · out 542</div>
+                  </div>
+                  <div class="res-head"><span>result · tail</span><span>lines 280–340 of 614</span></div>
+<pre><span class="c"># v8 — encryption rotation invariant: no PRAGMA between SELECT and commit</span>
+<span class="c"># v9 — idempotent ALTER TABLE ... ADD COLUMN guarded by PRAGMA table_info</span>
+<span class="k">async def</span> <span class="b">apply_v9</span>(conn):
+    <span class="k">async with</span> conn.execute(<span class="s">"PRAGMA table_info(tool_configs)"</span>) <span class="k">as</span> cur:
+        cols = {row[<span class="n">1</span>] <span class="k">async for</span> row <span class="k">in</span> cur}
+    <span class="k">if</span> <span class="s">"enabled"</span> <span class="k">not in</span> cols:
+        <span class="k">await</span> conn.execute(<span class="s">"ALTER TABLE tool_configs ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1"</span>)
+    <span class="k">await</span> conn.execute(
+        <span class="s">"INSERT OR IGNORE INTO schema_version (version, applied_at) VALUES (?, ?)"</span>,
+        (<span class="n">9</span>, datetime.now(timezone.utc).isoformat()),
+    )</pre>
+                </div>
+              </div>
+
+              <div class="toolcall">
+                <div class="toolcall-head" onclick="toggleTool(this)">
+                  <span class="glyph">▸</span>
+                  <span class="tname">grep</span>
+                  <span class="targs">pattern="executescript" path=the_one/db/</span>
+                  <span class="arrow">→</span>
+                  <span class="tres">0 matches</span>
+                  <span class="tmeta">8ms <span class="tdot">●</span></span>
+                </div>
+              </div>
+
+              <div class="toolcall">
+                <div class="toolcall-head" onclick="toggleTool(this)">
+                  <span class="glyph">▸</span>
+                  <span class="tname">shell</span>
+                  <span class="targs">cmd="sqlite3 dev.db '.schema mcp_sources'"</span>
+                  <span class="arrow">→</span>
+                  <span class="tres">CREATE TABLE mcp_sources ... CHECK(type IN ('stdio','sse'))</span>
+                  <span class="tmeta">42ms <span class="tdot">●</span></span>
+                </div>
+              </div>
+
+              <p>Three observations before we write v10:</p>
+
+              <p>SQLite has no <code>ALTER TABLE DROP CONSTRAINT</code>, so the CHECK swap forces the <em>whole-table rebuild</em> ceremony — <code>CREATE new + INSERT-SELECT old + DROP old + RENAME new</code> under <code>PRAGMA foreign_keys=OFF/ON</code> brackets. The <code>v8</code>/<code>v9</code> pattern of individual <code>await conn.execute(...)</code> calls (not <code>executescript</code>) carries through so partial-apply retries are safe.</p>
+
+              <p>The <code>'sse' → 'streamable-http'</code> rename must happen inside the <code>INSERT INTO mcp_sources_new SELECT ...</code> step (<code>CASE WHEN type='sse' THEN 'streamable-http' ELSE type END</code>) rather than as a pre-rebuild <code>UPDATE</code> — the old CHECK is still active and would reject the new literal.</p>
+
+              <p>The <code>secrets</code> column needs <code>NOT NULL DEFAULT '{}'</code> to avoid orphaned <code>NULL</code> rows. I'll cross-check the F1 OAuth contract before we commit.</p>
+
+              <div class="toolcall">
+                <div class="toolcall-head" onclick="toggleTool(this)">
+                  <span class="glyph">▸</span>
+                  <span class="tname">mcp_atlassian.search</span>
+                  <span class="targs">q="F1 oauth client_secret secrets contract"</span>
+                  <span class="arrow">→</span>
+                  <span class="tres">3 results · top: confluence/f1-mcp-contracts</span>
+                  <span class="tmeta">418ms <span class="tdot">●</span></span>
+                </div>
+              </div>
+
+              <div class="toolcall">
+                <div class="toolcall-head" onclick="toggleTool(this)">
+                  <span class="glyph">▸</span>
+                  <span class="tname">http_request</span>
+                  <span class="targs">GET https://docs.gleepglorp.local/contracts/m07-f1</span>
+                  <span class="arrow">→</span>
+                  <span class="tres">200 · 14.3kb · contracts confirmed</span>
+                  <span class="tmeta">312ms <span class="tdot">●</span></span>
+                </div>
+              </div>
+
+              <p>Confirmed — F1 routes the OAuth client secret to <code>secrets["oauth_client_secret"]</code> at the top level, so the new <code>secrets</code> column's JSON shape is <code>{"oauth_client_secret": "..."}</code>, not nested under <code>config.oauth</code>. Want me to draft <code>apply_v10</code> now, or run the migration on a copy of <code>dev.db</code> first to verify the rebuild round-trips cleanly?</p>
+            </div>
+          </div>
+
+          <div class="msg user">
+            <div class="who">
+              <span class="pill">user ▎ you</span>
+              <span class="dur">prompt 18 tok</span>
+              <span class="ts">16:43:50</span>
+            </div>
+            <div class="body">
+              <p>Round-trip on a copy first. Then we draft.</p>
+            </div>
+          </div>
+
+          <div class="msg agent researcher">
+            <div class="who">
+              <span class="pill">agent ▎ researcher</span>
+              <span class="dur">running · 2 tools · 0.84s</span>
+              <span class="ts">16:43:51</span>
+            </div>
+            <div class="body">
+              <div class="toolcall" data-open="true">
+                <div class="toolcall-head" onclick="toggleTool(this)">
+                  <span class="glyph">▾</span>
+                  <span class="tname">shell</span>
+                  <span class="targs">cp data/dev.db data/dev.v9.bak && sqlite3 data/dev.v9.bak</span>
+                  <span class="arrow">→</span>
+                  <span class="tres">2 rows · type=sse</span>
+                  <span class="tmeta">218ms <span class="tdot">●</span></span>
+                </div>
+                <div class="toolcall-body">
+                  <div class="kv">
+                    <div class="k">tool</div><div>builtin/execution · shell</div>
+                    <div class="k">cwd</div><div>/app</div>
+                    <div class="k">timeout</div><div>30s · used 0.22s</div>
+                    <div class="k">exit_code</div><div>0</div>
+                  </div>
+                  <div class="res-head"><span>stdout · tail</span><span>3 lines</span></div>
+<pre><span class="c">$ sqlite3 data/dev.v9.bak "SELECT id, name, type FROM mcp_sources"</span>
+<span class="n">3</span>|atlassian|sse
+<span class="n">7</span>|github|stdio
+<span class="n">11</span>|linear|sse</pre>
+                </div>
+              </div>
+
+              <div class="toolcall" data-open="true">
+                <div class="toolcall-head" onclick="toggleTool(this)">
+                  <span class="glyph">▸</span>
+                  <span class="tname">python_exec</span>
+                  <span class="targs">draft_v10_migration_and_dryrun()</span>
+                  <span class="arrow">→</span>
+                  <span class="tres" style="color:var(--acc)">streaming...</span>
+                  <span class="tmeta" style="color:var(--acc)">0.62s <span class="tdot" style="color:var(--acc)">●</span></span>
+                </div>
+              </div>
+
+              <p style="color:var(--fg-3);font-style:italic">Drafting <code>apply_v10</code> and running it against <code>data/dev.v9.bak</code> to verify round-trip…</p>
+            </div>
+          </div>
+
+        </div>
+
+        <div class="composer">
+          <div class="composer-row">
+            <span class="prompt">▌</span>
+            <input type="text" placeholder="ask researcher · attach with @file, @session, @mcp · /clear /fork /rename" value="" autofocus />
+            <span class="hk">⏎ send  ⇧⏎ newline</span>
+          </div>
+          <div class="ctx-line">
+            <span><b>ctx</b> 38.4k / 200k · 19.2%</span>
+            <span><b>tools</b> 14 enabled · 19 available</span>
+            <span><b>mcp</b> atlassian · github · postgres-local</span>
+            <span><b>cwd</b> ~/Projects/AI/the-one</span>
+            <span style="margin-left:auto;color:var(--fg-2)">⌥⏎ send and fork</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- RIGHT: inspector / telemetry -->
+      <aside class="panel" style="border-right:0;">
+        <div class="panel-head">
+          <span class="title">inspector</span>
+          <span class="actions">
+            <span class="hk">^I toggle</span>
+          </span>
+        </div>
+
+        <div class="inspector">
+
+          <!-- context -->
+          <div class="inspector-section">
+            <div class="inspector-section-h">
+              <span>context · turn 14</span>
+              <span class="hk">live</span>
+            </div>
+            <div class="inspector-section-body">
+              <div class="ctx-bar-block">
+                <div class="label-row"><span>tokens</span><span><b>38,412</b> / 200,000 <span style="color:var(--fg-3)">· 19.2%</span></span></div>
+                <div class="ctx-bar"><i style="width:19.2%"></i></div>
+              </div>
+              <div class="ctx-bar-block">
+                <div class="label-row"><span>session cost</span><span><b>$0.0837</b> / $1.00 budget</span></div>
+                <div class="ctx-bar cost"><i style="width:8.37%"></i></div>
+              </div>
+              <div class="ctx-bar-block">
+                <div class="label-row"><span>iter budget</span><span><b>14</b> / 20 iter</span></div>
+                <div class="ctx-bar budget"><i style="width:70%"></i></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- exec tree -->
+          <div class="inspector-section">
+            <div class="inspector-section-h">
+              <span>execution · turn 14</span>
+              <span style="color:var(--acc)" class="hk">● running</span>
+            </div>
+            <div class="inspector-section-body">
+              <div class="exec-tree">
+                <div class="node">
+                  <span class="g">▾</span>
+                  <span class="lbl"><span class="k">researcher</span> · iter 14</span>
+                  <span class="tk">2,108 tok</span>
+                  <span class="du">0.84s</span>
+                </div>
+                <div class="node indent-1">
+                  <span class="g">├─</span>
+                  <span class="lbl">llm.complete · opus-4</span>
+                  <span class="tk">1,012 tok</span>
+                  <span class="du">218ms</span>
+                </div>
+                <div class="node indent-1">
+                  <span class="g">├─</span>
+                  <span class="lbl">tool · shell</span>
+                  <span class="tk">94 tok</span>
+                  <span class="du">218ms</span>
+                </div>
+                <div class="node indent-2">
+                  <span class="g">└─</span>
+                  <span class="lbl">subprocess · exit=0</span>
+                  <span class="tk">42b/86b</span>
+                  <span class="du">211ms</span>
+                </div>
+                <div class="node indent-1 running">
+                  <span class="g">├─</span>
+                  <span class="lbl">tool · python_exec <span style="color:var(--acc)">⟳</span></span>
+                  <span class="tk">— tok</span>
+                  <span class="du">0.62s</span>
+                </div>
+                <div class="node indent-1">
+                  <span class="g">└─</span>
+                  <span class="lbl">tool · continue (pending)</span>
+                  <span class="tk">—</span>
+                  <span class="du">—</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- turn stats -->
+          <div class="inspector-section">
+            <div class="inspector-section-h">
+              <span>session totals</span>
+              <span class="hk">14 turns</span>
+            </div>
+            <div class="inspector-section-body" style="padding: 0;">
+              <div class="stat-grid">
+                <div class="cell"><div class="l">tokens in</div><div class="v">34,891 <span class="u">tok</span></div></div>
+                <div class="cell"><div class="l">tokens out</div><div class="v">3,521 <span class="u">tok</span></div></div>
+                <div class="cell"><div class="l">tool calls</div><div class="v">42</div></div>
+                <div class="cell"><div class="l">errors</div><div class="v ok">0</div></div>
+                <div class="cell"><div class="l">latency p50</div><div class="v">218 <span class="u">ms</span></div></div>
+                <div class="cell"><div class="l">latency p95</div><div class="v">1.42 <span class="u">s</span></div></div>
+                <div class="cell"><div class="l">cost</div><div class="v acc">$0.0837</div></div>
+                <div class="cell"><div class="l">elapsed</div><div class="v">04:18</div></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- mcp attached -->
+          <div class="inspector-section">
+            <div class="inspector-section-h">
+              <span>mcp · 3 attached</span>
+              <span class="hk">^M manage</span>
+            </div>
+            <div class="inspector-section-body">
+              <div class="mcp-list">
+                <div class="row">
+                  <span class="dot"></span>
+                  <span class="name">atlassian</span>
+                  <span class="tools">14 tools</span>
+                  <span class="lat">42ms</span>
+                </div>
+                <div class="row">
+                  <span class="dot"></span>
+                  <span class="name">github</span>
+                  <span class="tools">27 tools</span>
+                  <span class="lat">88ms</span>
+                </div>
+                <div class="row">
+                  <span class="dot"></span>
+                  <span class="name">postgres-local</span>
+                  <span class="tools">8 tools</span>
+                  <span class="lat">12ms</span>
+                </div>
+                <div class="row">
+                  <span class="dot dim"></span>
+                  <span class="name" style="color:var(--fg-3)">slack</span>
+                  <span class="tools">disabled</span>
+                  <span class="lat">—</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- recent tools -->
+          <div class="inspector-section">
+            <div class="inspector-section-h">
+              <span>last calls</span>
+              <span class="hk">^L log</span>
+            </div>
+            <div class="inspector-section-body" style="padding:0;">
+              <table class="dtable">
+                <tbody>
+                  <tr><td class="num" style="width:42px;color:var(--fg-3);">t-0.2s</td><td>python_exec</td><td class="num"><span style="color:var(--acc)">●</span></td></tr>
+                  <tr><td class="num" style="color:var(--fg-3);">t-0.8s</td><td>shell</td><td class="num"><span style="color:var(--ok)">●</span></td></tr>
+                  <tr><td class="num" style="color:var(--fg-3);">t-1.1s</td><td>http_request</td><td class="num"><span style="color:var(--ok)">●</span></td></tr>
+                  <tr><td class="num" style="color:var(--fg-3);">t-1.4s</td><td>mcp_atl.search</td><td class="num"><span style="color:var(--ok)">●</span></td></tr>
+                  <tr><td class="num" style="color:var(--fg-3);">t-1.9s</td><td>shell</td><td class="num"><span style="color:var(--ok)">●</span></td></tr>
+                  <tr><td class="num" style="color:var(--fg-3);">t-2.2s</td><td>grep</td><td class="num"><span style="color:var(--ok)">●</span></td></tr>
+                  <tr><td class="num" style="color:var(--fg-3);">t-2.4s</td><td>read_file</td><td class="num"><span style="color:var(--ok)">●</span></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+      </aside>
+    </section>
+
+    <!-- ====== STUDIO ====== -->
+    <section id="area-studio" class="area">
+
+      <!-- LEFT: agents table -->
+      <aside class="panel">
+        <div class="panel-head">
+          <span class="title">agents · 3</span>
+          <span class="actions"><span class="hk">^N new</span></span>
+        </div>
+        <div style="overflow-y:auto;flex:1;min-height:0;">
+          <table class="dtable">
+            <thead>
+              <tr>
+                <th>name</th>
+                <th>provider · model</th>
+                <th>last</th>
+                <th class="num">runs</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr data-active="true">
+                <td class="name"><b>researcher</b><span class="sub">re3a91</span></td>
+                <td>anthropic · claude-opus-4</td>
+                <td>2m</td>
+                <td class="num">412</td>
+                <td><span class="pill-sm ok">ok</span></td>
+              </tr>
+              <tr>
+                <td class="name"><b>codex</b><span class="sub">cd7b22</span></td>
+                <td>openai · gpt-4o</td>
+                <td>1h</td>
+                <td class="num">218</td>
+                <td><span class="pill-sm ok">ok</span></td>
+              </tr>
+              <tr>
+                <td class="name"><b>concierge</b><span class="sub">cn1f04</span></td>
+                <td>ollama · llama3.1:70b</td>
+                <td>3d</td>
+                <td class="num">88</td>
+                <td><span class="pill-sm warn">slow</span></td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div class="sect"><span>archived</span><span class="count">2</span></div>
+          <table class="dtable">
+            <tbody>
+              <tr>
+                <td class="name" style="color:var(--fg-3)"><b style="color:var(--fg-2)">scribe</b><span class="sub">sc88e2</span></td>
+                <td style="color:var(--fg-3)">anthropic · sonnet-3.5</td>
+                <td>22d</td>
+                <td class="num" style="color:var(--fg-3)">17</td>
+                <td><span class="pill-sm dim">archived</span></td>
+              </tr>
+              <tr>
+                <td class="name" style="color:var(--fg-3)"><b style="color:var(--fg-2)">probe</b><span class="sub">pr3c41</span></td>
+                <td style="color:var(--fg-3)">openai · gpt-4o-mini</td>
+                <td>33d</td>
+                <td class="num" style="color:var(--fg-3)">4</td>
+                <td><span class="pill-sm dim">archived</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </aside>
+
+      <!-- RIGHT: editor -->
+      <section class="panel studio-editor" style="border-right:0;">
+        <div class="editor-head">
+          <div class="title">
+            <span style="color:var(--acc-2)">▎</span>
+            <b>researcher</b>
+            <span class="id">id: re3a91 · created may 02 · 412 runs</span>
+          </div>
+          <div class="actions">
+            <button class="btn">duplicate <span class="hk">^D</span></button>
+            <button class="btn">test run <span class="hk">^T</span></button>
+            <button class="btn primary">save <span class="hk">^S</span></button>
+          </div>
+        </div>
+
+        <div class="editor-tabs">
+          <div class="editor-tab active">general <span class="hk">⌥1</span></div>
+          <div class="editor-tab">tools <span class="hk">⌥2</span><span class="badge">14 / 19</span></div>
+          <div class="editor-tab">mcp sources <span class="hk">⌥3</span><span class="badge">3</span></div>
+          <div class="editor-tab">overrides <span class="hk">⌥4</span><span class="badge">2</span></div>
+          <div class="editor-tab">tracing <span class="hk">⌥5</span></div>
+        </div>
+
+        <div class="editor-body">
+
+          <div class="sect"><span>identity</span><span class="count">3</span></div>
+          <div class="form-grid">
+            <div class="lab">name <span class="hk">^1</span></div>
+            <div class="val full"><input value="researcher" /></div>
+
+            <div class="lab">slug <span class="hk">^2</span></div>
+            <div class="val">researcher</div>
+            <div class="help">used in cli &amp; @-mentions</div>
+
+            <div class="lab">description <span class="hk">^3</span></div>
+            <div class="val full"><input value="Read-heavy code &amp; docs spelunker. Reaches for grep before tar." /></div>
+          </div>
+
+          <div class="sect"><span>provider</span><span class="count">3</span></div>
+          <div class="form-grid">
+            <div class="lab">provider <span class="hk">^P</span></div>
+            <div class="val full">
+              <span style="color:var(--acc)">anthropic</span>
+              <span style="color:var(--fg-3);margin-left:8px">api.anthropic.com · key fp:7c4e</span>
+            </div>
+
+            <div class="lab">model <span class="hk">^M</span></div>
+            <div class="val full">
+              claude-opus-4
+              <span style="color:var(--fg-3);margin-left:8px">200k ctx · $15/$75 per Mtok · tools ✓</span>
+            </div>
+
+            <div class="lab">temperature <span class="hk">^,</span></div>
+            <div class="val" style="width:80px"><input value="0.2" /></div>
+            <div class="help">deterministic-leaning for spelunking</div>
+          </div>
+
+          <div class="sect"><span>system prompt</span><span class="count">42 lines</span></div>
+          <div class="prompt-edit">
+            <div class="gutter">
+              <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span><span>11</span><span>12</span><span>13</span><span>14</span><span>15</span><span>16</span>
+            </div>
+<div class="code"><span class="c"># researcher — spelunker persona</span>
+You are <span class="k">researcher</span>, an agent specialised for
+spelunking codebases, docs, and the open web for the
+operator. Be terse, evidence-first, and prefer reading
+over generating. Cite paths and line ranges, not paraphrase.
+
+<span class="c">## Working tools</span>
+<span class="k">read_file</span>, <span class="k">grep</span>, <span class="k">glob</span>, <span class="k">shell</span> (read-only by default),
+<span class="k">http_request</span>, <span class="k">fetch_url</span>, <span class="k">web_search</span>,
+plus attached mcp servers (<span class="k">atlassian</span>, <span class="k">github</span>, <span class="k">postgres</span>).
+
+<span class="c">## Output discipline</span>
+Lead with the finding, not the journey. If you run more
+than 3 tools to answer, summarise what you tried that
+<span class="s">"didn't help"</span> in a single tail line.</div>
+          </div>
+
+          <div class="sect"><span>behaviour</span><span class="count">4</span></div>
+          <div class="form-grid">
+            <div class="lab">max iterations</div>
+            <div class="val" style="width:80px"><input value="20" /></div>
+            <div class="help">global cap before forced stop</div>
+
+            <div class="lab">continue tool</div>
+            <div class="val" style="width:80px">enabled</div>
+            <div class="help">virtual `continue` for multi-turn tool sequences</div>
+
+            <div class="lab">cost budget</div>
+            <div class="val" style="width:80px"><input value="1.00" /></div>
+            <div class="help">USD per session, soft stop</div>
+
+            <div class="lab">streaming</div>
+            <div class="val" style="width:80px">enabled</div>
+            <div class="help">sse chunks delivered to websocket</div>
+          </div>
+
+        </div>
+      </section>
+    </section>
+
+    <!-- ====== ADMIN ====== -->
+    <section id="area-admin" class="area">
+
+      <!-- LEFT: nav -->
+      <aside class="panel">
+        <div class="panel-head">
+          <span class="title">administration</span>
+        </div>
+        <div class="admin-nav">
+          <div class="grp">connections</div>
+          <div class="item">providers <span class="ct">4</span></div>
+          <div class="item">mcp sources <span class="ct">5</span></div>
+          <div class="grp">capability</div>
+          <div class="item" data-active="true">built-in tools <span class="ct">19</span></div>
+          <div class="item">knowledge bases <span class="ct">2</span></div>
+          <div class="grp">system</div>
+          <div class="item">general <span class="hk">^G</span></div>
+          <div class="item">encryption <span class="hk">^E</span></div>
+          <div class="item">migrations <span class="ct">v10</span></div>
+          <div class="item">logs <span class="hk">^L</span></div>
+        </div>
+      </aside>
+
+      <!-- RIGHT: admin main -->
+      <section class="admin-main">
+        <div class="admin-head">
+          <div>
+            <div class="h">Built-in tools</div>
+            <div class="sub">19 tools across 3 categories · operator-set defaults shared by all agents</div>
+          </div>
+          <div class="actions">
+            <button class="btn">export defaults <span class="hk">^E</span></button>
+            <button class="btn">reset all <span class="hk">^R</span></button>
+            <button class="btn primary">save changes <span class="hk">^S</span></button>
+          </div>
+        </div>
+
+        <div class="admin-body">
+
+          <!-- ops grid -->
+          <div class="ops-panel">
+            <div class="ops-grid">
+              <div class="cell"><div class="l">schema</div><div class="v acc">v10</div></div>
+              <div class="cell"><div class="l">db size</div><div class="v">14.2 <span class="u">mib</span></div></div>
+              <div class="cell"><div class="l">enc key fp</div><div class="v">7c4e:a319</div></div>
+              <div class="cell"><div class="l">uptime</div><div class="v">3d 04:18</div></div>
+              <div class="cell"><div class="l">tools enabled</div><div class="v ok">17 / 19</div></div>
+              <div class="cell"><div class="l">last migration</div><div class="v">may 10 · 22:01</div></div>
+            </div>
+          </div>
+
+          <div class="table-wrap">
+
+            <div class="sect" style="padding:14px 18px 6px;margin:0;">
+              <span>filesystem</span>
+              <span class="count">9 tools</span>
+              <span style="margin-left:auto;color:var(--fg-3);font-size:10.5px;text-transform:none;letter-spacing:0;">path_allowlist=["~"] · denylist=19 entries · read_size_cap=1mib</span>
+            </div>
+
+            <table class="dtable">
+              <thead>
+                <tr>
+                  <th style="width:34px;"></th>
+                  <th style="width:160px;">tool</th>
+                  <th>defaults</th>
+                  <th class="num" style="width:80px;">overrides</th>
+                  <th class="num" style="width:70px;">calls 24h</th>
+                  <th class="num" style="width:70px;">errors</th>
+                  <th class="num" style="width:90px;">p95</th>
+                  <th style="width:90px;">status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><span class="chk on"></span></td>
+                  <td class="name"><b>read_file</b></td>
+                  <td>read_size_cap=1.0 mib · allow_binary=false</td>
+                  <td class="num">2</td><td class="num">1,418</td><td class="num">3</td><td class="num">14 ms</td>
+                  <td><span class="pill-sm ok">enabled</span></td>
+                </tr>
+                <tr>
+                  <td><span class="chk on"></span></td>
+                  <td class="name"><b>write_file</b></td>
+                  <td>allow_binary=false</td>
+                  <td class="num">1</td><td class="num">218</td><td class="num">0</td><td class="num">8 ms</td>
+                  <td><span class="pill-sm ok">enabled</span></td>
+                </tr>
+                <tr>
+                  <td><span class="chk on"></span></td>
+                  <td class="name"><b>edit_file</b></td>
+                  <td>—</td>
+                  <td class="num">0</td><td class="num">94</td><td class="num">2</td><td class="num">11 ms</td>
+                  <td><span class="pill-sm ok">enabled</span></td>
+                </tr>
+                <tr>
+                  <td><span class="chk on"></span></td>
+                  <td class="name"><b>delete_file</b></td>
+                  <td>—</td>
+                  <td class="num">3</td><td class="num">12</td><td class="num">0</td><td class="num">6 ms</td>
+                  <td><span class="pill-sm warn">narrowed</span></td>
+                </tr>
+                <tr>
+                  <td><span class="chk on"></span></td>
+                  <td class="name"><b>move_file</b></td>
+                  <td>—</td>
+                  <td class="num">0</td><td class="num">8</td><td class="num">0</td><td class="num">5 ms</td>
+                  <td><span class="pill-sm ok">enabled</span></td>
+                </tr>
+                <tr>
+                  <td><span class="chk on"></span></td>
+                  <td class="name"><b>mkdir</b></td>
+                  <td>—</td>
+                  <td class="num">0</td><td class="num">23</td><td class="num">0</td><td class="num">2 ms</td>
+                  <td><span class="pill-sm ok">enabled</span></td>
+                </tr>
+                <tr>
+                  <td><span class="chk on"></span></td>
+                  <td class="name"><b>glob</b></td>
+                  <td>—</td>
+                  <td class="num">0</td><td class="num">88</td><td class="num">0</td><td class="num">22 ms</td>
+                  <td><span class="pill-sm ok">enabled</span></td>
+                </tr>
+                <tr>
+                  <td><span class="chk on"></span></td>
+                  <td class="name"><b>grep</b></td>
+                  <td>—</td>
+                  <td class="num">0</td><td class="num">312</td><td class="num">1</td><td class="num">42 ms</td>
+                  <td><span class="pill-sm ok">enabled</span></td>
+                </tr>
+                <tr>
+                  <td><span class="chk on"></span></td>
+                  <td class="name"><b>list_dir</b></td>
+                  <td>—</td>
+                  <td class="num">0</td><td class="num">142</td><td class="num">0</td><td class="num">6 ms</td>
+                  <td><span class="pill-sm ok">enabled</span></td>
+                </tr>
+              </tbody>
+            </table>
+
+            <div class="sect" style="padding:14px 18px 6px;margin:0;">
+              <span>execution</span>
+              <span class="count">6 tools</span>
+              <span style="margin-left:auto;color:var(--fg-3);font-size:10.5px;text-transform:none;letter-spacing:0;">timeout_default=30s · timeout_max=120s · output_cap=256kb · denylist=19</span>
+            </div>
+
+            <table class="dtable">
+              <thead>
+                <tr>
+                  <th style="width:34px;"></th>
+                  <th style="width:160px;">tool</th>
+                  <th>defaults</th>
+                  <th class="num" style="width:80px;">overrides</th>
+                  <th class="num" style="width:70px;">calls 24h</th>
+                  <th class="num" style="width:70px;">errors</th>
+                  <th class="num" style="width:90px;">p95</th>
+                  <th style="width:90px;">status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><span class="chk on"></span></td>
+                  <td class="name"><b>shell</b></td>
+                  <td>timeout=30s/120s · output_cap=256 kib · denylist=19</td>
+                  <td class="num">2</td><td class="num">418</td><td class="num">12</td><td class="num">218 ms</td>
+                  <td><span class="pill-sm ok">enabled</span></td>
+                </tr>
+                <tr>
+                  <td><span class="chk on"></span></td>
+                  <td class="name"><b>python_exec</b></td>
+                  <td>timeout=90s/120s · output_cap=256 kib</td>
+                  <td class="num">1</td><td class="num">94</td><td class="num">3</td><td class="num">412 ms</td>
+                  <td><span class="pill-sm ok">enabled</span></td>
+                </tr>
+                <tr>
+                  <td><span class="chk on"></span></td>
+                  <td class="name"><b>shell_session_start</b></td>
+                  <td>idle_ttl=300s · max_concurrent=5</td>
+                  <td class="num">0</td><td class="num">8</td><td class="num">0</td><td class="num">142 ms</td>
+                  <td><span class="pill-sm ok">enabled</span></td>
+                </tr>
+                <tr>
+                  <td><span class="chk on"></span></td>
+                  <td class="name"><b>shell_session_send</b></td>
+                  <td>—</td>
+                  <td class="num">0</td><td class="num">42</td><td class="num">1</td><td class="num">88 ms</td>
+                  <td><span class="pill-sm ok">enabled</span></td>
+                </tr>
+                <tr>
+                  <td><span class="chk on"></span></td>
+                  <td class="name"><b>shell_session_close</b></td>
+                  <td>—</td>
+                  <td class="num">0</td><td class="num">8</td><td class="num">0</td><td class="num">4 ms</td>
+                  <td><span class="pill-sm ok">enabled</span></td>
+                </tr>
+                <tr>
+                  <td><span class="chk on"></span></td>
+                  <td class="name"><b>shell_session_list</b></td>
+                  <td>—</td>
+                  <td class="num">0</td><td class="num">22</td><td class="num">0</td><td class="num">3 ms</td>
+                  <td><span class="pill-sm ok">enabled</span></td>
+                </tr>
+              </tbody>
+            </table>
+
+            <div class="sect" style="padding:14px 18px 6px;margin:0;">
+              <span>web</span>
+              <span class="count">4 tools</span>
+              <span style="margin-left:auto;color:var(--fg-3);font-size:10.5px;text-transform:none;letter-spacing:0;">ssrf=always-on · response_cap=1 mib · redirect_cap=5 · extra_allowed_hosts=2</span>
+            </div>
+
+            <table class="dtable">
+              <thead>
+                <tr>
+                  <th style="width:34px;"></th>
+                  <th style="width:160px;">tool</th>
+                  <th>defaults</th>
+                  <th class="num" style="width:80px;">overrides</th>
+                  <th class="num" style="width:70px;">calls 24h</th>
+                  <th class="num" style="width:70px;">errors</th>
+                  <th class="num" style="width:90px;">p95</th>
+                  <th style="width:90px;">status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><span class="chk on"></span></td>
+                  <td class="name"><b>http_request</b></td>
+                  <td>timeout=30s/120s · resp_cap=1 mib · redirect_cap=5</td>
+                  <td class="num">1</td><td class="num">218</td><td class="num">8</td><td class="num">412 ms</td>
+                  <td><span class="pill-sm ok">enabled</span></td>
+                </tr>
+                <tr>
+                  <td><span class="chk on"></span></td>
+                  <td class="name"><b>fetch_url</b></td>
+                  <td>timeout=30s/120s · resp_cap=1 mib</td>
+                  <td class="num">0</td><td class="num">142</td><td class="num">4</td><td class="num">312 ms</td>
+                  <td><span class="pill-sm ok">enabled</span></td>
+                </tr>
+                <tr>
+                  <td><span class="chk"></span></td>
+                  <td class="name" style="color:var(--fg-3);"><b style="color:var(--fg-2);">download_file</b></td>
+                  <td style="color:var(--fg-3)">—</td>
+                  <td class="num" style="color:var(--fg-3)">0</td><td class="num" style="color:var(--fg-3)">0</td><td class="num" style="color:var(--fg-3)">0</td><td class="num" style="color:var(--fg-3)">—</td>
+                  <td><span class="pill-sm dim">disabled</span></td>
+                </tr>
+                <tr>
+                  <td><span class="chk on"></span></td>
+                  <td class="name"><b>web_search</b></td>
+                  <td>backend=ddg · timeout=15s</td>
+                  <td class="num">0</td><td class="num">88</td><td class="num">2</td><td class="num">1.4 s</td>
+                  <td><span class="pill-sm warn">slow</span></td>
+                </tr>
+              </tbody>
+            </table>
+
+            <div class="sect" style="padding:14px 18px 6px;margin:0;">
+              <span>providers</span>
+              <span class="count">4 configured</span>
+              <span style="margin-left:auto;color:var(--fg-3);font-size:10.5px;text-transform:none;letter-spacing:0;">last rotation: 12d ago · ⟳ /api/encryption/rotate</span>
+            </div>
+
+            <table class="dtable">
+              <thead>
+                <tr>
+                  <th style="width:34px;"></th>
+                  <th style="width:160px;">provider</th>
+                  <th style="width:120px;">type</th>
+                  <th>endpoint</th>
+                  <th class="num" style="width:80px;">models</th>
+                  <th style="width:80px;">key fp</th>
+                  <th class="num" style="width:90px;">last test</th>
+                  <th style="width:90px;">status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><span class="chk on"></span></td>
+                  <td class="name"><b>anthropic-main</b></td>
+                  <td><span class="pill-sm acc">anthropic</span></td>
+                  <td>api.anthropic.com</td>
+                  <td class="num">7</td><td class="num">···7c4e</td><td class="num">42 ms</td>
+                  <td><span class="pill-sm ok">ok</span></td>
+                </tr>
+                <tr>
+                  <td><span class="chk on"></span></td>
+                  <td class="name"><b>openai-prod</b></td>
+                  <td><span class="pill-sm">openai</span></td>
+                  <td>api.openai.com</td>
+                  <td class="num">11</td><td class="num">···a319</td><td class="num">88 ms</td>
+                  <td><span class="pill-sm ok">ok</span></td>
+                </tr>
+                <tr>
+                  <td><span class="chk on"></span></td>
+                  <td class="name"><b>ollama-local</b></td>
+                  <td><span class="pill-sm">ollama</span></td>
+                  <td>127.0.0.1:11434</td>
+                  <td class="num">14</td><td class="num">—</td><td class="num">8 ms</td>
+                  <td><span class="pill-sm ok">ok</span></td>
+                </tr>
+                <tr>
+                  <td><span class="chk on"></span></td>
+                  <td class="name"><b>groq</b></td>
+                  <td><span class="pill-sm">openai-compat</span></td>
+                  <td>api.groq.com/openai/v1</td>
+                  <td class="num">5</td><td class="num">···b108</td><td class="num">—</td>
+                  <td><span class="pill-sm err">fail</span></td>
+                </tr>
+              </tbody>
+            </table>
+
+          </div>
+        </div>
+      </section>
+    </section>
+
+  </main>
+
+  <!-- =====================================================
+       STATUS BAR
+       ===================================================== -->
+  <footer class="statusbar">
+    <span class="seg"><span class="pulse"></span><span class="lbl">agent</span><span class="v acc" id="sb-agent">researcher</span></span>
+    <span class="seg"><span class="lbl">model</span><span class="v">opus-4</span></span>
+    <span class="seg"><span class="lbl">sess</span><span class="v">7a3c91e2</span></span>
+    <span class="seg"><span class="lbl">cost</span><span class="v">$0.0837</span></span>
+
+    <span class="seg" style="color:var(--fg-3);">
+      <span class="lbl">ctx</span>
+      <span class="v" style="font-variant-numeric:tabular-nums;">38.4k / 200k</span>
+      <span style="display:inline-flex;gap:1px;margin-left:6px;">
+        <span class="lvl"></span><span class="lvl"></span><span class="lvl"></span>
+        <span class="lvl" style="background:var(--line-3)"></span>
+        <span class="lvl" style="background:var(--line-3)"></span>
+        <span class="lvl" style="background:var(--line-3)"></span>
+        <span class="lvl" style="background:var(--line-3)"></span>
+        <span class="lvl" style="background:var(--line-3)"></span>
+        <span class="lvl" style="background:var(--line-3)"></span>
+        <span class="lvl" style="background:var(--line-3)"></span>
+      </span>
+    </span>
+
+    <span class="hints">
+      <span><b>^K</b>palette</span>
+      <span><b>^J</b>next</span>
+      <span><b>^N</b>new chat</span>
+      <span><b>^I</b>inspector</span>
+      <span><b>^.</b>menu</span>
+      <span><b>?</b>help</span>
+    </span>
+  </footer>
+
+  <!-- =====================================================
+       COMMAND PALETTE
+       ===================================================== -->
+  <div class="palette-overlay" data-open="true" id="palette">
+    <div class="palette">
+      <div class="palette-input-row">
+        <span class="prompt">▌</span>
+        <span class="input"><b>rotate</b><span class="cursor"></span></span>
+        <span class="scope">scope: <span style="color:var(--fg-1)">global</span></span>
+      </div>
+
+      <div class="palette-list">
+
+        <div class="palette-grp">commands · 4</div>
+
+        <div class="palette-item active" style="position:relative;">
+          <span class="g">⚙</span>
+          <span class="lbl">admin · encryption · <b>rotate</b> key</span>
+          <span class="desc">re-encrypt all api keys + mcp secrets · 2 tables</span>
+          <span class="hk">⏎</span>
+        </div>
+        <div class="palette-item" style="position:relative;">
+          <span class="g">⟳</span>
+          <span class="lbl"><b>rotate</b> log files</span>
+          <span class="desc">truncate logs/*.log · keep 7 days</span>
+          <span class="hk">↑↓</span>
+        </div>
+        <div class="palette-item" style="position:relative;">
+          <span class="g">⚙</span>
+          <span class="lbl">admin · providers · <b>rotate</b> anthropic-main key</span>
+          <span class="desc">prompt for new key · last rotated 12d ago</span>
+          <span class="hk">↑↓</span>
+        </div>
+        <div class="palette-item" style="position:relative;">
+          <span class="g">⚙</span>
+          <span class="lbl">studio · researcher · <b>rotate</b> system prompt history</span>
+          <span class="desc">archive current prompt · start fresh revision</span>
+          <span class="hk">↑↓</span>
+        </div>
+
+        <div class="palette-grp">sessions · 3</div>
+
+        <div class="palette-item" style="position:relative;">
+          <span class="g">▎</span>
+          <span class="lbl">researcher · <span style="color:var(--fg-1)">migrate v9 to v10 schema</span></span>
+          <span class="desc">active · turn 14 · $0.084</span>
+          <span class="hk">↑↓</span>
+        </div>
+        <div class="palette-item" style="position:relative;">
+          <span class="g">▎</span>
+          <span class="lbl">researcher · <span style="color:var(--fg-1)">audit ssrf transport branches</span></span>
+          <span class="desc">today · 14:08 · 12 turns</span>
+          <span class="hk">↑↓</span>
+        </div>
+        <div class="palette-item" style="position:relative;">
+          <span class="g">▎</span>
+          <span class="lbl">codex · <span style="color:var(--fg-1)">flight 03 hat scenarios</span></span>
+          <span class="desc">today · 11:22 · 8 turns</span>
+          <span class="hk">↑↓</span>
+        </div>
+
+        <div class="palette-grp">agents · 2</div>
+
+        <div class="palette-item" style="position:relative;">
+          <span class="g">⤳</span>
+          <span class="lbl">switch to agent · <span style="color:var(--fg-1)">codex</span></span>
+          <span class="desc">openai · gpt-4o · 218 runs</span>
+          <span class="hk">↑↓</span>
+        </div>
+        <div class="palette-item" style="position:relative;">
+          <span class="g">⤳</span>
+          <span class="lbl">switch to agent · <span style="color:var(--fg-1)">concierge</span></span>
+          <span class="desc">ollama · llama3.1:70b · 88 runs</span>
+          <span class="hk">↑↓</span>
+        </div>
+
+      </div>
+
+      <div class="palette-foot">
+        <div class="grp">
+          <span><b>↑↓</b>navigate</span>
+          <span><b>⏎</b>select</span>
+          <span><b>⇥</b>scope</span>
+        </div>
+        <div class="grp">
+          <span><b>esc</b>close</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+  // mode switching
+  const tabs = document.querySelectorAll('#mode-tabs .tab');
+  const areas = {
+    chat:   document.getElementById('area-chat'),
+    studio: document.getElementById('area-studio'),
+    admin:  document.getElementById('area-admin'),
+  };
+  const modeChip = document.getElementById('mode-name');
+  tabs.forEach(t => {
+    t.addEventListener('click', () => {
+      const area = t.dataset.area;
+      tabs.forEach(x => x.dataset.active = (x === t) ? 'true' : 'false');
+      Object.entries(areas).forEach(([k, el]) => {
+        el.dataset.active = (k === area) ? 'true' : 'false';
+      });
+      modeChip.textContent = area;
+    });
+  });
+
+  // tool call collapse
+  function toggleTool(head) {
+    const wrap = head.parentElement;
+    const open = wrap.dataset.open === 'true';
+    wrap.dataset.open = open ? 'false' : 'true';
+    const glyph = head.querySelector('.glyph');
+    if (glyph) glyph.textContent = open ? '▸' : '▾';
+  }
+
+  // palette open/close
+  const palette = document.getElementById('palette');
+  const openBtn = document.getElementById('open-palette');
+  openBtn.addEventListener('click', () => palette.dataset.open = 'true');
+  palette.addEventListener('click', (e) => {
+    if (e.target === palette) palette.dataset.open = 'false';
+  });
+  document.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+      e.preventDefault();
+      palette.dataset.open = palette.dataset.open === 'true' ? 'false' : 'true';
+    }
+    if (e.key === 'Escape') palette.dataset.open = 'false';
+    // ctrl+1..3 for areas
+    if ((e.ctrlKey || e.metaKey) && ['1','2','3'].includes(e.key)) {
+      e.preventDefault();
+      const idx = parseInt(e.key, 10) - 1;
+      if (tabs[idx]) tabs[idx].click();
+    }
+  });
+
+  // palette item hover -> active
+  document.querySelectorAll('.palette-item').forEach(item => {
+    item.addEventListener('mouseenter', () => {
+      document.querySelectorAll('.palette-item').forEach(x => x.classList.remove('active'));
+      item.classList.add('active');
+    });
+  });
+</script>
+</body>
+</html>

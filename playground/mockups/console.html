@@ -1,0 +1,1968 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=1440" />
+<title>GleepGlorp AI — Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  /* ---------- tokens ---------- */
+  :root {
+    --bg-0: #0d1117;            /* canvas */
+    --bg-1: #15181d;            /* pane */
+    --bg-2: #1c2128;            /* raised */
+    --bg-3: #22272e;            /* hover */
+    --bg-input: #0a0c10;        /* deep field */
+
+    --fg-0: #e6e6e6;            /* primary text */
+    --fg-1: #b8c0cc;            /* secondary text */
+    --fg-2: #8b95a3;            /* mute */
+    --fg-3: #5d6675;            /* faintest */
+
+    --hairline: rgba(255,255,255,0.07);
+    --hairline-strong: rgba(255,255,255,0.12);
+    --hover: rgba(255,255,255,0.035);
+    --active: rgba(255,255,255,0.06);
+
+    --accent: #5eb3d8;          /* one accent, used sparingly */
+    --accent-soft: rgba(94,179,216,0.14);
+    --accent-ring: rgba(94,179,216,0.32);
+
+    --ok: #4dbfa3;
+    --warn: #d8b25e;
+    --err: #d87a6b;
+
+    --r-sm: 5px;
+    --r-md: 7px;
+    --r-lg: 10px;
+
+    --shadow-pop: 0 14px 40px -10px rgba(0,0,0,0.55), 0 4px 12px -4px rgba(0,0,0,0.4);
+
+    --font-sans: "Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: var(--font-sans);
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--fg-0);
+    background: var(--bg-0);
+    min-width: 1440px;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: "cv11", "ss03";
+  }
+
+  ::selection { background: var(--accent-soft); color: var(--fg-0); }
+
+  /* ---------- primitives ---------- */
+  .mono { font-family: var(--font-mono); font-size: 12px; }
+  .muted { color: var(--fg-2); }
+  .faint { color: var(--fg-3); }
+  .dim { color: var(--fg-1); }
+
+  button, input, select, textarea {
+    font-family: inherit;
+    color: inherit;
+    background: transparent;
+    border: 0;
+    outline: 0;
+  }
+  button { cursor: pointer; }
+  :focus-visible { box-shadow: 0 0 0 2px var(--accent-ring); border-radius: var(--r-sm); }
+
+  .icon { width: 14px; height: 14px; flex: 0 0 14px; stroke: currentColor; fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+  .icon-sm { width: 12px; height: 12px; flex-basis: 12px; }
+  .icon-lg { width: 16px; height: 16px; flex-basis: 16px; }
+
+  .kbd {
+    display: inline-flex;
+    align-items: center;
+    height: 18px;
+    padding: 0 5px;
+    border: 1px solid var(--hairline-strong);
+    border-radius: 4px;
+    background: var(--bg-2);
+    color: var(--fg-1);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    line-height: 1;
+  }
+
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 20px;
+    padding: 0 7px;
+    border-radius: 10px;
+    background: var(--bg-2);
+    color: var(--fg-1);
+    border: 1px solid var(--hairline);
+    font-size: 11px;
+  }
+  .dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+  .dot-ok { background: var(--ok); }
+  .dot-warn { background: var(--warn); }
+  .dot-err { background: var(--err); }
+  .dot-idle { background: var(--fg-3); }
+  .dot-accent { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+  /* ---------- shell ---------- */
+  .app {
+    display: grid;
+    grid-template-rows: 52px 1fr 28px;
+    height: 100vh;
+  }
+
+  /* topbar */
+  .topbar {
+    display: grid;
+    grid-template-columns: 260px 1fr auto;
+    align-items: center;
+    border-bottom: 1px solid var(--hairline);
+    background: var(--bg-0);
+    padding: 0 16px 0 18px;
+    gap: 16px;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  .brand-mark {
+    width: 22px; height: 22px;
+    border-radius: 6px;
+    background: linear-gradient(135deg, #5eb3d8 0%, #4d8eb5 100%);
+    position: relative;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.18);
+  }
+  .brand-mark::after {
+    content: "";
+    position: absolute; inset: 5px;
+    border-radius: 2px;
+    background: rgba(13,17,23,0.85);
+  }
+  .brand-mark::before {
+    content: "";
+    position: absolute; left: 9px; top: 8px;
+    width: 4px; height: 6px;
+    background: var(--accent);
+    border-radius: 1px;
+    z-index: 1;
+  }
+  .brand-name { color: var(--fg-0); }
+  .brand-sub { color: var(--fg-2); font-weight: 400; font-size: 12px; margin-left: 3px; }
+
+  .nav-tabs {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    height: 30px;
+  }
+  .nav-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    height: 30px;
+    padding: 0 12px;
+    color: var(--fg-1);
+    border-radius: var(--r-sm);
+    font-size: 13px;
+    font-weight: 500;
+    transition: background 140ms ease-out, color 140ms ease-out;
+  }
+  .nav-tab:hover { background: var(--hover); color: var(--fg-0); }
+  .nav-tab.is-active { color: var(--fg-0); background: var(--active); }
+  .nav-tab .icon { color: var(--fg-2); }
+  .nav-tab.is-active .icon { color: var(--fg-1); }
+
+  .top-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .palette-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    height: 30px;
+    padding: 0 8px 0 10px;
+    color: var(--fg-2);
+    border: 1px solid var(--hairline);
+    border-radius: var(--r-sm);
+    background: var(--bg-1);
+    min-width: 240px;
+    transition: border-color 140ms ease-out, background 140ms ease-out;
+  }
+  .palette-trigger:hover { border-color: var(--hairline-strong); background: var(--bg-2); }
+  .palette-trigger .icon { color: var(--fg-2); }
+  .palette-trigger .label { flex: 1; text-align: left; font-size: 12.5px; }
+  .icon-btn {
+    width: 30px; height: 30px;
+    display: inline-grid; place-items: center;
+    border-radius: var(--r-sm);
+    color: var(--fg-1);
+    transition: background 140ms ease-out, color 140ms ease-out;
+  }
+  .icon-btn:hover { background: var(--hover); color: var(--fg-0); }
+  .avatar {
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #3a4452, #2a323d);
+    display: grid; place-items: center;
+    font-size: 11px; font-weight: 600;
+    color: var(--fg-1);
+    border: 1px solid var(--hairline-strong);
+  }
+
+  /* main */
+  .main {
+    overflow: hidden;
+    position: relative;
+  }
+  .view {
+    display: none;
+    height: 100%;
+    overflow: hidden;
+  }
+  .view.is-active { display: block; }
+
+  /* statusbar */
+  .statusbar {
+    display: flex;
+    align-items: center;
+    padding: 0 14px;
+    gap: 16px;
+    border-top: 1px solid var(--hairline);
+    background: var(--bg-0);
+    color: var(--fg-2);
+    font-size: 11.5px;
+  }
+  .statusbar .seg { display: inline-flex; align-items: center; gap: 6px; }
+  .statusbar .spacer { flex: 1; }
+  .statusbar .icon { color: var(--fg-3); }
+
+  /* ===================================================== CHAT */
+  .chat-grid {
+    display: grid;
+    grid-template-columns: 260px 1fr 340px;
+    height: 100%;
+  }
+  .pane {
+    background: var(--bg-0);
+    border-right: 1px solid var(--hairline);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .pane:last-child { border-right: 0; border-left: 1px solid var(--hairline); }
+
+  .pane-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 36px;
+    padding: 0 14px 0 16px;
+    border-bottom: 1px solid var(--hairline);
+    color: var(--fg-2);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+  .pane-head .count { color: var(--fg-3); font-weight: 500; font-size: 11px; letter-spacing: 0; text-transform: none; }
+  .pane-head-actions { display: flex; gap: 2px; }
+  .pane-body { flex: 1; overflow: auto; }
+  .pane-body::-webkit-scrollbar { width: 8px; }
+  .pane-body::-webkit-scrollbar-track { background: transparent; }
+  .pane-body::-webkit-scrollbar-thumb { background: var(--bg-3); border-radius: 4px; }
+
+  .pane-section { padding: 10px 8px 8px; }
+  .pane-section-title {
+    padding: 2px 8px 8px;
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--fg-3);
+    font-weight: 600;
+  }
+
+  .session-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 6px;
+    align-items: baseline;
+    padding: 8px 10px;
+    border-radius: var(--r-sm);
+    cursor: pointer;
+    transition: background 140ms ease-out;
+  }
+  .session-row:hover { background: var(--hover); }
+  .session-row.is-active { background: var(--active); }
+  .session-row.is-active::before {
+    content: "";
+    position: absolute;
+    width: 2px; height: 16px;
+    background: var(--accent);
+    border-radius: 0 2px 2px 0;
+    margin-left: -10px;
+    margin-top: 3px;
+  }
+  .session-title {
+    font-size: 13px;
+    color: var(--fg-0);
+    font-weight: 500;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .session-row:not(.is-active) .session-title { color: var(--fg-1); font-weight: 400; }
+  .session-meta { font-size: 11px; color: var(--fg-3); white-space: nowrap; }
+
+  .agent-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 10px;
+    border-radius: var(--r-sm);
+    cursor: pointer;
+    transition: background 140ms ease-out;
+  }
+  .agent-row:hover { background: var(--hover); }
+  .agent-avatar {
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    display: grid; place-items: center;
+    font-size: 10px;
+    font-weight: 600;
+    flex: 0 0 22px;
+  }
+  .agent-info { min-width: 0; flex: 1; }
+  .agent-name { font-size: 12.5px; color: var(--fg-0); line-height: 1.2; }
+  .agent-model { font-size: 10.5px; color: var(--fg-3); margin-top: 2px; font-family: var(--font-mono); }
+  .agent-row.is-active .agent-name { color: var(--fg-0); }
+  .agent-row.is-active { background: var(--active); }
+
+  /* center conversation */
+  .conv {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .conv-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 12px 28px;
+    border-bottom: 1px solid var(--hairline);
+  }
+  .conv-title-block { display: flex; flex-direction: column; gap: 2px; }
+  .conv-title { font-size: 14px; font-weight: 600; color: var(--fg-0); letter-spacing: -0.005em; }
+  .conv-sub { font-size: 11.5px; color: var(--fg-2); display: flex; gap: 12px; align-items: center; }
+  .conv-sub .sep { color: var(--fg-3); }
+  .conv-actions { display: flex; gap: 4px; }
+
+  .conv-body {
+    flex: 1;
+    overflow: auto;
+    padding: 24px 28px 12px;
+  }
+  .conv-body::-webkit-scrollbar { width: 10px; }
+  .conv-body::-webkit-scrollbar-thumb { background: var(--bg-3); border-radius: 5px; }
+
+  .msg { padding: 8px 0 18px; }
+  .msg + .msg { border-top: 1px solid var(--hairline); padding-top: 18px; }
+  .msg-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+  .msg-avatar {
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    display: grid; place-items: center;
+    font-size: 10px;
+    font-weight: 600;
+    flex: 0 0 22px;
+  }
+  .msg-name { font-size: 13px; font-weight: 600; color: var(--fg-0); }
+  .msg-meta { font-size: 11.5px; color: var(--fg-3); }
+  .msg-body { font-size: 13.5px; line-height: 1.6; color: var(--fg-0); max-width: 720px; }
+  .msg-body p { margin: 0 0 10px; }
+  .msg-body p:last-child { margin-bottom: 0; }
+  .msg-body code {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    padding: 1px 5px;
+    background: var(--bg-2);
+    border: 1px solid var(--hairline);
+    border-radius: 4px;
+    color: var(--fg-0);
+  }
+  .msg-body ul { margin: 6px 0 10px; padding-left: 18px; color: var(--fg-1); }
+  .msg-body li { margin-bottom: 2px; }
+
+  .tool-call {
+    margin-top: 10px;
+    border: 1px solid var(--hairline);
+    border-radius: var(--r-md);
+    background: var(--bg-1);
+    max-width: 720px;
+    overflow: hidden;
+  }
+  .tool-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 12px;
+    font-size: 12px;
+    color: var(--fg-1);
+    cursor: pointer;
+    transition: background 140ms ease-out;
+  }
+  .tool-head:hover { background: var(--hover); }
+  .tool-head .icon { color: var(--fg-2); }
+  .tool-name { font-family: var(--font-mono); font-size: 12px; color: var(--fg-0); }
+  .tool-arg { font-family: var(--font-mono); font-size: 12px; color: var(--fg-1); }
+  .tool-sep { color: var(--fg-3); }
+  .tool-meta { margin-left: auto; color: var(--fg-3); font-size: 11.5px; font-family: var(--font-mono); display: flex; gap: 10px; align-items: center; }
+  .tool-body {
+    border-top: 1px solid var(--hairline);
+    background: var(--bg-input);
+    padding: 10px 12px;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--fg-1);
+    max-height: 200px;
+    overflow: auto;
+    line-height: 1.65;
+  }
+  .tool-body .ln { color: var(--fg-3); margin-right: 10px; user-select: none; display: inline-block; width: 22px; text-align: right; }
+  .tool-call.is-collapsed .tool-body { display: none; }
+  .tool-call.is-running .tool-head .icon-spin { color: var(--accent); }
+
+  .chev { transition: transform 140ms ease-out; }
+  .tool-call.is-collapsed .chev { transform: rotate(-90deg); }
+
+  /* composer */
+  .composer {
+    border-top: 1px solid var(--hairline);
+    padding: 14px 28px 16px;
+    background: var(--bg-0);
+  }
+  .composer-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 10px;
+    background: var(--bg-1);
+    border: 1px solid var(--hairline);
+    border-radius: var(--r-md);
+    padding: 10px 12px;
+    transition: border-color 140ms ease-out;
+  }
+  .composer-row:focus-within { border-color: var(--hairline-strong); }
+  .composer textarea {
+    flex: 1;
+    resize: none;
+    background: transparent;
+    border: 0;
+    outline: 0;
+    color: var(--fg-0);
+    font-size: 13.5px;
+    line-height: 1.55;
+    font-family: var(--font-sans);
+    min-height: 22px;
+    max-height: 160px;
+  }
+  .composer textarea::placeholder { color: var(--fg-3); }
+  .composer-actions { display: flex; gap: 4px; align-items: center; }
+  .composer-foot {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 8px;
+    color: var(--fg-3);
+    font-size: 11px;
+    align-items: center;
+  }
+  .composer-foot .left { display: flex; gap: 14px; align-items: center; }
+  .send-btn {
+    height: 28px;
+    padding: 0 12px;
+    border-radius: var(--r-sm);
+    background: var(--accent);
+    color: #0a0c10;
+    font-weight: 600;
+    font-size: 12px;
+    display: inline-flex; align-items: center; gap: 7px;
+    transition: filter 140ms ease-out;
+  }
+  .send-btn:hover { filter: brightness(1.08); }
+
+  /* inspector */
+  .inspector-section {
+    padding: 16px 18px;
+    border-bottom: 1px solid var(--hairline);
+  }
+  .inspector-section:last-child { border-bottom: 0; }
+  .inspector-label {
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--fg-3);
+    font-weight: 600;
+    margin-bottom: 10px;
+  }
+
+  .step-card {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+  }
+  .step-indicator {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    margin-top: 6px;
+    flex: 0 0 8px;
+    position: relative;
+  }
+  .step-indicator::after {
+    content: "";
+    position: absolute;
+    inset: -3px;
+    border-radius: 50%;
+    border: 1px solid var(--accent-ring);
+    animation: ring 1.8s ease-out infinite;
+  }
+  @keyframes ring {
+    0% { transform: scale(0.7); opacity: 0.9; }
+    100% { transform: scale(1.6); opacity: 0; }
+  }
+  .step-text { font-size: 12.5px; color: var(--fg-0); }
+  .step-text .mono { color: var(--fg-1); }
+  .step-meta { font-size: 11.5px; color: var(--fg-3); margin-top: 4px; }
+
+  .ctx-bar {
+    height: 6px;
+    background: var(--bg-2);
+    border-radius: 3px;
+    overflow: hidden;
+    margin: 8px 0;
+  }
+  .ctx-fill {
+    width: 21%;
+    height: 100%;
+    background: var(--accent);
+    border-radius: 3px;
+  }
+  .ctx-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11.5px;
+    color: var(--fg-2);
+  }
+  .ctx-row .num { color: var(--fg-0); font-family: var(--font-mono); }
+
+  .tool-history-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+    font-size: 11.5px;
+    color: var(--fg-1);
+    border-bottom: 1px dashed var(--hairline);
+  }
+  .tool-history-row:last-child { border-bottom: 0; }
+  .tool-history-row .name { font-family: var(--font-mono); color: var(--fg-1); }
+  .tool-history-row .arg { font-family: var(--font-mono); color: var(--fg-2); flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .tool-history-row .dur { color: var(--fg-3); font-family: var(--font-mono); font-size: 11px; }
+
+  .info-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px 14px;
+  }
+  .info-grid > div { display: flex; flex-direction: column; gap: 2px; }
+  .info-grid .k { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--fg-3); font-weight: 600; }
+  .info-grid .v { font-size: 12.5px; color: var(--fg-0); font-family: var(--font-mono); }
+
+  /* ===================================================== STUDIO */
+  .studio-grid {
+    display: grid;
+    grid-template-columns: 300px 1fr;
+    height: 100%;
+  }
+  .studio-list .pane-body { padding: 8px; }
+  .studio-agent {
+    display: grid;
+    grid-template-columns: 28px 1fr auto;
+    gap: 10px;
+    padding: 10px;
+    align-items: center;
+    border-radius: var(--r-sm);
+    cursor: pointer;
+    transition: background 140ms ease-out;
+  }
+  .studio-agent:hover { background: var(--hover); }
+  .studio-agent.is-active { background: var(--active); }
+  .studio-agent-info { min-width: 0; }
+  .studio-agent-name { font-size: 13px; color: var(--fg-0); font-weight: 500; line-height: 1.25; }
+  .studio-agent-model { font-size: 11px; color: var(--fg-3); margin-top: 3px; font-family: var(--font-mono); }
+  .studio-agent .agent-avatar { width: 28px; height: 28px; flex-basis: 28px; font-size: 11px; }
+  .studio-agent .badge { font-size: 10.5px; color: var(--fg-3); font-family: var(--font-mono); }
+
+  .studio-editor { display: flex; flex-direction: column; overflow: hidden; }
+  .editor-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 28px;
+    border-bottom: 1px solid var(--hairline);
+  }
+  .editor-title { display: flex; align-items: center; gap: 12px; }
+  .editor-title h2 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: -0.005em; }
+  .editor-title .meta { color: var(--fg-2); font-size: 12px; }
+  .editor-actions { display: flex; gap: 8px; }
+
+  .editor-tabs {
+    display: flex;
+    gap: 4px;
+    padding: 0 28px;
+    border-bottom: 1px solid var(--hairline);
+  }
+  .editor-tab {
+    height: 38px;
+    padding: 0 12px;
+    color: var(--fg-2);
+    border-bottom: 1.5px solid transparent;
+    margin-bottom: -1px;
+    font-size: 13px;
+    font-weight: 500;
+    transition: color 140ms ease-out, border-color 140ms ease-out;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .editor-tab:hover { color: var(--fg-0); }
+  .editor-tab.is-active { color: var(--fg-0); border-bottom-color: var(--accent); }
+  .editor-tab .count { color: var(--fg-3); font-size: 11px; font-family: var(--font-mono); }
+
+  .editor-body { flex: 1; overflow: auto; padding: 24px 28px 36px; }
+
+  .form-row {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    gap: 32px;
+    padding: 18px 0;
+    border-bottom: 1px solid var(--hairline);
+    max-width: 880px;
+  }
+  .form-row:last-child { border-bottom: 0; }
+  .form-label { padding-top: 6px; }
+  .form-label .l-title { font-size: 13px; font-weight: 500; color: var(--fg-0); }
+  .form-label .l-desc { font-size: 11.5px; color: var(--fg-2); margin-top: 4px; line-height: 1.5; }
+  .form-field { display: flex; flex-direction: column; gap: 8px; }
+  .input {
+    height: 32px;
+    padding: 0 10px;
+    background: var(--bg-input);
+    border: 1px solid var(--hairline);
+    border-radius: var(--r-sm);
+    color: var(--fg-0);
+    font-size: 13px;
+    transition: border-color 140ms ease-out;
+  }
+  .input:focus { border-color: var(--accent-ring); }
+  textarea.input {
+    height: auto;
+    min-height: 180px;
+    padding: 10px 12px;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    line-height: 1.65;
+    resize: vertical;
+  }
+  .select {
+    height: 32px;
+    padding: 0 10px;
+    background: var(--bg-input);
+    border: 1px solid var(--hairline);
+    border-radius: var(--r-sm);
+    color: var(--fg-0);
+    font-size: 13px;
+    appearance: none;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'><path d='M3 5l3 3 3-3' stroke='%238b95a3' stroke-width='1.4' fill='none' stroke-linecap='round'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    padding-right: 26px;
+  }
+  .hint { font-size: 11.5px; color: var(--fg-3); }
+
+  .tools-peek {
+    border: 1px solid var(--hairline);
+    border-radius: var(--r-md);
+    background: var(--bg-1);
+    overflow: hidden;
+    max-width: 880px;
+  }
+  .tools-peek-row {
+    display: grid;
+    grid-template-columns: 28px 1fr auto auto;
+    align-items: center;
+    gap: 12px;
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--hairline);
+    transition: background 140ms ease-out;
+  }
+  .tools-peek-row:last-child { border-bottom: 0; }
+  .tools-peek-row:hover { background: var(--hover); }
+  .tools-peek-icon { color: var(--fg-2); display: grid; place-items: center; }
+  .tools-peek-name { font-size: 13px; color: var(--fg-0); font-family: var(--font-mono); }
+  .tools-peek-desc { font-size: 11.5px; color: var(--fg-2); }
+  .toggle {
+    width: 28px; height: 16px;
+    background: var(--bg-3);
+    border-radius: 8px;
+    position: relative;
+    cursor: pointer;
+    transition: background 140ms ease-out;
+  }
+  .toggle::after {
+    content: ""; position: absolute;
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    background: var(--fg-1);
+    top: 2px; left: 2px;
+    transition: left 140ms ease-out, background 140ms ease-out;
+  }
+  .toggle.is-on { background: var(--accent); }
+  .toggle.is-on::after { left: 14px; background: #0a0c10; }
+
+  /* buttons */
+  .btn {
+    height: 30px;
+    padding: 0 12px;
+    border-radius: var(--r-sm);
+    background: var(--bg-2);
+    color: var(--fg-0);
+    font-size: 12.5px;
+    font-weight: 500;
+    border: 1px solid var(--hairline);
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    transition: background 140ms ease-out, border-color 140ms ease-out;
+  }
+  .btn:hover { background: var(--bg-3); border-color: var(--hairline-strong); }
+  .btn-primary { background: var(--accent); color: #0a0c10; border-color: transparent; }
+  .btn-primary:hover { background: var(--accent); filter: brightness(1.08); }
+  .btn-ghost { background: transparent; border-color: transparent; color: var(--fg-1); }
+  .btn-ghost:hover { background: var(--hover); color: var(--fg-0); border-color: transparent; }
+
+  /* ===================================================== ADMIN */
+  .admin-shell { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+  .admin-head {
+    padding: 18px 32px 0;
+    border-bottom: 1px solid var(--hairline);
+  }
+  .admin-title { display: flex; align-items: center; justify-content: space-between; }
+  .admin-title h2 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
+  .admin-title p { margin: 4px 0 0; color: var(--fg-2); font-size: 12.5px; }
+  .admin-subnav {
+    display: flex;
+    gap: 4px;
+    margin-top: 18px;
+  }
+  .admin-subtab {
+    height: 36px;
+    padding: 0 12px;
+    color: var(--fg-2);
+    border-bottom: 1.5px solid transparent;
+    margin-bottom: -1px;
+    font-size: 13px;
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    transition: color 140ms ease-out, border-color 140ms ease-out;
+  }
+  .admin-subtab:hover { color: var(--fg-0); }
+  .admin-subtab.is-active { color: var(--fg-0); border-bottom-color: var(--accent); }
+
+  .admin-body { flex: 1; overflow: auto; padding: 24px 32px 32px; }
+
+  .panel {
+    background: var(--bg-1);
+    border: 1px solid var(--hairline);
+    border-radius: var(--r-md);
+    overflow: hidden;
+    max-width: 1120px;
+  }
+  .panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--hairline);
+  }
+  .panel-title { font-size: 13.5px; font-weight: 600; color: var(--fg-0); }
+  .panel-sub { font-size: 11.5px; color: var(--fg-2); margin-top: 2px; }
+
+  .tbl { width: 100%; border-collapse: collapse; }
+  .tbl thead th {
+    text-align: left;
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--fg-3);
+    font-weight: 600;
+    padding: 9px 16px;
+    background: var(--bg-1);
+    border-bottom: 1px solid var(--hairline);
+  }
+  .tbl tbody td {
+    padding: 11px 16px;
+    border-bottom: 1px solid var(--hairline);
+    font-size: 13px;
+    color: var(--fg-0);
+    vertical-align: middle;
+  }
+  .tbl tbody tr:last-child td { border-bottom: 0; }
+  .tbl tbody tr:hover td { background: var(--hover); }
+  .tbl td.muted { color: var(--fg-2); }
+  .tbl td.mono { font-family: var(--font-mono); font-size: 12px; color: var(--fg-1); }
+  .tbl .row-actions {
+    display: inline-flex; gap: 2px; opacity: 0; transition: opacity 140ms ease-out;
+  }
+  .tbl tbody tr:hover .row-actions { opacity: 1; }
+  .name-cell { display: flex; align-items: center; gap: 10px; }
+  .name-cell .label-type { font-size: 11px; color: var(--fg-3); }
+
+  .builtin-group { margin-top: 18px; }
+  .builtin-group:first-child { margin-top: 0; }
+  .builtin-group-head {
+    display: flex; align-items: baseline; gap: 10px;
+    margin-bottom: 10px;
+    padding: 0 4px;
+  }
+  .builtin-group-title { font-size: 13px; font-weight: 600; color: var(--fg-0); }
+  .builtin-group-sub { font-size: 11.5px; color: var(--fg-3); }
+
+  /* ===================================================== command palette */
+  .palette-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(7, 10, 14, 0.55);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    display: none;
+    z-index: 50;
+  }
+  .palette-backdrop.is-open { display: block; }
+  .palette {
+    position: absolute;
+    top: 88px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 580px;
+    background: var(--bg-1);
+    border: 1px solid var(--hairline-strong);
+    border-radius: 10px;
+    box-shadow: var(--shadow-pop);
+    overflow: hidden;
+  }
+  .palette-input {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--hairline);
+  }
+  .palette-input .icon { color: var(--fg-2); }
+  .palette-input input {
+    flex: 1;
+    font-size: 14px;
+    color: var(--fg-0);
+  }
+  .palette-input input::placeholder { color: var(--fg-3); }
+  .palette-list { padding: 6px; max-height: 360px; overflow: auto; }
+  .palette-group { padding: 4px 8px; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--fg-3); font-weight: 600; }
+  .palette-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 10px;
+    border-radius: var(--r-sm);
+    cursor: pointer;
+    transition: background 140ms ease-out;
+  }
+  .palette-row:hover, .palette-row.is-focused { background: var(--active); }
+  .palette-row .icon { color: var(--fg-2); }
+  .palette-row.is-focused .icon { color: var(--accent); }
+  .palette-row-text { flex: 1; font-size: 13px; color: var(--fg-0); }
+  .palette-row-shortcut { display: flex; gap: 3px; }
+  .palette-foot {
+    display: flex;
+    justify-content: space-between;
+    padding: 10px 14px;
+    border-top: 1px solid var(--hairline);
+    color: var(--fg-3);
+    font-size: 11px;
+    align-items: center;
+  }
+  .palette-foot .group { display: inline-flex; align-items: center; gap: 6px; }
+
+  /* agent avatar colors (subtle, not flashy) */
+  .av-researcher { background: rgba(94,179,216,0.16); color: #98c8e0; border: 1px solid rgba(94,179,216,0.28); }
+  .av-codex      { background: rgba(77,191,163,0.14); color: #87cab2; border: 1px solid rgba(77,191,163,0.28); }
+  .av-concierge  { background: rgba(152,129,255,0.14); color: #b5a4ee; border: 1px solid rgba(152,129,255,0.28); }
+  .av-archivist  { background: rgba(216,178,94,0.14); color: #d8c190; border: 1px solid rgba(216,178,94,0.26); }
+  .av-scribe     { background: rgba(216,122,107,0.14); color: #d8a59a; border: 1px solid rgba(216,122,107,0.28); }
+  .av-user       { background: rgba(255,255,255,0.06); color: var(--fg-1); border: 1px solid var(--hairline-strong); }
+
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-search" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5"/><path d="m11 11 3 3"/></symbol>
+    <symbol id="i-chat" viewBox="0 0 16 16"><path d="M3 3h10v8H6l-3 3z"/></symbol>
+    <symbol id="i-studio" viewBox="0 0 16 16"><path d="M3 3h10v10H3z"/><path d="M3 7h10M7 7v6"/></symbol>
+    <symbol id="i-admin" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2"/><path d="M8 2v2M8 12v2M2 8h2M12 8h2M3.5 3.5l1.5 1.5M11 11l1.5 1.5M12.5 3.5L11 5M5 11l-1.5 1.5"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 16 16"><path d="M8 3v10M3 8h10"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 16 16"><path d="M4 11V7a4 4 0 0 1 8 0v4l1 1H3z"/><path d="M6.5 13.5a1.5 1.5 0 0 0 3 0"/></symbol>
+    <symbol id="i-cmd" viewBox="0 0 16 16"><path d="M5 5h6v6H5z"/><path d="M5 5V3.5A1.5 1.5 0 1 0 3.5 5zM11 5h1.5A1.5 1.5 0 1 0 11 3.5zM5 11v1.5A1.5 1.5 0 1 1 3.5 11zM11 11h1.5a1.5 1.5 0 1 1-1.5 1.5z"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 16 16"><path d="M2 4h4l1.5 1.5H14v7H2z"/></symbol>
+    <symbol id="i-file" viewBox="0 0 16 16"><path d="M4 2h6l3 3v9H4z"/><path d="M10 2v3h3"/></symbol>
+    <symbol id="i-terminal" viewBox="0 0 16 16"><path d="M2 3h12v10H2z"/><path d="m5 7 2 1.5L5 10M9 10h3"/></symbol>
+    <symbol id="i-globe" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><path d="M2 8h12M8 2c2 1.8 3 4 3 6s-1 4.2-3 6c-2-1.8-3-4-3-6s1-4.2 3-6z"/></symbol>
+    <symbol id="i-wrench" viewBox="0 0 16 16"><path d="M13 3a3 3 0 0 0-4 4l-6 6 2 2 6-6a3 3 0 0 0 4-4l-2 2-2-2z"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 16 16"><path d="m4 6 4 4 4-4"/></symbol>
+    <symbol id="i-arrow-right" viewBox="0 0 16 16"><path d="M3 8h10M9 4l4 4-4 4"/></symbol>
+    <symbol id="i-more" viewBox="0 0 16 16"><circle cx="4" cy="8" r="1"/><circle cx="8" cy="8" r="1"/><circle cx="12" cy="8" r="1"/></symbol>
+    <symbol id="i-paperclip" viewBox="0 0 16 16"><path d="M11 4 5.5 9.5a2 2 0 1 0 2.83 2.83l5.5-5.5a3.5 3.5 0 0 0-4.95-4.95L3 7.5"/></symbol>
+    <symbol id="i-tool" viewBox="0 0 16 16"><path d="M3.5 3.5 6 6 4 8 6 10l-2.5 2.5M9 12h4"/></symbol>
+    <symbol id="i-zap" viewBox="0 0 16 16"><path d="M9 1 3 9h4l-1 6 6-8H8z"/></symbol>
+    <symbol id="i-mcp" viewBox="0 0 16 16"><path d="M3 8a3 3 0 0 1 3-3M13 8a3 3 0 0 1-3 3M8 3v3M8 10v3"/><circle cx="6" cy="5" r="1"/><circle cx="10" cy="11" r="1"/></symbol>
+    <symbol id="i-key" viewBox="0 0 16 16"><circle cx="6" cy="10" r="3"/><path d="m8.5 7.5 5-5M11 5l1.5 1.5"/></symbol>
+    <symbol id="i-link" viewBox="0 0 16 16"><path d="M7 9a3 3 0 0 0 4 0l2-2a3 3 0 0 0-4-4L8 4"/><path d="M9 7a3 3 0 0 0-4 0l-2 2a3 3 0 0 0 4 4l1-1"/></symbol>
+    <symbol id="i-check" viewBox="0 0 16 16"><path d="m3 8 3 3 7-7"/></symbol>
+    <symbol id="i-send" viewBox="0 0 16 16"><path d="m3 8 11-5-5 11-2-4z"/></symbol>
+    <symbol id="i-history" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><path d="M8 5v3l2 1"/></symbol>
+    <symbol id="i-info" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><path d="M8 7v4M8 5v.5"/></symbol>
+    <symbol id="i-x" viewBox="0 0 16 16"><path d="m4 4 8 8M12 4l-8 8"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 16 16"><path d="M3 13v-2l8-8 2 2-8 8H3zM10 4l2 2"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 16 16"><path d="M5 5h7v8H5z"/><path d="M3 3v8M3 3h8"/></symbol>
+    <symbol id="i-database" viewBox="0 0 16 16"><ellipse cx="8" cy="4" rx="5" ry="2"/><path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/></symbol>
+    <symbol id="i-cube" viewBox="0 0 16 16"><path d="M8 2 3 5v6l5 3 5-3V5z"/><path d="M3 5l5 3 5-3M8 8v6"/></symbol>
+    <symbol id="i-flow" viewBox="0 0 16 16"><circle cx="4" cy="4" r="1.5"/><circle cx="12" cy="4" r="1.5"/><circle cx="8" cy="12" r="1.5"/><path d="M5 4h6M5 5l3 6M11 5l-3 6"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><path d="M8 5v3l2 1"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 16 16"><path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5z"/><circle cx="8" cy="8" r="2"/></symbol>
+  </defs>
+</svg>
+
+<div class="app">
+
+  <!-- ============================== TOP BAR ============================== -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark"></span>
+      <span class="brand-name">GleepGlorp</span>
+      <span class="brand-sub">/ personal</span>
+    </div>
+
+    <nav class="nav-tabs" role="tablist">
+      <button class="nav-tab is-active" data-view="chat" role="tab">
+        <svg class="icon"><use href="#i-chat"/></svg>
+        Chat
+      </button>
+      <button class="nav-tab" data-view="studio" role="tab">
+        <svg class="icon"><use href="#i-studio"/></svg>
+        Studio
+      </button>
+      <button class="nav-tab" data-view="admin" role="tab">
+        <svg class="icon"><use href="#i-admin"/></svg>
+        Administration
+      </button>
+    </nav>
+
+    <div class="top-right">
+      <button class="palette-trigger" id="palette-open">
+        <svg class="icon"><use href="#i-search"/></svg>
+        <span class="label">Search or run a command</span>
+        <span class="kbd">⌘K</span>
+      </button>
+      <button class="icon-btn" title="Notifications">
+        <svg class="icon"><use href="#i-bell"/></svg>
+      </button>
+      <div class="avatar">JS</div>
+    </div>
+  </header>
+
+  <!-- ============================== MAIN ============================== -->
+  <main class="main">
+
+    <!-- ============================== CHAT VIEW ============================== -->
+    <section class="view is-active" data-view="chat">
+      <div class="chat-grid">
+
+        <!-- LEFT PANE -->
+        <aside class="pane">
+          <div class="pane-head">
+            <span>Workspace</span>
+            <div class="pane-head-actions">
+              <button class="icon-btn" title="New session"><svg class="icon icon-sm"><use href="#i-plus"/></svg></button>
+            </div>
+          </div>
+          <div class="pane-body">
+
+            <div class="pane-section">
+              <div class="pane-section-title">Sessions</div>
+              <div class="session-row is-active">
+                <div class="session-title">Q2 research synthesis</div>
+                <div class="session-meta">now</div>
+              </div>
+              <div class="session-row">
+                <div class="session-title">Refactor pty session reaper</div>
+                <div class="session-meta">2h</div>
+              </div>
+              <div class="session-row">
+                <div class="session-title">Atlassian sprint triage</div>
+                <div class="session-meta">Mon</div>
+              </div>
+              <div class="session-row">
+                <div class="session-title">Investor update draft</div>
+                <div class="session-meta">Apr 28</div>
+              </div>
+              <div class="session-row">
+                <div class="session-title">Tax doc inventory</div>
+                <div class="session-meta">Apr 22</div>
+              </div>
+              <div class="session-row">
+                <div class="session-title">Brand naming exploration</div>
+                <div class="session-meta">Apr 14</div>
+              </div>
+            </div>
+
+            <div class="pane-section">
+              <div class="pane-section-title">Agents</div>
+              <div class="agent-row is-active">
+                <div class="agent-avatar av-researcher">RE</div>
+                <div class="agent-info">
+                  <div class="agent-name">Researcher</div>
+                  <div class="agent-model">claude-opus-4-7</div>
+                </div>
+              </div>
+              <div class="agent-row">
+                <div class="agent-avatar av-codex">CO</div>
+                <div class="agent-info">
+                  <div class="agent-name">Codex</div>
+                  <div class="agent-model">claude-sonnet-4-5</div>
+                </div>
+              </div>
+              <div class="agent-row">
+                <div class="agent-avatar av-concierge">CN</div>
+                <div class="agent-info">
+                  <div class="agent-name">Concierge</div>
+                  <div class="agent-model">gpt-4.1</div>
+                </div>
+              </div>
+              <div class="agent-row">
+                <div class="agent-avatar av-archivist">AR</div>
+                <div class="agent-info">
+                  <div class="agent-name">Archivist</div>
+                  <div class="agent-model">llama-3.3-70b</div>
+                </div>
+              </div>
+              <div class="agent-row">
+                <div class="agent-avatar av-scribe">SC</div>
+                <div class="agent-info">
+                  <div class="agent-name">Scribe</div>
+                  <div class="agent-model">claude-haiku-4-5</div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </aside>
+
+        <!-- CENTER CONVERSATION -->
+        <section class="pane conv">
+          <div class="conv-head">
+            <div class="conv-title-block">
+              <div class="conv-title">Q2 research synthesis</div>
+              <div class="conv-sub">
+                <span><span class="dot dot-accent"></span> Researcher</span>
+                <span class="sep">·</span>
+                <span class="mono">claude-opus-4-7</span>
+                <span class="sep">·</span>
+                <span>14 messages</span>
+                <span class="sep">·</span>
+                <span>started 14 minutes ago</span>
+              </div>
+            </div>
+            <div class="conv-actions">
+              <button class="btn btn-ghost"><svg class="icon"><use href="#i-eye"/></svg>Inspector</button>
+              <button class="btn btn-ghost"><svg class="icon"><use href="#i-more"/></svg></button>
+            </div>
+          </div>
+
+          <div class="conv-body">
+
+            <article class="msg">
+              <div class="msg-head">
+                <div class="msg-avatar av-user">JS</div>
+                <div class="msg-name">You</div>
+                <div class="msg-meta">14:02</div>
+              </div>
+              <div class="msg-body">
+                <p>Read the Q2 design notes under <code>~/Documents/research/q2-notes/</code> and the latest sprint export, then summarize the recurring themes across both. Cite the source files inline.</p>
+              </div>
+            </article>
+
+            <article class="msg">
+              <div class="msg-head">
+                <div class="msg-avatar av-researcher">RE</div>
+                <div class="msg-name">Researcher</div>
+                <div class="msg-meta">14:02 · 4 tool calls</div>
+              </div>
+              <div class="msg-body">
+                <p>Pulling the notes from disk and the linked sprint export.</p>
+
+                <div class="tool-call" data-collapsible>
+                  <div class="tool-head">
+                    <svg class="icon"><use href="#i-folder"/></svg>
+                    <span class="tool-name">list_dir</span>
+                    <span class="tool-sep">·</span>
+                    <span class="tool-arg">~/Documents/research/q2-notes/</span>
+                    <span class="tool-meta"><span>9 entries</span><span>·</span><span>4 ms</span><svg class="icon chev"><use href="#i-chevron"/></svg></span>
+                  </div>
+                  <div class="tool-body"><span class="ln">1</span>2025-04-02-design-review.md
+<span class="ln">2</span>2025-04-09-cohort-interviews.md
+<span class="ln">3</span>2025-04-16-prototype-feedback.md
+<span class="ln">4</span>2025-04-23-pricing-experiments.md
+<span class="ln">5</span>2025-04-30-end-of-month.md
+<span class="ln">6</span>2025-05-07-design-review.md
+<span class="ln">7</span>links.md
+<span class="ln">8</span>open-questions.md
+<span class="ln">9</span>themes.md</div>
+                </div>
+
+                <div class="tool-call is-collapsed" data-collapsible>
+                  <div class="tool-head">
+                    <svg class="icon"><use href="#i-file"/></svg>
+                    <span class="tool-name">read_file</span>
+                    <span class="tool-sep">·</span>
+                    <span class="tool-arg">q2-notes/themes.md</span>
+                    <span class="tool-meta"><span>142 lines</span><span>·</span><span>3 ms</span><svg class="icon chev"><use href="#i-chevron"/></svg></span>
+                  </div>
+                  <div class="tool-body"><span class="ln">1</span># Q2 themes
+<span class="ln">2</span>
+<span class="ln">3</span>1. Power-user fluency keeps surfacing as the dominant axis...
+<span class="ln">4</span>2. Inspector-driven workflows test better than modal flows
+<span class="ln">5</span>3. Tool transparency is a feature, not exhaust</div>
+                </div>
+
+                <div class="tool-call is-collapsed" data-collapsible>
+                  <div class="tool-head">
+                    <svg class="icon"><use href="#i-mcp"/></svg>
+                    <span class="tool-name">mcp_atlassian.search</span>
+                    <span class="tool-sep">·</span>
+                    <span class="tool-arg">project = NX AND sprint in openSprints()</span>
+                    <span class="tool-meta"><span>23 issues</span><span>·</span><span>312 ms</span><svg class="icon chev"><use href="#i-chevron"/></svg></span>
+                  </div>
+                  <div class="tool-body"><span class="ln">1</span>NX-412 · Triage inspector empty-state · In progress
+<span class="ln">2</span>NX-418 · Refactor pty session reaper · In review
+<span class="ln">3</span>NX-421 · Palette command grouping · Done
+<span class="ln">4</span>NX-425 · Context window meter · Done
+<span class="ln">5</span>NX-431 · Tool-call collapse default · Todo</div>
+                </div>
+
+                <p>Three themes carry across the design notes and the sprint backlog:</p>
+                <ul>
+                  <li><strong>Inspector-first ergonomics.</strong> Cohort interviews ranked the always-visible right pane above modal dialogs by a wide margin — <code>cohort-interviews.md</code>, lines 41–58.</li>
+                  <li><strong>Tool transparency.</strong> Users wanted to see <em>what</em> ran, with cheap collapse — surfaces in <code>themes.md</code> and is being implemented in NX-431.</li>
+                  <li><strong>Calm density.</strong> "Dense where useful, calm everywhere else" — verbatim in the April 30 retro and reflected in NX-421's grouping pattern.</li>
+                </ul>
+                <p>Want me to draft a tighter writeup, or pull the verbatim quotes for each?</p>
+              </div>
+            </article>
+
+            <article class="msg">
+              <div class="msg-head">
+                <div class="msg-avatar av-researcher">RE</div>
+                <div class="msg-name">Researcher</div>
+                <div class="msg-meta">running</div>
+              </div>
+              <div class="msg-body">
+                <div class="tool-call is-running" data-collapsible>
+                  <div class="tool-head">
+                    <svg class="icon icon-spin"><use href="#i-tool"/></svg>
+                    <span class="tool-name">grep</span>
+                    <span class="tool-sep">·</span>
+                    <span class="tool-arg">"power-user|fluency" — ~/Documents/research/q2-notes</span>
+                    <span class="tool-meta"><span class="dot dot-accent"></span><span>running</span><svg class="icon chev"><use href="#i-chevron"/></svg></span>
+                  </div>
+                  <div class="tool-body"><span class="ln">1</span>q2-notes/themes.md:3:   1. Power-user fluency keeps surfacing as the dominant axis
+<span class="ln">2</span>q2-notes/cohort-interviews.md:42:   "...power-user fluency, not theatrics..." — P-07
+<span class="ln">3</span>q2-notes/2025-04-30-end-of-month.md:88: power-user fluency &gt; visual novelty</div>
+                </div>
+              </div>
+            </article>
+
+          </div>
+
+          <!-- composer -->
+          <div class="composer">
+            <div class="composer-row">
+              <textarea rows="1" placeholder="Message Researcher… (⌘↵ to send, ⌘/ for commands)"></textarea>
+              <div class="composer-actions">
+                <button class="icon-btn" title="Attach"><svg class="icon"><use href="#i-paperclip"/></svg></button>
+                <button class="send-btn">Send <svg class="icon icon-sm"><use href="#i-arrow-right"/></svg></button>
+              </div>
+            </div>
+            <div class="composer-foot">
+              <div class="left">
+                <span><span class="kbd">⌘↵</span> send</span>
+                <span><span class="kbd">⌘/</span> commands</span>
+                <span><span class="kbd">⇧↵</span> newline</span>
+              </div>
+              <div>auto-saved · drafts kept per session</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- RIGHT INSPECTOR -->
+        <aside class="pane">
+          <div class="pane-head">
+            <span>Inspector</span>
+            <div class="pane-head-actions">
+              <button class="icon-btn" title="Collapse"><svg class="icon icon-sm"><use href="#i-x"/></svg></button>
+            </div>
+          </div>
+          <div class="pane-body">
+
+            <div class="inspector-section">
+              <div class="inspector-label">Current step</div>
+              <div class="step-card">
+                <div class="step-indicator"></div>
+                <div>
+                  <div class="step-text"><span class="mono">grep</span> · scanning q2-notes</div>
+                  <div class="step-meta">iteration 4 of 20 · 0.8s elapsed</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="inspector-section">
+              <div class="inspector-label">Context usage</div>
+              <div class="ctx-bar"><div class="ctx-fill"></div></div>
+              <div class="ctx-row">
+                <span class="num">42,318</span>
+                <span>/ 200,000 tokens · 21%</span>
+              </div>
+            </div>
+
+            <div class="inspector-section">
+              <div class="inspector-label">Recent tool calls</div>
+              <div class="tool-history-row">
+                <svg class="icon"><use href="#i-folder"/></svg>
+                <span class="name">list_dir</span>
+                <span class="arg">q2-notes/</span>
+                <span class="dur">4ms</span>
+              </div>
+              <div class="tool-history-row">
+                <svg class="icon"><use href="#i-file"/></svg>
+                <span class="name">read_file</span>
+                <span class="arg">themes.md</span>
+                <span class="dur">3ms</span>
+              </div>
+              <div class="tool-history-row">
+                <svg class="icon"><use href="#i-file"/></svg>
+                <span class="name">read_file</span>
+                <span class="arg">cohort-interviews.md</span>
+                <span class="dur">5ms</span>
+              </div>
+              <div class="tool-history-row">
+                <svg class="icon"><use href="#i-mcp"/></svg>
+                <span class="name">mcp_atlassian.search</span>
+                <span class="arg">project = NX...</span>
+                <span class="dur">312ms</span>
+              </div>
+              <div class="tool-history-row">
+                <svg class="icon"><use href="#i-tool"/></svg>
+                <span class="name">grep</span>
+                <span class="arg">power-user|fluency</span>
+                <span class="dur">·</span>
+              </div>
+            </div>
+
+            <div class="inspector-section">
+              <div class="inspector-label">Session</div>
+              <div class="info-grid">
+                <div><span class="k">Cost</span><span class="v">$0.0214</span></div>
+                <div><span class="k">Started</span><span class="v">14:02</span></div>
+                <div><span class="k">Messages</span><span class="v">14</span></div>
+                <div><span class="k">Tool calls</span><span class="v">11</span></div>
+              </div>
+            </div>
+
+          </div>
+        </aside>
+
+      </div>
+    </section>
+
+    <!-- ============================== STUDIO VIEW ============================== -->
+    <section class="view" data-view="studio">
+      <div class="studio-grid">
+
+        <!-- LEFT: agent list -->
+        <aside class="pane studio-list">
+          <div class="pane-head">
+            <span>Agents <span class="count">· 5</span></span>
+            <div class="pane-head-actions">
+              <button class="icon-btn" title="New agent"><svg class="icon icon-sm"><use href="#i-plus"/></svg></button>
+            </div>
+          </div>
+          <div class="pane-body">
+            <div class="studio-agent is-active">
+              <div class="agent-avatar av-researcher">RE</div>
+              <div class="studio-agent-info">
+                <div class="studio-agent-name">Researcher</div>
+                <div class="studio-agent-model">claude-opus-4-7</div>
+              </div>
+              <span class="badge">8 tools</span>
+            </div>
+            <div class="studio-agent">
+              <div class="agent-avatar av-codex">CO</div>
+              <div class="studio-agent-info">
+                <div class="studio-agent-name">Codex</div>
+                <div class="studio-agent-model">claude-sonnet-4-5</div>
+              </div>
+              <span class="badge">14 tools</span>
+            </div>
+            <div class="studio-agent">
+              <div class="agent-avatar av-concierge">CN</div>
+              <div class="studio-agent-info">
+                <div class="studio-agent-name">Concierge</div>
+                <div class="studio-agent-model">gpt-4.1</div>
+              </div>
+              <span class="badge">6 tools</span>
+            </div>
+            <div class="studio-agent">
+              <div class="agent-avatar av-archivist">AR</div>
+              <div class="studio-agent-info">
+                <div class="studio-agent-name">Archivist</div>
+                <div class="studio-agent-model">llama-3.3-70b</div>
+              </div>
+              <span class="badge">5 tools</span>
+            </div>
+            <div class="studio-agent">
+              <div class="agent-avatar av-scribe">SC</div>
+              <div class="studio-agent-info">
+                <div class="studio-agent-name">Scribe</div>
+                <div class="studio-agent-model">claude-haiku-4-5</div>
+              </div>
+              <span class="badge">3 tools</span>
+            </div>
+          </div>
+        </aside>
+
+        <!-- RIGHT: editor -->
+        <section class="pane studio-editor">
+          <div class="editor-head">
+            <div class="editor-title">
+              <div class="agent-avatar av-researcher" style="width:30px;height:30px;flex-basis:30px;font-size:11px;">RE</div>
+              <div>
+                <h2>Researcher</h2>
+                <div class="meta">edited 2 hours ago · 14 active sessions</div>
+              </div>
+            </div>
+            <div class="editor-actions">
+              <button class="btn btn-ghost">Discard</button>
+              <button class="btn">Duplicate</button>
+              <button class="btn btn-primary"><svg class="icon"><use href="#i-check"/></svg>Save changes</button>
+            </div>
+          </div>
+
+          <div class="editor-tabs">
+            <button class="editor-tab is-active"><svg class="icon"><use href="#i-info"/></svg>General</button>
+            <button class="editor-tab"><svg class="icon"><use href="#i-tool"/></svg>Tools <span class="count">8</span></button>
+            <button class="editor-tab"><svg class="icon"><use href="#i-mcp"/></svg>MCP Sources <span class="count">2</span></button>
+            <button class="editor-tab"><svg class="icon"><use href="#i-flow"/></svg>Tool Overrides</button>
+          </div>
+
+          <div class="editor-body">
+
+            <div class="form-row">
+              <div class="form-label">
+                <div class="l-title">Name</div>
+                <div class="l-desc">Displayed in the session header and command palette.</div>
+              </div>
+              <div class="form-field">
+                <input class="input" value="Researcher" />
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-label">
+                <div class="l-title">Provider &amp; model</div>
+                <div class="l-desc">Provider is resolved from the database; model must exist in the provider's catalogue.</div>
+              </div>
+              <div class="form-field">
+                <div style="display:flex; gap:8px;">
+                  <select class="select" style="flex:1;">
+                    <option>Anthropic — production</option>
+                    <option>OpenAI — main</option>
+                    <option>Ollama — local</option>
+                  </select>
+                  <select class="select" style="flex:1;">
+                    <option>claude-opus-4-7</option>
+                    <option>claude-sonnet-4-5</option>
+                    <option>claude-haiku-4-5</option>
+                  </select>
+                </div>
+                <div class="hint">Provider config ID <span class="mono" style="color:var(--fg-1)">prov_a8c3f1</span></div>
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-label">
+                <div class="l-title">System prompt</div>
+                <div class="l-desc">Layered on top of the base prompt. Markdown supported.</div>
+              </div>
+              <div class="form-field">
+                <textarea class="input" rows="9">You are Researcher, a careful, source-citing analyst.
+
+When asked to synthesize, read primary sources first, then quote inline with file paths. Prefer to surface tensions between sources rather than collapsing them into a tidy answer.
+
+Use tools liberally for filesystem reads; ask before any write or shell command that changes state outside `~/scratch/`.</textarea>
+                <div class="hint">1,284 characters · base prompt adds ~3,100</div>
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-label">
+                <div class="l-title">Behavior</div>
+                <div class="l-desc">Loop safety limits.</div>
+              </div>
+              <div class="form-field">
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+                  <input class="input" value="20" />
+                  <input class="input" value="0.4" />
+                </div>
+                <div class="hint">Max iterations · temperature</div>
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-label">
+                <div class="l-title">Tools (preview)</div>
+                <div class="l-desc">Quick glance of what this agent has access to. Manage in the Tools tab.</div>
+              </div>
+              <div class="form-field">
+                <div class="tools-peek">
+                  <div class="tools-peek-row">
+                    <div class="tools-peek-icon"><svg class="icon"><use href="#i-file"/></svg></div>
+                    <div>
+                      <div class="tools-peek-name">read_file</div>
+                      <div class="tools-peek-desc">Read file contents from disk</div>
+                    </div>
+                    <span class="pill">filesystem</span>
+                    <div class="toggle is-on"></div>
+                  </div>
+                  <div class="tools-peek-row">
+                    <div class="tools-peek-icon"><svg class="icon"><use href="#i-folder"/></svg></div>
+                    <div>
+                      <div class="tools-peek-name">list_dir</div>
+                      <div class="tools-peek-desc">List directory entries</div>
+                    </div>
+                    <span class="pill">filesystem</span>
+                    <div class="toggle is-on"></div>
+                  </div>
+                  <div class="tools-peek-row">
+                    <div class="tools-peek-icon"><svg class="icon"><use href="#i-search"/></svg></div>
+                    <div>
+                      <div class="tools-peek-name">grep</div>
+                      <div class="tools-peek-desc">Search file contents by regex</div>
+                    </div>
+                    <span class="pill">filesystem</span>
+                    <div class="toggle is-on"></div>
+                  </div>
+                  <div class="tools-peek-row">
+                    <div class="tools-peek-icon"><svg class="icon"><use href="#i-globe"/></svg></div>
+                    <div>
+                      <div class="tools-peek-name">http_request</div>
+                      <div class="tools-peek-desc">HTTP request with SSRF guard</div>
+                    </div>
+                    <span class="pill">web</span>
+                    <div class="toggle is-on"></div>
+                  </div>
+                  <div class="tools-peek-row">
+                    <div class="tools-peek-icon"><svg class="icon"><use href="#i-terminal"/></svg></div>
+                    <div>
+                      <div class="tools-peek-name">shell</div>
+                      <div class="tools-peek-desc">Execute a sandboxed shell command</div>
+                    </div>
+                    <span class="pill">execution</span>
+                    <div class="toggle"></div>
+                  </div>
+                </div>
+                <div class="hint">3 more tools available · <a href="#" style="color:var(--accent);text-decoration:none;">manage in Tools tab</a></div>
+              </div>
+            </div>
+
+          </div>
+        </section>
+
+      </div>
+    </section>
+
+    <!-- ============================== ADMIN VIEW ============================== -->
+    <section class="view" data-view="admin">
+      <div class="admin-shell">
+        <div class="admin-head">
+          <div class="admin-title">
+            <div>
+              <h2>Administration</h2>
+              <p>Provider credentials, built-in tool defaults, and workspace settings.</p>
+            </div>
+            <div class="editor-actions">
+              <button class="btn"><svg class="icon"><use href="#i-key"/></svg>Rotate encryption key</button>
+              <button class="btn btn-primary"><svg class="icon"><use href="#i-plus"/></svg>New provider</button>
+            </div>
+          </div>
+          <nav class="admin-subnav">
+            <button class="admin-subtab is-active"><svg class="icon"><use href="#i-database"/></svg>Providers <span class="count" style="color:var(--fg-3);font-size:11px;font-family:var(--font-mono)">6</span></button>
+            <button class="admin-subtab"><svg class="icon"><use href="#i-cube"/></svg>Built-in Tools</button>
+            <button class="admin-subtab"><svg class="icon"><use href="#i-admin"/></svg>General</button>
+          </nav>
+        </div>
+
+        <div class="admin-body">
+
+          <div class="panel">
+            <div class="panel-head">
+              <div>
+                <div class="panel-title">LLM providers</div>
+                <div class="panel-sub">Credentials are encrypted at rest with the active workspace key.</div>
+              </div>
+              <div style="display:flex;gap:6px;">
+                <button class="btn btn-ghost"><svg class="icon"><use href="#i-history"/></svg>Audit log</button>
+              </div>
+            </div>
+            <table class="tbl">
+              <thead>
+                <tr>
+                  <th style="width:32%;">Name</th>
+                  <th>Models</th>
+                  <th>Last tested</th>
+                  <th>Key fingerprint</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>
+                    <div class="name-cell">
+                      <div style="width:22px;height:22px;border-radius:6px;background:rgba(94,179,216,0.16);display:grid;place-items:center;border:1px solid rgba(94,179,216,0.28);">
+                        <svg class="icon icon-sm" style="color:#98c8e0"><use href="#i-link"/></svg>
+                      </div>
+                      <div>
+                        <div>Anthropic — production</div>
+                        <div class="label-type">anthropic</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td class="muted">12</td>
+                  <td class="muted"><span class="dot dot-ok"></span> 4 min ago</td>
+                  <td class="mono">sk-ant-…-9f4c</td>
+                  <td style="text-align:right;">
+                    <div class="row-actions">
+                      <button class="icon-btn"><svg class="icon icon-sm"><use href="#i-edit"/></svg></button>
+                      <button class="icon-btn"><svg class="icon icon-sm"><use href="#i-more"/></svg></button>
+                    </div>
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <div class="name-cell">
+                      <div style="width:22px;height:22px;border-radius:6px;background:rgba(77,191,163,0.14);display:grid;place-items:center;border:1px solid rgba(77,191,163,0.28);">
+                        <svg class="icon icon-sm" style="color:#87cab2"><use href="#i-link"/></svg>
+                      </div>
+                      <div>
+                        <div>OpenAI — main</div>
+                        <div class="label-type">openai</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td class="muted">38</td>
+                  <td class="muted"><span class="dot dot-ok"></span> 22 min ago</td>
+                  <td class="mono">sk-…-a1b2</td>
+                  <td style="text-align:right;">
+                    <div class="row-actions">
+                      <button class="icon-btn"><svg class="icon icon-sm"><use href="#i-edit"/></svg></button>
+                      <button class="icon-btn"><svg class="icon icon-sm"><use href="#i-more"/></svg></button>
+                    </div>
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <div class="name-cell">
+                      <div style="width:22px;height:22px;border-radius:6px;background:rgba(216,178,94,0.14);display:grid;place-items:center;border:1px solid rgba(216,178,94,0.26);">
+                        <svg class="icon icon-sm" style="color:#d8c190"><use href="#i-link"/></svg>
+                      </div>
+                      <div>
+                        <div>Ollama — local</div>
+                        <div class="label-type">ollama</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td class="muted">9</td>
+                  <td class="muted"><span class="dot dot-warn"></span> 2 hours ago</td>
+                  <td class="mono faint">— no key —</td>
+                  <td style="text-align:right;">
+                    <div class="row-actions">
+                      <button class="icon-btn"><svg class="icon icon-sm"><use href="#i-edit"/></svg></button>
+                      <button class="icon-btn"><svg class="icon icon-sm"><use href="#i-more"/></svg></button>
+                    </div>
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <div class="name-cell">
+                      <div style="width:22px;height:22px;border-radius:6px;background:rgba(152,129,255,0.14);display:grid;place-items:center;border:1px solid rgba(152,129,255,0.28);">
+                        <svg class="icon icon-sm" style="color:#b5a4ee"><use href="#i-link"/></svg>
+                      </div>
+                      <div>
+                        <div>Groq — fast lane</div>
+                        <div class="label-type">openai-compatible</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td class="muted">7</td>
+                  <td class="muted"><span class="dot dot-ok"></span> 1 hour ago</td>
+                  <td class="mono">gsk_…-7e3d</td>
+                  <td style="text-align:right;">
+                    <div class="row-actions">
+                      <button class="icon-btn"><svg class="icon icon-sm"><use href="#i-edit"/></svg></button>
+                      <button class="icon-btn"><svg class="icon icon-sm"><use href="#i-more"/></svg></button>
+                    </div>
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <div class="name-cell">
+                      <div style="width:22px;height:22px;border-radius:6px;background:rgba(216,122,107,0.14);display:grid;place-items:center;border:1px solid rgba(216,122,107,0.28);">
+                        <svg class="icon icon-sm" style="color:#d8a59a"><use href="#i-link"/></svg>
+                      </div>
+                      <div>
+                        <div>Together — research</div>
+                        <div class="label-type">openai-compatible</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td class="muted">14</td>
+                  <td class="muted"><span class="dot dot-err"></span> auth failed · 3 days</td>
+                  <td class="mono">tg-…-c4d8</td>
+                  <td style="text-align:right;">
+                    <div class="row-actions">
+                      <button class="icon-btn"><svg class="icon icon-sm"><use href="#i-edit"/></svg></button>
+                      <button class="icon-btn"><svg class="icon icon-sm"><use href="#i-more"/></svg></button>
+                    </div>
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <div class="name-cell">
+                      <div style="width:22px;height:22px;border-radius:6px;background:rgba(255,255,255,0.04);display:grid;place-items:center;border:1px solid var(--hairline-strong);">
+                        <svg class="icon icon-sm" style="color:var(--fg-2)"><use href="#i-link"/></svg>
+                      </div>
+                      <div>
+                        <div>Mock — dev</div>
+                        <div class="label-type">mock</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td class="muted">1</td>
+                  <td class="muted"><span class="dot dot-idle"></span> never</td>
+                  <td class="mono faint">— dev only —</td>
+                  <td style="text-align:right;">
+                    <div class="row-actions">
+                      <button class="icon-btn"><svg class="icon icon-sm"><use href="#i-edit"/></svg></button>
+                      <button class="icon-btn"><svg class="icon icon-sm"><use href="#i-more"/></svg></button>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div style="height:24px;"></div>
+
+          <div class="panel">
+            <div class="panel-head">
+              <div>
+                <div class="panel-title">Built-in tools</div>
+                <div class="panel-sub">Operator-set defaults. Per-agent narrowing lives in Studio → Tool Overrides.</div>
+              </div>
+            </div>
+            <div style="padding:18px;">
+
+              <div class="builtin-group">
+                <div class="builtin-group-head">
+                  <span class="builtin-group-title">Filesystem</span>
+                  <span class="builtin-group-sub">9 tools · path scope ~/ · 1 MiB read cap</span>
+                </div>
+                <table class="tbl">
+                  <tbody>
+                    <tr>
+                      <td style="width:24px;padding-right:0;"><svg class="icon" style="color:var(--fg-2)"><use href="#i-file"/></svg></td>
+                      <td style="width:30%;" class="mono">read_file</td>
+                      <td class="muted">Read file contents within path allowlist</td>
+                      <td style="width:80px;text-align:right;"><div class="toggle is-on"></div></td>
+                      <td style="width:32px;text-align:right;"><button class="btn btn-ghost" style="padding:0 8px;height:26px;">Configure</button></td>
+                    </tr>
+                    <tr>
+                      <td><svg class="icon" style="color:var(--fg-2)"><use href="#i-edit"/></svg></td>
+                      <td class="mono">edit_file</td>
+                      <td class="muted">Apply targeted edits with exact match</td>
+                      <td style="text-align:right;"><div class="toggle is-on"></div></td>
+                      <td style="text-align:right;"><button class="btn btn-ghost" style="padding:0 8px;height:26px;">Configure</button></td>
+                    </tr>
+                    <tr>
+                      <td><svg class="icon" style="color:var(--fg-2)"><use href="#i-search"/></svg></td>
+                      <td class="mono">grep</td>
+                      <td class="muted">Search file contents by regex</td>
+                      <td style="text-align:right;"><div class="toggle is-on"></div></td>
+                      <td style="text-align:right;"><button class="btn btn-ghost" style="padding:0 8px;height:26px;">Configure</button></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div class="builtin-group">
+                <div class="builtin-group-head">
+                  <span class="builtin-group-title">Execution</span>
+                  <span class="builtin-group-sub">6 tools · 30s default · 120s ceiling</span>
+                </div>
+                <table class="tbl">
+                  <tbody>
+                    <tr>
+                      <td style="width:24px;padding-right:0;"><svg class="icon" style="color:var(--fg-2)"><use href="#i-terminal"/></svg></td>
+                      <td style="width:30%;" class="mono">shell</td>
+                      <td class="muted">Run a one-shot subprocess</td>
+                      <td style="width:80px;text-align:right;"><div class="toggle is-on"></div></td>
+                      <td style="width:32px;text-align:right;"><button class="btn btn-ghost" style="padding:0 8px;height:26px;">Configure</button></td>
+                    </tr>
+                    <tr>
+                      <td><svg class="icon" style="color:var(--fg-2)"><use href="#i-zap"/></svg></td>
+                      <td class="mono">python_exec</td>
+                      <td class="muted">Run a Python snippet in a sandbox</td>
+                      <td style="text-align:right;"><div class="toggle is-on"></div></td>
+                      <td style="text-align:right;"><button class="btn btn-ghost" style="padding:0 8px;height:26px;">Configure</button></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div class="builtin-group">
+                <div class="builtin-group-head">
+                  <span class="builtin-group-title">Web</span>
+                  <span class="builtin-group-sub">4 tools · SSRF guard always on</span>
+                </div>
+                <table class="tbl">
+                  <tbody>
+                    <tr>
+                      <td style="width:24px;padding-right:0;"><svg class="icon" style="color:var(--fg-2)"><use href="#i-globe"/></svg></td>
+                      <td style="width:30%;" class="mono">http_request</td>
+                      <td class="muted">HTTP request with redirect &amp; size caps</td>
+                      <td style="width:80px;text-align:right;"><div class="toggle is-on"></div></td>
+                      <td style="width:32px;text-align:right;"><button class="btn btn-ghost" style="padding:0 8px;height:26px;">Configure</button></td>
+                    </tr>
+                    <tr>
+                      <td><svg class="icon" style="color:var(--fg-2)"><use href="#i-search"/></svg></td>
+                      <td class="mono">web_search</td>
+                      <td class="muted">DuckDuckGo backend by default</td>
+                      <td style="text-align:right;"><div class="toggle is-on"></div></td>
+                      <td style="text-align:right;"><button class="btn btn-ghost" style="padding:0 8px;height:26px;">Configure</button></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================== COMMAND PALETTE ============================== -->
+    <div class="palette-backdrop" id="palette-backdrop">
+      <div class="palette" role="dialog" aria-label="Command palette">
+        <div class="palette-input">
+          <svg class="icon icon-lg"><use href="#i-search"/></svg>
+          <input id="palette-q" placeholder="Search sessions, agents, settings — or type &gt; for commands" />
+          <span class="kbd">esc</span>
+        </div>
+        <div class="palette-list">
+          <div class="palette-group">Suggested</div>
+          <div class="palette-row is-focused">
+            <svg class="icon"><use href="#i-plus"/></svg>
+            <div class="palette-row-text">New chat with <strong>Researcher</strong></div>
+            <div class="palette-row-shortcut"><span class="kbd">⌘N</span></div>
+          </div>
+          <div class="palette-row">
+            <svg class="icon"><use href="#i-arrow-right"/></svg>
+            <div class="palette-row-text">Switch agent…</div>
+            <div class="palette-row-shortcut"><span class="kbd">⌘⇧A</span></div>
+          </div>
+          <div class="palette-row">
+            <svg class="icon"><use href="#i-studio"/></svg>
+            <div class="palette-row-text">Open Studio</div>
+            <div class="palette-row-shortcut"><span class="kbd">G</span><span class="kbd">S</span></div>
+          </div>
+
+          <div class="palette-group">Sessions</div>
+          <div class="palette-row">
+            <svg class="icon"><use href="#i-chat"/></svg>
+            <div class="palette-row-text">Q2 research synthesis <span style="color:var(--fg-3);font-size:11.5px;margin-left:8px;">· active</span></div>
+            <div class="palette-row-shortcut"><span class="kbd">↵</span></div>
+          </div>
+          <div class="palette-row">
+            <svg class="icon"><use href="#i-chat"/></svg>
+            <div class="palette-row-text">Refactor pty session reaper <span style="color:var(--fg-3);font-size:11.5px;margin-left:8px;">· 2h ago</span></div>
+            <div class="palette-row-shortcut"></div>
+          </div>
+          <div class="palette-row">
+            <svg class="icon"><use href="#i-chat"/></svg>
+            <div class="palette-row-text">Atlassian sprint triage <span style="color:var(--fg-3);font-size:11.5px;margin-left:8px;">· Mon</span></div>
+            <div class="palette-row-shortcut"></div>
+          </div>
+
+          <div class="palette-group">Actions</div>
+          <div class="palette-row">
+            <svg class="icon"><use href="#i-key"/></svg>
+            <div class="palette-row-text">Rotate encryption key</div>
+            <div class="palette-row-shortcut"></div>
+          </div>
+          <div class="palette-row">
+            <svg class="icon"><use href="#i-database"/></svg>
+            <div class="palette-row-text">Test provider connection…</div>
+            <div class="palette-row-shortcut"></div>
+          </div>
+        </div>
+        <div class="palette-foot">
+          <div class="group">
+            <span class="kbd">↑</span><span class="kbd">↓</span> navigate
+            <span style="margin-left:10px;"><span class="kbd">↵</span> select</span>
+            <span style="margin-left:10px;"><span class="kbd">esc</span> close</span>
+          </div>
+          <div class="group">10 results · 0.4ms</div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- ============================== STATUS BAR ============================== -->
+  <footer class="statusbar">
+    <span class="seg"><span class="dot dot-ok"></span> Connected · localhost:8484</span>
+    <span class="seg"><svg class="icon icon-sm"><use href="#i-database"/></svg> 6 providers</span>
+    <span class="seg"><svg class="icon icon-sm"><use href="#i-mcp"/></svg> 3 MCP sources</span>
+    <span class="seg"><svg class="icon icon-sm"><use href="#i-cube"/></svg> 19 tools</span>
+    <span class="spacer"></span>
+    <span class="seg">Researcher · claude-opus-4-7</span>
+    <span class="seg"><svg class="icon icon-sm"><use href="#i-cmd"/></svg> <span class="kbd">⌘K</span></span>
+    <span class="seg">v0.14.2</span>
+  </footer>
+
+</div>
+
+<script>
+  // Tab switching
+  const tabs = document.querySelectorAll('.nav-tab');
+  const views = document.querySelectorAll('.view');
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      const v = tab.dataset.view;
+      tabs.forEach(t => t.classList.toggle('is-active', t === tab));
+      views.forEach(view => view.classList.toggle('is-active', view.dataset.view === v));
+    });
+  });
+
+  // Tool call collapse
+  document.querySelectorAll('[data-collapsible] .tool-head').forEach(head => {
+    head.addEventListener('click', () => {
+      head.parentElement.classList.toggle('is-collapsed');
+    });
+  });
+
+  // Editor subtabs (Studio)
+  document.querySelectorAll('.editor-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.editor-tab').forEach(t => t.classList.toggle('is-active', t === tab));
+    });
+  });
+
+  // Admin subtabs
+  document.querySelectorAll('.admin-subtab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.admin-subtab').forEach(t => t.classList.toggle('is-active', t === tab));
+    });
+  });
+
+  // Command palette
+  const backdrop = document.getElementById('palette-backdrop');
+  const openBtn  = document.getElementById('palette-open');
+  const paletteQ = document.getElementById('palette-q');
+
+  function openPalette() {
+    backdrop.classList.add('is-open');
+    setTimeout(() => paletteQ && paletteQ.focus(), 30);
+  }
+  function closePalette() { backdrop.classList.remove('is-open'); }
+
+  openBtn.addEventListener('click', openPalette);
+  backdrop.addEventListener('click', e => { if (e.target === backdrop) closePalette(); });
+  document.addEventListener('keydown', e => {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); openPalette(); }
+    if (e.key === 'Escape') closePalette();
+  });
+
+  // Studio agent select
+  document.querySelectorAll('.studio-agent').forEach(row => {
+    row.addEventListener('click', () => {
+      document.querySelectorAll('.studio-agent').forEach(r => r.classList.toggle('is-active', r === row));
+    });
+  });
+
+  // Sessions select
+  document.querySelectorAll('.session-row').forEach(row => {
+    row.addEventListener('click', () => {
+      document.querySelectorAll('.session-row').forEach(r => r.classList.toggle('is-active', r === row));
+    });
+  });
+
+  // Toggle pills
+  document.querySelectorAll('.toggle').forEach(t => {
+    t.addEventListener('click', () => t.classList.toggle('is-on'));
+  });
+
+  // Palette open by default for demo? — no, keep closed. Operator can open via ⌘K or click.
+</script>
+
+</body>
+</html>

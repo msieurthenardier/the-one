@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GleepGlorp AI — UI/UX Direction Review (v2)</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root {
+  --bg: #fafaf9;
+  --surface: #ffffff;
+  --line: rgba(16, 18, 22, 0.08);
+  --line-hi: rgba(16, 18, 22, 0.16);
+  --ink: #1a1a1a;
+  --ink-mute: #6a6e76;
+  --ink-faint: #9da3ad;
+  --accent: #3b5bdb;
+  --accent-soft: rgba(59, 91, 219, 0.08);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: 'cv02', 'cv03', 'cv11';
+}
+
+.topbar {
+  border-bottom: 1px solid var(--line);
+  padding: 14px 56px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: var(--surface);
+}
+
+.mark {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: -0.005em;
+}
+
+.mark-dot {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--ink);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.topbar-meta {
+  margin-left: auto;
+  display: flex;
+  gap: 24px;
+  font-size: 12.5px;
+  color: var(--ink-mute);
+}
+
+.topbar-meta span code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  color: var(--ink);
+}
+
+.page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 80px 56px 120px;
+}
+
+.eyebrow {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: 14px;
+}
+
+h1 {
+  font-weight: 600;
+  font-size: 38px;
+  line-height: 1.15;
+  letter-spacing: -0.025em;
+  margin-bottom: 16px;
+  max-width: 22ch;
+}
+
+.lede {
+  font-size: 16px;
+  line-height: 1.65;
+  color: var(--ink-mute);
+  max-width: 68ch;
+  margin-bottom: 12px;
+}
+
+.lede strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.callout {
+  margin-top: 32px;
+  margin-bottom: 56px;
+  padding: 14px 18px;
+  background: var(--accent-soft);
+  border-left: 2px solid var(--accent);
+  border-radius: 0 6px 6px 0;
+  font-size: 13.5px;
+  color: var(--ink);
+  max-width: 68ch;
+}
+
+.callout strong { font-weight: 600; }
+.callout a {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+}
+.callout a:hover { text-decoration: underline; }
+
+.directions {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 18px;
+}
+
+.card {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 28px 26px 22px;
+  display: flex;
+  flex-direction: column;
+  min-height: 560px;
+  transition: border-color 180ms ease-out, box-shadow 180ms ease-out;
+  box-shadow: 0 1px 2px rgba(16,18,22,0.03);
+}
+
+.card:hover {
+  border-color: var(--line-hi);
+  box-shadow: 0 4px 14px rgba(16,18,22,0.06), 0 1px 2px rgba(16,18,22,0.04);
+}
+
+.card-index {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.card-index .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+}
+
+.card-title {
+  font-weight: 600;
+  font-size: 26px;
+  letter-spacing: -0.02em;
+  margin-bottom: 6px;
+  color: var(--ink);
+}
+
+.card-tagline {
+  font-size: 14px;
+  color: var(--ink-mute);
+  margin-bottom: 26px;
+  line-height: 1.5;
+}
+
+.attrs {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 24px;
+}
+
+.attr {
+  display: grid;
+  grid-template-columns: 92px 1fr;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.attr-key {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  padding-top: 2px;
+}
+
+.attr-val {
+  color: var(--ink);
+  line-height: 1.45;
+}
+
+.moves {
+  border-top: 1px solid var(--line);
+  padding-top: 18px;
+  margin-bottom: 22px;
+}
+
+.moves-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: 12px;
+}
+
+.moves ol {
+  list-style: none;
+  counter-reset: move;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.moves li {
+  counter-increment: move;
+  position: relative;
+  padding-left: 22px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-mute);
+}
+
+.moves li::before {
+  content: counter(move);
+  position: absolute;
+  left: 0;
+  top: 1px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-faint);
+  background: var(--bg);
+  border-radius: 50%;
+}
+
+.moves li strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.card-actions {
+  margin-top: auto;
+  display: flex;
+  gap: 8px;
+}
+
+.btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 14px;
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 140ms ease-out, border-color 140ms ease-out;
+}
+
+.btn-primary {
+  background: var(--ink);
+  color: #fff;
+  border: 1px solid var(--ink);
+}
+.btn-primary:hover { background: #2a2a2a; }
+
+.btn-ghost {
+  background: var(--surface);
+  color: var(--ink-mute);
+  border: 1px solid var(--line);
+  flex: 0 0 auto;
+  padding: 10px 12px;
+}
+.btn-ghost:hover {
+  color: var(--ink);
+  border-color: var(--line-hi);
+}
+
+.btn svg {
+  width: 13px;
+  height: 13px;
+  stroke: currentColor;
+  stroke-width: 2;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.footer-section {
+  margin-top: 80px;
+  padding-top: 32px;
+  border-top: 1px solid var(--line);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 48px;
+  max-width: 88ch;
+}
+
+.footer-block h3 {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-faint);
+  margin-bottom: 12px;
+}
+
+.footer-block p {
+  font-size: 13.5px;
+  color: var(--ink-mute);
+  line-height: 1.65;
+  margin-bottom: 10px;
+}
+
+.footer-block code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  padding: 1.5px 6px;
+  border-radius: 4px;
+  color: var(--ink);
+}
+
+.footer-block a {
+  color: var(--accent);
+  text-decoration: none;
+}
+.footer-block a:hover { text-decoration: underline; }
+
+@media (max-width: 1100px) {
+  .directions { grid-template-columns: 1fr; }
+  .card { min-height: auto; }
+  .footer-section { grid-template-columns: 1fr; }
+  .topbar-meta { display: none; }
+}
+</style>
+</head>
+<body>
+
+<nav class="topbar">
+  <div class="mark">
+    <div class="mark-dot">G</div>
+    <span>GleepGlorp AI</span>
+  </div>
+  <div class="topbar-meta">
+    <span>Review · <code>v2</code></span>
+    <span>2026-05-12</span>
+  </div>
+</nav>
+
+<main class="page">
+  <div class="eyebrow">UI / UX Direction Review</div>
+  <h1>Three calibrated directions.</h1>
+  <p class="lede">
+    Three exploratory mockups for the next chapter of GleepGlorp AI — covering Chat, Studio,
+    and Administration. Each leans into a different design hypothesis, but all three are
+    calibrated to <strong>look like a real, professional product</strong>: restrained palettes,
+    generous spacing, single accent used sparingly.
+  </p>
+
+  <div class="callout">
+    <strong>v2 recalibration.</strong> The original mockups read as too flashy and too dense.
+    These have been re-spec'd against Linear, Vercel, Notion, GitHub, Stripe, Figma's own UI,
+    and Raycast — restraint over stunts. v1 is archived at
+    <a href="./mockups/v1/atelier.html" target="_blank">atelier</a> ·
+    <a href="./mockups/v1/console.html" target="_blank">console</a> ·
+    <a href="./mockups/v1/holograph.html" target="_blank">holograph</a> for comparison.
+  </div>
+
+  <section class="directions">
+
+    <article class="card">
+      <div class="card-index"><span class="dot"></span>Direction A · 1,404 lines</div>
+      <h2 class="card-title">Atelier</h2>
+      <div class="card-tagline">A calm, beautifully-typeset surface where the conversation is the work.</div>
+
+      <div class="attrs">
+        <div class="attr"><div class="attr-key">Dominant</div><div class="attr-val">Calm focus</div></div>
+        <div class="attr"><div class="attr-key">Palette</div><div class="attr-val">Warm near-white · ink · sage accent</div></div>
+        <div class="attr"><div class="attr-key">Type</div><div class="attr-val">Inter · JetBrains Mono</div></div>
+        <div class="attr"><div class="attr-key">Layout</div><div class="attr-val">Sidebar + content, tabbed nav</div></div>
+        <div class="attr"><div class="attr-key">Theme</div><div class="attr-val">Light</div></div>
+        <div class="attr"><div class="attr-key">Refs</div><div class="attr-val">Linear · Notion · Stripe Dashboard</div></div>
+      </div>
+
+      <div class="moves">
+        <div class="moves-label">Identity</div>
+        <ol>
+          <li><strong>Typographic hierarchy.</strong> Weight and size do the work; color rarely communicates importance.</li>
+          <li><strong>Warm neutral palette.</strong> Tinted whites and inks so the surface feels considered, not clinical.</li>
+          <li><strong>Quiet attribution.</strong> No bubbles. Just a one-line name + time above each message; tool calls collapse into hairline blocks that don't compete with the prose.</li>
+        </ol>
+      </div>
+
+      <div class="card-actions">
+        <a class="btn btn-primary" href="./mockups/atelier.html" target="_blank">
+          <svg viewBox="0 0 24 24"><path d="M14 3h7v7M21 3l-9 9M10 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5"/></svg>
+          Open
+        </a>
+        <a class="btn btn-ghost" href="./mockups/v1/atelier.html" target="_blank" title="View v1">v1</a>
+      </div>
+    </article>
+
+    <article class="card">
+      <div class="card-index"><span class="dot"></span>Direction B · 1,968 lines</div>
+      <h2 class="card-title">Console</h2>
+      <div class="card-tagline">A keyboard-fluent, information-rich workspace for hours of focused work.</div>
+
+      <div class="attrs">
+        <div class="attr"><div class="attr-key">Dominant</div><div class="attr-val">Power-user fluency</div></div>
+        <div class="attr"><div class="attr-key">Palette</div><div class="attr-val">Calm dark · bone · single cyan accent</div></div>
+        <div class="attr"><div class="attr-key">Type</div><div class="attr-val">Inter · JetBrains Mono (used sparingly)</div></div>
+        <div class="attr"><div class="attr-key">Layout</div><div class="attr-val">Three-pane workspace · ⌘K palette</div></div>
+        <div class="attr"><div class="attr-key">Theme</div><div class="attr-val">Dark</div></div>
+        <div class="attr"><div class="attr-key">Refs</div><div class="attr-val">Linear · GitHub · Vercel · Raycast</div></div>
+      </div>
+
+      <div class="moves">
+        <div class="moves-label">Identity</div>
+        <ol>
+          <li><strong>Three-pane shape.</strong> Sessions/agents · conversation · inspector. The power-user surface survives — calmer.</li>
+          <li><strong>Inline tool calls.</strong> Collapsible blocks showing tool, args, duration; mono confined to inside the block.</li>
+          <li><strong>Command palette as the keyboard surface.</strong> ⌘K opens a clean modal — grouped commands, real shortcuts shown there and in one status segment, not on every button.</li>
+        </ol>
+      </div>
+
+      <div class="card-actions">
+        <a class="btn btn-primary" href="./mockups/console.html" target="_blank">
+          <svg viewBox="0 0 24 24"><path d="M14 3h7v7M21 3l-9 9M10 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5"/></svg>
+          Open
+        </a>
+        <a class="btn btn-ghost" href="./mockups/v1/console.html" target="_blank" title="View v1">v1</a>
+      </div>
+    </article>
+
+    <article class="card">
+      <div class="card-index"><span class="dot"></span>Direction C · 1,874 lines</div>
+      <h2 class="card-title">Holograph</h2>
+      <div class="card-tagline">A workspace where the primary objects are cards on a surface you can arrange.</div>
+
+      <div class="attrs">
+        <div class="attr"><div class="attr-key">Dominant</div><div class="attr-val">Spatial composition</div></div>
+        <div class="attr"><div class="attr-key">Palette</div><div class="attr-val">Warm white · ink · one blue accent</div></div>
+        <div class="attr"><div class="attr-key">Type</div><div class="attr-val">Inter · JetBrains Mono</div></div>
+        <div class="attr"><div class="attr-key">Layout</div><div class="attr-val">Card grids · top nav</div></div>
+        <div class="attr"><div class="attr-key">Theme</div><div class="attr-val">Light</div></div>
+        <div class="attr"><div class="attr-key">Refs</div><div class="attr-val">Figma · macOS Notes · Pitch · Linear triage</div></div>
+      </div>
+
+      <div class="moves">
+        <div class="moves-label">Identity</div>
+        <ol>
+          <li><strong>Card-as-object metaphor.</strong> Sessions, agents, providers, tools — all rendered as discrete bordered cards in calm grids.</li>
+          <li><strong>Quiet depth.</strong> A single soft shadow grows by one step on hover. No scale, no glow, no agent-color bleed.</li>
+          <li><strong>One restrained accent.</strong> Used only on primary buttons, focus rings, the active-nav underline, and a thin indicator on the currently-active card.</li>
+        </ol>
+      </div>
+
+      <div class="card-actions">
+        <a class="btn btn-primary" href="./mockups/holograph.html" target="_blank">
+          <svg viewBox="0 0 24 24"><path d="M14 3h7v7M21 3l-9 9M10 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5"/></svg>
+          Open
+        </a>
+        <a class="btn btn-ghost" href="./mockups/v1/holograph.html" target="_blank" title="View v1">v1</a>
+      </div>
+    </article>
+
+  </section>
+
+  <section class="footer-section">
+    <div class="footer-block">
+      <h3>How to read these</h3>
+      <p>
+        Open all three. Sit with each for a few minutes — try to imagine living in it for an
+        hour-long session. The three are <em>philosophically</em> distinct (calm / fluent /
+        spatial), not just visually distinct.
+      </p>
+      <p>
+        When you've picked a direction — or a blend (e.g. "Atelier's calm with Console's
+        inspector") — tell me, and I'll run it through a proper brainstorm → spec →
+        implementation-plan cycle for the real app.
+      </p>
+    </div>
+    <div class="footer-block">
+      <h3>Files</h3>
+      <p>
+        Mockups live in <code>playground/mockups/</code>. Each is self-contained — open them
+        on any machine without a server. The v1 archive is at
+        <code>playground/mockups/v1/</code> if you want to compare versions.
+      </p>
+      <p>
+        None of the real app under <code>the_one/</code> has been touched.
+      </p>
+    </div>
+  </section>
+</main>
+
+</body>
+</html>
