@@ -1,60 +1,56 @@
+/* Holograph base layer — typography reset, focus rings, scrollbar, skip-link,
+ * body bg. Per-theme values come from tokens.css.
+ */
+
 @layer base {
-  /* === Reset === */
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  /* body overflow: hidden — body is the SPA shell, never scrolls itself.
-     Inner .admin-content / equivalent area scroll containers handle all
-     page-level vertical scrolling. Without this, flex children with
-     min-height: auto can push body's content past 100vh, surfacing a
-     document-level scrollbar that runs the full viewport height (visible
-     even behind the topbar). */
-  body { font-family: var(--font-family-sans); background: var(--bg-gradient); color: var(--fg); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
-
-  /* === Top Bar === */
-  #app-topbar {
-    height: var(--topbar-h);
-    background: var(--nav-bg);
-    border-bottom: 1px solid var(--nav-border);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0 16px;
-    flex-shrink: 0;
-    position: relative; /* for absolute popover positioning */
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: 13.5px;
+    line-height: 1.5;
+    color: var(--fg);
+    background: var(--bg);
+    -webkit-font-smoothing: antialiased;
+    min-width: 1280px;
+    letter-spacing: -0.005em;
   }
 
-  /* === App Shell Row (sidebar + content) === */
-  .app-shell-row {
-    display: flex;
-    flex: 1;
-    min-height: 0;
-    overflow: hidden;
+  h1, h2, h3, h4, h5, h6 { margin: 0; }
+
+  a { color: inherit; text-decoration: none; }
+
+  button { font-family: inherit; cursor: pointer; }
+
+  .skip-link {
+    position: absolute;
+    left: -9999px;
+    top: 0;
+    padding: 8px 12px;
+    background: var(--surface);
+    color: var(--fg);
+    border: 1px solid var(--hairline-strong);
+    border-radius: var(--radius-control);
+    z-index: 100;
+  }
+  .skip-link:focus {
+    left: 12px;
+    top: 12px;
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
   }
 
-  /* === Sidebar === */
-  #app-sidebar {
-    width: var(--sidebar-w);
-    background: var(--sidebar-bg);
-    border-right: 1px solid var(--border);
-    display: flex;
-    flex-direction: column;
-    flex-shrink: 0;
-    overflow: hidden;
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 6px;
   }
-  .sidebar-panel { display: none; flex-direction: column; flex: 1; overflow: hidden; }
-  .sidebar-panel.active { display: flex; }
+  button:focus-visible, .tab:focus-visible, .navlink:focus-visible, .subnav-item:focus-visible {
+    outline-offset: 3px;
+  }
 
-  /* === Content === */
-  /* min-height: 0 + min-width: 0 + overflow: hidden on this flex-column chain
-     so descendant flex items can shrink below their intrinsic content size.
-     Without min-height: 0, a tall inner element's auto min-height pushes the
-     chain up to body level, surfacing a document scrollbar. */
-  #main-content { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
-  .content-panel { display: none; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
-  .content-panel.active { display: flex; }
-
-  /* === Stub Areas === */
-  .stub-content { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--fg-muted); font-size: var(--font-size-body-lg); }
-  .stub-sidebar { padding: 12px 16px; border-bottom: 1px solid var(--border); }
-  .stub-sidebar .title { font-weight: var(--font-weight-bold); color: var(--accent); font-size: var(--font-size-body-lg); }
-  .stub-sidebar .subtitle { color: var(--fg-muted); font-size: var(--font-size-caption); margin-top: 4px; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: var(--hairline-strong); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--fg-faint); }
+  ::-webkit-scrollbar-track { background: transparent; }
 }
