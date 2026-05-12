@@ -1464,11 +1464,16 @@ App.registerArea({
         }
       }
 
-      // F8 L4: scope to built-in-tool toggles only — F8's MCP source toggles
-      // also use class="tool-toggle" for visual parity but carry data-mcp-source-id
-      // (NOT data-tool); without the [data-tool] filter, they'd contaminate
-      // enabled_tools/disabled_tools with `undefined` (from `dataset.tool`).
-      var toggles = editorEl.querySelectorAll('.tool-toggle[data-tool]');
+      // Scope to built-in-tool checkbox toggles only. MCP source toggles
+      // carry `data-mcp-source-id` (NOT `data-tool`); MCP per-tool toggles
+      // carry `data-mcp-tool-toggle` (handled in a separate collector
+      // below). The `input[type="checkbox"]` filter plus `[data-tool]`
+      // attribute is sufficient to disambiguate. (Previously this query
+      // required `.tool-toggle` for the iOS-pill pattern; Mission 08 F4 L2
+      // widened the per-tool tile to use a visible `.checkbox-primary`
+      // input — no class disambiguation possible — so the selector
+      // shifted to `input[type="checkbox"][data-tool]`.)
+      var toggles = editorEl.querySelectorAll('input[type="checkbox"][data-tool]');
       var enabledNames = [];
       var disabledNames = [];
       var allOn = true;
@@ -1649,13 +1654,56 @@ App.registerArea({
             if (errorEl) errorEl.textContent = err.message;
           });
       } else {
-        var name = self._selectedAgent.name;
-        data.name = name;
-        fetch('/api/agents/' + encodeURIComponent(name), {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(data)
-        })
+        var oldName = self._selectedAgent.name;
+        var requestedName = (data.name || '').trim();
+        if (!requestedName) {
+          if (errorEl) errorEl.textContent = 'Name is required.';
+          return;
+        }
+        // F4 L02 functional batch — rename support. If the user changed
+        // the Name field on an existing agent, POST to the rename
+        // endpoint FIRST so the PUT save can target the new PK. On
+        // rename failure, abort and surface the error; do NOT proceed
+        // with the PUT (the operator can re-try or revert the name
+        // input).
+        var renamePromise;
+        var effectiveName;
+        if (requestedName !== oldName) {
+          effectiveName = requestedName;
+          renamePromise = fetch('/api/agents/' + encodeURIComponent(oldName) + '/rename', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ new_name: requestedName })
+          })
+            .then(function (r) {
+              if (!r.ok) {
+                return r.json().then(function (e) {
+                  throw new Error(typeof e.detail === 'string' ? e.detail : 'Rename failed');
+                });
+              }
+              return r.json();
+            })
+            .then(function (renamed) {
+              // Re-bind the in-closure "currently-editing" name so the
+              // subsequent PUT targets the new PK and so the area's
+              // URL state serialization reflects the rename.
+              self._selectedAgent = renamed;
+              return renamed;
+            });
+        } else {
+          effectiveName = oldName;
+          renamePromise = Promise.resolve(null);
+        }
+
+        renamePromise
+          .then(function () {
+            data.name = effectiveName;
+            return fetch('/api/agents/' + encodeURIComponent(effectiveName), {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(data)
+            });
+          })
           .then(function (r) {
             if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || 'Save failed'); });
             return r.json();
@@ -1672,6 +1720,10 @@ App.registerArea({
                 self._selectedAgent = found;
                 renderEditor(found);
                 showFlash('Saved');
+                // Rewrite the URL so refresh / back-button targets the
+                // new agent name (the area's URL keys on
+                // _selectedAgent.name; writeUrl_ re-serializes).
+                if (typeof writeUrl_ === 'function') writeUrl_();
               }
             });
           })

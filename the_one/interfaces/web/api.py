@@ -414,6 +414,57 @@ async def delete_agent(name: str) -> dict[str, str]:
     return {"status": "ok"}
 
 
+@router.post("/agents/{name}/rename")
+async def rename_agent(name: str, request: Request) -> dict[str, Any]:
+    """Rename an existing agent.
+
+    The agent name is the primary key in the ``agents`` table and is
+    referenced (without FK constraint, since schema v5) by
+    ``chat_sessions.agent_name``. :meth:`SQLiteAgentStore.rename` handles
+    both rows in a single transaction; this handler maps the store's
+    exceptions to HTTP status codes.
+
+    Validation reuses :class:`AgentConfig`'s pydantic rules by loading
+    the existing agent, swapping its ``name`` field, and re-validating —
+    that way any future name constraints (length, charset, etc.) added
+    to ``AgentConfig`` apply here automatically without duplicating
+    rules at this surface.
+    """
+    from the_one.agent.config import AgentConfig
+
+    data = await request.json()
+    new_name = (data.get("new_name") or "").strip()
+    if not new_name:
+        raise HTTPException(status_code=422, detail="new_name is required")
+    if new_name == name:
+        raise HTTPException(status_code=422, detail="new_name must differ from current name")
+    store = await _agent_store()
+    # Load existing agent first so AgentConfig validation runs against
+    # the full payload (some fields may be required by Pydantic). If the
+    # source doesn't exist, surface 404 here rather than waiting for
+    # rename() to raise.
+    try:
+        existing = await store.load(name)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Agent not found: {name}")
+    # Validate the new name against AgentConfig — swap the name field on
+    # a model_dump of the existing config so all other fields are present.
+    payload = existing.model_dump()
+    payload["name"] = new_name
+    try:
+        AgentConfig.model_validate(payload)
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=e.errors())
+    try:
+        await store.rename(name, new_name)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Agent not found: {name}")
+    except ValueError:
+        raise HTTPException(status_code=409, detail=f"Agent already exists: {new_name}")
+    cfg = await store.load(new_name)
+    return cfg.model_dump()
+
+
 # ── Knowledge Bases ───────────────────────────────────────────────────────
 
 
@@ -1013,6 +1064,11 @@ async def _build_and_test_no_auth_mcp(
         async with MCPClient(source=source, auth_provider=None) as client:
             tools = await client.list_tools()
             capabilities = client.server_capabilities
+            # F4 L2 (M08): capture spec-optional serverInfo + instructions
+            # alongside tools/capabilities so the MCPs tab can render a
+            # server-declared subtitle line + hover-tooltip without re-probing.
+            server_info = client.server_info
+            instructions = client.instructions
             tools_cache_payload = [
                 {
                     "name": t.name,
@@ -1027,6 +1083,8 @@ async def _build_and_test_no_auth_mcp(
                 persisted_config["_cache"] = {
                     "tools": tools_cache_payload,
                     "capabilities": capabilities,
+                    "server_info": server_info,
+                    "instructions": instructions,
                     "last_updated": time.time(),
                     "auth_posture": "no_auth",
                 }
@@ -1095,6 +1153,10 @@ async def _build_and_test_stdio_mcp(
         async with MCPClient(source=source, auth_provider=None) as client:
             tools = await client.list_tools()
             capabilities = client.server_capabilities
+            # F4 L2 (M08): capture spec-optional serverInfo + instructions
+            # alongside tools/capabilities — see _build_and_test_no_auth_mcp.
+            server_info = client.server_info
+            instructions = client.instructions
             tools_cache_payload = [
                 {
                     "name": t.name,
@@ -1109,6 +1171,8 @@ async def _build_and_test_stdio_mcp(
                 persisted_config["_cache"] = {
                     "tools": tools_cache_payload,
                     "capabilities": capabilities,
+                    "server_info": server_info,
+                    "instructions": instructions,
                     "last_updated": time.time(),
                 }
                 await repo.update(persisted.model_copy(update={"config": persisted_config}))
@@ -1295,6 +1359,11 @@ async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any
             async with MCPClient(source=source, auth_provider=provider_a) as client:
                 tools = await client.list_tools()
                 capabilities = client.server_capabilities  # F8 L1: snapshot inside async-with
+                # F4 L2 (M08): server-declared identity + free-form prose, both
+                # spec-optional and snapshotted inside the async-with for the
+                # same reason as capabilities (post-disconnect reads raise).
+                server_info = client.server_info
+                instructions = client.instructions
                 # F9 L1 (vibing): persist tools+capabilities to source.config._cache
                 # so the editor can render the cached state on mount without
                 # forcing the operator to click Refresh. Plaintext (un-encrypted)
@@ -1320,6 +1389,8 @@ async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any
                     persisted_config["_cache"] = {
                         "tools": tools_cache_payload,
                         "capabilities": capabilities,
+                        "server_info": server_info,
+                        "instructions": instructions,
                         "last_updated": time.time(),
                     }
                     await repo.update(persisted.model_copy(update={"config": persisted_config}))

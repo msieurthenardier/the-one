@@ -23,6 +23,8 @@ class AgentConfigStore(Protocol):
 
     async def exists(self, name: str) -> bool: ...
 
+    async def rename(self, old_name: str, new_name: str) -> None: ...
+
 
 class FilesystemConfigStore:
     """Stores agent configs as JSON files in a directory.
@@ -59,6 +61,22 @@ class FilesystemConfigStore:
 
     def exists(self, name: str) -> bool:
         return self._path(name).exists()
+
+    def rename(self, old_name: str, new_name: str) -> None:
+        """Rename an agent by moving its JSON file and rewriting the ``name``
+        field inside the JSON content. KeyError if source missing; ValueError
+        if target already exists (mirrors :class:`SQLiteAgentStore.rename`).
+        """
+        old_path = self._path(old_name)
+        new_path = self._path(new_name)
+        if not old_path.exists():
+            raise KeyError(f"Agent config not found: {old_name}")
+        if new_path.exists():
+            raise ValueError(f"Agent config already exists: {new_name}")
+        data = json.loads(old_path.read_text())
+        data["name"] = new_name
+        new_path.write_text(json.dumps(data, indent=2) + "\n")
+        old_path.unlink()
 
     def _path(self, name: str) -> Path:
         return self.agents_dir / f"{name}.json"

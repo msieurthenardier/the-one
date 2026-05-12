@@ -96,13 +96,24 @@
     for (var i = 0; i < allSources.length; i++) {
       (function (source) {
         var isAttached = attachedIds[source.id] === true;
-        var rowWrapper = document.createElement('div');
-        rowWrapper.className = 'mcp-source-row-wrapper';
-        rowWrapper.setAttribute('data-testid', 'mcp-source-row-' + source.id);
 
-        // Row summary with attach toggle.
-        var rowLabel = document.createElement('label');
-        rowLabel.className = 'tool-row mcp-source-row';
+        // Each MCP source = a tile echoing .entity-tile (glass + gleam +
+        // bezel). The tile composes: row1 (toggle + name + protocol badge +
+        // Refresh) + expand button (tool count + chevron) + collapsible
+        // tools body (the per-tool tiles). Mission 08 F4 L2 vibe.
+        var tile = document.createElement('div');
+        tile.className = 'mcp-source-tile';
+        tile.setAttribute('data-source-id', source.id);
+        tile.setAttribute('data-testid', 'mcp-source-row-' + source.id);
+        var startsExpanded = pendingSourceId === source.id;
+        tile.setAttribute('aria-expanded', startsExpanded ? 'true' : 'false');
+
+        // ── Row 1: toggle + name + protocol + Refresh ──────────────────
+        var row1 = document.createElement('div');
+        row1.className = 'mcp-source-tile-row1';
+
+        var toggleLabel = document.createElement('label');
+        toggleLabel.className = 'mcp-source-tile-toggle';
 
         var checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
@@ -111,80 +122,252 @@
         checkbox.setAttribute('data-mcp-source-id', source.id);
         checkbox.setAttribute('data-testid', 'mcp-source-toggle-' + source.id);
         checkbox.checked = isAttached;
-        rowLabel.appendChild(checkbox);
+        toggleLabel.appendChild(checkbox);
 
         var visualSwitch = document.createElement('span');
         visualSwitch.className = 'tool-switch';
-        rowLabel.appendChild(visualSwitch);
+        toggleLabel.appendChild(visualSwitch);
+
+        row1.appendChild(toggleLabel);
 
         var nameSpan = document.createElement('span');
-        nameSpan.className = 'tool-name';
+        nameSpan.className = 'mcp-source-tile-name';
         nameSpan.textContent = source.name;
-        rowLabel.appendChild(nameSpan);
+        row1.appendChild(nameSpan);
 
-        var descSpan = document.createElement('span');
-        descSpan.className = 'tool-desc';
-        descSpan.textContent = source.type === 'stdio' ? 'stdio' : 'streamable-http';
-        rowLabel.appendChild(descSpan);
+        // Enabled-count chicklet (matches the built-in Tools tab category
+        // chicklet shape) — shows live `X / Y enabled`. Hidden until the
+        // source has been connected (cache populated). F4 L2.
+        var enabledChicklet = document.createElement('span');
+        enabledChicklet.className = 'mcp-source-tile-enabled-count tools-category-tile-count';
+        enabledChicklet.hidden = true;
+        row1.appendChild(enabledChicklet);
 
-        rowWrapper.appendChild(rowLabel);
+        var protocolBadge = document.createElement('span');
+        protocolBadge.className = 'mcp-source-tile-protocol';
+        protocolBadge.textContent = source.type === 'stdio' ? 'stdio' : 'http';
+        row1.appendChild(protocolBadge);
 
-        // Details panel — collapsible. Lazy-loads per-tool list + override
-        // fields on first open. Auto-opens when pendingSourceId matches.
-        var details = document.createElement('details');
-        details.className = 'tool-row-overrides mcp-source-details';
-        details.setAttribute('data-source-id', source.id);
-        details.setAttribute('data-testid', 'mcp-source-details-' + source.id);
-        if (pendingSourceId === source.id) {
-          details.setAttribute('open', '');
+        var refreshBtn = document.createElement('button');
+        refreshBtn.type = 'button';
+        refreshBtn.className = 'btn-outlined-primary mcp-refresh-tools-btn';
+        refreshBtn.setAttribute('data-testid', 'mcp-refresh-tools-btn-' + source.id);
+        refreshBtn.innerHTML = window.App.icon('refresh') + ' Refresh';
+        row1.appendChild(refreshBtn);
+
+        tile.appendChild(row1);
+
+        // ── Subtitle: server-declared identity (F4 L2, M08) ─────────────
+        // /test/connect writes serverInfo + instructions into
+        // source.config._cache when the operator probes. Only render the
+        // subtitle when the cache is populated (i.e. the source has been
+        // connected at least once) so create-mode tiles stay clean. The
+        // instructions field, when present, hangs off the subtitle as a
+        // `title=` tooltip so hover reveals the full server-supplied prose.
+        var serverInfo = (source && source.config && source.config._cache &&
+                          source.config._cache.server_info) || null;
+        var instructionsText = (source && source.config && source.config._cache &&
+                                source.config._cache.instructions) || null;
+        if (serverInfo) {
+          var subtitle = document.createElement('div');
+          subtitle.className = 'mcp-source-tile-subtitle';
+          subtitle.setAttribute('data-testid', 'mcp-source-subtitle-' + source.id);
+          var labelText = serverInfo.title || serverInfo.name || '';
+          var versionText = serverInfo.version ? ' · v' + serverInfo.version : '';
+          subtitle.textContent = labelText + versionText;
+          if (instructionsText) {
+            // Hover reveals the full instructions prose. The class
+            // .has-instructions lets the CSS hint at the affordance with a
+            // help-cursor without changing the textual content.
+            subtitle.classList.add('has-instructions');
+            subtitle.title = instructionsText;
+          }
+          // Only append if we actually produced visible text — guards
+          // against servers that announce serverInfo with only the icons
+          // field populated (spec-legal but useless to surface).
+          if (subtitle.textContent.trim()) {
+            tile.appendChild(subtitle);
+          }
         }
 
-        var summary = document.createElement('summary');
-        summary.textContent = 'Details';
-        details.appendChild(summary);
+        // ── Expand button: tool count + chevron ───────────────────────
+        var expandBtn = document.createElement('button');
+        expandBtn.type = 'button';
+        expandBtn.className = 'mcp-source-tile-expand-btn';
+        expandBtn.setAttribute('aria-expanded', startsExpanded ? 'true' : 'false');
+        expandBtn.setAttribute('data-testid', 'mcp-source-expand-' + source.id);
 
-        var body = document.createElement('div');
-        body.className = 'tool-row-overrides-body';
-        body.setAttribute('data-testid', 'mcp-source-details-body-' + source.id);
+        var countSpan = document.createElement('span');
+        countSpan.className = 'mcp-source-tile-tool-count';
+        var chevron = document.createElement('span');
+        chevron.className = 'mcp-source-tile-chevron';
+        chevron.textContent = '▸';
+
+        function _cachedTotal(src) {
+          return (src && src.config && src.config._cache &&
+                  Array.isArray(src.config._cache.tools))
+            ? src.config._cache.tools.length : null;
+        }
+        // Compute "enabled" count from agent.mcp_overrides + cache, applying
+        // the same allowlist/denylist logic as _renderToolsCheckboxGroup.
+        function _enabledFromCache(src, ag) {
+          if (!_hasCachedTools(src)) return null;
+          var tools = src.config._cache.tools;
+          var overrides = ((ag && ag.mcp_overrides) || {})[src.name] || {};
+          var enabledList = overrides.enabled_tools;
+          var disabledList = overrides.disabled_tools || [];
+          var isAllowlist = Array.isArray(enabledList) && enabledList !== null;
+          var count = 0;
+          for (var i = 0; i < tools.length; i++) {
+            var n = tools[i].name;
+            var checked = isAllowlist
+              ? enabledList.indexOf(n) !== -1
+              : disabledList.indexOf(n) === -1;
+            if (checked) count++;
+          }
+          return count;
+        }
+        function _setCount(enabled, total) {
+          // Expand-button text: total tool count (no enabled).
+          if (total === null) {
+            countSpan.textContent = 'Tools';
+          } else {
+            countSpan.innerHTML = '<strong>' + total + '</strong> tool' + (total === 1 ? '' : 's');
+          }
+          // Chicklet on row 1: `X / Y enabled`, mirroring the built-in
+          // Tools category-tile chicklet. Hidden when no cache (no count).
+          if (total === null || enabled === null) {
+            enabledChicklet.hidden = true;
+            enabledChicklet.textContent = '';
+          } else {
+            enabledChicklet.hidden = false;
+            enabledChicklet.textContent = enabled + ' / ' + total + ' enabled';
+          }
+        }
+        // Re-read counts from the rendered DOM (post-_renderToolsCheckboxGroup).
+        // Used when individual tool toggles change AND after first tool-load.
+        function _recountFromDom() {
+          var checkboxes = toolsBody.querySelectorAll('[data-mcp-tool-toggle]');
+          if (checkboxes.length === 0) {
+            // DOM not yet populated; fall back to cache compute.
+            _setCount(_enabledFromCache(source, agent), _cachedTotal(source));
+            return;
+          }
+          var enabled = 0;
+          for (var i = 0; i < checkboxes.length; i++) {
+            if (checkboxes[i].checked) enabled++;
+          }
+          _setCount(enabled, checkboxes.length);
+        }
+        function _hasCachedTools(src) {
+          return !!(src && src.config && src.config._cache &&
+                    Array.isArray(src.config._cache.tools));
+        }
+        _setCount(_enabledFromCache(source, agent), _cachedTotal(source));
+        expandBtn.appendChild(countSpan);
+        expandBtn.appendChild(chevron);
+
+        tile.appendChild(expandBtn);
+
+        // ── Tools body (collapsed by default; tile-style tools inside) ──
+        var toolsBody = document.createElement('div');
+        toolsBody.className = 'mcp-source-tile-tools tool-row-overrides-body';
+        toolsBody.setAttribute('data-testid', 'mcp-source-details-body-' + source.id);
+        toolsBody.hidden = !startsExpanded;
         var loadingP = document.createElement('p');
         loadingP.className = 'loading';
-        loadingP.textContent = 'Open to load details…';
-        body.appendChild(loadingP);
-        details.appendChild(body);
+        loadingP.textContent = 'Expand to load tools…';
+        toolsBody.appendChild(loadingP);
+        tile.appendChild(toolsBody);
 
-        rowWrapper.appendChild(details);
+        // Wire each rendered tool checkbox to re-trigger the source-tile
+        // count after every toggle. The _renderToolsCheckboxGroup helper
+        // already wires `onChange` for dirty tracking; this adds a second
+        // listener for the local count display.
+        function _wireToolCheckboxesAndRecount() {
+          var checkboxes = toolsBody.querySelectorAll('[data-mcp-tool-toggle]');
+          for (var i = 0; i < checkboxes.length; i++) {
+            checkboxes[i].addEventListener('change', _recountFromDom);
+          }
+          _recountFromDom();
+        }
+        function loadTools(forceRefresh) {
+          if (!forceRefresh && _hasCachedTools(source)) {
+            _renderToolsCheckboxGroup(toolsBody, source, agent,
+              source.config._cache.tools, onChange);
+            _wireToolCheckboxesAndRecount();
+            return;
+          }
+          toolsBody.textContent = 'Loading tools…';
+          if (!fetchMcpSourceTools) {
+            toolsBody.textContent = 'Tool discovery not available.';
+            return;
+          }
+          fetchMcpSourceTools(source.id, { forceRefresh: !!forceRefresh }).then(function (data) {
+            var tools = data.tools || [];
+            _renderToolsCheckboxGroup(toolsBody, source, agent, tools, onChange);
+            _wireToolCheckboxesAndRecount();
+          }).catch(function (err) {
+            if (err && err.name === 'AuthRequired') {
+              _renderAuthRequiredNotice(toolsBody, source);
+            } else {
+              toolsBody.innerHTML = '';
+              var errEl = document.createElement('div');
+              errEl.className = 'mcp-tools-error';
+              errEl.setAttribute('data-testid', 'mcp-tools-error-' + source.id);
+              errEl.textContent = 'Error loading tools: ' + (err && err.message ? err.message : String(err));
+              toolsBody.appendChild(errEl);
+            }
+          });
+        }
+
+        var loadedOnce = false;
+        function _setExpanded(expanded) {
+          tile.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+          expandBtn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+          toolsBody.hidden = !expanded;
+          if (expanded) {
+            if (!loadedOnce) {
+              loadedOnce = true;
+              loadTools(false);
+            }
+            if (onSelectedSourceChange) onSelectedSourceChange(source.id);
+          } else {
+            if (onSelectedSourceChange) {
+              var currentSourceId = _parseSourceIdFromHash();
+              if (currentSourceId === source.id) onSelectedSourceChange(null);
+            }
+          }
+        }
 
         // Wire toggle change → onChange (dirty tracking + URL routing).
         checkbox.addEventListener('change', function () {
           if (onChange) onChange();
         });
 
-        // Wire details-open → lazy-load body + URL deep-link sync.
-        details.addEventListener('toggle', function () {
-          if (details.open) {
-            // URL sync — open panel reflects in the deep-link.
-            if (onSelectedSourceChange) onSelectedSourceChange(source.id);
-            if (details.dataset.loaded !== 'true') {
-              details.dataset.loaded = 'true';
-              _populateDetailsBody(body, source, agent, fetchMcpSourceTools, onChange);
-            }
-          } else {
-            // Closed — clear deep-link if we own it.
-            if (onSelectedSourceChange) {
-              var currentSourceId = _parseSourceIdFromHash();
-              if (currentSourceId === source.id) onSelectedSourceChange(null);
-            }
+        // Expand button toggles the tools panel.
+        expandBtn.addEventListener('click', function () {
+          var nextExpanded = expandBtn.getAttribute('aria-expanded') !== 'true';
+          _setExpanded(nextExpanded);
+        });
+
+        // Refresh button — opens the panel if closed, force-reloads tools.
+        refreshBtn.addEventListener('click', function () {
+          if (toolsBody.hidden) {
+            loadedOnce = true;
+            _setExpanded(true);
           }
+          loadTools(true);
         });
 
         // Auto-load if pendingSourceId opens us by default.
-        if (pendingSourceId === source.id) {
-          details.dataset.loaded = 'true';
-          _populateDetailsBody(body, source, agent, fetchMcpSourceTools, onChange);
+        if (startsExpanded) {
+          loadedOnce = true;
+          loadTools(false);
           if (onSelectedSourceChange) onSelectedSourceChange(source.id);
         }
 
-        listContainer.appendChild(rowWrapper);
+        listContainer.appendChild(tile);
       })(allSources[i]);
     }
 
@@ -311,6 +494,9 @@
 
         var label = document.createElement('label');
         label.className = 'mcp-tool-toggle-label';
+        // Full prefixed name lives as a tooltip on hover; primary text is
+        // name + description (Mission 08 F4 L2 vibe).
+        label.title = prefixedName;
 
         var checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
@@ -321,17 +507,29 @@
         checkbox.setAttribute('data-testid', 'mcp-tool-toggle-' + source.id + '-' + toolName);
         checkbox.addEventListener('change', function () { if (onChange) onChange(); });
 
+        var textWrap = document.createElement('div');
+        textWrap.className = 'mcp-tool-text';
+
         var nameSpan = document.createElement('span');
         nameSpan.className = 'mcp-tool-toggle-name';
         nameSpan.textContent = toolName;
+        textWrap.appendChild(nameSpan);
 
-        var hintSpan = document.createElement('span');
-        hintSpan.className = 'mcp-tool-toggle-hint';
-        hintSpan.textContent = ' (' + prefixedName + ')';
+        if (tool.description) {
+          var descSpan = document.createElement('span');
+          descSpan.className = 'mcp-tool-description';
+          var fullDesc = tool.description;
+          var truncated = fullDesc.length > 100
+            ? fullDesc.slice(0, 100) + '…'
+            : fullDesc;
+          descSpan.textContent = ' — ' + truncated;
+          // Full text on hover for discoverability.
+          descSpan.title = fullDesc;
+          textWrap.appendChild(descSpan);
+        }
 
         label.appendChild(checkbox);
-        label.appendChild(nameSpan);
-        label.appendChild(hintSpan);
+        label.appendChild(textWrap);
         group.appendChild(label);
       })(tools[i]);
     }

@@ -32,13 +32,15 @@
 
     var html = '';
 
-    // Identity
+    // Identity — Name is rendered for BOTH create and edit modes (F4 L02
+    // functional batch added rename support). The save path (studio.js)
+    // detects a name change for existing agents and POSTs to the
+    // /api/agents/{name}/rename endpoint before the regular PUT save.
     html += '<div class="editor-section"><div class="section-title">Identity</div>';
-    if (isCreate) {
-      html += '<div class="field-row"><label for="studio-name">Name</label>' +
-        '<input id="studio-name" class="field-input" data-field="name" value="" placeholder="agent-name" />' +
-        '</div>';
-    }
+    html += '<div class="field-row"><label for="studio-name">Name</label>' +
+      '<input id="studio-name" class="field-input" data-field="name" value="' +
+      escapeAttr(cfg.name || '') + '" placeholder="agent-name" />' +
+      '</div>';
     html += '<div class="field-row"><label for="studio-description">Description</label>' +
       '<input id="studio-description" class="field-input" data-field="description" value="' + escapeAttr(cfg.description || '') + '" placeholder="What does this agent do?" />' +
       '</div>';
@@ -118,25 +120,7 @@
       (cfg.max_iterations || 20) + '" min="1" max="100" /></div>';
     html += '</div>';
 
-    // Advanced — collapsible disclosure with stubbed disabled inputs.
-    // <details>/<summary> chosen for native a11y (keyboard, screen readers,
-    // zero-JS). Inputs are disabled + aria-disabled="true" — they do not
-    // back any AgentConfig field today.
-    html += '<details class="advanced-collapsible" data-testid="advanced-collapsible">';
-    html += '<summary>Advanced</summary>';
-    html += '<div class="field-row"><label for="studio-temperature">Temperature</label>' +
-      '<input id="studio-temperature" class="field-input field-input-short" type="number" value="" placeholder="—" disabled aria-disabled="true" />' +
-      '</div>';
-    html += '<div class="field-row"><label for="studio-top-p">Top P</label>' +
-      '<input id="studio-top-p" class="field-input field-input-short" type="number" value="" placeholder="—" disabled aria-disabled="true" />' +
-      '</div>';
-    html += '<div class="field-row"><label for="studio-max-tokens">Max tokens</label>' +
-      '<input id="studio-max-tokens" class="field-input field-input-short" type="number" value="" placeholder="—" disabled aria-disabled="true" />' +
-      '</div>';
-    html += '<div class="advanced-caption">Coming soon — provider-bound config in a future flight.</div>';
-    html += '</details>';
-
-    // Danger Zone (existing agents only). The Delete button uses
+// Danger Zone (existing agents only). The Delete button uses
     // App.confirmDelete (F6 leg 04 migration): first click arms
     // `.delete-btn.confirm-delete` with capital-D "Confirm Delete?" via the
     // helper's confirmLabel option; second click within 3s fires DELETE.

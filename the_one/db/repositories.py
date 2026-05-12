@@ -106,6 +106,46 @@ class SQLiteAgentStore:
         async with self.conn.execute("SELECT 1 FROM agents WHERE name = ?", (name,)) as cur:
             return await cur.fetchone() is not None
 
+    async def rename(self, old_name: str, new_name: str) -> None:
+        """Atomically rename an agent.
+
+        Raises ``KeyError`` if no agent exists at ``old_name`` (mirrors
+        :meth:`delete`'s contract). Raises ``ValueError`` if an agent
+        already exists at ``new_name`` — the API layer maps this to HTTP
+        409 Conflict.
+
+        The ``agents.name`` column is the primary key (``schema.py:37``);
+        SQLite supports an atomic PK update via ``UPDATE``. The
+        ``chat_sessions.agent_name`` column references that name but the
+        FK constraint was dropped in schema v5 (``schema.py:188``), so
+        we cascade manually within the same transaction.
+
+        Runtime caveat: the in-memory PTY tool-session registry
+        (``the_one/tools/sessions.py``) keys live sessions on
+        ``(agent_name, session_id)``. This rename does NOT migrate
+        in-memory keys; active sessions keyed on the old name will
+        surface a transient error on next tool call. Documented as a
+        Known Issue on Mission 08.
+        """
+        # Existence check first — raise KeyError to match delete() contract.
+        if not await self.exists(old_name):
+            raise KeyError(f"Agent config not found: {old_name}")
+        # Conflict check — surface ValueError so the API can map to 409.
+        if await self.exists(new_name):
+            raise ValueError(f"Agent config already exists: {new_name}")
+        now = _now_iso()
+        # Single transaction: atomic PK swap + manual cascade on
+        # chat_sessions.agent_name (FK was dropped in schema v5).
+        await self.conn.execute(
+            "UPDATE agents SET name = ?, updated_at = ? WHERE name = ?",
+            (new_name, now, old_name),
+        )
+        await self.conn.execute(
+            "UPDATE chat_sessions SET agent_name = ? WHERE agent_name = ?",
+            (new_name, old_name),
+        )
+        await self.conn.commit()
+
     @staticmethod
     def _row_to_config(row: aiosqlite.Row) -> AgentConfig:
         enabled = json.loads(row["enabled_tools"]) if row["enabled_tools"] else None

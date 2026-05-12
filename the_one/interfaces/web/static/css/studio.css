@@ -31,6 +31,11 @@
   .area-studio .field-model-wrap { flex: 1; display: flex; align-items: center; gap: 8px; }
   .area-studio .field-model-wrap .field-input { flex: 1; }
   .area-studio .model-loading { font-size: var(--font-size-caption); color: var(--fg-secondary); white-space: nowrap; flex-shrink: 0; }
+  /* When the model-loading span is empty (the steady state — no spinner, no
+     status text), remove it from the flex layout so its 8px `gap` doesn't
+     eat from the model `<select>` width, keeping Model aligned with the
+     other field-input controls in the editor. */
+  .area-studio .field-model-wrap .model-loading:empty { display: none; }
   /* Test-provider button row — sits below the LLM config field rows. */
   .area-studio .test-provider-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
 
@@ -44,6 +49,13 @@
   .area-studio .tool-switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; background: var(--fg-tertiary); border-radius: 50%; transition: transform 0.2s, background 0.2s; }
   .area-studio .tool-toggle:checked + .tool-switch { background: var(--accent); }
   .area-studio .tool-toggle:checked + .tool-switch::after { transform: translateX(14px); background: var(--fg-on-accent); }
+  /* Tristate (master category toggle): partial-enabled = accent-translucent
+     track + thumb at the halfway position, accent-tinted. F4 L2. */
+  .area-studio .tool-toggle:indeterminate + .tool-switch { background: var(--accent-translucent); }
+  .area-studio .tool-toggle:indeterminate + .tool-switch::after {
+    transform: translateX(7px);
+    background: var(--accent);
+  }
   .area-studio .tool-name { font-size: var(--font-size-body-sm); color: var(--fg); min-width: 120px; }
   .area-studio .tool-desc { font-size: var(--font-size-caption); color: var(--fg-muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -163,10 +175,325 @@
   .area-studio .mcp-editor-section { margin-top: 12px; }
   .area-studio .mcp-editor-section h4 { margin: 0 0 8px; font-size: var(--font-size-body-sm); color: var(--fg-secondary); text-transform: uppercase; letter-spacing: 0.05em; }
   .area-studio .mcp-refresh-tools-btn { margin-bottom: 8px; font-size: var(--font-size-body-sm); }
+
+  /* === Agent-editor MCPs tab — MCP source TILE ============================
+     Each MCP source on the agent-editor MCPs tab renders as a tile echoing
+     `.entity-tile`'s glass + gleam + bezel vocabulary, but as a presentation
+     container (not a clickable button) since the tile embeds its own
+     controls (attach toggle, Refresh, Expand). Mission 08 F4 L2 vibe.
+     Layout: column-flex full-width tiles separated by gap. */
+  .area-studio .mcp-sources-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 12px 0;
+  }
+  .area-studio .mcp-source-tile {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 14px;
+    background-color: var(--glass-bg);
+    background-image: var(--glass-gleam);
+    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+    border: 1px solid var(--glass-border);
+    border-radius: var(--panel-radius);
+    box-shadow: var(--bezel-shadow);
+    position: relative;
+  }
+  /* Row 1 — toggle, name, protocol badge, Refresh. Refresh sits at the far
+     right via `margin-left:auto`; everything else clusters left. */
+  .area-studio .mcp-source-tile-row1 {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .area-studio .mcp-source-tile-toggle {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+    cursor: pointer;
+    /* Reset .tool-toggle's hidden checkbox + .tool-switch sits inline. */
+    position: relative;
+  }
+  .area-studio .mcp-source-tile-toggle .tool-switch {
+    /* Inherit the iOS-pill track + thumb from the studio base rule; the
+       `.area-studio .tool-switch` rule already supplies the pill chrome.
+       This selector exists for specificity nudges if needed. */
+  }
+  .area-studio .mcp-source-tile-name {
+    font-size: var(--font-size-body-lg);
+    font-weight: var(--font-weight-bold);
+    color: var(--fg);
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .area-studio .mcp-source-tile-protocol {
+    flex-shrink: 0;
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-tiny);
+    font-weight: var(--font-weight-semibold);
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: var(--surface-elevated);
+    color: var(--fg-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .area-studio .mcp-source-tile-row1 .mcp-refresh-tools-btn {
+    margin-bottom: 0;
+    padding: 4px 12px;
+    font-size: var(--font-size-caption);
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .area-studio .mcp-source-tile-row1 .mcp-refresh-tools-btn svg {
+    width: 12px;
+    height: 12px;
+    display: block;
+  }
+  /* Expand row — tool-count + chevron acting as a single clickable affordance
+     to open/close the per-source tools panel. Reads as a meta line at rest,
+     gains accent on hover. */
+  .area-studio .mcp-source-tile-expand-btn {
+    background: transparent;
+    border: 0;
+    padding: 4px 0;
+    color: var(--fg-secondary);
+    font-family: inherit;
+    font-size: var(--font-size-body-sm);
+    cursor: pointer;
+    text-align: left;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: color 0.15s;
+  }
+  .area-studio .mcp-source-tile-expand-btn:hover { color: var(--accent); }
+  .area-studio .mcp-source-tile-expand-btn:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+  .area-studio .mcp-source-tile-tool-count strong { color: var(--fg); }
+  .area-studio .mcp-source-tile-chevron {
+    display: inline-block;
+    transition: transform 0.15s;
+    color: var(--fg-tertiary);
+  }
+  .area-studio .mcp-source-tile[aria-expanded="true"] .mcp-source-tile-chevron {
+    transform: rotate(90deg);
+  }
+  .area-studio .mcp-source-tile-tools {
+    padding-top: 4px;
+  }
+  .area-studio .mcp-source-tile-tools[hidden] { display: none; }
+
+  /* === Agent-editor Tools tab — CATEGORY TILES =============================
+     Built-in tool categories (Filesystem / Execution / Web / …) render as
+     tiles echoing `.mcp-source-tile` (glass + gleam + bezel). Individual
+     tools inside the expanded body reuse the per-tool tile vocabulary the
+     MCPs tab introduced (`.mcp-tool-toggle-label` / `.mcp-tool-text` /
+     `.mcp-tool-toggle-name` / `.mcp-tool-description`). Mission 08 F4 L2. */
+  .area-studio .tools-categories-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 12px 0;
+  }
+  .area-studio .tools-category-tile {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 14px;
+    background-color: var(--glass-bg);
+    background-image: var(--glass-gleam);
+    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+    border: 1px solid var(--glass-border);
+    border-radius: var(--panel-radius);
+    box-shadow: var(--bezel-shadow);
+    position: relative;
+  }
+  .area-studio .tools-category-tile-row1 {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .area-studio .tools-category-tile-name {
+    font-size: var(--font-size-body-lg);
+    font-weight: var(--font-weight-bold);
+    color: var(--fg);
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .area-studio .tools-category-tile-count {
+    flex-shrink: 0;
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-tiny);
+    font-weight: var(--font-weight-semibold);
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: var(--surface-elevated);
+    color: var(--fg-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .area-studio .tools-category-tile-expand-btn {
+    background: transparent;
+    border: 0;
+    padding: 4px 0;
+    color: var(--fg-secondary);
+    font-family: inherit;
+    font-size: var(--font-size-body-sm);
+    cursor: pointer;
+    text-align: left;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: color 0.15s;
+  }
+  .area-studio .tools-category-tile-expand-btn:hover { color: var(--accent); }
+  .area-studio .tools-category-tile-expand-btn:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+  .area-studio .tools-category-tile-expand-btn strong { color: var(--fg); }
+  .area-studio .tools-category-tile-chevron {
+    display: inline-block;
+    transition: transform 0.15s;
+    color: var(--fg-tertiary);
+  }
+  .area-studio .tools-category-tile[aria-expanded="true"] .tools-category-tile-chevron {
+    transform: rotate(90deg);
+  }
+  .area-studio .tools-category-tile-tools {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding-top: 4px;
+  }
+  .area-studio .tools-category-tile-tools[hidden] { display: none; }
+  /* Per-tool tile = single <details> element. Summary IS the row 1 face
+     (checkbox-label + Overrides affordance, right-justified). Body sits
+     inside the same chrome and reveals on toggle. Legacy
+     `.area-studio .tool-row-overrides { margin: ... 28px }` rule was
+     scoped to the old `.tool-row` layout (indented under the tool name);
+     these tile-scoped rules override that. F4 L2. */
+  .area-studio .tools-category-tile-tools .tool-tile {
+    margin: 0;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface);
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .area-studio .tools-category-tile-tools .tool-tile:hover {
+    border-color: var(--accent);
+    background: var(--surface-elevated);
+  }
+  .area-studio .tools-category-tile-tools .tool-tile[open] { padding: 0; }
+  .area-studio .tools-category-tile-tools .tool-tile-summary {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    cursor: pointer;
+    list-style: none;
+    font-size: var(--font-size-body-sm);
+  }
+  .area-studio .tools-category-tile-tools .tool-tile-summary::-webkit-details-marker {
+    display: none;
+  }
+  .area-studio .tools-category-tile-tools .tool-tile-toggle-face {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    min-width: 0;
+    cursor: pointer;
+  }
+  .area-studio .tools-category-tile-tools .tool-tile-overrides-affordance {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--fg-secondary);
+    font-size: var(--font-size-caption);
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+  .area-studio .tools-category-tile-tools .tool-tile:hover .tool-tile-overrides-affordance {
+    color: var(--accent);
+  }
+  .area-studio .tools-category-tile-tools .tool-tile-overrides-affordance .chevron {
+    display: inline-block;
+    transition: transform 0.15s;
+    color: var(--fg-tertiary);
+  }
+  .area-studio .tools-category-tile-tools .tool-tile[open] .tool-tile-overrides-affordance .chevron {
+    transform: rotate(90deg);
+  }
+  .area-studio .tools-category-tile-tools .tool-tile .tool-row-overrides-body {
+    padding: 8px 12px 10px;
+    border-top: 1px dashed var(--border);
+  }
   .area-studio .mcp-tools-body { margin-top: 4px; }
-  .area-studio .mcp-tools-checkbox-group { display: flex; flex-direction: column; gap: 4px; }
-  .area-studio .mcp-tool-toggle-label { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: var(--font-size-body-sm); }
-  .area-studio .mcp-tool-toggle-name { font-family: var(--font-family-mono, monospace); }
+  /* MCP per-source tool list — each tool is a full-width tile (Mission 08
+     F4 L2 vibe). Replaces the prior flat-row treatment. */
+  .area-studio .mcp-tools-checkbox-group { display: flex; flex-direction: column; gap: 6px; }
+  .area-studio .mcp-tool-toggle-label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    font-size: var(--font-size-body-sm);
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface);
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .area-studio .mcp-tool-toggle-label:hover {
+    border-color: var(--accent);
+    background: var(--surface-elevated);
+  }
+  /* Per-tool tile: single-line layout. Checkbox + tool-name (mono) + " — " +
+     description (caption, secondary) on one line; overflow clipped with an
+     ellipsis when the description exceeds the tile width (in addition to
+     the 100-char JS-side truncation). The full description still lives on
+     `title=` for hover discoverability. */
+  .area-studio .mcp-tool-toggle-label .checkbox-primary { flex-shrink: 0; }
+  .area-studio .mcp-tool-text {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: left;
+  }
+  .area-studio .mcp-tool-toggle-name {
+    font-family: var(--font-family-mono, monospace);
+    font-weight: var(--font-weight-semibold);
+    color: var(--fg);
+  }
+  /* Scoped to `.mcp-tool-text` to escape the source-editor's
+     `.mcp-tool-description { padding: ... 32px }` rule above. */
+  .area-studio .mcp-tool-text .mcp-tool-description {
+    font-size: var(--font-size-caption);
+    color: var(--fg-secondary);
+    padding: 0;
+    line-height: inherit;
+  }
   .area-studio .mcp-tool-toggle-hint { color: var(--fg-faint); font-size: 11px; }
   /* Per-tool checkbox treatment lifted to .checkbox-primary in components.css (Mission 08 F2 L2). */
   .area-studio .mcp-auth-required-notice { padding: 12px; background: var(--surface-elevated); border-left: 3px solid var(--accent); border-radius: 4px; font-size: var(--font-size-body-sm); }

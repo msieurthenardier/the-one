@@ -100,12 +100,21 @@ def _make_init_result(
     protocol_version: str = "2025-11-25",
     tools_present: bool = True,
     capabilities_dump: dict | None = None,
+    server_info_dump: dict | None = None,
+    instructions: str | None = None,
 ):
     """Build a mock InitializeResult with the configured shape.
 
     The mock's `capabilities` exposes:
       - `.tools`: a MagicMock (truthy) when tools_present, else None
       - `.model_dump(mode='json')`: returns capabilities_dump (default {"tools": {}})
+
+    F4 L2 (M08): optional ``server_info_dump`` and ``instructions`` mirror
+    the spec-optional ``serverInfo`` / ``instructions`` fields on
+    ``InitializeResult``. When ``server_info_dump`` is None the mock
+    exposes ``serverInfo=None`` (matches a server that omits the field).
+    When supplied as a dict, the mock's ``model_dump(mode='json', ...)``
+    returns it, exercising MCPClient.server_info's exclude_none pass-through.
     """
     result = MagicMock()
     result.protocolVersion = protocol_version
@@ -115,6 +124,13 @@ def _make_init_result(
         return_value=(capabilities_dump if capabilities_dump is not None else {"tools": {}})
     )
     result.capabilities = caps
+    if server_info_dump is None:
+        result.serverInfo = None
+    else:
+        si = MagicMock()
+        si.model_dump = MagicMock(return_value=server_info_dump)
+        result.serverInfo = si
+    result.instructions = instructions
     return result
 
 
@@ -306,9 +322,67 @@ class TestMCPClientLifecycle:
             assert c.last_activity > 0.0
             assert c.negotiated_protocol_version == "2025-11-25"
             assert c.server_capabilities == {"tools": {}}
+            # F4 L2 (M08): defaults — server omits serverInfo and
+            # instructions, so the public accessors return None rather
+            # than raising. (The _is_alive guard still fires before the
+            # internal None check, mirroring server_capabilities' shape.)
+            assert c.server_info is None
+            assert c.instructions is None
         finally:
             await c.disconnect()
         assert c.is_alive is False
+
+    async def test_connect_captures_server_info_and_instructions(
+        self, patch_transport, mock_session
+    ) -> None:
+        """F4 L2 (M08): when the initialize() response carries serverInfo +
+        instructions (e.g. Cloudflare Docs MCP), MCPClient surfaces both via
+        the ``server_info`` and ``instructions`` properties — and persistence
+        callers (api.py `/test/connect`) can snapshot them inside the
+        async-with for the cache write.
+
+        Locks the contract that:
+          - server_info returns the JSON-mode dict (excluding None fields)
+          - instructions returns the raw str
+          - both properties raise MCPConnectionError when not connected
+            (mirrors server_capabilities' guard)
+          - disconnect clears the internal state so a reconnect repopulates
+        """
+        mock_session.initialize = AsyncMock(
+            return_value=_make_init_result(
+                server_info_dump={
+                    "name": "cloudflare-docs",
+                    "title": "Cloudflare Docs MCP",
+                    "version": "1.2.3",
+                },
+                instructions="Use search() before fetch() to discover doc pages.",
+            )
+        )
+        patch_transport(mock_session)
+        c = MCPClient(_stdio_source())
+
+        # Pre-connect: properties raise (mirrors server_capabilities guard).
+        with pytest.raises(MCPConnectionError):
+            _ = c.server_info
+        with pytest.raises(MCPConnectionError):
+            _ = c.instructions
+
+        await c.connect()
+        try:
+            assert c.server_info == {
+                "name": "cloudflare-docs",
+                "title": "Cloudflare Docs MCP",
+                "version": "1.2.3",
+            }
+            assert c.instructions == "Use search() before fetch() to discover doc pages."
+        finally:
+            await c.disconnect()
+
+        # Post-disconnect: properties raise (state cleared for fresh reconnect).
+        with pytest.raises(MCPConnectionError):
+            _ = c.server_info
+        with pytest.raises(MCPConnectionError):
+            _ = c.instructions
 
     async def test_connect_supported_non_pinned_version_passes(
         self, patch_transport, mock_session

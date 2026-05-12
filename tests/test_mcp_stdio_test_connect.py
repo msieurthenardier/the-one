@@ -129,6 +129,16 @@ async def test_stdio_test_connect_dispatches_to_stdio_helper(client_and_repo) ->
         def server_capabilities(self):
             return {"tools": {}}
 
+        # F4 L2 (M08): spec-optional fields; default None for mocks that
+        # don't care about the subtitle/instructions surfacing path.
+        @property
+        def server_info(self):
+            return None
+
+        @property
+        def instructions(self):
+            return None
+
     probe_calls = {"n": 0}
 
     async def _no_probe(*args, **kwargs):
@@ -187,6 +197,14 @@ async def test_stdio_test_connect_persists_tools_cache(client_and_repo) -> None:
         @property
         def server_capabilities(self):
             return fake_caps
+
+        @property
+        def server_info(self):
+            return None
+
+        @property
+        def instructions(self):
+            return None
 
     before = time.time()
     with patch("the_one.mcp.client.MCPClient", _MockMCPClient):
@@ -379,6 +397,14 @@ async def test_stdio_test_connect_no_disconnect_warning(
         @property
         def server_capabilities(self):
             return {"tools": {}}
+
+        @property
+        def server_info(self):
+            return None
+
+        @property
+        def instructions(self):
+            return None
 
     with caplog.at_level(logging.WARNING), \
          patch("the_one.mcp.client.MCPClient", _CleanMCPClient):
