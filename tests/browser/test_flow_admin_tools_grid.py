@@ -203,7 +203,7 @@ def test_admin_tools_section_nav_label_is_built_in_tools(app_clean: str, page: P
     Post-F2 retrofit: the admin nav has 3 entries (System | LLM Providers
     | Built-in Tools). MCP Servers was relocated to the Studio nav.
     """
-    page.goto(f"{app_clean}#admin/system")
+    page.goto(f"{app_clean}#admin/general")
     items = page.locator(".area-admin .section-nav .section-nav-item")
     expect(items).to_have_count(3, timeout=5000)
     expect(items.nth(2)).to_have_text("Built-in Tools")

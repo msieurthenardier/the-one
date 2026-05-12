@@ -1532,7 +1532,7 @@ def _render_oauth_callback_page(
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--panel-radius);
-    box-shadow: var(--panel-shadow), var(--panel-shadow-glow);
+    box-shadow: var(--panel-shadow);
     text-align: left;
   }}
   .oauth-callback-eyebrow {{

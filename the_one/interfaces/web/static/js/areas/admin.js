@@ -1,12 +1,12 @@
 App.registerArea({
   id: 'admin',
-  label: 'Settings',
+  label: 'System',
   icon: App.icons.admin,
   order: 30,
-  sidebarLabel: 'Settings categories',
+  sidebarLabel: 'System categories',
 
   serializeState: function () {
-    if (this._currentCategory === 'system') return 'system';
+    if (this._currentCategory === 'general') return 'general';
     if (this._currentCategory === 'providers') {
       if (this._providerFormMode === 'add') return 'providers/new';
       if (this._providerFormMode === 'edit' && this._editingProvider) {
@@ -29,15 +29,15 @@ App.registerArea({
       }
       return 'tools';
     }
-    return this._currentCategory || 'system';
+    return this._currentCategory || 'general';
   },
   hydrateState: function (sub) {
-    // Empty sub (user navigated to bare `#admin`) → reset to default 'system'.
+    // Empty sub (user navigated to bare `#admin`) → reset to default 'general'.
     // Without this, currentCategory retains whatever it was (e.g. 'providers')
     // and the router's syncUrlFromState would rewrite the URL to that retained
     // state instead of the canonical default. F6 HAT regression.
     if (!sub) {
-      if (this._setCategory) this._setCategory('system');
+      if (this._setCategory) this._setCategory('general');
       this._pendingProviderId = null;
       this._pendingFormMode = null;
       this._pendingToolName = null;
@@ -45,8 +45,13 @@ App.registerArea({
       return;
     }
     var origSub = sub;
-    // Legacy redirect: #admin/general → #admin/system (F6 leg 01).
-    if (sub === 'general') sub = 'system';
+    // Legacy redirect: #admin/system → #admin/general (Flight 3 Leg 06 rename).
+    // The 'system' sub-id was an interim slug; the canonical sub for the
+    // General page is now 'general' (matches the visible label + avoids the
+    // post-Leg-02 area-label-vs-sub-id confusion where the area is also
+    // labeled "System"). Predecessor redirect: 'general' → 'system'
+    // (F6 leg 01) — flipped back here.
+    if (sub === 'system') sub = 'general';
 
     var pendingId = null;
     var pendingFormMode = null;
@@ -80,7 +85,7 @@ App.registerArea({
       pendingToolName_local = trest ? decodeURIComponent(trest) : null;
     }
 
-    var validIds = ['system', 'providers', 'tools'];
+    var validIds = ['general', 'providers', 'tools'];
     // Mission 08 F2 L1: dev-mode-only Design Language gallery category.
     if (window.App && window.App.config && window.App.config.dev_mode) {
       validIds.push('design-language');
@@ -93,7 +98,7 @@ App.registerArea({
 
     // Always overwrite pending state — including with nulls when the new
     // sub does not match providers/... — so navigating from
-    // #admin/providers/new → #admin/system clears pending state.
+    // #admin/providers/new → #admin/general clears pending state.
     this._pendingProviderId = pendingId;
     this._pendingFormMode = pendingFormMode;
     this._pendingToolName = pendingToolName_local;
@@ -110,7 +115,7 @@ App.registerArea({
 
   init: function (sidebar, content) {
     var categories = [
-      { id: 'system', label: 'General' },
+      { id: 'general', label: 'General' },
       { id: 'providers', label: 'LLM Providers' },
       // F6 HAT inline fix #5: "Tools" → "Built-in Tools" — distinguishes
       // from MCP / external tool surfaces. id stays 'tools' so URL routing
@@ -124,7 +129,7 @@ App.registerArea({
     if (window.App && window.App.config && window.App.config.dev_mode) {
       categories.push({ id: 'design-language', label: 'Design Language' });
     }
-    var currentCategory = 'system';
+    var currentCategory = 'general';
     var categoryListEl;
     var contentEl;
 
@@ -237,9 +242,10 @@ App.registerArea({
     }
     App.layout.renderSectionNav(sectionNavEl, categories, currentCategory, {
       onSelect: setCategory,
-      // Sidebar header omitted — the topbar's app-picker pill already names
-      // the active area, so a duplicate <h2> in the sidebar is redundant.
-      ariaLabel: 'Settings sections'
+      // Sidebar header omitted — the topbar's area buttons already name the
+      // active area (highlighted via aria-current="page"), so a duplicate
+      // <h2> in the sidebar is redundant.
+      ariaLabel: 'System sections'
     });
     categoryListEl = sectionNavEl; // helper rendered into the container
 
@@ -250,7 +256,7 @@ App.registerArea({
     // ── Rendering ─────────────────────────────────────────────────────
 
     function renderContent() {
-      if (currentCategory === 'system') {
+      if (currentCategory === 'general') {
         App.admin.renderSystemPage(contentEl);
       } else if (currentCategory === 'providers') {
         renderProvidersPanel();
@@ -495,6 +501,14 @@ App.registerArea({
           return r.json();
         })
         .then(function (detail) {
+          // Stale-then guard: this fetch may have kicked off in a tools
+          // editor context (e.g., admin.activate()→_refresh re-fetches the
+          // current tool on area re-entry). If the synchronous hydrateState
+          // path that ran AFTER the fetch started has since cleared
+          // currentCategory to something other than 'tools' (cross-area
+          // back-and-forth race), abandon the mutation — otherwise the
+          // then-block would clobber the now-correct page render.
+          if (currentCategory !== 'tools') return;
           editingTool = detail;
           toolFormMode = 'edit';
           pendingToolName = null;
@@ -505,6 +519,7 @@ App.registerArea({
           renderToolsPanel();
         })
         .catch(function () {
+          if (currentCategory !== 'tools') return;
           App.showFlash(contentEl, 'Failed to load ' + name + '.', true);
         });
     }
@@ -593,7 +608,7 @@ App.registerArea({
     // Store reference for activate() to reuse
     var self = this;
     self._refresh = function () {
-      if (currentCategory === 'system') {
+      if (currentCategory === 'general') {
         App.admin.renderSystemPage(contentEl);
       } else if (currentCategory === 'providers' && !providerFormMode) {
         fetchProviders().then(function () {
@@ -605,6 +620,18 @@ App.registerArea({
         selectTool(editingTool.name);
       } else if (currentCategory === 'tools') {
         fetchToolConfigs();
+      }
+    };
+    // confirmLeave wired here so it can close over the local `dirty` flag.
+    // Gate semantics mirror the sidebar setCategory dirty-gate: dirty AND
+    // in-editor → confirm dialog; otherwise → proceed immediately.
+    self._confirmLeaveImpl = function (proceed, abort) {
+      var inEditor = (currentCategory === 'providers' && providerFormMode)
+                  || (currentCategory === 'tools' && toolFormMode);
+      if (dirty && inEditor) {
+        App.confirmDialog({ onConfirm: proceed, onCancel: abort });
+      } else {
+        proceed();
       }
     };
     Object.defineProperty(self, '_currentCategory', {
@@ -708,6 +735,21 @@ App.registerArea({
   activate: function () {
     if (this._refresh) {
       this._refresh();
+    }
+  },
+
+  // confirmLeave: cross-area dirty-gate hook (F3 L06). Called by app.js
+  // switchTo() BEFORE deactivation on cross-area navigation. Clean →
+  // immediate proceed; dirty → confirm dialog gates the transition.
+  // Mirrors the existing sidebar setCategory dirty-gate so internal
+  // (sidebar) + external (topbar/back/hash) nav paths share the contract.
+  // The handle is attached inside init() so it can close over the local
+  // `dirty` flag.
+  confirmLeave: function (proceed, abort) {
+    if (this._confirmLeaveImpl) {
+      this._confirmLeaveImpl(proceed, abort);
+    } else {
+      proceed();
     }
   },
 

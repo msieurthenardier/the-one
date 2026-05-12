@@ -27,9 +27,8 @@
   ];
 
   var RADIUS_TOKENS = [
-    '--panel-radius-sm',
-    '--panel-radius-md',
-    '--panel-radius-lg'
+    '--panel-radius',
+    '--panel-radius-sm'
   ];
 
   function render(host) {

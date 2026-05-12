@@ -4,8 +4,10 @@ Covers:
 - Section nav keyboard a11y (Tab in, Up/Down arrows, Home/End, Enter/Space activation)
 - Section nav click navigation
 - Refresh-preserves-section
-- #admin -> #admin/system free redirect (via F3 router serialize-after-hydrate)
-- #admin/general -> #admin/system legacy redirect (defensive in hydrateState)
+- #admin -> #admin/general free redirect (via F3 router serialize-after-hydrate)
+- #admin/system -> #admin/general legacy redirect (defensive in hydrateState;
+  the General page's sub-id was renamed from 'system' to 'general' in Flight 3
+  Leg 06 to disambiguate from the area-level "System" label)
 """
 
 from __future__ import annotations
@@ -15,23 +17,23 @@ from playwright.sync_api import Page, expect
 
 
 @pytest.mark.browser
-def test_admin_redirect_root_to_system(app_clean: str, page: Page) -> None:
+def test_admin_redirect_root_to_general(app_clean: str, page: Page) -> None:
     page.goto(f"{app_clean}#admin")
     expect(page.locator(".page-title")).to_have_text("General", timeout=8000)
-    assert page.evaluate("location.hash") == "#admin/system"
+    assert page.evaluate("location.hash") == "#admin/general"
 
 
 @pytest.mark.browser
-def test_admin_legacy_general_redirects_to_system(app_clean: str, page: Page) -> None:
-    page.goto(f"{app_clean}#admin/general")
+def test_admin_legacy_system_redirects_to_general(app_clean: str, page: Page) -> None:
+    page.goto(f"{app_clean}#admin/system")
     expect(page.locator(".page-title")).to_have_text("General", timeout=8000)
-    assert page.evaluate("location.hash") == "#admin/system"
+    assert page.evaluate("location.hash") == "#admin/general"
 
 
 @pytest.mark.browser
-def test_admin_picker_click_from_providers_redirects_to_system(app_clean: str, page: Page) -> None:
+def test_admin_picker_click_from_providers_redirects_to_general(app_clean: str, page: Page) -> None:
     """Clicking the Settings picker while already in admin (from /providers)
-    sets bare `#admin` — must redirect to `#admin/system`, not strand the URL.
+    sets bare `#admin` — must redirect to `#admin/general`, not strand the URL.
 
     Regression test for the F6 HAT bug: same-area sub-change skipped the
     serialize-replace block, leaving the URL at bare `#admin`.
@@ -40,7 +42,7 @@ def test_admin_picker_click_from_providers_redirects_to_system(app_clean: str, p
     expect(page.locator(".page-title")).to_have_text("LLM Providers", timeout=8000)
     page.evaluate("location.hash = '#admin'")
     expect(page.locator(".page-title")).to_have_text("General", timeout=5000)
-    assert page.evaluate("location.hash") == "#admin/system"
+    assert page.evaluate("location.hash") == "#admin/general"
 
 
 @pytest.mark.browser
@@ -50,13 +52,14 @@ def test_admin_section_nav_renders_three_sections(app_clean: str, page: Page) ->
     Pre-F6 the nav had {System, LLM Providers}; F6 L2 introduced the
     third entry "Built-in Tools" (HAT relabeled from "Tools" to
     distinguish from future MCP / external tool surfaces). The "System"
-    label was later renamed to "General" — id stayed `system`.
+    label was later renamed to "General" — id stayed `system` until
+    Flight 3 Leg 06 renamed it to `general`.
 
     M07 F1 L5: nav widened to 4 entries with the addition of "MCP Servers"
     at index 3. Function name retained for git-blame continuity; assertions
     updated to count 4 and to include the new label.
     """
-    page.goto(f"{app_clean}#admin/system")
+    page.goto(f"{app_clean}#admin/general")
     nav = page.locator(".area-admin .section-nav")
     expect(nav).to_be_visible(timeout=5000)
     items = nav.locator(".section-nav-item")
@@ -69,7 +72,7 @@ def test_admin_section_nav_renders_three_sections(app_clean: str, page: Page) ->
 
 @pytest.mark.browser
 def test_admin_section_nav_click_changes_url(app_clean: str, page: Page) -> None:
-    page.goto(f"{app_clean}#admin/system")
+    page.goto(f"{app_clean}#admin/general")
     expect(page.locator(".page-title")).to_have_text("General", timeout=5000)
     page.locator(".area-admin .section-nav-item", has_text="LLM Providers").click()
     expect(page.locator(".page-title")).to_have_text("LLM Providers", timeout=5000)
@@ -88,10 +91,10 @@ def test_admin_refresh_preserves_section(app_clean: str, page: Page) -> None:
 @pytest.mark.browser
 def test_admin_section_nav_keyboard(app_clean: str, page: Page) -> None:
     """Tab into nav, Down arrow moves focus, Enter activates."""
-    page.goto(f"{app_clean}#admin/system")
+    page.goto(f"{app_clean}#admin/general")
     expect(page.locator(".page-title")).to_have_text("General", timeout=5000)
 
-    # Tab focuses the active item (System).
+    # Tab focuses the active item (General).
     active_item = page.locator('.area-admin .section-nav-item[aria-current="page"]')
     active_item.focus()
     expect(active_item).to_be_focused()

@@ -22,25 +22,25 @@
           '<div class="admin-theme-toggle" id="admin-theme-toggle-mount" aria-labelledby="admin-appearance-heading"></div>' +
         '</div>' +
         '<div class="admin-system-section">' +
-          '<div class="section-title admin-section-title">Encryption</div>' +
-          '<p class="admin-system-text">' +
-            'API keys for LLM providers are encrypted at rest. ' +
-            'You can rotate the encryption key to re-encrypt all stored credentials with a new key.' +
-          '</p>' +
-          '<div class="admin-system-warning" role="note">' +
-            'Rotating the encryption key re-encrypts all stored API credentials with a new key. This is irreversible.' +
-          '</div>' +
-          '<button class="btn-muted-destructive" data-testid="rotate-key-btn" type="button"><span data-confirm-title>Rotate Encryption Key</span></button>' +
-          '<div class="admin-system-flash" aria-live="polite"></div>' +
-        '</div>' +
-        '<div class="admin-system-section">' +
           '<div class="section-title admin-section-title">Base Prompt</div>' +
           '<p class="admin-system-text">' +
             'The foundational system prompt every agent inherits. ' +
             'Per-agent personas are appended to this base; ' +
             'this content is read-only and only changes via code releases.' +
           '</p>' +
-          '<pre class="admin-base-prompt" data-testid="base-prompt-content">Loading…</pre>' +
+          '<pre class="admin-base-prompt code-block" data-testid="base-prompt-content">Loading…</pre>' +
+        '</div>' +
+        '<div class="admin-system-section">' +
+          '<div class="section-title admin-section-title">Encryption</div>' +
+          '<p class="admin-system-text">' +
+            'API keys for LLM providers are encrypted at rest. ' +
+            'You can rotate the encryption key to re-encrypt all stored credentials with a new key.' +
+          '</p>' +
+          '<div class="banner banner-warning" role="note">' +
+            'Rotating the encryption key re-encrypts all stored API credentials with a new key. This is irreversible.' +
+          '</div>' +
+          '<button class="btn-muted-destructive" data-testid="rotate-key-btn" type="button"><span data-confirm-title>Rotate Encryption Key</span></button>' +
+          '<div class="admin-system-flash" aria-live="polite"></div>' +
         '</div>' +
       '</div>';
 

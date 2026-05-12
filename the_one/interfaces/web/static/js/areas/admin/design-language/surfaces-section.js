@@ -64,38 +64,23 @@
         '</div>' +
       '</div>' +
 
-      // --- Topbar miniature (static, no events) ---
+      // --- App-picker miniature (rest + active, static) ---
+      // Post-Flight-3-Leg-2: the popover affordance was retired; .app-picker-button
+      // is now a flat top-bar area button. Sample shows rest vs aria-current="page".
       '<div style="display: flex; flex-direction: column; gap: 8px;">' +
-        '<span style="font-family: var(--font-family-mono); font-size: var(--font-size-tiny); color: var(--fg-muted);">app-topbar-title (miniature)</span>' +
-        '<div style="display: flex; align-items: center; height: 48px; padding: 0 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--panel-radius-sm);">' +
-          '<h1 class="app-topbar-title">' +
-            '<img src="/static/assets/brand/icon.svg" alt="" onerror="this.style.display=\'none\'" />' +
-            'GleepGlorp AI' +
-          '</h1>' +
-        '</div>' +
-      '</div>' +
-
-      // --- App-picker miniature (closed + open, static) ---
-      '<div style="display: flex; flex-direction: column; gap: 8px;">' +
-        '<span style="font-family: var(--font-family-mono); font-size: var(--font-size-tiny); color: var(--fg-muted);">app-picker-button (closed / open)</span>' +
+        '<span style="font-family: var(--font-family-mono); font-size: var(--font-size-tiny); color: var(--fg-muted);">app-picker-button (rest / active)</span>' +
         '<div style="display: flex; gap: 12px; align-items: center;">' +
-          '<button type="button" class="app-picker-button" aria-expanded="false">' +
+          '<button type="button" class="app-picker-button">' +
             '<span class="app-picker-button-icon">' +
               '<svg viewBox="0 0 18 18" fill="currentColor"><circle cx="9" cy="9" r="6" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>' +
             '</span>' +
-            '<span class="app-picker-button-label">Admin</span>' +
-            '<span class="app-picker-button-chevron">' +
-              '<svg viewBox="0 0 14 14" fill="currentColor"><path d="M3 5l4 4 4-4" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>' +
-            '</span>' +
+            '<span class="app-picker-button-label">System</span>' +
           '</button>' +
-          '<button type="button" class="app-picker-button" aria-expanded="true">' +
+          '<button type="button" class="app-picker-button" aria-current="page">' +
             '<span class="app-picker-button-icon">' +
               '<svg viewBox="0 0 18 18" fill="currentColor"><circle cx="9" cy="9" r="6" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>' +
             '</span>' +
-            '<span class="app-picker-button-label">Admin</span>' +
-            '<span class="app-picker-button-chevron">' +
-              '<svg viewBox="0 0 14 14" fill="currentColor"><path d="M3 5l4 4 4-4" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>' +
-            '</span>' +
+            '<span class="app-picker-button-label">System</span>' +
           '</button>' +
         '</div>' +
       '</div>' +

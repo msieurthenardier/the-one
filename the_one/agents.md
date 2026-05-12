@@ -599,7 +599,7 @@ A second layer on top of the M04 affordance patterns: a **glass + bezel + LED + 
 
 **Composition rules**:
 
-1. **Full-glass surfaces** (entity-tile, app-picker-popover, modal-dialog) compose: `background-color: var(--glass-bg) + background-image: var(--glass-gleam) + backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)) + border: 1px solid var(--glass-border) + box-shadow: var(--bezel-shadow)`. Replaces `--panel-shadow-glow` on these surfaces (it would composite poorly with the bezel stack).
+1. **Full-glass surfaces** (entity-tile, app-picker-popover, modal-dialog) compose: `background-color: var(--glass-bg) + background-image: var(--glass-gleam) + backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)) + border: 1px solid var(--glass-border) + box-shadow: var(--bezel-shadow)`. Replaces the prior accent-tinted shadow treatment on these surfaces (it would composite poorly with the bezel stack).
 
 2. **Mini-glass surfaces** (list-item-active, section-nav-active, chat-welcome-hover) compose the gleam image + `--bezel-shadow-mini` but skip the backdrop-filter (small surfaces don't benefit from blur, and the perf cost stacks).
 
@@ -617,6 +617,54 @@ All four button consumers — `.btn-outlined-primary`, `.btn-filled-primary`, `.
 - **`.indicator-led`** — lit-status dot (Mission 08 F2 L5). 10px circle with two stacked `radial-gradient` background layers: white top-left reflective crescent + black bottom-right shadow. `.indicator-led--success/warning/danger/idle` modifiers fill with `--status-*` colors + matching `--status-*-glow` outer halo (idle has no glow). Also auto-applied to `.test-result-{ok,fail,warning,pending}` via `::before` pseudo-element retrofit, so existing connection-test consumers (provider editor, agent editor, tool editor) display the LED without JS markup changes.
 - **`.telemetry-strip`** — gallery-only status readout primitive (Mission 08 F2 L5). Justified row: `.section-title` eyebrow on the left, mono-uppercase `.telemetry-value` on the right (often containing an `.indicator-led`), bottom-border between rows. Sibling to `.section-title` (NOT a variant) — section header vs. status readout are distinct semantic roles. Gallery-only by default; graduates to `components.css` once a downstream polish flight finds a consumer.
 - **`.chip` (accent-tinted)** — Mission 08 F2 L5 retune: was `var(--surface)` + `var(--border)` (neutral), now `var(--accent-translucent)` + `var(--glass-border)` (accent-tinted flat). No gradient or shadow — distinguishes chips from raised buttons by reading as colored-but-flat tags.
+
+### Mission 08 Flight 03 — Administration Polish Layer (banner + code-block + cross-area dirty gate)
+
+The Admin polish flight surfaced four shared primitives + two cross-cutting structural rules that future polish flights should consume rather than re-derive. The patterns here sit on top of the F2 Design Language Layer.
+
+**New shared primitives** (canonical, in `components.css`):
+
+- **`.banner`** — inline status/advisory callout (Mission 08 F3 L3). Three semantic variants:
+  - `.banner-error` — blocked actions, hard failures (destructive palette)
+  - `.banner-warning` — irreversible operations, attention-required state
+  - `.banner-info` — informational notes, neutral advisories
+
+  Shape: 3px solid variant-color left border + variant-tinted `linear-gradient(to right, …bg-soft, transparent)` + asymmetric corner-radius (sharp left, `--panel-radius-sm` right). Supports `[hidden]`. Compose: `<div class="banner banner-{variant}">…</div>`. Replaces bespoke `.action-blocked-message` + `.admin-system-warning` styles; consumers include provider-editor's agent-usage hard-block (`.action-blocked-message banner banner-error`), system page's encryption-rotate warning (`.banner banner-warning`), and any future inline callout. **Use when** a contextual advisory needs to surface adjacent to its trigger.
+
+- **`.code-block`** — read-only code/prompt artifact (Mission 08 F3 L3 + L7 light-theme retune). Theme-aware via tokens:
+  - Dark: `--code-block-bg: #000` + `--code-block-fg: var(--status-warning)` (terminal aesthetic)
+  - Light: `--code-block-bg: var(--surface-elevated)` (slate-50) + `--code-block-fg: var(--fg)` (slate-900) — AAA-grade contrast (~17:1), composes already-audited pairs
+
+  Shape: 12px 14px padding, mono, `--panel-radius-sm`, 1px `var(--border)` framing, `pre-wrap` + `word-break: break-word`. Consumers: System page base prompt (`.admin-base-prompt code-block`), Tools editor prompt body (`.editor-prompt-text code-block`). **Use when** rendering operator-visible read-only code/prompt text that should read as a distinct "code well" against panel chrome.
+
+**New cross-area contract**:
+
+- **`confirmLeave(proceed, abort)`** — optional hook on the area descriptor (Mission 08 F3 L6). Called by `app.js switchTo()` BEFORE deactivating the outgoing area on cross-area navigation. Hook contract:
+  - Clean state: call `proceed()` immediately
+  - Dirty state: open a confirm dialog; on confirm call `proceed()`, on cancel call `abort()` (the gate restores the prior URL via `history.replaceState`)
+
+  Areas without the hook fall through to immediate proceed. **Admin implements it** via `self._confirmLeaveImpl` wired inside `init()` so it can close over the local `dirty` flag. Same condition as the sidebar `setCategory` dirty-gate: `dirty && inEditor`. Covers all cross-area paths uniformly: topbar button clicks, browser back/forward, direct hash typing. **Use when** an area has unsaved-state that should block cross-area navigation.
+
+**Cross-cutting structural rules**:
+
+1. **`body { overflow: hidden }` + `min-height: 0` flex-column chain** (Mission 08 F3 L3). In SPA shells where `body { height: 100vh; display: flex; flex-direction: column }`, flex children default to `min-height: auto` (content-sized). A tall inner element's intrinsic min-height can push body content past 100vh, surfacing a document-level scrollbar that runs the FULL viewport (visible behind the topbar). Two-part fix: `body { overflow: hidden }` (body never scrolls — inner area scroll containers handle page scrolling) + `min-height: 0` on every flex-column descendant in the chain (`#main-content`, `.content-panel`, `.area-admin .admin-content`). The `min-height: 0` allows flex items to shrink below intrinsic content size — required for `overflow-y: auto` to actually clip rather than propagate up.
+
+2. **Stale-then guard for `area.activate()` async fetches**. When an area's `activate()` runs `_refresh()` and that handler kicks off async work, `switchTo()` may subsequently mutate state synchronously via `hydrateState()`. By the time the async work resolves, the area's state may have changed — the `.then` block must guard against clobbering the now-current page. **Pattern**:
+   ```js
+   .then(function (detail) {
+     if (currentCategory !== 'tools') return;  // stale-state guard
+     // ...apply mutation + render...
+   })
+   ```
+   Apply this in EVERY `area.activate()`-reachable async fetch's then-handler. Admin's `populateProviderGrid` (admin.js:378) and `selectTool.then` (admin.js:511) both use it. Future area code that kicks off async work from `activate()`/`_refresh()` must include the same guard at design time — catching this via HAT means a snapshot regen has already locked in the bad state.
+
+**New affordance vocabulary entries** (extend the F2 catalog):
+
+- **Chip-list-editor UX** (`tools-form-helpers.js`, Mission 08 F3 L5): keydown commits chip on Enter, comma, or **Tab** (Tab on empty input falls through to default focus-advance). Click on a chip body (not the × button) re-positions the chip-list-input DOM node BEFORE that chip + focuses it — enables insert-before-existing-chip flow. Backspace-on-empty deletes the chip immediately before the input's current position (walks `previousElementSibling`, skipping locked chips). `.chip-remove` color: `--accent` at rest → `--status-danger` on hover (visible + signals destructive). Consumed by admin tools editor + studio per-agent tools tab via the shared `wireChipListEditor` code path.
+
+- **Topbar layout — 3 flat area buttons + brand banner** (Mission 08 F3 L2). One flat `.app-picker-button` per registered area, emitted via loop over `order[]`. Active area's button gets `aria-current="page"` styling (accent-translucent + accent border, no outer glow). Brand banner image (`<img class="app-topbar-banner">`) replaces the `<h1>` wordmark. Retired the chevron + popover affordance entirely (saved ~100 LOC of state machine for a 3-item menu).
+
+- **Ollama lifecycle `.indicator-led` consumer pattern** (Mission 08 F3 L4). Worked example of consuming the F2 `.indicator-led` primitive at a non-`.test-result-*` site: `provider-models.js` emits `<span class="indicator-led indicator-led--success"></span>` for loaded models and `--idle` for available. Retired the prior bespoke `.admin-pf-model-dot` class pair. **Pattern**: when adding a new lit-status surface, prefer composing the canonical primitive at the markup site over defining a new bespoke dot class.
 
 ### Color contrast (WCAG AA)
 
@@ -679,7 +727,7 @@ the canonical WCAG 2.1 sRGB-luminance formula.
 > narrative — the four retunes happened while the accent family was cyan.
 > Mission 08 Flight 01 Leg 02 subsequently retuned `--accent` from cyan-700
 > to GleepGlorp violet (`#6d28d9` light, `#a78bfa` dark) and updated the
-> accent-glow / accent-translucent / panel-shadow-glow rgba tokens in
+> accent-glow / accent-translucent rgba tokens in
 > lockstep at equivalent contrast ratios. The bullet below preserves the
 > cyan-iteration story for context; for current `--accent` values see
 > `tokens.css` and Mission 08 Flight 01 Leg 02. The other three retunes
@@ -696,7 +744,6 @@ applicable AA threshold:
   `.save-btn`). Cyan-700 reads at 5.36:1. The accent-glow /
   accent-translucent rgba tokens were updated in lockstep so derived
   shadows, borders, and translucent fills track the new accent.
-  `--panel-shadow-glow` cyan tint also updated.
 - **Light `--status-success`**: `#16a34a` (green-600) → `#15803d` (green-700).
   Used as status text colour (e.g., model-loaded indicator); green-600 read
   at 3.18:1 (body-AA fail). Green-700 reads at 4.84:1.
