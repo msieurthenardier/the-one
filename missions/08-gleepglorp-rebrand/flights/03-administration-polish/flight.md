@@ -1,6 +1,6 @@
 # Flight: Administration Polish
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [GleepGlorp AI Rebrand & UX Polish](../../mission.md)
 
 ## Contributing to Criteria
@@ -173,7 +173,7 @@ The flight is structured as **one autonomous prep leg → three interactive page
 - [x] **Leg 4 done**: Ollama model-dot LED wire-up complete (`.indicator-led--success` for loaded, `--idle` for unloaded); test-result LED + label spacing fixed; remaining Providers items deemed on-brand by operator. Leg closed early.
 - [x] **Leg 5 done**: Chip-list-editor UX polished (Tab commit, click-to-insert-before, × button visibility, Backspace position-awareness); boolean tool config fields composed onto `.checkbox-primary`. Operator confirms.
 - [x] **Leg 6 done**: Admin routing catalog (22 sub-route + 4 beforeunload checks) walked two-pass; scope-light fixes applied inline (sub-id rename, B2 cross-area dirty-gate, B2 follow-on race); B1 skipped, O1 accepted non-blocking; Design Language gallery cosmetic deferred per operator confirmation.
-- [ ] **Leg 7 done**: WCAG audit green; 10/12 visual-snapshot baselines regenerated cleanly (2 by Flight 1 Known Issue); `agents.md` updates folded in if applicable; HAT walkthrough operator-confirmed across both themes × all four pages; narrow gate stable on rerun.
+- [x] **Leg 7 done**: 10-step ordered close complete; WCAG 45/45; 10/12 snapshot baselines regenerated cleanly; agents.md F3 subsection added; HAT walkthrough operator-confirmed both themes × 8 pages; one light-theme code-block readability retune shipped mid-HAT (theme-aware tokens); narrow gate 56/56.
 
 ### Adaptation Criteria
 
@@ -200,7 +200,7 @@ The flight is structured as **one autonomous prep leg → three interactive page
 - [x] `04-providers-and-ollama-polish` *(vibe)* — Wired the canonical `.indicator-led` primitive into the Ollama lifecycle panel (loaded → `--success`, available → `--idle`); retired the `.admin-pf-model-dot` rule pair as dead-selector cleanup. Fixed test-result LED + label touching (added `margin-right: 6px` + `vertical-align: middle` to the `.test-result-*::before` shared rule). Operator deemed remaining Providers items on-brand; leg closed early.
 - [x] `05-tools-polish` *(vibe)* — Chip-list-editor UX polish: Tab key commits chip (joining Enter/comma); click on chip body re-positions the input before that chip for insert-before flow; Backspace-on-empty walks `previousElementSibling` so re-positioned input deletes the right chip; × button color updated to `--accent` (rest) → `--status-danger` (hover) for better visibility. Boolean tool config fields gain `.checkbox-primary` class (canonical Flight 2 primitive). Operator deemed tabbed grid + iOS toggles already on-brand; leg scoped to chip-list + checkbox polish only.
 - [x] `06-routing-sweep-and-design-language-cosmetic` — Two-pass routing catalog completed (22 sub-route checks + 4 beforeunload scenarios — all pass after fixes). Three substantive fixes shipped inline: (a) sub-id rename `#admin/system` → `#admin/general` + flipped legacy redirect (operator-surfaced at Check 1); (b) **B2** cross-area dirty-gate gap — new `confirmLeave(proceed, abort)` hook contract on the area descriptor, admin implements it, `switchTo()` consults it before cross-area deactivation; (c) **B2 follow-on race** — stale-then guard in `selectTool.then` so chat→admin re-entry doesn't clobber the General page when admin had prior tool-edit state. Design Language gallery cosmetic deferred (operator confirmed on-brand). B1 skipped per operator; O1 (uncommitted chip-text not dirty) accepted as non-blocking.
-- [ ] `07-alignment-and-snapshot-regen` — 10-step ordered close: pre-close grep, WCAG audit, rebuild, playwright, snapshot regen, HAT × 2 themes × 4 pages, agents.md updates if applicable, stability rerun, final narrow gate, status update + commit.
+- [x] `07-alignment-and-snapshot-regen` — 10-step ordered close complete. Pre-close grep clean; WCAG 45/45; `make rebuild` clean; playwright deps re-installed twice (cache wiped by intervening rebuild — same Flight 1 Known Issue pattern); 10/12 snapshots regenerated cleanly (2 carried-forward `chat_with_messages` failures from Flight 1 Known Issue); HAT walkthrough operator-confirmed both themes × all 8 pages; **light-theme code-block readability retune** shipped during HAT (theme-aware `--code-block-bg`/`--code-block-fg` tokens — dark stays terminal aesthetic, light uses `--surface-elevated` + `--fg` for AAA contrast); **`agents.md` Mission 08 F3 Administration Polish Layer subsection added** (~80 lines documenting `.banner` + `.code-block` primitives, `confirmLeave` hook contract, body-overflow + flex-min-height structural rule, stale-then-guard pattern, chip-list UX, topbar 3-button layout, Ollama-LED-consumer pattern); stability re-run 10/12; final narrow gate 56/56.
 
 ---
 

@@ -1008,13 +1008,17 @@
   }
 
   /* === Code block primitive ===
-     Reusable terminal-style code block matching the chat assistant
-     <pre> aesthetic (black bg + warning-orange text + panel-radius-sm).
-     Consumers: .admin-base-prompt, tools-editor prompt block, anywhere
-     else a read-only code/prompt artifact wants the same vocabulary. */
+     Reusable read-only code/prompt artifact. Theme-aware via tokens:
+     dark theme uses a terminal aesthetic (#000 bg + warning-orange text);
+     light theme uses pale slate-50 surface-elevated + slate-900 fg (AAA
+     contrast — composes already-audited pairs). 1px border supplies the
+     "code well" framing in both themes (subtle in dark, more visible in
+     light). Consumers: .admin-base-prompt, tools-editor prompt block,
+     anywhere else a read-only code artifact wants the same vocabulary. */
   .code-block {
-    background: #000;
-    color: var(--status-warning);
+    background: var(--code-block-bg);
+    color: var(--code-block-fg);
+    border: 1px solid var(--border);
     padding: 12px 14px;
     border-radius: var(--panel-radius-sm);
     font-family: var(--font-family-mono);

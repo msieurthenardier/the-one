@@ -108,6 +108,13 @@
     --motion-fast: 150ms;
     --motion-base: 250ms;
 
+    /* code-block — Mission 08 F3 L07. Read-only code/prompt artifact
+       affordance. Dark theme: terminal aesthetic (#000 bg + warning-orange
+       text). Light theme overrides further down: slate-50 surface-elevated
+       bg + slate-900 fg for AAA-grade legibility on white pages. */
+    --code-block-bg: #000;
+    --code-block-fg: var(--status-warning);
+
     /* status */
     --status-success: #2ecc71;
     --status-success-glow: rgba(46, 204, 113, 0.6);
@@ -237,6 +244,15 @@
     --ease-tactile: cubic-bezier(0.4, 0, 0.2, 1);
     --motion-fast: 150ms;
     --motion-base: 250ms;
+
+    /* code-block — Mission 08 F3 L07. Light theme overrides the dark
+       terminal aesthetic with a pale slate-50 (#f1f5f9) bg + slate-900
+       (#0f172a) fg. Composes the already-audited --surface-elevated +
+       --fg pair (~17:1 contrast — AAA). Black bg + warning-orange in
+       light theme was too harsh against the page chrome; this reads as
+       a "code well" without competing with the surrounding panels. */
+    --code-block-bg: var(--surface-elevated);
+    --code-block-fg: var(--fg);
 
     /* status — Tailwind-700 variants tuned for strict body-AA on light
        (≥ 4.5:1 against #fafbfc and #ffffff). Leg 06 used the -600 family

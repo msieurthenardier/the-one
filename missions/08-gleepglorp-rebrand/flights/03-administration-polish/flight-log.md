@@ -270,6 +270,53 @@ All four items remain in Flight 3 scope. No items retired.
 
 ---
 
+### 07-alignment-and-snapshot-regen
+
+**Status**: landed (2026-05-12) — flight closed; operator-confirmed across the HAT sweep
+
+10-step ordered close (per Flight 2 Leg 06 template):
+
+1. **Pre-close grep sweep** clean: `panel-shadow-glow` 0 hits; `admin-pf-model-dot` only the comment marker; `linear-gradient(to bottom` 0 in components.css.
+2. **WCAG audit**: 45/45 in 0.05s.
+3. **`make rebuild`** clean.
+4. **`make _ensure-playwright`** — installed chromium (cache was wiped by rebuild — Flight 1 debrief Action Item #4 pattern continues).
+5. **Snapshot regen** (`UPDATE_SNAPSHOTS=1`): 10/12 passed; 2 carried-forward `chat_with_messages` failures (Flight 1 Known Issue, deferred Flight 5).
+6. **HAT walkthrough** — operator confirmed both themes × 8 pages. **One regression surfaced + fixed mid-HAT**: light-theme code-block contrast (black bg + warning-orange text was too harsh against the white page chrome). Solution: theme-aware `--code-block-bg` + `--code-block-fg` tokens. Dark retains terminal aesthetic; light uses `var(--surface-elevated)` (slate-50) + `var(--fg)` (slate-900) — composes already-audited pair (~17:1, AAA). Added 1px `var(--border)` for "code well" framing in both themes. WCAG audit re-confirmed 45/45 post-retune (no contrast pair changes).
+7. **`agents.md` Mission 08 F3 subsection** added (~80 lines) — codifies the four new shared primitives + cross-area contract + structural rules + affordance vocabulary that emerged across Legs 02-06:
+   - `.banner` primitive (3 variants — error/warning/info)
+   - `.code-block` primitive (theme-aware, terminal-in-dark + AAA-in-light)
+   - `confirmLeave(proceed, abort)` hook contract
+   - `body { overflow: hidden }` + `min-height: 0` flex-column chain rule
+   - Stale-then guard for `area.activate()` async fetches
+   - Chip-list-editor UX rules
+   - Topbar 3-flat-button + brand-banner layout
+   - Ollama lifecycle `.indicator-led` consumer pattern
+8. **Snapshot stability re-run** without `UPDATE_SNAPSHOTS=1`: 10/12 identical. Baselines stable. (Playwright cache wiped a SECOND time by the code-block retune rebuild — re-installed.)
+9. **Final narrow gate**: 56/56 in 1.31s.
+10. **Status update + commit**: leg → `completed`; flight → `landed`; mission Flight 3 checkbox ticked; this commit closes the flight.
+
+**Verification**:
+
+- Narrow test gate: 56/56 ✓
+- WCAG audit: 45/45 ✓ (pre-retune + post-retune)
+- Snapshot regen: 10/12 ✓
+- Snapshot stability: 10/12 identical on rerun ✓
+- Operator HAT: both themes × 8 pages confirmed
+- agents.md F3 subsection inserted at the right place
+
+**Anomalies**: None. Playwright cache-wipe-by-rebuild is a known pattern (Flight 1 debrief Action Item #4); not new.
+
+**Deviations from leg design**:
+
+- One mid-HAT retune absorbed (light-theme code-block) — not a deviation in spirit, the leg's HAT step exists exactly to catch such regressions. Capturing as an iteration trail rather than a deviation.
+
+**Methodology lessons (refining Flight 2 Leg 06's 10-step template)**:
+
+- **Playwright cache wipes happen TWICE in flights that need a mid-HAT rebuild.** The flight design anticipates one wipe (step 4 install before step 5 regen); the second wipe happens if a mid-HAT fix requires `make rebuild` (which always wipes the cache). Future closing-leg templates should note: "re-run `make _ensure-playwright` before any post-HAT pixel-test run if a mid-HAT rebuild occurred."
+- **agents.md codification at step 7 (after HAT, before stability re-run) is the right sequencing.** HAT may surface new patterns that should be documented; codifying AFTER HAT means the docs reflect the final state. Confirmed working — this leg's HAT surfaced the light-theme code-block retune which then got documented in the F3 subsection.
+
+---
+
 ## Decisions
 
 ### Reconnaissance citation drift on `tokens-section.js`
