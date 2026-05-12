@@ -32,6 +32,12 @@
   }
 
   [data-theme="dark"] {
+    /* color-scheme tells the browser to use dark UA chrome (scrollbars,
+       form controls, etc.) regardless of OS preference. Without this the
+       scrollbar appearance follows the OS theme — which on a light OS
+       would surface a light scrollbar on the dark app, and vice-versa. */
+    color-scheme: dark;
+
     /* surfaces */
     --bg: #0a0a0a;
     --surface: #1a1a1a;
@@ -152,7 +158,40 @@
     --panel-shadow: 0 1px 0 rgba(255, 255, 255, 0.03), inset 0 1px 0 rgba(255, 255, 255, 0.02);
 
     /* body backdrop */
-    --bg-gradient: linear-gradient(180deg, #0e1428 0%, #050505 70%);
+    /* Mission 08 F3.5 L1 — body backdrop matches the metallic chrome.
+       Body is only visible through main-content's top-left chamfer cut;
+       making it the chrome bg lets that corner read as "the chrome housing
+       continues around the panel" rather than a black hole. Light theme
+       retains its existing pale-fade gradient. */
+    --bg-gradient: var(--shell-chrome-bg);
+
+    /* Shell chrome — Mission 08 F3.5 L1. Theme-aware tokens drive the V1b
+       chamfered-with-accent-border treatment on #main-content (and topbar
+       + sidebar in subsequent iterations). Dark theme: 8px chamfer + accent
+       frame fill + black content fill. Light theme overrides further down:
+       0px chamfer + transparent fills (rectangular, untreated) — alien-
+       dashboard is dark-theme-only.
+       Note: starting at 8px; operator may retune larger once seen at full
+       viewport scale. */
+    --shell-chamfer: 14px;
+    --shell-frame-fill: var(--accent);
+    --shell-content-fill: #000;
+    --shell-frame-glow: var(--accent-glow);
+    /* Metallic chrome bg for #app-topbar + #app-sidebar — gunmetal base
+       + brushed grain (horizontal stripes). Same treatment on both so they
+       read as one unified L-shaped housing component. The top-edge sheen
+       ("lit from above") is applied separately to #app-topbar only — if
+       it lived in this token, the sidebar would also paint a sheen at
+       its top (y=48px in viewport), creating a visible seam against the
+       topbar's already-faded sheen.
+       Grain-layer alternates (replace the first background layer):
+         Horizontal stripes (current): repeating-linear-gradient(180deg, transparent 0 1px, rgba(255,255,255,0.025) 1px 2px)
+         Vertical stripes:              repeating-linear-gradient(90deg,  transparent 0 1px, rgba(255,255,255,0.025) 1px 2px)
+         Diagonal 45°:                  repeating-linear-gradient(45deg,  transparent 0 1px, rgba(255,255,255,0.025) 1px 2px)
+         Wider horizontal bands:        repeating-linear-gradient(180deg, rgba(255,255,255,0.02) 0 2px, transparent 2px 4px) */
+    --shell-chrome-bg:
+      repeating-linear-gradient(180deg, transparent 0 1px, rgba(255, 255, 255, 0.025) 1px 2px),
+      #20202a;
 
     /* density-and-geometry */
     --sidebar-w: 240px;
@@ -175,6 +214,8 @@
   }
 
   [data-theme="light"] {
+    color-scheme: light;
+
     /* surfaces — cool-tinted off-white; coordinates with the primary accent */
     --bg: #fafbfc;
     --surface: #ffffff;
@@ -254,6 +295,17 @@
     --code-block-bg: var(--surface-elevated);
     --code-block-fg: var(--fg);
 
+    /* Shell chrome — Mission 08 F3.5 L1. Light theme mirrors the dark
+       alien-dashboard aesthetic with light variants: white main panel
+       (instead of black) + silver-metallic chrome (instead of gunmetal). */
+    --shell-chamfer: 14px;
+    --shell-frame-fill: var(--accent);
+    --shell-content-fill: #fff;
+    --shell-frame-glow: var(--accent-glow);
+    --shell-chrome-bg:
+      repeating-linear-gradient(180deg, transparent 0 1px, rgba(0, 0, 0, 0.05) 1px 2px),
+      #d4d8df;
+
     /* status — Tailwind-700 variants tuned for strict body-AA on light
        (≥ 4.5:1 against #fafbfc and #ffffff). Leg 06 used the -600 family
        which sits ~3:1 — only the 3:1 large/UI threshold; leg 07 deepened
@@ -294,7 +346,7 @@
     --panel-shadow: 0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
 
     /* body backdrop — subtle but visible cool fade */
-    --bg-gradient: linear-gradient(180deg, #fafbfc 0%, #f1f5f9 100%);
+    --bg-gradient: var(--shell-chrome-bg);
 
     /* density-and-geometry */
     --sidebar-w: 240px;

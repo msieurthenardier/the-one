@@ -685,6 +685,10 @@
     padding: 8px;
     border-bottom: 1px solid var(--border);
   }
+  /* Both themes: drop the section-nav bottom border — it paints a visible
+     line on the metallic chrome sidebar bg (alien-dashboard aesthetic
+     prefers continuous panel surfaces). */
+  .section-nav { border-bottom: 0; }
   .section-nav-header {
     font-weight: var(--font-weight-bold);
     color: var(--accent);
