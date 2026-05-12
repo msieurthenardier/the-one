@@ -1,136 +1,115 @@
-/* Theme tokens — F2 (apply-tokens + visual-realization + light-realization).
+/* Theme tokens — Holograph migration (Mission 09).
  *
- * Dark-theme values realized in leg 03 (originally NEXUS-style cyan + glow;
- * retuned to GleepGlorp violet/purple in Mission 08 Flight 01 Leg 02). Light-theme
- * values realized in leg 06 (Linear/Stripe-light quality: cool-tinted off-white
- * surfaces, deep navy text, drop-shadows replacing glows). Both themes share
- * the same token names; leg 07 enforces strict WCAG AA across both.
+ * Light theme: warm-neutral palette + restrained blue accent (#3358c0,
+ * calibrated from mockup #4070e0 to pass WCAG AA at the body threshold).
+ * Dark theme: deep calm + GleepGlorp violet (#a78bfa, preserved from
+ * Mission 08 dark accent).
  *
- * Token groups: surfaces, borders, text, accent, status, provider badges,
- * shadows, body backdrop, density-and-geometry.
+ * Token group order (preserved across themes for diffability):
+ *   1. surfaces        (bg, surface, surface-2)
+ *   2. borders         (hairline, hairline-strong)
+ *   3. text            (fg, fg-mute, fg-faint, fg-on-danger)
+ *   4. accent          (accent, accent-tint, accent-tint-strong)
+ *   5. status          (success, warn, danger)
+ *   6. shadows         (shadow-1, shadow-2, shadow-3)
+ *   7. badges          (provider + tool category)
  *
- * The :root { color-scheme: dark light } rule is preserved here because
- * color-scheme is a meta-property informing native widget rendering (scrollbars,
- * form controls, default selection color) — it is NOT a theme token.
+ * Theme-stable tokens (geometry, motion) sit OUTSIDE the per-theme blocks.
+ *
+ * Spec: docs/superpowers/specs/2026-05-12-holograph-ui-migration-design.md
  */
 
 @layer tokens {
-  /* Native UI element theming (scrollbars, form controls, default selection). */
   :root {
     color-scheme: dark light;
 
-    /* V3b button gradient — canonical 4-stop white→fade→dark wash applied to
-       the .app-picker-button / .btn-outlined-primary / .btn-filled-primary /
-       .btn-muted-destructive family. Theme-independent: all stops use fixed
-       rgba alphas that composite identically over either theme's background. */
-    --btn-v3-gradient: linear-gradient(to bottom,
-      rgba(255, 255, 255, 0.30) 0%,
-      rgba(255, 255, 255, 0.10) 35%,
-      rgba(255, 255, 255, 0.0) 50%,
-      rgba(0, 0, 0, 0.10) 100%
-    );
+    /* geometry — identical across themes */
+    --radius-card: 12px;
+    --radius-control: 8px;
+    --radius-chip: 6px;
+
+    /* motion — single transition curve */
+    --t: 160ms cubic-bezier(0.2, 0, 0, 1);
+  }
+
+  [data-theme="light"] {
+    /* surfaces */
+    --bg: #f8f8f6;
+    --surface: #ffffff;
+    --surface-2: #fbfbf9;
+
+    /* borders */
+    --hairline: rgba(15, 17, 21, 0.07);
+    --hairline-strong: rgba(15, 17, 21, 0.12);
+
+    /* text */
+    --fg: #16181d;
+    --fg-mute: #6a6e76;
+    --fg-faint: #878d96;      /* calibrated from mockup #9da3ad to pass AA-large */
+    --fg-on-danger: #ffffff;
+
+    /* accent */
+    --accent: #3358c0;        /* calibrated from mockup #4070e0 to pass AA body */
+    --accent-tint: rgba(51, 88, 192, 0.10);
+    --accent-tint-strong: rgba(51, 88, 192, 0.18);
+
+    /* status */
+    --success: #2f9c6a;
+    --warn: #c98a2b;
+    --danger: #c5443d;
+
+    /* shadows */
+    --shadow-1: 0 1px 2px rgba(15, 17, 21, 0.045), 0 1px 1px rgba(15, 17, 21, 0.025);
+    --shadow-2: 0 4px 10px rgba(15, 17, 21, 0.05), 0 1px 2px rgba(15, 17, 21, 0.04);
+    --shadow-3: 0 12px 28px rgba(15, 17, 21, 0.08), 0 2px 4px rgba(15, 17, 21, 0.04);
+
+    /* provider badges — theme-stable brand colors */
+    --badge-ollama: #2ecc71;
+    --badge-openai-compatible: #d4a800;
+    --badge-openai: #4a9eff;
+    --badge-anthropic: #9b59b6;
+    --badge-openrouter: #7c3aed;
+    --badge-mock: #888888;
+    --badge-unknown: #888888;
+
+    /* tool category badges — slightly lighter for light-mode contrast */
+    --badge-filesystem: #0e8e8e;
+    --badge-execution: #c5912a;
+    --badge-web: #d63a93;
   }
 
   [data-theme="dark"] {
     /* surfaces */
-    --bg: #0a0a0a;
-    --surface: #1a1a1a;
-    --surface-elevated: #333333;
-    --surface-tool: #2d2d2d;
+    --bg: #0a0c10;
+    --surface: #14171c;
+    --surface-2: #181c22;
 
     /* borders */
-    --border: #2a2a2a;
-    --border-hover: #444444;
-    --border-strong: #666666;
+    --hairline: rgba(255, 255, 255, 0.08);
+    --hairline-strong: rgba(255, 255, 255, 0.14);
 
     /* text */
-    --fg: #e0e0e0;
-    --fg-secondary: #888888;
-    --fg-tertiary: #666666;
-    --fg-muted: #a8a8a8;
-    --fg-faint: #444444;
-    --fg-on-accent: #000000;
-    --fg-on-accent-muted: #333333;
-    /* fg-on-danger is BLACK in dark to pass AA against the bright #ff4a4a (white-on-red is only 3.32:1; black is 6.33:1). Light theme keeps white-on-deeper-red. */
-    --fg-on-danger: #000000;
-    --fg-tool-msg: #999999;
+    --fg: #e6e7ea;
+    --fg-mute: #9aa1ac;
+    --fg-faint: #6a7280;
+    --fg-on-danger: #0a0c10;
 
     /* accent */
     --accent: #a78bfa;
-    --accent-api: #22d3ee;
-    --accent-glow: rgba(167, 139, 250, 0.25);
-    --accent-glow-strong: rgba(167, 139, 250, 0.4);
-    --accent-translucent: rgba(167, 139, 250, 0.08);
-    --accent-translucent-hover: rgba(167, 139, 250, 0.12);
-
-    /* glass — Mission 08 F2 L3, "C2" reflective treatment
-       (blur(20px) saturate(160%), accent-tinted bg, gleam-overlay reflection,
-       1px white inset top-edge highlight). Applied to chrome surfaces in scope:
-       entity-tile (this leg), then section-nav, popovers, modal, list-item,
-       topbar (subsequent vibe iterations). Glass surfaces replace the prior
-       accent-tinted shadow treatment on chrome per the flight's composition rule. */
-    --glass-bg: rgba(167, 139, 250, 0.04);
-    --glass-blur: 12px;
-    --glass-saturate: 130%;
-    --glass-border: rgba(167, 139, 250, 0.18);
-    --glass-highlight: rgba(255, 255, 255, 0.18);
-    --glass-gleam: linear-gradient(to bottom, rgba(255, 255, 255, 0.07) 0%, rgba(255, 255, 255, 0.01) 30%, transparent 55%);
-
-    /* bezel — Mission 08 F2 L4, "P2 pullback" directional-depth treatment.
-       Top-left light convention: 1px sharp edges + 4px inner glow (NO 10px
-       outer glow — operator back-tracked from S3 to P2 after deciding S3 + 6%
-       gleam read as overly-frosted). Composed as a single multi-stop
-       box-shadow value so consumers `box-shadow: var(--bezel-shadow)`. */
-    --bezel-shadow:
-      inset 1px 1px 0 rgba(255, 255, 255, 0.22),
-      inset -1px -1px 0 rgba(0, 0, 0, 0.18),
-      inset 2px 2px 4px rgba(255, 255, 255, 0.07),
-      inset -2px -2px 4px rgba(0, 0, 0, 0.09);
-    /* Simplified bezel for small pills — directional edges only, P2 alphas. */
-    --bezel-shadow-mini:
-      inset 1px 1px 0 rgba(255, 255, 255, 0.22),
-      inset -1px -1px 0 rgba(0, 0, 0, 0.18);
-    /* Inverted bezel — Mission 08 F2 L5. "Pressed-in" inset shadow for input
-       affordances (fields, textareas, selects). Dark on top, light on bottom
-       — opposite of bezel which is light on top, dark on bottom. Distinguishes
-       input surfaces (recessed) from output panels (raised). */
-    --bezel-shadow-inset:
-      inset 0 1px 2px rgba(0, 0, 0, 0.18),
-      inset 0 -1px 0 rgba(255, 255, 255, 0.06);
-
-    /* motion — Mission 08 F2 L5. Tactile easing + duration scale.
-       --ease-tactile is the workhorse easing for chrome state changes
-       (Material "standard" — fast-out, slow-in feels crisp + decisive).
-       Durations: fast for hover/focus/small state changes, base for panel
-       transitions and tab switches. Theme-agnostic (motion doesn't change
-       between themes) but tokens live here for consistency. */
-    --ease-tactile: cubic-bezier(0.4, 0, 0.2, 1);
-    --motion-fast: 150ms;
-    --motion-base: 250ms;
-
-    /* code-block — Mission 08 F3 L07. Read-only code/prompt artifact
-       affordance. Dark theme: terminal aesthetic (#000 bg + warning-orange
-       text). Light theme overrides further down: slate-50 surface-elevated
-       bg + slate-900 fg for AAA-grade legibility on white pages. */
-    --code-block-bg: #000;
-    --code-block-fg: var(--status-warning);
+    --accent-tint: rgba(167, 139, 250, 0.10);
+    --accent-tint-strong: rgba(167, 139, 250, 0.18);
 
     /* status */
-    --status-success: #2ecc71;
-    --status-success-glow: rgba(46, 204, 113, 0.6);
-    --status-warning: #f5a623;
-    --status-warning-glow: rgba(245, 166, 35, 0.5);
-    --status-warning-bg-soft: rgba(245, 166, 35, 0.08);
-    --status-warning-bg-soft-2: rgba(245, 166, 35, 0.1);
-    --status-warning-border: rgba(245, 166, 35, 0.3);
-    --status-danger: #ff4a4a;
-    --status-danger-muted: #d56363;
-    --status-danger-glow: rgba(255, 74, 74, 0.5);
-    --status-danger-bg-soft: rgba(255, 74, 74, 0.08);
+    --success: #4ade80;
+    --warn: #f5c97a;
+    --danger: #f87171;
 
-    /* provider badges
-       NOTE: --badge-openai stays at #4a9eff regardless of --accent palette;
-       provider badges are theme- and accent-stable (per leg 02 decision). */
+    /* shadows */
+    --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.25), 0 1px 1px rgba(0, 0, 0, 0.18);
+    --shadow-2: 0 4px 12px rgba(0, 0, 0, 0.32), 0 2px 4px rgba(0, 0, 0, 0.22);
+    --shadow-3: 0 12px 30px rgba(0, 0, 0, 0.40), 0 3px 6px rgba(0, 0, 0, 0.25);
+
+    /* provider badges */
     --badge-ollama: #2ecc71;
     --badge-openai-compatible: #d4a800;
     --badge-openai: #4a9eff;
@@ -139,230 +118,14 @@
     --badge-mock: #888888;
     --badge-unknown: #888888;
 
-    /* tool category badges (F6 leg 02) — semantically distinct from provider
-       badges so the visual grouping reads as "tool category" not "provider type". */
-    --badge-filesystem: #008b8b;  /* dark cyan */
-    --badge-execution: #b8860b;   /* dark goldenrod */
-    --badge-web: #c71585;         /* medium violet red */
-
-    /* panel design tokens */
-    --panel-radius: 6px;
-    --panel-radius-sm: 4px;
-    --surface-translucent: rgba(255, 255, 255, 0.02);
-    --panel-shadow: 0 1px 0 rgba(255, 255, 255, 0.03), inset 0 1px 0 rgba(255, 255, 255, 0.02);
-
-    /* body backdrop */
-    --bg-gradient: linear-gradient(180deg, #0e1428 0%, #050505 70%);
-
-    /* density-and-geometry */
-    --sidebar-w: 240px;
-    /* topbar height — chrome strip across the top of the shell */
-    --topbar-h: 48px;
-
-    /* nav rail palette — chrome surface; same as body in dark so the rail
-       reads as a non-elevated edge. */
-    --nav-bg: var(--bg);
-    --nav-bg-active: var(--surface);
-    --nav-border: var(--border);
-    --nav-fg: var(--fg-secondary);
-    --nav-fg-hover: var(--fg);
-    --nav-fg-active: var(--accent);
-
-    /* Sidebar reads as body bg in dark (declarative; previously `transparent`
-       which let the body gradient bleed through — replaced for snapshot
-       stability and explicit intent). Light theme uses #cbd5e1 (slate-300). */
-    --sidebar-bg: var(--bg);
+    /* tool category badges */
+    --badge-filesystem: #008b8b;
+    --badge-execution: #b8860b;
+    --badge-web: #c71585;
   }
 
-  [data-theme="light"] {
-    /* surfaces — cool-tinted off-white; coordinates with the primary accent */
-    --bg: #fafbfc;
-    --surface: #ffffff;
-    --surface-elevated: #f1f5f9;
-    --surface-tool: #f3f4f6;
-
-    /* borders — visibly darker than dark theme so they read on light surfaces */
-    --border: #e5e7eb;
-    --border-hover: #cbd5e1;
-    --border-strong: #94a3b8;
-
-    /* text — deep navy primary; AA-compliant secondary/tertiary; faint is
-       intentional secondary-tier (AA-borderline; used in faint contexts only) */
-    --fg: #0f172a;
-    --fg-secondary: #334155;
-    --fg-tertiary: #475569;
-    --fg-muted: #64748b;
-    --fg-faint: #94a3b8;
-    --fg-on-accent: #ffffff;
-    --fg-on-accent-muted: #cbd5e1;
-    --fg-on-danger: #ffffff;
-    --fg-tool-msg: #475569;
-
-    /* accent — violet-700 (#6d28d9) for strict WCAG AA on light surfaces
-       (white-on-accent reads at 5.36:1 — body AA pass; accent-on-bg reads at
-       5.17:1). [Historical: leg 06 initially shipped cyan-600 #0891b2 which
-       read at 4.46:1 — body-AA fail; leg 07 retuned to cyan-700 #0e7490;
-       Mission 08 Flight 01 Leg 02 retuned again from cyan-700 to violet-700.] */
-    --accent: #6d28d9;
-    --accent-api: #0e7490;
-    --accent-glow: rgba(109, 40, 217, 0.20);
-    --accent-glow-strong: rgba(109, 40, 217, 0.35);
-    --accent-translucent: rgba(109, 40, 217, 0.10);
-    --accent-translucent-hover: rgba(109, 40, 217, 0.15);
-
-    /* glass — Mission 08 F2 L3, "M2" reflective treatment for light theme:
-       reflective slate-500 chrome (multi-stop top-to-bottom metal gradient)
-       layered with a faint violet bottom-fade so the brand undertone reads
-       beneath the silver. Pairs symmetrically with the dark-theme treatment
-       (also gleam-overlay reflection, accent-tinted base + border) — same
-       composition shape, theme-tuned tones. */
-    --glass-bg: rgba(100, 116, 139, 0.15);
-    --glass-blur: 12px;
-    --glass-saturate: 130%;
-    --glass-border: rgba(109, 40, 217, 0.40);
-    --glass-highlight: rgba(255, 255, 255, 0.95);
-    --glass-gleam:
-      linear-gradient(to bottom, rgba(255, 255, 255, 0.40) 0%, rgba(148, 163, 184, 0.12) 45%, transparent 80%),
-      linear-gradient(to top, rgba(167, 139, 250, 0.05) 0%, transparent 50%);
-
-    /* bezel — Mission 08 F2 L4, "P2 pullback" treatment. Same alphas as dark
-       theme — white/black insets read in both palettes. */
-    --bezel-shadow:
-      inset 1px 1px 0 rgba(255, 255, 255, 0.22),
-      inset -1px -1px 0 rgba(0, 0, 0, 0.18),
-      inset 2px 2px 4px rgba(255, 255, 255, 0.07),
-      inset -2px -2px 4px rgba(0, 0, 0, 0.09);
-    --bezel-shadow-mini:
-      inset 1px 1px 0 rgba(255, 255, 255, 0.22),
-      inset -1px -1px 0 rgba(0, 0, 0, 0.18);
-    --bezel-shadow-inset:
-      inset 0 1px 2px rgba(15, 23, 42, 0.10),
-      inset 0 -1px 0 rgba(255, 255, 255, 0.40);
-
-    /* motion — Mission 08 F2 L5. Same values as dark theme — motion is
-       theme-agnostic but tokens live in both theme blocks for consistency. */
-    --ease-tactile: cubic-bezier(0.4, 0, 0.2, 1);
-    --motion-fast: 150ms;
-    --motion-base: 250ms;
-
-    /* code-block — Mission 08 F3 L07. Light theme overrides the dark
-       terminal aesthetic with a pale slate-50 (#f1f5f9) bg + slate-900
-       (#0f172a) fg. Composes the already-audited --surface-elevated +
-       --fg pair (~17:1 contrast — AAA). Black bg + warning-orange in
-       light theme was too harsh against the page chrome; this reads as
-       a "code well" without competing with the surrounding panels. */
-    --code-block-bg: var(--surface-elevated);
-    --code-block-fg: var(--fg);
-
-    /* status — Tailwind-700 variants tuned for strict body-AA on light
-       (≥ 4.5:1 against #fafbfc and #ffffff). Leg 06 used the -600 family
-       which sits ~3:1 — only the 3:1 large/UI threshold; leg 07 deepened
-       success and warning to -700 for body. Danger stays at #dc2626 (4.83:1
-       on bg — already passes body). */
-    --status-success: #15803d;
-    --status-success-glow: rgba(21, 128, 61, 0.3);
-    --status-warning: #a16207;
-    --status-warning-glow: rgba(161, 98, 7, 0.3);
-    --status-warning-bg-soft: rgba(161, 98, 7, 0.08);
-    --status-warning-bg-soft-2: rgba(161, 98, 7, 0.12);
-    --status-warning-border: rgba(161, 98, 7, 0.3);
-    --status-danger: #dc2626;
-    --status-danger-muted: #a85050;
-    --status-danger-glow: rgba(220, 38, 38, 0.3);
-    --status-danger-bg-soft: rgba(220, 38, 38, 0.06);
-
-    /* provider badges — same brand colors in both themes (badges identify
-       the provider, NOT the theme; brand stability over palette consistency) */
-    --badge-ollama: #2ecc71;
-    --badge-openai-compatible: #d4a800;
-    --badge-openai: #4a9eff;
-    --badge-anthropic: #9b59b6;
-    --badge-openrouter: #7c3aed;
-    --badge-mock: #888888;
-    --badge-unknown: #888888;
-
-    /* tool category badges (F6 leg 02) — slightly lighter for light-mode
-       contrast while still meeting AA against --fg-on-accent (#ffffff). */
-    --badge-filesystem: #0e8e8e;
-    --badge-execution: #c5912a;
-    --badge-web: #d63a93;
-
-    /* panel design tokens — drop-shadow style replaces dark's glow shadows. */
-    --panel-radius: 6px;
-    --panel-radius-sm: 4px;
-    --surface-translucent: rgba(15, 23, 42, 0.02);
-    --panel-shadow: 0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
-
-    /* body backdrop — subtle but visible cool fade */
-    --bg-gradient: linear-gradient(180deg, #fafbfc 0%, #f1f5f9 100%);
-
-    /* density-and-geometry */
-    --sidebar-w: 240px;
-    /* topbar height — chrome strip across the top of the shell */
-    --topbar-h: 48px;
-
-    /* nav rail palette — intentionally dark navy so the rail reads as a
-       chrome surface against the light body. Internal palette uses the
-       dark theme's brighter accent (--accent in light is violet-700, which
-       under-reads on dark navy; we use the dark-theme violet-400 for the
-       active state — visible on the dark navy rail). */
-    --nav-bg: #0f172a;
-    --nav-bg-active: #1e293b;
-    --nav-border: #1e293b;
-    --nav-fg: #94a3b8;
-    --nav-fg-hover: #e2e8f0;
-    --nav-fg-active: #a78bfa;
-
-    /* sidebar palette — slate-300, clearly darker than body bg but much
-       lighter than the dark-navy rail. Establishes the rail < sidebar
-       < content elevation chain. */
-    --sidebar-bg: #cbd5e1;
-  }
-
-  /* prefers-reduced-transparency fallback — Mission 08 F2 L3.
-     When the user agent (or OS) signals reduced-transparency preference,
-     override the glass tokens to opaque/non-blurring values so every glass
-     surface degrades to a solid panel at the token layer. No per-rule
-     overrides needed — consumers continue using var(--glass-*) and pick
-     up the fallback automatically. */
-  /* prefers-reduced-motion fallback — Mission 08 F2 L5.
-     Vestibular-sensitive users get instant state changes; easing curves and
-     color transitions stay but durations collapse to near-zero. */
+  /* a11y — reduced motion */
   @media (prefers-reduced-motion: reduce) {
-    [data-theme="dark"] {
-      --motion-fast: 0ms;
-      --motion-base: 0ms;
-    }
-    [data-theme="light"] {
-      --motion-fast: 0ms;
-      --motion-base: 0ms;
-    }
-  }
-
-  @media (prefers-reduced-transparency: reduce) {
-    [data-theme="dark"] {
-      --glass-bg: var(--surface);
-      --glass-blur: 0px;
-      --glass-saturate: 100%;
-      --glass-border: var(--border);
-      --glass-highlight: rgba(255, 255, 255, 0.06);
-      --glass-gleam: none;
-      /* Bezel degrades to a single 1px directional edge — preserves the
-         lit-corner elevation cue without the layered glows. */
-      --bezel-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.10), inset -1px -1px 0 rgba(0, 0, 0, 0.10);
-      --bezel-shadow-mini: inset 1px 1px 0 rgba(255, 255, 255, 0.10), inset -1px -1px 0 rgba(0, 0, 0, 0.10);
-      --bezel-shadow-inset: inset 0 1px 0 rgba(0, 0, 0, 0.10);
-    }
-    [data-theme="light"] {
-      --glass-bg: var(--surface-elevated);
-      --glass-blur: 0px;
-      --glass-saturate: 100%;
-      --glass-border: var(--border);
-      --glass-highlight: rgba(15, 23, 42, 0.04);
-      --glass-gleam: none;
-      --bezel-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.40), inset -1px -1px 0 rgba(15, 23, 42, 0.10);
-      --bezel-shadow-mini: inset 1px 1px 0 rgba(255, 255, 255, 0.40), inset -1px -1px 0 rgba(15, 23, 42, 0.10);
-      --bezel-shadow-inset: inset 0 1px 0 rgba(15, 23, 42, 0.06);
-    }
+    :root { --t: 0ms; }
   }
 }
