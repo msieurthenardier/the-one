@@ -666,6 +666,49 @@ The Admin polish flight surfaced four shared primitives + two cross-cutting stru
 
 - **Ollama lifecycle `.indicator-led` consumer pattern** (Mission 08 F3 L4). Worked example of consuming the F2 `.indicator-led` primitive at a non-`.test-result-*` site: `provider-models.js` emits `<span class="indicator-led indicator-led--success"></span>` for loaded models and `--idle` for available. Retired the prior bespoke `.admin-pf-model-dot` class pair. **Pattern**: when adding a new lit-status surface, prefer composing the canonical primitive at the markup site over defining a new bespoke dot class.
 
+### Mission 08 Flight 3.5 — Shell Chrome Polish Layer (alien-dashboard housing)
+
+Outer app-shell surfaces (`body` bg, `#app-topbar`, `#app-sidebar`, `#main-content`) take the design-language vocabulary to closure. Aesthetic target: alien-dashboard / Galaxy from GleepGlorp — solid black main panel (white in light theme) framed by a chamfered violet L-bracket border, sitting inside a unified metallic-chrome housing that wraps the topbar + sidebar as one continuous L-shaped component. Reads as a polished phone-screen-style canvas with sci-fi corner detail.
+
+**New shell tokens** (theme-aware, in `tokens.css`):
+
+| Token | Role | Dark | Light |
+|---|---|---|---|
+| `--shell-chamfer` | Corner-cut size on `#main-content` top-left | `14px` | `14px` |
+| `--shell-frame-fill` | L-bracket accent color | `var(--accent)` (violet-400) | `var(--accent)` (violet-700) |
+| `--shell-content-fill` | Main panel interior | `#000` | `#fff` |
+| `--shell-frame-glow` | Inner halo at L-bracket meeting point | `var(--accent-glow)` | `var(--accent-glow)` |
+| `--shell-chrome-bg` | Topbar + sidebar + body bg | gunmetal `#20202a` + white horizontal grain | silver `#d4d8df` + black horizontal grain |
+| `--bg-gradient` | Body backdrop | `var(--shell-chrome-bg)` | `var(--shell-chrome-bg)` |
+
+`color-scheme: dark/light` is set per theme block so browser UA chrome (scrollbars, native form controls) follows the active theme rather than OS preference. Without this, scrollbars surface in the OS-theme color regardless of app theme.
+
+**Composition rules**:
+
+1. **L-bracket frame on `#main-content`** — nested-clip technique (operator-named "V1b" during vibe iteration). Outer element has `background: var(--shell-frame-fill)` (accent) + `clip-path: polygon(chamfer 0, 100% 0, 100% 100%, 0 100%, 0 chamfer)` (pentagon with chamfered top-left). Inner `::before` pseudo at `top: 1px; left: 1px; right: 0; bottom: 0` paints `var(--shell-content-fill)` + matching clip-path + `z-index: -1` (so it paints UNDER in-flow content — positioned-auto-z-index pseudos otherwise paint after non-positioned siblings, which would cover headers + labels). The 1px gap on top + left shows the accent fill = the L-bracket strokes. The right + bottom are flush (no border).
+
+2. **Directional inner glow** on the inner pseudo — layered linear gradients fade `var(--shell-frame-glow)` inward from top + left edges over 20px, layered over the solid content fill. Reads as a soft halo near the L-bracket meeting point.
+
+3. **Top-edge content fade-mask** — `mask-image: linear-gradient(180deg, transparent 0px, black 8px)` on `.content-panel` (both themes). Scrolled content fades to invisible as it approaches the top edge, "tucking under" the L-bracket border + glow. **A solid black overlay does NOT work for this** — the panel + content backgrounds are the same color in both themes, so an overlay-based fade is invisible against itself. `mask-image` is the correct technique because it removes the element's own pixels at the top, regardless of what's painted beneath.
+
+4. **No `backdrop-filter` on viewport-edge chrome** — topbar + sidebar sit at viewport edges; nothing scrolls behind them to refract. The housing aesthetic needs texture (gradient + grain + sheen), not transparency. Static layered backgrounds via `--shell-chrome-bg` give the metallic look without the perf cost of `backdrop-filter`. Reserve `backdrop-filter` (still used elsewhere — entity-tile, popover, modal) for surfaces with scrollable content behind them.
+
+5. **Unified L-shaped chrome housing** — `#app-topbar` + `#app-sidebar` share `var(--shell-chrome-bg)` so the topbar's bg continues seamlessly into the sidebar's bg below. **The top-edge sheen** (`linear-gradient(180deg, rgba(255,255,255,0.06) 0%, transparent 6px)`) is stacked separately on `#app-topbar` ONLY (not in the token) — if it also applied to `#app-sidebar`, the sidebar's own top edge (at y=topbar_h in viewport coords, just below the topbar) would also paint a sheen, creating a visible seam against the topbar's already-faded sheen.
+
+6. **Body bg matches chrome** — `--bg-gradient: var(--shell-chrome-bg)`. Body is only visible through `#main-content`'s chamfer cut at the top-left; making body the chrome bg lets that corner read as "the metallic housing continues through the panel cut" rather than as a black hole. Without this, the chamfer would reveal whatever the body bg-gradient was (originally a dark/pale fade, then `#000` before this fix).
+
+**Cross-cutting structural rules** (extend Flight 3's body-overflow + min-height-zero chain):
+
+- `#app-topbar` + `#app-sidebar` drop their `border-bottom` / `border-right` separators — they paint visible seams on the unified chrome. Use the L-bracket accent on `#main-content` for visual separation between chrome and panel instead.
+- `.section-nav` drops its `border-bottom` for the same reason (paints a visible line on the metallic sidebar).
+- `#app-sidebar` adds `padding-top: 10px` so the section-nav's first menu item visually aligns with the new chrome treatment.
+
+**New affordance vocabulary entries** (extend Flight 3 catalog):
+
+- **Topbar `<img>` CLS contract** (Flight 3 debrief carry-forward): the topbar banner image (`<img class="app-topbar-banner">`) requires explicit `height` + `flex-shrink: 0` so the topbar reserves its space immediately on first paint. Without explicit dimensions, the image loads → height resolves → layout shifts → topbar height jumps → main-content reflows. Same rule applies to any `<img>` placed in flex-shrink-0 chrome.
+
+- **Legacy class-as-JS-handle pattern** (Flight 3 debrief carry-forward): when extracting a bespoke class into a shared primitive (e.g., `.action-blocked-message` → `.banner.banner-error`), retain the original class on the markup as a JS-query handle if any JS already queries it. The legacy class stays in the markup but its styling rule is removed from CSS — the canonical primitive's classes (added alongside) own the look. Example: `<div class="action-blocked-message banner banner-error" data-testid="delete-blocked-message">` — JS still uses `.querySelector('.action-blocked-message')` while the visual styling flows through `.banner.banner-error`. See `components.css` near the retired `.action-blocked-message` rule for the canonical example.
+
 ### Color contrast (WCAG AA)
 
 The F2 design tokens were audited against WCAG 2.1 AA contrast standards on
