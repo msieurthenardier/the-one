@@ -30,10 +30,10 @@
     var ariaLabel = options.ariaLabel || '';
 
     container.innerHTML = '';
-    container.className = 'section-nav';
-    container.setAttribute('role', 'group');
+    container.className = 'section-nav holograph-section-nav';
+    container.setAttribute('role', 'tablist');
     if (ariaLabel) container.setAttribute('aria-label', ariaLabel);
-    // Defensive: warn if no aria-label provided. The container's role="group"
+    // Defensive: warn if no aria-label provided. The container's role="tablist"
     // requires an accessible name (WAI-ARIA spec); silent-omit would regress
     // a11y vs. the F5 helper which hardcoded a label.
     if (!ariaLabel && console && console.warn) {
@@ -52,11 +52,14 @@
       (function (item) {
         var btn = document.createElement('button');
         btn.type = 'button';
-        btn.className = 'section-nav-item';
+        btn.className = 'section-nav-item holograph-section-item';
         btn.dataset.section = item.id;
+        btn.setAttribute('role', 'tab');
         btn.textContent = item.label;
         var isActive = item.id === active;
+        btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
         if (isActive) {
+          btn.classList.add('active');
           btn.setAttribute('aria-current', 'page');
           btn.setAttribute('tabindex', '0');
         } else {
@@ -97,6 +100,8 @@
     for (var i = 0; i < buttons.length; i++) {
       var btn = buttons[i];
       var isActive = btn.dataset.section === active;
+      btn.classList.toggle('active', isActive);
+      btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
       if (isActive) {
         btn.setAttribute('aria-current', 'page');
         btn.setAttribute('tabindex', '0');
