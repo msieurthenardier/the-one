@@ -1,1150 +1,578 @@
+/* Holograph components layer — shared chrome across all areas.
+ *
+ * Contents (alphabetical):
+ *   .app-toast            — bottom-centered status announcement
+ *   .area, .area-*        — area panel wrappers + header
+ *   .avatar               — circular user/agent avatar
+ *   .brand, .brand-*      — topnav brand mark + wordmark
+ *   .btn, .btn-*          — button family (primary, ghost, base)
+ *   .card                 — card surface (+ interactive / selected)
+ *   .chip, .chip-*        — small status / mono tags
+ *   .confirm-dialog       — confirm modal variant
+ *   .dot                  — status dot (live / warn / idle)
+ *   .form-row, .form-*    — form control composition
+ *   .holograph-section-*  — shared section-nav primitive
+ *   .icn                  — inline SVG icon defaults
+ *   .kbd                  — keyboard shortcut chip
+ *   .modal-*              — modal surface family
+ *   .navlinks, .navlink   — topnav navigation
+ *   .nav-right            — topnav right cluster
+ *   .search               — topnav search affordance
+ *   .section-label        — section header
+ *   .seg, .seg-btn        — segmented control
+ *   .subnav-item          — single subnav button (shared)
+ *   .tabs, .tab           — tab strip
+ *   .toggle               — iOS-style toggle
+ *   .topnav               — top navigation shell
+ *
+ * Excluded — owned by area-specific CSS:
+ *   chat.css, studio.css, admin.css
+ *
+ * Spec: docs/superpowers/specs/2026-05-12-holograph-ui-migration-design.md
+ */
+
 @layer components {
-  /* === Shared Flash === */
-  .app-flash { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); background: var(--accent); color: var(--fg-on-accent); padding: 10px 48px; border-radius: var(--panel-radius-sm); font-size: var(--font-size-body); font-weight: var(--font-weight-semibold); opacity: 0; transition: opacity 0.3s; z-index: 100; pointer-events: none; box-shadow: 0 0 12px var(--accent-glow-strong); }
-  .app-flash.visible { opacity: 1; }
-  .app-flash.error { background: var(--status-danger); color: var(--fg-on-danger); box-shadow: 0 0 12px var(--status-danger-glow); }
 
-  /* === Skip Link === */
-  .skip-link {
-    position: absolute;
-    top: -40px;
-    left: 0;
-    z-index: 1000;
-    background: var(--accent);
-    color: var(--fg-on-accent);
-    padding: 8px 16px;
-    text-decoration: none;
-    font-weight: var(--font-weight-bold);
-    border-bottom-right-radius: var(--panel-radius-sm);
-  }
-  .skip-link:focus { top: 0; outline: 2px solid var(--fg); outline-offset: 2px; }
+  /* ── Top nav ─────────────────────────────────────────────────────────── */
 
-  /* === Top Bar Components === */
-  /* Brand banner image replaces the prior <h1> wordmark + icon combo. */
-  .app-topbar-banner {
-    height: 32px;
-    width: auto;
-    display: block;
-    flex-shrink: 0;
-  }
-  .app-topbar-actions {
+  .topnav {
+    height: 56px;
+    background: rgba(248, 248, 246, 0.85);
+    backdrop-filter: saturate(140%) blur(8px);
+    -webkit-backdrop-filter: saturate(140%) blur(8px);
+    border-bottom: 1px solid var(--hairline);
     display: flex;
     align-items: center;
-    gap: 8px;
-  }
-
-  /* === Top-bar area buttons === */
-  /* Three flat buttons, one per registered area (Chat / Agent Studio / System).
-     V3b family treatment: accent-translucent base + V3 gradient + glass-border
-     + bezel-mini. Active area gets aria-current="page" for a stronger
-     "you are here" treatment. (Class name retained from the prior app-picker
-     popover affordance for design-language gallery + test-selector continuity.) */
-  .app-picker-button {
-    height: 36px;
-    padding: 0 12px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    border-radius: var(--panel-radius-sm);
-    background-color: var(--accent-translucent);
-    background-image: var(--btn-v3-gradient);
-    border: 1px solid var(--glass-border);
-    cursor: pointer;
-    color: var(--accent);
-    font-family: inherit;
-    font-size: var(--font-size-body-sm);
-    font-weight: var(--font-weight-semibold);
-    box-shadow: var(--bezel-shadow-mini);
-    transition:
-      background-color var(--motion-base) var(--ease-tactile),
-      border-color var(--motion-base) var(--ease-tactile),
-      box-shadow var(--motion-base) var(--ease-tactile);
-  }
-  .app-picker-button-icon { display: inline-flex; align-items: center; justify-content: center; }
-  .app-picker-button-icon svg { width: 18px; height: 18px; display: block; }
-  .app-picker-button-label { white-space: nowrap; }
-  .app-picker-button:hover {
-    background-color: var(--accent-translucent-hover);
-    border-color: var(--accent);
-    transition:
-      background-color var(--motion-fast) var(--ease-tactile),
-      border-color var(--motion-fast) var(--ease-tactile),
-      box-shadow var(--motion-fast) var(--ease-tactile);
-  }
-  .app-picker-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: var(--bezel-shadow-mini), 0 0 0 3px var(--accent-glow); }
-  /* "You are here" state — current area's button. Stronger accent-translucent
-     background + accent border. */
-  .app-picker-button[aria-current="page"] {
-    background-color: var(--accent-translucent-hover);
-    border-color: var(--accent);
-  }
-
-  /* === List Item (sidebar/category list rows with focus-within delete reveal) === */
-  /* Sources consolidated: chat .session-item, admin .admin-category-item.
-     Studio's agent inventory migrated from .list-item.agent-item rows to
-     .entity-tile (CSS-grid cell) in F5 leg 02; .entity-tile is a sibling
-     primitive (not a list-item consumer). The legacy class names persist
-     on emit sites for test-selector / styling-hook continuity. */
-  .list-item {
-    padding: 8px 10px;
-    border-radius: 6px;
-    font-size: var(--font-size-body-sm);
-    cursor: pointer;
-    color: var(--fg-secondary);
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .list-item:hover { background: var(--surface); color: var(--fg); }
-  .list-item.active {
-    /* Mini-glass — Mission 08 F2 L3 + L4. Small pills get the gleam-overlay
-       image + accent-translucent base + simplified directional bezel (no
-       backdrop-filter — perf + small surface doesn't benefit from blur). */
-    background-color: var(--accent-translucent);
-    background-image: var(--glass-gleam);
-    color: var(--fg);
-    border: 1px solid var(--accent);
-    box-shadow: var(--bezel-shadow-mini);
-  }
-  .list-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; box-shadow: inset 0 0 0 3px var(--accent-glow); }
-
-  .list-item-delete {
-    display: none;
-    margin-left: auto;
-    background: transparent;
-    border: none;
-    cursor: pointer;
-    color: var(--status-danger-muted);
-    font-size: var(--font-size-tiny);
-    padding: 2px 4px;
-    flex-shrink: 0;
-    transition: color 0.2s, filter 0.2s;
-  }
-  .list-item:hover .list-item-delete,
-  .list-item:focus-within .list-item-delete { display: block; }
-  .list-item-delete:hover { color: var(--status-danger); filter: drop-shadow(0 0 6px var(--status-danger-glow)); }
-  .list-item-delete:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 3px var(--accent-glow); }
-  .list-item-delete svg { width: 12px; height: 12px; display: block; }
-
-  /* === Form Field Primitives (editable form rows) === */
-  .field-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 8px;
-  }
-  .field-row label {
-    width: 100px;
-    font-size: var(--font-size-body-sm);
-    color: var(--fg-secondary);
-    flex-shrink: 0;
-  }
-  .field-input {
-    flex: 1;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 8px 12px;
-    color: var(--fg);
-    font-family: inherit;
-    font-size: var(--font-size-body);
-    outline: none;
-    /* Pressed-in feel — Mission 08 F2 L5. Input affordances are recessed
-       (opposite of raised output panels). */
-    box-shadow: var(--bezel-shadow-inset);
-  }
-  .field-input:focus { border-color: var(--accent); }
-  .field-input:focus-visible {
-    border-color: var(--accent);
-    outline: 1px solid var(--accent);
-    box-shadow: var(--bezel-shadow-inset), 0 0 0 3px var(--accent-glow);
-  }
-  .field-textarea {
-    width: 100%;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 10px 12px;
-    color: var(--fg);
-    font-family: inherit;
-    font-size: var(--font-size-body);
-    outline: none;
-    resize: vertical;
-    /* Pressed-in feel — see .field-input. */
-    box-shadow: var(--bezel-shadow-inset);
-  }
-  .field-textarea:focus { border-color: var(--accent); }
-  .field-textarea:focus-visible {
-    border-color: var(--accent);
-    outline: 1px solid var(--accent);
-    box-shadow: var(--bezel-shadow-inset), 0 0 0 3px var(--accent-glow);
-  }
-  /* The URL-encoded color in the data URL below is an SVG arrow exception:
-     CSS variables can't be used inside data URLs. */
-  .field-select {
-    appearance: none;
-    -webkit-appearance: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23888'/%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 12px center;
-    padding-right: 30px;
-    cursor: pointer;
-  }
-  .field-select:focus { border-color: var(--accent); }
-  .field-select:focus-visible {
-    border-color: var(--accent);
-    outline: 1px solid var(--accent);
-    box-shadow: var(--bezel-shadow-inset), 0 0 0 3px var(--accent-glow);
-  }
-  /* .field-select option styling — Mission 08 F2 L5. Native <option> CSS
-     support varies across browsers (Chrome/Edge limited, Firefox respects
-     more). The widely-supported properties are background-color, color, and
-     :hover/:checked. Padding works in Firefox, mostly ignored in Chrome.
-     Rounded corners on the dropdown popup ITSELF are browser-controlled and
-     not stylable in pure CSS — a custom dropdown component would be needed
-     for full design-language consistency. */
-  .field-select option {
-    background-color: var(--surface-elevated);
-    color: var(--fg);
-    padding: 8px 12px;
-    font-family: inherit;
-    font-size: var(--font-size-body);
-  }
-  .field-select option:hover { background-color: var(--accent-translucent-hover); }
-  .field-select option:checked {
-    background-color: var(--accent-translucent);
-    color: var(--fg);
-    font-weight: var(--font-weight-semibold);
-  }
-  .field-select option:disabled { color: var(--fg-muted); }
-
-  /* === Info icon (<button> reset for tooltip-on-hover affordance) ===
-     The form helper renders this as a `<button>` for a11y; without a reset
-     it picks up the browser's native button styling (grey background,
-     border) wherever the helper is reused outside admin. Layout/context
-     specifics live in area files; the base reset is un-scoped. */
-  .field-info-icon {
-    background: none;
-    border: 0;
-    padding: 0;
-    font: inherit;
-    line-height: 1;
-    color: var(--fg-secondary);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 14px;
-    height: 14px;
-    flex-shrink: 0;
-    cursor: help;
-    transition: color 0.15s ease;
-  }
-  .field-info-icon:hover { color: var(--accent); }
-  .field-info-icon svg { width: 14px; height: 14px; display: block; }
-
-  /* === Checkbox Primary (form checkbox primitive) ===
-     Lifted from .area-studio .mcp-tools-checkbox-group input[type="checkbox"]
-     (Mission 08 F1 L5 / F2 L2). Mission 08 F2 L5 polish: 14px → 16px, kept
-     1.5px border (crisper than 2px at this size), zero border-radius,
-     vertical-align: middle for non-flex consumers. Reads as a crisp square
-     indicator. Distinct from the iOS-toggle .tool-enable-switch primitive
-     (admin.css) which expresses a single binary feature flip. */
-  .checkbox-primary {
-    appearance: none;
-    -webkit-appearance: none;
-    width: 16px;
-    height: 16px;
-    border: 1.5px solid var(--border-strong);
-    border-radius: 0;
-    background: var(--surface);
-    cursor: pointer;
-    flex-shrink: 0;
-    vertical-align: middle;
-    position: relative;
-    transition: background 0.15s ease, border-color 0.15s ease;
-  }
-  .checkbox-primary:hover { border-color: var(--accent); }
-  .checkbox-primary:checked {
-    background: var(--accent);
-    border-color: var(--accent);
-  }
-  .checkbox-primary:checked::after {
-    content: "";
-    position: absolute;
-    left: 4px;
+    padding: 0 24px;
+    position: sticky;
     top: 0;
-    width: 4px;
-    height: 9px;
-    border: solid var(--fg-on-accent);
-    border-width: 0 2px 2px 0;
-    transform: rotate(45deg);
-  }
-  .checkbox-primary:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
+    z-index: 30;
   }
 
-  /* === Section Title (// PREFIX) === */
-  .section-title {
-    font-family: var(--font-family-mono);
-    font-size: var(--font-size-tiny);
-    font-weight: var(--font-weight-bold);
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    color: var(--fg-secondary);
-    margin-top: 24px;
-    margin-bottom: 12px;
-  }
-  /* First section-title inside any container has no leading gap — its
-     parent (`.editor-section`, `.tabpanel`, etc.) already supplies the
-     top padding. The 24px above kicks in only for sibling headers, where
-     the operator wanted more breathing room. */
-  .section-title:first-child { margin-top: 0; }
-  .section-title::before {
-    content: "//";
-    padding-right: 0.4em;
-    color: var(--accent);
-    font-weight: var(--font-weight-bold);
-  }
-
-  /* === Buttons: Outlined-Primary (secondary affordance) === */
-  /* Mission 08 F2 L5 — V3b rest treatment. "Bubbled at rest" with the V3
-     glossy-band gradient (white-to-fade top + dark-fade bottom), accent-
-     translucent base, tile-style --glass-border, and the raised bezel-mini
-     elevation cue. Hover deepens the violet and stays in the same gradient
-     shape. Asymmetric in/out transitions match the .entity-tile pattern. */
-  .btn-outlined-primary {
-    background-color: var(--accent-translucent);
-    background-image: var(--btn-v3-gradient);
-    border: 1px solid var(--glass-border);
-    border-radius: var(--panel-radius-sm);
-    padding: 4px 10px;
-    color: var(--accent);
-    font-size: var(--font-size-body-sm);
-    cursor: pointer;
-    font-family: inherit;
-    box-shadow: var(--bezel-shadow-mini);
-    transition:
-      background-color var(--motion-base) var(--ease-tactile),
-      border-color var(--motion-base) var(--ease-tactile),
-      color var(--motion-base) var(--ease-tactile),
-      box-shadow var(--motion-base) var(--ease-tactile);
-  }
-  .btn-outlined-primary:hover {
-    background-color: var(--accent-translucent-hover);
-    border-color: var(--accent);
-    transition:
-      background-color var(--motion-fast) var(--ease-tactile),
-      border-color var(--motion-fast) var(--ease-tactile),
-      color var(--motion-fast) var(--ease-tactile),
-      box-shadow var(--motion-fast) var(--ease-tactile);
-  }
-  .btn-outlined-primary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: var(--bezel-shadow-mini), 0 0 0 3px var(--accent-glow); }
-  .btn-outlined-primary:disabled { opacity: 0.4; cursor: not-allowed; }
-
-  /* === Buttons: Filled-Primary (primary CTA) === */
-  /* Mission 08 F2 L5 — V3b family treatment in saturated form. Same V3
-     gradient shape as outlined-primary, but on top of a solid accent fill
-     (vs translucent) and with the outer --accent-glow halo to read as the
-     primary CTA. Bezel-mini + asymmetric motion match the family. */
-  .btn-filled-primary {
-    background-color: var(--accent);
-    background-image: var(--btn-v3-gradient);
-    border: none;
-    border-radius: var(--panel-radius-sm);
-    padding: 8px 24px;
-    color: var(--fg-on-accent);
-    font-weight: var(--font-weight-semibold);
-    cursor: pointer;
-    font-family: inherit;
-    font-size: var(--font-size-body);
-    box-shadow: var(--bezel-shadow-mini), 0 0 8px var(--accent-glow);
-    transition:
-      background-color var(--motion-base) var(--ease-tactile),
-      box-shadow var(--motion-base) var(--ease-tactile);
-  }
-  .btn-filled-primary:hover {
-    transition:
-      background-color var(--motion-fast) var(--ease-tactile),
-      box-shadow var(--motion-fast) var(--ease-tactile);
-  }
-  .btn-filled-primary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: var(--bezel-shadow-mini), 0 0 0 3px var(--accent-glow); }
-  .btn-filled-primary:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
-
-  /* === Buttons: Muted-Destructive (delete-confirm style) === */
-  /* Mission 08 F2 L5 — V3b rest treatment in destructive tone. Same gradient
-     shape as outlined-primary (theme-agnostic white→fade→dark) on a soft
-     danger background, with the danger-muted border for semantic identity. */
-  .btn-muted-destructive {
-    background-color: var(--status-danger-bg-soft);
-    background-image: var(--btn-v3-gradient);
-    border: 1px solid var(--status-danger-muted);
-    border-radius: var(--panel-radius-sm);
-    padding: 3px 10px;
-    color: var(--status-danger-muted);
-    font-size: var(--font-size-caption);
-    cursor: pointer;
-    font-family: inherit;
-    box-shadow: var(--bezel-shadow-mini);
-    transition:
-      background-color var(--motion-base) var(--ease-tactile),
-      color var(--motion-base) var(--ease-tactile),
-      border-color var(--motion-base) var(--ease-tactile),
-      box-shadow var(--motion-base) var(--ease-tactile);
-  }
-  .btn-muted-destructive:hover {
-    color: var(--status-danger);
-    border-color: var(--status-danger);
-    box-shadow: var(--bezel-shadow-mini), 0 0 8px var(--status-danger-glow);
-    transition:
-      background-color var(--motion-fast) var(--ease-tactile),
-      color var(--motion-fast) var(--ease-tactile),
-      border-color var(--motion-fast) var(--ease-tactile),
-      box-shadow var(--motion-fast) var(--ease-tactile);
-  }
-  .btn-muted-destructive:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: var(--bezel-shadow-mini), 0 0 0 3px var(--accent-glow); }
-  .btn-muted-destructive:disabled { opacity: 0.4; cursor: not-allowed; }
-
-  /* === Button size modifiers ===
-     Optional modifiers overriding the primitive's default padding +
-     font-size + border-radius. Compose onto any of .btn-outlined-primary,
-     .btn-filled-primary, or .btn-muted-destructive.
-
-     Example:
-       <button class="btn-outlined-primary btn-sm">Refresh</button>
-       <button class="btn-filled-primary btn-lg">Continue</button>
-
-     Defaults (no modifier) keep each primitive's idiomatic size — see the
-     three primitive rules above. The modifiers come AFTER the primitives
-     in source order so equal-specificity later-wins resolves to them. */
-  .btn-sm { padding: 2px 8px; font-size: var(--font-size-tiny); border-radius: 4px; }
-  .btn-lg { padding: 8px 20px; font-size: var(--font-size-body); border-radius: var(--panel-radius-sm); }
-  .btn-xl { padding: 12px 32px; font-size: var(--font-size-h3); border-radius: var(--panel-radius); }
-
-  /* === Chip + Chip-Remove (single-use lift for vocabulary completeness) === */
-  /* Mission 08 F2 L5 polish: accent-tinted flat color (no gradient, no bezel)
-     so chips read as part of the brand vocabulary without competing with
-     buttons/tiles' raised treatment. */
-  .chip { background: var(--accent-translucent); border: 1px solid var(--glass-border); border-radius: 4px; padding: 4px 8px; font-size: var(--font-size-caption); color: var(--fg); display: inline-flex; align-items: center; gap: 6px; }
-  .chip-remove { cursor: pointer; color: var(--status-danger-muted); font-size: var(--font-size-tiny); transition: color 0.2s, filter 0.2s; background: transparent; border: none; padding: 0; }
-  .chip-remove:hover { color: var(--status-danger); filter: drop-shadow(0 0 6px var(--status-danger-glow)); }
-  .chip-remove:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 3px var(--accent-glow); }
-  .chip-remove svg { width: 10px; height: 10px; display: inline-block; vertical-align: middle; }
-
-  /* === Empty State (empty-list / empty-canvas messaging) === */
-  .empty-state {
-    padding: 16px;
-    color: var(--fg-muted);
-    font-size: var(--font-size-body);
-    text-align: center;
-  }
-
-  /* Page-level empty canvas — mirrors `.chat-welcome` centering for empty
-     entity inventories (LLM Providers, Studio Agents, Knowledge, Tools).
-     Sits as a flex-1 sibling of `.page-header`, claims the remaining
-     vertical space below the header, centers its inner block. */
-  .empty-canvas {
-    flex: 1;
-    min-height: 0;
+  .brand {
     display: flex;
     align-items: center;
-    justify-content: center;
-    padding: 40px 24px;
-    overflow-y: auto;
-  }
-  .empty-canvas-inner {
-    width: 100%;
-    max-width: 520px;
-    text-align: center;
-    color: var(--fg-muted);
-    font-size: var(--font-size-body-lg);
-    line-height: var(--line-height-normal);
-  }
-  /* When `.empty-canvas` sits inside a `.entity-tile-grid` (used by
-     LLM Providers + Studio Agents — both reuse the grid container as
-     their inventory mount), override the grid's CSS-grid layout so
-     the canvas's flex-1 centering takes the full space. */
-  .entity-tile-grid:has(> .empty-canvas) {
-    display: flex;
-    padding: 0;
+    gap: 10px;
+    margin-right: 28px;
   }
 
-  /* === Entity Tile (CSS-grid tile primitive for entity inventories) === */
-  /* The tile is a single <button class="entity-tile"> that opens the editor
-     on click. Deletion lives inside the editor's General-tab Danger Zone
-     (F5 leg 05) — there is no per-tile X-button. */
-  .entity-tile {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    padding: 12px 14px;
-    /* Glass surface — Mission 08 F2 L3 ("C2" reflective treatment).
-       background-color holds the accent-tinted base; background-image holds
-       the gleam-overlay reflection. backdrop-filter blurs whatever is
-       behind. Hover/active rules update background-color only (not the
-       shorthand) so the gleam image survives state changes. */
-    background-color: var(--glass-bg);
-    background-image: var(--glass-gleam);
-    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-    border: 1px solid var(--glass-border);
-    border-radius: var(--panel-radius);
-    /* Bezel — Mission 08 F2 L4. Directional top-left stacked-depth bezel
-       replaces the bare inset-highlight from L3. */
-    box-shadow: var(--bezel-shadow);
-    color: var(--fg);
-    text-align: left;
-    cursor: pointer;
-    font-family: inherit;
-    font-size: var(--font-size-body);
-    position: relative;
-    /* Motion — Mission 08 F2 L5. Asymmetric transitions: fast on mouse-in
-       (the :hover rule overrides with --motion-fast), slower on mouse-out
-       (this base rule's --motion-base applies when :hover stops matching).
-       Pattern reads as crisp engagement + gentle disengagement. */
-    transition:
-      border-color var(--motion-base) var(--ease-tactile),
-      background-color var(--motion-base) var(--ease-tactile),
-      box-shadow var(--motion-base) var(--ease-tactile);
-  }
-  .entity-tile:hover {
-    border-color: var(--accent);
-    background-color: var(--accent-translucent);
-    transition:
-      border-color var(--motion-fast) var(--ease-tactile),
-      background-color var(--motion-fast) var(--ease-tactile),
-      box-shadow var(--motion-fast) var(--ease-tactile);
-  }
-  .entity-tile:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: -2px;
-    box-shadow: inset 0 0 0 3px var(--accent-glow);
-  }
-  .entity-tile[aria-selected="true"],
-  .entity-tile.active {
-    border-color: var(--accent);
-    background-color: var(--accent-translucent-hover);
-    /* Prior accent-glow shadow intentionally dropped — glass surfaces use the
-       inset highlight as their elevation cue (composition rule, F2 L3). */
-  }
-  .entity-tile-name {
-    font-size: var(--font-size-body-lg);
-    font-weight: var(--font-weight-bold);
-    color: var(--fg);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .entity-tile-description {
-    font-size: var(--font-size-body-sm);
-    color: var(--fg-secondary);
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-    line-height: var(--line-height-normal);
-    min-height: 2.4em;
-  }
-  .entity-tile-meta {
-    font-family: var(--font-family-mono);
-    font-size: var(--font-size-caption);
-    color: var(--fg-muted);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  /* Entity-tile badge slot — absolute-positioned top-right corner.
-     Composes with per-area color classes (e.g. .admin-provider-badge--ollama). */
-  .entity-tile-badge {
-    position: absolute;
-    top: 8px;
-    right: 8px;
-    font-family: var(--font-family-mono);
-    font-size: var(--font-size-tiny);
-    font-weight: var(--font-weight-semibold);
-    padding: 2px 8px;
-    border-radius: 4px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    /* Color comes from per-area .admin-provider-badge--{type} composition. */
-  }
-  /* Tile-grid layout container. Used by entity inventories that render
-     tiles as the primary view. Lifted from studio's per-area tile-grid
-     rule in F6 leg 02; admin's provider grid is the second consumer. */
-  .entity-tile-grid {
-    flex: 1;
-    overflow-y: auto;
-    padding: 8px;
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: 8px;
-    align-content: start;
-  }
-  /* === Confirm-delete (canonical two-step state) === */
-  /* Lifted from chat.css's `.session-item.confirm-delete` rules. Chat
-     session items compose with .list-item; the descendant combinator finds
-     the per-row .list-item-delete X-button. Studio tiles do not use this
-     state — agent deletion lives in the editor's Danger Zone (F5 leg 05). */
-  .list-item.confirm-delete { border: 1px solid var(--status-danger); }
-  .list-item.confirm-delete [data-confirm-title] { color: var(--status-danger); }
-  .list-item.confirm-delete .list-item-delete { color: var(--status-danger); opacity: 1; display: block; }
-
-  /* === Page header (entity-list / area-page header with optional primary action) === */
-  /* Mirrors chat's .header + .new-chat-header pattern. Used by studio's
-     Agents/Knowledge/Tools pages and admin's System + LLM Providers pages.
-     Lifted from per-area studio page-header rules in F6 leg 02. */
-  .page-header {
-    padding: 14px 20px;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-  }
-  .page-title {
-    font-size: var(--font-size-h2);
-    font-weight: var(--font-weight-semibold);
-    color: var(--fg);
-    margin: 0;
-  }
-  /* New-entity button (header CTA): icon-only at rest, expands into the
-     full pill on hover/focus. Mirrors chat's .new-chat-header pattern;
-     pure-CSS animation via max-width + padding transitions; <span> opacity
-     fades in over the same window. The .is-expanded modifier overrides
-     all of this for the always-expanded empty-state CTA. */
-  .new-entity-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    flex-shrink: 0;
-    background: transparent;
-    border: 1px solid transparent;
-    border-radius: var(--panel-radius-sm);
-    color: var(--accent);
-    cursor: pointer;
-    font-family: inherit;
-    font-size: var(--font-size-body-sm);
-    padding: 4px 8px;
-    max-width: 32px;
-    overflow: hidden;
-    white-space: nowrap;
-    transition: max-width 0.2s ease, padding 0.2s ease, background 0.2s ease, border-color 0.2s ease;
-  }
-  .new-entity-btn svg { width: 16px; height: 16px; flex-shrink: 0; }
-  .new-entity-btn span { opacity: 0; transition: opacity 0.15s ease 0.05s; }
-  .new-entity-btn:hover,
-  .new-entity-btn:focus-visible {
-    max-width: 240px;
-    padding: 4px 10px;
-    background: var(--accent-translucent-hover);
-    border-color: var(--accent);
-  }
-  .new-entity-btn:hover span,
-  .new-entity-btn:focus-visible span { opacity: 1; }
-  .new-entity-btn:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-    box-shadow: 0 0 0 3px var(--accent-glow);
-  }
-
-  /* Always-expanded variant — used as the CTA inside an empty-canvas. The
-     .empty-canvas-inner parent has text-align: center, so the inline-flex
-     button auto-centers; margin-top creates breathing room below the
-     message. */
-  .new-entity-btn.is-expanded {
-    max-width: none;
-    margin: 16px 0 0 0;
-    padding: 8px 18px;
-    background: var(--accent-translucent);
-    border-color: var(--accent);
-    font-size: var(--font-size-body);
-  }
-  .new-entity-btn.is-expanded span { opacity: 1; }
-  .new-entity-btn.is-expanded svg { width: 18px; height: 18px; }
-  .new-entity-btn.is-expanded:hover,
-  .new-entity-btn.is-expanded:focus-visible {
-    max-width: none;
-    padding: 8px 18px;
-    background: var(--accent-translucent-hover);
-  }
-
-  /* Hide the header create-button when the inventory below is empty —
-     the empty-canvas's centered CTA owns the call-to-action affordance
-     until the user has at least one entity. */
-  .page-header:has(+ .entity-tile-grid > .empty-canvas) .new-entity-btn:not(.is-expanded) { display: none; }
-
-  /* === Section Navigation (sidebar sub-section nav) === */
-  /* Vertical list of <button> elements representing in-area section navigation.
-     First introduced for studio's Agents/Knowledge/Tools section nav (F5 leg 01).
-     Imminent F6 consumer: admin's category list at admin.js renderCategoryList
-     (currently using .list-item + .admin-category-item) will migrate here. */
-  .section-nav {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    padding: 8px;
-    border-bottom: 1px solid var(--border);
-  }
-  .section-nav-header {
-    font-weight: var(--font-weight-bold);
-    color: var(--accent);
-    font-size: var(--font-size-body-lg);
-    padding: 4px 10px 8px;
-  }
-  .section-nav-item {
-    background: transparent;
-    border: 1px solid transparent;
+  .brand-mark {
+    width: 24px;
+    height: 24px;
     border-radius: 6px;
-    padding: 8px 10px;
-    color: var(--fg-secondary);
-    font-family: inherit;
-    font-size: var(--font-size-body-sm);
-    text-align: left;
-    cursor: pointer;
-    transition: background 0.15s, color 0.15s, border-color 0.15s;
-  }
-  .section-nav-item:hover { background: var(--surface); color: var(--fg); }
-  .section-nav-item:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: -2px;
-    box-shadow: inset 0 0 0 3px var(--accent-glow);
-  }
-  .section-nav-item[aria-current="page"] {
-    /* Mini-glass — Mission 08 F2 L3 + L4 — same shape as .list-item.active:
-       gleam-overlay image + accent-translucent base + simplified bezel. */
-    background-color: var(--accent-translucent);
-    background-image: var(--glass-gleam);
-    color: var(--fg);
-    border-color: var(--accent);
-    box-shadow: var(--bezel-shadow-mini);
+    background: linear-gradient(135deg, #1a1a1a 0%, #2a2a2a 100%);
+    display: grid;
+    place-items: center;
+    color: #fff;
+    font-weight: 600;
+    font-size: 12px;
+    letter-spacing: -0.02em;
   }
 
-  /* === Tab idiom (W3C ARIA tablist with manual activation; F5 leg 03) === */
-  /* Used by the studio agent editor's General/Knowledge/Tools tabs. The
-     tablist is a `<div role="tablist">` containing `<button role="tab">`
-     elements; below it, `<div role="tabpanel">` panels with [hidden]
-     control. Manual-activation contract — arrow keys move focus + visual
-     highlight only; Enter/Space (or click) commits the tab. Roving
-     tabindex: only the active tab carries tabindex="0". The `App.tabs`
-     helper in static/js/tabs.js wires the keyboard + click handlers. */
-  .tablist {
+  .brand-name {
+    font-weight: 600;
+    font-size: 14px;
+    letter-spacing: -0.01em;
+  }
+
+  .brand-name .sub {
+    color: var(--fg-faint);
+    font-weight: 500;
+    margin-left: 6px;
+  }
+
+  /* ── Nav links ───────────────────────────────────────────────────────── */
+
+  .navlinks {
     display: flex;
     gap: 4px;
-    border-bottom: 1px solid var(--border);
-    padding: 0 16px;
-    flex-shrink: 0;
   }
-  .tab {
-    background: transparent;
-    border: none;
-    border-bottom: 2px solid transparent;
-    padding: 10px 16px;
-    color: var(--fg-secondary);
-    font-family: inherit;
-    font-size: var(--font-size-body-sm);
+
+  .navlink {
+    position: relative;
+    padding: 8px 12px;
+    font-size: 13px;
+    color: var(--fg-mute);
     cursor: pointer;
-    transition: color 0.15s, border-color 0.15s, background 0.15s;
-    margin-bottom: -1px;
-  }
-  .tab:hover { color: var(--fg); }
-  .tab:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: -2px;
-    box-shadow: 0 0 0 3px var(--accent-glow);
-  }
-  .tab[aria-selected="true"] {
-    color: var(--accent);
-    border-bottom-color: var(--accent);
-  }
-  .tabpanel {
-    flex: 1;
-    overflow-y: auto;
-  }
-  .tabpanel[hidden] { display: none; }
-
-  /* === Editor header (canonical entity-name + description block) === */
-  /* Used above the agent editor's tablist (F5 leg 03) and any future
-     entity-editor (admin's provider editor in F6). Lifts the per-area
-     `.area-studio .editor-header` rule from studio.css and generalizes. */
-  .editor-header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 16px;
-    padding: 12px 20px;
-    border-bottom: 1px solid var(--border);
-    flex-shrink: 0;
-  }
-  .editor-header-text {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-  .editor-header-text .editor-title {
-    font-weight: var(--font-weight-bold);
-    font-size: var(--font-size-h2);
-    color: var(--fg);
-    margin: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .editor-header-text .editor-subtitle {
-    font-size: var(--font-size-body-sm);
-    color: var(--fg-secondary);
-    margin: 0;
+    border-radius: 6px;
+    transition: color var(--t), background var(--t);
+    font-weight: 500;
   }
 
-  /* === Form actions (right-aligned button cluster) === */
-  /* Used by the agent editor's [← Back] [Delete] [Save] cluster (F5 leg 03)
-     and reusable for future modal `.modal-actions` composition (F5 leg 04). */
-  .form-actions {
+  .navlink:hover { color: var(--fg); background: rgba(15, 17, 21, 0.035); }
+  .navlink.active { color: var(--fg); }
+  .navlink.active::after {
+    content: '';
+    position: absolute;
+    left: 12px;
+    right: 12px;
+    bottom: -15px;
+    height: 2px;
+    background: var(--accent);
+    border-radius: 1px;
+  }
+
+  /* ── Nav right cluster ───────────────────────────────────────────────── */
+
+  .nav-right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  /* ── Search ──────────────────────────────────────────────────────────── */
+
+  .search {
     display: flex;
     align-items: center;
     gap: 8px;
-    flex-shrink: 0;
-  }
-  .form-actions .editor-error {
-    color: var(--status-danger);
-    font-size: var(--font-size-body-sm);
+    padding: 6px 10px;
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: 8px;
+    width: 240px;
+    color: var(--fg-mute);
+    font-size: 12.5px;
+    transition: border-color var(--t), box-shadow var(--t);
   }
 
-  /* === Test result span (canonical connectivity-test indicator) === */
-  /* Used by the General tab's Test button (F5 leg 03) and admin's provider
-     editor (F6 leg 03). The `.admin-pf-test-ok` / `.admin-pf-test-fail`
-     migration landed in F6 leg 03. */
-  .test-result {
+  .search:hover { border-color: var(--hairline-strong); }
+
+  /* ── Keyboard shortcut chip ──────────────────────────────────────────── */
+
+  .kbd {
+    margin-left: auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    background: rgba(15, 17, 21, 0.05);
+    color: var(--fg-faint);
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+
+  /* ── Avatar ──────────────────────────────────────────────────────────── */
+
+  .avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: #d8dce3;
+    color: #4a4f57;
+    display: grid;
+    place-items: center;
+    font-size: 11.5px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: box-shadow var(--t);
+  }
+
+  .avatar:hover { box-shadow: 0 0 0 3px rgba(15, 17, 21, 0.06); }
+
+  /* ── Area panels ─────────────────────────────────────────────────────── */
+
+  .area {
+    display: none;
+    padding: 24px 32px 48px;
+    max-width: 1440px;
+    margin: 0 auto;
+  }
+
+  .area.active { display: block; }
+
+  .area-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 20px;
+  }
+
+  .area-title {
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+
+  .area-sub {
+    color: var(--fg-mute);
+    font-size: 13px;
+    margin-left: 12px;
+  }
+
+  /* ── Buttons ─────────────────────────────────────────────────────────── */
+
+  .btn {
+    appearance: none;
+    border: 1px solid var(--hairline-strong);
+    background: var(--surface);
+    color: var(--fg);
+    font-family: inherit;
+    font-size: 12.5px;
+    font-weight: 500;
+    padding: 7px 12px;
+    border-radius: var(--radius-control);
+    cursor: pointer;
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    margin-left: 8px;
-    font-size: var(--font-size-body-sm);
-    color: var(--fg-secondary);
-  }
-  .test-result-ok { color: var(--status-success); }
-  .test-result-fail { color: var(--status-danger); }
-  .test-result-warning { color: var(--status-warning); }
-  .test-result-pending { color: var(--fg-secondary); }
-
-  /* === Indicator LED (Mission 08 F2 L5) ===
-     10px round dot with a reflective top-left crescent + a darker
-     bottom-right shadow (D2+shadow vibe-iteration result). Outer glow
-     uses the matching --status-*-glow token. Idle state has no glow.
-     Use directly as `<span class="indicator-led indicator-led--success">`,
-     or rely on the `.test-result-*` retrofit below which renders the LED
-     as a ::before pseudo on every existing connection-test result. */
-  .indicator-led {
-    display: inline-block;
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    flex-shrink: 0;
-    background-image:
-      radial-gradient(circle at 30% 25%, rgba(255, 255, 255, 0.70) 0%, rgba(255, 255, 255, 0.10) 30%, rgba(255, 255, 255, 0.0) 50%),
-      radial-gradient(circle at 70% 75%, rgba(0, 0, 0, 0.25) 0%, rgba(0, 0, 0, 0.0) 50%);
-  }
-  .indicator-led--success { background-color: var(--status-success); box-shadow: 0 0 4px var(--status-success-glow); }
-  .indicator-led--warning { background-color: var(--status-warning); box-shadow: 0 0 4px var(--status-warning-glow); }
-  .indicator-led--danger { background-color: var(--status-danger); box-shadow: 0 0 4px var(--status-danger-glow); }
-  .indicator-led--idle { background-color: var(--fg-muted); /* no glow */ }
-
-  /* Retrofit: .test-result-* gets the LED dot via ::before so existing
-     connection-test consumers (provider editor, agent editor) pick it up
-     without JS markup changes. The flex+gap on `.test-result` (above)
-     positions the LED before the text. */
-  .test-result-ok::before,
-  .test-result-fail::before,
-  .test-result-warning::before,
-  .test-result-pending::before {
-    content: "";
-    display: inline-block;
-    width: 10px;
-    height: 10px;
-    margin-right: 6px;
-    vertical-align: middle;
-    border-radius: 50%;
-    flex-shrink: 0;
-    background-image:
-      radial-gradient(circle at 30% 25%, rgba(255, 255, 255, 0.70) 0%, rgba(255, 255, 255, 0.10) 30%, rgba(255, 255, 255, 0.0) 50%),
-      radial-gradient(circle at 70% 75%, rgba(0, 0, 0, 0.25) 0%, rgba(0, 0, 0, 0.0) 50%);
-  }
-  .test-result-ok::before { background-color: var(--status-success); box-shadow: 0 0 4px var(--status-success-glow); }
-  .test-result-fail::before { background-color: var(--status-danger); box-shadow: 0 0 4px var(--status-danger-glow); }
-  .test-result-warning::before { background-color: var(--status-warning); box-shadow: 0 0 4px var(--status-warning-glow); }
-  .test-result-pending::before { background-color: var(--fg-muted); /* no glow on idle */ }
-
-  /* === Save / Cancel button (disabled-SSoT pattern) === */
-  /* Save and Cancel both use `disabled` as the SOLE source of truth (lifted
-     from .area-studio .save-btn in F6 leg 03; consumed by both studio's
-     agent editor and admin's provider editor). The dirty-tracker shim
-     (checkDirty) flips both attributes together. Cosmetics from
-     .btn-filled-primary (Save) / .btn-outlined-primary (Cancel). */
-  .save-btn { transition: opacity 0.2s; padding: 6px 16px; font-size: var(--font-size-body-sm); }
-  .save-btn[disabled] { opacity: 0.4; cursor: not-allowed; }
-  .save-btn:not([disabled]) { opacity: 1; }
-
-  /* === Back button (icon + text) === */
-  .back-btn { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; }
-  .back-btn svg { width: 14px; height: 14px; }
-
-  /* === Test connection button === */
-  .test-provider-btn { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; }
-  .test-provider-btn svg { width: 14px; height: 14px; }
-  .test-provider-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-  /* Refresh button — icon + text affordance, sized like .back-btn / .test-provider-btn.
-     Composed onto .btn-outlined-primary for color/border. Used by admin's
-     provider-models panel header (basic-list + Ollama lifecycle). */
-  .refresh-btn { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; }
-  .refresh-btn svg { width: 14px; height: 14px; }
-  .refresh-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-
-  /* === Delete button (App.confirmDelete armed state) === */
-  /* Delete-btn — area-agnostic; cosmetics from .btn-muted-destructive.
-     The .delete-btn.confirm-delete class is set by App.confirmDelete
-     (chat session items, studio agent editor, provider editor — 3 consumers
-     post-F6 leg 04). 3-second revert + accessibility behavior owned by the
-     helper at confirm.js. The capital-D 'Confirm Delete?' label is
-     preserved by passing the confirmLabel option per call site. */
-  .delete-btn { padding: 6px 14px; border-radius: 6px; font-size: var(--font-size-body-sm); }
-  .delete-btn.confirm-delete { background: var(--status-danger); color: var(--fg-on-danger); border-color: var(--status-danger); font-weight: var(--font-weight-semibold); }
-
-  /* === Editor section (lifted from .area-studio in F6 leg 03) === */
-  /* Vertical rhythm + section divider for entity editors (studio's
-     agent-editor + admin's provider-editor). Sibling-adjacent rule provides
-     the section divider; admin's editor uses three sections (Connection /
-     Models / Danger Zone). */
-  .editor-section { padding: 12px 0; }
-  .editor-section + .editor-section { border-top: 1px solid var(--border); padding-top: 16px; }
-
-  /* === Danger Zone (editor section variant) === */
-  /* Lifted from .area-studio .danger-zone-title (F6 leg 03). The section
-     itself uses `class="editor-section danger-zone"`; the title uses
-     `class="section-title danger-zone-title"`. The .danger-zone class
-     itself is currently a hook for grep-ability + future styling. */
-  .danger-zone { /* hook for future destructive-section accent; bare class for grep */ }
-  .danger-zone-title { color: var(--status-danger); }
-
-  /* === Banner ===
-     Surface a status / advisory message inline. Three semantic variants:
-     - .banner-error: blocked actions, hard failures (destructive palette).
-     - .banner-warning: irreversible operations, attention-required state.
-     - .banner-info: informational notes, neutral advisories.
-     Shape (lifted from the prior .action-blocked-message): 3px accent
-     left-border + variant-tinted gradient bg that fades toward transparent
-     on the right + asymmetric corner-radius (sharp on left, soft on right).
-     Consumers include provider-editor's agent-usage hard-block, system
-     page's encryption-rotate warning, and any future inline-callout site.
-     Compose: <div class="banner banner-{variant}">…</div>. */
-  .banner {
-    padding: 10px 14px;
-    border-radius: 0 var(--panel-radius-sm) var(--panel-radius-sm) 0;
-    border-left: 3px solid transparent;
-    font-size: var(--font-size-body-sm);
-    line-height: var(--line-height-normal);
-  }
-  .banner-error {
-    border-left-color: var(--status-danger);
-    background: linear-gradient(to right, var(--status-danger-bg-soft), transparent);
-    color: var(--status-danger);
-  }
-  .banner-warning {
-    border-left-color: var(--status-warning);
-    background: linear-gradient(to right, var(--status-warning-bg-soft-2), transparent);
-    color: var(--status-warning);
-  }
-  .banner-info {
-    border-left-color: var(--accent);
-    background: linear-gradient(to right, var(--accent-translucent), transparent);
-    color: var(--accent);
-  }
-  .banner[hidden] { display: none; }
-
-  /* Legacy class .action-blocked-message — retained so existing JS query
-     selectors (provider-editor.js:379) keep working. Compose .banner +
-     .banner-error in markup; this class is only a JS-query handle now,
-     with no visual styling of its own. */
-
-  /* === API-key wrapper (input + show/hide eye toggle) === */
-  /* API-key field wrapper — lifted from admin's .admin-pf-password-wrap
-     (F6 leg 03). The eye button is a toggle that swaps password<->text on
-     the adjacent input. Used by admin's provider editor (Connection
-     section). */
-  .api-key-wrap { flex: 1; display: flex; gap: 6px; align-items: center; }
-  .api-key-wrap .field-input { flex: 1; }
-  .api-key-eye { background: none; border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; color: var(--fg-secondary); font-size: var(--font-size-tiny); cursor: pointer; font-family: inherit; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
-  .api-key-eye:hover { color: var(--fg); border-color: var(--border-strong); }
-  .api-key-eye:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 3px var(--accent-glow); }
-  .api-key-eye svg { width: 14px; height: 14px; display: block; }
-
-  /* === Advanced collapsible (Coming-soon stub disclosure) === */
-  /* Native <details>/<summary> for accessibility (keyboard-operable, screen
-     readers announce expand/collapse, zero-JS). The Advanced section in
-     the General tab (F5 leg 03) is a stub for provider-bound config to
-     land in a future flight. */
-  .advanced-collapsible {
-    margin-top: 16px;
-    border-top: 1px solid var(--border);
-    padding-top: 12px;
-  }
-  .advanced-collapsible > summary {
-    cursor: pointer;
-    font-size: var(--font-size-body-sm);
-    color: var(--fg-secondary);
-    padding: 4px 0;
-  }
-  .advanced-collapsible > summary:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-    box-shadow: 0 0 0 3px var(--accent-glow);
-  }
-  .advanced-collapsible[open] > summary { color: var(--fg); }
-  .advanced-caption {
-    font-size: var(--font-size-caption);
-    color: var(--fg-muted);
-    font-style: italic;
-    margin-top: 8px;
+    transition: background var(--t), border-color var(--t), box-shadow var(--t);
   }
 
-  /* === Code block primitive ===
-     Reusable read-only code/prompt artifact. Theme-aware via tokens:
-     dark theme uses a terminal aesthetic (#000 bg + warning-orange text);
-     light theme uses pale slate-50 surface-elevated + slate-900 fg (AAA
-     contrast — composes already-audited pairs). 1px border supplies the
-     "code well" framing in both themes (subtle in dark, more visible in
-     light). Consumers: .admin-base-prompt, tools-editor prompt block,
-     anywhere else a read-only code artifact wants the same vocabulary. */
-  .code-block {
-    background: var(--code-block-bg);
-    color: var(--code-block-fg);
-    border: 1px solid var(--border);
-    padding: 12px 14px;
-    border-radius: var(--panel-radius-sm);
-    font-family: var(--font-family-mono);
-    font-size: var(--font-size-body-sm);
-    line-height: 1.5;
-    overflow-x: auto;
-    white-space: pre-wrap;
-    word-break: break-word;
-    margin: 0;
-  }
+  .btn:hover { background: var(--surface-2); border-color: rgba(15,17,21,0.18); }
 
-  /* === Markdown code-block copy affordance === */
-  .markdown-code-wrap {
-    position: relative;
-  }
-  .markdown-copy-btn {
-    position: absolute;
-    top: 8px;
-    right: 8px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--panel-radius-sm);
-    padding: 4px 6px;
-    color: var(--fg-muted);
-    cursor: pointer;
-    opacity: 0;
-    transition: opacity 0.15s, color 0.15s, border-color 0.15s;
-  }
-  .markdown-code-wrap:hover .markdown-copy-btn,
-  .markdown-code-wrap:focus-within .markdown-copy-btn {
-    opacity: 1;
-  }
-  .markdown-copy-btn:hover {
-    opacity: 1;
-    color: var(--fg);
+  .btn-primary {
+    background: var(--accent);
+    color: #fff;
     border-color: var(--accent);
   }
-  .markdown-copy-btn:focus-visible {
-    opacity: 1;
-    outline: 2px solid var(--accent);
-    outline-offset: 2px;
-    box-shadow: 0 0 0 3px var(--accent-glow);
-  }
-  .markdown-copy-btn svg {
-    width: 14px;
-    height: 14px;
-    display: block;
+
+  .btn-primary:hover { background: #3563d3; border-color: #3563d3; }
+
+  .btn-ghost {
+    background: transparent;
+    border-color: transparent;
+    color: var(--fg-mute);
   }
 
-  /* === Modal dialog (F5 leg 04) ===
-     Canonical primitives for App.confirmDialog and any future blocking-
-     decision modals. Three classes:
-       .modal-overlay  — full-screen semi-transparent backdrop, flex-centers
-                         the dialog. role="dialog" + aria-modal="true" set
-                         by the helper.
-       .modal-dialog   — the dialog body itself (border, radius, padding,
-                         max-width).
-       .modal-actions  — right-aligned button cluster. Composed alongside
-                         .form-actions on the container (multi-class:
-                         class="modal-actions form-actions") so the
-                         existing .form-actions layout rule applies. The
-                         .modal-actions class itself is currently a
-                         no-op alias for documentation/grep-ability —
-                         ensures every modal action cluster grep-matches
-                         on .modal-actions. */
-  .modal-overlay {
+  .btn-ghost:hover { background: rgba(15,17,21,0.04); color: var(--fg); }
+
+  /* ── Cards ───────────────────────────────────────────────────────────── */
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-1);
+    transition: box-shadow var(--t), border-color var(--t);
+  }
+
+  .card.interactive { cursor: pointer; }
+
+  .card.interactive:hover {
+    box-shadow: var(--shadow-2);
+    border-color: var(--hairline-strong);
+  }
+
+  .card.selected {
+    border-color: var(--accent);
+    box-shadow: var(--shadow-2), 0 0 0 1px var(--accent);
+  }
+
+  /* ── Chips ───────────────────────────────────────────────────────────── */
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 8px;
+    border-radius: var(--radius-chip);
+    background: rgba(15,17,21,0.05);
+    color: var(--fg-mute);
+    font-size: 11.5px;
+    font-weight: 500;
+    line-height: 1.6;
+  }
+
+  .chip.accent { background: var(--accent-tint); color: var(--accent); }
+  .chip.success { background: rgba(47,156,106,0.1); color: var(--success); }
+  .chip.warn { background: rgba(201,138,43,0.1); color: var(--warn); }
+  .chip.mono { font-family: 'JetBrains Mono', monospace; font-size: 11px; }
+
+  /* ── Status dot ──────────────────────────────────────────────────────── */
+
+  .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    display: inline-block;
+    background: var(--fg-faint);
+  }
+
+  .dot.live { background: var(--success); box-shadow: 0 0 0 2px rgba(47,156,106,0.15); }
+  .dot.warn { background: var(--warn); }
+  .dot.idle { background: var(--fg-faint); }
+
+  /* ── Tabs ────────────────────────────────────────────────────────────── */
+
+  .tabs {
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid var(--hairline);
+    padding: 0 24px;
+    margin-top: 4px;
+  }
+
+  .tab {
+    padding: 10px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--fg-mute);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: color var(--t), border-color var(--t);
+  }
+
+  .tab:hover { color: var(--fg); }
+  .tab.active { color: var(--fg); border-bottom-color: var(--accent); }
+
+  /* ── Section label ───────────────────────────────────────────────────── */
+
+  .section-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--fg-mute);
+    font-weight: 600;
+    margin-bottom: 10px;
+  }
+
+  /* ── Form controls ───────────────────────────────────────────────────── */
+
+  .form-row {
+    display: grid;
+    grid-template-columns: 180px 1fr;
+    gap: 24px;
+    padding: 14px 0;
+    border-top: 1px solid var(--hairline);
+    align-items: flex-start;
+  }
+
+  .form-row:first-child { border-top: none; padding-top: 4px; }
+
+  .form-label {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--fg);
+  }
+
+  .form-help {
+    color: var(--fg-faint);
+    font-size: 11.5px;
+    margin-top: 3px;
+    line-height: 1.4;
+  }
+
+  .form-control {
+    width: 100%;
+    border: 1px solid var(--hairline-strong);
+    border-radius: 8px;
+    padding: 7px 10px;
+    font-family: inherit;
+    font-size: 13px;
+    color: var(--fg);
+    background: var(--surface);
+    transition: border-color var(--t), box-shadow var(--t);
+  }
+
+  .form-control:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(64,112,224,0.12);
+  }
+
+  textarea.form-control { resize: vertical; min-height: 90px; font-size: 12.5px; line-height: 1.55; }
+
+  select.form-control {
+    appearance: none;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' stroke='%236a6e76' stroke-width='1.5' fill='none' stroke-linecap='round'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    padding-right: 28px;
+  }
+
+  /* ── Toggle (iOS-style) ──────────────────────────────────────────────── */
+
+  .toggle {
+    width: 32px;
+    height: 18px;
+    border-radius: 999px;
+    background: rgba(15,17,21,0.18);
+    position: relative;
+    cursor: pointer;
+    transition: background var(--t);
+    flex: none;
+  }
+
+  .toggle::after {
+    content: '';
+    position: absolute;
+    top: 2px; left: 2px;
+    width: 14px; height: 14px;
+    background: #fff;
+    border-radius: 50%;
+    transition: transform var(--t);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+  }
+
+  .toggle.on { background: var(--accent); }
+  .toggle.on::after { transform: translateX(14px); }
+
+  /* ── Subnav item (shared section-nav primitive) ───────────────────────── */
+
+  .subnav-item {
+    padding: 10px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--fg-mute);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: color var(--t), border-color var(--t);
+  }
+
+  .subnav-item:hover { color: var(--fg); }
+  .subnav-item.active { color: var(--fg); border-bottom-color: var(--accent); }
+
+  /* ── Segmented control ───────────────────────────────────────────────── */
+
+  .seg {
+    display: inline-flex;
+    border: 1px solid var(--hairline-strong);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--surface);
+  }
+
+  .seg-btn {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    padding: 6px 12px;
+    font-family: inherit;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--fg-mute);
+    cursor: pointer;
+    transition: background var(--t), color var(--t);
+  }
+
+  .seg-btn + .seg-btn { border-left: 1px solid var(--hairline); }
+  .seg-btn.active { background: var(--accent-tint); color: var(--accent); }
+
+  /* ── Icons ───────────────────────────────────────────────────────────── */
+
+  .icn { width: 14px; height: 14px; stroke: currentColor; stroke-width: 1.6; fill: none; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+  .icn-sm { width: 12px; height: 12px; }
+
+  /* ── Holograph section nav — shared by Admin and Studio subnavs ────────── */
+
+  .holograph-section-nav {
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .holograph-section-item {
+    padding: 10px 14px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--fg-mute);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: color var(--t), border-color var(--t);
+    background: transparent;
+    border-left: 0; border-right: 0; border-top: 0;
+  }
+
+  .holograph-section-item:hover { color: var(--fg); }
+  .holograph-section-item.active { color: var(--fg); border-bottom-color: var(--accent); }
+
+  /* ── Modal vocabulary ────────────────────────────────────────────────── */
+
+  .modal-backdrop {
     position: fixed;
     inset: 0;
-    /* Lighter overlay (was 0.5) — Mission 08 F2 L3 — so the modal-dialog's
-       backdrop-filter refraction reads through the dim, instead of looking
-       like a flat dark mask with a glass panel pasted on top. */
-    background: rgba(0, 0, 0, 0.3);
-    z-index: 200;
+    background: rgba(15, 17, 21, 0.5);
+    z-index: 100;
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 16px;
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
   }
-  .modal-dialog {
-    /* Glass — Mission 08 F2 L3. Modal sits on top of .modal-overlay's
-       (now-reduced) dark backdrop; backdrop-filter blurs through to the
-       content beneath. var(--panel-shadow) dropped — competes with glass. */
-    background-color: var(--glass-bg);
-    background-image: var(--glass-gleam);
-    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-    border: 1px solid var(--glass-border);
-    border-radius: var(--panel-radius);
-    box-shadow: var(--bezel-shadow);
-    padding: 24px;
-    min-width: 320px;
-    max-width: 480px;
-    width: 100%;
-    color: var(--fg);
+
+  .modal-shell {
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-3);
+    max-width: 560px;
+    width: 90vw;
+    max-height: 80vh;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    overflow: hidden;
   }
-  .modal-dialog:focus { outline: none; }
-  .modal-dialog-title {
-    margin: 0;
-    font-size: var(--font-size-h2);
-    font-weight: var(--font-weight-semibold);
-    color: var(--fg);
-  }
-  .modal-dialog-message {
-    margin: 0 0 12px 0;
-    font-size: var(--font-size-body-lg);
-    line-height: 1.5;
-    /* F5 L5 a11y review (WCAG 1.4.3): use --fg (13.18:1 on
-       --surface-elevated dark) instead of --fg-secondary (3.56:1 fail)
-       so dynamic error text in modals meets AA body-text contrast. */
-    color: var(--fg);
-  }
-  /* .modal-actions composes onto .form-actions for layout — the helper emits
-     `class="modal-actions form-actions"` so the right-aligned button
-     cluster comes from .form-actions. The .modal-actions class itself is a
-     documentation/grep hook with no extra rules today. */
-  .modal-actions { /* alias for .form-actions in the modal context */ }
 
-}
+  .modal-header {
+    display: flex;
+    align-items: center;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--hairline);
+  }
 
-@layer utilities {
-  /* Utility classes — !important wins over @layer components / @layer areas
-     by design (utility is the explicit override). */
-  .is-hidden { display: none !important; }
-  .u-flex { display: flex !important; }
-  .u-block { display: block !important; }
+  .modal-title { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+
+  .modal-close {
+    margin-left: auto;
+    appearance: none;
+    background: transparent;
+    border: 0;
+    color: var(--fg-mute);
+    padding: 4px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
+  .modal-close:hover { background: rgba(15,17,21,0.05); color: var(--fg); }
+
+  .modal-body { padding: 20px; overflow-y: auto; flex: 1; }
+
+  .modal-footer {
+    padding: 12px 20px;
+    border-top: 1px solid var(--hairline);
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  .confirm-dialog { max-width: 380px; }
+
+  .confirm-dialog .btn-primary.danger {
+    background: var(--danger);
+    color: var(--fg-on-danger);
+    border-color: var(--danger);
+  }
+
+  .confirm-dialog .btn-primary.danger:hover { background: #b03830; border-color: #b03830; }
+
+  /* ── App toast ───────────────────────────────────────────────────────── */
+
+  .app-toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--surface);
+    border: 1px solid var(--hairline-strong);
+    border-radius: var(--radius-control);
+    box-shadow: var(--shadow-2);
+    padding: 10px 16px;
+    font-size: 13px;
+    color: var(--fg);
+    z-index: 200;
+    transition: opacity 320ms ease-out, transform 320ms ease-out;
+  }
+
+  .app-toast-out { opacity: 0; transform: translateX(-50%) translateY(8px); }
+
+  /* ── Reduced-transparency fallback ──────────────────────────────────── */
+
+  @media (prefers-reduced-transparency: reduce) {
+    .topnav { background: var(--bg); backdrop-filter: none; -webkit-backdrop-filter: none; }
+    .modal-backdrop { backdrop-filter: none; -webkit-backdrop-filter: none; }
+  }
+
 }
