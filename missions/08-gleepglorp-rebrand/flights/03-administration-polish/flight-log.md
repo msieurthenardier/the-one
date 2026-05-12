@@ -181,6 +181,43 @@ All four items remain in Flight 3 scope. No items retired.
 
 ---
 
+### 05-tools-polish
+
+**Status**: landed (2026-05-11) — operator confirmed ("good, pass")
+
+**Scope at HAT kickoff** (operator surfaced 4 items, all on the chip-list-editor + tool config boolean fields):
+
+1. Tab key should create a slug (chip), just as Enter does
+2. Cursor should be positionable before a chip to insert a new chip there
+3. The × button is hard to see — should be purple at rest, red on hover
+4. Checkboxes are not styled (e.g., `allow_binary_files` on `read_file`)
+
+**What was implemented**:
+
+- **chip-list-input keydown handler** extended to commit on Tab (alongside Enter + comma). Tab on empty input lets default focus-advance happen so operator can leave the chip-list field naturally.
+- **Backspace-on-empty** reworked to walk `previousElementSibling` rather than assume the last chip in the list. This makes Backspace behave correctly when the input has been re-positioned by the new click-to-insert action.
+- **Click handler** extended to handle chip-body clicks (NOT just × button clicks): clicking on a chip re-positions the chip-list-input DOM node BEFORE that chip and focuses it. Next chip insertion lands at that DOM position. Locked chips (NarrowSuperset operator's items in agent mode) are skipped — they're no-ops for re-positioning.
+- **`.chip-remove` color updated** in admin.css: `--fg-faint` rest → `--accent` rest (purple, matches design-language vocabulary). `--accent` hover → `--status-danger` hover (red, signals destructive action). Added tactile motion transition for both states.
+- **`.checkbox-primary` class added** to the boolean-type field renderer in `tools-form-helpers.js:137`. Affects every boolean tool config field (e.g., `allow_binary_files` on `read_file`). The canonical primitive was lifted in Flight 2 Leg 02 but the bare `<input type="checkbox">` emission was missed at the time.
+
+**Verification**:
+
+- Narrow test gate: 56/56 in 0.93s.
+- WCAG audit standalone: 45/45 in 0.05s (no contrast pair changes — chip-remove color is on-bg, both audited).
+- `make rebuild` → all assets served correctly.
+- Operator verification → confirmed mid-rebuild ("good, pass" — interpreted as "good, pass-through to commit").
+
+**Anomalies**: None.
+
+**Deviations from leg design**:
+
+- Leg planned to cover Tools tabbed grid + per-tool editor full polish. Operator deemed tabbed grid + iOS toggles already on-brand (consistent with the Leg 04 early-close pattern). Leg scoped to chip-list-editor + checkbox primitive application only.
+- Leg 04's "operator-driven early-close" pattern continued. Most of the Tools page already inherits Flight 2 vocabulary via canonical primitives (`.entity-tile.tool-tile` glass+bezel, `.tablist` for category tabs, V3b buttons, `.tool-enable-switch` iOS toggle from M07).
+
+**Methodology lesson (refining Leg 04's)**: Polish legs in this flight have followed a pattern of "operator-surfaced specific items → land them → close." Two natural HAT cadences are emerging: (a) walkthrough produces a punchlist (8 items in Leg 03, 4 here), or (b) walkthrough produces 1-2 spot fixes (Leg 04). Both close cleanly when the operator says "looks good." Future polish flights should plan for either cadence rather than expecting the full pre-scoped checklist to be exhausted.
+
+---
+
 ## Decisions
 
 ### Reconnaissance citation drift on `tokens-section.js`

@@ -420,15 +420,17 @@
   .area-studio .chip-list-editor .chip-remove {
     background: none;
     border: 0;
-    color: var(--fg-faint);
+    color: var(--accent);
     cursor: pointer;
     padding: 0 2px;
     font-size: 1em;
     line-height: 1;
+    transition: color var(--motion-base) var(--ease-tactile);
   }
   .area-admin .chip-list-editor .chip-remove:hover,
   .area-studio .chip-list-editor .chip-remove:hover {
-    color: var(--accent);
+    color: var(--status-danger);
+    transition: color var(--motion-fast) var(--ease-tactile);
   }
   .area-admin .chip-list-input,
   .area-studio .chip-list-input {

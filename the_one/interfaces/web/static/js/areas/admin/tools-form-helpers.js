@@ -134,7 +134,7 @@
     }
 
     if (ftype === 'boolean') {
-      input = '<input id="' + idAttr + '" type="checkbox" ' + dataAttrs + (value ? ' checked' : '') + ' />';
+      input = '<input id="' + idAttr + '" class="checkbox-primary" type="checkbox" ' + dataAttrs + (value ? ' checked' : '') + ' />';
     } else if (
       ftype === 'integer'
       && hint === 'dropdown'
@@ -387,7 +387,13 @@
     }
 
     inputEl.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter' || e.key === ',') {
+      // Enter, Tab, and comma all commit the current input as a chip
+      // (preventing Tab's default focus-advance so rapid-fire typing
+      // works the same way for all three commit keys).
+      if (e.key === 'Enter' || e.key === ',' || e.key === 'Tab') {
+        // Tab on EMPTY input: let default focus-advance happen — operator
+        // is leaving the chip-list, not committing an empty chip.
+        if (e.key === 'Tab' && inputEl.value === '') return;
         e.preventDefault();
         if (addChips(inputEl.value)) {
           inputEl.value = '';
@@ -399,12 +405,17 @@
         // Locked chips (NarrowSuperset operator's items) carry no
         // chip-remove button — but Backspace-on-empty would still try to
         // remove the last chip. Skip locked chips when walking back.
-        var chips = editorEl.querySelectorAll('.chip');
-        for (var ci = chips.length - 1; ci >= 0; ci--) {
-          if (chips[ci].dataset.locked === 'true') continue;
-          chips[ci].remove();
-          if (callbacks.onChange) callbacks.onChange();
-          break;
+        // Backspace deletes the chip IMMEDIATELY BEFORE the input's
+        // current DOM position (not always the last chip — the input may
+        // have been re-positioned by a click-to-insert action below).
+        var prev = inputEl.previousElementSibling;
+        while (prev) {
+          if (prev.classList && prev.classList.contains('chip') && prev.dataset.locked !== 'true') {
+            prev.remove();
+            if (callbacks.onChange) callbacks.onChange();
+            break;
+          }
+          prev = prev.previousElementSibling;
         }
       }
     });
@@ -421,12 +432,23 @@
     });
 
     editorEl.addEventListener('click', function (e) {
+      // Click on the × button → remove the chip.
       var btn = e.target.closest && e.target.closest('.chip-remove');
-      if (!btn) return;
-      var chip = btn.closest('.chip');
-      if (chip) {
-        chip.remove();
-        if (callbacks.onChange) callbacks.onChange();
+      if (btn) {
+        var chip = btn.closest('.chip');
+        if (chip) {
+          chip.remove();
+          if (callbacks.onChange) callbacks.onChange();
+        }
+        return;
+      }
+      // Click on a chip body (NOT the × button) → re-position the input
+      // before that chip so the next Enter/Tab/comma inserts at this
+      // point. Locked chips are skipped (operator's items in agent mode).
+      var clickedChip = e.target.closest && e.target.closest('.chip');
+      if (clickedChip && clickedChip.dataset.locked !== 'true') {
+        editorEl.insertBefore(inputEl, clickedChip);
+        inputEl.focus();
       }
     });
   }
