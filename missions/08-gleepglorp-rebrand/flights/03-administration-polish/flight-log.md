@@ -104,6 +104,54 @@ All four items remain in Flight 3 scope. No items retired.
 
 ---
 
+### 03-system-page-polish
+
+**Status**: landed (2026-05-11) — operator visual-confirmed across 4 iteration rounds
+
+**Scope at HAT kickoff** (operator surfaced 8 cross-page items, accepted as leg scope-expansion per the Flight 1/2 "opportunistic adjacent fixes" pattern):
+
+1. Theme picker not styled like the rest of the app
+2. Move encryption section to bottom
+3. Encryption warning callout doesn't match design language
+4. Provider test result has redundant green check (✓ glyph) after the LED dot
+5. Tools fields not properly formatted (host_allowlist etc.)
+6. Tools `// prompt` not a proper header; body should be chat-style code block
+7. Base prompt should be chat-style code block
+8. Design language page still has 2 nested scrollbars (one extending behind topbar)
+
+**Two new shared primitives extracted** into `components.css`:
+
+- **`.banner`** with `.banner-error` / `.banner-warning` / `.banner-info` variants. Shape lifted from prior `.action-blocked-message`: 3px solid left border + variant-tinted `linear-gradient(to right, …bg-soft, transparent)` + asymmetric corner-radius (sharp left, panel-radius-sm right). Operator iterated from full-border + bezel-inset (v4 round 1) back to the left-border + gradient shape (v4 round 2).
+- **`.code-block`** chat-style terminal aesthetic: `background: #000` + `color: var(--status-warning)` + mono + `--panel-radius-sm`. Consumers: System base prompt, Tools editor prompt body.
+
+**Body-level scrollbar bug**: classic flex layout pathology. `body { height: 100vh; display: flex; flex-direction: column }` had no `overflow: hidden`; flex-column children defaulted to `min-height: auto` (content-sized), pushing body content past 100vh and surfacing a document-level scrollbar that ran the full viewport (visible behind the topbar). Fix: `body { overflow: hidden }` + `min-height: 0` on `#main-content`, `.content-panel`, `.area-admin .admin-content`. Also removed redundant `overflow-y: auto` from `.admin-form` (closes the System-page nested-scroll variant).
+
+**Iteration trail**:
+
+1. **v1**: Initial polish per scoped 8 items (theme toggle bezel-mini + accent-translucent active, encryption bezel-inset, etc.).
+2. **v2 → operator returned 3 corrections**: theme toggle active should be SOLID button; tools prompt should be canonical `// PROMPT` section-title eyebrow; scrollbar still present (full-viewport).
+3. **v3**: Solid-filled active option + canonical section-title + body-level overflow fix landed.
+4. **v4 → operator surfaced 3 more items**: dead topbar-title miniature, action-blocked-message → general banner with variants, encryption text → banner-warning. Initial banner styling (full border + bezel-inset) rejected; reapplied with prior "solid left border + gradient" aesthetic.
+
+**Verification**:
+
+- Narrow test gate: `docker exec the-one pytest tests/test_design_tokens_a11y.py tests/test_token_definitions.py tests/test_oauth_provider_factory.py tests/test_platform_tempdirs.py -x -q --timeout 30` → **56/56 in 0.94s** (final round).
+- WCAG audit standalone: `docker exec the-one pytest tests/test_design_tokens_a11y.py -v --timeout 30` → **45/45 in 0.05s** (no contrast pair changes — banner uses already-audited soft-bg + status-color pairs).
+- `make rebuild` → all assets served correctly.
+- Operator visual verification → confirmed.
+
+**Anomalies**: None.
+
+**Deviations from leg artifact**:
+
+- Original leg artifact scoped System-only polish. Mid-HAT, operator surfaced 8 cross-page items and the leg absorbed them. Scope absorbed: Tools editor prompt + chip-list-editor; Providers test result glyph; Design Language gallery cleanup; body-level scrollbar fix.
+- Banner primitive went through 2 design rounds (full-border + bezel-inset → left-border + gradient). Operator-driven aesthetic call.
+- Theme toggle went through 2 rounds (accent-translucent active → solid-fill active). Operator-driven aesthetic call.
+
+**Methodology lesson**: When the operator surfaces cross-page items at HAT, absorbing them into the active leg (rather than deferring to their planned legs) is cheaper if they cluster around shared primitives. Here the `.banner` + `.code-block` extraction is naturally cross-page work; doing it in Leg 03 means Legs 04 + 05 consume the primitives rather than re-deriving.
+
+---
+
 ## Decisions
 
 ### Reconnaissance citation drift on `tokens-section.js`

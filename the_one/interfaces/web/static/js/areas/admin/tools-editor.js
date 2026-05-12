@@ -116,8 +116,8 @@
     html += '<h1 class="editor-title">' + escapeHtml(name) + '</h1>';
     html += '<p class="editor-subtitle editor-subtitle-meta">' + escapeHtml(category) + '</p>';
     html += '<div class="editor-prompt-block">';
-    html += '<span class="editor-prompt-label">// prompt</span>';
-    html += '<p class="editor-prompt-text">' + escapeHtml(description) + '</p>';
+    html += '<div class="section-title">Prompt</div>';
+    html += '<pre class="editor-prompt-text code-block">' + escapeHtml(description) + '</pre>';
     html += '</div>';
     html += '</div>';
 

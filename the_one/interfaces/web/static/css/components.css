@@ -924,22 +924,45 @@
   .danger-zone { /* hook for future destructive-section accent; bare class for grep */ }
   .danger-zone-title { color: var(--status-danger); }
 
-  /* === Action-blocked message banner ===
-     Surfaces a "you can't do this right now" message NEXT TO an action
-     button (not inside it) so long messages don't deform the button.
-     Used by admin's provider-editor Danger Zone for the agent-usage
-     hard-block path. Destructive-tinted to match the action it blocks. */
-  .action-blocked-message {
-    margin-top: 10px;
-    padding: 8px 12px;
-    border-left: 3px solid var(--status-danger);
-    background: var(--status-danger-bg-soft);
-    border-radius: 0 4px 4px 0;
+  /* === Banner ===
+     Surface a status / advisory message inline. Three semantic variants:
+     - .banner-error: blocked actions, hard failures (destructive palette).
+     - .banner-warning: irreversible operations, attention-required state.
+     - .banner-info: informational notes, neutral advisories.
+     Shape (lifted from the prior .action-blocked-message): 3px accent
+     left-border + variant-tinted gradient bg that fades toward transparent
+     on the right + asymmetric corner-radius (sharp on left, soft on right).
+     Consumers include provider-editor's agent-usage hard-block, system
+     page's encryption-rotate warning, and any future inline-callout site.
+     Compose: <div class="banner banner-{variant}">…</div>. */
+  .banner {
+    padding: 10px 14px;
+    border-radius: 0 var(--panel-radius-sm) var(--panel-radius-sm) 0;
+    border-left: 3px solid transparent;
     font-size: var(--font-size-body-sm);
-    color: var(--status-danger);
     line-height: var(--line-height-normal);
   }
-  .action-blocked-message[hidden] { display: none; }
+  .banner-error {
+    border-left-color: var(--status-danger);
+    background: linear-gradient(to right, var(--status-danger-bg-soft), transparent);
+    color: var(--status-danger);
+  }
+  .banner-warning {
+    border-left-color: var(--status-warning);
+    background: linear-gradient(to right, var(--status-warning-bg-soft-2), transparent);
+    color: var(--status-warning);
+  }
+  .banner-info {
+    border-left-color: var(--accent);
+    background: linear-gradient(to right, var(--accent-translucent), transparent);
+    color: var(--accent);
+  }
+  .banner[hidden] { display: none; }
+
+  /* Legacy class .action-blocked-message — retained so existing JS query
+     selectors (provider-editor.js:379) keep working. Compose .banner +
+     .banner-error in markup; this class is only a JS-query handle now,
+     with no visual styling of its own. */
 
   /* === API-key wrapper (input + show/hide eye toggle) === */
   /* API-key field wrapper — lifted from admin's .admin-pf-password-wrap
@@ -980,6 +1003,25 @@
     color: var(--fg-muted);
     font-style: italic;
     margin-top: 8px;
+  }
+
+  /* === Code block primitive ===
+     Reusable terminal-style code block matching the chat assistant
+     <pre> aesthetic (black bg + warning-orange text + panel-radius-sm).
+     Consumers: .admin-base-prompt, tools-editor prompt block, anywhere
+     else a read-only code/prompt artifact wants the same vocabulary. */
+  .code-block {
+    background: #000;
+    color: var(--status-warning);
+    padding: 12px 14px;
+    border-radius: var(--panel-radius-sm);
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-body-sm);
+    line-height: 1.5;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin: 0;
   }
 
   /* === Markdown code-block copy affordance === */

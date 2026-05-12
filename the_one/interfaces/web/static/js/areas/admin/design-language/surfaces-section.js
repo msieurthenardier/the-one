@@ -64,17 +64,6 @@
         '</div>' +
       '</div>' +
 
-      // --- Topbar miniature (static, no events) ---
-      '<div style="display: flex; flex-direction: column; gap: 8px;">' +
-        '<span style="font-family: var(--font-family-mono); font-size: var(--font-size-tiny); color: var(--fg-muted);">app-topbar-title (miniature)</span>' +
-        '<div style="display: flex; align-items: center; height: 48px; padding: 0 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--panel-radius-sm);">' +
-          '<h1 class="app-topbar-title">' +
-            '<img src="/static/assets/brand/icon.svg" alt="" onerror="this.style.display=\'none\'" />' +
-            'GleepGlorp AI' +
-          '</h1>' +
-        '</div>' +
-      '</div>' +
-
       // --- App-picker miniature (rest + active, static) ---
       // Post-Flight-3-Leg-2: the popover affordance was retired; .app-picker-button
       // is now a flat top-bar area button. Sample shows rest vs aria-current="page".

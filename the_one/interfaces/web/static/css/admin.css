@@ -1,6 +1,9 @@
 @layer areas {
   /* === Content === */
-  .area-admin .admin-content { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
+  /* min-height: 0 allows .admin-content to shrink below its content
+     min-content (mandatory for overflow-y: auto to actually clip rather than
+     propagate up the flex chain). */
+  .area-admin .admin-content { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
   /* Admin's provider-editor mounts .editor-section blocks as direct children
      of .admin-content — no .tabpanel wrapper (no tabs). Studio gets its
      20px horizontal gutter from .tabpanel; admin needs the same gutter
@@ -8,7 +11,11 @@
      20px padding. F6 HAT inline fix. */
   .area-admin .editor-section { padding-left: 20px; padding-right: 20px; }
   /* `.admin-header` / `.admin-title` removed in F6 leg 03 — editor uses canonical `.editor-header` + `.editor-title`; system page uses `.page-header` + `.page-title` (post-leg-02). */
-  .area-admin .admin-form { flex: 1; overflow-y: auto; padding: 16px 20px 40px; }
+  /* .admin-form is content padding only — overflow is owned by .admin-content
+     (single scroll container per Admin page). Removing the redundant
+     overflow-y: auto here closes the nested-scrollbar bug surfaced on
+     System (and previously on Design Language). */
+  .area-admin .admin-form { flex: 1; padding: 16px 20px 40px; }
   .area-admin .admin-loading { color: var(--fg-muted); font-size: var(--font-size-body); padding: 20px 0; }
   .area-admin .admin-note { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; font-size: var(--font-size-body-sm); color: var(--fg-secondary); margin-bottom: 16px; line-height: var(--line-height-normal); }
   .area-admin .admin-section { padding: 16px 0; border-top: 1px solid var(--border); }
@@ -21,31 +28,62 @@
   .area-admin .admin-system-section { padding: 16px 0; border-top: 1px solid var(--border); }
   .area-admin .admin-system-section:first-of-type { border-top: none; padding-top: 0; }
   .area-admin .admin-system-text { font-size: var(--font-size-body); color: var(--fg-secondary); line-height: var(--line-height-normal); margin-bottom: 12px; }
-  .area-admin .admin-system-warning { background: var(--status-warning-bg-soft-2); border: 1px solid var(--status-warning-border); border-radius: 6px; padding: 10px 14px; font-size: var(--font-size-body-sm); color: var(--status-warning); line-height: var(--line-height-normal); margin-bottom: 16px; }
+  /* Encryption warning callout — `<div class="banner banner-warning">`
+     (canonical primitive in components.css). Bottom margin separates it
+     from the rotate button. */
+  .area-admin .admin-system-section .banner-warning { margin-bottom: 16px; }
   .area-admin .admin-system-flash { margin-top: 12px; font-size: var(--font-size-body-sm); min-height: 20px; }
   .area-admin .admin-system-flash.success { color: var(--status-success); font-weight: var(--font-weight-semibold); }
   .area-admin .admin-system-flash.error { color: var(--status-danger); }
+  /* Base prompt block — composes the canonical .code-block primitive
+     defined in components.css. Adds admin-specific max-height bound. */
   .area-admin .admin-base-prompt {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--panel-radius-sm);
-    padding: 12px 14px;
-    font-family: var(--font-family-mono);
-    font-size: var(--font-size-body-sm);
-    line-height: 1.5;
-    overflow-x: auto;
-    white-space: pre-wrap;
-    word-break: break-word;
     max-height: 24rem;
     overflow-y: auto;
-    color: var(--fg);
     margin: 0;
   }
-  .area-admin .admin-theme-toggle { display: inline-flex; border: 1px solid var(--border); border-radius: var(--panel-radius-sm); padding: 2px; background: var(--surface); }
-  .area-admin .admin-theme-option { background: transparent; border: none; padding: 6px 16px; color: var(--fg-secondary); font-size: var(--font-size-body-sm); font-family: inherit; cursor: pointer; border-radius: 4px; transition: background 0.2s, color 0.2s, box-shadow 0.2s; }
-  .area-admin .admin-theme-option:hover { color: var(--fg); }
-  .area-admin .admin-theme-option.active { background: var(--accent); color: var(--fg-on-accent); font-weight: var(--font-weight-semibold); box-shadow: 0 0 8px var(--accent-glow); }
-  .area-admin .admin-theme-option:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 3px var(--accent-glow); }
+  /* Theme toggle — segmented control composed onto the V3b design-language
+     family. Container carries bezel-mini + glass-border + accent-translucent
+     base; active option mirrors the .app-picker-button[aria-current="page"]
+     treatment (accent-translucent-hover + accent border). */
+  .area-admin .admin-theme-toggle {
+    display: inline-flex;
+    border: 1px solid var(--glass-border);
+    border-radius: var(--panel-radius-sm);
+    padding: 2px;
+    background-color: var(--accent-translucent);
+    background-image: var(--btn-v3-gradient);
+    box-shadow: var(--bezel-shadow-mini);
+  }
+  .area-admin .admin-theme-option {
+    background: transparent;
+    border: 1px solid transparent;
+    padding: 4px 14px;
+    color: var(--accent);
+    font-size: var(--font-size-body-sm);
+    font-weight: var(--font-weight-semibold);
+    font-family: inherit;
+    cursor: pointer;
+    border-radius: var(--panel-radius-sm);
+    transition: background-color var(--motion-base) var(--ease-tactile), color var(--motion-base) var(--ease-tactile);
+  }
+  .area-admin .admin-theme-option:hover {
+    background-color: var(--accent-translucent-hover);
+    transition: background-color var(--motion-fast) var(--ease-tactile), color var(--motion-fast) var(--ease-tactile);
+  }
+  /* Active option = solid accent fill (the filled-primary button look),
+     same family as .btn-filled-primary. No outer glow halo. */
+  .area-admin .admin-theme-option.active {
+    background-color: var(--accent);
+    background-image: var(--btn-v3-gradient);
+    color: var(--fg-on-accent);
+    border-color: var(--accent);
+  }
+  .area-admin .admin-theme-option:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 3px var(--accent-glow);
+  }
 
   /* === Provider List === */
   .area-admin .admin-provider-badge { font-family: var(--font-family-mono); font-size: var(--font-size-tiny); font-weight: var(--font-weight-semibold); color: var(--fg-on-accent); padding: 2px 8px; border-radius: 4px; flex-shrink: 0; text-transform: uppercase; letter-spacing: 0.5px; }
@@ -255,26 +293,29 @@
     letter-spacing: 1px;
     color: var(--fg-muted);
   }
+  /* Tools-editor prompt section — canonical .section-title eyebrow (// PROMPT)
+     + .code-block body. The .section-title rule already supplies the `//`
+     prefix and mono-uppercase tiny treatment; the editor-prompt-block
+     wrapper just adds layout. */
   .area-admin .editor-prompt-block {
-    margin-top: 8px;
-    padding: 8px 12px;
-    background: var(--surface-elevated);
-    border-radius: var(--panel-radius-sm);
-    border: 1px solid var(--border);
+    margin-top: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
   }
-  .area-admin .editor-prompt-label {
-    display: block;
-    font-family: var(--font-family-mono);
-    font-size: var(--font-size-tiny);
-    color: var(--fg-secondary);
-    margin-bottom: 2px;
+  /* Override .section-title's :first-child {margin-top: 0} so the eyebrow
+     keeps a tiny gap above the code body when it's the first child of the
+     prompt block. (The 6px gap from flex parent handles inter-element
+     spacing; the title's margin-bottom is enough.) */
+  .area-admin .editor-prompt-block .section-title {
+    margin-top: 0;
+    margin-bottom: 0;
   }
+  /* .editor-prompt-text composes .code-block in components.css; this rule
+     only adds editor-specific bounds (the prompt can be long; cap height). */
   .area-admin .editor-prompt-text {
-    margin: 0;
-    font-size: var(--font-size-body-sm);
-    color: var(--fg);
-    line-height: var(--line-height-normal);
-    white-space: pre-wrap;
+    max-height: 18rem;
+    overflow-y: auto;
   }
 
   /* === Uniform field-control width (F6 HAT inline fix #3) ====================
@@ -337,6 +378,11 @@
      chips (`.area-studio .tool-row-overrides .chip[data-locked]`, in
      studio.css) is preserved as it overrides only the single rule it
      needs to. */
+  /* Chip-list editor — input affordance for array-typed fields (e.g.,
+     host_allowlist). Treated as part of the .field-input family per
+     M08F3L3 polish: recessed bezel-inset + glass-border + panel-radius-sm,
+     matching .field-input visually. Chips inside use the canonical .chip
+     primitive treatment (accent-translucent flat). */
   .area-admin .chip-list-editor,
   .area-studio .chip-list-editor {
     flex: 1;
@@ -345,20 +391,26 @@
     gap: 4px;
     align-items: center;
     padding: 6px;
-    border: 1px solid var(--border-strong);
-    border-radius: 4px;
+    border: 1px solid var(--glass-border);
+    border-radius: var(--panel-radius-sm);
     min-height: 40px;
     background: var(--surface);
+    box-shadow: var(--bezel-shadow-inset);
+  }
+  .area-admin .chip-list-editor:focus-within,
+  .area-studio .chip-list-editor:focus-within {
+    border-color: var(--accent);
+    box-shadow: var(--bezel-shadow-inset), 0 0 0 3px var(--accent-glow);
   }
   .area-admin .chip-list-editor .chip,
   .area-studio .chip-list-editor .chip {
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    padding: 2px 6px;
-    background: var(--surface-elevated);
-    border: 1px solid var(--border);
-    border-radius: 12px;
+    padding: 2px 8px;
+    background: var(--accent-translucent);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--panel-radius-sm);
     font-size: var(--font-size-body-sm);
     color: var(--fg);
   }

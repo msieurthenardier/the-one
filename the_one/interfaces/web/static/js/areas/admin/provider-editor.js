@@ -93,7 +93,7 @@
       // ≥1 agents. Sibling of the button (NOT inside it) so long agent-name
       // lists don't deform the button. aria-live="assertive" announces
       // when revealed. F6 HAT refinement.
-      html += '<div class="action-blocked-message" data-testid="delete-blocked-message" role="status" aria-live="assertive" hidden></div>';
+      html += '<div class="action-blocked-message banner banner-error" data-testid="delete-blocked-message" role="status" aria-live="assertive" hidden></div>';
       html += '</div>';
     }
 
@@ -334,9 +334,11 @@
             // operator-supplied detail text cannot break out of the
             // surrounding markup. Three states: ok / warning / error.
             var span = document.createElement('span');
+            // Glyph prefixes (✓/⚠/✗) intentionally absent — the .test-result-*
+            // ::before LED retrofit from M08F2L5 already conveys status visually.
             if (result.status === 'ok') {
               span.className = 'test-result-ok';
-              span.textContent = '✓ ' + (result.detail || 'Connected');
+              span.textContent = result.detail || 'Connected';
               resultEl.replaceChildren(span);
               window.App.showFlash(container, 'Connection successful');
               var modelsHost = container.querySelector('.provider-models');
@@ -344,11 +346,10 @@
                 window.App.admin.renderProviderModels(modelsHost, provider);
               }
             } else if (result.status === 'warning') {
-              // Reachable but non-functional (e.g., openrouter with no
-              // key). Distinct chip from the green ✓ so the user knows
-              // configuration is incomplete.
+              // Reachable but non-functional (e.g., openrouter with no key).
+              // Distinct LED color from the green ok state cues incomplete config.
               span.className = 'test-result-warning';
-              span.textContent = '⚠ ' + (result.detail || 'Warning');
+              span.textContent = result.detail || 'Warning';
               resultEl.replaceChildren(span);
               window.App.showFlash(container, 'Connection reachable, action required', true);
               var modelsHost2 = container.querySelector('.provider-models');
@@ -357,14 +358,14 @@
               }
             } else {
               span.className = 'test-result-fail';
-              span.textContent = '✗ ' + (result.detail || 'Failed');
+              span.textContent = result.detail || 'Failed';
               resultEl.replaceChildren(span);
               window.App.showFlash(container, 'Connection failed', true);
             }
           })
           .catch(function (err) {
             testBtn.disabled = false;
-            resultEl.innerHTML = '<span class="test-result-fail">✗ ' + window.App.escapeHtml(err.message || 'Request failed') + '</span>';
+            resultEl.innerHTML = '<span class="test-result-fail">' + window.App.escapeHtml(err.message || 'Request failed') + '</span>';
             window.App.showFlash(container, 'Connection test error', true);
           });
       });

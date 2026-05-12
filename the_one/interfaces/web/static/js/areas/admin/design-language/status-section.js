@@ -62,10 +62,12 @@
         '</div>' +
       '</div>' +
 
-      // --- action-blocked-message ---
+      // --- banner (error / warning / info) ---
       '<div style="display: flex; flex-direction: column; gap: 8px;">' +
-        '<span style="font-family: var(--font-family-mono); font-size: var(--font-size-tiny); color: var(--fg-muted);">action-blocked-message</span>' +
-        '<div class="action-blocked-message">This action is currently blocked because a sample condition is unmet.</div>' +
+        '<span style="font-family: var(--font-family-mono); font-size: var(--font-size-tiny); color: var(--fg-muted);">banner (error / warning / info)</span>' +
+        '<div class="banner banner-error">Banner error variant — destructive action blocked, hard failure surfaced inline.</div>' +
+        '<div class="banner banner-warning">Banner warning variant — irreversible operation, attention required before proceeding.</div>' +
+        '<div class="banner banner-info">Banner info variant — informational note, neutral advisory.</div>' +
       '</div>' +
 
       // --- chip + chip-remove ---

@@ -1,7 +1,13 @@
 @layer base {
   /* === Reset === */
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: var(--font-family-sans); background: var(--bg-gradient); color: var(--fg); height: 100vh; display: flex; flex-direction: column; }
+  /* body overflow: hidden — body is the SPA shell, never scrolls itself.
+     Inner .admin-content / equivalent area scroll containers handle all
+     page-level vertical scrolling. Without this, flex children with
+     min-height: auto can push body's content past 100vh, surfacing a
+     document-level scrollbar that runs the full viewport height (visible
+     even behind the topbar). */
+  body { font-family: var(--font-family-sans); background: var(--bg-gradient); color: var(--fg); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
 
   /* === Top Bar === */
   #app-topbar {
@@ -38,8 +44,12 @@
   .sidebar-panel.active { display: flex; }
 
   /* === Content === */
-  #main-content { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
-  .content-panel { display: none; flex-direction: column; flex: 1; overflow: hidden; }
+  /* min-height: 0 + min-width: 0 + overflow: hidden on this flex-column chain
+     so descendant flex items can shrink below their intrinsic content size.
+     Without min-height: 0, a tall inner element's auto min-height pushes the
+     chain up to body level, surfacing a document scrollbar. */
+  #main-content { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
+  .content-panel { display: none; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
   .content-panel.active { display: flex; }
 
   /* === Stub Areas === */
