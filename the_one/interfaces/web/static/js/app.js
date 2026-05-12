@@ -51,8 +51,8 @@
   }
 
   // Sync the URL hash with the area's serialized state when it diverges
-  // (e.g. user navigates to bare `#admin` and admin's default is `system`,
-  // so the URL should redirect to `#admin/system`). Called after hydrate
+  // (e.g. user navigates to bare `#admin` and admin's default is `general`,
+  // so the URL should redirect to `#admin/general`). Called after hydrate
   // in both same-area-sub-change and cross-area paths.
   function syncUrlFromState(areaId, sub) {
     if (typeof areas[areaId].serializeState !== 'function') return;
@@ -72,16 +72,22 @@
     if (areaId === currentId && sub !== currentSub) {
       currentSub = sub;
       if (typeof areas[areaId].hydrateState === 'function') areas[areaId].hydrateState(sub);
-      // After hydrate, let the area redirect bare `#admin` → `#admin/system`
+      // After hydrate, let the area redirect bare `#admin` → `#admin/general`
       // (or any other default-sub redirect) by syncing URL from serializeState.
       syncUrlFromState(areaId, sub);
       return;
     }
 
-    // Cross-area navigation: deactivate current, activate target
-    if (currentId && areas[currentId]) {
-      areas[currentId].deactivate();
-    }
+    // Cross-area navigation — optional `confirmLeave` hook on the outgoing
+    // area can defer/abort the transition. Used by admin to surface the
+    // dirty-editor confirm dialog before navigating away (covers topbar
+    // clicks AND browser back/forward AND direct hash typing). Areas
+    // without the hook proceed immediately. On abort, the hash is rolled
+    // back to the prior area's URL so the address bar stays consistent.
+    function performCrossAreaSwitch() {
+      if (currentId && areas[currentId]) {
+        areas[currentId].deactivate();
+      }
 
     // Hide all panels
     var sidebarPanels = document.querySelectorAll('#app-sidebar .sidebar-panel');
@@ -132,9 +138,35 @@
 
     // If the area retained internal state across navigation (e.g. chat's
     // currentSessionId after a studio side-trip), or has a default sub-state
-    // (admin's `system`), sync the URL hash from serializeState so the
+    // (admin's `general`), sync the URL hash from serializeState so the
     // address bar reflects what's actually shown.
     syncUrlFromState(areaId, sub);
+    }
+
+    // confirmLeave gate. Hook contract:
+    //   confirmLeave(proceed: () => void, abort: () => void): void
+    //   - Called BEFORE deactivating the outgoing area on cross-area
+    //     navigation. Clean: call proceed() immediately. Dirty: open
+    //     a confirm dialog; on user-confirm call proceed(), on user-
+    //     cancel call abort() (the gate restores the prior URL).
+    // Areas without the hook fall through to performCrossAreaSwitch().
+    if (currentId && areas[currentId] && typeof areas[currentId].confirmLeave === 'function') {
+      var priorHash = '#' + currentId + (currentSub ? '/' + currentSub : '');
+      areas[currentId].confirmLeave(
+        performCrossAreaSwitch,
+        function () {
+          // Roll back the URL. The triggering action (topbar click /
+          // browser back / hash typing) has already mutated location.hash;
+          // replaceState rewrites the current entry without firing
+          // hashchange (so we don't loop back into switchTo).
+          if (location.hash !== priorHash) {
+            history.replaceState(null, '', priorHash);
+          }
+        }
+      );
+    } else {
+      performCrossAreaSwitch();
+    }
   }
 
   window.addEventListener('hashchange', function () {

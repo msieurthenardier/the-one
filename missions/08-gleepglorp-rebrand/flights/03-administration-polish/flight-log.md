@@ -218,6 +218,58 @@ All four items remain in Flight 3 scope. No items retired.
 
 ---
 
+### 06-routing-sweep-and-design-language-cosmetic
+
+**Status**: landed (2026-05-12) — operator visual-confirmed across the catalog walk
+
+**Two-pass catalog cadence**: catalog first (no fixes mid-walk to preserve operator context), fix-pass second.
+
+**Catalog results**:
+
+| Item | Result |
+|---|---|
+| 22 routing checks (8 sub-routes × deep-link / refresh / back, minus 2 for bare `#admin`) | all pass |
+| Provider-editor dirty → sidebar to tools (Check 23) | pass |
+| Tools-editor dirty → sidebar to providers (Check 24) | pass |
+| Editor dirty → topbar cross-area (Check 25) | **fail → fixed as B2** |
+| Editor dirty → browser refresh/close (Check 26) | pass |
+
+**Three substantive fixes shipped during the walk**:
+
+1. **Sub-id rename `#admin/system` → `#admin/general`** (Check 1 follow-up). Operator surfaced confusion: post-Leg-02 the area is labeled "System", and the sub-category id was ALSO `'system'` (with visible label "General"), reading as "System → System" semantically. Renamed sub-id to `'general'` across 11 sites in `admin.js`. Flipped the legacy redirect from `'general'` → `'system'` (F6 leg 01) to `'system'` → `'general'`. Migrated 3 test files (`test_flow_admin_navigation.py`, `test_flow_provider_dirty_confirm.py`, `test_flow_admin_tools_grid.py`). Updated comment references in `app.js` (2 sites).
+
+2. **B2 — cross-area dirty-gate gap**. Root cause: the dirty-gate logic lived only in admin's sidebar `setCategory`. Topbar buttons set `location.hash` directly → `switchTo()` deactivates without checking. Fix: new `confirmLeave(proceed, abort)` hook contract on the area descriptor. `app.js switchTo()` cross-area branch now consults `areas[currentId].confirmLeave` if it exists. Areas without the hook fall through to immediate proceed. On abort, `history.replaceState` rolls the URL back. `admin.js` implements `confirmLeave` via `self._confirmLeaveImpl` wired inside `init()` so it can close over the local `dirty` flag. Same condition as the sidebar gate: `dirty && inEditor`. Covers topbar clicks, browser back/forward, direct hash typing.
+
+3. **B2 follow-on race**. Surfaced during B2 retest: operator dirtied tools editor → clicked Chat → confirmed → went to chat → clicked topbar System → URL changed to `#admin/general` but UI still showed the tool editor. Root cause: `admin.activate()` → `_refresh()` → `selectTool(editingTool.name)` kicked off `/api/tools/configs/delete_file` BEFORE `switchTo` synchronously called `hydrateState(null)` → `_setCategory('general')` clearing state. When the in-flight fetch resolved, its `.then` block applied tool state back and rendered the editor over the System page. Fix: stale-then guard at the top of `selectTool.then`: `if (currentCategory !== 'tools') return;`. Same pattern `populateProviderGrid` already used (admin.js:378).
+
+**Design Language gallery cosmetic pass**: deferred. Operator confirmed at HAT close that the layout reads on-brand without changes. Per the flight design, in-scope items were page-header + section-eyebrow spacing + section gap rhythm; swatch grids + per-section samples explicitly out of scope. Operator deemed all three on-brand.
+
+**B1 — skipped per operator** ("fix b2, skip b1"). The sidebar-click-from-clean-editor stuck issue was reported pre-catalog but never reproduced during the routing walk. Carries forward to Flight 7 or future maintenance pass.
+
+**O1 — accepted non-blocking** (uncommitted chip-list-input text not tracked as dirty). Operator said "I think this is ok." Future polish: blur-autocommit on chip-list-input.
+
+**Verification**:
+
+- Narrow test gate: 56/56 in 0.87s.
+- WCAG audit standalone: 45/45 in 0.05s.
+- `make rebuild` → all assets served correctly.
+- Operator confirmed catalog pass + B2 fix + B2 follow-on race fix.
+
+**Anomalies**: None.
+
+**Deviations from leg design**:
+
+- Original scope: routing sweep + design-language gallery cosmetic. Operator deferred the gallery cosmetic at close; not a scope reduction but a scope-no-op (the catalog confirmed the gallery was already on-brand).
+- Pre-Leg-06 the flight design didn't anticipate a sub-id rename or a cross-area dirty-gate gap or the chat→admin state-restore race. All three surfaced organically during the operator-driven HAT walk and were absorbed inline.
+
+**Methodology lessons**:
+
+- **The two-pass HAT cadence works.** Catalog first → fix second preserves operator context and avoids "are we still walking or fixing?" confusion. Three substantive fixes landed at the right moment — after the catalog was closed and the operator could focus on each in turn.
+- **Async fetches inside `area.activate()` are a recurring race-condition pattern.** Both providers (`populateProviderGrid`) and tools (`selectTool`) have this issue; both need stale-then guards. Future area implementations should standardize on the guard pattern at design time rather than catching it via HAT.
+- **Operator-surfaced renames during routing HAT are common.** This flight had 3 (Chat / Agent Studio / System area labels in Leg 02, and the sub-id `system` → `general` here). Future polish flights should plan for slug-rename absorption during routing walks rather than treating them as scope-creep.
+
+---
+
 ## Decisions
 
 ### Reconnaissance citation drift on `tokens-section.js`

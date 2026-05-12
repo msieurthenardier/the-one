@@ -95,9 +95,9 @@ def test_back_dialog_confirm_navigates_to_grid(app_with_provider: SeededApp, pag
 def test_section_nav_when_clean_no_dialog(app_with_provider: SeededApp, page: Page) -> None:
     """Section-nav click when editor is clean does NOT open dialog."""
     _open_editor(page, app_with_provider)
-    page.locator('.section-nav-item[data-section="system"]').click()
+    page.locator('.section-nav-item[data-section="general"]').click()
     expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_have_count(0)
-    assert page.evaluate("location.hash") == "#admin/system"
+    assert page.evaluate("location.hash") == "#admin/general"
 
 
 @pytest.mark.browser
@@ -105,7 +105,7 @@ def test_section_nav_when_dirty_shows_dialog(app_with_provider: SeededApp, page:
     """Section-nav click when editor is dirty opens the modal."""
     _open_editor(page, app_with_provider)
     _make_dirty(page)
-    page.locator('.section-nav-item[data-section="system"]').click()
+    page.locator('.section-nav-item[data-section="general"]').click()
     expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_be_visible(timeout=3000)
 
 
@@ -115,7 +115,7 @@ def test_section_nav_dialog_cancel_keeps_editor(app_with_provider: SeededApp, pa
     _open_editor(page, app_with_provider)
     initial_hash = page.evaluate("location.hash")
     _make_dirty(page)
-    page.locator('.section-nav-item[data-section="system"]').click()
+    page.locator('.section-nav-item[data-section="general"]').click()
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
     expect(overlay).to_be_visible()
 
@@ -132,13 +132,13 @@ def test_section_nav_dialog_confirm_navigates_to_system(
     """Continue on the section-nav dialog navigates to System."""
     _open_editor(page, app_with_provider)
     _make_dirty(page)
-    page.locator('.section-nav-item[data-section="system"]').click()
+    page.locator('.section-nav-item[data-section="general"]').click()
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
     expect(overlay).to_be_visible()
 
     page.locator('[data-testid="modal-confirm-btn"]').click()
     expect(overlay).to_have_count(0)
-    assert page.evaluate("location.hash") == "#admin/system"
+    assert page.evaluate("location.hash") == "#admin/general"
 
 
 @pytest.mark.browser
@@ -153,9 +153,9 @@ def test_section_nav_from_grid_no_dialog_after_prior_discard(
     page.locator('[data-testid="modal-confirm-btn"]').click()
     expect(page.locator(".area-admin .page-title")).to_have_text("LLM Providers", timeout=5000)
     # Now navigate from the grid to System — no dialog because no editor.
-    page.locator('.section-nav-item[data-section="system"]').click()
+    page.locator('.section-nav-item[data-section="general"]').click()
     expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_have_count(0)
-    assert page.evaluate("location.hash") == "#admin/system"
+    assert page.evaluate("location.hash") == "#admin/general"
 
 
 @pytest.mark.browser
