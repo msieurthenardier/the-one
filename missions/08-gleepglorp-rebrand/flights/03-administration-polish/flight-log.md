@@ -152,6 +152,35 @@ All four items remain in Flight 3 scope. No items retired.
 
 ---
 
+### 04-providers-and-ollama-polish
+
+**Status**: landed (2026-05-11) — operator visual-confirmed; leg closed early
+
+**What was implemented**:
+
+- **Ollama model-dot LED wire-up (path b — JS markup replacement + dead-selector cleanup)**: `provider-models.js:347` (loaded list) and `:376` (available list) now emit `<span class="indicator-led indicator-led--success">` / `<span class="indicator-led indicator-led--idle">` directly. `.admin-pf-model-dot` rule pair retired from `admin.css:128-129` (replaced with a comment marker noting the Flight 3 Leg 04 retrofit). Cited locations from the flight design were drifted by ~1 line (provider-models.js) and by ~38 lines (admin.css) — repaired inline.
+- **Test-result LED + label touching fix**: `.test-result-*::before` shared rule (`components.css:860`) gained `margin-right: 6px` + `vertical-align: middle`. Root cause: the `.test-result` parent has `gap: 6px`, but the LED `::before` is a pseudo-element INSIDE the status span (not a flex sibling), so the gap didn't apply. Operator surfaced the touching mid-rebuild via concurrent message.
+
+**Operator-driven scope decision**: Leg's planned scope was broader (Providers grid + editor + Ollama lifecycle full polish). After landing the LED wire-up + spacing fix, operator deemed the remaining items (tile grid, API-key wrap, pull progress UI, cap chips, per-row action buttons) on-brand without changes. Closed leg early. Pattern observation: most of the Providers page already inherits Flight 2 vocabulary via canonical primitives (entity-tile glass+bezel, V3b buttons, .test-result with LED retrofit auto-applying status, banner-error for delete-blocked from Leg 03). The remaining ad-hoc per-area styling (`.admin-pf-*` selectors) reads on-brand enough that operator HAT didn't flag anything else.
+
+**Verification**:
+
+- Narrow test gate: 56/56 in 0.94s (final round before Leg 04 commit).
+- WCAG audit standalone: 45/45 in 0.05s.
+- `grep -rn "admin-pf-model-dot" the_one/interfaces/web/static/` → returns only the comment marker (no live consumers).
+- Operator visual verification → confirmed twice (LED wire-up + spacing fix).
+
+**Anomalies**: None.
+
+**Deviations from leg design (per Flight 3 flight.md)**:
+
+- Cited line numbers drifted: provider-models.js loaded site was at `:347` (not `:346` per flight design) and unloaded site at `:376` (not `:375`). admin.css `.admin-pf-model-dot` rule pair was at `:128-129` (not `:90-91`). Mechanical edit + dead-selector retire performed against current code.
+- Leg closed early — flight design anticipated broader Providers polish; operator HAT scoped it down to two targeted fixes. Documented here as the operative scope decision so the debrief doesn't surface it as a gap.
+
+**Methodology lesson**: When a planned-large polish leg gets HAT-scoped to two targeted items, closing early (rather than artificially extending the leg with cosmetics the operator won't perceive as improvements) preserves leg integrity — the leg artifact accurately describes what shipped, and the early-close note in the flight log captures the operator's standing assessment of the page as on-brand. Future polish flights can use this as evidence for "operator-driven early-close" being a valid leg-closing pattern.
+
+---
+
 ## Decisions
 
 ### Reconnaissance citation drift on `tokens-section.js`

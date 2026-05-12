@@ -125,8 +125,10 @@
   .area-admin .admin-pf-section-label::before { content: "//"; padding-right: 0.4em; color: var(--accent); opacity: 0.6; font-weight: var(--font-weight-semibold); }
   .area-admin .admin-pf-model-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-bottom: 1px solid var(--border); position: relative; }
   .area-admin .admin-pf-model-row:last-child { border-bottom: none; }
-  .area-admin .admin-pf-model-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--fg-muted); flex-shrink: 0; }
-  .area-admin .admin-pf-model-dot.loaded { background: var(--status-success); box-shadow: 0 0 6px var(--status-success-glow); }
+  /* .admin-pf-model-dot retired (Flight 3 Leg 04): Ollama lifecycle panel
+     now emits the canonical .indicator-led primitive directly at the
+     loaded (.indicator-led--success) and unloaded (.indicator-led--idle)
+     markup sites. */
   .area-admin .admin-pf-model-name { flex: 1; font-family: var(--font-family-mono); font-size: var(--font-size-body-sm); color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
   .area-admin .admin-pf-model-size { font-family: var(--font-family-mono); font-size: var(--font-size-caption); color: var(--fg-secondary); flex-shrink: 0; min-width: 60px; text-align: right; }
   .area-admin .admin-pf-model-actions { display: flex; gap: 4px; flex-shrink: 0; }
