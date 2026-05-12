@@ -45,21 +45,34 @@
      standard app-switcher affordance. Accent-outlined at rest so the
      control reads as a primary navigation target; glow on hover; filled
      when the popover is open ([aria-expanded="true"]). */
+  /* Mission 08 F2 L5 — V3b button treatment so the topbar pill reads as part
+     of the same button family as .btn-outlined-primary: accent-translucent
+     base + V3 gradient + glass-border + bezel-mini, asymmetric motion. */
   .app-picker-button {
     height: 36px;
     padding: 0 10px 0 8px;
     display: flex;
     align-items: center;
     gap: 8px;
-    border-radius: 8px;
-    background: transparent;
-    border: 1px solid var(--accent);
+    border-radius: var(--panel-radius-sm);
+    background-color: var(--accent-translucent);
+    background-image: linear-gradient(to bottom,
+      rgba(255, 255, 255, 0.30) 0%,
+      rgba(255, 255, 255, 0.10) 35%,
+      rgba(255, 255, 255, 0.0) 50%,
+      rgba(0, 0, 0, 0.10) 100%
+    );
+    border: 1px solid var(--glass-border);
     cursor: pointer;
     color: var(--accent);
     font-family: inherit;
     font-size: var(--font-size-body-sm);
     font-weight: var(--font-weight-semibold);
-    transition: background 0.15s ease, box-shadow 0.15s ease;
+    box-shadow: var(--bezel-shadow-mini);
+    transition:
+      background-color var(--motion-base) var(--ease-tactile),
+      border-color var(--motion-base) var(--ease-tactile),
+      box-shadow var(--motion-base) var(--ease-tactile);
   }
   .app-picker-button-icon { display: inline-flex; align-items: center; justify-content: center; }
   .app-picker-button-icon svg { width: 18px; height: 18px; display: block; }
@@ -67,25 +80,36 @@
   .app-picker-button-chevron { display: inline-flex; align-items: center; transition: transform 0.15s ease; opacity: 0.7; }
   .app-picker-button-chevron svg { width: 14px; height: 14px; display: block; }
   .app-picker-button:hover {
-    background: var(--accent-translucent);
-    box-shadow: 0 0 0 3px var(--accent-glow);
+    background-color: var(--accent-translucent-hover);
+    border-color: var(--accent);
+    transition:
+      background-color var(--motion-fast) var(--ease-tactile),
+      border-color var(--motion-fast) var(--ease-tactile),
+      box-shadow var(--motion-fast) var(--ease-tactile);
   }
   .app-picker-button[aria-expanded="true"] {
-    background: var(--accent-translucent-hover);
-    box-shadow: 0 0 0 3px var(--accent-glow);
+    background-color: var(--accent-translucent-hover);
+    border-color: var(--accent);
+    box-shadow: var(--bezel-shadow-mini), 0 0 0 3px var(--accent-glow);
   }
   .app-picker-button[aria-expanded="true"] .app-picker-button-chevron { transform: rotate(180deg); }
-  .app-picker-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .app-picker-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: var(--bezel-shadow-mini), 0 0 0 3px var(--accent-glow); }
 
   .app-picker-popover {
     position: absolute;
     top: calc(var(--topbar-h) + 4px);
     right: 16px;
     min-width: 180px;
-    background: var(--surface);
-    border: 1px solid var(--border);
+    /* Glass — Mission 08 F2 L3. Popover is floating chrome on top of body
+       content, so backdrop-filter has the bg gradient behind to refract.
+       var(--panel-shadow) dropped — it competes with the glass aesthetic. */
+    background-color: var(--glass-bg);
+    background-image: var(--glass-gleam);
+    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+    border: 1px solid var(--glass-border);
     border-radius: var(--panel-radius);
-    box-shadow: var(--panel-shadow);
+    box-shadow: var(--bezel-shadow);
     padding: 4px;
     display: none;
     z-index: 100;
@@ -141,7 +165,16 @@
     gap: 6px;
   }
   .list-item:hover { background: var(--surface); color: var(--fg); }
-  .list-item.active { background: var(--accent-translucent); color: var(--fg); border: 1px solid var(--accent); box-shadow: var(--panel-shadow-glow); }
+  .list-item.active {
+    /* Mini-glass — Mission 08 F2 L3 + L4. Small pills get the gleam-overlay
+       image + accent-translucent base + simplified directional bezel (no
+       backdrop-filter — perf + small surface doesn't benefit from blur). */
+    background-color: var(--accent-translucent);
+    background-image: var(--glass-gleam);
+    color: var(--fg);
+    border: 1px solid var(--accent);
+    box-shadow: var(--bezel-shadow-mini);
+  }
   .list-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; box-shadow: inset 0 0 0 3px var(--accent-glow); }
 
   .list-item-delete {
@@ -185,12 +218,15 @@
     font-family: inherit;
     font-size: var(--font-size-body);
     outline: none;
+    /* Pressed-in feel — Mission 08 F2 L5. Input affordances are recessed
+       (opposite of raised output panels). */
+    box-shadow: var(--bezel-shadow-inset);
   }
   .field-input:focus { border-color: var(--accent); }
   .field-input:focus-visible {
     border-color: var(--accent);
     outline: 1px solid var(--accent);
-    box-shadow: 0 0 0 3px var(--accent-glow);
+    box-shadow: var(--bezel-shadow-inset), 0 0 0 3px var(--accent-glow);
   }
   .field-textarea {
     width: 100%;
@@ -203,12 +239,14 @@
     font-size: var(--font-size-body);
     outline: none;
     resize: vertical;
+    /* Pressed-in feel — see .field-input. */
+    box-shadow: var(--bezel-shadow-inset);
   }
   .field-textarea:focus { border-color: var(--accent); }
   .field-textarea:focus-visible {
     border-color: var(--accent);
     outline: 1px solid var(--accent);
-    box-shadow: 0 0 0 3px var(--accent-glow);
+    box-shadow: var(--bezel-shadow-inset), 0 0 0 3px var(--accent-glow);
   }
   /* The URL-encoded color in the data URL below is an SVG arrow exception:
      CSS variables can't be used inside data URLs. */
@@ -225,9 +263,28 @@
   .field-select:focus-visible {
     border-color: var(--accent);
     outline: 1px solid var(--accent);
-    box-shadow: 0 0 0 3px var(--accent-glow);
+    box-shadow: var(--bezel-shadow-inset), 0 0 0 3px var(--accent-glow);
   }
-  .field-select option { background: var(--surface); color: var(--fg); }
+  /* .field-select option styling — Mission 08 F2 L5. Native <option> CSS
+     support varies across browsers (Chrome/Edge limited, Firefox respects
+     more). The widely-supported properties are background-color, color, and
+     :hover/:checked. Padding works in Firefox, mostly ignored in Chrome.
+     Rounded corners on the dropdown popup ITSELF are browser-controlled and
+     not stylable in pure CSS — a custom dropdown component would be needed
+     for full design-language consistency. */
+  .field-select option {
+    background-color: var(--surface-elevated);
+    color: var(--fg);
+    padding: 8px 12px;
+    font-family: inherit;
+    font-size: var(--font-size-body);
+  }
+  .field-select option:hover { background-color: var(--accent-translucent-hover); }
+  .field-select option:checked {
+    background-color: var(--accent-translucent);
+    color: var(--fg);
+    font-weight: var(--font-weight-semibold);
+  }
   .field-select option:disabled { color: var(--fg-muted); }
 
   /* === Info icon (<button> reset for tooltip-on-hover affordance) ===
@@ -254,6 +311,48 @@
   .field-info-icon:hover { color: var(--accent); }
   .field-info-icon svg { width: 14px; height: 14px; display: block; }
 
+  /* === Checkbox Primary (form checkbox primitive) ===
+     Lifted from .area-studio .mcp-tools-checkbox-group input[type="checkbox"]
+     (Mission 08 F1 L5 / F2 L2). Mission 08 F2 L5 polish: 14px → 16px, kept
+     1.5px border (crisper than 2px at this size), zero border-radius,
+     vertical-align: middle for non-flex consumers. Reads as a crisp square
+     indicator. Distinct from the iOS-toggle .tool-enable-switch primitive
+     (admin.css) which expresses a single binary feature flip. */
+  .checkbox-primary {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 16px;
+    height: 16px;
+    border: 1.5px solid var(--border-strong);
+    border-radius: 0;
+    background: var(--surface);
+    cursor: pointer;
+    flex-shrink: 0;
+    vertical-align: middle;
+    position: relative;
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+  .checkbox-primary:hover { border-color: var(--accent); }
+  .checkbox-primary:checked {
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+  .checkbox-primary:checked::after {
+    content: "";
+    position: absolute;
+    left: 4px;
+    top: 0;
+    width: 4px;
+    height: 9px;
+    border: solid var(--fg-on-accent);
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+  }
+  .checkbox-primary:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
   /* === Section Title (// PREFIX) === */
   .section-title {
     font-family: var(--font-family-mono);
@@ -278,24 +377,58 @@
   }
 
   /* === Buttons: Outlined-Primary (secondary affordance) === */
+  /* Mission 08 F2 L5 — V3b rest treatment. "Bubbled at rest" with the V3
+     glossy-band gradient (white-to-fade top + dark-fade bottom), accent-
+     translucent base, tile-style --glass-border, and the raised bezel-mini
+     elevation cue. Hover deepens the violet and stays in the same gradient
+     shape. Asymmetric in/out transitions match the .entity-tile pattern. */
   .btn-outlined-primary {
-    background: transparent;
-    border: 1px solid var(--accent);
+    background-color: var(--accent-translucent);
+    background-image: linear-gradient(to bottom,
+      rgba(255, 255, 255, 0.30) 0%,
+      rgba(255, 255, 255, 0.10) 35%,
+      rgba(255, 255, 255, 0.0) 50%,
+      rgba(0, 0, 0, 0.10) 100%
+    );
+    border: 1px solid var(--glass-border);
     border-radius: var(--panel-radius-sm);
     padding: 4px 10px;
     color: var(--accent);
     font-size: var(--font-size-body-sm);
     cursor: pointer;
     font-family: inherit;
-    transition: background 0.2s, color 0.2s;
+    box-shadow: var(--bezel-shadow-mini);
+    transition:
+      background-color var(--motion-base) var(--ease-tactile),
+      border-color var(--motion-base) var(--ease-tactile),
+      color var(--motion-base) var(--ease-tactile),
+      box-shadow var(--motion-base) var(--ease-tactile);
   }
-  .btn-outlined-primary:hover { background: var(--accent-translucent-hover); }
-  .btn-outlined-primary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 3px var(--accent-glow); }
+  .btn-outlined-primary:hover {
+    background-color: var(--accent-translucent-hover);
+    border-color: var(--accent);
+    transition:
+      background-color var(--motion-fast) var(--ease-tactile),
+      border-color var(--motion-fast) var(--ease-tactile),
+      color var(--motion-fast) var(--ease-tactile),
+      box-shadow var(--motion-fast) var(--ease-tactile);
+  }
+  .btn-outlined-primary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: var(--bezel-shadow-mini), 0 0 0 3px var(--accent-glow); }
   .btn-outlined-primary:disabled { opacity: 0.4; cursor: not-allowed; }
 
   /* === Buttons: Filled-Primary (primary CTA) === */
+  /* Mission 08 F2 L5 — V3b family treatment in saturated form. Same V3
+     gradient shape as outlined-primary, but on top of a solid accent fill
+     (vs translucent) and with the outer --accent-glow halo to read as the
+     primary CTA. Bezel-mini + asymmetric motion match the family. */
   .btn-filled-primary {
-    background: var(--accent);
+    background-color: var(--accent);
+    background-image: linear-gradient(to bottom,
+      rgba(255, 255, 255, 0.30) 0%,
+      rgba(255, 255, 255, 0.10) 35%,
+      rgba(255, 255, 255, 0.0) 50%,
+      rgba(0, 0, 0, 0.10) 100%
+    );
     border: none;
     border-radius: var(--panel-radius-sm);
     padding: 8px 24px;
@@ -304,14 +437,31 @@
     cursor: pointer;
     font-family: inherit;
     font-size: var(--font-size-body);
-    box-shadow: 0 0 8px var(--accent-glow);
+    box-shadow: var(--bezel-shadow-mini), 0 0 8px var(--accent-glow);
+    transition:
+      background-color var(--motion-base) var(--ease-tactile),
+      box-shadow var(--motion-base) var(--ease-tactile);
   }
-  .btn-filled-primary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 3px var(--accent-glow); }
+  .btn-filled-primary:hover {
+    transition:
+      background-color var(--motion-fast) var(--ease-tactile),
+      box-shadow var(--motion-fast) var(--ease-tactile);
+  }
+  .btn-filled-primary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: var(--bezel-shadow-mini), 0 0 0 3px var(--accent-glow); }
   .btn-filled-primary:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
 
   /* === Buttons: Muted-Destructive (delete-confirm style) === */
+  /* Mission 08 F2 L5 — V3b rest treatment in destructive tone. Same gradient
+     shape as outlined-primary (theme-agnostic white→fade→dark) on a soft
+     danger background, with the danger-muted border for semantic identity. */
   .btn-muted-destructive {
-    background: none;
+    background-color: var(--status-danger-bg-soft);
+    background-image: linear-gradient(to bottom,
+      rgba(255, 255, 255, 0.30) 0%,
+      rgba(255, 255, 255, 0.10) 35%,
+      rgba(255, 255, 255, 0.0) 50%,
+      rgba(0, 0, 0, 0.10) 100%
+    );
     border: 1px solid var(--status-danger-muted);
     border-radius: var(--panel-radius-sm);
     padding: 3px 10px;
@@ -319,10 +469,24 @@
     font-size: var(--font-size-caption);
     cursor: pointer;
     font-family: inherit;
-    transition: color 0.2s, border-color 0.2s, box-shadow 0.2s;
+    box-shadow: var(--bezel-shadow-mini);
+    transition:
+      background-color var(--motion-base) var(--ease-tactile),
+      color var(--motion-base) var(--ease-tactile),
+      border-color var(--motion-base) var(--ease-tactile),
+      box-shadow var(--motion-base) var(--ease-tactile);
   }
-  .btn-muted-destructive:hover { color: var(--status-danger); border-color: var(--status-danger); box-shadow: 0 0 8px var(--status-danger-glow); }
-  .btn-muted-destructive:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 3px var(--accent-glow); }
+  .btn-muted-destructive:hover {
+    color: var(--status-danger);
+    border-color: var(--status-danger);
+    box-shadow: var(--bezel-shadow-mini), 0 0 8px var(--status-danger-glow);
+    transition:
+      background-color var(--motion-fast) var(--ease-tactile),
+      color var(--motion-fast) var(--ease-tactile),
+      border-color var(--motion-fast) var(--ease-tactile),
+      box-shadow var(--motion-fast) var(--ease-tactile);
+  }
+  .btn-muted-destructive:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: var(--bezel-shadow-mini), 0 0 0 3px var(--accent-glow); }
   .btn-muted-destructive:disabled { opacity: 0.4; cursor: not-allowed; }
 
   /* === Button size modifiers ===
@@ -342,7 +506,10 @@
   .btn-xl { padding: 12px 32px; font-size: var(--font-size-h3); border-radius: var(--panel-radius); }
 
   /* === Chip + Chip-Remove (single-use lift for vocabulary completeness) === */
-  .chip { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; font-size: var(--font-size-caption); color: var(--fg); display: inline-flex; align-items: center; gap: 6px; }
+  /* Mission 08 F2 L5 polish: accent-tinted flat color (no gradient, no bezel)
+     so chips read as part of the brand vocabulary without competing with
+     buttons/tiles' raised treatment. */
+  .chip { background: var(--accent-translucent); border: 1px solid var(--glass-border); border-radius: 4px; padding: 4px 8px; font-size: var(--font-size-caption); color: var(--fg); display: inline-flex; align-items: center; gap: 6px; }
   .chip-remove { cursor: pointer; color: var(--status-danger-muted); font-size: var(--font-size-tiny); transition: color 0.2s, filter 0.2s; background: transparent; border: none; padding: 0; }
   .chip-remove:hover { color: var(--status-danger); filter: drop-shadow(0 0 6px var(--status-danger-glow)); }
   .chip-remove:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 3px var(--accent-glow); }
@@ -397,18 +564,43 @@
     flex-direction: column;
     gap: 6px;
     padding: 12px 14px;
-    background: var(--surface);
-    border: 1px solid var(--border);
+    /* Glass surface — Mission 08 F2 L3 ("C2" reflective treatment).
+       background-color holds the accent-tinted base; background-image holds
+       the gleam-overlay reflection. backdrop-filter blurs whatever is
+       behind. Hover/active rules update background-color only (not the
+       shorthand) so the gleam image survives state changes. */
+    background-color: var(--glass-bg);
+    background-image: var(--glass-gleam);
+    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+    border: 1px solid var(--glass-border);
     border-radius: var(--panel-radius);
+    /* Bezel — Mission 08 F2 L4. Directional top-left stacked-depth bezel
+       replaces the bare inset-highlight from L3. */
+    box-shadow: var(--bezel-shadow);
     color: var(--fg);
     text-align: left;
     cursor: pointer;
     font-family: inherit;
     font-size: var(--font-size-body);
     position: relative;
-    transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+    /* Motion — Mission 08 F2 L5. Asymmetric transitions: fast on mouse-in
+       (the :hover rule overrides with --motion-fast), slower on mouse-out
+       (this base rule's --motion-base applies when :hover stops matching).
+       Pattern reads as crisp engagement + gentle disengagement. */
+    transition:
+      border-color var(--motion-base) var(--ease-tactile),
+      background-color var(--motion-base) var(--ease-tactile),
+      box-shadow var(--motion-base) var(--ease-tactile);
   }
-  .entity-tile:hover { border-color: var(--accent); background: var(--accent-translucent); }
+  .entity-tile:hover {
+    border-color: var(--accent);
+    background-color: var(--accent-translucent);
+    transition:
+      border-color var(--motion-fast) var(--ease-tactile),
+      background-color var(--motion-fast) var(--ease-tactile),
+      box-shadow var(--motion-fast) var(--ease-tactile);
+  }
   .entity-tile:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: -2px;
@@ -417,8 +609,9 @@
   .entity-tile[aria-selected="true"],
   .entity-tile.active {
     border-color: var(--accent);
-    background: var(--accent-translucent);
-    box-shadow: var(--panel-shadow-glow);
+    background-color: var(--accent-translucent-hover);
+    /* --panel-shadow-glow intentionally dropped — glass surfaces use the
+       inset highlight as their elevation cue (composition rule, F2 L3). */
   }
   .entity-tile-name {
     font-size: var(--font-size-body-lg);
@@ -601,10 +794,13 @@
     box-shadow: inset 0 0 0 3px var(--accent-glow);
   }
   .section-nav-item[aria-current="page"] {
-    background: var(--accent-translucent);
+    /* Mini-glass — Mission 08 F2 L3 + L4 — same shape as .list-item.active:
+       gleam-overlay image + accent-translucent base + simplified bezel. */
+    background-color: var(--accent-translucent);
+    background-image: var(--glass-gleam);
     color: var(--fg);
     border-color: var(--accent);
-    box-shadow: var(--panel-shadow-glow);
+    box-shadow: var(--bezel-shadow-mini);
   }
 
   /* === Tab idiom (W3C ARIA tablist with manual activation; F5 leg 03) === */
@@ -704,7 +900,9 @@
      editor (F6 leg 03). The `.admin-pf-test-ok` / `.admin-pf-test-fail`
      migration landed in F6 leg 03. */
   .test-result {
-    display: inline-block;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     margin-left: 8px;
     font-size: var(--font-size-body-sm);
     color: var(--fg-secondary);
@@ -713,6 +911,51 @@
   .test-result-fail { color: var(--status-danger); }
   .test-result-warning { color: var(--status-warning); }
   .test-result-pending { color: var(--fg-secondary); }
+
+  /* === Indicator LED (Mission 08 F2 L5) ===
+     10px round dot with a reflective top-left crescent + a darker
+     bottom-right shadow (D2+shadow vibe-iteration result). Outer glow
+     uses the matching --status-*-glow token. Idle state has no glow.
+     Use directly as `<span class="indicator-led indicator-led--success">`,
+     or rely on the `.test-result-*` retrofit below which renders the LED
+     as a ::before pseudo on every existing connection-test result. */
+  .indicator-led {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background-image:
+      radial-gradient(circle at 30% 25%, rgba(255, 255, 255, 0.70) 0%, rgba(255, 255, 255, 0.10) 30%, rgba(255, 255, 255, 0.0) 50%),
+      radial-gradient(circle at 70% 75%, rgba(0, 0, 0, 0.25) 0%, rgba(0, 0, 0, 0.0) 50%);
+  }
+  .indicator-led--success { background-color: var(--status-success); box-shadow: 0 0 4px var(--status-success-glow); }
+  .indicator-led--warning { background-color: var(--status-warning); box-shadow: 0 0 4px var(--status-warning-glow); }
+  .indicator-led--danger { background-color: var(--status-danger); box-shadow: 0 0 4px var(--status-danger-glow); }
+  .indicator-led--idle { background-color: var(--fg-muted); /* no glow */ }
+
+  /* Retrofit: .test-result-* gets the LED dot via ::before so existing
+     connection-test consumers (provider editor, agent editor) pick it up
+     without JS markup changes. The flex+gap on `.test-result` (above)
+     positions the LED before the text. */
+  .test-result-ok::before,
+  .test-result-fail::before,
+  .test-result-warning::before,
+  .test-result-pending::before {
+    content: "";
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background-image:
+      radial-gradient(circle at 30% 25%, rgba(255, 255, 255, 0.70) 0%, rgba(255, 255, 255, 0.10) 30%, rgba(255, 255, 255, 0.0) 50%),
+      radial-gradient(circle at 70% 75%, rgba(0, 0, 0, 0.25) 0%, rgba(0, 0, 0, 0.0) 50%);
+  }
+  .test-result-ok::before { background-color: var(--status-success); box-shadow: 0 0 4px var(--status-success-glow); }
+  .test-result-fail::before { background-color: var(--status-danger); box-shadow: 0 0 4px var(--status-danger-glow); }
+  .test-result-warning::before { background-color: var(--status-warning); box-shadow: 0 0 4px var(--status-warning-glow); }
+  .test-result-pending::before { background-color: var(--fg-muted); /* no glow on idle */ }
 
   /* === Save / Cancel button (disabled-SSoT pattern) === */
   /* Save and Cancel both use `disabled` as the SOLE source of truth (lifted
@@ -880,7 +1123,10 @@
   .modal-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.5);
+    /* Lighter overlay (was 0.5) — Mission 08 F2 L3 — so the modal-dialog's
+       backdrop-filter refraction reads through the dim, instead of looking
+       like a flat dark mask with a glass panel pasted on top. */
+    background: rgba(0, 0, 0, 0.3);
     z-index: 200;
     display: flex;
     align-items: center;
@@ -888,10 +1134,16 @@
     padding: 16px;
   }
   .modal-dialog {
-    background: var(--surface-elevated);
-    border: 1px solid var(--border);
+    /* Glass — Mission 08 F2 L3. Modal sits on top of .modal-overlay's
+       (now-reduced) dark backdrop; backdrop-filter blurs through to the
+       content beneath. var(--panel-shadow) dropped — competes with glass. */
+    background-color: var(--glass-bg);
+    background-image: var(--glass-gleam);
+    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+    border: 1px solid var(--glass-border);
     border-radius: var(--panel-radius);
-    box-shadow: var(--panel-shadow);
+    box-shadow: var(--bezel-shadow);
     padding: 24px;
     min-width: 320px;
     max-width: 480px;

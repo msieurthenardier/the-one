@@ -314,6 +314,7 @@
 
         var checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
+        checkbox.className = 'checkbox-primary';
         checkbox.checked = isChecked;
         checkbox.setAttribute('data-mcp-tool-toggle', toolName);
         checkbox.setAttribute('data-mcp-source', source.name);

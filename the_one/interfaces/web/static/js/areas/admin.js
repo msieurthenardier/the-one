@@ -81,6 +81,10 @@ App.registerArea({
     }
 
     var validIds = ['system', 'providers', 'tools'];
+    // Mission 08 F2 L1: dev-mode-only Design Language gallery category.
+    if (window.App && window.App.config && window.App.config.dev_mode) {
+      validIds.push('design-language');
+    }
     if (validIds.indexOf(sub) === -1) return;
 
     // Set category FIRST — _setCategory wipes pending state on category change,
@@ -115,6 +119,11 @@ App.registerArea({
       // post-F2 retrofit (admin = system settings, studio = user-managed).
       { id: 'tools', label: 'Built-in Tools' }
     ];
+    // Mission 08 F2 L1: dev-mode-only Design Language gallery category.
+    // Boot-blocking fetch in app.js populates window.App.config before init.
+    if (window.App && window.App.config && window.App.config.dev_mode) {
+      categories.push({ id: 'design-language', label: 'Design Language' });
+    }
     var currentCategory = 'system';
     var categoryListEl;
     var contentEl;
@@ -247,6 +256,8 @@ App.registerArea({
         renderProvidersPanel();
       } else if (currentCategory === 'tools') {
         renderToolsPanel();
+      } else if (currentCategory === 'design-language') {
+        App.admin.renderDesignLanguagePage(contentEl);
       }
     }
 

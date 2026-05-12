@@ -224,9 +224,28 @@
 
   document.addEventListener('DOMContentLoaded', function () {
     renderTopBar();
-    var parsed = parseHash(location.hash);
-    var area = (parsed.area && areas[parsed.area]) ? parsed.area : 'chat';
-    switchTo(area, parsed.sub);
+    // Boot-block on /api/config so window.App.config is populated before
+    // any area.init() runs. Areas read App.config.dev_mode in their init
+    // closures (e.g. admin's sidebar categories list).
+    fetch('/api/config')
+      .then(function (r) { return r.json(); })
+      .then(function (config) {
+        // Defensive default: a malformed 200 (null body, truncated JSON
+        // that parses to a non-object) won't crash downstream readers.
+        window.App.config = (config && typeof config === 'object')
+          ? config
+          : { dev_mode: false, version: 'unknown' };
+      })
+      .catch(function () {
+        // Failed fetch must not break boot. Defaults to non-dev,
+        // unknown-version so dev-mode-gated features stay off.
+        window.App.config = { dev_mode: false, version: 'unknown' };
+      })
+      .then(function () {
+        var parsed = parseHash(location.hash);
+        var area = (parsed.area && areas[parsed.area]) ? parsed.area : 'chat';
+        switchTo(area, parsed.sub);
+      });
   });
 
   function escapeHtml(s) {

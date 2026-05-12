@@ -152,7 +152,7 @@
   .area-chat .chat-welcome-prompt { font-size: var(--font-size-body-lg); color: var(--fg-secondary); margin: 0 0 20px 0; line-height: var(--line-height-normal); }
   .area-chat .chat-welcome-list { display: flex; flex-direction: column; gap: 6px; }
   .area-chat .chat-welcome-item { padding: 14px 16px; border-radius: var(--panel-radius); border: 1px solid var(--border); background: var(--surface-translucent); color: var(--fg); cursor: pointer; display: flex; flex-direction: column; gap: 4px; transition: border-color 0.15s, background 0.15s, box-shadow 0.15s; }
-  .area-chat .chat-welcome-item:hover { border-color: var(--accent); background: var(--accent-translucent); box-shadow: var(--panel-shadow-glow); }
+  .area-chat .chat-welcome-item:hover { border-color: var(--accent); background-color: var(--accent-translucent); background-image: var(--glass-gleam); box-shadow: var(--bezel-shadow-mini); }
   .area-chat .chat-welcome-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; box-shadow: inset 0 0 0 3px var(--accent-glow); }
   .area-chat .chat-welcome-item-name { font-size: var(--font-size-body-lg); font-weight: var(--font-weight-semibold); }
   .area-chat .chat-welcome-item-meta { font-size: var(--font-size-caption); color: var(--fg-muted); font-family: var(--font-family-mono); }

@@ -552,4 +552,43 @@
     line-height: 1.4;
     white-space: pre-wrap;
   }
+
+  /* Mission 08 F2 — Design Language gallery (dev-mode-only Admin category) */
+  .area-admin .design-language-sections { display: flex; flex-direction: column; gap: 24px; padding: 0 20px 40px; }
+  .area-admin .design-language-section { display: flex; flex-direction: column; gap: 8px; }
+  .area-admin .design-language-section-body { display: flex; flex-direction: column; gap: 12px; }
+  .area-admin .design-language-token-swatch-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+  .area-admin .design-language-token-swatch { display: flex; flex-direction: column; gap: 4px; padding: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--panel-radius-sm); }
+  .area-admin .design-language-token-swatch-color { width: 100%; height: 40px; border-radius: 4px; border: 1px solid var(--border); }
+  .area-admin .design-language-token-swatch-label { font-family: var(--font-family-mono); font-size: var(--font-size-tiny); color: var(--fg-muted); word-break: break-all; }
+  .area-admin .design-language-button-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; align-items: start; }
+
+  /* iOS-toggle gallery sample — strips the primitive's bottom-right absolute
+     anchoring (designed for entity-tile placement) so two toggles render
+     side-by-side in the gallery flow. */
+  .area-admin .design-language-toggle-sample { display: flex; gap: 12px; align-items: center; }
+  .area-admin .design-language-toggle-sample .tool-enable-switch { position: static; }
+  .area-admin .design-language-toggle-label { font-family: var(--font-family-mono); font-size: var(--font-size-tiny); color: var(--fg-muted); }
+
+
+  /* Telemetry strip (Mission 08 F2 L5 — T1 layout). Gallery-only until a
+     downstream polish flight consumes it; rules stay in admin.css scope. */
+  .area-admin .telemetry-strip {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .area-admin .telemetry-strip .section-title { margin: 0; }
+  .area-admin .telemetry-strip .telemetry-value {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-body-sm);
+    text-transform: uppercase;
+    color: var(--fg);
+    letter-spacing: 0.5px;
+  }
 }

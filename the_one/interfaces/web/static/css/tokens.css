@@ -52,6 +52,51 @@
     --accent-translucent: rgba(167, 139, 250, 0.08);
     --accent-translucent-hover: rgba(167, 139, 250, 0.12);
 
+    /* glass — Mission 08 F2 L3, "C2" reflective treatment
+       (blur(20px) saturate(160%), accent-tinted bg, gleam-overlay reflection,
+       1px white inset top-edge highlight). Applied to chrome surfaces in scope:
+       entity-tile (this leg), then section-nav, popovers, modal, list-item,
+       topbar (subsequent vibe iterations). Glass surfaces REPLACE
+       --panel-shadow-glow per the flight's composition rule. */
+    --glass-bg: rgba(167, 139, 250, 0.04);
+    --glass-blur: 12px;
+    --glass-saturate: 130%;
+    --glass-border: rgba(167, 139, 250, 0.18);
+    --glass-highlight: rgba(255, 255, 255, 0.18);
+    --glass-gleam: linear-gradient(to bottom, rgba(255, 255, 255, 0.07) 0%, rgba(255, 255, 255, 0.01) 30%, transparent 55%);
+
+    /* bezel — Mission 08 F2 L4, "P2 pullback" directional-depth treatment.
+       Top-left light convention: 1px sharp edges + 4px inner glow (NO 10px
+       outer glow — operator back-tracked from S3 to P2 after deciding S3 + 6%
+       gleam read as overly-frosted). Composed as a single multi-stop
+       box-shadow value so consumers `box-shadow: var(--bezel-shadow)`. */
+    --bezel-shadow:
+      inset 1px 1px 0 rgba(255, 255, 255, 0.22),
+      inset -1px -1px 0 rgba(0, 0, 0, 0.18),
+      inset 2px 2px 4px rgba(255, 255, 255, 0.07),
+      inset -2px -2px 4px rgba(0, 0, 0, 0.09);
+    /* Simplified bezel for small pills — directional edges only, P2 alphas. */
+    --bezel-shadow-mini:
+      inset 1px 1px 0 rgba(255, 255, 255, 0.22),
+      inset -1px -1px 0 rgba(0, 0, 0, 0.18);
+    /* Inverted bezel — Mission 08 F2 L5. "Pressed-in" inset shadow for input
+       affordances (fields, textareas, selects). Dark on top, light on bottom
+       — opposite of bezel which is light on top, dark on bottom. Distinguishes
+       input surfaces (recessed) from output panels (raised). */
+    --bezel-shadow-inset:
+      inset 0 1px 2px rgba(0, 0, 0, 0.18),
+      inset 0 -1px 0 rgba(255, 255, 255, 0.06);
+
+    /* motion — Mission 08 F2 L5. Tactile easing + duration scale.
+       --ease-tactile is the workhorse easing for chrome state changes
+       (Material "standard" — fast-out, slow-in feels crisp + decisive).
+       Durations: fast for hover/focus/small state changes, base for panel
+       transitions and tab switches. Theme-agnostic (motion doesn't change
+       between themes) but tokens live here for consistency. */
+    --ease-tactile: cubic-bezier(0.4, 0, 0.2, 1);
+    --motion-fast: 150ms;
+    --motion-base: 250ms;
+
     /* status */
     --status-success: #2ecc71;
     --status-success-glow: rgba(46, 204, 113, 0.6);
@@ -83,7 +128,7 @@
     --badge-web: #c71585;         /* medium violet red */
 
     /* panel design tokens */
-    --panel-radius: 10px;
+    --panel-radius: 6px;
     --panel-radius-sm: 6px;
     --surface-translucent: rgba(255, 255, 255, 0.02);
     --panel-shadow: 0 1px 0 rgba(255, 255, 255, 0.03), inset 0 1px 0 rgba(255, 255, 255, 0.02);
@@ -148,6 +193,41 @@
     --accent-translucent: rgba(109, 40, 217, 0.10);
     --accent-translucent-hover: rgba(109, 40, 217, 0.15);
 
+    /* glass — Mission 08 F2 L3, "M2" reflective treatment for light theme:
+       reflective slate-500 chrome (multi-stop top-to-bottom metal gradient)
+       layered with a faint violet bottom-fade so the brand undertone reads
+       beneath the silver. Pairs symmetrically with the dark-theme treatment
+       (also gleam-overlay reflection, accent-tinted base + border) — same
+       composition shape, theme-tuned tones. */
+    --glass-bg: rgba(100, 116, 139, 0.15);
+    --glass-blur: 12px;
+    --glass-saturate: 130%;
+    --glass-border: rgba(109, 40, 217, 0.40);
+    --glass-highlight: rgba(255, 255, 255, 0.95);
+    --glass-gleam:
+      linear-gradient(to bottom, rgba(255, 255, 255, 0.40) 0%, rgba(148, 163, 184, 0.12) 45%, transparent 80%),
+      linear-gradient(to top, rgba(167, 139, 250, 0.05) 0%, transparent 50%);
+
+    /* bezel — Mission 08 F2 L4, "P2 pullback" treatment. Same alphas as dark
+       theme — white/black insets read in both palettes. */
+    --bezel-shadow:
+      inset 1px 1px 0 rgba(255, 255, 255, 0.22),
+      inset -1px -1px 0 rgba(0, 0, 0, 0.18),
+      inset 2px 2px 4px rgba(255, 255, 255, 0.07),
+      inset -2px -2px 4px rgba(0, 0, 0, 0.09);
+    --bezel-shadow-mini:
+      inset 1px 1px 0 rgba(255, 255, 255, 0.22),
+      inset -1px -1px 0 rgba(0, 0, 0, 0.18);
+    --bezel-shadow-inset:
+      inset 0 1px 2px rgba(15, 23, 42, 0.10),
+      inset 0 -1px 0 rgba(255, 255, 255, 0.40);
+
+    /* motion — Mission 08 F2 L5. Same values as dark theme — motion is
+       theme-agnostic but tokens live in both theme blocks for consistency. */
+    --ease-tactile: cubic-bezier(0.4, 0, 0.2, 1);
+    --motion-fast: 150ms;
+    --motion-base: 250ms;
+
     /* status — Tailwind-700 variants tuned for strict body-AA on light
        (≥ 4.5:1 against #fafbfc and #ffffff). Leg 06 used the -600 family
        which sits ~3:1 — only the 3:1 large/UI threshold; leg 07 deepened
@@ -184,7 +264,7 @@
     /* panel design tokens — drop-shadow style replaces dark's glow shadows.
        --panel-shadow-glow composites accent tint + dark elevation for the
        "designed affordance with subtle lift" feeling on white. */
-    --panel-radius: 10px;
+    --panel-radius: 6px;
     --panel-radius-sm: 6px;
     --surface-translucent: rgba(15, 23, 42, 0.02);
     --panel-shadow: 0 1px 3px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
@@ -214,5 +294,52 @@
        lighter than the dark-navy rail. Establishes the rail < sidebar
        < content elevation chain. */
     --sidebar-bg: #cbd5e1;
+  }
+
+  /* prefers-reduced-transparency fallback — Mission 08 F2 L3.
+     When the user agent (or OS) signals reduced-transparency preference,
+     override the glass tokens to opaque/non-blurring values so every glass
+     surface degrades to a solid panel at the token layer. No per-rule
+     overrides needed — consumers continue using var(--glass-*) and pick
+     up the fallback automatically. */
+  /* prefers-reduced-motion fallback — Mission 08 F2 L5.
+     Vestibular-sensitive users get instant state changes; easing curves and
+     color transitions stay but durations collapse to near-zero. */
+  @media (prefers-reduced-motion: reduce) {
+    [data-theme="dark"] {
+      --motion-fast: 0ms;
+      --motion-base: 0ms;
+    }
+    [data-theme="light"] {
+      --motion-fast: 0ms;
+      --motion-base: 0ms;
+    }
+  }
+
+  @media (prefers-reduced-transparency: reduce) {
+    [data-theme="dark"] {
+      --glass-bg: var(--surface);
+      --glass-blur: 0px;
+      --glass-saturate: 100%;
+      --glass-border: var(--border);
+      --glass-highlight: rgba(255, 255, 255, 0.06);
+      --glass-gleam: none;
+      /* Bezel degrades to a single 1px directional edge — preserves the
+         lit-corner elevation cue without the layered glows. */
+      --bezel-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.10), inset -1px -1px 0 rgba(0, 0, 0, 0.10);
+      --bezel-shadow-mini: inset 1px 1px 0 rgba(255, 255, 255, 0.10), inset -1px -1px 0 rgba(0, 0, 0, 0.10);
+      --bezel-shadow-inset: inset 0 1px 0 rgba(0, 0, 0, 0.10);
+    }
+    [data-theme="light"] {
+      --glass-bg: var(--surface-elevated);
+      --glass-blur: 0px;
+      --glass-saturate: 100%;
+      --glass-border: var(--border);
+      --glass-highlight: rgba(15, 23, 42, 0.04);
+      --glass-gleam: none;
+      --bezel-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.40), inset -1px -1px 0 rgba(15, 23, 42, 0.10);
+      --bezel-shadow-mini: inset 1px 1px 0 rgba(255, 255, 255, 0.40), inset -1px -1px 0 rgba(15, 23, 42, 0.10);
+      --bezel-shadow-inset: inset 0 1px 0 rgba(15, 23, 42, 0.06);
+    }
   }
 }

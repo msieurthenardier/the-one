@@ -574,6 +574,50 @@ The F4 leg 02 lift consolidates per-area duplications into shared primitives in 
 
 JavaScript should toggle visibility via `el.classList.toggle('is-hidden', !visible)` rather than writing `el.style.display = ...` inline. The `@layer utilities` declaration in `index.html` is the highest-precedence named layer, so utilities win over `@layer components` and `@layer areas` rules by design.
 
+### Mission 08 Flight 02 — Design Language Layer (glass + bezel + motion)
+
+A second layer on top of the M04 affordance patterns: a **glass + bezel + LED + motion** aesthetic that puts a "control-panel chrome with reflective glass" face on the existing token-driven primitives. The tokens are defined in `tokens.css` per theme; primitives compose them rather than encoding aesthetic details inline. Reduced-transparency and reduced-motion fallbacks live at the token layer too, so every consumer degrades automatically.
+
+**Tokens added (both themes — same names, theme-tuned values)**:
+
+| Token | Role | Dark | Light |
+|---|---|---|---|
+| `--glass-bg` | Translucent surface tint | `rgba(167,139,250,0.04)` (accent) | `rgba(100,116,139,0.15)` (slate) |
+| `--glass-blur` | `backdrop-filter` blur radius | `12px` | `12px` |
+| `--glass-saturate` | `backdrop-filter` saturate | `130%` | `130%` |
+| `--glass-border` | 1px tile/popover/modal rim | `rgba(167,139,250,0.18)` | `rgba(109,40,217,0.40)` |
+| `--glass-highlight` | Top-edge inset highlight color | `rgba(255,255,255,0.18)` | `rgba(255,255,255,0.95)` |
+| `--glass-gleam` | Reflection-overlay `background-image` | violet→fade gradient | silver-chrome + violet bottom-fade stacked |
+| `--bezel-shadow` | Full directional-depth bezel (4-layer) | white/black inset stack | white/black inset stack |
+| `--bezel-shadow-mini` | Simplified 2-layer edge-only bezel | matching alphas | matching alphas |
+| `--bezel-shadow-inset` | "Pressed-in" inset for form inputs | dark-top + light-bottom | dark-top + light-bottom |
+| `--ease-tactile` | Primary easing curve | `cubic-bezier(0.4, 0, 0.2, 1)` | same |
+| `--motion-fast` | Hover/focus transition duration | `150ms` | same |
+| `--motion-base` | Panel/state transition duration | `250ms` | same |
+
+`@media (prefers-reduced-transparency: reduce)` overrides glass + bezel tokens to opaque/single-layer fallbacks. `@media (prefers-reduced-motion: reduce)` collapses motion durations to `0ms`. Both fallbacks live in `tokens.css` so consumers don't need per-rule overrides.
+
+**Composition rules**:
+
+1. **Full-glass surfaces** (entity-tile, app-picker-popover, modal-dialog) compose: `background-color: var(--glass-bg) + background-image: var(--glass-gleam) + backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)) + border: 1px solid var(--glass-border) + box-shadow: var(--bezel-shadow)`. Replaces `--panel-shadow-glow` on these surfaces (it would composite poorly with the bezel stack).
+
+2. **Mini-glass surfaces** (list-item-active, section-nav-active, chat-welcome-hover) compose the gleam image + `--bezel-shadow-mini` but skip the backdrop-filter (small surfaces don't benefit from blur, and the perf cost stacks).
+
+3. **Input surfaces** (`.field-input`, `.field-textarea`, `.field-select`) compose `box-shadow: var(--bezel-shadow-inset)` — the OPPOSITE direction from raised bezel (dark on top, light on bottom). Reads as "pressed-in" vs the "raised" output panels.
+
+4. **Asymmetric in/out motion** on hoverable chrome: the base rule's `transition` uses `--motion-base` (slow) and the `:hover` rule's `transition` uses `--motion-fast` (fast). Browser reads the destination state's transition at the moment of state change → entering hover takes 150ms (fast feedback), leaving hover takes 250ms (gentle disengagement). Pattern is established on `.entity-tile`, `.btn-outlined-primary`, `.btn-muted-destructive`, `.app-picker-button`. Reduced-motion users get 0ms in both directions.
+
+**Button family — V3b treatment** (supersedes the pre-Mission-08 outlined-primary "transparent + accent border" pattern in `### Affordance patterns` #2 above):
+
+All four button consumers — `.btn-outlined-primary`, `.btn-filled-primary`, `.btn-muted-destructive`, `.app-picker-button` — share the same V3 gradient shape at rest: a top-third white highlight + soft fade through the middle + bottom darkening overlay. They differ in base color (translucent vs solid vs danger-soft) and outer effects (filled-primary adds the `--accent-glow` halo for "primary CTA" reading; muted-destructive swaps to danger-glow on hover). All share `--glass-border` (translucent violet) rim, `--bezel-shadow-mini`, and asymmetric motion.
+
+**New affordance vocabulary entries** (extend the `### Affordance patterns` § Affordance vocabulary catalog above):
+
+- **`.checkbox-primary`** — multi-select bool primitive (Mission 08 F1 L5 lifted from studio MCP-tab; F2 L5 polished). 16px square, 1.5px `--border-strong` border, no border-radius (crisp square), accent fill when checked, white checkmark via rotated-rect `::after`. `vertical-align: middle` so it composes against text in non-flex labels. Distinct from the iOS-toggle `.tool-enable-switch` primitive (admin.css) which expresses a single binary feature flip (slide-toggle, not checkbox). Use `.checkbox-primary` for "select any of these"; use `.tool-enable-switch` for "is this feature on or off."
+- **`.indicator-led`** — lit-status dot (Mission 08 F2 L5). 10px circle with two stacked `radial-gradient` background layers: white top-left reflective crescent + black bottom-right shadow. `.indicator-led--success/warning/danger/idle` modifiers fill with `--status-*` colors + matching `--status-*-glow` outer halo (idle has no glow). Also auto-applied to `.test-result-{ok,fail,warning,pending}` via `::before` pseudo-element retrofit, so existing connection-test consumers (provider editor, agent editor, tool editor) display the LED without JS markup changes.
+- **`.telemetry-strip`** — gallery-only status readout primitive (Mission 08 F2 L5). Justified row: `.section-title` eyebrow on the left, mono-uppercase `.telemetry-value` on the right (often containing an `.indicator-led`), bottom-border between rows. Sibling to `.section-title` (NOT a variant) — section header vs. status readout are distinct semantic roles. Gallery-only by default; graduates to `components.css` once a downstream polish flight finds a consumer.
+- **`.chip` (accent-tinted)** — Mission 08 F2 L5 retune: was `var(--surface)` + `var(--border)` (neutral), now `var(--accent-translucent)` + `var(--glass-border)` (accent-tinted flat). No gradient or shadow — distinguishes chips from raised buttons by reading as colored-but-flat tags.
+
 ### Color contrast (WCAG AA)
 
 The F2 design tokens were audited against WCAG 2.1 AA contrast standards on
