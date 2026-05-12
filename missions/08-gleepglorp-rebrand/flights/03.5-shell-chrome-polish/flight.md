@@ -1,6 +1,6 @@
 # Flight: Shell Chrome Polish
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [GleepGlorp AI Rebrand & UX Polish](../../mission.md)
 
 ## Contributing to Criteria
@@ -151,8 +151,8 @@ Each step's output is the next step's input — strict ordering:
 
 ### Checkpoints
 
-- [ ] **Leg 1 done**: All 4 shell surfaces (topbar / sidebar / body / main-content) carry the chosen design-language vocabulary in both themes; dark-theme tier hierarchy established; operator confirms the housing-around-interior metaphor reads.
-- [ ] **Leg 2 done**: 10-step ordered close complete — WCAG green, snapshot baselines regenerated, operator HAT confirmed both themes × 8 pages, agents.md F3.5 subsection added including Flight 3 carry-forward docs items, narrow gate stable.
+- [x] **Leg 1 done**: All 4 shell surfaces (topbar / sidebar / body / main-content) carry the alien-dashboard vocabulary in both themes; metallic housing reads as a unified L; main panel L-bracket frame with inner glow; operator-confirmed.
+- [x] **Leg 2 done**: 10-step ordered close complete — WCAG 45/45, snapshot baselines regenerated 10/12, operator HAT confirmed both themes × 8 pages, agents.md F3.5 subsection added including both Flight 3 carry-forward docs items, narrow gate 56/56 stable.
 
 ### Adaptation Criteria
 
@@ -170,8 +170,8 @@ Each step's output is the next step's input — strict ordering:
 
 > **Note:** These are tentative suggestions, not commitments. Legs are planned and created one at a time as the flight progresses. This list will evolve based on discoveries during implementation.
 
-- [ ] `01-shell-chrome-vibe` *(vibe)* — Interactive. Apply design-language vocabulary to topbar / sidebar / body / main-content. Body bg-gradient retune in scope. Dark-theme tier hierarchy established. Operator drives aesthetic; Flight Director presents micro-iterations.
-- [ ] `02-alignment-and-snapshot-regen` — 10-step ordered close: pre-close grep, WCAG audit, rebuild, playwright, snapshot regen, HAT × 2 themes × 8 pages, agents.md F3.5 subsection + Flight 3 carry-forward docs, stability rerun, final narrow gate, status update + commit.
+- [x] `01-shell-chrome-vibe` *(vibe)* — Alien-dashboard L-bracket on `#main-content` (chamfered top-left, top + left accent strokes + chamfer diagonal, inner accent glow); unified metallic-chrome housing on topbar + sidebar (gunmetal in dark, silver in light, brushed horizontal grain, top-edge sheen on topbar only); body bg matches chrome so chamfer corner reveals housing continuation; top-edge `mask-image` on `.content-panel` so scrolled content tucks under the L-bracket; `color-scheme` per theme for UA chrome parity. ~30 operator-driven iterations; both themes landed.
+- [x] `02-alignment-and-snapshot-regen` — 10-step ordered close complete. Pre-close grep clean; WCAG 45/45; `make rebuild` clean; playwright cache re-installed; 10/12 snapshots regenerated (2 carried-forward Flight 1 Known Issue); HAT operator-confirmed both themes × 8 pages; agents.md Mission 08 F3.5 subsection added (~75 lines) including both Flight 3 carry-forward docs items (topbar `<img>` CLS + legacy class-as-JS-handle); stability re-run 10/12; final narrow gate 56/56.
 
 ---
 
