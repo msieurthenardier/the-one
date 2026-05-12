@@ -64,6 +64,46 @@ All four items remain in Flight 3 scope. No items retired.
 
 ---
 
+### 02-topbar-restructure-and-area-renames
+
+**Status**: landed (2026-05-11) — operator visual-confirmed
+
+**What was implemented**:
+
+- **`app.js renderTopBar()` rewritten** — replaced the `<h1 class="app-topbar-title">` + icon-image + wordmark with `<img src="/static/brand/gleepglorp_banner.png" alt="GleepGlorp AI" class="app-topbar-banner">`. Replaced the single chevron `.app-picker-button` + `.app-picker-popover` with a loop over `order[]` emitting one flat `.app-picker-button` per registered area (Chat / Agent Studio / System). ~100 LOC of popover state machine removed (`openPicker`, `closePicker`, click-outside listener, popover keyboard handler, option-build loop, chevron-rotate styling-bridge).
+- **`app.js switchTo()` simplified** — replaced the `.app-picker-option` highlight loop + `.app-picker-button` content-refresh branching (which had a special "Apps" fallback for the in-Chat case) with a single `aria-current="page"` toggle loop over `#app-topbar .app-picker-button`.
+- **Area-label renames**: `chat.js:3` `'Agent Chat'` → `'Chat'`; `admin.js:3` `'Settings'` → `'System'`; `admin.js:6` `'Settings categories'` → `'System categories'`; `admin.js:242` `'Settings sections'` → `'System sections'`. `studio.js:3` already `'Agent Studio'` (no change).
+- **Sidebar-omission comments updated** in `admin.js` + `studio.js` to reflect the new topbar semantic (area buttons name the active area via `aria-current="page"`).
+- **`components.css`**:
+  - `.app-topbar-title` + `.app-topbar-title img` rules replaced with `.app-topbar-banner` (`height: 32px; width: auto; display: block; flex-shrink: 0`).
+  - `.app-picker-button` rule retained but padding simplified to symmetric `0 12px` (was `0 10px 0 8px` for chevron offset).
+  - Removed: `.app-picker-button-chevron`, `.app-picker-button-chevron svg`, `.app-picker-button[aria-expanded="true"]`, `.app-picker-button[aria-expanded="true"] .app-picker-button-chevron`, `.app-picker-popover`, `.app-picker-popover[data-open="true"]`, `.app-picker-option`, `.app-picker-option:hover`, `.app-picker-option:focus`, `.app-picker-option:focus-visible`, `.app-picker-option.active`, `.app-picker-option.active::before`.
+  - Added: `.app-picker-button[aria-current="page"]` (accent-translucent + accent border).
+- **`surfaces-section.js` gallery miniature** restructured from "closed / open" pair (with chevron + `aria-expanded`) to "rest / active" pair using `aria-current="page"`. Both miniatures relabeled to `"System"` (Admin → System rename).
+- **`static/brand/gleepglorp_banner.png`** added to git tracking (was untracked since operator dropped it into the brand directory).
+
+**Iteration trail** (operator-driven):
+
+1. **v1 (Chat flat + chevron menu)**: Initial implementation per operator's first directive — Chat as a separate flat button + chevron app-picker showing Agent Studio + System.
+2. **Operator pivoted**: "lets get rid of the app picker altogether and just put three buttons. Also for the icon and app name on the left, replace that with the banner image in brand." Scope expanded to full topbar rewrite + banner replacement.
+3. **v2 (3 flat buttons + banner)**: Implementation rewritten; popover affordance fully retired. Operator visual-confirmed.
+
+**Verification**:
+
+- Narrow test gate: `docker exec the-one pytest tests/test_design_tokens_a11y.py tests/test_token_definitions.py tests/test_oauth_provider_factory.py tests/test_platform_tempdirs.py -x -q --timeout 30` → **56/56 in 0.97s**.
+- WCAG audit standalone: `docker exec the-one pytest tests/test_design_tokens_a11y.py -v --timeout 30` → **45/45 in 0.05s**.
+- `make rebuild` → all assets served correctly (verify-serving 200 across the board).
+- Operator visual verification in browser → confirmed ("looks good").
+
+**Anomalies**: None.
+
+**Deviations from leg artifact**:
+
+- Leg artifact's v1 (Chat-flat + chevron-with-Studio+System) was operator-pivoted mid-leg to v2 (3 flat buttons + banner). Artifact rewritten to describe v2; iteration trail captured in this log.
+- Operator visual verification replaced the mechanical "narrow gate is the only sentinel" stance — Flight Director paused for operator confirmation before committing, per the operator's mid-leg pushback ("were not done, you need to verify im satisifed before finishing").
+
+---
+
 ## Decisions
 
 ### Reconnaissance citation drift on `tokens-section.js`

@@ -20,18 +20,11 @@
   .skip-link:focus { top: 0; outline: 2px solid var(--fg); outline-offset: 2px; }
 
   /* === Top Bar Components === */
-  .app-topbar-title {
-    font-size: var(--font-size-h1);
-    font-weight: var(--font-weight-bold);
-    color: var(--accent);
-    margin: 0;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .app-topbar-title img {
-    width: 24px;
-    height: 24px;
+  /* Brand banner image replaces the prior <h1> wordmark + icon combo. */
+  .app-topbar-banner {
+    height: 32px;
+    width: auto;
+    display: block;
     flex-shrink: 0;
   }
   .app-topbar-actions {
@@ -40,17 +33,15 @@
     gap: 8px;
   }
 
-  /* === App Picker === */
-  /* Pill-style button reading "<icon> <Current area> <chevron>" — the
-     standard app-switcher affordance. Accent-outlined at rest so the
-     control reads as a primary navigation target; glow on hover; filled
-     when the popover is open ([aria-expanded="true"]). */
-  /* Mission 08 F2 L5 — V3b button treatment so the topbar pill reads as part
-     of the same button family as .btn-outlined-primary: accent-translucent
-     base + V3 gradient + glass-border + bezel-mini, asymmetric motion. */
+  /* === Top-bar area buttons === */
+  /* Three flat buttons, one per registered area (Chat / Agent Studio / System).
+     V3b family treatment: accent-translucent base + V3 gradient + glass-border
+     + bezel-mini. Active area gets aria-current="page" for a stronger
+     "you are here" treatment. (Class name retained from the prior app-picker
+     popover affordance for design-language gallery + test-selector continuity.) */
   .app-picker-button {
     height: 36px;
-    padding: 0 10px 0 8px;
+    padding: 0 12px;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -72,8 +63,6 @@
   .app-picker-button-icon { display: inline-flex; align-items: center; justify-content: center; }
   .app-picker-button-icon svg { width: 18px; height: 18px; display: block; }
   .app-picker-button-label { white-space: nowrap; }
-  .app-picker-button-chevron { display: inline-flex; align-items: center; transition: transform 0.15s ease; opacity: 0.7; }
-  .app-picker-button-chevron svg { width: 14px; height: 14px; display: block; }
   .app-picker-button:hover {
     background-color: var(--accent-translucent-hover);
     border-color: var(--accent);
@@ -82,65 +71,12 @@
       border-color var(--motion-fast) var(--ease-tactile),
       box-shadow var(--motion-fast) var(--ease-tactile);
   }
-  .app-picker-button[aria-expanded="true"] {
+  .app-picker-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: var(--bezel-shadow-mini), 0 0 0 3px var(--accent-glow); }
+  /* "You are here" state — current area's button. Stronger accent-translucent
+     background + accent border. */
+  .app-picker-button[aria-current="page"] {
     background-color: var(--accent-translucent-hover);
     border-color: var(--accent);
-    box-shadow: var(--bezel-shadow-mini), 0 0 0 3px var(--accent-glow);
-  }
-  .app-picker-button[aria-expanded="true"] .app-picker-button-chevron { transform: rotate(180deg); }
-  .app-picker-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: var(--bezel-shadow-mini), 0 0 0 3px var(--accent-glow); }
-
-  .app-picker-popover {
-    position: absolute;
-    top: calc(var(--topbar-h) + 4px);
-    right: 16px;
-    min-width: 180px;
-    /* Glass — Mission 08 F2 L3. Popover is floating chrome on top of body
-       content, so backdrop-filter has the bg gradient behind to refract.
-       var(--panel-shadow) dropped — it competes with the glass aesthetic. */
-    background-color: var(--glass-bg);
-    background-image: var(--glass-gleam);
-    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-    border: 1px solid var(--glass-border);
-    border-radius: var(--panel-radius);
-    box-shadow: var(--bezel-shadow);
-    padding: 4px;
-    display: none;
-    z-index: 100;
-  }
-  .app-picker-popover[data-open="true"] { display: block; }
-
-  .app-picker-option {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-    padding: 8px 12px;
-    background: transparent;
-    border: none;
-    color: var(--fg);
-    cursor: pointer;
-    border-radius: var(--panel-radius-sm);
-    text-align: left;
-    position: relative;
-  }
-  /* Hover/focus uses --fg (theme-appropriate foreground that contrasts the
-     popover's surface-elevated hover background). --nav-fg-hover is for the
-     dark nav rail and is near-white in light theme — would vanish here. */
-  .app-picker-option:hover { background: var(--surface-elevated); color: var(--fg); }
-  .app-picker-option:focus { background: var(--surface-elevated); color: var(--fg); outline: none; }
-  .app-picker-option:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  .app-picker-option.active { color: var(--nav-fg-active); }
-  .app-picker-option.active::before {
-    content: '';
-    position: absolute;
-    left: -2px;
-    top: 8px;
-    bottom: 8px;
-    width: 3px;
-    background: var(--nav-fg-active);
-    border-radius: 2px;
   }
 
   /* === List Item (sidebar/category list rows with focus-within delete reveal) === */

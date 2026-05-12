@@ -1,6 +1,6 @@
 App.registerArea({
   id: 'chat',
-  label: 'Agent Chat',
+  label: 'Chat',
   icon: App.icons.chat,
   order: 10,
   sidebarLabel: 'Chat sessions',

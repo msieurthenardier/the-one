@@ -1,9 +1,9 @@
 App.registerArea({
   id: 'admin',
-  label: 'Settings',
+  label: 'System',
   icon: App.icons.admin,
   order: 30,
-  sidebarLabel: 'Settings categories',
+  sidebarLabel: 'System categories',
 
   serializeState: function () {
     if (this._currentCategory === 'system') return 'system';
@@ -237,9 +237,10 @@ App.registerArea({
     }
     App.layout.renderSectionNav(sectionNavEl, categories, currentCategory, {
       onSelect: setCategory,
-      // Sidebar header omitted — the topbar's app-picker pill already names
-      // the active area, so a duplicate <h2> in the sidebar is redundant.
-      ariaLabel: 'Settings sections'
+      // Sidebar header omitted — the topbar's area buttons already name the
+      // active area (highlighted via aria-current="page"), so a duplicate
+      // <h2> in the sidebar is redundant.
+      ariaLabel: 'System sections'
     });
     categoryListEl = sectionNavEl; // helper rendered into the container
 

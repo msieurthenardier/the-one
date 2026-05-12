@@ -13,99 +13,33 @@
 
   function renderTopBar() {
     var topbar = document.getElementById('app-topbar');
-    topbar.innerHTML =
-      '<h1 class="app-topbar-title">' +
-        '<img src="/static/brand/topbar-icon-24.png" width="24" height="24" alt="">' +
-        'GleepGlorp AI' +
-      '</h1>' +
-      '<div class="app-topbar-actions">' +
-        // App-picker button reads as a current-area pill with icon + label
-        // + chevron, the standard "tap to switch app" affordance (Notion
-        // sidebar header, Linear team switcher pattern). Inner spans are
-        // populated by updatePickerButton() and refreshed on every
-        // switchTo() so the button always reflects the active area.
-        '<button class="app-picker-button" aria-label="Switch app" aria-haspopup="true" aria-expanded="false">' +
-          '<span class="app-picker-button-icon"></span>' +
-          '<span class="app-picker-button-label"></span>' +
-          '<span class="app-picker-button-chevron">' + App.icons['chevron-down'] + '</span>' +
-        '</button>' +
-      '</div>' +
-      '<nav class="app-picker-popover" aria-label="App areas" data-open="false"></nav>';
-
-    var pickerBtn = topbar.querySelector('.app-picker-button');
-    var popover = topbar.querySelector('.app-picker-popover');
-
-    // Picker open/close — defined here so option-click handlers can call closePicker via closure.
-    function openPicker() {
-      popover.dataset.open = 'true';
-      pickerBtn.setAttribute('aria-expanded', 'true');
-      var firstOpt = popover.querySelector('.app-picker-option');
-      // data-open switches CSS to display: block synchronously (attribute sets are
-      // synchronous; the CSS rule applies to the next style recalc which happens
-      // before focus() returns). Safe to focus immediately.
-      if (firstOpt) firstOpt.focus();
-    }
-    function closePicker() {
-      popover.dataset.open = 'false';
-      pickerBtn.setAttribute('aria-expanded', 'false');
-    }
-
-    // Build picker options — closePicker is in scope here.
+    // Build the area buttons by iterating registered areas in declared order.
+    // Each area becomes a flat top-bar button — direct-navigate, no popover.
+    // Active state is set in switchTo() via aria-current="page".
+    var buttonsHtml = '';
     for (var i = 0; i < order.length; i++) {
       var a = order[i];
-      var opt = document.createElement('button');
-      opt.className = 'app-picker-option';
-      opt.dataset.area = a.id;
-      opt.setAttribute('type', 'button');
-      opt.innerHTML = a.icon + '<span>' + a.label + '</span>';
-      opt.addEventListener('click', (function (id) {
-        return function (e) {
-          // stopPropagation guards against click-outside listener firing after
-          // option click — defensive; option handler calls closePicker() itself.
-          e.stopPropagation();
-          location.hash = id;
-          closePicker();
-        };
-      })(a.id));
-      popover.appendChild(opt);
+      buttonsHtml +=
+        '<button class="app-picker-button" data-area="' + a.id + '" aria-label="Go to ' + a.label + '">' +
+          '<span class="app-picker-button-icon">' + (a.icon || '') + '</span>' +
+          '<span class="app-picker-button-label">' + a.label + '</span>' +
+        '</button>';
     }
+    topbar.innerHTML =
+      '<img src="/static/brand/gleepglorp_banner.png" alt="GleepGlorp AI" class="app-topbar-banner">' +
+      '<div class="app-topbar-actions">' + buttonsHtml + '</div>';
 
-    pickerBtn.addEventListener('click', function (e) {
-      e.stopPropagation();
-      if (popover.dataset.open === 'true') closePicker();
-      else openPicker();
-    });
-
-    // Click-outside closes
-    document.addEventListener('click', function (e) {
-      if (popover.dataset.open !== 'true') return;
-      if (popover.contains(e.target) || pickerBtn.contains(e.target)) return;
-      closePicker();
-    });
-
-    // Keyboard within popover (Escape, arrow-cycle)
-    popover.addEventListener('keydown', function (e) {
-      var opts = Array.prototype.slice.call(popover.querySelectorAll('.app-picker-option'));
-      var idx = opts.indexOf(document.activeElement);
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        closePicker();
-        pickerBtn.focus();
-        return;
-      }
-      if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
-        e.preventDefault();
-        if (idx === -1) opts[0].focus();
-        else opts[(idx + 1) % opts.length].focus();
-        return;
-      }
-      if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
-        e.preventDefault();
-        if (idx === -1) opts[opts.length - 1].focus();
-        else opts[(idx - 1 + opts.length) % opts.length].focus();
-        return;
-      }
-    });
+    // Wire each button to a direct hash navigation.
+    var buttons = topbar.querySelectorAll('.app-picker-button');
+    for (var j = 0; j < buttons.length; j++) {
+      (function (btn) {
+        var areaId = btn.dataset.area;
+        btn.addEventListener('click', function (e) {
+          e.stopPropagation();
+          location.hash = areaId;
+        });
+      })(buttons[j]);
+    }
   }
 
   function parseHash(hashString) {
@@ -180,25 +114,12 @@
     var areaLabel = areas[areaId].sidebarLabel || (areas[areaId].label + ' sidebar');
     asideEl.setAttribute('aria-label', areaLabel);
 
-    // Update picker highlight
-    var pickerOpts = document.querySelectorAll('.app-picker-option');
-    for (var i = 0; i < pickerOpts.length; i++) {
-      var isActiveOpt = pickerOpts[i].dataset.area === areaId;
-      pickerOpts[i].classList.toggle('active', isActiveOpt);
-      // Announce the active area to assistive tech (the popover is wrapped in
-      // a <nav> landmark; aria-current="page" closes the navigation semantic).
-      if (isActiveOpt) pickerOpts[i].setAttribute('aria-current', 'page');
-      else pickerOpts[i].removeAttribute('aria-current');
-    }
-    // Sync the picker button's content with the active area so the pill
-    // reads as the current-area-icon + name + dropdown chevron.
-    var pickerBtn = document.querySelector('.app-picker-button');
-    if (pickerBtn) {
-      var iconEl = pickerBtn.querySelector('.app-picker-button-icon');
-      var labelEl = pickerBtn.querySelector('.app-picker-button-label');
-      if (iconEl) iconEl.innerHTML = areas[areaId].icon || '';
-      if (labelEl) labelEl.textContent = areas[areaId].label || '';
-      pickerBtn.setAttribute('aria-label', 'Switch app — current: ' + (areas[areaId].label || ''));
+    // Update top-bar button "you are here" state — each flat button gets
+    // aria-current="page" when its area is active, removed otherwise.
+    var topbarBtns = document.querySelectorAll('#app-topbar .app-picker-button');
+    for (var i = 0; i < topbarBtns.length; i++) {
+      if (topbarBtns[i].dataset.area === areaId) topbarBtns[i].setAttribute('aria-current', 'page');
+      else topbarBtns[i].removeAttribute('aria-current');
     }
 
     currentId = areaId;
