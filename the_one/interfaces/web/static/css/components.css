@@ -56,12 +56,7 @@
     gap: 8px;
     border-radius: var(--panel-radius-sm);
     background-color: var(--accent-translucent);
-    background-image: linear-gradient(to bottom,
-      rgba(255, 255, 255, 0.30) 0%,
-      rgba(255, 255, 255, 0.10) 35%,
-      rgba(255, 255, 255, 0.0) 50%,
-      rgba(0, 0, 0, 0.10) 100%
-    );
+    background-image: var(--btn-v3-gradient);
     border: 1px solid var(--glass-border);
     cursor: pointer;
     color: var(--accent);
@@ -384,12 +379,7 @@
      shape. Asymmetric in/out transitions match the .entity-tile pattern. */
   .btn-outlined-primary {
     background-color: var(--accent-translucent);
-    background-image: linear-gradient(to bottom,
-      rgba(255, 255, 255, 0.30) 0%,
-      rgba(255, 255, 255, 0.10) 35%,
-      rgba(255, 255, 255, 0.0) 50%,
-      rgba(0, 0, 0, 0.10) 100%
-    );
+    background-image: var(--btn-v3-gradient);
     border: 1px solid var(--glass-border);
     border-radius: var(--panel-radius-sm);
     padding: 4px 10px;
@@ -423,12 +413,7 @@
      primary CTA. Bezel-mini + asymmetric motion match the family. */
   .btn-filled-primary {
     background-color: var(--accent);
-    background-image: linear-gradient(to bottom,
-      rgba(255, 255, 255, 0.30) 0%,
-      rgba(255, 255, 255, 0.10) 35%,
-      rgba(255, 255, 255, 0.0) 50%,
-      rgba(0, 0, 0, 0.10) 100%
-    );
+    background-image: var(--btn-v3-gradient);
     border: none;
     border-radius: var(--panel-radius-sm);
     padding: 8px 24px;
@@ -456,12 +441,7 @@
      danger background, with the danger-muted border for semantic identity. */
   .btn-muted-destructive {
     background-color: var(--status-danger-bg-soft);
-    background-image: linear-gradient(to bottom,
-      rgba(255, 255, 255, 0.30) 0%,
-      rgba(255, 255, 255, 0.10) 35%,
-      rgba(255, 255, 255, 0.0) 50%,
-      rgba(0, 0, 0, 0.10) 100%
-    );
+    background-image: var(--btn-v3-gradient);
     border: 1px solid var(--status-danger-muted);
     border-radius: var(--panel-radius-sm);
     padding: 3px 10px;
@@ -610,7 +590,7 @@
   .entity-tile.active {
     border-color: var(--accent);
     background-color: var(--accent-translucent-hover);
-    /* --panel-shadow-glow intentionally dropped — glass surfaces use the
+    /* Prior accent-glow shadow intentionally dropped — glass surfaces use the
        inset highlight as their elevation cue (composition rule, F2 L3). */
   }
   .entity-tile-name {

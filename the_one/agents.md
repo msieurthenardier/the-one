@@ -599,7 +599,7 @@ A second layer on top of the M04 affordance patterns: a **glass + bezel + LED + 
 
 **Composition rules**:
 
-1. **Full-glass surfaces** (entity-tile, app-picker-popover, modal-dialog) compose: `background-color: var(--glass-bg) + background-image: var(--glass-gleam) + backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)) + border: 1px solid var(--glass-border) + box-shadow: var(--bezel-shadow)`. Replaces `--panel-shadow-glow` on these surfaces (it would composite poorly with the bezel stack).
+1. **Full-glass surfaces** (entity-tile, app-picker-popover, modal-dialog) compose: `background-color: var(--glass-bg) + background-image: var(--glass-gleam) + backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)) + border: 1px solid var(--glass-border) + box-shadow: var(--bezel-shadow)`. Replaces the prior accent-tinted shadow treatment on these surfaces (it would composite poorly with the bezel stack).
 
 2. **Mini-glass surfaces** (list-item-active, section-nav-active, chat-welcome-hover) compose the gleam image + `--bezel-shadow-mini` but skip the backdrop-filter (small surfaces don't benefit from blur, and the perf cost stacks).
 
@@ -679,7 +679,7 @@ the canonical WCAG 2.1 sRGB-luminance formula.
 > narrative — the four retunes happened while the accent family was cyan.
 > Mission 08 Flight 01 Leg 02 subsequently retuned `--accent` from cyan-700
 > to GleepGlorp violet (`#6d28d9` light, `#a78bfa` dark) and updated the
-> accent-glow / accent-translucent / panel-shadow-glow rgba tokens in
+> accent-glow / accent-translucent rgba tokens in
 > lockstep at equivalent contrast ratios. The bullet below preserves the
 > cyan-iteration story for context; for current `--accent` values see
 > `tokens.css` and Mission 08 Flight 01 Leg 02. The other three retunes
@@ -696,7 +696,6 @@ applicable AA threshold:
   `.save-btn`). Cyan-700 reads at 5.36:1. The accent-glow /
   accent-translucent rgba tokens were updated in lockstep so derived
   shadows, borders, and translucent fills track the new accent.
-  `--panel-shadow-glow` cyan tint also updated.
 - **Light `--status-success`**: `#16a34a` (green-600) → `#15803d` (green-700).
   Used as status text colour (e.g., model-loaded indicator); green-600 read
   at 3.18:1 (body-AA fail). Green-700 reads at 4.84:1.
