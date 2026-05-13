@@ -1406,9 +1406,20 @@ App.registerArea({
           var failOpt = document.createElement('option');
           failOpt.value = '';
           failOpt.disabled = true;
-          failOpt.selected = true;
+          failOpt.selected = !currentVal;
           failOpt.textContent = 'Failed to load models';
           selectEl.replaceChildren(failOpt);
+          // Even on fetch failure, preserve the prior model value as a
+          // "(custom)" option so the operator's selection survives the
+          // switch regardless of whether the new provider is reachable.
+          if (currentVal) {
+            var customOpt = document.createElement('option');
+            customOpt.value = currentVal;
+            customOpt.selected = true;
+            customOpt.textContent = currentVal + ' (custom)';
+            selectEl.appendChild(customOpt);
+          }
+          delete selectEl.dataset.pendingValue;
           if (loadingEl) loadingEl.textContent = '';
           modelCapsBy = {};
           renderModelCapabilities();
@@ -1440,6 +1451,13 @@ App.registerArea({
         providerSelect.addEventListener('change', function () {
           var selectedProviderId = providerSelect.value;
           var modelEl = editorEl.querySelector('#studio-model');
+          // Capture the current model value BEFORE clearing the picker so that
+          // fetchModelsForProvider can preserve it as a "(custom)" option when
+          // the new provider's model list doesn't contain it. Setting
+          // selectedIndex = 0 wipes selectEl.value, and the fetch reads
+          // currentVal from selectEl.value (falling back to pendingValue), so
+          // we must stash the live value into pendingValue first.
+          if (modelEl && modelEl.value) modelEl.dataset.pendingValue = modelEl.value;
           if (modelEl) modelEl.selectedIndex = 0;
           clearVramWarning();
           fetchModelsForProvider(selectedProviderId);
