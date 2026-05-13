@@ -288,22 +288,22 @@
       }
       var subtitleParts = [escapeHtml(type)];
       if (summary) subtitleParts.push(escapeHtml(summary));
-      html += '<p class="editor-subtitle">' + subtitleParts.join(' · ') + '</p>';
+      html += '<p class="editor-sub">' + subtitleParts.join(' · ') + '</p>';
     }
     html += '</div>';
 
     // Action cluster
-    html += '<div class="form-actions">';
-    html += '<button type="button" class="btn-outlined-primary back-btn" data-testid="back-mcp-source-btn" aria-label="Back to MCP server list">' + window.App.icon('arrow-left') + ' Back</button>';
-    html += '<button type="button" class="btn-outlined-primary cancel-btn" data-testid="cancel-mcp-source-btn" disabled>Cancel</button>';
-    html += '<button type="button" class="btn-filled-primary save-btn" data-testid="save-mcp-source-btn" disabled>' + (isCreate ? 'Create' : 'Save') + '</button>';
+    html += '<div class="editor-actions">';
+    html += '<button type="button" class="btn btn-ghost back-btn" data-testid="back-mcp-source-btn" aria-label="Back to MCP server list">' + window.App.icon('arrow-left') + ' Back</button>';
+    html += '<button type="button" class="btn btn-ghost cancel-btn" data-testid="cancel-mcp-source-btn" disabled>Cancel</button>';
+    html += '<button type="button" class="btn btn-primary save-btn" data-testid="save-mcp-source-btn" disabled>' + (isCreate ? 'Create' : 'Save') + '</button>';
     html += '<span class="editor-error"></span>';
     html += '</div>';
     html += '</div>'; // .editor-header
 
     // ── Connection section ────────────────────────────────────────────
     html += '<div class="editor-section">';
-    html += '<div class="section-title">Connection</div>';
+    html += '<div class="section-label">Connection</div>';
     html += renderConnectionFields(source, mcpTypes);
     // F9 L1: Refresh-connection button (renamed from "Test connection")
     // lives at the bottom of the Connection section in edit-mode for
@@ -317,7 +317,7 @@
     // belongs next to Refresh as a secondary connection action, not in
     // Danger Zone. Visible only when the source carries OAuth state
     // (gated by `hasOAuthState`); hidden for stdio and unauth'd
-    // streamable-http. Uses the same `btn-outlined-primary` cosmetic as
+    // streamable-http. Uses the same `btn btn-ghost` cosmetic as
     // Refresh so the pair reads as grouped connection controls.
     //
     // F9 L1 (vibing polish): "Last updated" label lives inside the
@@ -334,15 +334,15 @@
     // so the existing OAuth-state-dependent UI hides itself for stdio without
     // additional changes here.
     if (!isCreate && source && (source.type === 'streamable-http' || source.type === 'stdio')) {
-      html += '<div class="field-row admin-pf-row mcp-test-row">';
+      html += '<div class="form-row mcp-test-row">';
       html += '<label></label>';
       html += '<div class="mcp-connection-actions">';
-      html += '<button type="button" class="btn-outlined-primary mcp-refresh-connection-btn" data-testid="mcp-test-connection">' +
+      html += '<button type="button" class="btn btn-ghost mcp-refresh-connection-btn" data-testid="mcp-test-connection">' +
               window.App.icon('refresh-cw') + ' Refresh connection</button>';
       if (hasOAuthState(source)) {
         var resetTooltip = 'Reset this connection? This clears the stored login and tools list. ' +
           'You will need to log in again on the next refresh.';
-        html += '<button type="button" class="btn-outlined-primary mcp-reset-connection-btn" data-testid="reset-mcp-connection-btn" title="' + escapeAttr(resetTooltip) + '" aria-label="' + escapeAttr(resetTooltip) + '" data-name="' + escapeAttr(source.name || '') + '"><span data-confirm-title>Reset connection</span></button>';
+        html += '<button type="button" class="btn btn-ghost mcp-reset-connection-btn" data-testid="reset-mcp-connection-btn" title="' + escapeAttr(resetTooltip) + '" aria-label="' + escapeAttr(resetTooltip) + '" data-name="' + escapeAttr(source.name || '') + '"><span data-confirm-title>Reset connection</span></button>';
       }
       var connCache = (source.config && source.config._cache) || null;
       var connLastUpdatedText = connCache ? formatTimeAgo(connCache.last_updated) : '';
@@ -373,23 +373,23 @@
       ? true
       : sandbox.network_allowed === true;
     html += '<div class="editor-section mcp-stdio-only' + (sandboxHidden ? ' is-hidden' : '') + '" data-testid="mcp-sandbox-section">';
-    html += '<div class="section-title">Sandbox</div>';
-    // Network allowed: 2-column field-row (label left, iOS-style toggle right).
+    html += '<div class="section-label">Sandbox</div>';
+    // Network allowed: 2-column form-row (label left, iOS-style toggle right).
     // Mirrors admin tools-editor's renderEnabledRow pattern. The
-    // class="field-input" on the checkbox keeps attachStaticListeners wiring
+    // class="form-control" on the checkbox keeps attachStaticListeners wiring
     // dirty-tracking via change events.
     var netTitleText = networkAllowed
       ? 'Network access enabled'
       : 'Network access disabled';
-    html += '<div class="field-row admin-pf-row mf-sandbox-network-row">';
+    html += '<div class="form-row mf-sandbox-network-row">';
     html += '<label for="mf-sandbox-network-allowed">Allow network access</label>';
     html += '<label class="tool-enable-switch" title="' + escapeAttr(netTitleText) + '">';
-    html += '<input type="checkbox" class="field-input" id="mf-sandbox-network-allowed" data-field="sandbox-network-allowed"' + (networkAllowed ? ' checked' : '') + ' aria-label="Allow network access" />';
+    html += '<input type="checkbox" class="form-control" id="mf-sandbox-network-allowed" data-field="sandbox-network-allowed"' + (networkAllowed ? ' checked' : '') + ' aria-label="Allow network access" />';
     html += '<span class="tool-enable-switch-track" aria-hidden="true"></span>';
     html += '</label>';
     html += '</div>';
     // Writable paths chip-list (mounted via App.adminFormHelpers post-innerHTML).
-    html += '<div class="field-row admin-pf-row">';
+    html += '<div class="form-row">';
     html += '<label for="mf-sandbox-writable-paths">Writable paths</label>';
     html += '<div class="chip-list-editor" id="mf-sandbox-writable-paths" data-field="sandbox-writable-paths" data-field-type="array"></div>';
     html += '</div>';
@@ -422,7 +422,7 @@
     // shares the same code path with streamable-http.
     if (!isCreate && source && (source.type === 'streamable-http' || source.type === 'stdio')) {
       html += '<div class="editor-section mcp-tools-section">';
-      html += '<div class="section-title">Tools</div>';
+      html += '<div class="section-label">Tools</div>';
       var cache = (source.config && source.config._cache) || null;
       if (cache && Array.isArray(cache.tools)) {
         var statusInner = (
@@ -449,7 +449,7 @@
     // there is no Tools section, so it lands right after Sandbox as before.
     var kvLabel = (type === 'streamable-http') ? 'Custom Headers' : 'Environment Variables';
     html += '<div class="editor-section">';
-    html += '<div class="section-title kv-section-title" ' +
+    html += '<div class="section-label kv-section-title" ' +
             'data-stdio-label="Environment Variables" ' +
             'data-streamable-http-label="Custom Headers">' +
             escapeHtml(kvLabel) + '</div>';
@@ -463,7 +463,7 @@
     // not a destructive one. Danger Zone now contains only Delete.
     if (!isCreate) {
       html += '<div class="editor-section danger-zone">';
-      html += '<div class="section-title danger-zone-title">Danger Zone</div>';
+      html += '<div class="section-label danger-zone-title">Danger Zone</div>';
       // F9 L1 (vibing polish): trash icon to the LEFT of the label,
       // mirroring the Refresh button's icon-then-text pattern and the
       // per-row Custom Headers trash glyph. The icon sits OUTSIDE the
@@ -495,15 +495,15 @@
     var html = '';
 
     // Name
-    html += '<div class="field-row admin-pf-row">';
+    html += '<div class="form-row">';
     html += '<label for="mf-name">Name</label>';
-    html += '<input class="field-input admin-pf-input" id="mf-name" data-field="name" value="' + escapeAttr(isCreate ? '' : (source.name || '')) + '" placeholder="My MCP Server" />';
+    html += '<input class="form-control" id="mf-name" data-field="name" value="' + escapeAttr(isCreate ? '' : (source.name || '')) + '" placeholder="My MCP Server" />';
     html += '</div>';
 
     // Type
-    html += '<div class="field-row admin-pf-row">';
+    html += '<div class="form-row">';
     html += '<label for="mf-type">Type</label>';
-    html += '<select class="field-input field-select admin-pf-input admin-pf-select" id="mf-type" data-field="type">';
+    html += '<select class="form-control field-select" id="mf-type" data-field="type">';
     if (isCreate) html += '<option value="" disabled selected>Select a transport…</option>';
     var types = mcpTypes || [];
     for (var t = 0; t < types.length; t++) {
@@ -528,9 +528,9 @@
     var customCommandValue = stdioSelection.customCommand || '';
     var customCommandHidden = (dropdownValue !== STDIO_CUSTOM_SENTINEL);
 
-    html += '<div class="field-row admin-pf-row mcp-stdio-only' + (stdioHidden ? ' is-hidden' : '') + '">';
+    html += '<div class="form-row mcp-stdio-only' + (stdioHidden ? ' is-hidden' : '') + '">';
     html += '<label for="mf-command-runtime">Command</label>';
-    html += '<select class="field-input field-select admin-pf-input admin-pf-select" id="mf-command-runtime" data-field="command-runtime" data-testid="mcp-command-runtime">';
+    html += '<select class="form-control field-select" id="mf-command-runtime" data-field="command-runtime" data-testid="mcp-command-runtime">';
     for (var ri = 0; ri < STDIO_RUNTIME_OPTIONS.length; ri++) {
       var opt = STDIO_RUNTIME_OPTIONS[ri];
       var isSelected = (opt.value === dropdownValue);
@@ -545,22 +545,22 @@
     // preserved so any external selector that pinned to them keeps
     // working; the field only feeds `config.command` when the dropdown is
     // on the Custom sentinel (collectFormData enforces this).
-    html += '<div class="field-row admin-pf-row mcp-stdio-only mcp-command-custom-row' +
+    html += '<div class="form-row mcp-stdio-only mcp-command-custom-row' +
             (stdioHidden || customCommandHidden ? ' is-hidden' : '') + '">';
     html += '<label for="mf-command">Custom command</label>';
-    html += '<input class="field-input admin-pf-input" id="mf-command" data-field="command" data-testid="mcp-command-custom" ' +
+    html += '<input class="form-control" id="mf-command" data-field="command" data-testid="mcp-command-custom" ' +
             'value="' + escapeAttr(customCommandValue) + '" placeholder="bash /app/start.sh" />';
     html += '</div>';
 
     // stdio: cwd
     var cwdValue = (!isCreate && source.config && source.config.cwd) ? source.config.cwd : '';
-    html += '<div class="field-row admin-pf-row mcp-stdio-only' + (stdioHidden ? ' is-hidden' : '') + '">';
+    html += '<div class="form-row mcp-stdio-only' + (stdioHidden ? ' is-hidden' : '') + '">';
     html += '<label for="mf-cwd">Working Directory</label>';
-    html += '<input class="field-input admin-pf-input" id="mf-cwd" data-field="cwd" value="' + escapeAttr(cwdValue) + '" placeholder="(optional)" />';
+    html += '<input class="form-control" id="mf-cwd" data-field="cwd" value="' + escapeAttr(cwdValue) + '" placeholder="(optional)" />';
     html += '</div>';
 
     // stdio: args (chip-list, mounted via App.adminFormHelpers post-innerHTML)
-    html += '<div class="field-row admin-pf-row mcp-stdio-only' + (stdioHidden ? ' is-hidden' : '') + '">';
+    html += '<div class="form-row mcp-stdio-only' + (stdioHidden ? ' is-hidden' : '') + '">';
     html += '<label for="mf-args">Arguments</label>';
     html += '<div class="chip-list-editor" id="mf-args" data-field="args" data-field-type="array"></div>';
     html += '</div>';
@@ -570,7 +570,7 @@
     // matches the studio token convention; uses .form-hint for the new
     // class hook (added in studio.css alongside this leg).
     var initialHint = lookupStdioRuntimeHint(dropdownValue);
-    html += '<div class="field-row admin-pf-row mcp-stdio-only mcp-command-hint-row' + (stdioHidden ? ' is-hidden' : '') + '">';
+    html += '<div class="form-row mcp-stdio-only mcp-command-hint-row' + (stdioHidden ? ' is-hidden' : '') + '">';
     html += '<label></label>';
     html += '<small class="form-hint mcp-command-hint" data-testid="mcp-command-hint">' +
             escapeHtml(initialHint) + '</small>';
@@ -578,9 +578,9 @@
 
     // streamable-http: url
     var urlValue = (!isCreate && source.config && source.config.url) ? source.config.url : '';
-    html += '<div class="field-row admin-pf-row mcp-streamable-http-only' + (streamableHidden ? ' is-hidden' : '') + '">';
+    html += '<div class="form-row mcp-streamable-http-only' + (streamableHidden ? ' is-hidden' : '') + '">';
     html += '<label for="mf-url">URL</label>';
-    html += '<input class="field-input admin-pf-input" id="mf-url" data-field="url" value="' + escapeAttr(urlValue) + '" placeholder="https://example.com/mcp" />';
+    html += '<input class="form-control" id="mf-url" data-field="url" value="' + escapeAttr(urlValue) + '" placeholder="https://example.com/mcp" />';
     html += '</div>';
 
     return html;
@@ -649,7 +649,7 @@
       html += renderKvRow(existingRows[i], i);
     }
     html += '</tbody></table>';
-    html += '<button type="button" class="btn-outlined-primary kv-add-row-btn" data-testid="kv-add-row-btn">+ Add row</button>';
+    html += '<button type="button" class="btn btn-ghost kv-add-row-btn" data-testid="kv-add-row-btn">+ Add row</button>';
     // Suppress unused-var warning in legacy environments — referenced indirectly above.
     void escapeHtml;
     return html;
@@ -662,9 +662,9 @@
     var origMasked = row._originalMasked || '';
     var html = '';
     html += '<tr class="mcp-kv-row" data-row-idx="' + idx + '">';
-    html += '<td><input class="field-input kv-key-input" data-field="kv-key" data-row="' + idx + '" value="' + escapeAttr(row.key || '') + '" placeholder="KEY" /></td>';
+    html += '<td><input class="form-control kv-key-input" data-field="kv-key" data-row="' + idx + '" value="' + escapeAttr(row.key || '') + '" placeholder="KEY" /></td>';
     html += '<td><div class="api-key-wrap">';
-    html += '<input class="field-input kv-value-input' + (sensitive ? ' kv-value-secret' : '') + '" type="' + inputType + '" data-field="kv-value" data-row="' + idx + '" value="' + escapeAttr(row.value || '') + '" data-original-masked="' + escapeAttr(origMasked) + '" placeholder="value" />';
+    html += '<input class="form-control kv-value-input' + (sensitive ? ' kv-value-secret' : '') + '" type="' + inputType + '" data-field="kv-value" data-row="' + idx + '" value="' + escapeAttr(row.value || '') + '" data-original-masked="' + escapeAttr(origMasked) + '" placeholder="value" />';
     if (sensitive) {
       html += '<button class="api-key-eye kv-eye-btn" type="button" data-row="' + idx + '" aria-label="Show value">' + window.App.icon('eye') + '</button>';
     }
@@ -805,7 +805,7 @@
 
     // ── Static field listeners ────────────────────────────────────────
     function attachStaticListeners() {
-      var inputs = container.querySelectorAll('.editor-section .field-input:not(.kv-key-input):not(.kv-value-input), .editor-section .field-select');
+      var inputs = container.querySelectorAll('.editor-section .form-control:not(.kv-key-input):not(.kv-value-input), .editor-section .field-select');
       for (var i = 0; i < inputs.length; i++) {
         // Skip chip-list elements (handled via wireChipLists).
         if (inputs[i].classList.contains('chip-list-editor')) continue;
@@ -1149,7 +1149,7 @@
         'You will need to log in again on the next refresh.';
       var btn = document.createElement('button');
       btn.type = 'button';
-      btn.className = 'btn-outlined-primary mcp-reset-connection-btn';
+      btn.className = 'btn btn-ghost mcp-reset-connection-btn';
       btn.setAttribute('data-testid', 'reset-mcp-connection-btn');
       btn.setAttribute('title', resetTooltip);
       btn.setAttribute('aria-label', resetTooltip);
@@ -1621,7 +1621,7 @@
             statusEl.appendChild(prompt);
             var consentBtn = document.createElement('button');
             consentBtn.type = 'button';
-            consentBtn.className = 'btn-outlined-primary';
+            consentBtn.className = 'btn btn-ghost';
             consentBtn.setAttribute('data-testid', 'mcp-consent-btn');
             consentBtn.textContent = 'Sign in';
             consentBtn.addEventListener('click', function () {
