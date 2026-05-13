@@ -1,272 +1,204 @@
+/* Holograph studio-area styles — extracted from playground/mockups/holograph.html
+ * lines ~585-689 (between the "STUDIO AREA" marker and the .tabs family,
+ * which is shared chrome already in components.css). Wrapped in @layer areas
+ * so theme tokens (@layer tokens) cascade correctly under the shared chrome
+ * (@layer components).
+ *
+ * Covered families:
+ *   - .studio-layout (CSS grid 320px + 1fr)
+ *   - .agents-pane / .agents-list / .agent-card (+ .selected) / .agent-card-*
+ *   - .editor-pane / .editor-header / .editor-title* / .editor-actions /
+ *     .editor-sub / .editor-body / .editor-section
+ *
+ * Holograph additions (NOT in mockup):
+ *   - .studio-subnav (alias for .holograph-section-nav)
+ *   - .studio-sub (display: none unless .active — sub-section panels)
+ *   - .knowledge-stub-pane (centered empty-state card for Knowledge section)
+ *   - .mcp-sources-grid / .mcp-source-card (+ .selected) / .mcp-source-head
+ *     / .mcp-source-body — MCP Sources grid surface
+ *   - .mcp-source-editor-pane — editor surface for MCP source editing
+ *
+ * Spec: docs/superpowers/specs/2026-05-12-holograph-ui-migration-design.md
+ */
+
 @layer areas {
-  /* === Studio Area: Sidebar === */
-  /* Studio sidebar layout: section-nav at top + section-content below. The
-     section-nav primitive is canonical (see components.css); only the per-area
-     section-content host + its agents-section overrides live here. */
-  .area-studio .studio-section-content { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
-  /* Pass the column-flex chain through to .entity-tile-grid so it (and its
-     `.empty-canvas` empty state) can fill the remaining vertical space. */
-  .area-studio .studio-agents-content { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 
-  /* === Studio Area: Editor === */
-  /* `.editor-header` lifted to components.css in F5 leg 03 (canonical
-     entity-name + description block). Studio keeps only the editor host
-     layout + the area-specific tablist/panels framing + form-section paddings. */
-  .area-studio .studio-editor { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
-  /* `.empty-state` base provides text styling; this override adds layout + larger font. */
-  .area-studio .editor-empty { flex: 1; display: flex; align-items: center; justify-content: center; font-size: var(--font-size-body-lg); }
-  .area-studio .tabpanel { padding: 16px 20px 80px; }
-  /* `.editor-section` + sibling-adjacent divider lifted to components.css in F6 leg 03 (un-scoped, consumed by admin's provider editor). */
+  /* ============ STUDIO AREA — mockup-verbatim (holograph.html lines 585-689) ============ */
 
-  /* === Studio MCP Servers section (post-F2 retrofit, relocated from admin) === */
-  /* The MCP Servers grid + editor were originally placed in the admin nav
-     (M07 F1 L5/L6) and moved to studio post-F2 retrofit. The editor mounts
-     directly into .studio-section-content (no tablist wrapper), so we scope
-     padding + loading-text rules here that mirror the admin equivalents. */
-  .area-studio .editor-section { padding-left: 20px; padding-right: 20px; }
-  .area-studio .admin-loading { color: var(--fg-muted); font-size: var(--font-size-body); padding: 20px 0; }
-  .area-studio .admin-pf-input:focus-visible, .area-studio .admin-pf-select:focus-visible { border-color: var(--accent); outline: 1px solid var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
-
-  .area-studio .field-input-short { max-width: 100px; }
-  .area-studio .field-model-wrap { flex: 1; display: flex; align-items: center; gap: 8px; }
-  .area-studio .field-model-wrap .field-input { flex: 1; }
-  .area-studio .model-loading { font-size: var(--font-size-caption); color: var(--fg-secondary); white-space: nowrap; flex-shrink: 0; }
-  /* Test-provider button row — sits below the LLM config field rows. */
-  .area-studio .test-provider-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
-
-  /* === Studio Area: Tool Toggles === */
-  /* Tool-actions buttons use .btn-outlined-primary; this override drops to caption-size + tighter padding. */
-  .area-studio .tool-actions { display: flex; gap: 8px; margin-bottom: 12px; }
-  .area-studio .tool-actions .btn-outlined-primary { padding: 3px 10px; font-size: var(--font-size-caption); }
-  .area-studio .tool-row { display: flex; align-items: center; gap: 10px; padding: 4px 0; cursor: pointer; }
-  .area-studio .tool-toggle { display: none; }
-  .area-studio .tool-switch { width: 32px; height: 18px; background: var(--surface-elevated); border-radius: 9px; position: relative; flex-shrink: 0; transition: background 0.2s; }
-  .area-studio .tool-switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; background: var(--fg-tertiary); border-radius: 50%; transition: transform 0.2s, background 0.2s; }
-  .area-studio .tool-toggle:checked + .tool-switch { background: var(--accent); }
-  .area-studio .tool-toggle:checked + .tool-switch::after { transform: translateX(14px); background: var(--fg-on-accent); }
-  .area-studio .tool-name { font-size: var(--font-size-body-sm); color: var(--fg); min-width: 120px; }
-  .area-studio .tool-desc { font-size: var(--font-size-caption); color: var(--fg-muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-  /* === Studio Area: Actions, Danger Zone === */
-  /* All action-button rules (.save-btn / .back-btn / .test-provider-btn /
-     .delete-btn[.confirm]) and the .danger-zone-title rule were lifted to
-     components.css in F6 leg 03 (un-scoped, consumed by admin's provider
-     editor). Studio markup unchanged — bare class names match the
-     canonical rules. */
-
-  /* === Studio Area: VRAM Warning === */
-  /* line-height 1.4 retained as a context-specific value (warning copy). */
-  .area-studio .studio-vram-warning { display: none; margin-top: 6px; padding: 6px 10px; border-left: 3px solid var(--status-warning); background: var(--status-warning-bg-soft); border-radius: 0 4px 4px 0; font-size: var(--font-size-body-sm); color: var(--status-warning); line-height: 1.4; }
-  .area-studio .studio-vram-warning.visible { display: block; }
-
-  /* Capability panel — surfaces /api/show capabilities under the model
-     selector. The danger-coloured `no tools` chip carries the warning by
-     itself; no separate banner. */
-  .area-studio .model-capabilities { margin-top: 6px; padding-left: 112px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: var(--font-size-caption); color: var(--fg-secondary); }
-  .area-studio .model-capabilities:empty { display: none; }
-  .area-studio .model-capabilities-label { color: var(--fg-tertiary); text-transform: uppercase; letter-spacing: 0.5px; font-size: var(--font-size-tiny); }
-
-  /* Capability chips on agent tiles — sit below the meta line. */
-  .area-studio .agent-tile-caps { margin-top: 4px; }
-
-  /* F9 L3 (A-L3-3) — Tool-count metric lines on agent tiles. Rendered
-     between the provider · model meta line and the capability chips.
-     Match the meta line's visual weight (secondary, monospaced caption)
-     so the tile reads as a coherent stack of dim metadata under the
-     bold name + 2-line description. Always-present (even at 0) so tile
-     heights stay uniform across the agents grid. */
-  .area-studio .entity-tile-tool-count {
-    font-family: var(--font-family-mono);
-    font-size: var(--font-size-caption);
-    color: var(--fg-muted);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  .studio-layout {
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    gap: 24px;
   }
 
-  /* === Studio Area: Tools tab — operator-disabled rows + override panels === */
-  /* F6 leg 05. Operator-disabled tools: dim row + cursor:not-allowed +
-     strikethrough name. Override panel (`<details>`): nested under each
-     enabled tool row with a left-border indicator. NarrowSuperset locked
-     chips: dimmer surface + cursor:default (the chip-remove button is
-     OMITTED at render time, NOT just hidden, so keyboard focus order
-     skips them and screen readers don't announce them). */
-  .area-studio .tool-row-disabled { opacity: 0.5; cursor: not-allowed; }
-  .area-studio .tool-row-disabled .tool-toggle,
-  .area-studio .tool-row-disabled .tool-switch { cursor: not-allowed; }
-  .area-studio .tool-name-strike { text-decoration: line-through; color: var(--fg-faint); }
-  .area-studio .tool-row-overrides { margin: 4px 0 8px 28px; padding: 0; }
-  .area-studio .tool-row-overrides[open] { padding: 4px 0 8px 0; }
-  .area-studio .tool-row-overrides summary { cursor: pointer; padding: 4px 8px; font-size: var(--font-size-body-sm); color: var(--fg-secondary); user-select: none; }
-  .area-studio .tool-row-overrides summary:hover { color: var(--accent); }
-  .area-studio .tool-row-overrides-body { padding: 4px 8px 0; }
-  .area-studio .tool-row-overrides .field-row { margin-bottom: 8px; }
-  .area-studio .tool-row-overrides .chip[data-locked] { background: var(--surface-elevated); opacity: 0.7; cursor: default; }
-  .area-studio .tool-row-overrides .empty-state { font-size: var(--font-size-body-sm); color: var(--fg-secondary); padding: 4px 8px; }
-  .area-studio .tool-row-overrides .loading { font-size: var(--font-size-body-sm); color: var(--fg-secondary); padding: 4px 8px; }
-  .area-studio .tool-row-overrides .error { font-size: var(--font-size-body-sm); color: var(--status-danger); padding: 4px 8px; }
-
-  /* === MCP source-editor: Test connection + Tools section (F6.5 L3+L4) === */
-  .area-studio .mcp-test-row { margin-top: 8px; }
-  /* F9 L1 (vibing follow-up): Reset connection button paired next to
-     Refresh in the Connection block (moved out of Danger Zone). The
-     flex container groups them inline with a small gap so they read as
-     a single "connection actions" cluster. */
-  .area-studio .mcp-connection-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-  /* F9 L1 (vibing polish): "Last updated" label relocated from above the
-     Tools list into the connection-actions row. `margin-left: auto`
-     pushes it to the far end of the flex container so Refresh + Reset
-     stay grouped on the left and the timestamp anchors to the right.
-     Low-emphasis tone (--fg-secondary, body-sm) keeps it informational. */
-  .area-studio .mcp-connection-actions .mcp-tools-last-updated {
-    margin-left: auto;
-    font-size: var(--font-size-body-sm);
-    color: var(--fg-secondary);
+  .agents-pane {
+    display: flex;
+    flex-direction: column;
   }
-  .area-studio .mcp-connection-actions .mcp-tools-last-updated[hidden] { display: none; }
-  .area-studio .mcp-tools-status { font-size: var(--font-size-body); color: var(--fg-secondary); margin-bottom: 12px; }
-  .area-studio .mcp-tools-success { color: var(--status-success, var(--accent)); font-weight: 600; }
-  .area-studio .mcp-tools-error { color: var(--status-danger); font-weight: 600; }
-  .area-studio .mcp-tools-list { display: flex; flex-direction: column; gap: 4px; }
-  .area-studio .mcp-tool-item { border: 1px solid var(--border); border-radius: 4px; background: var(--surface-elevated); }
-  .area-studio .mcp-tool-item[open] { background: var(--surface); }
-  .area-studio .mcp-tool-summary { cursor: pointer; padding: 8px 12px; user-select: none; list-style: none; }
-  .area-studio .mcp-tool-summary::-webkit-details-marker { display: none; }
-  .area-studio .mcp-tool-summary::before { content: '▸'; display: inline-block; margin-right: 8px; transition: transform 0.15s; color: var(--fg-secondary); }
-  .area-studio .mcp-tool-item[open] .mcp-tool-summary::before { transform: rotate(90deg); }
-  .area-studio .mcp-tool-summary:hover { color: var(--accent); }
-  .area-studio .mcp-tool-name { font-family: var(--font-family-mono, monospace); font-size: var(--font-size-body-sm); font-weight: 600; }
-  .area-studio .mcp-tool-description { padding: 4px 12px 12px 32px; font-size: var(--font-size-body-sm); color: var(--fg-secondary); line-height: 1.5; word-break: break-word; }
-  .area-studio .mcp-tool-description-empty { font-style: italic; opacity: 0.7; }
-
-  /* F8 L2: Capability flags + per-tool schema view */
-  .area-studio .mcp-capability-flags { font-size: var(--font-size-body-sm); color: var(--fg-secondary); margin-top: 4px; }
-  .area-studio .mcp-capability-flags-empty { font-style: italic; opacity: 0.7; }
-  .area-studio .mcp-tool-schema { margin: 0 12px 8px 32px; }
-  .area-studio .mcp-tool-schema-summary { cursor: pointer; padding: 4px 0; font-size: var(--font-size-body-sm); color: var(--fg-secondary); user-select: none; }
-  .area-studio .mcp-tool-schema-summary:hover { color: var(--accent); }
-  .area-studio .mcp-tool-schema-content { font-family: var(--font-family-mono, monospace); font-size: var(--font-size-body-sm); background: var(--surface-elevated); border: 1px solid var(--border); border-radius: 4px; padding: 8px; margin: 4px 0 0; overflow-x: auto; max-height: 400px; overflow-y: auto; white-space: pre; word-break: normal; }
-
-  /* === Agent-editor MCPs tab: chip-list, per-attachment editor (F8 L3) === */
-  .area-studio .mcp-chip-list-header { font-size: var(--font-size-body-sm); color: var(--fg-secondary); margin: 0 0 8px; }
-  .area-studio .mcp-attach-chip-list { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 0; }
-  .area-studio .mcp-attach-chip-list .chip { padding: 6px 12px; border: 1px solid var(--border); border-radius: 16px; cursor: pointer; user-select: none; background: var(--surface); color: var(--fg-secondary); display: inline-flex; align-items: center; gap: 4px; }
-  .area-studio .mcp-attach-chip-list .chip:hover { border-color: var(--accent); color: var(--accent); }
-  .area-studio .mcp-attach-chip-list .chip-attached { background: var(--accent); color: var(--fg-on-accent, white); border-color: var(--accent); }
-  .area-studio .mcp-attach-chip-list .chip-attached:hover { opacity: 0.85; }
-  .area-studio .mcp-attach-chip-list .chip-transport-badge { font-size: 10px; opacity: 0.7; }
-  .area-studio .mcp-empty-state { padding: 24px; text-align: center; color: var(--fg-secondary); }
-  .area-studio .mcp-empty-state a { color: var(--accent); text-decoration: underline; }
-  .area-studio .mcp-editor-back-btn { margin-bottom: 12px; }
-  .area-studio .mcp-attachment-editor { display: flex; flex-direction: column; gap: 12px; }
-  .area-studio .mcp-editor-title { margin: 0; font-size: var(--font-size-body); }
-  .area-studio .mcp-editor-section { margin-top: 12px; }
-  .area-studio .mcp-editor-section h4 { margin: 0 0 8px; font-size: var(--font-size-body-sm); color: var(--fg-secondary); text-transform: uppercase; letter-spacing: 0.05em; }
-  .area-studio .mcp-refresh-tools-btn { margin-bottom: 8px; font-size: var(--font-size-body-sm); }
-  .area-studio .mcp-tools-body { margin-top: 4px; }
-  .area-studio .mcp-tools-checkbox-group { display: flex; flex-direction: column; gap: 4px; }
-  .area-studio .mcp-tool-toggle-label { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: var(--font-size-body-sm); }
-  .area-studio .mcp-tool-toggle-name { font-family: var(--font-family-mono, monospace); }
-  .area-studio .mcp-tool-toggle-hint { color: var(--fg-faint); font-size: 11px; }
-  /* Per-tool checkbox treatment lifted to .checkbox-primary in components.css (Mission 08 F2 L2). */
-  .area-studio .mcp-auth-required-notice { padding: 12px; background: var(--surface-elevated); border-left: 3px solid var(--accent); border-radius: 4px; font-size: var(--font-size-body-sm); }
-  .area-studio .mcp-auth-required-notice a { color: var(--accent); text-decoration: underline; }
-
-  /* === F9 L1: MCP source-editor — KV table polish ============================
-     - thead hidden when the table has zero rows (empty state); revealed at
-       row-add time, re-hidden at last-row-remove. JS toggles `is-hidden`.
-     - column headers styled in the studio mono-uppercase column-label idiom
-       (matches `.section-title` tone without the `//` accent prefix; this is
-       a column header, not a section header).
-     - "Sensitive" header info-icon tucks inline next to its label; uses the
-       canonical `.field-info-icon` reset from components.css.
-     - Per-row sensitive control reuses the `.tool-enable-switch` iOS-style
-       toggle (admin.css supplies the track + thumb mechanics); the local
-       override here unpins it from absolute-positioning so it flows inline
-       in the table cell, mirroring `.mf-sandbox-network-row` precedent.
-     - Per-row remove button is now a trash-icon glyph; the icon inherits
-       --fg-secondary and brightens to --status-danger on hover. */
-  /* F9 L1 follow-up: the table is left-justified — its width collapses to the
-     sum of its column widths (plus padding) rather than stretching to fill
-     the parent. `width: auto` on a <table> behaves as shrink-to-fit. */
-  .area-studio .mcp-kv-table { width: auto; border-collapse: collapse; margin-bottom: 8px; }
-  .area-studio .mcp-kv-thead.is-hidden { display: none; }
-  .area-studio .mcp-kv-thead th {
-    text-align: left;
-    padding: 4px 8px;
-    font-family: var(--font-family-mono);
-    font-size: var(--font-size-tiny);
-    font-weight: var(--font-weight-bold);
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    color: var(--fg-secondary);
-    border-bottom: 1px solid var(--border);
+  .agents-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
   }
-  .area-studio .mcp-kv-th-sensitive {
-    /* Inline-flex keeps the info icon aligned with the header text baseline. */
-    white-space: nowrap;
-  }
-  .area-studio .mcp-kv-th-sensitive .field-info-icon {
-    margin-left: 4px;
-    vertical-align: middle;
-  }
-  .area-studio .mcp-kv-table tbody td { padding: 4px 8px; vertical-align: middle; }
-  .area-studio .mcp-kv-sensitive-cell { width: 1%; white-space: nowrap; }
-  /* Unpin the toggle so it flows inline (default `.tool-enable-switch` is
-     position:absolute, designed for the tile-corner placement). Mirrors the
-     `.mf-sandbox-network-row .tool-enable-switch` override pattern.
-     F9 L1 follow-up: the original selector `.mcp-kv-sensitive-switch`
-     tied with the base `.area-studio .tool-enable-switch` rule on
-     specificity (both 0,2,0). admin.css loads AFTER studio.css and both
-     sit in `@layer areas`, so source order made the base rule win — the
-     toggle was being absolutely positioned out of the cell, leaving the
-     Sensitive column blank. The cell-scoped selector below has 0,3,0
-     specificity (matches the sandbox-row precedent) and wins outright. */
-  .area-studio .mcp-kv-sensitive-cell .tool-enable-switch {
-    position: relative;
-    bottom: auto;
-    right: auto;
-    display: inline-block;
-    vertical-align: middle;
-  }
-  .area-studio .kv-remove-row-btn {
-    background: transparent;
-    border: 0;
-    padding: 4px;
+  .agent-card {
+    padding: 14px;
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: 10px;
+    box-shadow: var(--shadow-1);
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
     cursor: pointer;
-    color: var(--fg-secondary);
-    display: inline-flex;
+    transition: box-shadow var(--t), border-color var(--t);
+    position: relative;
+  }
+  .agent-card:hover { box-shadow: var(--shadow-2); border-color: var(--hairline-strong); }
+  .agent-card.selected {
+    border-color: var(--accent);
+    box-shadow: var(--shadow-2);
+  }
+  .agent-card.selected::before {
+    content: '';
+    position: absolute;
+    left: -1px;
+    top: 16px;
+    bottom: 16px;
+    width: 2px;
+    background: var(--accent);
+    border-radius: 1px;
+  }
+  .agent-card-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: #e8eaef;
+    color: #3c4048;
+    display: grid;
+    place-items: center;
+    font-weight: 600;
+    font-size: 13px;
+    flex: none;
+  }
+  .agent-card-body { min-width: 0; flex: 1; }
+  .agent-card-title {
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--fg);
+    letter-spacing: -0.01em;
+  }
+  .agent-card-model {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--fg-mute);
+    margin-top: 2px;
+  }
+  .agent-card-meta {
+    margin-top: 8px;
+    display: flex;
     align-items: center;
-    justify-content: center;
-    line-height: 0;
-    transition: color 0.15s ease;
+    gap: 8px;
+    font-size: 11.5px;
+    color: var(--fg-faint);
   }
-  .area-studio .kv-remove-row-btn:hover { color: var(--status-danger); }
-  .area-studio .kv-remove-row-btn svg { width: 16px; height: 16px; display: block; }
-  /* Refresh-connection button (F9 L1 rename of "Test connection"): the
-     refresh icon sits inline before the label, matching the icon-then-text
-     pattern used by .test-provider-btn (▶ Test) and back-btn (← Back). */
-  .area-studio .mcp-refresh-connection-btn { display: inline-flex; align-items: center; gap: 6px; }
-  .area-studio .mcp-refresh-connection-btn svg { width: 14px; height: 14px; }
-  /* F9 L1 (vibing polish): source-level Delete button in the Danger
-     Zone gets a trash glyph on the LEFT of the label, mirroring the
-     Refresh button's icon-then-text idiom. SVG inherits `currentColor`
-     so the glyph picks up .btn-muted-destructive's danger-muted tone
-     and brightens with the label on hover / .confirm-delete. */
-  .area-studio .mcp-delete-btn { display: inline-flex; align-items: center; gap: 6px; }
-  .area-studio .mcp-delete-btn svg { width: 14px; height: 14px; }
-  /* F9 L2 vibing: helper-text hint under the args field for the stdio
-     command-runtime dropdown. Low-emphasis tone (--fg-secondary,
-     body-sm) matches the studio "informational text" idiom used by
-     .mcp-tool-description / .mcp-capability-flags / .model-loading.
-     The .mcp-command-hint-row hides its label slot to keep the hint
-     left-aligned with the args chip-list above; the row inherits the
-     `.mcp-stdio-only.is-hidden` toggle the rest of the stdio rows use
-     for transport-switch visibility. */
-  .area-studio .form-hint {
-    font-size: var(--font-size-body-sm);
-    color: var(--fg-secondary);
-    line-height: 1.4;
+
+  /* Studio editor */
+  .editor-pane {
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-1);
   }
-  .area-studio .mcp-command-hint-row label { /* empty label slot for grid alignment */ }
+  .editor-header {
+    padding: 18px 24px 0;
+  }
+  .editor-title-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 4px;
+  }
+  .editor-title {
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+  .editor-actions { margin-left: auto; display: flex; gap: 6px; }
+  .editor-sub {
+    color: var(--fg-mute);
+    font-size: 12.5px;
+    margin-bottom: 16px;
+  }
+
+  .editor-body { padding: 24px; }
+  .editor-section { margin-bottom: 28px; }
+  .editor-section:last-child { margin-bottom: 0; }
+
+  /* ============ HOLOGRAPH ADDITIONS — not in mockup ============ */
+
+  /* Studio sub-nav — styling alias of .holograph-section-nav from components.css.
+   * The class is empty here because all visual rules live on .holograph-section-nav;
+   * .studio-subnav exists for area-scoped CSS specificity and as a test selector. */
+  .studio-subnav {
+    /* relies on shared .holograph-section-nav rules from components.css */
+  }
+
+  /* Studio sub blocks — one per sub-section (Agents / Knowledge / MCP Sources). */
+  .studio-sub { display: none; }
+  .studio-sub.active { display: block; }
+
+  /* Knowledge stub pane — centered empty-state card. */
+  .knowledge-stub-pane {
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-1);
+    padding: 80px 32px;
+    text-align: center;
+    max-width: 560px;
+    margin: 32px auto;
+  }
+  .knowledge-stub-pane h2 {
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin-bottom: 6px;
+  }
+  .knowledge-stub-pane p {
+    color: var(--fg-mute);
+    font-size: 13px;
+    margin-bottom: 20px;
+  }
+
+  /* MCP Sources grid — 3-column card grid. */
+  .mcp-sources-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+  .mcp-source-card {
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-1);
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    cursor: pointer;
+    transition: box-shadow var(--t), border-color var(--t);
+  }
+  .mcp-source-card:hover { box-shadow: var(--shadow-2); border-color: var(--hairline-strong); }
+  .mcp-source-card.selected { border-color: var(--accent); box-shadow: var(--shadow-2); }
+  .mcp-source-head { display: flex; align-items: center; gap: 10px; }
+  .mcp-source-body { color: var(--fg-mute); font-size: 12.5px; }
+
+  /* MCP source editor pane — single-card surface mirroring .editor-pane. */
+  .mcp-source-editor-pane {
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-1);
+  }
+
 }
