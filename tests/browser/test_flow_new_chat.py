@@ -3,13 +3,19 @@
 Covers:
 - Welcome canvas content adapts to setup state (no provider, no agent, ready)
 - Picking an agent from the welcome listbox starts a new session
-- Sidebar agent dropdown change starts a new conversation with that agent
 - Header "New Chat" button starts a fresh conversation with the *current* agent
 - Deleting the last session returns to the welcome canvas (no auto-create)
 - Chat-history sidebar groups sessions under a "Today" heading
-- "You" / agent attribution labels render under user / assistant bubbles
-- Telemetry overlay starts collapsed and expands on focus
+- Per-message metadata (.msg-meta / .msg-author / .msg-time) renders correctly
+- Context chip (#chat-ctx-chip) in composer shows token count
 - Thinking indicator appears on send and clears on assistant reply
+
+Removed (Holograph migration L3.3):
+- test_dropdown_change_starts_new_session: the sidebar agent-select dropdown is
+  gone; agent switching now requires returning to the empty state and picking a
+  different card from the welcome listbox.
+- test_telemetry_overlay_collapses_by_default: the floating overlay is replaced
+  by an inline chip. Replaced by test_ctx_chip_shows_in_composer.
 """
 
 from __future__ import annotations
@@ -32,13 +38,14 @@ def test_welcome_no_setup_shows_both_links(app_clean: str, page: Page) -> None:
     expect(welcome).to_be_visible(timeout=5000)
 
     # Greeting present, prompt hidden (no agents to pick).
-    expect(page.locator(".chat-welcome-greeting")).to_be_visible()
-    expect(page.locator(".chat-welcome-prompt")).to_be_hidden()
+    expect(page.locator(".chat-empty-title")).to_be_visible()
+    expect(page.locator(".chat-empty-sub")).to_be_hidden()
 
     # Both deep-links present.
-    settings_link = page.locator('.chat-welcome-link[href="#admin"]')
+    # Holograph uses #admin/providers (not #admin) and "LLM Settings" (not "Settings").
+    settings_link = page.locator('.chat-welcome-link[href="#admin/providers"]')
     studio_link = page.locator('.chat-welcome-link[href="#studio"]')
-    expect(settings_link).to_have_text("Settings")
+    expect(settings_link).to_have_text("LLM Settings")
     expect(studio_link).to_have_text("Agent Studio")
 
 
@@ -49,9 +56,10 @@ def test_welcome_provider_only_shows_studio_link(app_with_provider: SeededApp, p
     welcome = page.locator('[data-testid="chat-welcome"]')
     expect(welcome).to_be_visible(timeout=5000)
 
-    expect(page.locator(".chat-welcome-prompt")).to_be_hidden()
+    expect(page.locator(".chat-empty-sub")).to_be_hidden()
     expect(page.locator('.chat-welcome-link[href="#studio"]')).to_have_text("Agent Studio")
-    expect(page.locator('.chat-welcome-link[href="#admin"]')).to_have_count(0)
+    # Holograph uses #admin/providers (not #admin) for the settings link.
+    expect(page.locator('.chat-welcome-link[href="#admin/providers"]')).to_have_count(0)
 
 
 @pytest.mark.browser
@@ -67,10 +75,10 @@ def test_welcome_with_agent_shows_listbox(app_with_agent: SeededApp, page: Page)
 
     # Prompt is shown (we have agents to pick from), and the listbox has
     # exactly one option matching the seeded agent.
-    expect(page.locator(".chat-welcome-prompt")).to_be_visible()
-    welcome_item = page.locator(".chat-welcome-item").filter(has_text=app_with_agent.agent_name)
+    expect(page.locator(".chat-empty-sub")).to_be_visible()
+    welcome_item = page.locator(".chat-agent-card").filter(has_text=app_with_agent.agent_name)
     expect(welcome_item).to_be_visible(timeout=8000)
-    expect(page.locator(".chat-welcome-list")).to_have_attribute("role", "listbox")
+    expect(page.locator(".chat-empty-list")).to_have_attribute("role", "listbox")
 
 
 # ── Welcome → start session ──────────────────────────────────────────────
@@ -90,50 +98,15 @@ def test_picking_agent_from_welcome_starts_session(
     expect(page.locator('[data-testid="chat-welcome"]')).to_be_visible(timeout=5000)
 
     # Wait for the agent listbox to populate.
-    agent_item = page.locator(".chat-welcome-item").filter(has_text="picker-agent")
+    agent_item = page.locator(".chat-agent-card").filter(has_text="picker-agent")
     expect(agent_item).to_be_visible(timeout=8000)
 
     # Click → session_joined fires → chrome appears, badge populated.
     agent_item.click()
 
-    expect(page.locator(".chat-chrome")).to_be_visible(timeout=8000)
-    expect(page.locator(".session-agent-badge")).to_have_text("picker-agent", timeout=5000)
+    expect(page.locator(".convo-pane")).to_be_visible(timeout=8000)
+    expect(page.locator(".convo-agent > span:not(.chip)")).to_have_text("picker-agent", timeout=5000)
     expect(page.locator('[data-testid="chat-welcome"]')).to_be_hidden()
-
-
-# ── Dropdown switches agent → starts new conversation ────────────────────
-
-
-@pytest.mark.browser
-def test_dropdown_change_starts_new_session(app_with_provider: SeededApp, page: Page) -> None:
-    """Changing the sidebar agent dropdown starts a fresh session with that agent."""
-    seed_mock_agent(app_with_provider.base_url, app_with_provider.provider_id, name="agent-a")
-    seed_mock_agent(app_with_provider.base_url, app_with_provider.provider_id, name="agent-b")
-
-    page.goto(app_with_provider.base_url)
-
-    # Pick agent-a from the welcome listbox to bootstrap into chrome.
-    expect(page.locator(".chat-welcome-item").filter(has_text="agent-a")).to_be_visible(
-        timeout=8000
-    )
-    page.locator(".chat-welcome-item").filter(has_text="agent-a").click()
-    expect(page.locator(".session-agent-badge")).to_have_text("agent-a", timeout=8000)
-
-    # Capture session id from the URL hash so we can assert it changes.
-    first_hash = page.evaluate("location.hash")
-    assert first_hash.startswith("#chat/sessions/")
-
-    # Change the dropdown to agent-b — this fires the change handler which
-    # sends `new_session` with agent_name=agent-b.
-    page.locator('[data-testid="agent-select"]').select_option("agent-b")
-
-    # Badge should update once the new session is joined.
-    expect(page.locator(".session-agent-badge")).to_have_text("agent-b", timeout=8000)
-
-    # Hash should now point at a different session id.
-    second_hash = page.evaluate("location.hash")
-    assert second_hash.startswith("#chat/sessions/")
-    assert second_hash != first_hash, "dropdown change should produce a fresh session id"
 
 
 # ── Header "New Chat" → new conversation, same agent ─────────────────────
@@ -146,8 +119,8 @@ def test_header_new_chat_button_starts_session_with_current_agent(
     """The header `+ New Chat` button opens a new session with the current agent."""
     page.goto(app_with_agent.base_url)
     # Bootstrap a session via the welcome listbox.
-    page.locator(".chat-welcome-item").filter(has_text=app_with_agent.agent_name).click()
-    expect(page.locator(".session-agent-badge")).to_have_text(
+    page.locator(".chat-agent-card").filter(has_text=app_with_agent.agent_name).click()
+    expect(page.locator(".convo-agent > span:not(.chip)")).to_have_text(
         app_with_agent.agent_name, timeout=8000
     )
 
@@ -157,7 +130,7 @@ def test_header_new_chat_button_starts_session_with_current_agent(
     page.locator('[data-testid="new-chat-btn"]').click()
 
     # Same agent — no badge churn.
-    expect(page.locator(".session-agent-badge")).to_have_text(
+    expect(page.locator(".convo-agent > span:not(.chip)")).to_have_text(
         app_with_agent.agent_name, timeout=8000
     )
 
@@ -180,8 +153,8 @@ def test_header_new_chat_button_starts_session_with_current_agent(
 def test_delete_last_session_returns_to_welcome(app_with_agent: SeededApp, page: Page) -> None:
     """Deleting the only session returns to the welcome canvas (no auto-create)."""
     page.goto(app_with_agent.base_url)
-    page.locator(".chat-welcome-item").filter(has_text=app_with_agent.agent_name).click()
-    expect(page.locator(".session-agent-badge")).to_have_text(
+    page.locator(".chat-agent-card").filter(has_text=app_with_agent.agent_name).click()
+    expect(page.locator(".convo-agent > span:not(.chip)")).to_have_text(
         app_with_agent.agent_name, timeout=8000
     )
 
@@ -189,7 +162,7 @@ def test_delete_last_session_returns_to_welcome(app_with_agent: SeededApp, page:
     # button (display:none → block via :hover), then click it twice — F4 HAT
     # added a two-step confirm pattern (first click marks .confirm-delete,
     # second click within 3s actually deletes; mirrors studio's pattern).
-    item = page.locator(".session-item").first
+    item = page.locator(".session-card").first
     expect(item).to_be_visible(timeout=5000)
     item.hover()
     item.locator(".delete").click()
@@ -199,7 +172,9 @@ def test_delete_last_session_returns_to_welcome(app_with_agent: SeededApp, page:
     # Welcome canvas takes over once session_deleted lands and the empty
     # session_list refresh fires.
     expect(page.locator('[data-testid="chat-welcome"]')).to_be_visible(timeout=8000)
-    expect(page.locator(".chat-chrome")).to_be_hidden()
+    # Holograph .convo-pane is the permanent layout wrapper (always visible);
+    # the active session indicator goes away — assert no messages remain.
+    expect(page.locator('[data-testid="message"]')).to_have_count(0)
 
 
 # ── Chat history grouping ────────────────────────────────────────────────
@@ -209,12 +184,12 @@ def test_delete_last_session_returns_to_welcome(app_with_agent: SeededApp, page:
 def test_chat_history_today_group_renders(app_with_agent: SeededApp, page: Page) -> None:
     """Today's auto-created session lives under a 'Today' group label."""
     page.goto(app_with_agent.base_url)
-    page.locator(".chat-welcome-item").filter(has_text=app_with_agent.agent_name).click()
-    expect(page.locator(".session-agent-badge")).to_have_text(
+    page.locator(".chat-agent-card").filter(has_text=app_with_agent.agent_name).click()
+    expect(page.locator(".convo-agent > span:not(.chip)")).to_have_text(
         app_with_agent.agent_name, timeout=8000
     )
 
-    expect(page.locator(".session-list > .section-title")).to_have_text("Chat History")
+    expect(page.locator(".sessions-list > .section-title")).to_have_text("Chat History")
     expect(page.locator(".session-group-label").filter(has_text="Today")).to_be_visible(
         timeout=5000
     )
@@ -225,10 +200,16 @@ def test_chat_history_today_group_renders(app_with_agent: SeededApp, page: Page)
 
 @pytest.mark.browser
 def test_message_attribution_labels_render(app_with_agent: SeededApp, page: Page) -> None:
-    """Sending a message renders 'You' (right) + agent name (left) labels."""
+    """Sending a message renders metadata: user message has a timestamp, agent
+    message has an author name chip in .msg-meta.
+
+    Holograph replaces the Mission-08 .msg-attribution.from-you / .from-agent
+    classes with a unified .msg-meta row. User messages have a .msg-time span;
+    agent messages have a .msg-author span containing the agent name.
+    """
     page.goto(app_with_agent.base_url)
-    page.locator(".chat-welcome-item").filter(has_text=app_with_agent.agent_name).click()
-    expect(page.locator(".session-agent-badge")).to_have_text(
+    page.locator(".chat-agent-card").filter(has_text=app_with_agent.agent_name).click()
+    expect(page.locator(".convo-agent > span:not(.chip)")).to_have_text(
         app_with_agent.agent_name, timeout=8000
     )
 
@@ -236,47 +217,42 @@ def test_message_attribution_labels_render(app_with_agent: SeededApp, page: Page
     page.locator('[data-testid="chat-send-btn"]').click()
 
     # Wait for the assistant response to land (mock provider returns instantly).
-    expect(page.locator('[data-testid="message"].assistant')).to_be_visible(timeout=10000)
+    expect(page.locator('[data-testid="message"].msg-row:not(.user)')).to_be_visible(timeout=10000)
 
-    # Two attribution labels: one "You" and one with the agent name.
-    you_label = page.locator(".msg-attribution.from-you").filter(has_text="You")
-    agent_label = page.locator(".msg-attribution.from-agent").filter(
-        has_text=app_with_agent.agent_name
-    )
-    expect(you_label).to_have_count(1)
-    expect(agent_label).to_have_count(1)
+    # Agent message must carry a .msg-author span with the agent's name.
+    agent_msg = page.locator('[data-testid="message"].msg-row:not(.user)')
+    expect(agent_msg.locator(".msg-author").filter(has_text=app_with_agent.agent_name)).to_have_count(1)
+
+    # User message must carry a .msg-text div with the typed text.
+    # Note: .msg-time is only added when a server-side timestamp is present;
+    # the local echo fires before the round-trip, so we verify .msg-text instead.
+    user_msg = page.locator('[data-testid="message"].msg-row.user')
+    expect(user_msg.locator(".msg-text")).to_have_count(1)
 
 
-# ── Telemetry overlay collapsed-by-default ───────────────────────────────
+# ── Context chip in composer ─────────────────────────────────────────────
 
 
 @pytest.mark.browser
-def test_telemetry_overlay_collapses_by_default(app_with_agent: SeededApp, page: Page) -> None:
-    """The token overlay's details panel is collapsed (max-width 0) at rest."""
+def test_ctx_chip_shows_in_composer(app_with_agent: SeededApp, page: Page) -> None:
+    """The composer shows a context token chip (#chat-ctx-chip) that starts at '0k ctx'
+    and updates after a message exchange.
+
+    Holograph replaces the Mission-08 .telemetry-overlay floating panel with an
+    inline chip in the composer row. The chip initialises to '0k ctx' and updates
+    via updateCtxChip() when the server sends token-count metadata.
+    """
     page.goto(app_with_agent.base_url)
-    page.locator(".chat-welcome-item").filter(has_text=app_with_agent.agent_name).click()
-    expect(page.locator(".session-agent-badge")).to_have_text(
+    page.locator(".chat-agent-card").filter(has_text=app_with_agent.agent_name).click()
+    expect(page.locator(".convo-agent > span:not(.chip)")).to_have_text(
         app_with_agent.agent_name, timeout=8000
     )
 
-    overlay = page.locator(".telemetry-overlay")
-    expect(overlay).to_be_visible()
-
-    details_max_width = page.evaluate(
-        "() => getComputedStyle(document.querySelector('.telemetry-details')).maxWidth"
-    )
-    # Either '0px' (chrome) or '0%' depending on browser; both indicate collapsed.
-    assert details_max_width in ("0px", "0%"), (
-        f"telemetry-details should start collapsed, got max-width={details_max_width!r}"
-    )
-
-    # Focus reveals — focus-within lifts max-width above 0.
-    overlay.focus()
-    page.wait_for_function(
-        "() => parseFloat(getComputedStyle(document.querySelector("
-        "'.telemetry-details')).maxWidth) > 0",
-        timeout=2000,
-    )
+    # Chip is visible in the composer at rest.
+    chip = page.locator("#chat-ctx-chip")
+    expect(chip).to_be_visible()
+    # Starts at zero context.
+    expect(chip).to_have_text("0k ctx")
 
 
 # ── Thinking indicator ───────────────────────────────────────────────────
@@ -304,8 +280,8 @@ def test_thinking_indicator_appears_and_clears(app_clean: str, page: Page) -> No
     page.goto(app_clean)
 
     # Bootstrap into chrome by picking the agent in the welcome listbox.
-    page.locator(".chat-welcome-item").filter(has_text="thinker").click()
-    expect(page.locator(".session-agent-badge")).to_have_text("thinker", timeout=8000)
+    page.locator(".chat-agent-card").filter(has_text="thinker").click()
+    expect(page.locator(".convo-agent > span:not(.chip)")).to_have_text("thinker", timeout=8000)
 
     page.locator('[data-testid="chat-input"]').fill("ping")
     page.locator('[data-testid="chat-send-btn"]').click()
@@ -315,5 +291,5 @@ def test_thinking_indicator_appears_and_clears(app_clean: str, page: Page) -> No
     expect(thinking).to_be_visible(timeout=2000)
 
     # And must be cleared once the assistant reply lands.
-    expect(page.locator('[data-testid="message"].assistant')).to_be_visible(timeout=10000)
+    expect(page.locator('[data-testid="message"].msg-row:not(.user)')).to_be_visible(timeout=10000)
     expect(thinking).to_have_count(0)

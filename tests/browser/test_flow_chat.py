@@ -26,21 +26,22 @@ def test_chat_send_receives_mock_response(app_with_agent: SeededApp, page: Page)
 
     # 2. Welcome canvas shows because no sessions exist yet (leg-05 removed
     #    auto-create-on-load). Pick the seeded agent to bootstrap a session.
-    page.locator(".chat-welcome-item").filter(has_text=agent_name).click()
-    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
+    page.locator(".chat-agent-card").filter(has_text=agent_name).click()
+    expect(page.locator(".convo-agent > span:not(.chip)")).to_have_text(agent_name, timeout=8000)
 
     # 3-4. Type and send.
     page.locator('[data-testid="chat-input"]').fill("hello")
     page.locator('[data-testid="chat-send-btn"]').click()
 
     # 5. User message renders.
-    user_msg = page.locator('[data-testid="message"].user')
+    user_msg = page.locator('[data-testid="message"].msg-row.user')
     expect(user_msg).to_have_text("hello", timeout=5000)
 
     # 6. Assistant message renders with the mock provider's default response.
     #    Per leg 02, MockProvider.complete() with no config["response"] returns
     #    "Mock response from the mock provider."
-    assistant_msg = page.locator('[data-testid="message"].assistant')
+    #    Target .msg-text (not the full .msg-row which also contains avatar + meta).
+    assistant_msg = page.locator('[data-testid="message"].msg-row:not(.user) .msg-text')
     expect(assistant_msg).to_have_text("Mock response from the mock provider.", timeout=10000)
 
     # 7. Send button re-enabled after `done` event (busy=false).
@@ -60,8 +61,8 @@ def test_chat_message_log_has_live_region(app_with_agent: SeededApp, page: Page)
     agent_name = app_with_agent.agent_name
 
     page.goto(base_url)
-    page.locator(".chat-welcome-item").filter(has_text=agent_name).click()
-    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
+    page.locator(".chat-agent-card").filter(has_text=agent_name).click()
+    expect(page.locator(".convo-agent > span:not(.chip)")).to_have_text(agent_name, timeout=8000)
 
     log = page.locator("[role='log']")
     expect(log).to_be_visible()

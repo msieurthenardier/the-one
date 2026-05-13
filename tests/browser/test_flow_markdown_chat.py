@@ -50,8 +50,8 @@ def test_streaming_assistant_renders_markdown_on_done(app_clean: str, page: Page
     agent_name = seed_mock_agent(base_url, provider_id)
 
     page.goto(base_url)
-    page.locator(".chat-welcome-item").filter(has_text=agent_name).click()
-    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
+    page.locator(".chat-agent-card").filter(has_text=agent_name).click()
+    expect(page.locator(".convo-agent > span:not(.chip)")).to_have_text(agent_name, timeout=8000)
 
     page.locator('[data-testid="chat-input"]').fill("hi")
     page.locator('[data-testid="chat-send-btn"]').click()
@@ -59,7 +59,7 @@ def test_streaming_assistant_renders_markdown_on_done(app_clean: str, page: Page
     # Wait for `done` to fire (send button re-enables) and assert the
     # markdown structure is in the assistant bubble.
     expect(page.locator('[data-testid="chat-send-btn"]')).to_be_enabled(timeout=10000)
-    bubble = page.locator('[data-testid="message"].assistant').last
+    bubble = page.locator('[data-testid="message"].msg-row:not(.user)').last
     # The `**world**` chunk renders as <strong>world</strong> after `done`.
     expect(bubble.locator("strong")).to_have_text("world", timeout=5000)
     # And the raw ``**`` markers no longer appear in the visible text —
@@ -82,13 +82,13 @@ def test_user_message_renders_textcontent_not_markdown(app_with_agent, page: Pag
     agent_name = app_with_agent.agent_name
 
     page.goto(base_url)
-    page.locator(".chat-welcome-item").filter(has_text=agent_name).click()
-    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
+    page.locator(".chat-agent-card").filter(has_text=agent_name).click()
+    expect(page.locator(".convo-agent > span:not(.chip)")).to_have_text(agent_name, timeout=8000)
 
     page.locator('[data-testid="chat-input"]').fill("**bold**")
     page.locator('[data-testid="chat-send-btn"]').click()
 
-    user_bubble = page.locator('[data-testid="message"].user').first
+    user_bubble = page.locator('[data-testid="message"].msg-row.user').first
     expect(user_bubble).to_have_text("**bold**", timeout=5000)
     # The user bubble must NOT contain a <strong> child — markdown
     # rendering is assistant-only.
@@ -120,14 +120,14 @@ def test_streaming_assistant_code_block_renders_with_copy_button(
     agent_name = seed_mock_agent(base_url, provider_id)
 
     page.goto(base_url)
-    page.locator(".chat-welcome-item").filter(has_text=agent_name).click()
-    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
+    page.locator(".chat-agent-card").filter(has_text=agent_name).click()
+    expect(page.locator(".convo-agent > span:not(.chip)")).to_have_text(agent_name, timeout=8000)
 
     page.locator('[data-testid="chat-input"]').fill("show me code")
     page.locator('[data-testid="chat-send-btn"]').click()
 
     expect(page.locator('[data-testid="chat-send-btn"]')).to_be_enabled(timeout=10000)
-    bubble = page.locator('[data-testid="message"].assistant').last
+    bubble = page.locator('[data-testid="message"].msg-row:not(.user)').last
     expect(bubble.locator("pre code.language-js")).to_have_text("console.log(1);\n", timeout=5000)
     # Presence assertion — the copy button is opacity-controlled, so we
     # assert it exists in the DOM rather than asserting visibility.
@@ -156,22 +156,22 @@ def test_session_rejoin_renders_assistant_markdown(app_clean: str, page: Page) -
     agent_name = seed_mock_agent(base_url, provider_id)
 
     page.goto(base_url)
-    page.locator(".chat-welcome-item").filter(has_text=agent_name).click()
-    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
+    page.locator(".chat-agent-card").filter(has_text=agent_name).click()
+    expect(page.locator(".convo-agent > span:not(.chip)")).to_have_text(agent_name, timeout=8000)
 
     page.locator('[data-testid="chat-input"]').fill("ping")
     page.locator('[data-testid="chat-send-btn"]').click()
 
     # Wait for the streaming round to land — markdown is rendered on done.
     expect(page.locator('[data-testid="chat-send-btn"]')).to_be_enabled(timeout=10000)
-    bubble = page.locator('[data-testid="message"].assistant').last
+    bubble = page.locator('[data-testid="message"].msg-row:not(.user)').last
     expect(bubble.locator("strong")).to_have_text("bold", timeout=5000)
 
     # Reload — the session id is in the URL hash; the client rejoins
     # and replays history through `renderHistory` → `addMsg('assistant', ...)`.
     page.reload()
-    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
-    rejoined_bubble = page.locator('[data-testid="message"].assistant').last
+    expect(page.locator(".convo-agent > span:not(.chip)")).to_have_text(agent_name, timeout=8000)
+    rejoined_bubble = page.locator('[data-testid="message"].msg-row:not(.user)').last
     # Historical assistant bubble re-renders via markdown (leg-05 default).
     expect(rejoined_bubble.locator("strong")).to_have_text("bold", timeout=8000)
 
@@ -198,14 +198,14 @@ def test_streaming_assistant_renders_markdown_table(app_clean: str, page: Page) 
     agent_name = seed_mock_agent(base_url, provider_id)
 
     page.goto(base_url)
-    page.locator(".chat-welcome-item").filter(has_text=agent_name).click()
-    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
+    page.locator(".chat-agent-card").filter(has_text=agent_name).click()
+    expect(page.locator(".convo-agent > span:not(.chip)")).to_have_text(agent_name, timeout=8000)
 
     page.locator('[data-testid="chat-input"]').fill("show me a table")
     page.locator('[data-testid="chat-send-btn"]').click()
 
     expect(page.locator('[data-testid="chat-send-btn"]')).to_be_enabled(timeout=10000)
-    bubble = page.locator('[data-testid="message"].assistant').last
+    bubble = page.locator('[data-testid="message"].msg-row:not(.user)').last
     # GFM table must parse into a <table> element.
     expect(bubble.locator("table")).to_have_count(1, timeout=5000)
     # Header cells render as <th>.
