@@ -1027,3 +1027,28 @@ Files modified this leg (Leg 07 cleanup additions, on top of Legs 03 + 05 + 06 u
 Plus the Legs 03 + 05 + 06 uncommitted edits intact: studio.css, studio.js, mcp-server-editor.js, api.py, mcp/client.py, 4 test files with mock-class extensions.
 
 **Next**: HAT × 2 themes × 8 pages — operator drives. Flight Director will guide one page at a time.
+
+### Leg 07 progress — final close (2026-05-14)
+
+**Step 7** (agents.md F4 subsection): added under `the_one/agents.md` after the F3.5 subsection. Lean content covering 7 patterns: confirmLeave parity, same-section-click clears editor state (HAT inline fix), stale-then guard, MCP cache schema additions, OAuth popup-loop fix, B2 regression test, per-tool tile body shape, Server section + LED-on-connection-actions-row (HAT inline fix).
+
+**Step 8** (stability rerun):
+- Behavior tests: `pytest tests/browser/ -q --timeout 30 -m browser` → **315 passed, 35 skipped, 12 deselected** in 266s. ✓
+- Snapshot stability: `pytest tests/browser/test_visual_snapshots.py -q --timeout 60 -m pixel` → **10 passed, 2 failed** (the `chat_with_messages` mission KIs). ✓
+
+**Step 9** (final narrow gate): 58 passed in 0.85s. ✓
+
+**HAT walkthrough**: 16/16 page-loads ✓ (8 pages × 2 themes). 2 inline scope-light fixes applied during the walkthrough:
+1. **LED-on-connection-actions-row**: moved the connection-state LED from the `mcp-test-status` banner up to the `mcp-connection-actions` row so it sits adjacent to the Refresh connection button. Kept the `mcp-test-status` data-testid hook + tool-count text for test compatibility.
+2. **Same-section-click clears editor state**: operator surfaced a real routing bug — clicking the Agents (or MCP Servers) sidebar item while an editor is mounted was a no-op (setActiveSection re-rendered the grid behind the still-mounted editor). Fix: in `onSelect`, when clicking the same section while an editor is mounted, clear `_selectedAgent` / `_createMode` / `mcpSourceFormMode` so `updateContentVisibility` shows the grid. Symmetric fix in `hydrateState`: bare-section URL clears the same state so returning from another area lands on the grid.
+
+**Reviewer pass** (Phase 2d): spawned Haiku Reviewer for cumulative review of Legs 03 + 05 + 06 + 07 diff. Result: `[HANDOFF:confirmed]`. Key callouts: OAuth flow fix robust (postMessage same-origin only, JSON-encoded, polling state machine handles COOP); confirmLeave extraction clean; cache schema additions conservative; test coverage comprehensive; LED wire-up scope deviation properly documented.
+
+**Step 10** (commit + push + PR):
+- Commit `19d9a58` on `flight/04-studio-polish`: 35 files changed, 3434 insertions, 134 deletions.
+- Pushed branch + set upstream tracking.
+- **Draft PR**: https://github.com/msieurthenardier/the-one/pull/49
+
+**Flight 04 status**: `landed`. Mission 08 Flight 4 checked off in mission.md flights list.
+
+[COMPLETE:flight]
