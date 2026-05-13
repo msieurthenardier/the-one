@@ -26,6 +26,16 @@
 
 @layer areas {
 
+  /* ── Admin sub-block visibility toggle ───────────────────────────────── */
+
+  .admin-sub {
+    display: none;
+  }
+
+  .admin-sub.active {
+    display: block;
+  }
+
   /* ── Admin subnav ─────────────────────────────────────────────────────── */
 
   .admin-subnav {

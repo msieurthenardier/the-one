@@ -86,10 +86,6 @@ App.registerArea({
     }
 
     var validIds = ['general', 'providers', 'tools'];
-    // Mission 08 F2 L1: dev-mode-only Design Language gallery category.
-    if (window.App && window.App.config && window.App.config.dev_mode) {
-      validIds.push('design-language');
-    }
     if (validIds.indexOf(sub) === -1) return;
 
     // Set category FIRST — _setCategory wipes pending state on category change,
@@ -113,7 +109,7 @@ App.registerArea({
     if (this._tryConsumePendingTool) this._tryConsumePendingTool();
   },
 
-  init: function (sidebar, content) {
+  init: function (content) {
     var categories = [
       { id: 'general', label: 'General' },
       { id: 'providers', label: 'LLM Providers' },
@@ -124,14 +120,7 @@ App.registerArea({
       // post-F2 retrofit (admin = system settings, studio = user-managed).
       { id: 'tools', label: 'Built-in Tools' }
     ];
-    // Mission 08 F2 L1: dev-mode-only Design Language gallery category.
-    // Boot-blocking fetch in app.js populates window.App.config before init.
-    if (window.App && window.App.config && window.App.config.dev_mode) {
-      categories.push({ id: 'design-language', label: 'Design Language' });
-    }
     var currentCategory = 'general';
-    var categoryListEl;
-    var contentEl;
 
     // Provider state
     var providers = null; // null until first fetch resolves; helper shows loading placeholder.
@@ -207,14 +196,71 @@ App.registerArea({
       }
     });
 
-    // Build sidebar via the shared section-nav primitive (F6 leg 01).
-    // Mount on a child div (not the sidebar panel itself) so the panel's
-    // .area-admin class is preserved — the helper sets className on its
-    // container, which would otherwise clobber the area scoping class.
-    sidebar.innerHTML = '<div class="admin-section-nav"></div>';
-    var sectionNavEl = sidebar.querySelector('.admin-section-nav');
-    function doSetCategory(catId) {
+    // Build Holograph layout: area-header + subnav + 3 sub-blocks.
+    // (Static hardcoded strings — no user data.)
+    var _adminHeader = document.createElement('div');
+    _adminHeader.className = 'area-header';
+    var _adminHeaderInner = document.createElement('div');
+    var _adminTitle = document.createElement('span');
+    _adminTitle.className = 'area-title';
+    _adminTitle.textContent = 'Administration';
+    var _adminSub = document.createElement('span');
+    _adminSub.className = 'area-sub';
+    _adminSub.textContent = 'System configuration';
+    _adminHeaderInner.appendChild(_adminTitle);
+    _adminHeaderInner.appendChild(_adminSub);
+    _adminHeader.appendChild(_adminHeaderInner);
+
+    var _adminSubnav = document.createElement('div');
+    _adminSubnav.className = 'admin-subnav';
+    _adminSubnav.id = 'admin-subnav';
+
+    var subGeneralEl = document.createElement('div');
+    subGeneralEl.className = 'admin-sub';
+    subGeneralEl.id = 'sub-general';
+
+    var subProvidersEl = document.createElement('div');
+    subProvidersEl.className = 'admin-sub';
+    subProvidersEl.id = 'sub-providers';
+
+    var subToolsEl = document.createElement('div');
+    subToolsEl.className = 'admin-sub';
+    subToolsEl.id = 'sub-tools';
+
+    content.textContent = '';
+    content.appendChild(_adminHeader);
+    content.appendChild(_adminSubnav);
+    content.appendChild(subGeneralEl);
+    content.appendChild(subProvidersEl);
+    content.appendChild(subToolsEl);
+
+    var sectionNavEl = _adminSubnav;
+
+    // ── Section activation ─────────────────────────────────────────────
+
+    function setActiveSection(catId, opts) {
+      opts = opts || {};
       currentCategory = catId;
+      subGeneralEl.classList.toggle('active', catId === 'general');
+      subProvidersEl.classList.toggle('active', catId === 'providers');
+      subToolsEl.classList.toggle('active', catId === 'tools');
+      App.layout.updateActiveSection(sectionNavEl, catId);
+
+      // Lazy-render — re-render the just-activated section's content.
+      if (catId === 'general') {
+        App.admin.renderSystemPage(subGeneralEl);
+      } else if (catId === 'providers') {
+        renderProvidersPanel(subProvidersEl);
+      } else if (catId === 'tools') {
+        renderToolsPanel(subToolsEl);
+      }
+
+      if (opts.writeUrl !== false) {
+        if (window.App && window.App.router) App.router.replaceSub(self.serializeState());
+      }
+    }
+
+    function doSetCategory(catId) {
       providerFormMode = null;
       editingProvider = null;
       pendingProviderId = null;
@@ -224,9 +270,7 @@ App.registerArea({
       pendingToolName = null;
       pendingToolFormMode = null;
       dirty = false;
-      if (window.App && window.App.router) App.router.replaceSub(currentCategory);
-      App.layout.updateActiveSection(categoryListEl, currentCategory);
-      renderContent();
+      setActiveSection(catId);
     }
     function setCategory(catId) {
       // Dirty gate fires only when leaving an editor-mounted context.
@@ -242,34 +286,13 @@ App.registerArea({
     }
     App.layout.renderSectionNav(sectionNavEl, categories, currentCategory, {
       onSelect: setCategory,
-      // Sidebar header omitted — the topbar's area buttons already name the
-      // active area (highlighted via aria-current="page"), so a duplicate
-      // <h2> in the sidebar is redundant.
-      ariaLabel: 'System sections'
+      ariaLabel: 'Administration sections'
     });
-    categoryListEl = sectionNavEl; // helper rendered into the container
-
-    // Build content
-    content.innerHTML = '<div class="admin-content"></div>';
-    contentEl = content.querySelector('.admin-content');
-
-    // ── Rendering ─────────────────────────────────────────────────────
-
-    function renderContent() {
-      if (currentCategory === 'general') {
-        App.admin.renderSystemPage(contentEl);
-      } else if (currentCategory === 'providers') {
-        renderProvidersPanel();
-      } else if (currentCategory === 'tools') {
-        renderToolsPanel();
-      } else if (currentCategory === 'design-language') {
-        App.admin.renderDesignLanguagePage(contentEl);
-      }
-    }
 
     // ── Providers Panel ───────────────────────────────────────────────
 
-    function renderProvidersPanel() {
+    function renderProvidersPanel(mountEl) {
+      mountEl = mountEl || subProvidersEl;
       // Editor branch: delegate to provider-editor sub-module (F6 leg 03).
       if (providerFormMode) {
         // Reset orchestrator's dirty mirror BEFORE editor mount (F6 leg 04).
@@ -292,9 +315,9 @@ App.registerArea({
             editingProvider = null;
             dirty = false;
             if (window.App && window.App.router) App.router.replaceSub('providers');
-            renderProvidersPanel();
+            renderProvidersPanel(mountEl);
           }
-          App.admin.renderProviderEditor(contentEl, editingProvider, PROVIDER_TYPES, {
+          App.admin.renderProviderEditor(mountEl, editingProvider, PROVIDER_TYPES, {
             onBack: function () {
               if (dirty) {
                 App.confirmDialog({ onConfirm: doHandleBack });
@@ -310,7 +333,7 @@ App.registerArea({
               editingProvider = null;
               dirty = false;
               if (window.App && window.App.router) App.router.replaceSub('providers');
-              renderProvidersPanel();
+              renderProvidersPanel(mountEl);
             },
             onSaveSuccess: function (updated, isCreate) {
               // Editor sub-module owns the fetch; this callback only mutates
@@ -324,7 +347,7 @@ App.registerArea({
                 App.router.replaceSub(self.serializeState());
               }
               if (isCreate) {
-                renderProvidersPanel();
+                renderProvidersPanel(mountEl);
               }
               // Edit\u2192edit case: editor stays mounted; sub-module's local
               // snapshot recapture handles dirty reset. No re-render needed.
@@ -334,7 +357,7 @@ App.registerArea({
               editingProvider = null;
               dirty = false;
               if (window.App && window.App.router) App.router.replaceSub('providers');
-              renderProvidersPanel();
+              renderProvidersPanel(mountEl);
             },
             onDirtyChange: function (d) { dirty = d; },
             getTypeDefaults: function (type) { return TYPE_DEFAULTS[type]; }
@@ -343,7 +366,7 @@ App.registerArea({
         return;
       }
       // Grid branch: delegate to providers-grid sub-module.
-      App.admin.renderProvidersGrid(contentEl, providers, {
+      App.admin.renderProvidersGrid(mountEl, providers, {
         selectedId: editingProvider ? editingProvider.id : null,
         onSelectProvider: selectProvider,
         onCreateProvider: enterCreateMode
@@ -363,8 +386,14 @@ App.registerArea({
           self._tryConsumePendingProvider();
         })
         .catch(function () {
-          var gridEl = contentEl.querySelector('.entity-tile-grid');
-          if (gridEl) gridEl.innerHTML = '<div class="admin-loading">Failed to load providers.</div>';
+          var gridEl = subProvidersEl.querySelector('.entity-tile-grid');
+          if (gridEl) {
+            var errMsg = document.createElement('div');
+            errMsg.className = 'admin-loading';
+            errMsg.textContent = 'Failed to load providers.';
+            gridEl.textContent = '';
+            gridEl.appendChild(errMsg);
+          }
         });
     }
 
@@ -379,7 +408,7 @@ App.registerArea({
       // would clobber the System content. Bail when no longer on providers.
       // F6 HAT regression.
       if (currentCategory !== 'providers') return;
-      App.admin.renderProvidersGrid(contentEl, providers, {
+      App.admin.renderProvidersGrid(subProvidersEl, providers, {
         selectedId: editingProvider ? editingProvider.id : null,
         onSelectProvider: selectProvider,
         onCreateProvider: enterCreateMode
@@ -396,7 +425,7 @@ App.registerArea({
       if (window.App && window.App.router) {
         App.router.replaceSub(self.serializeState());
       }
-      renderProvidersPanel();
+      renderProvidersPanel(subProvidersEl);
     }
 
     function enterCreateMode() {
@@ -407,7 +436,7 @@ App.registerArea({
       if (window.App && window.App.router) {
         App.router.replaceSub(self.serializeState());
       }
-      renderProvidersPanel();
+      renderProvidersPanel(subProvidersEl);
     }
 
     function findProvider(id) {
@@ -420,7 +449,8 @@ App.registerArea({
 
     // ── Tools Panel (F6 leg 02 / leg 03 editor) ───────────────────────
 
-    function renderToolsPanel() {
+    function renderToolsPanel(mountEl) {
+      mountEl = mountEl || subToolsEl;
       // Editor branch (F6 leg 03): delegate to tools-editor sub-module.
       if (toolFormMode === 'edit' && editingTool) {
         // Reset orchestrator's dirty mirror BEFORE editor mount (mirrors
@@ -428,7 +458,7 @@ App.registerArea({
         // editor closure starts at dirty=false; the onDirtyChange bridge
         // only fires on the first user input.
         dirty = false;
-        App.admin.renderToolsEditor(contentEl, editingTool, {
+        App.admin.renderToolsEditor(mountEl, editingTool, {
           onBack: function () {
             if (dirty) {
               App.confirmDialog({ onConfirm: function () { exitEditor(); } });
@@ -476,7 +506,7 @@ App.registerArea({
         return;
       }
       // Grid branch (L2)
-      App.admin.renderToolsGrid(contentEl, toolConfigs, {
+      App.admin.renderToolsGrid(mountEl, toolConfigs, {
         onToggle: handleToolToggle,
         inFlight: toolsInFlight,
         onSelectTool: selectTool
@@ -489,7 +519,7 @@ App.registerArea({
       editingTool = null;
       dirty = false;
       if (window.App && window.App.router) App.router.replaceSub('tools');
-      renderToolsPanel();
+      renderToolsPanel(subToolsEl);
     }
 
     function selectTool(name) {
@@ -516,11 +546,11 @@ App.registerArea({
           if (window.App && window.App.router) {
             App.router.replaceSub(self.serializeState());
           }
-          renderToolsPanel();
+          renderToolsPanel(subToolsEl);
         })
         .catch(function () {
           if (currentCategory !== 'tools') return;
-          App.showFlash(contentEl, 'Failed to load ' + name + '.', true);
+          App.showFlash(subToolsEl, 'Failed to load ' + name + '.', true);
         });
     }
 
@@ -536,8 +566,14 @@ App.registerArea({
         })
         .catch(function () {
           if (currentCategory !== 'tools') return;
-          var gridEl = contentEl.querySelector('.entity-tile-grid');
-          if (gridEl) gridEl.innerHTML = '<div class="admin-loading">Failed to load tools.</div>';
+          var gridEl = subToolsEl.querySelector('.entity-tile-grid');
+          if (gridEl) {
+            var errTool = document.createElement('div');
+            errTool.className = 'admin-loading';
+            errTool.textContent = 'Failed to load tools.';
+            gridEl.textContent = '';
+            gridEl.appendChild(errTool);
+          }
         });
     }
 
@@ -546,7 +582,7 @@ App.registerArea({
       // OR when the editor is mounted (no grid in the DOM to populate).
       if (currentCategory !== 'tools') return;
       if (toolFormMode) return;
-      App.admin.renderToolsGrid(contentEl, toolConfigs, {
+      App.admin.renderToolsGrid(subToolsEl, toolConfigs, {
         onToggle: handleToolToggle,
         inFlight: toolsInFlight,
         onSelectTool: selectTool
@@ -597,7 +633,11 @@ App.registerArea({
     // ── Flash Feedback ────────────────────────────────────────────────
 
     function showAdminFlash(msg, isError) {
-      App.showFlash(contentEl, msg, isError);
+      // Flash relative to the active sub-block.
+      var activeEl = subGeneralEl.classList.contains('active') ? subGeneralEl
+                   : subProvidersEl.classList.contains('active') ? subProvidersEl
+                   : subToolsEl;
+      App.showFlash(activeEl, msg, isError);
     }
 
     // ── Helpers ────────────────────────────────────────────────────────
@@ -609,7 +649,7 @@ App.registerArea({
     var self = this;
     self._refresh = function () {
       if (currentCategory === 'general') {
-        App.admin.renderSystemPage(contentEl);
+        App.admin.renderSystemPage(subGeneralEl);
       } else if (currentCategory === 'providers' && !providerFormMode) {
         fetchProviders().then(function () {
           self._tryConsumePendingProvider();
@@ -689,8 +729,7 @@ App.registerArea({
         editingTool = null;
         pendingToolName = null;
         pendingToolFormMode = null;
-        App.layout.updateActiveSection(categoryListEl, currentCategory);
-        renderContent();
+        setActiveSection(sub, { writeUrl: false });
       }
     };
     self._tryConsumePendingProvider = function () {
@@ -700,7 +739,7 @@ App.registerArea({
         editingProvider = null;
         pendingFormMode = null;
         pendingProviderId = null;
-        renderProvidersPanel();
+        renderProvidersPanel(subProvidersEl);
         return;
       }
       if (pendingFormMode === 'edit' && pendingProviderId) {
@@ -710,7 +749,7 @@ App.registerArea({
           editingProvider = found;
           pendingProviderId = null;
           pendingFormMode = null;
-          renderProvidersPanel();
+          renderProvidersPanel(subProvidersEl);
         }
         // else: provider not in cache (unknown or fetch race not yet resolved);
         // _tryConsumePendingProvider re-fires after fetchProviders.then.
@@ -729,7 +768,7 @@ App.registerArea({
     // ── Init ──────────────────────────────────────────────────────────
 
     fetchProviderTypes();
-    renderContent();
+    setActiveSection(currentCategory, { writeUrl: false });
   },
 
   activate: function () {
