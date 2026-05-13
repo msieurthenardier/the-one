@@ -32,29 +32,66 @@
     return 'older';
   }
 
+  // Formats a session timestamp for the card footer.
+  // Today: "HH:MM"; yesterday: "Yesterday"; older: "Mon D".
+  function fmtSessionTime(ts, nowDay) {
+    if (!ts) return '';
+    var d = new Date(ts);
+    if (isNaN(d.getTime())) return '';
+    var sessionDay = startOfDay(d);
+    var dayDiff = Math.round((nowDay - sessionDay) / 86400000);
+    if (dayDiff <= 0) {
+      var hh = String(d.getHours()).padStart(2, '0');
+      var mm = String(d.getMinutes()).padStart(2, '0');
+      return hh + ':' + mm;
+    }
+    if (dayDiff === 1) return 'Yesterday';
+    var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return months[d.getMonth()] + ' ' + d.getDate();
+  }
+
   function buildSessionItem(s, currentSessionId, callbacks) {
+    var nowDay = startOfDay(new Date());
+    var isActive = s.id === currentSessionId;
+
     var el = document.createElement('div');
-    el.className = 'list-item session-item' + (s.id === currentSessionId ? ' active' : '');
+    // Holograph class: .session-card (was .session-item).
+    el.className = 'session-card' + (isActive ? ' active' : '');
     el.setAttribute('role', 'option');
     el.setAttribute('tabindex', '0');
-    el.setAttribute('aria-selected', s.id === currentSessionId ? 'true' : 'false');
-    el.dataset.id = s.id;
+    el.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    // Dataset rename: data-session-id (was data-id) — matches
+    // highlightActiveSession's new selector in chat.js.
+    el.dataset.sessionId = s.id;
 
-    var textWrap = document.createElement('div');
-    textWrap.className = 'session-item-text';
+    var titleEl = document.createElement('div');
+    titleEl.className = 'session-title';
+    titleEl.setAttribute('data-confirm-title', '');
+    titleEl.textContent = s.title || 'Untitled';
+    el.appendChild(titleEl);
 
-    var titleSpan = document.createElement('span');
-    titleSpan.className = 'session-item-title';
-    titleSpan.setAttribute('data-confirm-title', '');
-    titleSpan.textContent = s.title;
-    textWrap.appendChild(titleSpan);
-
+    var metaEl = document.createElement('div');
+    metaEl.className = 'session-meta';
+    var dotEl = document.createElement('span');
+    dotEl.className = 'session-agent-dot';
+    metaEl.appendChild(dotEl);
     var agentSpan = document.createElement('span');
-    agentSpan.className = 'session-item-agent';
-    agentSpan.textContent = s.agent_name || 'default';
-    textWrap.appendChild(agentSpan);
+    agentSpan.textContent = (s.agent_name || 'agent') + (s.model ? ' · ' + s.model : '');
+    metaEl.appendChild(agentSpan);
+    el.appendChild(metaEl);
 
-    el.appendChild(textWrap);
+    // Snippet: may be absent on older session payloads; skip if missing.
+    if (s.snippet) {
+      var snippetEl = document.createElement('div');
+      snippetEl.className = 'session-snippet';
+      snippetEl.textContent = s.snippet;
+      el.appendChild(snippetEl);
+    }
+
+    var timeEl = document.createElement('div');
+    timeEl.className = 'session-time';
+    timeEl.textContent = fmtSessionTime(s.updated_at || s.created_at, nowDay);
+    el.appendChild(timeEl);
 
     var delBtn = document.createElement('button');
     delBtn.type = 'button';
@@ -70,8 +107,7 @@
     el.onclick = function () { callbacks.onJoin(s.id); };
     el.addEventListener('keydown', function (e) {
       // Ignore keydown bubbled from descendants (e.g., the delete button) so
-      // pressing Enter while focused on the X doesn't suppress the button's
-      // own activation and accidentally fire onJoin.
+      // pressing Enter while focused on the X doesn't accidentally fire onJoin.
       if (e.target !== el) return;
       if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();
@@ -137,6 +173,7 @@
   window.App.chat.BUCKET_LABELS = BUCKET_LABELS;
   window.App.chat.startOfDay = startOfDay;
   window.App.chat.bucketForSession = bucketForSession;
+  window.App.chat.fmtSessionTime = fmtSessionTime;
   window.App.chat.buildSessionItem = buildSessionItem;
   window.App.chat.renderSessionList = renderSessionList;
 })();

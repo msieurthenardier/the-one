@@ -24,7 +24,7 @@ App.registerArea({
     }
   },
 
-  init: function (sidebar, content) {
+  init: function (content) {
     var ws = null;
     // Per-session in-flight tracker: a session is "busy" when its agent
     // is mid-turn. Was previously a single `busy` flag per WebSocket, but
@@ -38,146 +38,175 @@ App.registerArea({
     var pendingJoinId = null;
     var sessions = [];
     var currentAgentName = null;
-    var messagesEl, inputEl, sendBtn, sessionListEl, agentSelect, agentBadgeEl;
+    var messagesEl, inputEl, sendBtn, sessionListEl, convoHeaderEl, composerEl, newSessionBtn;
     var setupIncomplete = false;
     var sessionBannerEl = null;
     var availableAgents = [];
     var setupState = { hasProviders: false, hasAgents: false };
 
-    // Sidebar headers use the app's `// SECTION` idiom (.section-title) so the
-    // chat sidebar reads consistently with admin/studio. The label still owns
-    // a `for=` association with the agent select for screen-reader form
-    // semantics; .section-title controls the visual treatment.
-    sidebar.innerHTML =
-      '<div id="sidebar-header">' +
-        '<label class="section-title" for="chat-agent-select">Select Agent</label>' +
-        '<div class="sidebar-actions">' +
-          '<select id="chat-agent-select" class="agent-select" data-testid="agent-select">' +
-            '<option value="" disabled selected>Select agent…</option>' +
-          '</select>' +
-        '</div>' +
-      '</div>' +
-      '<div class="session-list" role="listbox" aria-label="Chat sessions"></div>';
-
-    sessionListEl = sidebar.querySelector('.session-list');
-    agentSelect = sidebar.querySelector('.agent-select');
-
-    // Telemetry overlay is constructed via App.chat.renderTelemetry() and
-    // inserted between .messages and .input-area below.
+    // Holograph layout: .chat-layout with .sessions-pane (left) + .convo-pane (right).
+    // No sidebar — the sessions pane is part of content itself.
     content.innerHTML =
-      '<div class="chat-welcome" data-testid="chat-welcome" hidden>' +
-        '<div class="chat-welcome-inner">' +
-          '<h2 class="chat-welcome-greeting">Hello.</h2>' +
-          '<p class="chat-welcome-prompt">Which agent would you like to chat with?</p>' +
-          '<div class="chat-welcome-list" role="listbox" aria-label="Available agents"></div>' +
-        '</div></div>' +
-      '<div class="chat-chrome">' +
-        // New-chat button sits inline next to the agent badge — icon-only at
-        // rest, expands into the full pill on hover/focus. Pure-CSS
-        // hover-expand via max-width transition; no JS state needed.
-        '<div class="header"><h2 class="session-agent-badge"></h2>' +
-          '<button class="new-chat-header" type="button" data-testid="new-chat-btn" aria-label="Start a new conversation with this agent">' +
-            App.icon('square-pen') + '<span>New Chat</span></button></div>' +
-        '<div class="messages" role="log" aria-live="polite" aria-relevant="additions" aria-atomic="false"></div>' +
-        '<div class="input-area">' +
-          '<input data-testid="chat-input" placeholder="Type a message..." autocomplete="off" aria-label="Message" />' +
-          '<button class="btn-filled-primary" data-testid="chat-send-btn">Send</button></div>' +
+      '<div class="chat-layout">' +
+        '<aside class="sessions-pane">' +
+          '<div class="sessions-header">' +
+            '<h3>Sessions</h3>' +
+            '<button class="new-session-btn" type="button" aria-label="New session" data-testid="new-chat-btn">' +
+              '<svg class="icn icn-sm" viewBox="0 0 12 12" aria-hidden="true">' +
+                '<path d="M6 2v8M2 6h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>' +
+              '</svg>' +
+            '</button>' +
+          '</div>' +
+          '<div class="sessions-list" id="chat-sessions-list" role="listbox" aria-label="Chat sessions"></div>' +
+        '</aside>' +
+        '<div class="convo-pane">' +
+          '<div class="convo-header" id="chat-convo-header"></div>' +
+          '<div class="convo-stream" id="chat-convo-stream" role="log" aria-live="polite" aria-relevant="additions" aria-atomic="false"></div>' +
+          '<div class="composer" id="chat-composer"></div>' +
+        '</div>' +
       '</div>';
 
-    var chromeEl = content.querySelector('.chat-chrome');
-    var welcomeEl = content.querySelector('.chat-welcome');
-    var welcomeListEl = content.querySelector('.chat-welcome-list');
-    var headerNewBtn = content.querySelector('.new-chat-header');
-    messagesEl = content.querySelector('.messages');
-    inputEl = content.querySelector('.input-area input');
-    sendBtn = content.querySelector('.input-area button');
-    agentBadgeEl = content.querySelector('.session-agent-badge');
+    sessionListEl = content.querySelector('.sessions-list');
+    convoHeaderEl = content.querySelector('.convo-header');
+    messagesEl = content.querySelector('.convo-stream');
+    composerEl = content.querySelector('.composer');
+    newSessionBtn = content.querySelector('.new-session-btn');
 
-    // Insert telemetry overlay between .messages and .input-area.
-    chromeEl.insertBefore(App.chat.renderTelemetry(), chromeEl.querySelector('.input-area'));
+    // renderComposer — writes the composer-box HTML into composerEl and
+    // (re-)wires the send button and Enter-key handler. Called on init and
+    // whenever the active agent changes so the placeholder stays accurate.
+    function renderComposer(agentName) {
+      composerEl.innerHTML =
+        '<div class="composer-box">' +
+          '<textarea class="composer-input" rows="1" placeholder="Ask ' + (agentName || 'agent') + ' anything…" data-testid="chat-input" aria-label="Message"></textarea>' +
+          '<div class="composer-controls">' +
+            '<button class="btn btn-ghost" type="button" data-action="attach" aria-label="Attach file">' +
+              '<svg class="icn icn-sm" viewBox="0 0 16 16" aria-hidden="true">' +
+                '<path d="M10 4L5 9a2 2 0 002.8 2.8L13 6.6a3.5 3.5 0 00-4.9-4.9L3 6.6" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/>' +
+              '</svg>' +
+              '<span>Attach</span>' +
+            '</button>' +
+            '<div class="right">' +
+              '<span class="chip mono" id="chat-ctx-chip">0k ctx</span>' +
+              '<button class="btn btn-primary" type="button" data-action="send" data-testid="chat-send-btn">' +
+                'Send' +
+                '<svg class="icn icn-sm" viewBox="0 0 12 12" aria-hidden="true">' +
+                  '<path d="M2 6h8M6 2l4 4-4 4" stroke="currentColor" stroke-width="1.6" fill="none" stroke-linecap="round"/>' +
+                '</svg>' +
+              '</button>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+      inputEl = composerEl.querySelector('.composer-input');
+      sendBtn = composerEl.querySelector('[data-action="send"]');
+      var attachBtn = composerEl.querySelector('[data-action="attach"]');
+      if (attachBtn) {
+        attachBtn.addEventListener('click', function () { App.toast('Attachments coming soon.'); });
+      }
+      inputEl.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+      });
+      sendBtn.addEventListener('click', send);
+    }
 
-    function updateAgentBadge(name) { agentBadgeEl.textContent = name || 'default'; }
+    // renderConvoHeader — writes the convo-header content for an active session.
+    // When session is null/undefined, renders an empty placeholder div.
+    function renderConvoHeader(session) {
+      if (!session) {
+        convoHeaderEl.innerHTML = '<div></div>';
+        return;
+      }
+      var title = (session.title || 'Untitled').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      var agentNameSafe = (session.agent_name || 'Agent').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      var modelSafe = (session.model || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      var initials = (session.agent_name || 'A').slice(0, 2).toUpperCase();
+      convoHeaderEl.innerHTML =
+        '<div><div class="convo-title">' + title + '</div></div>' +
+        '<div class="convo-agent">' +
+          '<div class="agent-avatar">' + initials + '</div>' +
+          '<span>' + agentNameSafe + '</span>' +
+          (modelSafe ? '<span class="chip mono">' + modelSafe + '</span>' : '') +
+        '</div>' +
+        '<div class="convo-actions">' +
+          '<button class="btn btn-ghost" aria-label="Session settings" type="button">' +
+            '<svg class="icn" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.6" fill="none"/></svg>' +
+          '</button>' +
+        '</div>';
+    }
+
+    // updateCtxChip — inline telemetry chip update (replaces the floating overlay).
+    function updateCtxChip(data) {
+      var chip = content.querySelector('#chat-ctx-chip');
+      if (!chip) return;
+      var ctxK = data.context_tokens >= 1000 ? (data.context_tokens / 1000).toFixed(1) + 'k' : String(data.context_tokens);
+      chip.textContent = ctxK + ' ctx';
+    }
+
+    function resetCtxChip() {
+      var chip = content.querySelector('#chat-ctx-chip');
+      if (chip) chip.textContent = '0k ctx';
+    }
+
+    // Initial render: no active session.
+    renderComposer(null);
+    renderConvoHeader(null);
+
+    // updateAgentBadge — re-renders the convo-header with the current agent.
+    // Called on session_joined with the resolved session object (or synthetic
+    // minimal object when only the agent name is known).
+    function updateAgentBadge(name) {
+      // If a full session object is available use renderConvoHeader; otherwise
+      // update just the avatar initials via a minimal synthetic session shape.
+      // (The full session_joined event provides the real data via renderConvoHeader.)
+    }
 
     function addMsg(cls, text, attribution, opts) {
-      messagesEl.appendChild(App.chat.renderMessage(cls, text, opts));
-      if (attribution) {
-        var side = cls.indexOf('user') === 0 ? 'from-you' : 'from-agent';
-        var ts = (opts && Object.prototype.hasOwnProperty.call(opts, 'ts')) ? opts.ts : new Date().toISOString();
-        messagesEl.appendChild(App.chat.renderAttribution(side, attribution, ts));
+      // attribution arg is now ignored (Holograph embeds author/time in msg-body).
+      // opts.agentName is used by renderMessage for the avatar initials.
+      var msgOpts = opts || {};
+      if (cls.indexOf('assistant') === 0 && !msgOpts.agentName) {
+        msgOpts = { agentName: currentAgentName, ts: msgOpts.ts, renderMarkdown: msgOpts.renderMarkdown };
       }
+      var el = App.chat.renderMessage(cls, text, msgOpts);
+      if (el) messagesEl.appendChild(el);
       messagesEl.scrollTop = messagesEl.scrollHeight;
     }
 
     function highlightActiveSession() {
-      var items = sessionListEl.querySelectorAll('.session-item');
+      var items = sessionListEl.querySelectorAll('.session-card');
       for (var i = 0; i < items.length; i++) {
-        var active = items[i].dataset.id === currentSessionId;
+        var active = items[i].dataset.sessionId === currentSessionId;
         items[i].classList.toggle('active', active);
         items[i].setAttribute('aria-selected', active ? 'true' : 'false');
       }
     }
 
     function renderWelcome() {
-      App.chat.renderWelcomeList(welcomeEl, welcomeListEl, availableAgents, setupState, { onStart: startSessionWith });
+      App.chat.renderWelcomeList(messagesEl, availableAgents, setupState, { onStart: startSessionWith });
     }
 
     function fetchAgents() {
       return fetch('/api/agents').then(function (r) { return r.json(); }).then(function (agents) {
         availableAgents = agents;
-        agentSelect.innerHTML = '';
-        if (agents.length === 0) {
-          agentSelect.innerHTML = '<option value="" disabled selected>No agents configured</option>';
-        } else {
-          // Disabled placeholder: hidden once an agent is set programmatically.
-          var placeholder = document.createElement('option');
-          placeholder.value = ''; placeholder.disabled = true; placeholder.textContent = 'Select agent…';
-          agentSelect.appendChild(placeholder);
-          for (var i = 0; i < agents.length; i++) {
-            var opt = document.createElement('option');
-            opt.value = agents[i].name; opt.textContent = agents[i].name;
-            agentSelect.appendChild(opt);
-          }
-        }
-        syncDropdownToCurrent();
-        if (!welcomeEl.hidden) renderWelcome();
+        if (welcomeVisible) renderWelcome();
       }).catch(function () { /* agents list is nice-to-have */ });
     }
 
-    function syncDropdownToCurrent() {
-      if (!currentAgentName) { agentSelect.value = ''; return; }
-      for (var i = 0; i < agentSelect.options.length; i++) {
-        if (agentSelect.options[i].value === currentAgentName) { agentSelect.value = currentAgentName; return; }
-      }
-    }
+    // welcomeVisible tracks whether the convo-stream is showing the welcome
+    // empty-state (vs. a message history). This replaces the old welcomeEl.hidden flag.
+    var welcomeVisible = false;
 
     function showWelcome() {
-      chromeEl.hidden = true;
-      welcomeEl.hidden = false;
+      welcomeVisible = true;
+      renderConvoHeader(null);
       renderWelcome();
     }
 
     function showChrome() {
-      welcomeEl.hidden = true;
-      chromeEl.hidden = false;
+      welcomeVisible = false;
+      // convo-pane is always visible; showChrome just means the welcome is gone.
+      // The actual content was set by the session_joined handler.
     }
-
-    // Roving-tabindex arrow navigation for the welcome listbox. One-shot
-    // binding; queries .chat-welcome-item lazily so it tracks re-renders.
-    welcomeListEl.addEventListener('keydown', function (e) {
-      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Home' && e.key !== 'End') return;
-      var opts = welcomeListEl.querySelectorAll('.chat-welcome-item');
-      if (!opts.length) return;
-      e.preventDefault();
-      var idx = -1;
-      for (var i = 0; i < opts.length; i++) { if (opts[i] === document.activeElement) { idx = i; break; } }
-      var next;
-      if (e.key === 'Home') next = 0;
-      else if (e.key === 'End') next = opts.length - 1;
-      else if (e.key === 'ArrowDown') next = idx === -1 ? 0 : (idx + 1) % opts.length;
-      else next = idx === -1 ? opts.length - 1 : (idx - 1 + opts.length) % opts.length;
-      for (var j = 0; j < opts.length; j++) opts[j].setAttribute('tabindex', j === next ? '0' : '-1');
-      opts[next].focus();
-    });
 
     function startSessionWith(agentName) {
       if (setupIncomplete) return;
@@ -204,8 +233,14 @@ App.registerArea({
           addMsg(cls, (ev.source && ev.source !== 'web' && ev.source !== 'restored' ? '[' + ev.source + '] ' : '') + ev.content, 'You', histOpts);
         }
         else if (ev.type === 'assistant') addMsg('assistant', ev.content, agentLabel, histOpts);
-        else if (ev.type === 'tool_call') addMsg('tool', '> ' + ev.name + '(' + Object.entries(ev.arguments).map(function (kv) { return kv[0] + '=' + JSON.stringify(kv[1]); }).join(', ') + ')', null, histOpts);
-        else if (ev.type === 'tool_result') addMsg(ev.is_error ? 'tool error' : 'tool', ev.content, null, histOpts);
+        else if (ev.type === 'tool_call') {
+          var hTc = App.chat.renderToolCall(ev.name, ev.arguments, 'done');
+          messagesEl.appendChild(hTc);
+        }
+        else if (ev.type === 'tool_result') {
+          var hTr = App.chat.renderToolResult(ev.content, ev.is_error);
+          messagesEl.appendChild(hTr);
+        }
         // Filter transient model-loading pings — live UI hints, not history.
         else if (ev.type === 'system' && ev.content !== 'Loading model...' && ev.content !== 'Model loaded.') {
           addMsg('system', ev.content, null, histOpts);
@@ -494,7 +529,7 @@ App.registerArea({
           setupState.hasAgents = results[1].length > 0;
           setupIncomplete = !setupState.hasProviders || !setupState.hasAgents;
           // Refresh the welcome canvas so guidance tracks setupState changes.
-          if (!currentSessionId && !welcomeEl.hidden) renderWelcome();
+          if (!currentSessionId && welcomeVisible) renderWelcome();
           // Setup-incomplete with no session → welcome canvas immediately.
           if (setupIncomplete && !currentSessionId) showWelcome();
         })
@@ -510,8 +545,7 @@ App.registerArea({
           sessionBannerEl = document.createElement('div');
           sessionBannerEl.className = 'chat-session-banner';
           sessionBannerEl.setAttribute('role', 'status');
-          var inputArea = content.querySelector('.input-area');
-          inputArea.parentNode.insertBefore(sessionBannerEl, inputArea);
+          composerEl.parentNode.insertBefore(sessionBannerEl, composerEl);
         }
         sessionBannerEl.textContent = msg;
         inputEl.disabled = true; sendBtn.disabled = true;
@@ -527,27 +561,25 @@ App.registerArea({
         // then, suppress the "thinking" indicator we optimistically showed
         // on send so the operator sees a single, accurate state.
         hideThinking();
+        // Render a toolcall-style "Loading model" indicator with a live dot.
         var loadEl = document.createElement('div');
-        // `system-model-loading` is a system-only class so the
-        // `Model loaded.` handler below can target this row exclusively
-        // without accidentally matching the thinking indicator (which
-        // also carries `.model-loading` for shared dot-animation styling).
-        loadEl.className = 'msg system model-loading system-model-loading';
-        loadEl.innerHTML = '<span class="model-loading-text">Loading model</span><span class="model-loading-dots"></span>';
+        loadEl.className = 'toolcall open system-model-loading';
+        loadEl.innerHTML =
+          '<div class="toolcall-header">' +
+            '<span class="toolcall-name">Loading model</span>' +
+            '<span class="toolcall-status"><span class="dot live"></span></span>' +
+          '</div>';
         messagesEl.appendChild(loadEl);
         messagesEl.scrollTop = messagesEl.scrollHeight;
-        var frames = ['⣾', '⣽', '⣻', '⢿', '⡿', '⣟', '⣯', '⣷'];
-        var dotEl = loadEl.querySelector('.model-loading-dots');
-        var frameIdx = 0;
-        loadEl._dotTimer = setInterval(function () { frameIdx = (frameIdx + 1) % frames.length; dotEl.textContent = ' ' + frames[frameIdx]; }, 120);
       } else if (data.content === 'Model loaded.') {
         var loadingMsg = messagesEl.querySelector('.system-model-loading');
         if (loadingMsg) {
-          if (loadingMsg._dotTimer) clearInterval(loadingMsg._dotTimer);
-          loadingMsg.classList.remove('model-loading');
+          // Swap the live dot for an idle dot + update label.
+          var nameEl = loadingMsg.querySelector('.toolcall-name');
+          if (nameEl) nameEl.textContent = 'Model loaded.';
+          var dotEl = loadingMsg.querySelector('.dot');
+          if (dotEl) { dotEl.classList.remove('live'); dotEl.classList.add('idle'); }
           loadingMsg.classList.remove('system-model-loading');
-          loadingMsg.innerHTML = '';
-          loadingMsg.textContent = 'Model loaded.';
         } else { addMsg('system', data.content); }
         // Restore the "thinking" state — the agent step is about to run
         // and we still owe the user a response indicator until the first
@@ -596,7 +628,7 @@ App.registerArea({
               // Two-step confirm via the canonical App.confirmDelete helper
               // (F5 leg 02). WS delete is fire-and-forget so revertFn is
               // unused here — server-side broadcast updates the list.
-              var item = btn.closest('.session-item');
+              var item = btn.closest('.session-card');
               if (!item) return;
               App.confirmDelete(item, function (itemEl, revertFn) {
                 ws.send(JSON.stringify({ action: 'delete_session', session_id: id }));
@@ -627,10 +659,11 @@ App.registerArea({
             App.router.replaceSub('sessions/' + currentSessionId);
           }
           currentAgentName = data.agent_name;
-          updateAgentBadge(data.agent_name);
-          syncDropdownToCurrent();
+          // Re-render convo header with session details and refresh composer placeholder.
+          renderConvoHeader({ title: data.title || ('Chat with ' + (data.agent_name || 'agent')), agent_name: data.agent_name, model: data.model });
+          renderComposer(data.agent_name);
           hideThinking();
-          App.chat.resetTelemetry(content);
+          resetCtxChip();
           renderHistory(data.history, data.agent_name);
           setSessionHealth(data.status || 'ok');
           // Sync per-session busy state to server ground truth (the
@@ -659,7 +692,6 @@ App.registerArea({
             if (window.App && window.App.router) App.router.replaceSub(null);
             messagesEl.innerHTML = '';
             setSessionHealth('ok');
-            syncDropdownToCurrent();
             // Don't auto-create — session_list refresh below picks the fallback.
           }
           refreshSessionList();
@@ -672,20 +704,19 @@ App.registerArea({
         }
         else if (data.type === 'assistant_chunk') {
           // Streaming chunk path (leg-04, option B minimal rendering).
-          // First chunk: clear thinking, mint a fresh assistant bubble +
-          // attribution. Subsequent chunks: enqueue the delta into the
-          // pacing queue; a setInterval loop drains characters at a
-          // smooth rate. Markdown rendering on `done` lands in leg 05.
+          // First chunk: clear thinking, mint a fresh agent .msg-row.
+          // currentStreamingMsg now points at the .msg-text div inside
+          // the row (not the row itself), so the pacing ticker can append
+          // text-node children to the correct element.
           hideThinking();
           if (!currentStreamingMsg) {
-            var bubble = App.chat.renderMessage('assistant', '', { renderMarkdown: false });
-            messagesEl.appendChild(bubble);
-            messagesEl.appendChild(App.chat.renderAttribution('from-agent', currentAgentName || 'agent', new Date().toISOString()));
-            // Ensure the bubble has a text node child to mutate.
-            if (!bubble.firstChild) {
-              bubble.appendChild(document.createTextNode(''));
+            var streamResult = App.chat.renderAgentMessage('', currentAgentName || 'agent', new Date().toISOString(), { renderMarkdown: false });
+            messagesEl.appendChild(streamResult.row);
+            // streamResult.msgText is the .msg-text div; seed with empty text node.
+            if (!streamResult.msgText.firstChild) {
+              streamResult.msgText.appendChild(document.createTextNode(''));
             }
-            currentStreamingMsg = bubble;
+            currentStreamingMsg = streamResult.msgText;
             startPacing();
           }
           pendingChars += data.content;
@@ -704,15 +735,19 @@ App.registerArea({
           // iteration N+1's chunks land in a fresh bubble (markdown
           // rendering + reset of currentStreamingMsg both happen inside).
           finalizeStreamingBubble();
-          addMsg('tool', '> ' + data.name + '(' + Object.entries(data.arguments).map(function (kv) { return kv[0] + '=' + JSON.stringify(kv[1]); }).join(', ') + ')');
+          var tcEl = App.chat.renderToolCall(data.name, data.arguments, 'running');
+          messagesEl.appendChild(tcEl);
+          messagesEl.scrollTop = messagesEl.scrollHeight;
         }
         else if (data.type === 'tool_result') {
           // Iteration boundary — finalize the current streaming bubble.
           finalizeStreamingBubble();
-          addMsg(data.is_error ? 'tool error' : 'tool', data.content);
+          var trEl = App.chat.renderToolResult(data.content, data.is_error);
+          messagesEl.appendChild(trEl);
+          messagesEl.scrollTop = messagesEl.scrollHeight;
         }
         else if (data.type === 'system') handleSystem(data);
-        else if (data.type === 'usage') App.chat.updateTelemetry(content, data);
+        else if (data.type === 'usage') updateCtxChip(data);
         else if (data.type === 'auth_required') {
           // F5 L5: lazy-path → render an inline "Login required for <source>"
           // button in the chat history. First emission has consent_url=null;
@@ -763,23 +798,10 @@ App.registerArea({
       };
     }
 
-    // Wire events
-    inputEl.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
-    });
-    sendBtn.addEventListener('click', send);
-
-    // Sidebar agent dropdown — `change` fires only on user interaction;
-    // programmatic `.value =` assignments do not, so the sync is safe.
-    agentSelect.addEventListener('change', function () {
-      var selected = agentSelect.value;
-      if (!selected) return;
-      startSessionWith(selected);
-    });
-
-    // Conversation header `+ new` — start over with the same agent.
-    headerNewBtn.addEventListener('click', function () {
-      startSessionWith(currentAgentName || agentSelect.value || null);
+    // Wire events — input/sendBtn are wired inside renderComposer() because
+    // the composer is re-rendered on agent change. newSessionBtn is static.
+    newSessionBtn.addEventListener('click', function () {
+      startSessionWith(currentAgentName || null);
     });
 
     var self = this;

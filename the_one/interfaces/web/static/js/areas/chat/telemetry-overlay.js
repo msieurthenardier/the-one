@@ -9,84 +9,21 @@
     return String(n);
   }
 
-  // Builds the chrome-free telemetry overlay (ghosted by default; hover/focus
-  // expands details and lifts opacity to 1). Returns the .telemetry-overlay
-  // container with all inner spans/divs. Mirrors the original innerHTML shape
-  // verbatim so the F2/F3 CSS rules and a11y attributes stay valid.
+  // Holograph replaces the floating telemetry overlay with a single inline
+  // chip (#chat-ctx-chip) inside the composer. chat.js owns that chip update
+  // directly via its updateCtxChip() helper. These three exports are kept as
+  // no-ops so any stale caller sites don't throw; fmtTokens is still used
+  // by chat.js for the chip text.
   function renderTelemetry() {
-    var overlay = document.createElement('div');
-    overlay.className = 'telemetry-overlay';
-    overlay.setAttribute('tabindex', '0');
-    overlay.setAttribute('role', 'status');
-    overlay.setAttribute('aria-label', 'Token usage');
-
-    var summary = document.createElement('div');
-    summary.className = 'telemetry-summary';
-
-    var barWrap = document.createElement('div');
-    barWrap.className = 'context-bar-wrap';
-    var bar = document.createElement('div');
-    bar.className = 'context-bar';
-    barWrap.appendChild(bar);
-    summary.appendChild(barWrap);
-
-    var pctSpan = document.createElement('span');
-    pctSpan.className = 'value t-ctx-pct';
-    pctSpan.textContent = '0%';
-    summary.appendChild(pctSpan);
-
-    overlay.appendChild(summary);
-
-    var details = document.createElement('div');
-    details.className = 'telemetry-details';
-
-    var rows = [
-      { label: 'in:', cls: 't-in' },
-      { label: 'out:', cls: 't-out' },
-      { label: 'ctx:', cls: 't-ctx' }
-    ];
-    for (var i = 0; i < rows.length; i++) {
-      var row = document.createElement('span');
-      row.className = 'telemetry';
-      var labelEl = document.createElement('span');
-      labelEl.className = 'label';
-      labelEl.textContent = rows[i].label;
-      row.appendChild(labelEl);
-      row.appendChild(document.createTextNode(' '));
-      var valueEl = document.createElement('span');
-      valueEl.className = 'value ' + rows[i].cls;
-      valueEl.textContent = '0';
-      row.appendChild(valueEl);
-      details.appendChild(row);
-    }
-
-    overlay.appendChild(details);
-    return overlay;
+    return null;
   }
 
-  function updateTelemetry(chromeContent, data) {
-    chromeContent.querySelector('.t-in').textContent = fmtTokens(data.input_tokens);
-    chromeContent.querySelector('.t-out').textContent = fmtTokens(data.output_tokens);
-    chromeContent.querySelector('.t-ctx').textContent = fmtTokens(data.context_tokens);
-    var pct = data.max_context_tokens > 0
-      ? Math.min(100, Math.round(data.context_tokens / data.max_context_tokens * 100))
-      : 0;
-    chromeContent.querySelector('.t-ctx-pct').textContent = pct + '%';
-    var bar = chromeContent.querySelector('.context-bar');
-    bar.style.width = pct + '%';
-    bar.className = 'context-bar' + (pct >= 90 ? ' crit' : pct >= 70 ? ' warn' : '');
+  function updateTelemetry(/* container, data */) {
+    // No-op — Holograph chip update is inline in chat.js.
   }
 
-  // Clear all displayed values back to zero / default. Called on session
-  // switch so token counts from the previous session don't bleed across.
-  function resetTelemetry(chromeContent) {
-    chromeContent.querySelector('.t-in').textContent = '0';
-    chromeContent.querySelector('.t-out').textContent = '0';
-    chromeContent.querySelector('.t-ctx').textContent = '0';
-    chromeContent.querySelector('.t-ctx-pct').textContent = '0%';
-    var bar = chromeContent.querySelector('.context-bar');
-    bar.style.width = '0%';
-    bar.className = 'context-bar';
+  function resetTelemetry(/* container */) {
+    // No-op — Holograph chip reset is inline in chat.js.
   }
 
   window.App.chat.fmtTokens = fmtTokens;
