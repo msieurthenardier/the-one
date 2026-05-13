@@ -2,14 +2,19 @@
 
 Covers the CSS-grid tile layout:
 
-- `.entity-tile-grid` renders as the agents container in the main panel
-- Each tile is a `<button class="entity-tile">` carrying the legacy
-  `.agent-item` class (composed for test-selector continuity), plus
-  `data-testid="agent-item"`, `data-name`, `aria-selected`
+- `.agents-list` (Holograph: `#studio-agents-list`) renders as the agents
+  container in the agents pane
+- Each tile is a `<div class="agent-card">` carrying `data-testid="agent-item"`,
+  `data-name`, `aria-selected`
 - Tile click navigates to the editor
 
 F5 leg 05 removed the per-tile X-button. Agent deletion lives in the
 editor's General-tab Danger Zone — see `test_flow_agent_crud.py`.
+
+L4.5: Holograph selector migration — `.entity-tile-grid` → `.agents-list`,
+`.entity-tile` → `.agent-card`, `.entity-tile-name` → `.agent-card-title`,
+`_wait_studio_ready` updated to use `.area-studio .section-nav-item` since
+`.section-nav-header` is no longer emitted.
 """
 
 from __future__ import annotations
@@ -20,23 +25,27 @@ from playwright.sync_api import Page, expect
 
 
 def _wait_studio_ready(page: Page) -> None:
-    """Wait for the studio area to mount (section-nav + Studio header visible)."""
-    expect(page.locator(".section-nav-header")).to_have_text("Studio", timeout=8000)
+    """Wait for the studio area to mount (section-nav items visible).
+
+    Holograph removed the `.section-nav-header` element; the nav items
+    themselves are the canonical mount signal.
+    """
+    expect(page.locator(".area-studio .section-nav-item").first).to_be_visible(timeout=8000)
 
 
 @pytest.mark.browser
 def test_agent_tile_grid_renders(app_with_agent: SeededApp, page: Page) -> None:
-    """The agents pane uses `.entity-tile-grid` with `<button class="entity-tile">` tiles."""
+    """The agents pane uses `.agents-list` with `.agent-card` tiles."""
     base_url = app_with_agent.base_url
     agent_name = app_with_agent.agent_name
 
     page.goto(f"{base_url}#studio")
     _wait_studio_ready(page)
 
-    grid = page.locator(".entity-tile-grid")
+    grid = page.locator(".agents-list")
     expect(grid).to_be_visible(timeout=5000)
 
-    tile = page.locator(f'button.entity-tile[data-name="{agent_name}"]')
+    tile = page.locator(f'.agent-card[data-name="{agent_name}"]')
     expect(tile).to_have_count(1)
     expect(tile).to_have_attribute("data-testid", "agent-item")
 
@@ -50,7 +59,7 @@ def test_agent_tile_click_opens_editor(app_with_agent: SeededApp, page: Page) ->
     page.goto(f"{base_url}#studio")
     _wait_studio_ready(page)
 
-    tile = page.locator(f'button.entity-tile[data-name="{agent_name}"]')
+    tile = page.locator(f'.agent-card[data-name="{agent_name}"]')
     expect(tile).to_be_visible(timeout=5000)
     tile.click()
 
@@ -68,13 +77,13 @@ def test_multiple_tiles_render_in_grid(app_with_provider: SeededApp, page: Page)
     page.goto(f"{base_url}#studio")
     _wait_studio_ready(page)
 
-    grid = page.locator(".entity-tile-grid")
+    grid = page.locator(".agents-list")
     expect(grid).to_be_visible(timeout=5000)
 
-    tiles = page.locator("button.entity-tile")
+    tiles = page.locator(".agent-card")
     expect(tiles).to_have_count(2, timeout=5000)
 
-    alpha = page.locator('button.entity-tile[data-name="agent-alpha"]')
-    expect(alpha.locator(".entity-tile-name")).to_have_text("agent-alpha")
-    beta = page.locator('button.entity-tile[data-name="agent-beta"]')
-    expect(beta.locator(".entity-tile-name")).to_have_text("agent-beta")
+    alpha = page.locator('.agent-card[data-name="agent-alpha"]')
+    expect(alpha.locator(".agent-card-title")).to_have_text("agent-alpha")
+    beta = page.locator('.agent-card[data-name="agent-beta"]')
+    expect(beta.locator(".agent-card-title")).to_have_text("agent-beta")

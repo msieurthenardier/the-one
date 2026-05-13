@@ -1,21 +1,27 @@
-"""Browser tests for the F8 L3+L4 Agent-editor MCPs tab.
+"""Browser tests for the Agent-editor MCPs tab (Holograph Mode 1 / Mode 2).
 
-Tab matches the built-in Tools tab pattern: each MCP source is a
-`tool-row` with an attach toggle on the summary line, and a sibling
-`<details class="tool-row-overrides">` panel that shows per-tool
-checkboxes + credential override fields when expanded.
+L4.4 replaced the Mission-08 inline-<details> row pattern with the Holograph
+two-mode layout:
+  - Mode 1 (list view): `.mcp-sources-grid` of `.mcp-source-card` tiles with
+    per-source attach toggles.
+  - Mode 2 (attachment editor): clicking a card opens `[data-testid=
+    "agent-mcp-attachment-editor"]` full-pane editor with a mode segmented
+    control (allowlist/denylist) and `.tools-grid` of `.tool-card` entries.
 
 Tests cover:
   1. Attach a source via toggle → save → reload → still attached.
   2. Detach via toggle → save → reload → no longer attached.
-  3. Per-tool toggle (open details panel first) → save → reload → preserved.
-  4. Credential override (__MASKED__ round-trip).
+  3. Per-tool toggle (open Mode 2 editor) → save → reload → preserved.
+  4. Credential override removed (see inline comment — moved to API level).
   5. Empty state when no MCP sources are registered.
-  6. Hash routing: deep-link auto-expands the right `<details>` panel.
+  6. Hash routing: deep-link opens Mode 2 editor directly.
   7. Auth-required inline notice (no popup).
   8. App.areas array-shape lock-test.
+  9. Auth-required notice uses source name, not DB id.
 
-Tests 3, 4, 6, 7 use page.route() to mock /api/mcp-sources/{id}/test/connect.
+L4.5: selectors updated — `[data-testid="mcp-source-details-{id}"]` (the old
+<details> concept) replaced by `.mcp-source-card` click (Mode 2 entry) and
+`[data-testid="agent-mcp-attachment-editor"]` (Mode 2 container).
 """
 
 from __future__ import annotations
@@ -82,15 +88,27 @@ def _mock_tools_connect(page: Page, source_id: str, tools: list[dict]) -> None:
     page.route(f"**/api/mcp-sources/{source_id}/test/connect", handler)
 
 
-def _open_details_panel(page: Page, source_id: str) -> None:
-    """Click the details panel's summary so it expands (lazy-loads body)."""
-    details = page.locator(f'[data-testid="mcp-source-details-{source_id}"]')
-    expect(details).to_be_visible(timeout=4000)
-    # Click the summary inside the details. Playwright's locator.click() on
-    # <details><summary> works because summary is the click target by default.
-    details.locator("summary").click()
-    # Confirm expansion via the [open] attribute.
-    expect(details).to_have_attribute("open", "", timeout=2000)
+def _open_mode2_editor(page: Page, source_id: str) -> None:
+    """Click the MCP source card to enter Mode 2 (attachment editor).
+
+    Holograph replaced the Mission-08 inline-<details> pattern with a two-mode
+    layout. Clicking the card body (not the attach toggle) renders the full-pane
+    attachment editor at [data-testid="agent-mcp-attachment-editor"].
+
+    The card's attach checkbox is found via [data-testid="mcp-source-toggle-{id}"].
+    We click the card itself (not the checkbox) to avoid toggling the attach state.
+    """
+    card = page.locator(f'[data-testid="mcp-source-card-{source_id}"]')
+    expect(card).to_be_visible(timeout=4000)
+    # Click the .mcp-source-body part of the card to avoid toggling the checkbox.
+    body = card.locator(".mcp-source-body")
+    body.click()
+    # Confirm Mode 2 editor rendered.
+    expect(page.locator('[data-testid="agent-mcp-attachment-editor"]')).to_be_visible(timeout=4000)
+
+
+# Keep a backward-compat alias used by older tests during migration.
+_open_details_panel = _open_mode2_editor
 
 
 # ── Test 1: Attach via toggle → save → reload → still attached ──────────────
@@ -110,14 +128,12 @@ def test_attach_source_persists(app_clean: str, page: Page) -> None:
     _navigate_to_agent_mcps_tab(page, app_clean, "attach-test-agent")
 
     toggle = page.locator(f'[data-testid="mcp-source-toggle-{sid}"]')
-    # Toggle checkbox is visually hidden behind the .tool-switch span (matches
-    # built-in Tools tab pattern). Use force=True to click through visibility.
+    # In Holograph Mode 1, the attach checkbox is directly on the card head.
     expect(toggle).to_have_count(1, timeout=4000)
     expect(toggle).not_to_be_checked()
 
-    # Toggle is visually hidden behind the .tool-switch span (mirrors built-in
-    # Tools tab); set checked state + fire change event programmatically so the
-    # mcps-tab.js change listener runs and the form dirties.
+    # Set checked state + fire change event so the mcps-tab.js change listener
+    # runs and the form dirties.
     toggle.evaluate("el => { el.checked = !el.checked; el.dispatchEvent(new Event('change', {bubbles: true})); }")
     expect(toggle).to_be_checked(timeout=2000)
 
@@ -162,9 +178,8 @@ def test_detach_source_persists(app_clean: str, page: Page) -> None:
     expect(toggle).to_have_count(1, timeout=4000)
     expect(toggle).to_be_checked()
 
-    # Toggle is visually hidden behind the .tool-switch span (mirrors built-in
-    # Tools tab); set checked state + fire change event programmatically so the
-    # mcps-tab.js change listener runs and the form dirties.
+    # Set unchecked state + fire change event so the mcps-tab.js change listener
+    # runs and the form dirties.
     toggle.evaluate("el => { el.checked = !el.checked; el.dispatchEvent(new Event('change', {bubbles: true})); }")
     expect(toggle).not_to_be_checked(timeout=2000)
 
@@ -214,8 +229,8 @@ def test_per_tool_toggle_persists(app_clean: str, page: Page) -> None:
 
     _navigate_to_agent_mcps_tab(page, app_clean, "toggle-test-agent")
 
-    # Open the details panel — that lazy-loads the per-tool checkboxes.
-    _open_details_panel(page, sid)
+    # Open the Mode 2 attachment editor — lazy-loads the per-tool checkboxes.
+    _open_mode2_editor(page, sid)
 
     cb_a = page.locator(f'[data-testid="mcp-tool-toggle-{sid}-tool_a"]')
     expect(cb_a).to_be_visible(timeout=6000)
@@ -238,16 +253,16 @@ def test_per_tool_toggle_persists(app_clean: str, page: Page) -> None:
     assert "tool_b" in disabled_tools, f"Expected tool_b in disabled_tools, got: {disabled_tools}"
     assert "tool_a" not in disabled_tools, f"tool_a should not be disabled, got: {disabled_tools}"
 
-    # Reload + deep-link to auto-open the panel.
+    # Reload + deep-link to auto-open the Mode 2 editor via hash route.
     page.reload()
     _mock_tools_connect(page, sid, tools_payload)
     page.goto(f"{app_clean}#studio/agents/toggle-test-agent/mcps/{sid}")
     expect(page.locator('[data-testid="tab-mcps"]')).to_have_attribute(
         "aria-selected", "true", timeout=8000
     )
-    # Deep-link auto-opens the details panel.
-    details = page.locator(f'[data-testid="mcp-source-details-{sid}"]')
-    expect(details).to_have_attribute("open", "", timeout=4000)
+    # Deep-link auto-renders Mode 2 editor directly (pendingSourceId parsed
+    # from hash by renderMcpsTab, no <details> to expand).
+    expect(page.locator('[data-testid="agent-mcp-attachment-editor"]')).to_be_visible(timeout=4000)
     cb_b_reload = page.locator(f'[data-testid="mcp-tool-toggle-{sid}-tool_b"]')
     expect(cb_b_reload).to_be_visible(timeout=6000)
     expect(cb_b_reload).not_to_be_checked()
@@ -289,7 +304,12 @@ def test_empty_state_when_no_sources(app_clean: str, page: Page) -> None:
 
 @pytest.mark.browser
 def test_hash_routing_deep_link(app_clean: str, page: Page) -> None:
-    """Visit #studio/agents/{name}/mcps/{source-id} → details panel auto-expands."""
+    """Visit #studio/agents/{name}/mcps/{source-id} → Mode 2 editor renders directly.
+
+    Holograph replaced the Mission-08 <details> auto-expand with Mode 2 direct
+    render: the hash source-id is parsed as pendingSourceId in renderMcpsTab,
+    which bypasses Mode 1 and renders the attachment editor immediately.
+    """
     sid = _seed_mcp_source(app_clean, {
         "name": "deeplink-source",
         "type": "streamable-http",
@@ -310,9 +330,8 @@ def test_hash_routing_deep_link(app_clean: str, page: Page) -> None:
         "aria-selected", "true", timeout=8000
     )
 
-    # Details panel should be open.
-    details = page.locator(f'[data-testid="mcp-source-details-{sid}"]')
-    expect(details).to_have_attribute("open", "", timeout=4000)
+    # Mode 2 editor should render directly (no <details> to open).
+    expect(page.locator('[data-testid="agent-mcp-attachment-editor"]')).to_be_visible(timeout=4000)
 
     # Tools should load from mocked endpoint.
     expect(page.locator(f'[data-testid="mcp-tool-toggle-{sid}-list_repos"]')).to_be_visible(timeout=6000)

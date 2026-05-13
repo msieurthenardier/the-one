@@ -77,7 +77,9 @@ def test_create_stdio_source(app_clean: str, page: Page) -> None:
 
     # Back to grid.
     page.locator('[data-testid="back-mcp-source-btn"]').click()
-    expect(page.locator(".area-studio .page-title")).to_have_text("MCP Servers", timeout=5000)
+    # Holograph removed the per-section page-title; verify the MCP Sources
+    # sub-section is active (grid returned to view).
+    expect(page.locator("#sub-mcp-sources")).to_have_class("studio-sub active", timeout=5000)
     expect(page.locator('[data-testid="mcp-source-card"]', has_text="github-mcp")).to_be_visible()
 
 
@@ -171,7 +173,9 @@ def test_delete_stdio_source(app_clean: str, page: Page) -> None:
     # Second click commits.
     delete_btn.click()
     # Land back on the grid; tile is gone.
-    expect(page.locator(".area-studio .page-title")).to_have_text("MCP Servers", timeout=5000)
+    # Holograph removed the per-section page-title; verify the MCP Sources
+    # sub-section is active (grid returned to view).
+    expect(page.locator("#sub-mcp-sources")).to_have_class("studio-sub active", timeout=5000)
     assert _list_sources(app_clean) == []
 
 
@@ -189,7 +193,9 @@ def test_delete_streamable_http_source(app_clean: str, page: Page) -> None:
     delete_btn.click()
     expect(delete_btn).to_have_text(re.compile(r"Confirm Delete\?", re.IGNORECASE))
     delete_btn.click()
-    expect(page.locator(".area-studio .page-title")).to_have_text("MCP Servers", timeout=5000)
+    # Holograph removed the per-section page-title; verify the MCP Sources
+    # sub-section is active (grid returned to view).
+    expect(page.locator("#sub-mcp-sources")).to_have_class("studio-sub active", timeout=5000)
     assert _list_sources(app_clean) == []
 
 
@@ -673,8 +679,8 @@ def test_custom_headers_section_lands_below_tools_section(
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
 
     # Both section titles must exist; Tools must precede Custom Headers in
-    # document order.
-    tools_title = page.locator(".editor-section.mcp-tools-section .section-title")
+    # document order. L4.3: section-title → section-label.
+    tools_title = page.locator(".editor-section.mcp-tools-section .section-label")
     headers_title = page.locator(".kv-section-title")
     expect(tools_title).to_have_text("Tools")
     expect(headers_title).to_have_text("Custom Headers")
@@ -683,7 +689,7 @@ def test_custom_headers_section_lands_below_tools_section(
     # (FOLLOWING) when `tools` is followed by `headers` in document order.
     same_order = page.evaluate(
         "() => {"
-        "  var t = document.querySelector('.editor-section.mcp-tools-section .section-title');"
+        "  var t = document.querySelector('.editor-section.mcp-tools-section .section-label');"
         "  var h = document.querySelector('.kv-section-title');"
         "  if (!t || !h) return false;"
         "  return !!(t.compareDocumentPosition(h) & Node.DOCUMENT_POSITION_FOLLOWING);"

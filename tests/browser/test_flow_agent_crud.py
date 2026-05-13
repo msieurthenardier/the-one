@@ -77,5 +77,7 @@ def test_studio_agent_crud_flow(app_with_provider: SeededApp, page: Page) -> Non
     expect(empty).to_be_visible(timeout=5000)
     expect(empty).to_contain_text("No agents yet")
     # Tile gone; main panel returns to the tile grid (with empty state).
+    # Holograph: editor-pane is cleared (no tablist) when the agent is deleted;
+    # the agent-card list is empty. No separate is-hidden toggle needed.
     expect(page.locator('[data-testid="agent-item"]')).to_have_count(0)
-    expect(page.locator(".studio-editor")).to_have_class("studio-editor is-hidden")
+    expect(page.locator('#studio-editor-pane [role="tablist"]')).to_have_count(0)

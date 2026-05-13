@@ -2,7 +2,8 @@
 
 Covers the W3C ARIA tablist with manual activation introduced in F5 leg 03:
 
-- Tablist renders three tabs (General / Knowledge / Tools) with correct ARIA
+- Tablist renders four tabs (General / Knowledge / MCPs / Built-in Tools)
+  with correct ARIA — MCPs tab added in L4.4.
 - Default tab on agent select is General; URL upgrades to .../general
 - Arrow Left/Right move focus + visual highlight only — URL unchanged
 - Enter (or Space) commits the focused tab — URL updates, aria-selected
@@ -15,6 +16,9 @@ Covers the W3C ARIA tablist with manual activation introduced in F5 leg 03:
 - Advanced collapsible: visible, disabled inputs, "Coming soon" caption
 - Test button: disabled when no provider; click triggers fetch and renders
   the result in the .test-result span
+
+L4.5: Holograph selector migration — section-nav-header removed; tablist
+  count updated 3 → 4 (MCPs tab added in L4.4).
 """
 
 from __future__ import annotations
@@ -30,8 +34,8 @@ def _wait_editor_ready(page: Page, expected_tab: str = "general") -> None:
     """Wait for the agent editor to be the visible child in the main panel.
 
     Bare `#studio/agents` lands on the tile grid with no agent auto-selected
-    (F5 leg 05 design): the section-content (tile grid) is visible and the
-    editor is hidden. Click the first tile to swap them. Deep-link
+    (F5 leg 05 design): the agents-list is visible and the editor pane is
+    empty. Click the first agent card to load the editor. Deep-link
     navigations (`#studio/agents/<name>/...`) hydrate the selection and the
     editor mounts asynchronously via L5's `refreshToolConfigsCache().then(renderEditor)`
     wrapper inside `doSelect` (studio.js); skip the click in that case and
@@ -42,19 +46,25 @@ def _wait_editor_ready(page: Page, expected_tab: str = "general") -> None:
     a tab. Deep-link tests (/knowledge, /tools) override this so the helper
     waits for the deep-linked tab's `aria-selected="true"` before returning,
     avoiding the race with the L5 async editor-mount wrapper.
+
+    L4.5: Holograph — `.section-nav-header` removed; `.area-studio
+    .section-nav-item` is the mount signal. `.studio-editor` replaced by
+    `.editor-pane`; `button.entity-tile` replaced by `.agent-card`.
     """
-    expect(page.locator(".section-nav-header")).to_have_text("Studio", timeout=8000)
+    expect(page.locator(".area-studio .section-nav-item").first).to_be_visible(timeout=8000)
     # If the URL hash deep-links into an agent (`#studio/agents/<name>...`),
     # the editor mount is already in flight via the async wrapper — wait for
     # it to complete instead of clicking a tile (the tile becomes hidden
     # the moment the editor renders, racing the click).
     deep_linked = page.evaluate("() => /^#?studio\\/agents\\/[^/]/i.test(location.hash)")
     if not deep_linked:
-        editor_hidden = page.evaluate(
-            "() => document.querySelector('.studio-editor')?.classList.contains('is-hidden')"
+        # In Holograph the editor-pane is always present but empty when no
+        # agent is selected. Check whether any tablist is rendered inside it.
+        editor_has_tabs = page.evaluate(
+            "() => !!document.querySelector('#studio-editor-pane [role=\"tablist\"]')"
         )
-        if editor_hidden:
-            page.locator("button.entity-tile").first.click()
+        if not editor_has_tabs:
+            page.locator(".agent-card").first.click()
     expect(page.locator(f'[data-testid="tab-{expected_tab}"]')).to_be_visible(timeout=8000)
     # Wait for the expected tab to be active (handles the L5 async editor-mount race).
     expect(page.locator(f'[data-testid="tab-{expected_tab}"]')).to_have_attribute(
@@ -69,16 +79,22 @@ def test_tablist_renders_with_three_tabs(app_with_agent: SeededApp, page: Page) 
     page.goto(f"{base_url}#studio")
     _wait_editor_ready(page)
 
-    tablist = page.locator('[role="tablist"]')
+    # Holograph has two tablists: the section-nav (aria-label="Agent Studio
+    # sections") and the agent editor (aria-label="Agent settings"). Target
+    # the agent editor tablist specifically.
+    tablist = page.locator('[role="tablist"][aria-label="Agent settings"]')
     expect(tablist).to_be_visible()
 
-    tabs = page.locator('[role="tab"]')
-    expect(tabs).to_have_count(3)
+    # Agent editor tabs: General / Knowledge / MCPs / Built-in Tools (4 tabs
+    # since L4.4 added the MCPs tab).
+    tabs = tablist.locator('[role="tab"]')
+    expect(tabs).to_have_count(4)
 
     expect(page.locator('[data-testid="tab-general"]')).to_have_attribute("aria-selected", "true")
     expect(page.locator('[data-testid="tab-knowledge"]')).to_have_attribute(
         "aria-selected", "false"
     )
+    expect(page.locator('[data-testid="tab-mcps"]')).to_have_attribute("aria-selected", "false")
     expect(page.locator('[data-testid="tab-tools"]')).to_have_attribute("aria-selected", "false")
 
 

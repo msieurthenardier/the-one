@@ -94,7 +94,8 @@ def test_studio_click_knowledge_section(app_clean: str, page: Page) -> None:
     # Stub text visible.
     stub = page.locator('[data-testid="studio-knowledge-stub"]')
     expect(stub).to_be_visible(timeout=2000)
-    expect(stub).to_have_text(KNOWLEDGE_TEXT)
+    # Holograph stub has a heading + text + button; use contain_text.
+    expect(stub).to_contain_text(KNOWLEDGE_TEXT)
 
     # aria-current moved to Knowledge.
     active = page.locator('.section-nav-item[aria-current="page"]')
@@ -117,9 +118,9 @@ def test_studio_click_mcp_sources_section(app_clean: str, page: Page) -> None:
 
     assert page.evaluate("location.hash") == "#studio/mcp-sources"
 
-    expect(page.locator(".area-studio .page-title")).to_have_text(
-        "MCP Servers", timeout=5000
-    )
+    # Holograph removed the per-section page-title; verify the MCP Servers
+    # section is active via aria-current and the sub-section mounting.
+    expect(page.locator("#sub-mcp-sources")).to_have_class("studio-sub active", timeout=5000)
 
     active = page.locator('.section-nav-item[aria-current="page"]')
     expect(active).to_have_count(1)
@@ -222,17 +223,14 @@ def test_studio_mcp_sources_section_persists_on_refresh(app_clean: str, page: Pa
     page.goto(f"{app_clean}#studio/mcp-sources")
     _wait_studio_ready(page)
 
-    expect(page.locator(".area-studio .page-title")).to_have_text(
-        "MCP Servers", timeout=5000
-    )
+    # Holograph removed the per-section page-title; verify the sub-section is active.
+    expect(page.locator("#sub-mcp-sources")).to_have_class("studio-sub active", timeout=5000)
     assert page.evaluate("location.hash") == "#studio/mcp-sources"
 
     page.reload()
     _wait_studio_ready(page)
 
-    expect(page.locator(".area-studio .page-title")).to_have_text(
-        "MCP Servers", timeout=5000
-    )
+    expect(page.locator("#sub-mcp-sources")).to_have_class("studio-sub active", timeout=5000)
     assert page.evaluate("location.hash") == "#studio/mcp-sources"
 
     active = page.locator('.section-nav-item[aria-current="page"]')
@@ -264,22 +262,30 @@ def test_studio_section_round_trip_preserves_agent_selection(
     expect(page.locator('[data-testid="studio-knowledge-stub"]')).to_be_visible(timeout=2000)
 
     # Switch back to Agents — agent still selected, editor visible.
-    # The tile grid is hidden while the editor owns the main panel.
+    # Holograph: Agents sub-section becomes active and editor-pane retains the
+    # agent editor (tablist present). No separate is-hidden toggle needed.
     page.locator('.section-nav-item[data-section="agents"]').click()
     expect(page.locator(".editor-title")).to_have_text(agent_name, timeout=5000)
-    expect(page.locator(".studio-editor")).not_to_have_class("studio-editor is-hidden")
-    expect(page.locator(".studio-section-content")).to_have_class(
-        "studio-section-content is-hidden"
-    )
+    expect(page.locator("#sub-agents")).to_have_class("studio-sub active", timeout=5000)
+    # Editor pane has an active tablist (agent selected).
+    expect(page.locator('#studio-editor-pane [role="tablist"]')).to_be_visible()
 
 
 @pytest.mark.browser
 def test_studio_editor_hidden_on_knowledge_section(app_with_agent: SeededApp, page: Page) -> None:
-    """When Knowledge or MCP Servers is active, the studio-editor is hidden."""
+    """When Knowledge or MCP Servers is active, the agents sub-section is inactive."""
     base_url = app_with_agent.base_url
 
     page.goto(f"{base_url}#studio/knowledge")
     _wait_studio_ready(page)
 
-    editor = page.locator(".studio-editor")
-    expect(editor).to_have_class("studio-editor is-hidden", timeout=5000)
+    # Holograph uses CSS class `.active` on `.studio-sub` blocks instead of
+    # the Mission-08 `.is-hidden` toggle. When Knowledge is active, #sub-agents
+    # must NOT carry the `active` class (it's not the visible sub-section).
+    sub_agents = page.locator("#sub-agents")
+    expect(sub_agents).to_be_attached(timeout=5000)
+    # The sub-agents block should not be active (Knowledge is active instead).
+    expect(page.locator("#sub-knowledge")).to_have_class("studio-sub active", timeout=5000)
+    # sub-agents element is present but not active (CSS hides it).
+    cls = sub_agents.get_attribute("class") or ""
+    assert "active" not in cls.split(), f"sub-agents should not be active on knowledge section; classes: {cls!r}"

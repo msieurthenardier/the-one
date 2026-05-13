@@ -41,17 +41,17 @@ def test_studio_section_nav_click_to_mcp_sources(app_clean: str, page: Page) -> 
     page.goto(f"{app_clean}#studio")
     expect(page.locator(".area-studio .section-nav")).to_be_visible(timeout=5000)
     page.locator(".area-studio .section-nav-item", has_text="MCP Servers").click()
-    expect(page.locator(".area-studio .page-title")).to_have_text(
-        "MCP Servers", timeout=5000
-    )
+    # Holograph removed the per-section page-title; verify the sub-section is active.
+    expect(page.locator("#sub-mcp-sources")).to_have_class("studio-sub active", timeout=5000)
     assert page.evaluate("location.hash") == "#studio/mcp-sources"
 
 
 @pytest.mark.browser
 def test_studio_direct_load_mcp_sources(app_clean: str, page: Page) -> None:
     page.goto(f"{app_clean}#studio/mcp-sources")
-    page.wait_for_selector(".area-studio .page-title", timeout=8000)
-    assert page.locator(".area-studio .page-title").text_content().strip() == "MCP Servers"
+    # Holograph removed per-section page-title; wait for the sub-section to be active.
+    page.wait_for_selector("#sub-mcp-sources.active", timeout=8000)
+    assert page.evaluate("location.hash") == "#studio/mcp-sources"
 
 
 @pytest.mark.browser
@@ -75,9 +75,9 @@ def test_studio_refresh_preserves_mcp_sources_section(
     app_clean: str, page: Page
 ) -> None:
     page.goto(f"{app_clean}#studio/mcp-sources")
-    page.wait_for_selector(".area-studio .page-title", timeout=8000)
+    page.wait_for_selector("#sub-mcp-sources.active", timeout=8000)
     page.reload()
-    page.wait_for_selector(".area-studio .page-title", timeout=8000)
+    page.wait_for_selector("#sub-mcp-sources.active", timeout=8000)
     assert page.evaluate("location.hash") == "#studio/mcp-sources"
 
 

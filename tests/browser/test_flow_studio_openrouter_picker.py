@@ -141,7 +141,7 @@ def test_studio_picker_singleton_on_type_switch(
     ollama_id = app_with_two_providers["ollama_id"]
 
     page.goto(f"{base_url}#studio")
-    expect(page.locator(".page-title")).to_have_text("Agents", timeout=8000)
+    expect(page.locator(".agents-list")).to_be_visible(timeout=8000)
     empty_btn = page.locator('[data-testid="new-agent-btn-empty"]')
     expect(empty_btn).to_be_visible(timeout=5000)
     empty_btn.click()
@@ -183,7 +183,7 @@ def test_rapid_provider_switch_uses_final_selection(
     page.route(f"**/api/providers/{openrouter_id}/models", _slow_openrouter)
 
     page.goto(f"{base_url}#studio")
-    expect(page.locator(".page-title")).to_have_text("Agents", timeout=8000)
+    expect(page.locator(".agents-list")).to_be_visible(timeout=8000)
     page.locator('[data-testid="new-agent-btn-empty"]').click()
     expect(page.locator(".editor-title")).to_have_text("New Agent", timeout=8000)
 
@@ -236,7 +236,7 @@ def test_picker_preserves_value_across_type_switch_as_custom(
     ollama_id = app_with_two_providers["ollama_id"]
 
     page.goto(f"{base_url}#studio")
-    expect(page.locator(".page-title")).to_have_text("Agents", timeout=8000)
+    expect(page.locator(".agents-list")).to_be_visible(timeout=8000)
     page.locator('[data-testid="new-agent-btn-empty"]').click()
     expect(page.locator(".editor-title")).to_have_text("New Agent", timeout=8000)
 
