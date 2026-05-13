@@ -158,7 +158,7 @@
           }
         }
       }
-      input = '<select id="' + idAttr + '" class="field-input field-select" ' + dataAttrs + ' data-field-type="integer">';
+      input = '<select id="' + idAttr + '" class="form-control" ' + dataAttrs + ' data-field-type="integer">';
       var sawValue = false;
       for (var i = 0; i < choices.length; i++) {
         var ch = choices[i];
@@ -194,7 +194,7 @@
       }
       var minAttr = (minVal !== null) ? ' min="' + escapeAttr(String(minVal)) + '"' : '';
       var maxAttr = (maxVal !== null) ? ' max="' + escapeAttr(String(maxVal)) + '"' : '';
-      input = '<input id="' + idAttr + '" class="field-input" type="number" ' + dataAttrs + ' data-field-type="integer" value="' + escapeAttr(String(value !== undefined && value !== null ? value : '')) + '"' + minAttr + maxAttr + ' />';
+      input = '<input id="' + idAttr + '" class="form-control" type="number" ' + dataAttrs + ' data-field-type="integer" value="' + escapeAttr(String(value !== undefined && value !== null ? value : '')) + '"' + minAttr + maxAttr + ' />';
     } else if (ftype === 'array') {
       if (prop.items && prop.items.type && prop.items.type !== 'string') {
         // eslint-disable-next-line no-console
@@ -235,11 +235,11 @@
         });
       }
     } else if (ftype === 'string') {
-      input = '<input id="' + idAttr + '" class="field-input" type="text" ' + dataAttrs + ' data-field-type="string" value="' + escapeAttr(String(value !== undefined && value !== null ? value : '')) + '" />';
+      input = '<input id="' + idAttr + '" class="form-control" type="text" ' + dataAttrs + ' data-field-type="string" value="' + escapeAttr(String(value !== undefined && value !== null ? value : '')) + '" />';
     } else {
       // eslint-disable-next-line no-console
       console.warn('renderField: unknown type "%s" for field "%s"; rendering as text input', ftype, name);
-      input = '<input id="' + idAttr + '" class="field-input field-unknown-type" type="text" ' + dataAttrs + ' data-field-type="unknown" value="' + escapeAttr(JSON.stringify(value)) + '" />';
+      input = '<input id="' + idAttr + '" class="form-control field-unknown-type" type="text" ' + dataAttrs + ' data-field-type="unknown" value="' + escapeAttr(JSON.stringify(value)) + '" />';
     }
 
     // Field-row data-attribute mirrors the input's attrPrefix so
@@ -251,7 +251,7 @@
     // F6 HAT inline fix #4: the inline `<p class="field-description">` is
     // gone — the description is now a tooltip on a sibling info-icon
     // rendered AFTER the input (label | input | ⓘ).
-    return '<div class="field-row tools-editor-field" ' + rowAttrs + '>' +
+    return '<div class="form-row tools-editor-field" ' + rowAttrs + '>' +
            label + input + infoIcon + '</div>';
   }
 
@@ -493,7 +493,7 @@
   function renderFieldErrors(container, details, options) {
     options = options || {};
     var fieldRowSelector = options.fieldRowSelector || function (lastSeg) {
-      return '.tools-editor-field[data-field-name="' + cssEscape(lastSeg) + '"], .field-row[data-field-name="' + cssEscape(lastSeg) + '"]';
+      return '.tools-editor-field[data-field-name="' + cssEscape(lastSeg) + '"], .form-row[data-field-name="' + cssEscape(lastSeg) + '"]';
     };
     var unmatched = [];
     for (var i = 0; i < details.length; i++) {

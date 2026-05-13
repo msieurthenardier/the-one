@@ -278,4 +278,8 @@
     margin-bottom: 14px;
   }
 
+  .general-card--wide {
+    grid-column: span 2;
+  }
+
 }

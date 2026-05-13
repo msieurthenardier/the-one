@@ -57,19 +57,22 @@
     var checkedAttr = t.enabled ? 'checked' : '';
     var disabledAttr = inFlight[t.name] ? 'disabled' : '';
     var titleText = t.enabled ? 'Enabled for all agents' : 'Disabled for all agents';
+    var disabledCard = !t.enabled ? ' disabled' : '';
     return (
-      '<div class="entity-tile tool-tile" data-testid="tool-card" ' +
+      '<div class="tool-card' + disabledCard + '" data-testid="tool-card" ' +
            'data-name="' + escapeAttr(t.name) + '" role="listitem" tabindex="0">' +
-        '<span class="entity-tile-badge admin-tool-badge admin-tool-badge--' +
-          escapeAttr(cat) + '">' + escapeHtml(cat) + '</span>' +
-        '<span class="entity-tile-name">' + escapeHtml(t.name) + '</span>' +
-        '<span class="entity-tile-description">' + escapeHtml(t.description) + '</span>' +
-        '<label class="tool-enable-switch" title="' + escapeAttr(titleText) + '">' +
-          '<input type="checkbox" ' + checkedAttr + ' ' + disabledAttr + ' ' +
-                 'data-testid="tool-toggle" data-name="' + escapeAttr(t.name) + '" ' +
-                 'aria-label="Enable ' + escapeAttr(t.name) + '" />' +
-          '<span class="tool-enable-switch-track" aria-hidden="true"></span>' +
-        '</label>' +
+        '<div class="tool-head">' +
+          '<span class="tool-name">' + escapeHtml(t.name) + '</span>' +
+          '<span class="entity-tile-badge admin-tool-badge admin-tool-badge--' +
+            escapeAttr(cat) + '">' + escapeHtml(cat) + '</span>' +
+          '<label class="tool-enable-switch tool-toggle-wrap" title="' + escapeAttr(titleText) + '">' +
+            '<input type="checkbox" ' + checkedAttr + ' ' + disabledAttr + ' ' +
+                   'data-testid="tool-toggle" data-name="' + escapeAttr(t.name) + '" ' +
+                   'aria-label="Enable ' + escapeAttr(t.name) + '" />' +
+            '<span class="tool-enable-switch-track" aria-hidden="true"></span>' +
+          '</label>' +
+        '</div>' +
+        '<span class="tool-desc">' + escapeHtml(t.description) + '</span>' +
       '</div>'
     );
   }
@@ -98,7 +101,7 @@
         '<div class="page-header">' +
           '<h1 class="page-title">Built-in Tools</h1>' +
         '</div>' +
-        '<div class="entity-tile-grid" role="list" aria-label="Built-in tools">' +
+        '<div class="tools-grid" role="list" aria-label="Built-in tools">' +
           '<div class="empty-state">API returned no tools.</div>' +
         '</div>';
       return;
@@ -149,7 +152,7 @@
         // this empty state rather than a blank panel.
         html += '<div class="empty-state">No tools.</div>';
       } else {
-        html += '<div class="entity-tile-grid" role="list" aria-label="' +
+        html += '<div class="tools-grid" role="list" aria-label="' +
           escapeAttr(label) + ' tools">' + groupTiles + '</div>';
       }
 
@@ -195,7 +198,7 @@
     // tabindex="0"; Enter/Space activate the same navigation, with a bail
     // when focus is on the inner toggle input (so Space on the toggle
     // flips the checkbox natively rather than also navigating).
-    var tiles = container.querySelectorAll('.tool-tile');
+    var tiles = container.querySelectorAll('.tool-card');
     for (var k = 0; k < tiles.length; k++) {
       (function (tileEl) {
         tileEl.addEventListener('click', function (e) {

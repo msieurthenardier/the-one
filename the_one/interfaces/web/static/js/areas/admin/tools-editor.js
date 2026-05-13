@@ -114,18 +114,18 @@
     html += '<div class="editor-header">';
     html += '<div class="editor-header-text">';
     html += '<h1 class="editor-title">' + escapeHtml(name) + '</h1>';
-    html += '<p class="editor-subtitle editor-subtitle-meta">' + escapeHtml(category) + '</p>';
+    html += '<p class="editor-sub editor-subtitle-meta">' + escapeHtml(category) + '</p>';
     html += '<div class="editor-prompt-block">';
-    html += '<div class="section-title">Prompt</div>';
+    html += '<div class="section-label">Prompt</div>';
     html += '<pre class="editor-prompt-text code-block">' + escapeHtml(description) + '</pre>';
     html += '</div>';
     html += '</div>';
 
     // ── Action cluster ──────────────────────────────────────────────
-    html += '<div class="form-actions">';
-    html += '<button type="button" class="btn-outlined-primary back-btn" data-testid="back-tool-btn" aria-label="Back to tools list">' + window.App.icon('arrow-left') + ' Back</button>';
-    html += '<button type="button" class="btn-outlined-primary cancel-btn" data-testid="cancel-tool-btn" disabled>Cancel</button>';
-    html += '<button type="button" class="btn-filled-primary save-btn" data-testid="save-tool-btn" disabled>Save</button>';
+    html += '<div class="editor-actions">';
+    html += '<button type="button" class="btn btn-ghost back-btn" data-testid="back-tool-btn" aria-label="Back to tools list">' + window.App.icon('arrow-left') + ' Back</button>';
+    html += '<button type="button" class="btn btn-ghost cancel-btn" data-testid="cancel-tool-btn" disabled>Cancel</button>';
+    html += '<button type="button" class="btn btn-primary save-btn" data-testid="save-tool-btn" disabled>Save</button>';
     html += '<span class="editor-error"></span>';
     html += '</div>';
     html += '</div>'; // .editor-header
@@ -141,7 +141,7 @@
 
     // ── Configuration section ──────────────────────────────────────
     html += '<div class="editor-section">';
-    html += '<div class="section-title">Configuration</div>';
+    html += '<div class="section-label">Configuration</div>';
     html += renderEnabledRow(enabled);
     if (fieldNames.length === 0) {
       html += '<p class="empty-state">No additional configuration.</p>';
@@ -175,12 +175,12 @@
       if (!infoIconHtml) infoIconHtml = 'ⓘ';
       html += '<div class="editor-section tools-editor-test-section">';
       html += '<div class="section-title-row">';
-      html += '<span class="section-title">Test connection</span>';
+      html += '<span class="section-label">Test connection</span>';
       var testDescId = 'test-connection-' + escapeAttr(name) + '-desc';
       html += '<button type="button" class="field-info-icon" title="' + testHintAttr + '" aria-describedby="' + testDescId + '">' + infoIconHtml + '</button>';
       html += '<span id="' + testDescId + '" class="visually-hidden">' + escapeHtml(testHint) + '</span>';
       html += '</div>';
-      html += '<div class="form-actions tools-editor-test-actions">';
+      html += '<div class="editor-actions tools-editor-test-actions">';
       // F6 HAT addition — editable input pre-filled with the per-tool
       // default fixture. Defensive: if a tool name is in _TESTABLE_TOOLS
       // but not in TEST_FIXTURES, skip the input (button still works
@@ -193,7 +193,7 @@
         html += '<input type="text" class="test-tool-input" data-test-param="' + escapeAttr(fixture.param) + '" value="' + escapeAttr(fixture.default) + '" />';
         html += '</label>';
       }
-      html += '<button type="button" class="btn-outlined-primary test-tool-btn" data-testid="test-tool-btn">';
+      html += '<button type="button" class="btn btn-ghost test-tool-btn" data-testid="test-tool-btn">';
       html += window.App.icon('play') + ' Test connection';
       html += '</button>';
       html += '<span class="test-result" aria-live="polite"></span>';
@@ -213,7 +213,7 @@
     // CSS lives under `.area-admin .tool-enable-switch …` (admin.css). The
     // `data-field="enabled"` attribute is preserved — drives getFormSnapshot.
     var titleText = enabled ? 'Enabled for all agents' : 'Disabled for all agents';
-    return '<div class="field-row tools-editor-enabled-row" data-field-name="enabled">' +
+    return '<div class="form-row tools-editor-enabled-row" data-field-name="enabled">' +
            '<label for="tef-enabled">Enabled for all agents</label>' +
            '<label class="tool-enable-switch" title="' + titleText + '">' +
              '<input id="tef-enabled" type="checkbox" data-field="enabled"' + (enabled ? ' checked' : '') + ' aria-label="' + titleText + '" />' +

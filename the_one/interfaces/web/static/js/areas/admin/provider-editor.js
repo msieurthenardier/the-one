@@ -53,17 +53,17 @@
     if (!isCreate) {
       var subtitleParts = [escapeHtml(provider.type)];
       if (provider.base_url) subtitleParts.push(escapeHtml(provider.base_url));
-      html += '<p class="editor-subtitle">' + subtitleParts.join(' · ') + '</p>';
+      html += '<p class="editor-sub">' + subtitleParts.join(' · ') + '</p>';
     }
     html += '</div>';
 
     // ── Action cluster ──────────────────────────────────────────────
-    html += '<div class="form-actions">';
-    html += '<button type="button" class="btn-outlined-primary back-btn" data-testid="back-provider-btn" aria-label="Back to provider list">' + window.App.icon('arrow-left') + ' Back</button>';
-    html += '<button type="button" class="btn-outlined-primary cancel-btn" data-testid="cancel-provider-btn" disabled>Cancel</button>';
-    html += '<button type="button" class="btn-filled-primary save-btn" data-testid="save-provider-btn" disabled>' + (isCreate ? 'Create' : 'Save') + '</button>';
+    html += '<div class="editor-actions">';
+    html += '<button type="button" class="btn btn-ghost back-btn" data-testid="back-provider-btn" aria-label="Back to provider list">' + window.App.icon('arrow-left') + ' Back</button>';
+    html += '<button type="button" class="btn btn-ghost cancel-btn" data-testid="cancel-provider-btn" disabled>Cancel</button>';
+    html += '<button type="button" class="btn btn-primary save-btn" data-testid="save-provider-btn" disabled>' + (isCreate ? 'Create' : 'Save') + '</button>';
     if (!isCreate) {
-      html += '<button type="button" class="btn-outlined-primary test-provider-btn" data-testid="test-connection-btn">Test</button>';
+      html += '<button type="button" class="btn btn-ghost test-provider-btn" data-testid="test-connection-btn">Test</button>';
     }
     html += '<span class="editor-error"></span>';
     html += '</div>';
@@ -71,7 +71,7 @@
 
     // ── Connection section ──────────────────────────────────────────
     html += '<div class="editor-section">';
-    html += '<div class="section-title">Connection</div>';
+    html += '<div class="section-label">Connection</div>';
     html += renderConnectionFields(provider, providerTypes, callbacks);
     html += '<div class="test-result" aria-live="polite"></div>';
     html += '</div>';
@@ -79,7 +79,7 @@
     // ── Models section (edit only) ──────────────────────────────────
     if (!isCreate) {
       html += '<div class="editor-section">';
-      html += '<div class="section-title">Models</div>';
+      html += '<div class="section-label">Models</div>';
       html += '<div class="provider-models"></div>';
       html += '</div>';
     }
@@ -87,7 +87,7 @@
     // ── Danger Zone section (edit only) ─────────────────────────────
     if (!isCreate) {
       html += '<div class="editor-section danger-zone">';
-      html += '<div class="section-title danger-zone-title">Danger Zone</div>';
+      html += '<div class="section-label danger-zone-title">Danger Zone</div>';
       html += '<button type="button" class="btn-muted-destructive delete-btn" data-testid="delete-provider-btn" data-name="' + escapeAttr(provider.name || '') + '"><span data-confirm-title>Delete Provider</span></button>';
       // Hard-block message banner — shown when the provider is in use by
       // ≥1 agents. Sibling of the button (NOT inside it) so long agent-name
@@ -123,15 +123,15 @@
 
     var html = '';
     // Name
-    html += '<div class="field-row admin-pf-row">';
-    html += '<label for="pf-name">Name</label>';
-    html += '<input class="field-input admin-pf-input" id="pf-name" data-field="name" value="' + escapeAttr(isCreate ? '' : provider.name) + '" placeholder="My Provider" />';
+    html += '<div class="form-row">';
+    html += '<label class="form-label" for="pf-name">Name</label>';
+    html += '<input class="form-control" id="pf-name" data-field="name" value="' + escapeAttr(isCreate ? '' : provider.name) + '" placeholder="My Provider" />';
     html += '</div>';
 
     // Type
-    html += '<div class="field-row admin-pf-row">';
-    html += '<label for="pf-type">Type</label>';
-    html += '<select class="field-input field-select admin-pf-input admin-pf-select" id="pf-type" data-field="type">';
+    html += '<div class="form-row">';
+    html += '<label class="form-label" for="pf-type">Type</label>';
+    html += '<select class="form-control" id="pf-type" data-field="type">';
     if (isCreate) html += '<option value="" disabled selected>Select a provider…</option>';
     for (var t = 0; t < providerTypes.length; t++) {
       var pt = providerTypes[t];
@@ -142,17 +142,17 @@
 
     // Base URL
     var baseUrlValue = isCreate ? defaults.base_url : provider.base_url;
-    html += '<div class="field-row admin-pf-row admin-pf-base-url' + (defaults.showBaseUrl ? '' : ' is-hidden') + '">';
-    html += '<label for="pf-base-url">Base URL</label>';
-    html += '<input class="field-input admin-pf-input" id="pf-base-url" data-field="base_url" value="' + escapeAttr(baseUrlValue || '') + '" placeholder="https://..." />';
+    html += '<div class="form-row admin-pf-base-url' + (defaults.showBaseUrl ? '' : ' is-hidden') + '">';
+    html += '<label class="form-label" for="pf-base-url">Base URL</label>';
+    html += '<input class="form-control" id="pf-base-url" data-field="base_url" value="' + escapeAttr(baseUrlValue || '') + '" placeholder="https://..." />';
     html += '</div>';
 
     // API Key (canonical .api-key-wrap + .api-key-eye)
     var apiKeyValue = isCreate ? '' : (provider.api_key || '');
-    html += '<div class="field-row admin-pf-row admin-pf-api-key' + (defaults.showApiKey ? '' : ' is-hidden') + '">';
-    html += '<label for="pf-api-key">API Key</label>';
+    html += '<div class="form-row admin-pf-api-key' + (defaults.showApiKey ? '' : ' is-hidden') + '">';
+    html += '<label class="form-label" for="pf-api-key">API Key</label>';
     html += '<div class="api-key-wrap">';
-    html += '<input class="field-input admin-pf-input admin-pf-password" id="pf-api-key" type="password" data-field="api_key" value="' + escapeAttr(apiKeyValue) + '" placeholder="sk-..." />';
+    html += '<input class="form-control admin-pf-password" id="pf-api-key" type="password" data-field="api_key" value="' + escapeAttr(apiKeyValue) + '" placeholder="sk-..." />';
     html += '<button class="api-key-eye" type="button" title="Show/Hide" aria-label="Show password">' + window.App.icon('eye') + '</button>';
     html += '</div>';
     html += '</div>';
@@ -209,8 +209,8 @@
       if (callbacks.onDirtyChange) callbacks.onDirtyChange(dirty);
     }
 
-    /* Wire input/change listeners on all .field-input + .field-select */
-    var inputs = container.querySelectorAll('.field-input, .field-select');
+    /* Wire input/change listeners on all .form-control inputs/selects */
+    var inputs = container.querySelectorAll('.form-control');
     for (var i = 0; i < inputs.length; i++) {
       inputs[i].addEventListener('input', checkDirty);
       inputs[i].addEventListener('change', checkDirty);
