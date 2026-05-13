@@ -11,26 +11,38 @@
     order.sort(function (a, b) { return a.order - b.order; });
   }
 
-  function renderTopBar() {
-    var topbar = document.getElementById('app-topbar');
-    // Build the area buttons by iterating registered areas in declared order.
-    // Each area becomes a flat top-bar button — direct-navigate, no popover.
-    // Active state is set in switchTo() via aria-current="page".
-    var buttonsHtml = '';
+  function renderTopNav() {
+    var topnav = document.getElementById('app-topnav');
+
+    var navlinksHtml = '';
     for (var i = 0; i < order.length; i++) {
       var a = order[i];
-      buttonsHtml +=
-        '<button class="app-picker-button" data-area="' + a.id + '" aria-label="Go to ' + a.label + '">' +
-          '<span class="app-picker-button-icon">' + (a.icon || '') + '</span>' +
-          '<span class="app-picker-button-label">' + a.label + '</span>' +
+      navlinksHtml +=
+        '<button class="navlink" data-area="' + a.id + '" aria-label="Go to ' + escapeAttr(a.label) + '">' +
+        escapeHtml(a.label) +
         '</button>';
     }
-    topbar.innerHTML =
-      '<img src="/static/brand/gleepglorp_banner.png" alt="GleepGlorp AI" class="app-topbar-banner">' +
-      '<div class="app-topbar-actions">' + buttonsHtml + '</div>';
 
-    // Wire each button to a direct hash navigation.
-    var buttons = topbar.querySelectorAll('.app-picker-button');
+    topnav.innerHTML =
+      '<div class="brand">' +
+        '<div class="brand-mark">G</div>' +
+        '<div class="brand-name">GleepGlorp <span class="sub">AI</span></div>' +
+      '</div>' +
+      '<div class="navlinks">' + navlinksHtml + '</div>' +
+      '<div class="nav-right">' +
+        '<button class="search" aria-label="Open search" aria-keyshortcuts="Control+K Meta+K">' +
+          '<svg class="icn" viewBox="0 0 16 16" aria-hidden="true">' +
+            '<circle cx="7" cy="7" r="5"/>' +
+            '<path d="M14 14l-3-3"/>' +
+          '</svg>' +
+          '<span>Search</span>' +
+          '<span class="kbd">⌘K</span>' +
+        '</button>' +
+        '<div class="avatar" id="app-user-avatar" aria-label="User">JD</div>' +
+      '</div>';
+
+    // Wire navlink clicks to hash navigation.
+    var buttons = topnav.querySelectorAll('.navlink');
     for (var j = 0; j < buttons.length; j++) {
       (function (btn) {
         var areaId = btn.dataset.area;
@@ -40,6 +52,25 @@
         });
       })(buttons[j]);
     }
+
+    // Wire the search button + ⌘K / Ctrl-K shortcut to the stub toast.
+    // (Search itself is non-goal per spec §"Out of scope"; a future flight
+    // can wire up a real command palette behind this same affordance.)
+    var searchBtn = topnav.querySelector('.search');
+    searchBtn.addEventListener('click', function () {
+      if (window.App && window.App.toast) {
+        window.App.toast('Search coming soon.');
+      } else if (console && console.info) {
+        console.info('[Holograph] Search coming soon.');
+      }
+    });
+
+    document.addEventListener('keydown', function (e) {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        searchBtn.click();
+      }
+    });
   }
 
   function parseHash(hashString) {
@@ -89,58 +120,59 @@
         areas[currentId].deactivate();
       }
 
-    // Hide all panels
-    var sidebarPanels = document.querySelectorAll('#app-sidebar .sidebar-panel');
-    var contentPanels = document.querySelectorAll('#main-content .content-panel');
-    for (var i = 0; i < sidebarPanels.length; i++) sidebarPanels[i].classList.remove('active');
-    for (var i = 0; i < contentPanels.length; i++) contentPanels[i].classList.remove('active');
+      // Hide all content panels (no sidebar in Holograph).
+      var contentPanels = document.querySelectorAll('#main-content .content-panel');
+      for (var i = 0; i < contentPanels.length; i++) contentPanels[i].classList.remove('active');
 
-    // Init on first activation
-    if (!initialized[areaId]) {
-      var sidebarPanel = document.createElement('div');
-      sidebarPanel.className = 'sidebar-panel area-' + areaId;
-      document.getElementById('app-sidebar').appendChild(sidebarPanel);
+      // Init on first activation
+      if (!initialized[areaId]) {
+        var contentPanel = document.createElement('div');
+        contentPanel.className = 'content-panel area-' + areaId;
+        document.getElementById('main-content').appendChild(contentPanel);
 
-      var contentPanel = document.createElement('div');
-      contentPanel.className = 'content-panel area-' + areaId;
-      document.getElementById('main-content').appendChild(contentPanel);
+        // L2 transitional shim — areas still on init(sidebar, content) signature
+        // (Mission-08 chat/studio/admin) get a stub detached sidebar div until
+        // L3-L5 rewrite each area to the init(content) single-arg signature.
+        // The stub never enters the DOM; the area mounts safely and L8.1 strips
+        // this shim once all areas use the new signature.
+        if (areas[areaId].init.length >= 2) {
+          var stubSidebar = document.createElement('div');
+          stubSidebar.className = 'sidebar-panel area-' + areaId + ' legacy-stub';
+          areas[areaId].init(stubSidebar, contentPanel);
+        } else {
+          areas[areaId].init(contentPanel);
+        }
+        initialized[areaId] = true;
+      }
 
-      areas[areaId].init(sidebarPanel, contentPanel);
-      initialized[areaId] = true;
-    }
+      // Show target panel
+      var targetContent = document.querySelector('#main-content .area-' + areaId);
+      if (targetContent) targetContent.classList.add('active');
 
-    // Show target panels
-    var targetSidebar = document.querySelector('#app-sidebar .area-' + areaId);
-    var targetContent = document.querySelector('#main-content .area-' + areaId);
-    if (targetSidebar) targetSidebar.classList.add('active');
-    if (targetContent) targetContent.classList.add('active');
+      // Update navlink "you are here" state — toggle .active class for
+      // Holograph styling AND aria-current="page" for browser-test selectors
+      // (preserved during the L3-L5 selector migration).
+      var navlinks = document.querySelectorAll('#app-topnav .navlink');
+      for (var k = 0; k < navlinks.length; k++) {
+        var isActive = navlinks[k].dataset.area === areaId;
+        navlinks[k].classList.toggle('active', isActive);
+        if (isActive) navlinks[k].setAttribute('aria-current', 'page');
+        else navlinks[k].removeAttribute('aria-current');
+      }
 
-    // Set aside aria-label for the active area
-    var asideEl = document.getElementById('app-sidebar');
-    var areaLabel = areas[areaId].sidebarLabel || (areas[areaId].label + ' sidebar');
-    asideEl.setAttribute('aria-label', areaLabel);
+      currentId = areaId;
+      currentSub = sub;
+      // Convention: activate() must refresh the area's data so changes made in
+      // other areas (e.g. adding a provider in Admin) are reflected immediately.
+      areas[areaId].activate();
 
-    // Update top-bar button "you are here" state — each flat button gets
-    // aria-current="page" when its area is active, removed otherwise.
-    var topbarBtns = document.querySelectorAll('#app-topbar .app-picker-button');
-    for (var i = 0; i < topbarBtns.length; i++) {
-      if (topbarBtns[i].dataset.area === areaId) topbarBtns[i].setAttribute('aria-current', 'page');
-      else topbarBtns[i].removeAttribute('aria-current');
-    }
+      if (typeof areas[areaId].hydrateState === 'function') areas[areaId].hydrateState(sub);
 
-    currentId = areaId;
-    currentSub = sub;
-    // Convention: activate() must refresh the area's data so changes made in
-    // other areas (e.g. adding a provider in Admin) are reflected immediately.
-    areas[areaId].activate();
-
-    if (typeof areas[areaId].hydrateState === 'function') areas[areaId].hydrateState(sub);
-
-    // If the area retained internal state across navigation (e.g. chat's
-    // currentSessionId after a studio side-trip), or has a default sub-state
-    // (admin's `general`), sync the URL hash from serializeState so the
-    // address bar reflects what's actually shown.
-    syncUrlFromState(areaId, sub);
+      // If the area retained internal state across navigation (e.g. chat's
+      // currentSessionId after a studio side-trip), or has a default sub-state
+      // (admin's `general`), sync the URL hash from serializeState so the
+      // address bar reflects what's actually shown.
+      syncUrlFromState(areaId, sub);
     }
 
     // confirmLeave gate. Hook contract:
@@ -176,7 +208,7 @@
   });
 
   document.addEventListener('DOMContentLoaded', function () {
-    renderTopBar();
+    renderTopNav();
     // Boot-block on /api/config so window.App.config is populated before
     // any area.init() runs. Areas read App.config.dev_mode in their init
     // closures (e.g. admin's sidebar categories list).
@@ -238,6 +270,20 @@
     }, 2000);
   }
 
+  function toast(msg, opts) {
+    opts = opts || {};
+    var existing = document.querySelector('.app-toast');
+    if (existing) existing.remove();
+    var el = document.createElement('div');
+    el.className = 'app-toast';
+    el.textContent = msg;
+    el.setAttribute('role', 'status');
+    document.body.appendChild(el);
+    var duration = opts.duration || 2400;
+    setTimeout(function () { el.classList.add('app-toast-out'); }, duration);
+    setTimeout(function () { el.remove(); }, duration + 320);
+  }
+
   window.App = window.App || {};
   Object.assign(window.App, {
     registerArea: registerArea,
@@ -270,5 +316,6 @@
     escapeAttr: escapeAttr,
     formatBytes: formatBytes,
     showFlash: showFlash,
+    toast: toast,
   });
 })();
