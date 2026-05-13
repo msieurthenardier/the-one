@@ -30,86 +30,100 @@
   // refactor is a future cleanup).
   var KNOWN_TRANSPORT_BADGES = ['stdio', 'streamable-http'];
 
+  // Holograph shape: container is already the .mcp-sources-grid div (CSS grid
+  // 3-column card layout). The page-header with New button is in .area-header
+  // (rendered by studio.js). This function populates the grid with
+  // .mcp-source-card elements, or the loading / empty states.
   function renderMcpServersGrid(container, mcpSources, callbacks) {
     callbacks = callbacks || {};
     var onSelectMcpSource = callbacks.onSelectMcpSource || function () {};
     var onCreateMcpSource = callbacks.onCreateMcpSource || function () {};
     var selectedId = callbacks.selectedId || null;
 
-    var escapeHtml = window.App.escapeHtml;
-    var escapeAttr = window.App.escapeAttr;
-
-    container.innerHTML =
-      '<div class="page-header">' +
-        '<h1 class="page-title">MCP Servers</h1>' +
-        // Header CTA renders icon-only at rest; expands on hover. CSS hides
-        // it entirely when the grid below is empty, deferring the affordance
-        // to the empty-canvas's centered CTA.
-        '<button class="new-entity-btn" type="button" data-testid="new-mcp-source-btn" aria-label="New MCP server">' +
-          window.App.icon('square-pen') + '<span>New MCP Server</span>' +
-        '</button>' +
-      '</div>' +
-      '<div class="entity-tile-grid" role="listbox" aria-label="MCP servers">' +
-        '<div class="admin-loading">Loading MCP servers…</div>' +
-      '</div>';
-
-    var newMcpBtn = container.querySelector('.new-entity-btn');
-    newMcpBtn.addEventListener('click', function () { onCreateMcpSource(); });
-
-    var gridEl = container.querySelector('.entity-tile-grid');
     if (mcpSources === null || mcpSources === undefined) {
       // Loading state — caller will re-invoke with populated array
+      container.innerHTML = '<div class="admin-loading">Loading MCP servers…</div>';
       return;
     }
 
     if (mcpSources.length === 0) {
-      gridEl.innerHTML =
-        '<div class="empty-canvas">' +
-          '<div class="empty-canvas-inner admin-provider-empty">' +
-            '<div>No MCP servers configured. Add one to get started.</div>' +
-            '<button class="new-entity-btn is-expanded" type="button" data-testid="new-mcp-source-btn-empty">' +
-              window.App.icon('square-pen') + '<span>New MCP Server</span>' +
-            '</button>' +
-          '</div>' +
-        '</div>';
-      var emptyBtn = gridEl.querySelector('[data-testid="new-mcp-source-btn-empty"]');
+      var emptyWrap = document.createElement('div');
+      emptyWrap.className = 'empty-canvas';
+      var emptyInner = document.createElement('div');
+      emptyInner.className = 'empty-canvas-inner admin-provider-empty';
+      emptyInner.setAttribute('data-testid', 'studio-mcp-empty');
+      var emptyMsg = document.createElement('div');
+      emptyMsg.textContent = 'No MCP servers configured. Add one to get started.';
+      emptyInner.appendChild(emptyMsg);
+      var emptyBtn = document.createElement('button');
+      emptyBtn.className = 'btn btn-primary';
+      emptyBtn.type = 'button';
+      emptyBtn.setAttribute('data-testid', 'new-mcp-source-btn-empty');
+      emptyBtn.textContent = 'New MCP Server';
       emptyBtn.addEventListener('click', function () { onCreateMcpSource(); });
+      emptyInner.appendChild(emptyBtn);
+      emptyWrap.appendChild(emptyInner);
+      container.innerHTML = '';
+      container.appendChild(emptyWrap);
       return;
     }
 
-    var html = '';
+    container.innerHTML = '';
     for (var i = 0; i < mcpSources.length; i++) {
-      var s = mcpSources[i];
-      var typeSuffix = KNOWN_TRANSPORT_BADGES.indexOf(s.type) >= 0 ? s.type : 'unknown';
-      var displayMeta;
-      if (s.type === 'stdio') {
-        displayMeta = (s.config && s.config.command) ? s.config.command : '—';
-      } else if (s.type === 'streamable-http') {
-        displayMeta = (s.config && s.config.url) ? s.config.url : '—';
-      } else {
-        displayMeta = '—';
-      }
-      var isActive = selectedId === s.id;
-      html +=
-        '<button class="entity-tile mcp-source-tile" type="button" role="option" ' +
-            'data-testid="mcp-source-card" data-id="' + escapeAttr(s.id) + '" ' +
-            'aria-selected="' + (isActive ? 'true' : 'false') + '">' +
-          '<span class="entity-tile-badge admin-mcp-badge admin-mcp-badge--' +
-            escapeAttr(typeSuffix) + '">' + escapeHtml(s.type) + '</span>' +
-          '<span class="entity-tile-name">' + escapeHtml(s.name) + '</span>' +
-          '<span class="entity-tile-meta">' + escapeHtml(displayMeta) + '</span>' +
-        '</button>';
-    }
-    gridEl.innerHTML = html;
+      (function (s) {
+        var typeSuffix = KNOWN_TRANSPORT_BADGES.indexOf(s.type) >= 0 ? s.type : 'unknown';
+        var displayMeta;
+        if (s.type === 'stdio') {
+          displayMeta = (s.config && s.config.command) ? s.config.command : '—';
+        } else if (s.type === 'streamable-http') {
+          displayMeta = (s.config && s.config.url) ? s.config.url : '—';
+        } else {
+          displayMeta = '—';
+        }
+        var isActive = selectedId === s.id;
 
-    var tiles = gridEl.querySelectorAll('.mcp-source-tile');
-    for (var t = 0; t < tiles.length; t++) {
-      (function (tileEl) {
-        tileEl.addEventListener('click', function () {
-          var id = tileEl.dataset.id;
+        var cardEl = document.createElement('div');
+        cardEl.className = 'mcp-source-card' + (isActive ? ' selected' : '');
+        cardEl.setAttribute('role', 'option');
+        cardEl.setAttribute('tabindex', '0');
+        cardEl.setAttribute('data-testid', 'mcp-source-card');
+        cardEl.dataset.id = s.id;
+        cardEl.setAttribute('aria-selected', isActive ? 'true' : 'false');
+
+        var headEl = document.createElement('div');
+        headEl.className = 'mcp-source-head';
+
+        var badgeEl = document.createElement('span');
+        badgeEl.className = 'admin-mcp-badge admin-mcp-badge--' + typeSuffix;
+        badgeEl.textContent = s.type;
+        headEl.appendChild(badgeEl);
+
+        var nameEl = document.createElement('span');
+        nameEl.className = 'agent-card-title';
+        nameEl.textContent = s.name;
+        headEl.appendChild(nameEl);
+
+        cardEl.appendChild(headEl);
+
+        var bodyEl = document.createElement('div');
+        bodyEl.className = 'mcp-source-body';
+        bodyEl.textContent = displayMeta;
+        cardEl.appendChild(bodyEl);
+
+        cardEl.addEventListener('click', function () {
+          var id = cardEl.dataset.id;
           if (id) onSelectMcpSource(id);
         });
-      })(tiles[t]);
+        cardEl.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            var id = cardEl.dataset.id;
+            if (id) onSelectMcpSource(id);
+          }
+        });
+
+        container.appendChild(cardEl);
+      })(mcpSources[i]);
     }
   }
 

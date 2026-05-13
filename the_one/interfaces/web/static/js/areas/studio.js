@@ -156,7 +156,7 @@ App.registerArea({
     if (this._tryConsumePendingMcpSource) this._tryConsumePendingMcpSource();
   },
 
-  init: function (sidebar, content) {
+  init: function (content) {
     var self = this;
 
     // ── Per-instance state (promoted from closure locals to this.* so
@@ -252,33 +252,39 @@ App.registerArea({
       'Web': ['download_file', 'fetch_url', 'http_request', 'web_search']
     };
 
-    // ── Layout: sidebar = section-nav only; main panel hosts both the
-    // section-content (tile grid / Knowledge / Tools) and the editor,
-    // toggled via .is-hidden based on whether an agent is being edited.
-    sidebar.innerHTML = '<div class="studio-section-nav"></div>';
-    var sectionNavEl = sidebar.querySelector('.studio-section-nav');
-
+    // ── Holograph layout: no sidebar. content hosts a top sub-nav + 3 sub
+    // blocks (Agents / Knowledge / MCP Sources). Only one sub block is
+    // .active at a time (CSS: `.studio-sub.active { display: block }`).
     content.innerHTML =
-      '<div class="studio-section-content"></div>' +
-      '<div class="studio-editor"></div>';
-    var sectionContentEl = content.querySelector('.studio-section-content');
-    var editorEl = content.querySelector('.studio-editor');
-
-    var agentsContentEl = document.createElement('div');
-    agentsContentEl.className = 'studio-agents-content';
-    agentsContentEl.innerHTML =
-      '<div class="page-header">' +
-        '<h1 class="page-title">Agents</h1>' +
-        // Header CTA renders icon-only at rest; expands on hover. CSS hides
-        // it entirely when the grid below is empty, deferring the affordance
-        // to the empty-canvas's centered CTA (rendered by renderAgentList).
-        '<button class="new-entity-btn" type="button" data-testid="new-agent-btn" aria-label="New agent">' +
-          App.icon('square-pen') + '<span>New Agent</span>' +
+      '<div class="area-header">' +
+        '<div>' +
+          '<span class="area-title">Studio</span>' +
+          '<span class="area-sub">Configure and edit your agents</span>' +
+        '</div>' +
+        '<button class="btn btn-primary" id="studio-new-agent-btn" data-testid="new-agent-btn">' +
+          '<svg class="icn icn-sm" viewBox="0 0 12 12" aria-hidden="true">' +
+            '<path d="M6 2v8M2 6h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>' +
+          '</svg>' +
+          'New agent' +
         '</button>' +
       '</div>' +
-      '<div class="entity-tile-grid" role="listbox" aria-label="Agents"></div>';
-    var agentListEl = agentsContentEl.querySelector('.entity-tile-grid');
-    var newAgentBtn = agentsContentEl.querySelector('.new-entity-btn');
+      '<div class="studio-subnav" id="studio-subnav"></div>' +
+      '<div class="studio-sub" id="sub-agents"></div>' +
+      '<div class="studio-sub" id="sub-knowledge"></div>' +
+      '<div class="studio-sub" id="sub-mcp-sources"></div>';
+
+    var sectionNavEl = content.querySelector('#studio-subnav');
+    var subAgentsEl = content.querySelector('#sub-agents');
+    var subKnowledgeEl = content.querySelector('#sub-knowledge');
+    var subMcpSourcesEl = content.querySelector('#sub-mcp-sources');
+    var newAgentHeaderBtn = content.querySelector('#studio-new-agent-btn');
+
+    // editorEl and agentListEl are populated lazily when renderAgentsSection
+    // mounts the .studio-layout grid for the first time. Declared here so
+    // all downstream closures (renderEditor, renderEmptyEditor, wireEditorEvents,
+    // etc.) share the same binding and can be re-pointed on first render.
+    var editorEl = null;
+    var agentListEl = null;
 
     // ── Section navigation ─────────────────────────────────────────────
 
@@ -314,14 +320,27 @@ App.registerArea({
     });
 
     function renderAgentsSection() {
-      sectionContentEl.innerHTML = '';
-      sectionContentEl.appendChild(agentsContentEl);
+      // Mount the .studio-layout grid on first activation; subsequent calls
+      // just refresh the agent list. editorEl and agentListEl are re-bound
+      // each time in case subAgentsEl was cleared.
+      if (!subAgentsEl.querySelector('.studio-layout')) {
+        subAgentsEl.innerHTML =
+          '<div class="studio-layout">' +
+            '<aside class="agents-pane">' +
+              '<div class="agents-list" id="studio-agents-list" role="listbox" aria-label="Agents"></div>' +
+            '</aside>' +
+            '<div class="editor-pane" id="studio-editor-pane"></div>' +
+          '</div>';
+      }
+      agentListEl = subAgentsEl.querySelector('#studio-agents-list');
+      editorEl = subAgentsEl.querySelector('#studio-editor-pane');
       renderAgentList();
     }
 
     function renderKnowledgeSection() {
-      sectionContentEl.innerHTML = '';
-      App.studio.renderKnowledgeStub(sectionContentEl);
+      if (!subKnowledgeEl.querySelector('.knowledge-stub-pane')) {
+        App.studio.renderKnowledgeStub(subKnowledgeEl);
+      }
     }
 
     // MCP Servers section — relocated from admin (post-F2 retrofit). Mirrors
@@ -330,7 +349,8 @@ App.registerArea({
     // delegates to App.studio.renderMcpServersGrid. The orchestrator-side
     // callbacks bridge dirty-state + navigation.
     function renderMcpSourcesSection() {
-      sectionContentEl.innerHTML = '';
+      // Clear the sub-block so editor/grid mount fresh each call.
+      subMcpSourcesEl.innerHTML = '';
       // If a hash-route pending-create is queued (e.g. direct-load on
       // #studio/mcp-sources/new), promote it to mcpSourceFormMode='add'
       // BEFORE deciding grid vs editor so the editor mounts on first paint
@@ -353,6 +373,8 @@ App.registerArea({
           // Re-check formMode at resolution time — operator may have
           // navigated away mid-fetch.
           if (mcpSourceFormMode == null || self._activeSection !== 'mcp-sources') return;
+          subMcpSourcesEl.innerHTML = '<div class="mcp-source-editor-pane" id="studio-mcp-editor-pane"></div>';
+          var mcpEditorPaneEl = subMcpSourcesEl.querySelector('#studio-mcp-editor-pane');
           function doHandleBack() {
             mcpSourceFormMode = null;
             editingMcpSource = null;
@@ -360,7 +382,7 @@ App.registerArea({
             if (window.App && window.App.router) App.router.replaceSub('mcp-sources');
             renderMcpSourcesSection();
           }
-          App.studio.renderMcpSourceEditor(sectionContentEl, editingMcpSource, MCP_TYPES, {
+          App.studio.renderMcpSourceEditor(mcpEditorPaneEl, editingMcpSource, MCP_TYPES, {
             onBack: function () {
               if (dirty) {
                 App.confirmDialog({ onConfirm: doHandleBack });
@@ -411,7 +433,7 @@ App.registerArea({
                 // before we dispatch the synthetic click.
                 setTimeout(function () {
                   if (updated && updated.type !== 'streamable-http') return;
-                  var refreshBtn = sectionContentEl.querySelector(
+                  var refreshBtn = subMcpSourcesEl.querySelector(
                     '[data-testid="mcp-test-connection"]'
                   );
                   if (refreshBtn) {
@@ -438,8 +460,10 @@ App.registerArea({
         });
         return;
       }
-      // Grid branch
-      App.studio.renderMcpServersGrid(sectionContentEl, mcpSources, {
+      // Grid branch — mount the .mcp-sources-grid wrapper, then render tiles.
+      subMcpSourcesEl.innerHTML = '<div class="mcp-sources-grid" id="studio-mcp-grid"></div>';
+      var mcpGridEl = subMcpSourcesEl.querySelector('#studio-mcp-grid');
+      App.studio.renderMcpServersGrid(mcpGridEl, mcpSources, {
         selectedId: editingMcpSource ? editingMcpSource.id : null,
         onSelectMcpSource: selectMcpSource,
         onCreateMcpSource: enterCreateMcpSourceMode
@@ -473,7 +497,7 @@ App.registerArea({
         })
         .catch(function () {
           if (self._activeSection !== 'mcp-sources') return;
-          var gridEl = sectionContentEl.querySelector('.entity-tile-grid');
+          var gridEl = subMcpSourcesEl.querySelector('#studio-mcp-grid');
           if (gridEl) gridEl.innerHTML = '<div class="admin-loading">Failed to load MCP sources.</div>';
         });
     }
@@ -483,7 +507,9 @@ App.registerArea({
       // editor is mounted (no grid in the DOM to populate).
       if (self._activeSection !== 'mcp-sources') return;
       if (mcpSourceFormMode) return;
-      App.studio.renderMcpServersGrid(sectionContentEl, mcpSources, {
+      var mcpGridEl = subMcpSourcesEl.querySelector('#studio-mcp-grid');
+      if (!mcpGridEl) return; // guard: grid not yet mounted
+      App.studio.renderMcpServersGrid(mcpGridEl, mcpSources, {
         selectedId: editingMcpSource ? editingMcpSource.id : null,
         onSelectMcpSource: selectMcpSource,
         onCreateMcpSource: enterCreateMcpSourceMode
@@ -559,7 +585,14 @@ App.registerArea({
       var writeUrl = options.writeUrl !== false; // default true
       var prevSection = self._activeSection;
       self._activeSection = section;
+      // Toggle .active on the three sub-blocks — CSS: `.studio-sub.active { display: block }`.
+      subAgentsEl.classList.toggle('active', section === 'agents');
+      subKnowledgeEl.classList.toggle('active', section === 'knowledge');
+      subMcpSourcesEl.classList.toggle('active', section === 'mcp-sources');
+      // Update section-nav active state.
       App.layout.updateActiveSection(sectionNavEl, section);
+      // Show/hide the header's New agent button — only relevant on Agents section.
+      newAgentHeaderBtn.style.display = (section === 'agents') ? '' : 'none';
       // Reset MCP-section local state when leaving mcp-sources for another
       // section — closes the editor + clears formMode so a re-entry
       // re-mounts the grid.
@@ -568,6 +601,8 @@ App.registerArea({
         editingMcpSource = null;
         dirty = false;
       }
+      // Lazy-render each section the first time (or every time for MCP —
+      // its grid/editor dispatch lives in renderMcpSourcesSection).
       if (section === 'knowledge') {
         renderKnowledgeSection();
       } else if (section === 'mcp-sources') {
@@ -575,23 +610,21 @@ App.registerArea({
       } else {
         renderAgentsSection();
       }
-      updateContentVisibility();
       if (writeUrl) writeUrl_();
     }
     self._setActiveSection = setActiveSection;
 
-    // Section-content (tile grid / Knowledge stub / MCP Servers) and the
-    // agent editor share the main panel; only one is visible at a time. The
-    // agent editor takes over when an agent is selected or being created in
-    // the Agents section; otherwise section-content is the visible child.
-    // The MCP Servers section renders both grid and editor INSIDE
-    // sectionContentEl (its own dispatch lives in renderMcpSourcesSection),
-    // so editorEl stays hidden whenever _activeSection !== 'agents'.
+    // updateContentVisibility is no longer needed in the Holograph shape —
+    // the agents sub-block's .studio-layout grid always shows both the agents
+    // pane and the editor pane side-by-side. The editor-pane is simply empty
+    // when no agent is selected (renderEmptyEditor clears it). The is-hidden
+    // toggle on sectionContentEl/editorEl was Mission-08's single-panel
+    // show/hide mechanism; the new shape uses CSS grid so both are always
+    // visible within the active sub-block.
     function updateContentVisibility() {
-      var inAgentEditor = self._activeSection === 'agents' &&
-                          (self._selectedAgent || self._createMode);
-      sectionContentEl.classList.toggle('is-hidden', !!inAgentEditor);
-      editorEl.classList.toggle('is-hidden', !inAgentEditor);
+      // No-op in Holograph shape. Kept as a function so all existing callers
+      // (doSelect, doEnterCreateMode, doHandleBack, loadAll callback) compile
+      // without modification. Safe to remove after L4.5 selector migration.
     }
 
     // ── Single URL-write call site ──────────────────────────────────────
@@ -854,55 +887,57 @@ App.registerArea({
     }
 
     function renderAgentList() {
+      // agentListEl may be null before renderAgentsSection has run once.
+      if (!agentListEl) return;
       agentListEl.innerHTML = '';
       var agents = self._agents;
       if (agents.length === 0 && !self._createMode) {
-        var canvas = document.createElement('div');
-        canvas.className = 'empty-canvas';
-        var inner = document.createElement('div');
-        inner.className = 'empty-canvas-inner agent-empty';
-        inner.setAttribute('data-testid', 'agent-empty');
-        // Message wrapped in a div so the inline-flex CTA below sits on a
-        // new line; .empty-canvas-inner's text-align: center centers both.
-        var msg = document.createElement('div');
+        var emptyDiv = document.createElement('div');
+        emptyDiv.className = 'empty-canvas';
+        emptyDiv.setAttribute('data-testid', 'agent-empty');
+        // Message + CTA centered in the agents pane.
+        var msg = document.createElement('p');
         msg.textContent = 'No agents yet. Create one to get started.';
-        inner.appendChild(msg);
+        emptyDiv.appendChild(msg);
         var emptyBtn = document.createElement('button');
         emptyBtn.type = 'button';
-        emptyBtn.className = 'new-entity-btn is-expanded';
+        emptyBtn.className = 'btn btn-primary';
         emptyBtn.setAttribute('data-testid', 'new-agent-btn-empty');
-        emptyBtn.innerHTML = App.icon('square-pen') + '<span>New Agent</span>';
+        emptyBtn.textContent = 'Create your first agent';
         emptyBtn.addEventListener('click', enterCreateMode);
-        inner.appendChild(emptyBtn);
-        canvas.appendChild(inner);
-        agentListEl.appendChild(canvas);
+        emptyDiv.appendChild(emptyBtn);
+        agentListEl.appendChild(emptyDiv);
         return;
       }
       for (var i = 0; i < agents.length; i++) {
         (function (agent) {
           var isActive = self._selectedAgent && self._selectedAgent.name === agent.name && !self._createMode;
 
-          var tileEl = document.createElement('button');
-          tileEl.type = 'button';
-          tileEl.className = 'entity-tile agent-item' + (isActive ? ' active' : '');
-          tileEl.setAttribute('data-testid', 'agent-item');
-          tileEl.setAttribute('role', 'option');
-          tileEl.dataset.name = agent.name;
-          tileEl.setAttribute('aria-selected', isActive ? 'true' : 'false');
-          tileEl.setAttribute('aria-label', agent.name);
+          // ── Holograph agent card (`.agent-card` / `.agent-card-*`) ────
+          var cardEl = document.createElement('div');
+          cardEl.className = 'agent-card' + (isActive ? ' selected' : '');
+          cardEl.setAttribute('data-testid', 'agent-item');
+          cardEl.setAttribute('role', 'option');
+          cardEl.dataset.name = agent.name;
+          cardEl.setAttribute('aria-selected', isActive ? 'true' : 'false');
+          cardEl.setAttribute('tabindex', '0');
 
-          var nameSpan = document.createElement('span');
-          nameSpan.className = 'entity-tile-name';
-          nameSpan.textContent = agent.name;
-          tileEl.appendChild(nameSpan);
+          // Avatar — first two letters of the agent name, uppercased.
+          var avatarEl = document.createElement('div');
+          avatarEl.className = 'agent-card-avatar';
+          avatarEl.textContent = (agent.name || 'A').slice(0, 2).toUpperCase();
+          cardEl.appendChild(avatarEl);
 
-          var descSpan = document.createElement('span');
-          descSpan.className = 'entity-tile-description';
-          descSpan.textContent = agent.description || '';
-          tileEl.appendChild(descSpan);
+          var bodyEl = document.createElement('div');
+          bodyEl.className = 'agent-card-body';
 
-          var metaSpan = document.createElement('span');
-          metaSpan.className = 'entity-tile-meta';
+          var titleEl = document.createElement('div');
+          titleEl.className = 'agent-card-title';
+          titleEl.textContent = agent.name;
+          bodyEl.appendChild(titleEl);
+
+          // Model label in monospace beneath the name.
+          var modelLabel = agent.llm_model || '';
           var providerLabel = '';
           if (agent.provider_config_id) {
             for (var pi = 0; pi < self._allProviders.length; pi++) {
@@ -912,38 +947,38 @@ App.registerArea({
               }
             }
           }
-          var modelLabel = agent.llm_model || '';
+          var modelEl = document.createElement('div');
+          modelEl.className = 'agent-card-model';
           if (providerLabel && modelLabel) {
-            metaSpan.textContent = providerLabel + ' · ' + modelLabel;
+            modelEl.textContent = providerLabel + ' · ' + modelLabel;
           } else if (providerLabel) {
-            metaSpan.textContent = providerLabel;
+            modelEl.textContent = providerLabel;
           } else if (modelLabel) {
-            metaSpan.textContent = modelLabel;
+            modelEl.textContent = modelLabel;
           } else {
-            metaSpan.textContent = 'no provider';
+            modelEl.textContent = 'no provider';
           }
-          tileEl.appendChild(metaSpan);
+          bodyEl.appendChild(modelEl);
 
-          // F9 L3 (A-L3-3) — Two metric lines: built-in tool count + MCP
-          // tool count. Both rendered unconditionally (even at 0) so tile
-          // height stays uniform across the grid. Disambiguated by label
-          // ("tools" vs "MCP tools") and by data-testid for browser tests.
+          // Meta line — tool counts. Preserved as data-testid attrs for
+          // L4.5 browser-test selector migration.
+          var metaEl = document.createElement('div');
+          metaEl.className = 'agent-card-meta';
+          // F9 L3 (A-L3-3) — Two metric spans: built-in + MCP tool counts.
           var builtinCount = _countBuiltinTools(agent, self._allTools);
           var mcpCount = _countMcpTools(agent, self._allMcpSources);
           var toolCountSpan = document.createElement('span');
-          toolCountSpan.className = 'entity-tile-tool-count';
           toolCountSpan.setAttribute('data-testid', 'agent-tile-tool-count');
           toolCountSpan.textContent = _pluralize(builtinCount, 'tool', 'tools');
-          tileEl.appendChild(toolCountSpan);
+          metaEl.appendChild(toolCountSpan);
+          var sep = document.createTextNode(' · ');
+          metaEl.appendChild(sep);
           var mcpCountSpan = document.createElement('span');
-          mcpCountSpan.className = 'entity-tile-tool-count';
           mcpCountSpan.setAttribute('data-testid', 'agent-tile-mcp-tool-count');
           mcpCountSpan.textContent = _pluralize(mcpCount, 'MCP tool', 'MCP tools');
-          tileEl.appendChild(mcpCountSpan);
+          metaEl.appendChild(mcpCountSpan);
 
-          // Capability chips — only render when we have caps for this
-          // (provider, model) pair. Non-Ollama providers won't populate
-          // the lookup; tiles render without chips in that case.
+          // Capability chips — only render when caps are available.
           var renderer = window.App.admin && window.App.admin.renderCapabilityChips;
           var caps = null;
           if (agent.provider_config_id && agent.llm_model) {
@@ -951,22 +986,26 @@ App.registerArea({
             if (byModel) caps = byModel[agent.llm_model];
           }
           if (renderer && Array.isArray(caps)) {
+            var capsSep = document.createTextNode(' ');
+            metaEl.appendChild(capsSep);
             var capsWrap = document.createElement('span');
             capsWrap.className = 'agent-tile-caps';
             capsWrap.innerHTML = renderer(caps);
-            tileEl.appendChild(capsWrap);
+            metaEl.appendChild(capsWrap);
           }
 
-          tileEl.onclick = function () { selectAgent(agent); };
-          tileEl.addEventListener('keydown', function (e) {
-            if (e.target !== tileEl) return;
+          bodyEl.appendChild(metaEl);
+          cardEl.appendChild(bodyEl);
+
+          cardEl.addEventListener('click', function () { selectAgent(agent); });
+          cardEl.addEventListener('keydown', function (e) {
             if (e.key === 'Enter' || e.key === ' ') {
               e.preventDefault();
               selectAgent(agent);
             }
           });
 
-          agentListEl.appendChild(tileEl);
+          agentListEl.appendChild(cardEl);
         })(agents[i]);
       }
     }
@@ -1056,7 +1095,7 @@ App.registerArea({
     // ── Editor rendering ─────────────────────────────────────────────
 
     function renderEmptyEditor() {
-      editorEl.innerHTML = '';
+      if (editorEl) editorEl.innerHTML = '';
       tabHandle = null;
     }
 
@@ -1800,7 +1839,22 @@ App.registerArea({
       }
     }
 
-    newAgentBtn.addEventListener('click', enterCreateMode);
+    // Wire the header "New agent" button (visible on Agents section only).
+    // Dirty-gate: if already in an editing context, confirm before switching.
+    newAgentHeaderBtn.addEventListener('click', function () {
+      var inEditingContext =
+        (self._activeSection === 'agents' && self._selectedAgent) ||
+        (self._activeSection === 'mcp-sources' && mcpSourceFormMode);
+      var commit = function () {
+        setActiveSection('agents');
+        enterCreateMode();
+      };
+      if (dirty && inEditingContext) {
+        App.confirmDialog({ onConfirm: commit });
+      } else {
+        commit();
+      }
+    });
 
     self._refresh = function () {
       loadAll().then(function () {
