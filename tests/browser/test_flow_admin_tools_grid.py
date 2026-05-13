@@ -1,13 +1,17 @@
 """Admin Tools grid + tab + tile tests for F6 leg 07.
 
-Covers the L2 admin Tools grid surface (HAT-refined into 4 category tabs):
+Covers the L2 admin Tools grid surface.
+
+Holograph L5.3: grid reorganized to 3 category tabs (Filesystem / Execution /
+Web); Python (`python_exec`) merged into the Execution tab (6 tools total).
+Tab counts: 9 (filesystem) / 6 (execution) / 4 (web) = 19 total.
 
 - Page-title is "Built-in Tools" (HAT inline fix #5).
-- 4 category tabs render in declaration order (Filesystem / Execution /
-  Python / Web); Filesystem selected by default.
+- 3 category tabs render in declaration order (Filesystem / Execution / Web);
+  Filesystem selected by default.
 - Tab click switches the visible panel (active panel shows tiles, others
   hidden via the App.tabs helper's [hidden] attr).
-- Each category surfaces the expected tile counts (9/5/1/4 = 19 total).
+- Each category surfaces the expected tile counts (9/6/4 = 19 total).
 - Tile click navigates to the per-tool editor at #admin/tools/<name>.
 - Toggle PUT round-trip persists across reload (in-flight gate awaited
   BEFORE the reload to avoid a race).
@@ -18,6 +22,9 @@ Covers the L2 admin Tools grid surface (HAT-refined into 4 category tabs):
 - Section-nav third entry is labeled "Built-in Tools" (HAT inline fix #5).
 - Deep-link to #admin/tools/<name> loads the editor directly (hydrates
   pendingToolName and consumes via _tryConsumePendingTool).
+
+Holograph selectors (L5.4):
+- .area-admin .page-title → .admin-sub.active .page-title (strict-mode fix).
 """
 
 from __future__ import annotations
@@ -28,20 +35,23 @@ from playwright.sync_api import Page, expect
 
 @pytest.mark.browser
 def test_admin_tools_renders_grid_with_4_tabs(app_clean: str, page: Page) -> None:
-    """Page-title + 4 category tabs in declaration order; Filesystem panel
-    is the default-active surface with 9 tiles visible."""
+    """Page-title + 3 category tabs in declaration order (Holograph L5.3:
+    Python merged into Execution); Filesystem panel is the default-active
+    surface with 9 tiles visible.
+
+    Function name retained for git-blame continuity; tab count updated to 3.
+    """
     page.goto(f"{app_clean}#admin/tools")
-    expect(page.locator(".area-admin .page-title")).to_have_text("Built-in Tools", timeout=8000)
+    expect(page.locator(".admin-sub.active .page-title")).to_have_text("Built-in Tools", timeout=8000)
 
     tablist = page.locator(".area-admin .tablist")
     expect(tablist).to_be_visible()
 
     tabs = tablist.locator('[role="tab"]')
-    expect(tabs).to_have_count(4)
+    expect(tabs).to_have_count(3)
     expect(tabs.nth(0)).to_have_text("Filesystem")
     expect(tabs.nth(1)).to_have_text("Execution")
-    expect(tabs.nth(2)).to_have_text("Python")
-    expect(tabs.nth(3)).to_have_text("Web")
+    expect(tabs.nth(2)).to_have_text("Web")
 
     # Filesystem selected by default; its panel is the visible one.
     expect(page.locator('[data-testid="tab-filesystem"]')).to_have_attribute(
@@ -58,7 +68,7 @@ def test_admin_tools_tab_click_switches_panel(app_clean: str, page: Page) -> Non
     panel becomes hidden, target panel becomes visible with its tile set.
     """
     page.goto(f"{app_clean}#admin/tools")
-    expect(page.locator(".area-admin .page-title")).to_have_text("Built-in Tools", timeout=8000)
+    expect(page.locator(".admin-sub.active .page-title")).to_have_text("Built-in Tools", timeout=8000)
     fs_panel = page.locator("#tools-panel-filesystem")
     web_panel = page.locator("#tools-panel-web")
     expect(fs_panel).to_be_visible()
@@ -75,7 +85,7 @@ def test_admin_tools_tab_click_switches_panel(app_clean: str, page: Page) -> Non
 def test_admin_tools_each_tab_renders_correct_tile_count(app_clean: str, page: Page) -> None:
     """All three panels' tile counts: 9/6/4 = 19 tools total."""
     page.goto(f"{app_clean}#admin/tools")
-    expect(page.locator(".area-admin .page-title")).to_have_text("Built-in Tools", timeout=8000)
+    expect(page.locator(".admin-sub.active .page-title")).to_have_text("Built-in Tools", timeout=8000)
 
     expected = {
         "filesystem": 9,
@@ -94,7 +104,7 @@ def test_admin_tools_tile_click_navigates_to_editor(app_clean: str, page: Page) 
     """Click the web_search tile: URL becomes #admin/tools/web_search and
     the editor mounts (editor-title shows the tool name)."""
     page.goto(f"{app_clean}#admin/tools")
-    expect(page.locator(".area-admin .page-title")).to_have_text("Built-in Tools", timeout=8000)
+    expect(page.locator(".admin-sub.active .page-title")).to_have_text("Built-in Tools", timeout=8000)
     page.locator('[data-testid="tab-web"]').click()
     page.locator('[data-testid="tool-card"][data-name="web_search"]').click()
     expect(page.locator(".editor-title")).to_have_text("web_search", timeout=5000)
@@ -108,7 +118,7 @@ def test_admin_tools_tile_toggle_persists_across_reload(app_clean: str, page: Pa
     confirm the toggle is still OFF.
     """
     page.goto(f"{app_clean}#admin/tools")
-    expect(page.locator(".area-admin .page-title")).to_have_text("Built-in Tools", timeout=8000)
+    expect(page.locator(".admin-sub.active .page-title")).to_have_text("Built-in Tools", timeout=8000)
     page.locator('[data-testid="tab-web"]').click()
     web_panel = page.locator("#tools-panel-web")
     toggle = web_panel.locator('input[data-testid="tool-toggle"][data-name="web_search"]')
@@ -121,7 +131,7 @@ def test_admin_tools_tile_toggle_persists_across_reload(app_clean: str, page: Pa
     expect(toggle).not_to_be_checked()
 
     page.reload()
-    expect(page.locator(".area-admin .page-title")).to_have_text("Built-in Tools", timeout=8000)
+    expect(page.locator(".admin-sub.active .page-title")).to_have_text("Built-in Tools", timeout=8000)
     page.locator('[data-testid="tab-web"]').click()
     toggle_after = page.locator(
         '#tools-panel-web input[data-testid="tool-toggle"][data-name="web_search"]'
@@ -136,7 +146,7 @@ def test_admin_tools_tile_toggle_does_not_navigate(app_clean: str, page: Page) -
     target is inside .tool-enable-switch).
     """
     page.goto(f"{app_clean}#admin/tools")
-    expect(page.locator(".area-admin .page-title")).to_have_text("Built-in Tools", timeout=8000)
+    expect(page.locator(".admin-sub.active .page-title")).to_have_text("Built-in Tools", timeout=8000)
     initial_hash = page.evaluate("location.hash")
     page.locator('[data-testid="tab-web"]').click()
     toggle = page.locator(
@@ -162,7 +172,7 @@ def test_admin_tools_active_tab_persists_across_toggle_re_render(
     otherwise every toggle bounces them back to the Filesystem default.
     """
     page.goto(f"{app_clean}#admin/tools")
-    expect(page.locator(".area-admin .page-title")).to_have_text("Built-in Tools", timeout=8000)
+    expect(page.locator(".admin-sub.active .page-title")).to_have_text("Built-in Tools", timeout=8000)
     page.locator('[data-testid="tab-web"]').click()
     expect(page.locator('[data-testid="tab-web"]')).to_have_attribute("aria-selected", "true")
     toggle = page.locator(
@@ -184,7 +194,7 @@ def test_admin_tools_grid_tile_keyboard_navigation(app_clean: str, page: Page) -
     flips the checkbox via the native handler — does NOT also navigate.
     """
     page.goto(f"{app_clean}#admin/tools")
-    expect(page.locator(".area-admin .page-title")).to_have_text("Built-in Tools", timeout=8000)
+    expect(page.locator(".admin-sub.active .page-title")).to_have_text("Built-in Tools", timeout=8000)
     page.locator('[data-testid="tab-web"]').click()
     tile = page.locator('[data-testid="tool-card"][data-name="web_search"]')
     tile.focus()

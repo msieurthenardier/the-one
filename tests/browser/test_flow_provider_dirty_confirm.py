@@ -47,7 +47,7 @@ def test_back_when_clean_no_dialog(app_with_provider: SeededApp, page: Page) -> 
     _open_editor(page, app_with_provider)
     page.locator('[data-testid="back-provider-btn"]').click()
     expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_have_count(0)
-    expect(page.locator(".area-admin .page-title")).to_have_text("LLM Providers", timeout=5000)
+    expect(page.locator(".admin-sub.active .page-title")).to_have_text("LLM Providers", timeout=5000)
     assert page.evaluate("location.hash") == "#admin/providers"
 
 
@@ -87,7 +87,7 @@ def test_back_dialog_confirm_navigates_to_grid(app_with_provider: SeededApp, pag
 
     page.locator('[data-testid="modal-confirm-btn"]').click()
     expect(overlay).to_have_count(0)
-    expect(page.locator(".area-admin .page-title")).to_have_text("LLM Providers", timeout=5000)
+    expect(page.locator(".admin-sub.active .page-title")).to_have_text("LLM Providers", timeout=5000)
     assert page.evaluate("location.hash") == "#admin/providers"
 
 
@@ -151,7 +151,7 @@ def test_section_nav_from_grid_no_dialog_after_prior_discard(
     _make_dirty(page)
     page.locator('[data-testid="back-provider-btn"]').click()
     page.locator('[data-testid="modal-confirm-btn"]').click()
-    expect(page.locator(".area-admin .page-title")).to_have_text("LLM Providers", timeout=5000)
+    expect(page.locator(".admin-sub.active .page-title")).to_have_text("LLM Providers", timeout=5000)
     # Now navigate from the grid to System — no dialog because no editor.
     page.locator('.section-nav-item[data-section="general"]').click()
     expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_have_count(0)
@@ -169,7 +169,7 @@ def test_save_resets_dirty(app_with_provider: SeededApp, page: Page) -> None:
 
     page.locator('[data-testid="back-provider-btn"]').click()
     expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_have_count(0)
-    expect(page.locator(".area-admin .page-title")).to_have_text("LLM Providers", timeout=5000)
+    expect(page.locator(".admin-sub.active .page-title")).to_have_text("LLM Providers", timeout=5000)
 
 
 @pytest.mark.browser

@@ -93,7 +93,7 @@ def test_openrouter_create_navigate_back_and_reopen(app_clean: str, page: Page) 
 
     # Navigate back to the provider grid.
     page.locator('[data-testid="back-provider-btn"]').click()
-    expect(page.locator(".area-admin .page-title")).to_have_text("LLM Providers", timeout=5000)
+    expect(page.locator(".admin-sub.active .page-title")).to_have_text("LLM Providers", timeout=5000)
 
     # The tile should be visible.
     tile = page.locator('[data-testid="provider-card"]')

@@ -26,7 +26,7 @@ def test_editor_renders_canonical_header_in_edit_mode(
     expect(page.locator(".editor-title")).to_have_text("mock")
     # Subtitle includes provider type. base_url for mock is empty string so we
     # only assert the type token is present.
-    expect(page.locator(".editor-subtitle")).to_contain_text("mock")
+    expect(page.locator(".editor-sub")).to_contain_text("mock")
 
 
 @pytest.mark.browser
@@ -34,28 +34,28 @@ def test_editor_renders_canonical_header_in_create_mode(app_clean: str, page: Pa
     page.goto(f"{app_clean}#admin/providers/new")
     expect(page.locator(".editor-title")).to_have_text("New Provider", timeout=8000)
     # Create mode omits the subtitle paragraph entirely.
-    expect(page.locator(".editor-subtitle")).to_have_count(0)
+    expect(page.locator(".editor-sub")).to_have_count(0)
 
 
 @pytest.mark.browser
 def test_editor_action_cluster_order_in_edit_mode(app_with_provider: SeededApp, page: Page) -> None:
     page.goto(f"{app_with_provider.base_url}#admin/providers/{app_with_provider.provider_id}")
-    expect(page.locator(".form-actions .back-btn")).to_be_visible(timeout=8000)
-    expect(page.locator(".form-actions .cancel-btn")).to_be_visible()
-    expect(page.locator(".form-actions .save-btn")).to_be_visible()
-    expect(page.locator(".form-actions .test-provider-btn")).to_be_visible()
-    expect(page.locator(".form-actions .editor-error")).to_have_count(1)
+    expect(page.locator(".editor-actions .back-btn")).to_be_visible(timeout=8000)
+    expect(page.locator(".editor-actions .cancel-btn")).to_be_visible()
+    expect(page.locator(".editor-actions .save-btn")).to_be_visible()
+    expect(page.locator(".editor-actions .test-provider-btn")).to_be_visible()
+    expect(page.locator(".editor-actions .editor-error")).to_have_count(1)
 
 
 @pytest.mark.browser
 def test_editor_action_cluster_order_in_create_mode(app_clean: str, page: Page) -> None:
     page.goto(f"{app_clean}#admin/providers/new")
-    expect(page.locator(".form-actions .back-btn")).to_be_visible(timeout=8000)
-    expect(page.locator(".form-actions .cancel-btn")).to_be_visible()
-    expect(page.locator(".form-actions .save-btn")).to_be_visible()
+    expect(page.locator(".editor-actions .back-btn")).to_be_visible(timeout=8000)
+    expect(page.locator(".editor-actions .cancel-btn")).to_be_visible()
+    expect(page.locator(".editor-actions .save-btn")).to_be_visible()
     # No Test button in create mode.
-    expect(page.locator(".form-actions .test-provider-btn")).to_have_count(0)
-    expect(page.locator(".form-actions .editor-error")).to_have_count(1)
+    expect(page.locator(".editor-actions .test-provider-btn")).to_have_count(0)
+    expect(page.locator(".editor-actions .editor-error")).to_have_count(1)
 
 
 # ── Save / Cancel disabled-SSoT ──────────────────────────────────────────
@@ -97,7 +97,7 @@ def test_create_cancel_navigates_to_grid_when_dirty(app_clean: str, page: Page) 
     page.locator("#pf-name").fill("typed-name")
     expect(page.locator(".cancel-btn")).not_to_be_disabled()
     page.locator(".cancel-btn").click()
-    expect(page.locator(".area-admin .page-title")).to_have_text("LLM Providers", timeout=5000)
+    expect(page.locator(".admin-sub.active .page-title")).to_have_text("LLM Providers", timeout=5000)
     assert page.evaluate("location.hash") == "#admin/providers"
 
 
@@ -115,7 +115,7 @@ def test_back_button_always_enabled(app_with_provider: SeededApp, page: Page) ->
 def test_danger_zone_renders_in_edit_mode(app_with_provider: SeededApp, page: Page) -> None:
     page.goto(f"{app_with_provider.base_url}#admin/providers/{app_with_provider.provider_id}")
     expect(page.locator(".editor-section.danger-zone")).to_be_visible(timeout=8000)
-    expect(page.locator(".section-title.danger-zone-title")).to_have_text("Danger Zone")
+    expect(page.locator(".section-label.danger-zone-title")).to_have_text("Danger Zone")
     expect(page.locator('[data-testid="delete-provider-btn"]')).to_be_visible()
 
 
@@ -138,7 +138,7 @@ def test_delete_two_step_confirm(app_with_provider: SeededApp, page: Page) -> No
     expect(delete_btn).to_have_class(re.compile(r"\bconfirm-delete\b"))
     # Second click actually deletes.
     delete_btn.click()
-    expect(page.locator(".area-admin .page-title")).to_have_text("LLM Providers", timeout=5000)
+    expect(page.locator(".admin-sub.active .page-title")).to_have_text("LLM Providers", timeout=5000)
     assert page.evaluate("location.hash") == "#admin/providers"
 
 

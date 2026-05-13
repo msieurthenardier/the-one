@@ -20,11 +20,11 @@ def test_first_start_provider_setup_flow(app_clean: str, page: Page) -> None:
     base_url = app_clean
 
     # 1. Open app (defaults to #chat). Welcome canvas guidance shows the
-    #    full setup path: Settings + Agent Studio.
+    #    full setup path: LLM Settings + Agent Studio.
     page.goto(base_url)
-    welcome_guidance = page.locator(".chat-welcome-guidance")
+    welcome_guidance = page.locator(".chat-empty-guidance")
     expect(welcome_guidance).to_be_visible(timeout=5000)
-    expect(welcome_guidance).to_contain_text("Settings")
+    expect(welcome_guidance).to_contain_text("LLM Settings")
     expect(welcome_guidance).to_contain_text("Agent Studio")
 
     # 2. Navigate to Admin → LLM Providers.

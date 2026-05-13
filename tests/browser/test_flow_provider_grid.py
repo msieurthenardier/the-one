@@ -21,8 +21,8 @@ from playwright.sync_api import Page, expect
 @pytest.mark.browser
 def test_provider_grid_page_header(app_clean: str, page: Page) -> None:
     page.goto(f"{app_clean}#admin/providers")
-    expect(page.locator(".area-admin .page-header")).to_be_visible(timeout=8000)
-    expect(page.locator(".area-admin .page-title")).to_have_text("LLM Providers")
+    expect(page.locator(".admin-sub.active .page-header")).to_be_visible(timeout=8000)
+    expect(page.locator(".admin-sub.active .page-title")).to_have_text("LLM Providers")
     expect(page.locator('[data-testid="new-provider-btn"]')).to_be_visible()
 
 
@@ -105,7 +105,7 @@ def test_cancel_from_create_returns_to_grid(app_clean: str, page: Page) -> None:
     expect(page.locator(".editor-title")).to_have_text("New Provider", timeout=8000)
     # Clean form — Cancel disabled, use Back to return to the grid.
     page.locator('[data-testid="back-provider-btn"]').click()
-    expect(page.locator(".area-admin .page-title")).to_have_text("LLM Providers", timeout=5000)
+    expect(page.locator(".admin-sub.active .page-title")).to_have_text("LLM Providers", timeout=5000)
     assert page.evaluate("location.hash") == "#admin/providers"
 
 
@@ -116,7 +116,7 @@ def test_unknown_provider_id_falls_back_to_grid(app_clean: str, page: Page) -> N
     # No providers exist (app_clean), so the grid renders empty state and
     # the unknown id is held in pending-state pending future fetch resolution.
     # The page should NOT crash; either grid or empty-state should show.
-    fallback = page.locator(".area-admin .page-header, .editor-error").first
+    fallback = page.locator(".admin-sub.active .page-header, .editor-error").first
     expect(fallback).to_be_visible(timeout=8000)
     # URL is not silently overwritten — the pending-id is held
     current_hash = page.evaluate("location.hash")
