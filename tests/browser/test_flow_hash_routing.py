@@ -26,11 +26,13 @@ def test_hash_routing_admin_subpage_persists_on_refresh(app_clean: str, page: Pa
 
     # 1. Open app (lands on #chat by default).
     page.goto(base_url)
-    expect(page.locator(".app-picker-button")).to_be_visible(timeout=5000)
+    # Topbar readiness probe: wait for the chat picker button specifically.
+    # (.app-picker-button matches 3 elements in strict mode — use data-area to
+    # single out one deterministic handle.)
+    expect(page.locator('.app-picker-button[data-area="chat"]')).to_be_visible(timeout=5000)
 
-    # 2. Navigate to Admin via picker.
-    page.locator(".app-picker-button").click()
-    page.locator('.app-picker-option[data-area="admin"]').click()
+    # 2. Navigate to Admin via picker button (direct navigation, no dropdown).
+    page.locator('.app-picker-button[data-area="admin"]').click()
 
     # 3. Admin area is now active — System category is the default (F6 leg 01).
     expect(page.locator(".page-title")).to_have_text("General", timeout=5000)
@@ -153,7 +155,7 @@ def test_studio_root_redirects_to_agents(app_clean: str, page: Page) -> None:
 
     page.goto(f"{base_url}#studio")
     # Wait for studio to mount.
-    expect(page.locator(".section-nav-header")).to_have_text("Studio", timeout=8000)
+    expect(page.locator('.section-nav[aria-label="Agent Studio sections"]')).to_be_visible(timeout=8000)
 
     # URL was rewritten by the F3 router (replaceState, not pushState).
     assert page.evaluate("location.hash") == "#studio/agents"
@@ -165,14 +167,14 @@ def test_studio_knowledge_section_persists_on_refresh(app_clean: str, page: Page
     base_url = app_clean
 
     page.goto(f"{base_url}#studio/knowledge")
-    expect(page.locator(".section-nav-header")).to_have_text("Studio", timeout=8000)
+    expect(page.locator('.section-nav[aria-label="Agent Studio sections"]')).to_be_visible(timeout=8000)
 
     stub = page.locator('[data-testid="studio-knowledge-stub"]')
     expect(stub).to_be_visible(timeout=5000)
     assert page.evaluate("location.hash") == "#studio/knowledge"
 
     page.reload()
-    expect(page.locator(".section-nav-header")).to_have_text("Studio", timeout=8000)
+    expect(page.locator('.section-nav[aria-label="Agent Studio sections"]')).to_be_visible(timeout=8000)
     expect(page.locator('[data-testid="studio-knowledge-stub"]')).to_be_visible(timeout=5000)
     assert page.evaluate("location.hash") == "#studio/knowledge"
 
@@ -219,14 +221,14 @@ def test_hash_routing_replacestate_no_history_growth(app_clean: str, page: Page)
 
     # 1. Open app.
     page.goto(base_url)
-    expect(page.locator(".app-picker-button")).to_be_visible(timeout=5000)
+    # Topbar readiness probe: use data-area="chat" to resolve to a single element.
+    expect(page.locator('.app-picker-button[data-area="chat"]')).to_be_visible(timeout=5000)
 
     # 2. Capture baseline history.length (after initial load).
     baseline = page.evaluate("history.length")
 
     # 3. Navigate to Admin via picker (cross-area — pushes history).
-    page.locator(".app-picker-button").click()
-    page.locator('.app-picker-option[data-area="admin"]').click()
+    page.locator('.app-picker-button[data-area="admin"]').click()
     expect(page.locator(".page-title")).to_have_text("General", timeout=5000)
 
     after_cross_area = page.evaluate("history.length")

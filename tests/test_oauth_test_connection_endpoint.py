@@ -113,6 +113,23 @@ async def test_test_connect_returns_ok_when_tokens_present(client_and_repo) -> N
             # Minimal capabilities dict for this test (shape not asserted here).
             return {"tools": {}, "resources": None, "prompts": None, "logging": None, "experimental": None}
 
+        # F4 L2 (M08): spec-optional serverInfo + instructions; None default.
+        @property
+        def server_info(self):
+            return None
+
+        @property
+        def instructions(self):
+            return None
+
+        @property
+        def meta(self):
+            return None
+
+        @property
+        def negotiated_protocol_version(self):
+            return "2025-06-18"
+
     # MCPClient is lazily imported inside the endpoint handler, so we patch
     # it at its source module (not at api.py which doesn't hold a module-level ref).
     with patch("the_one.mcp.client.MCPClient", _MockMCPClient):
@@ -309,6 +326,22 @@ async def test_test_connect_success_includes_capabilities(client_and_repo) -> No
         def server_capabilities(self):
             return fake_capabilities
 
+        @property
+        def server_info(self):
+            return None
+
+        @property
+        def instructions(self):
+            return None
+
+        @property
+        def meta(self):
+            return None
+
+        @property
+        def negotiated_protocol_version(self):
+            return "2025-06-18"
+
     with patch("the_one.mcp.client.MCPClient", _MockMCPClientWithCaps):
         resp = await c.post("/api/mcp-sources/src-test-connect-1/test/connect")
 
@@ -358,6 +391,22 @@ async def test_test_connect_capabilities_preserves_none_values(client_and_repo) 
         @property
         def server_capabilities(self):
             return sparse_capabilities
+
+        @property
+        def server_info(self):
+            return None
+
+        @property
+        def instructions(self):
+            return None
+
+        @property
+        def meta(self):
+            return None
+
+        @property
+        def negotiated_protocol_version(self):
+            return "2025-06-18"
 
     with patch("the_one.mcp.client.MCPClient", _MockMCPClientSparse):
         resp = await c.post("/api/mcp-sources/src-test-connect-1/test/connect")
@@ -476,6 +525,22 @@ async def test_test_connect_uses_override_payload_url(client_and_repo) -> None:
         def server_capabilities(self):
             return {"tools": {}, "resources": None, "prompts": None, "logging": None, "experimental": None}
 
+        @property
+        def server_info(self):
+            return None
+
+        @property
+        def instructions(self):
+            return None
+
+        @property
+        def meta(self):
+            return None
+
+        @property
+        def negotiated_protocol_version(self):
+            return "2025-06-18"
+
     override_url = "https://operator-edited.example.com/mcp"
     with patch("the_one.mcp.client.MCPClient", _CapturingMCPClient):
         resp = await c.post(
@@ -525,6 +590,22 @@ async def test_test_connect_override_preserves_oauth_managed_secrets(client_and_
         @property
         def server_capabilities(self):
             return {"tools": {}, "resources": None, "prompts": None, "logging": None, "experimental": None}
+
+        @property
+        def server_info(self):
+            return None
+
+        @property
+        def instructions(self):
+            return None
+
+        @property
+        def meta(self):
+            return None
+
+        @property
+        def negotiated_protocol_version(self):
+            return "2025-06-18"
 
     with patch("the_one.mcp.client.MCPClient", _CapturingMCPClient):
         resp = await c.post(

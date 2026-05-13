@@ -227,21 +227,50 @@
     var html = '';
     for (var i = 0; i < tools.length; i++) {
       var t = tools[i];
+      var desc = t.description || '';
+      var truncated = desc.length > 100 ? desc.slice(0, 100) + '…' : desc;
+
+      // Summary line: `name — preview` (single line, 100-char ellipsis,
+      // matches the agent-editor MCPs tab tile shape). Body reveals the
+      // full description (with line breaks preserved) + the input schema
+      // collapsible. Mission 08 F4 L3.
       html += '<details class="mcp-tool-item">';
-      html += '<summary class="mcp-tool-summary"><span class="mcp-tool-name">' + escapeHtml(t.name) + '</span></summary>';
-      if (t.description) {
-        var safeDesc = escapeHtml(t.description).replace(/\n/g, '<br>');
-        html += '<div class="mcp-tool-description">' + safeDesc + '</div>';
-      } else {
-        html += '<div class="mcp-tool-description mcp-tool-description-empty">(no description provided)</div>';
+      html += '<summary class="mcp-tool-summary">';
+      html += '<span class="mcp-tool-summary-text">';
+      html += '<span class="mcp-tool-name">' + escapeHtml(t.name) + '</span>';
+      if (desc) {
+        html += '<span class="mcp-tool-summary-desc"> — ' + escapeHtml(truncated) + '</span>';
       }
+      html += '</span>';
+      html += '<span class="mcp-tool-chevron">▸</span>';
+      html += '</summary>';
+
+      html += '<div class="mcp-tool-body">';
+
+      // Section 1: Prompt (the tool description; this IS what the LLM sees).
+      html += '<div class="mcp-tool-section">';
+      html += '<div class="mcp-tool-section-label">Prompt</div>';
+      if (desc) {
+        var safeDesc = escapeHtml(desc).replace(/\n/g, '<br>');
+        html += '<div class="mcp-tool-full-description">' + safeDesc + '</div>';
+      } else {
+        html += '<div class="mcp-tool-full-description mcp-tool-description-empty">(no description provided)</div>';
+      }
+      html += '</div>';
+
+      // Section 2: Input Schema (always rendered, even when absent — labeled
+      // section makes the contract visible rather than silently absent).
+      html += '<div class="mcp-tool-section">';
+      html += '<div class="mcp-tool-section-label">Input Schema</div>';
       if (t.input_schema && Object.keys(t.input_schema).length > 0) {
         var schemaJson = JSON.stringify(t.input_schema, null, 2);
-        html += '<details class="mcp-tool-schema">';
-        html += '<summary class="mcp-tool-schema-summary">Input schema</summary>';
         html += '<pre class="mcp-tool-schema-content">' + escapeHtml(schemaJson) + '</pre>';
-        html += '</details>';
+      } else {
+        html += '<div class="mcp-tool-schema-empty">(no input schema)</div>';
       }
+      html += '</div>';
+
+      html += '</div>';
       html += '</details>';
     }
     return html;
@@ -263,6 +292,110 @@
       'Server supports: <strong>' + present.join(', ') + '</strong>' +
       '</div>'
     );
+  }
+
+  // F4 L3 (M08): Render the "Server" section — surfaces everything the
+  // MCP `initialize()` response gave us:
+  //   - serverInfo: title/name/version/websiteUrl/icons
+  //   - negotiated protocol version (cache.protocol_version)
+  //   - instructions (server-supplied usage prose, often long)
+  //   - capabilities (rendered as the same flags line as the Tools status)
+  //   - _meta (free-shape; only displayed when populated)
+  // Defensive on every field — all are spec-optional. Returns '' if the
+  // cache has none of them.
+  function renderServerInfoSection(cache) {
+    var escapeHtml = window.App.escapeHtml;
+    var escapeAttr = window.App.escapeAttr;
+    if (!cache) return '';
+
+    var info = cache.server_info || {};
+    var title = info.title || info.name || '';
+    var nameSubtitle = (info.title && info.name && info.title !== info.name) ? info.name : '';
+    var version = info.version || '';
+    var websiteUrl = info.websiteUrl || '';
+    var icons = Array.isArray(info.icons) ? info.icons : [];
+    var protocolVersion = cache.protocol_version || '';
+    var instructions = cache.instructions || '';
+    var capabilities = cache.capabilities || null;
+    var meta = cache.meta && typeof cache.meta === 'object' && Object.keys(cache.meta).length > 0
+      ? cache.meta
+      : null;
+
+    // If the cache has none of the renderable fields, skip the section
+    // entirely (caller already gates on the same condition; defensive).
+    if (!title && !version && !websiteUrl && icons.length === 0 &&
+        !protocolVersion && !instructions && !capabilities && !meta) {
+      return '';
+    }
+
+    var html = '';
+    html += '<div class="editor-section mcp-server-info-section" data-testid="mcp-server-info-section">';
+    html += '<div class="section-title">Server</div>';
+
+    // Identity row — icon (if any) + title + version + protocol version badge.
+    html += '<div class="mcp-server-identity">';
+    if (icons.length > 0 && icons[0] && icons[0].src) {
+      html += '<img class="mcp-server-icon" src="' + escapeAttr(icons[0].src) + '"' +
+        (icons[0].mimeType ? ' alt="' + escapeAttr(icons[0].mimeType) + '"' : ' alt=""') +
+        ' loading="lazy" decoding="async">';
+    }
+    html += '<div class="mcp-server-identity-text">';
+    if (title) {
+      html += '<div class="mcp-server-title">' + escapeHtml(title) + '</div>';
+    }
+    if (nameSubtitle) {
+      html += '<div class="mcp-server-name-subtitle">' + escapeHtml(nameSubtitle) + '</div>';
+    }
+    var versionLineParts = [];
+    if (version) versionLineParts.push('v' + escapeHtml(version));
+    if (protocolVersion) versionLineParts.push('protocol ' + escapeHtml(protocolVersion));
+    if (versionLineParts.length > 0) {
+      html += '<div class="mcp-server-version-line">' + versionLineParts.join(' · ') + '</div>';
+    }
+    if (websiteUrl) {
+      html += '<div class="mcp-server-website">' +
+        '<a href="' + escapeAttr(websiteUrl) + '" target="_blank" rel="noopener noreferrer">' +
+          escapeHtml(websiteUrl) +
+        '</a>' +
+      '</div>';
+    }
+    html += '</div>'; // mcp-server-identity-text
+    html += '</div>'; // mcp-server-identity
+
+    // Capabilities — reuse the existing flags renderer for vocabulary parity.
+    if (capabilities) {
+      html += renderCapabilityFlags(capabilities);
+    }
+
+    // Instructions — collapsible since Cloudflare-class servers ship
+    // multi-paragraph guidance. Default closed; renders the prose with
+    // newlines preserved.
+    if (instructions) {
+      html += '<details class="mcp-server-instructions" data-testid="mcp-server-instructions">';
+      html += '<summary class="mcp-server-instructions-summary">' +
+        '<span class="mcp-server-instructions-label">Instructions</span>' +
+        '<span class="mcp-server-instructions-chevron">▸</span>' +
+      '</summary>';
+      html += '<div class="mcp-server-instructions-body">' +
+        escapeHtml(instructions).replace(/\n/g, '<br>') +
+      '</div>';
+      html += '</details>';
+    }
+
+    // _meta — debug/free-shape. Render as collapsible JSON if non-empty.
+    if (meta) {
+      var metaJson = JSON.stringify(meta, null, 2);
+      html += '<details class="mcp-server-meta" data-testid="mcp-server-meta">';
+      html += '<summary class="mcp-server-meta-summary">' +
+        '<span class="mcp-server-meta-label">Metadata</span>' +
+        '<span class="mcp-server-meta-chevron">▸</span>' +
+      '</summary>';
+      html += '<pre class="mcp-server-meta-content">' + escapeHtml(metaJson) + '</pre>';
+      html += '</details>';
+    }
+
+    html += '</div>'; // mcp-server-info-section
+    return html;
   }
 
   // ── Public entry point ──────────────────────────────────────────────
@@ -345,6 +478,15 @@
         html += '<button type="button" class="btn-outlined-primary mcp-reset-connection-btn" data-testid="reset-mcp-connection-btn" title="' + escapeAttr(resetTooltip) + '" aria-label="' + escapeAttr(resetTooltip) + '" data-name="' + escapeAttr(source.name || '') + '"><span data-confirm-title>Reset connection</span></button>';
       }
       var connCache = (source.config && source.config._cache) || null;
+      // F4 L7 (M08): LED moved from the Tools-status banner up to the
+      // connection-actions row so it sits adjacent to the Refresh button
+      // that drives its state. Computed from cache shape (mirrors the
+      // success-when-tools-present heuristic the banner uses below).
+      var connLedState = (connCache && Array.isArray(connCache.tools)) ? 'success' : 'idle';
+      var connLedLabel = (connLedState === 'success') ? 'Connected' : 'Not connected';
+      html += '<span class="indicator-led indicator-led--' + connLedState +
+              '" data-testid="mcp-connection-led" data-state="' + connLedState +
+              '" aria-label="' + connLedLabel + '"></span>';
       var connLastUpdatedText = connCache ? formatTimeAgo(connCache.last_updated) : '';
       var connLastUpdatedHidden = connLastUpdatedText ? '' : ' hidden';
       html += '<div class="mcp-tools-last-updated" data-testid="mcp-tools-last-updated"' +
@@ -421,15 +563,24 @@
     // post-test render path (capability flags + collapsible schemas)
     // shares the same code path with streamable-http.
     if (!isCreate && source && (source.type === 'streamable-http' || source.type === 'stdio')) {
+      var cache = (source.config && source.config._cache) || null;
+      // F4 L3 (M08): Server section — surfaces server-declared identity
+      // (serverInfo: title / name / version / websiteUrl / icons), the
+      // negotiated protocol version, the server's free-form instructions
+      // prose, declared capabilities, and any `_meta` extras. Rendered
+      // above Tools when any of these are available in the cache.
+      if (cache && (cache.server_info || cache.instructions || cache.capabilities || cache.meta || cache.protocol_version)) {
+        html += renderServerInfoSection(cache);
+      }
       html += '<div class="editor-section mcp-tools-section">';
       html += '<div class="section-title">Tools</div>';
-      var cache = (source.config && source.config._cache) || null;
       if (cache && Array.isArray(cache.tools)) {
+        // F4 L7 (M08): LED + "Connected." moved up to the connection-actions
+        // row. The status banner here keeps the tool-count line + the
+        // `mcp-test-status` data-testid that browser tests assert against.
         var statusInner = (
-          '<span class="mcp-tools-success">✓ Connected.</span> ' +
           'Server exposes <strong>' + cache.tools.length + '</strong> tool' +
-          (cache.tools.length === 1 ? '' : 's') + '.' +
-          renderCapabilityFlags(cache.capabilities)
+          (cache.tools.length === 1 ? '' : 's') + '.'
         );
         html += '<div class="mcp-tools-status" data-testid="mcp-test-status">' + statusInner + '</div>';
         html += '<div class="mcp-tools-list" data-testid="mcp-tools-list">' +
@@ -1500,13 +1651,25 @@
       testBtn.disabled = false; // re-enable on final state
     }
 
-    // F9 L1 (vibing follow-up): popup-launch + close-watcher extracted
-    // so both the auto-popup branch (manual click) and the explicit
-    // "Sign in" consent-button branch (auto-run after create) share one
-    // implementation. `consentUrl` is the auth_required response's URL;
-    // on popup-close the recursive Phase 2 re-POST fires with the same
-    // formData + onSuccess hook, but noAutoPopup is dropped — Phase 2
-    // returns ok or error, never auth_required again.
+    // F9 L1 (vibing follow-up) + F4 L3 popup-loop fix: popup-launch +
+    // close-watcher extracted so both the auto-popup branch (manual
+    // click) and the explicit "Sign in" consent-button branch (auto-run
+    // after create) share one implementation. `consentUrl` is the
+    // auth_required response's URL.
+    //
+    // Close-watcher contract (F4 L3 — fix the Cloudflare-class popup
+    // loop): the backend's /api/oauth/callback page posts a result
+    // message to `window.opener` BEFORE closing. The watcher branches
+    // on the received result rather than blindly re-POSTing /test/connect:
+    //   - 'success' → defensive re-POST with noAutoPopup=true. Phase A
+    //     should now succeed; if the token-exchange race wins we'd loop
+    //     forever without noAutoPopup, so we set it as a guard.
+    //   - 'failed' / 'expired' → render error + "Sign in" retry button.
+    //     The IdP's error_description is surfaced so the operator can
+    //     diagnose. NO re-POST.
+    //   - no message received (user cancelled the popup before OAuth
+    //     resolved, or browser blocked the postMessage) → render
+    //     "Sign-in did not complete" + retry button. NO re-POST.
     function launchConsentPopup(consentUrl) {
       statusEl.textContent = 'Opening consent popup…';
       var popupW = 600;
@@ -1528,17 +1691,140 @@
         settle();
         return;
       }
-      var interval = setInterval(function () {
-        if (popup.closed) {
-          clearInterval(interval);
-          // Phase 2 re-POST. Recursive call handles its own settle().
-          // Pass through the same formData so the second POST hits the
-          // same in-flight values the operator initiated the test with.
-          // Thread onSuccess through so the post-OAuth refetch fires
-          // when Phase 2 lands ok. noAutoPopup is dropped — Phase 2
-          // never returns auth_required (tokens are now persisted).
-          handleTestConnection(sourceId, container, testBtn, formData, onSuccess);
+      // F4 L3 — postMessage-independent polling. Earlier iterations
+      // gated polling on a `success` postMessage from /oauth/callback,
+      // but Cloudflare's OAuth page sets COOP (or similar) which severs
+      // `window.opener` across the cross-origin navigation chain. By
+      // the time the popup is back on loopback, opener is null and the
+      // postMessage silently no-ops — polling never starts, popup
+      // closes, UI shows "did not complete" even though OAuth succeeded.
+      //
+      // Decoupled design: poll `GET /api/mcp-sources/{id}` for
+      // `has_access_token: true` from popup-open. Polling is the source
+      // of truth for success. postMessage demotes to a fast-fail signal
+      // for failed/expired (short-circuits the wait to give the
+      // operator the IdP's error text immediately).
+      //
+      // States:
+      //   POLLING — popup open or recently closed; checking for tokens.
+      //   DONE    — final action taken (re-POST or retry-UI). Idempotent.
+      //
+      // Popup-close handling: when popup.closed flips, we don't bail
+      // immediately — give a short grace window (a few more polls) in
+      // case tokens are still landing. If polling still misses, render
+      // retry. If user cancelled, polling never finds tokens and falls
+      // through to retry after the grace window.
+      var state = 'POLLING';
+      var pollTimer = null;
+      var pollAttempts = 0;
+      var maxPollAttempts = 30; // 30 × 500ms = 15s overall ceiling
+      var graceAfterClose = 6; // 3s extra polls after popup-close
+      var attemptsCapAfterClose = null; // set on close; bails when reached
+
+      function cleanup() {
+        if (pollTimer) clearInterval(pollTimer);
+        window.removeEventListener('message', onOAuthMessage);
+      }
+
+      function finalize(action) {
+        if (state === 'DONE') return;
+        state = 'DONE';
+        cleanup();
+        action();
+      }
+
+      function renderRetryUi(headerText) {
+        statusEl.innerHTML = '';
+        var msg = document.createElement('span');
+        msg.className = 'mcp-tools-error';
+        msg.textContent = headerText + ' ';
+        statusEl.appendChild(msg);
+        var retryBtn = document.createElement('button');
+        retryBtn.type = 'button';
+        retryBtn.className = 'btn-outlined-primary';
+        retryBtn.setAttribute('data-testid', 'mcp-consent-btn');
+        retryBtn.textContent = 'Sign in';
+        retryBtn.addEventListener('click', function () {
+          launchConsentPopup(consentUrl);
+        });
+        statusEl.appendChild(retryBtn);
+      }
+
+      function onOAuthMessage(evt) {
+        if (state === 'DONE') return;
+        if (evt.origin !== window.location.origin) return;
+        var d = evt.data;
+        if (!d || typeof d !== 'object') return;
+        if (d.type !== 'mcp-oauth-result') return;
+        // success status is informational only — polling owns that
+        // transition. failed/expired short-circuit to retry so the
+        // operator sees the IdP's error without waiting out the poll.
+        if (d.status === 'failed') {
+          var failMsg = d.description || d.error || 'sign-in failed';
+          finalize(function () {
+            if (!popup.closed) { try { popup.close(); } catch (e) { /* */ } }
+            renderRetryUi('✗ Sign-in failed: ' + failMsg + '.');
+            settle();
+          });
+        } else if (d.status === 'expired') {
+          finalize(function () {
+            if (!popup.closed) { try { popup.close(); } catch (e) { /* */ } }
+            renderRetryUi('✗ Sign-in window expired.');
+            settle();
+          });
         }
+      }
+      window.addEventListener('message', onOAuthMessage);
+
+      statusEl.textContent = 'Awaiting sign-in…';
+
+      pollTimer = setInterval(function () {
+        if (state === 'DONE') return;
+
+        // Track popup-close transition (first observation only).
+        var popupNowClosed = popup.closed;
+        if (popupNowClosed && attemptsCapAfterClose === null) {
+          attemptsCapAfterClose = pollAttempts + graceAfterClose;
+          statusEl.textContent = 'Finalizing sign-in…';
+        }
+
+        pollAttempts++;
+
+        fetch('/api/mcp-sources/' + encodeURIComponent(sourceId))
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (src) {
+            if (state === 'DONE') return;
+            if (src && src.has_access_token === true) {
+              finalize(function () {
+                if (!popup.closed) { try { popup.close(); } catch (e) { /* */ } }
+                // Phase A re-POST. noAutoPopup defensive — if something
+                // weird leaves Phase A still failing, retry UI surfaces
+                // instead of looping.
+                handleTestConnection(sourceId, container, testBtn, formData, onSuccess, { noAutoPopup: true });
+              });
+              return;
+            }
+            var hitOverallCap = pollAttempts >= maxPollAttempts;
+            var hitGraceCap = attemptsCapAfterClose !== null && pollAttempts >= attemptsCapAfterClose;
+            if (hitOverallCap || hitGraceCap) {
+              finalize(function () {
+                var label;
+                if (hitGraceCap && !hitOverallCap) {
+                  // Popup closed without tokens landing in the grace
+                  // window — likely manual cancel or IdP rejection
+                  // whose postMessage didn't reach us (cross-origin
+                  // opener severed).
+                  label = 'Sign-in did not complete.';
+                } else {
+                  label = 'Sign-in timed out — tokens did not persist within '
+                    + (maxPollAttempts / 2) + 's.';
+                }
+                renderRetryUi(label);
+                settle();
+              });
+            }
+          })
+          .catch(function () { /* transient fetch error; next tick retries */ });
       }, 500);
     }
 
@@ -1581,12 +1867,19 @@
           // ship verbose multi-paragraph descriptions; <details> keeps the
           // section scannable while preserving full content.
           // F8 L2: append capability-flags one-liner after the tools count.
+          // F4 L7 (M08): LED moved up to the connection-actions row; the
+          // status banner here keeps only the tool-count line. Update both
+          // sites so the new LED reflects the post-/test/connect success.
           statusEl.innerHTML = (
-            '<span class="mcp-tools-success">✓ Connected.</span> ' +
             'Server exposes <strong>' + data.tools.length + '</strong> tool' +
-            (data.tools.length === 1 ? '' : 's') + '.' +
-            renderCapabilityFlags(data.capabilities)
+            (data.tools.length === 1 ? '' : 's') + '.'
           );
+          var ledEl = container.querySelector('[data-testid="mcp-connection-led"]');
+          if (ledEl) {
+            ledEl.className = 'indicator-led indicator-led--success';
+            ledEl.setAttribute('data-state', 'success');
+            ledEl.setAttribute('aria-label', 'Connected');
+          }
           listEl.innerHTML = renderToolsListHtml(data.tools);
           listEl.hidden = false;
           // F9 L1 (vibing): backend just persisted last_updated to ~now;

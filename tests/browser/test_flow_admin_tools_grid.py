@@ -28,8 +28,13 @@ from playwright.sync_api import Page, expect
 
 @pytest.mark.browser
 def test_admin_tools_renders_grid_with_4_tabs(app_clean: str, page: Page) -> None:
-    """Page-title + 4 category tabs in declaration order; Filesystem panel
-    is the default-active surface with 9 tiles visible."""
+    """Page-title + 3 category tabs in declaration order; Filesystem panel
+    is the default-active surface with 9 tiles visible.
+
+    Python tab was removed from the admin tools grid (Leg 02 / later — the
+    Python tools moved to the Execution category or were regrouped). The
+    current 3 tabs are: Filesystem, Execution, Web.
+    """
     page.goto(f"{app_clean}#admin/tools")
     expect(page.locator(".area-admin .page-title")).to_have_text("Built-in Tools", timeout=8000)
 
@@ -37,11 +42,10 @@ def test_admin_tools_renders_grid_with_4_tabs(app_clean: str, page: Page) -> Non
     expect(tablist).to_be_visible()
 
     tabs = tablist.locator('[role="tab"]')
-    expect(tabs).to_have_count(4)
+    expect(tabs).to_have_count(3)
     expect(tabs.nth(0)).to_have_text("Filesystem")
     expect(tabs.nth(1)).to_have_text("Execution")
-    expect(tabs.nth(2)).to_have_text("Python")
-    expect(tabs.nth(3)).to_have_text("Web")
+    expect(tabs.nth(2)).to_have_text("Web")
 
     # Filesystem selected by default; its panel is the visible one.
     expect(page.locator('[data-testid="tab-filesystem"]')).to_have_attribute(
@@ -200,13 +204,14 @@ def test_admin_tools_section_nav_label_is_built_in_tools(app_clean: str, page: P
     (was "Tools"). Distinguishes from MCP / external tool surfaces
     while keeping the URL slug stable at #admin/tools.
 
-    Post-F2 retrofit: the admin nav has 3 entries (System | LLM Providers
-    | Built-in Tools). MCP Servers was relocated to the Studio nav.
+    Post-F2 retrofit: the admin nav has 3 stable entries (General | LLM Providers
+    | Built-in Tools). A 4th "Design Language" entry appears in dev_mode.
+    MCP Servers was relocated to the Studio nav.
     """
     page.goto(f"{app_clean}#admin/general")
-    items = page.locator(".area-admin .section-nav .section-nav-item")
-    expect(items).to_have_count(3, timeout=5000)
-    expect(items.nth(2)).to_have_text("Built-in Tools")
+    nav = page.locator(".area-admin .section-nav")
+    # Assert "Built-in Tools" nav item exists by label (not by count — dev_mode adds Design Language).
+    expect(nav.locator(".section-nav-item", has_text="Built-in Tools")).to_be_visible(timeout=5000)
 
 
 @pytest.mark.browser

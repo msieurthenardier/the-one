@@ -41,7 +41,7 @@ from the_one.mcp.types import MCPTool, MCPToolResult
 
 if TYPE_CHECKING:
     from mcp import ClientSession  # type-only; SDK not loaded at module-load
-    from mcp.types import ServerCapabilities
+    from mcp.types import Implementation, ServerCapabilities
 
 logger = logging.getLogger(__name__)
 
@@ -157,6 +157,19 @@ class MCPClient:
         self._session: ClientSession | None = None
         self._capabilities: ServerCapabilities | None = None
         self._protocol_version: str | None = None
+        # F4 L2 (M08): server-declared identity + free-form usage prose from the
+        # MCP initialize() response. Optional in the spec (servers MAY omit
+        # either); when present they let the agent-editor MCPs tab surface a
+        # subtitle line + hover tooltip without forcing a fresh probe. Stored
+        # as model instance / raw str respectively so callers choose how to
+        # serialize; the `server_info` property emits the JSON-mode dump.
+        self._server_info: Implementation | None = None
+        self._instructions: str | None = None
+        # F4 L3 (M08): InitializeResult._meta — arbitrary server-supplied
+        # metadata, spec-optional and free-shape. Stored as a plain dict so
+        # the editor surface can render it generically without coupling to
+        # any specific server's vocabulary. None when omitted by the server.
+        self._meta: dict[str, Any] | None = None
         self._is_alive: bool = False
         # Exact 0.0 sentinel — time.monotonic() never returns 0 on a running
         # system, so `last_activity > 0.0` is meaningful. None would crash
@@ -192,6 +205,50 @@ class MCPClient:
                 "MCPClient is not connected; cannot read server_capabilities."
             )
         return self._capabilities.model_dump(mode="json")
+
+    @property
+    def server_info(self) -> dict[str, Any] | None:
+        """Server-declared identity (``name``/``title``/``version``/``websiteUrl``).
+
+        Mirrors ``server_capabilities`` — guards on ``_is_alive``, returns
+        the JSON-mode model dump with ``None`` fields excluded so the cache
+        payload stays compact. Returns ``None`` when the server omits
+        ``serverInfo`` from its initialize() response (spec-optional).
+        """
+        if not self._is_alive:
+            raise MCPConnectionError(
+                "MCPClient is not connected; cannot read server_info."
+            )
+        if self._server_info is None:
+            return None
+        return self._server_info.model_dump(mode="json", exclude_none=True)
+
+    @property
+    def instructions(self) -> str | None:
+        """Server-supplied free-form usage prose, if any.
+
+        Spec-optional; servers like Cloudflare Docs MCP populate it with
+        substantial guidance. Returns ``None`` when the server omits it.
+        """
+        if not self._is_alive:
+            raise MCPConnectionError(
+                "MCPClient is not connected; cannot read instructions."
+            )
+        return self._instructions
+
+    @property
+    def meta(self) -> dict[str, Any] | None:
+        """Server-supplied ``_meta`` from the InitializeResult, if any.
+
+        Spec-optional; free-shape ``dict[str, Any]``. Returns ``None`` when
+        the server omits ``_meta``. Guards on ``_is_alive`` mirroring the
+        ``server_info`` / ``instructions`` pattern.
+        """
+        if not self._is_alive:
+            raise MCPConnectionError(
+                "MCPClient is not connected; cannot read meta."
+            )
+        return self._meta
 
     def __repr__(self) -> str:
         return (
@@ -431,6 +488,21 @@ class MCPClient:
         # observes the failed state correctly).
         self._capabilities = result.capabilities
         self._protocol_version = result.protocolVersion
+        # F4 L2 (M08): capture spec-optional serverInfo + instructions so the
+        # agent-editor MCPs tab can surface server-declared identity/usage
+        # prose without re-probing. Both default to None when omitted.
+        self._server_info = getattr(result, "serverInfo", None)
+        self._instructions = getattr(result, "instructions", None)
+        # F4 L3 (M08): capture _meta alongside the other spec-optional
+        # initialize() fields. The underlying SDK type may expose it as
+        # ``meta`` or ``_meta`` depending on aliasing; getattr-fallback
+        # handles both. Defaults to None when omitted.
+        meta_val = getattr(result, "meta", None)
+        if meta_val is None:
+            meta_val = getattr(result, "_meta", None)
+        if meta_val is not None and hasattr(meta_val, "model_dump"):
+            meta_val = meta_val.model_dump(mode="json", exclude_none=True)
+        self._meta = meta_val if isinstance(meta_val, dict) else None
         self._is_alive = True
         self._touch_activity()
 
@@ -490,6 +562,14 @@ class MCPClient:
             # _tools_cache is per-session — clear so re-connect rebuilds fresh
             # (tools may change between sessions; stale cache could leak).
             self._tools_cache = None
+            # F4 L2 (M08): _server_info / _instructions are per-session
+            # (servers may rebrand or rewrite usage prose between sessions);
+            # clear so a reconnect repopulates from the fresh initialize().
+            # Reading the public properties post-disconnect raises via the
+            # _is_alive guard, so callers can't observe stale None values.
+            self._server_info = None
+            self._instructions = None
+            self._meta = None
             # Preserve _capabilities, _protocol_version, _last_activity for
             # the F4 pool — once disconnected they're stale but not invalid.
 

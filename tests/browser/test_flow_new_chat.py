@@ -26,7 +26,11 @@ from playwright.sync_api import Page, expect
 
 @pytest.mark.browser
 def test_welcome_no_setup_shows_both_links(app_clean: str, page: Page) -> None:
-    """No providers and no agents → guidance points to Settings AND Agent Studio."""
+    """No providers and no agents → guidance points to LLM Settings AND Agent Studio.
+
+    Link updated from '#admin' → '#admin/providers' (text: 'Settings' → 'LLM Settings')
+    per the chore commit 717cfa5 (UI cleanups + Ollama tool-capability handling).
+    """
     page.goto(app_clean)
     welcome = page.locator('[data-testid="chat-welcome"]')
     expect(welcome).to_be_visible(timeout=5000)
@@ -36,9 +40,9 @@ def test_welcome_no_setup_shows_both_links(app_clean: str, page: Page) -> None:
     expect(page.locator(".chat-welcome-prompt")).to_be_hidden()
 
     # Both deep-links present.
-    settings_link = page.locator('.chat-welcome-link[href="#admin"]')
+    settings_link = page.locator('.chat-welcome-link[href="#admin/providers"]')
     studio_link = page.locator('.chat-welcome-link[href="#studio"]')
-    expect(settings_link).to_have_text("Settings")
+    expect(settings_link).to_have_text("LLM Settings")
     expect(studio_link).to_have_text("Agent Studio")
 
 

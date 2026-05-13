@@ -7,6 +7,14 @@ from playwright.sync_api import Page, expect
 
 
 @pytest.mark.browser
+@pytest.mark.skip(
+    reason=(
+        "Leg 02 topbar redesign replaced the single dropdown picker with 3 independent "
+        "area buttons (data-area='chat|studio|admin'). The aria-expanded / .app-picker-popover "
+        "/ .app-picker-option UX no longer exists. Topbar UX evolution deferred to Flight 6 "
+        "Chat Polish (or a dedicated topbar polish flight). See mission 08 Known Issues."
+    )
+)
 def test_picker_renders_closed(app_clean: str, page: Page) -> None:
     page.goto(app_clean)
     expect(page.locator(".app-picker-button")).to_have_attribute("aria-expanded", "false")
@@ -14,6 +22,14 @@ def test_picker_renders_closed(app_clean: str, page: Page) -> None:
 
 
 @pytest.mark.browser
+@pytest.mark.skip(
+    reason=(
+        "Leg 02 topbar redesign replaced the single dropdown picker with 3 independent "
+        "area buttons (data-area='chat|studio|admin'). The aria-expanded / .app-picker-popover "
+        "/ .app-picker-option UX no longer exists. Topbar UX evolution deferred to Flight 6 "
+        "Chat Polish (or a dedicated topbar polish flight). See mission 08 Known Issues."
+    )
+)
 def test_picker_opens_on_click(app_clean: str, page: Page) -> None:
     page.goto(app_clean)
     page.click(".app-picker-button")
@@ -24,6 +40,14 @@ def test_picker_opens_on_click(app_clean: str, page: Page) -> None:
 
 
 @pytest.mark.browser
+@pytest.mark.skip(
+    reason=(
+        "Leg 02 topbar redesign replaced the single dropdown picker with 3 independent "
+        "area buttons (data-area='chat|studio|admin'). The aria-expanded / .app-picker-popover "
+        "/ .app-picker-option UX no longer exists. Topbar UX evolution deferred to Flight 6 "
+        "Chat Polish (or a dedicated topbar polish flight). See mission 08 Known Issues."
+    )
+)
 def test_picker_keyboard_open_close(app_clean: str, page: Page) -> None:
     page.goto(app_clean)
     page.locator(".app-picker-button").focus()

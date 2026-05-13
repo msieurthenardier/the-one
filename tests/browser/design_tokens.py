@@ -50,6 +50,11 @@ DARK: dict[str, str] = {
     "status_warning": "#f5a623",
     "status_danger": "#ff4a4a",
     "status_danger_muted": "#d56363",
+    # Shell chrome bg base color — the solid backdrop beneath the grain
+    # stripe layer in --shell-chrome-bg. Used for WCAG contrast checks on
+    # text rendered over the topbar/sidebar (the grain layer is ≤2.5%
+    # alpha — negligible perturbation; check against the base color).
+    "shell_chrome_bg": "#20202a",
 }
 
 
@@ -80,4 +85,7 @@ LIGHT: dict[str, str] = {
     "status_warning": "#a16207",
     "status_danger": "#dc2626",
     "status_danger_muted": "#a85050",
+    # Shell chrome bg base color — silver backdrop beneath the grain layer
+    # in --shell-chrome-bg. See DARK entry for rationale.
+    "shell_chrome_bg": "#d4d8df",
 }

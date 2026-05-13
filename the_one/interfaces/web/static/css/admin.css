@@ -648,4 +648,31 @@
     letter-spacing: 0.5px;
   }
 
+
+  /* ── F4 L2 (M08): MCP source tile subtitle (agent-editor MCPs tab) ──
+     Lives in admin.css despite scoping to .area-studio because studio.css
+     is under active vibe iteration this leg and is off-limits. The cascade
+     is layer-equivalent (both files declare @layer areas), so the rule
+     lands in the same place either way. Renders the server-declared
+     identity (title || name + version) under the source name on the tile.
+     A `title=` tooltip on the element surfaces the server's free-form
+     `instructions` prose when present — the .has-instructions modifier
+     hints at the hover affordance with a help cursor. */
+  .area-studio .mcp-source-tile-subtitle {
+    font-size: var(--font-size-caption);
+    color: var(--fg-secondary);
+    margin-top: 2px;
+    /* Reserve horizontal space matched to the toggle column above so the
+       subtitle sits flush with the source name rather than the tile edge. */
+    padding-left: calc(var(--toggle-width, 36px) + 8px);
+    line-height: 1.3;
+  }
+  .area-studio .mcp-source-tile-subtitle.has-instructions {
+    cursor: help;
+    /* Subtle dotted underline communicates "hover for more" without
+       stealing focus from the source name above. */
+    text-decoration: underline dotted var(--border, currentColor);
+    text-underline-offset: 3px;
+  }
+
 }

@@ -43,7 +43,7 @@ def _wait_editor_ready(page: Page, expected_tab: str = "general") -> None:
     waits for the deep-linked tab's `aria-selected="true"` before returning,
     avoiding the race with the L5 async editor-mount wrapper.
     """
-    expect(page.locator(".section-nav-header")).to_have_text("Studio", timeout=8000)
+    expect(page.locator('.section-nav[aria-label="Agent Studio sections"]')).to_be_visible(timeout=8000)
     # If the URL hash deep-links into an agent (`#studio/agents/<name>...`),
     # the editor mount is already in flight via the async wrapper — wait for
     # it to complete instead of clicking a tile (the tile becomes hidden
@@ -64,7 +64,11 @@ def _wait_editor_ready(page: Page, expected_tab: str = "general") -> None:
 
 @pytest.mark.browser
 def test_tablist_renders_with_three_tabs(app_with_agent: SeededApp, page: Page) -> None:
-    """The agent editor renders a tablist with three tabs and correct ARIA."""
+    """The agent editor renders a tablist with tabs and correct ARIA.
+
+    Leg 02 added the MCPs tab (General / Knowledge / MCPs / Built-in Tools),
+    so the count is now 4. Test updated accordingly.
+    """
     base_url = app_with_agent.base_url
     page.goto(f"{base_url}#studio")
     _wait_editor_ready(page)
@@ -73,12 +77,13 @@ def test_tablist_renders_with_three_tabs(app_with_agent: SeededApp, page: Page) 
     expect(tablist).to_be_visible()
 
     tabs = page.locator('[role="tab"]')
-    expect(tabs).to_have_count(3)
+    expect(tabs).to_have_count(4)  # General + Knowledge + MCPs + Built-in Tools (Leg 02)
 
     expect(page.locator('[data-testid="tab-general"]')).to_have_attribute("aria-selected", "true")
     expect(page.locator('[data-testid="tab-knowledge"]')).to_have_attribute(
         "aria-selected", "false"
     )
+    expect(page.locator('[data-testid="tab-mcps"]')).to_have_attribute("aria-selected", "false")
     expect(page.locator('[data-testid="tab-tools"]')).to_have_attribute("aria-selected", "false")
 
 
@@ -180,8 +185,10 @@ def test_click_commits_tab(app_with_agent: SeededApp, page: Page) -> None:
 
     expected = f"#studio/agents/{urllib.parse.quote(agent_name)}/tools"
     assert page.evaluate("location.hash") == expected
-    # Built-in Tools tab renders the per-tool toggles directly.
-    expect(page.locator('.tool-toggle').first).to_be_visible()
+    # Leg 02 restructured Built-in Tools tab into category tiles with iOS-pill
+    # master toggles. The hidden checkbox (.tool-toggle, display:none) backs
+    # the pill visual (.tool-switch). Assert the visible pill instead.
+    expect(page.locator('.tool-switch').first).to_be_visible()
 
 
 @pytest.mark.browser
@@ -206,8 +213,10 @@ def test_refresh_on_tools_tab_persists(app_with_agent: SeededApp, page: Page) ->
     page.goto(target)
     _wait_editor_ready(page, expected_tab="tools")
 
-    # Built-in Tools tab renders the per-tool toggles directly.
-    expect(page.locator('.tool-toggle').first).to_be_visible(timeout=8000)
+    # Leg 02 restructured Built-in Tools tab into category tiles with iOS-pill
+    # master toggles. The hidden checkbox (.tool-toggle, display:none) backs
+    # the pill visual (.tool-switch). Assert the visible pill instead.
+    expect(page.locator('.tool-switch').first).to_be_visible(timeout=8000)
     expect(page.locator('[data-testid="tab-tools"]')).to_have_attribute("aria-selected", "true")
 
 
@@ -240,6 +249,14 @@ def test_knowledge_tab_renders_stub(app_with_agent: SeededApp, page: Page) -> No
 
 
 @pytest.mark.browser
+@pytest.mark.skip(
+    reason=(
+        "Leg 02 agent-editor polish dropped the stub Advanced collapsible "
+        "('[data-testid=\"advanced-collapsible\"]' no longer rendered). "
+        "Advanced-section UX is deferred to a future flight. "
+        "See mission 08 Known Issues / Flight 6 Chat Polish scope."
+    )
+)
 def test_advanced_section_visible_with_disabled_inputs(
     app_with_agent: SeededApp, page: Page
 ) -> None:

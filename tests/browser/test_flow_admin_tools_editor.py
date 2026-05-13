@@ -60,14 +60,19 @@ _WEB_CONFIG_FIELDS = (
 
 @pytest.mark.browser
 def test_editor_renders_prompt_block(app_clean: str, page: Page) -> None:
-    """HAT inline fix #1: editor header has a `// prompt` labeled block
-    containing the tool's description (NOT an inline subtitle).
+    """HAT inline fix #1: editor header has a labeled prompt block containing
+    the tool's description (NOT an inline subtitle).
+
+    Label relabeled from '// prompt' to 'Prompt' (using .section-title) in
+    Leg 02 polish — the code comment in tools-editor.js still uses '// prompt'
+    terminology but the DOM label is now 'Prompt' via the shared section-title pattern.
     """
     page.goto(f"{app_clean}#admin/tools/web_search")
     expect(page.locator(".editor-title")).to_have_text("web_search", timeout=8000)
     block = page.locator(".editor-prompt-block")
     expect(block).to_be_visible()
-    expect(block.locator(".editor-prompt-label")).to_have_text("// prompt")
+    # Label uses .section-title with text "Prompt" (was .editor-prompt-label "// prompt").
+    expect(block.locator(".section-title")).to_have_text("Prompt")
     # The description text is the actual tool prompt (long-form). Spot
     # check it contains a substantive token from the description body
     # rather than asserting verbatim — keeps the test resilient to small
