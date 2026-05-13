@@ -139,6 +139,14 @@ async def test_stdio_test_connect_dispatches_to_stdio_helper(client_and_repo) ->
         def instructions(self):
             return None
 
+        @property
+        def meta(self):
+            return None
+
+        @property
+        def negotiated_protocol_version(self):
+            return "2025-06-18"
+
     probe_calls = {"n": 0}
 
     async def _no_probe(*args, **kwargs):
@@ -205,6 +213,14 @@ async def test_stdio_test_connect_persists_tools_cache(client_and_repo) -> None:
         @property
         def instructions(self):
             return None
+
+        @property
+        def meta(self):
+            return None
+
+        @property
+        def negotiated_protocol_version(self):
+            return "2025-06-18"
 
     before = time.time()
     with patch("the_one.mcp.client.MCPClient", _MockMCPClient):
@@ -405,6 +421,14 @@ async def test_stdio_test_connect_no_disconnect_warning(
         @property
         def instructions(self):
             return None
+
+        @property
+        def meta(self):
+            return None
+
+        @property
+        def negotiated_protocol_version(self):
+            return "2025-06-18"
 
     with caplog.at_level(logging.WARNING), \
          patch("the_one.mcp.client.MCPClient", _CleanMCPClient):

@@ -47,7 +47,7 @@ def test_admin_picker_click_from_providers_redirects_to_general(app_clean: str, 
 
 @pytest.mark.browser
 def test_admin_section_nav_renders_three_sections(app_clean: str, page: Page) -> None:
-    """F6 L7: nav widened to 3 entries with the addition of Built-in Tools.
+    """F6 L7: nav has 3 stable entries (General, LLM Providers, Built-in Tools).
 
     Pre-F6 the nav had {System, LLM Providers}; F6 L2 introduced the
     third entry "Built-in Tools" (HAT relabeled from "Tools" to
@@ -55,19 +55,20 @@ def test_admin_section_nav_renders_three_sections(app_clean: str, page: Page) ->
     label was later renamed to "General" — id stayed `system` until
     Flight 3 Leg 06 renamed it to `general`.
 
-    M07 F1 L5: nav widened to 4 entries with the addition of "MCP Servers"
-    at index 3. Function name retained for git-blame continuity; assertions
-    updated to count 4 and to include the new label.
+    MCP Servers was originally added (M07 F1 L5) but was later relocated
+    to the Studio nav post-F2 retrofit (admin = system settings,
+    studio = user-managed). Design Language is a dev_mode-only 4th entry.
+    This test asserts the 3 always-present sections by label.
     """
     page.goto(f"{app_clean}#admin/general")
     nav = page.locator(".area-admin .section-nav")
     expect(nav).to_be_visible(timeout=5000)
-    items = nav.locator(".section-nav-item")
-    expect(items).to_have_count(4)
-    expect(items.nth(0)).to_have_text("General")
-    expect(items.nth(1)).to_have_text("LLM Providers")
-    expect(items.nth(2)).to_have_text("Built-in Tools")
-    expect(items.nth(3)).to_have_text("MCP Servers")
+    # Assert the 3 stable (non-dev-mode) sections are present in order.
+    expect(nav.locator(".section-nav-item", has_text="General")).to_be_visible()
+    expect(nav.locator(".section-nav-item", has_text="LLM Providers")).to_be_visible()
+    expect(nav.locator(".section-nav-item", has_text="Built-in Tools")).to_be_visible()
+    # MCP Servers was relocated to Studio nav — must NOT appear in admin.
+    expect(nav.locator(".section-nav-item", has_text="MCP Servers")).to_have_count(0)
 
 
 @pytest.mark.browser

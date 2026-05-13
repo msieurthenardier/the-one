@@ -230,6 +230,14 @@ async def test_test_connect_persists_tools_cache(client_and_repo) -> None:
         def instructions(self):
             return None
 
+        @property
+        def meta(self):
+            return None
+
+        @property
+        def negotiated_protocol_version(self):
+            return "2025-06-18"
+
     before = time.time()
     with patch("the_one.mcp.client.MCPClient", _MockMCPClient):
         resp = await client.post("/api/mcp-sources/src-cache-1/test/connect")
@@ -361,6 +369,14 @@ async def test_phase_0_no_auth_path_returns_tools(client_and_repo) -> None:
         def instructions(self):
             return None
 
+        @property
+        def meta(self):
+            return None
+
+        @property
+        def negotiated_protocol_version(self):
+            return "2025-06-18"
+
     async def _stub_probe(server_url, *, timeout=5.0):
         return "no_auth"
 
@@ -487,6 +503,14 @@ async def test_phase_0_cached_hint_skips_probe(client_and_repo) -> None:
         def instructions(self):
             return None
 
+        @property
+        def meta(self):
+            return None
+
+        @property
+        def negotiated_protocol_version(self):
+            return "2025-06-18"
+
     probe_calls = {"n": 0}
 
     async def _counting_probe(server_url, *, timeout=5.0):
@@ -558,6 +582,14 @@ async def test_phase_0_disconnect_warning_quiet_on_no_auth_path(
         @property
         def instructions(self):
             return None
+
+        @property
+        def meta(self):
+            return None
+
+        @property
+        def negotiated_protocol_version(self):
+            return "2025-06-18"
 
     async def _stub_probe(server_url, *, timeout=5.0):
         return "no_auth"

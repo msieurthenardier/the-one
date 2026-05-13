@@ -137,27 +137,214 @@
   }
   .area-studio .mcp-connection-actions .mcp-tools-last-updated[hidden] { display: none; }
   .area-studio .mcp-tools-status { font-size: var(--font-size-body); color: var(--fg-secondary); margin-bottom: 12px; }
+  /* F4 L7: LED lives in the connection-actions row, adjacent to Refresh
+     connection. Vertically center against the buttons (which are taller). */
+  .area-studio .mcp-connection-actions .indicator-led { align-self: center; margin-left: 4px; }
   .area-studio .mcp-tools-success { color: var(--status-success, var(--accent)); font-weight: 600; }
   .area-studio .mcp-tools-error { color: var(--status-danger); font-weight: 600; }
-  .area-studio .mcp-tools-list { display: flex; flex-direction: column; gap: 4px; }
-  .area-studio .mcp-tool-item { border: 1px solid var(--border); border-radius: 4px; background: var(--surface-elevated); }
-  .area-studio .mcp-tool-item[open] { background: var(--surface); }
-  .area-studio .mcp-tool-summary { cursor: pointer; padding: 8px 12px; user-select: none; list-style: none; }
+  .area-studio .mcp-tools-list { display: flex; flex-direction: column; gap: 6px; }
+  /* Mission 08 F4 L3 — Tools list on the MCP source-editor page restructured
+     to match the agent-editor MCPs tab tile pattern. Each tool = a <details>
+     element styled as a tile. Summary: name + " — preview…" (single line,
+     100-char ellipsis) + chevron on the right. Body: full description with
+     line breaks + input schema collapsible. */
+  .area-studio .mcp-tool-item {
+    /* Glass + gleam + bezel echoing `.entity-tile` / `.mcp-source-tile`.
+       F4 L3. Hover gains accent border (no bg shift — the gleam reads
+       through unchanged). Open state has no special bg either; the
+       expanded body's dashed top-border is the visual cue. */
+    background-color: var(--glass-bg);
+    background-image: var(--glass-gleam);
+    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+    border: 1px solid var(--glass-border);
+    border-radius: var(--panel-radius);
+    box-shadow: var(--bezel-shadow);
+    transition: border-color 0.15s;
+  }
+  .area-studio .mcp-tool-item:hover { border-color: var(--accent); }
+  .area-studio .mcp-tool-summary {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    cursor: pointer;
+    user-select: none;
+    list-style: none;
+    font-size: var(--font-size-body-sm);
+  }
   .area-studio .mcp-tool-summary::-webkit-details-marker { display: none; }
-  .area-studio .mcp-tool-summary::before { content: '▸'; display: inline-block; margin-right: 8px; transition: transform 0.15s; color: var(--fg-secondary); }
-  .area-studio .mcp-tool-item[open] .mcp-tool-summary::before { transform: rotate(90deg); }
-  .area-studio .mcp-tool-summary:hover { color: var(--accent); }
-  .area-studio .mcp-tool-name { font-family: var(--font-family-mono, monospace); font-size: var(--font-size-body-sm); font-weight: 600; }
-  .area-studio .mcp-tool-description { padding: 4px 12px 12px 32px; font-size: var(--font-size-body-sm); color: var(--fg-secondary); line-height: 1.5; word-break: break-word; }
-  .area-studio .mcp-tool-description-empty { font-style: italic; opacity: 0.7; }
+  .area-studio .mcp-tool-summary .mcp-tool-summary-text {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .area-studio .mcp-tool-summary .mcp-tool-name {
+    font-family: var(--font-family-mono, monospace);
+    font-weight: 600;
+    color: var(--fg);
+  }
+  .area-studio .mcp-tool-summary .mcp-tool-summary-desc {
+    color: var(--fg-secondary);
+    font-size: var(--font-size-caption);
+  }
+  .area-studio .mcp-tool-summary .mcp-tool-chevron {
+    display: inline-block;
+    transition: transform 0.15s;
+    color: var(--fg-tertiary);
+    flex-shrink: 0;
+  }
+  .area-studio .mcp-tool-item[open] .mcp-tool-chevron { transform: rotate(90deg); }
+  .area-studio .mcp-tool-summary:hover .mcp-tool-chevron { color: var(--accent); }
+  .area-studio .mcp-tool-body {
+    padding: 8px 12px 10px;
+    border-top: 1px dashed var(--border);
+  }
+  .area-studio .mcp-tool-full-description {
+    font-size: var(--font-size-body-sm);
+    color: var(--fg-secondary);
+    line-height: var(--line-height-normal);
+    word-break: break-word;
+    margin-bottom: 8px;
+  }
+  .area-studio .mcp-tool-full-description.mcp-tool-description-empty {
+    font-style: italic;
+    opacity: 0.7;
+  }
+  /* The old `.mcp-tool-description` rule (with `padding: ... 32px` for
+     alignment under the tool name in the prior layout) is retired here.
+     The agent-editor MCPs tab uses `.mcp-tool-text .mcp-tool-description`
+     (scoped via parent class) and is unaffected. */
 
-  /* F8 L2: Capability flags + per-tool schema view */
+  /* F8 L2: Capability flags */
   .area-studio .mcp-capability-flags { font-size: var(--font-size-body-sm); color: var(--fg-secondary); margin-top: 4px; }
   .area-studio .mcp-capability-flags-empty { font-style: italic; opacity: 0.7; }
-  .area-studio .mcp-tool-schema { margin: 0 12px 8px 32px; }
-  .area-studio .mcp-tool-schema-summary { cursor: pointer; padding: 4px 0; font-size: var(--font-size-body-sm); color: var(--fg-secondary); user-select: none; }
-  .area-studio .mcp-tool-schema-summary:hover { color: var(--accent); }
-  .area-studio .mcp-tool-schema-content { font-family: var(--font-family-mono, monospace); font-size: var(--font-size-body-sm); background: var(--surface-elevated); border: 1px solid var(--border); border-radius: 4px; padding: 8px; margin: 4px 0 0; overflow-x: auto; max-height: 400px; overflow-y: auto; white-space: pre; word-break: normal; }
+
+  /* F4 L3 (M08): Server-info section on the MCP source editor — surfaces
+     serverInfo (title/name/version/websiteUrl/icons), protocol version,
+     instructions, capabilities, and _meta extras. Inherits the default
+     `.editor-section` vertical padding + sibling-divider rule from
+     components.css; no tile chrome — information flows on the page. */
+  .area-studio .mcp-server-identity {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 8px;
+  }
+  .area-studio .mcp-server-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 8px;
+    object-fit: cover;
+    background: var(--surface-elevated);
+    flex-shrink: 0;
+  }
+  .area-studio .mcp-server-identity-text { min-width: 0; flex: 1; }
+  .area-studio .mcp-server-title {
+    font-size: var(--font-size-h3, var(--font-size-h2));
+    font-weight: 600;
+    color: var(--fg);
+    line-height: 1.2;
+  }
+  .area-studio .mcp-server-name-subtitle {
+    font-family: var(--font-family-mono, monospace);
+    font-size: var(--font-size-body-sm);
+    color: var(--fg-secondary);
+    margin-top: 2px;
+  }
+  .area-studio .mcp-server-version-line {
+    font-size: var(--font-size-body-sm);
+    color: var(--fg-secondary);
+    margin-top: 4px;
+  }
+  .area-studio .mcp-server-website {
+    font-size: var(--font-size-body-sm);
+    margin-top: 4px;
+    word-break: break-all;
+  }
+  .area-studio .mcp-server-website a {
+    color: var(--accent);
+    text-decoration: none;
+  }
+  .area-studio .mcp-server-website a:hover { text-decoration: underline; }
+  .area-studio .mcp-server-info-section .mcp-capability-flags { margin-top: 8px; }
+
+  /* Instructions collapsible — Cloudflare-class servers ship long prose. */
+  .area-studio .mcp-server-instructions,
+  .area-studio .mcp-server-meta {
+    margin-top: 10px;
+    border-top: 1px dashed var(--border);
+    padding-top: 8px;
+  }
+  .area-studio .mcp-server-instructions-summary,
+  .area-studio .mcp-server-meta-summary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    user-select: none;
+    list-style: none;
+    font-size: var(--font-size-body-sm);
+    color: var(--fg-secondary);
+  }
+  .area-studio .mcp-server-instructions-summary::-webkit-details-marker,
+  .area-studio .mcp-server-meta-summary::-webkit-details-marker { display: none; }
+  .area-studio .mcp-server-instructions-label,
+  .area-studio .mcp-server-meta-label {
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 600;
+    font-size: var(--font-size-caption);
+    color: var(--fg-tertiary, var(--fg-muted));
+    flex: 1;
+  }
+  .area-studio .mcp-server-instructions-chevron,
+  .area-studio .mcp-server-meta-chevron {
+    transition: transform 0.15s;
+    color: var(--fg-tertiary, var(--fg-muted));
+  }
+  .area-studio .mcp-server-instructions[open] .mcp-server-instructions-chevron,
+  .area-studio .mcp-server-meta[open] .mcp-server-meta-chevron { transform: rotate(90deg); }
+  .area-studio .mcp-server-instructions-summary:hover .mcp-server-instructions-chevron,
+  .area-studio .mcp-server-meta-summary:hover .mcp-server-meta-chevron { color: var(--accent); }
+  .area-studio .mcp-server-instructions-body {
+    margin-top: 8px;
+    font-size: var(--font-size-body-sm);
+    color: var(--fg);
+    line-height: var(--line-height-normal);
+    word-break: break-word;
+  }
+  .area-studio .mcp-server-meta-content {
+    margin-top: 8px;
+    font-family: var(--font-family-mono, monospace);
+    font-size: var(--font-size-body-sm);
+    background: var(--surface-elevated);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 8px;
+    overflow-x: auto;
+    max-height: 300px;
+    overflow-y: auto;
+    white-space: pre;
+  }
+
+  /* F4 L3: Per-tool tile body — Prompt + Input Schema rendered as two
+     labeled sections (no nested collapsible). Both visible when the tile
+     is expanded. */
+  .area-studio .mcp-tool-section { margin-bottom: 10px; }
+  .area-studio .mcp-tool-section:last-child { margin-bottom: 0; }
+  .area-studio .mcp-tool-section-label {
+    font-size: var(--font-size-caption);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--fg-tertiary, var(--fg-muted));
+    margin-bottom: 4px;
+  }
+  .area-studio .mcp-tool-schema-content { font-family: var(--font-family-mono, monospace); font-size: var(--font-size-body-sm); background: var(--surface-elevated); border: 1px solid var(--border); border-radius: 4px; padding: 8px; margin: 0; overflow-x: auto; max-height: 400px; overflow-y: auto; white-space: pre; word-break: normal; }
+  .area-studio .mcp-tool-schema-empty { font-size: var(--font-size-body-sm); font-style: italic; opacity: 0.7; color: var(--fg-secondary); }
 
   /* === Agent-editor MCPs tab: chip-list, per-attachment editor (F8 L3) === */
   .area-studio .mcp-chip-list-header { font-size: var(--font-size-body-sm); color: var(--fg-secondary); margin: 0 0 8px; }

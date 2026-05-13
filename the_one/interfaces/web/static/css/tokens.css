@@ -206,6 +206,9 @@
     --sidebar-w: 240px;
     /* topbar height — chrome strip across the top of the shell */
     --topbar-h: 48px;
+    /* toggle control width — used by admin toggle inputs (e.g. built-in tools,
+       system settings) for padding-left alignment of adjacent labels. */
+    --toggle-width: 36px;
 
     /* nav rail palette — chrome surface; same as body in dark so the rail
        reads as a non-elevated edge. */
@@ -368,6 +371,8 @@
     --sidebar-w: 240px;
     /* topbar height — chrome strip across the top of the shell */
     --topbar-h: 48px;
+    /* toggle control width — matches dark theme definition */
+    --toggle-width: 36px;
 
     /* nav rail palette — intentionally dark navy so the rail reads as a
        chrome surface against the light body. Internal palette uses the

@@ -721,6 +721,73 @@ Outer app-shell surfaces (`body` bg, `#app-topbar`, `#app-sidebar`, `#main-conte
 
 - **Legacy class-as-JS-handle pattern** (Flight 3 debrief carry-forward): when extracting a bespoke class into a shared primitive (e.g., `.action-blocked-message` → `.banner.banner-error`), retain the original class on the markup as a JS-query handle if any JS already queries it. The legacy class stays in the markup but its styling rule is removed from CSS — the canonical primitive's classes (added alongside) own the look. Example: `<div class="action-blocked-message banner banner-error" data-testid="delete-blocked-message">` — JS still uses `.querySelector('.action-blocked-message')` while the visual styling flows through `.banner.banner-error`. See `components.css` near the retired `.action-blocked-message` rule for the canonical example.
 
+### Mission 08 Flight 04 — Studio Polish Layer (MCP polish + dirty-gate parity)
+
+**Studio dirty-gate parity** (Leg 05). Studio's area descriptor now exposes the
+`confirmLeave(proceed, abort)` hook, mirroring admin's pattern from F3 L06. The
+hook delegates to a `_confirmLeaveImpl` closure inside `init()` that closes over
+the local `dirty` flag. Same predicate as the existing sidebar inline gate:
+`dirty && inEditor` where `inEditor` covers both agent-editor and mcp-server-editor
+mount contexts. The sidebar `onSelect` gate now delegates to the same impl for
+DRY — single source of truth for the dirty predicate.
+
+**Same-section-click clears editor state** (Leg 07 inline HAT fix). Clicking
+the active section's nav item while an editor is mounted now treats the click
+as "back to grid" — clears `_selectedAgent` / `_createMode` (agents) or
+`mcpSourceFormMode` / `editingMcpSource` (mcp-sources) so
+`updateContentVisibility` swaps the editor for the grid. Without this,
+`setActiveSection` re-rendered the grid behind a still-mounted editor and the
+click visually no-op'd. Symmetric fix in `hydrateState`: a bare-section URL
+(`#studio` or `#studio/agents`) clears the same closure-local state so
+returning from another area lands on the grid, not a stale agent detail.
+
+**Stale-then guard** (Leg 05). Studio's `fetchMcpSources_().then(() =>
+tryConsumePendingMcpSource())` continuation now guards
+`if (self._activeSection !== 'mcp-sources') return;` to prevent
+`tryConsumePendingMcpSource` from firing after the user navigated away.
+Mirrors admin's stale-then convention from F3 L06.
+
+**MCP cache schema additions** (Leg 03). The MCP source `_cache` payload now
+persists `meta` (the spec-optional `InitializeResult._meta`),
+`protocol_version` (the negotiated MCP protocol version). The GET
+`/api/mcp-sources/{id}` response now includes `has_access_token: bool` as a
+presence-only flag for race-free post-OAuth state polling.
+
+**OAuth popup-loop fix** (Leg 03). The `/api/oauth/callback` HTML page posts a
+result message via `window.opener.postMessage` before auto-closing. Studio's
+`launchConsentPopup` polls `GET /api/mcp-sources/{id}` for
+`has_access_token: true` from popup-open onward (postMessage-independent —
+Cloudflare's COOP severs `window.opener`). The race-condition window between
+popup auto-close and the SDK's token-exchange completion is closed by the
+polling state machine.
+
+**Cross-area dirty-gate B2 regression test** (Leg 05). A new parametrized
+Playwright test file `tests/browser/test_flow_cross_area_dirty_gate.py` locks
+4 scenarios across admin + studio (cancel-keeps-state + confirm-navigates-
+cleanly per area).
+
+**Per-tool MCP tile body shape** (Leg 03). The MCP source editor's tool list
+renders each tool as a glass tile whose body splits into two labeled sections:
+`PROMPT` (the tool description) and `INPUT SCHEMA` (the JSON schema, or
+`(no input schema)` muted text when absent). Replaces the prior nested
+`<details>` schema collapsible.
+
+**Server section on the MCP source editor** (Leg 03 functional batch). The MCP
+source editor renders a "Server" section above Tools when any of `server_info`
+/ `instructions` / `capabilities` / `meta` / `protocol_version` are present in
+the cache. Surfaces icon + title/name + version line (`v{version} · protocol
+{pv}`) + website URL + capability flags + collapsible `INSTRUCTIONS` +
+collapsible `METADATA`. Information flows on the page (`.editor-section`
+shape) — no tile container.
+
+**LED on the connection-actions row** (Leg 07 inline HAT fix). The
+`mcp-server-editor.js` connection-state LED moved from the
+`mcp-test-status` banner up to the `mcp-connection-actions` row so it sits
+adjacent to the Refresh connection button that drives its state. The status
+banner below keeps its `data-testid="mcp-test-status"` hook + the tool-count
+text (`Server exposes N tool(s).` or `Click Refresh connection above...`)
+that browser tests assert against.
+
 ### Color contrast (WCAG AA)
 
 The F2 design tokens were audited against WCAG 2.1 AA contrast standards on

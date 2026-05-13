@@ -102,6 +102,7 @@ def _make_init_result(
     capabilities_dump: dict | None = None,
     server_info_dump: dict | None = None,
     instructions: str | None = None,
+    meta: dict | None = None,
 ):
     """Build a mock InitializeResult with the configured shape.
 
@@ -115,6 +116,10 @@ def _make_init_result(
     exposes ``serverInfo=None`` (matches a server that omits the field).
     When supplied as a dict, the mock's ``model_dump(mode='json', ...)``
     returns it, exercising MCPClient.server_info's exclude_none pass-through.
+
+    F4 L3 (M08): optional ``meta`` mirrors ``InitializeResult._meta`` — set
+    on both ``result.meta`` and ``result._meta`` so MCPClient's getattr
+    fallback finds it regardless of which name the SDK alias resolves to.
     """
     result = MagicMock()
     result.protocolVersion = protocol_version
@@ -131,6 +136,10 @@ def _make_init_result(
         si.model_dump = MagicMock(return_value=server_info_dump)
         result.serverInfo = si
     result.instructions = instructions
+    # F4 L3 (M08): inject _meta into the mock. MCPClient prefers `meta`
+    # attribute, falling back to `_meta` — set both for compatibility.
+    result.meta = meta
+    result._meta = meta
     return result
 
 
@@ -383,6 +392,37 @@ class TestMCPClientLifecycle:
             _ = c.server_info
         with pytest.raises(MCPConnectionError):
             _ = c.instructions
+
+    async def test_connect_captures_meta(
+        self, patch_transport, mock_session
+    ) -> None:
+        """F4 L3 (M08): when the initialize() response carries ``_meta``,
+        MCPClient surfaces it via the ``meta`` property and persistence
+        callers can snapshot it inside the async-with for the cache write.
+
+        Mirrors the server_info/instructions contract:
+          - meta returns the dict (None when omitted)
+          - pre-connect raises MCPConnectionError
+          - post-disconnect state cleared so a reconnect repopulates
+        """
+        meta_payload = {"vendor": "cloudflare", "build": "2025.10"}
+        mock_session.initialize = AsyncMock(
+            return_value=_make_init_result(meta=meta_payload)
+        )
+        patch_transport(mock_session)
+        c = MCPClient(_stdio_source())
+
+        with pytest.raises(MCPConnectionError):
+            _ = c.meta
+
+        await c.connect()
+        try:
+            assert c.meta == meta_payload
+        finally:
+            await c.disconnect()
+
+        with pytest.raises(MCPConnectionError):
+            _ = c.meta
 
     async def test_connect_supported_non_pinned_version_passes(
         self, patch_transport, mock_session

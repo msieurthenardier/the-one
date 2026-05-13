@@ -1,6 +1,6 @@
 # Flight: Studio Polish
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [GleepGlorp AI Rebrand & UX Polish](../../mission.md)
 
 ## Contributing to Criteria
@@ -197,10 +197,10 @@ Migration: 4 Studio sites (general-tab.js:52 + :77; mcp-server-editor.js:506 + :
 - [ ] **Leg 01 done**: Reduced-transparency block extended; WCAG audit gap closed (4+ new parametrizations); `--bg-gradient` renamed to `--shell-bg` with backward-compat alias; agents.md F2 / flight-design-conventions / F3 cross-references all landed.
 - [ ] **Leg 02 done**: Agents tile grid + Agent editor (General / Knowledge / Tools / MCPs tabs) read on-brand in both themes; operator confirms.
 - [ ] **Leg 03 done**: MCP Servers grid + MCP Server editor read on-brand; LED wire-up on source connection state complete (`.indicator-led--{state}` at consumer sites).
-- [ ] **Leg 04 done**: `App.dropdown` helper shipped; 4+ Studio sites + 2-3 Admin sites migrated from native `<select>`; popover reads on-brand; ARIA keyboard nav verified.
-- [ ] **Leg 05 done**: Studio `confirmLeave` hook implemented; Studio stale-then guards added; Playwright B2 regression test covering both areas passes.
-- [ ] **Leg 06 done**: Studio routing catalog complete; scope-light fixes applied; non-trivial issues logged.
-- [ ] **Leg 07 done**: WCAG audit green; 10/12 snapshot baselines regenerated cleanly; agents.md F4 subsection added; HAT walkthrough operator-confirmed both themes × all 8 pages; narrow gate stable.
+- [~] **Leg 04 skipped** (operator decision, 2026-05-13): native `<select>` accepted as-is; Known Issue carries forward to a future flight.
+- [x] **Leg 05 done**: Studio `confirmLeave` hook implemented; Studio stale-then guards added; Playwright B2 regression test covering both areas passes.
+- [x] **Leg 06 done**: Studio routing catalog complete; scope-light fixes applied; non-trivial issues logged.
+- [x] **Leg 07 done**: WCAG audit green; 10/12 snapshot baselines regenerated cleanly; agents.md F4 subsection added; HAT walkthrough operator-confirmed both themes × all 8 pages; narrow gate stable.
 
 ### Adaptation Criteria
 
@@ -211,7 +211,7 @@ Migration: 4 Studio sites (general-tab.js:52 + :77; mcp-server-editor.js:506 + :
 
 **Acceptable variations**:
 - Per-leg vibe ordering (Agents first vs MCP Sources first within Leg 02 / Leg 03) — operator-driven.
-- Whether dropdown migration covers all 6-7 sites in this flight or defers some to a future maintenance pass.
+- Whether dropdown migration covers all 6-7 sites in this flight or defers some to a future maintenance pass. **Resolved 2026-05-13**: operator declined the full Leg 04 — native `<select>` accepted; Known Issue carries forward.
 - Whether the Playwright test in Leg 05 uses one test file or two (admin + studio split).
 
 ### Legs
@@ -220,11 +220,11 @@ Migration: 4 Studio sites (general-tab.js:52 + :77; mcp-server-editor.js:506 + :
 
 - [x] `01-prep-and-debrief-debt-close` — Autonomous. 7 mechanical items: reduced-transparency block extension; WCAG audit gap close on `--shell-chrome-bg`; `--bg-gradient` → `--shell-bg` rename; `--shell-chrome-bg` cascade-override comment; agents.md theme-generalization-via-tokenization convention lift; agents.md "land dark, port light" cadence + flight-design conventions subsection; agents.md F3 cross-reference for carry-forward docs items.
 - [x] `02-agents-polish` *(vibe)* — Interactive. Agents tile grid + Agent editor (General / Knowledge / Tools / MCPs tabs). Knowledge tab stub-polish-deferred. Chip-list UX from Flight 3 ships via shared code path automatically.
-- [ ] `03-mcp-sources-polish` *(vibe)* — Interactive. **Pre-leg audit** to pin the LED wire-up consumer sites in `mcp-server-editor.js` + `mcp-servers-grid.js` (per Architect design review — isolates the LED sub-task from the 1654-line-editor polish vibe). MCP Servers grid + MCP Server editor polish. LED wire-up on source connection state at pre-scoped sites (Flight 2 debrief Action Item carried-forward).
-- [ ] `04-custom-dropdown-component` *(autonomous + vibe)* — `App.dropdown(triggerEl, options, callbacks)` helper in `static/js/dropdown.js`. ARIA keyboard nav. Compose design-language vocabulary. Migrate **8 sites**: 4 Studio (`general-tab.js:52, :77`; `mcp-server-editor.js:506, :533`) + 1 Chat (`chat.js:55` agent-select — Architect-flagged, opportunistic) + 2-3 Admin (provider-editor type-select, tools-editor selects). Vibe portion: operator iterates popover treatment. **Migration checkpoint** must clear before vibe-close.
-- [ ] `05-studio-dirty-gate-parity-and-b2-regression-test` — Autonomous. **EXTRACT** Studio's existing inline `dirty + inEditor` gate at `studio.js:301-303` into `self._confirmLeaveImpl` closure + expose `confirmLeave` on descriptor (pattern-match admin's `_confirmLeaveImpl` at `admin.js:628`). Verify + gap-fill Studio's stale-then guards (Studio already has SOME; audit `loadAll()` continuations + agent-editor mount-path Promise resolutions for un-guarded `.then` blocks per Architect design review). Playwright B2 regression test covering both admin + studio (2 parametrized tests in new `tests/browser/test_flow_cross_area_dirty_gate.py`).
-- [ ] `06-studio-routing-sweep` — Mixed autonomous + HAT. Studio routing catalog (8 sub-routes × 3 transitions ≈ 24 checks + beforeunload dirty-gate scenarios). Scope-light fixes inline.
-- [ ] `07-alignment-and-snapshot-regen` — 10-step ordered close per Flight 2/3/3.5 template. Pre-close grep + WCAG audit + rebuild + playwright + snapshot regen + HAT × 2 themes × all 8 pages + agents.md F4 subsection + stability rerun + final narrow gate + status + commit.
+- [x] `03-mcp-sources-polish` *(vibe)* — Interactive. **Pre-leg audit** to pin the LED wire-up consumer sites in `mcp-server-editor.js` + `mcp-servers-grid.js` (per Architect design review — isolates the LED sub-task from the 1654-line-editor polish vibe). MCP Servers grid + MCP Server editor polish. LED wire-up on source connection state at pre-scoped sites (Flight 2 debrief Action Item carried-forward).
+- [~] `04-custom-dropdown-component` *(autonomous + vibe)* — **SKIPPED** (operator decision, 2026-05-13): native `<select>` works fine in current usage; the polish wasn't worth the helper-build + ARIA-nav + 8-site migration cost. The mission Known Issue stays open and carries forward to a future flight if/when a dropdown surface surfaces a real need. Original scope retained below for reference: `App.dropdown(triggerEl, options, callbacks)` helper in `static/js/dropdown.js`. ARIA keyboard nav. Compose design-language vocabulary. Migrate **8 sites**: 4 Studio (`general-tab.js:52, :77`; `mcp-server-editor.js:506, :533`) + 1 Chat (`chat.js:55` agent-select — Architect-flagged, opportunistic) + 2-3 Admin (provider-editor type-select, tools-editor selects).
+- [x] `05-studio-dirty-gate-parity-and-b2-regression-test` — Autonomous. **EXTRACT** Studio's existing inline `dirty + inEditor` gate at `studio.js:301-303` into `self._confirmLeaveImpl` closure + expose `confirmLeave` on descriptor (pattern-match admin's `_confirmLeaveImpl` at `admin.js:628`). Verify + gap-fill Studio's stale-then guards (Studio already has SOME; audit `loadAll()` continuations + agent-editor mount-path Promise resolutions for un-guarded `.then` blocks per Architect design review). Playwright B2 regression test covering both admin + studio (2 parametrized tests in new `tests/browser/test_flow_cross_area_dirty_gate.py`).
+- [x] `06-studio-routing-sweep` — Mixed autonomous + HAT. Studio routing catalog (8 sub-routes × 3 transitions ≈ 24 checks + beforeunload dirty-gate scenarios). Scope-light fixes inline.
+- [x] `07-alignment-and-snapshot-regen` — 10-step ordered close per Flight 2/3/3.5 template. Pre-close grep + WCAG audit + rebuild + playwright + snapshot regen + HAT × 2 themes × all 8 pages + agents.md F4 subsection + stability rerun + final narrow gate + status + commit.
 
 ---
 
@@ -237,7 +237,7 @@ Migration: 4 Studio sites (general-tab.js:52 + :77; mcp-server-editor.js:506 + :
 - [ ] Studio Agents grid + Agent editor (4 tabs) read on-brand both themes
 - [ ] Studio MCP Sources grid + Server editor read on-brand both themes
 - [ ] LED wire-up on MCP source connection state
-- [ ] Custom dropdown component shipped + 6-7 sites migrated
+- [~] ~~Custom dropdown component shipped + 6-7 sites migrated~~ — SKIPPED per operator decision; native `<select>` accepted, Known Issue carries forward
 - [ ] Studio `confirmLeave` hook + stale-then guards implemented
 - [ ] Playwright B2 regression test covers both admin + studio cross-area dirty paths
 - [ ] Studio routing catalog produced; scope-light fixes applied; non-trivial issues logged

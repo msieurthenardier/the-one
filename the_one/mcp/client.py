@@ -165,6 +165,11 @@ class MCPClient:
         # serialize; the `server_info` property emits the JSON-mode dump.
         self._server_info: Implementation | None = None
         self._instructions: str | None = None
+        # F4 L3 (M08): InitializeResult._meta — arbitrary server-supplied
+        # metadata, spec-optional and free-shape. Stored as a plain dict so
+        # the editor surface can render it generically without coupling to
+        # any specific server's vocabulary. None when omitted by the server.
+        self._meta: dict[str, Any] | None = None
         self._is_alive: bool = False
         # Exact 0.0 sentinel — time.monotonic() never returns 0 on a running
         # system, so `last_activity > 0.0` is meaningful. None would crash
@@ -230,6 +235,20 @@ class MCPClient:
                 "MCPClient is not connected; cannot read instructions."
             )
         return self._instructions
+
+    @property
+    def meta(self) -> dict[str, Any] | None:
+        """Server-supplied ``_meta`` from the InitializeResult, if any.
+
+        Spec-optional; free-shape ``dict[str, Any]``. Returns ``None`` when
+        the server omits ``_meta``. Guards on ``_is_alive`` mirroring the
+        ``server_info`` / ``instructions`` pattern.
+        """
+        if not self._is_alive:
+            raise MCPConnectionError(
+                "MCPClient is not connected; cannot read meta."
+            )
+        return self._meta
 
     def __repr__(self) -> str:
         return (
@@ -474,6 +493,16 @@ class MCPClient:
         # prose without re-probing. Both default to None when omitted.
         self._server_info = getattr(result, "serverInfo", None)
         self._instructions = getattr(result, "instructions", None)
+        # F4 L3 (M08): capture _meta alongside the other spec-optional
+        # initialize() fields. The underlying SDK type may expose it as
+        # ``meta`` or ``_meta`` depending on aliasing; getattr-fallback
+        # handles both. Defaults to None when omitted.
+        meta_val = getattr(result, "meta", None)
+        if meta_val is None:
+            meta_val = getattr(result, "_meta", None)
+        if meta_val is not None and hasattr(meta_val, "model_dump"):
+            meta_val = meta_val.model_dump(mode="json", exclude_none=True)
+        self._meta = meta_val if isinstance(meta_val, dict) else None
         self._is_alive = True
         self._touch_activity()
 
@@ -540,6 +569,7 @@ class MCPClient:
             # _is_alive guard, so callers can't observe stale None values.
             self._server_info = None
             self._instructions = None
+            self._meta = None
             # Preserve _capabilities, _protocol_version, _last_activity for
             # the F4 pool — once disconnected they're stale but not invalid.
 

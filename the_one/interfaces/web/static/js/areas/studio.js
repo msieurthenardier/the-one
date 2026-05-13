@@ -128,6 +128,13 @@ App.registerArea({
       }
     } else if (sub === 'agents' || !sub) {
       section = 'agents';
+      // F4 L7 (M08): bare URL (#studio or #studio/agents) means "show the
+      // grid" — clear any stale editor state from a prior navigation
+      // within the same area lifecycle. Without this, returning from
+      // another area (e.g. #chat) while Studio's last sub was an agent
+      // detail leaves the editor mounted even when the URL is bare.
+      this._selectedAgent = null;
+      this._createMode = false;
     } else {
       // Defensive: unrecognized sub defaults to 'agents'. Do NOT throw.
       section = 'agents';
@@ -293,19 +300,32 @@ App.registerArea({
       { id: 'mcp-sources', label: 'MCP Servers' }
     ], self._activeSection, {
       onSelect: function (section) {
-        // F5 leg 04: dirty gate — fires when leaving an editor-mounted
-        // context. Two surfaces now host editors: the agent editor in
-        // Agents and the MCP source editor in MCP Servers. Knowledge has
-        // no editor.
-        var commit = function () { setActiveSection(section); };
-        var inEditingContext =
-          (self._activeSection === 'agents' && self._selectedAgent) ||
-          (self._activeSection === 'mcp-sources' && mcpSourceFormMode);
-        if (dirty && inEditingContext) {
-          App.confirmDialog({ onConfirm: commit });
-        } else {
-          commit();
-        }
+        // F4 L5: delegate to _confirmLeaveImpl (single source of truth).
+        // Mirrors admin.js's setCategory which also routes through
+        // _confirmLeaveImpl. The empty-function abort is intentional:
+        // same-area sidebar nav doesn't need to roll back state on cancel
+        // (the dialog just closes; setActiveSection never fires).
+        //
+        // F4 L7 (M08): clicking the same section's nav item while an
+        // editor is mounted should treat the click as "back to grid" —
+        // clear editor state so updateContentVisibility shows the grid.
+        // Without this, setActiveSection re-renders the grid behind a
+        // still-mounted editor and the operator sees no change.
+        var commit = function () {
+          if (section === self._activeSection) {
+            if (section === 'agents' && (self._selectedAgent || self._createMode)) {
+              self._selectedAgent = null;
+              self._createMode = false;
+              dirty = false;
+            } else if (section === 'mcp-sources' && mcpSourceFormMode) {
+              mcpSourceFormMode = null;
+              editingMcpSource = null;
+              dirty = false;
+            }
+          }
+          setActiveSection(section);
+        };
+        self._confirmLeaveImpl(commit, function () {});
       },
       // Sidebar header omitted — the topbar's area buttons already name the
       // active area (highlighted via aria-current="page"), so a duplicate
@@ -445,6 +465,9 @@ App.registerArea({
         onCreateMcpSource: enterCreateMcpSourceMode
       });
       fetchMcpSources_().then(function () {
+        // F4 L5: stale-then guard — bail if user navigated away from
+        // mcp-sources mid-fetch (mirrors fetchMcpSources_() internal guard).
+        if (self._activeSection !== 'mcp-sources') return;
         // After fetch resolves, attempt to consume any pending hash-route
         // selection (e.g. direct-load on #studio/mcp-sources/{id}).
         tryConsumePendingMcpSource();
@@ -1874,6 +1897,21 @@ App.registerArea({
     };
     self._tryConsumePendingSelect = function () { tryConsumePendingSelect(); };
 
+    // F4 L5: confirmLeave wired here so it can close over the local `dirty` flag.
+    // Gate semantics mirror admin.js's _confirmLeaveImpl (admin.js:625-636): dirty
+    // AND in-editor → confirm dialog; otherwise → proceed immediately. The
+    // `inEditor` predicate covers BOTH editor mount contexts.
+    self._confirmLeaveImpl = function (proceed, abort) {
+      var inEditor =
+        (self._activeSection === 'agents' && self._selectedAgent) ||
+        (self._activeSection === 'mcp-sources' && mcpSourceFormMode);
+      if (dirty && inEditor) {
+        App.confirmDialog({ onConfirm: proceed, onCancel: abort });
+      } else {
+        proceed();
+      }
+    };
+
     // Pre-fetch MCP source types so the editor mount path doesn't have to
     // wait on the first network round-trip when the operator clicks "New
     // MCP Server" or deep-links to mcp-sources/{id}.
@@ -1898,6 +1936,18 @@ App.registerArea({
 
   activate: function () {
     if (this._refresh) this._refresh();
+  },
+  // F4 L5: confirmLeave — cross-area dirty-gate hook consumed by
+  // app.js:switchTo before deactivating the outgoing area on cross-area
+  // navigation. Mirrors admin.js:748-754. The `_confirmLeaveImpl` handle
+  // is attached inside `init()` so it can close over the local `dirty`
+  // flag; this descriptor method just routes through it.
+  confirmLeave: function (proceed, abort) {
+    if (this._confirmLeaveImpl) {
+      this._confirmLeaveImpl(proceed, abort);
+    } else {
+      proceed();
+    }
   },
   deactivate: function () {}
 });

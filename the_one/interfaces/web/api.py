@@ -632,6 +632,13 @@ def _mcp_source_response(source: MCPSource) -> dict[str, Any]:
     # leaking the OAuth-managed secret values themselves. True iff ANY
     # OAuth-managed key is present in the persisted row's secrets.
     data["oauth_active"] = any(k in source.secrets for k in _OAUTH_MANAGED_SECRET_KEYS)
+    # F4 L3 (M08 popup-loop fix): expose access_token presence specifically.
+    # The Studio MCP-test post-OAuth race needs this — `oauth_active` flips
+    # when `dcr_credentials` writes, which precedes token exchange. The
+    # frontend polls this flag to know when tokens are actually persisted
+    # before firing the Phase 2 re-POST. Presence-only (boolean), never the
+    # value; mirrors the `oauth_active` exposure pattern.
+    data["has_access_token"] = "access_token" in source.secrets
     return data
 
 
@@ -1069,6 +1076,10 @@ async def _build_and_test_no_auth_mcp(
             # server-declared subtitle line + hover-tooltip without re-probing.
             server_info = client.server_info
             instructions = client.instructions
+            # F4 L3 (M08): also capture _meta — arbitrary server-supplied
+            # metadata, persisted alongside the other initialize() fields.
+            meta = client.meta
+            protocol_version = client.negotiated_protocol_version
             tools_cache_payload = [
                 {
                     "name": t.name,
@@ -1085,6 +1096,8 @@ async def _build_and_test_no_auth_mcp(
                     "capabilities": capabilities,
                     "server_info": server_info,
                     "instructions": instructions,
+                    "meta": meta,
+                    "protocol_version": protocol_version,
                     "last_updated": time.time(),
                     "auth_posture": "no_auth",
                 }
@@ -1157,6 +1170,9 @@ async def _build_and_test_stdio_mcp(
             # alongside tools/capabilities — see _build_and_test_no_auth_mcp.
             server_info = client.server_info
             instructions = client.instructions
+            # F4 L3 (M08): _meta — see _build_and_test_no_auth_mcp.
+            meta = client.meta
+            protocol_version = client.negotiated_protocol_version
             tools_cache_payload = [
                 {
                     "name": t.name,
@@ -1173,6 +1189,8 @@ async def _build_and_test_stdio_mcp(
                     "capabilities": capabilities,
                     "server_info": server_info,
                     "instructions": instructions,
+                    "meta": meta,
+                    "protocol_version": protocol_version,
                     "last_updated": time.time(),
                 }
                 await repo.update(persisted.model_copy(update={"config": persisted_config}))
@@ -1364,6 +1382,9 @@ async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any
                 # same reason as capabilities (post-disconnect reads raise).
                 server_info = client.server_info
                 instructions = client.instructions
+                # F4 L3 (M08): _meta — same snapshot-inside-async-with rule.
+                meta = client.meta
+                protocol_version = client.negotiated_protocol_version
                 # F9 L1 (vibing): persist tools+capabilities to source.config._cache
                 # so the editor can render the cached state on mount without
                 # forcing the operator to click Refresh. Plaintext (un-encrypted)
@@ -1391,6 +1412,8 @@ async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any
                         "capabilities": capabilities,
                         "server_info": server_info,
                         "instructions": instructions,
+                        "meta": meta,
+                        "protocol_version": protocol_version,
                         "last_updated": time.time(),
                     }
                     await repo.update(persisted.model_copy(update={"config": persisted_config}))
@@ -1535,6 +1558,7 @@ def _render_oauth_callback_page(
     heading: str,
     detail_html: str,
     auto_close: bool,
+    post_message: dict[str, Any] | None = None,
 ) -> str:
     """Render the loopback callback page in the studio visual idiom.
 
@@ -1558,6 +1582,13 @@ def _render_oauth_callback_page(
             paint so the operator sees the success state but isn't left
             staring at a stale popup. Failure pages MUST pass False so
             the operator can read the error.
+        post_message: If provided, the page emits an early ``<script>`` that
+            calls ``window.opener.postMessage(post_message, origin)`` so the
+            opener can distinguish success / failed / expired close from a
+            manual cancel. Without this, the Studio MCP-test close-watcher
+            cannot tell whether to re-POST ``/test/connect`` (success) or
+            render an error+retry (failed/expired/cancel) — leading to
+            the M08 F4 L3 popup loop on Cloudflare-class auth failures.
 
     The CSS is intentionally inlined for the page-specific layout
     (centered card, eyebrow, big heading, hint footer). Theme tokens,
@@ -1571,6 +1602,20 @@ def _render_oauth_callback_page(
         "catch (e) { /* popup blocker / non-script-opened — ignore */ } }, "
         "1200);</script>"
         if auto_close
+        else ""
+    )
+    # JSON-encode is safe for embedding in a <script> body because JSON
+    # string syntax is a subset of JS string syntax, and
+    # ``error_description`` may contain user-controllable text from the
+    # IdP. Targeting the page's own origin (loopback) means same-origin
+    # postMessage to the opener; opener-side listener should also check
+    # ``event.origin`` defensively.
+    post_message_script = (
+        f"<script>(function () {{ try {{ if (window.opener) "
+        f"{{ window.opener.postMessage({json.dumps(post_message)}, "
+        f"window.location.origin); }} }} catch (e) {{ /* opener gone / "
+        f"cross-origin — silent */ }} }})();</script>"
+        if post_message is not None
         else ""
     )
     return f"""<!DOCTYPE html>
@@ -1644,6 +1689,7 @@ def _render_oauth_callback_page(
   <h1 class="oauth-callback-heading">{heading}</h1>
   <p class="oauth-callback-detail">{detail_html}</p>
 </main>
+{post_message_script}
 {auto_close_script}
 </body>
 </html>
@@ -1719,6 +1765,13 @@ async def oauth_callback(
                 heading="Login failed",
                 detail_html=safe_desc,
                 auto_close=False,
+                post_message={
+                    "type": "mcp-oauth-result",
+                    "status": "failed",
+                    "source_id": entry.source_id,
+                    "error": error,
+                    "description": error_description,
+                },
             ),
             status_code=200,
         )
@@ -1735,6 +1788,11 @@ async def oauth_callback(
                     "The login window has closed. Please re-trigger the original action to retry."
                 ),
                 auto_close=False,
+                post_message={
+                    "type": "mcp-oauth-result",
+                    "status": "expired",
+                    "source_id": entry.source_id,
+                },
             ),
             status_code=200,
         )
@@ -1782,6 +1840,11 @@ async def oauth_callback(
                 "Tokens have been securely persisted. This window will close automatically."
             ),
             auto_close=True,
+            post_message={
+                "type": "mcp-oauth-result",
+                "status": "success",
+                "source_id": entry.source_id,
+            },
         ),
         status_code=200,
     )
