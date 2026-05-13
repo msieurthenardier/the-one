@@ -1,6 +1,6 @@
 """Keyboard-operability tests (F3 leg 03).
 
-Verifies that all interactive list rows (session-item, agent-item,
+Verifies that all interactive list rows (session-card, agent-card,
 admin-category-item) and their inline action buttons (delete, chip-remove)
 are reachable and activatable via keyboard.
 
@@ -12,6 +12,13 @@ Design choices:
   the default fixtures, so driving chip-add via UI would be brittle.
   The closest() dispatch fix is verified by the JS unit tests instead.
 - Admin category test uses app_clean (no agent/provider needed for navigation).
+
+L7.1 Holograph selector migration:
+- .session-item → .session-card (history-buckets.js rename)
+- .session-list → .sessions-list (chat.js id/class rename)
+- .session-item .delete → .session-card .delete (delete btn inside card)
+- .entity-tile-grid → .agents-list (studio.js rename; role=listbox on the list)
+- section-nav role="group" → role="tablist" (section-nav.js L1.7 update)
 """
 
 from __future__ import annotations
@@ -23,18 +30,20 @@ from playwright.sync_api import Page, expect
 
 @pytest.mark.browser
 def test_session_item_keyboard_select(app_with_agent: SeededApp, page: Page) -> None:
-    """Tab into the session-item, press Enter; aria-selected becomes true."""
+    """Tab into the session-card, press Enter; aria-selected becomes true."""
     base_url = app_with_agent.base_url
     page.goto(base_url)
 
     # Bootstrap a session via the welcome listbox (no auto-create after leg 05).
-    page.locator(".chat-welcome-item").filter(has_text=app_with_agent.agent_name).click()
-    expect(page.locator(".session-agent-badge")).to_have_text(
+    # Holograph: .chat-agent-card (was .chat-welcome-item).
+    page.locator(".chat-agent-card").filter(has_text=app_with_agent.agent_name).click()
+    expect(page.locator(".convo-agent")).to_contain_text(
         app_with_agent.agent_name, timeout=8000
     )
 
-    # Confirm the session-item appeared and has listbox role on parent
-    session_item = page.locator(".session-item").first
+    # Confirm the session-card appeared and has listbox role on parent.
+    # Holograph: .session-card (was .session-item).
+    session_item = page.locator(".session-card").first
     expect(session_item).to_be_visible(timeout=5000)
 
     # Focus directly and press Enter
@@ -52,80 +61,87 @@ def test_session_item_has_role_option(app_with_agent: SeededApp, page: Page) -> 
     page.goto(base_url)
 
     # Bootstrap a session via the welcome listbox (no auto-create after leg 05).
-    page.locator(".chat-welcome-item").filter(has_text=app_with_agent.agent_name).click()
-    expect(page.locator(".session-agent-badge")).to_have_text(
+    page.locator(".chat-agent-card").filter(has_text=app_with_agent.agent_name).click()
+    expect(page.locator(".convo-agent")).to_contain_text(
         app_with_agent.agent_name, timeout=8000
     )
-    expect(page.locator(".session-item").first).to_be_visible(timeout=5000)
+    # Holograph: .session-card (was .session-item).
+    expect(page.locator(".session-card").first).to_be_visible(timeout=5000)
 
-    # Listbox role on parent
-    session_list = page.locator(".session-list")
+    # Listbox role on parent.
+    # Holograph: .sessions-list (was .session-list); id="chat-sessions-list".
+    session_list = page.locator(".sessions-list")
     expect(session_list).to_have_attribute("role", "listbox")
 
     # Each item is an option with tabindex=0
-    session_item = page.locator(".session-item").first
+    session_item = page.locator(".session-card").first
     expect(session_item).to_have_attribute("role", "option")
     expect(session_item).to_have_attribute("tabindex", "0")
 
 
 @pytest.mark.browser
 def test_session_delete_keyboard_reveal(app_with_agent: SeededApp, page: Page) -> None:
-    """Tab from session-item to its .delete button; :focus-within reveals it.
+    """Tab from session-card to its .delete button; button is focusable and in the DOM.
 
-    A display:none element cannot be focused directly. The reveal is driven by
-    Tab from the parent session-item (which IS focusable via tabindex=0) into
-    the delete button child. Once the delete button has focus, the parent's
-    :focus-within selector fires and display:none becomes display:block.
+    Holograph note: Mission-08 used a :focus-within / display:none reveal pattern
+    for the delete button. Holograph chat.css does NOT hide the delete button —
+    it is rendered in the DOM and visible. The load-bearing assertions are:
+    1. The delete button (.delete.list-item-delete) is present inside .session-card.
+    2. Tab from the session-card reaches the delete button (it has focus after Tab).
     """
     base_url = app_with_agent.base_url
     page.goto(base_url)
 
     # Bootstrap a session via the welcome listbox (no auto-create after leg 05).
-    page.locator(".chat-welcome-item").filter(has_text=app_with_agent.agent_name).click()
-    expect(page.locator(".session-agent-badge")).to_have_text(
+    page.locator(".chat-agent-card").filter(has_text=app_with_agent.agent_name).click()
+    expect(page.locator(".convo-agent")).to_contain_text(
         app_with_agent.agent_name, timeout=8000
     )
-    expect(page.locator(".session-item").first).to_be_visible(timeout=5000)
+    # Holograph: .session-card (was .session-item).
+    expect(page.locator(".session-card").first).to_be_visible(timeout=5000)
 
-    delete_btn = page.locator(".session-item .delete").first
+    # Holograph: delete button has class .delete .list-item-delete inside .session-card.
+    # In Holograph the button is visible (no display:none reveal needed).
+    delete_btn = page.locator(".session-card .delete").first
+    expect(delete_btn).to_be_visible()
 
-    # Before focus: delete is hidden (display:none)
-    expect(delete_btn).to_be_hidden()
-
-    # Focus the session-item (tabindex=0), then Tab once to reach the delete button
-    page.locator(".session-item").first.focus()
+    # Focus the session-card (tabindex=0), then Tab once to reach the delete button.
+    page.locator(".session-card").first.focus()
     page.keyboard.press("Tab")
 
-    # :focus-within on the parent fires when the delete button receives focus
-    expect(delete_btn).to_be_visible()
+    # After Tab, the delete button should have focus.
+    expect(delete_btn).to_be_focused()
 
 
 @pytest.mark.browser
 def test_agent_item_keyboard_select(app_with_agent: SeededApp, page: Page) -> None:
-    """Tab into agent tile, press Enter; aria-selected becomes true.
+    """Tab into agent card, press Enter; aria-selected becomes true.
 
     F5 leg 02 replaced the flat `<div role="option">` rows inside
     `<div class="agent-list" role="listbox">` with a CSS-grid of
-    `<button class="entity-tile">` buttons. Each tile is a natural tab stop
-    (default <button> behavior, no custom tabindex), so the listbox/option
-    pattern was retired in favor of a more direct keyboard model.
+    `.agent-card` divs (with role=option + tabindex=0). Each card is a
+    natural focus target via tabindex=0, so keyboard navigation works
+    directly on the card element.
+
+    Holograph: .agents-list (was .entity-tile-grid) holds .agent-card items
+    (was .entity-tile); the list has role=listbox and each card role=option.
     """
     base_url = app_with_agent.base_url
     page.goto(f"{base_url}#studio")
 
-    # Wait for the tile grid to render.
+    # Wait for the agent card to render.
     agent_item = page.locator('[data-testid="agent-item"]').first
     expect(agent_item).to_be_visible(timeout=5000)
 
-    # The container is a CSS-grid (`.entity-tile-grid`), not a listbox.
-    expect(page.locator(".entity-tile-grid")).to_be_visible()
+    # Holograph: .agents-list (was .entity-tile-grid).
+    expect(page.locator(".agents-list")).to_be_visible()
 
-    # The tile is a <button> (natural tab stop) carrying the agent-item testid.
+    # The card is a <div> with role=option and tabindex=0 (not a <button>).
     tag_name = agent_item.evaluate("el => el.tagName.toLowerCase()")
-    assert tag_name == "button", f"agent-item must be a <button>, got <{tag_name}>"
+    assert tag_name == "div", f"agent-item must be a <div>, got <{tag_name}>"
 
-    # Bare #studio/agents shows the tile grid with no agent selected.
-    # Focus the tile and press Enter to select it.
+    # Bare #studio/agents shows the card grid with no agent selected.
+    # Focus the card and press Enter to select it.
     agent_item.focus()
     page.keyboard.press("Enter")
 
@@ -142,8 +158,10 @@ def test_admin_category_keyboard_select(app_clean: str, page: Page) -> None:
     category_item = page.locator(".area-admin .section-nav-item").first
     expect(category_item).to_be_visible(timeout=5000)
 
-    # Section-nav container has role=group (set by App.layout.renderSectionNav)
-    expect(page.locator(".area-admin .section-nav")).to_have_attribute("role", "group")
+    # Holograph: section-nav container uses role=tablist (was role=group).
+    # The L1.7 section-nav.js rewrite changed the ARIA role from "group"
+    # to "tablist" for WCAG compliance with the tab-key navigation pattern.
+    expect(page.locator(".area-admin .section-nav")).to_have_attribute("role", "tablist")
 
     # Active section-nav item has tabindex=0 (roving tabindex contract)
     expect(category_item).to_have_attribute("tabindex", "0")

@@ -10,6 +10,20 @@ F5 leg 01 extends this with:
 - #studio redirects to #studio/agents (via the F3 router's serialize-after-hydrate
   path — no new redirect logic in studio.js)
 - #studio/knowledge and #studio/tools survive refresh
+
+L7.1 Holograph selector migration:
+- .app-picker-button → .navlink (topnav area buttons; no picker overlay)
+- .app-picker-option[data-area="X"] → .navlink[data-area="X"]
+- .section-nav-header → removed (Holograph subnav has no header element)
+  Replaced with .area-{X} .section-nav-item as a ready-signal
+- .session-item → .session-card (history-buckets.js rename)
+- .session-item[data-id="…"] → .session-card[data-session-id="…"]
+  (dataset key renamed from data-id to data-session-id in L3.2)
+- .session-agent-badge → .convo-agent (Holograph convo-header)
+- .studio-editor / .studio-section-content is-hidden toggles removed —
+  Holograph uses a CSS side-by-side grid; both panels are always visible
+  within the active sub-block. Test replaced with .editor-title assertion.
+- .area-studio .page-title (MCP Servers) → active section-nav item
 """
 
 from __future__ import annotations
@@ -26,19 +40,21 @@ def test_hash_routing_admin_subpage_persists_on_refresh(app_clean: str, page: Pa
 
     # 1. Open app (lands on #chat by default).
     page.goto(base_url)
-    expect(page.locator(".app-picker-button")).to_be_visible(timeout=5000)
+    # Holograph: area navigation is via .navlink buttons in the topnav.
+    expect(page.locator(".navlink").first).to_be_visible(timeout=5000)
 
-    # 2. Navigate to Admin via picker.
-    page.locator(".app-picker-button").click()
-    page.locator('.app-picker-option[data-area="admin"]').click()
+    # 2. Navigate to Admin via topnav.
+    page.locator('.navlink[data-area="admin"]').click()
 
-    # 3. Admin area is now active — System category is the default (F6 leg 01).
-    expect(page.locator(".page-title")).to_have_text("General", timeout=5000)
+    # 3. Admin area is now active — General category is the default.
+    # Scope to the active sub-block to avoid strict-mode violations when
+    # multiple .page-title elements exist simultaneously in the DOM.
+    expect(page.locator(".area-admin .admin-sub.active .page-title")).to_have_text("General", timeout=5000)
 
     # 4. Click the Providers category.
     providers_item = page.locator(".area-admin .section-nav-item").filter(has_text="LLM Providers")
     providers_item.click()
-    expect(page.locator(".page-title")).to_have_text("LLM Providers", timeout=5000)
+    expect(page.locator(".area-admin .admin-sub.active .page-title")).to_have_text("LLM Providers", timeout=5000)
 
     # 5. URL should now be #admin/providers.
     assert page.evaluate("location.hash") == "#admin/providers"
@@ -48,7 +64,7 @@ def test_hash_routing_admin_subpage_persists_on_refresh(app_clean: str, page: Pa
 
     # 7. After reload, app should land on admin/providers sub-page.
     # Wait for admin area to activate.
-    expect(page.locator(".page-title")).to_have_text("LLM Providers", timeout=8000)
+    expect(page.locator(".area-admin .admin-sub.active .page-title")).to_have_text("LLM Providers", timeout=8000)
 
     # Providers category should be marked active (aria-current="page" via section-nav).
     active_cat = page.locator('.area-admin .section-nav-item[aria-current="page"]')
@@ -64,11 +80,12 @@ def test_hash_routing_chat_session_persists_on_refresh(
 
     # 1. Open #chat. Welcome canvas shows; bootstrap a session.
     page.goto(base_url)
-    page.locator(".chat-welcome-item").filter(has_text=app_with_agent.agent_name).click()
+    # Holograph welcome: agent picker uses .chat-agent-card (was .chat-welcome-item).
+    page.locator(".chat-agent-card").filter(has_text=app_with_agent.agent_name).click()
 
-    # 2. session_joined fires; agent badge updates and URL becomes
-    #    #chat/sessions/<id>.
-    expect(page.locator(".session-agent-badge")).to_have_text(
+    # 2. session_joined fires; convo-header updates with the agent name.
+    # Holograph: .convo-agent (was .session-agent-badge) shows agent name.
+    expect(page.locator(".convo-agent")).to_contain_text(
         app_with_agent.agent_name, timeout=8000
     )
 
@@ -77,11 +94,12 @@ def test_hash_routing_chat_session_persists_on_refresh(
     assert current_hash.startswith("#chat/sessions/"), (
         f"Expected #chat/sessions/<id>, got: {current_hash}"
     )
-    session_id = current_hash[len("#chat/sessions/") :]
+    session_id = current_hash[len("#chat/sessions/"):]
     assert session_id, "Session ID should not be empty"
 
-    # 4. A session item should be selected in the sidebar.
-    selected_item = page.locator('.session-item[aria-selected="true"]')
+    # 4. A session card should be selected in the sessions pane.
+    # Holograph: .session-card (was .session-item).
+    selected_item = page.locator('.session-card[aria-selected="true"]')
     expect(selected_item).to_be_visible(timeout=5000)
 
     # 5. Refresh the page.
@@ -89,8 +107,8 @@ def test_hash_routing_chat_session_persists_on_refresh(
 
     # 6. After reload, same session should be selected.
     # The session_joined handler fires after WS reconnects, which updates URL.
-    # Wait for the specific session item to be marked selected.
-    restored_item = page.locator(f'.session-item[data-id="{session_id}"][aria-selected="true"]')
+    # Holograph: data-session-id (was data-id) attribute on .session-card.
+    restored_item = page.locator(f'.session-card[data-session-id="{session_id}"][aria-selected="true"]')
     expect(restored_item).to_be_visible(timeout=10000)
 
     # URL should still point to the same session.
@@ -112,7 +130,7 @@ def test_hash_routing_studio_agent_persists_on_refresh(
     agent_item = page.locator('[data-testid="agent-item"]')
     expect(agent_item).to_have_count(1, timeout=8000)
 
-    # 3. Click the agent tile to enter the editor (no auto-selection on
+    # 3. Click the agent card to enter the editor (no auto-selection on
     #    bare #studio/agents — F5 leg 02 design).
     agent_item.click()
     expect(page.locator(".editor-title")).to_have_text(agent_name, timeout=5000)
@@ -130,11 +148,9 @@ def test_hash_routing_studio_agent_persists_on_refresh(
     # 6. After reload, the same agent should be selected in Studio.
     expect(page.locator(".editor-title")).to_have_text(agent_name, timeout=10000)
 
-    # Editor is the visible child of the main panel; tile grid is hidden.
-    expect(page.locator(".studio-editor")).not_to_have_class("studio-editor is-hidden")
-    expect(page.locator(".studio-section-content")).to_have_class(
-        "studio-section-content is-hidden"
-    )
+    # Holograph: both agents pane and editor pane are side-by-side in a CSS grid;
+    # no is-hidden toggling. Verify the editor has content (title visible).
+    expect(page.locator(".editor-title")).to_be_visible()
 
     # URL should still be the same.
     assert page.evaluate("location.hash") == expected_hash
@@ -148,12 +164,15 @@ def test_studio_root_redirects_to_agents(app_clean: str, page: Page) -> None:
     'agents' (not null) when no agent is selected. The F3 router's
     serialize-after-hydrate path at app.js:179-185 detects the mismatch
     (sub=null vs serialized='agents') and calls history.replaceState.
+
+    Holograph: the studio subnav has no .section-nav-header element;
+    use the first .section-nav-item in .area-studio as the ready-signal.
     """
     base_url = app_clean
 
     page.goto(f"{base_url}#studio")
-    # Wait for studio to mount.
-    expect(page.locator(".section-nav-header")).to_have_text("Studio", timeout=8000)
+    # Wait for studio section nav to mount (Holograph: no header, just items).
+    expect(page.locator(".area-studio .section-nav-item").first).to_be_visible(timeout=8000)
 
     # URL was rewritten by the F3 router (replaceState, not pushState).
     assert page.evaluate("location.hash") == "#studio/agents"
@@ -165,14 +184,15 @@ def test_studio_knowledge_section_persists_on_refresh(app_clean: str, page: Page
     base_url = app_clean
 
     page.goto(f"{base_url}#studio/knowledge")
-    expect(page.locator(".section-nav-header")).to_have_text("Studio", timeout=8000)
+    # Wait for studio section nav to mount (Holograph: no header, just items).
+    expect(page.locator(".area-studio .section-nav-item").first).to_be_visible(timeout=8000)
 
     stub = page.locator('[data-testid="studio-knowledge-stub"]')
     expect(stub).to_be_visible(timeout=5000)
     assert page.evaluate("location.hash") == "#studio/knowledge"
 
     page.reload()
-    expect(page.locator(".section-nav-header")).to_have_text("Studio", timeout=8000)
+    expect(page.locator(".area-studio .section-nav-item").first).to_be_visible(timeout=8000)
     expect(page.locator('[data-testid="studio-knowledge-stub"]')).to_be_visible(timeout=5000)
     assert page.evaluate("location.hash") == "#studio/knowledge"
 
@@ -183,19 +203,21 @@ def test_studio_mcp_sources_section_persists_on_refresh(app_clean: str, page: Pa
 
     Post-F2 retrofit: replaces the test that previously asserted the
     "Tools" stub at #studio/tools — the third nav slot is now MCP Servers.
+
+    Holograph: no .page-title in studio; use the active section-nav item
+    text to assert the MCP Servers section is selected.
     """
     base_url = app_clean
 
     page.goto(f"{base_url}#studio/mcp-sources")
-    expect(page.locator(".area-studio .page-title")).to_have_text(
-        "MCP Servers", timeout=8000
-    )
+    # Wait for studio section nav to mount and MCP Servers item to be active.
+    active_item = page.locator('.area-studio .section-nav-item[aria-current="page"]')
+    expect(active_item).to_contain_text("MCP Servers", timeout=8000)
     assert page.evaluate("location.hash") == "#studio/mcp-sources"
 
     page.reload()
-    expect(page.locator(".area-studio .page-title")).to_have_text(
-        "MCP Servers", timeout=8000
-    )
+    active_item = page.locator('.area-studio .section-nav-item[aria-current="page"]')
+    expect(active_item).to_contain_text("MCP Servers", timeout=8000)
     assert page.evaluate("location.hash") == "#studio/mcp-sources"
 
 
@@ -205,11 +227,11 @@ def test_hash_routing_replacestate_no_history_growth(app_clean: str, page: Page)
 
     Design invariant: AREA-INTERNAL sub navigation (admin category clicks) uses
     history.replaceState, which does NOT add to history. Only cross-area navigation
-    (picker click) pushes a new history entry.
+    (topnav click) pushes a new history entry.
 
     Sequence:
       - Start on chat (baseline history.length = N)
-      - Click picker → admin  (cross-area: pushes, length = N+1)
+      - Click topnav → admin  (cross-area: pushes, length = N+1)
       - Click Providers        (replaceState: no push, length = N+1)
       - Click General          (replaceState: no push, length = N+1)
 
@@ -219,15 +241,17 @@ def test_hash_routing_replacestate_no_history_growth(app_clean: str, page: Page)
 
     # 1. Open app.
     page.goto(base_url)
-    expect(page.locator(".app-picker-button")).to_be_visible(timeout=5000)
+    # Holograph: area buttons are .navlink in the topnav (no picker overlay).
+    expect(page.locator(".navlink").first).to_be_visible(timeout=5000)
 
     # 2. Capture baseline history.length (after initial load).
     baseline = page.evaluate("history.length")
 
-    # 3. Navigate to Admin via picker (cross-area — pushes history).
-    page.locator(".app-picker-button").click()
-    page.locator('.app-picker-option[data-area="admin"]').click()
-    expect(page.locator(".page-title")).to_have_text("General", timeout=5000)
+    # 3. Navigate to Admin via topnav (cross-area — pushes history).
+    page.locator('.navlink[data-area="admin"]').click()
+    # Scope to active sub-block to avoid strict-mode violations (multiple
+    # .page-title elements exist simultaneously in the DOM).
+    expect(page.locator(".area-admin .admin-sub.active .page-title")).to_have_text("General", timeout=5000)
 
     after_cross_area = page.evaluate("history.length")
     assert after_cross_area == baseline + 1, (
@@ -238,7 +262,7 @@ def test_hash_routing_replacestate_no_history_growth(app_clean: str, page: Page)
     # 4. Click Providers (sub-page change within admin — replaceState, no push).
     providers_item = page.locator(".area-admin .section-nav-item").filter(has_text="LLM Providers")
     providers_item.click()
-    expect(page.locator(".page-title")).to_have_text("LLM Providers", timeout=5000)
+    expect(page.locator(".area-admin .admin-sub.active .page-title")).to_have_text("LLM Providers", timeout=5000)
 
     after_providers = page.evaluate("history.length")
     assert after_providers == baseline + 1, (
@@ -249,7 +273,7 @@ def test_hash_routing_replacestate_no_history_growth(app_clean: str, page: Page)
     # 5. Click General (another sub-page change — replaceState, no push).
     system_item = page.locator(".area-admin .section-nav-item").filter(has_text="General")
     system_item.click()
-    expect(page.locator(".page-title")).to_have_text("General", timeout=5000)
+    expect(page.locator(".area-admin .admin-sub.active .page-title")).to_have_text("General", timeout=5000)
 
     after_system = page.evaluate("history.length")
     assert after_system == baseline + 1, (
