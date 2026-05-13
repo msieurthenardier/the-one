@@ -483,7 +483,7 @@ App.registerArea({
       }
       var btn = document.createElement('button');
       btn.type = 'button';
-      btn.className = 'btn-filled-primary login-required-btn';
+      btn.className = 'btn btn-primary login-required-btn'; // L6.3: Holograph btn vocabulary
       btn.dataset.sourceId = data.source_id || '';
       btn.dataset.toolCallId = data.tool_call_id || '';
       btn.dataset.resourceMetadataUrl = data.resource_metadata_url || '';

@@ -35,21 +35,34 @@ from playwright.sync_api import Page, expect
 
 
 def _wait_editor_ready(page: Page) -> None:
-    """Wait for the agent editor to be the visible child in the main panel.
+    """Wait for the agent editor to be mounted in the editor pane.
 
-    Bare `#studio/agents` lands on the tile grid with no agent auto-selected
-    (F5 leg 05 design): the section-content (tile grid) is visible and the
-    editor is hidden. Click the first tile to swap them. Deep-link
+    Holograph Studio uses a CSS-grid side-by-side layout (agents list + editor
+    pane always visible). `#studio/agents` with no agent selected shows the
+    editor pane empty; clicking the first agent card loads the editor
+    asynchronously (via refreshToolConfigsCache then renderEditor). Deep-link
     navigations (`#studio/agents/<name>/...`) hydrate the selection and the
-    editor is already visible — skip the click.
+    editor mounts asynchronously — skip the click in that case.
+
+    Mirrors the _wait_editor_ready pattern from test_flow_agent_tabs.py (L4.5):
+      .section-nav-header  →  .area-studio .section-nav-item (mount signal)
+      .studio-editor       →  #studio-editor-pane [role="tablist"] (presence check)
+      button.entity-tile   →  .agent-card
     """
-    expect(page.locator(".section-nav-header")).to_have_text("Studio", timeout=8000)
-    editor_hidden = page.evaluate(
-        "() => document.querySelector('.studio-editor')?.classList.contains('is-hidden')"
-    )
-    if editor_hidden:
-        page.locator("button.entity-tile").first.click()
+    expect(page.locator(".area-studio .section-nav-item").first).to_be_visible(timeout=8000)
+    # If the URL hash deep-links into an agent, the editor mount is already in
+    # flight — wait for it instead of clicking a card (avoids a click race).
+    deep_linked = page.evaluate("() => /^#?studio\\/agents\\/[^/]/i.test(location.hash)")
+    if not deep_linked:
+        editor_has_tabs = page.evaluate(
+            "() => !!document.querySelector('#studio-editor-pane [role=\"tablist\"]')"
+        )
+        if not editor_has_tabs:
+            page.locator(".agent-card").first.click()
     expect(page.locator('[data-testid="tab-general"]')).to_be_visible(timeout=8000)
+    expect(page.locator('[data-testid="tab-general"]')).to_have_attribute(
+        "aria-selected", "true", timeout=8000
+    )
 
 
 def _make_dirty(page: Page) -> None:
@@ -126,9 +139,13 @@ def test_back_when_dirty_confirm_navigates(app_with_agent: SeededApp, page: Page
     expect(overlay).to_have_count(0)
     # URL is now #studio/agents (no agent selected).
     assert page.evaluate("location.hash") == "#studio/agents"
-    # Main panel returned to the tile grid; editor is hidden.
-    expect(page.locator(".entity-tile-grid")).to_be_visible()
-    expect(page.locator(".studio-editor")).to_have_class("studio-editor is-hidden")
+    # Holograph: after Back the editor pane is cleared (renderEmptyEditor sets
+    # innerHTML = ''). The editor has no tablist, and the tab-general button
+    # is gone. The agents list still shows agent cards on the left.
+    editor_empty = page.evaluate(
+        "() => !document.querySelector('#studio-editor-pane [role=\"tablist\"]')"
+    )
+    assert editor_empty, "Editor pane should be cleared after Back+Confirm"
 
 
 @pytest.mark.browser

@@ -36,9 +36,15 @@ from playwright.sync_api import Page, expect
 
 
 def _open_chat(page: Page, base_url: str, agent_name: str) -> None:
+    """Navigate to chat and start a session with the given agent.
+
+    L3.3 Holograph selector mapping:
+      .chat-welcome-item  →  .chat-agent-card  (agent picker on empty state)
+      .session-agent-badge  →  .convo-agent > span:not(.chip)  (active session badge)
+    """
     page.goto(base_url)
-    page.locator(".chat-welcome-item").filter(has_text=agent_name).click()
-    expect(page.locator(".session-agent-badge")).to_have_text(agent_name, timeout=8000)
+    page.locator(".chat-agent-card").filter(has_text=agent_name).click()
+    expect(page.locator(".convo-agent > span:not(.chip)")).to_have_text(agent_name, timeout=8000)
 
 
 def _emit_ws_event(page: Page, payload: dict) -> None:
