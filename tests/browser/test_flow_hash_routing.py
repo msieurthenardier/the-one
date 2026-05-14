@@ -40,11 +40,12 @@ def test_hash_routing_admin_subpage_persists_on_refresh(app_clean: str, page: Pa
 
     # 1. Open app (lands on #chat by default).
     page.goto(base_url)
-    # Holograph: area navigation is via .navlink buttons in the topnav.
-    expect(page.locator(".navlink").first).to_be_visible(timeout=5000)
+    # Holograph: area navigation is via .navseg buttons in the topnav
+    # (M10 L2.2 — mono coord segments; renamed from .navlink).
+    expect(page.locator(".navseg").first).to_be_visible(timeout=5000)
 
     # 2. Navigate to Admin via topnav.
-    page.locator('.navlink[data-area="admin"]').click()
+    page.locator('.navseg[data-area="admin"]').click()
 
     # 3. Admin area is now active — General category is the default.
     # Scope to the active sub-block to avoid strict-mode violations when
@@ -241,14 +242,14 @@ def test_hash_routing_replacestate_no_history_growth(app_clean: str, page: Page)
 
     # 1. Open app.
     page.goto(base_url)
-    # Holograph: area buttons are .navlink in the topnav (no picker overlay).
-    expect(page.locator(".navlink").first).to_be_visible(timeout=5000)
+    # Holograph: area buttons are .navseg in the topnav (no picker overlay).
+    expect(page.locator(".navseg").first).to_be_visible(timeout=5000)
 
     # 2. Capture baseline history.length (after initial load).
     baseline = page.evaluate("history.length")
 
     # 3. Navigate to Admin via topnav (cross-area — pushes history).
-    page.locator('.navlink[data-area="admin"]').click()
+    page.locator('.navseg[data-area="admin"]').click()
     # Scope to active sub-block to avoid strict-mode violations (multiple
     # .page-title elements exist simultaneously in the DOM).
     expect(page.locator(".area-admin .admin-sub.active .page-title")).to_have_text("General", timeout=5000)
@@ -299,7 +300,7 @@ def test_cross_area_switch_unmounts_previous_area(app_clean: str, page: Page) ->
 
     # Both panels must exist in the DOM after switching (lazy-init keeps them
     # around), but only the active one may be visible.
-    page.locator('.navlink[data-area="admin"]').click()
+    page.locator('.navseg[data-area="admin"]').click()
     expect(page.locator(".area-admin .admin-sub.active .page-title")).to_have_text(
         "General", timeout=5000
     )
@@ -313,7 +314,7 @@ def test_cross_area_switch_unmounts_previous_area(app_clean: str, page: Page) ->
     expect(admin_panel).to_be_visible()
 
     # Switch back to Studio and verify the inverse.
-    page.locator('.navlink[data-area="studio"]').click()
+    page.locator('.navseg[data-area="studio"]').click()
     expect(page.locator(".area-studio .section-nav-item").first).to_be_visible(timeout=5000)
     expect(studio_panel).to_be_visible()
     expect(admin_panel).not_to_be_visible()

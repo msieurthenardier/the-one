@@ -12,65 +12,16 @@
   }
 
   function renderTopNav() {
-    var topnav = document.getElementById('app-topnav');
-
-    var navlinksHtml = '';
-    for (var i = 0; i < order.length; i++) {
-      var a = order[i];
-      navlinksHtml +=
-        '<button class="navlink" data-area="' + a.id + '" aria-label="Go to ' + escapeAttr(a.label) + '">' +
-        escapeHtml(a.label) +
-        '</button>';
-    }
-
-    topnav.innerHTML =
-      '<div class="brand">' +
-        '<div class="brand-mark">H</div>' +
-        '<div class="brand-name">Holograph</div>' +
-      '</div>' +
-      '<div class="navlinks">' + navlinksHtml + '</div>' +
-      '<div class="nav-right">' +
-        '<button class="search" aria-label="Open search" aria-keyshortcuts="Control+K Meta+K">' +
-          '<svg class="icn" viewBox="0 0 16 16" aria-hidden="true">' +
-            '<circle cx="7" cy="7" r="5"/>' +
-            '<path d="M14 14l-3-3"/>' +
-          '</svg>' +
-          '<span>Search</span>' +
-          '<span class="kbd">⌘K</span>' +
-        '</button>' +
-        '<div class="avatar" id="app-user-avatar" aria-label="User">JD</div>' +
-      '</div>';
-
-    // Wire navlink clicks to hash navigation.
-    var buttons = topnav.querySelectorAll('.navlink');
-    for (var j = 0; j < buttons.length; j++) {
-      (function (btn) {
-        var areaId = btn.dataset.area;
-        btn.addEventListener('click', function (e) {
-          e.stopPropagation();
-          location.hash = areaId;
-        });
-      })(buttons[j]);
-    }
-
-    // Wire the search button + ⌘K / Ctrl-K shortcut to the stub toast.
-    // (Search itself is non-goal per spec §"Out of scope"; a future flight
-    // can wire up a real command palette behind this same affordance.)
-    var searchBtn = topnav.querySelector('.search');
-    searchBtn.addEventListener('click', function () {
-      if (window.App && window.App.toast) {
-        window.App.toast('Search coming soon.');
-      } else if (console && console.info) {
-        console.info('[Holograph] Search coming soon.');
-      }
+    // M10 L2.2 — topnav rendering lifted into topnav.js. This shim
+    // delegates first-render, binds the single delegated click handler,
+    // and registers the TelemetryStore subscriber so the chip strip
+    // re-renders when counts change. The active-area class is updated
+    // by re-rendering inside performCrossAreaSwitch.
+    window.Topnav.render('chat');
+    window.Topnav.bindEvents(function (areaId) {
+      window.location.hash = '#' + areaId;
     });
-
-    document.addEventListener('keydown', function (e) {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault();
-        searchBtn.click();
-      }
-    });
+    window.Topnav.subscribeForRerender();
   }
 
   function parseHash(hashString) {
@@ -147,16 +98,8 @@
         targetContent.style.display = '';
       }
 
-      // Update navlink "you are here" state — toggle .active class for
-      // Holograph styling AND aria-current="page" for browser-test selectors
-      // (preserved during the L3-L5 selector migration).
-      var navlinks = document.querySelectorAll('#app-topnav .navlink');
-      for (var k = 0; k < navlinks.length; k++) {
-        var isActive = navlinks[k].dataset.area === areaId;
-        navlinks[k].classList.toggle('active', isActive);
-        if (isActive) navlinks[k].setAttribute('aria-current', 'page');
-        else navlinks[k].removeAttribute('aria-current');
-      }
+      // M10 — re-render topnav so active nav segment + per-area chips update.
+      if (window.Topnav) window.Topnav.render(areaId);
 
       currentId = areaId;
       currentSub = sub;
