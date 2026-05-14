@@ -27,6 +27,7 @@ class OllamaProvider(LLMProvider):
         api_key: str | None = None,
         **kwargs: Any,
     ):
+        super().__init__()
         self.model = model
         self.base_url = ollama_api.ensure_v1(base_url or "http://localhost:11434/v1")
         self.api_key = api_key
@@ -38,6 +39,18 @@ class OllamaProvider(LLMProvider):
         working unchanged."""
         key = (self.api_key or "").strip()
         return {"Authorization": f"Bearer {key}"} if key else {}
+
+    async def _resolve_max_context_tokens(self) -> None:
+        # Query Ollama's native /api/show endpoint and walk the
+        # ``model_info`` map for a key ending in ``.context_length``.
+        # Family-namespaced (e.g. ``qwen2.context_length``,
+        # ``llama.context_length``). Failures (network, 404) propagate to
+        # the wrapper which catches + logs + flips the sentinel.
+        data = await ollama_api.show_model(self.base_url, self.model)
+        resolved = ollama_api.extract_ollama_context_length(data)
+        if resolved is not None and resolved > 0:
+            self.max_context_tokens = resolved
+        # else: leave at class default; sentinel still flips in the wrapper.
 
     async def supports_tools(self) -> bool:
         """Returns False if the Ollama model is known not to advertise the
@@ -56,6 +69,7 @@ class OllamaProvider(LLMProvider):
         temperature: float = 0.0,
         max_tokens: int = 16384,
     ) -> Message:
+        await self._resolve_max_context_tokens_if_needed()
         api_messages = [self._to_api_message(m) for m in messages]
         payload: dict[str, Any] = {
             "model": self.model,
@@ -126,6 +140,7 @@ class OllamaProvider(LLMProvider):
         final metadata chunk with ``usage``. Tool-call deltas are
         accumulated by index and emitted on the final StreamChunk.
         """
+        await self._resolve_max_context_tokens_if_needed()
         api_messages = [self._to_api_message(m) for m in messages]
         body: dict[str, Any] = {
             "model": self.model,

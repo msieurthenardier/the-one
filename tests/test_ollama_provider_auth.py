@@ -12,6 +12,14 @@ from the_one.llm.ollama_provider import OllamaProvider
 def _capture_handler(captured: list[httpx.Request]):
     def handler(request: httpx.Request) -> httpx.Response:
         captured.append(request)
+        # ``/api/show`` is hit by the M08 F6.5 L01 resolver before the
+        # chat completion. Return a payload that ``ollama_api.show_model``
+        # accepts so the resolver path completes cleanly; the resolver
+        # leaves ``max_context_tokens`` at the class default when no
+        # ``.context_length`` field is present, which is fine for these
+        # auth-header pins.
+        if request.url.path.endswith("/api/show"):
+            return httpx.Response(200, json={"model_info": {}})
         return httpx.Response(
             200,
             json={
@@ -21,6 +29,21 @@ def _capture_handler(captured: list[httpx.Request]):
         )
 
     return handler
+
+
+def _find_chat_request(captured: list[httpx.Request]) -> httpx.Request:
+    """Return the first ``/v1/chat/completions`` request.
+
+    M08 F6.5 L01: the resolver fires ``/api/show`` before the chat
+    request, so ``captured[0]`` is no longer the chat request.
+    """
+    for req in captured:
+        if req.url.path.endswith("/chat/completions"):
+            return req
+    raise AssertionError(
+        f"no /chat/completions request captured (paths: "
+        f"{[r.url.path for r in captured]})"
+    )
 
 
 @pytest.mark.asyncio
@@ -43,7 +66,7 @@ class TestOllamaAuthHeader:
         )
         await prov.complete([Message(role=Role.USER, content="hi")])
         assert captured, "no request captured"
-        assert captured[0].headers.get("authorization") == "Bearer sk-test-key"
+        assert _find_chat_request(captured).headers.get("authorization") == "Bearer sk-test-key"
 
     async def test_complete_no_authorization_when_api_key_none(self, monkeypatch) -> None:
         captured: list[httpx.Request] = []
@@ -57,7 +80,8 @@ class TestOllamaAuthHeader:
 
         prov = OllamaProvider(model="m", base_url="http://localhost:11434/v1")
         await prov.complete([Message(role=Role.USER, content="hi")])
-        assert "authorization" not in {k.lower() for k in captured[0].headers.keys()}
+        chat_req = _find_chat_request(captured)
+        assert "authorization" not in {k.lower() for k in chat_req.headers.keys()}
 
     async def test_complete_empty_string_api_key_sends_no_auth(self, monkeypatch) -> None:
         captured: list[httpx.Request] = []
@@ -71,7 +95,8 @@ class TestOllamaAuthHeader:
 
         prov = OllamaProvider(model="m", base_url="http://localhost:11434/v1", api_key="")
         await prov.complete([Message(role=Role.USER, content="hi")])
-        assert "authorization" not in {k.lower() for k in captured[0].headers.keys()}
+        chat_req = _find_chat_request(captured)
+        assert "authorization" not in {k.lower() for k in chat_req.headers.keys()}
 
     async def test_complete_whitespace_api_key_sends_no_auth(self, monkeypatch) -> None:
         captured: list[httpx.Request] = []
@@ -85,7 +110,8 @@ class TestOllamaAuthHeader:
 
         prov = OllamaProvider(model="m", base_url="http://localhost:11434/v1", api_key="   ")
         await prov.complete([Message(role=Role.USER, content="hi")])
-        assert "authorization" not in {k.lower() for k in captured[0].headers.keys()}
+        chat_req = _find_chat_request(captured)
+        assert "authorization" not in {k.lower() for k in chat_req.headers.keys()}
 
 
 @pytest.mark.asyncio

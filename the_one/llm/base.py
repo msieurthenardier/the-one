@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 class Role(str, Enum):
@@ -85,6 +88,40 @@ class LLMProvider(ABC):
 
     name: str
     max_context_tokens: int = 128_000
+
+    def __init__(self) -> None:
+        # Sentinel for lazy max_context_tokens resolution. Set True after
+        # first _resolve_max_context_tokens_if_needed() call (regardless
+        # of fetch outcome) to prevent retry storms on metadata-fetch
+        # failure. M08 F6.5 L01.
+        self._max_context_tokens_resolved: bool = False
+
+    async def _resolve_max_context_tokens(self) -> None:
+        """Subclasses override to query provider metadata and set
+        ``self.max_context_tokens`` to the per-model value. Default no-op
+        (class attribute is the resolved value)."""
+
+    async def _resolve_max_context_tokens_if_needed(self) -> None:
+        """Lazy resolver. Idempotent — short-circuits after first call.
+
+        Catches all exceptions so a metadata-fetch failure falls back
+        to the class default without breaking the LLM call. ALWAYS
+        flips the sentinel — failure-path caching prevents retry-on-
+        every-call when metadata is unreachable. M08 F6.5 L01.
+        """
+        if self._max_context_tokens_resolved:
+            return
+        try:
+            await self._resolve_max_context_tokens()
+        except Exception:
+            logger.debug(
+                "max_context_tokens resolution failed for %s; using default %d",
+                self.name,
+                self.max_context_tokens,
+                exc_info=True,
+            )
+        finally:
+            self._max_context_tokens_resolved = True
 
     @abstractmethod
     async def complete(

@@ -77,6 +77,10 @@
   .area-studio .model-capabilities { margin-top: 6px; padding-left: 112px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: var(--font-size-caption); color: var(--fg-secondary); }
   .area-studio .model-capabilities:empty { display: none; }
   .area-studio .model-capabilities-label { color: var(--fg-tertiary); text-transform: uppercase; letter-spacing: 0.5px; font-size: var(--font-size-tiny); }
+  /* F6.5 L04: per-model max-context-tokens chip surfaced next to the
+     capability chips. Tabular-nums so the digit columns align when an
+     operator scans through a model list. */
+  .area-studio .model-ctx-chip { font-family: var(--font-family-mono); font-variant-numeric: tabular-nums; color: var(--fg-secondary); padding: 1px 6px; border-radius: 3px; background: var(--surface-elevated); }
 
   /* Capability chips on agent tiles — sit below the meta line. */
   .area-studio .agent-tile-caps { margin-top: 4px; }

@@ -166,6 +166,36 @@ async def verify_key(base_url: str, api_key: str) -> dict[str, Any]:
             ) from e
 
 
+async def get_model_context_length(
+    base_url: str,
+    api_key: str | None,
+    model: str,
+) -> int | None:
+    """Return ``context_length`` for ``model`` via OpenRouter ``/models``.
+
+    Mirrors ``get_model_capabilities`` fail-open semantics: returns ``None``
+    on any fetch failure, missing model, or absent/null ``context_length``.
+    Reuses the cached ``list_models`` lookup so chip + telemetry resolution
+    share a single round-trip when both fire for the same provider.
+    """
+    try:
+        models = await list_models(base_url, api_key)
+    except (httpx.HTTPError, ValueError) as e:
+        logger.warning(
+            "get_model_context_length failed for model=%s base=%s: %s",
+            model,
+            base_url,
+            e,
+            exc_info=True,
+        )
+        return None
+
+    for entry in models:
+        if entry.id == model:
+            return entry.context_length if isinstance(entry.context_length, int) else None
+    return None
+
+
 async def get_model_capabilities(
     base_url: str,
     api_key: str | None,
