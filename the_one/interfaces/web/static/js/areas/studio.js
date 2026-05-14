@@ -255,29 +255,103 @@ App.registerArea({
     // ── Holograph layout: no sidebar. content hosts a top sub-nav + 3 sub
     // blocks (Agents / Knowledge / MCP Sources). Only one sub block is
     // .active at a time (CSS: `.studio-sub.active { display: block }`).
-    content.innerHTML =
-      '<div class="area-header">' +
-        '<div>' +
-          '<span class="area-title">Studio</span>' +
-          '<span class="area-sub">Configure and edit your agents</span>' +
-        '</div>' +
-        '<button class="btn btn-primary" id="studio-new-agent-btn" data-testid="new-agent-btn">' +
-          '<svg class="icn icn-sm" viewBox="0 0 12 12" aria-hidden="true">' +
-            '<path d="M6 2v8M2 6h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>' +
-          '</svg>' +
-          'New agent' +
-        '</button>' +
-      '</div>' +
+    //
+    // M10 L3.2 — area header is rendered dynamically by `refreshStudioHeader`
+    // (eyebrow + dynamic subtitle + .btn-mono CTA). The header element here
+    // is a shell that gets repopulated whenever the agent/provider counts or
+    // the active agent changes. The click handler is wired via event
+    // delegation on the shell so it survives re-renders without needing to
+    // re-fetch the button reference each time. Shell DOM is built via
+    // `insertAdjacentHTML` (matches topnav.js's L2.2 pattern; no untrusted
+    // content flows into the string template, all of it is literal markup).
+    while (content.firstChild) content.removeChild(content.firstChild);
+    content.insertAdjacentHTML('beforeend',
+      '<div class="area-header" id="studio-area-header"></div>' +
       '<div class="studio-subnav" id="studio-subnav"></div>' +
       '<div class="studio-sub" id="sub-agents"></div>' +
       '<div class="studio-sub" id="sub-knowledge"></div>' +
-      '<div class="studio-sub" id="sub-mcp-sources"></div>';
+      '<div class="studio-sub" id="sub-mcp-sources"></div>'
+    );
 
     var sectionNavEl = content.querySelector('#studio-subnav');
     var subAgentsEl = content.querySelector('#sub-agents');
     var subKnowledgeEl = content.querySelector('#sub-knowledge');
     var subMcpSourcesEl = content.querySelector('#sub-mcp-sources');
-    var newAgentHeaderBtn = content.querySelector('#studio-new-agent-btn');
+    var headerEl = content.querySelector('#studio-area-header');
+
+    // M10 L3.2 — build the Studio area header markup from a small state
+    // object. Three subtitle branches:
+    //   - 0 agents, 0 providers → "wire up a provider first"
+    //   - 0 agents, N providers → "configured provider unlocks ..." with
+    //     <strong>N provider(s)</strong>
+    //   - N agents → "N agent(s) configured" + optional last-edit suffix
+    // Title flips to the active agent's name when one is selected.
+    function buildStudioHeaderHtml(state) {
+      var subtitle;
+      if (state.agentCount === 0) {
+        var pCount = state.providerCount || 0;
+        subtitle = pCount === 0
+          ? 'No providers configured. Wire one up in System first.'
+          : 'A configured provider unlocks agent creation. You have <strong>' +
+              pCount + ' provider' + (pCount === 1 ? '' : 's') + '</strong> wired up.';
+      } else {
+        var edit = state.lastEditMinutesAgo != null
+          ? ' · last edit ' + state.lastEditMinutesAgo + 'm ago'
+          : '';
+        subtitle = state.agentCount + ' agent' +
+          (state.agentCount === 1 ? '' : 's') + ' configured' + edit;
+      }
+      var titleText = state.activeAgentName
+        ? App.escapeHtml(state.activeAgentName)
+        : 'Configure and edit your agents';
+      // Preserve the legacy id + data-testid for the existing browser test
+      // (test_flow_agent_crud.py uses [data-testid="new-agent-btn"]). The
+      // setActiveSection visibility-toggle still targets the id.
+      return '<div class="area-header-titleblock">' +
+          '<div class="eyebrow">STUDIO · AGENTS</div>' +
+          '<h1 class="area-title">' + titleText + '</h1>' +
+          '<p class="area-sub">' + subtitle + '</p>' +
+        '</div>' +
+        '<div class="area-header-actions">' +
+          '<button class="btn-mono" id="studio-new-agent-btn" ' +
+            'data-testid="new-agent-btn" data-action="new-agent">' +
+            '+ NEW AGENT' +
+          '</button>' +
+        '</div>';
+    }
+
+    // Snapshot the active agent's name + (defensive future-proof) last-edit
+    // minutes from the in-memory studio state. AgentConfig has no updated_at
+    // field today, so `lastEditMinutesAgo` resolves to null — the subtitle
+    // gracefully omits the "last edit Xm ago" suffix in that case.
+    function refreshStudioHeader() {
+      if (!headerEl) return;
+      var active = self._selectedAgent;
+      var lastEditMinutesAgo = null;
+      if (active && active.updated_at) {
+        var ts = Date.parse(active.updated_at);
+        if (!isNaN(ts)) {
+          lastEditMinutesAgo = Math.max(0, Math.floor((Date.now() - ts) / 60000));
+        }
+      }
+      var state = {
+        agentCount: (self._agents || []).length,
+        providerCount: (self._allProviders || []).length,
+        lastEditMinutesAgo: lastEditMinutesAgo,
+        activeAgentName: active ? active.name : null
+      };
+      while (headerEl.firstChild) headerEl.removeChild(headerEl.firstChild);
+      headerEl.insertAdjacentHTML('beforeend', buildStudioHeaderHtml(state));
+      // Re-apply the section-scoped visibility toggle — the New-agent CTA
+      // is only meaningful on the Agents sub-section.
+      var btn = headerEl.querySelector('#studio-new-agent-btn');
+      if (btn) btn.style.display = (self._activeSection === 'agents') ? '' : 'none';
+    }
+    self._refreshStudioHeader = refreshStudioHeader;
+    // Initial header render — before loadAll resolves, counts are 0. The
+    // first paint will show the "no providers / no agents" branch; loadAll's
+    // .then re-renders with real counts.
+    refreshStudioHeader();
 
     // editorEl and agentListEl are populated lazily when renderAgentsSection
     // mounts the .studio-layout grid for the first time. Declared here so
@@ -591,8 +665,11 @@ App.registerArea({
       subMcpSourcesEl.classList.toggle('active', section === 'mcp-sources');
       // Update section-nav active state.
       App.layout.updateActiveSection(sectionNavEl, section);
-      // Show/hide the header's New agent button — only relevant on Agents section.
-      newAgentHeaderBtn.style.display = (section === 'agents') ? '' : 'none';
+      // Show/hide the header's New agent button — only relevant on Agents
+      // section. The button is re-rendered on every refreshStudioHeader, so
+      // we re-query it here rather than holding a stale reference.
+      var newAgentBtn = headerEl.querySelector('#studio-new-agent-btn');
+      if (newAgentBtn) newAgentBtn.style.display = (section === 'agents') ? '' : 'none';
       // Reset MCP-section local state when leaving mcp-sources for another
       // section — closes the editor + clears formMode so a re-entry
       // re-mounts the grid.
@@ -801,6 +878,12 @@ App.registerArea({
           // tiles render without chips rather than blocking the list.
           return fetchProviderModelCaps(self._allProviders).then(function (caps) {
             self._modelCapsByProvider = caps;
+            // M10 L3.2 — refresh the area header on every loadAll resolve so
+            // post-mutation counts (agents/providers) propagate to the
+            // subtitle even when the agents sub-block isn't currently
+            // visible. renderAgentList itself also refreshes the header, so
+            // the call below is a no-op-equivalent on the agents path.
+            refreshStudioHeader();
             if (self._activeSection === 'agents') renderAgentList();
           });
         });
@@ -887,6 +970,12 @@ App.registerArea({
     }
 
     function renderAgentList() {
+      // M10 L3.2 — refresh the area header on every agent-list render. This
+      // catches all the state-mutation paths (loadAll resolve, doSelect,
+      // doEnterCreateMode, doHandleBack, post-save reload) without needing
+      // per-callsite hooks. Called BEFORE the agentListEl null-guard because
+      // the header lives outside the agents sub-block and is always present.
+      refreshStudioHeader();
       // agentListEl may be null before renderAgentsSection has run once.
       if (!agentListEl) return;
       agentListEl.innerHTML = '';
@@ -1857,9 +1946,18 @@ App.registerArea({
       }
     }
 
-    // Wire the header "New agent" button (visible on Agents section only).
+    // Wire the header "+ NEW AGENT" button (visible on Agents section only).
     // Dirty-gate: if already in an editing context, confirm before switching.
-    newAgentHeaderBtn.addEventListener('click', function () {
+    //
+    // M10 L3.2 — event delegation on the header shell, NOT a direct
+    // addEventListener on the button. The header is re-rendered on every
+    // `refreshStudioHeader` call, so a direct listener on the initial
+    // button reference would go stale after the first re-render. The
+    // delegation target matches `[data-action="new-agent"]` (mirrors the
+    // L3.2 spec) so future header re-renders pick up the same handler.
+    headerEl.addEventListener('click', function (ev) {
+      var btn = ev.target.closest('[data-action="new-agent"]');
+      if (!btn) return;
       var inEditingContext =
         (self._activeSection === 'agents' && self._selectedAgent) ||
         (self._activeSection === 'mcp-sources' && mcpSourceFormMode);
