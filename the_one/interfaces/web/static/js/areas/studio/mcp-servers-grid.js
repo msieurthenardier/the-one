@@ -47,24 +47,46 @@
     }
 
     if (mcpSources.length === 0) {
-      var emptyWrap = document.createElement('div');
-      emptyWrap.className = 'empty-canvas';
-      var emptyInner = document.createElement('div');
-      emptyInner.className = 'empty-canvas-inner admin-provider-empty';
-      emptyInner.setAttribute('data-testid', 'studio-mcp-empty');
-      var emptyMsg = document.createElement('div');
-      emptyMsg.textContent = 'No MCP servers configured. Add one to get started.';
-      emptyInner.appendChild(emptyMsg);
-      var emptyBtn = document.createElement('button');
-      emptyBtn.className = 'btn btn-primary';
-      emptyBtn.type = 'button';
-      emptyBtn.setAttribute('data-testid', 'new-mcp-source-btn-empty');
-      emptyBtn.textContent = 'New MCP Server';
-      emptyBtn.addEventListener('click', function () { onCreateMcpSource(); });
-      emptyInner.appendChild(emptyBtn);
-      emptyWrap.appendChild(emptyInner);
-      container.innerHTML = '';
-      container.appendChild(emptyWrap);
+      // L4.3 — Holograph bracket-framed empty state. Replaces the Mission-08
+      // .empty-canvas pattern (still used by other admin grids). The
+      // [data-testid="studio-mcp-empty"] on the wrap and
+      // [data-testid="new-mcp-source-btn-empty"] on the CTA are preserved so
+      // existing routing tests (test_flow_studio_mcp_navigation) keep passing
+      // alongside the new L4.3 bracket-text assertion in
+      // test_studio_empty_states.py.
+      while (container.firstChild) container.removeChild(container.firstChild);
+
+      var wrap = document.createElement('div');
+      wrap.className = 'studio-empty studio-empty-simple';
+      wrap.setAttribute('data-testid', 'studio-mcp-empty');
+
+      var brack = document.createElement('div');
+      brack.className = 'brack';
+      var brackTitle = document.createElement('h2');
+      brackTitle.className = 'brack-title';
+      brackTitle.textContent = 'No MCP sources connected.';
+      brack.appendChild(brackTitle);
+      var brackSub = document.createElement('p');
+      brackSub.className = 'brack-sub';
+      brackSub.textContent =
+        "Connect a Model Context Protocol server to extend an agent's tool surface. " +
+        'Supports stdio and streamable-HTTP transports; OAuth is handled spec-compliantly.';
+      brack.appendChild(brackSub);
+      wrap.appendChild(brack);
+
+      var ctas = document.createElement('div');
+      ctas.className = 'studio-empty-ctas';
+      var ctaNew = document.createElement('button');
+      ctaNew.type = 'button';
+      ctaNew.className = 'btn-mono';
+      ctaNew.setAttribute('data-action', 'new-mcp-source');
+      ctaNew.setAttribute('data-testid', 'new-mcp-source-btn-empty');
+      ctaNew.textContent = '+ NEW MCP SOURCE';
+      ctaNew.addEventListener('click', function () { onCreateMcpSource(); });
+      ctas.appendChild(ctaNew);
+      wrap.appendChild(ctas);
+
+      container.appendChild(wrap);
       return;
     }
 

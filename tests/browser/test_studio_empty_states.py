@@ -18,3 +18,15 @@ def test_studio_agents_empty_shows_bracket_and_two_ctas(app_clean: str, page: Pa
     expect(page.locator(".brack:has-text('Build your first agent')")).to_be_visible()
     expect(page.locator(".btn-mono:has-text('NEW AGENT')")).to_be_visible()
     expect(page.locator("button:has-text('start from preset')")).to_be_visible()
+
+
+@pytest.mark.browser
+def test_studio_knowledge_empty(app_clean: str, page: Page) -> None:
+    page.goto(f"{app_clean}#studio/knowledge")
+    expect(page.locator(".brack:has-text('No knowledge bases yet')")).to_be_visible(timeout=4000)
+
+
+@pytest.mark.browser
+def test_studio_mcp_empty(app_clean: str, page: Page) -> None:
+    page.goto(f"{app_clean}#studio/mcp-sources")
+    expect(page.locator(".brack:has-text('No MCP sources connected')")).to_be_visible(timeout=4000)

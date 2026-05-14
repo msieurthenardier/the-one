@@ -19,7 +19,10 @@ import pytest
 from browser.seeders import SeededApp
 from playwright.sync_api import Page, expect
 
-KNOWLEDGE_TEXT = "Knowledge bases will be created and managed here in a future mission."
+# L4.3 — copy retuned to the Holograph bracket-framed empty state. The
+# [data-testid="studio-knowledge-stub"] hook is preserved on the new wrap,
+# so the routing tests below continue to match by testid + this text.
+KNOWLEDGE_TEXT = "No knowledge bases yet."
 
 
 def _wait_studio_ready(page: Page) -> None:

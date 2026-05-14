@@ -278,4 +278,22 @@
     line-height: 1.5;
   }
 
+  /* ============ L4.3 — Studio · Knowledge / MCP Sources empty states ===
+   * Narrower, centered focal variant of .studio-empty. Used by the
+   * Knowledge sub-block (stub-knowledge.js) and the MCP Sources grid
+   * empty branch (mcp-servers-grid.js). No left rail — just the
+   * bracket-framed headline + a single CTA centered in the sub-block.
+   */
+  .studio-empty-simple {
+    max-width: 560px;
+    margin: 0 auto;
+    padding: var(--space-8) 0;
+  }
+  .studio-empty-simple .brack-sub {
+    max-width: 480px;
+  }
+  .studio-empty-simple .studio-empty-ctas {
+    justify-content: flex-start;
+  }
+
 }
