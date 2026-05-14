@@ -22,6 +22,8 @@
       window.location.hash = '#' + areaId;
     });
     window.Topnav.subscribeForRerender();
+    // M10 — initial telemetry hydration.
+    if (window.TelemetryRefresh) window.TelemetryRefresh.refresh();
   }
 
   function parseHash(hashString) {
@@ -114,6 +116,9 @@
       // (admin's `general`), sync the URL hash from serializeState so the
       // address bar reflects what's actually shown.
       syncUrlFromState(areaId, sub);
+
+      // M10 — refresh telemetry counts on every area switch so chips stay live.
+      if (window.TelemetryRefresh) window.TelemetryRefresh.refresh();
     }
 
     // confirmLeave gate. Hook contract:
