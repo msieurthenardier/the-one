@@ -153,3 +153,23 @@ def test_audit_pairs_match_design_tokens() -> None:
     assert DARK_TOKENS["--fg-on-accent"] == "#15101f"
     assert DARK_TOKENS["--avatar-bg"] == "#26282d"
     assert DARK_TOKENS["--avatar-fg"] == "#c4c8cf"
+
+
+def test_m10_accent_on_bg_passes_aa_both_themes():
+    """M10 — accent color must read on the canvas in both themes."""
+    # Dark
+    assert contrast_ratio("#a78bfa", "#0a0c10") >= 4.5
+    # Light
+    assert contrast_ratio("#3358c0", "#f8f8f6") >= 4.5
+
+
+def test_m10_good_on_bg_passes_aa_both_themes():
+    """M10 — status `good` must be readable as text/label color."""
+    assert contrast_ratio("#6ee7b7", "#0a0c10") >= 4.5
+    assert contrast_ratio("#0a7050", "#f8f8f6") >= 4.5
+
+
+def test_m10_bad_on_bg_passes_aa_both_themes():
+    """M10 — status `bad` must be readable as text/label color."""
+    assert contrast_ratio("#f87171", "#0a0c10") >= 4.5
+    assert contrast_ratio("#c83232", "#f8f8f6") >= 4.5
