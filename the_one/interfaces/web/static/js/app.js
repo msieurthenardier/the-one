@@ -207,6 +207,22 @@
 
   document.addEventListener('DOMContentLoaded', function () {
     renderTopNav();
+    // M10 — body-level instrument frame (corner ticks); the grid canvas
+    // itself lives on #main-content via components.css.
+    if (!document.querySelector('.canvas-frame')) {
+      var frame = document.createElement('div');
+      frame.className = 'canvas-frame';
+      frame.setAttribute('aria-hidden', 'true');
+      // Two extra spans for top-right + bottom-left ticks (the ::before/::after
+      // pseudos cover top-left + bottom-right).
+      var tr = document.createElement('span');
+      tr.className = 'tr';
+      var bl = document.createElement('span');
+      bl.className = 'bl';
+      frame.appendChild(tr);
+      frame.appendChild(bl);
+      document.body.appendChild(frame);
+    }
     // Boot-block on /api/config so window.App.config is populated before
     // any area.init() runs. Areas read App.config.dev_mode in their init
     // closures (e.g. admin's sidebar categories list).
