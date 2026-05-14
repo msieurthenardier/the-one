@@ -192,13 +192,16 @@ def test_snapshot_chat_with_messages(app_with_agent: SeededApp, page: Page, them
     page.set_viewport_size(VIEWPORT)
     page.goto(app_with_agent.base_url)
     _set_theme(page, theme)
-    # Session auto-creates with the seeded agent — wait for the badge.
-    expect(page.locator(".session-agent-badge")).to_have_text(
+    # Session auto-creates with the seeded agent — wait for the convo header.
+    # Holograph: .convo-agent > span:not(.chip) holds the agent name text.
+    expect(page.locator(".convo-agent > span:not(.chip)")).to_have_text(
         app_with_agent.agent_name, timeout=5000
     )
     page.locator('[data-testid="chat-input"]').fill("hello")
     page.locator('[data-testid="chat-send-btn"]').click()
-    expect(page.locator('[data-testid="message"].assistant')).to_have_text(
+    # Holograph: assistant rows are .msg-row (no .assistant class); user rows
+    # carry .msg-row.user.  Target .msg-text inside the non-user row for text.
+    expect(page.locator('[data-testid="message"].msg-row:not(.user) .msg-text')).to_have_text(
         "Mock response from the mock provider.", timeout=10000
     )
     # Wait for the send button to re-enable (busy=false after `done`).
