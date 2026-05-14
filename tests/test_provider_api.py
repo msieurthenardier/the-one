@@ -1084,7 +1084,21 @@ class TestModelDiscovery:
                 {"name": "llama3:8b", "size": 5_000_000_000},
             ]
         }
-        with patch("the_one.interfaces.web.api.httpx.AsyncClient") as mock_httpx_client:
+        # F5 L01.5: short-circuit get_model_capabilities so we don't fall
+        # through to show_model's mocked-incomplete .post() chain, which
+        # left auto-AsyncMock coroutines un-awaited (RuntimeWarning at
+        # ollama_api.py:123 resp.json() returning a coroutine, since
+        # AsyncMock auto-attributes are AsyncMocks). The dangling coroutine
+        # wedged pytest-asyncio's loop teardown for ~90s on every broad
+        # pytest run since F1. See mission KI "post-summary teardown wedge".
+        with (
+            patch("the_one.interfaces.web.api.httpx.AsyncClient") as mock_httpx_client,
+            patch(
+                "the_one.interfaces.web.api.ollama_api.get_model_capabilities",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+        ):
             instance = AsyncMock()
             instance.get = AsyncMock(return_value=mock_resp)
             instance.__aenter__ = AsyncMock(return_value=instance)

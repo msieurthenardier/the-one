@@ -192,9 +192,17 @@ def test_snapshot_chat_with_messages(app_with_agent: SeededApp, page: Page, them
     page.set_viewport_size(VIEWPORT)
     page.goto(app_with_agent.base_url)
     _set_theme(page, theme)
-    # Session auto-creates with the seeded agent — wait for the badge.
+    # F5 L04: the `app_with_agent` fixture seeds an agent but does NOT
+    # pre-create a chat session; the welcome canvas shows on page load.
+    # Click the welcome-canvas agent item to bootstrap a session before
+    # waiting for the badge. Pattern matches tests/browser/test_flow_chat.py:29.
+    # Fixes mission KI #1 — `.session-agent-badge` never populated under
+    # the pre-fix auto-session-join assumption (race / nonexistent flow).
+    page.locator(".chat-welcome-item").filter(
+        has_text=app_with_agent.agent_name
+    ).click()
     expect(page.locator(".session-agent-badge")).to_have_text(
-        app_with_agent.agent_name, timeout=5000
+        app_with_agent.agent_name, timeout=8000
     )
     page.locator('[data-testid="chat-input"]').fill("hello")
     page.locator('[data-testid="chat-send-btn"]').click()

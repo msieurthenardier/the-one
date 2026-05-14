@@ -19,6 +19,12 @@ from playwright.sync_api import Page, expect
 # issue with the empty-DB onboarding flow. Skipped to unblock the Flight 4
 # close; investigation deferred to a follow-on cleanup flight. See mission.md
 # Known Issues.
+#
+# F5 L01 update (in mission.md KI #4): with the broad-pytest SQLite isolation
+# fix in tests/conftest.py, the hang no longer reproduces. The test now fails
+# with a Playwright DOM-visibility error on .new-entity-btn (60+ retries × 500ms
+# then timeout), exposing a likely real F4-rebrand-era UX defect. Skip remains
+# in place pending the cleanup flight that owns this UX investigation.
 pytestmark = pytest.mark.skip(reason="M08 F4 KI: hangs under post-Leg-02 markup; root cause unidentified")
 
 

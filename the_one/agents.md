@@ -1447,6 +1447,12 @@ Internally calls `self.llm.stream(...)` and accumulates content per iteration. W
 
 The streaming WS contract is **chunks-only-no-final-assistant**: when the chunk path fires, the legacy `assistant` event is suppressed server-side. The client already has the accumulated text via the chunk stream. The legacy `assistant` event survives for the direct-action shortcut path (early-return in `Agent.step` before any LLM call).
 
+### Tool event discriminator fields
+
+**`tool_call` and `tool_result` events carry a paired `parent_message_id` + `tool_call_id` discriminator** (introduced Flight 05 Leg 02). The `parent_message_id` (string) identifies which assistant turn owns the tool activity; `tool_call_id` (string) is sourced from `ToolCall.id` / `ToolResult.tool_call_id`. Both fields are derived at projection time from the message index and existing ToolCall fields — no new Message dataclass field required.
+
+The `parent_message_id` format follows a namespace convention: live sessions use `{session.id}-msg-N` (where N is the agent.messages index); replayed sessions use `replay-msg-N`. The frontend treats these as opaque grouping keys — different namespace prefixes between live and replay are not collisions; the browser buckets events by string equality. L03's frontend groups all events with the same `parent_message_id` into a per-assistant-turn collapsible `.trace-shell` container (see `the_one/interfaces/web/static/js/areas/chat/trace-shell.js`) using native `<details>`/`<summary>` elements.
+
 ### `chunks_seen` invariant in `_process_and_broadcast`
 
 The server distinguishes streaming from direct-action via a per-iteration `chunks_seen` flag captured in the agent-step closure. The flag is set inside `_broadcast_chunk` (the callback passed to `agent.step`), and reset **unconditionally at the end of each Role.ASSISTANT block** in the `async for msg in agent.step(...)` loop. The unconditional reset matters for multi-iteration agent loops: a tool-call-only iteration (empty `msg.content`, non-empty `msg.tool_calls`) must still reset the flag for iteration N+1. Resetting inside `if msg.content:` would skip the reset on tool-call-only responses and incorrectly carry `chunks_seen=True` into the next iteration.

@@ -113,12 +113,22 @@ class TestMessagesToUIEvents:
         msgs = [Message.assistant("", tool_calls=[tc1, tc2])]
         events = messages_to_ui_events(msgs)
         assert len(events) == 2
+        # F5 L02: tool_call events now carry parent_message_id + tool_call_id.
+        # Both tool_calls belong to the same assistant turn → same parent_message_id.
         assert events[0] == {
             "type": "tool_call",
             "name": "read_file",
             "arguments": {"path": "/tmp/x"},
+            "parent_message_id": "replay-msg-0",
+            "tool_call_id": "tc-1",
         }
-        assert events[1] == {"type": "tool_call", "name": "shell", "arguments": {"cmd": "ls"}}
+        assert events[1] == {
+            "type": "tool_call",
+            "name": "shell",
+            "arguments": {"cmd": "ls"},
+            "parent_message_id": "replay-msg-0",
+            "tool_call_id": "tc-2",
+        }
 
     def test_assistant_with_both_text_and_tool_calls(self) -> None:
         tc = ToolCall(id="tc-1", name="read_file", arguments={"path": "/tmp/x"})
@@ -126,10 +136,13 @@ class TestMessagesToUIEvents:
         events = messages_to_ui_events(msgs)
         assert len(events) == 2
         assert events[0] == {"type": "assistant", "content": "Let me check that"}
+        # F5 L02: tool_call carries discriminator
         assert events[1] == {
             "type": "tool_call",
             "name": "read_file",
             "arguments": {"path": "/tmp/x"},
+            "parent_message_id": "replay-msg-0",
+            "tool_call_id": "tc-1",
         }
 
     def test_tool_result(self) -> None:
@@ -137,10 +150,15 @@ class TestMessagesToUIEvents:
         msgs = [Message.tool(tr)]
         events = messages_to_ui_events(msgs)
         assert len(events) == 1
+        # F5 L02: tool_result carries discriminator. No preceding assistant
+        # turn in this fixture → parent_message_id is None (the "unattributed"
+        # edge case documented in the leg artifact).
         assert events[0] == {
             "type": "tool_result",
             "content": "file contents here",
             "is_error": False,
+            "parent_message_id": None,
+            "tool_call_id": "tc-1",
         }
 
     def test_tool_result_error(self) -> None:
@@ -148,7 +166,14 @@ class TestMessagesToUIEvents:
         msgs = [Message.tool(tr)]
         events = messages_to_ui_events(msgs)
         assert len(events) == 1
-        assert events[0] == {"type": "tool_result", "content": "boom", "is_error": True}
+        # F5 L02: tool_result carries discriminator
+        assert events[0] == {
+            "type": "tool_result",
+            "content": "boom",
+            "is_error": True,
+            "parent_message_id": None,
+            "tool_call_id": "tc-1",
+        }
 
     def test_empty_list(self) -> None:
         assert messages_to_ui_events([]) == []
@@ -172,8 +197,22 @@ class TestMessagesToUIEvents:
         assert events[1] == {"type": "assistant", "content": "Hello!"}
         assert events[2] == {"type": "user", "content": "Read a file", "source": "restored"}
         assert events[3] == {"type": "assistant", "content": "Sure"}
-        assert events[4] == {"type": "tool_call", "name": "read_file", "arguments": {"path": "/x"}}
-        assert events[5] == {"type": "tool_result", "content": "file data", "is_error": False}
+        # F5 L02: tool_call + tool_result carry discriminator; index 4 is
+        # the assistant w/ tool_calls, so parent_message_id is "replay-msg-4".
+        assert events[4] == {
+            "type": "tool_call",
+            "name": "read_file",
+            "arguments": {"path": "/x"},
+            "parent_message_id": "replay-msg-4",
+            "tool_call_id": "t1",
+        }
+        assert events[5] == {
+            "type": "tool_result",
+            "content": "file data",
+            "is_error": False,
+            "parent_message_id": "replay-msg-4",
+            "tool_call_id": "t1",
+        }
         assert events[6] == {"type": "assistant", "content": "Here's the file content"}
 
 
@@ -241,3 +280,75 @@ def test_tool_result_legacy_no_metadata_round_trip() -> None:
     tr = ToolResult(tool_call_id="t1", content="ok")  # default metadata=None
     serialized = _tool_result_to_dict(tr)
     assert "metadata" not in serialized
+
+
+# ---------------------------------------------------------------------------
+# F5 L02 — parent_message_id + tool_call_id discriminator on projected events
+# ---------------------------------------------------------------------------
+
+
+class TestMessagesToUiEventsDiscriminator:
+    """messages_to_ui_events emits a paired parent_message_id + tool_call_id
+    discriminator on every tool_call and tool_result event, derived
+    structurally from the index of the most recent preceding
+    Role.ASSISTANT with tool_calls. Replay-side ids use the
+    ``"replay-msg-N"`` namespace (codec has no Session reference).
+    """
+
+    def test_single_turn_tool_call_and_result_share_parent_id(self) -> None:
+        tc = ToolCall(id="tc-1", name="read_file", arguments={"path": "/tmp/x"})
+        tr = ToolResult(tool_call_id="tc-1", content="hi")
+        msgs = [
+            Message.user("read /tmp/x"),
+            Message.assistant("", tool_calls=[tc]),
+            Message.tool(tr),
+        ]
+        events = messages_to_ui_events(msgs)
+        tc_events = [e for e in events if e["type"] == "tool_call"]
+        tr_events = [e for e in events if e["type"] == "tool_result"]
+        assert len(tc_events) == 1
+        assert len(tr_events) == 1
+        # Both carry the discriminator pair
+        assert tc_events[0]["parent_message_id"] is not None
+        assert tc_events[0]["tool_call_id"] == "tc-1"
+        assert tr_events[0]["parent_message_id"] is not None
+        assert tr_events[0]["tool_call_id"] == "tc-1"
+        # Same parent_message_id ties the tool_call to its tool_result
+        assert tc_events[0]["parent_message_id"] == tr_events[0]["parent_message_id"]
+        # Replay namespace prefix
+        assert tc_events[0]["parent_message_id"].startswith("replay-msg-")
+
+    def test_multi_turn_groups_distinct_parent_ids_with_cross_wiring(self) -> None:
+        """Three assistant turns interleaved with tool results: each
+        tool_result groups under ITS OWN turn's tool_call, not another
+        turn's. Catches "tool_result-1 grouped with assistant-2" cross-
+        wiring bugs that a simple distinct-id check would miss.
+        """
+        msgs = [
+            Message.user("first"),
+            Message.assistant("", tool_calls=[ToolCall(id="t1", name="shell", arguments={})]),
+            Message.tool(ToolResult(tool_call_id="t1", content="done1")),
+            Message.user("second"),
+            Message.assistant("", tool_calls=[ToolCall(id="t2", name="shell", arguments={})]),
+            Message.tool(ToolResult(tool_call_id="t2", content="done2")),
+            Message.user("third"),
+            Message.assistant("", tool_calls=[ToolCall(id="t3", name="shell", arguments={})]),
+            Message.tool(ToolResult(tool_call_id="t3", content="done3")),
+        ]
+        events = messages_to_ui_events(msgs)
+        tc_events = [e for e in events if e["type"] == "tool_call"]
+        tr_events = [e for e in events if e["type"] == "tool_result"]
+        assert len(tc_events) == 3
+        assert len(tr_events) == 3
+        # Distinct parent ids across turns
+        parent_ids = {e["parent_message_id"] for e in tc_events}
+        assert len(parent_ids) == 3
+        # Cross-wiring: each tool_result groups under its OWN turn
+        for i in range(3):
+            assert tr_events[i]["parent_message_id"] == tc_events[i]["parent_message_id"]
+            assert tr_events[i]["tool_call_id"] == f"t{i + 1}"
+            assert tc_events[i]["tool_call_id"] == f"t{i + 1}"
+        # And the cross-turn pairing is genuinely wrong (sanity check
+        # the test's discriminating power): turn-1's tool_result must
+        # NOT match turn-2's tool_call parent
+        assert tr_events[0]["parent_message_id"] != tc_events[1]["parent_message_id"]

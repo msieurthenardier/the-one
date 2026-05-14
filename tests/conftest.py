@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +40,63 @@ def pytest_configure(config: pytest.Config) -> None:
     """
     del config  # unused; signature mandated by pytest hookspec
     os.environ.setdefault("THE_ONE_TEST_MODE", "1")
+    # M08 F5 L01: isolate the broad pytest run from the live container's SQLite
+    # DB. Without this, `the_one.config.Settings()` (instantiated at module
+    # import time in `the_one/config.py:33`) defaults `data_dir` to
+    # `Path.home() / ".the-one"` which inside the `the-one` container resolves
+    # to `/root/.the-one` — the SAME directory uvicorn holds open in WAL mode.
+    # SQLite WAL contention against the live writer caused F1-F4's chronic
+    # broad-pytest hang (futex_wait_queue). `setdefault` preserves any explicit
+    # override set by CI or by the per-subprocess browser-test isolation in
+    # `tests/browser/conftest.py:127`. A session-persistent tmp dir (one path
+    # for the whole pytest run) matches the live-container pattern.
+    _test_data_dir = os.environ.setdefault(
+        "THE_ONE_DATA_DIR",
+        tempfile.mkdtemp(prefix="the-one-pytest-"),
+    )
+    # F5 L01.5: the env-var override above is insufficient on its own because
+    # `the_one.config` is imported transitively BEFORE this hook fires —
+    # `tests/conftest.py:14 from the_one.platform.sandbox import SandboxProfile`
+    # pulls in `the_one.mcp.errors` → `the_one.mcp.__init__` → `the_one.mcp._pool`
+    # → `from the_one.config import settings`. By the time pytest_configure
+    # runs, the `Settings()` singleton at `the_one/config.py:33` is already
+    # constructed with `data_dir = Path.home() / ".the-one"` (= /root/.the-one
+    # inside the container). Test code that calls `get_connection()` then
+    # opens the LIVE DB — bisection-confirmed via tests/test_mcp_pool.py's
+    # _entry_worker at _pool.py:210 even with all MCP classes mocked. Mutate
+    # the cached singleton directly to ensure the override takes effect.
+    from pathlib import Path
+    from the_one.config import settings
+    settings.data_dir = Path(_test_data_dir)
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _close_db_singleton_at_session_end():
+    """F5 L01.5: close the `aiosqlite` singleton at session end so its
+    `_connection_worker_thread` (which `aiosqlite.core` spawns as
+    `daemon=False`) joins cleanly and the python interpreter can exit.
+
+    Without this, `_entry_worker` in `the_one/mcp/_pool.py:210` opens the
+    singleton during pool tests (even with MCPClient mocked, the
+    auth-provider construction reads from the DB) and the resulting
+    non-daemon background thread holds the process open for ~50s after
+    the pytest summary line — bisection-confirmed source of the F1-F4
+    "broad pytest hangs after summary" KI. Browser-test subprocesses are
+    unaffected because they SIGTERM their own uvicorn child which closes
+    its connection during lifespan shutdown.
+    """
+    yield
+    import asyncio
+    from the_one.db import connection as _conn_mod
+
+    if _conn_mod._connection is None:
+        return
+    try:
+        asyncio.run(_conn_mod.close_connection())
+    except Exception:
+        # Best-effort: an exception here only affects exit-code reliability,
+        # not test results. The summary line is the source of truth.
+        pass
 
 # ---------------------------------------------------------------------------
 # FakeLLM

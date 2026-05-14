@@ -192,6 +192,10 @@ App.registerArea({
     function renderHistory(history, agentName) {
       messagesEl.setAttribute('aria-busy', 'true');
       messagesEl.innerHTML = '';
+      // L03: reset the trace-shell bucket on replay so the DOM-rebuild
+      // starts fresh; getOrCreateTrace will append shells to the freshly
+      // emptied .messages container.
+      traceShells = Object.create(null);
       var agentLabel = agentName || 'agent';
       for (var i = 0; i < history.length; i++) {
         var ev = history[i];
@@ -204,8 +208,22 @@ App.registerArea({
           addMsg(cls, (ev.source && ev.source !== 'web' && ev.source !== 'restored' ? '[' + ev.source + '] ' : '') + ev.content, 'You', histOpts);
         }
         else if (ev.type === 'assistant') addMsg('assistant', ev.content, agentLabel, histOpts);
-        else if (ev.type === 'tool_call') addMsg('tool', '> ' + ev.name + '(' + Object.entries(ev.arguments).map(function (kv) { return kv[0] + '=' + JSON.stringify(kv[1]); }).join(', ') + ')', null, histOpts);
-        else if (ev.type === 'tool_result') addMsg(ev.is_error ? 'tool error' : 'tool', ev.content, null, histOpts);
+        else if (ev.type === 'tool_call') {
+          // L03: bucket tool_call events under their parent_message_id's
+          // trace shell; fall back to a standalone bubble for legacy/null.
+          var argsText = '> ' + ev.name + '(' + Object.entries(ev.arguments).map(function (kv) { return kv[0] + '=' + JSON.stringify(kv[1]); }).join(', ') + ')';
+          var trace = getOrCreateTrace(ev.parent_message_id);
+          var msg = buildToolMsg(argsText, false, ev.tool_call_id);
+          if (trace) App.chat.appendToTrace(trace, msg);
+          else messagesEl.appendChild(msg);
+        }
+        else if (ev.type === 'tool_result') {
+          // L03: same bucketing for tool_result events.
+          var trace2 = getOrCreateTrace(ev.parent_message_id);
+          var msg2 = buildToolMsg(ev.content, ev.is_error, ev.tool_call_id);
+          if (trace2) App.chat.appendToTrace(trace2, msg2);
+          else messagesEl.appendChild(msg2);
+        }
         // Filter transient model-loading pings — live UI hints, not history.
         else if (ev.type === 'system' && ev.content !== 'Loading model...' && ev.content !== 'Model loaded.') {
           addMsg('system', ev.content, null, histOpts);
@@ -355,7 +373,19 @@ App.registerArea({
         : '.login-required-btn';
       var existing = messagesEl.querySelectorAll(sel);
       for (var i = 0; i < existing.length; i++) {
-        if (existing[i].parentNode) existing[i].parentNode.removeChild(existing[i]);
+        var btn = existing[i];
+        var parent = btn.parentNode;
+        if (parent) parent.removeChild(btn);
+        // L03: if the button was inside a now-empty trace-body, also drop
+        // the enclosing trace shell so an empty chrome doesn't linger.
+        if (parent && parent.classList && parent.classList.contains('trace-body') && parent.children.length === 0) {
+          var shell = parent.closest('.trace-shell');
+          if (shell && shell.parentNode) {
+            var key = shell.dataset.parentMsgId;
+            shell.parentNode.removeChild(shell);
+            if (key) delete traceShells[key];
+          }
+        }
       }
     }
 
@@ -364,6 +394,38 @@ App.registerArea({
       // attribute selector parses cleanly. source_ids are always slugs (no
       // whitespace) per L0/L1 validation, so this is sufficient.
       return String(s).replace(/(["\\])/g, '\\$1');
+    }
+
+    // L03: bucket of trace shells keyed by parent_message_id.
+    // On first tool event for a parent, create the shell and append to
+    // .messages after the assistant bubble. Subsequent events route to the
+    // same shell. Reset on `renderHistory` (replay) and re-seeded from the
+    // DOM on WS-reconnect mid-turn via getOrCreateTrace's fallback below.
+    var traceShells = Object.create(null);
+
+    function getOrCreateTrace(parentMessageId) {
+      if (!parentMessageId) return null;
+      if (traceShells[parentMessageId]) return traceShells[parentMessageId];
+      // Self-heal across WS reconnect: if a shell for this parent already
+      // exists in the DOM from a prior connection's closure, re-seed the
+      // bucket from DOM rather than minting a duplicate.
+      var existing = messagesEl.querySelector(
+        '.trace-shell[data-parent-msg-id="' + cssEscape(parentMessageId) + '"]'
+      );
+      if (existing) {
+        traceShells[parentMessageId] = existing;
+        return existing;
+      }
+      var shell = App.chat.renderTrace(parentMessageId);
+      messagesEl.appendChild(shell);
+      traceShells[parentMessageId] = shell;
+      return shell;
+    }
+
+    function buildToolMsg(text, isError, toolCallId) {
+      var el = App.chat.renderMessage(isError ? 'tool error' : 'tool', text);
+      if (toolCallId) el.dataset.toolCallId = toolCallId;
+      return el;
     }
 
     // Track per-source consent popups so the WS-delivered consent_url
@@ -461,7 +523,16 @@ App.registerArea({
       btn.addEventListener('click', function () {
         startLoginFlow(data);
       });
-      messagesEl.appendChild(btn);
+      // L03: mount in the trace shell for this turn, if its parent_message_id
+      // is present (the M07 OAuth event carries it). Fall back to a direct
+      // .messages append for legacy/null cases (e.g. synthetic auth_required
+      // events injected by tests).
+      var authTrace = getOrCreateTrace(data.parent_message_id);
+      if (authTrace) {
+        App.chat.appendToTrace(authTrace, btn);
+      } else {
+        messagesEl.appendChild(btn);
+      }
       messagesEl.scrollTop = messagesEl.scrollHeight;
     }
 
@@ -704,12 +775,30 @@ App.registerArea({
           // iteration N+1's chunks land in a fresh bubble (markdown
           // rendering + reset of currentStreamingMsg both happen inside).
           finalizeStreamingBubble();
-          addMsg('tool', '> ' + data.name + '(' + Object.entries(data.arguments).map(function (kv) { return kv[0] + '=' + JSON.stringify(kv[1]); }).join(', ') + ')');
+          // L03: route into the trace shell for this assistant turn.
+          var argsText = '> ' + data.name + '(' + Object.entries(data.arguments).map(function (kv) { return kv[0] + '=' + JSON.stringify(kv[1]); }).join(', ') + ')';
+          var liveTrace = getOrCreateTrace(data.parent_message_id);
+          var liveMsg = buildToolMsg(argsText, false, data.tool_call_id);
+          if (liveTrace) {
+            App.chat.appendToTrace(liveTrace, liveMsg);
+          } else {
+            // Legacy / null parent_message_id — render standalone.
+            messagesEl.appendChild(liveMsg);
+          }
+          messagesEl.scrollTop = messagesEl.scrollHeight;
         }
         else if (data.type === 'tool_result') {
           // Iteration boundary — finalize the current streaming bubble.
           finalizeStreamingBubble();
-          addMsg(data.is_error ? 'tool error' : 'tool', data.content);
+          // L03: route into the trace shell for this assistant turn.
+          var resTrace = getOrCreateTrace(data.parent_message_id);
+          var resMsg = buildToolMsg(data.content, data.is_error, data.tool_call_id);
+          if (resTrace) {
+            App.chat.appendToTrace(resTrace, resMsg);
+          } else {
+            messagesEl.appendChild(resMsg);
+          }
+          messagesEl.scrollTop = messagesEl.scrollHeight;
         }
         else if (data.type === 'system') handleSystem(data);
         else if (data.type === 'usage') App.chat.updateTelemetry(content, data);

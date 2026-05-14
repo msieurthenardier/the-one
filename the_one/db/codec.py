@@ -85,13 +85,38 @@ def decode_messages(data: str) -> list[Message]:
 def messages_to_ui_events(messages: list[Message]) -> list[dict[str, Any]]:
     """Convert stored Messages to UI event format for session replay.
 
+    F5 L02: every ``tool_call`` and ``tool_result`` event carries a
+    paired ``parent_message_id`` + ``tool_call_id`` discriminator.
+    ``parent_message_id`` is derived structurally from the index of
+    the most recent preceding ``Role.ASSISTANT`` message with
+    ``tool_calls`` — matching the projection rule on the live
+    broadcast side (``app.py: _broadcast_one`` +
+    ``_process_and_broadcast``). The frontend (L03) groups events by
+    ``parent_message_id`` into per-turn trace shells.
+
+    Replay-side ids use the namespace prefix ``"replay-msg-N"`` (the
+    codec is pure dataclass→dict and has no access to ``session.id``);
+    live-broadcast ids use ``f"{session.id}-msg-N"``. The namespaces
+    are disjoint by construction so the frontend's opaque-key grouping
+    cannot falsely merge live and replay events when both exist in a
+    single ``session.history`` (this happens after ``_restore_session``
+    rebinds history to replay events on join, then subsequent live
+    ``add_event`` calls append live-shaped events). If a future
+    refactor changes the live-side id format (e.g. switches to a
+    turn-counter), this codec MUST be updated symmetrically — they
+    are coupled by the grouping contract, even though the strings
+    need not be identical.
+
     F5 L3: ``tool_result.metadata`` is intentionally NOT projected here.
     Pause state is in-memory only; replay shows historical
     ``auth_required`` tool_msgs as informational text without the
-    Login-required affordance. See ``Agent`` class docstring.
+    Login-required affordance. See ``Agent`` class docstring. The L02
+    discriminator preserves this carve-out — only the discriminator
+    fields are added; ``metadata`` is still dropped.
     """
     events: list[dict[str, Any]] = []
-    for msg in messages:
+    current_parent_id: str | None = None
+    for i, msg in enumerate(messages):
         if msg.role == Role.SYSTEM:
             continue
         elif msg.role == Role.USER:
@@ -100,8 +125,17 @@ def messages_to_ui_events(messages: list[Message]) -> list[dict[str, Any]]:
             if msg.content:
                 events.append({"type": "assistant", "content": msg.content})
             if msg.tool_calls:
+                current_parent_id = f"replay-msg-{i}"
                 for tc in msg.tool_calls:
-                    events.append({"type": "tool_call", "name": tc.name, "arguments": tc.arguments})
+                    events.append(
+                        {
+                            "type": "tool_call",
+                            "name": tc.name,
+                            "arguments": tc.arguments,
+                            "parent_message_id": current_parent_id,
+                            "tool_call_id": tc.id,
+                        }
+                    )
         elif msg.role == Role.TOOL:
             if msg.tool_result:
                 events.append(
@@ -109,6 +143,8 @@ def messages_to_ui_events(messages: list[Message]) -> list[dict[str, Any]]:
                         "type": "tool_result",
                         "content": msg.tool_result.content,
                         "is_error": msg.tool_result.is_error,
+                        "parent_message_id": current_parent_id,
+                        "tool_call_id": msg.tool_result.tool_call_id,
                     }
                 )
     return events
