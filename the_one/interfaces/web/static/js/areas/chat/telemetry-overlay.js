@@ -71,10 +71,13 @@
     var pct = data.max_context_tokens > 0
       ? Math.min(100, Math.round(data.context_tokens / data.max_context_tokens * 100))
       : 0;
-    chromeContent.querySelector('.t-ctx-pct').textContent = pct + '%';
+    var stateClass = pct >= 90 ? 'crit' : pct >= 70 ? 'warn' : '';
+    var pctEl = chromeContent.querySelector('.t-ctx-pct');
+    pctEl.textContent = pct + '%';
+    pctEl.className = 'value t-ctx-pct' + (stateClass ? ' ' + stateClass : '');
     var bar = chromeContent.querySelector('.context-bar');
     bar.style.width = pct + '%';
-    bar.className = 'context-bar' + (pct >= 90 ? ' crit' : pct >= 70 ? ' warn' : '');
+    bar.className = 'context-bar' + (stateClass ? ' ' + stateClass : '');
   }
 
   // Clear all displayed values back to zero / default. Called on session
@@ -83,7 +86,9 @@
     chromeContent.querySelector('.t-in').textContent = '0';
     chromeContent.querySelector('.t-out').textContent = '0';
     chromeContent.querySelector('.t-ctx').textContent = '0';
-    chromeContent.querySelector('.t-ctx-pct').textContent = '0%';
+    var pctEl = chromeContent.querySelector('.t-ctx-pct');
+    pctEl.textContent = '0%';
+    pctEl.className = 'value t-ctx-pct';
     var bar = chromeContent.querySelector('.context-bar');
     bar.style.width = '0%';
     bar.className = 'context-bar';

@@ -30,4 +30,17 @@ class Settings(BaseSettings):
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
 
-settings = Settings()
+_settings: Settings | None = None
+
+
+def __getattr__(name: str) -> Settings:
+    """PEP 562 lazy accessor: instantiate Settings() on first access to
+    `settings`, then cache. Defers env-var read until after any
+    conftest-level environment mutation has run.
+    """
+    if name == "settings":
+        global _settings
+        if _settings is None:
+            _settings = Settings()
+        return _settings
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

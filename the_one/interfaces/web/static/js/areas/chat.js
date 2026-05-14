@@ -67,6 +67,7 @@ App.registerArea({
     content.innerHTML =
       '<div class="chat-welcome" data-testid="chat-welcome" hidden>' +
         '<div class="chat-welcome-inner">' +
+          '<img class="chat-welcome-mascot" src="/static/brand/gleepglorp_icon.png" alt="" aria-hidden="true" loading="eager" data-testid="chat-welcome-mascot">' +
           '<h2 class="chat-welcome-greeting">Hello.</h2>' +
           '<p class="chat-welcome-prompt">Which agent would you like to chat with?</p>' +
           '<div class="chat-welcome-list" role="listbox" aria-label="Available agents"></div>' +
@@ -80,8 +81,8 @@ App.registerArea({
             App.icon('square-pen') + '<span>New Chat</span></button></div>' +
         '<div class="messages" role="log" aria-live="polite" aria-relevant="additions" aria-atomic="false"></div>' +
         '<div class="input-area">' +
-          '<input data-testid="chat-input" placeholder="Type a message..." autocomplete="off" aria-label="Message" />' +
-          '<button class="btn-filled-primary" data-testid="chat-send-btn">Send</button></div>' +
+          '<input data-testid="chat-input" placeholder="Type a message..." autocomplete="off" enterkeyhint="send" aria-label="Message" />' +
+          '<button class="btn-filled-primary" data-testid="chat-send-btn" aria-keyshortcuts="Enter">Send</button></div>' +
       '</div>';
 
     var chromeEl = content.querySelector('.chat-chrome');
@@ -98,6 +99,20 @@ App.registerArea({
 
     function updateAgentBadge(name) { agentBadgeEl.textContent = name || 'default'; }
 
+    // M08 F6 L06 HAT fix: smart-scroll. Only auto-scroll to the bottom when
+    // the user is already near it; if they've scrolled up to read history,
+    // leave them where they are so an incoming chunk/message doesn't yank
+    // them back down. Threshold is generous enough to absorb a single new
+    // message bubble's height (typical ~40-80px) so a user who WAS at the
+    // bottom stays pinned after an event.
+    var SCROLL_PIN_THRESHOLD = 80;
+    function scrollToBottomIfPinned() {
+      var dist = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight;
+      if (dist <= SCROLL_PIN_THRESHOLD) {
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+      }
+    }
+
     function addMsg(cls, text, attribution, opts) {
       messagesEl.appendChild(App.chat.renderMessage(cls, text, opts));
       if (attribution) {
@@ -105,7 +120,7 @@ App.registerArea({
         var ts = (opts && Object.prototype.hasOwnProperty.call(opts, 'ts')) ? opts.ts : new Date().toISOString();
         messagesEl.appendChild(App.chat.renderAttribution(side, attribution, ts));
       }
-      messagesEl.scrollTop = messagesEl.scrollHeight;
+      scrollToBottomIfPinned();
     }
 
     function highlightActiveSession() {
@@ -308,7 +323,7 @@ App.registerArea({
       pendingChars = pendingChars.slice(n);
       tail.nodeValue += slice;
       commitSafeBoundary();
-      messagesEl.scrollTop = messagesEl.scrollHeight;
+      scrollToBottomIfPinned();
     }
 
     function startPacing() {
@@ -351,7 +366,7 @@ App.registerArea({
       if (thinkingEl) return;
       thinkingEl = App.chat.createThinking();
       messagesEl.appendChild(thinkingEl);
-      messagesEl.scrollTop = messagesEl.scrollHeight;
+      scrollToBottomIfPinned();
     }
 
     function hideThinking() {
@@ -374,10 +389,17 @@ App.registerArea({
       var existing = messagesEl.querySelectorAll(sel);
       for (var i = 0; i < existing.length; i++) {
         var btn = existing[i];
-        var parent = btn.parentNode;
-        if (parent) parent.removeChild(btn);
-        // L03: if the button was inside a now-empty trace-body, also drop
-        // the enclosing trace shell so an empty chrome doesn't linger.
+        // L05: prefer removing the wrapper when present (post-L05 DOM);
+        // fall back to the bare button (legacy / pre-L05 / test-synthesized).
+        var group = btn.closest('.login-required-group');
+        var toRemove = group || btn;
+        var parent = toRemove.parentNode;
+        if (parent) parent.removeChild(toRemove);
+        // L03: if the removal left an empty trace-body, also drop the
+        // enclosing trace shell so an empty chrome doesn't linger.
+        // (Unchanged from pre-L05 — the wrapper sits inside .trace-body
+        // exactly like the bare button did, so `parent` is still the
+        // .trace-body in the trace-mount path.)
         if (parent && parent.classList && parent.classList.contains('trace-body') && parent.children.length === 0) {
           var shell = parent.closest('.trace-shell');
           if (shell && shell.parentNode) {
@@ -508,6 +530,17 @@ App.registerArea({
       if (data.source_id && data.source_name) {
         sourceNames[data.source_id] = data.source_name;
       }
+      // L05: wrapper groups the attribution + button so appendToTrace
+      // increments the trace-count by 1 per auth_required event (NOT 2).
+      var group = document.createElement('div');
+      group.className = 'login-required-group';
+      group.dataset.sourceId = data.source_id || '';
+
+      var attr = document.createElement('div');
+      attr.className = 'login-required-attribution';
+      attr.textContent = 'Authorization required to continue.';
+      group.appendChild(attr);
+
       var btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'btn-filled-primary login-required-btn';
@@ -519,21 +552,22 @@ App.registerArea({
         || (data.source_id && sourceNames[data.source_id])
         || data.source_id
         || '<unknown>';
-      btn.textContent = 'Login required for ' + label;
+      btn.textContent = 'Log in to ' + label;
       btn.addEventListener('click', function () {
         startLoginFlow(data);
       });
+      group.appendChild(btn);
       // L03: mount in the trace shell for this turn, if its parent_message_id
       // is present (the M07 OAuth event carries it). Fall back to a direct
       // .messages append for legacy/null cases (e.g. synthetic auth_required
       // events injected by tests).
       var authTrace = getOrCreateTrace(data.parent_message_id);
       if (authTrace) {
-        App.chat.appendToTrace(authTrace, btn);
+        App.chat.appendToTrace(authTrace, group);
       } else {
-        messagesEl.appendChild(btn);
+        messagesEl.appendChild(group);
       }
-      messagesEl.scrollTop = messagesEl.scrollHeight;
+      scrollToBottomIfPinned();
     }
 
     function renderResumingPlaceholder(data) {
@@ -606,7 +640,7 @@ App.registerArea({
         loadEl.className = 'msg system model-loading system-model-loading';
         loadEl.innerHTML = '<span class="model-loading-text">Loading model</span><span class="model-loading-dots"></span>';
         messagesEl.appendChild(loadEl);
-        messagesEl.scrollTop = messagesEl.scrollHeight;
+        scrollToBottomIfPinned();
         var frames = ['⣾', '⣽', '⣻', '⢿', '⡿', '⣟', '⣯', '⣷'];
         var dotEl = loadEl.querySelector('.model-loading-dots');
         var frameIdx = 0;
@@ -718,6 +752,13 @@ App.registerArea({
             if (!sessionBannerEl) sendBtn.disabled = false;
           }
           showChrome();
+          // M08 F6 L06 HAT fix: scroll-to-bottom on session join/deep-link/
+          // refresh. renderHistory() above ran while chrome was hidden
+          // (clientHeight=0), so smart-scroll's pin check failed. After
+          // showChrome flips visibility, jump unconditionally to the most
+          // recent message — that's where the user expects to land when
+          // they open a session.
+          messagesEl.scrollTop = messagesEl.scrollHeight;
           refreshSessionList();
           return;
         }
@@ -785,7 +826,7 @@ App.registerArea({
             // Legacy / null parent_message_id — render standalone.
             messagesEl.appendChild(liveMsg);
           }
-          messagesEl.scrollTop = messagesEl.scrollHeight;
+          scrollToBottomIfPinned();
         }
         else if (data.type === 'tool_result') {
           // Iteration boundary — finalize the current streaming bubble.
@@ -798,7 +839,7 @@ App.registerArea({
           } else {
             messagesEl.appendChild(resMsg);
           }
-          messagesEl.scrollTop = messagesEl.scrollHeight;
+          scrollToBottomIfPinned();
         }
         else if (data.type === 'system') handleSystem(data);
         else if (data.type === 'usage') App.chat.updateTelemetry(content, data);
