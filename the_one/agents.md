@@ -507,12 +507,31 @@ If the visual-snapshot suite ever needs CI-side regression detection, the right 
 
 ## Design system
 
-The web UI uses a token-driven design system (mission M04 / flight F2). Both
-themes (`[data-theme="dark"]` and `[data-theme="light"]`) live in
+The web UI uses a token-driven design system. Holograph (Mission 09, 2026-05-12) is the current iteration. Earlier flights (Mission 04 / F2 — initial token system, Mission 08 / F1-F3 — GleepGlorp rebrand + glass-and-bezel polish + administration cleanup) are preserved below as historical context.
+
+Authoritative spec for Holograph: `docs/superpowers/specs/2026-05-12-holograph-ui-migration-design.md`.
+
+Both themes (`[data-theme="dark"]` and `[data-theme="light"]`) live in
 `the_one/interfaces/web/static/css/tokens.css` and share token names; only
 values differ per theme. Component CSS files reference tokens — no hex/rgba
 literals leak into component rules (enforced by a grep gate in CI; only
 `tokens.css`, `fonts.css`, and SVG `data:` URLs may contain literals).
+
+### Mission 09 — Holograph UI Migration (2026-05-12)
+
+Replaces the Mission-08 "GleepGlorp banner + sidebar + glass surfaces" shell with the Holograph flat-shell vocabulary:
+
+- **Shell**: `<nav class='topnav'>` + `<main id='main-content'>` (no sidebar). Brand mark + `.navlink` area navigation + search affordance + avatar.
+- **Subnav**: `.holograph-section-nav` + `.holograph-section-item` primitive (rendered by `App.layout.renderSectionNav`) used by both Studio (Agents/Knowledge/MCP Servers) and Admin (General/LLM Providers/Built-in Tools).
+- **Areas**: Chat (sessions-pane + convo-pane + composer + `.toolcall` blocks), Studio (agents-pane + editor-pane grid), Admin (3 sub-blocks with providers-grid / tools-grid / general-grid).
+- **Fonts**: Inter + JetBrains Mono variable WOFF2 (replaced Geist Sans/Mono). Latin subset only; ~450 KB combined.
+- **Tokens**: dropped the Mission-08 typography scale (`--font-family-*`, `--font-size-*`, `--font-weight-*`) in favor of literal per-surface values. Token group order: surfaces / borders / text / accent / status / shadows / badges. Geometry + motion (`--radius-card/control/chip`, `--t`) at `:root`.
+- **Accent**: `#3358c0` (Holograph blue) in light theme; `#a78bfa` (violet, same value as Mission-08 dark) in dark theme. History: NEXUS cyan (M04) → GleepGlorp violet (M08) → Holograph blue/violet (M09).
+- **Modals**: `.modal-backdrop` + `.modal-shell` (380px `.confirm-dialog` variant). Three-block structure: `.modal-header` + `.modal-body` + `.modal-footer`. Replaces Mission-08's `.modal-overlay` + `.modal-dialog` + `.modal-actions` vocabulary.
+- **Telemetry**: floating overlay retired; inline `#chat-ctx-chip` in composer instead.
+- **Removed**: dev-mode Design Language gallery page + the `js/areas/admin/design-language/` directory. Page lives in git history.
+- **Transitional shim**: L2 added `init.length >= 2` shim in `app.js::switchTo` for areas still on `init(sidebar, content)`. L8.1 removed it — all areas now use `init(content)` single-arg.
+- **Carry-forward**: `.tool-enable-switch` + `.tool-enable-switch-track` widget classes preserved (rebound to Holograph tokens in `admin.css`) inside the MCP server editor. Polish leg may migrate these to the `.toggle` widget in `components.css`.
 
 ### Affordance patterns
 
@@ -574,7 +593,7 @@ The F4 leg 02 lift consolidates per-area duplications into shared primitives in 
 
 JavaScript should toggle visibility via `el.classList.toggle('is-hidden', !visible)` rather than writing `el.style.display = ...` inline. The `@layer utilities` declaration in `index.html` is the highest-precedence named layer, so utilities win over `@layer components` and `@layer areas` rules by design.
 
-### Mission 08 Flight 02 — Design Language Layer (glass + bezel + motion)
+### Mission 08 Flight 02 — Design Language Layer (glass + bezel + motion) — HISTORICAL (superseded by Mission 09 Holograph)
 
 A second layer on top of the M04 affordance patterns: a **glass + bezel + LED + motion** aesthetic that puts a "control-panel chrome with reflective glass" face on the existing token-driven primitives. The tokens are defined in `tokens.css` per theme; primitives compose them rather than encoding aesthetic details inline. Reduced-transparency and reduced-motion fallbacks live at the token layer too, so every consumer degrades automatically.
 
@@ -618,7 +637,7 @@ All four button consumers — `.btn-outlined-primary`, `.btn-filled-primary`, `.
 - **`.telemetry-strip`** — gallery-only status readout primitive (Mission 08 F2 L5). Justified row: `.section-title` eyebrow on the left, mono-uppercase `.telemetry-value` on the right (often containing an `.indicator-led`), bottom-border between rows. Sibling to `.section-title` (NOT a variant) — section header vs. status readout are distinct semantic roles. Gallery-only by default; graduates to `components.css` once a downstream polish flight finds a consumer.
 - **`.chip` (accent-tinted)** — Mission 08 F2 L5 retune: was `var(--surface)` + `var(--border)` (neutral), now `var(--accent-translucent)` + `var(--glass-border)` (accent-tinted flat). No gradient or shadow — distinguishes chips from raised buttons by reading as colored-but-flat tags.
 
-### Mission 08 Flight 03 — Administration Polish Layer (banner + code-block + cross-area dirty gate)
+### Mission 08 Flight 03 — Administration Polish Layer (banner + code-block + cross-area dirty gate) — HISTORICAL (superseded by Mission 09 Holograph)
 
 The Admin polish flight surfaced four shared primitives + two cross-cutting structural rules that future polish flights should consume rather than re-derive. The patterns here sit on top of the F2 Design Language Layer.
 
@@ -667,6 +686,8 @@ The Admin polish flight surfaced four shared primitives + two cross-cutting stru
 - **Ollama lifecycle `.indicator-led` consumer pattern** (Mission 08 F3 L4). Worked example of consuming the F2 `.indicator-led` primitive at a non-`.test-result-*` site: `provider-models.js` emits `<span class="indicator-led indicator-led--success"></span>` for loaded models and `--idle` for available. Retired the prior bespoke `.admin-pf-model-dot` class pair. **Pattern**: when adding a new lit-status surface, prefer composing the canonical primitive at the markup site over defining a new bespoke dot class.
 
 ### Color contrast (WCAG AA)
+
+> **Holograph (Mission 09) note**: The contrast pairs below are the Mission-08 (M04 F2 + M08 F1-F3) audit. Holograph's 12-pair audit lives in `tests/test_design_tokens_a11y.py` (`HOLOGRAPH_LIGHT_PAIRS` + `HOLOGRAPH_DARK_PAIRS`); see the L1.4 commit and `docs/superpowers/specs/2026-05-12-holograph-ui-migration-design.md` §"A11y audit (recomputed contrast pairs)" for the current source of truth. The Mission-08 pairs below are preserved for archaeology.
 
 The F2 design tokens were audited against WCAG 2.1 AA contrast standards on
 2026-04-25 (manual + automated). All load-bearing color pairs pass at the
