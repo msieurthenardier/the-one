@@ -30,6 +30,29 @@
 
     /* motion — single transition curve */
     --t: 160ms cubic-bezier(0.2, 0, 0, 1);
+
+    /* M10 — spacing scale (formalized; previously inlined as px literals) */
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 20px;
+    --space-6: 24px;
+    --space-7: 32px;
+    --space-8: 48px;
+
+    /* M10 — motion */
+    --motion-fast: 120ms;
+    --motion-base: 180ms;
+    --motion-slow: 240ms;
+    --motion-pulse-cycle: 1400ms;
+
+    /* M10 — instrument primitives */
+    --font-mono-eyebrow-size: 10px;
+    --font-mono-eyebrow-tracking: 0.15em;
+    --corner-tick-size: 8px;
+    --corner-tick-inset: 12px;
+    --canvas-grid-step: 20px;
   }
 
   [data-theme="light"] {
@@ -85,6 +108,13 @@
     --badge-filesystem: #0e8e8e;
     --badge-execution: #c5912a;
     --badge-web: #d63a93;
+
+    /* M10 — instrument status + surface-grid + accent-soft */
+    --surface-grid: rgba(0, 0, 0, 0.025);
+    --accent-soft: var(--accent-tint);
+    --good: #0a7050;        /* 5.73:1 against --bg #f8f8f6 (AA body) */
+    --bad: #c83232;
+    --brand-mark-bg: var(--accent);
   }
 
   [data-theme="dark"] {
@@ -140,6 +170,13 @@
     --badge-filesystem: #008b8b;
     --badge-execution: #b8860b;
     --badge-web: #c71585;
+
+    /* M10 — instrument status + surface-grid + accent-soft */
+    --surface-grid: rgba(255, 255, 255, 0.025);
+    --accent-soft: var(--accent-tint);
+    --good: #6ee7b7;
+    --bad: #f87171;
+    --brand-mark-bg: linear-gradient(135deg, var(--accent), #7c5cff);
   }
 
   /* a11y — reduced motion */
