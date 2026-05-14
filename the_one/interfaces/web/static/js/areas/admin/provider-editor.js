@@ -118,7 +118,11 @@
     var escapeHtml = window.App.escapeHtml;
     var escapeAttr = window.App.escapeAttr;
     var isCreate = !provider;
-    var type = isCreate ? '' : provider.type;
+    // L4.4 — `callbacks.initialType` is the optional preselect from the
+    // Admin · LLM Providers empty-state 4-card grid. Honored only on
+    // create-mount (in edit mode, provider.type is the source of truth).
+    var initialType = (isCreate && typeof callbacks.initialType === 'string') ? callbacks.initialType : '';
+    var type = isCreate ? initialType : provider.type;
     var defaults = (callbacks.getTypeDefaults && callbacks.getTypeDefaults(type)) || { base_url: '', showBaseUrl: false, showApiKey: false };
 
     var html = '';
@@ -132,10 +136,14 @@
     html += '<div class="form-row">';
     html += '<label class="form-label" for="pf-type">Type</label>';
     html += '<select class="form-control" id="pf-type" data-field="type">';
-    if (isCreate) html += '<option value="" disabled selected>Select a provider…</option>';
+    // L4.4 — render the "Select a provider…" placeholder only when no
+    // initial type was supplied; otherwise leave it out and let the matching
+    // <option> below carry `selected`.
+    if (isCreate && !type) html += '<option value="" disabled selected>Select a provider…</option>';
     for (var t = 0; t < providerTypes.length; t++) {
       var pt = providerTypes[t];
-      html += '<option value="' + escapeAttr(pt.value) + '"' + (!isCreate && type === pt.value ? ' selected' : '') + '>' + escapeHtml(pt.label) + '</option>';
+      var isSelected = type === pt.value;
+      html += '<option value="' + escapeAttr(pt.value) + '"' + (isSelected ? ' selected' : '') + '>' + escapeHtml(pt.label) + '</option>';
     }
     html += '</select>';
     html += '</div>';

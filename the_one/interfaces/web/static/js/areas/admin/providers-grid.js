@@ -20,6 +20,63 @@
 
   var KNOWN_BADGE_TYPES = ['ollama', 'openai-compatible', 'openai', 'anthropic', 'mock', 'openrouter'];
 
+  // L4.4 — provider-type card definitions for the empty-state 4-card grid.
+  // Anthropic is RECOMMENDED (accent border + accent eyebrow); the other
+  // three carry their category label (CLOUD / CLOUD / LOCAL) in muted mono.
+  // Clicking a card opens the existing provider-editor pre-targeted to that
+  // type via onCreateProvider(type).
+  var PROVIDER_TYPE_CARDS = [
+    { id: 'anthropic',         name: 'Anthropic',         cat: 'RECOMMENDED', desc: 'Claude family · API key', recommended: true },
+    { id: 'openai',            name: 'OpenAI',            cat: 'CLOUD',       desc: 'GPT family · API key',    recommended: false },
+    { id: 'openai-compatible', name: 'OpenAI-compatible', cat: 'CLOUD',       desc: 'Together, Groq, etc.',    recommended: false },
+    { id: 'ollama',            name: 'Ollama',            cat: 'LOCAL',       desc: 'Self-hosted · no key',    recommended: false }
+  ];
+
+  // Builds the 4-card provider-type grid into `gridEl` (replaces any existing
+  // children). Each card invokes `onPickType(type)` on click. Built via
+  // createElement / textContent (security hook bans innerHTML for dynamic
+  // strings; labels here are literal but we keep the pattern uniform).
+  function renderProvidersEmpty(gridEl, onPickType) {
+    while (gridEl.firstChild) gridEl.removeChild(gridEl.firstChild);
+    var typeGrid = document.createElement('div');
+    typeGrid.className = 'provider-type-grid';
+    typeGrid.setAttribute('data-testid', 'provider-type-grid');
+
+    for (var i = 0; i < PROVIDER_TYPE_CARDS.length; i++) {
+      var c = PROVIDER_TYPE_CARDS[i];
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'provider-type-card' + (c.recommended ? ' recommended' : '');
+      btn.dataset.testid = 'provider-type-card';
+      btn.dataset.providerType = c.id;
+      btn.setAttribute('aria-label', 'Create ' + c.name + ' provider');
+
+      var cat = document.createElement('div');
+      cat.className = 'provider-type-cat';
+      cat.textContent = c.cat;
+      btn.appendChild(cat);
+
+      var nm = document.createElement('div');
+      nm.className = 'provider-type-name';
+      nm.textContent = c.name;
+      btn.appendChild(nm);
+
+      var ds = document.createElement('div');
+      ds.className = 'provider-type-desc';
+      ds.textContent = c.desc;
+      btn.appendChild(ds);
+
+      (function (cardEl) {
+        cardEl.addEventListener('click', function () {
+          onPickType(cardEl.dataset.providerType);
+        });
+      })(btn);
+
+      typeGrid.appendChild(btn);
+    }
+    gridEl.appendChild(typeGrid);
+  }
+
   function renderProvidersGrid(container, providers, callbacks) {
     callbacks = callbacks || {};
     var onSelectProvider = callbacks.onSelectProvider || function () {};
@@ -53,17 +110,9 @@
     }
 
     if (providers.length === 0) {
-      gridEl.innerHTML =
-        '<div class="empty-canvas">' +
-          '<div class="empty-canvas-inner admin-provider-empty">' +
-            '<div>No providers configured. Add one to get started.</div>' +
-            '<button class="new-entity-btn is-expanded" type="button" data-testid="new-provider-btn-empty">' +
-              window.App.icon('square-pen') + '<span>New Provider</span>' +
-            '</button>' +
-          '</div>' +
-        '</div>';
-      var emptyBtn = gridEl.querySelector('[data-testid="new-provider-btn-empty"]');
-      emptyBtn.addEventListener('click', function () { onCreateProvider(); });
+      // L4.4 — 4-card provider-type grid replaces the old "No providers
+      // configured…" canvas. Each card preselects its type in the editor.
+      renderProvidersEmpty(gridEl, function (type) { onCreateProvider(type); });
       return;
     }
 

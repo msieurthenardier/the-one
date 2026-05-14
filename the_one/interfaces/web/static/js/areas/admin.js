@@ -128,6 +128,10 @@ App.registerArea({
     var editingProvider = null;
     var pendingProviderId = null;
     var pendingFormMode = null;
+    // L4.4 — When the empty-state 4-card type grid is used, the picked type
+    // flows through enterCreateMode(type) and is consumed once by the editor
+    // mount (then cleared). null means "no preselection".
+    var pendingCreateType = null;
 
     // Orchestrator's mirror of the provider-editor sub-module's local `dirty`
     // flag (F6 leg 04). The editor sub-module is the source of truth for the
@@ -375,7 +379,12 @@ App.registerArea({
             if (window.App && window.App.router) App.router.replaceSub('providers');
             renderProvidersPanel(mountEl);
           }
+          // L4.4 — capture and clear the empty-state preselect so it
+          // applies once and only on the immediate create mount.
+          var initialType = pendingCreateType;
+          pendingCreateType = null;
           App.admin.renderProviderEditor(mountEl, editingProvider, PROVIDER_TYPES, {
+            initialType: initialType,
             onBack: function () {
               if (dirty) {
                 App.confirmDialog({ onConfirm: doHandleBack });
@@ -500,11 +509,15 @@ App.registerArea({
       renderProvidersPanel(subProvidersEl);
     }
 
-    function enterCreateMode() {
+    function enterCreateMode(type) {
+      // L4.4 — `type` is the optional preselect from the empty-state 4-card
+      // grid. When omitted (header CTA path), the editor renders its
+      // "Select a provider…" placeholder option as before.
       providerFormMode = 'add';
       editingProvider = null;
       pendingProviderId = null;
       pendingFormMode = null;
+      pendingCreateType = (typeof type === 'string' && type) ? type : null;
       if (window.App && window.App.router) {
         App.router.replaceSub(self.serializeState());
       }

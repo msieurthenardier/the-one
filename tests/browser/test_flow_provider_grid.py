@@ -28,9 +28,14 @@ def test_provider_grid_page_header(app_clean: str, page: Page) -> None:
 
 @pytest.mark.browser
 def test_provider_grid_empty_state(app_clean: str, page: Page) -> None:
+    """L4.4 — empty state renders the 4-card provider-type grid (Anthropic
+    RECOMMENDED · OpenAI · OpenAI-compatible · Ollama). The legacy
+    ``.admin-provider-empty`` canvas was removed in L4.4."""
     page.goto(f"{app_clean}#admin/providers")
-    expect(page.locator(".admin-provider-empty")).to_be_visible(timeout=8000)
-    expect(page.locator(".admin-provider-empty")).to_contain_text("No providers configured")
+    expect(page.locator('[data-testid="provider-type-grid"]')).to_be_visible(timeout=8000)
+    expect(page.locator(".provider-type-card")).to_have_count(4)
+    expect(page.locator(".provider-type-card:has-text('Anthropic')")).to_be_visible()
+    expect(page.locator(".provider-type-card.recommended")).to_have_count(1)
 
 
 @pytest.mark.browser
