@@ -162,6 +162,21 @@ def extract_ollama_context_length(show_response: dict[str, Any]) -> int | None:
     return None
 
 
+async def get_model_context_length(base_url: str, model: str) -> int | None:
+    """Return the model's advertised context length from Ollama ``/api/show``.
+
+    F6.5 L04 — async wrapper around :func:`show_model` +
+    :func:`extract_ollama_context_length`. Used by the Studio agent
+    editor's per-model context-window chip. Fail-open: returns ``None``
+    on any error (mirrors :func:`get_model_capabilities` semantics).
+    """
+    try:
+        data = await show_model(base_url, model)
+    except (ConnectionError, ValueError, httpx.HTTPError):
+        return None
+    return extract_ollama_context_length(data)
+
+
 async def get_model_capabilities(base_url: str, model: str) -> frozenset[str] | None:
     """Return the set of capabilities reported by ``/api/show`` for ``model``.
 

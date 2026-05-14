@@ -2393,21 +2393,32 @@ async def list_provider_models(provider_id: str) -> list[dict[str, Any]]:
         try:
             base = ollama_api.strip_v1(provider.base_url)
             models = await ollama_api.list_models(base)
-            # Capabilities come from /api/show — cached per (base, model) so
-            # repeat renders are free. Gather in parallel; on failure, return
-            # `null` capabilities so the UI renders the row without chips
-            # rather than failing the whole list.
+            # Capabilities + context_length come from /api/show — cached per
+            # (base, model) for the capabilities frozenset (TTL-based). Gather
+            # both in parallel; on failure, return null so the UI renders the
+            # row without chips rather than failing the whole list.
+            # F6.5 L04: context_length surfaced for the Studio agent-editor
+            # per-model "max" chip — operator-visible verification that the
+            # L01 lazy resolver will see the right denominator.
             cap_tasks = [ollama_api.get_model_capabilities(base, m.get("name", "")) for m in models]
-            caps_list = await asyncio.gather(*cap_tasks, return_exceptions=True)
+            ctx_tasks = [
+                ollama_api.get_model_context_length(base, m.get("name", "")) for m in models
+            ]
+            caps_list, ctx_list = await asyncio.gather(
+                asyncio.gather(*cap_tasks, return_exceptions=True),
+                asyncio.gather(*ctx_tasks, return_exceptions=True),
+            )
             enriched = []
-            for m, caps in zip(models, caps_list, strict=False):
+            for m, caps, ctx in zip(models, caps_list, ctx_list, strict=False):
                 cap_array = sorted(caps) if isinstance(caps, frozenset | set) else None
+                ctx_value = ctx if isinstance(ctx, int) else None
                 enriched.append(
                     {
                         "id": m.get("name", ""),
                         "name": m.get("name", ""),
                         "size": m.get("size"),
                         "capabilities": cap_array,
+                        "context_length": ctx_value,
                     }
                 )
             return enriched
@@ -2467,18 +2478,49 @@ async def list_provider_models(provider_id: str) -> list[dict[str, Any]]:
         try:
             import openai
 
+            from the_one.llm.openai_provider import OPENAI_MODEL_CONTEXT
+
             client = openai.AsyncOpenAI(api_key=provider.api_key)
             response = await client.models.list()
-            return [{"id": m.id, "name": m.id} for m in response.data]
+            # F6.5 L04: resolve per-model context_length via the same hand-
+            # maintained table the OpenAIProvider resolver uses. Longest-
+            # prefix-wins so "gpt-4-1106-preview" picks the 128k entry, not
+            # the legacy "gpt-4" 8k entry.
+            ordered_prefixes = sorted(OPENAI_MODEL_CONTEXT, key=len, reverse=True)
+
+            def _openai_ctx(model_id: str) -> int | None:
+                for prefix in ordered_prefixes:
+                    if model_id.startswith(prefix):
+                        return OPENAI_MODEL_CONTEXT[prefix]
+                return None
+
+            return [
+                {"id": m.id, "name": m.id, "context_length": _openai_ctx(m.id)}
+                for m in response.data
+            ]
         except Exception as e:
             raise HTTPException(status_code=502, detail=str(e))
     elif provider.type == "anthropic":
         try:
             import anthropic
 
+            from the_one.llm.anthropic_provider import AnthropicProvider
+
             client = anthropic.AsyncAnthropic(api_key=provider.api_key)
             response = await client.models.list()
-            return [{"id": m.id, "name": getattr(m, "display_name", m.id)} for m in response.data]
+            # F6.5 L04: Anthropic stays at class-default — all current Claude
+            # models share the 200k window. If Anthropic ships a non-200k
+            # model in the future, add a per-model table here mirroring the
+            # OpenAI pattern above.
+            anthropic_ctx = AnthropicProvider.max_context_tokens
+            return [
+                {
+                    "id": m.id,
+                    "name": getattr(m, "display_name", m.id),
+                    "context_length": anthropic_ctx,
+                }
+                for m in response.data
+            ]
         except Exception as e:
             raise HTTPException(status_code=502, detail=str(e))
 

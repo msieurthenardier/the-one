@@ -749,7 +749,11 @@ async def _process_and_broadcast(
     total_input = 0
     total_output = 0
     last_input = 0
-    max_context = session.agent.llm.max_context_tokens
+    # M08 F6.5 L04 HAT fix: do NOT capture max_context_tokens here. The
+    # L01 lazy resolver runs at the top of the FIRST `complete()` /
+    # `stream()` call, which `agent.step()` triggers below. Reading the
+    # attribute live at usage-event emission (line ~793) picks up the
+    # resolved value on the first turn instead of the class default.
 
     result_messages: list[dict[str, Any]] = []
     # Streaming wire-up: chunks fan out via WS as `assistant_chunk` events.
@@ -790,7 +794,7 @@ async def _process_and_broadcast(
                         "input_tokens": total_input,
                         "output_tokens": total_output,
                         "context_tokens": last_input,
-                        "max_context_tokens": max_context,
+                        "max_context_tokens": session.agent.llm.max_context_tokens,
                     }
                     await _send_to_session(session, usage_event)
 

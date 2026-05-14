@@ -88,6 +88,48 @@ Performed during flight planning (2026-05-14). Source artifacts inspected: F6 fl
 - **Cycle-2 decision**: skipped per skill protocol — all fixes are AC clarifications, env-var rename, and Edge Cases additions; no structural change to test shape, file paths, or design conclusion. The OpenAI-table-style high-severity bug pattern from L01 doesn't reappear here.
 - L02 status → `ready`
 
+### 2026-05-14 — L02 implementation landed + L01+L02 committed
+
+- Spawned general-purpose Developer (Sonnet) to implement L02
+- Result: 1 new test file (297 lines, 4 `@pytest.mark.live` tests), pyproject.toml comment math updated `live=6 → live=10`
+- Broad pytest 1669p/4s/374d exit 0 (deselect count +4 for new live tests). Browser 315p/35s preserved
+- Empirical live-count verified: 6 → 10 via `pytest --collect-only -m live -q`
+- **Bonus finding**: skip-behavior test showed Ollama test PASSED against the operator's default-selected model (host.docker.internal:11434 reachable from container, models loaded). Not a defect — harness functioning as designed. L03 HAT will explicitly target qwen2.5:7b via `LIVE_OLLAMA_MODEL` to reproduce F6 KI #2
+- Reviewer (Haiku) signaled [HANDOFF:confirmed] over the batched L01+L02 changes — 0 blocking issues
+- Committed as `9d4...` (commit hash truncated for log; see git log); pushed to origin; draft PR #53 opened
+- L02 status → `landed` → `completed`
+
+### 2026-05-14 — L03 HAT execution + L04 inline-spawned
+
+Operator drove all 6 HAT scenarios. Key findings:
+
+**Scenario 1 (Ollama qwen telemetry resolver)**: PASS. Operator's qwen2.5:7b agent showed 2% → 10% across 2 turns against the real 32k window. Pre-L01 would have been 0.5% → 2.5% against 128k (the perception-bug source).
+
+**Scenario 2 (L02 harness against qwen2.5:7b explicitly)**: PASS in 0.76s. Monotonic input_tokens growth verified. F6 KI #2 **does not reproduce** in controlled test.
+
+**Scenario 3 (non-Ollama providers)**: PASS. Operator spot-checked Anthropic + OpenRouter agents through the chat UI; `max:` reflected correct per-model window (200k for Claude, real-from-OpenRouter-listing for OpenRouter models); `ctx:` grew turn-over-turn for both providers.
+
+**Scenario 4 (warn/crit at real fill)**: SKIPPED — pushing a real conversation to 70%+ of 32k = 22k tokens of prompt is impractical to drive manually; CSS rule was previously verified in F6 HAT via DevTools class-flip.
+
+**Scenario 5 (per-agent override / KI #9)**: CLOSED as not needed. No models surfaced as uncovered by L01's resolution.
+
+**Scenario 6 (regression suite)**: PASS. Broad 1669p/4s/374d, browser 315p/35s, pixel 12/12.
+
+**L04 inline-spawned during HAT** (operator-requested "just do it now"):
+- Backend: extended `GET /api/providers/{id}/models` to return per-model `context_length` for Ollama (`/api/show` via new `get_model_context_length` helper), OpenAI (`OPENAI_MODEL_CONTEXT` longest-prefix lookup), Anthropic (200k class-default literal), OpenRouter (already exposed).
+- Frontend: agent-editor `.model-capabilities` panel now renders a "Max context: 32k" chip alongside the capability chips; chat telemetry overlay gains a 4th row `max:`. ~80 lines net across api.py + studio.js + studio.css + telemetry-overlay.js + ollama_api.py.
+- **Bug fix during L04 testing**: telemetry's `max:` showed 128k on the first chat message, then flipped to the resolved value on the second. Root cause: `_process_and_broadcast` captured `max_context = session.agent.llm.max_context_tokens` at function entry — BEFORE `agent.step()` triggered the L01 lazy resolver. Fix: removed the capture; read live at usage-event emission. Verified live with the operator after rebuild.
+- Pre-first-turn telemetry shows zeros (no usage event has fired yet). Cosmetic-only; eager-resolve-at-session-join would require either client-side fetch via the L04 endpoint or server-side eager resolution on session join — both scope-creep on this HAT cycle. Logged as carry-forward for F7 or a future polish flight.
+
+**F6 mission KI dispositions**:
+- KI #1 (max_context_tokens hardcoded) → **RESOLVED** by F6.5 L01 + L04
+- KI #2 (Ollama prompt_tokens undercount) → **DID NOT REPRODUCE**; root cause was the wrong-denominator perception bug. Closed with L01's denominator fix doing the heavy lifting; mission KI #2 marked `[x]` with the categorization explained inline.
+- KI #3, #4, #5 unchanged from F6 disposition (carry-forward; out of F6.5 scope)
+
+**Pixel suite ANOMALY during regression smoke**: first browser-suite run showed 311 errors in 11.9s — Chromium had been wiped by an earlier `make rebuild` (cycle-typical). After `make _ensure-playwright`, browser suite returned the clean 315p/35s baseline. Documented for future operator awareness: any `make rebuild` during HAT requires `make _ensure-playwright` before the next browser-suite run.
+
+L03 status → `completed`. L04 (inline-spawned) → `completed`. Flight → `landed`. F6.5 row checked off in mission.md.
+
 ---
 
 ## Leg Progress

@@ -1282,6 +1282,16 @@ App.registerArea({
     // and consumed by renderModelCapabilities on change. Reset per fetch so
     // a provider switch doesn't bleed stale caps into the new dropdown.
     var modelCapsBy = {};
+    // F6.5 L04: parallel cache for the per-model context-window value
+    // returned by /api/providers/{id}/models. Same lifecycle as modelCapsBy.
+    var modelCtxBy = {};
+
+    function fmtCtxTokens(n) {
+      if (typeof n !== 'number' || !(n > 0)) return null;
+      if (n >= 1000000) return (n / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+      if (n >= 1000) return (n / 1000).toFixed(0) + 'k';
+      return String(n);
+    }
 
     function renderModelCapabilities() {
       var capsEl = editorEl.querySelector('.model-capabilities');
@@ -1289,12 +1299,26 @@ App.registerArea({
       if (!capsEl || !selectEl) return;
       var modelId = selectEl.value;
       var caps = modelCapsBy[modelId];
+      var ctx = modelCtxBy[modelId];
       var renderer = window.App.admin && window.App.admin.renderCapabilityChips;
-      if (!modelId || !renderer || caps === undefined || caps === null) {
+      var capsHtml = (modelId && renderer && caps !== undefined && caps !== null)
+        ? renderer(caps)
+        : '';
+      var ctxLabel = fmtCtxTokens(ctx);
+      var ctxHtml = ctxLabel
+        ? '<span class="model-capabilities-label">Max context:</span> ' +
+          '<span class="model-ctx-chip" data-testid="model-ctx-chip">' + ctxLabel + '</span>'
+        : '';
+      if (!capsHtml && !ctxHtml) {
         capsEl.innerHTML = '';
         return;
       }
-      capsEl.innerHTML = '<span class="model-capabilities-label">Capabilities:</span> ' + renderer(caps);
+      var parts = [];
+      if (capsHtml) {
+        parts.push('<span class="model-capabilities-label">Capabilities:</span> ' + capsHtml);
+      }
+      if (ctxHtml) parts.push(ctxHtml);
+      capsEl.innerHTML = parts.join(' &middot; ');
     }
 
     // Race-condition guard for fetchModelsForProvider (review I6). Rapid
@@ -1329,6 +1353,7 @@ App.registerArea({
         selectEl.innerHTML = '<option value="" disabled selected>Select a provider first</option>';
         if (loadingEl) loadingEl.textContent = '';
         modelCapsBy = {};
+        modelCtxBy = {};
         renderModelCapabilities();
         return;
       }
@@ -1348,6 +1373,7 @@ App.registerArea({
           // would clobber the picker with A's models while B is selected.
           if (_activeProviderId !== fetchProviderId) return;
           modelCapsBy = {};
+          modelCtxBy = {};
           var optsHtml = '<option value="" disabled>Choose a model</option>';
           for (var i = 0; i < models.length; i++) {
             var modelId = models[i].id || models[i].name;
@@ -1364,6 +1390,14 @@ App.registerArea({
               modelCapsBy[modelId] = capsRaw;
             } else if (Array.isArray(capsRaw) && capsRaw.length === 0) {
               modelCapsBy[modelId] = null;
+            }
+            // F6.5 L04: context_length is the per-model max-context-tokens
+            // surfaced via /api/providers/{id}/models. Number > 0 \u2192 chip;
+            // null/missing \u2192 no chip (operator sees nothing rather than a
+            // potentially-wrong value).
+            var ctxRaw = models[i].context_length;
+            if (typeof ctxRaw === 'number' && ctxRaw > 0) {
+              modelCtxBy[modelId] = ctxRaw;
             }
           }
           selectEl.innerHTML = optsHtml;
@@ -1395,6 +1429,7 @@ App.registerArea({
           selectEl.replaceChildren(failOpt);
           if (loadingEl) loadingEl.textContent = '';
           modelCapsBy = {};
+          modelCtxBy = {};
           renderModelCapabilities();
         });
     }

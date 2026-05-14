@@ -43,7 +43,8 @@
     var rows = [
       { label: 'in:', cls: 't-in' },
       { label: 'out:', cls: 't-out' },
-      { label: 'ctx:', cls: 't-ctx' }
+      { label: 'ctx:', cls: 't-ctx' },
+      { label: 'max:', cls: 't-max' }
     ];
     for (var i = 0; i < rows.length; i++) {
       var row = document.createElement('span');
@@ -68,6 +69,7 @@
     chromeContent.querySelector('.t-in').textContent = fmtTokens(data.input_tokens);
     chromeContent.querySelector('.t-out').textContent = fmtTokens(data.output_tokens);
     chromeContent.querySelector('.t-ctx').textContent = fmtTokens(data.context_tokens);
+    chromeContent.querySelector('.t-max').textContent = fmtTokens(data.max_context_tokens || 0);
     var pct = data.max_context_tokens > 0
       ? Math.min(100, Math.round(data.context_tokens / data.max_context_tokens * 100))
       : 0;
@@ -86,6 +88,7 @@
     chromeContent.querySelector('.t-in').textContent = '0';
     chromeContent.querySelector('.t-out').textContent = '0';
     chromeContent.querySelector('.t-ctx').textContent = '0';
+    chromeContent.querySelector('.t-max').textContent = '0';
     var pctEl = chromeContent.querySelector('.t-ctx-pct');
     pctEl.textContent = '0%';
     pctEl.className = 'value t-ctx-pct';

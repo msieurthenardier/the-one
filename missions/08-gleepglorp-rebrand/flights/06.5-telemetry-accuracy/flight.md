@@ -1,6 +1,6 @@
 # Flight: Telemetry Accuracy
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [GleepGlorp AI Rebrand & UX Polish](../../mission.md)
 
 ## Contributing to Criteria
@@ -167,7 +167,8 @@ The L02 leg also captures the root-cause categorization for the Ollama undercoun
 
 - [x] `max-context-per-model` — per-model `max_context_tokens` resolution for all four providers (Anthropic stays 200k; Ollama `/api/show`; OpenAI table; OpenRouter cache); resolver runs lazily on first LLM call; unit tests with mocked metadata
 - [x] `input-tokens-cross-provider-validation` — pytest-marked integration test that runs 3-turn conversations across enabled providers and asserts `input_tokens` grows; localize Ollama undercount (external vs ours); inline fix if it's ours
-- [ ] `telemetry-accuracy-hat` — operator HAT against real providers; verify warn/crit thresholds fire at realistic context fill; broad + browser suite regression smoke
+- [x] `telemetry-accuracy-hat` — operator HAT against real providers; verify warn/crit thresholds fire at realistic context fill; broad + browser suite regression smoke
+- [x] `max-context-display` (L04, inline-spawned during L03 HAT) — `GET /api/providers/{id}/models` returns per-model `context_length` (Ollama via `/api/show`, OpenAI via `OPENAI_MODEL_CONTEXT` prefix lookup, Anthropic class-default 200k, OpenRouter via existing `list_models` field); agent editor displays a `Max context` chip; telemetry overlay gains a `max:` row; bug fix: `_process_and_broadcast` now reads `max_context_tokens` LIVE at usage-event emission (was captured pre-resolver-fire → first turn showed 128k default).
 
 ---
 
