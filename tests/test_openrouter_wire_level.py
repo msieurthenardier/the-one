@@ -19,6 +19,24 @@ from the_one.llm.base import Message, Role
 from the_one.llm.openrouter_provider import OpenRouterProvider
 
 
+def _find_chat_request(captured: list[httpx.Request]) -> httpx.Request:
+    """Return the first ``/chat/completions`` request from the capture list.
+
+    M08 F6.5 L01: ``OpenRouterProvider`` now resolves ``max_context_tokens``
+    via ``/models`` on the first ``complete()`` call, so the chat-completion
+    request is no longer always ``captured[0]``. This helper isolates the
+    request these tests actually care about (the chat-completion wire shape)
+    from the resolver's metadata round-trip.
+    """
+    for req in captured:
+        if req.url.path.endswith("/chat/completions"):
+            return req
+    raise AssertionError(
+        f"no /chat/completions request captured (got paths: "
+        f"{[r.url.path for r in captured]})"
+    )
+
+
 def _capture_handler(captured: list[httpx.Request]):
     """Return an httpx handler that records each request and replies with
     a minimal-but-valid OpenAI chat completion payload."""
@@ -79,7 +97,8 @@ class TestWireNoLeak:
         await prov.complete([Message(role=Role.USER, content="hi")])
 
         assert captured, "no request captured"
-        auth = captured[0].headers.get("authorization")
+        chat_req = _find_chat_request(captured)
+        auth = chat_req.headers.get("authorization")
         assert auth == f"Bearer {OpenRouterProvider._NO_KEY_PLACEHOLDER}", auth
         assert "sk-leaked" not in (auth or ""), "OPENAI_API_KEY leaked into the wire"
 
@@ -92,7 +111,7 @@ class TestWireNoLeak:
         prov = OpenRouterProvider(model="m", api_key="real-key")
         await prov.complete([Message(role=Role.USER, content="hi")])
 
-        assert captured[0].headers.get("authorization") == "Bearer real-key"
+        assert _find_chat_request(captured).headers.get("authorization") == "Bearer real-key"
 
     async def test_OPENROUTER_API_KEY_env_used_when_no_explicit_key(
         self, monkeypatch
@@ -105,7 +124,7 @@ class TestWireNoLeak:
         prov = OpenRouterProvider(model="m", api_key=None)
         await prov.complete([Message(role=Role.USER, content="hi")])
 
-        assert captured[0].headers.get("authorization") == "Bearer sk-or-x"
+        assert _find_chat_request(captured).headers.get("authorization") == "Bearer sk-or-x"
 
 
 # ── D2: hardcoded ranking headers reach the wire ────────────────────────
@@ -126,5 +145,6 @@ class TestWireRankingHeaders:
         prov = OpenRouterProvider(model="m", api_key="k")
         await prov.complete([Message(role=Role.USER, content="hi")])
 
-        assert captured[0].headers.get("http-referer") == _APP_URL
-        assert captured[0].headers.get("x-title") == _APP_NAME
+        chat_req = _find_chat_request(captured)
+        assert chat_req.headers.get("http-referer") == _APP_URL
+        assert chat_req.headers.get("x-title") == _APP_NAME

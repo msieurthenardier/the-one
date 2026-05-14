@@ -97,6 +97,27 @@ class OpenRouterProvider(OpenAIProvider):
         )
         self._lookup_base_url = base_url
 
+        # M08 F6.5 L01: initialize the LLMProvider lazy-resolver sentinel
+        # directly because we intentionally skip ``super().__init__()``.
+        # Without this, ``_resolve_max_context_tokens_if_needed`` (added to
+        # OpenAIProvider.complete/stream) would AttributeError on the
+        # missing instance attribute the first time it fires.
+        self._max_context_tokens_resolved: bool = False
+
+    async def _resolve_max_context_tokens(self) -> None:
+        # Override OpenAIProvider's prefix-table resolver — OpenRouter
+        # exposes ``context_length`` directly on the /models listing, so
+        # we read it there rather than maintain a parallel table.
+        resolved = await openrouter_api.get_model_context_length(
+            self._lookup_base_url,
+            self._lookup_api_key,
+            self.model,
+        )
+        if resolved is not None and resolved > 0:
+            self.max_context_tokens = resolved
+        # else: leave at class default (128k); the wrapper catches errors
+        # from the helper and flips the sentinel either way.
+
     async def supports_tools(self) -> bool:
         """Return False if the OpenRouter model is known not to advertise
         ``tools`` in its ``supported_parameters``. Returns True when

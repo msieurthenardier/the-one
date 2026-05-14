@@ -142,6 +142,26 @@ async def show_model(
     return result
 
 
+def extract_ollama_context_length(show_response: dict[str, Any]) -> int | None:
+    """Find the ``.context_length`` field in Ollama's /api/show ``model_info``.
+
+    Ollama nests ``context_length`` under a model-family-namespaced key
+    (e.g., ``qwen2.context_length``, ``llama.context_length``). This walks
+    ``model_info`` for any key ending in ``.context_length`` and returns
+    the first int value found.
+
+    Returns None if ``model_info`` is missing/not a dict, if no matching
+    key exists, or if the value isn't an int.
+    """
+    model_info = show_response.get("model_info", {})
+    if not isinstance(model_info, dict):
+        return None
+    for key, value in model_info.items():
+        if isinstance(key, str) and key.endswith(".context_length") and isinstance(value, int):
+            return value
+    return None
+
+
 async def get_model_capabilities(base_url: str, model: str) -> frozenset[str] | None:
     """Return the set of capabilities reported by ``/api/show`` for ``model``.
 

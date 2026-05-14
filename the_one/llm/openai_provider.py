@@ -18,6 +18,31 @@ from the_one.llm.registry import register_provider
 DEFAULT_OPENAI_TIMEOUT = httpx.Timeout(connect=10.0, read=300.0, write=10.0, pool=10.0)
 
 
+# M08 F6.5 L01: per-model context-window lookup. OpenAI doesn't expose
+# ``context_length`` via the ``/models`` API, so this is hand-maintained.
+# Drifts as OpenAI ships new models — unknown models fall back to the
+# class default (128k). Match is by PREFIX (longest-prefix wins).
+# Canonical reference: https://platform.openai.com/docs/models
+# Order doesn't matter for storage but matters for the longest-prefix-wins
+# matcher below — explicit variants of ``gpt-4`` / ``gpt-3.5-turbo`` MUST
+# appear so prefix-match doesn't collapse them onto the bare ``gpt-4``
+# (8k) or ``gpt-3.5-turbo`` (16k) entry.
+OPENAI_MODEL_CONTEXT: dict[str, int] = {
+    "gpt-4o": 128_000,
+    "gpt-4-turbo": 128_000,
+    "gpt-4-32k": 32_768,
+    "gpt-4-vision-preview": 128_000,
+    "gpt-4-0125-preview": 128_000,
+    "gpt-4-1106-preview": 128_000,
+    "gpt-4": 8_192,                # legacy gpt-4 default; -0613 / -0314 dated variants
+    "gpt-3.5-turbo-instruct": 4_096,
+    "gpt-3.5-turbo-16k": 16_385,
+    "gpt-3.5-turbo": 16_385,       # current gpt-3.5-turbo defaults to 16k (was 4k pre-2023)
+    "o1": 200_000,
+    "o3-mini": 200_000,
+}
+
+
 class OpenAIProvider(LLMProvider):
     name = "openai"
 
@@ -32,6 +57,7 @@ class OpenAIProvider(LLMProvider):
         # NOTE: any new instance attribute added here MUST also be set in
         # OpenRouterProvider.__init__ (which deliberately does NOT call
         # super().__init__() — see test_instance_attribute_parity).
+        super().__init__()
         self.model = model
         client_kwargs: dict[str, Any] = {
             "api_key": api_key or os.environ.get("OPENAI_API_KEY"),
@@ -41,6 +67,18 @@ class OpenAIProvider(LLMProvider):
             client_kwargs["base_url"] = base_url
         self.client = openai.AsyncOpenAI(**client_kwargs)
 
+    async def _resolve_max_context_tokens(self) -> None:
+        # Longest-prefix match: sort keys descending by length so e.g.
+        # ``gpt-4-turbo`` wins over ``gpt-4`` when ``self.model`` is
+        # ``gpt-4-turbo-preview``. Note: ``OpenRouterProvider`` inherits
+        # from this class but overrides this resolver — it does NOT use
+        # the OpenAI prefix table.
+        for prefix in sorted(OPENAI_MODEL_CONTEXT, key=len, reverse=True):
+            if self.model.startswith(prefix):
+                self.max_context_tokens = OPENAI_MODEL_CONTEXT[prefix]
+                return
+        # No match — leave at class default.
+
     async def complete(
         self,
         messages: list[Message],
@@ -48,6 +86,7 @@ class OpenAIProvider(LLMProvider):
         temperature: float = 0.0,
         max_tokens: int = 16384,
     ) -> Message:
+        await self._resolve_max_context_tokens_if_needed()
         api_messages = [self._to_api_message(m) for m in messages]
         kwargs: dict[str, Any] = {
             "model": self.model,
@@ -97,6 +136,7 @@ class OpenAIProvider(LLMProvider):
         Tool-call deltas are accumulated by index and emitted on the final
         chunk; tool calls remain non-streamed per F4 design.
         """
+        await self._resolve_max_context_tokens_if_needed()
         api_messages = [self._to_api_message(m) for m in messages]
         kwargs: dict[str, Any] = {
             "model": self.model,

@@ -15,6 +15,7 @@ class AnthropicProvider(LLMProvider):
     max_context_tokens = 200_000
 
     def __init__(self, model: str = "claude-sonnet-4-6", api_key: str | None = None, **kwargs: Any):
+        super().__init__()
         self.model = model
         self.client = anthropic.AsyncAnthropic(
             api_key=api_key or os.environ.get("ANTHROPIC_API_KEY")
@@ -54,6 +55,7 @@ class AnthropicProvider(LLMProvider):
         temperature: float = 0.0,
         max_tokens: int = 16384,
     ) -> Message:
+        await self._resolve_max_context_tokens_if_needed()
         kwargs = self._build_kwargs(messages, tools, temperature, max_tokens)
 
         try:
@@ -99,6 +101,7 @@ class AnthropicProvider(LLMProvider):
         practice, Anthropic raises BadRequestError on request submission
         (before any text deltas), so the gate is defence-in-depth.
         """
+        await self._resolve_max_context_tokens_if_needed()
         kwargs = self._build_kwargs(messages, tools, temperature, max_tokens)
         yielded_any = False
         try:
