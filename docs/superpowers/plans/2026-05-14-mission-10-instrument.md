@@ -244,8 +244,8 @@ Add to `components.css` inside `@layer components { … }` (before the closing b
     align-items: center;
     gap: var(--space-2);
     padding: 5px 10px;
-    background: var(--bg-elev);
-    border: 1px solid var(--line-bright, var(--line));
+    background: var(--surface-2);
+    border: 1px solid var(--hairline-strong);
     border-radius: 4px;
     font-family: 'JetBrains Mono', monospace;
     font-size: 10px;
@@ -259,7 +259,7 @@ Add to `components.css` inside `@layer components { … }` (before the closing b
     background: var(--accent);
   }
   .pill-coord .sep {
-    color: var(--fg-dim, var(--fg-mute));
+    color: var(--fg-faint);
   }
 
   /* Status dot — 4 states */
@@ -270,7 +270,7 @@ Add to `components.css` inside `@layer components { … }` (before the closing b
     display: inline-block;
     flex-shrink: 0;
   }
-  .stat-dot.idle { background: var(--fg-dim, var(--fg-mute)); box-shadow: 0 0 0 2px rgba(154, 160, 170, 0.12); }
+  .stat-dot.idle { background: var(--fg-faint); box-shadow: 0 0 0 2px rgba(154, 160, 170, 0.12); }
   .stat-dot.work { background: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); animation: m10-pulse var(--motion-pulse-cycle) ease-in-out infinite; }
   .stat-dot.ok   { background: var(--good); box-shadow: 0 0 0 2px rgba(110, 231, 183, 0.18); }
   .stat-dot.err  { background: var(--bad); box-shadow: 0 0 0 2px rgba(248, 113, 113, 0.22); }
@@ -307,7 +307,7 @@ Add to `components.css` inside `@layer components { … }` (before the closing b
     font-family: 'JetBrains Mono', monospace;
     font-size: 9px;
     letter-spacing: 0.12em;
-    color: var(--fg-dim, var(--fg-mute));
+    color: var(--fg-faint);
     text-transform: uppercase;
     background: var(--bg);
     padding-left: var(--space-2);
@@ -796,8 +796,8 @@ ADD this in their place (inside `@layer components`):
     display: flex;
     align-items: center;
     padding: 4px;
-    background: var(--bg-elev);
-    border: 1px solid var(--line);
+    background: var(--surface-2);
+    border: 1px solid var(--hairline);
     border-radius: 6px;
   }
   .navseg {
@@ -819,7 +819,7 @@ ADD this in their place (inside `@layer components`):
     position: absolute;
     left: 9px;
     top: 5px;
-    color: var(--fg-dim, var(--fg-mute));
+    color: var(--fg-faint);
     transition: color var(--motion-fast) ease;
   }
   .navseg:hover { color: var(--fg); }
@@ -851,7 +851,7 @@ ADD this in their place (inside `@layer components`):
     align-items: center;
     font-family: 'JetBrains Mono', monospace;
     font-size: 10px;
-    color: var(--fg-dim, var(--fg-mute));
+    color: var(--fg-faint);
     letter-spacing: 0.04em;
   }
   .tele-chip {
@@ -1367,8 +1367,8 @@ Append to `chat.css`:
   }
   .step {
     flex: 1;
-    background: var(--bg-elev);
-    border: 1px solid var(--line);
+    background: var(--surface-2);
+    border: 1px solid var(--hairline);
     border-radius: 8px;
     padding: var(--space-4) var(--space-4);
     transition: border-color var(--motion-base) ease, background var(--motion-base) ease;
@@ -1411,7 +1411,7 @@ Append to `chat.css`:
     cursor: pointer;
   }
   .step-cta:disabled {
-    color: var(--fg-dim, var(--fg-mute));
+    color: var(--fg-faint);
     cursor: not-allowed;
   }
 }
@@ -1510,7 +1510,7 @@ Append to `studio.css` inside `@layer areas`:
     font-family: 'JetBrains Mono', monospace;
     font-size: 10px;
     letter-spacing: 0.12em;
-    color: var(--fg-dim, var(--fg-mute));
+    color: var(--fg-faint);
     text-transform: uppercase;
     margin-bottom: var(--space-3);
     display: flex;
@@ -1520,9 +1520,9 @@ Append to `studio.css` inside `@layer areas`:
   .agents-list-empty {
     font-family: 'JetBrains Mono', monospace;
     font-size: 11px;
-    color: var(--fg-dim, var(--fg-mute));
+    color: var(--fg-faint);
     padding-left: var(--space-3);
-    border-left: 2px solid var(--line);
+    border-left: 2px solid var(--hairline);
   }
   .studio-empty-ctas {
     margin-top: var(--space-5);
@@ -1729,8 +1729,8 @@ function renderProvidersEmpty(onPickType) {
   }
   .provider-type-card {
     padding: var(--space-4);
-    background: var(--bg-elev);
-    border: 1px solid var(--line);
+    background: var(--surface-2);
+    border: 1px solid var(--hairline);
     border-radius: 8px;
     text-align: left;
     cursor: pointer;
@@ -1744,7 +1744,7 @@ function renderProvidersEmpty(onPickType) {
     font-family: 'JetBrains Mono', monospace;
     font-size: 10px;
     letter-spacing: 0.1em;
-    color: var(--fg-dim, var(--fg-mute));
+    color: var(--fg-faint);
     margin-bottom: var(--space-2);
   }
   .provider-type-card.recommended .provider-type-cat { color: var(--accent); }
@@ -2016,8 +2016,8 @@ Append to `studio.css`:
   .preset-list { display: flex; flex-direction: column; gap: var(--space-2); }
   .preset-option {
     padding: var(--space-4);
-    background: var(--bg-elev);
-    border: 1px solid var(--line);
+    background: var(--surface-2);
+    border: 1px solid var(--hairline);
     border-radius: 8px;
     text-align: left;
     cursor: pointer;
@@ -2031,7 +2031,7 @@ Append to `studio.css`:
   .preset-meta {
     font-family: 'JetBrains Mono', monospace;
     font-size: 10px;
-    color: var(--fg-dim, var(--fg-mute));
+    color: var(--fg-faint);
     letter-spacing: 0.04em;
   }
 ```
@@ -2138,7 +2138,7 @@ In `chat.css`:
     font-family: 'JetBrains Mono', monospace;
     font-size: 10px;
     letter-spacing: 0.1em;
-    color: var(--fg-dim, var(--fg-mute));
+    color: var(--fg-faint);
     text-transform: uppercase;
     margin-bottom: var(--space-2);
     display: flex;
@@ -2183,7 +2183,7 @@ Replace the existing `.toolcall` rules with:
   .toolcall {
     margin: var(--space-3) 0;
     padding: var(--space-3) var(--space-4);
-    background: var(--bg-elev);
+    background: var(--surface-2);
     border: 0;
     border-left: 2px solid var(--accent);
     border-radius: 4px;
@@ -2197,7 +2197,7 @@ Replace the existing `.toolcall` rules with:
     margin-bottom: var(--space-1);
   }
   .toolcall-head .tc-name { color: var(--accent); }
-  .toolcall-head .tc-meta { color: var(--fg-dim, var(--fg-mute)); }
+  .toolcall-head .tc-meta { color: var(--fg-faint); }
   .toolcall-body {
     color: var(--fg);
     white-space: pre;
@@ -2256,7 +2256,7 @@ In `chat.css`:
     gap: var(--space-2);
     font-family: 'JetBrains Mono', monospace;
     font-size: 11px;
-    color: var(--fg-dim, var(--fg-mute));
+    color: var(--fg-faint);
     letter-spacing: 0.06em;
     padding: var(--space-2) 0;
   }
@@ -2355,13 +2355,13 @@ Append to `studio.css`:
     align-items: center;
     margin-bottom: var(--space-5);
     padding-bottom: var(--space-4);
-    border-bottom: 1px solid var(--line);
+    border-bottom: 1px solid var(--hairline);
   }
   .editor-coord {
     font-family: 'JetBrains Mono', monospace;
     font-size: 10px;
     letter-spacing: 0.1em;
-    color: var(--fg-dim, var(--fg-mute));
+    color: var(--fg-faint);
     text-transform: uppercase;
   }
   .editor-coord .dot { color: var(--accent); }
@@ -2377,7 +2377,7 @@ Append to `studio.css`:
     cursor: pointer;
   }
   .btn-action.accent { color: var(--accent); }
-  .btn-action:disabled { color: var(--fg-dim, var(--fg-mute)); cursor: not-allowed; }
+  .btn-action:disabled { color: var(--fg-faint); cursor: not-allowed; }
 
   .field { margin-bottom: var(--space-5); }
   .field-label {
@@ -2387,12 +2387,12 @@ Append to `studio.css`:
     font-family: 'JetBrains Mono', monospace;
     font-size: 10px;
     letter-spacing: 0.1em;
-    color: var(--fg-dim, var(--fg-mute));
+    color: var(--fg-faint);
     text-transform: uppercase;
     margin-bottom: var(--space-2);
   }
   .field-hint {
-    color: var(--fg-dim, var(--fg-mute));
+    color: var(--fg-faint);
     font-size: 9px;
     text-transform: none;
     letter-spacing: 0;
@@ -2401,7 +2401,7 @@ Append to `studio.css`:
   .tool-chip {
     padding: 3px 8px;
     background: var(--bg);
-    border: 1px solid var(--line);
+    border: 1px solid var(--hairline);
     border-radius: 4px;
     font-family: 'JetBrains Mono', monospace;
     font-size: 11px;
@@ -2410,7 +2410,7 @@ Append to `studio.css`:
   }
   .tool-chip.on { color: var(--fg-mute); }
   .tool-chip.off {
-    color: var(--fg-dim, var(--fg-mute));
+    color: var(--fg-faint);
     text-decoration: line-through;
     border-style: dashed;
   }
@@ -2481,8 +2481,8 @@ In `admin.css`:
 ```css
   .provider-card {
     padding: var(--space-4);
-    background: var(--bg-elev);
-    border: 1px solid var(--line);
+    background: var(--surface-2);
+    border: 1px solid var(--hairline);
     border-radius: 8px;
     text-align: left;
     cursor: pointer;
@@ -2515,7 +2515,7 @@ In `admin.css`:
   .provider-card-meta {
     font-family: 'JetBrains Mono', monospace;
     font-size: 10px;
-    color: var(--fg-dim, var(--fg-mute));
+    color: var(--fg-faint);
     letter-spacing: 0.06em;
   }
 ```
