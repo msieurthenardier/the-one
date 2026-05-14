@@ -1,6 +1,6 @@
 # Flight: Telemetry Accuracy
 
-**Status**: landed
+**Status**: completed
 **Mission**: [GleepGlorp AI Rebrand & UX Polish](../../mission.md)
 
 ## Contributing to Criteria
