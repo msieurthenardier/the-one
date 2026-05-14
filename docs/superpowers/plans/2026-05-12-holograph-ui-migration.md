@@ -2361,6 +2361,8 @@ git commit -m "L7.1: cross-area flow tests — Holograph selectors"
 
 ### Task 7.2: Expand visual snapshot matrix
 
+> **⚠ DEFERRED**: This expansion was deferred during execution. Commit `7fc6bfa` migrated selectors on the existing 12 baselines but did NOT expand to the 40-baseline matrix described below. The matrix specification is preserved here for a future polish leg. Track as carry-forward.
+
 - [ ] **Step 7.2.1: Edit `test_visual_snapshots.py` to add new snapshots**
 
 Per spec §"Visual snapshot matrix (≥28)", expand the matrix to 40 baselines:

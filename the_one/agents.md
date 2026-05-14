@@ -149,8 +149,7 @@ The chat area's pure-helper layer lives at `the_one/interfaces/web/static/js/are
 - `App.chat.startOfDay(d) → number`
 - `App.chat.bucketForSession(s, nowDay) → BucketLabel`
 - `App.chat.fmtTokens(n) → string`
-- `App.chat.renderMessage(cls, text, opts) → <div.msg>` — `opts.renderMarkdown: bool` is reserved for the markdown integration (leg 05). The flight spec's `(cls, text, attribution, opts)` shape is split into two functions: `renderMessage` (returns the bubble) plus `renderAttribution` (separate label). Leg 05's wire-up calls them as a pair, not as a single combined invocation.
-- `App.chat.renderAttribution(side, text) → <div.msg-attribution>` — `side` is `'from-you'` (user) or `'from-agent'` (everything else); caller-determined.
+- `App.chat.renderMessage(cls, text, opts) → <div.msg>` — `opts.renderMarkdown: bool` is reserved for the markdown integration (leg 05). Historical note: pre-Holograph the spec called for a paired `renderAttribution(side, text) → <div.msg-attribution>` function emitting a separate attribution label. Mission 09 Holograph embeds author/time inside the bubble itself via `.msg-body .msg-meta`, and the `renderAttribution` shim was removed (zero callers; export dropped).
 - `App.chat.renderTelemetry() → <div.telemetry-overlay>` — returns the full overlay DOM (`.telemetry-summary`, `.context-bar-wrap` / `.context-bar`, `.t-ctx-pct`, `.telemetry-details`, the three `in:` / `out:` / `ctx:` rows). Built via `document.createElement` calls (not innerHTML) and preserves the F2/F3 `tabindex="0"` / `role="status"` / `aria-label="Token usage"` attributes verbatim.
 - `App.chat.updateTelemetry(chromeContent, data)` — mutates the `.t-in` / `.t-out` / `.t-ctx` / `.t-ctx-pct` slots and the `.context-bar` width/class under the chrome content element.
 - `App.chat.createThinking() → <div.msg.thinking>` — returns an element that owns its dot-animation interval (`el._dotTimer`); `THINKING_FRAMES` is module-private inside `thinking-indicator.js`.
@@ -531,9 +530,13 @@ Replaces the Mission-08 "GleepGlorp banner + sidebar + glass surfaces" shell wit
 - **Telemetry**: floating overlay retired; inline `#chat-ctx-chip` in composer instead.
 - **Removed**: dev-mode Design Language gallery page + the `js/areas/admin/design-language/` directory. Page lives in git history.
 - **Transitional shim**: L2 added `init.length >= 2` shim in `app.js::switchTo` for areas still on `init(sidebar, content)`. L8.1 removed it — all areas now use `init(content)` single-arg.
-- **Carry-forward**: `.tool-enable-switch` + `.tool-enable-switch-track` widget classes preserved (rebound to Holograph tokens in `admin.css`) inside the MCP server editor. Polish leg may migrate these to the `.toggle` widget in `components.css`.
+- **Carry-forwards**:
+  - `.tool-enable-switch` + `.tool-enable-switch-track` widget classes preserved (rebound to Holograph tokens in `admin.css`) inside the MCP server editor. Polish leg may migrate these to the `.toggle` widget in `components.css`.
+  - **Visual snapshot 40-baseline matrix deferred** (L7.2): commit `7fc6bfa` migrated selectors on the existing 12 baselines but did NOT expand to the 40-baseline matrix specified in the plan doc. The matrix spec is preserved in `docs/superpowers/plans/2026-05-12-holograph-ui-migration.md` §Task 7.2 for a future polish leg.
+  - **Orphan brand PNGs** under `the_one/interfaces/web/static/brand/` (`gleepglorp_banner.png`, `gleepglorp_med.png`, `gleepglorp_small.png`, `topbar-icon-24.png`): no longer referenced from live HTML (Holograph uses the text wordmark per design spec §"Brand mark"). The `gleepglorp_icon.png` is still used. A future polish leg may delete the orphans after a wider audit confirms no test or external reference relies on them.
+  - **OAuth-status modal aspirational**: the spec contemplated a dedicated OAuth-status modal; the current inline `auth_required` button + system-browser popup UX is preserved unchanged in Holograph. The modal lift is deferred to a future leg.
 
-### Affordance patterns
+### Affordance patterns — PARTIALLY APPLICABLE (Mission 08 vintage; many patterns survive into Holograph)
 
 The interface uses six recurring affordance patterns. Each is identifiable by its visual treatment and intended interaction class. New UI work should compose with these patterns rather than invent parallel idioms. Where the live UI diverges from these descriptions today, the divergence is pre-realization debt to be resolved during the per-area alignment flights (F4 Chat / F5 Studio / F6 Administration).
 

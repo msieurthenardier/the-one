@@ -23,7 +23,7 @@ v3 addresses 3 blockers + 5 should-fix items from a second independent review pa
 v2 addressed 5 blockers + 8 should-fix items from the first independent review pass:
 
 - **Studio IA** rewritten — Studio actually has 3 top-level sections (`agents` / `knowledge` / `mcp-sources`), not just agents-with-tabs. Holograph adopts a Studio internal sub-nav mirroring Admin's pattern.
-- **Light accent darkened** from `#4070e0` (4.28:1 — fails AA) to `#3358c0` (~5.65:1 — passes AA body).
+- **Light accent darkened** from `#4070e0` (4.28:1 — fails AA) to `#3358c0` (5.99:1 against `#f8f8f6` — passes AA body; v3 re-verified, see Revision notes (v3)).
 - **Fonts decision pinned**: self-host Inter + JetBrains Mono (replacing the self-hosted Geist Sans + Geist Mono). Matches the mockup AND the project's self-host-everything convention.
 - **MCP source editor** properly spec'd: OAuth Reset surface, `__MASKED__` per-key secrets contract, masked-tail rendering preserved.
 - **`#admin/system` legacy redirect** explicitly preserved.
@@ -73,7 +73,7 @@ The mission retires the entire Mission 08 visual vocabulary (glass, bezel, gleam
 | 2 | Adopt mockup CSS class vocabulary verbatim | Cleaner grep; tests get clearer selectors. |
 | 3 | `registerArea(content)` — drop the sidebar parameter | Global sidebar is removed; the shape change is explicit (not "impossible" — explicitly retired). |
 | 4 | Brand mark is a text wordmark | Scales, themes naturally, removes binary-asset dep. |
-| 5 | **Light accent `#3358c0`; dark accent `#a78bfa`** | Light is the mockup's `#4070e0` darkened just enough to pass WCAG AA at the 4.5:1 body threshold (~5.65:1 verified). Dark keeps the existing GleepGlorp violet. |
+| 5 | **Light accent `#3358c0`; dark accent `#a78bfa`** | Light is the mockup's `#4070e0` darkened just enough to pass WCAG AA at the 4.5:1 body threshold (5.99:1 against `#f8f8f6` — v3 re-verified). Dark keeps the existing GleepGlorp violet. |
 | 6 | Both themes share token names; values differ by theme block | Continues the current tokens.css pattern. |
 | 7 | Retire all bezel/glass/gleam tokens | Mission 08 vocabulary is gone. |
 | 8 | Keep `prefers-reduced-motion` and `prefers-reduced-transparency` fallbacks | A11y. |
