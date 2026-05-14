@@ -129,19 +129,7 @@
         var contentPanel = document.createElement('div');
         contentPanel.className = 'content-panel area-' + areaId;
         document.getElementById('main-content').appendChild(contentPanel);
-
-        // L2 transitional shim — areas still on init(sidebar, content) signature
-        // (Mission-08 chat/studio/admin) get a stub detached sidebar div until
-        // L3-L5 rewrite each area to the init(content) single-arg signature.
-        // The stub never enters the DOM; the area mounts safely and L8.1 strips
-        // this shim once all areas use the new signature.
-        if (areas[areaId].init.length >= 2) {
-          var stubSidebar = document.createElement('div');
-          stubSidebar.className = 'sidebar-panel area-' + areaId + ' legacy-stub';
-          areas[areaId].init(stubSidebar, contentPanel);
-        } else {
-          areas[areaId].init(contentPanel);
-        }
+        areas[areaId].init(contentPanel);
         initialized[areaId] = true;
       }
 
