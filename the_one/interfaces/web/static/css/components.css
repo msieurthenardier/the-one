@@ -589,4 +589,171 @@
     .modal-backdrop { backdrop-filter: none; -webkit-backdrop-filter: none; }
   }
 
+  /* ============================================================
+     M10 instrument primitives — see specs/2026-05-14-mission-10-instrument-design.md §1
+     ============================================================ */
+
+  /* Body-level grid canvas. Mounted once at app init via app.js. */
+  #main-content {
+    background-image:
+      linear-gradient(var(--surface-grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--surface-grid) 1px, transparent 1px);
+    background-size: var(--canvas-grid-step) var(--canvas-grid-step);
+  }
+
+  /* Corner ticks — applied to #main-content via ::before/::after on a once-injected frame. */
+  .canvas-frame {
+    position: fixed;
+    inset: 56px 0 0 0; /* below topnav */
+    pointer-events: none;
+    z-index: 0;
+  }
+  .canvas-frame::before,
+  .canvas-frame::after {
+    content: "";
+    position: absolute;
+    width: var(--corner-tick-size);
+    height: var(--corner-tick-size);
+  }
+  .canvas-frame::before {
+    top: var(--corner-tick-inset);
+    left: var(--corner-tick-inset);
+    border-top: 1px solid var(--accent);
+    border-left: 1px solid var(--accent);
+  }
+  .canvas-frame::after {
+    bottom: var(--corner-tick-inset);
+    right: var(--corner-tick-inset);
+    border-bottom: 1px solid var(--accent);
+    border-right: 1px solid var(--accent);
+  }
+  .canvas-frame .tr,
+  .canvas-frame .bl {
+    position: absolute;
+    width: var(--corner-tick-size);
+    height: var(--corner-tick-size);
+  }
+  .canvas-frame .tr {
+    top: var(--corner-tick-inset);
+    right: var(--corner-tick-inset);
+    border-top: 1px solid var(--accent);
+    border-right: 1px solid var(--accent);
+  }
+  .canvas-frame .bl {
+    bottom: var(--corner-tick-inset);
+    left: var(--corner-tick-inset);
+    border-bottom: 1px solid var(--accent);
+    border-left: 1px solid var(--accent);
+  }
+
+  /* Section eyebrow — small mono label above titles with a leading rule */
+  .eyebrow {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: var(--font-mono-eyebrow-size);
+    letter-spacing: var(--font-mono-eyebrow-tracking);
+    color: var(--accent);
+    text-transform: uppercase;
+    margin-bottom: var(--space-2);
+  }
+  .eyebrow::before {
+    content: "";
+    width: 18px;
+    height: 1px;
+    background: var(--accent);
+  }
+
+  /* Coord pill — route readout */
+  .pill-coord {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 5px 10px;
+    background: var(--surface-2);
+    border: 1px solid var(--hairline-strong);
+    border-radius: 4px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    color: var(--fg-mute);
+  }
+  .pill-coord .dot {
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+  .pill-coord .sep {
+    color: var(--fg-faint);
+  }
+
+  /* Status dot — 4 states */
+  .stat-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    display: inline-block;
+    flex-shrink: 0;
+  }
+  .stat-dot.idle { background: var(--fg-faint); box-shadow: 0 0 0 2px rgba(154, 160, 170, 0.12); }
+  .stat-dot.work { background: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); animation: m10-pulse var(--motion-pulse-cycle) ease-in-out infinite; }
+  .stat-dot.ok   { background: var(--good); box-shadow: 0 0 0 2px rgba(110, 231, 183, 0.18); }
+  .stat-dot.err  { background: var(--bad); box-shadow: 0 0 0 2px rgba(248, 113, 113, 0.22); }
+  @keyframes m10-pulse { 50% { opacity: 0.55; } }
+
+  /* Bracket framing — focal element ornament */
+  .brack {
+    position: relative;
+    padding: var(--space-6) var(--space-7);
+  }
+  .brack::before,
+  .brack::after {
+    content: "";
+    position: absolute;
+    width: 14px;
+    height: 14px;
+    border: 1px solid var(--accent);
+  }
+  .brack::before { top: 0; left: 0; border-right: 0; border-bottom: 0; }
+  .brack::after  { bottom: 0; right: 0; border-left: 0; border-top: 0; }
+
+  /* Accent rule — gradient separator */
+  .accent-rule {
+    position: relative;
+    height: 1px;
+    background: linear-gradient(90deg, var(--accent), transparent);
+    margin: var(--space-5) 0;
+  }
+  .accent-rule[data-meta]::after {
+    content: attr(data-meta);
+    position: absolute;
+    right: 0;
+    top: -7px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    color: var(--fg-faint);
+    text-transform: uppercase;
+    background: var(--bg);
+    padding-left: var(--space-2);
+  }
+
+  /* Mono CTA */
+  .btn-mono {
+    padding: 9px 16px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    transition: background var(--motion-fast) ease;
+  }
+  .btn-mono:hover { background: color-mix(in srgb, var(--accent-soft), var(--accent) 8%); }
 }
