@@ -28,9 +28,9 @@ async def _run_cli() -> None:
 
     console.print(
         Panel(
-            f"[bold]GleepGlorp AI[/bold] v{__version__}\n"
+            f"[bold]Holograph[/bold] v{__version__}\n"
             "Type [bold]/quit[/bold] to exit, [bold]/reset[/bold] to clear context.",
-            title="GleepGlorp AI",
+            title="Holograph",
             border_style="blue",
         )
     )

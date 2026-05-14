@@ -280,3 +280,40 @@ def test_hash_routing_replacestate_no_history_growth(app_clean: str, page: Page)
         f"Admin sub-page click should NOT push history (replaceState): "
         f"after_providers={after_providers}, after_system={after_system}"
     )
+
+
+@pytest.mark.browser
+def test_cross_area_switch_unmounts_previous_area(app_clean: str, page: Page) -> None:
+    """Cross-area navigation must hide the previous area's DOM.
+
+    Regression test for the lifecycle bug where clicking a topnav area
+    button (e.g. System from Studio) appended the new area's content-panel
+    BELOW the previous one without hiding the previous panel. The
+    ``.content-panel`` element has no CSS rule governing visibility, so the
+    ``.active`` class toggle alone was insufficient — both panels remained
+    visible until a hard reload. The fix toggles inline ``display`` on the
+    panels at the router level.
+    """
+    page.goto(f"{app_clean}#studio")
+    expect(page.locator(".area-studio .section-nav-item").first).to_be_visible(timeout=8000)
+
+    # Both panels must exist in the DOM after switching (lazy-init keeps them
+    # around), but only the active one may be visible.
+    page.locator('.navlink[data-area="admin"]').click()
+    expect(page.locator(".area-admin .admin-sub.active .page-title")).to_have_text(
+        "General", timeout=5000
+    )
+
+    # The outgoing panel still exists (initialized=true) but must be hidden.
+    studio_panel = page.locator("#main-content > .area-studio")
+    admin_panel = page.locator("#main-content > .area-admin")
+    expect(studio_panel).to_have_count(1)
+    expect(admin_panel).to_have_count(1)
+    expect(studio_panel).not_to_be_visible()
+    expect(admin_panel).to_be_visible()
+
+    # Switch back to Studio and verify the inverse.
+    page.locator('.navlink[data-area="studio"]').click()
+    expect(page.locator(".area-studio .section-nav-item").first).to_be_visible(timeout=5000)
+    expect(studio_panel).to_be_visible()
+    expect(admin_panel).not_to_be_visible()

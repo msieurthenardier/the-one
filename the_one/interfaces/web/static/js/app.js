@@ -25,8 +25,8 @@
 
     topnav.innerHTML =
       '<div class="brand">' +
-        '<div class="brand-mark">G</div>' +
-        '<div class="brand-name">GleepGlorp <span class="sub">AI</span></div>' +
+        '<div class="brand-mark">H</div>' +
+        '<div class="brand-name">Holograph</div>' +
       '</div>' +
       '<div class="navlinks">' + navlinksHtml + '</div>' +
       '<div class="nav-right">' +
@@ -120,9 +120,16 @@
         areas[currentId].deactivate();
       }
 
-      // Hide all content panels (no sidebar in Holograph).
+      // Hide all content panels (no sidebar in Holograph). The `.active`
+      // class is kept for browser-test selectors and aria-bookkeeping, but
+      // visibility is enforced directly via inline `display` — no
+      // `.content-panel` CSS rule governs visibility, so relying on the
+      // class alone left the outgoing area's DOM stacked above the new one.
       var contentPanels = document.querySelectorAll('#main-content .content-panel');
-      for (var i = 0; i < contentPanels.length; i++) contentPanels[i].classList.remove('active');
+      for (var i = 0; i < contentPanels.length; i++) {
+        contentPanels[i].classList.remove('active');
+        contentPanels[i].style.display = 'none';
+      }
 
       // Init on first activation
       if (!initialized[areaId]) {
@@ -135,7 +142,10 @@
 
       // Show target panel
       var targetContent = document.querySelector('#main-content .area-' + areaId);
-      if (targetContent) targetContent.classList.add('active');
+      if (targetContent) {
+        targetContent.classList.add('active');
+        targetContent.style.display = '';
+      }
 
       // Update navlink "you are here" state — toggle .active class for
       // Holograph styling AND aria-current="page" for browser-test selectors

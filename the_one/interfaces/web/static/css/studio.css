@@ -25,6 +25,19 @@
 
   /* ============ STUDIO AREA — mockup-verbatim (holograph.html lines 585-689) ============ */
 
+  /* Page gutter — the area-header, subnav, and sub-blocks (Agents / Knowledge
+   * / MCP Sources) sit directly under .content-panel.area-studio, which the
+   * shell creates with NO padding (see app.js::performCrossAreaSwitch). Without
+   * this rule the title + subnav + cards bleed to x=0 / past the viewport's
+   * right edge. Mirrors the values from the (currently unused) shared .area
+   * rule in components.css. Keep in sync with admin.css's .area-admin gutter.
+   */
+  .area-studio {
+    padding: 24px 32px 48px;
+    max-width: 1440px;
+    margin: 0 auto;
+  }
+
   .studio-layout {
     display: grid;
     grid-template-columns: 320px 1fr;

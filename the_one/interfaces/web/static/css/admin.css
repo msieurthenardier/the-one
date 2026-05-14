@@ -26,6 +26,20 @@
 
 @layer areas {
 
+  /* Page gutter — the area-header, subnav, and sub-blocks (General / LLM
+   * Providers / Built-in Tools) sit directly under .content-panel.area-admin,
+   * which the shell creates with NO padding (see app.js::performCrossAreaSwitch).
+   * Without this rule the title + subnav + cards bleed to x=0 / past the
+   * viewport's right edge. Mirrors the values from the (currently unused)
+   * shared .area rule in components.css. Keep in sync with studio.css's
+   * .area-studio gutter.
+   */
+  .area-admin {
+    padding: 24px 32px 48px;
+    max-width: 1440px;
+    margin: 0 auto;
+  }
+
   /* ── Admin sub-block visibility toggle ───────────────────────────────── */
 
   .admin-sub {

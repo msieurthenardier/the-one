@@ -13,10 +13,8 @@ def test_app_clean_serves_index(app_clean: str, page: Page) -> None:
     page.goto(app_clean)
     # Title is set by the index template; should mention the project name.
     title = page.title()
-    # Brand wordmark "GleepGlorp AI" is intentionally retained per design spec §"Brand mark"
-    # (Mission 09 Holograph migration kept the GleepGlorp wordmark in the topnav; only the design language was rebranded).
-    assert "gleepglorp" in title.lower(), (
-        f"Expected page title to contain 'gleepglorp', got: {title!r}"
+    assert "holograph" in title.lower(), (
+        f"Expected page title to contain 'holograph', got: {title!r}"
     )
 
 

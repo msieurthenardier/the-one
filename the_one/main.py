@@ -22,7 +22,7 @@ def cli_entry() -> None:
     elif args[0] == "version":
         from the_one import __version__
 
-        print(f"GleepGlorp AI v{__version__}")
+        print(f"Holograph v{__version__}")
     else:
         print("Usage: the-one [chat|serve|version]")
         print("  chat   - Interactive CLI (default)")

@@ -126,9 +126,7 @@ def test_tool_use_file_read(base_url: str, session_id: str) -> None:
     )
     text = assistant_text(resp)
     assert has_tool_result(resp), "expected a tool result in response"
-    # Brand wordmark "GleepGlorp AI" is intentionally retained per design spec §"Brand mark"
-    # (Mission 09 Holograph migration kept the GleepGlorp wordmark in the topnav; only the design language was rebranded).
-    assert "gleepglorp" in text.lower() or "the_one" in text.lower(), (
+    assert "holograph" in text.lower() or "the_one" in text.lower(), (
         f"expected project name in response, got: {text[:200]}"
     )
 
@@ -150,9 +148,7 @@ def test_self_awareness(base_url: str, session_id: str) -> None:
         base_url, session_id, "What is your name and what directory is your source code in?"
     )
     text = assistant_text(resp)
-    # Brand wordmark "GleepGlorp AI" is intentionally retained per design spec §"Brand mark"
-    # (Mission 09 Holograph migration kept the GleepGlorp wordmark in the topnav; only the design language was rebranded).
-    assert "gleepglorp" in text.lower() or "the_one" in text.lower(), (
+    assert "holograph" in text.lower() or "the_one" in text.lower(), (
         f"agent doesn't know its name: {text[:200]}"
     )
 
