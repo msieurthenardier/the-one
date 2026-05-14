@@ -36,7 +36,12 @@ def test_session_item_keyboard_select(app_with_agent: SeededApp, page: Page) -> 
 
     # Bootstrap a session via the welcome listbox (no auto-create after leg 05).
     # Holograph: .chat-agent-card (was .chat-welcome-item).
-    page.locator(".chat-agent-card").filter(has_text=app_with_agent.agent_name).click()
+    # Holograph L4.1: welcome listbox is gone; the `+` button starts a session
+    # using the first available agent (which is the seeded agent in tests).
+    expect(
+        page.locator(".chat-empty .eyebrow:has-text('HOLOGRAPH · CHAT · READY')")
+    ).to_be_visible(timeout=8000)
+    page.locator('[data-testid="new-chat-btn"]').click()
     expect(page.locator(".convo-agent")).to_contain_text(
         app_with_agent.agent_name, timeout=8000
     )
@@ -61,7 +66,12 @@ def test_session_item_has_role_option(app_with_agent: SeededApp, page: Page) -> 
     page.goto(base_url)
 
     # Bootstrap a session via the welcome listbox (no auto-create after leg 05).
-    page.locator(".chat-agent-card").filter(has_text=app_with_agent.agent_name).click()
+    # Holograph L4.1: welcome listbox is gone; the `+` button starts a session
+    # using the first available agent (which is the seeded agent in tests).
+    expect(
+        page.locator(".chat-empty .eyebrow:has-text('HOLOGRAPH · CHAT · READY')")
+    ).to_be_visible(timeout=8000)
+    page.locator('[data-testid="new-chat-btn"]').click()
     expect(page.locator(".convo-agent")).to_contain_text(
         app_with_agent.agent_name, timeout=8000
     )
@@ -93,7 +103,12 @@ def test_session_delete_keyboard_reveal(app_with_agent: SeededApp, page: Page) -
     page.goto(base_url)
 
     # Bootstrap a session via the welcome listbox (no auto-create after leg 05).
-    page.locator(".chat-agent-card").filter(has_text=app_with_agent.agent_name).click()
+    # Holograph L4.1: welcome listbox is gone; the `+` button starts a session
+    # using the first available agent (which is the seeded agent in tests).
+    expect(
+        page.locator(".chat-empty .eyebrow:has-text('HOLOGRAPH · CHAT · READY')")
+    ).to_be_visible(timeout=8000)
+    page.locator('[data-testid="new-chat-btn"]').click()
     expect(page.locator(".convo-agent")).to_contain_text(
         app_with_agent.agent_name, timeout=8000
     )

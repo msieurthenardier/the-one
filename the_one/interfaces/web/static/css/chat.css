@@ -286,6 +286,85 @@
     overflow-x: auto;
   }
 
+  /* L4.1 — Holograph empty-state (first-run flow).
+   * Three states: no provider / provider-only / agent-ready. Each renders
+   * an eyebrow + bracket-framed headline + (optional) two-step card grid. */
+  .chat-empty {
+    max-width: 560px;
+    margin: 0 auto;
+    padding: var(--space-8) var(--space-7);
+  }
+  .chat-empty .brack {
+    margin-bottom: var(--space-6);
+  }
+  .chat-empty .brack-title {
+    font-size: 22px;
+    font-weight: 500;
+    color: var(--fg);
+    line-height: 1.2;
+    margin: 0;
+  }
+  .chat-empty .brack-sub {
+    color: var(--fg-mute);
+    font-size: 13px;
+    margin-top: var(--space-2);
+    max-width: 380px;
+    line-height: 1.5;
+  }
+  .chat-empty .steps {
+    display: flex;
+    gap: var(--space-3);
+  }
+  .chat-empty .step {
+    flex: 1;
+    background: var(--surface-2);
+    border: 1px solid var(--hairline);
+    border-radius: 8px;
+    padding: var(--space-4);
+    transition: border-color var(--motion-base) ease, background var(--motion-base) ease;
+  }
+  .chat-empty .step.next {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+  .chat-empty .step.done .stepnum {
+    color: var(--good);
+  }
+  .chat-empty .stepnum {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: var(--accent);
+    text-transform: uppercase;
+    margin-bottom: var(--space-2);
+  }
+  .chat-empty .steplabel {
+    font-size: 13px;
+    color: var(--fg);
+    font-weight: 500;
+    margin-bottom: 3px;
+  }
+  .chat-empty .stepdesc {
+    font-size: 11px;
+    color: var(--fg-mute);
+    line-height: 1.5;
+    margin-bottom: var(--space-3);
+  }
+  .chat-empty .step-cta {
+    background: transparent;
+    border: 0;
+    padding: 0;
+    color: var(--accent);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+  }
+  .chat-empty .step-cta:disabled {
+    color: var(--fg-faint);
+    cursor: not-allowed;
+  }
+
   /* Composer */
   .composer {
     border-top: 1px solid var(--hairline);

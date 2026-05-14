@@ -816,9 +816,36 @@ App.registerArea({
 
     // Wire events — input/sendBtn are wired inside renderComposer() because
     // the composer is re-rendered on agent change. newSessionBtn is static.
+    //
+    // L4.1: in the welcome ready state we have no `currentAgentName` yet
+    // (no session has been joined), so fall back to the first available
+    // agent. This makes the `+` button the canonical "start chatting"
+    // entry point for the empty-state ready flow.
     newSessionBtn.addEventListener('click', function () {
-      startSessionWith(currentAgentName || null);
+      var name = currentAgentName;
+      if (!name && availableAgents && availableAgents.length) {
+        name = availableAgents[0].name;
+      }
+      startSessionWith(name || null);
     });
+
+    // L4.1: Subscribe to TelemetryStore so the empty-state step cards
+    // progress as the operator adds a provider / creates an agent in other
+    // tabs. Counts may be em-dash placeholders before the first refresh;
+    // we ignore those and re-fetch on real numeric updates only.
+    if (window.TelemetryStore && window.TelemetryStore.subscribe) {
+      window.TelemetryStore.subscribe(function (snap) {
+        if (typeof snap.providers !== 'number' || typeof snap.agents !== 'number') return;
+        var nowHasProvider = snap.providers > 0;
+        var nowHasAgent = snap.agents > 0;
+        if (nowHasProvider === setupState.hasProviders && nowHasAgent === setupState.hasAgents) return;
+        // Trust the telemetry snapshot directly — no extra HTTP round-trip.
+        setupState.hasProviders = nowHasProvider;
+        setupState.hasAgents = nowHasAgent;
+        setupIncomplete = !nowHasProvider || !nowHasAgent;
+        if (!currentSessionId && welcomeVisible) renderWelcome();
+      });
+    }
 
     var self = this;
     self._connect = connect;

@@ -50,7 +50,12 @@ def test_streaming_assistant_renders_markdown_on_done(app_clean: str, page: Page
     agent_name = seed_mock_agent(base_url, provider_id)
 
     page.goto(base_url)
-    page.locator(".chat-agent-card").filter(has_text=agent_name).click()
+    # Holograph L4.1: welcome listbox is gone; the `+` button starts a session
+    # using the first available agent (which is the seeded agent in tests).
+    expect(
+        page.locator(".chat-empty .eyebrow:has-text('HOLOGRAPH · CHAT · READY')")
+    ).to_be_visible(timeout=8000)
+    page.locator('[data-testid="new-chat-btn"]').click()
     expect(page.locator(".convo-agent > span:not(.chip)")).to_have_text(agent_name, timeout=8000)
 
     page.locator('[data-testid="chat-input"]').fill("hi")
@@ -82,7 +87,12 @@ def test_user_message_renders_textcontent_not_markdown(app_with_agent, page: Pag
     agent_name = app_with_agent.agent_name
 
     page.goto(base_url)
-    page.locator(".chat-agent-card").filter(has_text=agent_name).click()
+    # Holograph L4.1: welcome listbox is gone; the `+` button starts a session
+    # using the first available agent (which is the seeded agent in tests).
+    expect(
+        page.locator(".chat-empty .eyebrow:has-text('HOLOGRAPH · CHAT · READY')")
+    ).to_be_visible(timeout=8000)
+    page.locator('[data-testid="new-chat-btn"]').click()
     expect(page.locator(".convo-agent > span:not(.chip)")).to_have_text(agent_name, timeout=8000)
 
     page.locator('[data-testid="chat-input"]').fill("**bold**")
@@ -120,7 +130,12 @@ def test_streaming_assistant_code_block_renders_with_copy_button(
     agent_name = seed_mock_agent(base_url, provider_id)
 
     page.goto(base_url)
-    page.locator(".chat-agent-card").filter(has_text=agent_name).click()
+    # Holograph L4.1: welcome listbox is gone; the `+` button starts a session
+    # using the first available agent (which is the seeded agent in tests).
+    expect(
+        page.locator(".chat-empty .eyebrow:has-text('HOLOGRAPH · CHAT · READY')")
+    ).to_be_visible(timeout=8000)
+    page.locator('[data-testid="new-chat-btn"]').click()
     expect(page.locator(".convo-agent > span:not(.chip)")).to_have_text(agent_name, timeout=8000)
 
     page.locator('[data-testid="chat-input"]').fill("show me code")
@@ -156,7 +171,12 @@ def test_session_rejoin_renders_assistant_markdown(app_clean: str, page: Page) -
     agent_name = seed_mock_agent(base_url, provider_id)
 
     page.goto(base_url)
-    page.locator(".chat-agent-card").filter(has_text=agent_name).click()
+    # Holograph L4.1: welcome listbox is gone; the `+` button starts a session
+    # using the first available agent (which is the seeded agent in tests).
+    expect(
+        page.locator(".chat-empty .eyebrow:has-text('HOLOGRAPH · CHAT · READY')")
+    ).to_be_visible(timeout=8000)
+    page.locator('[data-testid="new-chat-btn"]').click()
     expect(page.locator(".convo-agent > span:not(.chip)")).to_have_text(agent_name, timeout=8000)
 
     page.locator('[data-testid="chat-input"]').fill("ping")
@@ -198,7 +218,12 @@ def test_streaming_assistant_renders_markdown_table(app_clean: str, page: Page) 
     agent_name = seed_mock_agent(base_url, provider_id)
 
     page.goto(base_url)
-    page.locator(".chat-agent-card").filter(has_text=agent_name).click()
+    # Holograph L4.1: welcome listbox is gone; the `+` button starts a session
+    # using the first available agent (which is the seeded agent in tests).
+    expect(
+        page.locator(".chat-empty .eyebrow:has-text('HOLOGRAPH · CHAT · READY')")
+    ).to_be_visible(timeout=8000)
+    page.locator('[data-testid="new-chat-btn"]').click()
     expect(page.locator(".convo-agent > span:not(.chip)")).to_have_text(agent_name, timeout=8000)
 
     page.locator('[data-testid="chat-input"]').fill("show me a table")

@@ -1,9 +1,11 @@
-"""End-to-end flow tests for the F3 leg 05 new-chat restructure.
+"""End-to-end flow tests for the new-chat restructure.
 
 Covers:
 - Welcome canvas content adapts to setup state (no provider, no agent, ready)
-- Picking an agent from the welcome listbox starts a new session
-- Header "New Chat" button starts a fresh conversation with the *current* agent
+- The header `+` new-chat button starts a fresh conversation with the seeded
+  agent in the agent-ready state (replaces the Mission-08 listbox flow —
+  Holograph L4.1 swaps the welcome listbox for an eyebrow + bracket headline
+  with no agent picker; ⌘N / the `+` button is the canonical entry point).
 - Deleting the last session returns to the welcome canvas (no auto-create)
 - Chat-history sidebar groups sessions under a "Today" heading
 - Per-message metadata (.msg-meta / .msg-author / .msg-time) renders correctly
@@ -12,10 +14,15 @@ Covers:
 
 Removed (Holograph migration L3.3):
 - test_dropdown_change_starts_new_session: the sidebar agent-select dropdown is
-  gone; agent switching now requires returning to the empty state and picking a
-  different card from the welcome listbox.
+  gone; agent switching now requires returning to the empty state and the
+  header `+` button.
 - test_telemetry_overlay_collapses_by_default: the floating overlay is replaced
   by an inline chip. Replaced by test_ctx_chip_shows_in_composer.
+
+Removed (Holograph migration L4.1):
+- test_picking_agent_from_welcome_starts_session: the welcome listbox
+  (`.chat-agent-card`) is replaced by an eyebrow + bracket headline. The
+  canonical entry point is the `[data-testid="new-chat-btn"]` button.
 """
 
 from __future__ import annotations
@@ -31,65 +38,72 @@ from playwright.sync_api import Page, expect
 
 
 @pytest.mark.browser
-def test_welcome_no_setup_shows_both_links(app_clean: str, page: Page) -> None:
-    """No providers and no agents → guidance points to Settings AND Agent Studio."""
+def test_welcome_no_setup_shows_two_step_cards(app_clean: str, page: Page) -> None:
+    """No providers and no agents → welcome shows STEP 01 + STEP 02 cards."""
     page.goto(app_clean)
     welcome = page.locator('[data-testid="chat-welcome"]')
     expect(welcome).to_be_visible(timeout=5000)
 
-    # Greeting present, prompt hidden (no agents to pick).
-    expect(page.locator(".chat-empty-title")).to_be_visible()
-    expect(page.locator(".chat-empty-sub")).to_be_hidden()
+    # Bracket headline + both step cards present.
+    expect(page.locator(".chat-empty .brack-title")).to_have_text(
+        "Two steps to your first message."
+    )
+    expect(page.locator(".chat-empty .step:has-text('STEP 01')")).to_be_visible()
+    expect(page.locator(".chat-empty .step:has-text('STEP 02')")).to_be_visible()
 
-    # Both deep-links present.
-    # Holograph uses #admin/providers (not #admin) and "LLM Settings" (not "Settings").
-    settings_link = page.locator('.chat-welcome-link[href="#admin/providers"]')
-    studio_link = page.locator('.chat-welcome-link[href="#studio"]')
-    expect(settings_link).to_have_text("LLM Settings")
-    expect(studio_link).to_have_text("Agent Studio")
+    # CTA buttons carry the correct deep-link hrefs.
+    expect(
+        page.locator('.chat-empty .step-cta[data-href="#admin/providers"]')
+    ).to_be_visible()
+    expect(
+        page.locator('.chat-empty .step-cta[data-href="#studio/agents"]')
+    ).to_be_visible()
 
 
 @pytest.mark.browser
-def test_welcome_provider_only_shows_studio_link(app_with_provider: SeededApp, page: Page) -> None:
-    """Provider seeded, no agents → guidance only points to Agent Studio."""
+def test_welcome_provider_only_shows_step02_next(
+    app_with_provider: SeededApp, page: Page
+) -> None:
+    """Provider seeded, no agents → step 01 is .done, step 02 is .next."""
     page.goto(app_with_provider.base_url)
     welcome = page.locator('[data-testid="chat-welcome"]')
     expect(welcome).to_be_visible(timeout=5000)
 
-    expect(page.locator(".chat-empty-sub")).to_be_hidden()
-    expect(page.locator('.chat-welcome-link[href="#studio"]')).to_have_text("Agent Studio")
-    # Holograph uses #admin/providers (not #admin) for the settings link.
-    expect(page.locator('.chat-welcome-link[href="#admin/providers"]')).to_have_count(0)
+    expect(page.locator(".chat-empty .brack-title")).to_have_text("One step left.")
+    expect(page.locator(".chat-empty .step.done:has-text('STEP 01')")).to_be_visible()
+    expect(page.locator(".chat-empty .step.next:has-text('STEP 02')")).to_be_visible()
 
 
 @pytest.mark.browser
-def test_welcome_with_agent_shows_listbox(app_with_agent: SeededApp, page: Page) -> None:
-    """Provider + agent seeded, no sessions → welcome shows an agent listbox.
+def test_welcome_with_agent_shows_ready_eyebrow(
+    app_with_agent: SeededApp, page: Page
+) -> None:
+    """Provider + agent seeded, no sessions → READY eyebrow, no step cards.
 
     Auto-create-on-load was removed in leg 05; with no sessions we land on
-    the welcome canvas with the seeded agent as the only listbox option.
+    the welcome canvas. The L4.1 ready state shows just the eyebrow +
+    headline; the operator uses the `+` button (or ⌘N) to start a session.
     """
     page.goto(app_with_agent.base_url)
     welcome = page.locator('[data-testid="chat-welcome"]')
     expect(welcome).to_be_visible(timeout=5000)
 
-    # Prompt is shown (we have agents to pick from), and the listbox has
-    # exactly one option matching the seeded agent.
-    expect(page.locator(".chat-empty-sub")).to_be_visible()
-    welcome_item = page.locator(".chat-agent-card").filter(has_text=app_with_agent.agent_name)
-    expect(welcome_item).to_be_visible(timeout=8000)
-    expect(page.locator(".chat-empty-list")).to_have_attribute("role", "listbox")
+    expect(
+        page.locator(".chat-empty .eyebrow:has-text('HOLOGRAPH · CHAT · READY')")
+    ).to_be_visible(timeout=8000)
+    expect(page.locator(".chat-empty .brack-title")).to_have_text("Ready when you are.")
+    # No step cards in the ready state.
+    expect(page.locator(".chat-empty .step")).to_have_count(0)
 
 
 # ── Welcome → start session ──────────────────────────────────────────────
 
 
 @pytest.mark.browser
-def test_picking_agent_from_welcome_starts_session(
+def test_new_chat_button_from_welcome_starts_session(
     app_with_provider: SeededApp, page: Page
 ) -> None:
-    """Click an agent in the welcome listbox → session starts, chrome shows."""
-    # Seed an agent without going through the welcome path first.
+    """Press `+` in the sessions pane from the welcome canvas → session starts."""
     seed_mock_agent(app_with_provider.base_url, app_with_provider.provider_id, name="picker-agent")
 
     page.goto(app_with_provider.base_url)
@@ -97,15 +111,18 @@ def test_picking_agent_from_welcome_starts_session(
     # Welcome canvas should be visible (no sessions exist yet).
     expect(page.locator('[data-testid="chat-welcome"]')).to_be_visible(timeout=5000)
 
-    # Wait for the agent listbox to populate.
-    agent_item = page.locator(".chat-agent-card").filter(has_text="picker-agent")
-    expect(agent_item).to_be_visible(timeout=8000)
+    # Wait for the READY eyebrow to ensure setup state is hydrated.
+    expect(
+        page.locator(".chat-empty .eyebrow:has-text('HOLOGRAPH · CHAT · READY')")
+    ).to_be_visible(timeout=8000)
 
-    # Click → session_joined fires → chrome appears, badge populated.
-    agent_item.click()
+    # Click the `+` button in the sessions header.
+    page.locator('[data-testid="new-chat-btn"]').click()
 
     expect(page.locator(".convo-pane")).to_be_visible(timeout=8000)
-    expect(page.locator(".convo-agent > span:not(.chip)")).to_have_text("picker-agent", timeout=5000)
+    expect(page.locator(".convo-agent > span:not(.chip)")).to_have_text(
+        "picker-agent", timeout=5000
+    )
     expect(page.locator('[data-testid="chat-welcome"]')).to_be_hidden()
 
 
@@ -118,8 +135,11 @@ def test_header_new_chat_button_starts_session_with_current_agent(
 ) -> None:
     """The header `+ New Chat` button opens a new session with the current agent."""
     page.goto(app_with_agent.base_url)
-    # Bootstrap a session via the welcome listbox.
-    page.locator(".chat-agent-card").filter(has_text=app_with_agent.agent_name).click()
+    # Bootstrap a session via the `+` button (welcome ready state).
+    expect(
+        page.locator(".chat-empty .eyebrow:has-text('HOLOGRAPH · CHAT · READY')")
+    ).to_be_visible(timeout=8000)
+    page.locator('[data-testid="new-chat-btn"]').click()
     expect(page.locator(".convo-agent > span:not(.chip)")).to_have_text(
         app_with_agent.agent_name, timeout=8000
     )
@@ -153,7 +173,10 @@ def test_header_new_chat_button_starts_session_with_current_agent(
 def test_delete_last_session_returns_to_welcome(app_with_agent: SeededApp, page: Page) -> None:
     """Deleting the only session returns to the welcome canvas (no auto-create)."""
     page.goto(app_with_agent.base_url)
-    page.locator(".chat-agent-card").filter(has_text=app_with_agent.agent_name).click()
+    expect(
+        page.locator(".chat-empty .eyebrow:has-text('HOLOGRAPH · CHAT · READY')")
+    ).to_be_visible(timeout=8000)
+    page.locator('[data-testid="new-chat-btn"]').click()
     expect(page.locator(".convo-agent > span:not(.chip)")).to_have_text(
         app_with_agent.agent_name, timeout=8000
     )
@@ -184,7 +207,10 @@ def test_delete_last_session_returns_to_welcome(app_with_agent: SeededApp, page:
 def test_chat_history_today_group_renders(app_with_agent: SeededApp, page: Page) -> None:
     """Today's auto-created session lives under a 'Today' group label."""
     page.goto(app_with_agent.base_url)
-    page.locator(".chat-agent-card").filter(has_text=app_with_agent.agent_name).click()
+    expect(
+        page.locator(".chat-empty .eyebrow:has-text('HOLOGRAPH · CHAT · READY')")
+    ).to_be_visible(timeout=8000)
+    page.locator('[data-testid="new-chat-btn"]').click()
     expect(page.locator(".convo-agent > span:not(.chip)")).to_have_text(
         app_with_agent.agent_name, timeout=8000
     )
@@ -208,7 +234,10 @@ def test_message_attribution_labels_render(app_with_agent: SeededApp, page: Page
     agent messages have a .msg-author span containing the agent name.
     """
     page.goto(app_with_agent.base_url)
-    page.locator(".chat-agent-card").filter(has_text=app_with_agent.agent_name).click()
+    expect(
+        page.locator(".chat-empty .eyebrow:has-text('HOLOGRAPH · CHAT · READY')")
+    ).to_be_visible(timeout=8000)
+    page.locator('[data-testid="new-chat-btn"]').click()
     expect(page.locator(".convo-agent > span:not(.chip)")).to_have_text(
         app_with_agent.agent_name, timeout=8000
     )
@@ -243,7 +272,10 @@ def test_ctx_chip_shows_in_composer(app_with_agent: SeededApp, page: Page) -> No
     via updateCtxChip() when the server sends token-count metadata.
     """
     page.goto(app_with_agent.base_url)
-    page.locator(".chat-agent-card").filter(has_text=app_with_agent.agent_name).click()
+    expect(
+        page.locator(".chat-empty .eyebrow:has-text('HOLOGRAPH · CHAT · READY')")
+    ).to_be_visible(timeout=8000)
+    page.locator('[data-testid="new-chat-btn"]').click()
     expect(page.locator(".convo-agent > span:not(.chip)")).to_have_text(
         app_with_agent.agent_name, timeout=8000
     )
@@ -279,8 +311,11 @@ def test_thinking_indicator_appears_and_clears(app_clean: str, page: Page) -> No
 
     page.goto(app_clean)
 
-    # Bootstrap into chrome by picking the agent in the welcome listbox.
-    page.locator(".chat-agent-card").filter(has_text="thinker").click()
+    # Bootstrap into chrome by pressing the `+` new-chat button (welcome ready).
+    expect(
+        page.locator(".chat-empty .eyebrow:has-text('HOLOGRAPH · CHAT · READY')")
+    ).to_be_visible(timeout=8000)
+    page.locator('[data-testid="new-chat-btn"]').click()
     expect(page.locator(".convo-agent > span:not(.chip)")).to_have_text("thinker", timeout=8000)
 
     page.locator('[data-testid="chat-input"]').fill("ping")

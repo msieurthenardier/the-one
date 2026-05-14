@@ -3,133 +3,133 @@
   window.App = window.App || {};
   window.App.chat = window.App.chat || {};
 
-  function welcomeLink(text, areaId) {
-    var a = document.createElement('a');
-    a.className = 'chat-welcome-link';
-    a.href = '#' + areaId;
-    a.textContent = text;
-    return a;
-  }
-
-  // Renders the empty-state agent picker (or setup-guidance) directly into
-  // the container element (typically .convo-stream). Replaces container
-  // content on each call.
+  // Holograph (Mission-09 / L4.1) empty-state renderer.
   //
-  // Four states:
-  //   (a) !hasProviders && !hasAgents → guidance: admin/providers + studio
-  //   (b) !hasProviders (agents may exist) → guidance: admin/providers
-  //   (c) hasProviders && !hasAgents → guidance: studio
-  //   (d) ready → agent picker cards
+  // Three states drive the first-run flow:
+  //   (1) No provider, no agent      → eyebrow IDLE, step01 .next, step02 unmarked
+  //   (2) Provider, no agent         → eyebrow IDLE, step01 .done, step02 .next
+  //   (3) Agent ready, no session    → eyebrow READY, no step cards (just headline)
+  //
+  // Renders into `container` (typically .convo-stream). Replaces content on
+  // each call. Built via DOM APIs only (no innerHTML) — content is static
+  // strings, but we follow the same hardened pattern as the prior welcome.js
+  // for consistency and to satisfy the project's XSS hook.
   //
   // Signature: renderWelcomeList(container, agents, setupState, callbacks)
   //   container   — DOM element to write into (.convo-stream)
-  //   agents      — array of agent objects {name, model, provider}
+  //   agents      — array of agent objects (unused in L4.1; back-compat)
   //   setupState  — { hasProviders: bool, hasAgents: bool }
-  //   callbacks   — { onStart(agentName) }
+  //   callbacks   — { onStart(agentName) } (unused in empty states)
   function renderWelcomeList(container, agents, setupState, callbacks) {
-    container.innerHTML = '';
+    while (container.firstChild) container.removeChild(container.firstChild);
 
-    var wrapper = document.createElement('div');
-    wrapper.className = 'chat-empty-state';
-    wrapper.setAttribute('data-testid', 'chat-welcome');
+    var hasProvider = !!setupState.hasProviders;
+    var hasAgent = !!setupState.hasAgents;
 
-    var heading = document.createElement('h2');
-    heading.className = 'chat-empty-title';
-    heading.textContent = 'Hello.';
-    wrapper.appendChild(heading);
+    // Step states.
+    var step1State = hasProvider ? 'done' : 'next';
+    var step2State = hasAgent ? 'done' : (hasProvider ? 'next' : '');
+    var step1Prefix = hasProvider ? '✓ STEP 01' : 'STEP 01';
+    var step2Prefix = hasAgent ? '✓ STEP 02' : 'STEP 02';
 
-    // Setup-incomplete states — guidance paragraph, no agent picker.
-    if (!setupState.hasProviders || !setupState.hasAgents) {
-      var guidance = document.createElement('p');
-      guidance.className = 'chat-empty-guidance';
-
-      if (!setupState.hasProviders && !setupState.hasAgents) {
-        guidance.appendChild(document.createTextNode('Add a provider in '));
-        guidance.appendChild(welcomeLink('LLM Settings', 'admin/providers'));
-        guidance.appendChild(document.createTextNode(', then create an agent in '));
-        guidance.appendChild(welcomeLink('Agent Studio', 'studio'));
-        guidance.appendChild(document.createTextNode(' to start chatting.'));
-      } else if (!setupState.hasProviders) {
-        guidance.appendChild(document.createTextNode('Add a provider in '));
-        guidance.appendChild(welcomeLink('LLM Settings', 'admin/providers'));
-        guidance.appendChild(document.createTextNode(' to start chatting.'));
-      } else {
-        guidance.appendChild(document.createTextNode('Create an agent in '));
-        guidance.appendChild(welcomeLink('Agent Studio', 'studio'));
-        guidance.appendChild(document.createTextNode(' to start chatting.'));
-      }
-
-      wrapper.appendChild(guidance);
-      container.appendChild(wrapper);
-      return;
+    // Headline + subtitle + eyebrow state.
+    var headline, subtitle, eyebrowState;
+    if (!hasProvider) {
+      headline = 'Two steps to your first message.';
+      subtitle = 'Configure a provider, build an agent, then come back here. The shortest path to a working setup takes about a minute.';
+      eyebrowState = 'IDLE';
+    } else if (!hasAgent) {
+      headline = 'One step left.';
+      subtitle = "You have a provider. Build an agent and we're live.";
+      eyebrowState = 'IDLE';
+    } else {
+      headline = 'Ready when you are.';
+      subtitle = 'Press ⌘N or use the composer to start a conversation.';
+      eyebrowState = 'READY';
     }
 
-    // Ready state — agent picker.
-    var sub = document.createElement('p');
-    sub.className = 'chat-empty-sub';
-    sub.textContent = 'Which agent would you like to chat with?';
-    wrapper.appendChild(sub);
+    var root = document.createElement('div');
+    root.className = 'chat-empty';
+    root.setAttribute('data-testid', 'chat-welcome');
 
-    var listEl = document.createElement('div');
-    listEl.className = 'chat-empty-list';
-    listEl.setAttribute('role', 'listbox');
-    listEl.setAttribute('aria-label', 'Available agents');
+    var eyebrow = document.createElement('div');
+    eyebrow.className = 'eyebrow';
+    eyebrow.textContent = 'HOLOGRAPH · CHAT · ' + eyebrowState;
+    root.appendChild(eyebrow);
 
-    for (var i = 0; i < agents.length; i++) {
-      (function (agent, idx) {
-        var card = document.createElement('div');
-        card.className = 'chat-agent-card';
-        card.setAttribute('role', 'option');
-        card.setAttribute('tabindex', idx === 0 ? '0' : '-1');
-        card.setAttribute('aria-selected', 'false');
-        card.dataset.agentName = agent.name;
+    var brack = document.createElement('div');
+    brack.className = 'brack';
+    var brackTitle = document.createElement('h2');
+    brackTitle.className = 'brack-title';
+    brackTitle.textContent = headline;
+    brack.appendChild(brackTitle);
+    var brackSub = document.createElement('p');
+    brackSub.className = 'brack-sub';
+    brackSub.textContent = subtitle;
+    brack.appendChild(brackSub);
+    root.appendChild(brack);
 
-        var nameEl = document.createElement('span');
-        nameEl.className = 'chat-agent-card-name';
-        nameEl.textContent = agent.name;
-        card.appendChild(nameEl);
-
-        var metaBits = [];
-        if (agent.model) metaBits.push(agent.model);
-        if (agent.provider) metaBits.push(agent.provider);
-        if (metaBits.length) {
-          var metaEl = document.createElement('span');
-          metaEl.className = 'chat-agent-card-meta';
-          metaEl.textContent = metaBits.join(' · ');
-          card.appendChild(metaEl);
-        }
-
-        card.addEventListener('click', function () { callbacks.onStart(agent.name); });
-        card.addEventListener('keydown', function (e) {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            callbacks.onStart(agent.name);
-          }
-          // Roving tabindex arrow navigation within .chat-empty-list.
-          if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Home' || e.key === 'End') {
-            e.preventDefault();
-            var opts = listEl.querySelectorAll('.chat-agent-card');
-            if (!opts.length) return;
-            var cur = -1;
-            for (var j = 0; j < opts.length; j++) { if (opts[j] === card) { cur = j; break; } }
-            var next;
-            if (e.key === 'Home') next = 0;
-            else if (e.key === 'End') next = opts.length - 1;
-            else if (e.key === 'ArrowDown') next = (cur + 1) % opts.length;
-            else next = (cur - 1 + opts.length) % opts.length;
-            for (var k = 0; k < opts.length; k++) opts[k].setAttribute('tabindex', k === next ? '0' : '-1');
-            opts[next].focus();
-          }
-        });
-
-        listEl.appendChild(card);
-      })(agents[i], i);
+    if (!hasProvider || !hasAgent) {
+      var steps = document.createElement('div');
+      steps.className = 'steps';
+      steps.appendChild(
+        buildStep(step1State, step1Prefix, 'Add a provider',
+                  'Wire up an LLM — Anthropic, OpenAI, or local Ollama.',
+                  '#admin/providers', 'Go to providers →', false)
+      );
+      steps.appendChild(
+        buildStep(step2State, step2Prefix, 'Create an agent',
+                  'Pick a model, set a persona, choose tools.',
+                  '#studio/agents', 'Go to Studio →', step2State === '')
+      );
+      root.appendChild(steps);
     }
 
-    wrapper.appendChild(listEl);
-    container.appendChild(wrapper);
+    container.appendChild(root);
   }
 
-  window.App.chat.welcomeLink = welcomeLink;
+  function buildStep(stateClass, prefix, label, desc, href, ctaText, disabled) {
+    var step = document.createElement('div');
+    step.className = stateClass ? 'step ' + stateClass : 'step';
+
+    var num = document.createElement('div');
+    num.className = 'stepnum';
+    num.textContent = prefix;
+    step.appendChild(num);
+
+    var lbl = document.createElement('div');
+    lbl.className = 'steplabel';
+    lbl.textContent = label;
+    step.appendChild(lbl);
+
+    var dsc = document.createElement('div');
+    dsc.className = 'stepdesc';
+    dsc.textContent = desc;
+    step.appendChild(dsc);
+
+    var btn = document.createElement('button');
+    btn.className = 'step-cta';
+    btn.type = 'button';
+    btn.dataset.href = href;
+    btn.textContent = ctaText;
+    if (disabled) btn.disabled = true;
+    step.appendChild(btn);
+
+    return step;
+  }
+
+  // Global click delegation for `.step-cta` buttons — survives re-renders
+  // because it lives on document. Idempotent install (re-loading welcome.js
+  // during dev hot-reload must not stack multiple listeners).
+  if (!window.App.chat._ctaHandlerInstalled) {
+    document.addEventListener('click', function (ev) {
+      var btn = ev.target.closest && ev.target.closest('.step-cta');
+      if (btn && !btn.disabled && btn.dataset && btn.dataset.href) {
+        window.location.hash = btn.dataset.href;
+      }
+    });
+    window.App.chat._ctaHandlerInstalled = true;
+  }
+
   window.App.chat.renderWelcomeList = renderWelcomeList;
 })();

@@ -82,7 +82,12 @@ def test_hash_routing_chat_session_persists_on_refresh(
     # 1. Open #chat. Welcome canvas shows; bootstrap a session.
     page.goto(base_url)
     # Holograph welcome: agent picker uses .chat-agent-card (was .chat-welcome-item).
-    page.locator(".chat-agent-card").filter(has_text=app_with_agent.agent_name).click()
+    # Holograph L4.1: welcome listbox is gone; the `+` button starts a session
+    # using the first available agent (which is the seeded agent in tests).
+    expect(
+        page.locator(".chat-empty .eyebrow:has-text('HOLOGRAPH · CHAT · READY')")
+    ).to_be_visible(timeout=8000)
+    page.locator('[data-testid="new-chat-btn"]').click()
 
     # 2. session_joined fires; convo-header updates with the agent name.
     # Holograph: .convo-agent (was .session-agent-badge) shows agent name.

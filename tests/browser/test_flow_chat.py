@@ -26,7 +26,11 @@ def test_chat_send_receives_mock_response(app_with_agent: SeededApp, page: Page)
 
     # 2. Welcome canvas shows because no sessions exist yet (leg-05 removed
     #    auto-create-on-load). Pick the seeded agent to bootstrap a session.
-    page.locator(".chat-agent-card").filter(has_text=agent_name).click()
+    # Holograph L4.1: welcome listbox is gone; use the `+` new-chat button.
+    expect(
+        page.locator(".chat-empty .eyebrow:has-text('HOLOGRAPH · CHAT · READY')")
+    ).to_be_visible(timeout=8000)
+    page.locator('[data-testid="new-chat-btn"]').click()
     expect(page.locator(".convo-agent > span:not(.chip)")).to_have_text(agent_name, timeout=8000)
 
     # 3-4. Type and send.
@@ -61,7 +65,11 @@ def test_chat_message_log_has_live_region(app_with_agent: SeededApp, page: Page)
     agent_name = app_with_agent.agent_name
 
     page.goto(base_url)
-    page.locator(".chat-agent-card").filter(has_text=agent_name).click()
+    # Holograph L4.1: welcome listbox is gone; use the `+` new-chat button.
+    expect(
+        page.locator(".chat-empty .eyebrow:has-text('HOLOGRAPH · CHAT · READY')")
+    ).to_be_visible(timeout=8000)
+    page.locator('[data-testid="new-chat-btn"]').click()
     expect(page.locator(".convo-agent > span:not(.chip)")).to_have_text(agent_name, timeout=8000)
 
     log = page.locator("[role='log']")

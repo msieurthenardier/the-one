@@ -44,7 +44,12 @@ def test_streaming_chunks_accumulate_in_single_bubble(app_clean: str, page: Page
     _ = SeededApp(base_url=base_url, provider_id=provider_id, agent_name=agent_name)
 
     page.goto(base_url)
-    page.locator(".chat-agent-card").filter(has_text=agent_name).click()
+    # Holograph L4.1: welcome listbox is gone; the `+` button starts a session
+    # using the first available agent (which is the seeded agent in tests).
+    expect(
+        page.locator(".chat-empty .eyebrow:has-text('HOLOGRAPH · CHAT · READY')")
+    ).to_be_visible(timeout=8000)
+    page.locator('[data-testid="new-chat-btn"]').click()
     expect(page.locator(".convo-agent > span:not(.chip)")).to_have_text(agent_name, timeout=8000)
 
     page.locator('[data-testid="chat-input"]').fill("hi")
@@ -87,7 +92,12 @@ def test_streaming_message_persists_to_history(app_clean: str, page: Page) -> No
     agent_name = seed_mock_agent(base_url, provider_id)
 
     page.goto(base_url)
-    page.locator(".chat-agent-card").filter(has_text=agent_name).click()
+    # Holograph L4.1: welcome listbox is gone; the `+` button starts a session
+    # using the first available agent (which is the seeded agent in tests).
+    expect(
+        page.locator(".chat-empty .eyebrow:has-text('HOLOGRAPH · CHAT · READY')")
+    ).to_be_visible(timeout=8000)
+    page.locator('[data-testid="new-chat-btn"]').click()
     expect(page.locator(".convo-agent > span:not(.chip)")).to_have_text(agent_name, timeout=8000)
 
     page.locator('[data-testid="chat-input"]').fill("ping")
