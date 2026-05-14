@@ -205,6 +205,50 @@ Spawned Developer (Sonnet) for design review.
 
 **Cycle-1 complete. Cycle-2 review pending — substantive changes to Implementation Guidance step 2 warrant it.**
 
+### 2026-05-13 — L04 alignment HAT + snapshot regen
+
+**Status**: `completed`. Flight 5 lands. Mission KI #1 closed.
+
+**HAT scenarios** (11 scenarios, all ✓ operator-confirmed first time, no rework):
+
+| # | Scenario | Result | Operator decision |
+|---|---|---|---|
+| 1 | Golden path (single tool call) | ✓ | — |
+| 2 | Multi-tool turn (3+ tools, one shell, broadcast order) | ✓ | — |
+| 3 | Error turn (`.msg.tool.error` inside shell) | ✓ | — |
+| 4 | Empty turn (no shell when no tools) | ✓ | — |
+| 5 | Multi-turn session (3 distinct shells, cross-wiring) | ✓ | — |
+| 6 | Hard refresh / session rejoin (replay-shape ids, structure preserved) | ✓ | — |
+| 7 | Mid-turn rejoin namespace split (L03 documented limitation) | ✓ | **Tolerable as-is**; refresh-after-`done` resolves. Not scheduling a follow-up namespace-alignment flight. |
+| 8 | M07 OAuth `auth_required` flow (button in trace shell, resume groups correctly) | ✓ | **Visibility tolerable as-is**; not adding `details.open = true` auto-open on `auth_required`. |
+| 9 | Keyboard navigation (tab order, focus ring, Enter/Space toggle) | ✓ | — |
+| 10 | Both themes (light + dark legible) | ✓ | — |
+| 11 | Cross-area routing (state preserved across Admin ↔ Chat) | ✓ | — |
+
+**Mission KI #1 resolution** (`tests/browser/test_visual_snapshots.py:test_snapshot_chat_with_messages`):
+Root cause was the test, not the fixture: it skipped the welcome-canvas agent-click step that every other chat test performs. The `app_with_agent` fixture seeds an agent but does NOT pre-create a chat session — the welcome canvas shows on page load, no session ever auto-joins, badge never populates. Fix: added one `page.locator(".chat-welcome-item").filter(has_text=...).click()` call before the badge expectation, matching the pattern from `test_flow_chat.py:29`. Bumped the badge timeout from 5s to 8s as a small robustness improvement.
+
+**Pixel suite results**:
+- After fix + `--snapshot-update`: 12 passed, 0 failed (regenerated 10 existing + 2 newly-unblocked chat_with_messages dark/light)
+- Re-run without `--snapshot-update`: 12 passed, 0 failed (baselines hold)
+
+**Browser-suite regression smoke**:
+- `315 passed, 35 skipped, 12 deselected in 278.62s` — exit code 0
+- Exact match to L02 baseline. NO regressions from L03's DOM restructure.
+
+**Files changed in L04**:
+- `tests/browser/test_visual_snapshots.py` — welcome-canvas click added; badge timeout 5→8s
+- `missions/08-gleepglorp-rebrand/mission.md` — KI #1 flipped to resolved; Flight 5 checked off in Flights list
+- `missions/08-gleepglorp-rebrand/flights/05-chat-response-trace/flight.md` — status `in-flight` → `landed`; L04 checked off
+- `missions/08-gleepglorp-rebrand/flights/05-chat-response-trace/legs/04-alignment-hat-and-snapshot-regen.md` — status `in-flight` → `completed`
+- This flight-log entry
+
+**Pixel baselines** (gitignored per project convention; local-only regen artifacts) — 12 baselines refreshed under `tests/browser/__snapshots__/`.
+
+`[COMPLETE:leg]` for L04. `[COMPLETE:flight]` for Flight 5.
+
+---
+
 ### 2026-05-13 — L03 leg design + cycle-1 review
 
 Drafted `legs/03-chat-trace-ui-and-thinking-reposition.md`. Per-assistant-turn `<details>`/`<summary>` trace shell, grouping tool events by L02-introduced `parent_message_id`, `data-tool-call-id` on each tool message for L04 HAT verifiability.

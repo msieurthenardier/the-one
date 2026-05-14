@@ -1,6 +1,6 @@
 # Flight: Chat Response Trace
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [GleepGlorp AI Rebrand & UX Polish](../../mission.md)
 
 ## Contributing to Criteria
@@ -148,7 +148,7 @@ Restructure the chat conversation stream so that tool-call and tool-result event
 - [x] `test-stability-sweep` - Methodical 1-test-at-a-time triage of chronic hangs across browser + broad-pytest + pixel suites; parallelized via spawned Developer agents; fix where tractable, quarantine the rest with documented KIs
 - [x] `trace-event-shape-and-hydration` - Add `parent_message_id` discriminator to `tool_call` / `tool_result` events on broadcast + history-event projection; preserve M07 `auth_required` pause-snapshot walk; codec round-trip tests + WS broadcast integration test
 - [x] `chat-trace-ui-and-thinking-reposition` - Collapsible inline trace shell per assistant turn; group tool events by `parent_message_id`; move live thinking indicator into the trace shell; rejoin reconstructs the same shape
-- [ ] `alignment-hat-and-snapshot-regen` - Operator HAT across golden + edge chat paths; fix `app_with_agent` fixture badge race; regenerate `chat_with_messages` pixel baselines; post-leg browser regression smoke
+- [x] `alignment-hat-and-snapshot-regen` - Operator HAT across golden + edge chat paths; fix `app_with_agent` fixture badge race; regenerate `chat_with_messages` pixel baselines; post-leg browser regression smoke
 
 ---
 
