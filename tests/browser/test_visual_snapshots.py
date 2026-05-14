@@ -16,11 +16,13 @@ We implement an equivalent locally using PIL + pixelmatch:
   configurable anti-aliasing-aware threshold, matching the JS API's
   ``maxDiffPixelRatio`` semantics.
 - Baselines live in ``tests/browser/__snapshots__/`` (the directory is
-  the same pattern Playwright JS uses).  **Baselines are gitignored —
-  local-only regression artifacts, not shared source.**  Each developer
-  regenerates locally; CI never runs pixel comparison (these tests are
-  marked ``pixel`` rather than ``browser`` so the standard ``-m browser``
-  collection skips them).
+  the same pattern Playwright JS uses).  **Baselines are committed and
+  tracked in git; CI compares against the committed baselines.**  When
+  visual changes are intentional, regenerate locally with
+  ``pytest -m pixel --snapshot-update`` and commit the updated PNGs.
+  These tests are marked ``pixel`` rather than ``browser`` so the
+  standard ``-m browser`` collection skips them; run the pixel suite
+  explicitly with ``-m pixel``.
 - Update mode is opt-in via ``UPDATE_SNAPSHOTS=1`` env var or
   ``--snapshot-update`` CLI flag (parsed in ``conftest.py``).  When a
   baseline is missing, the helper auto-generates it on first run so a
