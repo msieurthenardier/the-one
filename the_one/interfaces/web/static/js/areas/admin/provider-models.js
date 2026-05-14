@@ -137,7 +137,13 @@
       pullNameInput.disabled = true;
       pullNameInput.innerHTML = '<option value="">Loading library…</option>';
       fetch('/api/ollama-library/search')
-        .then(function (r) { return r.ok ? r.json() : []; })
+        .then(function (r) {
+          if (!r.ok) {
+            console.warn('provider-models: library search failed', r.status, r.statusText);
+            return [];
+          }
+          return r.json();
+        })
         .then(function (models) {
           if (!models.length) {
             pullNameInput.innerHTML = '<option value="">Library unavailable</option>';
@@ -239,6 +245,7 @@
                     pullText.textContent = escapeHtml(evt.status || '') + (pct > 0 ? ' — ' + pct + '%' : '');
                   } catch (parseErr) {
                     // skip unparseable lines
+                    console.warn('provider-models: skipping unparseable SSE line', parseErr, line.slice(0, 200));
                   }
                 }
               }

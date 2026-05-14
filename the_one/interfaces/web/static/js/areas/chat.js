@@ -189,7 +189,10 @@ App.registerArea({
       return fetch('/api/agents').then(function (r) { return r.json(); }).then(function (agents) {
         availableAgents = agents;
         if (welcomeVisible) renderWelcome();
-      }).catch(function () { /* agents list is nice-to-have */ });
+      }).catch(function (err) {
+        /* agents list is nice-to-have */
+        console.warn('chat: fetchAgents failed', err);
+      });
     }
 
     // welcomeVisible tracks whether the convo-stream is showing the welcome
@@ -521,8 +524,8 @@ App.registerArea({
 
     function checkSetupState() {
       return Promise.all([
-        fetch('/api/providers').then(function (r) { return r.json(); }),
-        fetch('/api/agents').then(function (r) { return r.json(); })
+        fetch('/api/providers').then(function (r) { return r.ok ? r.json() : []; }),
+        fetch('/api/agents').then(function (r) { return r.ok ? r.json() : []; })
       ])
         .then(function (results) {
           setupState.hasProviders = results[0].length > 0;
@@ -533,7 +536,10 @@ App.registerArea({
           // Setup-incomplete with no session → welcome canvas immediately.
           if (setupIncomplete && !currentSessionId) showWelcome();
         })
-        .catch(function () { /* best-effort */ });
+        .catch(function (err) {
+          /* best-effort */
+          console.warn('chat: checkSetupState failed', err);
+        });
     }
 
     function setSessionHealth(status) {
@@ -617,8 +623,18 @@ App.registerArea({
         setTimeout(connect, 2000);
       };
 
+      ws.onerror = function (e) {
+        console.error('chat ws: error', e);
+      };
+
       ws.onmessage = function (e) {
-        var data = JSON.parse(e.data);
+        var data;
+        try {
+          data = JSON.parse(e.data);
+        } catch (err) {
+          console.error('chat ws: malformed frame', err, String(e.data).slice(0, 200));
+          return;
+        }
 
         if (data.type === 'session_list') {
           sessions = data.sessions;

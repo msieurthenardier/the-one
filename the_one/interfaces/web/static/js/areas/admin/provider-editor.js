@@ -327,7 +327,10 @@
         resultEl.innerHTML = '<span class="test-result-pending">Testing…</span>';
         testBtn.disabled = true;
         fetch('/api/providers/' + encodeURIComponent(provider.id) + '/test', { method: 'POST' })
-          .then(function (r) { return r.json(); })
+          .then(function (r) {
+            if (!r.ok) return r.json().then(function (e) { throw new Error(e.detail || 'Test failed'); });
+            return r.json();
+          })
           .then(function (result) {
             testBtn.disabled = false;
             // Render via DOM API (textContent on a class-tagged span) so
@@ -427,8 +430,12 @@
               window.App.confirmDelete(deleteBtn, doDelete, { confirmLabel: 'Confirm Delete?' });
             }
           })
-          .catch(function () {
+          .catch(function (err) {
             // Network failure on agent-usage check: fail open — arm anyway.
+            console.warn('provider-editor: agent-usage precheck failed', err);
+            if (window.App && window.App.toast) {
+              window.App.toast('Could not verify agent usage — proceed with caution');
+            }
             window.App.confirmDelete(deleteBtn, doDelete, { confirmLabel: 'Confirm Delete?' });
           });
       });

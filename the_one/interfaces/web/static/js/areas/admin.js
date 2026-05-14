@@ -159,7 +159,10 @@ App.registerArea({
       providerTypesReady = fetch('/api/providers/types')
         .then(function (r) { return r.json(); })
         .then(function (types) { PROVIDER_TYPES = types; })
-        .catch(function () { PROVIDER_TYPES = []; });
+        .catch(function (err) {
+          console.warn('admin: fetchProviderTypes failed', err);
+          PROVIDER_TYPES = [];
+        });
       return providerTypesReady;
     }
 

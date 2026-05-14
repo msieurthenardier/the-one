@@ -96,10 +96,10 @@
     width: 32px;
     height: 32px;
     border-radius: 8px;
-    background: #f0f1f3;
+    background: var(--avatar-bg);
     display: grid;
     place-items: center;
-    color: #3c4048;
+    color: var(--avatar-fg);
     font-weight: 600;
     font-size: 13px;
     flex: none;

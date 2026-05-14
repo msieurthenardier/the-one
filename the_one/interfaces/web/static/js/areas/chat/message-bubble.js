@@ -326,15 +326,6 @@
     return fallback;
   }
 
-  // renderAttribution() is now a no-op shim — Holograph embeds author/time
-  // inside the .msg-body .msg-meta div. Returns null so callers that
-  // conditionally appendChild can guard with a truthiness check.
-  // In the updated chat.js addMsg() the attribution arg is ignored; this
-  // shim exists only in case any residual caller still invokes it.
-  function renderAttribution(/* side, text, ts */) {
-    return null;
-  }
-
   window.App.chat.fmtTs = fmtTs;
   window.App.chat.renderUserMessage = renderUserMessage;
   window.App.chat.renderAgentMessage = renderAgentMessage;
@@ -342,5 +333,4 @@
   window.App.chat.renderToolResult = renderToolResult;
   window.App.chat.renderSystemMessage = renderSystemMessage;
   window.App.chat.renderMessage = renderMessage;
-  window.App.chat.renderAttribution = renderAttribution;
 })();

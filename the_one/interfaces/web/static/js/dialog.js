@@ -174,12 +174,22 @@
     }
 
     cancelBtn.addEventListener('click', function () {
-      onCancel();
-      close();
+      try {
+        onCancel();
+      } catch (err) {
+        console.error('dialog: cancel callback threw', err);
+      } finally {
+        close();
+      }
     });
     confirmBtn.addEventListener('click', function () {
-      onConfirm();
-      close();
+      try {
+        onConfirm();
+      } catch (err) {
+        console.error('dialog: confirm callback threw', err);
+      } finally {
+        close();
+      }
     });
 
     function focusables() {

@@ -1,4 +1,4 @@
-/* Theme tokens — Holograph migration (Mission 09).
+/* Theme tokens — Holograph migration (Mission 09, 2026-05-12).
  *
  * Light theme: warm-neutral palette + restrained blue accent (#3358c0,
  * calibrated from mockup #4070e0 to pass WCAG AA at the body threshold).
@@ -37,6 +37,7 @@
     --bg: #f8f8f6;
     --surface: #ffffff;
     --surface-2: #fbfbf9;
+    --topnav-bg: rgba(248, 248, 246, 0.85);  /* translucent --bg for blur shell */
 
     /* borders */
     --hairline: rgba(15, 17, 21, 0.07);
@@ -47,6 +48,7 @@
     --fg-mute: #6a6e76;
     --fg-faint: #878d96;      /* calibrated from mockup #9da3ad to pass AA-large */
     --fg-on-danger: #ffffff;
+    --fg-on-accent: #ffffff;  /* 6.37:1 against light --accent #3358c0 */
 
     /* accent */
     --accent: #3358c0;        /* calibrated from mockup #4070e0 to pass AA body */
@@ -57,6 +59,13 @@
     --success: #2f9c6a;
     --warn: #c98a2b;
     --danger: #c5443d;
+
+    /* interaction */
+    --hover-bg: rgba(15, 17, 21, 0.04);
+
+    /* avatar — neutral swatch for circular user/agent marks */
+    --avatar-bg: #e8eaef;
+    --avatar-fg: #3c4048;     /* 8.64:1 against --avatar-bg */
 
     /* shadows */
     --shadow-1: 0 1px 2px rgba(15, 17, 21, 0.045), 0 1px 1px rgba(15, 17, 21, 0.025);
@@ -83,6 +92,7 @@
     --bg: #0a0c10;
     --surface: #14171c;
     --surface-2: #181c22;
+    --topnav-bg: rgba(10, 12, 16, 0.85);     /* translucent --bg for blur shell */
 
     /* borders */
     --hairline: rgba(255, 255, 255, 0.08);
@@ -93,6 +103,7 @@
     --fg-mute: #9aa1ac;
     --fg-faint: #6a7280;
     --fg-on-danger: #0a0c10;
+    --fg-on-accent: #15101f;  /* 6.85:1 against dark --accent #a78bfa */
 
     /* accent */
     --accent: #a78bfa;
@@ -103,6 +114,13 @@
     --success: #4ade80;
     --warn: #f5c97a;
     --danger: #f87171;
+
+    /* interaction */
+    --hover-bg: rgba(255, 255, 255, 0.06);
+
+    /* avatar — neutral swatch for circular user/agent marks */
+    --avatar-bg: #26282d;
+    --avatar-fg: #c4c8cf;     /* 8.79:1 against --avatar-bg */
 
     /* shadows */
     --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.25), 0 1px 1px rgba(0, 0, 0, 0.18);

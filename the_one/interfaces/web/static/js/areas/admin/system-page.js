@@ -71,6 +71,8 @@
     var themeToggleEl = container.querySelector('#admin-theme-toggle-mount');
     if (window.App && window.App.theme && window.App.theme.renderToggle) {
       window.App.theme.renderToggle(themeToggleEl, { labelledBy: 'admin-appearance-heading' });
+    } else {
+      console.warn('system-page: window.App.theme not available — theme toggle not mounted');
     }
   }
 

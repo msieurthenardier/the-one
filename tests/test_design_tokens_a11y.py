@@ -73,7 +73,9 @@ HOLOGRAPH_LIGHT_PAIRS = [
     ("--fg-mute × --bg", "#6a6e76", "#f8f8f6", 4.5, "body AA"),
     ("--fg-faint × --bg", "#878d96", "#f8f8f6", 3.0, "AA-large/UI"),
     ("button-text × --accent (light)", "#ffffff", "#3358c0", 4.5, "body AA on primary button"),
+    ("--fg-on-accent × --accent", "#ffffff", "#3358c0", 4.5, "body AA"),
     ("--fg-on-danger × --danger", "#ffffff", "#c5443d", 4.5, "body AA"),
+    ("--avatar-fg × --avatar-bg", "#3c4048", "#e8eaef", 4.5, "body AA"),
 ]
 
 HOLOGRAPH_DARK_PAIRS = [
@@ -82,7 +84,9 @@ HOLOGRAPH_DARK_PAIRS = [
     ("--fg-mute × --bg", "#9aa1ac", "#0a0c10", 4.5, "body AA"),
     ("--fg-faint × --bg", "#6a7280", "#0a0c10", 3.0, "AA-large/UI"),
     ("button-text × --accent (dark)", "#15101f", "#a78bfa", 4.5, "body AA on primary button"),
+    ("--fg-on-accent × --accent", "#15101f", "#a78bfa", 4.5, "body AA"),
     ("--fg-on-danger × --danger", "#0a0c10", "#f87171", 4.5, "body AA"),
+    ("--avatar-fg × --avatar-bg", "#c4c8cf", "#26282d", 4.5, "body AA"),
 ]
 
 
@@ -113,7 +117,8 @@ def test_holograph_contrast_audit(
 
 def test_audit_pairs_match_design_tokens() -> None:
     """The hex literals in HOLOGRAPH_*_PAIRS match design_tokens.py — no drift."""
-    # Light: --accent, --fg, --fg-mute, --fg-faint, --fg-on-danger, --bg, --danger
+    # Light token cross-check (--fg-on-accent collapses to "#ffffff"; --avatar-*
+    # cross-checked separately so dict-keyed dedupe doesn't lose them).
     light_token_pairs = {
         "#3358c0": LIGHT_TOKENS["--accent"],
         "#16181d": LIGHT_TOKENS["--fg"],
@@ -125,8 +130,12 @@ def test_audit_pairs_match_design_tokens() -> None:
     }
     for expected, actual in light_token_pairs.items():
         assert expected == actual, f"light token drift: expected {expected}, got {actual}"
+    assert LIGHT_TOKENS["--fg-on-accent"] == "#ffffff"
+    assert LIGHT_TOKENS["--avatar-bg"] == "#e8eaef"
+    assert LIGHT_TOKENS["--avatar-fg"] == "#3c4048"
 
-    # Dark: --accent, --fg, --fg-mute, --fg-faint, --fg-on-danger, --bg, --danger
+    # Dark token cross-check (--bg / --fg-on-danger share #0a0c10 — asserted
+    # separately; --fg-on-accent + --avatar-* mirrored individually).
     dark_token_pairs = {
         "#a78bfa": DARK_TOKENS["--accent"],
         "#e6e7ea": DARK_TOKENS["--fg"],
@@ -141,3 +150,6 @@ def test_audit_pairs_match_design_tokens() -> None:
 
     # --bg is #0a0c10 in dark (same hex as --fg-on-danger — assert separately).
     assert DARK_TOKENS["--bg"] == "#0a0c10"
+    assert DARK_TOKENS["--fg-on-accent"] == "#15101f"
+    assert DARK_TOKENS["--avatar-bg"] == "#26282d"
+    assert DARK_TOKENS["--avatar-fg"] == "#c4c8cf"
