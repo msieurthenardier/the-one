@@ -20,14 +20,16 @@ from playwright.sync_api import Page, expect
 def test_studio_agent_crud_flow(app_with_provider: SeededApp, page: Page) -> None:
     base_url = app_with_provider.base_url
 
-    # 1. Open Studio. Empty state shows "No agents yet".
+    # 1. Open Studio. L4.2 Holograph empty state shows the bracket-framed
+    #    "Build your first agent." headline + + NEW AGENT CTA.
     page.goto(f"{base_url}#studio")
-    empty = page.locator('[data-testid="agent-empty"]')
+    empty = page.locator('[data-testid="studio-agents-empty"]')
     expect(empty).to_be_visible()
-    expect(empty).to_contain_text("No agents yet")
+    expect(empty).to_contain_text("Build your first agent")
 
-    # 2. Click + to enter create mode.
-    page.locator('[data-testid="new-agent-btn"]').click()
+    # 2. Click + NEW AGENT (empty-state CTA — header CTA is suppressed in this
+    #    state to avoid duplicate `.btn-mono:has-text("NEW AGENT")` matches).
+    page.locator('[data-testid="studio-empty-new-agent"]').click()
     expect(page.locator(".editor-title")).to_have_text("New Agent")
 
     # 3-4. Fill name and description.
@@ -72,10 +74,10 @@ def test_studio_agent_crud_flow(app_with_provider: SeededApp, page: Page) -> Non
     delete_btn.click()
     expect(delete_btn).to_have_text("Confirm Delete?")
 
-    # 15. Second click — DELETE fires, agent removed, empty state returns.
+    # 15. Second click — DELETE fires, agent removed, L4.2 empty state returns.
     delete_btn.click()
     expect(empty).to_be_visible(timeout=5000)
-    expect(empty).to_contain_text("No agents yet")
+    expect(empty).to_contain_text("Build your first agent")
     # Tile gone; main panel returns to the tile grid (with empty state).
     # Holograph: editor-pane is cleared (no tablist) when the agent is deleted;
     # the agent-card list is empty. No separate is-hidden toggle needed.

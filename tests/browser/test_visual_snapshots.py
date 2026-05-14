@@ -222,7 +222,7 @@ def test_snapshot_studio_empty(app_with_provider: SeededApp, page: Page, theme: 
     page.set_viewport_size(VIEWPORT)
     page.goto(f"{app_with_provider.base_url}#studio")
     _set_theme(page, theme)
-    expect(page.locator('[data-testid="agent-empty"]')).to_be_visible(timeout=5000)
+    expect(page.locator('[data-testid="studio-agents-empty"]')).to_be_visible(timeout=5000)
     _wait_for_render(page)
     _assert_screenshot(page, f"studio-empty-{theme}")
 

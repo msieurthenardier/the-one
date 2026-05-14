@@ -214,4 +214,68 @@
     box-shadow: var(--shadow-1);
   }
 
+  /* ============ L4.2 — Studio · Agents empty state ============
+   * Mounts directly under the area-header (which carries the
+   * STUDIO · AGENTS eyebrow + title). Two columns: a 260px AGENT
+   * LIST · 0 placeholder rail on the left, and a focal bracket-
+   * framed headline + two CTAs on the right. Scoped under
+   * .studio-empty so the .brack-title / .brack-sub here don't
+   * collide with chat's identically-named selectors (chat.css
+   * scopes them under .chat-empty).
+   */
+  .studio-empty .studio-cols {
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    gap: var(--space-6);
+    margin-top: var(--space-5);
+  }
+  .studio-empty .agents-list-l {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: var(--fg-faint);
+    text-transform: uppercase;
+    margin-bottom: var(--space-3);
+    display: flex;
+    justify-content: space-between;
+  }
+  .studio-empty .agents-list-l span { color: var(--fg-mute); font-weight: 500; }
+  .studio-empty .agents-list-empty {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--fg-faint);
+    padding-left: var(--space-3);
+    border-left: 2px solid var(--hairline);
+  }
+  .studio-empty-ctas {
+    margin-top: var(--space-5);
+    display: flex;
+    gap: var(--space-3);
+    align-items: center;
+  }
+  .btn-link-mono {
+    background: transparent;
+    border: 0;
+    padding: 9px 16px;
+    color: var(--fg-mute);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .btn-link-mono:hover { color: var(--fg); }
+  .studio-empty .brack-title {
+    font-size: 22px;
+    font-weight: 500;
+    color: var(--fg);
+    line-height: 1.2;
+    margin: 0;
+  }
+  .studio-empty .brack-sub {
+    color: var(--fg-mute);
+    font-size: 13px;
+    margin-top: var(--space-2);
+    max-width: 380px;
+    line-height: 1.5;
+  }
+
 }

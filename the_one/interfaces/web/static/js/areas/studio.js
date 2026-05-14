@@ -307,17 +307,28 @@ App.registerArea({
       // Preserve the legacy id + data-testid for the existing browser test
       // (test_flow_agent_crud.py uses [data-testid="new-agent-btn"]). The
       // setActiveSection visibility-toggle still targets the id.
+      //
+      // L4.2 — omit the header CTA entirely (not just display:none) when the
+      // empty-state body is on screen. Two identical `.btn-mono:has-text(...)`
+      // matches in the DOM trip Playwright's strict-mode resolution even when
+      // one is hidden, and the empty-state body already carries its own
+      // + NEW AGENT button. The button reappears in the header as soon as
+      // any agent exists OR the user enters create-mode.
+      var omitHeaderCta = state.suppressHeaderCta === true;
+      var actionsHtml = omitHeaderCta
+        ? ''
+        : '<div class="area-header-actions">' +
+            '<button class="btn-mono" id="studio-new-agent-btn" ' +
+              'data-testid="new-agent-btn" data-action="new-agent">' +
+              '+ NEW AGENT' +
+            '</button>' +
+          '</div>';
       return '<div class="area-header-titleblock">' +
           '<div class="eyebrow">STUDIO · AGENTS</div>' +
           '<h1 class="area-title">' + titleText + '</h1>' +
           '<p class="area-sub">' + subtitle + '</p>' +
         '</div>' +
-        '<div class="area-header-actions">' +
-          '<button class="btn-mono" id="studio-new-agent-btn" ' +
-            'data-testid="new-agent-btn" data-action="new-agent">' +
-            '+ NEW AGENT' +
-          '</button>' +
-        '</div>';
+        actionsHtml;
     }
 
     // Snapshot the active agent's name + (defensive future-proof) last-edit
@@ -334,16 +345,25 @@ App.registerArea({
           lastEditMinutesAgo = Math.max(0, Math.floor((Date.now() - ts) / 60000));
         }
       }
+      var agentCount = (self._agents || []).length;
+      // L4.2 — suppress the header CTA whenever the Studio·Agents empty-state
+      // body is rendered (Agents section + 0 agents + not in create-mode).
+      // The empty-state surface carries its own + NEW AGENT button; the
+      // header CTA would visually + a11y duplicate it.
+      var suppressHeaderCta = self._activeSection === 'agents' &&
+        agentCount === 0 && !self._createMode;
       var state = {
-        agentCount: (self._agents || []).length,
+        agentCount: agentCount,
         providerCount: (self._allProviders || []).length,
         lastEditMinutesAgo: lastEditMinutesAgo,
-        activeAgentName: active ? active.name : null
+        activeAgentName: active ? active.name : null,
+        suppressHeaderCta: suppressHeaderCta
       };
       while (headerEl.firstChild) headerEl.removeChild(headerEl.firstChild);
       headerEl.insertAdjacentHTML('beforeend', buildStudioHeaderHtml(state));
       // Re-apply the section-scoped visibility toggle — the New-agent CTA
-      // is only meaningful on the Agents sub-section.
+      // is only meaningful on the Agents sub-section. (No-op when the CTA
+      // was suppressed above — querySelector returns null.)
       var btn = headerEl.querySelector('#studio-new-agent-btn');
       if (btn) btn.style.display = (self._activeSection === 'agents') ? '' : 'none';
     }
@@ -394,10 +414,32 @@ App.registerArea({
     });
 
     function renderAgentsSection() {
-      // Mount the .studio-layout grid on first activation; subsequent calls
-      // just refresh the agent list. editorEl and agentListEl are re-bound
-      // each time in case subAgentsEl was cleared.
-      if (!subAgentsEl.querySelector('.studio-layout')) {
+      // L4.2 — when no agents exist AND we're not in create-mode, render the
+      // Holograph empty-state surface (eyebrow already lives in the area
+      // header; this body has the bracket-framed headline + two CTAs).
+      // Otherwise mount the standard .studio-layout grid (agents-pane +
+      // editor-pane). The two surfaces are mutually exclusive — we clear
+      // subAgentsEl on every transition so the leftover DOM from the prior
+      // state doesn't shadow the active selectors.
+      var agents = self._agents || [];
+      var wantsEmpty = agents.length === 0 && !self._createMode;
+      var hasEmpty = !!subAgentsEl.querySelector('.studio-empty');
+      var hasLayout = !!subAgentsEl.querySelector('.studio-layout');
+
+      if (wantsEmpty) {
+        if (!hasEmpty) {
+          subAgentsEl.innerHTML = '';
+          renderStudioAgentsEmpty(subAgentsEl);
+        }
+        // No editor-pane in this state — null out the closures so any
+        // stale references no-op. renderAgentList will re-bind on the
+        // next state transition.
+        agentListEl = null;
+        editorEl = null;
+        return;
+      }
+
+      if (!hasLayout) {
         subAgentsEl.innerHTML =
           '<div class="studio-layout">' +
             '<aside class="agents-pane">' +
@@ -409,6 +451,105 @@ App.registerArea({
       agentListEl = subAgentsEl.querySelector('#studio-agents-list');
       editorEl = subAgentsEl.querySelector('#studio-editor-pane');
       renderAgentList();
+    }
+
+    // L4.2 — Studio·Agents empty-state body. Mounts directly under the
+    // area-header (which already renders STUDIO · AGENTS eyebrow + title).
+    // Layout: a left 260px AGENT LIST · 0 placeholder rail + a focal
+    // bracket-framed headline with two CTAs:
+    //   + NEW AGENT         (.btn-mono,      data-action="new-agent")
+    //   → start from preset (.btn-link-mono, data-action="open-presets")
+    // The new-agent click is picked up by the existing header-delegated
+    // handler (it matches [data-action="new-agent"] anywhere); the preset
+    // picker is wired as a stub here — the real picker lands in L4.5.
+    function renderStudioAgentsEmpty(container) {
+      var wrap = document.createElement('div');
+      wrap.className = 'studio-empty';
+      wrap.setAttribute('data-testid', 'studio-agents-empty');
+
+      var cols = document.createElement('div');
+      cols.className = 'studio-cols';
+
+      // Left rail — AGENT LIST · 0 placeholder.
+      var rail = document.createElement('aside');
+      rail.className = 'agents-list';
+      var railLabel = document.createElement('div');
+      railLabel.className = 'agents-list-l';
+      railLabel.appendChild(document.createTextNode('AGENT LIST'));
+      var railCount = document.createElement('span');
+      railCount.textContent = '0';
+      railLabel.appendChild(railCount);
+      rail.appendChild(railLabel);
+      var railEmpty = document.createElement('div');
+      railEmpty.className = 'agents-list-empty';
+      railEmpty.textContent = 'no agents · click + to create';
+      rail.appendChild(railEmpty);
+      cols.appendChild(rail);
+
+      // Focal — bracket-framed headline + subtitle + CTA row.
+      var focal = document.createElement('div');
+      focal.className = 'studio-empty-focal';
+
+      var brack = document.createElement('div');
+      brack.className = 'brack';
+      var brackTitle = document.createElement('h2');
+      brackTitle.className = 'brack-title';
+      brackTitle.textContent = 'Build your first agent.';
+      brack.appendChild(brackTitle);
+      var brackSub = document.createElement('p');
+      brackSub.className = 'brack-sub';
+      brackSub.textContent = 'An agent is a model + persona + tool selection. ' +
+        'The default tool kit covers shell, filesystem, web, and Python — narrow it from there.';
+      brack.appendChild(brackSub);
+      focal.appendChild(brack);
+
+      var ctas = document.createElement('div');
+      ctas.className = 'studio-empty-ctas';
+      var ctaNew = document.createElement('button');
+      ctaNew.type = 'button';
+      ctaNew.className = 'btn-mono';
+      ctaNew.setAttribute('data-action', 'new-agent');
+      ctaNew.setAttribute('data-testid', 'studio-empty-new-agent');
+      ctaNew.textContent = '+ NEW AGENT';
+      // Header-level delegation also matches [data-action="new-agent"] but
+      // only fires when the click bubbles through #studio-area-header. This
+      // button lives in the sub-block, so wire a direct handler that mirrors
+      // the header's dirty-gated commit path.
+      ctaNew.addEventListener('click', function () {
+        var inEditingContext =
+          (self._activeSection === 'agents' && self._selectedAgent) ||
+          (self._activeSection === 'mcp-sources' && mcpSourceFormMode);
+        var commit = function () {
+          setActiveSection('agents');
+          enterCreateMode();
+        };
+        if (dirty && inEditingContext) {
+          App.confirmDialog({ onConfirm: commit });
+        } else {
+          commit();
+        }
+      });
+      ctas.appendChild(ctaNew);
+
+      var ctaPreset = document.createElement('button');
+      ctaPreset.type = 'button';
+      ctaPreset.className = 'btn-link-mono';
+      ctaPreset.setAttribute('data-action', 'open-presets');
+      ctaPreset.setAttribute('data-testid', 'studio-empty-open-presets');
+      ctaPreset.textContent = '→ start from preset';
+      ctaPreset.addEventListener('click', function () {
+        // L4.5 will replace this with the real preset picker dialog.
+        // Stub keeps the click handler attached so the button is not "dead".
+        if (window.console && console.log) {
+          console.log('preset picker — wired in L4.5');
+        }
+      });
+      ctas.appendChild(ctaPreset);
+
+      focal.appendChild(ctas);
+      cols.appendChild(focal);
+      wrap.appendChild(cols);
+      container.appendChild(wrap);
     }
 
     function renderKnowledgeSection() {
@@ -665,11 +806,11 @@ App.registerArea({
       subMcpSourcesEl.classList.toggle('active', section === 'mcp-sources');
       // Update section-nav active state.
       App.layout.updateActiveSection(sectionNavEl, section);
-      // Show/hide the header's New agent button — only relevant on Agents
-      // section. The button is re-rendered on every refreshStudioHeader, so
-      // we re-query it here rather than holding a stale reference.
-      var newAgentBtn = headerEl.querySelector('#studio-new-agent-btn');
-      if (newAgentBtn) newAgentBtn.style.display = (section === 'agents') ? '' : 'none';
+      // L4.2 — re-render the header so the New-agent CTA is suppressed when
+      // entering the Studio·Agents empty state (Agents section + 0 agents).
+      // The button is otherwise toggled to display:none on non-Agents
+      // sections by refreshStudioHeader's fallback branch.
+      refreshStudioHeader();
       // Reset MCP-section local state when leaving mcp-sources for another
       // section — closes the editor + clears formMode so a re-entry
       // re-mounts the grid.
@@ -976,28 +1117,30 @@ App.registerArea({
       // per-callsite hooks. Called BEFORE the agentListEl null-guard because
       // the header lives outside the agents sub-block and is always present.
       refreshStudioHeader();
+      // L4.2 — flip the surface when entering / leaving the empty state.
+      // renderAgentsSection picks between .studio-empty and the .studio-layout
+      // grid based on agent count + createMode, and rebinds agentListEl /
+      // editorEl. After this call, if we're STILL in the empty state, the
+      // empty-state body has already been rendered by renderStudioAgentsEmpty
+      // and there is no agents-list to populate — early-return.
+      var agents = self._agents || [];
+      var wantsEmpty = agents.length === 0 && !self._createMode;
+      if (wantsEmpty) {
+        if (!subAgentsEl.querySelector('.studio-empty')) {
+          renderAgentsSection();
+        }
+        return;
+      }
+      if (!subAgentsEl.querySelector('.studio-layout')) {
+        renderAgentsSection();
+        // renderAgentsSection's non-empty branch falls through to
+        // renderAgentList again via the grid mount; bail out here so we
+        // don't double-render. The recursive call handled it.
+        return;
+      }
       // agentListEl may be null before renderAgentsSection has run once.
       if (!agentListEl) return;
       agentListEl.innerHTML = '';
-      var agents = self._agents;
-      if (agents.length === 0 && !self._createMode) {
-        var emptyDiv = document.createElement('div');
-        emptyDiv.className = 'empty-canvas';
-        emptyDiv.setAttribute('data-testid', 'agent-empty');
-        // Message + CTA centered in the agents pane.
-        var msg = document.createElement('p');
-        msg.textContent = 'No agents yet. Create one to get started.';
-        emptyDiv.appendChild(msg);
-        var emptyBtn = document.createElement('button');
-        emptyBtn.type = 'button';
-        emptyBtn.className = 'btn btn-primary';
-        emptyBtn.setAttribute('data-testid', 'new-agent-btn-empty');
-        emptyBtn.textContent = 'Create your first agent';
-        emptyBtn.addEventListener('click', enterCreateMode);
-        emptyDiv.appendChild(emptyBtn);
-        agentListEl.appendChild(emptyDiv);
-        return;
-      }
       for (var i = 0; i < agents.length; i++) {
         (function (agent) {
           var isActive = self._selectedAgent && self._selectedAgent.name === agent.name && !self._createMode;

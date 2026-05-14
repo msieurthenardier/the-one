@@ -177,7 +177,7 @@ def test_section_nav_clean_does_not_open_dialog(app_with_provider: SeededApp, pa
     """Clean state: section nav clicks navigate immediately, no dialog."""
     base_url = app_with_provider.base_url
     page.goto(f"{base_url}#studio")
-    expect(page.locator('[data-testid="agent-empty"]')).to_be_visible(timeout=8000)
+    expect(page.locator('[data-testid="studio-agents-empty"]')).to_be_visible(timeout=8000)
 
     # No agent selected — knowledge nav should NOT prompt even if
     # somehow dirty (and it's clean here).
