@@ -95,6 +95,67 @@
   .area-chat .msg.assistant { align-self: flex-start; background: var(--surface-translucent); border: 1px solid var(--border); border-radius: var(--panel-radius); }
   .area-chat .msg.tool { align-self: flex-start; background: var(--surface-tool); font-family: var(--font-family-mono); font-size: var(--font-size-body-sm); color: var(--fg-tool-msg); border-left: 3px solid var(--accent); }
   .area-chat .msg.tool.error { border-left-color: var(--status-danger); }
+  /* L03: per-assistant-turn trace shell. <details>/<summary> for native
+     keyboard support; styled to compose with the F3.5 design tokens. */
+  .area-chat .trace-shell {
+    align-self: flex-start;
+    max-width: 85%;
+    margin-top: -4px;  /* visually attach to the assistant bubble above */
+    font-size: var(--font-size-body-sm);
+  }
+  .area-chat .trace-shell details {
+    border-left: 2px solid var(--border);
+    padding-left: 8px;
+  }
+  .area-chat .trace-shell summary.trace-toggle {
+    cursor: pointer;
+    color: var(--fg-muted);
+    font-family: var(--font-family-mono);
+    letter-spacing: 0.02em;
+    padding: 4px 0;
+    user-select: none;
+    list-style: none;  /* hide default disclosure marker */
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .area-chat .trace-shell summary.trace-toggle::-webkit-details-marker { display: none; }
+  .area-chat .trace-shell summary.trace-toggle::before {
+    content: '▸';
+    transition: transform 0.15s ease;
+    color: var(--accent);
+    font-size: 0.85em;
+  }
+  .area-chat .trace-shell details[open] summary.trace-toggle::before {
+    transform: rotate(90deg);
+  }
+  .area-chat .trace-shell summary.trace-toggle:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+  .area-chat .trace-shell .trace-count {
+    color: var(--fg-muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .area-chat .trace-shell .trace-body {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px 0 4px 0;
+  }
+  /* Override the standalone .msg.tool max-width inside a trace — the
+     trace shell already constrains width. */
+  .area-chat .trace-shell .trace-body .msg.tool {
+    max-width: none;
+    border-left: 2px solid var(--accent);
+  }
+  .area-chat .trace-shell .trace-body .msg.tool.error {
+    border-left-color: var(--status-danger);
+  }
+  .area-chat .trace-shell .trace-body .login-required-btn {
+    align-self: flex-start;
+  }
   .area-chat .msg.system { align-self: center; color: var(--fg-tertiary); font-size: var(--font-size-body-sm); }
   .area-chat .msg-attribution { font-size: var(--font-size-tiny); color: var(--fg-faint); font-family: var(--font-family-mono); letter-spacing: 0.04em; padding: 0 4px; margin-top: -6px; }
   .area-chat .msg-attribution.from-you { align-self: flex-end; }

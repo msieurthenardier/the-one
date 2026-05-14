@@ -406,3 +406,220 @@ async def test_websocket_reconnect_replays_auth_required_from_agent_state() -> N
     new_ws.sent.clear()
     await _send_pause_snapshot_if_needed(session, new_ws)  # type: ignore[arg-type]
     assert new_ws.sent == []
+
+
+# ---------------------------------------------------------------------------
+# F5 L02 — parent_message_id discriminator across pause + resume round-trip
+# ---------------------------------------------------------------------------
+
+
+async def test_paused_auth_required_carries_parent_message_id_matching_tool_call(
+    monkeypatch,
+) -> None:
+    """L02: the auth_required event broadcast by ``_process_and_broadcast``
+    carries a ``parent_message_id`` matching the preceding tool_call event's
+    parent. Verifies the discriminator survives the live broadcast path.
+    """
+    monkeypatch.setattr(
+        web_app, "_ensure_ollama_model_loaded", AsyncMock(return_value=None)
+    )
+    monkeypatch.setattr(
+        web_app, "_save_session_to_db", AsyncMock(return_value=None)
+    )
+
+    captured: list[dict[str, Any]] = []
+
+    async def capture(session, payload, exclude=None):  # noqa: ARG001
+        captured.append(payload)
+
+    monkeypatch.setattr(web_app, "_send_to_session", capture)
+
+    auth_metadata = {
+        "is_auth_required": True,
+        "source_id": "src-L02a",
+        "resource_metadata_url": "https://x/.well-known/oauth-protected-resource",
+        "tool_call_id": "tc_L02a",
+    }
+    pre_assistant = Message.assistant(
+        "",
+        tool_calls=[ToolCall(id="tc_L02a", name="auth_tool", arguments={})],
+    )
+    auth_tool_msg = Message.tool(
+        ToolResult(
+            tool_call_id="tc_L02a",
+            content="auth required",
+            metadata=auth_metadata,
+        )
+    )
+    agent = StubAgent(step_messages=[pre_assistant, auth_tool_msg])
+    session = Session(
+        id="cs-L02a",
+        agent=agent,  # type: ignore[arg-type]
+        created="2026-05-13T00:00:00+00:00",
+    )
+
+    await _process_and_broadcast(session, "trigger auth")
+
+    tc_events = [p for p in captured if p.get("type") == "tool_call"]
+    auth_events = [p for p in captured if p.get("type") == "auth_required"]
+    assert len(tc_events) == 1
+    assert len(auth_events) == 1
+    # Both events share the same parent_message_id discriminator
+    assert tc_events[0]["parent_message_id"] is not None
+    assert tc_events[0]["parent_message_id"] == auth_events[0]["parent_message_id"]
+    # tool_call_id discriminator present on the tool_call event
+    assert tc_events[0]["tool_call_id"] == "tc_L02a"
+    # auth_required carries tool_call_id from the metadata (existing
+    # behaviour — preserved)
+    assert auth_events[0]["tool_call_id"] == "tc_L02a"
+    # The broadcast namespace uses the live "{session.id}-msg-N" prefix,
+    # NOT the codec "replay-msg-N" prefix — guards against accidental
+    # cross-namespace leakage.
+    assert auth_events[0]["parent_message_id"].startswith("cs-L02a-msg-")
+
+
+async def test_resumed_tool_result_inherits_parent_message_id(monkeypatch) -> None:
+    """L02: after a paused tool_result is resolved and ``_broadcast_one``
+    re-broadcasts the resumed tool_result via the resume path, the
+    resumed tool_result carries the SAME ``parent_message_id`` as the
+    original paused tool_call. Verifies the projection rule (look back
+    for the most recent assistant with tool_calls) is consistent across
+    the live broadcast and resume paths.
+    """
+    monkeypatch.setattr(
+        web_app, "_ensure_ollama_model_loaded", AsyncMock(return_value=None)
+    )
+    monkeypatch.setattr(
+        web_app, "_save_session_to_db", AsyncMock(return_value=None)
+    )
+
+    captured: list[dict[str, Any]] = []
+
+    async def capture(session, payload, exclude=None):  # noqa: ARG001
+        captured.append(payload)
+
+    monkeypatch.setattr(web_app, "_send_to_session", capture)
+
+    # Build agent.messages reflecting the paused state: an assistant
+    # turn with a tool_call, then the original auth_required tool_msg.
+    pre_assistant = Message.assistant(
+        "",
+        tool_calls=[ToolCall(id="tc_L02b", name="auth_tool", arguments={})],
+    )
+    auth_metadata = {
+        "is_auth_required": True,
+        "source_id": "src-L02b",
+        "resource_metadata_url": "https://x/.well-known/oauth-protected-resource",
+        "tool_call_id": "tc_L02b",
+    }
+    auth_tool_msg = Message.tool(
+        ToolResult(
+            tool_call_id="tc_L02b",
+            content="auth required",
+            metadata=auth_metadata,
+        )
+    )
+
+    # Resume yields the success tool_msg replacing the auth_required one.
+    # In real Agent.resume_after_auth, the success tool_msg is appended
+    # to agent.messages BEFORE being yielded. Replicate that here so
+    # _broadcast_one's _find_parent_assistant_index walk sees it.
+    success_tool_result = ToolResult(tool_call_id="tc_L02b", content="x ok")
+
+    class _ResumeStubAgent(StubAgent):
+        async def resume_after_auth(self):  # type: ignore[override]
+            if self._deferred_tool_calls is None:
+                return
+            self._deferred_tool_calls = None
+            # Replace the auth_required tool_msg with a success one
+            # (the real Agent doesn't actually replace — it appends —
+            # but for the projection rule, what matters is that the
+            # parent assistant message is still at the same index in
+            # the list when the resumed tool_msg is broadcast).
+            success_msg = Message.tool(success_tool_result)
+            self.messages.append(success_msg)
+            yield success_msg
+
+    agent = _ResumeStubAgent(
+        deferred_tool_calls=[ToolCall(id="tc_L02b", name="auth_tool", arguments={})],
+        agent_messages=[
+            Message.user("trigger"),
+            pre_assistant,
+            auth_tool_msg,
+        ],
+    )
+    session = Session(
+        id="cs-L02b",
+        agent=agent,  # type: ignore[arg-type]
+        created="2026-05-13T00:00:00+00:00",
+    )
+
+    # Pre-compute the parent_message_id the ORIGINAL tool_call would carry:
+    # the assistant message is at index 1 in agent.messages.
+    expected_parent_id = "cs-L02b-msg-1"
+
+    # Drive the resume path directly.
+    from the_one.interfaces.web.app import _resume_paused_session
+
+    await _resume_paused_session(session)
+
+    tr_events = [p for p in captured if p.get("type") == "tool_result"]
+    assert len(tr_events) >= 1
+    resumed_tr = tr_events[0]
+    # Resumed tool_result inherits the SAME parent_message_id the
+    # original paused tool_call would have carried.
+    assert resumed_tr["parent_message_id"] == expected_parent_id
+    assert resumed_tr["tool_call_id"] == "tc_L02b"
+
+
+async def test_pause_snapshot_emits_parent_message_id() -> None:
+    """L02: ``_send_pause_snapshot_if_needed`` emits an ``auth_required``
+    event whose ``parent_message_id`` matches the parent assistant
+    message's id. Verifies the rejoin-snapshot path also carries the
+    discriminator (so the L03 frontend renders the consent button
+    inside the right trace shell on session rejoin).
+    """
+    auth_metadata = {
+        "is_auth_required": True,
+        "source_id": "src-L02c",
+        "resource_metadata_url": "https://x/.well-known/oauth-protected-resource",
+        "tool_call_id": "tc_L02c",
+    }
+    auth_tool_msg = Message.tool(
+        ToolResult(
+            tool_call_id="tc_L02c",
+            content="auth required",
+            metadata=auth_metadata,
+        )
+    )
+
+    agent = StubAgent(
+        deferred_tool_calls=[ToolCall(id="tc_L02c", name="auth_tool", arguments={})],
+        agent_messages=[
+            Message.system("system"),
+            Message.user("trigger"),
+            Message.assistant(
+                "",
+                tool_calls=[ToolCall(id="tc_L02c", name="auth_tool", arguments={})],
+            ),
+            auth_tool_msg,
+        ],
+    )
+    session = Session(
+        id="cs-L02c",
+        agent=agent,  # type: ignore[arg-type]
+        created="2026-05-13T00:00:00+00:00",
+    )
+
+    new_ws = _StubWebSocket()
+    session.subscribers.add(new_ws)  # type: ignore[arg-type]
+
+    await _send_pause_snapshot_if_needed(session, new_ws)  # type: ignore[arg-type]
+
+    assert len(new_ws.sent) == 1
+    payload = new_ws.sent[0]
+    assert payload["type"] == "auth_required"
+    # parent_message_id derived from the assistant at index 2 in agent.messages
+    assert payload["parent_message_id"] == "cs-L02c-msg-2"
+    # tool_call_id preserved from metadata (existing behaviour)
+    assert payload["tool_call_id"] == "tc_L02c"

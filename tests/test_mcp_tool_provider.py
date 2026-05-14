@@ -1269,6 +1269,15 @@ class TestAgentFactoryMCPIntegration:
         mock_tool_repo = AsyncMock()
         mock_tool_repo.list = AsyncMock(return_value=[])
 
+        # F5 L01.5: patch _build_source_index directly to skip its
+        # MCPSourceRepository fall-through. The previous test relied on
+        # `except Exception: continue` at factory.py:70 silently
+        # swallowing a TypeError from `async with <coroutine>` (caused by
+        # AsyncMock().return_value being an AsyncMock, so conn.execute(...)
+        # returns a coroutine instead of an async context manager). That
+        # silent-swallow left the coroutine un-awaited, which wedged
+        # pytest-asyncio's loop teardown for ~90s on every broad pytest
+        # run since F1. See mission KI "post-summary teardown wedge".
         with (
             patch("the_one.agent.factory.get_provider", _fake_get_provider),
             patch("the_one.agent.factory.settings") as mock_settings,
@@ -1276,6 +1285,7 @@ class TestAgentFactoryMCPIntegration:
             patch("the_one.encryption.get_encryptor", return_value=AsyncMock()),
             patch("the_one.db.repositories.LLMProviderRepository", return_value=mock_repo),
             patch("the_one.db.repositories.ToolConfigRepository", return_value=mock_tool_repo),
+            patch("the_one.agent.factory._build_source_index", new_callable=AsyncMock),
         ):
             mock_settings.agents_dir = Path("/tmp/test-agents")
             mock_settings.data_dir = Path("/tmp/test-data")

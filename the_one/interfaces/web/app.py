@@ -563,6 +563,41 @@ async def _ensure_ollama_model_loaded(session: Session) -> None:
         )
 
 
+def _parent_message_id_for(session: "Session", msg_index: int) -> str:
+    """Stable structural id for the assistant Message at agent.messages[msg_index].
+
+    F5 L02: used as the ``parent_message_id`` discriminator on
+    ``tool_call`` / ``tool_result`` / ``auth_required`` events so the
+    frontend (L03) can group all tool activity for a single assistant
+    turn under a per-turn trace shell.
+
+    Structural, NOT identity-bearing: the id encodes WHICH assistant
+    turn owns the activity, not a persistent record id. Rejoining a
+    session from DB regenerates ids deterministically from the same
+    ``agent.messages`` order. The codec replay path uses an analogous
+    ``"replay-msg-N"`` namespace prefix; namespaces are disjoint by
+    design (live broadcast vs replay) so the frontend's opaque-key
+    grouping cannot falsely merge them.
+    """
+    return f"{session.id}-msg-{msg_index}"
+
+
+def _find_parent_assistant_index(messages: list[Message]) -> int:
+    """Walk backwards to find the index of the most recent Role.ASSISTANT message with tool_calls.
+
+    F5 L02: used by ``_broadcast_one`` (resume path) and
+    ``_send_pause_snapshot_if_needed`` to derive the
+    ``parent_message_id`` for a tool message when the caller hasn't
+    pre-computed one. Returns -1 if no assistant message with
+    tool_calls exists in the list.
+    """
+    for i in range(len(messages) - 1, -1, -1):
+        m = messages[i]
+        if m.role == Role.ASSISTANT and m.tool_calls:
+            return i
+    return -1
+
+
 def _auth_required_event_from_metadata(meta: dict[str, Any]) -> dict[str, Any]:
     """Build the ``auth_required`` WebSocket event payload from ``ToolResult.metadata``.
 
@@ -625,6 +660,20 @@ async def _broadcast_one(
     (only forwarded into the user echo by ``_process_and_broadcast``;
     ``_broadcast_one`` itself only handles assistant + tool messages).
     """
+    # F5 L02: resolve parent_message_id for any tool_call/tool_result on
+    # this msg. For ASSISTANT messages with tool_calls: the parent is THIS
+    # message (just-yielded → agent.messages[-1] per the append-before-yield
+    # invariant in the_one/agent/core.py:195-196). For TOOL messages: walk
+    # agent.messages backwards for the most recent ASSISTANT with tool_calls.
+    parent_idx: int = -1
+    if msg.role == Role.ASSISTANT and msg.tool_calls:
+        parent_idx = len(session.agent.messages) - 1
+    elif msg.role == Role.TOOL and msg.tool_result is not None:
+        parent_idx = _find_parent_assistant_index(session.agent.messages)
+    parent_id: str | None = (
+        _parent_message_id_for(session, parent_idx) if parent_idx >= 0 else None
+    )
+
     if msg.role == Role.ASSISTANT:
         if msg.usage:
             usage_event = {
@@ -647,6 +696,8 @@ async def _broadcast_one(
                     "type": "tool_call",
                     "name": tc.name,
                     "arguments": tc.arguments,
+                    "parent_message_id": parent_id,
+                    "tool_call_id": tc.id,
                 }
                 session.add_event(tc_event)
                 await _send_to_session(session, tc_event)
@@ -657,14 +708,19 @@ async def _broadcast_one(
             # F5 L3: pause path — broadcast ``auth_required`` INSTEAD of
             # ``tool_result``. Caller is responsible for skipping the
             # trailing ``done`` event (the step is paused, not finished).
-            await _send_to_session(
-                session, _auth_required_event_from_metadata(meta)
-            )
+            # F5 L02: inject parent_message_id (Option A — caller-side
+            # injection keeps the helper signature stable; the discriminator
+            # is caller context, not part of ToolResult.metadata).
+            event = _auth_required_event_from_metadata(meta)
+            event["parent_message_id"] = parent_id
+            await _send_to_session(session, event)
             return
         tr_event = {
             "type": "tool_result",
             "content": msg.tool_result.content[:2000],
             "is_error": msg.tool_result.is_error,
+            "parent_message_id": parent_id,
+            "tool_call_id": msg.tool_result.tool_call_id,
         }
         session.add_event(tr_event)
         await _send_to_session(session, tr_event)
@@ -700,6 +756,12 @@ async def _process_and_broadcast(
     # block so iteration N+1 starts clean (multi-iteration agent loops).
     chunks_seen = False
     paused = False
+    # F5 L02: per-turn discriminator. Set when an ASSISTANT message with
+    # tool_calls arrives; reused for the subsequent Role.TOOL messages
+    # (including the auth_required pause path) until the next assistant
+    # turn arrives. Depends on the agent/core.py:195-196, 250-251
+    # append-before-yield + assistant-before-tools iteration invariant.
+    current_turn_parent_id: str | None = None
 
     async def _broadcast_chunk(content: str) -> None:
         nonlocal chunks_seen
@@ -737,8 +799,21 @@ async def _process_and_broadcast(
                         # the chunk path; suppress the duplicate broadcast.
                         await _send_to_session(session, event)
                 if msg.tool_calls:
+                    # F5 L02: project parent_message_id for this turn from
+                    # the just-yielded assistant Message's index. Per the
+                    # append-before-yield invariant, this is the last item
+                    # in agent.messages at broadcast time.
+                    current_turn_parent_id = _parent_message_id_for(
+                        session, len(session.agent.messages) - 1
+                    )
                     for tc in msg.tool_calls:
-                        tc_event = {"type": "tool_call", "name": tc.name, "arguments": tc.arguments}
+                        tc_event = {
+                            "type": "tool_call",
+                            "name": tc.name,
+                            "arguments": tc.arguments,
+                            "parent_message_id": current_turn_parent_id,
+                            "tool_call_id": tc.id,
+                        }
                         session.add_event(tc_event)
                         await _send_to_session(session, tc_event)
 
@@ -765,15 +840,20 @@ async def _process_and_broadcast(
                     # set with no clear pause signal); SKIP the trailing
                     # ``done`` event below — the WS subscribers are still
                     # awaiting the auth resolution.
-                    await _send_to_session(
-                        session, _auth_required_event_from_metadata(meta)
-                    )
+                    # F5 L02: inject parent_message_id (Option A) so the
+                    # frontend can render the consent surface INSIDE the
+                    # right trace shell.
+                    event = _auth_required_event_from_metadata(meta)
+                    event["parent_message_id"] = current_turn_parent_id
+                    await _send_to_session(session, event)
                     paused = True
                     break
                 tr_event = {
                     "type": "tool_result",
                     "content": msg.tool_result.content[:2000],
                     "is_error": msg.tool_result.is_error,
+                    "parent_message_id": current_turn_parent_id,
+                    "tool_call_id": msg.tool_result.tool_call_id,
                 }
                 session.add_event(tr_event)
                 await _send_to_session(session, tr_event)
@@ -887,19 +967,32 @@ async def _send_pause_snapshot_if_needed(
     """
     if session.agent._deferred_tool_calls is None:
         return
-    for past_msg in reversed(session.agent.messages):
+    # F5 L02: walk via enumerate(reversed(...)) so we preserve the
+    # original first-hit-wins reverse-walk semantics while also knowing
+    # the forward-index of the matched tool_msg — needed to derive the
+    # parent assistant's parent_message_id from the slice of
+    # agent.messages preceding the tool.
+    msgs = session.agent.messages
+    for rev_i, past_msg in enumerate(reversed(msgs)):
         if (
             past_msg.role == Role.TOOL
             and past_msg.tool_result is not None
             and past_msg.tool_result.metadata
             and past_msg.tool_result.metadata.get("is_auth_required")
         ):
+            tool_idx = len(msgs) - 1 - rev_i
+            parent_idx = _find_parent_assistant_index(msgs[:tool_idx])
+            parent_id: str | None = (
+                _parent_message_id_for(session, parent_idx)
+                if parent_idx >= 0
+                else None
+            )
             try:
-                await websocket.send_json(
-                    _auth_required_event_from_metadata(
-                        past_msg.tool_result.metadata
-                    )
+                event = _auth_required_event_from_metadata(
+                    past_msg.tool_result.metadata
                 )
+                event["parent_message_id"] = parent_id
+                await websocket.send_json(event)
             except (RuntimeError, WebSocketDisconnect):
                 # New subscriber's WS broke before snapshot delivery —
                 # nothing to clean up; the existing dead-subscriber
