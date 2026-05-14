@@ -22,3 +22,4 @@ tests/browser/__snapshots__/
 # downloaded via Windows browsers and the working tree lives on WSL.
 *:Zone.Identifier
 .claude/scheduled_tasks.lock
+.superpowers/
