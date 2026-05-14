@@ -282,4 +282,65 @@
     grid-column: span 2;
   }
 
+  /* ── Carry-forward toggle widget ────────────────────────────────────────
+   *
+   * .tool-enable-switch + .tool-enable-switch-track is the Mission-08 toggle
+   * widget preserved (per L4.3 / L5.3 deferred-reskin) inside the MCP server
+   * editor (kv sensitive flag, sandbox network toggle). Rebound to Holograph
+   * tokens so it renders correctly under @layer areas. A future polish leg
+   * may migrate these call sites to the .toggle widget in components.css.
+   */
+  .area-admin .tool-enable-switch,
+  .area-studio .tool-enable-switch {
+    position: relative;
+    display: inline-block;
+    width: 36px;
+    height: 20px;
+    cursor: pointer;
+    flex: none;
+  }
+  .area-admin .tool-enable-switch input[type="checkbox"],
+  .area-studio .tool-enable-switch input[type="checkbox"] {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+    z-index: 1;
+  }
+  .area-admin .tool-enable-switch-track,
+  .area-studio .tool-enable-switch-track {
+    display: block;
+    width: 36px;
+    height: 20px;
+    background: var(--hairline-strong);
+    border-radius: 10px;
+    position: relative;
+    transition: background var(--t);
+    pointer-events: none;
+  }
+  .area-admin .tool-enable-switch-track::after,
+  .area-studio .tool-enable-switch-track::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    background: var(--surface);
+    border-radius: 50%;
+    box-shadow: var(--shadow-1);
+    transition: transform var(--t);
+  }
+  .area-admin .tool-enable-switch input:checked + .tool-enable-switch-track,
+  .area-studio .tool-enable-switch input:checked + .tool-enable-switch-track {
+    background: var(--accent);
+  }
+  .area-admin .tool-enable-switch input:checked + .tool-enable-switch-track::after,
+  .area-studio .tool-enable-switch input:checked + .tool-enable-switch-track::after {
+    transform: translateX(16px);
+  }
+
 }

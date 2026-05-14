@@ -211,10 +211,10 @@ def test_dirty_back_confirm_dialog(app_clean: str, page: Page) -> None:
 
     # Click Back; modal appears.
     page.locator('[data-testid="back-mcp-source-btn"]').click()
-    expect(page.locator(".modal-overlay")).to_be_visible(timeout=5000)
+    expect(page.locator(".modal-backdrop")).to_be_visible(timeout=5000)
     # Cancel (Stay) — editor stays mounted.
     page.locator('[data-testid="modal-cancel-btn"]').click()
-    expect(page.locator(".modal-overlay")).to_have_count(0)
+    expect(page.locator(".modal-backdrop")).to_have_count(0)
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible()
     # Field value preserved.
     expect(page.locator('[data-field="name"]')).to_have_value("typed-name")
