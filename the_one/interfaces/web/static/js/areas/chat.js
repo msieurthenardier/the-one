@@ -67,6 +67,7 @@ App.registerArea({
     content.innerHTML =
       '<div class="chat-welcome" data-testid="chat-welcome" hidden>' +
         '<div class="chat-welcome-inner">' +
+          '<img class="chat-welcome-mascot" src="/static/brand/gleepglorp_icon.png" alt="" aria-hidden="true" loading="eager" data-testid="chat-welcome-mascot">' +
           '<h2 class="chat-welcome-greeting">Hello.</h2>' +
           '<p class="chat-welcome-prompt">Which agent would you like to chat with?</p>' +
           '<div class="chat-welcome-list" role="listbox" aria-label="Available agents"></div>' +
@@ -80,8 +81,8 @@ App.registerArea({
             App.icon('square-pen') + '<span>New Chat</span></button></div>' +
         '<div class="messages" role="log" aria-live="polite" aria-relevant="additions" aria-atomic="false"></div>' +
         '<div class="input-area">' +
-          '<input data-testid="chat-input" placeholder="Type a message..." autocomplete="off" aria-label="Message" />' +
-          '<button class="btn-filled-primary" data-testid="chat-send-btn">Send</button></div>' +
+          '<input data-testid="chat-input" placeholder="Type a message..." autocomplete="off" enterkeyhint="send" aria-label="Message" />' +
+          '<button class="btn-filled-primary" data-testid="chat-send-btn" aria-keyshortcuts="Enter">Send</button></div>' +
       '</div>';
 
     var chromeEl = content.querySelector('.chat-chrome');
@@ -374,10 +375,17 @@ App.registerArea({
       var existing = messagesEl.querySelectorAll(sel);
       for (var i = 0; i < existing.length; i++) {
         var btn = existing[i];
-        var parent = btn.parentNode;
-        if (parent) parent.removeChild(btn);
-        // L03: if the button was inside a now-empty trace-body, also drop
-        // the enclosing trace shell so an empty chrome doesn't linger.
+        // L05: prefer removing the wrapper when present (post-L05 DOM);
+        // fall back to the bare button (legacy / pre-L05 / test-synthesized).
+        var group = btn.closest('.login-required-group');
+        var toRemove = group || btn;
+        var parent = toRemove.parentNode;
+        if (parent) parent.removeChild(toRemove);
+        // L03: if the removal left an empty trace-body, also drop the
+        // enclosing trace shell so an empty chrome doesn't linger.
+        // (Unchanged from pre-L05 — the wrapper sits inside .trace-body
+        // exactly like the bare button did, so `parent` is still the
+        // .trace-body in the trace-mount path.)
         if (parent && parent.classList && parent.classList.contains('trace-body') && parent.children.length === 0) {
           var shell = parent.closest('.trace-shell');
           if (shell && shell.parentNode) {
@@ -508,6 +516,17 @@ App.registerArea({
       if (data.source_id && data.source_name) {
         sourceNames[data.source_id] = data.source_name;
       }
+      // L05: wrapper groups the attribution + button so appendToTrace
+      // increments the trace-count by 1 per auth_required event (NOT 2).
+      var group = document.createElement('div');
+      group.className = 'login-required-group';
+      group.dataset.sourceId = data.source_id || '';
+
+      var attr = document.createElement('div');
+      attr.className = 'login-required-attribution';
+      attr.textContent = 'Authorization required to continue.';
+      group.appendChild(attr);
+
       var btn = document.createElement('button');
       btn.type = 'button';
       btn.className = 'btn-filled-primary login-required-btn';
@@ -523,15 +542,16 @@ App.registerArea({
       btn.addEventListener('click', function () {
         startLoginFlow(data);
       });
+      group.appendChild(btn);
       // L03: mount in the trace shell for this turn, if its parent_message_id
       // is present (the M07 OAuth event carries it). Fall back to a direct
       // .messages append for legacy/null cases (e.g. synthetic auth_required
       // events injected by tests).
       var authTrace = getOrCreateTrace(data.parent_message_id);
       if (authTrace) {
-        App.chat.appendToTrace(authTrace, btn);
+        App.chat.appendToTrace(authTrace, group);
       } else {
-        messagesEl.appendChild(btn);
+        messagesEl.appendChild(group);
       }
       messagesEl.scrollTop = messagesEl.scrollHeight;
     }

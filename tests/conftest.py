@@ -50,24 +50,10 @@ def pytest_configure(config: pytest.Config) -> None:
     # override set by CI or by the per-subprocess browser-test isolation in
     # `tests/browser/conftest.py:127`. A session-persistent tmp dir (one path
     # for the whole pytest run) matches the live-container pattern.
-    _test_data_dir = os.environ.setdefault(
+    os.environ.setdefault(
         "THE_ONE_DATA_DIR",
         tempfile.mkdtemp(prefix="the-one-pytest-"),
     )
-    # F5 L01.5: the env-var override above is insufficient on its own because
-    # `the_one.config` is imported transitively BEFORE this hook fires —
-    # `tests/conftest.py:14 from the_one.platform.sandbox import SandboxProfile`
-    # pulls in `the_one.mcp.errors` → `the_one.mcp.__init__` → `the_one.mcp._pool`
-    # → `from the_one.config import settings`. By the time pytest_configure
-    # runs, the `Settings()` singleton at `the_one/config.py:33` is already
-    # constructed with `data_dir = Path.home() / ".the-one"` (= /root/.the-one
-    # inside the container). Test code that calls `get_connection()` then
-    # opens the LIVE DB — bisection-confirmed via tests/test_mcp_pool.py's
-    # _entry_worker at _pool.py:210 even with all MCP classes mocked. Mutate
-    # the cached singleton directly to ensure the override takes effect.
-    from pathlib import Path
-    from the_one.config import settings
-    settings.data_dir = Path(_test_data_dir)
 
 
 @pytest.fixture(autouse=True, scope="session")

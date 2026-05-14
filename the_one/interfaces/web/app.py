@@ -36,7 +36,12 @@ from the_one.agent.factory import (
 )
 from the_one.config import settings
 from the_one.db import close_connection, init_db
-from the_one.db.codec import decode_messages, encode_messages, messages_to_ui_events
+from the_one.db.codec import (
+    decode_messages,
+    encode_messages,
+    messages_to_ui_events,
+    truncate_for_event,
+)
 from the_one.db.connection import get_connection
 from the_one.db.migration import migrate_json_to_sqlite
 from the_one.db.models import ChatSession as ChatSessionModel
@@ -717,7 +722,7 @@ async def _broadcast_one(
             return
         tr_event = {
             "type": "tool_result",
-            "content": msg.tool_result.content[:2000],
+            "content": truncate_for_event(msg.tool_result.content),
             "is_error": msg.tool_result.is_error,
             "parent_message_id": parent_id,
             "tool_call_id": msg.tool_result.tool_call_id,
@@ -850,7 +855,7 @@ async def _process_and_broadcast(
                     break
                 tr_event = {
                     "type": "tool_result",
-                    "content": msg.tool_result.content[:2000],
+                    "content": truncate_for_event(msg.tool_result.content),
                     "is_error": msg.tool_result.is_error,
                     "parent_message_id": current_turn_parent_id,
                     "tool_call_id": msg.tool_result.tool_call_id,
@@ -860,7 +865,7 @@ async def _process_and_broadcast(
                 result_messages.append(
                     {
                         "role": "tool",
-                        "content": msg.tool_result.content[:4000],
+                        "content": truncate_for_event(msg.tool_result.content),
                         "is_error": msg.tool_result.is_error,
                     }
                 )

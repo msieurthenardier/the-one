@@ -352,3 +352,73 @@ class TestMessagesToUiEventsDiscriminator:
         # the test's discriminating power): turn-1's tool_result must
         # NOT match turn-2's tool_call parent
         assert tr_events[0]["parent_message_id"] != tc_events[1]["parent_message_id"]
+
+
+# ---------------------------------------------------------------------------
+# M08 F6 L02 — projection-time truncation of tool_result.content
+# ---------------------------------------------------------------------------
+
+
+class TestMessagesToUiEventsTruncation:
+    """``messages_to_ui_events`` caps ``tool_result.content`` at the shared
+    ``MAX_TOOL_RESULT_INLINE_CONTENT`` constant.
+
+    DB persistence is full-fidelity (covered elsewhere) — this class
+    pins the PROJECTION-time truncation invariant. The same helper
+    drives the live-broadcast + HTTP-API sites in
+    ``the_one.interfaces.web.app``; alignment across all three sites
+    is exercised in ``tests/test_tool_result_truncation_alignment.py``.
+    """
+
+    def test_tool_result_content_truncated_to_max(self) -> None:
+        from the_one.db.codec import MAX_TOOL_RESULT_INLINE_CONTENT
+
+        msg_over = Message(
+            role=Role.TOOL,
+            tool_result=ToolResult(
+                tool_call_id="tc-1",
+                content="x" * (MAX_TOOL_RESULT_INLINE_CONTENT + 1000),
+            ),
+        )
+        events = messages_to_ui_events([msg_over])
+        assert len(events) == 1
+        assert events[0]["type"] == "tool_result"
+        assert len(events[0]["content"]) == MAX_TOOL_RESULT_INLINE_CONTENT
+        assert events[0]["content"] == "x" * MAX_TOOL_RESULT_INLINE_CONTENT
+
+    def test_tool_result_content_at_cap_unchanged(self) -> None:
+        from the_one.db.codec import MAX_TOOL_RESULT_INLINE_CONTENT
+
+        msg_at = Message(
+            role=Role.TOOL,
+            tool_result=ToolResult(
+                tool_call_id="tc-2",
+                content="y" * MAX_TOOL_RESULT_INLINE_CONTENT,
+            ),
+        )
+        events = messages_to_ui_events([msg_at])
+        assert len(events[0]["content"]) == MAX_TOOL_RESULT_INLINE_CONTENT
+
+    def test_tool_result_content_under_cap_unchanged(self) -> None:
+        msg_under = Message(
+            role=Role.TOOL,
+            tool_result=ToolResult(tool_call_id="tc-3", content="hi"),
+        )
+        events = messages_to_ui_events([msg_under])
+        assert events[0]["content"] == "hi"
+
+    def test_db_persistence_full_fidelity_unchanged(self) -> None:
+        """DB round-trip preserves full content; truncation is projection-only."""
+        from the_one.db.codec import MAX_TOOL_RESULT_INLINE_CONTENT
+
+        long_content = "z" * (MAX_TOOL_RESULT_INLINE_CONTENT + 4000)
+        msgs = [
+            Message(
+                role=Role.TOOL,
+                tool_result=ToolResult(tool_call_id="tc-4", content=long_content),
+            )
+        ]
+        rt = decode_messages(encode_messages(msgs))
+        assert rt[0].tool_result is not None
+        assert rt[0].tool_result.content == long_content
+        assert len(rt[0].tool_result.content) == MAX_TOOL_RESULT_INLINE_CONTENT + 4000

@@ -7,6 +7,28 @@ from typing import Any
 
 from the_one.llm.base import Message, Role, TokenUsage, ToolCall, ToolResult
 
+# M08 F6 L02: shared projection-time truncation for tool_result.content.
+# Applied at every consumer that surfaces tool content to a client (live
+# WS broadcast in app._broadcast_one + app._process_and_broadcast, HTTP API
+# result_messages, replay via messages_to_ui_events). DB persistence stays
+# full-fidelity — encode_messages / decode_messages do NOT truncate.
+MAX_TOOL_RESULT_INLINE_CONTENT = 4000
+
+
+def truncate_for_event(content: str) -> str:
+    """Cap tool_result.content for projection to clients.
+
+    Single source of truth for the projection-time truncation contract.
+    DB persistence is unaffected — truncation is a "what we hand to
+    clients" concern, not a "what we keep" concern.
+
+    Note: slicing is by code-point (str), not byte. A content with
+    multi-codepoint sequences (emoji ZWJ joiners, combining marks) may
+    slice mid-sequence at the cap boundary. This matches the prior
+    per-site slicing behavior; this helper only aligns the cap.
+    """
+    return content[:MAX_TOOL_RESULT_INLINE_CONTENT]
+
 
 def _tool_call_to_dict(tc: ToolCall) -> dict[str, Any]:
     return {"id": tc.id, "name": tc.name, "arguments": tc.arguments}
@@ -141,7 +163,7 @@ def messages_to_ui_events(messages: list[Message]) -> list[dict[str, Any]]:
                 events.append(
                     {
                         "type": "tool_result",
-                        "content": msg.tool_result.content,
+                        "content": truncate_for_event(msg.tool_result.content),
                         "is_error": msg.tool_result.is_error,
                         "parent_message_id": current_parent_id,
                         "tool_call_id": msg.tool_result.tool_call_id,

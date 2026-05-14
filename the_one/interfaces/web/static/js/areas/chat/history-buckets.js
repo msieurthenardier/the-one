@@ -83,7 +83,22 @@
 
   function renderSessionList(sessionListEl, sessions, currentSessionId, callbacks) {
     sessionListEl.innerHTML = '';
-    if (!sessions.length) return;
+
+    // Heading always renders so the empty + populated states share an anchor.
+    // section-title gives the `// CHAT HISTORY` idiom shared with the
+    // sidebar's `// SELECT AGENT` and the admin/studio section headers.
+    var headingEl = document.createElement('div');
+    headingEl.className = 'section-title';
+    headingEl.textContent = 'Chat History';
+    sessionListEl.appendChild(headingEl);
+
+    if (!sessions.length) {
+      var emptyEl = document.createElement('div');
+      emptyEl.className = 'session-list-empty';
+      emptyEl.textContent = 'No conversations yet.';
+      sessionListEl.appendChild(emptyEl);
+      return;
+    }
 
     // Order sessions by updated_at desc within each bucket; assign to buckets.
     var nowDay = startOfDay(new Date());
@@ -101,14 +116,6 @@
         grouped[b].sort(function (a, c) { return recency(c) - recency(a); });
       }
     }
-
-    // Render heading first, then each non-empty bucket as a role=group.
-    // section-title gives the `// CHAT HISTORY` idiom shared with the
-    // sidebar's `// SELECT AGENT` and the admin/studio section headers.
-    var headingEl = document.createElement('div');
-    headingEl.className = 'section-title';
-    headingEl.textContent = 'Chat History';
-    sessionListEl.appendChild(headingEl);
 
     for (var k = 0; k < BUCKET_ORDER.length; k++) {
       var key = BUCKET_ORDER[k];
