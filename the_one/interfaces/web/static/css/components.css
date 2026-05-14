@@ -15,7 +15,8 @@
  *   .icn                  — inline SVG icon defaults
  *   .kbd                  — keyboard shortcut chip
  *   .modal-*              — modal surface family
- *   .navlinks, .navlink   — topnav navigation
+ *   .nav-segments, .navseg — topnav navigation (M10 mono coord segments)
+ *   .tele-strip, .tele-chip — topnav telemetry chip strip
  *   .nav-right            — topnav right cluster
  *   .search               — topnav search affordance
  *   .section-label        — section header
@@ -81,39 +82,78 @@
     margin-left: 6px;
   }
 
-  /* ── Nav links ───────────────────────────────────────────────────────── */
-
-  .navlinks {
+  /* M10 — nav segments (replaces .navlink). See spec §2. */
+  .nav-segments {
     display: flex;
-    gap: 4px;
+    align-items: center;
+    padding: 4px;
+    background: var(--surface-2);
+    border: 1px solid var(--hairline);
+    border-radius: 6px;
   }
-
-  .navlink {
+  .navseg {
     position: relative;
-    appearance: none;
-    -webkit-appearance: none;
-    padding: 8px 12px;
-    font-size: 13px;
+    padding: 5px 12px 5px 28px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.08em;
     color: var(--fg-mute);
     background: transparent;
     border: 0;
+    border-radius: 4px;
     cursor: pointer;
-    border-radius: 6px;
-    transition: color var(--t), background var(--t);
-    font-weight: 500;
+    appearance: none;
+    -webkit-appearance: none;
+    transition: background var(--motion-fast) ease, color var(--motion-fast) ease;
   }
-
-  .navlink:hover { color: var(--fg); background: var(--hover-bg); }
-  .navlink.active { color: var(--fg); }
-  .navlink.active::after {
-    content: '';
+  .navseg .idx {
     position: absolute;
-    left: 12px;
-    right: 12px;
-    bottom: -15px;
+    left: 9px;
+    top: 5px;
+    color: var(--fg-faint);
+    transition: color var(--motion-fast) ease;
+  }
+  .navseg:hover { color: var(--fg); }
+  .navseg.active {
+    background: var(--accent-soft);
+    color: var(--fg);
+  }
+  .navseg.active .idx { color: var(--accent); }
+  .navseg.active::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    bottom: -1px;
+    transform: translateX(-50%);
+    width: 22px;
     height: 2px;
     background: var(--accent);
     border-radius: 1px;
+  }
+  .navseg:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  /* M10 — telemetry chip strip in topnav */
+  .tele-strip {
+    display: flex;
+    gap: 14px;
+    align-items: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--fg-faint);
+    letter-spacing: 0.04em;
+  }
+  .tele-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .tele-chip strong {
+    color: var(--fg);
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
   }
 
   /* ── Nav right cluster ───────────────────────────────────────────────── */
