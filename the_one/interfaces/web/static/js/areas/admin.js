@@ -200,44 +200,91 @@ App.registerArea({
     });
 
     // Build Holograph layout: area-header + subnav + 3 sub-blocks.
-    // (Static hardcoded strings — no user data.)
-    var _adminHeader = document.createElement('div');
-    _adminHeader.className = 'area-header';
-    var _adminHeaderInner = document.createElement('div');
-    var _adminTitle = document.createElement('span');
-    _adminTitle.className = 'area-title';
-    _adminTitle.textContent = 'Administration';
-    var _adminSub = document.createElement('span');
-    _adminSub.className = 'area-sub';
-    _adminSub.textContent = 'System configuration';
-    _adminHeaderInner.appendChild(_adminTitle);
-    _adminHeaderInner.appendChild(_adminSub);
-    _adminHeader.appendChild(_adminHeaderInner);
+    //
+    // M10 L3.3 — area header is rendered dynamically by `refreshAdminHeader`
+    // (per-subtab eyebrow + title + subtitle). The header element is a shell
+    // that gets repopulated on every sub-tab switch. No header CTA — General
+    // has Rotate-Key inside a card, Providers has new-provider inside a card,
+    // Tools has nothing. Shell DOM built via `insertAdjacentHTML` (matches
+    // studio.js's L3.2 pattern; all template content is literal markup,
+    // dynamic values come from a curated state object + are escape-safe by
+    // construction).
+    while (content.firstChild) content.removeChild(content.firstChild);
+    content.insertAdjacentHTML('beforeend',
+      '<div class="area-header" id="admin-area-header"></div>' +
+      '<div class="admin-subnav" id="admin-subnav"></div>' +
+      '<div class="admin-sub" id="sub-general"></div>' +
+      '<div class="admin-sub" id="sub-providers"></div>' +
+      '<div class="admin-sub" id="sub-tools"></div>'
+    );
 
-    var _adminSubnav = document.createElement('div');
-    _adminSubnav.className = 'admin-subnav';
-    _adminSubnav.id = 'admin-subnav';
-
-    var subGeneralEl = document.createElement('div');
-    subGeneralEl.className = 'admin-sub';
-    subGeneralEl.id = 'sub-general';
-
-    var subProvidersEl = document.createElement('div');
-    subProvidersEl.className = 'admin-sub';
-    subProvidersEl.id = 'sub-providers';
-
-    var subToolsEl = document.createElement('div');
-    subToolsEl.className = 'admin-sub';
-    subToolsEl.id = 'sub-tools';
-
-    content.textContent = '';
-    content.appendChild(_adminHeader);
-    content.appendChild(_adminSubnav);
-    content.appendChild(subGeneralEl);
-    content.appendChild(subProvidersEl);
-    content.appendChild(subToolsEl);
+    var headerEl = content.querySelector('#admin-area-header');
+    var _adminSubnav = content.querySelector('#admin-subnav');
+    var subGeneralEl = content.querySelector('#sub-general');
+    var subProvidersEl = content.querySelector('#sub-providers');
+    var subToolsEl = content.querySelector('#sub-tools');
 
     var sectionNavEl = _adminSubnav;
+
+    // M10 L3.3 — Admin area header builder. Each sub-tab gets its own
+    // eyebrow + title + subtitle:
+    //   - General   → "SYSTEM · GENERAL"       / "General"
+    //   - Providers → "SYSTEM · LLM PROVIDERS" / "LLM Providers" (count varies)
+    //   - Tools     → "SYSTEM · BUILT-IN TOOLS" / "Built-in Tools" (N / 19)
+    // Provider subtitle has the zero-state copy when providerCount === 0
+    // (mirrors the topnav stat's zero-state); otherwise it's "N provider[s]
+    // configured · API keys encrypted at rest." Tools subtitle is always
+    // "N / 19 tools enabled at operator level."
+    function buildAdminHeaderHtml(state) {
+      var titles = {
+        general:   { title: 'General',        sub: 'Appearance, encryption, base prompt — single-user local settings.' },
+        providers: { title: 'LLM Providers',  sub: state.providerCount === 0
+          ? 'Wire up a provider to unlock the rest of the app. API keys are encrypted at rest.'
+          : state.providerCount + ' provider' + (state.providerCount === 1 ? '' : 's') + ' configured · API keys encrypted at rest.' },
+        tools:     { title: 'Built-in Tools', sub: state.toolsEnabled + ' / 19 tools enabled at operator level.' }
+      };
+      var eyebrows = {
+        general:   'SYSTEM · GENERAL',
+        providers: 'SYSTEM · LLM PROVIDERS',
+        tools:     'SYSTEM · BUILT-IN TOOLS'
+      };
+      var t = titles[state.subtab] || titles.general;
+      var e = eyebrows[state.subtab] || eyebrows.general;
+      return '<div class="area-header-titleblock">' +
+          '<div class="eyebrow">' + e + '</div>' +
+          '<h1 class="area-title">' + t.title + '</h1>' +
+          '<p class="area-sub">' + t.sub + '</p>' +
+        '</div>';
+    }
+
+    // Snapshot the per-sub-tab state and re-render the header. providerCount
+    // comes from TelemetryStore when numeric (already hydrated by app.js's
+    // initial refresh + per-area-switch refresh); when the store value is
+    // still the em-dash placeholder, we fall back to the in-memory provider
+    // cache, else 0. toolsEnabled is computed from the toolConfigs array
+    // (the telemetry store tracks total tool count, NOT enabled count, so
+    // we count locally; mirrors the cache the grid already builds against).
+    function refreshAdminHeader() {
+      if (!headerEl) return;
+      var telemetry = (window.TelemetryStore && window.TelemetryStore.get)
+        ? window.TelemetryStore.get() : {};
+      var providerCount = (typeof telemetry.providers === 'number')
+        ? telemetry.providers
+        : (Array.isArray(providers) ? providers.length : 0);
+      var toolsEnabled = 0;
+      if (Array.isArray(toolConfigs)) {
+        for (var i = 0; i < toolConfigs.length; i++) {
+          if (toolConfigs[i] && toolConfigs[i].enabled) toolsEnabled++;
+        }
+      }
+      var state = {
+        subtab: currentCategory || 'general',
+        providerCount: providerCount,
+        toolsEnabled: toolsEnabled
+      };
+      while (headerEl.firstChild) headerEl.removeChild(headerEl.firstChild);
+      headerEl.insertAdjacentHTML('beforeend', buildAdminHeaderHtml(state));
+    }
 
     // ── Section activation ─────────────────────────────────────────────
 
@@ -248,6 +295,14 @@ App.registerArea({
       subProvidersEl.classList.toggle('active', catId === 'providers');
       subToolsEl.classList.toggle('active', catId === 'tools');
       App.layout.updateActiveSection(sectionNavEl, catId);
+
+      // M10 L3.3 — refresh the area-header for the new sub-tab. Fires on
+      // every sub-tab switch (sidebar click, hydrateState from URL hash,
+      // initial mount). Header content depends on `currentCategory`,
+      // `providers`, and `toolConfigs` — all closure locals already
+      // up-to-date at this point. Counts may be stale (0/--) until the
+      // matching fetch resolves; the .then handlers re-call this fn.
+      refreshAdminHeader();
 
       // Lazy-render — re-render the just-activated section's content.
       if (catId === 'general') {
@@ -350,6 +405,12 @@ App.registerArea({
                 App.router.replaceSub(self.serializeState());
               }
               if (isCreate) {
+                // M10 L3.3 \u2014 provider was just created; reload the list so
+                // the count in the area-header is fresh on next subtab visit.
+                // (Header is hidden in editor mode but the count is read by
+                // refreshAdminHeader from the in-memory cache, so a stale
+                // cache would show wrong copy when the operator goes back.)
+                fetchProviders();
                 renderProvidersPanel(mountEl);
               }
               // Edit\u2192edit case: editor stays mounted; sub-module's local
@@ -361,6 +422,9 @@ App.registerArea({
               dirty = false;
               if (window.App && window.App.router) App.router.replaceSub('providers');
               renderProvidersPanel(mountEl);
+              // M10 L3.3 \u2014 renderProvidersPanel will refire fetchProviders \u2192
+              // which refreshes the header after the cache is updated. No
+              // extra call needed here.
             },
             onDirtyChange: function (d) { dirty = d; },
             getTypeDefaults: function (type) { return TYPE_DEFAULTS[type]; }
@@ -386,6 +450,11 @@ App.registerArea({
         .then(function (data) {
           providers = data;
           populateProviderGrid();
+          // M10 L3.3 — refresh header after provider fetch so the count in
+          // the Providers subtitle reflects real data (initial mount fires
+          // refreshAdminHeader before fetchProviders resolves, so the first
+          // paint shows the zero-state copy when the cache is empty).
+          refreshAdminHeader();
           self._tryConsumePendingProvider();
         })
         .catch(function () {
@@ -503,6 +572,11 @@ App.registerArea({
               schema: editingTool.schema
             };
             dirty = false;
+            // M10 L3.3 — the editor can flip the `enabled` field; refresh
+            // the header so the "N / 19" count is correct when the operator
+            // navigates back to the grid (refreshAdminHeader reads from the
+            // toolConfigs cache that we just mutated above).
+            refreshAdminHeader();
           },
           onDirtyChange: function (d) { dirty = d; }
         });
@@ -566,6 +640,9 @@ App.registerArea({
           if (currentCategory !== 'tools') return;
           toolConfigs = data;
           populateToolGrid();
+          // M10 L3.3 — refresh header after tools fetch so the "N / 19
+          // tools enabled" subtitle reflects real data.
+          refreshAdminHeader();
         })
         .catch(function () {
           if (currentCategory !== 'tools') return;
@@ -606,6 +683,10 @@ App.registerArea({
       toolConfigs[idx].enabled = newEnabled;
       toolsInFlight[name] = true;
       populateToolGrid();
+      // M10 L3.3 — refresh header optimistically so the "N / 19" count
+      // tracks the toggle without waiting for the PUT round-trip. Reverted
+      // by the .catch when the PUT fails.
+      refreshAdminHeader();
 
       fetch('/api/tools/configs/' + encodeURIComponent(name), {
         method: 'PUT',
@@ -617,6 +698,7 @@ App.registerArea({
         // Revert and surface the error via the existing admin wrapper.
         toolConfigs[idx].enabled = prev;
         showAdminFlash('Failed to update ' + name + '.', true);
+        refreshAdminHeader();
       }).then(function () {
         // Always clear in-flight + re-render (success path also re-renders
         // to clear the `disabled` attr on the toggle).
