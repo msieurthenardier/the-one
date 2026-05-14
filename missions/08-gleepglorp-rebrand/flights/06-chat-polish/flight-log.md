@@ -135,6 +135,42 @@ Performed during flight planning (2026-05-14). Source artifacts inspected: F5 de
 - **Cycle-2 decision**: skipped per agentic-workflow Phase 2a step 4. Both fixes are wording clarifications; no structural rework.
 - L04 status → `ready`
 
+### 2026-05-14 — L06 HAT execution
+
+Operator drove all 11 scenarios in sequence. Final tallies: broad pytest 1627p/4s/370d, browser suite 315p/35s, pixel suite 12/12 on clean rerun after baseline regen. All within F5 baseline.
+
+**Scenario results**:
+
+| # | Scenario | Disposition |
+|---|---|---|
+| 1 | Mascot placement (both themes) | pass — accept as-is; operator-aesthetic verdict honored |
+| 2 | Empty session-list state | pass |
+| 3 | Code blocks (themes) + inline pill | pass |
+| 4 | Telemetry warn/crit | **deferred to F6.5** — CSS rule fires correctly via DevTools class-flip; underlying token math has a denominator bug that makes real-data exercise unreliable. F6.5 fixes the math, then this scenario can be re-validated organically. |
+| 5 | Input field accessibility hints (`enterkeyhint`, `aria-keyshortcuts`) | pass |
+| 6 | OAuth `auth_required` consent affordance | pass + **inline copy edit** — operator noted that with the new attribution line ABOVE the button, the button text "Login required for {source_name}" reads as a duplicate statement rather than an action. Changed to "Log in to {source_name}" (1-line edit at chat.js:534; also updated the 2 test assertions in `tests/browser/test_oauth_modal_flow.py:124,144`). Technical deviation from flight spec's "does NOT restyle the button itself" — defensible interpretation: text label is meaning-carrying, not visual styling, so this is a copy edit within polish scope, not a restyle. |
+| 7 | Auto-open trace shell on auth_required | **stay as-is** — operator confirmed the Login button rendered visibly in their MCP setup (the direct-mount path, NOT the trace-mounted path). Their MCP emits `auth_required` without a `parent_message_id`, so `getOrCreateTrace` returns null and the wrapper mounts directly to `.messages` via L05's fallback path. The trace auto-open question is moot for their setup. If a different MCP someday emits `auth_required` WITH a parent_message_id (trace-mounted) and surfaces visibility issues, the 1-line `details.open = true` fix in `getOrCreateTrace` is still available for a future flight. |
+| 8 | WS-reconnect mid-turn (per F5 debrief AI #5) | **skipped** — DevTools Network → Offline didn't reliably reproduce in operator's setup, and the heavier alternatives (docker network disconnect, docker restart) have unwanted side effects. F5 AI #5's "exercise the defensive WS-reconnect path" remains unexercised, same as F5 HAT. Carry-forward target: a dedicated reliability flight, F7 perf audit, or a future debrief that owns reproducing the network drop as part of its test plan. |
+| 9 | Routing — deep link + hard refresh + back/forward | pass + **inline fix** — operator found that hard-refresh or deep-link to a session loaded history but left the scroll at the top instead of the bottom (where the most recent messages are). Root cause: `renderHistory()` runs BEFORE `showChrome()` at `chat.js:739,754` so the messages container has `clientHeight=0` during history append → smart-scroll's pin check evaluates wrong AND any unconditional `scrollHeight` assignment is 0 while hidden. Fix: added an unconditional `messagesEl.scrollTop = messagesEl.scrollHeight` immediately AFTER `showChrome()` in the `session_joined` handler — by then the chrome is visible and scrollHeight reflects the populated history. Verified live: deep-link and hard-refresh both land at the most recent message. |
+| 10 | Pixel baseline regeneration | pass — 12/12 baselines regenerated via `UPDATE_SNAPSHOTS=1 docker exec the-one pytest -m pixel` (the `--snapshot-update` CLI flag is registered in `tests/browser/conftest.py` but doesn't reach top-level pytest invocation); subsequent clean rerun without env var also 12/12. Playwright Chromium was wiped by earlier `make rebuild` calls during HAT-cycle fixes; `make _ensure-playwright` restored cleanly. |
+| 11 | Broad pytest + browser suite stability | pass — broad 1627p/4s/370d; browser 315p/35s after fixing the 2 `test_oauth_modal_flow.py` assertions broken by the Scenario 6 copy edit |
+
+**Inline fixes landed during HAT** (3 items):
+
+1. **Smart-scroll helper** (chat.js) — Operator surfaced finding #4 from the initial multi-bug report: "auto-scroll forces user down while output is streaming." Added `scrollToBottomIfPinned()` helper with an 80px pin threshold at chat.js:108; replaced 7 unconditional `messagesEl.scrollTop = messagesEl.scrollHeight` callsites with the helper. Smart-scroll only pins to bottom when the user is already near it; if they've scrolled up to read history, leaves them where they are.
+2. **Log-in button copy edit** (chat.js + test assertions) — see Scenario 6 above.
+3. **Scroll-to-bottom after `showChrome()`** (chat.js) — see Scenario 9 above.
+
+**Other findings raised by the operator during HAT** (5 mission-level KIs added to `mission.md`):
+
+1. `max_context_tokens` hardcoded per provider class, not per model — **blocks F7** until F6.5 fixes
+2. Ollama `prompt_tokens` may undercount for some models — pairs with #1 in F6.5
+3. No stop / cancel button during active turn — feature work, dedicated flight
+4. Long-running conversation loops on local models (qwen via Ollama) — agent-loop investigation, dedicated flight; pairs with #3
+5. Telemetry `usage` event fires only after step completion, not during streaming — defer to F6.5 or F7
+
+**F6.5 spawned** (operator-confirmed): a bridging "telemetry-accuracy" flight to fix items #1, #2, and #5 above before F7 can start. Will be planned in a separate session.
+
 ### 2026-05-14 — L04 implementation landed
 
 - Spawned general-purpose Developer (Sonnet) to implement L04

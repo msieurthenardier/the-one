@@ -121,7 +121,7 @@ def test_login_button_renders_with_source_name(
     )
     btn = page.locator(".login-required-btn")
     expect(btn).to_be_visible()
-    expect(btn).to_have_text("Login required for Cloudflare MCP")
+    expect(btn).to_have_text("Log in to Cloudflare MCP")
 
 
 @pytest.mark.browser
@@ -141,7 +141,7 @@ def test_login_button_falls_back_to_source_id_when_no_name(
     )
     btn = page.locator(".login-required-btn")
     expect(btn).to_be_visible()
-    expect(btn).to_have_text("Login required for src-no-name")
+    expect(btn).to_have_text("Log in to src-no-name")
 
 
 @pytest.mark.browser

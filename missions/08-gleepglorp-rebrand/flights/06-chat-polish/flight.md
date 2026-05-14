@@ -1,6 +1,6 @@
 # Flight: Chat Polish
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [GleepGlorp AI Rebrand & UX Polish](../../mission.md)
 
 ## Contributing to Criteria
@@ -118,7 +118,7 @@ Polish the rest of the Chat surface page-by-page now that L03's structural chang
 - [x] `welcome-and-session-list-polish` — welcome canvas (with mascot placement), session list and history bucketing, agent selector dropdown
 - [x] `message-stream-polish` — message bubbles, markdown rendering, input field, telemetry overlay
 - [x] `oauth-and-routing-polish` — M07 OAuth consent button placement (revisit auto-open question), chat-surface routing/navigation fixes, opportunistic bug fixes
-- [ ] `chat-alignment-hat` — operator HAT across all polished surfaces; new WS-reconnect-mid-turn scenario; pixel baseline regeneration; browser-suite regression smoke
+- [x] `chat-alignment-hat` — operator HAT across all polished surfaces; new WS-reconnect-mid-turn scenario; pixel baseline regeneration; browser-suite regression smoke
 
 ---
 
