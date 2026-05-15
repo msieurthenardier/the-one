@@ -215,6 +215,10 @@
 
   /* ── Area panels ─────────────────────────────────────────────────────── */
 
+  .content-panel {
+    transition: opacity var(--motion-base) ease;
+  }
+
   .area {
     display: none;
     padding: 24px 32px 48px;

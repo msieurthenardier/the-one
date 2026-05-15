@@ -311,15 +311,18 @@ def test_cross_area_switch_unmounts_previous_area(app_clean: str, page: Page) ->
     )
 
     # The outgoing panel still exists (initialized=true) but must be hidden.
+    # L6.2: the cross-area switch now fades the outgoing panel via opacity
+    # before flipping display:none ~180ms later. Wait for the fade + buffer
+    # to elapse before asserting visibility.
     studio_panel = page.locator("#main-content > .area-studio")
     admin_panel = page.locator("#main-content > .area-admin")
     expect(studio_panel).to_have_count(1)
     expect(admin_panel).to_have_count(1)
-    expect(studio_panel).not_to_be_visible()
+    expect(studio_panel).to_have_css("display", "none", timeout=400)
     expect(admin_panel).to_be_visible()
 
     # Switch back to Studio and verify the inverse.
     page.locator('.navseg[data-area="studio"]').click()
     expect(page.locator(".area-studio .section-nav-item").first).to_be_visible(timeout=5000)
     expect(studio_panel).to_be_visible()
-    expect(admin_panel).not_to_be_visible()
+    expect(admin_panel).to_have_css("display", "none", timeout=400)

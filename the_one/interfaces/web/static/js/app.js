@@ -73,15 +73,29 @@
         areas[currentId].deactivate();
       }
 
-      // Hide all content panels (no sidebar in Holograph). The `.active`
-      // class is kept for browser-test selectors and aria-bookkeeping, but
-      // visibility is enforced directly via inline `display` — no
-      // `.content-panel` CSS rule governs visibility, so relying on the
-      // class alone left the outgoing area's DOM stacked above the new one.
+      // L6.1+6.2+6.7 — Fade outgoing panels (snap if prefers-reduced-motion).
+      // The `.active` class is kept for browser-test selectors and
+      // aria-bookkeeping; visibility is enforced via inline `display` /
+      // `opacity` so the `.content-panel` CSS transition can drive the fade.
+      var reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
       var contentPanels = document.querySelectorAll('#main-content .content-panel');
       for (var i = 0; i < contentPanels.length; i++) {
-        contentPanels[i].classList.remove('active');
-        contentPanels[i].style.display = 'none';
+        var p = contentPanels[i];
+        p.classList.remove('active');
+        if (reducedMotion) {
+          p.style.display = 'none';
+          p.style.opacity = '';
+        } else {
+          p.style.opacity = '0';
+          (function (panel) {
+            setTimeout(function () {
+              if (!panel.classList.contains('active')) {
+                panel.style.display = 'none';
+              }
+            }, 180);  // matches --motion-base
+          })(p);
+        }
       }
 
       // Init on first activation
@@ -93,11 +107,19 @@
         initialized[areaId] = true;
       }
 
-      // Show target panel
+      // Show target panel — fade in via two-tick (0 → reflow → 1) unless
+      // prefers-reduced-motion, in which case snap straight to visible.
       var targetContent = document.querySelector('#main-content .area-' + areaId);
       if (targetContent) {
         targetContent.classList.add('active');
         targetContent.style.display = '';
+        if (reducedMotion) {
+          targetContent.style.opacity = '';
+        } else {
+          targetContent.style.opacity = '0';
+          targetContent.offsetHeight; // eslint-disable-line no-unused-expressions
+          targetContent.style.opacity = '1';
+        }
       }
 
       // M10 — re-render topnav so active nav segment + per-area chips update.
