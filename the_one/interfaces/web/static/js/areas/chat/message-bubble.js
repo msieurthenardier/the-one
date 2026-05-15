@@ -14,20 +14,50 @@
     return hh + ':' + mm + ':' + ss + ' UTC';
   }
 
+  // L5.1 — mono who-line for a message. Used by both user and agent renderers.
+  // msg.role: 'user' | 'assistant'; msg.agent_name and msg.model are optional.
+  function renderWhoLine(msg) {
+    var el = document.createElement('div');
+    el.className = 'msg-who';
+    if (msg.role === 'user') {
+      el.classList.add('msg-who-user');
+      el.appendChild(document.createTextNode('YOU '));
+      var tagU = document.createElement('span');
+      tagU.className = 'who-tag';
+      tagU.textContent = '→' + String(msg.agent_name || '').toLowerCase();
+      el.appendChild(tagU);
+    } else {
+      el.classList.add('msg-who-agent');
+      var tagA = document.createElement('span');
+      tagA.className = 'who-tag';
+      tagA.textContent = String(msg.agent_name || 'agent').toLowerCase();
+      el.appendChild(tagA);
+      el.appendChild(document.createTextNode(' ← ' + String(msg.model || '').toLowerCase()));
+    }
+    return el;
+  }
+
   // Renders a user message row.
   // <div class="msg-row user" data-testid="message">
   //   <div class="msg-body">
+  //     <div class="msg-who msg-who-user">YOU →{agent}</div>
   //     <div class="msg-text">{text}</div>
   //     <div class="msg-meta" style="justify-content:flex-end"><span class="msg-time">{ts}</span></div>
   //   </div>
   // </div>
-  function renderUserMessage(text, ts) {
+  function renderUserMessage(text, ts, opts) {
+    opts = opts || {};
     var row = document.createElement('div');
     row.className = 'msg-row user';
     row.setAttribute('data-testid', 'message');
 
     var body = document.createElement('div');
     body.className = 'msg-body';
+
+    body.appendChild(renderWhoLine({
+      role: 'user',
+      agent_name: opts.agentName || ''
+    }));
 
     var textEl = document.createElement('div');
     textEl.className = 'msg-text';
@@ -79,20 +109,24 @@
     var body = document.createElement('div');
     body.className = 'msg-body';
 
-    var meta = document.createElement('div');
-    meta.className = 'msg-meta';
-    var authorEl = document.createElement('span');
-    authorEl.className = 'msg-author';
-    authorEl.textContent = name;
-    meta.appendChild(authorEl);
+    // L5.1 — mono who-line replaces the .msg-author label. The time meta
+    // block is preserved (when ts is present) below the who-line.
+    body.appendChild(renderWhoLine({
+      role: 'assistant',
+      agent_name: name,
+      model: opts.model || ''
+    }));
+
     var formatted = fmtTs(ts);
     if (formatted) {
+      var meta = document.createElement('div');
+      meta.className = 'msg-meta';
       var timeEl = document.createElement('span');
       timeEl.className = 'msg-time';
       timeEl.textContent = formatted;
       meta.appendChild(timeEl);
+      body.appendChild(meta);
     }
-    body.appendChild(meta);
 
     var msgText = document.createElement('div');
     msgText.className = 'msg-text';
@@ -295,7 +329,7 @@
     var firstToken = cls.split(' ')[0];
     if (firstToken === 'user') {
       var ts = opts.ts || null;
-      return renderUserMessage(text, ts);
+      return renderUserMessage(text, ts, opts);
     }
     if (firstToken === 'assistant') {
       var result = renderAgentMessage(text, opts.agentName || null, opts.ts || null, opts);

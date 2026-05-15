@@ -55,7 +55,8 @@ def test_streaming_chunks_accumulate_in_single_bubble(app_clean: str, page: Page
     page.locator('[data-testid="chat-input"]').fill("hi")
     page.locator('[data-testid="chat-send-btn"]').click()
 
-    user_msg = page.locator('[data-testid="message"].msg-row.user')
+    # Target .msg-text (the user row now also contains the L5.1 mono who-line).
+    user_msg = page.locator('[data-testid="message"].msg-row.user .msg-text')
     expect(user_msg).to_have_text("hi", timeout=5000)
 
     # The assistant bubble accumulates all three chunks. There is exactly

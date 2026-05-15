@@ -38,7 +38,8 @@ def test_chat_send_receives_mock_response(app_with_agent: SeededApp, page: Page)
     page.locator('[data-testid="chat-send-btn"]').click()
 
     # 5. User message renders.
-    user_msg = page.locator('[data-testid="message"].msg-row.user')
+    #    Target .msg-text (the user row now also contains the L5.1 mono who-line).
+    user_msg = page.locator('[data-testid="message"].msg-row.user .msg-text')
     expect(user_msg).to_have_text("hello", timeout=5000)
 
     # 6. Assistant message renders with the mock provider's default response.

@@ -38,6 +38,7 @@ App.registerArea({
     var pendingJoinId = null;
     var sessions = [];
     var currentAgentName = null;
+    var currentAgentModel = null;
     var messagesEl, inputEl, sendBtn, sessionListEl, convoHeaderEl, composerEl, newSessionBtn;
     var setupIncomplete = false;
     var sessionBannerEl = null;
@@ -162,10 +163,19 @@ App.registerArea({
 
     function addMsg(cls, text, attribution, opts) {
       // attribution arg is now ignored (Holograph embeds author/time in msg-body).
-      // opts.agentName is used by renderMessage for the avatar initials.
+      // opts.agentName is used by renderMessage for the avatar initials and
+      // (L5.1) the mono who-line; opts.model fills the trailing model tag.
       var msgOpts = opts || {};
-      if (cls.indexOf('assistant') === 0 && !msgOpts.agentName) {
-        msgOpts = { agentName: currentAgentName, ts: msgOpts.ts, renderMarkdown: msgOpts.renderMarkdown };
+      var firstToken = cls.split(' ')[0];
+      if (firstToken === 'assistant' && !msgOpts.agentName) {
+        msgOpts = {
+          agentName: currentAgentName,
+          model: msgOpts.model || currentAgentModel || '',
+          ts: msgOpts.ts,
+          renderMarkdown: msgOpts.renderMarkdown
+        };
+      } else if (firstToken === 'user' && !msgOpts.agentName) {
+        msgOpts = Object.assign({}, msgOpts, { agentName: currentAgentName || '' });
       }
       var el = App.chat.renderMessage(cls, text, msgOpts);
       if (el) messagesEl.appendChild(el);
@@ -221,9 +231,30 @@ App.registerArea({
       ws.send(JSON.stringify(msg));
     }
 
-    function renderHistory(history, agentName) {
+    // L5.1 — stream-leading eyebrow above the first message. Rendered once
+    // per session (not per message) at the top of the convo-stream after
+    // it's been cleared. Derives a session.index from the sessions list.
+    function renderSessionEyebrow(session) {
+      if (!session) return null;
+      var idx = session.index;
+      if (idx == null) {
+        for (var i = 0; i < sessions.length; i++) {
+          if (sessions[i].id === session.id) { idx = i + 1; break; }
+        }
+        if (idx == null) idx = 1;
+      }
+      var el = document.createElement('div');
+      el.className = 'eyebrow stream-eyebrow';
+      el.textContent = 'SESSION ' + String(idx).padStart(2, '0') +
+        ' · ' + String(session.title || 'untitled').toUpperCase();
+      return el;
+    }
+
+    function renderHistory(history, agentName, session) {
       messagesEl.setAttribute('aria-busy', 'true');
       messagesEl.innerHTML = '';
+      var eyebrowEl = renderSessionEyebrow(session);
+      if (eyebrowEl) messagesEl.appendChild(eyebrowEl);
       var agentLabel = agentName || 'agent';
       for (var i = 0; i < history.length; i++) {
         var ev = history[i];
@@ -675,12 +706,18 @@ App.registerArea({
             App.router.replaceSub('sessions/' + currentSessionId);
           }
           currentAgentName = data.agent_name;
+          currentAgentModel = data.model || null;
           // Re-render convo header with session details and refresh composer placeholder.
           renderConvoHeader({ title: data.title || ('Chat with ' + (data.agent_name || 'agent')), agent_name: data.agent_name, model: data.model });
           renderComposer(data.agent_name);
           hideThinking();
           resetCtxChip();
-          renderHistory(data.history, data.agent_name);
+          renderHistory(data.history, data.agent_name, {
+            id: data.session_id,
+            title: data.title || ('Chat with ' + (data.agent_name || 'agent')),
+            agent_name: data.agent_name,
+            model: data.model
+          });
           setSessionHealth(data.status || 'ok');
           // Sync per-session busy state to server ground truth (the
           // session's `processing_lock.locked()` boolean). Without this,
@@ -705,6 +742,7 @@ App.registerArea({
             hideThinking();
             currentSessionId = null;
             currentAgentName = null;
+            currentAgentModel = null;
             if (window.App && window.App.router) App.router.replaceSub(null);
             messagesEl.innerHTML = '';
             setSessionHealth('ok');
@@ -726,7 +764,7 @@ App.registerArea({
           // text-node children to the correct element.
           hideThinking();
           if (!currentStreamingMsg) {
-            var streamResult = App.chat.renderAgentMessage('', currentAgentName || 'agent', new Date().toISOString(), { renderMarkdown: false });
+            var streamResult = App.chat.renderAgentMessage('', currentAgentName || 'agent', new Date().toISOString(), { renderMarkdown: false, model: currentAgentModel || '' });
             messagesEl.appendChild(streamResult.row);
             // streamResult.msgText is the .msg-text div; seed with empty text node.
             if (!streamResult.msgText.firstChild) {

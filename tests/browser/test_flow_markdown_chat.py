@@ -99,7 +99,8 @@ def test_user_message_renders_textcontent_not_markdown(app_with_agent, page: Pag
     page.locator('[data-testid="chat-send-btn"]').click()
 
     user_bubble = page.locator('[data-testid="message"].msg-row.user').first
-    expect(user_bubble).to_have_text("**bold**", timeout=5000)
+    # Target .msg-text (the user row now also contains the L5.1 mono who-line).
+    expect(user_bubble.locator(".msg-text")).to_have_text("**bold**", timeout=5000)
     # The user bubble must NOT contain a <strong> child — markdown
     # rendering is assistant-only.
     expect(user_bubble.locator("strong")).to_have_count(0)
