@@ -5,20 +5,102 @@
 
   // Renders the LLM Providers page-header + tile grid.
   //
-  // Tile DOM (post-leg-02 canonical):
-  //   <button class="entity-tile provider-tile"
+  // Tile DOM (L5.5 — Holograph populated card):
+  //   <button class="provider-card entity-tile provider-tile"
   //           data-testid="provider-card"
   //           data-id="{provider.id}"
   //           aria-selected="{true|false}">
-  //     <span class="entity-tile-badge admin-provider-badge admin-provider-badge--{type}">{type}</span>
-  //     <span class="entity-tile-name">{name}</span>
-  //     <span class="entity-tile-meta">{base_url || '—'}</span>
+  //     <div class="provider-card-head">
+  //       <div class="provider-type-cat entity-tile-badge admin-provider-badge admin-provider-badge--{type}">{type}</div>
+  //       <div class="provider-card-status">
+  //         <span class="stat-dot {ok|err|idle}"></span>{READY|ERROR|UNTESTED}
+  //       </div>
+  //     </div>
+  //     <div class="provider-card-name entity-tile-name">{name}</div>
+  //     <div class="provider-card-meta entity-tile-meta">LAST USED · {relative|NEVER}</div>
   //   </button>
   //
   // The active tile (when an editor is open for that id) carries
   // aria-selected="true"; others carry aria-selected="false".
+  //
+  // The badge slot composes `provider-type-cat` (new Holograph mono category
+  // styling, uppercase via CSS text-transform) with `entity-tile-badge`
+  // (selector continuity for browser tests + the legacy admin-provider-badge
+  // per-type colour rules). Status / last-used rely on the optional
+  // last_test_ok / last_used_at fields; absent fields collapse to UNTESTED /
+  // never with no breakage.
 
   var KNOWN_BADGE_TYPES = ['ollama', 'openai-compatible', 'openai', 'anthropic', 'mock', 'openrouter'];
+
+  function formatRelative(iso) {
+    if (!iso) return null;
+    var t = new Date(iso).getTime();
+    if (!isFinite(t)) return null;
+    var ms = Date.now() - t;
+    if (ms < 0) ms = 0;
+    var min = Math.floor(ms / 60000);
+    if (min < 1) return 'just now';
+    if (min < 60) return min + 'm ago';
+    var hr = Math.floor(min / 60);
+    if (hr < 24) return hr + 'h ago';
+    return Math.floor(hr / 24) + 'd ago';
+  }
+
+  function statusFor(p) {
+    if (p.last_test_ok === true) return { cls: 'ok', label: 'READY' };
+    if (p.last_test_ok === false) return { cls: 'err', label: 'ERROR' };
+    return { cls: 'idle', label: 'UNTESTED' };
+  }
+
+  function renderProviderCard(p, isActive) {
+    var typeSuffix = KNOWN_BADGE_TYPES.indexOf(p.type) >= 0 ? p.type : 'unknown';
+    var status = statusFor(p);
+    var relative = formatRelative(p.last_used_at);
+    var lastUsedText = 'LAST USED · ' + (relative ? relative.toUpperCase() : 'NEVER');
+
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'provider-card entity-tile provider-tile';
+    btn.setAttribute('role', 'option');
+    btn.setAttribute('data-testid', 'provider-card');
+    btn.setAttribute('data-id', p.id);
+    btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    if (isActive) btn.classList.add('selected');
+
+    var head = document.createElement('div');
+    head.className = 'provider-card-head';
+
+    // Category / type badge — composes provider-type-cat (mono uppercase)
+    // with entity-tile-badge + admin-provider-badge--{type} (color rules +
+    // selector continuity for existing browser tests).
+    var cat = document.createElement('span');
+    cat.className =
+      'provider-type-cat entity-tile-badge admin-provider-badge admin-provider-badge--' + typeSuffix;
+    cat.textContent = p.type;
+    head.appendChild(cat);
+
+    var statusEl = document.createElement('div');
+    statusEl.className = 'provider-card-status';
+    var dot = document.createElement('span');
+    dot.className = 'stat-dot ' + status.cls;
+    statusEl.appendChild(dot);
+    statusEl.appendChild(document.createTextNode(status.label));
+    head.appendChild(statusEl);
+
+    btn.appendChild(head);
+
+    var nameEl = document.createElement('div');
+    nameEl.className = 'provider-card-name entity-tile-name';
+    nameEl.textContent = p.name;
+    btn.appendChild(nameEl);
+
+    var metaEl = document.createElement('div');
+    metaEl.className = 'provider-card-meta entity-tile-meta';
+    metaEl.textContent = lastUsedText;
+    btn.appendChild(metaEl);
+
+    return btn;
+  }
 
   // L4.4 — provider-type card definitions for the empty-state 4-card grid.
   // Anthropic is RECOMMENDED (accent border + accent eyebrow); the other
@@ -83,9 +165,6 @@
     var onCreateProvider = callbacks.onCreateProvider || function () {};
     var selectedId = callbacks.selectedId || null;
 
-    var escapeHtml = window.App.escapeHtml;
-    var escapeAttr = window.App.escapeAttr;
-
     container.innerHTML =
       '<div class="page-header">' +
         '<h1 class="page-title">LLM Providers</h1>' +
@@ -116,32 +195,23 @@
       return;
     }
 
-    var html = '';
+    // L5.5 — populated grid renders the new Holograph provider-card layout
+    // (mono category badge + status dot + name + LAST USED meta) via
+    // createElement / textContent. Each card preserves the legacy
+    // entity-tile-name / entity-tile-badge / entity-tile-meta classes for
+    // browser-test selector continuity.
+    while (gridEl.firstChild) gridEl.removeChild(gridEl.firstChild);
     for (var i = 0; i < providers.length; i++) {
       var p = providers[i];
-      var typeSuffix = KNOWN_BADGE_TYPES.indexOf(p.type) >= 0 ? p.type : 'unknown';
-      var displayUrl = p.base_url ? p.base_url : '—';
       var isActive = selectedId === p.id;
-      html +=
-        '<button class="entity-tile provider-tile" type="button" role="option" ' +
-            'data-testid="provider-card" data-id="' + escapeAttr(p.id) + '" ' +
-            'aria-selected="' + (isActive ? 'true' : 'false') + '">' +
-          '<span class="entity-tile-badge admin-provider-badge admin-provider-badge--' +
-            escapeAttr(typeSuffix) + '">' + escapeHtml(p.type) + '</span>' +
-          '<span class="entity-tile-name">' + escapeHtml(p.name) + '</span>' +
-          '<span class="entity-tile-meta">' + escapeHtml(displayUrl) + '</span>' +
-        '</button>';
-    }
-    gridEl.innerHTML = html;
-
-    var tiles = gridEl.querySelectorAll('.provider-tile');
-    for (var t = 0; t < tiles.length; t++) {
-      (function (tileEl) {
-        tileEl.addEventListener('click', function () {
-          var id = tileEl.dataset.id;
+      var card = renderProviderCard(p, isActive);
+      (function (cardEl) {
+        cardEl.addEventListener('click', function () {
+          var id = cardEl.dataset.id;
           if (id) onSelectProvider(id);
         });
-      })(tiles[t]);
+      })(card);
+      gridEl.appendChild(card);
     }
   }
 

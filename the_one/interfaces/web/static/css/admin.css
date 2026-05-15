@@ -6,10 +6,14 @@
  *   - .admin-subnav (styling alias for .holograph-section-nav; adds bottom
  *     margin so the subnav floats above the section content with breathing
  *     room).
- *   - .providers-grid + .provider-card (+ :hover / .selected / .expanded)
- *     and .provider-head / .provider-logo / .provider-name / .provider-type
- *     / .provider-body / .provider-status / .stat-label / .stat-value /
- *     .provider-expanded-body — the Providers section card grid.
+ *   - .provider-card (+ :hover / .selected) + .provider-card-head /
+ *     .provider-card-status / .provider-card-name / .provider-card-meta —
+ *     L5.5 Holograph populated provider card (mono category badge + status
+ *     dot + name + LAST USED meta). The legacy .providers-grid /
+ *     .provider-head / .provider-logo / .provider-name / .provider-body /
+ *     .provider-status / .stat-label / .stat-value / .provider-expanded-body
+ *     family was removed; new DOM uses .entity-tile-grid (un-area-scoped) as
+ *     the populated grid container.
  *   - .tools-section (+ -head / -title / -meta) + .tools-grid + .tool-card
  *     (+ :hover / .disabled) + .tool-head / .tool-name / .tool-toggle-wrap
  *     / .tool-desc — the Built-in Tools section.
@@ -61,132 +65,61 @@
 
   /* ── Providers grid ───────────────────────────────────────────────────── */
 
-  .providers-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 16px;
-  }
-
+  /* L5.5 — Holograph populated provider card.
+   *
+   * Replaces the legacy `.provider-card` / `.provider-head` / `.provider-body`
+   * stack (Mission-08 dual-column status block). The new card has three text
+   * rows: head (mono category badge + status dot+label) / name / mono LAST
+   * USED meta. The `entity-tile-*` selectors are composed on the same nodes
+   * for browser-test selector continuity.
+   */
   .provider-card {
-    background: var(--surface);
+    padding: var(--space-4);
+    background: var(--surface-2);
     border: 1px solid var(--hairline);
-    border-radius: var(--radius-card);
-    box-shadow: var(--shadow-1);
-    padding: 18px 18px 16px;
-    cursor: pointer;
-    transition: box-shadow var(--t), border-color var(--t);
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-    min-height: 168px;
-  }
-
-  .provider-card:hover {
-    box-shadow: var(--shadow-2);
-    border-color: var(--hairline-strong);
-  }
-
-  .provider-card.selected {
-    border-color: var(--accent);
-    box-shadow: var(--shadow-2);
-  }
-
-  .provider-card.selected::before {
-    content: '';
-    display: block;
-    height: 2px;
-    background: var(--accent);
-    border-radius: 1px;
-    margin: -18px -18px 0;
-  }
-
-  .provider-head {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
-
-  .provider-logo {
-    width: 32px;
-    height: 32px;
     border-radius: 8px;
-    background: var(--avatar-bg);
-    display: grid;
-    place-items: center;
-    color: var(--avatar-fg);
-    font-weight: 600;
-    font-size: 13px;
-    flex: none;
+    text-align: left;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    transition: border-color var(--motion-fast) ease;
   }
-
-  .provider-name {
-    font-size: 14px;
-    font-weight: 600;
-    letter-spacing: -0.01em;
-  }
-
-  .provider-type {
-    color: var(--fg-mute);
-    font-size: 11.5px;
-    margin-top: 1px;
-  }
-
-  .provider-body {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px 14px;
-    margin-top: auto;
-  }
-
-  .provider-status {
+  .provider-card:hover { border-color: var(--accent); }
+  .provider-card.selected { border-color: var(--accent); }
+  .provider-card-head {
     display: flex;
+    justify-content: space-between;
     align-items: center;
-    gap: 6px;
-    font-size: 12px;
+    margin-bottom: var(--space-2);
+  }
+  .provider-card-status {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.1em;
     color: var(--fg-mute);
   }
-
-  .stat-label {
-    font-size: 10.5px;
-    color: var(--fg-faint);
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    font-weight: 600;
-    margin-bottom: 2px;
-  }
-
-  .stat-value {
-    font-size: 13px;
+  .provider-card-name {
+    font-size: 14px;
     color: var(--fg);
     font-weight: 500;
-    font-variant-numeric: tabular-nums;
+    margin-bottom: var(--space-3);
   }
-
-  .stat-value.mono {
+  .provider-card-meta {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 12px;
-    font-weight: 400;
-    color: var(--fg-mute);
+    font-size: 10px;
+    color: var(--fg-faint);
+    letter-spacing: 0.06em;
   }
-
-  /* Provider expanded card */
-
-  .provider-card.expanded {
-    grid-column: span 2;
-    background: var(--surface);
-    cursor: default;
-  }
-
-  .provider-card.expanded:hover {
-    box-shadow: var(--shadow-2);
-  }
-
-  .provider-expanded-body {
-    border-top: 1px solid var(--hairline);
-    padding-top: 14px;
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px 16px;
+  /* When the mono category badge composes both `provider-type-cat` (empty-
+   * state card style — block-level, larger margins) AND lives inside
+   * .provider-card-head (populated card), strip the block margin so the
+   * badge and status sit on a single flex row. */
+  .provider-card-head .provider-type-cat {
+    margin-bottom: 0;
+    text-transform: uppercase;
   }
 
   /* ── Tools section ────────────────────────────────────────────────────── */
