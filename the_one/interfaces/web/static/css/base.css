@@ -53,4 +53,15 @@
   ::-webkit-scrollbar-thumb { background: var(--hairline-strong); border-radius: 4px; }
   ::-webkit-scrollbar-thumb:hover { background: var(--fg-faint); }
   ::-webkit-scrollbar-track { background: transparent; }
+
+  /* a11y — universal reduced-motion guard. Suppresses all animations and
+   * transitions for users who request reduced motion at the OS level.
+   * Paired with the token-level override in tokens.css (--t: 0ms). */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+    }
+  }
 }
