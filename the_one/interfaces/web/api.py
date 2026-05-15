@@ -371,6 +371,74 @@ async def get_agent(name: str) -> dict[str, Any]:
     return cfg.model_dump()
 
 
+@router.get("/agents/{name}/context-window")
+async def get_agent_context_window(name: str) -> dict[str, int]:
+    """F7 L04 (eager-resolve): return the agent's resolved
+    ``max_context_tokens`` before the first user message.
+
+    Closes the F6.5 HAT observation that the telemetry overlay's ``max:``
+    value reads 0 before the first usage event fires. The frontend
+    ``session_joined`` handler fetches this endpoint immediately after
+    chrome is shown and seeds the overlay.
+
+    Constructs the full Agent via ``AgentFactory.create()`` (the only
+    path that wires up the LLM provider with credentials + config),
+    then runs the L01-landed lazy resolver
+    ``_resolve_max_context_tokens_if_needed`` which makes the per-
+    provider metadata call (no LLM tokens consumed — Ollama/OpenRouter
+    fetch ``/api/show`` or ``/models``; OpenAI/Anthropic use a hand-
+    maintained prefix table). Provider failures fall back to the class
+    default rather than raising (lazy resolver swallows + caches the
+    sentinel) so the endpoint returns a usable value even when the
+    provider's metadata API is down.
+
+    Error mapping:
+    - 404 if the agent name doesn't exist (``KeyError`` /
+      ``AgentNotFoundError`` from ``_load_config``)
+    - 400 if the agent has no provider configured
+      (``ProviderNotConfiguredError``) or the provider config has been
+      deleted (``ProviderNotFoundError``)
+    """
+    # Lazy imports: AgentFactory pulls in the full agent/LLM dependency
+    # graph (tools, MCP, encryption). Keeping the import inside the
+    # handler matches the existing pattern in this module (see e.g.
+    # ``rename_agent`` lazy-imports AgentConfig).
+    from the_one.agent.factory import (
+        AgentFactory,
+        ProviderNotConfiguredError,
+        ProviderNotFoundError,
+    )
+
+    # Must wire the SQLiteAgentStore (matches the live app's startup-time
+    # factory construction in ``app.py:_state["factory"]``); the default
+    # ``AgentFactory()`` ctor leaves ``store=None`` which 404s every named
+    # agent because the ``_load_config`` fallback only resolves "default".
+    store = await _agent_store()
+    factory = AgentFactory(store=store)
+    try:
+        agent = await factory.create(name)
+    except ProviderNotFoundError as exc:
+        # NOTE: must precede the bare-KeyError clause because
+        # ``ProviderNotFoundError`` subclasses ``KeyError`` (factory.py:150).
+        # Without this ordering, the dangling-provider case would 404
+        # ("agent not found") which misleads the operator — the agent
+        # exists but its provider config has been deleted.
+        raise HTTPException(status_code=400, detail=str(exc))
+    except ProviderNotConfiguredError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except KeyError:
+        # Covers both ``AgentNotFoundError`` (subclasses KeyError) and
+        # bare ``KeyError`` for completeness.
+        raise HTTPException(status_code=404, detail=f"Agent not found: {name}")
+
+    # Lazy resolver runs the per-provider metadata fetch (idempotent —
+    # short-circuits on subsequent calls via the sentinel attribute). On
+    # provider-side failure, the resolver swallows + leaves the class
+    # default in place, so this endpoint always returns a usable value.
+    await agent.llm._resolve_max_context_tokens_if_needed()
+    return {"max_context_tokens": agent.llm.max_context_tokens}
+
+
 @router.post("/agents", status_code=201)
 async def create_agent(request: Request) -> dict[str, Any]:
     from the_one.agent.config import AgentConfig

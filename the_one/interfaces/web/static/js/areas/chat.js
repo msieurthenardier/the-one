@@ -114,6 +114,7 @@ App.registerArea({
     }
 
     function addMsg(cls, text, attribution, opts) {
+      App.perf.mark('addMsg:start');
       messagesEl.appendChild(App.chat.renderMessage(cls, text, opts));
       if (attribution) {
         var side = cls.indexOf('user') === 0 ? 'from-you' : 'from-agent';
@@ -121,6 +122,8 @@ App.registerArea({
         messagesEl.appendChild(App.chat.renderAttribution(side, attribution, ts));
       }
       scrollToBottomIfPinned();
+      App.perf.mark('addMsg:end');
+      App.perf.measure('addMsg', 'addMsg:start', 'addMsg:end');
     }
 
     function highlightActiveSession() {
@@ -727,6 +730,7 @@ App.registerArea({
         if (data.type === 'session_joined') {
           // Stale-join guard: ignore responses for superseded join requests.
           if (currentSessionId && currentSessionId !== data.session_id) return;
+          App.perf.mark('session-join:received');
           currentSessionId = data.session_id;
           if (window.App && window.App.router) {
             App.router.replaceSub('sessions/' + currentSessionId);
@@ -752,6 +756,29 @@ App.registerArea({
             if (!sessionBannerEl) sendBtn.disabled = false;
           }
           showChrome();
+          // F7 L04 eager-resolve: fetch the agent's max_context_tokens
+          // BEFORE the first user message so the telemetry overlay's
+          // `max:` field shows the real value (not 0). Closes F6.5
+          // debrief AI #5. Fire-and-forget; failures (404 — agent was
+          // deleted between session create and join — or 400 — provider
+          // misconfigured) leave `max:` at its default until the first
+          // usage event arrives. Placed AFTER showChrome() so the
+          // overlay element exists before updateTelemetry mutates it.
+          if (currentAgentName) {
+            fetch('/api/agents/' + encodeURIComponent(currentAgentName) + '/context-window')
+              .then(function (r) { return r.ok ? r.json() : null; })
+              .then(function (payload) {
+                if (payload && payload.max_context_tokens) {
+                  App.chat.updateTelemetry(content, {
+                    input_tokens: 0,
+                    output_tokens: 0,
+                    context_tokens: 0,
+                    max_context_tokens: payload.max_context_tokens,
+                  });
+                }
+              })
+              .catch(function () { /* best-effort; silent on failure */ });
+          }
           // M08 F6 L06 HAT fix: scroll-to-bottom on session join/deep-link/
           // refresh. renderHistory() above ran while chrome was hidden
           // (clientHeight=0), so smart-scroll's pin check failed. After
@@ -759,6 +786,12 @@ App.registerArea({
           // recent message — that's where the user expects to land when
           // they open a session.
           messagesEl.scrollTop = messagesEl.scrollHeight;
+          App.perf.mark('session-join:dom-mutated');
+          App.perf.measure('session-join.ws-to-dom', 'session-join:received', 'session-join:dom-mutated');
+          requestAnimationFrame(function () {
+            App.perf.mark('session-join:painted');
+            App.perf.measure('session-join.dom-to-paint', 'session-join:dom-mutated', 'session-join:painted');
+          });
           refreshSessionList();
           return;
         }

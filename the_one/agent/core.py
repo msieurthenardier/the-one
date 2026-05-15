@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Awaitable, Callable
 
 from the_one.agent._context import current_tool_call_id
-from the_one.llm.base import LLMProvider, Message, ToolCall, ToolResult
+from the_one.llm.base import LLMProvider, Message, TokenUsage, ToolCall, ToolResult
 from the_one.mcp.errors import MCPAuthRequired
 from the_one.tools.base import ToolRegistry
 
@@ -112,6 +112,7 @@ class Agent:
         self,
         user_input: str,
         on_chunk: Callable[[str], Awaitable[None]] | None = None,
+        on_usage: Callable[[TokenUsage], Awaitable[None]] | None = None,
     ) -> AsyncIterator[Message]:
         """Process a user message through the agent loop.
 
@@ -121,6 +122,16 @@ class Agent:
         during streaming. Callers that omit ``on_chunk`` get the original
         Message-yielding semantics; chunks fan out internally but only the
         synthesised final ``Message`` flows up via ``yield``.
+
+        ``on_usage``: F7 L04 — optional async callback invoked when a
+        ``StreamChunk`` carries an interim ``usage`` payload (chunk.usage is
+        not None AND chunk.is_final is False). Fires ONLY for interim
+        emissions so callers can broadcast progressive telemetry; final-
+        chunk usage is intentionally skipped here because the caller's
+        existing final-usage broadcast path (see ``_process_and_broadcast``
+        in the web layer) handles end-of-step accumulation. Back-compat:
+        providers that never emit interim usage just never fire the
+        callback. Defaults to None.
         """
         self.messages.append(Message.user(user_input))
         # F5 L3: clear stale pause state at the start of a new step and
@@ -128,12 +139,13 @@ class Agent:
         # ``_remaining_iterations`` at the top of each iteration body.
         self._deferred_tool_calls = None
         self._remaining_iterations = self.max_iterations
-        async for msg in self._run_iterations(on_chunk):
+        async for msg in self._run_iterations(on_chunk, on_usage):
             yield msg
 
     async def _run_iterations(
         self,
         on_chunk: Callable[[str], Awaitable[None]] | None = None,
+        on_usage: Callable[[TokenUsage], Awaitable[None]] | None = None,
     ) -> AsyncIterator[Message]:
         """The iteration loop body — extracted for ``resume_after_auth`` re-use.
 
@@ -177,6 +189,17 @@ class Agent:
                     accumulated_text += chunk.content
                     if on_chunk:
                         await on_chunk(chunk.content)
+                # F7 L04: interim-only usage emission. Final-chunk usage is
+                # handled by the existing per-step accumulation path in the
+                # caller (avoids double-emission with the final usage_event
+                # broadcast in _process_and_broadcast). Cycle-1 [high]: gate
+                # on `chunk.usage is not None AND not chunk.is_final`.
+                if (
+                    chunk.usage is not None
+                    and not chunk.is_final
+                    and on_usage is not None
+                ):
+                    await on_usage(chunk.usage)
                 if chunk.is_final:
                     final_chunk = chunk
                     break

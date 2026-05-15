@@ -10,6 +10,16 @@ from the_one.llm import ollama_api
 from the_one.llm.base import LLMProvider, Message, Role, StreamChunk, TokenUsage, ToolCall
 from the_one.llm.registry import register_provider
 
+# F7 L04: bytes-per-token for the mid-stream usage byte-heuristic.
+# Ollama hosts a heterogeneous mix of tokenisers (Llama 3, Qwen, Gemma,
+# Mistral, etc.); 3.5 is the empirical mean across the most common
+# instruction-tuned families. Tunable post-HAT.
+BYTES_PER_TOKEN_OLLAMA = 3.5
+# Cumulative-byte threshold between interim usage emissions. Matches
+# OpenAI's INTERIM_USAGE_BYTE_THRESHOLD so frontend re-render cadence
+# is consistent across providers.
+INTERIM_USAGE_BYTE_THRESHOLD_OLLAMA = 200
+
 
 class OllamaProvider(LLMProvider):
     """Ollama provider using its OpenAI-compatible /v1/chat/completions endpoint.
@@ -155,6 +165,11 @@ class OllamaProvider(LLMProvider):
         content = ""
         tool_calls_acc: dict[int, dict[str, str]] = {}
         usage: TokenUsage | None = None
+        # F7 L04: cumulative byte accumulator for mid-stream usage emission.
+        # See OpenAIProvider.stream() for the design rationale; identical
+        # pattern with Ollama-specific BYTES_PER_TOKEN.
+        accumulated_bytes = 0
+        last_emitted_bytes = 0
 
         async for chunk_dict in ollama_api.chat_stream(
             self.base_url, body, headers=self._auth_headers()
@@ -173,6 +188,17 @@ class OllamaProvider(LLMProvider):
             if text:
                 content += text
                 yield StreamChunk(content=text, is_final=False)
+                accumulated_bytes += len(text.encode("utf-8"))
+                if accumulated_bytes - last_emitted_bytes >= INTERIM_USAGE_BYTE_THRESHOLD_OLLAMA:
+                    yield StreamChunk(
+                        content="",
+                        is_final=False,
+                        usage=TokenUsage(
+                            input_tokens=0,
+                            output_tokens=int(accumulated_bytes / BYTES_PER_TOKEN_OLLAMA),
+                        ),
+                    )
+                    last_emitted_bytes = accumulated_bytes
             for tc_delta in delta.get("tool_calls", []) or []:
                 idx = tc_delta.get("index", 0)
                 entry = tool_calls_acc.setdefault(idx, {"id": "", "name": "", "arguments": ""})

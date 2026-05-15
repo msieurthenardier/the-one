@@ -90,6 +90,23 @@ class LLMProvider(ABC):
     max_context_tokens: int = 128_000
 
     def __init__(self) -> None:
+        self._init_provider_state()
+
+    def _init_provider_state(self) -> None:
+        """Initialize per-instance provider state.
+
+        Called by ``LLMProvider.__init__``. Subclasses that override
+        ``__init__`` AND skip ``super().__init__()`` (e.g.,
+        ``OpenRouterProvider`` — see its docstring at lines 63-65)
+        MUST call ``self._init_provider_state()`` directly to inherit
+        this state. Adding new instance attributes here keeps the
+        contract single-source-of-truth: future state additions land
+        here, and both the normal super-calling path and the OpenRouter
+        opt-out path pick them up without manual mirroring.
+
+        M08 F7 L05 (F6.5 debrief AI #1): replaces the prior
+        "manually mirror every state addition in OpenRouter" tripwire.
+        """
         # Sentinel for lazy max_context_tokens resolution. Set True after
         # first _resolve_max_context_tokens_if_needed() call (regardless
         # of fetch outcome) to prevent retry storms on metadata-fetch
