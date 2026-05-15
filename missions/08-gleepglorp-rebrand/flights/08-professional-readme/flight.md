@@ -1,11 +1,11 @@
 # Flight: Professional README
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [GleepGlorp AI Rebrand & UX Polish](../../mission.md)
 
 ## Contributing to Criteria
 
-- [ ] The project's top-level documentation introduces GleepGlorp AI as a product — what it is, what it does, how to run it, how it is structured, and where to read the security model — without requiring the reader to dig through code or per-mission artifacts
+- [x] The project's top-level documentation introduces GleepGlorp AI as a product — what it is, what it does, how to run it, how it is structured, and where to read the security model — without requiring the reader to dig through code or per-mission artifacts
 
 ---
 
@@ -130,7 +130,7 @@ The flight is content-only — no leg requires `make rebuild` for compiled-code 
 
 - [x] `readme-content-and-perf-convention` - Write `README.md` with all sections (screenshot placeholders as HTML comments); add the `?perf=1` URL+localStorage gate convention entry under `agents.md`'s `## Project Conventions`. FD-mechanical content work.
 - [x] `screenshots-and-image-wiring` - Capture three dark-theme screenshots from a seeded demo, commit them under `docs/screenshots/`, replace L01 placeholders with `<img>` references. Operator-heavy with explicit data-leak gate.
-- [ ] `alignment-hat` - Cold-read HAT; verify install snippet against current `pyproject.toml`; surface and fix anything confusing or inaccurate. Closes the flight and the mission.
+- [x] `alignment-hat` - Cold-read HAT; verify install snippet against current `pyproject.toml`; surface and fix anything confusing or inaccurate. Closes the flight and the mission.
 
 ---
 

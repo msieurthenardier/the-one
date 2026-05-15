@@ -4,7 +4,7 @@
 
 ## Summary
 
-Final flight of Mission 08 (GleepGlorp Rebrand & UX Polish). Delivers the top-level `README.md`, three dark-theme screenshots under `docs/screenshots/`, and a small `agents.md` convention addition promoting the `?perf=1`/localStorage debugging-gate pattern introduced by F7's `App.perf` module.
+Final flight of Mission 08 (GleepGlorp Rebrand & UX Polish). **LANDED 2026-05-15.** Delivers the top-level `README.md`, three dark-theme screenshots under `docs/screenshots/`, and a `gated-debug-instrumentation` convention addition in `the_one/agents.md` promoting the `?perf=1`/localStorage debugging-gate pattern introduced by F7's `App.perf` module. Three commits on branch `flight/08-professional-readme`: L01 `814f8d3`, L02 `dad2b21`, L03 (pending — this commit). Mission 08 criterion 12 satisfied; mission ready for `/mission-debrief`.
 
 ---
 
@@ -38,6 +38,34 @@ Recon outcome: zero retirements; one item (Playwright CDPSession parity recipe) 
 ---
 
 ## Leg Progress
+
+### L03 — `alignment-hat`
+
+**Status**: completed
+**Started**: 2026-05-15
+**Completed**: 2026-05-15
+
+**Cold-read fixes applied (5 substantive + 1 architect-flagged)**:
+
+1. **Tagline** "hand-rolled" → "framework-free" — operator caught that "hand-rolled" overclaims given the project uses FastAPI, Pydantic, aiosqlite, etc.; "framework-free" precisely names what we lack (an agent framework) without implying zero dependencies
+2. **"What this is" paragraph** — replaced "every layer is hand-rolled in plain Python" with a precise dependency list (FastAPI, Pydantic, aiosqlite, httpx, MCP SDK initially, expanded by Architect review)
+3. **"Default provider is ollama" reframed** — operator caught that calling ollama "the default" implied users could just `the-one chat` without setup. Replaced with new `### Supported LLMs` subsection listing all four providers with clear setup expectations (especially Ollama: "install and start Ollama yourself")
+4. **Architecture LLM paragraph** — "three implementations" was wrong; codebase has FOUR (Ollama, Anthropic, OpenAI, OpenRouter). Fixed.
+5. **Chat screenshot recapture** — operator caught that the original chat shot showed a sandbox-constraint error (visually demonstrates security but isn't a flattering product demo). Recaptured with a "describe your environment" prompt; new shot shows `search_tools(query="")` trace returning all 19 built-in tools by name. Bonus: this serendipitously corroborates the README's "19 built-in tools" claim visible in the same document.
+6. **API keys reframed** — operator caught that the README implied `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` go in `.env`. Reality: API keys are entered via Administration → LLM Providers and stored Fernet-encrypted in the local DB. Fixed.
+7. **Dark theme is the default** — operator caught that README said "Light theme is the default". Verified against `the_one/interfaces/web/static/js/theme.js:48` (`'dark'` is the canonical fallback when OS has no preference). Fixed.
+8. **Screenshot captions added** — each `<img>` now has a visible `<em>`-styled caption below it, in addition to the `alt` text.
+9. **(Architect-flagged medium fix)** **"What this is" dependency list completion** — Architect agent (Opus) ran a full accuracy audit and caught that the dependency parenthetical omitted cryptography, uvicorn, Rich, prompt-toolkit, websockets, Jinja2 — some of which the README itself names later (the encryption section directly references "cryptography"; the Interfaces architecture paragraph names "Rich + prompt-toolkit"). Expanded the parenthetical to: "FastAPI + uvicorn + websockets + Jinja2 for the web layer, Rich + prompt-toolkit for the CLI, Pydantic for config, aiosqlite for persistence, cryptography for at-rest secrets, httpx for HTTP, and the official MCP SDK for Model Context Protocol clients."
+
+**Architect accuracy audit outcome** (Opus, 2026-05-15): `[HANDOFF:confirmed]` after the medium fix. 15+ factual claims independently verified against source (pyproject.toml dependencies, install command, CLI entry points, default port, four-provider count, 20-iteration cap, 19-tool count + categorization, MCP transports + sandbox + OAuth, Fernet + rotate endpoint + encryption.key path, single-user security posture, dark-theme default, Mission Control URL resolution, hero asset, screenshot files). Two low-severity cosmetic notes (mock provider not user-facing; `AgentFactory.create()` is instance method not classmethod) explicitly left as-is.
+
+**Install snippet pin check**: passed. `pip install -e ".[all-llms,dev]"` verified against `pyproject.toml:35-36` (both `all-llms` and `dev` extras present at the cited form).
+
+**Mission criterion 12 satisfied** by the post-fix state of the README. Flight 8 lands; Mission 08 is now ready for `/mission-debrief`.
+
+**Note on dark-only vs light+dark screenshots**: Mission spec line for Flight 8 mentioned "both light and dark themes" — F8's design deliberately scoped to dark-only (documented as a Design Decision in flight.md and reasoned at design time). The mission spec's Flight 8 description is explicitly "tentative suggestions, not commitments" per the mission template note; the flight's own scope is what's been satisfied. The pixel-snapshot test suite (gitignored) covers light/dark parity automatically as regression infrastructure.
+
+---
 
 ### L02 — `screenshots-and-image-wiring`
 

@@ -4,37 +4,45 @@
 
 # GleepGlorp AI
 
-<p align="center"><em>Your local AI agent — LLM-agnostic, tool-rich, hand-rolled.</em></p>
+<p align="center"><em>Your local AI agent — LLM-agnostic, tool-rich, framework-free.</em></p>
 
 ---
 
 ## What this is
 
-GleepGlorp AI is your local AI agent — the kind that lives on your laptop, talks to whichever LLM you point it at, and reaches into your filesystem, your shell, and the open web through a rich set of built-in tools. You give it a goal in plain English; it figures out which tools to use, calls them, reads the results, and keeps going until the work is done. Configure agents in Studio (system prompts, which tools they can touch, which model powers them), talk to them in Chat (per-session, with the full execution trace one click away), and manage providers and built-in-tool defaults in Administration. Built without agent frameworks — every layer, from the agent loop to the LLM abstraction to the tool registry, is hand-rolled in plain Python.
+GleepGlorp AI is your local AI agent — the kind that lives on your laptop, talks to whichever LLM you point it at, and reaches into your filesystem, your shell, and the open web through a rich set of built-in tools. You give it a goal in plain English; it figures out which tools to use, calls them, reads the results, and keeps going until the work is done. Configure agents in Studio (system prompts, which tools they can touch, which model powers them), talk to them in Chat (per-session, with the full execution trace one click away), and manage providers and built-in-tool defaults in Administration. No agent framework — the agent loop, tool registry, and LLM abstraction are written from scratch in plain Python on top of a small set of well-known libraries: FastAPI + uvicorn + websockets + Jinja2 for the web layer, Rich + prompt-toolkit for the CLI, Pydantic for config, aiosqlite for persistence, cryptography for at-rest secrets, httpx for HTTP, and the official MCP SDK for Model Context Protocol clients.
 
 ## Screenshots
 
 <p align="center">
-  <img src="docs/screenshots/chat-dark.png" alt="Chat — a populated session with the per-response tool-call trace expanded" width="900">
+  <img src="docs/screenshots/chat-dark.png" alt="Chat — the agent describing its environment, with the per-response tool-call trace expanded to show the search_tools call that enumerated the 19 built-in tools" width="900">
+  <br>
+  <em>Chat — talking to an agent, with the per-response tool-call trace expanded.</em>
 </p>
 
 <p align="center">
   <img src="docs/screenshots/studio-dark.png" alt="Studio — agent editor showing provider, model, capability chips, and max-context resolution" width="900">
+  <br>
+  <em>Studio — configuring an agent: provider, model, capability chips, system prompt.</em>
 </p>
 
 <p align="center">
   <img src="docs/screenshots/admin-dark.png" alt="Administration — LLM Providers grid with a configured Ollama tile" width="900">
+  <br>
+  <em>Administration — managing LLM providers, built-in tools, encryption, theme.</em>
 </p>
 
-(Light theme is the default — Admin → General → Appearance has the toggle.)
+(Dark theme is the default — Admin → General → Appearance has light / dark / auto.)
 
 ## Quickstart
+
+You'll need Python 3.11+ (for the local path) or Docker + Docker Compose (for the container path), plus at least one LLM provider configured — see [Supported LLMs](#supported-llms) below.
 
 **Local Python** (simpler path for tinkering):
 
 ```bash
 pip install -e ".[all-llms,dev]"
-cp .env.example .env  # tweak THE_ONE_LLM_* defaults for your setup
+cp .env.example .env  # edit THE_ONE_LLM_* for your provider of choice
 the-one chat          # CLI
 the-one serve         # web UI at http://localhost:8484
 ```
@@ -48,7 +56,16 @@ make logs             # follow container logs
 make down             # stop
 ```
 
-The default provider is **ollama** (local models, no API key required). Add `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` to `.env` to enable those cloud providers.
+### Supported LLMs
+
+GleepGlorp AI talks to four LLM providers out of the box. Pick whichever fits your setup; the app doesn't ship with any of them installed.
+
+- **[Ollama](https://ollama.com/)** — run local models on your own machine. Install and start Ollama yourself (e.g. `ollama serve`), pull a model (e.g. `ollama pull qwen2.5:7b`), then point GleepGlorp AI at `http://localhost:11434/v1`. No API key.
+- **Anthropic** — cloud Claude models. Needs an API key from console.anthropic.com.
+- **OpenAI** — cloud GPT models. Needs an API key from platform.openai.com.
+- **OpenRouter** — model marketplace fronting many providers. Needs an API key from openrouter.ai.
+
+Once the app is up, configure each provider in **Administration → LLM Providers** — paste the URL and (for cloud providers) the API key into the editor. Keys are encrypted at rest in the local database via Fernet symmetric encryption; the encryption key lives at `{data_dir}/encryption.key` and can be rotated from Admin → General. Then create an agent in **Studio** that uses the provider.
 
 ## Architecture
 
@@ -58,7 +75,7 @@ The default provider is **ollama** (local models, no API key required). Add `OPE
 
 **Agent** (`the_one/agent/`) — The agent loop. User input → LLM call → tool execution → repeat, capped at 20 iterations per step as a safety limit. `AgentConfig` (Pydantic) defines provider, model, system prompt, tool selection, and behavior; `AgentFactory` resolves config from the database into a ready-to-use `Agent`.
 
-**LLM** (`the_one/llm/`) — Abstract `LLMProvider` base with `complete()` and `stream()`. Lazy-loaded registry of three implementations: Ollama for local models, OpenAI, and Anthropic. Adding a fourth provider means adding a `*_provider.py`, registering it, and writing one wire-shape adapter — patterns established in M03.
+**LLM** (`the_one/llm/`) — Abstract `LLMProvider` base with `complete()` and `stream()`. Lazy-loaded registry of four implementations: Ollama (local models), Anthropic, OpenAI, and OpenRouter. Adding a fifth provider means adding a `*_provider.py`, registering it, and writing one wire-shape adapter — patterns established in M03.
 
 **Tools** (`the_one/tools/`) — 19 built-in tools: filesystem (read/write/edit/glob/grep), execution (shell + PTY sessions), Python interpreter, web (fetch/download/search), and an HTTP-request escape hatch. Each tool is a `Tool` subclass with a Pydantic `Config` for operator-set defaults; per-agent overrides narrow or substitute fields at runtime.
 
