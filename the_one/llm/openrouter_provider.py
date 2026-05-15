@@ -21,6 +21,13 @@ from the_one.llm import openrouter_api
 from the_one.llm.openai_provider import DEFAULT_OPENAI_TIMEOUT, OpenAIProvider
 from the_one.llm.registry import register_provider
 
+# F7 L04: per-provider bytes-per-token for the mid-stream usage byte-
+# heuristic. Most OpenRouter-routed models are OpenAI-compat, so the
+# tokeniser density matches the OpenAI default. Exposed as a module-
+# level constant so the override is visible at a glance — the
+# ``_bytes_per_token_for_interim`` override below returns this value.
+BYTES_PER_TOKEN_OPENROUTER = 4.0
+
 
 # App identity for OpenRouter's ranking-header leaderboard. Hardcoded
 # because these identify *this app* (the-one), not the operator; the
@@ -97,12 +104,13 @@ class OpenRouterProvider(OpenAIProvider):
         )
         self._lookup_base_url = base_url
 
-        # M08 F6.5 L01: initialize the LLMProvider lazy-resolver sentinel
-        # directly because we intentionally skip ``super().__init__()``.
-        # Without this, ``_resolve_max_context_tokens_if_needed`` (added to
-        # OpenAIProvider.complete/stream) would AttributeError on the
-        # missing instance attribute the first time it fires.
-        self._max_context_tokens_resolved: bool = False
+        # M08 F7 L05 (F6.5 debrief AI #1): defuse the manual-state-mirror
+        # tripwire. Any future instance state added to
+        # ``LLMProvider._init_provider_state`` is automatically inherited
+        # by this provider without having to mirror it here. Required
+        # because we intentionally skip ``super().__init__()`` above
+        # (Decision 5: no-leak invariant on OPENAI_API_KEY).
+        self._init_provider_state()
 
     async def _resolve_max_context_tokens(self) -> None:
         # Override OpenAIProvider's prefix-table resolver — OpenRouter
@@ -117,6 +125,14 @@ class OpenRouterProvider(OpenAIProvider):
             self.max_context_tokens = resolved
         # else: leave at class default (128k); the wrapper catches errors
         # from the helper and flips the sentinel either way.
+
+    def _bytes_per_token_for_interim(self) -> float:
+        """F7 L04: OpenRouter override. Most routed models are
+        OpenAI-compat (cl100k_base tokeniser) so the density matches the
+        OpenAI default; exposed as a separate constant so a future tuning
+        pass can adjust per-route without disturbing OpenAI direct-API.
+        """
+        return BYTES_PER_TOKEN_OPENROUTER
 
     async def supports_tools(self) -> bool:
         """Return False if the OpenRouter model is known not to advertise

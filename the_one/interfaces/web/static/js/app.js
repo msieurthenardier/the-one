@@ -85,9 +85,12 @@
     // without the hook proceed immediately. On abort, the hash is rolled
     // back to the prior area's URL so the address bar stays consistent.
     function performCrossAreaSwitch() {
+      App.perf.mark('area-switch:start');
       if (currentId && areas[currentId]) {
         areas[currentId].deactivate();
       }
+      App.perf.mark('area-switch:deactivated');
+      App.perf.measure('area-switch.deactivate', 'area-switch:start', 'area-switch:deactivated');
 
     // Hide all panels
     var sidebarPanels = document.querySelectorAll('#app-sidebar .sidebar-panel');
@@ -127,6 +130,9 @@
       if (topbarBtns[i].dataset.area === areaId) topbarBtns[i].setAttribute('aria-current', 'page');
       else topbarBtns[i].removeAttribute('aria-current');
     }
+
+    App.perf.mark('area-switch:activated');
+    App.perf.measure('area-switch.full', 'area-switch:start', 'area-switch:activated');
 
     currentId = areaId;
     currentSub = sub;

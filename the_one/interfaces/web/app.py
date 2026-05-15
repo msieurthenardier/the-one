@@ -754,6 +754,7 @@ async def _process_and_broadcast(
     # `stream()` call, which `agent.step()` triggers below. Reading the
     # attribute live at usage-event emission (line ~793) picks up the
     # resolved value on the first turn instead of the class default.
+    # Pinned by tests/test_process_and_broadcast_live_read.py (M08 F7 L05).
 
     result_messages: list[dict[str, Any]] = []
     # Streaming wire-up: chunks fan out via WS as `assistant_chunk` events.
@@ -777,8 +778,31 @@ async def _process_and_broadcast(
         chunks_seen = True
         await _send_to_session(session, {"type": "assistant_chunk", "content": content})
 
+    async def _broadcast_usage(usage: Any) -> None:
+        # F7 L04: interim mid-stream usage broadcast. Mirrors the final-
+        # usage event shape at line ~793 (this same _process_and_broadcast)
+        # but adds ``is_interim: True`` so frontend can disambiguate if it
+        # cares. Frontend's updateTelemetry is last-write-wins on the
+        # cumulative fields. The provider-emitted usage carries
+        # CUMULATIVE output_tokens (byte-heuristic accumulator), so each
+        # interim broadcast is a strictly-increasing progress indicator.
+        # Not appended to session.history (projection-only event).
+        interim_event = {
+            "type": "usage",
+            "input_tokens": total_input + usage.input_tokens,
+            "output_tokens": total_output + usage.output_tokens,
+            "context_tokens": last_input or usage.input_tokens,
+            "max_context_tokens": session.agent.llm.max_context_tokens,
+            "is_interim": True,
+        }
+        await _send_to_session(session, interim_event)
+
     try:
-        async for msg in session.agent.step(user_input, on_chunk=_broadcast_chunk):
+        async for msg in session.agent.step(
+            user_input,
+            on_chunk=_broadcast_chunk,
+            on_usage=_broadcast_usage,
+        ):
             if msg.role == Role.ASSISTANT:
                 if msg.usage:
                     # Per-step usage accumulators are tracked here (NOT in

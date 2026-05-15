@@ -9,6 +9,19 @@ import anthropic
 from the_one.llm.base import LLMProvider, Message, Role, StreamChunk, TokenUsage, ToolCall
 from the_one.llm.registry import register_provider
 
+# F7 L04: bytes-per-token for the mid-stream usage byte-heuristic.
+# Anthropic's high-level ``client.messages.stream()`` context manager +
+# ``stream.text_stream`` iterator (used in ``_stream_inner`` below) does
+# NOT expose ``RawMessageDeltaEvent`` payloads with real interim usage;
+# refactoring to raw-event iteration is too invasive for L04. Cycle-1
+# decision: apply the byte heuristic uniformly across all providers and
+# accept estimate-not-truth interim values for Anthropic during L04. A
+# future flight can swap in raw-event iteration if higher fidelity is
+# needed. 3.7 reflects Anthropic's tokeniser density (slightly denser
+# than OpenAI's cl100k_base on English+code mixtures).
+BYTES_PER_TOKEN_ANTHROPIC = 3.7
+INTERIM_USAGE_BYTE_THRESHOLD_ANTHROPIC = 200
+
 
 class AnthropicProvider(LLMProvider):
     name = "anthropic"
@@ -20,6 +33,26 @@ class AnthropicProvider(LLMProvider):
         self.client = anthropic.AsyncAnthropic(
             api_key=api_key or os.environ.get("ANTHROPIC_API_KEY")
         )
+
+    async def _resolve_max_context_tokens(self) -> None:
+        """No-op: all current Claude models share the 200k context window.
+
+        Anthropic's Claude 3.5 (Sonnet/Haiku/Opus) and Claude 4.x family
+        all have ``max_context_tokens = 200_000`` (matches the class-level
+        default at line 28). When/if Anthropic ships a model with a
+        different context window, populate ``self.max_context_tokens``
+        here via a model-name table — mirror the pattern in
+        ``the_one/llm/openai_provider.py``'s ``OPENAI_MODEL_CONTEXT``
+        (or, if Anthropic exposes per-model metadata via the SDK, prefer
+        a live lookup, mirroring ``openrouter_provider.py``).
+
+        M08 F7 L05 (F6.5 debrief AI #2): explicit no-op replaces the
+        prior implicit default-via-no-override pattern. Makes intent
+        legible to future maintainers and gives them an obvious place
+        to plug in a per-model table the day Anthropic ships a Claude
+        model with a non-200k context window.
+        """
+        # Intentional no-op — see docstring.
 
     def _build_kwargs(
         self,
@@ -117,9 +150,32 @@ class AnthropicProvider(LLMProvider):
                 raise
 
     async def _stream_inner(self, kwargs: dict[str, Any]) -> AsyncIterator[StreamChunk]:
+        # F7 L04: cumulative byte accumulator for mid-stream usage
+        # emission. Anthropic-specific bytes-per-token; same threshold and
+        # last-emitted-bytes pattern as OpenAI/Ollama. See module-level
+        # BYTES_PER_TOKEN_ANTHROPIC docstring for the cycle-1 trade-off.
+        accumulated_bytes = 0
+        last_emitted_bytes = 0
         async with self.client.messages.stream(**kwargs) as stream:
             async for text in stream.text_stream:
                 yield StreamChunk(content=text, is_final=False)
+                if text:
+                    accumulated_bytes += len(text.encode("utf-8"))
+                    if (
+                        accumulated_bytes - last_emitted_bytes
+                        >= INTERIM_USAGE_BYTE_THRESHOLD_ANTHROPIC
+                    ):
+                        yield StreamChunk(
+                            content="",
+                            is_final=False,
+                            usage=TokenUsage(
+                                input_tokens=0,
+                                output_tokens=int(
+                                    accumulated_bytes / BYTES_PER_TOKEN_ANTHROPIC
+                                ),
+                            ),
+                        )
+                        last_emitted_bytes = accumulated_bytes
             final = await stream.get_final_message()
 
         content = ""

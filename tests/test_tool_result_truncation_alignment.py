@@ -57,6 +57,7 @@ class _StubAgent:
         self,
         user_input: str,  # noqa: ARG002
         on_chunk: Any = None,  # noqa: ARG002
+        on_usage: Any = None,  # noqa: ARG002 — F7 L04: widened signature
     ) -> AsyncIterator[Message]:
         for m in self._step_messages:
             yield m

@@ -66,6 +66,7 @@
   }
 
   function updateTelemetry(chromeContent, data) {
+    App.perf.mark('telemetry-update:start');
     chromeContent.querySelector('.t-in').textContent = fmtTokens(data.input_tokens);
     chromeContent.querySelector('.t-out').textContent = fmtTokens(data.output_tokens);
     chromeContent.querySelector('.t-ctx').textContent = fmtTokens(data.context_tokens);
@@ -80,6 +81,8 @@
     var bar = chromeContent.querySelector('.context-bar');
     bar.style.width = pct + '%';
     bar.className = 'context-bar' + (stateClass ? ' ' + stateClass : '');
+    App.perf.mark('telemetry-update:end');
+    App.perf.measure('telemetry-update', 'telemetry-update:start', 'telemetry-update:end');
   }
 
   // Clear all displayed values back to zero / default. Called on session

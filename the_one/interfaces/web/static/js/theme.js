@@ -69,6 +69,17 @@
   // Event channel for multi-mount toggle sync.
   var THEME_EVENT = 'theme-preference-changed';
 
+  // Module-scoped cleanup ref — replaces the prior per-container expando
+  // (M08 F7 L03 H1 fix: container expando dies with the container's
+  // innerHTML rewrite, leaving the document listener orphaned and
+  // accumulating O(N) listeners across SPA re-renders).
+  //
+  // Constraint: this assumes a single active theme-toggle instance at any
+  // time. Current architecture (admin-only, single mount) satisfies this.
+  // A future maintainer who adds a second concurrent theme-toggle must
+  // revisit this design (e.g. switch to a Set of cleanups).
+  var _activeThemeListenerCleanup = null;
+
   // Public API (App.theme).
   window.App = window.App || {};
   window.App.theme = {
@@ -94,17 +105,20 @@
     // into `container`. options.labelledBy is the id of the heading element
     // used as aria-labelledby on the radiogroup.
     //
-    // Cleanup contract: if container._themeListenerCleanup is a function at
-    // the start of a renderToggle call it is invoked to remove the prior
-    // event listener before a new one is wired (handles SPA re-renders where
-    // the same container element is reused).
+    // Cleanup contract: a module-scoped `_activeThemeListenerCleanup`
+    // captures the prior listener-removal closure. At the start of each
+    // renderToggle call we invoke it (if set) and clear it before wiring a
+    // new listener. This survives SPA re-renders that destroy the prior
+    // container via innerHTML — the closure lives in module scope, not on
+    // the (now-detached) container, so cleanup always fires regardless of
+    // container identity.
     renderToggle: function (container, options) {
       if (!container) return;
       options = options || {};
 
-      if (typeof container._themeListenerCleanup === 'function') {
-        container._themeListenerCleanup();
-        container._themeListenerCleanup = null;
+      if (typeof _activeThemeListenerCleanup === 'function') {
+        _activeThemeListenerCleanup();
+        _activeThemeListenerCleanup = null;
       }
 
       var currentPref = getPreference();
@@ -173,7 +187,7 @@
 
       var listener = function (e) { updateActiveOption(e.detail.pref); };
       document.addEventListener(THEME_EVENT, listener);
-      container._themeListenerCleanup = function () {
+      _activeThemeListenerCleanup = function () {
         document.removeEventListener(THEME_EVENT, listener);
       };
     }

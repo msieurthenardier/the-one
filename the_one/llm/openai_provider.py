@@ -18,6 +18,18 @@ from the_one.llm.registry import register_provider
 DEFAULT_OPENAI_TIMEOUT = httpx.Timeout(connect=10.0, read=300.0, write=10.0, pool=10.0)
 
 
+# F7 L04: mid-stream usage byte-heuristic. Provider's native ``stream()``
+# only emits the final ``usage`` metadata chunk; for progressive telemetry
+# we synthesise interim ``TokenUsage`` values from the cumulative bytes
+# observed in delta text. Bytes-per-token average for OpenAI tokenisers
+# (cl100k_base) is ~4.0 across mixed English+code corpora.
+BYTES_PER_TOKEN_OPENAI = 4.0
+# Emit one interim StreamChunk(usage=...) every this-many cumulative bytes.
+# 200 bytes ≈ 50 OpenAI tokens; at ~20 tokens/sec streaming, ~one update
+# every 2.5s — smooth without flooding the frontend.
+INTERIM_USAGE_BYTE_THRESHOLD = 200
+
+
 # M08 F6.5 L01: per-model context-window lookup. OpenAI doesn't expose
 # ``context_length`` via the ``/models`` API, so this is hand-maintained.
 # Drifts as OpenAI ships new models — unknown models fall back to the
@@ -78,6 +90,14 @@ class OpenAIProvider(LLMProvider):
                 self.max_context_tokens = OPENAI_MODEL_CONTEXT[prefix]
                 return
         # No match — leave at class default.
+
+    def _bytes_per_token_for_interim(self) -> float:
+        """F7 L04: provider-specific bytes-per-token for the mid-stream
+        byte-heuristic. Subclasses override to swap in their tokeniser's
+        average density (OpenRouter routes mostly-OpenAI-compat models so
+        inherits the same value; Anthropic/Ollama use their own constants).
+        """
+        return BYTES_PER_TOKEN_OPENAI
 
     async def complete(
         self,
@@ -154,6 +174,16 @@ class OpenAIProvider(LLMProvider):
         content = ""
         tool_calls_acc: dict[int, dict[str, str]] = {}
         usage: TokenUsage | None = None
+        # F7 L04: cumulative byte accumulator for mid-stream usage emission.
+        # ``accumulated_bytes`` is monotonic (never reset). We emit an
+        # interim StreamChunk(usage=...) when the delta since
+        # ``last_emitted_bytes`` exceeds INTERIM_USAGE_BYTE_THRESHOLD. The
+        # synthesised TokenUsage carries the cumulative output_tokens
+        # estimate; frontend's updateTelemetry is last-write-wins so this
+        # gives a smoothly-increasing ``ctx:`` value during long streams.
+        accumulated_bytes = 0
+        last_emitted_bytes = 0
+        bytes_per_token = self._bytes_per_token_for_interim()
 
         async for chunk in stream:
             if not chunk.choices:
@@ -168,6 +198,22 @@ class OpenAIProvider(LLMProvider):
             if getattr(delta, "content", None):
                 content += delta.content
                 yield StreamChunk(content=delta.content, is_final=False)
+                accumulated_bytes += len(delta.content.encode("utf-8"))
+                if accumulated_bytes - last_emitted_bytes >= INTERIM_USAGE_BYTE_THRESHOLD:
+                    # Interim usage emission: cumulative output_tokens
+                    # estimate, no input_tokens (frontend's
+                    # last-write-wins handles input_tokens from the
+                    # earlier final-usage event of the previous turn or
+                    # zero on first turn).
+                    yield StreamChunk(
+                        content="",
+                        is_final=False,
+                        usage=TokenUsage(
+                            input_tokens=0,
+                            output_tokens=int(accumulated_bytes / bytes_per_token),
+                        ),
+                    )
+                    last_emitted_bytes = accumulated_bytes
             if getattr(delta, "tool_calls", None):
                 for tc_delta in delta.tool_calls:
                     idx = tc_delta.index

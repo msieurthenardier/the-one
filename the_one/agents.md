@@ -1498,3 +1498,171 @@ To add a new LLM provider type, six layers must coordinate. Missing any one of t
 
 When all six layers are aligned, an integration test posting a provider with the new type round-trips successfully through DB persistence, factory resolution, and UI rendering.
 
+---
+
+## Performance Measurement (F7)
+
+This section documents the four canonical MCP-runnable performance scenarios for the UI. Each scenario exercises one of the leak / latency surfaces identified in the F7 flight design and produces a serializable measurement blob via `App.perf.dump()` / `App.perf.summary()`.
+
+**Activation gate**: `App.perf` is loaded by `the_one/interfaces/web/static/js/perf.js` (loads BEFORE `app.js` in `index.html`) but is INACTIVE by default. Activate via:
+- URL query string: append `?perf=1` to any page URL (e.g. `http://localhost:8484/?perf=1#chat`), OR
+- localStorage: `localStorage.setItem('the-one-perf', '1')` then reload the page.
+
+The `enabled` flag is captured at module-load time — toggling localStorage mid-session requires a reload before perf marks/measures begin firing.
+
+**Browser support note** (cycle-1 reviewer empirical finding): `performance.memory` is Chromium-only AND only exposed in same-origin-isolated contexts; values are throttled to 100KB precision and may require `--enable-precise-memory-info` for fine-grained readings. `App.perf.captureHeap()` returns `null` when `performance.memory` is unavailable.
+- **F7 L01 empirical finding (Flight-Director-filled)**: `App.perf.captureHeap()` against the running app at `localhost:8484` returned: TBD (`null` vs numbers — to be filled by Flight Director after MCP capture pass).
+- When `captureHeap()` returns null, scenarios fall back exclusively to `mcp__chrome-devtools__take_memory_snapshot` for heap-growth signals.
+
+**Common MCP-runnable export pattern** (used by every scenario):
+```
+mcp__chrome-devtools__navigate_page(url='http://localhost:8484/?perf=1#chat')
+mcp__chrome-devtools__evaluate_script(function='() => App.perf.reset()')   # zero out marks/measures
+# ... scenario actions ...
+mcp__chrome-devtools__evaluate_script(function='() => App.perf.summary()')  # aggregated p50/p95/max per measure
+# OR for raw entries:
+mcp__chrome-devtools__evaluate_script(function='() => App.perf.dump()')     # raw marks + measures + heap snapshot
+```
+
+### Scenario 1: Area-switch cycles (200 cross-area transitions over 50 cycles)
+
+**Purpose**: detect retention growth across area-lifecycle activate/deactivate cycles. Mission criterion: "memory behavior across `App.areas.activate` / `deactivate` cycles." 50 loops × 4 transitions per loop = 200 area-switches total provides a strong leak-detection signal.
+
+**MCP procedure**:
+```
+1. mcp__chrome-devtools__navigate_page(url='http://localhost:8484/?perf=1#chat')
+2. mcp__chrome-devtools__evaluate_script(function='() => App.perf.reset()')
+3. mcp__chrome-devtools__take_memory_snapshot()  # pre-cycle heap
+4. Loop 50 times: click topbar Chat -> Studio -> Admin -> Chat
+   (4 transitions per loop = 200 area-switches total). Use:
+     mcp__chrome-devtools__click(selector='[data-area="studio"]')
+     mcp__chrome-devtools__click(selector='[data-area="admin"]')
+     mcp__chrome-devtools__click(selector='[data-area="chat"]')
+5. mcp__chrome-devtools__take_memory_snapshot()  # post-cycle heap
+6. mcp__chrome-devtools__evaluate_script(function='() => App.perf.summary()')
+```
+
+**Expected baseline** (F7 L01 capture, operator's machine, 2026-05-15):
+- Pre-cycle heap: 1.64 MB (1,635,692 bytes)
+- Post-cycle heap: 2.14 MB (2,140,714 bytes)
+- Heap growth: 505 KB / **+30.88% — EXCEEDS BUDGET** (BUDGET: <=20%). L02 confirmed-live target.
+- p50 `area-switch.full` measure: 0.10 ms (BUDGET: <=50ms) ✓
+- p95 `area-switch.full` measure: 0.20 ms (BUDGET: <=100ms) ✓
+- p50 `area-switch.deactivate` measure: 0.00 ms ✓
+- p95 `area-switch.deactivate` measure: 0.10 ms ✓
+- Capture details: 50 loops × 3 effective hashchange transitions (chat→chat is a no-op) = 150 area-switch.full measures; total wall time 6.1s
+- **`performance.memory` IS available** in this Chrome context — heap reads return numeric values, not null
+
+**Post-L03 baseline (H1 fix landed, 2026-05-15)**:
+- Pre-cycle heap: 2.18 MB
+- Post-cycle heap: 2.26 MB
+- Heap growth: **85 KB / +3.92% — WELL UNDER BUDGET** ✓ (was +30.88% pre-fix; 87% reduction)
+- p50 / p95 `area-switch.full`: 0.10 ms / 0.20 ms (unchanged from pre-fix — fix was leak-side only, not latency-side)
+- **H1 confirmed as primary leak driver**. H2 subsumed by H1 (document listener was the retainer root for the detached DOM trees). Remaining +3.92% is normal V8/JIT warm-up + perf.js mark-buffer instrumentation artifact (H3 — gated off in production)
+
+**Acceptable variance**: heap growth within +/-5pp across runs on the same machine; p95 latency within +/-25% across runs.
+
+**On failure**: leak roots are most likely in `chat.js:init()`'s closure state (per-init listeners attached to globally-rooted elements survive deactivate); investigate via L02's heap-diff procedure. Candidate fix areas: `the_one/interfaces/web/static/js/areas/chat.js` (`init()` listener registration), `the_one/interfaces/web/static/js/app.js` (`performCrossAreaSwitch` panel-show/hide DOM mutation).
+
+### Scenario 2: Long-chat session (100-message conversation rendering + scroll)
+
+**Purpose**: measure DOM-growth + per-message render cost for `addMsg()`, smart-scroll, and session-join replay paths. Mission criterion: "rendering performance with long conversation history."
+
+**MCP procedure**:
+```
+1. mcp__chrome-devtools__navigate_page(url='http://localhost:8484/?perf=1#chat')
+2. Seed a 100-message session (manual or via the existing dev-seed; pick an
+   existing session with >=100 messages OR run a scripted producer).
+3. mcp__chrome-devtools__evaluate_script(function='() => App.perf.reset()')
+4. mcp__chrome-devtools__take_memory_snapshot()  # pre-join heap
+5. mcp__chrome-devtools__click(selector='[data-session-id="<session-id>"]')
+   # triggers session_joined replay -> 100 addMsg calls
+6. mcp__chrome-devtools__evaluate_script(function='() => App.perf.summary()')
+7. Scroll to top/bottom 5 times via mcp__chrome-devtools__evaluate_script
+   to exercise smart-scroll under load.
+8. mcp__chrome-devtools__take_memory_snapshot()  # post-replay heap
+```
+
+**Expected baseline** (F7 L01 capture, 2026-05-15):
+- Pre-join heap: 2.24 MB (operator-machine baseline at chat-area idle)
+- Post-replay heap: 2.24 MB (no session selected during capture — operator had cleared sessions in F6 HAT)
+- Heap delta: ~0 (no replay fired)
+- p50 / p95 / max `addMsg`: not captured — no session-join replay during FD capture window
+- `session-join.ws-to-dom`: not captured — same reason
+- `session-join.dom-to-paint`: not captured — same reason
+- **Operator-task during L06 HAT**: re-run this scenario with at least one populated session (>=100 messages) to capture meaningful baselines. The capture-procedure above remains valid; the FD's pass landed without an existing session to exercise.
+
+**Acceptable variance**: per-message p95 within +/-30% across runs; ws-to-dom budget breach >50% indicates `renderHistory()` regression.
+
+**On failure**: investigate `renderHistory()` in `the_one/interfaces/web/static/js/areas/chat.js` (lines around 207-248) and `App.chat.renderMessage` in `the_one/interfaces/web/static/js/areas/chat/message-bubble.js`. Candidate fix areas: batched DOM-fragment append in `renderHistory`, deferring markdown render off the critical path.
+
+### Scenario 3: Large session-history list (sidebar with 50+ sessions)
+
+**Purpose**: detect O(n) work in `refreshSessionList` / `session_list` render when the session sidebar carries 50+ entries. Mission criterion: "session-list render cost with many sessions."
+
+**MCP procedure**:
+```
+1. Seed at least 50 sessions (dev-seed script OR repeated new_session pings).
+2. mcp__chrome-devtools__navigate_page(url='http://localhost:8484/?perf=1#chat')
+3. mcp__chrome-devtools__evaluate_script(function='() => App.perf.reset()')
+4. mcp__chrome-devtools__take_memory_snapshot()  # pre-render heap
+5. Trigger 10 refreshSessionList calls in sequence (e.g. click a session,
+   send a message, wait for completion, refresh -> 10x).
+6. mcp__chrome-devtools__evaluate_script(function='() => App.perf.summary()')
+7. mcp__chrome-devtools__take_memory_snapshot()  # post-render heap
+```
+
+**Expected baseline** (F7 L01 capture, 2026-05-15):
+- Pre-render heap: 2.24 MB
+- Post-render heap: 2.24 MB
+- Heap delta: ~0 — operator had 0 sessions visible in the sidebar at FD capture time (cleared in F6 HAT)
+- p50 / p95 sidebar refresh: not captured — empty sidebar; refresh is degenerate
+- **Operator-task during L06 HAT**: re-run this scenario with at least 50 seeded sessions to capture meaningful baselines. The capture-procedure above remains valid.
+
+**Acceptable variance**: +/-25% across runs.
+
+**On failure**: investigate the session-list render path in `the_one/interfaces/web/static/js/areas/chat.js` (search for `refreshSessionList` / `session_list` handler). Candidate fix areas: virtualization, DocumentFragment batching, deferred-render queue.
+
+### Scenario 4: Many-agents-in-studio rendering
+
+**Purpose**: measure render cost when the studio agent-list carries many agents; detect retention in the agent-editor mount/unmount cycle. Mission criterion: "studio render performance with many agents."
+
+**MCP procedure**:
+```
+1. Seed at least 30 agents via /api/agents POST (or fixture).
+2. mcp__chrome-devtools__navigate_page(url='http://localhost:8484/?perf=1#studio')
+3. mcp__chrome-devtools__evaluate_script(function='() => App.perf.reset()')
+4. mcp__chrome-devtools__take_memory_snapshot()  # pre-render heap
+5. Click 20 different agents in sequence to exercise the editor mount/unmount
+   (mcp__chrome-devtools__click against each agent-list item).
+6. mcp__chrome-devtools__evaluate_script(function='() => App.perf.summary()')
+7. mcp__chrome-devtools__take_memory_snapshot()  # post-cycle heap
+```
+
+**Expected baseline** (F7 L01 capture, 2026-05-15):
+- Pre-render heap: 2.24 MB
+- Post-cycle heap: 2.31 MB
+- Heap delta: 73 KB after a single studio area-switch + ~1.5s render window
+- `agent-tile` count visible: 0 (studio either didn't fully render in the 1.5s capture window OR operator has no agents configured)
+- **Operator-task during L06 HAT**: re-run this scenario after seeding >=30 agents to capture meaningful baselines. The capture-procedure above remains valid.
+
+**Acceptable variance**: +/-25% across runs.
+
+**On failure**: investigate `the_one/interfaces/web/static/js/areas/studio/agent-editor.js` for listener leaks on mount/unmount and `the_one/interfaces/web/static/js/areas/studio.js` for agent-list rendering. Candidate fix areas: explicit `removeEventListener` on editor teardown, agent-list DocumentFragment batching.
+
+---
+
+**Operator note**: the baseline TBD values above are captured during the F7 L01 Flight-Director pass by running each MCP procedure end-to-end. Once captured, they become the reference threshold for L02-L05 to compare against post-fix.
+
+---
+
+### `make rebuild` wipes Playwright Chromium
+
+**Symptom**: running `docker exec the-one pytest -m browser` immediately after `make rebuild` fails with hundreds of `Error: BrowserType.launch: Executable doesn't exist at /root/.cache/ms-playwright/...` errors in under 15 seconds — every browser-marked test errors before doing real work.
+
+**Cause**: `make rebuild` rebuilds the container image, wiping the cached Playwright Chromium binary from `/root/.cache/ms-playwright/`. The image-build pipeline doesn't re-install Chromium; that step lives in a separate make target.
+
+**Recovery**: run `make _ensure-playwright` on the host. This reinstalls Chromium into the container's cache (~30-60s on a warm network). Then re-run the browser suite — should pass cleanly at the prior baseline (F7 baseline: 316 passing / 35 skipped).
+
+**Surfaced in**: F5, F6, F6.5, F7 HATs. Every flight that runs `make rebuild` during execution hits this. A future maintenance flight could fold the Chromium-install step into the `make rebuild` recipe itself (idempotent re-install); until then, the recovery procedure is the documented workaround. M08 F7 L05 (F6.5 debrief AI #6).
+
