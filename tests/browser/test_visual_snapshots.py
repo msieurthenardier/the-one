@@ -245,12 +245,16 @@ def test_snapshot_studio_with_agent(app_with_agent: SeededApp, page: Page, theme
 @pytest.mark.pixel
 @pytest.mark.parametrize("theme", ["dark", "light"])
 def test_snapshot_admin_empty(app_clean: str, page: Page, theme: str) -> None:
-    """Admin → LLM Providers, empty state (no providers seeded)."""
+    """Admin → LLM Providers, empty state (no providers seeded).
+
+    L4.4 replaced the legacy ``.admin-provider-empty`` canvas with a
+    4-card provider-type grid carrying ``data-testid="provider-type-grid"``.
+    """
     page.set_viewport_size(VIEWPORT)
     page.goto(f"{app_clean}#admin")
     _set_theme(page, theme)
     page.locator(".section-nav-item", has_text="LLM Providers").click()
-    expect(page.locator(".admin-provider-empty")).to_be_visible(timeout=5000)
+    expect(page.locator('[data-testid="provider-type-grid"]')).to_be_visible(timeout=5000)
     _wait_for_render(page)
     _assert_screenshot(page, f"admin-empty-{theme}")
 
