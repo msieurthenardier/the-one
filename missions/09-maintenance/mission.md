@@ -1,0 +1,88 @@
+# Mission: Maintenance (Post-M08)
+
+**Status**: active
+
+## Outcome
+
+Resolve codebase health issues identified in the 2026-05-15 maintenance report. After this mission lands, the project should once again be flight-ready: the CI integrity gate restored to the zero-baseline posture M06 codified (and proven to enforce via a deliberate-violation experiment), the M07 OAuth callback's same-origin script-injection path closed, dev-environment install drift caught at a `make doctor`-style gate, and the three Action Required accessibility findings (form-field error association, listbox keyboard semantics, light-theme contrast) resolved.
+
+The mission's framing is **restore the integrity gate posture M06 established that M07/M08 silently eroded** — the most-visible signal is the lint/format regression (0 → 69 errors, 0 → 81 unformatted files) on a gate that exists at `ci/pipeline.yml:24` but apparently did not stop the M07/M08 PRs from merging. The maintenance leg cannot just fix the violations; it must determine *why* the gate didn't enforce and prove its rejection works going forward.
+
+Out of scope (routed to next mission post-this-maintenance, currently slotted as M10 since this maintenance takes slot 09): stop/cancel button + agent-loop reliability on local models (M08 KI #6/#7); the five module-skipped browser test files + paired `.new-entity-btn` DOM-visibility defect (M08 KI #3); the architectural cluster (singleton aiosqlite production lifecycle, per-call `httpx.AsyncClient` pooling, `_sessions` eviction, per-provider streaming-parser deduplication, MCP SSRF symmetry with LLM provider path, schema migration v7-v9 atomicity).
+
+## Context
+
+This is the second routine-maintenance mission for `the-one`. The first was Mission 06 (Maintenance), triggered by the 2026-05-04 report after Mission 05 (Built-in Tool System). Since M06, three missions have landed: M06 itself (landed the Action Required items from the 2026-05-04 report), M07 (MCP Integration, 11 flights — ~4,444 LOC of new MCP/OAuth surface), and M08 (GleepGlorp AI Rebrand & UX Polish, 10 flights). M08 closed today, 2026-05-15.
+
+The 2026-05-15 maintenance report ran a full inspection across all 10 categories plus accessibility, with explicit per-item disposition forced on the M08 mission-debrief carry-forward stack. The audit closed 2 stale items (`.checkbox-primary` and `tokens-section.js` panel-radius references — both already resolved but lingering in the M08 debrief notes), validated 5 routings to this mission, and identified one M08 over-claim (the debrief stated F5 L01.5 resolved the singleton aiosqlite concern; the Architect determined L01.5 was test-infrastructure-only and the production architecture is unchanged — re-opened as M10 fuel).
+
+The single new security finding worth shipping this mission lives in M07's new attack surface: the OAuth callback page at `the_one/interfaces/web/api.py:1681-1688` renders `json.dumps(post_message)` directly inside a `<script>` body without HTML-escaping `</`. A malicious-or-compromised third-party OAuth Authorization Server can inject same-origin script that bypasses the Origin allowlist (it executes same-origin precisely because it loads from `127.0.0.1`). This was rated medium-under-operator-trusted by the Security Reviewer but Architect-escalated to Action Required: `SECURITY-MODEL.md` "Future Work" names the MCP server trust boundary as a *gap to close*, not a license to ship exploitable code that lives in that gap. One-line fix.
+
+The three Action Required accessibility findings group naturally: a listbox-keyboard-semantics flight covering three call sites (chat welcome agent picker, session list, admin tools-grid tiles) plus a structural fix for the listbox-option-contains-button issue in `chat/history-buckets.js`, paired with a form-field error association + light-theme token contrast leg that also sweeps in the smaller a11y items (MIME-as-alt on MCP icons, toast 2s duration, telemetry overlay opacity).
+
+## Success Criteria
+
+- [ ] `ruff check the_one/ tests/` returns 0 errors on `main` (restored from current 69)
+- [ ] `ruff format --check the_one/ tests/` returns "all files already formatted" (restored from current 81 would-reformat)
+- [ ] CI lint+format gate is proven to reject violations via a deliberate-violation experiment on a throwaway branch (documented in the flight log)
+- [ ] `asgi-lifespan` installed in the dev venv AND a drift-detection mechanism added so missing dev extras surface as a clean failure rather than test errors (e.g., `make doctor` or CI assertion)
+- [ ] `test_sandbox_eperm_on_unshare_raises_mcp_sandbox_error_msg3` skip predicate tightened to cover bwrap-yes / SYS_ADMIN-no hosts (broad pytest exits 0 on a dev machine matching that profile)
+- [ ] OAuth callback's `postMessage` JSON is escaped so a `</script>` payload from the Authorization Server cannot terminate the script element
+- [ ] `_clean_npx` package-name argument validated against an allowlist before being used in path operations
+- [ ] `pip-audit` added to dev extras + a non-blocking CI step that surfaces CVE findings
+- [ ] `agents.md ## Provider type extension checklist` includes a `_init_provider_state` hook entry
+- [ ] `agents.md ## Project Conventions` codifies the "live-read across lazy-resolver boundary" pattern
+- [ ] `.env.example` documents `THE_ONE_DEV_MODE`
+- [ ] `SECURITY-MODEL.md` Future Work section names the MCP `streamable-http` URL gating asymmetry with the LLM provider path
+- [ ] `SECURITY-MODEL.md` documents Concourse team-password rotation cadence
+- [ ] OpenRouter `_APP_URL` / `_APP_NAME` updated to GleepGlorp AI identity (rebrand gap closure)
+- [ ] Chat welcome agent picker (the one real `role="listbox"` site) has roving-tabindex + ArrowUp/ArrowDown/Home/End working with `aria-selected` toggling; pattern lifted from `areas/layout/section-nav.js:71-91`
+- [ ] Session-list `role="option"` no longer contains an interactive `<button>` descendant — restructured to `<nav>` + `<ul>` of buttons; affected browser test assertions in `tests/browser/test_flow_keyboard.py` updated to match new shape
+- [ ] Admin tools-grid (already a button-grid post-M08 F5, NOT a listbox) verified as keyboard-accessible — no role change required; this success criterion exists to make the verification explicit, not to introduce listbox semantics where they don't belong
+- [ ] Form-field errors carry `aria-invalid="true"` + `aria-describedby` to a generated id; `role="alert"` on first error per save cycle
+- [ ] Light-theme `--fg-muted` (and `--fg-faint` where used on shell chrome) meet WCAG AA contrast against `--shell-chrome-bg`
+- [ ] Maintenance report at `maintenance/2026-05-15.md` updated with a backlink to this mission (already done at scaffold time)
+
+## Stakeholders
+
+- **Primary user / operator**: relies on the CI gate as a guard against the next mission accumulating quiet drift; relies on a11y fixes for the small set of operators who use keyboard navigation or are screen-reader users
+- **Future-self self-modification**: a clean lint baseline reduces noise when the agent edits its own source
+
+## Constraints
+
+- **No architectural change**: this mission is a quick-win bundle, not a refactor. The architectural cluster (singleton aiosqlite production lifecycle, per-call httpx pooling, `_sessions` eviction, streaming-parser dedup, MCP SSRF symmetry) is explicitly out of scope and routed to the next mission.
+- **No feature work**: stop/cancel button + agent-loop reliability are out of scope (next mission priority #1).
+- **No test-suite-cleanup of the M08-skipped browser modules**: also out of scope (next mission priority #2). The five `pytestmark = pytest.mark.skip` annotations stay in place.
+- **All M06 F1 controls must remain intact**: Origin allowlist, https-refusal, SECURITY-MODEL.md doc, encrypted secrets at rest, `.dockerignore`, image pinning, auto-rollback re-verify. Confirm each at flight-debrief close.
+- **No skipping CI hooks**: do not use `--no-verify` on commits during this mission. The mission's entire framing is restoring gate posture; bypassing locally would be self-defeating.
+- **Output discipline**: per the M08 lesson that cycle-1 design reviews are the highest-ROI control, keep them as default for every leg.
+
+## Environment Requirements
+
+- Local Python 3.11+ with editable install (`pip install -e ".[all-llms,dev]"`); confirm `asgi-lifespan` installs cleanly as part of `[dev]`
+- Docker + docker-compose for container testing; `make rebuild` after edits per the project's serving model
+- Playwright Python binding for browser tests (no UI flights here, but a11y leg should regenerate any affected pixel baselines locally)
+- `ruff` for lint and format (gate restoration is the mission's centerpiece)
+- `fly` CLI for triggering Concourse pipeline runs (deliberate-violation experiment)
+
+## Open Questions
+
+> Phase-gate note: all open questions must resolve before flight design begins. Each flight may surface its own open questions during pre-flight; this list captures mission-level ones.
+
+- **Should the deliberate-violation experiment land in a flight log, a maintenance report appendix, or both?** Resolved in Flight 1 design.
+- **Drift-detection mechanism shape: `make doctor` target vs CI assertion vs pre-commit hook vs both?** Resolved in Flight 1 design.
+- **Does the OpenRouter rebrand string update (`_APP_URL` / `_APP_NAME`) belong in the security/doc leg, or in a future rebrand-gap follow-up?** Working assumption: include this mission's security/doc leg opportunistically since it's one line and lives in the same file family as other M08 carry-forward items.
+
+## Known Issues
+
+> Emergent blockers and issues discovered during execution. Add items here as flights surface problems.
+
+(None at scaffold time.)
+
+## Flights
+
+> **Note:** These are committed (not tentative) since the maintenance scope is concrete. Both flights are derived from the Architect's recommended bundling in the 2026-05-15 maintenance report.
+
+- [ ] Flight 1: **Integrity Gate Restoration** — lint/format restoration (baseline 0 → 0) + CI gate audit with deliberate-violation experiment; test-infrastructure fixes (`asgi-lifespan` install + drift detection; sandbox skip-predicate); security one-liners (OAuth callback XSS escape, `_clean_npx` allowlist); documentation carry-forwards (`agents.md` `_init_provider_state` + lazy-resolver pattern; `.env.example` `THE_ONE_DEV_MODE`; `SECURITY-MODEL.md` MCP SSRF asymmetry note + Concourse rotation cadence note); OpenRouter rebrand strings; `pip-audit` adoption. Three legs. ~1.5–2 days.
+
+- [ ] Flight 2: **Accessibility Carry-forward** — listbox keyboard semantics for the one real listbox site (chat welcome agent picker) + structural fix for session-list (drop listbox semantic, restructure to nav+buttons, update affected browser test assertions); verify admin tools-grid is keyboard-accessible (no role change — already a button-grid post-M08 F5); form-field error programmatic association (`aria-invalid` + `aria-describedby` + `role="alert"`); light-theme `--fg-muted`/`--fg-faint` token adjustment for WCAG AA contrast on `--shell-chrome-bg` (leading with the scope-the-usage approach rather than global token darkening, per Architect risk note); opportunistic sweep of small a11y items (MIME-as-alt on MCP icons, toast 2s duration, telemetry overlay opacity + labeling, thinking-indicator reduced-motion gate). The lowest-priority sweep items (`indicator-led` contract docs, `section-nav.js` role disposition, trace-shell count in label, tool toggle visible label, README accessibility section) are budgeted as "if time permits" and may slip to a follow-up cycle. Two legs. ~1.5–2 days (revised up from initial 1–1.5 estimate per Architect sizing assessment).
