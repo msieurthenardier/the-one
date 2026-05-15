@@ -216,6 +216,16 @@ Error messages are tested via verbatim string equality (or substring `in str(exc
 
 The pattern applies only to error messages and other operator-facing strings. It does NOT apply to log messages (which evolve more freely) or to internal debug strings (which are not part of the contract surface).
 
+### `gated-debug-instrumentation`
+
+Debugging-only and measurement-only modules are gated by **both** a URL query-string flag and a `localStorage` key, capture the enabled state at module-load time, and short-circuit to no-ops when disabled. Production paths pay zero cost; the gate survives SPA navigation; activation is achievable both ad-hoc (URL) and persistently (localStorage).
+
+**Live example**: `App.perf` (`the_one/interfaces/web/static/js/perf.js`) — gated by `?perf=1` in the URL query string OR `localStorage.getItem('the-one-perf') === '1'`. The `enabled` flag is captured at module-load time (the file's `isEnabled()` IIFE), and every public method (`mark`, `measure`, `captureHeap`, `dump`, `summary`) short-circuits when disabled. See **Performance Measurement (F7)** below (this file) for full operational mechanics including the activation procedure, browser-support caveats, and the four canonical measurement scenarios that consume the surface.
+
+**Counter-example (what NOT to do)**: compile-time-excluding debug instrumentation via a build flag would break the project's "no build step for vanilla JS" architecture, AND would prevent operators from activating instrumentation on an already-deployed instance for ad-hoc diagnosis. Pre-compiling debug paths out of production also forecloses the "turn it on in production for one incident, turn it off after" workflow that the localStorage gate enables.
+
+The pattern applies whenever a frontend module exists primarily to support diagnosis (perf measurement, debug logging, trace capture, etc.) and is not part of the user-facing feature surface. Future modules following this convention should mirror `App.perf`'s shape: a module-load-time `isEnabled()` gate, public methods that short-circuit when disabled, and one-line activation via either URL or localStorage. The two activation channels are intentional — URL is ad-hoc (no operator commitment), localStorage is sticky (survives reloads, useful for measurement campaigns).
+
 ---
 
 ## Dependency Graph

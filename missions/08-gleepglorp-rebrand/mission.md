@@ -1,6 +1,6 @@
 # Mission: GleepGlorp AI Rebrand & UX Polish
 
-**Status**: active
+**Status**: completed
 
 ## Outcome
 
@@ -34,7 +34,7 @@ Bug fixing during this mission is **opportunistic**: anything noticed during pol
 - [ ] In Chat, tool-call and tool-result events are presented as part of a per-response trace attached to the assistant turn, rather than as inline messages in the conversation stream, and the same trace structure renders on session rejoin from persisted history (not just live broadcast)
 - [ ] The M07 OAuth `auth_required` pause-and-replay flow (consent button surfaced in Chat, pause snapshot on rejoin) continues to work after the chat trace restructure
 - [ ] All existing functionality (M01–M07 capabilities) continues working after the rebrand and polish passes — no regression in agent CRUD, provider management, chat persistence, MCP integration, etc.
-- [ ] The project's top-level documentation introduces GleepGlorp AI as a product — what it is, what it does, how to run it, how it is structured, and where to read the security model — without requiring the reader to dig through code or per-mission artifacts
+- [x] The project's top-level documentation introduces GleepGlorp AI as a product — what it is, what it does, how to run it, how it is structured, and where to read the security model — without requiring the reader to dig through code or per-mission artifacts
 - [ ] Automated browser tests pass after the rebrand and polish work; local visual-snapshot baselines regenerate cleanly post-palette-swap and snapshot tests fail meaningfully on subsequent regression (baselines are gitignored per project convention — they are a local regression net, not a committed artifact)
 
 ## Stakeholders
@@ -130,4 +130,4 @@ Bug fixing during this mission is **opportunistic**: anything noticed during pol
 
 - [x] Flight 7: **UI Performance Audit** — Now that the rebrand and polish work has landed, evaluate browser-side performance against realistic usage: long-running chat sessions with many turns, large session-history lists, many agents in Studio, repeated area switching, and memory behavior across `App.areas.activate` / `deactivate` cycles. Establish a measurement methodology (DevTools heap snapshots, allocation timeline, performance trace), capture baselines, identify hotspots and leaks, and apply fixes for anything that violates the established budget. Cross-area routing/navigation issues that surfaced during polish flights and weren't fixed in-place get triaged here. Closes with the final local visual-snapshot baseline regeneration for the mission.
 
-- [ ] Flight 8: **Professional README** — Now that every screen reflects the new identity and the app is performant, write a top-level `README.md` that introduces GleepGlorp AI as a product. Capture screenshots of the polished UI in both light and dark themes, include a clear one-paragraph "what this is", an install/run quickstart, an architecture overview (CLAUDE.md and `agents.md` are reference depth; README is product depth), a link to `SECURITY-MODEL.md`, and a pointer to the mission/flight artifact system for contributors. Closes the mission.
+- [x] Flight 8: **Professional README** — Now that every screen reflects the new identity and the app is performant, write a top-level `README.md` that introduces GleepGlorp AI as a product. Capture screenshots of the polished UI in both light and dark themes, include a clear one-paragraph "what this is", an install/run quickstart, an architecture overview (CLAUDE.md and `agents.md` are reference depth; README is product depth), a link to `SECURITY-MODEL.md`, and a pointer to the mission/flight artifact system for contributors. Closes the mission.
