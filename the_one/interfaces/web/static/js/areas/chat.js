@@ -634,11 +634,51 @@ App.registerArea({
       }
     }
 
+    // L6.5 — WS ping/pong RTT measurement. The pinger fires every 10s
+    // while OPEN; pong receipt computes RTT and writes EMA-smoothed
+    // (alpha 0.3) values to TelemetryStore. Unanswered ping (5s budget)
+    // → ws_state='stale'; onclose → ws_state='down', ws_rtt_ms='—'.
+    // The pong handler returned by startPinging is invoked at the top
+    // of onmessage and short-circuits dispatch when it consumes a pong.
+    function startPinging(socket) {
+      var pendingPing = null;
+      var pingInterval = setInterval(function () {
+        if (socket.readyState !== WebSocket.OPEN) return;
+        pendingPing = performance.now();
+        try { socket.send(JSON.stringify({ type: 'ping' })); }
+        catch (e) { /* socket may have closed between readyState check and send */ }
+        setTimeout(function () {
+          if (pendingPing != null && performance.now() - pendingPing > 5000) {
+            if (window.TelemetryStore) {
+              window.TelemetryStore.set({ ws_state: 'stale' });
+            }
+          }
+        }, 5100);
+      }, 10000);
+      socket.addEventListener('close', function () { clearInterval(pingInterval); });
+
+      return function onPong(data) {
+        if (data && data.type === 'pong' && pendingPing != null) {
+          var rtt = Math.round(performance.now() - pendingPing);
+          pendingPing = null;
+          if (window.TelemetryStore) {
+            var prev = window.TelemetryStore.get().ws_rtt_ms;
+            var smoothed = (typeof prev === 'number') ? Math.round(0.3 * rtt + 0.7 * prev) : rtt;
+            window.TelemetryStore.set({ ws_rtt_ms: smoothed, ws_state: 'ok' });
+          }
+          return true;
+        }
+        return false;
+      };
+    }
+
     function connect() {
       var proto = location.protocol === 'https:' ? 'wss' : 'ws';
       ws = new WebSocket(proto + '://' + location.host + '/ws');
+      var pongHandler = null;
 
       ws.onopen = function () {
+        pongHandler = startPinging(ws);
         checkSetupState()
           .then(function () { return fetchAgents(); })
           .then(function () { ws.send(JSON.stringify({ action: 'list_sessions' })); });
@@ -651,6 +691,10 @@ App.registerArea({
         // Disconnect drops every in-flight broadcast — clear the whole map.
         for (var k in inFlightSessions) delete inFlightSessions[k];
         if (!sessionBannerEl) sendBtn.disabled = false;
+        // L6.5: mark WS down + clear RTT so the chip flips to OFFLINE.
+        if (window.TelemetryStore) {
+          window.TelemetryStore.set({ ws_rtt_ms: '—', ws_state: 'down' });
+        }
         setTimeout(connect, 2000);
       };
 
@@ -666,6 +710,10 @@ App.registerArea({
           console.error('chat ws: malformed frame', err, String(e.data).slice(0, 200));
           return;
         }
+
+        // L6.5: pong frames are consumed by the RTT measurement helper
+        // and must NOT fall through to the session dispatch below.
+        if (pongHandler && pongHandler(data)) return;
 
         if (data.type === 'session_list') {
           sessions = data.sessions;

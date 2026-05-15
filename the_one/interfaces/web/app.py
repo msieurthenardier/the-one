@@ -1036,6 +1036,14 @@ async def websocket_endpoint(ws: WebSocket) -> None:
         while True:
             data = await ws.receive_text()
             payload = json.loads(data)
+
+            # L6.4: ping/pong RTT primitive. Short-circuit before action
+            # dispatch so the client can measure round-trip latency without
+            # touching any session state.
+            if payload.get("type") == "ping":
+                await ws.send_json({"type": "pong"})
+                continue
+
             action = payload.get("action", "message")
 
             # Session management actions
