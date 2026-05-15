@@ -538,11 +538,23 @@ App.registerArea({
       ctaPreset.setAttribute('data-testid', 'studio-empty-open-presets');
       ctaPreset.textContent = '→ start from preset';
       ctaPreset.addEventListener('click', function () {
-        // L4.5 will replace this with the real preset picker dialog.
-        // Stub keeps the click handler attached so the button is not "dead".
-        if (window.console && console.log) {
-          console.log('preset picker — wired in L4.5');
-        }
+        // L4.5 — open the preset picker dialog. Picking a preset opens the
+        // new-agent editor pre-filled with the preset's system_prompt,
+        // description, and tools_enabled.
+        openPresetPicker(function (preset) {
+          var commit = function () {
+            setActiveSection('agents');
+            enterCreateMode(preset);
+          };
+          var inEditingContext =
+            (self._activeSection === 'agents' && self._selectedAgent) ||
+            (self._activeSection === 'mcp-sources' && mcpSourceFormMode);
+          if (dirty && inEditingContext) {
+            App.confirmDialog({ onConfirm: commit });
+          } else {
+            commit();
+          }
+        });
       });
       ctas.appendChild(ctaPreset);
 
@@ -1295,7 +1307,7 @@ App.registerArea({
       doSelect(agent);
     }
 
-    function doEnterCreateMode() {
+    function doEnterCreateMode(preset) {
       self._createMode = true;
       self._selectedAgent = null;
       self._activeTab = 'general';
@@ -1311,17 +1323,165 @@ App.registerArea({
       // a manual page reload.
       Promise.all([refreshToolConfigsCache(), refreshMcpSourcesCache()]).then(function () {
         renderEditor(null);
+        // L4.5 — preset pre-fill: after the editor mounts (snapshot baseline
+        // captured against an empty form), write the preset's values into
+        // the DOM, then re-run checkDirty so Save/Cancel enable. This keeps
+        // isCreate=true (Name field stays visible, "Create" button label
+        // preserved) while warming the form with preset content.
+        if (preset) {
+          applyPresetToEditor(preset);
+        }
         updateContentVisibility();
         writeUrl_();
       });
     }
 
-    function enterCreateMode() {
+    function enterCreateMode(preset) {
       if (dirty) {
-        App.confirmDialog({ onConfirm: doEnterCreateMode });
+        App.confirmDialog({ onConfirm: function () { doEnterCreateMode(preset); } });
         return;
       }
-      doEnterCreateMode();
+      doEnterCreateMode(preset);
+    }
+
+    // L4.5 — Pre-fill an opened new-agent editor with values from a preset.
+    // Runs AFTER renderEditor() has captured the empty-form snapshot baseline,
+    // so checkDirty() flags Save/Cancel as enabled. Field-level pre-fill
+    // covers description, system_prompt, and tools_enabled (mapped onto the
+    // .tool-toggle checkboxes — Tools tab may not be mounted yet, but the
+    // toggle DOM is built synchronously in tools-tab.js at editor mount).
+    // default_model_family is a hint only; we do NOT auto-pick a model since
+    // the available model list is provider-specific.
+    function applyPresetToEditor(preset) {
+      if (!preset || !editorEl) return;
+      var descEl = editorEl.querySelector('[data-field="description"]');
+      if (descEl && preset.description) descEl.value = preset.description;
+      var promptEl = editorEl.querySelector('[data-field="system_prompt"]');
+      if (promptEl && preset.system_prompt) promptEl.value = preset.system_prompt;
+      var enabled = preset.tools_enabled || [];
+      var toggles = editorEl.querySelectorAll('.tool-toggle');
+      for (var i = 0; i < toggles.length; i++) {
+        var toggle = toggles[i];
+        if (toggle.disabled) continue;  // operator-disabled tools stay off
+        var name = toggle.getAttribute('data-tool');
+        toggle.checked = enabled.indexOf(name) >= 0;
+      }
+      // Re-run dirty check now that fields differ from the empty baseline.
+      checkDirty();
+    }
+
+    // L4.5 — Preset picker dialog. Fetches /api/agent-presets and renders
+    // a list of clickable preset cards in a Holograph modal. On selection,
+    // invokes onPick(preset) and closes. Uses the same .modal-backdrop /
+    // .modal-shell vocabulary as App.confirmDialog (components.css) for
+    // visual consistency; built inline rather than extending dialog.js
+    // because the picker has interactive list content rather than a single
+    // confirm decision.
+    function openPresetPicker(onPick) {
+      fetch('/api/agent-presets', { credentials: 'same-origin' })
+        .then(function (r) {
+          if (!r.ok) throw new Error('HTTP ' + r.status);
+          return r.json();
+        })
+        .then(function (presets) {
+          renderPresetPicker(presets, onPick);
+        })
+        .catch(function (err) {
+          if (window.console && console.error) {
+            console.error('Failed to load agent presets:', err);
+          }
+        });
+    }
+
+    function renderPresetPicker(presets, onPick) {
+      var escapeHtml = window.App.escapeHtml;
+      var trigger = document.activeElement;
+
+      var backdrop = document.createElement('div');
+      backdrop.className = 'modal-backdrop';
+      backdrop.setAttribute('role', 'dialog');
+      backdrop.setAttribute('aria-modal', 'true');
+      backdrop.setAttribute('data-testid', 'preset-picker-overlay');
+      var stamp = String(Date.now()) + '-' + Math.floor(Math.random() * 100000);
+      var titleId = 'preset-picker-title-' + stamp;
+      backdrop.setAttribute('aria-labelledby', titleId);
+
+      var shell = document.createElement('div');
+      shell.className = 'modal-shell preset-picker';
+      backdrop.appendChild(shell);
+
+      var header = document.createElement('div');
+      header.className = 'modal-header';
+      var titleEl = document.createElement('h2');
+      titleEl.className = 'modal-title';
+      titleEl.id = titleId;
+      titleEl.textContent = 'Start from preset';
+      header.appendChild(titleEl);
+      shell.appendChild(header);
+
+      var body = document.createElement('div');
+      body.className = 'modal-body';
+      var list = document.createElement('div');
+      list.className = 'preset-list';
+      for (var i = 0; i < presets.length; i++) {
+        var p = presets[i];
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'preset-option';
+        btn.setAttribute('data-preset-name', p.name);
+        btn.setAttribute('data-testid', 'preset-option-' + p.name);
+        var toolCount = (p.tools_enabled || []).length;
+        btn.innerHTML =
+          '<div class="preset-name">' + escapeHtml(p.name) + '</div>' +
+          '<div class="preset-desc">' + escapeHtml(p.description || '') + '</div>' +
+          '<div class="preset-meta">' +
+            escapeHtml((p.default_model_family || '').toUpperCase()) +
+            ' · ' + toolCount + ' TOOLS' +
+          '</div>';
+        (function (preset) {
+          btn.addEventListener('click', function () {
+            close();
+            try { onPick(preset); } catch (err) {
+              if (window.console && console.error) console.error(err);
+            }
+          });
+        })(p);
+        list.appendChild(btn);
+      }
+      body.appendChild(list);
+      shell.appendChild(body);
+
+      var footer = document.createElement('div');
+      footer.className = 'modal-footer';
+      var cancelBtn = document.createElement('button');
+      cancelBtn.type = 'button';
+      cancelBtn.className = 'btn btn-ghost';
+      cancelBtn.textContent = 'Cancel';
+      cancelBtn.setAttribute('data-testid', 'preset-picker-cancel');
+      cancelBtn.addEventListener('click', function () { close(); });
+      footer.appendChild(cancelBtn);
+      shell.appendChild(footer);
+
+      function close() {
+        document.removeEventListener('keydown', onKey, true);
+        if (backdrop.parentNode) backdrop.parentNode.removeChild(backdrop);
+        if (trigger && typeof trigger.focus === 'function') {
+          try { trigger.focus(); } catch (e) { /* ignore */ }
+        }
+      }
+
+      function onKey(e) {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          close();
+        }
+      }
+
+      document.addEventListener('keydown', onKey, true);
+      document.body.appendChild(backdrop);
+      // Focus the first preset option for keyboard users.
+      var firstOption = list.querySelector('.preset-option');
+      if (firstOption) firstOption.focus();
     }
 
     // ── Editor rendering ─────────────────────────────────────────────

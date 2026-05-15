@@ -414,6 +414,16 @@ async def delete_agent(name: str) -> dict[str, str]:
     return {"status": "ok"}
 
 
+# ── Agent presets ─────────────────────────────────────────────────────────
+
+
+@router.get("/agent-presets")
+async def list_agent_presets() -> list[dict[str, Any]]:
+    """Return the agent preset registry for the Studio picker."""
+    from the_one.agent._presets import PRESETS
+    return PRESETS
+
+
 # ── Knowledge Bases ───────────────────────────────────────────────────────
 
 
