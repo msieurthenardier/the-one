@@ -14,11 +14,17 @@ GleepGlorp AI is your local AI agent — the kind that lives on your laptop, tal
 
 ## Screenshots
 
-<!-- SCREENSHOT: chat-dark.png -->
+<p align="center">
+  <img src="docs/screenshots/chat-dark.png" alt="Chat — a populated session with the per-response tool-call trace expanded" width="900">
+</p>
 
-<!-- SCREENSHOT: studio-dark.png -->
+<p align="center">
+  <img src="docs/screenshots/studio-dark.png" alt="Studio — agent editor showing provider, model, capability chips, and max-context resolution" width="900">
+</p>
 
-<!-- SCREENSHOT: admin-dark.png -->
+<p align="center">
+  <img src="docs/screenshots/admin-dark.png" alt="Administration — LLM Providers grid with a configured Ollama tile" width="900">
+</p>
 
 (Light theme is the default — Admin → General → Appearance has the toggle.)
 

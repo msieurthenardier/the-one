@@ -129,7 +129,7 @@ The flight is content-only — no leg requires `make rebuild` for compiled-code 
 > **Note:** These are tentative suggestions, not commitments. Legs are planned and created one at a time as the flight progresses. This list will evolve based on discoveries during implementation.
 
 - [x] `readme-content-and-perf-convention` - Write `README.md` with all sections (screenshot placeholders as HTML comments); add the `?perf=1` URL+localStorage gate convention entry under `agents.md`'s `## Project Conventions`. FD-mechanical content work.
-- [ ] `screenshots-and-image-wiring` - Capture three dark-theme screenshots from a seeded demo, commit them under `docs/screenshots/`, replace L01 placeholders with `<img>` references. Operator-heavy with explicit data-leak gate.
+- [x] `screenshots-and-image-wiring` - Capture three dark-theme screenshots from a seeded demo, commit them under `docs/screenshots/`, replace L01 placeholders with `<img>` references. Operator-heavy with explicit data-leak gate.
 - [ ] `alignment-hat` - Cold-read HAT; verify install snippet against current `pyproject.toml`; surface and fix anything confusing or inaccurate. Closes the flight and the mission.
 
 ---

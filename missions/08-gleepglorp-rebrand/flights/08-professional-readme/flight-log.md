@@ -39,6 +39,32 @@ Recon outcome: zero retirements; one item (Playwright CDPSession parity recipe) 
 
 ## Leg Progress
 
+### L02 — `screenshots-and-image-wiring`
+
+**Status**: completed
+**Started**: 2026-05-15
+**Completed**: 2026-05-15
+
+**Files created**:
+- `/home/cprch/projects/the-one/docs/screenshots/chat-dark.png` (1440×900, 148 KB) — Chat area with 2-turn conversation, tool-call trace expanded showing `list_dir(path="/the_one/llm/", recursive=false)` + sandbox constraint error
+- `/home/cprch/projects/the-one/docs/screenshots/studio-dark.png` (1440×900, 116 KB) — Studio agent editor (General tab) with GleepGlorp agent, Ollama provider, qwen2.5:7b model, COMPLETION + TOOLS capability chips, max-context 33k
+- `/home/cprch/projects/the-one/docs/screenshots/admin-dark.png` (1440×900, 83 KB) — Administration → LLM Providers grid with the Ollama tile
+
+**Files modified**:
+- `/home/cprch/projects/the-one/README.md` — three `<!-- SCREENSHOT: -->` placeholders at original lines 17/19/21 replaced with `<p align="center"><img …></p>` blocks (now at lines 17-19 / 21-23 / 25-27). Each `<img>` has `width="900"` and a descriptive `alt` attribute.
+
+**Capture method**: Chrome DevTools MCP at 1440×900 viewport, `localStorage.setItem('theme-preference', 'dark')` set via `initScript` before navigation. Seed via HTTP API (POST `/api/providers` + POST `/api/agents`). Chat exchange driven via Chrome navigate + click + fill. Screenshots saved to `/tmp/*.png` (Chrome DevTools MCP workspace-sandbox), then `mv` to `docs/screenshots/`.
+
+**Final viewport**: 1440×900 DPR 1 — matches working hypothesis in leg artifact.
+
+**Data-leak verification**: FD visually inspected all three PNGs before commit. Pass: only demo agent `GleepGlorp`; no real API keys; Ollama URL is generic `host.docker.internal:11434/v1` (Docker-bridge convention, not a secret); chat content is sandbox-constrained `list_dir` attempt (innocuous).
+
+**Deviations from leg artifact**:
+- Capture mode shifted from "manual operator" (leg's default) to "FD via Chrome DevTools MCP" per operator's runtime delegation. Procedure stayed faithful to the leg's preconditions (1440×900, dark theme, populated state).
+- Chat exchange's tool call hit the sandbox allowlist constraint — the trace shows the error path rather than a successful tool execution. This is actually a stronger demo (shows both the trace structure AND the security boundary in action), but worth noting in case future regeneration produces a different shape.
+
+---
+
 ### L01 — `readme-content-and-perf-convention`
 
 **Status**: landed
@@ -143,3 +169,19 @@ Cycle-2 review SKIPPED — all fixes were minor/cosmetic (citation precision + v
 **L01 implementation (2026-05-15)**: Spawned Developer (Sonnet) per phase file's "Implement" prompt. Implementation completed with one noted deviation (README at 69 lines, below the 100-200 soft guidance — all required structural elements present, deliberate warmly-terse density). All 8 acceptance criteria verified passing. Convention name picked: `gated-debug-instrumentation`. Tagline retained verbatim from working hypothesis: "Your local AI agent — LLM-agnostic, tool-rich, hand-rolled."
 
 **L01 code review (cycle 1, 2026-05-15)**: Spawned Reviewer (Haiku) per phase file's "Review" prompt. Reviewer returned `[HANDOFF:confirmed]` on the first pass. All 8 acceptance criteria independently verified. Content correctness validated against codebase (19 tools confirmed, port/install/security/mission-control claims all matched). Convention entry's structural shape matches the four existing peers; name is semantically distinct. Zero scope creep — only new `README.md` + `the_one/agents.md` modification + artifact-tree updates. Zero out-of-scope references (no Concourse CI, no self-modification). No cycle-2 review needed.
+
+**L01 commit (2026-05-15)**: Spawned Developer (Sonnet) per phase file's "Commit" prompt. Leg status updated to `completed`; flight.md leg checked off; mission.md untouched (more legs remain). Commit `814f8d3` — 5 files, 617 insertions. Working tree clean post-commit. `[COMPLETE:leg]` signaled.
+
+**L02 interactive HAT (2026-05-15)**: Operator delegated screenshot capture entirely to FD ("you have access to all the data"; DB wipe authorized; qwen2.5:7b on Ollama selected). FD ran `make rebuild-clean` for a fresh container, seeded via HTTP API (ollama provider tile + GleepGlorp agent with qwen2.5:7b), then drove Chrome via DevTools MCP at 1440×900 viewport with `theme-preference=dark` set via initScript. Sent a chat message ("List the files in the_one/llm/ and tell me what each one does in one sentence") that produced a 2-turn assistant response with tool calls (search_tools + list_dir); the list_dir call hit the F3 sandbox allowlist and returned a constraint error, which actually showcases the trace mechanism (clean dialog + tool-call detail in the expandable trace) AND the security model in action. Captured three PNG screenshots into /tmp first (Chrome DevTools MCP is workspace-sandboxed to mission-control + /tmp), then moved to `/home/cprch/projects/the-one/docs/screenshots/{chat,studio,admin}-dark.png`. All three: 1440×900 DPR1, 83-148 KB PNGs. README image-wiring done by Edit tool — three placeholders replaced with `<p align="center"><img src="docs/screenshots/..." alt="..." width="900"></p>` blocks at lines 18, 22, 26. All verification steps pass.
+
+**L02 noted observations**:
+- Demo identity is clean (only the `GleepGlorp` agent name; no real conversation content; no real API keys — Ollama URL is the generic `host.docker.internal:11434/v1` from the Docker bridge, fine for a public repo)
+- Admin shot is sparse (single Ollama tile) — honest reflection of a fresh-seeded instance, no risk of leaking real-world provider configurations
+- Chat trace happens to demonstrate sandbox constraint enforcement (`[error] [constraint] path '/the_one/llm' outside allowlist`), which inadvertently makes the security model visible in the screenshot — a nice bonus given the README's security section pointer
+- Screenshot capture went through `/tmp` due to Chrome DevTools MCP workspace sandbox; not a permanent constraint, just a 2-step process per shot
+
+### Flight Director Notes
+
+**L02 interactive shape (2026-05-15)**: Per the agentic-workflow skill, L02 is an interactive HAT, so it does NOT spawn Developer/Reviewer agents for autonomous execution. The skill protocol calls for the FD to "guide the human through verification steps one at a time." Operator answered the initial AskUserQuestion by delegating the full capture to the FD ("since you're doing the capture, do you need me at all?"), shifting the interactive HAT to fully FD-driven. The FD-delegated-HAT protocol is exactly what F7's debrief recommended formalizing (see F7 debrief action item "Formalize the FD-delegated-HAT protocol"); this flight is a live application of that pattern. Scenarios the FD covered with MCP + API: seeding via HTTP API, theme + viewport via initScript, chat message + tool exchange via Chrome navigation + click + fill. Scenarios the FD could NOT cover (none in this leg — no operator-only state required visual confirmation that the FD's MCP couldn't perform).
+
+**Commit deferred to next step** — Phase 2d's commit was done after L01 only; this commit is for L02 alone. L03 (alignment HAT) commits separately.
