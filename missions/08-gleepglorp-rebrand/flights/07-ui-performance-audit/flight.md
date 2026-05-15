@@ -1,6 +1,6 @@
 # Flight: UI Performance Audit
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [GleepGlorp AI Rebrand & UX Polish](../../mission.md)
 
 ## Contributing to Criteria
@@ -150,7 +150,7 @@ Out of scope (carry-forward to dedicated flights or later missions):
 - [x] `memory-and-perf-fixes` — apply fixes for budget-violating retention identified in L02; re-run heap-snapshot scenario to confirm flat retention
 - [x] `mid-stream-usage-and-eager-resolve` — F6 KI #5 mid-stream `usage` emission per-provider chunk-byte heuristic; F6.5 eager-resolve `max_context_tokens` at session join via client-side fetch
 - [x] `carry-forward-cleanup` — OpenRouter `_init_provider_state` hook refactor; explicit Anthropic resolver override; `_process_and_broadcast` live-read unit test; agents.md make-rebuild note + perf-budget table writeback. Pure cleanup; routing-triage moved to L06 HAT.
-- [ ] `ui-perf-audit-hat` — operator HAT across perf scenarios in both themes + cross-area routing/navigation verification (chat + studio scope; admin sample-page); final mission pixel baseline regen; broad/browser/pixel regression smoke
+- [x] `ui-perf-audit-hat` — operator delegated HAT to FD given full MCP + test-suite access. FD-executed via MCP + test suites. Heap-retention budget -14.62% (well under +20%); routing scenarios pass; broad 1679p/4s/375d; browser 316p/35s; pixel regenerated 12/12 clean
 
 ---
 
