@@ -90,7 +90,8 @@
   }
 
   function subscribeForRerender() {
-    window.TelemetryStore.subscribe(function () {
+    var lastStore = window.TelemetryStore.get();
+    window.TelemetryStore.subscribe(function (store) {
       var topnav = document.getElementById('app-topnav');
       if (!topnav) return;
       var strip = topnav.querySelector('.tele-strip');
@@ -98,10 +99,40 @@
       var active = topnav.querySelector('.navseg.active');
       var areaId = active ? active.dataset.area : 'chat';
       var chipKeys = AREA_CHIPS[areaId] || AREA_CHIPS.chat;
-      var store = window.TelemetryStore.get();
-      while (strip.firstChild) strip.removeChild(strip.firstChild);
-      strip.insertAdjacentHTML('beforeend',
-        chipKeys.map(function (k) { return renderChip(k, store); }).join(''));
+
+      chipKeys.forEach(function (k) {
+        var chipEl = strip.querySelector('.tele-chip[data-chip="' + k + '"]');
+        if (!chipEl) {
+          // Chip not in DOM (likely first render after area switch) — full strip re-render
+          while (strip.firstChild) strip.removeChild(strip.firstChild);
+          strip.insertAdjacentHTML('beforeend',
+            chipKeys.map(function (kk) { return renderChip(kk, store); }).join(''));
+          return;
+        }
+        var nextVal = (k === 'ws')
+          ? (store.ws_rtt_ms === '—' ? '—' : store.ws_rtt_ms)
+          : store[k];
+        var prevVal = (k === 'ws')
+          ? (lastStore.ws_rtt_ms === '—' ? '—' : lastStore.ws_rtt_ms)
+          : lastStore[k];
+        var strong = chipEl.querySelector('strong');
+        if (strong && typeof nextVal === 'number' && typeof prevVal === 'number') {
+          // For WS chip, the strong contains "{rtt}ms"; lerp the rtt and let
+          // the trailing "ms" persist via a re-render after animation. Simpler:
+          // re-render WS chip wholesale (rtt animation across "{n}ms" text is
+          // a follow-up). For non-ws numeric chips, lerp the strong.
+          if (k === 'ws') {
+            chipEl.outerHTML = renderChip(k, store);
+          } else {
+            window.LerpCounter.animate(strong, nextVal, 240);
+          }
+        } else {
+          // Non-numeric transition — re-render the single chip
+          chipEl.outerHTML = renderChip(k, store);
+        }
+      });
+
+      lastStore = store;
     });
   }
 
