@@ -59,12 +59,43 @@
     var name = isCreate ? 'New Agent' : (agent.name || '');
     var description = isCreate ? '' : (agent.description || '');
 
+    // M10 L5.4 — coord-header readout: "● EDITING · AGENT NN". For create
+    // mode show "NEW" instead of a numeric index; otherwise zero-pad the
+    // 1-based index from callbacks.agentIndex (computed in studio.js from
+    // the agents list).
+    var agentIndex = (typeof callbacks.agentIndex === 'number') ? callbacks.agentIndex : null;
+    var coordLabel;
+    if (isCreate) {
+      coordLabel = 'EDITING · NEW AGENT';
+    } else if (agentIndex !== null && agentIndex >= 0) {
+      var idxStr = String(agentIndex + 1);
+      if (idxStr.length < 2) idxStr = '0' + idxStr;
+      coordLabel = 'EDITING · AGENT ' + idxStr;
+    } else {
+      coordLabel = 'EDITING · AGENT';
+    }
+
     var html = '';
 
-    // === Editor header ============================================
+    // === Editor header (M10 L5.4 — coord-header + mono actions) =========
+    // The outer wrapper keeps the `.editor-header` class for any styling
+    // hooks that still target it; the inner `.editor-head` carries the new
+    // flex layout (coord + name on the left, action cluster on the right).
+    //
+    // Backward-compat selectors preserved:
+    //   - `.editor-title` (text == agent name) — used by 9+ browser tests
+    //   - `data-testid="back-agent-btn"` / `cancel-agent-btn` / `save-agent-btn`
+    //   - `.back-btn` / `.cancel-btn` / `.save-btn` (studio.js wires by class)
+    //   - `.editor-error` span (validation error sink)
+    //
+    // The Cancel button is visually rebranded as "↻ REVERT" and the Save
+    // button as "✓ SAVE" — `cancelEdit()` already restores the saved
+    // snapshot, which is exactly what an operator means by "revert".
     html += '<div class="editor-header">';
-    html += '<div class="editor-header-text">';
-    html += '<h1 class="editor-title">' + escapeHtml(name) + '</h1>';
+    html += '<div class="editor-head">';
+    html += '<div class="editor-head-text">';
+    html += '<div class="editor-coord"><span class="dot">●</span> ' + coordLabel + '</div>';
+    html += '<h1 class="editor-title editor-name">' + escapeHtml(name) + '</h1>';
     if (!isCreate) {
       html += '<p class="editor-subtitle">' + escapeHtml(description) + '</p>';
     }
@@ -72,19 +103,21 @@
 
     // === Action cluster ===========================================
     // F5 leg 05: Delete moved into the General tab's Danger Zone (only
-    // for existing agents). The header carries Back / Cancel / Save.
-    // Save and Cancel share `disabled` as the SINGLE source of truth —
+    // for existing agents). The header carries Back / Revert / Save.
+    // Save and Revert share `disabled` as the SINGLE source of truth —
     // checkDirty() flips both to mirror the dirty flag.
-    html += '<div class="form-actions">';
-    html += '<button type="button" class="btn-outlined-primary back-btn" ' +
-      'data-testid="back-agent-btn" aria-label="Back to agents list">' +
-      window.App.icon('arrow-left') + ' Back</button>';
-    html += '<button type="button" class="btn-outlined-primary cancel-btn" ' +
-      'data-testid="cancel-agent-btn" disabled>Cancel</button>';
-    html += '<button type="button" class="btn-filled-primary save-btn" ' +
-      'data-testid="save-agent-btn" disabled>' + (isCreate ? 'Create' : 'Save') + '</button>';
+    html += '<div class="editor-actions form-actions">';
+    html += '<button type="button" class="btn-action back-btn" ' +
+      'data-testid="back-agent-btn" data-action="back" aria-label="Back to agents list">' +
+      '← BACK</button>';
+    html += '<button type="button" class="btn-action cancel-btn" ' +
+      'data-testid="cancel-agent-btn" data-action="revert" disabled>↻ REVERT</button>';
+    html += '<button type="button" class="btn-action accent save-btn" ' +
+      'data-testid="save-agent-btn" data-action="save" disabled>✓ ' +
+      (isCreate ? 'CREATE' : 'SAVE') + '</button>';
     html += '<span class="editor-error"></span>';
     html += '</div>';
+    html += '</div>'; // .editor-head
     html += '</div>'; // .editor-header
 
     // === Tablist ==================================================

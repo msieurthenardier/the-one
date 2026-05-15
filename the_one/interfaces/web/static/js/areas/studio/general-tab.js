@@ -30,25 +30,53 @@
       max_iterations: 20
     };
 
+    // M10 L5.4 — compute a coarse word-count hint for the System Prompt
+    // field. Cheap whitespace split; "~N words" gives operators a quick
+    // sense of prompt size without round-tripping to the backend.
+    var promptText = String(cfg.system_prompt || '').trim();
+    var promptWordCount = promptText ? promptText.split(/\s+/).length : 0;
+
+    // M10 L5.4 — provider hint: show provider type as a mono sub-line under
+    // the PROVIDER · MODEL label so operators see at a glance which family
+    // they're configuring.
+    var selectedProvider = null;
+    if (cfg.provider_config_id && providers && providers.length) {
+      for (var pp = 0; pp < providers.length; pp++) {
+        if (providers[pp].id === cfg.provider_config_id) {
+          selectedProvider = providers[pp];
+          break;
+        }
+      }
+    }
+    var providerHint = selectedProvider ? (selectedProvider.type + ' family') : 'select to pick model';
+
     var html = '';
 
     // Identity
     html += '<div class="editor-section"><div class="section-title">Identity</div>';
     if (isCreate) {
-      html += '<div class="field-row"><label for="studio-name">Name</label>' +
+      html += '<div class="field"><div class="field-label"><span>NAME</span></div>' +
+        '<div class="field-row"><label for="studio-name" class="sr-only">Name</label>' +
         '<input id="studio-name" class="field-input" data-field="name" value="" placeholder="agent-name" />' +
-        '</div>';
+        '</div></div>';
     }
-    html += '<div class="field-row"><label for="studio-description">Description</label>' +
+    html += '<div class="field"><div class="field-label"><span>DESCRIPTION</span></div>' +
+      '<div class="field-row"><label for="studio-description" class="sr-only">Description</label>' +
       '<input id="studio-description" class="field-input" data-field="description" value="' + escapeAttr(cfg.description || '') + '" placeholder="What does this agent do?" />' +
-      '</div>';
+      '</div></div>';
     html += '</div>';
 
     // LLM Configuration
     html += '<div class="editor-section"><div class="section-title">LLM Configuration</div>';
 
+    // Provider · Model — mono uppercase label + family hint.
+    html += '<div class="field"><div class="field-label">' +
+      '<span>PROVIDER · MODEL</span>' +
+      '<span class="field-hint" data-testid="provider-model-hint">' + escapeHtml(providerHint) + '</span>' +
+      '</div>';
+
     // Provider dropdown
-    html += '<div class="field-row"><label for="studio-provider">Provider</label>';
+    html += '<div class="field-row"><label for="studio-provider" class="sr-only">Provider</label>';
     html += '<select id="studio-provider" class="field-input field-select" data-field="provider_config_id">';
     if (!cfg.provider_config_id) {
       html += '<option value="" disabled selected>No provider — configure in Admin</option>';
@@ -72,13 +100,14 @@
     // ~370 models. A prior datalist+input variant was tried but its
     // value-driven filter trapped operators with a stale selection (the
     // dropdown showed only the previously-picked match).
-    html += '<div class="field-row"><label for="studio-model">Model</label>';
+    html += '<div class="field-row"><label for="studio-model" class="sr-only">Model</label>';
     html += '<div class="field-model-wrap">';
     html += '<select id="studio-model" class="field-input field-select" data-field="llm_model">';
     html += '<option value="" disabled selected>Select a provider first</option>';
     html += '</select>';
     html += '<span class="model-loading" aria-live="polite"></span>';
     html += '</div></div>';
+    html += '</div>'; // .field PROVIDER · MODEL
 
     // Capability panel — Ollama models surface their /api/show capabilities
     // here so operators see at a glance whether the selected model supports
@@ -105,18 +134,24 @@
 
     html += '</div>'; // .editor-section LLM
 
-    // System Prompt
-    html += '<div class="editor-section"><div class="section-title">System Prompt</div>';
+    // System Prompt — mono label + word-count hint (appended to base prompt).
+    html += '<div class="editor-section">';
+    html += '<div class="field"><div class="field-label">' +
+      '<span>SYSTEM PROMPT</span>' +
+      '<span class="field-hint" data-testid="system-prompt-hint">~' + promptWordCount +
+      ' words · appended to base</span>' +
+      '</div>';
     html += '<textarea class="field-textarea" data-field="system_prompt" rows="8" placeholder="Instructions for the agent...">' +
       escapeHtml(cfg.system_prompt || '') + '</textarea>';
-    html += '</div>';
+    html += '</div></div>';
 
     // Behavior — max_iterations stays here (real AgentConfig storage).
     html += '<div class="editor-section"><div class="section-title">Behavior</div>';
-    html += '<div class="field-row"><label for="studio-max-iterations">Max Iterations</label>' +
+    html += '<div class="field"><div class="field-label"><span>MAX ITERATIONS</span></div>';
+    html += '<div class="field-row"><label for="studio-max-iterations" class="sr-only">Max Iterations</label>' +
       '<input id="studio-max-iterations" class="field-input field-input-short" data-field="max_iterations" type="number" value="' +
       (cfg.max_iterations || 20) + '" min="1" max="100" /></div>';
-    html += '</div>';
+    html += '</div></div>';
 
     // Advanced — collapsible disclosure with stubbed disabled inputs.
     // <details>/<summary> chosen for native a11y (keyboard, screen readers,

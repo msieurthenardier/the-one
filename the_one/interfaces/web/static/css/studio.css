@@ -329,4 +329,185 @@
     letter-spacing: 0.04em;
   }
 
+  /* ============ L5.4 — Studio editor coord-header + mono fields + tool chips ===
+   * Three-part polish landing on the Studio agent editor right pane:
+   *
+   *   1. .editor-head — coord readout above the agent name + mono REVERT/SAVE
+   *      action cluster. Sits inside the existing .editor-header padding so
+   *      no test-anchored layout (selectors, margins, scroll offsets) drifts.
+   *   2. .field / .field-label / .field-hint — mono uppercase form labels
+   *      with an optional camelCase hint. The hint is rendered next to the
+   *      label (not below) for instrument-lens density.
+   *   3. .tool-chip — small bordered mono cells with .on / .off variants and
+   *      a .tool-chip-locked variant for operator-disabled tools.
+   *
+   * The mockup-verbatim `.editor-actions` rule above (line 139) keeps its
+   * `margin-left: auto` so the cluster floats right inside `.editor-head`.
+   */
+
+  .editor-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: var(--space-4);
+    margin-bottom: var(--space-5);
+    padding-bottom: var(--space-4);
+    border-bottom: 1px solid var(--hairline);
+  }
+  .editor-head-text { min-width: 0; }
+  .editor-coord {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    color: var(--fg-faint);
+    text-transform: uppercase;
+    margin-bottom: var(--space-2);
+  }
+  .editor-coord .dot {
+    color: var(--accent);
+    margin-right: 4px;
+  }
+  /* .editor-name carries the existing .editor-title class for test compat.
+   * Overrides re-state the font-size + color so the M10 lens dominates. */
+  .editor-name {
+    font-size: 18px;
+    color: var(--fg);
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    margin: 0;
+  }
+
+  /* Mono action buttons (REVERT / SAVE / BACK). The base `.editor-actions`
+   * (line 139) already gives them right-alignment + 6px gaps. */
+  .btn-action {
+    background: transparent;
+    border: 0;
+    padding: 6px 12px;
+    color: var(--fg-mute);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: color var(--motion-fast, 120ms) ease,
+                background var(--motion-fast, 120ms) ease;
+  }
+  .btn-action:hover:not(:disabled) {
+    color: var(--fg);
+    background: var(--accent-tint);
+  }
+  .btn-action.accent { color: var(--accent); }
+  .btn-action.accent:hover:not(:disabled) {
+    color: var(--accent);
+    background: var(--accent-tint);
+  }
+  .btn-action:disabled {
+    color: var(--fg-faint);
+    cursor: not-allowed;
+    background: transparent;
+  }
+  .btn-action:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  /* Field wrappers — mono uppercase label + optional hint. The label sits
+   * on its own row above .field-row; the hint pairs with the label inline
+   * (baseline-aligned, lighter color, smaller). */
+  .field { margin-bottom: var(--space-5); }
+  .field-label {
+    display: flex;
+    gap: var(--space-2);
+    align-items: baseline;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    color: var(--fg-faint);
+    text-transform: uppercase;
+    margin-bottom: var(--space-2);
+  }
+  .field-hint {
+    color: var(--fg-faint);
+    font-size: 9px;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+
+  /* Tool chip grid — small mono cells with on/off variants. The wrapping
+   * <label> still owns the row (preserves checkbox accessibility); the
+   * inner .tool-chip button carries the visual state. */
+  .tool-chip-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-bottom: var(--space-3);
+  }
+  .tool-chip-row {
+    display: contents;
+    /* The visible affordance is the .tool-chip button inside; the wrapping
+     * label exists to host the hidden checkbox and the sr-only desc. */
+  }
+  .tool-chip-row .tool-toggle {
+    /* Hide the underlying checkbox — collectFormData still reads .checked */
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  .tool-chip {
+    padding: 3px 8px;
+    background: var(--bg);
+    border: 1px solid var(--hairline);
+    border-radius: 4px;
+    color: var(--fg-mute);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    cursor: pointer;
+    transition: border-color var(--motion-fast, 120ms) ease,
+                color var(--motion-fast, 120ms) ease;
+  }
+  .tool-chip.on {
+    color: var(--fg);
+    border-color: var(--hairline-strong);
+  }
+  .tool-chip.off {
+    color: var(--fg-faint);
+    text-decoration: line-through;
+    border-style: dashed;
+  }
+  .tool-chip:hover:not(:disabled) { border-color: var(--accent); }
+  .tool-chip:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .tool-chip:disabled,
+  .tool-chip.tool-chip-locked {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+  .tools-tab-head {
+    margin-top: var(--space-4);
+    margin-bottom: var(--space-3);
+  }
+
+  /* Accessibility helper — keeps the label text mounted for screen readers
+   * while hiding it visually. Mirrors WAI-ARIA-authored sr-only utilities. */
+  .field .sr-only,
+  .tool-chip-row .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
 }

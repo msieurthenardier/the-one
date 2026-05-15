@@ -1498,8 +1498,19 @@ App.registerArea({
     // immediately.
     function renderEditor(agent) {
       var isCreate = !agent;
+      // M10 L5.4 — coord-header needs the agent's position in the agents list
+      // (zero-based) so it can render "AGENT 01" / "AGENT 02" / etc. Computed
+      // here (closure has access to self._agents); the editor module renders
+      // "NEW AGENT" when this is null (create mode) or when no match.
+      var agentIndex = null;
+      if (agent && agent.name && Array.isArray(self._agents)) {
+        for (var ai = 0; ai < self._agents.length; ai++) {
+          if (self._agents[ai].name === agent.name) { agentIndex = ai; break; }
+        }
+      }
       tabHandle = App.studio.renderAgentEditor(editorEl, agent, self._allProviders, {
         initialTab: self._activeTab || 'general',
+        agentIndex: agentIndex,
         onBack: handleBack,
         onDelete: handleDeleteEditor,
         onSave: function () { save(isCreate); },

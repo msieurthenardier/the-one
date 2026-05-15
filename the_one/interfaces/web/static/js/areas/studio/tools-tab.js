@@ -71,7 +71,23 @@
       return null;
     }
 
+    // M10 L5.4 — compute enabled/total counts for the mono "TOOLS · N / M
+    // enabled" header label. Counts mirror the `enabledSet` built above,
+    // which reflects the agent's saved state (operator-disabled tools are
+    // still counted in the denominator — they appear in the UI as off).
+    var enabledCount = 0;
+    var totalCount = allTools.length;
+    for (var ti = 0; ti < allTools.length; ti++) {
+      if (enabledSet[allTools[ti].name]) enabledCount++;
+    }
+
     var html = '';
+
+    // Mono uppercase header for the tools tab (M10 L5.4 — coord-style).
+    html += '<div class="field-label tools-tab-head">' +
+      '<span>TOOLS &middot; ' + enabledCount + ' / ' + totalCount + ' enabled</span>' +
+      '<span class="field-hint">narrowed from defaults</span>' +
+      '</div>';
 
     // The MCPs subsection moved to a sibling tab; the parent tab label
     // ("Built-in Tools") supplies the page-level header here, so this tab
@@ -85,20 +101,31 @@
       var cat = catKeys[c];
       var toolNames = TOOL_CATEGORIES[cat];
       html += '<h2 class="section-title">' + escapeHtml(cat) + '</h2>';
+      html += '<div class="tool-chip-grid">';
       for (var t = 0; t < toolNames.length; t++) {
         var tName = toolNames[t];
         var toolInfo = findTool(tName);
         var checked = enabledSet[tName] ? ' checked' : '';
         var disabled = isDisabled(tName);
-        var rowClass = 'tool-row' + (disabled ? ' tool-row-disabled' : '');
+        var rowClass = 'tool-row tool-chip-row' + (disabled ? ' tool-row-disabled' : '');
         var rowAttrs = '';
         if (disabled) rowAttrs = ' title="Disabled by operator"';
+        // Append legacy `.tool-name` (and `.tool-name-strike` when locked)
+        // to the chip itself — tests expect to locate by `.tool-name` and
+        // assert the strike class on disabled rows.
+        var chipClass = 'tool-chip tool-name' + (enabledSet[tName] ? ' on' : ' off') +
+          (disabled ? ' tool-chip-locked tool-name-strike' : '');
+        var chipTitle = toolInfo && toolInfo.description ? toolInfo.description : tName;
         html += '<label class="' + rowClass + '"' + rowAttrs + '>';
-        html += '<input type="checkbox" class="tool-toggle" data-tool="' + escapeAttr(tName) + '"' + checked + (disabled ? ' disabled' : '') + ' />';
-        html += '<span class="tool-switch"></span>';
-        var nameClass = 'tool-name' + (disabled ? ' tool-name-strike' : '');
-        html += '<span class="' + nameClass + '">' + escapeHtml(tName) + '</span>';
-        html += '<span class="tool-desc">' + escapeHtml(toolInfo ? toolInfo.description : '') + '</span>';
+        // Hidden checkbox carries the source-of-truth state for
+        // collectFormData. Visually replaced by the .tool-chip button.
+        html += '<input type="checkbox" class="tool-toggle" data-tool="' + escapeAttr(tName) + '"' + checked + (disabled ? ' disabled' : '') + ' aria-hidden="true" tabindex="-1" />';
+        html += '<button type="button" class="' + chipClass + '" data-tool="' + escapeAttr(tName) +
+          '" aria-pressed="' + (enabledSet[tName] ? 'true' : 'false') + '" title="' + escapeAttr(chipTitle) + '"' +
+          (disabled ? ' disabled' : '') + '>' + escapeHtml(tName) + '</button>';
+        // Keep tool description in the DOM (sr-only) for screen-reader
+        // context — chip surface alone is too terse.
+        html += '<span class="sr-only tool-desc">' + escapeHtml(toolInfo ? toolInfo.description : '') + '</span>';
         html += '</label>';
         // Override panel — only for ENABLED tools (operator-disabled tools
         // have no narrowing surface relevant). Collapsed by default; lazy-
@@ -113,9 +140,55 @@
           html += '</details>';
         }
       }
+      html += '</div>';
     }
 
     panel.innerHTML = html;
+
+    // Wire chip buttons → toggle the hidden checkbox → re-style. The label
+    // wrapper would also toggle the checkbox via native label-for semantics
+    // even without a 'for' attribute (clicking a label toggles its first
+    // descendant checkbox), so the explicit button handler stops the
+    // default label propagation and drives toggle state itself.
+    function syncChipState(chip, isOn) {
+      if (isOn) {
+        chip.classList.add('on');
+        chip.classList.remove('off');
+      } else {
+        chip.classList.add('off');
+        chip.classList.remove('on');
+      }
+      chip.setAttribute('aria-pressed', isOn ? 'true' : 'false');
+    }
+    var chips = panel.querySelectorAll('.tool-chip[data-tool]');
+    for (var ch = 0; ch < chips.length; ch++) {
+      (function (chip) {
+        chip.addEventListener('click', function (evt) {
+          // The chip lives inside a <label>; without preventDefault the
+          // label's implicit-for would also flip the checkbox, doubling
+          // the state change. preventDefault keeps us in sole control.
+          evt.preventDefault();
+          if (chip.disabled) return;
+          var name = chip.dataset.tool;
+          var toggle = panel.querySelector('.tool-toggle[data-tool="' + name + '"]');
+          if (!toggle || toggle.disabled) return;
+          toggle.checked = !toggle.checked;
+          syncChipState(chip, toggle.checked);
+          if (callbacks.onChange) callbacks.onChange();
+        });
+      })(chips[ch]);
+    }
+    // Expose a re-sync entry point so select-all / select-none (which flip
+    // the underlying checkboxes) can refresh chip styling.
+    panel._toolsChipResync = function () {
+      var allChips = panel.querySelectorAll('.tool-chip[data-tool]');
+      for (var i = 0; i < allChips.length; i++) {
+        var name = allChips[i].dataset.tool;
+        var toggle = panel.querySelector('.tool-toggle[data-tool="' + name + '"]');
+        if (!toggle) continue;
+        syncChipState(allChips[i], toggle.checked);
+      }
+    };
 
     // Wire select-all / select-none — operator-disabled checkboxes are
     // skipped (HTML `disabled` blocks programmatic `checked = true` from
@@ -129,6 +202,7 @@
         if (toggles[i].disabled) continue;
         toggles[i].checked = true;
       }
+      if (panel._toolsChipResync) panel._toolsChipResync();
       if (callbacks.onChange) callbacks.onChange();
     };
     if (noneBtn) noneBtn.onclick = function () {
@@ -137,6 +211,7 @@
         if (toggles[i].disabled) continue;
         toggles[i].checked = false;
       }
+      if (panel._toolsChipResync) panel._toolsChipResync();
       if (callbacks.onChange) callbacks.onChange();
     };
 
