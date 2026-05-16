@@ -158,7 +158,7 @@
   }
 
   /* M10 — flex spacer between nav-segments and right cluster */
-  .topnav-spacer { flex: 1; }
+  .topnav-spacer { flex: 1; align-self: stretch; }
 
   /* ── Search ──────────────────────────────────────────────────────────── */
 
