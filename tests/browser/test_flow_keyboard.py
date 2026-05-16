@@ -160,8 +160,13 @@ def test_admin_category_keyboard_select(app_clean: str, page: Page) -> None:
     category_item = page.locator(".area-admin .section-nav-item").first
     expect(category_item).to_be_visible(timeout=5000)
 
-    # Section-nav container has role=group (set by App.layout.renderSectionNav)
-    expect(page.locator(".area-admin .section-nav")).to_have_attribute("role", "group")
+    # Section-nav container is a <nav> landmark (F2 Leg 2 A.10: <div role=group>
+    # was upgraded to a <nav> element to compose as a landmark; <nav> implies
+    # role=navigation so no explicit role attribute is set).
+    section_nav = page.locator(".area-admin .section-nav")
+    expect(section_nav).to_be_visible()
+    assert section_nav.evaluate("el => el.tagName") == "NAV"
+    expect(section_nav).to_have_attribute("aria-label", "System sections")
 
     # Active section-nav item has tabindex=0 (roving tabindex contract)
     expect(category_item).to_have_attribute("tabindex", "0")

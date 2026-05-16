@@ -262,7 +262,9 @@ App.registerArea({
     // ── Layout: sidebar = section-nav only; main panel hosts both the
     // section-content (tile grid / Knowledge / Tools) and the editor,
     // toggled via .is-hidden based on whether an agent is being edited.
-    sidebar.innerHTML = '<div class="studio-section-nav"></div>';
+    // F2 Leg 2 (A.10): use <nav> instead of <div> so the section-nav
+    // composes as a landmark. See section-nav.js helper change.
+    sidebar.innerHTML = '<nav class="studio-section-nav"></nav>';
     var sectionNavEl = sidebar.querySelector('.studio-section-nav');
 
     content.innerHTML =
