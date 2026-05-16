@@ -153,6 +153,77 @@
 - **Beyond-spec test edit** in `test_flow_new_chat.py:196-201` — the leg spec marked it SURVIVES, but the descendant-selector + `.confirm-delete`-on-`.session-item` assumption broke under the sibling-button layout. Updated as documented above; no functional change to the deletion flow itself.
 - Pixel-snapshot suite (`test_visual_snapshots.py`, marker `pixel`) not run — out of `make test-browser` scope; baselines under `tests/browser/__snapshots__/` are gitignored and local-only per user-global policy. The session-list visual shift (div → button + `<ul>` wrapper) likely needs a local pixel-baseline regen before running `make test-pixel`; not part of this leg's verification path.
 
+### 2026-05-16 — Leg 2 (landed; sub-commits 983369b → 626735d)
+
+**Sub-fix landings** (atomic per A.* item, `flight/02:` prefix):
+
+| A.* | Sub-commit | Outcome |
+|---|---|---|
+| A.3 (chrome-text tokens) | `983369b` | 3 chrome-text consumer sites rescoped to `--fg-tertiary` |
+| A.2 (form-error wiring) | `c16300d` | `aria-invalid` + additive `aria-describedby` + `role="alert"` |
+| A.6 (MCP icon alt) | `2281f11` | Ternary dropped; always `alt=""` |
+| A.7 (reduced-motion gate) | `89f3e4a` | `matchMedia` gate on the thinking-indicator setInterval |
+| A.5 (toast duration) | `73881c6` | `2000ms` → `5000ms` |
+| A.8 (telemetry labels + opacity) | `09266b8` | Per-row `aria-hidden`; opacity `0.4` → `0.7` |
+| A.9 (LED contract + sweep) | `c0ecda0` | Contract doc-block in `components.css`; 6 sweep sites |
+| A.10 (section-nav landmark) | `364530c` | `<div role="group">` → `<nav>`; helper warns on non-`<nav>` |
+| A.11 (trace-shell count label) | `b4d7388` | Initial + update aria-label includes count w/ pluralization |
+| A.12 (tool toggle state label) | `7733175` | `<span class="visually-hidden">` added inside the `<label>` |
+| A.13 (README accessibility) | `626735d` | Section inserted between Security and Mission Control |
+
+**A.3 chrome-text outcome** (high-significance, smallest-blast-radius first):
+- Pre-enumerated sites: `base.css:144` (`.stub-sidebar .subtitle`, `--fg-muted` → `--fg-tertiary`); `chat.css:15` (`.session-group-label`, `--fg-faint` → `--fg-tertiary`).
+- **One newly-discovered chrome-text consumer** surfaced during the post-edit grep-enforce: `chat.css:35` `.session-item-agent` (session row's mono-font model-name annotation — paints inside the sidebar `<nav class="session-list">` introduced by Leg 1). Rescoped to `--fg-tertiary` as well; total = 3 sites. Below the 3+ pivot threshold for switching to Attempt A (global token darken).
+- Deferral comment at `tests/test_design_tokens_a11y.py:187-196` rewritten to enumerate the three rescoped sites + state that re-introducing a chrome-text consumer of `--fg-muted`/`--fg-faint` requires updating both the comment and the consumer.
+- Post-edit `grep -rn 'var(--fg-muted)\|var(--fg-faint)' .../css/ | grep -E 'sidebar|topbar|chrome'` → empty.
+
+**A.2 wiring outcome**:
+- All three target input types covered by the `row.querySelector('input, select, .chip-list-editor')` resolution.
+- Additive `aria-describedby` sequence (split-dedup-rejoin) verified to preserve the existing info-icon `<field>-desc` wiring.
+- `role="alert"` lands on the FIRST per-row error span only (single-announce per save cycle); `.editor-error` banner also takes `role="alert"` when unmatched entries are routed to it.
+- New `clearFieldErrorA11y(row)` companion in `tools-form-helpers.js`; wired into both `clearFieldErrors` (batch save-attempt clear) and the two per-row change handlers in `tools-editor.js` (input/change + chip-list mutation).
+- `tests/browser/test_flow_admin_tools_editor.py` (14 tests touching `field-error` rendering): 14/14 PASS.
+
+**A.5 outcome**: 5s dwell time. Close-button + pause-on-hover affordances out of leg scope (slip rules say single-edit fix is the bracket).
+
+**A.6 outcome**: Mechanical edit; no surprises.
+
+**A.7 outcome**: Reduce-motion users get a static `' …'` ellipsis; sighted users with reduce-motion unset keep the 120ms Braille frame cycle. `removeThinking()` clearInterval call remains safe (clearInterval(undefined) is a no-op).
+
+**A.8 outcome**: Approach (b) chosen (per-row `aria-hidden`; container's `aria-label="Token usage"` is sole SR exposure). Avoids polite-live region churn during streaming. Opacity bump at `chat.css:80` (not `:67` as earlier-leg-spec wrongly stated — design review caught it).
+
+**A.9 LED contract decision**:
+- Contract doc-block added immediately above `.indicator-led` rule at `components.css:864`, citing the two rules + naming `provider-models.js` (decorative) and `mcp-server-editor.js` (stateful) as canonical exemplars.
+- Sweep: 2 provider-models LEDs → `aria-hidden="true"`; 4 design-language gallery sample LEDs (Success/Warning/Danger/Idle in the primitive showcase + ONLINE + 2/3 in telemetry-strip sample) → `aria-hidden="true"`. `mcp-server-editor.js:490, 1882` left with `aria-label="Connected"`/`"Not connected"` per contract rule 2.
+- One sample left untouched: the static `<div class="section-nav">` placeholder in `design-language/surfaces-section.js:47-51` (gallery-only static HTML; not a real consumer of the helper). Skipped to keep blast radius small.
+
+**A.10 section-nav option chosen: (i) `<div>` → `<nav>` with `role="group"` dropped**:
+- Container element types changed at the two real call sites (`admin.js:214`, `studio.js:265`) from `<div class="admin/studio-section-nav">` to `<nav class="...">`. Helper drops the `setAttribute('role', 'group')` line; `<nav>` implies `role="navigation"`. Helper adds a dev-mode `console.warn` if the caller passes a non-`<nav>` container — guards against silent regression of the landmark contract.
+- One existing browser test asserted on `role="group"` (`test_flow_keyboard.py:163-164`). Updated to assert `tagName === "NAV"` + `aria-label === "System sections"` instead. Other roving-tabindex assertions in the same test pass unchanged (focus management is element-agnostic).
+- Leg 1's `.list-item:focus-within` reveal (`components.css:124`) was unaffected — `section-nav` doesn't share `.list-item` selectors.
+
+**A.11 trace-shell outcome**: Two-site edit (create + update inside `appendToTrace`). Singular/plural agreement ("1 item" / "0 items" / "2 items"). Visible `.trace-count` stays `aria-hidden` so the accessible name is the sole SR exposure of the count.
+
+**A.12 tool toggle outcome**: Visually-hidden span inside the `<label>` carries "Enabled for all agents" / "Disabled for all agents" — composes into the label's accessible name. `title=""` retained for sighted-mouse hover.
+
+**A.13 README outcome**: Landed (no slippage). Section placed between Security and "Project organization & methodology" to match file voice; cites WCAG 2.1 AA target, keyboard operability, prefers-reduced-motion, contrast on both themes, Design Language gallery, GitHub issue reporting path.
+
+**Verification outcomes**:
+- `make test-browser` → **316 passed, 35 skipped** (12 deselected; exact baseline match to Leg 1).
+- Container broad pytest (`docker exec the-one pytest --tb=no -q`) → **1700 passed**, 4 skipped, 375 deselected (Leg 1 baseline preserved).
+- `ruff check the_one/ tests/` + `ruff format --check the_one/ tests/` → both 0/0 (baselines preserved).
+- Host pytest: same pre-existing `mcp.client.auth.exceptions` import failure as Leg 1 — not caused by this leg; container is authoritative.
+
+**Anomalies**:
+- **A.3 enumeration drift caught by grep-enforce**: `chat.css:35` (`.session-item-agent`) was not in the pre-enumeration but surfaced during the post-edit verification grep. Below the 3+ pivot threshold; rescoped in the same A.3 sub-commit (`983369b`). Validates the pivot rule + grep-enforce mechanism — without it the chrome-text contrast gap would have persisted on the session-row mono annotation.
+- **A.10 test update was a known consequence, not a regression**: the `role="group"` assertion in `test_flow_keyboard.py:164` was the only test asserting on the now-dropped role. Updated within the same sub-commit (`364530c`) to keep the landmark contract under test (tagName + aria-label assertions).
+- No other sub-commit caused a downstream test edit.
+
+**Sub-commit SHAs**:
+- A.3 `983369b` → A.2 `c16300d` → A.6 `2281f11` → A.7 `89f3e4a` → A.5 `73881c6` → A.8 `09266b8` → A.9 `c0ecda0` → A.10 `364530c` → A.11 `b4d7388` → A.12 `7733175` → A.13 `626735d`.
+
+**Opportunistic items**: A.9 + A.10 + A.13 ALL landed (no slippage). The slip rules in the leg spec (`route to next maintenance pass`) were not triggered.
+
 ---
 
 ## Decisions
