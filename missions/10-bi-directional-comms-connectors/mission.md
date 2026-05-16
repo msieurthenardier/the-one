@@ -1,6 +1,6 @@
 # Mission: Bi-directional Communication Connectors
 
-**Status**: planning
+**Status**: active
 
 ## Outcome
 
