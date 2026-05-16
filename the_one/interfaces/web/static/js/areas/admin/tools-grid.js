@@ -69,6 +69,11 @@
                  'data-testid="tool-toggle" data-name="' + escapeAttr(t.name) + '" ' +
                  'aria-label="Enable ' + escapeAttr(t.name) + '" />' +
           '<span class="tool-enable-switch-track" aria-hidden="true"></span>' +
+          // F2 Leg 2 (A.12): visually-hidden state context. The title=""
+          // attribute already conveys this on mouse-hover for sighted
+          // users; the visually-hidden span exposes the same state text
+          // to screen readers as part of the <label>'s accessible name.
+          '<span class="visually-hidden">' + escapeHtml(titleText) + '</span>' +
         '</label>' +
       '</div>'
     );
