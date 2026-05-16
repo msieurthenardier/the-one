@@ -15,10 +15,22 @@
     el.innerHTML = '<span class="model-loading-text">thinking</span><span class="model-loading-dots"></span>';
     var dotEl = el.querySelector('.model-loading-dots');
     var frameIdx = 0;
-    el._dotTimer = setInterval(function () {
-      frameIdx = (frameIdx + 1) % THINKING_FRAMES.length;
-      dotEl.textContent = ' ' + THINKING_FRAMES[frameIdx];
-    }, 120);
+    // F2 Leg 2 (A.7): honor prefers-reduced-motion. The Braille spinner
+    // is a continuous animation that users with motion sensitivities
+    // should be able to disable. When reduce-motion is set, render a
+    // single static "…" and skip the setInterval entirely. WCAG 2.3.3
+    // (AAA) is judgment-call territory; we ship the gate because the
+    // animation conveys no semantic content beyond "still working".
+    var reduceMotion = window.matchMedia
+      && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduceMotion) {
+      dotEl.textContent = ' …';
+    } else {
+      el._dotTimer = setInterval(function () {
+        frameIdx = (frameIdx + 1) % THINKING_FRAMES.length;
+        dotEl.textContent = ' ' + THINKING_FRAMES[frameIdx];
+      }, 120);
+    }
     return el;
   }
 
