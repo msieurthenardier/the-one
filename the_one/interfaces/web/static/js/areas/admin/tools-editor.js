@@ -261,7 +261,15 @@
     // are still in-error keep their highlight until they too change.
     function clearHighlightOnChange(ev) {
       var row = ev.target && ev.target.closest && ev.target.closest('.tools-editor-field');
-      if (row) row.classList.remove('field-error-highlight');
+      if (row) {
+        row.classList.remove('field-error-highlight');
+        // F2 Leg 2 (A.2): also drop a11y wiring (aria-invalid +
+        // aria-describedby error id) when the operator addresses a
+        // field — matches the highlight-clear semantics.
+        if (window.App && window.App.adminFormHelpers && window.App.adminFormHelpers.clearFieldErrorA11y) {
+          window.App.adminFormHelpers.clearFieldErrorA11y(row);
+        }
+      }
       checkDirty();
     }
 
@@ -281,7 +289,13 @@
       (function (editorEl) {
         helpers.wireChipListEditor(editorEl, function () {
           var row = editorEl.closest('.tools-editor-field');
-          if (row) row.classList.remove('field-error-highlight');
+          if (row) {
+            row.classList.remove('field-error-highlight');
+            // F2 Leg 2 (A.2): drop a11y wiring on chip-list mutation
+            // (chip add/remove signals the operator is addressing the
+            // field — mirrors the highlight-clear path above).
+            if (helpers.clearFieldErrorA11y) helpers.clearFieldErrorA11y(row);
+          }
           checkDirty();
         });
       })(chipEditors[j]);
