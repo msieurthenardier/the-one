@@ -444,6 +444,8 @@
     width: 100%;
     min-height: 22px;
     padding: 0;
+    min-width: 0;
+    flex: 1;
   }
   .composer-input::placeholder { color: var(--fg-faint); }
   .composer-controls {
@@ -452,4 +454,12 @@
     gap: 8px;
   }
   .composer-controls .right { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+
+  /* L7.4 — composer responsive fix. At <~1100px the textarea was growing
+     past the row's width budget and pushing the Send button off-screen.
+     Pin trailing meta + send group, let the textarea container shrink. */
+  .composer-controls,
+  .composer-controls .right {
+    flex-shrink: 0;
+  }
 }
