@@ -64,8 +64,7 @@
       '<div class="topnav-spacer"></div>' +
       '<div class="tele-strip">' + chipsHtml + '</div>' +
       '<div class="search-wrap">' +
-        '<label for="topnav-search" class="visually-hidden">Search</label>' +
-        '<input type="search" id="topnav-search" class="search-input" placeholder="Search" aria-label="Open search"/>' +
+        '<button type="button" id="topnav-search" class="search-input" data-action="open-palette" aria-label="Open command palette">Search</button>' +
         '<span class="search-kbd">⌘K</span>' +
       '</div>' +
       '<button class="avatar" aria-label="User">JD</button>';
@@ -89,6 +88,12 @@
       var seg = ev.target.closest('.navseg');
       if (seg && seg.dataset.area) {
         onAreaSwitch(seg.dataset.area);
+        return;
+      }
+      var paletteTrigger = ev.target.closest('[data-action="open-palette"]');
+      if (paletteTrigger && window.App && window.App.commandPalette) {
+        window.App.commandPalette.open(paletteTrigger);
+        return;
       }
     });
   }

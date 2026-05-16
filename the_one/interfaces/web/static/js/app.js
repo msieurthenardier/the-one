@@ -175,6 +175,23 @@
     switchTo(parsed.area, parsed.sub);
   });
 
+  // L8 — global ⌘K / Ctrl+K opens the command palette.
+  // Skipped when an editable field is focused (so Cmd-K in a textarea
+  // doesn't hijack), unless Shift is also held (escape hatch — same
+  // convention as VS Code / Linear).
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'k' && e.key !== 'K') return;
+    if (!(e.metaKey || e.ctrlKey)) return;
+    var t = document.activeElement;
+    var inField = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+    if (inField && !e.shiftKey) return;
+    e.preventDefault();
+    if (window.App && window.App.commandPalette) {
+      var trigger = document.getElementById('topnav-search');
+      window.App.commandPalette.open(trigger);
+    }
+  });
+
   document.addEventListener('DOMContentLoaded', function () {
     renderTopNav();
     // M10 — body-level instrument frame (corner ticks); the grid canvas
