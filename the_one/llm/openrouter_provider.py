@@ -30,13 +30,17 @@ BYTES_PER_TOKEN_OPENROUTER = 4.0
 
 
 # App identity for OpenRouter's ranking-header leaderboard. Hardcoded
-# because these identify *this app* (the-one), not the operator; the
-# operator running the-one is by definition running the-one. A future
-# rebranding mission consolidates this with the other "the-one" / "0.1"
-# strings scattered across cli.py, web/app.py, mcp/* into a single
-# identity module.
+# because these identify *this app* (GleepGlorp AI), not the operator;
+# the operator running GleepGlorp AI is by definition running this app.
+#
+# Asymmetry note (Mission 08 constraint): the repo / module name stays
+# ``the-one`` (rename out of scope for the rebrand mission), but the
+# *display* identity that OpenRouter surfaces on its X-Title-driven app
+# leaderboard is the user-facing brand. The URL therefore preserves the
+# original GitHub slug while the name reflects the brand.
+# GleepGlorp AI — repo slug preserved per M08 rename-scope constraint.
 _APP_URL = "https://github.com/msieurthenardier/the-one"
-_APP_NAME = "the-one"
+_APP_NAME = "GleepGlorp AI"
 
 
 class OpenRouterProvider(OpenAIProvider):

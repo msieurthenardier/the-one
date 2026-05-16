@@ -120,6 +120,18 @@ above before implementation:
 - **MCP server trust boundaries**: each MCP server is a separate trust
   domain; connecting to a third-party MCP server widens the trust
   boundary in ways the current model does not address
+- **MCP `streamable-http` source URL gating asymmetry**: the LLM
+  provider create / update / test endpoints route `base_url` through
+  `_is_safe_provider_url` (scheme = `https` for non-localhost hosts;
+  see `the_one/interfaces/web/api.py`). The MCP source create / update
+  path does NOT apply an equivalent gate to `MCPSource.config.url`
+  for `transport_type == "streamable_http"`. Today this is safe under
+  the operator-trusted posture (the operator configures the URL by
+  hand), but the asymmetry would widen meaningfully if a future
+  "import MCP server from registry" or "share MCP source" feature
+  lands. Suggested resolution: apply an `_is_safe_provider_url`-shaped
+  validator to `MCPSource.config.url` at create / update time, with
+  the same `localhost` exemption and the same `https` floor.
 - **Multi-user form factor**: would require auth + per-user tool
   isolation + per-user encryption keys — a substantial change that
   inverts F3 Decision 10
