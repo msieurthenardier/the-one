@@ -236,6 +236,8 @@ Targets whose purpose is to detect drift between the developer's HOST bench and 
 
 **Live examples**: `make doctor` (probes declared dev extras from `pyproject.toml`'s `[project.optional-dependencies].dev`); `make audit` (runs `.venv/bin/pip-audit --skip-editable || true`, non-blocking); `make audit-bytes` (detects raw U+2028/U+2029 LSEP/PSEP characters in source — defends against the F1 Leg 3 implementation anomaly class).
 
+**Verification contract**: drift-detection targets must include both a positive probe (clean tree → exit 0) AND a negative probe (deliberate violation → non-zero exit) at spec time. "Clean tree exits 0" alone doesn't prove detection. For `git grep`-based probes, recursive `**` pathspecs need the `:(glob)` prefix — git's default pathspec mode treats `**` literally, producing a silent false-clean (caught at F2 Leg 3 implementation via the negative probe).
+
 ### `live-read-across-lazy-resolver-boundary`
 
 When a provider field is **lazily resolved** on first call (i.e. the field starts as a sentinel — `None`, a default — and is replaced inside the provider's own `complete()` / `stream()` path after a one-time upstream probe), every downstream consumer must read the field **live at the point of use**, not pre-capture it at the entry of a surrounding function. Eager capture sees the pre-resolution sentinel; the resolver fires later inside the provider call, but the captured local is never re-read.
@@ -247,6 +249,32 @@ When a provider field is **lazily resolved** on first call (i.e. the field start
 **Counter-example (what NOT to do)**: capturing the value into a kwarg at the top-level `agent.run()` entry "for performance" — the resolver hasn't fired yet at that point; the kwarg snapshots the sentinel and downstream context-window decisions are made against the wrong number until the agent is reconstructed.
 
 The pattern generalizes to any future field where the upstream value is unknown until a per-model / per-session probe completes (per-model token limits, per-model tool-calling shapes, etc.). The contract is: lazily-resolved fields are owned by the provider and must be read through the provider, never copied across a function boundary.
+
+### `container-test-entrypoints-reach-via-make`
+
+Tests run in the container image (the canonical test environment). The `make test-*` targets chain the required environmental preconditions; raw `docker exec the-one pytest -m <marker>` bypasses them and surfaces preconditions as test errors.
+
+**Why**: `make rebuild` deletes the container's cache directory including `~/.cache/ms-playwright/`; subsequent raw `docker exec the-one pytest -m browser` produces 312 ERRORS at setup because Chromium is gone. `make test-browser` (and `make test-pixel`) chain `_ensure-playwright`, which conditionally re-installs Chromium when absent and is a no-op when present. The "make rebuild wipes Chromium" foot-gun was flagged across F5/F6/F6.5/F7/F1 debriefs and traced to invocation form (not infrastructure form) in F2's design review — the existing `make` chain already mitigated, but raw `docker exec` invocations bypassed it.
+
+**Pattern**: every container-test entry point goes through a `make test-*` target. The `make` target chains any precondition targets (`_ensure-playwright`, etc.) and then `docker exec`s the pytest invocation. Raw `docker exec the-one pytest …` is a debugging tool — fine for inspecting one failure in isolation, wrong as the default invocation.
+
+**Live examples**: `make test-browser`; `make test-pixel`. Both chain `_ensure-playwright` before invoking `docker exec the-one pytest`.
+
+**Counter-example (what NOT to do)**: before adding a new mitigation to a recurring foot-gun, audit whether the existing `make` chain already mitigates and the bug is in invocation form, not infrastructure form. F1 debrief's "add `make rebuild-browsers`" recommendation was reframed in F2 design review to chain the existing `_ensure-playwright` machinery rather than re-implement Chromium installation; the new target is a convenience alias, not a duplicated mitigation.
+
+### `landmark-elements-over-aria-roles`
+
+For shell-level navigation surfaces, prefer native HTML5 landmark elements (`<nav>`, `<main>`, `<aside>`, `<header>`, `<footer>`) over `<div role="...">`. Native semantics survive ARIA spec churn and tooling improvements; ARIA roles on generic containers carry the same semantic load but require explicit role-assignment plus dev-mode regression guards to prevent silent regression of the contract.
+
+**Why**: F2 (M09 Leg 1 + Leg 2 A.10) converged two pre-existing surfaces onto this pattern: the chat session-list (was `<div role="listbox">` with `<button>` descendants — which is invalid per ARIA spec; interactive elements can't sit inside `role="option"`) and the section-nav (was `<div role="group">` with no underlying landmark). Both became `<nav aria-label="..."><ul>…</ul></nav>` carrying `<button>` items with `aria-current="page"` on the active item. Two surfaces sharing one canonical pattern reduces "which nav pattern am I in?" cognitive cost for future shell-navigation work. The dev-mode `console.warn` in `section-nav.js`'s helper (on non-`<nav>` containers) is the load-bearing regression guard.
+
+**Pattern**: when a shell-level navigation surface needs an "active item" indicator with hash-routed deep links, the canonical shape is `<nav aria-label="..."><ul><li><button [aria-current="page"]>item</button></li>…</ul></nav>`. Active-item toggle uses `setAttribute('aria-current', 'page')` on the new active + `removeAttribute('aria-current')` on the prior — NOT `setAttribute('aria-current', 'false')`, which can be ambiguous to assistive technology.
+
+**Live examples**: `the_one/interfaces/web/static/js/areas/chat.js:60` (session-list `<nav>` container) + `:131-138` (`highlightActiveSession` toggle); `the_one/interfaces/web/static/js/areas/layout/section-nav.js` (section-nav helper with non-`<nav>` warning).
+
+**Counter-example (what NOT to do)**: adding `role="listbox"` to a structure that's actually a navigation list (interactive descendants are not allowed under `role="option"`); or using `aria-selected="true"/"false"` on plain `<button>` elements (`aria-selected` is listbox-only semantics; the correct attribute for "active item in a nav list" is `aria-current="page"`).
+
+**Practical consequence — selector-continuity in browser tests**: when a leg restructures DOM (changing the surrounding container element, ARIA roles, or class hierarchy), browser-test impact requires distinguishing **class-name preservation** (lexical — the class still exists in the markup) from **selector-continuity preservation** (structural — descendant/sibling/attribute selectors still resolve to the same element). Class names may survive a `<div>` → `<nav>` change while `.parent .child` descendant selectors silently break because the parent element changed. Pre-edit, enumerate the test selectors touching the restructured surface and call out each as `SURVIVES` (selector continues to resolve) or `UPDATES` (selector needs rewriting). F2 Leg 1's `test_flow_new_chat.py:196-201` miss class was a "class names preserved" reading that failed to check `.session-item .delete` descendant continuity post-restructure.
 
 ---
 
