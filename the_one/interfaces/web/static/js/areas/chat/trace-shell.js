@@ -35,6 +35,12 @@
     count.textContent = '0';
     summary.appendChild(label);
     summary.appendChild(count);
+    // F2 Leg 2 (A.11): wire the count into the summary's accessible
+    // name so SR users hear "Tool activity, 0 items" instead of just
+    // "Tool activity" (the visible count span is aria-hidden so we
+    // need an aria-label to carry the count semantically). Updated
+    // by appendToTrace below.
+    summary.setAttribute('aria-label', 'Tool activity, 0 items');
     var body = document.createElement('div');
     body.className = 'trace-body';
     details.appendChild(summary);
@@ -53,8 +59,17 @@
     if (!body) return;
     body.appendChild(msgEl);
     var count = traceEl.querySelector('.trace-count');
+    var n = body.children.length;
     if (count) {
-      count.textContent = String(body.children.length);
+      count.textContent = String(n);
+    }
+    // F2 Leg 2 (A.11): keep the summary's aria-label in lockstep with
+    // the visible count so SR announcement reflects the current state
+    // (visible count is aria-hidden — accessible name is the only SR
+    // exposure of "how many tools fired").
+    var summary = traceEl.querySelector('summary');
+    if (summary) {
+      summary.setAttribute('aria-label', 'Tool activity, ' + n + ' ' + (n === 1 ? 'item' : 'items'));
     }
   }
 
