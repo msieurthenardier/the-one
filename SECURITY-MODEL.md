@@ -79,6 +79,28 @@ Flight 2)". The security-relevant invariants are:
   invariant** that `WebConfig` deliberately has no `disable_ssrf` field
   — SSRF protection is always-on; operators reaching specific internal
   hosts list them in `extra_allowed_hosts`.
+- **Operator-supplied identifier allowlists**: any operator-config-derived
+  string that flows into `Path()` joins, `subprocess.run()` argv elements,
+  or filesystem operations MUST be validated against a spec-grounded
+  allowlist regex, NOT a permissive character class. The character class
+  `[A-Za-z0-9._@/-]` is NOT an allowlist for paths — every character is
+  permitted individually, so `../etc/passwd` passes. The spec-grounded
+  form is anchored, structure-aware, and rejects path-traversal patterns
+  by construction.
+
+  Exemplar regex (npm package-name spec — covers `lodash`, `@scope/pkg`,
+  `pkg-with-dashes`, `pkg_with_underscores`; rejects `../etc/passwd`,
+  `a/b/c`, `.hidden`, uppercase, shell metacharacters):
+
+  ```python
+  _VALID_NPX_PKG_RE = re.compile(r'^(?:@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*$')
+  ```
+
+  Implementation: `the_one/mcp/cache_cleanup.py:71-83` defines
+  `_VALID_NPX_PKG_RE` module-level, validates at function entry of
+  `_clean_npx`, raises `ValueError` before any path operation.
+  Established in F1 M09 Leg 3 after a design-review catch (the original
+  draft used the broken char-class allowlist).
 
 ## Secrets
 
