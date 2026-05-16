@@ -57,7 +57,7 @@ App.registerArea({
           '</select>' +
         '</div>' +
       '</div>' +
-      '<div class="session-list" role="listbox" aria-label="Chat sessions"></div>';
+      '<nav class="session-list" aria-label="Chat sessions"></nav>';
 
     sessionListEl = sidebar.querySelector('.session-list');
     agentSelect = sidebar.querySelector('.agent-select');
@@ -131,7 +131,11 @@ App.registerArea({
       for (var i = 0; i < items.length; i++) {
         var active = items[i].dataset.id === currentSessionId;
         items[i].classList.toggle('active', active);
-        items[i].setAttribute('aria-selected', active ? 'true' : 'false');
+        if (active) {
+          items[i].setAttribute('aria-current', 'page');
+        } else {
+          items[i].removeAttribute('aria-current');
+        }
       }
     }
 
@@ -181,6 +185,9 @@ App.registerArea({
 
     // Roving-tabindex arrow navigation for the welcome listbox. One-shot
     // binding; queries .chat-welcome-item lazily so it tracks re-renders.
+    // Pattern: roving-tabindex with arrow keys. See section-nav.js:71-91
+    // for the canonical implementation. Toggles aria-selected alongside
+    // tabindex so the listbox semantic stays accurate (WCAG 4.1.2).
     welcomeListEl.addEventListener('keydown', function (e) {
       if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Home' && e.key !== 'End') return;
       var opts = welcomeListEl.querySelectorAll('.chat-welcome-item');
@@ -193,7 +200,10 @@ App.registerArea({
       else if (e.key === 'End') next = opts.length - 1;
       else if (e.key === 'ArrowDown') next = idx === -1 ? 0 : (idx + 1) % opts.length;
       else next = idx === -1 ? opts.length - 1 : (idx - 1 + opts.length) % opts.length;
-      for (var j = 0; j < opts.length; j++) opts[j].setAttribute('tabindex', j === next ? '0' : '-1');
+      for (var j = 0; j < opts.length; j++) {
+        opts[j].setAttribute('tabindex', j === next ? '0' : '-1');
+        opts[j].setAttribute('aria-selected', j === next ? 'true' : 'false');
+      }
       opts[next].focus();
     });
 
@@ -704,7 +714,10 @@ App.registerArea({
               // Two-step confirm via the canonical App.confirmDelete helper
               // (F5 leg 02). WS delete is fire-and-forget so revertFn is
               // unused here — server-side broadcast updates the list.
-              var item = btn.closest('.session-item');
+              // Post-F2 leg 01: .session-item is now the inner <button>; the
+              // row wrapper carrying the .confirm-delete class + the
+              // [data-confirm-title] span is the <li class="list-item">.
+              var item = btn.closest('.list-item');
               if (!item) return;
               App.confirmDelete(item, function (itemEl, revertFn) {
                 ws.send(JSON.stringify({ action: 'delete_session', session_id: id }));

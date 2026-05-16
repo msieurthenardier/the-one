@@ -23,7 +23,13 @@ from playwright.sync_api import Page, expect
 
 @pytest.mark.browser
 def test_session_item_keyboard_select(app_with_agent: SeededApp, page: Page) -> None:
-    """Tab into the session-item, press Enter; aria-selected becomes true."""
+    """Tab into the session-item, press Enter; aria-current becomes 'page'.
+
+    F2 leg 01 retired the listbox/option roles on the session list (nested
+    interactive elements under role="option" violated WCAG 4.1.2). The row
+    is now <li class="list-item"><button class="session-item">...; the
+    active-session signal is aria-current="page" (matches section-nav).
+    """
     base_url = app_with_agent.base_url
     page.goto(base_url)
 
@@ -33,7 +39,6 @@ def test_session_item_keyboard_select(app_with_agent: SeededApp, page: Page) -> 
         app_with_agent.agent_name, timeout=8000
     )
 
-    # Confirm the session-item appeared and has listbox role on parent
     session_item = page.locator(".session-item").first
     expect(session_item).to_be_visible(timeout=5000)
 
@@ -41,41 +46,18 @@ def test_session_item_keyboard_select(app_with_agent: SeededApp, page: Page) -> 
     session_item.focus()
     page.keyboard.press("Enter")
 
-    # aria-selected should be "true" after activation
-    expect(session_item).to_have_attribute("aria-selected", "true")
+    # aria-current="page" marks the active session post-restructure.
+    expect(session_item).to_have_attribute("aria-current", "page")
 
 
 @pytest.mark.browser
-def test_session_item_has_role_option(app_with_agent: SeededApp, page: Page) -> None:
-    """Session list has role=listbox; each item has role=option and tabindex=0."""
-    base_url = app_with_agent.base_url
-    page.goto(base_url)
+def test_session_list_shape(app_with_agent: SeededApp, page: Page) -> None:
+    """Session list is a <nav> landmark; items are <button class="session-item">.
 
-    # Bootstrap a session via the welcome listbox (no auto-create after leg 05).
-    page.locator(".chat-welcome-item").filter(has_text=app_with_agent.agent_name).click()
-    expect(page.locator(".session-agent-badge")).to_have_text(
-        app_with_agent.agent_name, timeout=8000
-    )
-    expect(page.locator(".session-item").first).to_be_visible(timeout=5000)
-
-    # Listbox role on parent
-    session_list = page.locator(".session-list")
-    expect(session_list).to_have_attribute("role", "listbox")
-
-    # Each item is an option with tabindex=0
-    session_item = page.locator(".session-item").first
-    expect(session_item).to_have_attribute("role", "option")
-    expect(session_item).to_have_attribute("tabindex", "0")
-
-
-@pytest.mark.browser
-def test_session_delete_keyboard_reveal(app_with_agent: SeededApp, page: Page) -> None:
-    """Tab from session-item to its .delete button; :focus-within reveals it.
-
-    A display:none element cannot be focused directly. The reveal is driven by
-    Tab from the parent session-item (which IS focusable via tabindex=0) into
-    the delete button child. Once the delete button has focus, the parent's
-    :focus-within selector fires and display:none becomes display:block.
+    F2 leg 01: the prior `<div role="listbox">` + `<div role="option">` pair
+    was retired because role="option" forbids nested interactive elements
+    (the sibling delete button). Container is now <nav class="session-list">
+    with bucketed <ul>s of <li class="list-item"><button class="session-item">.
     """
     base_url = app_with_agent.base_url
     page.goto(base_url)
@@ -87,16 +69,52 @@ def test_session_delete_keyboard_reveal(app_with_agent: SeededApp, page: Page) -
     )
     expect(page.locator(".session-item").first).to_be_visible(timeout=5000)
 
-    delete_btn = page.locator(".session-item .delete").first
+    # Container is a <nav> landmark (no listbox role).
+    session_list = page.locator(".session-list")
+    tag_name = session_list.evaluate("el => el.tagName.toLowerCase()")
+    assert tag_name == "nav", f"session-list must be <nav>, got <{tag_name}>"
+
+    # Each item is a native <button> (no role=option, no custom tabindex).
+    session_item = page.locator(".session-item").first
+    item_tag = session_item.evaluate("el => el.tagName.toLowerCase()")
+    assert item_tag == "button", f".session-item must be <button>, got <{item_tag}>"
+
+
+@pytest.mark.browser
+def test_session_delete_keyboard_reveal(app_with_agent: SeededApp, page: Page) -> None:
+    """Tab from session-item to its sibling .delete button; :focus-within reveals it.
+
+    A display:none element cannot be focused directly. The reveal is driven by
+    Tab from the focused session-button into its sibling delete button under
+    the same <li class="list-item">. Once the delete button has focus, the
+    .list-item's :focus-within fires and display:none becomes display:block.
+    F2 leg 01: the row was restructured from a single <div role="option">
+    holding both the title and the delete button into a sibling button-pair
+    wrapped by an <li class="list-item">; the CSS reveal rule still keys on
+    .list-item, so the affordance behaves identically.
+    """
+    base_url = app_with_agent.base_url
+    page.goto(base_url)
+
+    # Bootstrap a session via the welcome listbox (no auto-create after leg 05).
+    page.locator(".chat-welcome-item").filter(has_text=app_with_agent.agent_name).click()
+    expect(page.locator(".session-agent-badge")).to_have_text(
+        app_with_agent.agent_name, timeout=8000
+    )
+    expect(page.locator(".session-item").first).to_be_visible(timeout=5000)
+
+    # Delete button is a sibling of .session-item under the row <li>.
+    delete_btn = page.locator(".list-item .list-item-delete").first
 
     # Before focus: delete is hidden (display:none)
     expect(delete_btn).to_be_hidden()
 
-    # Focus the session-item (tabindex=0), then Tab once to reach the delete button
+    # Focus the session-item button, then Tab once to reach the sibling delete.
     page.locator(".session-item").first.focus()
     page.keyboard.press("Tab")
 
-    # :focus-within on the parent fires when the delete button receives focus
+    # :focus-within on the wrapping .list-item fires when the delete button
+    # receives focus.
     expect(delete_btn).to_be_visible()
 
 

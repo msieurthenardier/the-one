@@ -193,12 +193,16 @@ def test_delete_last_session_returns_to_welcome(app_with_agent: SeededApp, page:
     # button (display:none → block via :hover), then click it twice — F4 HAT
     # added a two-step confirm pattern (first click marks .confirm-delete,
     # second click within 3s actually deletes; mirrors studio's pattern).
-    item = page.locator(".session-item").first
-    expect(item).to_be_visible(timeout=5000)
-    item.hover()
-    item.locator(".delete").click()
-    expect(item).to_have_class(re.compile(r".*confirm-delete.*"), timeout=2000)
-    item.locator(".delete").click()
+    # F2 leg 01: the row was restructured from a single wrapper-div into a
+    # <li class="list-item"> holding <button class="session-item"> + sibling
+    # <button class="list-item-delete">. The .confirm-delete class is now
+    # applied to the <li>, and the delete button is queried from the row.
+    row = page.locator(".area-chat .session-group-list .list-item").first
+    expect(row).to_be_visible(timeout=5000)
+    row.hover()
+    row.locator(".list-item-delete").click()
+    expect(row).to_have_class(re.compile(r".*confirm-delete.*"), timeout=2000)
+    row.locator(".list-item-delete").click()
 
     # Welcome canvas takes over once session_deleted lands and the empty
     # session_list refresh fires.
