@@ -58,6 +58,10 @@ Clicking the `+` button in the sessions sidebar when no agent has a provider cur
 
 The chosen semantics are: cards stay visible until both a provider exists *and* an agent exists. `welcome.js` already implements this (`if (!hasProvider || !hasAgent) { render steps }`). The visual defect was the system-error bubble overflow (L7.4), not the welcome itself. Once L7.4 lands, the welcome + thread + error stack reads correctly. No changes to `welcome.js`.
 
+### L7.8 `topnav:rerender` lifecycle event
+
+Add a single `document.dispatchEvent(new CustomEvent('topnav:rerender'))` at the tail of `Topnav.render()` in `topnav.js`. L8 (palette) and L9 (user menu) listen for this so popovers anchored to topnav elements can self-close when their anchors are replaced by an area switch. No-op cost when no listeners are attached.
+
 ### L7 testing
 
 - Regenerate visual snapshot baselines for: `topnav-{chat,studio,admin}`, `chat-empty-{0p,1p}` , `admin-providers-empty`, `composer-1024`. Pattern matches commits `4176a6b`, `22bb380`, `7aba793`.
@@ -78,24 +82,34 @@ The topnav search affordance promises a command palette (`⌘K` hint, `aria-labe
 
 Three new files under `static/js/components/`:
 
-- `command-palette.js` (~200 lines) — DOM, focus trap, keyboard handling, render loop. Exposes `window.CommandPalette = { open(), close(), register(provider) }`.
-- `command-catalog.js` (~100 lines) — Pure module. Builds the action catalog from data fetched via existing API helpers (no DOM). Caches dynamic data for 5s per open.
-- `command-fuzzy.js` (~60 lines) — Pure scoring function (substring + prefix boost). Unit-testable in isolation.
+- `command-palette.js` (~200 lines) — DOM, focus trap, keyboard handling, render loop. Exposes `window.App.commandPalette = { open(), close() }`.
+- `command-catalog.js` (~100 lines) — Pure module. Builds the action catalog from data fetched via existing API helpers (no DOM). Caches dynamic data for 5s per open. Exposes `window.App.commandCatalog`.
+- `command-fuzzy.js` (~60 lines) — Pure scoring function (substring + prefix boost). Unit-testable in isolation. Exposes `window.App.commandFuzzy`.
 
-Pattern matches `dialog.js`, `topnav.js`, and the rest of `static/js/` — hand-rolled IIFE, `window.Foo` export, no bundler.
+Pattern matches `dialog.js`, `topnav.js`, `theme.js`, and the rest of `static/js/` — hand-rolled IIFE, namespaced under `window.App.*` (see `theme.js:73-74`, `dialog.js:81-85`), no bundler.
+
+`index.html` manually loads every JS file (see lines 28-61). Add three `<script>` tags in this order, before `app.js`:
+
+```html
+<script src="/static/js/components/command-fuzzy.js"></script>
+<script src="/static/js/components/command-catalog.js"></script>
+<script src="/static/js/components/command-palette.js"></script>
+```
 
 ### L8.2 Action catalog
 
 **Static actions** (always present):
 - Navigation: "Go to Chat", "Go to Studio", "Go to System", "Open Providers", "Open Agents", "Open Built-in Tools", "Open MCP Servers"
-- Actions: "New session", "Toggle theme", "Reload app"
+- Actions: "New session", "Theme: Light", "Theme: Dark", "Theme: Auto", "Reload app"
+
+(Three discrete theme entries rather than a single "Toggle theme" — clearer than asking the user to remember cycle order, and aligns with the modes accepted by `window.App.theme.set(pref)` at `theme.js:79-87`: `'light' | 'dark' | 'auto'`. "Auto" matches existing UI copy — *not* "System".)
 
 **Dynamic entries** (fetched lazily per open, cached 5s):
 - `GET /api/agents` → "Switch to agent: <name>" (only if `hasProviders && hasAgents`)
 - `GET /api/providers` → "Edit provider: <name>"
-- `GET /api/sessions?limit=10` → "Open session: <title>"
+- `GET /api/chat/sessions` → "Open session: <title>". Endpoint is `/api/chat/sessions` (see `api.py:1849`, *not* `/api/sessions` — same gotcha already documented in `telemetry-refresh.js:6,22`). Client-side `.slice(0, 10)` after sort-by-recency; the endpoint does not accept a `limit` query param.
 
-API endpoints already exist; no backend work in L8.
+All endpoints already exist; no backend work in L8.
 
 ### L8.3 Scoring
 
@@ -107,24 +121,37 @@ API endpoints already exist; no backend work in L8.
 
 No external dependency. Top 8 results shown.
 
-### L8.4 UI
+### L8.4 UI + accessibility
 
-- Overlay with `role="dialog" aria-modal="true"`. Centered card, 480px wide, anchored ~88px from viewport top.
+- Overlay with `role="dialog" aria-modal="true"`, `aria-labelledby="cp-title"` (visually-hidden `<h2 id="cp-title">Command palette</h2>`).
+- Centered card, 480px wide, anchored ~88px from viewport top.
 - Sections rendered in order: `NAVIGATION`, `AGENTS`, `PROVIDERS`, `SESSIONS`, `ACTIONS`. Empty sections hidden.
 - Input at top with `aria-controls="cp-results"`. Live result list below.
 - Keyboard: Arrow up/down navigate, Enter invokes, Esc closes, Tab cycles within the dialog (focus trap).
 - Empty-query state shows recent sessions + static navigation.
 - Uses existing tokens (`--surface`, `--hairline`, `--accent`, `--shadow-2`). No new design surface.
 
+**Focus + lifecycle.** Reuse the focus-trap, capture-phase keydown listener, and restore-focus-on-close pattern from `dialog.js:68-71, 116-117, 164-173`. Capture the trigger element on `open()`; on `close()`, restore focus only if `trigger.isConnected` (the trigger may have been removed by a topnav re-render — see lifecycle below); otherwise let focus fall back to `<body>`.
+
+**Lifecycle.** The topnav re-renders on area switch (`app.js:125-126`) and on telemetry chip updates (`topnav.js:92-136`). The palette listens for:
+- `hashchange` → call `close()`.
+- A new `App.topnav` event `topnav:rerender` (added in L7 as a small `document.dispatchEvent` after `Topnav.render()` completes) → if the trigger anchor was removed, call `close()` to drop the stale reference.
+
+If `App.topnav` doesn't already emit such an event, L7 adds it (single line in `topnav.js`), since both L8 and L9 need it.
+
+**Safe rendering.** All dynamic result rows (agent names, provider names, session titles) are rendered via `document.createElement` + `textContent`, never `innerHTML` / `insertAdjacentHTML` with user-controlled strings. Matches the welcome-list hardening rationale in `welcome.js:13-16` and the chat-fetch-failure pattern in `chat.js:198-205`.
+
+**Fetch failure.** If any of the dynamic endpoints fail, the palette renders without that section and the static navigation/action sections remain usable. A small `aria-live="polite"` status line under the input reads "Some results unavailable" — non-blocking.
+
 ### L8.5 Topnav integration
 
-The current `<input type="search" class="search-input">` is replaced by a `<button type="button" class="search-input">` carrying the same class so L7.1's `.search-input` rule applies unchanged. Clicking it (or pressing `⌘K` anywhere in the app) calls `CommandPalette.open()`. This removes the dead input that currently focuses but does nothing.
+The current `<input type="search" class="search-input">` is replaced by a `<button type="button" class="search-input">` carrying the same class so L7.1's `.search-input` rule applies unchanged. Clicking it (or pressing `⌘K` anywhere in the app) calls `window.App.commandPalette.open()`. This removes the dead input that currently focuses but does nothing.
 
-Global keydown listener registered in `app.js`: `(e.metaKey || e.ctrlKey) && e.key === 'k'` → `CommandPalette.open()`; ignored when an editable element is focused unless `e.shiftKey` (escape hatch — same convention as VS Code, Linear).
+Global keydown listener registered in `app.js`: `(e.metaKey || e.ctrlKey) && e.key === 'k'` → `window.App.commandPalette.open()`; ignored when an editable element is focused unless `e.shiftKey` (escape hatch — same convention as VS Code, Linear).
 
 ### L8.6 Theme integration
 
-The "Toggle theme" action calls `window.Theme.toggle()` (existing). Palette closes before the toggle so the snapshot transition is visible.
+The three theme actions call `window.App.theme.set('light' | 'dark' | 'auto')` directly (see `theme.js:79-87`). Palette closes before the call so the snapshot transition is visible. The action that matches the current `App.theme.get()` is hidden from the catalog to avoid no-op entries.
 
 ### L8.7 Testing
 
@@ -145,23 +172,27 @@ The avatar button in the topnav has no menu. L9 wires the two settings that exis
 
 ### L9.1 Module
 
-`static/js/components/user-menu.js` (~120 lines). Same hand-rolled pattern. Exposes `window.UserMenu = { toggle(anchorEl), close() }`.
+`static/js/components/user-menu.js` (~120 lines). Same hand-rolled pattern. Exposes `window.App.userMenu = { toggle(anchorEl), close() }`. Add `<script src="/static/js/components/user-menu.js"></script>` to `index.html` before `app.js` (after the L8 palette scripts).
 
 ### L9.2 Menu items
 
-- **Theme** — inline three-button row (Light · Dark · System). Calls `window.Theme.set(mode)`. The active mode shows the left-side accent bar from `.navseg.active`.
+- **Theme** — call `window.App.theme.renderToggle(themeContainerEl, { labelledBy: 'um-theme-heading' })`. This API *already exists* (`theme.js:101-129`) and renders the Light / Dark / Auto radiogroup, handles preference persistence, ARIA, and SPA-safe listener cleanup. The accepted values are `'light' | 'dark' | 'auto'` (note: copy says "Auto", *not* "System").
 - **System → General** — `<a href="#admin/general">` (existing route).
 - Divider.
-- **Holograph v0.2.0** — read-only version footer. `the_one/__init__.py` already exports `__version__`. Surface it to the UI via a `<meta name="app-version" content="…">` tag rendered into `index.html` (the FastAPI app already serves `index.html` through `interfaces/web/app.py` — add a small template variable or post-process step there).
+- **Holograph v0.2.0** — read-only version footer. Read `window.App.config.version` (already populated at boot — see `app.js:196-211`, which fetches `/api/config` and caches the result). No new server-side template plumbing, no meta-tag injection.
 
 No sign-out. No account management. No profile.
 
-### L9.3 UI
+### L9.3 UI + lifecycle
 
 - Popover, ~220px wide, anchored to the bottom-right of `.avatar`.
 - `role="menu"`, items are `role="menuitem"`. Keyboard nav: Arrow up/down, Home/End, Enter invokes, Esc closes.
 - Click-outside closes (same outside-click pattern as `dialog.js`).
 - Tokens only — `--surface`, `--hairline`, `--shadow-2`, `--accent`. No new visual primitives.
+
+**Focus + lifecycle.** Same contract as the palette (L8.4): capture trigger on `toggle()`, restore focus on `close()` only if `trigger.isConnected`. Listen for `hashchange` and the `topnav:rerender` event introduced in L7 — if the avatar anchor is no longer in the DOM, call `close()` immediately so we don't leave a popover anchored to a detached node.
+
+**Safe rendering.** The version string is read from `window.App.config.version` and rendered via `textContent`. No user-controlled input flows through the menu.
 
 ### L9.4 Topnav integration
 
@@ -169,7 +200,7 @@ No sign-out. No account management. No profile.
 
 ```js
 var av = ev.target.closest('.avatar');
-if (av) { window.UserMenu.toggle(av); return; }
+if (av) { window.App.userMenu.toggle(av); return; }
 ```
 
 No structural changes to the topnav render path.
@@ -188,7 +219,7 @@ Low. Smaller than L8; reuses palette-style scaffolding L8 introduces (focus trap
 
 ## Sequencing
 
-L7 → L8 → L9. L7 is fully independent. L8 depends on L7 (replaces the search input with a button — the new `.search-input-trigger` styling rides on the L7 search-wrap rules). L9 depends on L8 only if popover scaffolding is shared; otherwise independent.
+L7 → L8 → L9. L7 is fully independent. L8 depends on L7 because (a) it swaps the search `<input>` for a `<button>` carrying the same `.search-input` class L7 styles, and (b) it listens for the `topnav:rerender` event added in L7.8. L9 depends on L7.8 (same event) but is otherwise independent of L8 — they can ship in either order after L7.
 
 ## Out of scope
 
