@@ -171,7 +171,7 @@
         // Header CTA renders icon-only at rest; expands on hover. CSS hides
         // it entirely when the grid below is empty, deferring the affordance
         // to the empty-canvas's centered CTA.
-        '<button class="new-entity-btn" type="button" data-testid="new-provider-btn" aria-label="New provider">' +
+        '<button class="btn-primary new-entity-btn" type="button" data-testid="new-provider-btn" aria-label="New provider">' +
           window.App.icon('square-pen') + '<span>New Provider</span>' +
         '</button>' +
       '</div>' +
