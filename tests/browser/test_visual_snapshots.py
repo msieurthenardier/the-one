@@ -270,3 +270,16 @@ def test_snapshot_admin_with_provider(app_with_provider: SeededApp, page: Page, 
     expect(page.locator('[data-testid="provider-card"]')).to_be_visible(timeout=5000)
     _wait_for_render(page)
     _assert_screenshot(page, f"admin-with-provider-{theme}")
+
+
+# L7.4 — 1024px composer regression guard (Send button must remain visible)
+@pytest.mark.pixel
+@pytest.mark.parametrize("theme", ["dark", "light"])
+def test_snapshot_composer_1024(app_clean: str, page: Page, theme: str) -> None:
+    """L7.4 — verify composer Send button stays on-screen at 1024×768."""
+    page.set_viewport_size({"width": 1024, "height": 768})
+    page.goto(app_clean)
+    _set_theme(page, theme)
+    expect(page.locator('[data-testid="chat-send-btn"]')).to_be_visible(timeout=5000)
+    _wait_for_render(page)
+    _assert_screenshot(page, f"composer-1024-{theme}")
