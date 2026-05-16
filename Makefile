@@ -149,7 +149,7 @@ format: ## Ruff format (writes changes)
 
 .PHONY: doctor
 doctor:  ## Verify all declared dev extras are importable on the host venv
-	@python -c "import asgi_lifespan, pytest_asyncio, pytest_timeout, pytest_playwright, pixelmatch, pip_audit; from PIL import Image; import importlib.util; assert importlib.util.find_spec('playwright'), 'missing playwright'; import ruff; print('doctor: ok')"
+	@.venv/bin/python3 -c "import asgi_lifespan, pytest_asyncio, pytest_timeout, pytest_playwright, pixelmatch, pip_audit; from PIL import Image; import importlib.util; assert importlib.util.find_spec('playwright'), 'missing playwright'; import ruff; print('doctor: ok')"
 
 .PHONY: audit
 audit:  ## Run pip-audit against host venv (non-blocking; surfaces advisories)
