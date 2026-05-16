@@ -297,3 +297,17 @@ def test_snapshot_palette_open(app_clean: str, page: Page, theme: str) -> None:
     expect(page.locator('[data-testid="command-palette"]')).to_be_visible()
     _wait_for_render(page)
     _assert_screenshot(page, f"palette-open-{theme}")
+
+
+# L9 — user menu dropdown rendering
+@pytest.mark.pixel
+@pytest.mark.parametrize("theme", ["dark", "light"])
+def test_snapshot_user_menu_open(app_clean: str, page: Page, theme: str) -> None:
+    """L9 — user menu dropdown rendering."""
+    page.set_viewport_size(VIEWPORT)
+    page.goto(app_clean)
+    _set_theme(page, theme)
+    page.locator(".avatar").click()
+    expect(page.locator('[data-testid="user-menu"]')).to_be_visible()
+    _wait_for_render(page)
+    _assert_screenshot(page, f"user-menu-open-{theme}")
