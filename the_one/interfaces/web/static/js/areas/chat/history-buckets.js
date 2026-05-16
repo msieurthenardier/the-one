@@ -119,7 +119,24 @@
 
   function renderSessionList(sessionListEl, sessions, currentSessionId, callbacks) {
     sessionListEl.innerHTML = '';
-    if (!sessions.length) return;
+    if (!sessions.length) {
+      // L7.7 — when prerequisites are missing, surface why the + button
+      // can't yet create a session. (setupState lives in chat.js; here we
+      // show the common first-step guidance.)
+      var hint = document.createElement('div');
+      hint.className = 'sessions-empty-hint';
+      var line = document.createElement('p');
+      line.className = 'sessions-empty-hint-text';
+      line.textContent = 'Add a provider to start a session.';
+      hint.appendChild(line);
+      var link = document.createElement('a');
+      link.href = '#admin/providers';
+      link.className = 'sessions-empty-hint-link';
+      link.textContent = 'Go to providers →';
+      hint.appendChild(link);
+      sessionListEl.appendChild(hint);
+      return;
+    }
 
     // Order sessions by updated_at desc within each bucket; assign to buckets.
     var nowDay = startOfDay(new Date());
