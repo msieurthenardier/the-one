@@ -283,3 +283,17 @@ def test_snapshot_composer_1024(app_clean: str, page: Page, theme: str) -> None:
     expect(page.locator('[data-testid="chat-send-btn"]')).to_be_visible(timeout=5000)
     _wait_for_render(page)
     _assert_screenshot(page, f"composer-1024-{theme}")
+
+
+# L8 — palette overlay rendering
+@pytest.mark.pixel
+@pytest.mark.parametrize("theme", ["dark", "light"])
+def test_snapshot_palette_open(app_clean: str, page: Page, theme: str) -> None:
+    """L8 — palette overlay rendering."""
+    page.set_viewport_size(VIEWPORT)
+    page.goto(app_clean)
+    _set_theme(page, theme)
+    page.keyboard.press("Meta+k")
+    expect(page.locator('[data-testid="command-palette"]')).to_be_visible()
+    _wait_for_render(page)
+    _assert_screenshot(page, f"palette-open-{theme}")
