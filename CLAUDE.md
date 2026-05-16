@@ -53,7 +53,7 @@ make verify-serving         # curl-check that admin sub-modules return 200 (catc
 make help                   # list all targets
 ```
 
-**When `make rebuild` is required**: any change under `the_one/` — JS, CSS, HTML, Python. The Dockerfile copies these at build time; live-reload is intentionally NOT enabled (mirrors the Concourse CI/prod path).
+**When `make rebuild` is required**: any change under `the_one/` — JS, CSS, HTML, Python. The Dockerfile copies these at build time; live-reload is intentionally NOT enabled so dev exercises the same image-build path as a real deploy.
 
 **When `make rebuild` is NOT required**: editing files under `tests/` (the test suite spawns its own uvicorn subprocess, independent of the served daemon) or running ad-hoc one-off pytest invocations.
 

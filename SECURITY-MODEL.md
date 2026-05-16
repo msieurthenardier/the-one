@@ -93,10 +93,8 @@ Flight 2)". The security-relevant invariants are:
   when the operator hasn't touched the field. See [CLAUDE.md](CLAUDE.md)
   "`__MASKED__` sentinel for API key updates".
 - `.env` is gitignored.
-- `THE_ONE_CONCOURSE_PASS` is a local-Concourse-only credential; rotation
-  happens out-of-band (M06 F1 L6 documented the rotation procedure).
-- No secrets land in `.env.example`, `Dockerfile`, `docker-compose.yml`,
-  or `ci/pipeline.yml`.
+- No secrets land in `.env.example`, `Dockerfile`, or
+  `docker-compose.yml`.
 
 ## What This Model Excludes
 
@@ -115,8 +113,8 @@ above before implementation:
 
 ## Future Work (NOT in scope today)
 
-- **Secrets manager**: would replace `THE_ONE_CONCOURSE_PASS`-style env
-  vars and unify with the existing API-key encryption surface
+- **Secrets manager**: would replace local-only `.env`-style secret
+  storage and unify with the existing API-key encryption surface
 - **MCP server trust boundaries**: each MCP server is a separate trust
   domain; connecting to a third-party MCP server widens the trust
   boundary in ways the current model does not address
