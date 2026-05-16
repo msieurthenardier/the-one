@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
 async def _build_source_index(
     config: AgentConfig,
     agent_name: str,
@@ -64,7 +65,7 @@ async def _build_source_index(
     conn = await get_connection()
     encryptor = get_encryptor(settings.data_dir)
     repo = MCPSourceRepository(conn, encryptor)
-    for source_id in (config.mcp_source_ids or []):
+    for source_id in config.mcp_source_ids or []:
         try:
             source = await repo.get(source_id)
         except (KeyError, Exception):
@@ -92,21 +93,16 @@ async def _build_source_index(
             MCPTool(
                 name=t["name"],
                 description=t.get("description", ""),
-                input_schema=t.get(
-                    "input_schema", {"type": "object", "properties": {}}
-                ),
+                input_schema=t.get("input_schema", {"type": "object", "properties": {}}),
                 output_schema=None,
                 annotations=None,
             )
             for t in cached_tools_payload
         ]
         override_payload = (config.mcp_overrides or {}).get(source.name)
-        filtered = filter_mcp_tools_by_override(
-            cached_mcp_tools, source, override_payload
-        )
+        filtered = filter_mcp_tools_by_override(cached_mcp_tools, source, override_payload)
         prefixed_names = [
-            f"mcp__{_normalize_source_name(source.name)}__{mt.name}"
-            for mt in filtered
+            f"mcp__{_normalize_source_name(source.name)}__{mt.name}" for mt in filtered
         ]
         synthetic_description = _build_synthetic_description(
             source.name,
@@ -179,9 +175,8 @@ class AgentFactory:
         # ``mcp._tool_provider`` imports ``agent.config`` (indirectly via
         # the resolver chain). Keep this import lazy.
         from the_one.mcp._tool_provider import MCPToolProvider as _MCPToolProvider
-        self.mcp_provider = (
-            mcp_provider if mcp_provider is not None else _MCPToolProvider()
-        )
+
+        self.mcp_provider = mcp_provider if mcp_provider is not None else _MCPToolProvider()
 
     async def create(self, name: str = "default") -> Agent:
         """Create an Agent instance from a named config."""
@@ -312,9 +307,7 @@ class AgentFactory:
         # applies (operators can disable an MCP tool by its prefixed
         # name — `disabled_tools=["mcp__github__delete_repo"]`).
         if self.mcp_provider is not None and config.mcp_source_ids:
-            mcp_tools = await self.mcp_provider.get_tools_for_agent(
-                config, agent_name=name
-            )
+            mcp_tools = await self.mcp_provider.get_tools_for_agent(config, agent_name=name)
             for tool in mcp_tools:
                 if tool.name not in disabled_names and config.is_tool_enabled(tool.name):
                     registry.register(tool)

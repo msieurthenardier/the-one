@@ -198,9 +198,7 @@ def test_snapshot_chat_with_messages(app_with_agent: SeededApp, page: Page, them
     # waiting for the badge. Pattern matches tests/browser/test_flow_chat.py:29.
     # Fixes mission KI #1 — `.session-agent-badge` never populated under
     # the pre-fix auto-session-join assumption (race / nonexistent flow).
-    page.locator(".chat-welcome-item").filter(
-        has_text=app_with_agent.agent_name
-    ).click()
+    page.locator(".chat-welcome-item").filter(has_text=app_with_agent.agent_name).click()
     expect(page.locator(".session-agent-badge")).to_have_text(
         app_with_agent.agent_name, timeout=8000
     )

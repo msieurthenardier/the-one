@@ -56,11 +56,8 @@ class LLMProviderConfig(BaseModel):
 # Pin the explicit ``Literal`` arg-set to ``PROVIDER_TYPES`` at import time so
 # any future drift between ``_provider_types.py`` and the model annotation
 # trips immediately rather than at first DB write.
-assert set(get_args(LLMProviderConfig.model_fields["type"].annotation)) == set(
-    PROVIDER_TYPES
-), (
-    "LLMProviderConfig.type Literal drifted from PROVIDER_TYPES — "
-    "update both in lockstep."
+assert set(get_args(LLMProviderConfig.model_fields["type"].annotation)) == set(PROVIDER_TYPES), (
+    "LLMProviderConfig.type Literal drifted from PROVIDER_TYPES — update both in lockstep."
 )
 
 

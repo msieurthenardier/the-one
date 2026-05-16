@@ -20,7 +20,6 @@ from the_one.db.models import MCPSource
 from the_one.mcp.oauth.storage import OAUTH_MANAGED_SECRET_KEYS
 from the_one.mcp.transports.streamable_http import build_request_headers
 
-
 # Per-key sample values typed correctly per F6.5 L4's typing fix:
 # token strings stay strings, ``token_expires_at`` is a float,
 # ``dcr_credentials`` is a dict. The filter is keyed on names, not types,

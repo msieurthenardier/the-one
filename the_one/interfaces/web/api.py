@@ -657,7 +657,9 @@ def _mask_secret_value(value: Any) -> Any:
 # defined AFTER ``_mcp_source_response`` — a forward reference would
 # fail at module import time, so the constant lives here instead. See
 # leg L02 flight-log entry for the deliberate placement rationale).
-from the_one.mcp.oauth.storage import OAUTH_MANAGED_SECRET_KEYS as _OAUTH_MANAGED_SECRET_KEYS
+from the_one.mcp.oauth.storage import (  # noqa: E402  # deliberate placement; see comment block above re: forward-reference avoidance
+    OAUTH_MANAGED_SECRET_KEYS as _OAUTH_MANAGED_SECRET_KEYS,
+)
 
 
 def _mask_secrets(secrets: dict[str, Any]) -> dict[str, Any]:

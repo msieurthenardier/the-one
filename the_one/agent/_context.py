@@ -54,9 +54,7 @@ returns None (no provider — lazy 401 path surfaces at next
 ``call_tool`` which DOES have per-tool-dispatch context bound).
 """
 
-current_tool_call_id: ContextVar[str | None] = ContextVar(
-    "current_tool_call_id", default=None
-)
+current_tool_call_id: ContextVar[str | None] = ContextVar("current_tool_call_id", default=None)
 """The tool_call_id of the specific tool call currently being dispatched.
 
 Set by ``Agent._execute_tool`` at function entry. Read by the OAuth

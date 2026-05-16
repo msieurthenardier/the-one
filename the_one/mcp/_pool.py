@@ -194,6 +194,7 @@ async def _entry_worker(source: MCPSource, entry: _RegistryEntry) -> None:
     # in via L2's MCPAuthRequired translation.
     from the_one.agent._context import current_chat_session_id, current_tool_call_id
     from the_one.mcp.oauth import build_oauth_provider_for_source
+
     # F9 L1 Shape C: skip provider construction entirely when the test
     # endpoint persisted a definitive no_auth verdict in
     # source.config._cache.auth_posture. Absent/legacy hint falls through
@@ -211,7 +212,11 @@ async def _entry_worker(source: MCPSource, entry: _RegistryEntry) -> None:
         encryptor = get_encryptor(settings.data_dir)
         repo = MCPSourceRepository(conn, encryptor)
         auth_provider = build_oauth_provider_for_source(
-            source, repo, csid, source_id=source.id, tool_call_id=tcid,
+            source,
+            repo,
+            csid,
+            source_id=source.id,
+            tool_call_id=tcid,
         )
     # Construction must run INSIDE the try: an exception from MCPClient.__init__
     # (e.g. a future signature change unmatched by a test double, or a
@@ -239,9 +244,7 @@ async def _entry_worker(source: MCPSource, entry: _RegistryEntry) -> None:
         try:
             await client.disconnect()
         except Exception:
-            logger.exception(
-                "MCPClient disconnect failed during entry teardown"
-            )
+            logger.exception("MCPClient disconnect failed during entry teardown")
 
 
 async def _evict(key: tuple[str, str]) -> None:
@@ -264,9 +267,7 @@ async def _evict(key: tuple[str, str]) -> None:
     try:
         await asyncio.wait_for(entry.worker, timeout=10.0)
     except asyncio.TimeoutError:
-        logger.warning(
-            "MCP pool worker for %r did not terminate within 10s", key
-        )
+        logger.warning("MCP pool worker for %r did not terminate within 10s", key)
         entry.worker.cancel()
         with contextlib.suppress(BaseException):
             await entry.worker
@@ -334,8 +335,7 @@ async def _reap_once() -> list[tuple[str, str]]:
         expired = [
             key
             for key, entry in _pool.items()
-            if entry.client is not None
-            and (now - entry.client.last_activity) > entry.ttl_seconds
+            if entry.client is not None and (now - entry.client.last_activity) > entry.ttl_seconds
         ]
     # _evict each expired key OUTSIDE the lock, IN PARALLEL. _evict
     # re-acquires the lock for its own pop — fair-FIFO ordering means
@@ -347,9 +347,7 @@ async def _reap_once() -> list[tuple[str, str]]:
             return_exceptions=True,
         )
         for key, result in zip(expired, results):
-            if isinstance(result, BaseException) and not isinstance(
-                result, asyncio.CancelledError
-            ):
+            if isinstance(result, BaseException) and not isinstance(result, asyncio.CancelledError):
                 logger.exception(
                     "MCP pool _evict raised during reap pass: key=%r exc=%r",
                     key,
@@ -488,9 +486,7 @@ async def acquire(
                 evict_event=asyncio.Event(),
                 client_ready=asyncio.Event(),
             )
-            entry.worker = asyncio.create_task(
-                _entry_worker(source, entry)
-            )
+            entry.worker = asyncio.create_task(_entry_worker(source, entry))
             _pool[key] = entry
             # Ensure the reaper is running. Idempotent — the helper
             # checks ``_reaper_task is None or done()`` before spawning.

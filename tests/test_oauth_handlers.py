@@ -94,9 +94,7 @@ async def test_redirect_registers_state_broadcasts_and_callback_returns_code(
                 "type": "auth_required",
                 "source_id": "src-1",
                 "source_name": None,
-                "resource_metadata_url": (
-                    "https://idp/.well-known/oauth-protected-resource"
-                ),
+                "resource_metadata_url": ("https://idp/.well-known/oauth-protected-resource"),
                 "tool_call_id": "tc-1",
                 "consent_url": auth_url,
             },

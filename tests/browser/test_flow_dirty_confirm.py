@@ -43,7 +43,9 @@ def _wait_editor_ready(page: Page) -> None:
     navigations (`#studio/agents/<name>/...`) hydrate the selection and the
     editor is already visible — skip the click.
     """
-    expect(page.locator('.section-nav[aria-label="Agent Studio sections"]')).to_be_visible(timeout=8000)
+    expect(page.locator('.section-nav[aria-label="Agent Studio sections"]')).to_be_visible(
+        timeout=8000
+    )
     editor_hidden = page.evaluate(
         "() => document.querySelector('.studio-editor')?.classList.contains('is-hidden')"
     )

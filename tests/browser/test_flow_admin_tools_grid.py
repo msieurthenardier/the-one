@@ -210,7 +210,7 @@ def test_admin_tools_section_nav_label_is_built_in_tools(app_clean: str, page: P
     """
     page.goto(f"{app_clean}#admin/general")
     nav = page.locator(".area-admin .section-nav")
-    # Assert "Built-in Tools" nav item exists by label (not by count — dev_mode adds Design Language).
+    # Assert "Built-in Tools" nav item exists by label (not by count — dev_mode adds Design Language).  # noqa: E501
     expect(nav.locator(".section-nav-item", has_text="Built-in Tools")).to_be_visible(timeout=5000)
 
 

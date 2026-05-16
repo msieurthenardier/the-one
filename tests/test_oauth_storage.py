@@ -42,24 +42,22 @@ async def repo_with_source(tmp_path):
         await conn.close()
 
 
-async def test_token_storage_full_contract(
-    repo_with_source, monkeypatch
-) -> None:
+async def test_token_storage_full_contract(repo_with_source, monkeypatch) -> None:
     """A2 — full TokenStorage contract:
 
-      - get-when-absent → None;
-      - set/get round-trip with all fields persists access_token,
-        refresh_token, token_type, scope, and ``token_expires_at``
-        (translated from ``expires_in``);
-      - refresh-token rotation overwrites both tokens in one
-        ``repo.update``;
-      - ``set_tokens(expires_in=None)`` clears any prior epoch;
-      - clock translation: write at t0 with ``expires_in=300``, read
-        at t0+100 returns ``expires_in=200``;
-      - malformed ``token_expires_at`` returns ``expires_in=None``
-        rather than crashing;
-      - partial state (no refresh_token persisted) round-trips with
-        ``refresh_token=None``.
+    - get-when-absent → None;
+    - set/get round-trip with all fields persists access_token,
+      refresh_token, token_type, scope, and ``token_expires_at``
+      (translated from ``expires_in``);
+    - refresh-token rotation overwrites both tokens in one
+      ``repo.update``;
+    - ``set_tokens(expires_in=None)`` clears any prior epoch;
+    - clock translation: write at t0 with ``expires_in=300``, read
+      at t0+100 returns ``expires_in=200``;
+    - malformed ``token_expires_at`` returns ``expires_in=None``
+      rather than crashing;
+    - partial state (no refresh_token persisted) round-trips with
+      ``refresh_token=None``.
     """
     repo, sid = repo_with_source
     storage = MCPSourceTokenStorage(repo, sid)
@@ -92,9 +90,7 @@ async def test_token_storage_full_contract(
 
     # Rotation overwrites both
     await storage.set_tokens(
-        OAuthToken(
-            access_token="new-acc", refresh_token="new-ref", expires_in=600
-        )
+        OAuthToken(access_token="new-acc", refresh_token="new-ref", expires_in=600)
     )
     loaded = await storage.get_tokens()
     assert loaded is not None
@@ -109,13 +105,9 @@ async def test_token_storage_full_contract(
 
     # Clock translation
     fake_now = 1_700_000_000.0
-    monkeypatch.setattr(
-        "the_one.mcp.oauth.storage.time.time", lambda: fake_now
-    )
+    monkeypatch.setattr("the_one.mcp.oauth.storage.time.time", lambda: fake_now)
     await storage.set_tokens(OAuthToken(access_token="a", expires_in=300))
-    monkeypatch.setattr(
-        "the_one.mcp.oauth.storage.time.time", lambda: fake_now + 100.0
-    )
+    monkeypatch.setattr("the_one.mcp.oauth.storage.time.time", lambda: fake_now + 100.0)
     loaded = await storage.get_tokens()
     assert loaded is not None
     assert loaded.expires_in == 200
@@ -158,9 +150,7 @@ async def test_client_info_round_trip(repo_with_source) -> None:
     assert loaded is not None
     assert loaded.client_id == "cid-1"
     assert loaded.client_secret == "sek-1"
-    assert str(loaded.redirect_uris[0]).startswith(
-        "http://127.0.0.1:8484/api/oauth/callback"
-    )
+    assert str(loaded.redirect_uris[0]).startswith("http://127.0.0.1:8484/api/oauth/callback")
 
 
 async def test_set_tokens_writes_only_managed_secret_keys() -> None:

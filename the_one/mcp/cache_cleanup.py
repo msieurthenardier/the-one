@@ -178,9 +178,7 @@ async def _clean_uvx(pkg: str) -> None:
             stderr=asyncio.subprocess.PIPE,
         )
     except FileNotFoundError:
-        logger.warning(
-            "uv binary not on PATH; skipping `uv cache prune` for %s", pkg
-        )
+        logger.warning("uv binary not on PATH; skipping `uv cache prune` for %s", pkg)
         return
     except Exception as e:  # pragma: no cover — defensive
         logger.warning("`uv cache prune` failed to start for %s: %s", pkg, e)
@@ -250,9 +248,7 @@ async def _clean_npx(pkg: str) -> None:
                     matched = True
 
             if matched:
-                logger.warning(
-                    "Removing npx slot %s (matches package %s)", slot_dir, pkg
-                )
+                logger.warning("Removing npx slot %s (matches package %s)", slot_dir, pkg)
                 shutil.rmtree(slot_dir, ignore_errors=True)
     except Exception as e:  # pragma: no cover — defensive
         logger.warning("npx cache scan failed for %s: %s", pkg, e)
@@ -263,9 +259,7 @@ async def _clean_pipx(pkg: str) -> None:
     await _clean_uvx(pkg)
 
 
-async def cleanup_runtime_cache(
-    runtime: str, package: str, *, timeout_s: float = 10.0
-) -> None:
+async def cleanup_runtime_cache(runtime: str, package: str, *, timeout_s: float = 10.0) -> None:
     """Dispatch to the per-runtime cleanup helper, swallowing all errors.
 
     Logs at WARNING on success/no-op/failure so cleanup outcomes surface
@@ -291,9 +285,7 @@ async def cleanup_runtime_cache(
         elif runtime == "pipx":
             inner = _clean_pipx(package)
         else:
-            logger.warning(
-                "cleanup_runtime_cache: unsupported runtime %r; no-op", runtime
-            )
+            logger.warning("cleanup_runtime_cache: unsupported runtime %r; no-op", runtime)
             return
 
         try:

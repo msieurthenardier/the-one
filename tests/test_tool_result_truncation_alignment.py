@@ -69,12 +69,8 @@ async def test_tool_result_content_truncated_identically_across_projection_sites
     """A single >cap tool_result.content yields identical truncated strings on
     (WS broadcast, HTTP API result_messages, codec replay projection)."""
     # Stub external side effects ``_process_and_broadcast`` triggers.
-    monkeypatch.setattr(
-        web_app, "_ensure_ollama_model_loaded", AsyncMock(return_value=None)
-    )
-    monkeypatch.setattr(
-        web_app, "_save_session_to_db", AsyncMock(return_value=None)
-    )
+    monkeypatch.setattr(web_app, "_ensure_ollama_model_loaded", AsyncMock(return_value=None))
+    monkeypatch.setattr(web_app, "_save_session_to_db", AsyncMock(return_value=None))
 
     captured: list[dict[str, Any]] = []
 
@@ -90,9 +86,7 @@ async def test_tool_result_content_truncated_identically_across_projection_sites
         "",
         tool_calls=[ToolCall(id="tc-align", name="some_tool", arguments={})],
     )
-    tool_msg = Message.tool(
-        ToolResult(tool_call_id="tc-align", content=raw_content)
-    )
+    tool_msg = Message.tool(ToolResult(tool_call_id="tc-align", content=raw_content))
     agent = _StubAgent(step_messages=[pre_assistant, tool_msg])
     session = Session(
         id="cs-truncation",

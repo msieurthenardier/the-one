@@ -53,9 +53,7 @@ def test_studio_openrouter_picker_renders_select(
     tag = page.evaluate("document.getElementById('studio-model').tagName")
     assert tag == "SELECT", f"expected SELECT element, got {tag!r}"
 
-    values = page.eval_on_selector_all(
-        "#studio-model option", "els => els.map(e => e.value)"
-    )
+    values = page.eval_on_selector_all("#studio-model option", "els => els.map(e => e.value)")
     assert "anthropic/claude-3.5-sonnet" in values
     assert "no-tools-model" in values
     assert "empty-caps-model" in values
@@ -209,7 +207,13 @@ def test_rapid_provider_switch_uses_final_selection(
     )
 
 
-@pytest.mark.skip(reason="M08 F4 KI: Leg 02 picker UX redesign changed the type-switch flow. Test asserts pre-redesign value-preservation behavior; needs redesign-aware rewrite. See mission.md Known Issues.")
+@pytest.mark.skip(
+    reason=(
+        "M08 F4 KI: Leg 02 picker UX redesign changed the type-switch flow. "
+        "Test asserts pre-redesign value-preservation behavior; needs "
+        "redesign-aware rewrite. See mission.md Known Issues."
+    )
+)
 @pytest.mark.browser
 def test_picker_preserves_value_across_type_switch_as_custom(
     app_with_two_providers,
@@ -245,16 +249,12 @@ def test_picker_preserves_value_across_type_switch_as_custom(
     page.locator("#studio-provider").select_option(openrouter_id)
     expect(page.locator("#studio-model option")).to_have_count(4, timeout=8000)
     page.locator("#studio-model").select_option("anthropic/claude-3.5-sonnet")
-    expect(page.locator("#studio-model")).to_have_value(
-        "anthropic/claude-3.5-sonnet", timeout=2000
-    )
+    expect(page.locator("#studio-model")).to_have_value("anthropic/claude-3.5-sonnet", timeout=2000)
 
     # Step 2: switch to Ollama. The chosen value isn't in Ollama's list,
     # so it appears as a "(custom)" fallback option and stays selected.
     page.locator("#studio-provider").select_option(ollama_id)
-    expect(page.locator("#studio-model")).to_have_value(
-        "anthropic/claude-3.5-sonnet", timeout=3000
-    )
+    expect(page.locator("#studio-model")).to_have_value("anthropic/claude-3.5-sonnet", timeout=3000)
     custom_label = page.locator(
         '#studio-model option[value="anthropic/claude-3.5-sonnet"]'
     ).inner_text(timeout=2000)
@@ -265,12 +265,8 @@ def test_picker_preserves_value_across_type_switch_as_custom(
     # Step 3: switch back to OpenRouter. The value is now a real listed
     # model — no "(custom)" suffix.
     page.locator("#studio-provider").select_option(openrouter_id)
-    expect(page.locator("#studio-model")).to_have_value(
-        "anthropic/claude-3.5-sonnet", timeout=3000
-    )
+    expect(page.locator("#studio-model")).to_have_value("anthropic/claude-3.5-sonnet", timeout=3000)
     real_label = page.locator(
         '#studio-model option[value="anthropic/claude-3.5-sonnet"]'
     ).inner_text(timeout=2000)
-    assert "(custom)" not in real_label, (
-        f"option should be the listed model, got {real_label!r}"
-    )
+    assert "(custom)" not in real_label, f"option should be the listed model, got {real_label!r}"

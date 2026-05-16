@@ -13,8 +13,6 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 from the_one.agent.config import AgentConfig
 from the_one.agent.factory import AgentFactory
 from the_one.db.models import MCPSource
@@ -98,9 +96,7 @@ def _make_mcp_tool(
         name=name,
         description=description,
         input_schema=(
-            input_schema
-            if input_schema is not None
-            else {"type": "object", "properties": {}}
+            input_schema if input_schema is not None else {"type": "object", "properties": {}}
         ),
         output_schema=None,
         annotations=None,

@@ -155,7 +155,9 @@ def test_studio_root_redirects_to_agents(app_clean: str, page: Page) -> None:
 
     page.goto(f"{base_url}#studio")
     # Wait for studio to mount.
-    expect(page.locator('.section-nav[aria-label="Agent Studio sections"]')).to_be_visible(timeout=8000)
+    expect(page.locator('.section-nav[aria-label="Agent Studio sections"]')).to_be_visible(
+        timeout=8000
+    )
 
     # URL was rewritten by the F3 router (replaceState, not pushState).
     assert page.evaluate("location.hash") == "#studio/agents"
@@ -167,14 +169,18 @@ def test_studio_knowledge_section_persists_on_refresh(app_clean: str, page: Page
     base_url = app_clean
 
     page.goto(f"{base_url}#studio/knowledge")
-    expect(page.locator('.section-nav[aria-label="Agent Studio sections"]')).to_be_visible(timeout=8000)
+    expect(page.locator('.section-nav[aria-label="Agent Studio sections"]')).to_be_visible(
+        timeout=8000
+    )
 
     stub = page.locator('[data-testid="studio-knowledge-stub"]')
     expect(stub).to_be_visible(timeout=5000)
     assert page.evaluate("location.hash") == "#studio/knowledge"
 
     page.reload()
-    expect(page.locator('.section-nav[aria-label="Agent Studio sections"]')).to_be_visible(timeout=8000)
+    expect(page.locator('.section-nav[aria-label="Agent Studio sections"]')).to_be_visible(
+        timeout=8000
+    )
     expect(page.locator('[data-testid="studio-knowledge-stub"]')).to_be_visible(timeout=5000)
     assert page.evaluate("location.hash") == "#studio/knowledge"
 
@@ -189,15 +195,11 @@ def test_studio_mcp_sources_section_persists_on_refresh(app_clean: str, page: Pa
     base_url = app_clean
 
     page.goto(f"{base_url}#studio/mcp-sources")
-    expect(page.locator(".area-studio .page-title")).to_have_text(
-        "MCP Servers", timeout=8000
-    )
+    expect(page.locator(".area-studio .page-title")).to_have_text("MCP Servers", timeout=8000)
     assert page.evaluate("location.hash") == "#studio/mcp-sources"
 
     page.reload()
-    expect(page.locator(".area-studio .page-title")).to_have_text(
-        "MCP Servers", timeout=8000
-    )
+    expect(page.locator(".area-studio .page-title")).to_have_text("MCP Servers", timeout=8000)
     assert page.evaluate("location.hash") == "#studio/mcp-sources"
 
 

@@ -140,9 +140,7 @@ class OAuthASStub:
 
     def __init__(self) -> None:
         self._server = HTTPServer(("127.0.0.1", 0), _OAuthASHandler)
-        self._thread = threading.Thread(
-            target=self._server.serve_forever, daemon=True
-        )
+        self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
 
     @property
     def base_url(self) -> str:

@@ -320,7 +320,7 @@ def _translate_inner_spawn_error(
             return MCPConnectionError(
                 f"Python could not open the script {path!r}. Common causes: "
                 f"the args field has literal quote characters around values "
-                f"(use `-m` not `\"-m\"`); the script path is wrong; or you "
+                f'(use `-m` not `"-m"`); the script path is wrong; or you '
                 f"meant to use command=uvx args=[<package>] for a "
                 f"runtime-fetched MCP."
             )
@@ -328,9 +328,7 @@ def _translate_inner_spawn_error(
     return None
 
 
-def build_stdio_environ(
-    source: MCPSource, allowlist_env: dict[str, str]
-) -> dict[str, str]:
+def build_stdio_environ(source: MCPSource, allowlist_env: dict[str, str]) -> dict[str, str]:
     """Materialize the spawned-child environ for a stdio MCP source.
 
     Two-layer flat merge in precedence order:
@@ -472,9 +470,7 @@ async def connect_stdio(source: MCPSource) -> AsyncIterator[ClientSession]:
         # raise even on the "clean exit" path — the upstream caller's
         # connection-close error is downstream of bwrap's failure.
         original_exc: BaseException | None = None
-        with tempfile.SpooledTemporaryFile(
-            mode="w+", encoding="utf-8", errors="replace"
-        ) as errbuf:
+        with tempfile.SpooledTemporaryFile(mode="w+", encoding="utf-8", errors="replace") as errbuf:
             try:
                 async with stdio_client(params, errlog=errbuf) as (read, write):
                     async with ClientSession(read, write) as session:
@@ -500,10 +496,7 @@ async def connect_stdio(source: MCPSource) -> AsyncIterator[ClientSession]:
                 # when no bwrap-side translation matched AND stderr is
                 # non-empty AND lacks the bwrap-prefix (the gate inside
                 # _translate_inner_spawn_error mirrors this contract).
-                if (
-                    stderr_text
-                    and not _BWRAP_OWN_PREFIX_RE.search(stderr_text)
-                ):
+                if stderr_text and not _BWRAP_OWN_PREFIX_RE.search(stderr_text):
                     inner_err = _translate_inner_spawn_error(
                         exc=original_exc,
                         stderr_text=stderr_text,
@@ -526,7 +519,9 @@ async def connect_stdio(source: MCPSource) -> AsyncIterator[ClientSession]:
                     yield session
         except FileNotFoundError as exc:
             inner_err = _translate_inner_spawn_error(
-                exc=exc, stderr_text="", command=operator_command,
+                exc=exc,
+                stderr_text="",
+                command=operator_command,
             )
             if inner_err is not None:
                 raise inner_err from exc
@@ -583,9 +578,7 @@ async def _open_stdio_transport_stack(
     try:
         if sandboxed:
             errbuf = stack.enter_context(
-                tempfile.SpooledTemporaryFile(
-                    mode="w+", encoding="utf-8", errors="replace"
-                )
+                tempfile.SpooledTemporaryFile(mode="w+", encoding="utf-8", errors="replace")
             )
 
             # Push translation callback BEFORE entering stdio_client so
@@ -628,9 +621,7 @@ async def _open_stdio_transport_stack(
 
             stack.callback(_translate_on_unwind)
 
-            read, write = await stack.enter_async_context(
-                stdio_client(params, errlog=errbuf)
-            )
+            read, write = await stack.enter_async_context(stdio_client(params, errlog=errbuf))
         else:
             read, write = await stack.enter_async_context(stdio_client(params))
         session = await stack.enter_async_context(ClientSession(read, write))
@@ -655,7 +646,9 @@ async def _open_stdio_transport_stack(
             raise conn_err from exc
         if not sandboxed and isinstance(exc, FileNotFoundError):
             inner_err = _translate_inner_spawn_error(
-                exc=exc, stderr_text="", command=operator_command,
+                exc=exc,
+                stderr_text="",
+                command=operator_command,
             )
             if inner_err is not None:
                 raise inner_err from exc

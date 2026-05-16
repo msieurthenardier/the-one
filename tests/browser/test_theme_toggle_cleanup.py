@@ -33,9 +33,7 @@ from playwright.sync_api import Page
 
 
 @pytest.mark.browser
-def test_theme_toggle_cleanup_survives_container_replacement(
-    app_clean: str, page: Page
-) -> None:
+def test_theme_toggle_cleanup_survives_container_replacement(app_clean: str, page: Page) -> None:
     """After re-rendering the toggle into a fresh container post-innerHTML
     rewrite, dispatching THEME_EVENT must update ONLY the new container."""
     # Land on any route — theme.js is loaded in <head> of index.html for

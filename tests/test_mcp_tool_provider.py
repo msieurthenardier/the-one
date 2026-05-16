@@ -291,9 +291,7 @@ class TestMCPClientTool:
         )
 
         stub_client = MagicMock()
-        stub_client.call_tool = AsyncMock(
-            side_effect=MCPAuthRequired("src-1")
-        )
+        stub_client.call_tool = AsyncMock(side_effect=MCPAuthRequired("src-1"))
 
         async def _stub_acquire(*args, **kwargs):
             return stub_client
@@ -441,9 +439,7 @@ def _stub_mcp_client(tools: list[MCPTool] | Exception):
 
 
 class TestMCPToolProvider:
-    async def test_empty_source_ids_returns_empty_list_no_db_calls(
-        self, monkeypatch
-    ) -> None:
+    async def test_empty_source_ids_returns_empty_list_no_db_calls(self, monkeypatch) -> None:
         """Empty mcp_source_ids early-returns BEFORE any DB call."""
         called = {"get_connection": False}
 
@@ -471,8 +467,10 @@ class TestMCPToolProvider:
         with caplog.at_level(logging.WARNING, logger="the_one.mcp._tool_provider"):
             result = await MCPToolProvider().get_tools_for_agent(cfg, agent_name="a")
         assert result == []
-        assert any("'foo'" in rec.getMessage() and "unknown source name" in rec.getMessage()
-                   for rec in caplog.records)
+        assert any(
+            "'foo'" in rec.getMessage() and "unknown source name" in rec.getMessage()
+            for rec in caplog.records
+        )
 
     async def test_single_source_no_overrides_produces_prefixed_tools(
         self, patch_provider_deps, monkeypatch
@@ -480,10 +478,12 @@ class TestMCPToolProvider:
         src = _stub_source(source_id="src-1", name="github")
         patch_provider_deps.get = AsyncMock(return_value=src)
 
-        client = _stub_mcp_client([
-            _stub_mcp_tool("do_a"),
-            _stub_mcp_tool("do_b"),
-        ])
+        client = _stub_mcp_client(
+            [
+                _stub_mcp_tool("do_a"),
+                _stub_mcp_tool("do_b"),
+            ]
+        )
 
         async def _stub_acquire(*args, **kwargs):
             return client
@@ -564,8 +564,10 @@ class TestMCPToolProvider:
         with caplog.at_level(logging.WARNING, logger="the_one.mcp._tool_provider"):
             tools = await MCPToolProvider().get_tools_for_agent(cfg, agent_name="agent-a")
         assert [t.name for t in tools] == ["mcp__gitlab__do_b"]
-        assert any("failed to connect" in rec.getMessage() and "github" in rec.getMessage()
-                   for rec in caplog.records)
+        assert any(
+            "failed to connect" in rec.getMessage() and "github" in rec.getMessage()
+            for rec in caplog.records
+        )
 
     async def test_failure_class_2_list_tools_raises_skipped(
         self, patch_provider_deps, monkeypatch, caplog
@@ -584,8 +586,10 @@ class TestMCPToolProvider:
         with caplog.at_level(logging.WARNING, logger="the_one.mcp._tool_provider"):
             tools = await MCPToolProvider().get_tools_for_agent(cfg, agent_name="agent-a")
         assert tools == []
-        assert any("failed to connect" in rec.getMessage() and "github" in rec.getMessage()
-                   for rec in caplog.records)
+        assert any(
+            "failed to connect" in rec.getMessage() and "github" in rec.getMessage()
+            for rec in caplog.records
+        )
 
     async def test_get_tools_for_agent_graceful_skips_on_mcp_auth_required(
         self, patch_provider_deps, monkeypatch, caplog
@@ -618,10 +622,7 @@ class TestMCPToolProvider:
         assert tools[0].name == "mcp__filesystem__read_file"
 
         # Log line carries the AUTH discriminator, not the generic "failed to connect".
-        auth_log = [
-            r for r in caplog.records
-            if "auth_required" in r.getMessage()
-        ]
+        auth_log = [r for r in caplog.records if "auth_required" in r.getMessage()]
         assert len(auth_log) == 1
         assert "github" in auth_log[0].getMessage()
         # The connect-failure discriminator must NOT appear for the auth-required source.
@@ -677,11 +678,13 @@ class TestMCPToolProvider:
         patch_provider_deps.get = AsyncMock(side_effect=_get)
 
         client1 = _stub_mcp_client([_stub_mcp_tool("tool_B")])
-        client2 = _stub_mcp_client([
-            _stub_mcp_tool("tool_A"),  # would NOT collide individually
-            _stub_mcp_tool("tool_B"),  # collides with src-1's tool_B
-            _stub_mcp_tool("tool_C"),  # would NOT collide individually
-        ])
+        client2 = _stub_mcp_client(
+            [
+                _stub_mcp_tool("tool_A"),  # would NOT collide individually
+                _stub_mcp_tool("tool_B"),  # collides with src-1's tool_B
+                _stub_mcp_tool("tool_C"),  # would NOT collide individually
+            ]
+        )
 
         async def _stub_acquire(agent_name, source_id, **kwargs):
             return {"src-1": client1, "src-2": client2}[source_id]
@@ -707,10 +710,12 @@ class TestMCPToolProvider:
 
         # short tool: "mcp__" + 50-char source + "__" + 5 = 62 chars (OK)
         # long tool:  "mcp__" + 50-char source + "__" + 20 = 77 chars (FAIL)
-        client = _stub_mcp_client([
-            _stub_mcp_tool("short"),
-            _stub_mcp_tool("t" * 20),
-        ])
+        client = _stub_mcp_client(
+            [
+                _stub_mcp_tool("short"),
+                _stub_mcp_tool("t" * 20),
+            ]
+        )
 
         async def _stub_acquire(*args, **kwargs):
             return client
@@ -751,8 +756,7 @@ class TestMCPToolProvider:
             await MCPToolProvider().get_tools_for_agent(cfg, agent_name="agent-a")
 
         unknown_warnings = [
-            rec.getMessage() for rec in caplog.records
-            if "unknown source name" in rec.getMessage()
+            rec.getMessage() for rec in caplog.records if "unknown source name" in rec.getMessage()
         ]
         # TWO warnings — one per orphan key.
         assert len(unknown_warnings) == 2
@@ -798,11 +802,13 @@ class TestMCPToolProvider:
         src = _stub_source(source_id="src-1", name="src", type="stdio")
         patch_provider_deps.get = AsyncMock(return_value=src)
 
-        client = _stub_mcp_client([
-            _stub_mcp_tool("read"),
-            _stub_mcp_tool("write"),
-            _stub_mcp_tool("delete"),
-        ])
+        client = _stub_mcp_client(
+            [
+                _stub_mcp_tool("read"),
+                _stub_mcp_tool("write"),
+                _stub_mcp_tool("delete"),
+            ]
+        )
 
         async def _stub_acquire(*args, **kwargs):
             return client
@@ -825,11 +831,13 @@ class TestMCPToolProvider:
         src = _stub_source(source_id="src-1", name="src", type="stdio")
         patch_provider_deps.get = AsyncMock(return_value=src)
 
-        client = _stub_mcp_client([
-            _stub_mcp_tool("read"),
-            _stub_mcp_tool("write"),
-            _stub_mcp_tool("delete"),
-        ])
+        client = _stub_mcp_client(
+            [
+                _stub_mcp_tool("read"),
+                _stub_mcp_tool("write"),
+                _stub_mcp_tool("delete"),
+            ]
+        )
 
         async def _stub_acquire(*args, **kwargs):
             return client
@@ -852,11 +860,13 @@ class TestMCPToolProvider:
         src = _stub_source(source_id="src-1", name="src", type="stdio")
         patch_provider_deps.get = AsyncMock(return_value=src)
 
-        client = _stub_mcp_client([
-            _stub_mcp_tool("read"),
-            _stub_mcp_tool("write"),
-            _stub_mcp_tool("delete"),
-        ])
+        client = _stub_mcp_client(
+            [
+                _stub_mcp_tool("read"),
+                _stub_mcp_tool("write"),
+                _stub_mcp_tool("delete"),
+            ]
+        )
 
         async def _stub_acquire(*args, **kwargs):
             return client
@@ -866,7 +876,9 @@ class TestMCPToolProvider:
         cfg = AgentConfig(
             name="a",
             mcp_source_ids=["src-1"],
-            mcp_overrides={"src": {"enabled_tools": ["read", "write"], "disabled_tools": ["write"]}},
+            mcp_overrides={
+                "src": {"enabled_tools": ["read", "write"], "disabled_tools": ["write"]}
+            },
         )
         tools = await MCPToolProvider().get_tools_for_agent(cfg, agent_name="agent-a")
         names = [t.name for t in tools]
@@ -879,10 +891,12 @@ class TestMCPToolProvider:
         src = _stub_source(source_id="src-1", name="src", type="stdio")
         patch_provider_deps.get = AsyncMock(return_value=src)
 
-        client = _stub_mcp_client([
-            _stub_mcp_tool("read"),
-            _stub_mcp_tool("write"),
-        ])
+        client = _stub_mcp_client(
+            [
+                _stub_mcp_tool("read"),
+                _stub_mcp_tool("write"),
+            ]
+        )
 
         async def _stub_acquire(*args, **kwargs):
             return client
@@ -904,10 +918,12 @@ class TestMCPToolProvider:
         src = _stub_source(source_id="src-1", name="src", type="stdio")
         patch_provider_deps.get = AsyncMock(return_value=src)
 
-        client = _stub_mcp_client([
-            _stub_mcp_tool("read"),
-            _stub_mcp_tool("write"),
-        ])
+        client = _stub_mcp_client(
+            [
+                _stub_mcp_tool("read"),
+                _stub_mcp_tool("write"),
+            ]
+        )
 
         async def _stub_acquire(*args, **kwargs):
             return client
@@ -926,15 +942,20 @@ class TestMCPToolProvider:
     async def test_get_tools_for_agent_no_override_entry_passes_through_full_list(
         self, patch_provider_deps, monkeypatch
     ) -> None:
-        """L1.5: no override entry for the source → full tool list registered (current behavior preserved)."""
+        """L1.5: no override entry for the source → full tool list registered.
+
+        Current behavior preserved.
+        """
         src = _stub_source(source_id="src-1", name="src", type="stdio")
         patch_provider_deps.get = AsyncMock(return_value=src)
 
-        client = _stub_mcp_client([
-            _stub_mcp_tool("read"),
-            _stub_mcp_tool("write"),
-            _stub_mcp_tool("delete"),
-        ])
+        client = _stub_mcp_client(
+            [
+                _stub_mcp_tool("read"),
+                _stub_mcp_tool("write"),
+                _stub_mcp_tool("delete"),
+            ]
+        )
 
         async def _stub_acquire(*args, **kwargs):
             return client
@@ -953,14 +974,19 @@ class TestMCPToolProvider:
     async def test_get_tools_for_agent_filter_uses_unprefixed_names(
         self, patch_provider_deps, monkeypatch
     ) -> None:
-        """L1.2: filter matches un-prefixed mt.name (e.g. 'read_file', NOT 'mcp__src__read_file')."""
+        """L1.2: filter matches un-prefixed mt.name.
+
+        E.g. 'read_file', NOT 'mcp__src__read_file'.
+        """
         src = _stub_source(source_id="src-1", name="src", type="stdio")
         patch_provider_deps.get = AsyncMock(return_value=src)
 
-        client = _stub_mcp_client([
-            _stub_mcp_tool("read_file"),
-            _stub_mcp_tool("write_file"),
-        ])
+        client = _stub_mcp_client(
+            [
+                _stub_mcp_tool("read_file"),
+                _stub_mcp_tool("write_file"),
+            ]
+        )
 
         async def _stub_acquire(*args, **kwargs):
             return client
@@ -982,16 +1008,20 @@ class TestMCPToolProvider:
     ) -> None:
         """L1.5: filter applies to streamable-http sources, not just stdio."""
         src = _stub_source(
-            source_id="src-1", name="src", type="streamable-http",
+            source_id="src-1",
+            name="src",
+            type="streamable-http",
             secrets={"dcr_credentials": {"client_id": "x"}, "access_token": "tok"},
         )
         patch_provider_deps.get = AsyncMock(return_value=src)
 
-        client = _stub_mcp_client([
-            _stub_mcp_tool("search"),
-            _stub_mcp_tool("fetch"),
-            _stub_mcp_tool("embed"),
-        ])
+        client = _stub_mcp_client(
+            [
+                _stub_mcp_tool("search"),
+                _stub_mcp_tool("fetch"),
+                _stub_mcp_tool("embed"),
+            ]
+        )
 
         async def _stub_acquire(*args, **kwargs):
             return client
@@ -1018,8 +1048,19 @@ class TestMCPToolProvider:
         hydrated from the cache and acquire() is NOT called. This makes agent
         builds sub-100ms even when the MCP server is unreachable."""
         cached_tools_payload = [
-            {"name": "read_file", "description": "Read a file.", "input_schema": {"type": "object", "properties": {"path": {"type": "string"}}}},
-            {"name": "write_file", "description": "Write a file.", "input_schema": {"type": "object", "properties": {}}},
+            {
+                "name": "read_file",
+                "description": "Read a file.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"path": {"type": "string"}},
+                },
+            },
+            {
+                "name": "write_file",
+                "description": "Write a file.",
+                "input_schema": {"type": "object", "properties": {}},
+            },
         ]
         src = _stub_source(
             source_id="src-1",
@@ -1046,7 +1087,10 @@ class TestMCPToolProvider:
         assert names == ["mcp__filesystem__read_file", "mcp__filesystem__write_file"]
         # Verify input_schema threaded through correctly.
         read_tool = next(t for t in tools if t.name == "mcp__filesystem__read_file")
-        assert read_tool.parameters == {"type": "object", "properties": {"path": {"type": "string"}}}
+        assert read_tool.parameters == {
+            "type": "object",
+            "properties": {"path": {"type": "string"}},
+        }
 
     async def test_get_tools_for_agent_falls_back_to_acquire_when_cache_empty(
         self, patch_provider_deps, monkeypatch
@@ -1074,9 +1118,7 @@ class TestMCPToolProvider:
         names = sorted(t.name for t in tools)
         assert names == ["mcp__github__create_issue", "mcp__github__list_prs"]
 
-    async def test_override_applies_correctly(
-        self, patch_provider_deps, monkeypatch
-    ) -> None:
+    async def test_override_applies_correctly(self, patch_provider_deps, monkeypatch) -> None:
         """``acquire`` was called with ``source_override`` reflecting
         the agent's override (env merged for stdio)."""
         # F2 contract (post-HAT-A4): source.secrets IS the flat env kv
@@ -1154,16 +1196,12 @@ class _StubToolProvider:
     def name(self) -> str:
         return "stub"
 
-    def get_tools(
-        self, tool_configs=None, agent_overrides=None, agent_name=None
-    ):
+    def get_tools(self, tool_configs=None, agent_overrides=None, agent_name=None):
         return [StubTool("tool_a", agent_name=agent_name)]
 
 
 class TestAgentFactoryMCPIntegration:
-    async def test_factory_with_mcp_provider_none_skips_mcp_wiring(
-        self, monkeypatch
-    ) -> None:
+    async def test_factory_with_mcp_provider_none_skips_mcp_wiring(self, monkeypatch) -> None:
         """``mcp_provider=None`` — defaults to a fresh MCPToolProvider
         instance. With empty ``mcp_source_ids`` the create() path skips
         the MCP attach branch (no get_tools_for_agent call) per the
@@ -1185,9 +1223,7 @@ class TestAgentFactoryMCPIntegration:
             called["n"] += 1
             return []
 
-        monkeypatch.setattr(
-            MCPToolProvider, "get_tools_for_agent", _spy_get_tools_for_agent
-        )
+        monkeypatch.setattr(MCPToolProvider, "get_tools_for_agent", _spy_get_tools_for_agent)
 
         mock_repo = AsyncMock()
         mock_repo.get = AsyncMock(return_value=_make_provider_config())
@@ -1224,9 +1260,7 @@ class TestAgentFactoryMCPIntegration:
         factory = AgentFactory()
         assert isinstance(factory.mcp_provider, MCPToolProvider)
 
-    async def test_factory_create_with_mcp_attached_registers_tools(
-        self, monkeypatch
-    ) -> None:
+    async def test_factory_create_with_mcp_attached_registers_tools(self, monkeypatch) -> None:
         """Full path: AgentConfig with mcp_source_ids; mock MCP path;
         assert prefixed tools in registry; verify disabled_tools filter."""
         store = _InMemoryStore()
@@ -1260,9 +1294,7 @@ class TestAgentFactoryMCPIntegration:
         async def _stub_get_tools_for_agent(self, cfg, *, agent_name):
             return [tool_foo, tool_bar]
 
-        monkeypatch.setattr(
-            MCPToolProvider, "get_tools_for_agent", _stub_get_tools_for_agent
-        )
+        monkeypatch.setattr(MCPToolProvider, "get_tools_for_agent", _stub_get_tools_for_agent)
 
         mock_repo = AsyncMock()
         mock_repo.get = AsyncMock(return_value=_make_provider_config())

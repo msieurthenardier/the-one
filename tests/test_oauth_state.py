@@ -21,18 +21,16 @@ def _reset_oauth_state():
 async def test_pending_registry_full_contract() -> None:
     """A3 — happy path + edges:
 
-      - register returns a fresh future and records the entry;
-      - peek does NOT pop and a second peek returns the same entry;
-      - register on the same state raises ``RuntimeError``;
-      - resolve returns True the first time and False after popping;
-      - resolve on unknown state returns False;
-      - fail sets the future's exception and returns True; unknown
-        state returns False;
-      - distinct register calls return independent futures.
+    - register returns a fresh future and records the entry;
+    - peek does NOT pop and a second peek returns the same entry;
+    - register on the same state raises ``RuntimeError``;
+    - resolve returns True the first time and False after popping;
+    - resolve on unknown state returns False;
+    - fail sets the future's exception and returns True; unknown
+      state returns False;
+    - distinct register calls return independent futures.
     """
-    fut = _state.register(
-        "S1", source_id="src1", tool_call_id="tc1", chat_session_id="cs1"
-    )
+    fut = _state.register("S1", source_id="src1", tool_call_id="tc1", chat_session_id="cs1")
     assert isinstance(fut, asyncio.Future) and not fut.done()
 
     entry = _state.peek("S1")
@@ -54,21 +52,15 @@ async def test_pending_registry_full_contract() -> None:
     assert _state.resolve("MISSING", "x", "MISSING") is False
 
     # fail path on a fresh state
-    fut2 = _state.register(
-        "S2", source_id="s", tool_call_id=None, chat_session_id="c"
-    )
+    fut2 = _state.register("S2", source_id="s", tool_call_id=None, chat_session_id="c")
     assert _state.fail("S2", OAuthFlowError("operator denied")) is True
     with pytest.raises(OAuthFlowError, match="operator denied"):
         await fut2
     assert _state.fail("MISSING", OAuthFlowError("x")) is False
 
     # distinct futures (concurrent flows don't alias)
-    fut_a = _state.register(
-        "A", source_id="s", tool_call_id=None, chat_session_id="c"
-    )
-    fut_b = _state.register(
-        "B", source_id="s", tool_call_id=None, chat_session_id="c"
-    )
+    fut_a = _state.register("A", source_id="s", tool_call_id=None, chat_session_id="c")
+    fut_b = _state.register("B", source_id="s", tool_call_id=None, chat_session_id="c")
     assert fut_a is not fut_b
     _state.resolve("A", "code-a", "A")
     assert await fut_a == ("code-a", "A")
@@ -83,9 +75,7 @@ async def test_sweep_and_lifespan_lifecycle() -> None:
     clears state, and is a no-op on a second call.
     """
     # Sweep behavior
-    fut = _state.register(
-        "S3", source_id="s", tool_call_id=None, chat_session_id="c"
-    )
+    fut = _state.register("S3", source_id="s", tool_call_id=None, chat_session_id="c")
     _state._pending["S3"].created_at = time.time() - _state._TTL_SECONDS - 1
 
     removed = await _state._sweep_expired()

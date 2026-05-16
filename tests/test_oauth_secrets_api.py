@@ -44,12 +44,8 @@ async def client_and_repo(tmp_path):
     repo = MCPSourceRepository(conn, encryptor)
 
     with (
-        patch(
-            "the_one.interfaces.web.api.get_connection", return_value=conn
-        ),
-        patch(
-            "the_one.interfaces.web.api.get_encryptor", return_value=encryptor
-        ),
+        patch("the_one.interfaces.web.api.get_connection", return_value=conn),
+        patch("the_one.interfaces.web.api.get_encryptor", return_value=encryptor),
     ):
         test_app = FastAPI()
         test_app.include_router(router)

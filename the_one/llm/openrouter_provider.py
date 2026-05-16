@@ -99,7 +99,8 @@ class OpenRouterProvider(OpenAIProvider):
         # waste a cache slot — ``/models`` is publicly accessible without
         # auth — so we record None when no real key was provided.
         self._lookup_api_key: str | None = (
-            api_key if (api_key is not None and api_key != "")
+            api_key
+            if (api_key is not None and api_key != "")
             else os.environ.get("OPENROUTER_API_KEY")
         )
         self._lookup_base_url = base_url

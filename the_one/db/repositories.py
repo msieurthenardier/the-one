@@ -294,8 +294,8 @@ class MCPSourceRepository:
     def __init__(self, conn: aiosqlite.Connection, encryptor: Encryptor) -> None:
         self.conn = conn
         self.encryptor = encryptor  # Reference, NOT copy. install_key() post-rotation
-                                    # must propagate to live repository instances.
-                                    # Mirrors LLMProviderRepository:489.
+        # must propagate to live repository instances.
+        # Mirrors LLMProviderRepository:489.
 
     def _secrets_to_ciphertext(self, secrets: dict[str, Any]) -> str:
         return self.encryptor.encrypt(json.dumps(secrets))

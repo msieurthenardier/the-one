@@ -41,9 +41,7 @@ def test_studio_section_nav_click_to_mcp_sources(app_clean: str, page: Page) -> 
     page.goto(f"{app_clean}#studio")
     expect(page.locator(".area-studio .section-nav")).to_be_visible(timeout=5000)
     page.locator(".area-studio .section-nav-item", has_text="MCP Servers").click()
-    expect(page.locator(".area-studio .page-title")).to_have_text(
-        "MCP Servers", timeout=5000
-    )
+    expect(page.locator(".area-studio .page-title")).to_have_text("MCP Servers", timeout=5000)
     assert page.evaluate("location.hash") == "#studio/mcp-sources"
 
 
@@ -55,9 +53,7 @@ def test_studio_direct_load_mcp_sources(app_clean: str, page: Page) -> None:
 
 
 @pytest.mark.browser
-def test_studio_direct_load_mcp_sources_new_renders_editor(
-    app_clean: str, page: Page
-) -> None:
+def test_studio_direct_load_mcp_sources_new_renders_editor(app_clean: str, page: Page) -> None:
     """Direct-load to the create route renders the editor.
 
     Asserts the editor's save button + name input are present as the
@@ -71,9 +67,7 @@ def test_studio_direct_load_mcp_sources_new_renders_editor(
 
 
 @pytest.mark.browser
-def test_studio_refresh_preserves_mcp_sources_section(
-    app_clean: str, page: Page
-) -> None:
+def test_studio_refresh_preserves_mcp_sources_section(app_clean: str, page: Page) -> None:
     page.goto(f"{app_clean}#studio/mcp-sources")
     page.wait_for_selector(".area-studio .page-title", timeout=8000)
     page.reload()

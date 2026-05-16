@@ -81,9 +81,7 @@ def build_request_headers(source: MCPSource) -> dict[str, str]:
     """
     config_headers: dict[str, str] = source.config.get("headers", {}) or {}
     operator_secrets = {
-        k: v
-        for k, v in source.secrets.items()
-        if k not in OAUTH_MANAGED_SECRET_KEYS
+        k: v for k, v in source.secrets.items() if k not in OAUTH_MANAGED_SECRET_KEYS
     }
     return {**config_headers, **operator_secrets}
 
@@ -244,17 +242,21 @@ async def connect_streamable_http(
     if isinstance(effective_client, httpx.AsyncClient):
         # Legacy test path: apply headers to the seam-injected client.
         effective_client.headers.update(headers)
-        async with streamable_http_client(
-            url, http_client=effective_client
-        ) as (read, write, _get_session_id):
+        async with streamable_http_client(url, http_client=effective_client) as (
+            read,
+            write,
+            _get_session_id,
+        ):
             async with ClientSession(read, write) as session:
                 yield session
     elif callable(effective_client):
         # F5 L4 factory test path: factory owns construction (incl. auth=).
         fresh_client = effective_client(headers)
-        async with streamable_http_client(
-            url, http_client=fresh_client
-        ) as (read, write, _get_session_id):
+        async with streamable_http_client(url, http_client=fresh_client) as (
+            read,
+            write,
+            _get_session_id,
+        ):
             async with ClientSession(read, write) as session:
                 yield session
     else:
@@ -264,9 +266,11 @@ async def connect_streamable_http(
         # mcp.shared._httpx_utils module.
         kwargs = _build_production_httpx_kwargs(headers, auth_provider)
         async with httpx.AsyncClient(**kwargs) as owned_client:
-            async with streamable_http_client(
-                url, http_client=owned_client
-            ) as (read, write, _get_session_id):
+            async with streamable_http_client(url, http_client=owned_client) as (
+                read,
+                write,
+                _get_session_id,
+            ):
                 async with ClientSession(read, write) as session:
                     yield session
 
@@ -325,9 +329,7 @@ async def _open_streamable_http_transport_stack(
             # are applied at client-construction time. Defaults mirror the
             # legacy CM's settings.
             kwargs = _build_production_httpx_kwargs(headers, auth_provider)
-            owned_client = await stack.enter_async_context(
-                httpx.AsyncClient(**kwargs)
-            )
+            owned_client = await stack.enter_async_context(httpx.AsyncClient(**kwargs))
             read, write, _get_session_id = await stack.enter_async_context(
                 streamable_http_client(url, http_client=owned_client)
             )

@@ -374,9 +374,7 @@ async def test_resume_after_auth_redispatches_deferred_and_continues() -> None:
     tool_a = StubTool("tool_a")
     # tool_b becomes successful on resume — auth_required only on the
     # first invocation; the second (resume) invocation succeeds.
-    auth_tool_b = AuthRequiredStubTool(
-        name="tool_b", auth_required_calls=1, success_content="b ok"
-    )
+    auth_tool_b = AuthRequiredStubTool(name="tool_b", auth_required_calls=1, success_content="b ok")
     tool_c = StubTool("tool_c")
     llm = FakeLLM(
         [
@@ -446,15 +444,11 @@ async def test_resume_re_pauses_when_tool_returns_auth_required_again() -> None:
     slice-from-current-index pattern works at index 0.
     """
     # tool_a needs auth on call #1; succeeds on call #2 (after first resume)
-    auth_tool_a = AuthRequiredStubTool(
-        name="tool_a", auth_required_calls=1, success_content="a ok"
-    )
+    auth_tool_a = AuthRequiredStubTool(name="tool_a", auth_required_calls=1, success_content="a ok")
     # tool_b needs auth on call #1 (during the first resume — that's its
     # first invocation since tc_a paused the initial step); succeeds on
     # call #2 (during the second resume).
-    auth_tool_b = AuthRequiredStubTool(
-        name="tool_b", auth_required_calls=1, success_content="b ok"
-    )
+    auth_tool_b = AuthRequiredStubTool(name="tool_b", auth_required_calls=1, success_content="b ok")
     tool_c = StubTool("tool_c")
     llm = FakeLLM(
         [
@@ -475,9 +469,7 @@ async def test_resume_re_pauses_when_tool_returns_auth_required_again() -> None:
         system_prompt="test",
         max_iterations=3,
     )
-    _install_auth_required_executor(
-        agent, {"tool_a": auth_tool_a, "tool_b": auth_tool_b}
-    )
+    _install_auth_required_executor(agent, {"tool_a": auth_tool_a, "tool_b": auth_tool_b})
 
     # Initial step pauses on tc_a (head of list) — A8b lock
     await _collect(agent, "trigger")
@@ -541,9 +533,7 @@ async def test_continue_signal_metadata_is_none() -> None:
             Message.assistant("done"),
         ]
     )
-    agent = Agent(
-        llm=llm, tools=_make_registry(tool_a), system_prompt="test", max_iterations=3
-    )
+    agent = Agent(llm=llm, tools=_make_registry(tool_a), system_prompt="test", max_iterations=3)
 
     msgs = await _collect(agent, "go")
     # 2 yielded — continue's tool_msg is NOT yielded (preserved semantic)
@@ -603,9 +593,7 @@ async def test_iteration_counter_resumes_correctly_with_max_iterations_3() -> No
       - Total LLM calls = 3 == ``max_iterations``.
     """
     tool_a = StubTool("tool_a")
-    auth_tool_b = AuthRequiredStubTool(
-        name="tool_b", auth_required_calls=1, success_content="b ok"
-    )
+    auth_tool_b = AuthRequiredStubTool(name="tool_b", auth_required_calls=1, success_content="b ok")
     tool_c = StubTool("tool_c")
     llm = FakeLLM(
         [

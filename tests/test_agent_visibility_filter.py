@@ -14,8 +14,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import pytest
-
 from conftest import FakeLLM, StubTool
 
 from the_one.agent.core import (
@@ -26,9 +24,9 @@ from the_one.agent.core import (
 from the_one.llm.base import LLMProvider, Message, ToolCall, ToolResult
 from the_one.mcp.errors import MCPAuthRequired
 from the_one.tools._search_stubs import (
-    SearchToolsStub,
     _CANNED_TOOL_SCHEMA_A,
     _CANNED_TOOL_SCHEMA_B,
+    SearchToolsStub,
 )
 from the_one.tools.base import Tool, ToolRegistry
 
@@ -162,16 +160,12 @@ async def test_per_iteration_recompute() -> None:
             ),
             Message.assistant(
                 "",
-                tool_calls=[
-                    ToolCall(id="t1", name=_CANNED_TOOL_SCHEMA_A["name"], arguments={})
-                ],
+                tool_calls=[ToolCall(id="t1", name=_CANNED_TOOL_SCHEMA_A["name"], arguments={})],
             ),
             Message.assistant("done"),
         ]
     )
-    agent, loaded_schemas, _ = _make_agent_with_stubs(
-        llm, extra_tools=[canned_tool]
-    )
+    agent, loaded_schemas, _ = _make_agent_with_stubs(llm, extra_tools=[canned_tool])
 
     await _collect(agent, "go")
 
@@ -276,9 +270,7 @@ async def test_persistence_across_user_turns() -> None:
             # Turn 2, iteration 0: use the canned tool loaded in turn 1
             Message.assistant(
                 "",
-                tool_calls=[
-                    ToolCall(id="t1", name=_CANNED_TOOL_SCHEMA_A["name"], arguments={})
-                ],
+                tool_calls=[ToolCall(id="t1", name=_CANNED_TOOL_SCHEMA_A["name"], arguments={})],
             ),
             # Turn 2, iteration 1: done
             Message.assistant("turn 2 done"),
@@ -385,9 +377,7 @@ async def test_deferred_resumed_mcp_tool_dispatch() -> None:
             Message.assistant("resumed ok"),
         ]
     )
-    agent, loaded_schemas, loaded_tool_names = _make_agent_with_stubs(
-        llm, extra_tools=[mcp_tool]
-    )
+    agent, loaded_schemas, loaded_tool_names = _make_agent_with_stubs(llm, extra_tools=[mcp_tool])
 
     # step(): mcp_tool.execute() raises MCPAuthRequired → gets deferred
     step_msgs: list[Message] = []
@@ -460,9 +450,7 @@ async def test_supports_tools_gate_outside_loop() -> None:
             # Iteration 0: continue signal
             Message.assistant(
                 "thinking",
-                tool_calls=[
-                    ToolCall(id="c0", name="continue", arguments={"reason": "more"})
-                ],
+                tool_calls=[ToolCall(id="c0", name="continue", arguments={"reason": "more"})],
             ),
             # Iteration 1: text-only done
             Message.assistant("done"),
@@ -517,5 +505,3 @@ async def test_search_stub_idempotent() -> None:
         _CANNED_TOOL_SCHEMA_A["name"],
         _CANNED_TOOL_SCHEMA_B["name"],
     }
-
-

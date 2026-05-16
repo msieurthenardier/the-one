@@ -175,9 +175,7 @@ class TestPerToolDispatchBinding:
         """The MCPAuthRequired translation path still traverses the outer finally."""
         tool = _MCPAuthRaisingTool()
         agent = _make_agent(tool)
-        result = await agent._execute_tool(
-            ToolCall(id="tc-44", name="raises_auth", arguments={})
-        )
+        result = await agent._execute_tool(ToolCall(id="tc-44", name="raises_auth", arguments={}))
 
         # Translation fired:
         assert result.metadata is not None
@@ -228,10 +226,7 @@ class TestPoolDefaultSentinelRetired:
         ), "pool must import csid + tcid from the canonical agent-layer module"
         assert "_pool_default" not in pool_src
         # The web-layer lazy-import is gone:
-        assert (
-            "from the_one.interfaces.web.app import current_chat_session_id"
-            not in pool_src
-        )
+        assert "from the_one.interfaces.web.app import current_chat_session_id" not in pool_src
 
 
 # ---------------------------------------------------------------------------
@@ -248,9 +243,7 @@ class TestProviderFactoryNoneCsidShortCircuit:
         source.secrets = MagicMock()
         repo = MagicMock()
 
-        result = build_oauth_provider_for_source(
-            source, repo, None, source_id="src-1"
-        )
+        result = build_oauth_provider_for_source(source, repo, None, source_id="src-1")
         assert result is None
 
     def test_short_circuit_runs_before_dcr_check(self) -> None:
@@ -271,9 +264,7 @@ class TestProviderFactoryNoneCsidShortCircuit:
         )
         repo = MagicMock()
 
-        result = build_oauth_provider_for_source(
-            source, repo, None, source_id="src-1"
-        )
+        result = build_oauth_provider_for_source(source, repo, None, source_id="src-1")
         assert result is None
         source.secrets.get.assert_not_called()
 
@@ -284,7 +275,5 @@ class TestProviderFactoryNoneCsidShortCircuit:
         source.secrets = {"dcr_credentials": None}
         repo = MagicMock()
 
-        result = build_oauth_provider_for_source(
-            source, repo, "real-csid-123", source_id="src-1"
-        )
+        result = build_oauth_provider_for_source(source, repo, "real-csid-123", source_id="src-1")
         assert result is None  # dcr-absent still returns None, but via the dcr branch.

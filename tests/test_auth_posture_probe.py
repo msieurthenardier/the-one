@@ -15,9 +15,6 @@ Coverage:
 
 from __future__ import annotations
 
-import asyncio
-from unittest.mock import patch
-
 import httpx
 import pytest
 
@@ -70,9 +67,7 @@ async def test_probe_returns_no_auth_on_200(patch_async_client) -> None:
         )
 
     patch_async_client(_handler)
-    verdict = await transport_mod._probe_auth_posture(
-        "https://example.com/mcp"
-    )
+    verdict = await transport_mod._probe_auth_posture("https://example.com/mcp")
     assert verdict == "no_auth"
     # Probe MUST send the spec-mandated Accept + Content-Type headers
     # (otherwise compliant no-auth servers respond 406 / 415).
@@ -100,9 +95,7 @@ async def test_probe_returns_oauth_on_401_with_www_authenticate(
         )
 
     patch_async_client(_handler)
-    verdict = await transport_mod._probe_auth_posture(
-        "https://example.com/mcp"
-    )
+    verdict = await transport_mod._probe_auth_posture("https://example.com/mcp")
     assert verdict == "oauth"
 
 
@@ -120,9 +113,7 @@ async def test_probe_returns_oauth_on_401_without_www_authenticate(
         return httpx.Response(401)
 
     patch_async_client(_handler)
-    verdict = await transport_mod._probe_auth_posture(
-        "https://example.com/mcp"
-    )
+    verdict = await transport_mod._probe_auth_posture("https://example.com/mcp")
     assert verdict == "oauth"
 
 
@@ -133,9 +124,7 @@ async def test_probe_returns_error_on_5xx(patch_async_client) -> None:
         return httpx.Response(500, text="Internal server error")
 
     patch_async_client(_handler)
-    verdict = await transport_mod._probe_auth_posture(
-        "https://example.com/mcp"
-    )
+    verdict = await transport_mod._probe_auth_posture("https://example.com/mcp")
     assert verdict == "error"
 
 
@@ -146,9 +135,7 @@ async def test_probe_returns_error_on_network_failure(patch_async_client) -> Non
         raise httpx.ConnectError("Connection refused")
 
     patch_async_client(_handler)
-    verdict = await transport_mod._probe_auth_posture(
-        "https://example.com/mcp"
-    )
+    verdict = await transport_mod._probe_auth_posture("https://example.com/mcp")
     assert verdict == "error"
 
 
@@ -164,7 +151,5 @@ async def test_probe_returns_error_on_timeout(patch_async_client) -> None:
         raise httpx.ReadTimeout("Read timeout", request=request)
 
     patch_async_client(_handler)
-    verdict = await transport_mod._probe_auth_posture(
-        "https://example.com/mcp", timeout=0.1
-    )
+    verdict = await transport_mod._probe_auth_posture("https://example.com/mcp", timeout=0.1)
     assert verdict == "error"

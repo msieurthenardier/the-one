@@ -67,9 +67,7 @@ async def test_factory_returns_oauth_client_provider_for_dcr(repo_with_source) -
     source.secrets["dcr_credentials"] = {
         "client_id": "dcr-cid-1",
     }
-    result = build_oauth_provider_for_source(
-        source, repo, "csid-1", source_id="src-factory-1"
-    )
+    result = build_oauth_provider_for_source(source, repo, "csid-1", source_id="src-factory-1")
     assert result is not None
     # The DCR path returns the standard SDK provider.
     assert isinstance(result, OAuthClientProvider)
@@ -88,9 +86,7 @@ async def test_factory_wires_client_metadata_with_loopback_redirect(repo_with_so
     source.secrets["dcr_credentials"] = {
         "client_id": "any-cid",
     }
-    result = build_oauth_provider_for_source(
-        source, repo, "csid-1", source_id="src-factory-1"
-    )
+    result = build_oauth_provider_for_source(source, repo, "csid-1", source_id="src-factory-1")
     assert result is not None
     cm = result.context.client_metadata
     assert cm.client_name == "the-one"
@@ -119,9 +115,7 @@ async def test_factory_with_allow_dcr_bootstrap_constructs_provider_for_unregist
     # Negative control — same call without the bootstrap flag returns None
     # because ``dcr_credentials`` is absent. Documents the boundary in one
     # test.
-    no_bootstrap = build_oauth_provider_for_source(
-        source, repo, "test:src-factory-1"
-    )
+    no_bootstrap = build_oauth_provider_for_source(source, repo, "test:src-factory-1")
     assert no_bootstrap is None
 
     # Bootstrap path — non-None ``OAuthClientProvider`` is returned even

@@ -95,7 +95,9 @@ class Agent:
         # Defaults to fresh empty containers if omitted (backward-compat
         # for non-factory Agent construction sites, e.g. tests).
         self._loaded_schemas: list[dict] = loaded_schemas if loaded_schemas is not None else []
-        self._loaded_tool_names: set[str] = loaded_tool_names if loaded_tool_names is not None else set()
+        self._loaded_tool_names: set[str] = (
+            loaded_tool_names if loaded_tool_names is not None else set()
+        )
 
     def _compute_visible_schemas(self) -> list[dict]:
         """F10 L1: per-iteration model-visible schemas.
@@ -194,11 +196,7 @@ class Agent:
                 # caller (avoids double-emission with the final usage_event
                 # broadcast in _process_and_broadcast). Cycle-1 [high]: gate
                 # on `chunk.usage is not None AND not chunk.is_final`.
-                if (
-                    chunk.usage is not None
-                    and not chunk.is_final
-                    and on_usage is not None
-                ):
+                if chunk.usage is not None and not chunk.is_final and on_usage is not None:
                     await on_usage(chunk.usage)
                 if chunk.is_final:
                     final_chunk = chunk
@@ -233,9 +231,7 @@ class Agent:
             if self._deferred_tool_calls is not None:
                 return  # paused — exit; remaining iterations preserved
 
-    async def _dispatch_tool_calls(
-        self, tcs: list[ToolCall]
-    ) -> AsyncIterator[Message]:
+    async def _dispatch_tool_calls(self, tcs: list[ToolCall]) -> AsyncIterator[Message]:
         """Dispatch a list of tool calls in order.
 
         ``continue`` virtual signal: appends but does not yield (matches

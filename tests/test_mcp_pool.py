@@ -150,9 +150,7 @@ async def test_concurrent_acquire_same_key_shares_one_worker(monkeypatch):
     monkeypatch.setattr(pool_mod, "MCPClient", _SlowClient)
     monkeypatch.setattr(pool_mod, "_load_source", _patched_load_source)
 
-    results = await asyncio.gather(
-        *[acquire("agent-a", "src-1") for _ in range(5)]
-    )
+    results = await asyncio.gather(*[acquire("agent-a", "src-1") for _ in range(5)])
     assert _SlowClient._instance_count == 1  # exactly ONE worker spawned
     assert all(r is results[0] for r in results)
     # All five callers touched activity on the shared client.
@@ -407,9 +405,7 @@ async def test_evict_idempotent_on_missing_key():
 # ─────────────────────────────────────────────────────────────────
 
 
-async def test_reap_after_idle_evicts_entry_and_disconnects_client(
-    monkeypatch, patch_client
-):
+async def test_reap_after_idle_evicts_entry_and_disconnects_client(monkeypatch, patch_client):
     monkeypatch.setenv("MCP_POOL_IDLE_TTL_SECONDS", "1")
     client = await acquire("agent-a", "src-1")
     # Manually age the entry by overriding last_activity (mock attr).
@@ -559,9 +555,7 @@ async def test_lifespan_order_pty_drain_before_mcp_drain_before_db_close(
 
     monkeypatch.setattr(app_mod, "init_db", _fake_init_db)
     monkeypatch.setattr(app_mod, "get_connection", _fake_get_connection)
-    monkeypatch.setattr(
-        app_mod, "migrate_json_to_sqlite", _fake_migrate_json_to_sqlite
-    )
+    monkeypatch.setattr(app_mod, "migrate_json_to_sqlite", _fake_migrate_json_to_sqlite)
     monkeypatch.setattr(app_mod, "SQLiteAgentStore", MagicMock())
     monkeypatch.setattr(app_mod, "AgentFactory", MagicMock())
 
@@ -575,12 +569,8 @@ async def test_lifespan_order_pty_drain_before_mcp_drain_before_db_close(
     async def _fake_close_conn():
         calls.append("db")
 
-    monkeypatch.setattr(
-        app_mod, "_session_registry_shutdown_drain", _fake_pty_drain
-    )
-    monkeypatch.setattr(
-        app_mod, "_mcp_pool_shutdown_drain", _fake_mcp_drain
-    )
+    monkeypatch.setattr(app_mod, "_session_registry_shutdown_drain", _fake_pty_drain)
+    monkeypatch.setattr(app_mod, "_mcp_pool_shutdown_drain", _fake_mcp_drain)
     monkeypatch.setattr(app_mod, "close_connection", _fake_close_conn)
 
     # Drive lifespan: enter (runs startup), exit (runs shutdown).
@@ -663,9 +653,7 @@ async def test_acquire_with_source_override(monkeypatch):
     monkeypatch.setattr(pool_mod, "_load_source", _spy_load_source)
 
     override = _make_stub_source("src-1", name="from-override")
-    client = await acquire(
-        "agent-a", "src-1", source_override=override
-    )
+    client = await acquire("agent-a", "src-1", source_override=override)
 
     # The override propagated to the worker — the mock client stored
     # the source, so we can verify which source was used.
@@ -705,7 +693,7 @@ async def test_entry_worker_uses_synthetic_csid_when_tokens_present(
     side_effect raises).
     """
     from the_one.agent._context import current_chat_session_id, current_tool_call_id
-    from the_one.mcp._pool import _RegistryEntry, _entry_worker
+    from the_one.mcp._pool import _entry_worker, _RegistryEntry
 
     # Defensive: ensure no ambient chat session leaked into this test from
     # an earlier sibling. The ContextVar's ``get(None)`` default is what
@@ -739,9 +727,7 @@ async def test_entry_worker_uses_synthetic_csid_when_tokens_present(
         # on each invocation. Patching ``the_one.mcp._pool.<name>`` would
         # raise AttributeError because no module-level binding exists at
         # that path.
-        monkeypatch.setattr(
-            "the_one.mcp.oauth.build_oauth_provider_for_source", mock_factory
-        )
+        monkeypatch.setattr("the_one.mcp.oauth.build_oauth_provider_for_source", mock_factory)
 
         entry = _RegistryEntry(
             ttl_seconds=300,
@@ -779,7 +765,7 @@ async def test_pool_worker_skips_oauth_provider_when_no_auth_posture_cached(
     source with `dcr_credentials` even when the test endpoint already
     confirmed (via Phase 0) that the server requires no auth.
     """
-    from the_one.mcp._pool import _RegistryEntry, _entry_worker
+    from the_one.mcp._pool import _entry_worker, _RegistryEntry
 
     source = MCPSource(
         id="src-no-auth-cached",
@@ -808,9 +794,7 @@ async def test_pool_worker_skips_oauth_provider_when_no_auth_posture_cached(
             "_cache.auth_posture == 'no_auth'"
         )
 
-    monkeypatch.setattr(
-        "the_one.mcp.oauth.build_oauth_provider_for_source", _explode
-    )
+    monkeypatch.setattr("the_one.mcp.oauth.build_oauth_provider_for_source", _explode)
 
     # Capture how MCPClient was constructed.
     constructed_with: dict = {}
@@ -843,13 +827,10 @@ async def test_pool_worker_skips_oauth_provider_when_no_auth_posture_cached(
 
     await _entry_worker(source, entry)
 
-    assert factory_called == [], (
-        "OAuth provider factory was invoked despite cached no_auth verdict"
-    )
+    assert factory_called == [], "OAuth provider factory was invoked despite cached no_auth verdict"
     assert "auth_provider" in constructed_with
     assert constructed_with["auth_provider"] is None, (
-        "MCPClient must receive auth_provider=None when "
-        "_cache.auth_posture == 'no_auth'"
+        "MCPClient must receive auth_provider=None when _cache.auth_posture == 'no_auth'"
     )
     # Worker stored the sentinel as a connect failure (clean exit).
     assert isinstance(entry.failure, RuntimeError)

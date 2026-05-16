@@ -39,12 +39,8 @@ async def client(tmp_path):
     encryptor = Encryptor(Fernet.generate_key(), key_path=tmp_path / "test.key")
 
     with (
-        patch(
-            "the_one.interfaces.web.api.get_connection", return_value=conn
-        ),
-        patch(
-            "the_one.interfaces.web.api.get_encryptor", return_value=encryptor
-        ),
+        patch("the_one.interfaces.web.api.get_connection", return_value=conn),
+        patch("the_one.interfaces.web.api.get_encryptor", return_value=encryptor),
     ):
         test_app = FastAPI()
         test_app.include_router(router)
@@ -95,9 +91,7 @@ async def test_callback_success_resolves_and_broadcasts(
         tool_call_id="tc-1",
         chat_session_id="cs-callback-1",
     )
-    resp = await client.get(
-        "/api/oauth/callback", params={"state": "S-OK", "code": "code-1"}
-    )
+    resp = await client.get("/api/oauth/callback", params={"state": "S-OK", "code": "code-1"})
     assert resp.status_code == 200
     assert "Login successful. You may close this tab." in resp.text
     assert fut.done()
@@ -162,9 +156,7 @@ async def test_callback_unknown_or_missing_state_returns_401_no_broadcast(
     """A9 — both unknown-state and missing-state return 401, no broadcast."""
     sess, broadcasts = chat_session_in_app
     # Unknown state
-    resp = await client.get(
-        "/api/oauth/callback", params={"state": "MISSING", "code": "x"}
-    )
+    resp = await client.get("/api/oauth/callback", params={"state": "MISSING", "code": "x"})
     assert resp.status_code == 401
     # Missing-state param
     resp = await client.get("/api/oauth/callback", params={"code": "x"})

@@ -49,7 +49,6 @@ from the_one.encryption import get_encryptor
 from the_one.mcp._overrides import StdioMCPOverride, StreamableHttpMCPOverride
 from the_one.mcp._pool import acquire
 from the_one.mcp._tool import MCPClientTool
-from the_one.mcp.types import MCPTool
 from the_one.mcp.errors import (
     MCPAuthRequired,
     MCPConnectionError,
@@ -57,6 +56,7 @@ from the_one.mcp.errors import (
     MCPSandboxError,
     MCPVersionMismatch,
 )
+from the_one.mcp.types import MCPTool
 from the_one.tools.base import Tool
 from the_one.tools.resolver import resolve
 
@@ -103,9 +103,7 @@ def filter_mcp_tools_by_override(
     return out
 
 
-def _apply_override(
-    source: MCPSource, override_payload: dict[str, Any] | None
-) -> MCPSource:
+def _apply_override(source: MCPSource, override_payload: dict[str, Any] | None) -> MCPSource:
     """Apply a per-agent override to a source.
 
     Returns a NEW :class:`MCPSource` with ``secrets`` updated — does
@@ -152,8 +150,7 @@ def _apply_override(
     # consumed by the post-list_tools() filter in get_tools_for_agent.
     # Stripping here keeps the resolver contract clean.
     resolver_payload = {
-        k: v for k, v in override_payload.items()
-        if k not in ("enabled_tools", "disabled_tools")
+        k: v for k, v in override_payload.items() if k not in ("enabled_tools", "disabled_tools")
     }
     if not resolver_payload:
         # Payload had ONLY tool-filter keys — no credential mutation needed.
@@ -206,8 +203,7 @@ def _warn_orphan_overrides(
     for key in mcp_overrides:
         if key not in resolved_source_names:
             logger.warning(
-                "agent %r's mcp_overrides references unknown source name "
-                "%r; ignoring",
+                "agent %r's mcp_overrides references unknown source name %r; ignoring",
                 agent_name,
                 key,
             )
@@ -286,9 +282,7 @@ class MCPToolProvider:
             effective_source = _apply_override(source, override_payload)
 
             # Path B: hydrate from cache if populated.
-            cached_tools_payload: list[dict] = (
-                source.config.get("_cache", {}).get("tools") or []
-            )
+            cached_tools_payload: list[dict] = source.config.get("_cache", {}).get("tools") or []
             if cached_tools_payload:
                 logger.debug(
                     "MCP source %r: using %d cached tools for agent build "
@@ -300,9 +294,7 @@ class MCPToolProvider:
                     MCPTool(
                         name=t["name"],
                         description=t.get("description", ""),
-                        input_schema=t.get(
-                            "input_schema", {"type": "object", "properties": {}}
-                        ),
+                        input_schema=t.get("input_schema", {"type": "object", "properties": {}}),
                         output_schema=None,
                         annotations=None,
                     )
@@ -342,9 +334,7 @@ class MCPToolProvider:
 
             # Shared filter helper (extracted for reuse by SearchTools).
             # Applied to BOTH cache-first and acquire-fallback paths.
-            mcp_tools = filter_mcp_tools_by_override(
-                mcp_tools, source, override_payload
-            )
+            mcp_tools = filter_mcp_tools_by_override(mcp_tools, source, override_payload)
 
             # Wrap each MCPTool. 64-char ceiling caught per-tool
             # (cycle-1 M2 — OTHER tools from the same source survive).

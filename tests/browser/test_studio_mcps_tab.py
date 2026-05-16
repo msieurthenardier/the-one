@@ -24,6 +24,7 @@ import json
 
 import httpx
 import pytest
+from playwright.sync_api import Page, expect
 
 # M08 F4 KI: Leg 02 restructured the agent-editor MCPs tab — the `tool-row`
 # + `<details class="tool-row-overrides">` shape this file asserts was
@@ -31,10 +32,9 @@ import pytest
 # file needs redesign-aware rewrite — deferred to a follow-on cleanup
 # flight. Module-level skip to unblock the Flight 4 close.
 # See mission.md Known Issues.
-pytestmark = pytest.mark.skip(reason="M08 F4 KI: pre-rebrand MCPs-tab assertions — needs redesign-aware rewrite")
-import pytest
-from playwright.sync_api import Page, expect
-
+pytestmark = pytest.mark.skip(
+    reason="M08 F4 KI: pre-rebrand MCPs-tab assertions — needs redesign-aware rewrite"
+)
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -108,12 +108,15 @@ def _open_details_panel(page: Page, source_id: str) -> None:
 @pytest.mark.browser
 def test_attach_source_persists(app_clean: str, page: Page) -> None:
     """Toggle a source attached, save, reload, verify it's still attached."""
-    sid = _seed_mcp_source(app_clean, {
-        "name": "attach-test-source",
-        "type": "streamable-http",
-        "config": {"url": "https://example.com/mcp"},
-        "secrets": {},
-    })
+    sid = _seed_mcp_source(
+        app_clean,
+        {
+            "name": "attach-test-source",
+            "type": "streamable-http",
+            "config": {"url": "https://example.com/mcp"},
+            "secrets": {},
+        },
+    )
     _seed_agent(app_clean, "attach-test-agent", {"description": "test"})
 
     _navigate_to_agent_mcps_tab(page, app_clean, "attach-test-agent")
@@ -127,7 +130,10 @@ def test_attach_source_persists(app_clean: str, page: Page) -> None:
     # Toggle is visually hidden behind the .tool-switch span (mirrors built-in
     # Tools tab); set checked state + fire change event programmatically so the
     # mcps-tab.js change listener runs and the form dirties.
-    toggle.evaluate("el => { el.checked = !el.checked; el.dispatchEvent(new Event('change', {bubbles: true})); }")
+    toggle.evaluate(
+        "el => { el.checked = !el.checked; "
+        "el.dispatchEvent(new Event('change', {bubbles: true})); }"
+    )
     expect(toggle).to_be_checked(timeout=2000)
 
     save_btn = page.locator('[data-testid="save-agent-btn"]')
@@ -136,8 +142,9 @@ def test_attach_source_persists(app_clean: str, page: Page) -> None:
     expect(save_btn).to_be_disabled(timeout=5000)
 
     agent = _get_agent(app_clean, "attach-test-agent")
-    assert sid in agent.get("mcp_source_ids", []), \
+    assert sid in agent.get("mcp_source_ids", []), (
         f"Expected {sid} in mcp_source_ids, got: {agent.get('mcp_source_ids')}"
+    )
 
     page.reload()
     page.goto(f"{app_clean}#studio/agents/attach-test-agent/mcps")
@@ -154,16 +161,23 @@ def test_attach_source_persists(app_clean: str, page: Page) -> None:
 
 @pytest.mark.browser
 def test_detach_source_persists(app_clean: str, page: Page) -> None:
-    sid = _seed_mcp_source(app_clean, {
-        "name": "detach-test-source",
-        "type": "streamable-http",
-        "config": {"url": "https://example.com/mcp"},
-        "secrets": {},
-    })
-    _seed_agent(app_clean, "detach-test-agent", {
-        "description": "test",
-        "mcp_source_ids": [sid],
-    })
+    sid = _seed_mcp_source(
+        app_clean,
+        {
+            "name": "detach-test-source",
+            "type": "streamable-http",
+            "config": {"url": "https://example.com/mcp"},
+            "secrets": {},
+        },
+    )
+    _seed_agent(
+        app_clean,
+        "detach-test-agent",
+        {
+            "description": "test",
+            "mcp_source_ids": [sid],
+        },
+    )
 
     _navigate_to_agent_mcps_tab(page, app_clean, "detach-test-agent")
 
@@ -174,20 +188,26 @@ def test_detach_source_persists(app_clean: str, page: Page) -> None:
     # Toggle is visually hidden behind the .tool-switch span (mirrors built-in
     # Tools tab); set checked state + fire change event programmatically so the
     # mcps-tab.js change listener runs and the form dirties.
-    toggle.evaluate("el => { el.checked = !el.checked; el.dispatchEvent(new Event('change', {bubbles: true})); }")
+    toggle.evaluate(
+        "el => { el.checked = !el.checked; "
+        "el.dispatchEvent(new Event('change', {bubbles: true})); }"
+    )
     expect(toggle).not_to_be_checked(timeout=2000)
 
     save_btn = page.locator('[data-testid="save-agent-btn"]')
     expect(save_btn).not_to_be_disabled(timeout=2000)
-    with page.expect_response(lambda r: "/api/agents/detach-test-agent" in r.url and r.request.method == "PUT") as resp_info:
+    with page.expect_response(
+        lambda r: "/api/agents/detach-test-agent" in r.url and r.request.method == "PUT"
+    ) as resp_info:
         save_btn.click()
     resp = resp_info.value
     assert resp.status == 200, f"PUT failed: {resp.status} {resp.text()}"
     expect(save_btn).to_be_disabled(timeout=5000)
 
     agent = _get_agent(app_clean, "detach-test-agent")
-    assert sid not in agent.get("mcp_source_ids", []), \
+    assert sid not in agent.get("mcp_source_ids", []), (
         f"Expected {sid} absent from mcp_source_ids, got: {agent.get('mcp_source_ids')}"
+    )
 
     page.reload()
     page.goto(f"{app_clean}#studio/agents/detach-test-agent/mcps")
@@ -204,16 +224,23 @@ def test_detach_source_persists(app_clean: str, page: Page) -> None:
 
 @pytest.mark.browser
 def test_per_tool_toggle_persists(app_clean: str, page: Page) -> None:
-    sid = _seed_mcp_source(app_clean, {
-        "name": "toggle-test-source",
-        "type": "streamable-http",
-        "config": {"url": "https://example.com/mcp"},
-        "secrets": {},
-    })
-    _seed_agent(app_clean, "toggle-test-agent", {
-        "description": "test",
-        "mcp_source_ids": [sid],
-    })
+    sid = _seed_mcp_source(
+        app_clean,
+        {
+            "name": "toggle-test-source",
+            "type": "streamable-http",
+            "config": {"url": "https://example.com/mcp"},
+            "secrets": {},
+        },
+    )
+    _seed_agent(
+        app_clean,
+        "toggle-test-agent",
+        {
+            "description": "test",
+            "mcp_source_ids": [sid],
+        },
+    )
 
     tools_payload = [
         {"name": "tool_a", "description": "tool a", "input_schema": {}},
@@ -299,20 +326,31 @@ def test_empty_state_when_no_sources(app_clean: str, page: Page) -> None:
 @pytest.mark.browser
 def test_hash_routing_deep_link(app_clean: str, page: Page) -> None:
     """Visit #studio/agents/{name}/mcps/{source-id} → details panel auto-expands."""
-    sid = _seed_mcp_source(app_clean, {
-        "name": "deeplink-source",
-        "type": "streamable-http",
-        "config": {"url": "https://example.com/mcp"},
-        "secrets": {},
-    })
-    _seed_agent(app_clean, "deeplink-agent", {
-        "description": "test",
-        "mcp_source_ids": [sid],
-    })
+    sid = _seed_mcp_source(
+        app_clean,
+        {
+            "name": "deeplink-source",
+            "type": "streamable-http",
+            "config": {"url": "https://example.com/mcp"},
+            "secrets": {},
+        },
+    )
+    _seed_agent(
+        app_clean,
+        "deeplink-agent",
+        {
+            "description": "test",
+            "mcp_source_ids": [sid],
+        },
+    )
 
-    _mock_tools_connect(page, sid, [
-        {"name": "list_repos", "description": "list repos", "input_schema": {}},
-    ])
+    _mock_tools_connect(
+        page,
+        sid,
+        [
+            {"name": "list_repos", "description": "list repos", "input_schema": {}},
+        ],
+    )
 
     page.goto(f"{app_clean}#studio/agents/deeplink-agent/mcps/{sid}")
     expect(page.locator('[data-testid="tab-mcps"]')).to_have_attribute(
@@ -324,7 +362,9 @@ def test_hash_routing_deep_link(app_clean: str, page: Page) -> None:
     expect(details).to_have_attribute("open", "", timeout=4000)
 
     # Tools should load from mocked endpoint.
-    expect(page.locator(f'[data-testid="mcp-tool-toggle-{sid}-list_repos"]')).to_be_visible(timeout=6000)
+    expect(page.locator(f'[data-testid="mcp-tool-toggle-{sid}-list_repos"]')).to_be_visible(
+        timeout=6000
+    )
 
 
 # ── Test 7: Auth-required inline notice — no popup ────────────────────────────
@@ -332,16 +372,23 @@ def test_hash_routing_deep_link(app_clean: str, page: Page) -> None:
 
 @pytest.mark.browser
 def test_auth_required_inline_notice_no_popup(app_clean: str, page: Page) -> None:
-    sid = _seed_mcp_source(app_clean, {
-        "name": "auth-required-source",
-        "type": "streamable-http",
-        "config": {"url": "https://example.com/mcp"},
-        "secrets": {},
-    })
-    _seed_agent(app_clean, "auth-required-agent", {
-        "description": "test",
-        "mcp_source_ids": [sid],
-    })
+    sid = _seed_mcp_source(
+        app_clean,
+        {
+            "name": "auth-required-source",
+            "type": "streamable-http",
+            "config": {"url": "https://example.com/mcp"},
+            "secrets": {},
+        },
+    )
+    _seed_agent(
+        app_clean,
+        "auth-required-agent",
+        {
+            "description": "test",
+            "mcp_source_ids": [sid],
+        },
+    )
 
     auth_required_payload = {
         "status": "auth_required",
@@ -419,25 +466,34 @@ def test_auth_required_notice_uses_source_name_not_id(app_clean: str, page: Page
     Uses a source named "test_source_friendly_name" so the DB id (a UUID or
     integer) is clearly distinct from the display label.
     """
-    sid = _seed_mcp_source(app_clean, {
-        "name": "test_source_friendly_name",
-        "type": "streamable-http",
-        "config": {"url": "https://example.com/mcp"},
-        "secrets": {},
-    })
-    _seed_agent(app_clean, "name-id-test-agent", {
-        "description": "test",
-        "mcp_source_ids": [sid],
-    })
+    sid = _seed_mcp_source(
+        app_clean,
+        {
+            "name": "test_source_friendly_name",
+            "type": "streamable-http",
+            "config": {"url": "https://example.com/mcp"},
+            "secrets": {},
+        },
+    )
+    _seed_agent(
+        app_clean,
+        "name-id-test-agent",
+        {
+            "description": "test",
+            "mcp_source_ids": [sid],
+        },
+    )
 
     def handle_auth_required(route):
         route.fulfill(
             status=200,
             content_type="application/json",
-            body=json.dumps({
-                "status": "auth_required",
-                "consent_url": "https://idp.example.com/oauth/authorize",
-            }),
+            body=json.dumps(
+                {
+                    "status": "auth_required",
+                    "consent_url": "https://idp.example.com/oauth/authorize",
+                }
+            ),
         )
 
     page.route(f"**/api/mcp-sources/{sid}/test/connect", handle_auth_required)

@@ -43,7 +43,6 @@ from the_one.mcp.cache_cleanup import (
     extract_runtime_package,
 )
 
-
 # ── extract_runtime_package decoder table ────────────────────────────────
 
 
@@ -101,9 +100,7 @@ from the_one.mcp.cache_cleanup import (
         ("uvx", ["--from"], ("uvx", "--from")),
     ],
 )
-def test_extract_runtime_package_table(
-    command: str, args: list[str], expected: tuple
-) -> None:
+def test_extract_runtime_package_table(command: str, args: list[str], expected: tuple) -> None:
     assert extract_runtime_package(command, args) == expected
 
 
@@ -221,7 +218,9 @@ async def test_cleanup_npx_removes_slot(tmp_path, monkeypatch) -> None:
     slot_3 = fake_root / "hash3"
     nm = slot_3 / "node_modules" / "@modelcontextprotocol/server-everything"
     nm.mkdir(parents=True)
-    (nm / "package.json").write_text(json.dumps({"name": "@modelcontextprotocol/server-everything"}))
+    (nm / "package.json").write_text(
+        json.dumps({"name": "@modelcontextprotocol/server-everything"})
+    )
 
     monkeypatch.setattr(cache_cleanup, "NPX_CACHE_ROOT", fake_root)
 
@@ -233,9 +232,7 @@ async def test_cleanup_npx_removes_slot(tmp_path, monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_cleanup_npx_handles_corrupt_package_json(
-    tmp_path, monkeypatch
-) -> None:
+async def test_cleanup_npx_handles_corrupt_package_json(tmp_path, monkeypatch) -> None:
     """A slot with corrupt package.json should not raise; if the fallback
     node_modules path matches, the slot is still cleaned."""
     fake_root = tmp_path / "_npx"
@@ -332,9 +329,7 @@ async def test_clean_uvx_logs_prune_output_at_warning(monkeypatch, caplog) -> No
 
     async def _fake_exec(*args, **kwargs):
         proc = AsyncMock()
-        proc.communicate = AsyncMock(
-            return_value=(b"Removed 3957 files (65.2 MiB)", b"")
-        )
+        proc.communicate = AsyncMock(return_value=(b"Removed 3957 files (65.2 MiB)", b""))
         proc.kill = lambda: None
         return proc
 

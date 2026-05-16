@@ -99,9 +99,7 @@ class MCPClientTool(Tool):
         agent_name: str,
         effective_source: MCPSource,
     ) -> None:
-        prefixed_name = (
-            f"mcp__{_normalize_source_name(source_name)}__{mcp_tool.name}"
-        )
+        prefixed_name = f"mcp__{_normalize_source_name(source_name)}__{mcp_tool.name}"
         if len(prefixed_name) > _TOOL_NAME_MAX_LEN:
             raise MCPRegistrationError(
                 f"MCP tool name {prefixed_name!r} exceeds "
@@ -164,10 +162,7 @@ class MCPClientTool(Tool):
                 source_override=self._effective_source,
             )
         except (MCPSandboxError, MCPConnectionError, MCPVersionMismatch) as e:
-            return (
-                f"[error] MCP source {self._source_name!r} unavailable: "
-                f"{type(e).__name__}: {e}"
-            )
+            return f"[error] MCP source {self._source_name!r} unavailable: {type(e).__name__}: {e}"
         # call_tool propagates MCPAuthRequired (F5) — the agent loop's
         # _execute_tool catches that and translates to metadata. We
         # do NOT catch MCPAuthRequired here; let it propagate.

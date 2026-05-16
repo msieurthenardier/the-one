@@ -8,6 +8,7 @@ Subprocess-isolated because pytest's own import machinery contaminates
 sys.modules; assertions on sys.modules under the same interpreter
 would see pollution from earlier-running tests.
 """
+
 import subprocess
 import sys
 

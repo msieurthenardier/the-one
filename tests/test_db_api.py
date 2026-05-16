@@ -356,9 +356,7 @@ class TestMCPSourceAPI:
         assert resp.status_code == 422
         assert "config.env" in resp.json()["detail"]
 
-    async def test_validation_rejects_stdio_config_env_non_dict(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_validation_rejects_stdio_config_env_non_dict(self, client: AsyncClient) -> None:
         """L1: F1 API validator extended to reject non-dict env."""
         resp = await client.post(
             "/api/mcp-sources",
@@ -441,9 +439,7 @@ class TestMCPSourceAPI:
         # detail format
         assert "MCP source not found" not in resp.text
 
-    async def test_put_transport_type_switch_revalidates_config(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_put_transport_type_switch_revalidates_config(self, client: AsyncClient) -> None:
         """Switching type=stdio→streamable-http with stale config 422s.
 
         A PUT that flips the transport literal but keeps the old config

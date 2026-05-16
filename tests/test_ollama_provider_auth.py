@@ -41,8 +41,7 @@ def _find_chat_request(captured: list[httpx.Request]) -> httpx.Request:
         if req.url.path.endswith("/chat/completions"):
             return req
     raise AssertionError(
-        f"no /chat/completions request captured (paths: "
-        f"{[r.url.path for r in captured]})"
+        f"no /chat/completions request captured (paths: {[r.url.path for r in captured]})"
     )
 
 

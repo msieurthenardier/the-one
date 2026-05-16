@@ -63,9 +63,7 @@ async def client():
 
 
 class TestContextWindowEndpoint:
-    async def test_existing_agent_returns_positive_int(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_existing_agent_returns_positive_int(self, client: AsyncClient) -> None:
         fake_agent = _make_fake_agent(max_tokens=128_000)
         with patch(
             "the_one.agent.factory.AgentFactory.create",
@@ -87,15 +85,11 @@ class TestContextWindowEndpoint:
         assert resp.status_code == 404
         assert "ghost" in resp.json()["detail"]
 
-    async def test_provider_not_configured_returns_400(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_provider_not_configured_returns_400(self, client: AsyncClient) -> None:
         with patch(
             "the_one.agent.factory.AgentFactory.create",
             new=AsyncMock(
-                side_effect=ProviderNotConfiguredError(
-                    "Agent 'naked' has no provider configured."
-                )
+                side_effect=ProviderNotConfiguredError("Agent 'naked' has no provider configured.")
             ),
         ):
             resp = await client.get("/api/agents/naked/context-window")
@@ -105,17 +99,13 @@ class TestContextWindowEndpoint:
     async def test_provider_not_found_returns_400(self, client: AsyncClient) -> None:
         with patch(
             "the_one.agent.factory.AgentFactory.create",
-            new=AsyncMock(
-                side_effect=ProviderNotFoundError("Provider not found: deleted-id")
-            ),
+            new=AsyncMock(side_effect=ProviderNotFoundError("Provider not found: deleted-id")),
         ):
             resp = await client.get("/api/agents/dangling/context-window")
         assert resp.status_code == 400
         assert "provider" in resp.json()["detail"].lower()
 
-    async def test_provider_fail_path_returns_class_default(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_provider_fail_path_returns_class_default(self, client: AsyncClient) -> None:
         """If the resolver hits a transient provider failure, the LLM's
         ``_resolve_max_context_tokens_if_needed`` wrapper (L01) catches
         the exception and leaves ``max_context_tokens`` at the class

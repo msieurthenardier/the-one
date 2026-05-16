@@ -73,6 +73,7 @@ def _close_db_singleton_at_session_end():
     """
     yield
     import asyncio
+
     from the_one.db import connection as _conn_mod
 
     if _conn_mod._connection is None:
@@ -83,6 +84,7 @@ def _close_db_singleton_at_session_end():
         # Best-effort: an exception here only affects exit-code reliability,
         # not test results. The summary line is the source of truth.
         pass
+
 
 # ---------------------------------------------------------------------------
 # FakeLLM

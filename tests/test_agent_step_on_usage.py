@@ -14,8 +14,6 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import Any
 
-import pytest
-
 from the_one.agent.core import Agent
 from the_one.llm.base import LLMProvider, Message, StreamChunk, TokenUsage
 from the_one.tools.base import ToolRegistry
