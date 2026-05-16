@@ -17,10 +17,10 @@
       '<div style="display: flex; flex-direction: column; gap: 4px;">' +
         '<span style="font-family: var(--font-family-mono); font-size: var(--font-size-tiny); color: var(--fg-muted);">indicator-led (canonical primitive)</span>' +
         '<div style="display: flex; gap: 14px; align-items: center;">' +
-          '<span class="indicator-led indicator-led--success"></span><span style="font-size: var(--font-size-body-sm);">Success</span>' +
-          '<span class="indicator-led indicator-led--warning"></span><span style="font-size: var(--font-size-body-sm);">Warning</span>' +
-          '<span class="indicator-led indicator-led--danger"></span><span style="font-size: var(--font-size-body-sm);">Danger</span>' +
-          '<span class="indicator-led indicator-led--idle"></span><span style="font-size: var(--font-size-body-sm);">Idle</span>' +
+          '<span class="indicator-led indicator-led--success" aria-hidden="true"></span><span style="font-size: var(--font-size-body-sm);">Success</span>' +
+          '<span class="indicator-led indicator-led--warning" aria-hidden="true"></span><span style="font-size: var(--font-size-body-sm);">Warning</span>' +
+          '<span class="indicator-led indicator-led--danger" aria-hidden="true"></span><span style="font-size: var(--font-size-body-sm);">Danger</span>' +
+          '<span class="indicator-led indicator-led--idle" aria-hidden="true"></span><span style="font-size: var(--font-size-body-sm);">Idle</span>' +
         '</div>' +
       '</div>' +
 
@@ -30,7 +30,7 @@
         '<span style="font-family: var(--font-family-mono); font-size: var(--font-size-tiny); color: var(--fg-muted);">telemetry-strip (gallery sample)</span>' +
         '<div class="telemetry-strip">' +
           '<div class="section-title">SYSTEM</div>' +
-          '<div class="telemetry-value"><span class="indicator-led indicator-led--success"></span><span>ONLINE</span></div>' +
+          '<div class="telemetry-value"><span class="indicator-led indicator-led--success" aria-hidden="true"></span><span>ONLINE</span></div>' +
         '</div>' +
         '<div class="telemetry-strip">' +
           '<div class="section-title">AGENTS</div>' +
@@ -38,7 +38,7 @@
         '</div>' +
         '<div class="telemetry-strip">' +
           '<div class="section-title">MCP</div>' +
-          '<div class="telemetry-value"><span class="indicator-led indicator-led--warning"></span><span>2/3</span></div>' +
+          '<div class="telemetry-value"><span class="indicator-led indicator-led--warning" aria-hidden="true"></span><span>2/3</span></div>' +
         '</div>' +
       '</div>' +
 

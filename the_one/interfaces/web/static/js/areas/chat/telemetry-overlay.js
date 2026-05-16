@@ -49,6 +49,12 @@
     for (var i = 0; i < rows.length; i++) {
       var row = document.createElement('span');
       row.className = 'telemetry';
+      // F2 Leg 2 (A.8): mark per-row contents aria-hidden so the
+      // container's aria-label="Token usage" is the only SR exposure.
+      // Avoids polite-live re-announcing every token-count update
+      // (which fires per server stream chunk). Sighted users see all
+      // four values; SR users get the summary label on focus.
+      row.setAttribute('aria-hidden', 'true');
       var labelEl = document.createElement('span');
       labelEl.className = 'label';
       labelEl.textContent = rows[i].label;

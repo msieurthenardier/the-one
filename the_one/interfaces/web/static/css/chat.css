@@ -12,14 +12,27 @@
      sidebar's left edge — matching the select dropdown directly above it. */
   .area-chat .session-list > .section-title { padding: 0 8px; margin-bottom: 4px; }
   .area-chat .session-group { display: flex; flex-direction: column; }
-  .area-chat .session-group-label { padding: 8px 16px 4px 16px; font-size: var(--font-size-tiny); color: var(--fg-faint); text-transform: uppercase; letter-spacing: 0.05em; }
+  .area-chat .session-group-label { padding: 8px 16px 4px 16px; font-size: var(--font-size-tiny); color: var(--fg-tertiary); text-transform: uppercase; letter-spacing: 0.05em; }
+  /* F2 leg 01: session rows are now <li class="list-item"> inside a <ul>;
+     strip default UA list shape so each bucket reads as a row stack. */
+  .area-chat .session-group-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; }
+  /* F2 leg 01: .session-item moved from wrapper <div> to inner <button>.
+     Neutralize UA button styling so the row composes the same as before
+     (the visual chrome lives on the wrapping .list-item). */
+  .area-chat .session-item {
+    flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px;
+    background: transparent; border: none; padding: 0; margin: 0;
+    color: inherit; font: inherit; text-align: left; cursor: pointer;
+  }
+  .area-chat .session-item:focus { outline: none; }
+  .area-chat .session-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 3px var(--accent-glow); border-radius: 4px; }
   .area-chat .agent-select { flex: 1; min-width: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; color: var(--fg); font-family: inherit; font-size: var(--font-size-body-sm); outline: none; cursor: pointer; overflow: hidden; text-overflow: ellipsis; }
   .area-chat .agent-select:focus { border-color: var(--accent); }
   .area-chat .agent-select:focus-visible { border-color: var(--accent); outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 3px var(--accent-glow); }
   .area-chat .session-list { flex: 1; overflow-y: auto; padding: 8px; }
   .area-chat .session-item-text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
   .area-chat .session-item-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .area-chat .session-item-agent { font-family: var(--font-family-mono); font-size: var(--font-size-tiny); color: var(--fg-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .area-chat .session-item-agent { font-family: var(--font-family-mono); font-size: var(--font-size-tiny); color: var(--fg-tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   /* === Chat Area: Content === */
   /* Chrome wraps header/messages/input; toggled with welcome via `hidden`. */
@@ -64,7 +77,9 @@
   .area-chat .new-chat-header:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 3px var(--accent-glow); }
 
   /* Telemetry overlay — hover/focus expands details, lifts opacity to 1. */
-  .area-chat .telemetry-overlay { position: absolute; right: 20px; bottom: 76px; display: flex; align-items: center; gap: 10px; font-size: var(--font-size-caption); color: var(--fg-muted); opacity: 0.4; transition: opacity 0.25s ease; z-index: 1; }
+  /* F2 Leg 2 (A.8): bump default opacity 0.4 → 0.7 so the resting state
+     of the telemetry overlay is still legible without hover/focus. */
+  .area-chat .telemetry-overlay { position: absolute; right: 20px; bottom: 76px; display: flex; align-items: center; gap: 10px; font-size: var(--font-size-caption); color: var(--fg-muted); opacity: 0.7; transition: opacity 0.25s ease; z-index: 1; }
   .area-chat .telemetry-overlay:hover,
   .area-chat .telemetry-overlay:focus-within { opacity: 1; }
   .area-chat .telemetry-overlay:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 4px; }

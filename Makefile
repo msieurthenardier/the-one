@@ -24,6 +24,9 @@ rebuild: ## Rebuild image + restart (REQUIRED after editing JS/CSS/Python)
 	docker compose up -d the-one
 	@$(MAKE) --no-print-directory verify-serving
 
+.PHONY: rebuild-browsers
+rebuild-browsers: rebuild _ensure-playwright  ## Rebuild dev container + ensure Playwright Chromium present
+
 .PHONY: rebuild-clean
 rebuild-clean: ## Rebuild image + wipe DB volume + restart fresh (HAT prep, no confirm gate)
 	docker compose down
@@ -146,11 +149,19 @@ format: ## Ruff format (writes changes)
 
 .PHONY: doctor
 doctor:  ## Verify all declared dev extras are importable on the host venv
-	@python -c "import asgi_lifespan, pytest_asyncio, pytest_timeout, pytest_playwright, pixelmatch, pip_audit; from PIL import Image; import importlib.util; assert importlib.util.find_spec('playwright'), 'missing playwright'; import ruff; print('doctor: ok')"
+	@.venv/bin/python3 -c "import asgi_lifespan, pytest_asyncio, pytest_timeout, pytest_playwright, pixelmatch, pip_audit; from PIL import Image; import importlib.util; assert importlib.util.find_spec('playwright'), 'missing playwright'; import ruff; print('doctor: ok')"
 
 .PHONY: audit
 audit:  ## Run pip-audit against host venv (non-blocking; surfaces advisories)
 	@.venv/bin/pip-audit --skip-editable || true
+
+# Note: `git grep` scans the git INDEX, not the working tree — files newly added
+# but unstaged won't be scanned. Run AFTER `git add` (or as part of pre-commit).
+# The `:(glob)` pathspec magic is required for `**` to recurse (default fnmatch
+# treats `**` literally); without it the pathspec matches nothing.
+.PHONY: audit-bytes
+audit-bytes:  ## Detect raw U+2028/U+2029 (LSEP/PSEP) chars in tracked .py source — must be empty (run after `git add`)
+	@! git grep -lP "[\x{2028}\x{2029}]" -- ':(glob)the_one/**/*.py' ':(glob)tests/**/*.py'
 
 # ── Help ────────────────────────────────────────────────────────────────
 

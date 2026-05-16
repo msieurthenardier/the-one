@@ -860,7 +860,25 @@
      uses the matching --status-*-glow token. Idle state has no glow.
      Use directly as `<span class="indicator-led indicator-led--success">`,
      or rely on the `.test-result-*` retrofit below which renders the LED
-     as a ::before pseudo on every existing connection-test result. */
+     as a ::before pseudo on every existing connection-test result.
+
+     Accessibility contract (F2 Leg 2, A.9):
+       - When adjacent visible text fully conveys the LED's state (e.g.,
+         a status label "Connected" sits next to the LED), the LED is
+         decorative. Mark it `aria-hidden="true"` so SR doesn't
+         announce a meaningless extra token.
+       - When the LED carries state distinct from adjacent text (e.g.,
+         color encodes severity, OR the adjacent text is an action
+         button like "Reset connection" rather than the LED's state),
+         the LED MUST carry an `aria-label` describing the state
+         (e.g., "Connected" / "Not connected").
+       - Exemplar: provider-models.js LEDs sit beside the model name
+         (visible text fully describes the row) → aria-hidden="true".
+         mcp-server-editor.js LEDs sit beside a "Reset connection"
+         button (action, NOT state) → aria-label="Connected"/"Not connected".
+       - When ambiguous (label partially conveys state, e.g., "Test"
+         button next to a result LED), prefer aria-label for explicitness.
+     ===*/
   .indicator-led {
     display: inline-block;
     width: 10px;

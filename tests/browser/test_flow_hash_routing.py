@@ -83,7 +83,9 @@ def test_hash_routing_chat_session_persists_on_refresh(
     assert session_id, "Session ID should not be empty"
 
     # 4. A session item should be selected in the sidebar.
-    selected_item = page.locator('.session-item[aria-selected="true"]')
+    # F2 leg 01: active session marker switched from aria-selected="true"
+    # (listbox-option semantic) to aria-current="page" (nav-page semantic).
+    selected_item = page.locator('.session-item[aria-current="page"]')
     expect(selected_item).to_be_visible(timeout=5000)
 
     # 5. Refresh the page.
@@ -92,7 +94,7 @@ def test_hash_routing_chat_session_persists_on_refresh(
     # 6. After reload, same session should be selected.
     # The session_joined handler fires after WS reconnects, which updates URL.
     # Wait for the specific session item to be marked selected.
-    restored_item = page.locator(f'.session-item[data-id="{session_id}"][aria-selected="true"]')
+    restored_item = page.locator(f'.session-item[data-id="{session_id}"][aria-current="page"]')
     expect(restored_item).to_be_visible(timeout=10000)
 
     # URL should still point to the same session.

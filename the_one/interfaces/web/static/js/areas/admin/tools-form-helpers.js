@@ -471,6 +471,18 @@
   //   for the row to attach the error span to. Defaults to the admin
   //   pattern; Studio overrides for the per-tool override panels.
   function clearFieldErrors(container) {
+    // F2 Leg 2 (A.2): clear a11y wiring on each row that currently
+    // carries an error span before removing the span. Each row's input
+    // (or chip-list wrapper) needs aria-invalid dropped and the
+    // field-error-* id pruned from aria-describedby. Use the
+    // .field-error-highlight selector to find rows (set in
+    // renderFieldErrors alongside the span append).
+    var rows = container.querySelectorAll('.field-error-highlight');
+    for (var r = 0; r < rows.length; r++) {
+      clearFieldErrorA11y(rows[r]);
+    }
+    // Catch-all: remove any remaining .field-error spans (covers the
+    // banner case + any defensive duplicates the per-row pass missed).
     var errors = container.querySelectorAll('.field-error');
     for (var i = 0; i < errors.length; i++) errors[i].remove();
   }
@@ -496,6 +508,13 @@
       return '.tools-editor-field[data-field-name="' + cssEscape(lastSeg) + '"], .field-row[data-field-name="' + cssEscape(lastSeg) + '"]';
     };
     var unmatched = [];
+    // F2 Leg 2 (A.2): track whether any per-row error has been wired with
+    // role="alert" yet. Only the FIRST per-row span carries role="alert"
+    // so the SR announces once per save cycle (not per-field).
+    var firstAlertWired = false;
+    // F2 Leg 2 (A.2): index used to make each error span's id stable per
+    // call. Monotonically increments across all error rows in this call.
+    var errorIdx = 0;
     for (var i = 0; i < details.length; i++) {
       var d = details[i];
       var loc = Array.isArray(d.loc) ? d.loc : [];
@@ -515,9 +534,43 @@
         // a red border + label-color tint. Cleared at next save attempt
         // and on field change inside the editor's wireEvents.
         row.classList.add('field-error-highlight');
+        // F2 Leg 2 (A.2): programmatic association of the error message
+        // with the input. Generate a unique id for the error span, wire
+        // aria-invalid="true" on the input/select/chip-list-editor wrapper,
+        // and append the new id to aria-describedby (additive — preserves
+        // the info-icon's existing "<idAttr>-desc" wiring).
+        var errorId = 'field-error-' + (lastSeg || 'model') + '-' + (errorIdx++);
         var span = document.createElement('span');
+        span.id = errorId;
         span.className = 'field-error';
         span.textContent = humanMsg;
+        // Only the first per-row error span in this save cycle carries
+        // role="alert"; remaining ones rely on aria-describedby for
+        // on-focus announcement without re-triggering live-region.
+        if (!firstAlertWired) {
+          span.setAttribute('role', 'alert');
+          firstAlertWired = true;
+        }
+        // Locate the labellable target inside the row. chip-list-editor
+        // is a <div> (not a native input) — wire aria-* on the wrapper to
+        // match the info-icon pattern at L130-134 which sets
+        // aria-describedby on the wrapping div for chip-lists.
+        var input = row.querySelector('input, select, .chip-list-editor');
+        if (input) {
+          input.setAttribute('aria-invalid', 'true');
+          var existing = (input.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean);
+          existing.push(errorId);
+          // Dedupe while preserving order.
+          var seen = {};
+          var merged = [];
+          for (var k = 0; k < existing.length; k++) {
+            if (!seen[existing[k]]) {
+              seen[existing[k]] = true;
+              merged.push(existing[k]);
+            }
+          }
+          input.setAttribute('aria-describedby', merged.join(' '));
+        }
         row.appendChild(span);
       } else {
         // Loc-prefix kept for unmatched entries since the human can't
@@ -531,7 +584,51 @@
     }
     if (unmatched.length > 0) {
       var errorEl = container.querySelector('.editor-error');
-      if (errorEl) errorEl.textContent = unmatched.join(' | ');
+      if (errorEl) {
+        errorEl.textContent = unmatched.join(' | ');
+        // F2 Leg 2 (A.2): the .editor-error banner already exists with
+        // visual styling; add role="alert" so SR announces the banner
+        // when it gains text content. The banner is unique per editor,
+        // so role="alert" never overlaps with per-row role="alert"
+        // (per-row only fires when its row was matched; banner only
+        // fires when there are unmatched entries).
+        errorEl.setAttribute('role', 'alert');
+      }
+    }
+  }
+
+  // F2 Leg 2 (A.2): companion to renderFieldErrors — clears the a11y
+  // attributes that renderFieldErrors set when a row is no longer in
+  // error (operator typed a fix; save retried clean). Removes the row's
+  // appended error span(s), drops aria-invalid, and de-additively
+  // removes any field-error-* ids from aria-describedby.
+  function clearFieldErrorA11y(row) {
+    if (!row) return;
+    // Remove all error spans inside this row (renderFieldErrors appended
+    // them; ids start with "field-error-").
+    var spans = row.querySelectorAll('.field-error[id^="field-error-"]');
+    var removedIds = [];
+    for (var i = 0; i < spans.length; i++) {
+      removedIds.push(spans[i].id);
+      spans[i].parentNode.removeChild(spans[i]);
+    }
+    var input = row.querySelector('input, select, .chip-list-editor');
+    if (!input) return;
+    input.removeAttribute('aria-invalid');
+    var existing = (input.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean);
+    if (existing.length === 0) return;
+    var pruned = [];
+    for (var j = 0; j < existing.length; j++) {
+      if (removedIds.indexOf(existing[j]) !== -1) continue;
+      // Defensive: also strip any orphan "field-error-*" id that may
+      // have lingered from a prior render the span-removal path missed.
+      if (existing[j].indexOf('field-error-') === 0) continue;
+      pruned.push(existing[j]);
+    }
+    if (pruned.length === 0) {
+      input.removeAttribute('aria-describedby');
+    } else {
+      input.setAttribute('aria-describedby', pruned.join(' '));
     }
   }
 
@@ -544,6 +641,7 @@
     wireChipListEditor: wireChipListEditor,
     chipExists: chipExists,
     clearFieldErrors: clearFieldErrors,
+    clearFieldErrorA11y: clearFieldErrorA11y,
     renderFieldErrors: renderFieldErrors
   };
 })();

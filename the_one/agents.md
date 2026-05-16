@@ -226,11 +226,21 @@ Debugging-only and measurement-only modules are gated by **both** a URL query-st
 
 The pattern applies whenever a frontend module exists primarily to support diagnosis (perf measurement, debug logging, trace capture, etc.) and is not part of the user-facing feature surface. Future modules following this convention should mirror `App.perf`'s shape: a module-load-time `isEnabled()` gate, public methods that short-circuit when disabled, and one-line activation via either URL or localStorage. The two activation channels are intentional — URL is ad-hoc (no operator commitment), localStorage is sticky (survives reloads, useful for measurement campaigns).
 
+### `host-side-bench-drift-detection`
+
+Targets whose purpose is to detect drift between the developer's HOST bench and the canonical container should run on the host (not `docker exec`), surface a clean diagnostic on failure, and be invoked manually (not on every dev iteration).
+
+**Why**: F1 (M09 Leg 2) introduced `make doctor` to catch the `asgi-lifespan`-declared-but-uninstalled drift that wasn't catchable in container-first `make lint` / `make format` / `make test` (which run via `docker exec` against the container's own venv where `pip install -e .[dev]` ran at image-build time). The host venv is where the operator runs ad-hoc `pytest` and where dev-extras drift surfaces; container-first tooling can't see it.
+
+**Pattern**: a host-side drift target lives under a `# ── Drift detection (host-side) ──` section header in the `Makefile`, deliberately separate from container-first targets. It uses `.venv/bin/python3 -c "..."` (NOT bare `python -c "..."` — avoids the sub-shell PATH-resolution foot-gun where bare `python` may be absent and `python3` is the live interpreter). Exit code carries the contract: 0 if clean, non-zero with a clear `ModuleNotFoundError` / `AssertionError` if drift detected.
+
+**Live examples**: `make doctor` (probes declared dev extras from `pyproject.toml`'s `[project.optional-dependencies].dev`); `make audit` (runs `.venv/bin/pip-audit --skip-editable || true`, non-blocking); `make audit-bytes` (detects raw U+2028/U+2029 LSEP/PSEP characters in source — defends against the F1 Leg 3 implementation anomaly class).
+
 ### `live-read-across-lazy-resolver-boundary`
 
 When a provider field is **lazily resolved** on first call (i.e. the field starts as a sentinel — `None`, a default — and is replaced inside the provider's own `complete()` / `stream()` path after a one-time upstream probe), every downstream consumer must read the field **live at the point of use**, not pre-capture it at the entry of a surrounding function. Eager capture sees the pre-resolution sentinel; the resolver fires later inside the provider call, but the captured local is never re-read.
 
-**Live example**: `LLMProvider.max_context_tokens` follows this pattern as of M07 F6.5 (Ollama queries `/api/show` once per model and caches the result on the provider instance). The bug F6.5 L4 found was in `_process_and_broadcast` (`the_one/agent/core.py`) — that function captured `max_context_tokens` into a local at function entry, then looped over the agent's call sequence; the first call's resolver fire never propagated to subsequent iterations of the loop. M07 F7 L05 pins the contract with `test_max_context_tokens_live_read_across_resolver` (in `tests/test_agent_core.py`).
+**Live example**: `LLMProvider.max_context_tokens` follows this pattern as of M07 F6.5 (Ollama queries `/api/show` once per model and caches the result on the provider instance). The bug F6.5 L4 found was in `_process_and_broadcast` (`the_one/agent/core.py`) — that function captured `max_context_tokens` into a local at function entry, then looped over the agent's call sequence; the first call's resolver fire never propagated to subsequent iterations of the loop. M07 F7 L05 pins the contract with `test_usage_event_reflects_live_max_context_tokens_at_emission` (in `tests/test_process_and_broadcast_live_read.py`).
 
 **Pattern**: read `provider.max_context_tokens` at the point of use, not at the start of the surrounding function. If a loop body needs the value, read it inside the loop body, not before the `for`/`while` statement. If a helper function needs it, pass the provider (or the agent that owns the provider), not the pre-captured int.
 

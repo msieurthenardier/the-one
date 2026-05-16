@@ -33,12 +33,25 @@
   }
 
   function buildSessionItem(s, currentSessionId, callbacks) {
-    var el = document.createElement('div');
-    el.className = 'list-item session-item' + (s.id === currentSessionId ? ' active' : '');
-    el.setAttribute('role', 'option');
-    el.setAttribute('tabindex', '0');
-    el.setAttribute('aria-selected', s.id === currentSessionId ? 'true' : 'false');
-    el.dataset.id = s.id;
+    // Post-F2 leg 01: the row is a <li class="list-item"> containing a
+    // <button class="session-item"> as the session selector and a sibling
+    // <button class="delete list-item-delete"> for delete. Dropping the
+    // listbox/option role pair fixes WCAG 4.1.2 (a role="option" cannot
+    // legally contain a nested interactive element).
+    //
+    // The <li> preserves the `.list-item` class so the CSS :focus-within
+    // reveal (components.css:123-124) keeps showing the delete affordance
+    // when Tab moves focus into the row.
+    var li = document.createElement('li');
+    li.className = 'list-item' + (s.id === currentSessionId ? ' active' : '');
+
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'session-item';
+    btn.dataset.id = s.id;
+    if (s.id === currentSessionId) {
+      btn.setAttribute('aria-current', 'page');
+    }
 
     var textWrap = document.createElement('div');
     textWrap.className = 'session-item-text';
@@ -54,7 +67,13 @@
     agentSpan.textContent = s.agent_name || 'default';
     textWrap.appendChild(agentSpan);
 
-    el.appendChild(textWrap);
+    btn.appendChild(textWrap);
+    btn.onclick = function () { callbacks.onJoin(s.id); };
+    // Native <button> Enter/Space activation handles the join — no custom
+    // keydown bail needed. The previous wrapper-div implementation required
+    // an "e.target !== el" guard to avoid descendant-bubbled keys firing
+    // onJoin from the delete button; the sibling layout retires that case.
+    li.appendChild(btn);
 
     var delBtn = document.createElement('button');
     delBtn.type = 'button';
@@ -65,20 +84,9 @@
       e.stopPropagation();
       callbacks.onDelete(s.id, delBtn);
     };
-    el.appendChild(delBtn);
+    li.appendChild(delBtn);
 
-    el.onclick = function () { callbacks.onJoin(s.id); };
-    el.addEventListener('keydown', function (e) {
-      // Ignore keydown bubbled from descendants (e.g., the delete button) so
-      // pressing Enter while focused on the X doesn't suppress the button's
-      // own activation and accidentally fire onJoin.
-      if (e.target !== el) return;
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        callbacks.onJoin(s.id);
-      }
-    });
-    return el;
+    return li;
   }
 
   function renderSessionList(sessionListEl, sessions, currentSessionId, callbacks) {
@@ -123,19 +131,23 @@
 
       var groupEl = document.createElement('div');
       groupEl.className = 'session-group';
-      groupEl.setAttribute('role', 'group');
 
       var labelId = 'session-group-' + key;
       var labelEl = document.createElement('div');
       labelEl.className = 'session-group-label';
       labelEl.id = labelId;
       labelEl.textContent = BUCKET_LABELS[key];
-      groupEl.setAttribute('aria-labelledby', labelId);
       groupEl.appendChild(labelEl);
 
+      // Each bucket gets its own <ul> so session rows are <li> children of
+      // a list. The bucket label is the accessible name for the list.
+      var listEl = document.createElement('ul');
+      listEl.className = 'session-group-list';
+      listEl.setAttribute('aria-labelledby', labelId);
       for (var m = 0; m < grouped[key].length; m++) {
-        groupEl.appendChild(buildSessionItem(grouped[key][m], currentSessionId, callbacks));
+        listEl.appendChild(buildSessionItem(grouped[key][m], currentSessionId, callbacks));
       }
+      groupEl.appendChild(listEl);
       sessionListEl.appendChild(groupEl);
     }
   }
