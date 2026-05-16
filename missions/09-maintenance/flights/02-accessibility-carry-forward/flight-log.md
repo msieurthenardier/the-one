@@ -236,6 +236,53 @@
 
 **Opportunistic items**: A.9 + A.10 + A.13 ALL landed (no slippage). The slip rules in the leg spec (`route to next maintenance pass`) were not triggered.
 
+### 2026-05-16 — Leg 3 (landed; sub-commits beb60c8 → 15233c8)
+
+**Sub-fix landings** (atomic per F1 debrief carry-forward item, `flight/02:` prefix):
+
+| Item | Sub-commit | Outcome |
+|---|---|---|
+| (a) `make rebuild-browsers` | `beb60c8` | New target chains `rebuild` + `_ensure-playwright` in order; reuses existing conditional install machinery at `Makefile:39-46` (no duplication) |
+| (b) `make doctor` python resolution | `a12158a` | `python -c` → `.venv/bin/python3 -c`; verified in env-stripped sub-shell with `python` absent from PATH (only `/usr/bin/python3`) — exit 0 |
+| (c) `make audit-bytes` | `ba794d5` | New host-side drift target — `! git grep -lP "[\x{2028}\x{2029}]"` over `:(glob)the_one/**/*.py` + `:(glob)tests/**/*.py` |
+| (d) agents.md citation fix | `0456db0` | L233 broken citation (`test_max_context_tokens_live_read_across_resolver` in `tests/test_agent_core.py`) → correct (`test_usage_event_reflects_live_max_context_tokens_at_emission` in `tests/test_process_and_broadcast_live_read.py`) |
+| (e) `host-side-bench-drift-detection` convention | `0965126` | New `` ### `host-side-bench-drift-detection` `` entry inserted between `gated-debug-instrumentation` (L219) and `live-read-across-lazy-resolver-boundary` (now L239); backtick-wrapped slug matches section convention; "Live examples" paragraph cites `make doctor` / `make audit` / `make audit-bytes` |
+| (f) npm-spec regex security primitive | `15233c8` | New peer bullet `- **Operator-supplied identifier allowlists**:` in `SECURITY-MODEL.md ## Tool Execution Boundary` (L82-104); cites `_VALID_NPX_PKG_RE` exemplar at `cache_cleanup.py:71-83`; regex inline as indented Python code block |
+
+**Sub-commit chain**: `beb60c8` (a) → `a12158a` (b) → `ba794d5` (c) → `0456db0` (d) → `0965126` (e) → `15233c8` (f).
+
+**(c) audit-bytes probe verification** (positive + negative case):
+- **Positive (clean tree)**: `make audit-bytes` → exit 0. Same state as today's tracked source (F1 flight-review already confirmed zero raw LSEP/PSEP).
+- **Negative (probe staged)**: `printf 'x\xe2\x80\xa8y\n' > tests/_audit_bytes_probe.py && git add tests/_audit_bytes_probe.py && make audit-bytes` → exit 2 (Make's wrap of the inverted non-zero from `! git grep`); probe filename surfaced in stderr. Cleaned via `git rm --cached` + `rm -f`.
+- **Edge case caught + fixed during implementation**: original draft pathspec `'the_one/**/*.py' 'tests/**/*.py'` (raw glob) did NOT match anything under git 2.43.0 — git pathspec default is fnmatch, where `**` is literal. Reshaped to `:(glob)the_one/**/*.py` + `:(glob)tests/**/*.py` (explicit glob pathspec magic). Probe re-run confirmed the fixed form detects the byte. This drift between the spec's pathspec form and git's actual semantics is exactly the class of issue the leg's "deliberately probe with raw byte" verification step exists to catch — without the probe, the target would have shipped silently broken (always exit 0, false-clean).
+- **`git add -N` (intent-to-add) edge case**: also probed — `git add -N` records the pathname but the blob is empty until `git add` of actual content. `git grep` against an intent-to-add path scans the empty blob, returns nothing. Documented behaviour; the target's `# Note: ... run AFTER \`git add\`` Makefile comment captures the contract correctly.
+
+**(a) rebuild-browsers chain verification**: `make -n rebuild-browsers` (dry-run) emits the full `rebuild` body (`docker compose build the-one` + `docker compose up -d the-one` + `verify-serving`) followed by `_ensure-playwright`'s conditional install probe. The real rebuild was not invoked (multi-minute cost; dry-run is the AC bar per upstream brief).
+
+**(b) doctor sub-shell test**: `env -i PATH=/usr/bin:/bin HOME=$HOME bash -c "cd /home/cprch/projects/the-one && make doctor"` → `doctor: ok` exit 0. Confirms the explicit-`.venv/bin/python3` path resolves even when no `python` shim exists on PATH and the parent shell's env is stripped — the foot-gun the F1 debrief flagged is closed.
+
+**(d) citation fix**: target test at `tests/test_process_and_broadcast_live_read.py:98` verified present (the new citation points at a live test, not another phantom).
+
+**(e) agents.md backtick convention preserved**: pre-edit `grep -nE '^### \`' the_one/agents.md` enumerated 5 existing conventions (`trust-the-runtime`, `canonical-import + convenience-re-export`, `structural-Protocol-satisfaction`, `verbatim-message-equality`, `gated-debug-instrumentation`) + `live-read-across-lazy-resolver-boundary`, all backtick-wrapped. New entry follows the same form (`` ### `host-side-bench-drift-detection` ``). Post-edit AC grep matches.
+
+**(f) SECURITY-MODEL bullet placement**: section confirmed flat-bullet-list at design-review time (`- **Filesystem**`, `- **Execution**`, `- **Subprocess environment**`, `- **Web**`). New entry added as a peer bullet (NOT a nested `### ...` heading — that would have broken the section's voice, as flagged in the leg's HIGH cycle-1 finding). Regex embedded as an indented Python code block under the bullet; same 2-space continuation indent as the existing bullets.
+
+**Verification outcomes**:
+- `ruff check the_one/ tests/` + `ruff format --check the_one/ tests/` → both 0/0 (F1 baseline preserved).
+- Container broad pytest (`docker exec the-one pytest --tb=no -q --ignore=tests/browser`) → **1700 passed**, 4 skipped, 12 deselected (Leg 2 baseline preserved).
+- Host pytest (`.venv/bin/python3 -m pytest --tb=no -q --ignore=tests/browser`) → **1700 passed**, 4 skipped, 12 deselected. The `mcp.client.auth.exceptions` import failure flagged in Leg 1's flight-log entry is not surfaced under the broader pytest invocation used here — it appears to have been a discovery-collection issue tied to a different invocation path, or has resolved itself between Leg 1 and Leg 3 invocations.
+- `make doctor` (host) → `doctor: ok` exit 0.
+- `make audit` (host) → surfaces 2 urllib3 advisories (`CVE-2026-44431`, `CVE-2026-44432`; suggested fix `2.7.0`), non-blocking per design — pre-existing host venv state, unrelated to F2.
+- `make audit-bytes` (host) → exit 0 (clean).
+- `make rebuild-browsers` (`-n` dry-run) → 25 lines emitted; chain resolves correctly (`rebuild` → `_ensure-playwright`).
+
+**Anomalies**:
+- **`make audit-bytes` pathspec drift**: the leg spec called for raw glob pathspecs (`'the_one/**/*.py'` etc.). Under git 2.43.0's default fnmatch pathspec mode, `**` is treated literally and matches nothing — making the target silently false-clean. Discovered during the negative-case probe (the leg's "deliberately introduce a byte" verification, exactly its purpose). Fixed inline via `:(glob)` pathspec magic; re-probe confirmed correct detection. AC text only asserts the prefix `git grep -lP "[\x{2028}\x{2029}]"`, so the AC still passes — but the leg spec's literal pathspec snippet was effectively wrong and would have produced a non-functional target.
+- **Two `make audit` host advisories** (urllib3 `2.6.3` vs `2.7.0`): NOT caused by F2. Pre-existing host venv state surfaced by the now-running `make audit`. The audit target is non-blocking by design (`|| true`); advisories are surfaced for operator awareness. Either route to M10 (host venv refresh) or leave for natural dependency-pin churn — not a Leg 3 fix-up item.
+- No anomalies in (a)/(b)/(d)/(e)/(f). All four were mechanical edits matching the leg spec verbatim.
+
+**Sub-fix correlation**: Sub-fix (c) flushed the most implementation-detail surface area (probe + pathspec correction + Makefile comment); sub-fixes (a)/(b)/(d)/(e)/(f) all landed in one pass each.
+
 ---
 
 ## Decisions
