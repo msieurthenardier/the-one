@@ -1,6 +1,6 @@
 # Mission: Maintenance (Post-M08)
 
-**Status**: active
+**Status**: completed
 
 ## Outcome
 
