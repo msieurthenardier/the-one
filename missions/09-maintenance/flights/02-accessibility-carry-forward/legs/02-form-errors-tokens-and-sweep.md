@@ -1,6 +1,6 @@
 # Leg: 02-form-errors-tokens-and-sweep
 
-**Status**: landed
+**Status**: completed
 **Flight**: [Accessibility Carry-forward + F1 Tech-Debt Cleanup](../flight.md)
 
 ## Objective
