@@ -31,13 +31,23 @@
 
     container.innerHTML = '';
     container.className = 'section-nav';
-    container.setAttribute('role', 'group');
+    // F2 Leg 2 (A.10): the container is now expected to be a <nav>
+    // element (callers pass <nav class="...-section-nav">). The <nav>
+    // landmark + caller-supplied aria-label is load-bearing. Drop the
+    // explicit role="group" (which only existed when the container was
+    // a plain <div>); <nav> implies role="navigation" automatically.
     if (ariaLabel) container.setAttribute('aria-label', ariaLabel);
-    // Defensive: warn if no aria-label provided. The container's role="group"
-    // requires an accessible name (WAI-ARIA spec); silent-omit would regress
-    // a11y vs. the F5 helper which hardcoded a label.
+    // Defensive: warn if no aria-label provided. The <nav> landmark
+    // benefits from a distinguishing aria-label when multiple navs
+    // exist on the page (Admin sidebar nav + the Chat session-list nav
+    // both reach the user's AT — labels disambiguate).
     if (!ariaLabel && console && console.warn) {
-      console.warn('App.layout.renderSectionNav: ariaLabel not provided; container has no accessible name.');
+      console.warn('App.layout.renderSectionNav: ariaLabel not provided; <nav> landmark has no distinguishing accessible name.');
+    }
+    // Defensive: warn if the container is not a <nav>. Cheap dev-time
+    // guard against a regression that would silently drop the landmark.
+    if (container.tagName !== 'NAV' && console && console.warn) {
+      console.warn('App.layout.renderSectionNav: expected <nav> container; got <' + container.tagName.toLowerCase() + '>. Landmark a11y depends on the <nav> element.');
     }
 
     if (headerText) {

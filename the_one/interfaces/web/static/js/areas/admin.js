@@ -211,7 +211,11 @@ App.registerArea({
     // Mount on a child div (not the sidebar panel itself) so the panel's
     // .area-admin class is preserved — the helper sets className on its
     // container, which would otherwise clobber the area scoping class.
-    sidebar.innerHTML = '<div class="admin-section-nav"></div>';
+    // F2 Leg 2 (A.10): use <nav> instead of <div> so the section-nav
+    // composes as a landmark. The shared renderSectionNav helper drops
+    // role="group" (which was the prior compromise when the container
+    // was a plain <div>) — nav role is now load-bearing.
+    sidebar.innerHTML = '<nav class="admin-section-nav"></nav>';
     var sectionNavEl = sidebar.querySelector('.admin-section-nav');
     function doSetCategory(catId) {
       currentCategory = catId;
