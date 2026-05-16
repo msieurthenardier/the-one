@@ -4,11 +4,13 @@
 
 ## Outcome
 
-Resolve codebase health issues identified in the 2026-05-15 maintenance report. After this mission lands, the project should once again be flight-ready: the CI integrity gate restored to the zero-baseline posture M06 codified (and proven to enforce via a deliberate-violation experiment), the M07 OAuth callback's same-origin script-injection path closed, dev-environment install drift caught at a `make doctor`-style gate, and the three Action Required accessibility findings (form-field error association, listbox keyboard semantics, light-theme contrast) resolved.
+Resolve codebase health issues identified in the 2026-05-15 maintenance report, **AND remove Concourse + self-improvement framing from the project** (operator pivot 2026-05-15, mid-flight). After this mission lands: lint+format zero-baseline restored; `asgi-lifespan` dev-extra installed with a `make doctor` drift-detector; sandbox skip predicate tightened; OAuth callback same-origin script-injection path closed; `_clean_npx` package-name allowlist in place; documentation carry-forwards landed; OpenRouter rebrand gap closed; the three Action Required accessibility findings (form-field error association, listbox keyboard semantics, light-theme contrast) resolved; **AND the project no longer carries Concourse CI infrastructure or self-modification narrative — repo and module names preserved, but the "agent edits its own source + deploys via CI + rolls back" framing is removed from README, agents.md, CLAUDE.md, SECURITY-MODEL.md, and the mission-control project description.**
 
-The mission's framing is **restore the integrity gate posture M06 established that M07/M08 silently eroded** — the most-visible signal is the lint/format regression (0 → 69 errors, 0 → 81 unformatted files) on a gate that exists at `ci/pipeline.yml:24` but apparently did not stop the M07/M08 PRs from merging. The maintenance leg cannot just fix the violations; it must determine *why* the gate didn't enforce and prove its rejection works going forward.
+### Original framing (superseded mid-flight)
 
-Out of scope (routed to next mission post-this-maintenance, currently slotted as M10 since this maintenance takes slot 09): stop/cancel button + agent-loop reliability on local models (M08 KI #6/#7); the five module-skipped browser test files + paired `.new-entity-btn` DOM-visibility defect (M08 KI #3); the architectural cluster (singleton aiosqlite production lifecycle, per-call `httpx.AsyncClient` pooling, `_sessions` eviction, per-provider streaming-parser deduplication, MCP SSRF symmetry with LLM provider path, schema migration v7-v9 atomicity).
+The mission's pre-pivot framing was "restore the integrity gate posture M06 established that M07/M08 silently eroded" — Concourse pipeline gate restoration was the centerpiece. Mid-flight (during Leg 1 implementation), the operator decided to remove Concourse + self-improvement from the project entirely (Concourse drifted from being a tool to being maybe-CI-someday; not pulling its weight). The lint+format work is still valuable and proceeds as planned; the deliberate-violation experiment is dropped; the CI/CD findings from the maintenance report become "remove, don't fix"; a new Flight 1 Leg 4 absorbs the removal. The maintenance report stays as-is (it's the inspection snapshot) but is annotated with a "post-write pivot" note.
+
+Out of scope (routed to next mission post-this-maintenance, currently slotted as M10 since this maintenance takes slot 09): stop/cancel button + agent-loop reliability on local models (M08 KI #6/#7); the five module-skipped browser test files + paired `.new-entity-btn` DOM-visibility defect (M08 KI #3); the architectural cluster (singleton aiosqlite production lifecycle, per-call `httpx.AsyncClient` pooling, `_sessions` eviction, per-provider streaming-parser deduplication, MCP SSRF symmetry with LLM provider path, schema migration v7-v9 atomicity). **Repo rename**: the GitHub repo is still `the-one`; rename decision (if desired) is M10 fuel, not in this mission's scope.
 
 ## Context
 
@@ -22,20 +24,22 @@ The three Action Required accessibility findings group naturally: a listbox-keyb
 
 ## Success Criteria
 
-- [ ] `ruff check the_one/ tests/` returns 0 errors on `main` (restored from current 69)
-- [ ] `ruff format --check the_one/ tests/` returns "all files already formatted" (restored from current 81 would-reformat)
-- [ ] CI lint+format gate is proven to reject violations via a deliberate-violation experiment on a throwaway branch (documented in the flight log)
-- [ ] `asgi-lifespan` installed in the dev venv AND a drift-detection mechanism added so missing dev extras surface as a clean failure rather than test errors (e.g., `make doctor` or CI assertion)
-- [ ] `test_sandbox_eperm_on_unshare_raises_mcp_sandbox_error_msg3` skip predicate tightened to cover bwrap-yes / SYS_ADMIN-no hosts (broad pytest exits 0 on a dev machine matching that profile)
-- [ ] OAuth callback's `postMessage` JSON is escaped so a `</script>` payload from the Authorization Server cannot terminate the script element
-- [ ] `_clean_npx` package-name argument validated against an allowlist before being used in path operations
-- [ ] `pip-audit` added to dev extras + a non-blocking CI step that surfaces CVE findings
-- [ ] `agents.md ## Provider type extension checklist` includes a `_init_provider_state` hook entry
-- [ ] `agents.md ## Project Conventions` codifies the "live-read across lazy-resolver boundary" pattern
-- [ ] `.env.example` documents `THE_ONE_DEV_MODE`
-- [ ] `SECURITY-MODEL.md` Future Work section names the MCP `streamable-http` URL gating asymmetry with the LLM provider path
-- [ ] `SECURITY-MODEL.md` documents Concourse team-password rotation cadence
-- [ ] OpenRouter `_APP_URL` / `_APP_NAME` updated to GleepGlorp AI identity (rebrand gap closure)
+- [x] `ruff check the_one/ tests/` returns 0 errors on `main` (restored from 69 — F1 Leg 1, commit `7cb3f99`)
+- [x] `ruff format --check the_one/ tests/` returns "all files already formatted" (restored from 81 would-reformat — F1 Leg 1)
+- [x] ~~CI lint+format gate proven to reject violations via deliberate-violation experiment~~ DROPPED — Concourse removed in F1 Leg 4 (operator decision 2026-05-15)
+- [x] `asgi-lifespan` installed in the dev venv AND `make doctor` drift-detection target added (F1 Leg 2, commit `6f2e1f1`)
+- [x] `test_sandbox_eperm_on_unshare_raises_mcp_sandbox_error_msg3` skip predicate tightened (F1 Leg 2 — Case B SKIPPED on WSL2 host)
+- [x] OAuth callback's `postMessage` JSON escaped against `</script>` injection across all three flow sites (F1 Leg 3 commit A, `e092eb9`)
+- [x] `_clean_npx` package-name argument validated against npm-spec allowlist (F1 Leg 3 commit A — rejects `../etc/passwd`)
+- [x] `pip-audit` added to dev extras + `make audit` local target (F1 Leg 3 commit A)
+- [x] `agents.md ## Provider type extension checklist` includes `_init_provider_state` hook entry (F1 Leg 3 commit B, `daf24e2`)
+- [x] `agents.md ## Project Conventions` codifies the "live-read across lazy-resolver boundary" pattern (F1 Leg 3 commit B)
+- [x] `.env.example` documents `THE_ONE_DEV_MODE` (F1 Leg 3 commit B — variable survived Leg 4 cleanup)
+- [x] `SECURITY-MODEL.md` Future Work section names the MCP `streamable-http` URL gating asymmetry with the LLM provider path (F1 Leg 3 commit B)
+- [x] ~~`SECURITY-MODEL.md` documents Concourse team-password rotation cadence~~ DROPPED — Concourse removed in F1 Leg 4
+- [x] OpenRouter `_APP_URL` / `_APP_NAME` updated to GleepGlorp AI identity (F1 Leg 3 commit B — `_APP_NAME = "GleepGlorp AI"`; URL retained for repo-name continuity)
+- [x] Concourse infrastructure removed: `ci/` directory deleted; `THE_ONE_CONCOURSE_PASS` removed from `.env` (gitignored); `.env.example` already clean (F1 Leg 4, commit `56bfc71`)
+- [x] Self-modification framing removed from live narrative: `CLAUDE.md` L56 + `SECURITY-MODEL.md` 3 sites edited; `README.md`, `agents.md`, `Dockerfile`, `docker-compose.yml`, `Makefile` verified clean during recon; mission-control `projects.md` description rewritten locally (file gitignored). Historical mission artifacts (M01-M08) left intact (F1 Leg 4)
 - [ ] Chat welcome agent picker (the one real `role="listbox"` site) has roving-tabindex + ArrowUp/ArrowDown/Home/End working with `aria-selected` toggling; pattern lifted from `areas/layout/section-nav.js:71-91`
 - [ ] Session-list `role="option"` no longer contains an interactive `<button>` descendant — restructured to `<nav>` + `<ul>` of buttons; affected browser test assertions in `tests/browser/test_flow_keyboard.py` updated to match new shape
 - [ ] Admin tools-grid (already a button-grid post-M08 F5, NOT a listbox) verified as keyboard-accessible — no role change required; this success criterion exists to make the verification explicit, not to introduce listbox semantics where they don't belong
@@ -83,6 +87,6 @@ The three Action Required accessibility findings group naturally: a listbox-keyb
 
 > **Note:** These are committed (not tentative) since the maintenance scope is concrete. Both flights are derived from the Architect's recommended bundling in the 2026-05-15 maintenance report.
 
-- [ ] Flight 1: **Integrity Gate Restoration** — lint/format restoration (baseline 0 → 0) + CI gate audit with deliberate-violation experiment; test-infrastructure fixes (`asgi-lifespan` install + drift detection; sandbox skip-predicate); security one-liners (OAuth callback XSS escape, `_clean_npx` allowlist); documentation carry-forwards (`agents.md` `_init_provider_state` + lazy-resolver pattern; `.env.example` `THE_ONE_DEV_MODE`; `SECURITY-MODEL.md` MCP SSRF asymmetry note + Concourse rotation cadence note); OpenRouter rebrand strings; `pip-audit` adoption. Three legs. ~1.5–2 days.
+- [x] Flight 1: **Code Hygiene + Concourse Removal** — lint/format restoration (baseline 0 → 0); test-infrastructure fixes (`asgi-lifespan` install + `make doctor`; sandbox skip-predicate); security one-liners (OAuth callback XSS escape, `_clean_npx` allowlist); documentation carry-forwards (`agents.md` `_init_provider_state` + lazy-resolver pattern; `.env.example` `THE_ONE_DEV_MODE` if survives; `SECURITY-MODEL.md` MCP SSRF asymmetry note); OpenRouter rebrand strings; `pip-audit` + `make audit` local CVE awareness; **and the removal of Concourse + self-modification framing (new Leg 4 added mid-flight per operator pivot 2026-05-15)**. Four legs. ~2.5–3.5 days (revised up to accommodate Leg 4 — narrative editing across README/agents.md/CLAUDE.md/SECURITY-MODEL.md is the largest unknown).
 
 - [ ] Flight 2: **Accessibility Carry-forward** — listbox keyboard semantics for the one real listbox site (chat welcome agent picker) + structural fix for session-list (drop listbox semantic, restructure to nav+buttons, update affected browser test assertions); verify admin tools-grid is keyboard-accessible (no role change — already a button-grid post-M08 F5); form-field error programmatic association (`aria-invalid` + `aria-describedby` + `role="alert"`); light-theme `--fg-muted`/`--fg-faint` token adjustment for WCAG AA contrast on `--shell-chrome-bg` (leading with the scope-the-usage approach rather than global token darkening, per Architect risk note); opportunistic sweep of small a11y items (MIME-as-alt on MCP icons, toast 2s duration, telemetry overlay opacity + labeling, thinking-indicator reduced-motion gate). The lowest-priority sweep items (`indicator-led` contract docs, `section-nav.js` role disposition, trace-shell count in label, tool toggle visible label, README accessibility section) are budgeted as "if time permits" and may slip to a follow-up cycle. Two legs. ~1.5–2 days (revised up from initial 1–1.5 estimate per Architect sizing assessment).

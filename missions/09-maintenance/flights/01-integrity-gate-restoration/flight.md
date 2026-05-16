@@ -1,24 +1,29 @@
-# Flight: Integrity Gate Restoration
+# Flight: Code Hygiene + Concourse Removal
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Maintenance (Post-M08)](../../mission.md)
+
+> **Original framing**: "Integrity Gate Restoration" — restore the M06 lint+format zero-baseline AND prove the Concourse pipeline gate enforces via a deliberate-violation experiment. **Pivot 2026-05-15** (mid-flight, after Leg 1 implementation blocked on Concourse auth): operator decision to remove Concourse + self-improvement framing from the project entirely. The deliberate-violation experiment is moot. Several "fix the CI" items become "remove the CI" items. A new Leg 4 is added for the removal. The cleanup work (lint+format, asgi-lifespan, sandbox skip predicate, OAuth XSS, _clean_npx allowlist, agents.md docs, .env.example, OpenRouter rebrand strings) is still valuable and proceeds in Legs 1-3 with narrowed scope.
 
 ## Contributing to Criteria
 
-- [ ] `ruff check the_one/ tests/` returns 0 errors on `main`
-- [ ] `ruff format --check the_one/ tests/` returns "all files already formatted"
-- [ ] CI lint+format gate proven to reject violations via deliberate-violation experiment
-- [ ] `asgi-lifespan` installed in dev venv AND drift-detection mechanism added
-- [ ] `test_sandbox_eperm_on_unshare_raises_mcp_sandbox_error_msg3` skip predicate tightened
-- [ ] OAuth callback `postMessage` JSON escaped against `</script>` injection
-- [ ] `_clean_npx` package-name allowlist
-- [ ] `pip-audit` added to dev extras + non-blocking CI step
-- [ ] `agents.md ## Provider type extension checklist` includes `_init_provider_state` entry
-- [ ] `agents.md ## Project Conventions` codifies "live-read across lazy-resolver boundary"
-- [ ] `.env.example` documents `THE_ONE_DEV_MODE`
-- [ ] `SECURITY-MODEL.md` Future Work names MCP `streamable-http` URL gating asymmetry
-- [ ] `SECURITY-MODEL.md` documents Concourse team-password rotation cadence
-- [ ] OpenRouter `_APP_URL` / `_APP_NAME` updated to GleepGlorp AI identity
+- [x] `ruff check the_one/ tests/` returns 0 errors on `main`
+- [x] `ruff format --check the_one/ tests/` returns "all files already formatted"
+- [x] ~~CI lint+format gate proven to reject violations via deliberate-violation experiment~~ DROPPED — Concourse removed in Leg 4
+- [x] `asgi-lifespan` installed in dev venv AND `make doctor` drift-detection target added (local-bench only — CI step dropped)
+- [x] `test_sandbox_eperm_on_unshare_raises_mcp_sandbox_error_msg3` skip predicate tightened
+- [x] OAuth callback `postMessage` JSON escaped against `</script>` injection (all three flow sites)
+- [x] `_clean_npx` package-name allowlist (npm-spec regex — rejects `../etc/passwd`)
+- [x] `pip-audit` added to dev extras + `make audit` local target (CI step dropped)
+- [x] `agents.md ## Provider type extension checklist` includes `_init_provider_state` entry
+- [x] `agents.md ## Project Conventions` codifies "live-read across lazy-resolver boundary"
+- [x] `.env.example` documents `THE_ONE_DEV_MODE` (survived the Leg 4 removal — operator-facing dev gate is independent of Concourse infrastructure)
+- [x] `SECURITY-MODEL.md` Future Work names MCP `streamable-http` URL gating asymmetry
+- [x] ~~`SECURITY-MODEL.md` documents Concourse team-password rotation cadence~~ DROPPED — Concourse removed in Leg 4
+- [x] OpenRouter `_APP_URL` / `_APP_NAME` updated to GleepGlorp AI identity (`_APP_NAME = "GleepGlorp AI"`; `_APP_URL` retained as GitHub URL per repo-name-unchanged constraint)
+- [x] Concourse infrastructure removed: `ci/` directory deleted; `THE_ONE_CONCOURSE_PASS` removed from `.env` (gitignored, local-only); `.env.example` already had no Concourse ref; `Dockerfile` and `docker-compose.yml` verified clean (no Concourse refs to clean)
+- [x] Self-modification framing removed from `CLAUDE.md` (L56) and `SECURITY-MODEL.md` (3 sites). `README.md`, `agents.md`, `Dockerfile`, `docker-compose.yml`, `Makefile`, `.env.example` all verified clean during recon — no edits needed. `projects.md` description in mission-control is gitignored (operator's local clone — verified at mission-control's .gitignore); staged-locally
+- [x] Historical mission artifacts (M01-M08) left intact — they're the record of decisions made at the time, not the live framing
 
 ---
 
@@ -97,9 +102,10 @@ Three sequential legs. Each leg lands as a separate commit so a per-leg `git rev
 
 ### Legs
 
-- [ ] `01-lint-format-restoration-and-gate-audit` — Run deliberate-violation experiment; restore ruff baselines; audit pipeline integrity
-- [ ] `02-test-infrastructure-fixes` — Install `asgi-lifespan`, add `make doctor` drift detection, tighten sandbox skip-predicate
-- [ ] `03-security-and-docs-sweep` — OAuth callback XSS escape, `_clean_npx` allowlist, `pip-audit` adoption, `agents.md` + `SECURITY-MODEL.md` + `.env.example` doc carry-forwards, OpenRouter rebrand strings
+- [x] `01-lint-format-restoration-and-gate-audit` — Restore ruff lint+format zero baselines (gate-audit dropped — Concourse removed in Leg 4; slug retained for branch-history continuity). Landed `7cb3f99`.
+- [x] `02-test-infrastructure-fixes` — Install `asgi-lifespan`, add `make doctor` drift detection (local-bench only — CI step dropped), tighten sandbox skip-predicate. Landed `6f2e1f1`.
+- [x] `03-security-and-docs-sweep` — OAuth callback XSS escape, `_clean_npx` allowlist, `pip-audit` + `make audit` (local-only), `agents.md` + `SECURITY-MODEL.md` + `.env.example` doc carry-forwards, OpenRouter rebrand strings. Landed `e092eb9` (security/CI) + `daf24e2` (docs).
+- [x] `04-remove-concourse-and-self-modification` — Delete `ci/` directory; remove `THE_ONE_CONCOURSE_PASS` from env files; audit Dockerfile/docker-compose for CI-only references; revise narrative docs (README, agents.md, CLAUDE.md, SECURITY-MODEL.md) to drop self-modification + Concourse framing; update mission-control `projects.md` description. Landed `56bfc71`.
 
 ---
 

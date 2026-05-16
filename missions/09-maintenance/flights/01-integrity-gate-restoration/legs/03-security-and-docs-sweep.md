@@ -1,11 +1,13 @@
 # Leg: 03-security-and-docs-sweep
 
-**Status**: ready
+**Status**: completed
 **Flight**: [Integrity Gate Restoration](../flight.md)
 
 ## Objective
 
-Land a tight bundle of small fixes: close the OAuth callback same-origin script-injection path; validate the npx package name argument in cache cleanup; adopt `pip-audit` for CVE awareness on the M07-expanded dep surface; carry forward three documentation items from the M08 mission-debrief (`agents.md` `_init_provider_state`; `agents.md` "live-read across lazy-resolver boundary"; `.env.example` `THE_ONE_DEV_MODE`); add two `SECURITY-MODEL.md` Future Work notes (MCP `streamable-http` URL gating asymmetry; Concourse team-password rotation cadence); and update OpenRouter's `_APP_URL` / `_APP_NAME` to GleepGlorp AI identity.
+Land a tight bundle of small fixes: close the OAuth callback same-origin script-injection path; validate the npx package name argument in cache cleanup; adopt `pip-audit` for local CVE awareness on the M07-expanded dep surface (local-only — CI step dropped with Concourse removal in Leg 4); carry forward three documentation items from the M08 mission-debrief (`agents.md` `_init_provider_state`; `agents.md` "live-read across lazy-resolver boundary"; `.env.example` `THE_ONE_DEV_MODE`); add one `SECURITY-MODEL.md` Future Work note (MCP `streamable-http` URL gating asymmetry — Concourse rotation cadence note dropped, Concourse going away); and update OpenRouter's `_APP_URL` / `_APP_NAME` to GleepGlorp AI identity.
+
+> **Scope pivot 2026-05-15**: Concourse + self-improvement framing being removed in Leg 4. Two items dropped from Leg 3 as a result: (a) pip-audit CI step (kept as a `make audit` local target instead); (b) the SECURITY-MODEL Concourse rotation cadence note (the threat surface goes away with the infrastructure).
 
 ## Context
 
@@ -19,8 +21,8 @@ The OpenRouter rebrand strings are bundled here per the flight's design decision
 
 ## Inputs
 
-- `the_one/interfaces/web/api.py:1681-1688` (post_message script generation) and `:1830-1845` (error/error_description flow into post_message)
-- `the_one/mcp/cache_cleanup.py` — `async def _clean_npx(pkg: str)` defined at `:215`; the unsanitized `pkg` flows into `slot_dir / "node_modules" / pkg / "package.json"` at `:248`. Add the allowlist at the function entry (`:215`), not at the path-join site.
+- `the_one/interfaces/web/api.py` — `post_message_script` template (around line 1683-1690 post-Leg-1-format; locate by symbol `post_message_script = (`) and the THREE `post_message=` flow sites (around lines 1838, 1861, 1913 post-Leg-1-format; locate via `grep -n "post_message=" api.py | head -10`). Line numbers below are pre-Leg-1-format and have shifted by ~2 lines — locate by symbol.
+- `the_one/mcp/cache_cleanup.py` — `async def _clean_npx(pkg: str)` (around line 213 post-format; locate by `^async def _clean_npx`); the unsanitized `pkg` flows into `slot_dir / "node_modules" / pkg / "package.json"` (around line 246). Add the allowlist at the function entry, not at the path-join site.
 - `pyproject.toml` `[project.optional-dependencies].dev`
 - `ci/pipeline.yml:22-24` (test task command chain)
 - `the_one/agents.md` `## Provider type extension checklist` heading (around line 1485 — locate by heading, line numbers drift)
@@ -39,21 +41,23 @@ The OpenRouter rebrand strings are bundled here per the flight's design decision
 - `agents.md` `## Provider type extension checklist` includes `_init_provider_state` entry
 - `agents.md` `## Project Conventions` includes a "live-read across lazy-resolver boundary" entry
 - `.env.example` documents `THE_ONE_DEV_MODE`
-- `SECURITY-MODEL.md` Future Work section names: (a) the MCP `streamable-http` URL gating asymmetry with the LLM provider path; (b) the Concourse team-password rotation cadence (rotated 2026-05 in M06 F1 L06; admin password deferred — shared with `epipen`)
+- `SECURITY-MODEL.md` Future Work section names: the MCP `streamable-http` URL gating asymmetry with the LLM provider path. (Concourse team-password rotation cadence note dropped — Concourse removed in Leg 4.)
 - `openrouter_provider.py:38-39` `_APP_URL` and `_APP_NAME` updated to GleepGlorp AI strings
 
 ## Acceptance Criteria
 
 - [ ] In `api.py`, the OAuth callback's `post_message_script` no longer renders raw `json.dumps(...)` output; instead the JSON is HTML-escaped against `</script>` injection (either `.replace("</", "<\\/")...` chain or `<script type="application/json">` + separate parser)
-- [ ] An end-to-end OAuth happy-path test still passes (existing tests cover this; verify they're not broken)
-- [ ] `_clean_npx` raises a `ValueError` (or similar clear error) if `pkg` contains characters outside `[A-Za-z0-9._@/-]`
+- [ ] An end-to-end OAuth happy-path test still passes (existing tests in `tests/test_oauth_callback_route.py` cover the heading text; they do NOT assert on the script body or `post_message` JSON, so the escape change is non-breaking — verified by reviewer)
+- [ ] **All THREE `post_message=` flow sites** in `oauth_callback` (failed / expired / success at api.py:1838, 1861, 1913 area) route their dict through `_safe_script_json`. Verification: `grep -n "json.dumps(post_message)" the_one/interfaces/web/api.py` returns empty after the fix (no raw `json.dumps(post_message)` reaches the rendered template anywhere).
+- [ ] `_clean_npx` raises a `ValueError` when given inputs that fall outside the **npm package-name spec** `^(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*$`. **NOTE**: the original allowlist `[A-Za-z0-9._@/-]` does NOT block `../etc/passwd` (all those chars are allowed individually) — the npm-spec regex tightens to only allow `/` after a scope prefix and forbids leading dots. Verified inputs: `lodash` ✓, `@types/node` ✓, `@scope/pkg` ✓ pass; `../etc/passwd` ✗, `a/b/c` ✗, `.hidden` ✗, empty ✗ reject.
 - [ ] `pip-audit` listed in `pyproject.toml` dev extras
-- [ ] `pip-audit --skip-editable` invokable; CI step is non-blocking (uses `|| echo` or similar guard)
+- [ ] `make audit` (host-side, parallel to `make doctor` from Leg 2) runs `.venv/bin/pip-audit --skip-editable` non-blocking via `|| true`. Exit 0 even when pip-audit finds advisories.
+- [ ] `make doctor` probe list updated to include `import pip_audit` (underscore — module name; `pip-audit` is the package name with dash, `pip_audit` is the importable module)
 - [ ] `grep -n "_init_provider_state" the_one/agents.md` matches inside `## Provider type extension checklist`
 - [ ] `grep -n "lazy-resolver\|live-read" the_one/agents.md` matches inside `## Project Conventions`
 - [ ] `grep -n "THE_ONE_DEV_MODE" .env.example` matches
 - [ ] `grep -nE "streamable-http|streamable_http" SECURITY-MODEL.md` matches in Future Work section
-- [ ] `grep -ni "rotation" SECURITY-MODEL.md` matches in a relevant context
+- [ ] ~~`grep -ni "rotation" SECURITY-MODEL.md` matches in a relevant context~~ DROPPED — the Concourse rotation cadence content was dropped per pivot; the remaining "rotation" matches (encryption key rotation, etc.) are pre-existing and not Leg 3 work.
 - [ ] `grep -n "_APP_URL\|_APP_NAME" the_one/llm/openrouter_provider.py` shows GleepGlorp identity (no longer literal "the-one")
 - [ ] `ruff check the_one/ tests/ && ruff format --check the_one/ tests/` both exit 0 (Leg 1 baseline preserved)
 - [ ] Broad pytest still exits 0 (Leg 2 baseline preserved)
@@ -72,8 +76,10 @@ The OpenRouter rebrand strings are bundled here per the flight's design decision
 
 ## Implementation Guidance
 
-1. **OAuth callback JSON escape** (the security-meaningful change)
-   - Locate `api.py:1681-1688` (post_message_script generation) and `:1830-1845` (where `error_description` flows in)
+1. **OAuth callback JSON escape** (the security-meaningful change) — fix ALL THREE `post_message=` flow sites
+   - Locate `post_message_script = (` in `api.py` (around L1683-1690 post-Leg-1-format; locate by symbol)
+   - Locate the THREE `post_message=` flow sites: failed (~L1838), expired (~L1861), success (~L1913). Use `grep -n "post_message=" the_one/interfaces/web/api.py | head -10` to confirm current positions.
+   - **Define `_safe_script_json` as a module-level private helper in `api.py`**, placed immediately above the function containing `post_message_script` (around L1670 area). Leading underscore signals private. No new module — single consumer; if future endpoints need JSON-in-script, promote later.
    - The current shape is approximately `f"<script>window.opener.postMessage({json.dumps(post_message)}, ...)</script>"` or similar
    - Replace `json.dumps(post_message)` with an HTML-safe-in-script wrapper. Two equally good options:
      - **Option A (chained replacements)**: write a small helper that wraps `json.dumps` and chains the escapes. **IMPORTANT**: the U+2028 (LINE SEPARATOR) and U+2029 (PARAGRAPH SEPARATOR) characters terminate JavaScript statements when literal in source; they must be written as Python escape sequences (`"\u2028"` / `"\u2029"` — NOT as raw characters that look like spaces in source). Approximate shape:
@@ -93,47 +99,63 @@ The OpenRouter rebrand strings are bundled here per the flight's design decision
    - Pick Option A for minimal blast radius (one line change vs restructuring the page); leave a one-line comment explaining the escape rationale ("escape `</` to prevent <script> termination injection from IdP-supplied error_description")
    - Verify both `error_description` and any other Auth-Server-controlled field flowing into `post_message` are routed through `safe_json`, not just one of them
 
-2. **`_clean_npx` package-name allowlist**
-   - Locate `mcp/cache_cleanup.py:248` (or thereabouts)
-   - Add a module-level constant: `_VALID_NPX_PKG_RE = re.compile(r'^[A-Za-z0-9._@/-]+$')`
+2. **`_clean_npx` package-name allowlist** — use the npm package-name spec, NOT the leg's original `[A-Za-z0-9._@/-]` (which permits `../etc/passwd`)
+   - Locate `async def _clean_npx(pkg: str)` in `mcp/cache_cleanup.py` (around L213; grep `^async def _clean_npx`)
+   - Add a module-level constant: `_VALID_NPX_PKG_RE = re.compile(r'^(?:@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*$')` — npm's actual package-name spec: only allows `/` after a `@scope/` prefix; forbids leading dots; matches lowercase + digits + `._-`. **Critical**: the original allowlist `[A-Za-z0-9._@/-]` was broken — it permitted `../etc/passwd` because every character in that string was individually allowed.
    - At the start of `_clean_npx`, validate: `if not _VALID_NPX_PKG_RE.match(pkg): raise ValueError(f"unsafe npx package name: {pkg!r}")`
    - Or, if `_clean_npx` is wrapped by `extract_runtime_package`, add the validation there so all call paths are gated at decode-time
-   - Add a test in `tests/test_mcp_cache_cleanup.py` (or wherever the existing tests live) covering: valid package name passes; `../` traversal raises; empty string raises; characters like `;` or backticks raise
+   - Add a test in `tests/test_mcp_cache_cleanup.py` (verify file exists; if not, create) covering:
+     - VALID: `lodash` ✓, `@types/node` ✓, `@scope/pkg` ✓, `pkg-with-dashes` ✓, `pkg_with_underscores` ✓
+     - INVALID: `../etc/passwd` ✗, `a/b/c` ✗ (deep path), `.hidden` ✗ (leading dot), `Foo` ✗ (uppercase — npm spec is lowercase-only), `pkg;name` ✗, empty string ✗
 
-2b. **OAuth XSS regression test** (paired with step 1)
-   - In the test file where existing OAuth callback tests live (search: `grep -l "callback\|oauth" tests/*.py | xargs grep -l "post_message\|safe_script"`), add a unit test that exercises the escape helper directly:
+3. **OAuth XSS regression test** (paired with step 1)
+   - Destination file: `tests/test_oauth_callback_route.py` (existing file with OAuth callback coverage). Add a new function at the file bottom or wrap in a `class TestSafeScriptJSON:` for grouping.
+   - Reviewer pre-confirmed: existing tests in that file assert only on heading text (`"Login successful. You may close this tab."`, `"Login failed"`, etc.); they do NOT assert on the script body or `post_message` JSON, so the escape change is non-breaking for those. No updates needed.
+   - Add tests exercising the helper directly:
      ```python
+     from the_one.interfaces.web.api import _safe_script_json
+
      def test_safe_script_json_escapes_script_termination():
          payload = {"error": "code", "description": "</script><script>alert(1)</script>"}
          out = _safe_script_json(payload)
          assert "</script>" not in out  # no raw script-termination reaches output
          assert "<\\/script>" in out    # escape is applied
          assert "alert(1)" in out        # benign content still present
-     ```
-   - Plus one assertion that the existing OAuth happy-path test (whichever file holds it) still passes after the change — no update needed unless that test asserts the literal pre-fix rendered string
 
-3. **`pip-audit` adoption**
+     def test_safe_script_json_escapes_line_separators():
+         payload = {"description": "line1 line2 line3"}
+         out = _safe_script_json(payload)
+         assert " " not in out       # no raw LSEP reaches output
+         assert " " not in out       # no raw PSEP reaches output
+         assert "\\u2028" in out          # escape applied
+         assert "\\u2029" in out          # escape applied
+     ```
+   - The LSEP/PSEP test guards against a future refactor silently dropping the U+2028/U+2029 escape (a partial regression that only `</` testing wouldn't catch).
+
+4. **`pip-audit` adoption** (scope-revised — local-only; CI step dropped with Concourse removal)
    - Edit `pyproject.toml`'s `[project.optional-dependencies].dev` to add `"pip-audit>=2.7"` (or whatever the current minor)
-   - Run `pip install -e .[dev]` to install
-   - Add a step to `ci/pipeline.yml` test task. The Leg 2 doctor probe is inline `python -c` (not `make doctor`); preserve that shape:
+   - Install in HOST venv: `.venv/bin/pip install pip-audit` (or re-run `.venv/bin/pip install -e .[dev]`)
+   - **Update `make doctor` target** (from Leg 2): the `python -c` probe currently runs `import asgi_lifespan, pytest_asyncio, ...`. Append `, pip_audit` to that comma-separated import list. **Important**: the package name is `pip-audit` (dash), the importable module is `pip_audit` (underscore) — common gotcha.
+   - **Add `make audit` target** under the same `# ── Drift detection (host-side) ──` section header as `doctor`. Shape (host-side, non-blocking):
+     ```make
+     .PHONY: audit
+     audit:  ## Run pip-audit against host venv (non-blocking; surfaces advisories)
+     	@.venv/bin/pip-audit --skip-editable || true
      ```
-     cp -r /src /work && cd /work && pip install --no-cache-dir '.[dev]' -q && python -c "import asgi_lifespan, pytest_asyncio, pip_audit; import importlib.util; assert importlib.util.find_spec('playwright')" && ruff check the_one/ tests/ && ruff format --check the_one/ tests/ && (pip-audit --skip-editable || echo 'pip-audit: non-blocking') && python -m pytest tests/ --tb=short -q && python -m pytest -m browser tests/browser/ --tb=short -q
-     ```
-   - Note: the inline doctor probe is updated to include `pip_audit` since this leg adds it. The `make doctor` Makefile target (from Leg 2) should ALSO be updated in lockstep to include `pip_audit` — keep the dev-bench probe and the CI-inline probe in sync.
-   - The `||` guard ensures pip-audit findings don't block the pipeline initially; once the baseline is clean, the team can decide whether to promote to blocking
-   - **Concourse log visibility**: confirm Concourse captures stdout from non-failing pipeline steps so pip-audit findings are surfaced in the build log without forensic-grepping. If only failing-step stdout is captured, swap `|| echo 'pip-audit: non-blocking'` for `; pip-audit --skip-editable | tee /dev/stderr || true` (tee to stderr ensures Concourse logs it).
-   - Run `pip-audit --skip-editable` locally; note the current findings in `flight-log.md` for awareness even if not actionable this leg.
-   - **Divert-if (added per Architect review)**: if `pip-audit` surfaces a HIGH or CRITICAL CVE in a runtime (non-dev) dependency (e.g., `mcp`, `fastapi`, `anthropic`, `httpx`), pause this leg, surface in flight log, and consult before continuing. The maintenance mission may need to absorb a targeted dep bump rather than just adopting the scanner.
+     The `|| true` makes findings non-blocking — `make audit` exits 0 even on advisories. Findings still print to stdout for operator awareness.
+   - ~~CI step in `ci/pipeline.yml`~~ DROPPED — Concourse removed in Leg 4
+   - Run `make audit` locally; note any findings in `flight-log.md` for awareness even if not actionable this leg.
+   - **Divert-if**: if `pip-audit` surfaces a HIGH or CRITICAL CVE on any package in `pyproject.toml`'s base `dependencies` list OR a transitive-runtime dep in the install closure of those (NOT dev-extras-only), pause this leg, surface in flight log, and consult before continuing. Common runtime deps: `mcp`, `fastapi`, `anthropic`, `openai`, `httpx`, `pydantic-settings`, `python-multipart`, `sse-starlette`, `aiosqlite`, `cryptography`, `websockets`. Dev-extras CVEs (`pytest`, `ruff`, `playwright`, `pillow`, etc.) are advisory-only and don't trigger the divert.
 
-4. **`agents.md` `_init_provider_state` doc**
+5. **`agents.md` `_init_provider_state` doc**
    - Read `the_one/agents.md` around line 1485 to confirm `## Provider type extension checklist` heading exists and find the last item (current: 6 items)
    - Add a 7th item documenting `_init_provider_state`:
      ```
-     7. **`_init_provider_state(self, kwargs: dict) -> None`** (optional hook) — Called from `LLMProvider.__init__` after standard fields are set. Implement when the provider needs to capture configuration that's not part of the base fields (e.g., OpenRouter captures `app_url` and `app_name` from kwargs to populate OpenRouter HTTP headers). Reference implementation: `openrouter_provider.py:107-113`.
+     7. **`_init_provider_state(self, kwargs: dict) -> None`** (optional hook) — Called from `LLMProvider.__init__` after standard fields are set. Implement when the provider needs to capture configuration that's not part of the base fields (e.g., OpenRouter captures `app_url` and `app_name` from kwargs to populate OpenRouter HTTP headers). Reference implementation: see `_init_provider_state` in `openrouter_provider.py` (locate by symbol — line numbers drift).
      ```
    - The exact wording can shift to match the existing checklist's voice; the key is the hook is named, signature documented, and a reference site cited
 
-5. **`agents.md` "live-read across lazy-resolver boundary" pattern**
+6. **`agents.md` "live-read across lazy-resolver boundary" pattern**
    - Read `the_one/agents.md` around line 219 to confirm `## Project Conventions` heading and find peer entries (e.g., the existing `### gated-debug-instrumentation`)
    - Add a new entry, e.g.:
      ```
@@ -147,19 +169,17 @@ The OpenRouter rebrand strings are bundled here per the flight's design decision
      ```
    - Match the existing voice and structure of peer entries
 
-6. **`.env.example` `THE_ONE_DEV_MODE`**
+7. **`.env.example` `THE_ONE_DEV_MODE`**
    - Read `.env.example`; find a logical place (probably near other `THE_ONE_*` entries)
    - Add a line: `# THE_ONE_DEV_MODE=true  # Enables dev-only routes and gates (e.g., /admin design-language page); default false in production`
    - Verify by re-running the prior `grep` test
 
-7. **`SECURITY-MODEL.md` additions**
-   - Read `SECURITY-MODEL.md` to find the "Future Work" section
-   - Add two entries under Future Work (or under a more specific subsection if one exists):
-     - MCP `streamable-http` source URLs are not gated by `_is_safe_provider_url` (the LLM-provider equivalent gate exists at `api.py:2134`). This is currently safe under the operator-trusted posture (operator configures their own MCP source URL) but is asymmetric with the LLM-provider path. A future "import MCP server from registry" feature would widen this gap. Suggested resolution: apply `_is_safe_provider_url`-equivalent to `MCPSource.config.url` at create/update time.
-     - Concourse team-password rotation cadence: the `the-one` Concourse team password was rotated 2026-05 in Mission 06 Flight 1 Leg 06. The shared admin password (used across `the-one`, `epipen`, `local-infra` teams) was deliberately deferred at that time pending a cross-project decision. Re-review at the next maintenance pass.
-   - Match the file's existing voice (terse, declarative)
+8. **`SECURITY-MODEL.md` additions** — ONE new bullet (Concourse rotation cadence dropped per pivot)
+   - Add a new bullet under `## Future Work (NOT in scope today)` at L116, alongside the existing "MCP server trust boundaries" bullet at ~L120-122:
+     - MCP `streamable-http` source URLs are not gated by `_is_safe_provider_url` (the LLM-provider equivalent gate exists for provider create/update/test endpoints). This is currently safe under the operator-trusted posture (operator configures their own MCP source URL) but is asymmetric with the LLM-provider path. A future "import MCP server from registry" feature would widen this gap. Suggested resolution: apply `_is_safe_provider_url`-equivalent to `MCPSource.config.url` at create/update time.
+   - Match the file's existing voice (terse, declarative). No Concourse-related additions — that surface is gone in Leg 4.
 
-8. **OpenRouter `_APP_URL` / `_APP_NAME`**
+9. **OpenRouter `_APP_URL` / `_APP_NAME`**
    - Read `the_one/llm/openrouter_provider.py:38-39` to confirm current values (`"https://github.com/msieurthenardier/the-one"` and `"the-one"`)
    - Update to GleepGlorp AI identity:
      ```python
@@ -168,12 +188,12 @@ The OpenRouter rebrand strings are bundled here per the flight's design decision
      ```
    - Note: the GitHub URL stays as `the-one` because Mission 08's constraint explicitly preserves the repo name; only the display name changes. Add a brief inline comment so future readers understand the asymmetry
 
-9. **Verify Leg 1 and Leg 2 baselines preserved**
+10. **Verify Leg 1 and Leg 2 baselines preserved**
    - `ruff check the_one/ tests/ && ruff format --check the_one/ tests/` — both exit 0
    - `pytest --tb=no -q` — exits 0
    - If any new violations or test failures surface, address them before commit
 
-10. **Commit — two commits, not one, so per-class revert stays clean** (per Architect design review)
+11. **Commit — two commits, not one, so per-class revert stays clean** (per Architect design review)
     - **Commit A — security + CI**: OAuth callback escape, OAuth XSS regression test, `_clean_npx` allowlist + its test, `pip-audit` in pyproject.toml, `pip-audit` step + updated doctor probe in ci/pipeline.yml, Makefile doctor target updated to include `pip_audit`.
       - `git add the_one/interfaces/web/api.py the_one/mcp/cache_cleanup.py tests/<oauth_test_file> tests/<cache_cleanup_test_file> pyproject.toml ci/pipeline.yml Makefile`
       - Commit message: `fix(security/ci): OAuth callback XSS escape; npx pkg allowlist; pip-audit adoption`
@@ -199,7 +219,7 @@ The OpenRouter rebrand strings are bundled here per the flight's design decision
 - `ci/pipeline.yml` — `pip-audit` non-blocking step in test task
 - `the_one/agents.md` — `_init_provider_state` entry + live-read pattern entry
 - `.env.example` — `THE_ONE_DEV_MODE` line
-- `SECURITY-MODEL.md` — Future Work additions (MCP URL gating asymmetry; Concourse rotation cadence)
+- `SECURITY-MODEL.md` — Future Work addition (MCP URL gating asymmetry only; Concourse rotation cadence dropped)
 - `the_one/llm/openrouter_provider.py` — `_APP_URL` and `_APP_NAME` lines (38-39)
 - Possibly `tests/test_mcp_cache_cleanup.py` (or equivalent) — new test for `_clean_npx` allowlist
 - Possibly `tests/test_oauth_callback.py` (or similar) — assertion updates for the escape change

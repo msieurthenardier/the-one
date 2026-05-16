@@ -1,6 +1,6 @@
 # Leg: 01-lint-format-restoration-and-gate-audit
 
-**Status**: landed
+**Status**: completed
 **Flight**: [Code Hygiene + Concourse Removal](../flight.md)
 
 > **Scope pivot 2026-05-15**: this leg's original framing centered on a deliberate-violation experiment to prove the Concourse pipeline gate enforces. Operator decision during execution: Concourse + self-improvement framing will be removed in this flight's new Leg 4. With no pipeline to test, the experiment is moot and dropped from this leg. The lint+format cleanup remains valuable — it's still the M06 F1 L01 zero-baseline restoration — and is now this leg's sole deliverable. Slug retained (`01-lint-format-restoration-and-gate-audit`) for branch-history continuity; the leg's effective scope is "lint + format restoration."

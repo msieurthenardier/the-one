@@ -1,11 +1,13 @@
 # Leg: 02-test-infrastructure-fixes
 
-**Status**: ready
+**Status**: completed
 **Flight**: [Integrity Gate Restoration](../flight.md)
 
 ## Objective
 
 Resolve the two test-infrastructure issues surfaced by the 2026-05-15 maintenance Inspector: `asgi-lifespan` declared-but-not-installed masks 6 MCP HTTP integration tests at collection time, and `test_sandbox_eperm_on_unshare_raises_mcp_sandbox_error_msg3`'s skip predicate is over-narrow (fails on common Linux dev hosts where user namespaces are permitted but `cap_add: SYS_ADMIN` is absent). Add a `make doctor` drift-detection target so missing dev extras fail loud rather than masking integration tests.
+
+> **Scope pivot 2026-05-15**: Concourse is being removed in this flight's Leg 4. The original Leg 2 plan added `make doctor` as both a Makefile target AND a CI-inline `python -c` probe in `ci/pipeline.yml`. With CI going away, this leg keeps the `make doctor` Makefile target as a local-bench drift detector but drops the `ci/pipeline.yml` edit. The Makefile target is still valuable for catching `pip install -e .[dev]` drift before pytest collection time.
 
 ## Context
 
@@ -18,9 +20,10 @@ Design decision from flight: drift-detection mechanism is a `make doctor` Makefi
 ## Inputs
 
 - `pyproject.toml` `[project.optional-dependencies].dev` list. **Starter probe set** (the floor; expand to mirror full `pyproject.toml` dev extras at execution time): `asgi_lifespan`, `pytest_asyncio`, `playwright` (via `importlib.util.find_spec` to avoid slow full import), `ruff` (also `find_spec`-checked). After Leg 3 lands `pip-audit`, also probe `pip_audit`. The `asgi-lifespan` probe is the mission criterion's hard requirement; the rest are nice-to-have.
-- `tests/conftest.py:238` — `from asgi_lifespan import LifespanManager` import that fails at module load
-- `tests/test_mcp_sandbox_integration.py:491-511` — the failing test with its skip predicate
-- `tests/test_mcp_sandbox_integration.py` — `_has_sys_admin()` helper definition (verify location)
+- `tests/conftest.py:238` — `from asgi_lifespan import LifespanManager` import that fails at module load on the HOST venv (the container has `asgi-lifespan` installed via `pip install -e .[dev]` at image build time, so `docker exec the-one pytest` is unaffected; this leg targets the host venv specifically)
+- `tests/test_mcp_sandbox_integration.py:175` — `_has_sys_admin()` helper (parses `/proc/self/status` CapEff bit-21, NOT `prctl`/`geteuid`)
+- `tests/test_mcp_sandbox_integration.py:488-492` — the `@pytest.mark.skipif(_has_sys_admin(), reason="...")` decorator that needs to extend its predicate
+- `tests/test_mcp_sandbox_integration.py:493` — the failing test body `test_sandbox_eperm_on_unshare_raises_mcp_sandbox_error_msg3`
 - `Makefile` — current targets list
 - `ci/pipeline.yml:22-24` — CI test task
 
@@ -34,71 +37,68 @@ Design decision from flight: drift-detection mechanism is a `make doctor` Makefi
 
 ## Acceptance Criteria
 
-- [ ] `pip show asgi-lifespan` reports the installed package
-- [ ] `cd /home/cprch/projects/the-one && make doctor` exits 0 with a one-line confirmation per dev extra
-- [ ] Deliberately uninstalling `asgi-lifespan` and running `make doctor` reports a clear `ModuleNotFoundError: No module named 'asgi_lifespan'` and exits non-zero
-- [ ] `ci/pipeline.yml`'s test task runs `make doctor` BEFORE `ruff check` + `ruff format --check` + `pytest`
-- [ ] On a Linux host where `unshare -U` succeeds, `pytest tests/test_mcp_sandbox_integration.py::test_sandbox_eperm_on_unshare_raises_mcp_sandbox_error_msg3` reports SKIPPED (not FAILED)
-- [ ] `cd /home/cprch/projects/the-one && pytest --tb=no -q` exits 0 (broad pytest clean exit)
+- [ ] `pip show asgi-lifespan` (HOST venv — `/bin/pip`, not `docker exec`) reports the installed package
+- [ ] `cd /home/cprch/projects/the-one && make doctor` (HOST-side: target shells `python -c "..."` directly, NOT `docker exec`) exits 0 with a one-line confirmation
+- [ ] Deliberately uninstalling `asgi-lifespan` on the host and running `make doctor` reports a clear `ModuleNotFoundError: No module named 'asgi_lifespan'` and exits non-zero
+- [ ] (DROPPED — Concourse going away in Leg 4) ~~`ci/pipeline.yml`'s test task runs `make doctor` BEFORE `ruff check` + `ruff format --check` + `pytest`~~. `make doctor` ships as a host-bench target only.
+- [ ] On the operator's HOST (WSL2, `unshare -U` succeeds without privilege), `cd /home/cprch/projects/the-one && pytest tests/test_mcp_sandbox_integration.py::test_sandbox_eperm_on_unshare_raises_mcp_sandbox_error_msg3 -v` reports SKIPPED with a reason citing the new `_can_unshare_user_namespace()` branch. **Verification must run on HOST, not container** — the container has `cap_add: SYS_ADMIN` which short-circuits to the existing `_has_sys_admin()` branch and never exercises the new predicate.
+- [ ] `cd /home/cprch/projects/the-one && pytest --tb=no -q` (HOST) exits 0 — proves the asgi-lifespan install + predicate fix engage on the operator's primary host pytest invocation point
+- [ ] `docker exec the-one pytest --tb=no -q --ignore=tests/browser` (CONTAINER) still exits 0 — Leg 1's clean container baseline preserved
 
 ## Verification Steps
 
-- `cd /home/cprch/projects/the-one && pip show asgi-lifespan | head -3` — shows installed version ≥ 2.0
-- `cd /home/cprch/projects/the-one && make doctor` — exit 0
-- `cd /home/cprch/projects/the-one && pip uninstall -y asgi-lifespan && make doctor; pip install asgi-lifespan` — `make doctor` should exit non-zero before reinstall, exit 0 after
-- `cd /home/cprch/projects/the-one && grep -A3 "make doctor" ci/pipeline.yml` — invocation present before lint/test
-- `cd /home/cprch/projects/the-one && pytest tests/test_mcp_sandbox_integration.py::test_sandbox_eperm_on_unshare_raises_mcp_sandbox_error_msg3 -v` — the predicate covers three host shapes: (A) `cap_add: SYS_ADMIN` present → SKIPPED (unchanged from current behavior); (B) `cap_add: SYS_ADMIN` absent AND `unshare -U` succeeds (e.g., WSL2, stock Ubuntu — was FAILED pre-leg, now SKIPPED post-leg); (C) `cap_add: SYS_ADMIN` absent AND `unshare -U` fails (locked-down container) → PASSED (the test's intended path: EPERM actually fires, test asserts the error correctly). On the operator's WSL2 host the expected outcome is SKIPPED (case B); confirm in flight log which host shape the verification ran against.
-- `cd /home/cprch/projects/the-one && pytest --tb=no -q` — exits 0; reports 1683+ collected; no errors at collection time; remaining tests pass or skip as expected
+All commands run on the HOST unless explicitly prefixed `docker exec`.
+- `pip show asgi-lifespan | head -3` (HOST) — shows installed version ≥ 2.0
+- `cd /home/cprch/projects/the-one && make doctor` — exit 0; one-line per probed extra
+- `cd /home/cprch/projects/the-one && pip uninstall -y asgi-lifespan && make doctor; pip install asgi-lifespan` (HOST) — `make doctor` should exit non-zero before reinstall, exit 0 after
+- ~~`grep -A3 "make doctor" ci/pipeline.yml`~~ DROPPED — Concourse going away in Leg 4
+- `cd /home/cprch/projects/the-one && pytest tests/test_mcp_sandbox_integration.py::test_sandbox_eperm_on_unshare_raises_mcp_sandbox_error_msg3 -v` (HOST) — the predicate covers three host shapes: (A) `cap_add: SYS_ADMIN` present → SKIPPED (the container branch — verified via `docker exec` if desired); (B) WSL2/stock-Ubuntu host where `unshare -U` succeeds without privilege — was FAILED pre-leg, now SKIPPED post-leg via the new `_can_unshare_user_namespace()` branch (this is the operator's primary path); (C) locked-down host where `unshare -U` fails — PASSED (test's intended path: EPERM fires, test asserts correctly). On the operator's WSL2 host the expected outcome is **case B → SKIPPED**; document the observed case in flight log.
+- `cd /home/cprch/projects/the-one && pytest --tb=no -q` (HOST) — exits 0; reports 1683+ collected; no errors at collection time; remaining tests pass or skip as expected
+- `docker exec the-one pytest --tb=no -q --ignore=tests/browser` (CONTAINER) — exits 0; preserves Leg 1's clean baseline (1679 passed)
 - `cd /home/cprch/projects/the-one && ruff check the_one/ tests/` — still 0 errors (Leg 1's work not regressed by this leg)
 
 ## Implementation Guidance
 
-1. **Install `asgi-lifespan`**
-   - `cd /home/cprch/projects/the-one && pip install asgi-lifespan` (or `pip install -e .[dev]` which should pick it up)
+1. **Install `asgi-lifespan` on the HOST venv**
+   - The container already has it (verified Leg 1: clean collection); this step targets the host venv where the operator runs `pytest` directly.
+   - `pip install asgi-lifespan` (NOT `docker exec` — host pip)
    - Verify: `pip show asgi-lifespan` returns version ≥ 2.0
 
-2. **Add the `doctor` Makefile target**
-   - Inspect existing `Makefile` to match the style and indentation conventions
-   - Add a target like:
+2. **Add the `doctor` Makefile target — HOST-side, not container**
+   - Note: `make lint` / `make format` in this project run via `docker exec the-one` (container-first). `make doctor` is DELIBERATELY different — it probes host-venv drift, which is exactly the case that motivated Leg 1's `asgi-lifespan` discovery (host missing, container fine). Add a section-header comment block: `# ── Drift detection (host-side) ──`.
+   - Add the target:
      ```make
      .PHONY: doctor
-     doctor:  ## Verify all declared dev extras are importable
-     	@python -c "import asgi_lifespan, pytest_asyncio; import importlib.util; assert importlib.util.find_spec('playwright'), 'missing playwright'; assert importlib.util.find_spec('ruff') or True, 'ruff is a binary, not import'; print('doctor: ok')"
+     doctor:  ## Verify all declared dev extras are importable on the host venv
+     	@python -c "import asgi_lifespan, pytest_asyncio, pytest_timeout, pytest_playwright, pixelmatch; from PIL import Image; import importlib.util; assert importlib.util.find_spec('playwright'), 'missing playwright'; import ruff; print('doctor: ok')"
      ```
-   - Rely on Python's non-zero exit code on `ImportError` / `AssertionError`. Do NOT use the `tee /dev/stderr | grep` pattern — it can false-positive if a probed package's import emits the string "OK" on stderr noise (per Architect design-review suggestion).
-   - The exact import list should mirror what `pyproject.toml`'s `[project.optional-dependencies].dev` declares; verify each by inspecting `pyproject.toml`. Floor: `asgi_lifespan` is the mission criterion's hard requirement; the rest are nice-to-have.
-   - Add a help-section comment (`## ...`) following the project's existing Makefile convention (look at sibling targets for the comment style)
-   - For packages that are slow or environment-sensitive to import (e.g., `playwright`), use `importlib.util.find_spec(...)` which doesn't trigger module init
-   - **Note**: when Leg 3 lands `pip-audit`, this target gets `pip_audit` added to the import list. Keep the Makefile target and the inline CI probe (step 3 below) in sync.
-
-3. **Add doctor check to CI** (NOT via `make` — the CI image may not include it)
-   - Architect spot-check (Phase 4b mission validation) noted: `mcr.microsoft.com/playwright/python:v1.58.0-jammy` is a minimal Ubuntu jammy image and does NOT ship `make` by default (Ubuntu's `make` is part of `build-essential`, not the base image).
-   - Edit `ci/pipeline.yml`'s test task command sequence. Currently the chain is:
-     ```
-     cp -r /src /work && cd /work && pip install --no-cache-dir '.[dev]' -q && ruff check the_one/ tests/ && ruff format --check the_one/ tests/ && pytest ...
-     ```
-   - **Two options**:
-     - **Option A (recommended)**: inline the doctor probe as a `python -c` directly in the pipeline `sh -c`, skipping the Makefile target for the CI path while keeping `make doctor` for dev-bench use:
-       ```
-       cp -r /src /work && cd /work && pip install --no-cache-dir '.[dev]' -q && python -c "import asgi_lifespan, pytest_asyncio, importlib.util; assert importlib.util.find_spec('playwright')" && ruff check the_one/ tests/ && ruff format --check the_one/ tests/ && pytest ...
-       ```
-     - **Option B**: prepend `apt-get install -y make` to the `sh -c`:
-       ```
-       cp -r /src /work && cd /work && apt-get install -y make >/dev/null && pip install --no-cache-dir '.[dev]' -q && make doctor && ruff check ...
-       ```
-   - Pick Option A — keeps the CI command terse and self-contained, avoids dependency on apt-get reachability in the build environment, and the Makefile target is still useful for developers running locally
-   - The inline `python -c` should mirror what `make doctor` checks; keep the two in sync
+   - Important name mismatches to get right:
+     - `pillow` package → `from PIL import ...` (NOT `import pillow`)
+     - `playwright` — slow init; use `find_spec` not direct `import`
+     - `ruff` — IS importable as `import ruff` (don't `or True` it; drop the no-op)
+   - Rely on Python's non-zero exit code on `ImportError` / `AssertionError`. Do NOT use the `tee /dev/stderr | grep` pattern — it can false-positive if a probed package's import emits the string "OK" on stderr noise.
+   - The full probe set should mirror `pyproject.toml`'s `[project.optional-dependencies].dev`:
+     - `pytest>=8.0` (assumed present; not probed — running pytest implies presence)
+     - `pytest-asyncio>=0.24` → probe as `import pytest_asyncio`
+     - `pytest-timeout>=2.4` → `import pytest_timeout`
+     - `ruff>=0.6` → `import ruff`
+     - `playwright==1.58.0` → `find_spec('playwright')` (slow init)
+     - `pytest-playwright>=0.5` → `import pytest_playwright`
+     - `pillow>=10.0` → `from PIL import Image`
+     - `pixelmatch>=0.3` → `import pixelmatch`
+     - `asgi-lifespan>=2.0` → `import asgi_lifespan`
+   - Floor: `asgi_lifespan` is the mission criterion's hard requirement; the rest catch broader drift.
+   - **Leg 3 will add**: `pip_audit` — when Leg 3 lands, append `import pip_audit` to this target's probe.
 
 4. **Tighten the sandbox skip predicate**
-   - Locate `_has_sys_admin()` in `tests/test_mcp_sandbox_integration.py` (search around line 491)
-   - The current predicate likely uses `os.geteuid() == 0` or a capability-bit check via `prctl`. Add an alternative branch that probes `unshare -U` success at module import time. Approximate shape:
+   - Helper currently at `tests/test_mcp_sandbox_integration.py:175`: `_has_sys_admin()` parses `/proc/self/status` for the CapEff line and checks bit 21 (SYS_ADMIN). Decorator at `:488-492`: `@pytest.mark.skipif(_has_sys_admin(), reason="...")`. Test body at `:493+`.
+   - Add a sibling helper that probes whether the host can create user namespaces without privilege (WSL2, stock Ubuntu — kernel allows `unshare -U` for unprivileged users):
      ```python
      import subprocess
      def _can_unshare_user_namespace() -> bool:
          try:
              result = subprocess.run(
                  ["unshare", "-U", "-r", "true"],
-                 capture_output=True,
                  timeout=2,
                  check=False,
              )
@@ -108,22 +108,36 @@ Design decision from flight: drift-detection mechanism is a `make doctor` Makefi
 
      _SHOULD_SKIP_EPERM_TESTS = _has_sys_admin() or _can_unshare_user_namespace()
      ```
-   - Update the test decorator(s) to skip when `_SHOULD_SKIP_EPERM_TESTS` is true rather than only when `_has_sys_admin()` is true
-   - The leg's intent is "skip when the EPERM error path cannot be exercised in this environment" — clearer name + comment helps the next reader
+   - Update the decorator at L488 from `_has_sys_admin()` to `_SHOULD_SKIP_EPERM_TESTS`. Update the reason text to cite both branches: `reason="Test exercises the no-privilege-grants path; skip when SYS_ADMIN is granted (container) OR when unshare -U succeeds without privilege (WSL2, stock Ubuntu host)"`.
+   - The leg's intent is "skip when the EPERM error path cannot be exercised in this environment" — clearer name + comment helps the next reader.
+   - HOST PROBE CONFIRMED during design review: on the operator's WSL2 host, `unshare -U -r true` exits 0, so the new branch will trigger and the test will SKIP (not FAIL) on host runs.
 
-5. **Verify broad pytest passes**
-   - `cd /home/cprch/projects/the-one && pytest --tb=no -q`
-   - Should report 1683+ collected, 0 errors at collection, no failures
-   - If `test_sandbox_eperm_on_unshare_raises_mcp_sandbox_error_msg3` reports FAILED still, the skip predicate needs further refinement (likely the `unshare -U` probe shape is wrong on this host); iterate
+5. **Verify broad pytest passes — on HOST**
+   - `cd /home/cprch/projects/the-one && pytest --tb=no -q` (HOST — proves asgi-lifespan install + predicate fix both engage)
+   - Should report 1683+ collected, 0 collection errors, 0 failures
+   - If `test_sandbox_eperm_on_unshare_raises_mcp_sandbox_error_msg3` reports FAILED still, the skip predicate needs refinement; iterate
+   - Also: `docker exec the-one pytest --tb=no -q --ignore=tests/browser` (CONTAINER) — should still exit 0 (1679 passed per Leg 1); confirms no regression
 
-6. **Verify the gate from Leg 1 still passes**
+6. **Verify the Leg 1 baseline still passes**
    - `cd /home/cprch/projects/the-one && ruff check the_one/ tests/ && ruff format --check the_one/ tests/` — both should exit 0
-   - If this leg's Makefile or pipeline.yml edits introduce ruff violations, fix them inline
+   - If this leg's Makefile or test-file edits introduce ruff violations, fix them inline
 
 7. **Commit**
-   - `git add Makefile ci/pipeline.yml tests/test_mcp_sandbox_integration.py`
-   - Note: `pip install asgi-lifespan` is a local venv operation — no file change to commit for the install itself. But `pyproject.toml` already declares it; nothing to add there.
-   - Commit message: `chore(tests): install asgi-lifespan + make doctor drift-detection + tighten sandbox skip predicate`
+   - `git add Makefile tests/test_mcp_sandbox_integration.py` (NOT `ci/pipeline.yml` — that file is gone in Leg 4; NOT `-A` — explicit paths only)
+   - Note: `pip install asgi-lifespan` is a host-venv operation — no file change to commit for the install itself. `pyproject.toml` already declares it; nothing to add there.
+   - Commit on the flight branch with a heredoc commit message (matching Leg 1's `flight/01:` convention):
+     ```bash
+     git commit -m "$(cat <<'EOF'
+     flight/01: install asgi-lifespan + make doctor (host) + tighten sandbox skip predicate
+
+     Mission: 09
+     EOF
+     )"
+     ```
+   - Do NOT push.
+   - Update leg status `ready` → `in-flight` at the start of implementation; → `landed` at the end (NOT `completed` — flight close handles that).
+   - Update `flight-log.md` with a Leg 2 Progress entry.
+   - Signal `[HANDOFF:review-needed]` when done.
 
 ## Edge Cases
 
@@ -135,22 +149,20 @@ Design decision from flight: drift-detection mechanism is a `make doctor` Makefi
 
 ## Files Affected
 
-- `Makefile` — new `doctor` target
-- `ci/pipeline.yml` — `make doctor &&` inserted into test task command chain at L24
-- `tests/test_mcp_sandbox_integration.py` — `_has_sys_admin()` augmented with `_can_unshare_user_namespace()` probe; affected test decorator(s) updated
-- `.venv/` — `asgi-lifespan` installed (not tracked, but state change is real)
+- `Makefile` — new `doctor` target (host-side; see step 2 for section-header convention)
+- `tests/test_mcp_sandbox_integration.py` — sibling helper `_can_unshare_user_namespace()` added; `_SHOULD_SKIP_EPERM_TESTS` constant added; the L488 `@pytest.mark.skipif` decorator's predicate + reason updated
+- host pip env — `asgi-lifespan>=2.0` installed (not tracked, state change is real)
 - `flight-log.md` — Leg Progress entry added on completion
 
 ---
 
 ## Post-Completion Checklist
 
-**Complete ALL steps before signaling `[COMPLETE:leg]`:**
+**Complete ALL steps before signaling `[HANDOFF:review-needed]`:**
 
 - [ ] All acceptance criteria verified
-- [ ] Tests passing — broad pytest exits 0 (clean, not `-x`-terminated)
-- [ ] `make doctor` proven to detect a missing extra (uninstall-then-doctor experiment)
+- [ ] Host pytest exits 0 (asgi-lifespan installed); container pytest still exits 0
+- [ ] `make doctor` proven to detect a missing extra (uninstall-then-doctor experiment on host)
 - [ ] Update `flight-log.md` with leg progress entry
-- [ ] Set this leg's status to `completed`
-- [ ] Check off this leg in `flight.md`
-- [ ] Commit all changes together (Makefile + ci/pipeline.yml + tests + flight artifacts)
+- [ ] Set this leg's status to `landed` (NOT `completed` — flight close handles that)
+- [ ] Commit (Makefile + tests/test_mcp_sandbox_integration.py + flight artifacts) with the heredoc-formatted `flight/01:` prefix message
