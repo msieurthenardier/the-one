@@ -1,15 +1,24 @@
-# Flight: Accessibility Carry-forward
+# Flight: Accessibility Carry-forward + F1 Tech-Debt Cleanup
 
-**Status**: ready
+**Status**: in-flight
 **Mission**: [Maintenance (Post-M08)](../../mission.md)
 
 ## Contributing to Criteria
 
+**Accessibility (existing scope)**:
 - [ ] Chat welcome agent picker has roving-tabindex + ArrowUp/ArrowDown/Home/End working with `aria-selected` toggling; pattern lifted from `areas/layout/section-nav.js:71-91`
 - [ ] Session-list restructured: `role="listbox"`/`role="option"` removed; replaced with `<nav>` + `<ul>` of `<button>`; affected browser test assertions in `tests/browser/test_flow_keyboard.py` updated to match
 - [ ] Admin tools-grid verified keyboard-accessible (already a button-grid post-M08 F5, NOT a listbox — no role change)
 - [ ] Form-field errors carry `aria-invalid="true"` + `aria-describedby` to a generated id; `role="alert"` on first error per save cycle
 - [ ] Light-theme `--fg-muted` (and `--fg-faint` where used on shell chrome) meet WCAG AA contrast against `--shell-chrome-bg` via scope-the-usage approach (use `--fg-tertiary` at chrome-text consumer sites rather than darkening `--fg-muted` globally)
+
+**F1 tech-debt carry-forward (added 2026-05-16 from F1 debrief — non-methodology recommendations)**:
+- [ ] `Makefile` gains `rebuild-browsers` target combining `make rebuild` + `docker exec the-one playwright install chromium` (breaks the recurring "rebuild wipes Chromium" foot-gun flagged in F5/F6/F6.5/F7/F1 debriefs)
+- [ ] `agents.md` `### live-read-across-lazy-resolver-boundary` entry's test citation fixed (cites `test_max_context_tokens_live_read_across_resolver` in `tests/test_agent_core.py` — neither exists; actual test is `test_usage_event_reflects_live_max_context_tokens_at_emission` in `tests/test_process_and_broadcast_live_read.py`)
+- [ ] `agents.md ## Project Conventions` gains a new `### host-side-bench-drift-detection` entry codifying the host-side `make doctor` / `make audit` convention (asymmetry from container-first `make lint`/`make format`)
+- [ ] `make doctor` target shifts from bare `python -c ...` to `.venv/bin/python -c ...` to match `make audit`'s shape (fixes sub-shell `python`-not-on-PATH foot-gun surfaced in F1 Leg 3)
+- [ ] `Makefile` gains `audit-bytes` target: `git grep -lP "[\x{2028}\x{2029}]"` against the_one/ and tests/ returns empty (catches raw U+2028/U+2029 LSEP/PSEP characters in source — the class of bug F1 Leg 3 implementation almost shipped)
+- [ ] `agents.md` (or `SECURITY-MODEL.md`) documents the npm-spec regex pattern (`^(?:@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*$`) as a reusable security primitive for "operator-supplied identifiers that flow into filesystem paths or subprocess argv must be validated against a spec-grounded allowlist, NOT a permissive character class" — references `_VALID_NPX_PKG_RE` as the exemplar
 
 ---
 
@@ -17,7 +26,7 @@
 
 ### Objective
 
-Resolve the three Action Required accessibility findings from the 2026-05-15 maintenance report — two of which (A.2 form-field errors, A.3 light-theme contrast) are second-pass-running carry-forwards — and opportunistically sweep the medium/low-severity a11y items in the same touch surface.
+Resolve the three Action Required accessibility findings from the 2026-05-15 maintenance report — two of which (A.2 form-field errors, A.3 light-theme contrast) are second-pass-running carry-forwards — opportunistically sweep the medium/low-severity a11y items in the same touch surface, **and bundle in the F1 debrief's non-methodology carry-forward recommendations** (Makefile/docs/tooling cleanup) since they're small, atomic, and avoid letting tech-debt rot to a future maintenance pass.
 
 ### Open Questions
 
@@ -45,9 +54,11 @@ Resolve the three Action Required accessibility findings from the 2026-05-15 mai
 
 ### Prerequisites
 
-- [ ] Flight 1 (Integrity Gate Restoration) completed and merged — this flight depends on the ruff baseline being clean and `make doctor` being in place
-- [ ] No outstanding browser-test failures from Flight 1's commits (broad pytest exits 0)
-- [ ] Local Playwright can run pixel tests (for visual baseline regeneration after token changes)
+- [ ] Flight 1 (Code Hygiene + Concourse Removal) completed (status `completed`) — F1 dependencies: ruff 0/0 baseline; `make doctor` + `make audit` exist; `_safe_script_json` / `_clean_npx` / `_can_unshare_user_namespace` helpers in place
+- [ ] **Chromium restoration** (per F1 debrief): `make _ensure-playwright` invoked once at flight start. The existing `_ensure-playwright` target at `Makefile:39-46` conditionally installs Chromium when absent — it's already wired into `make test-browser` and `make test-pixel`, so the F1 debrief's "312 ERRORS at setup" came from bypassing `make` and calling raw `docker exec the-one pytest` (Architect spot-check during F2 design review confirmed). Leg 3 sub-fix (a) adds `rebuild-browsers` as a convenience target that chains `rebuild + _ensure-playwright`. **Net change to F2 verification**: switch any raw `docker exec the-one pytest -m browser` calls to `make test-browser`, which auto-restores via the existing machinery.
+- [ ] No outstanding browser-test failures from Flight 1's commits (broad pytest exits 0 — confirmed at F1 close at 1700 passed host + container)
+- [ ] Local Playwright can run pixel tests via `make test-pixel` (also chains `_ensure-playwright` automatically)
+- [ ] **Branch strategy**: F2 work happens on a new branch `flight/02-accessibility-and-cleanup` branched off `flight/01-integrity-gate-restoration` (NOT off `main` — F1's commits aren't on `main` yet; F2's legs reference F1 commits as preconditions). Rebase F2 onto `main` after PR #56 merges. Set via `git checkout flight/01-integrity-gate-restoration && git checkout -b flight/02-accessibility-and-cleanup`.
 
 ### Pre-Flight Checklist
 
@@ -63,20 +74,31 @@ Resolve the three Action Required accessibility findings from the 2026-05-15 mai
 
 ### Technical Approach
 
-Two legs.
+Three legs.
 
 **Leg 1 (Welcome picker keyboard + session-list restructure + tools-grid verify)**: copy the roving-tabindex pattern from `areas/layout/section-nav.js:71-91` into the chat welcome agent picker (`areas/chat/welcome.js`). This is the one site that needs the treatment; helper extraction is moot with one consumer. For the session-list, replace `role="listbox"` / `role="option"` with `<nav>` + `<ul>` of `<button>` items; the per-item delete button becomes a sibling rather than a child; update `tests/browser/test_flow_keyboard.py` assertions accordingly. For tools-grid, verify keyboard accessibility of the existing button-grid (no role change — already migrated in M08 F5 leg 02). Verify with manual keyboard testing (Tab, Shift+Tab, Arrow keys, Enter, Escape).
 
 **Leg 2 (Form errors + tokens + sweep)**: A.2 form-field error wiring (`aria-invalid` + `aria-describedby` + `role="alert"`) — locate `renderFieldErrors` site and wire up the association. A.3 light-theme contrast — lead with scope-the-usage: enumerate chrome-text consumer sites (topbar, sidebar) and switch them from `var(--fg-muted)` to `var(--fg-tertiary)`; verify with `tests/test_design_tokens_a11y.py`. A.5 toast extend to 5s. A.6 MCP icon `alt=""` when decorative. A.7 thinking-indicator `prefers-reduced-motion` gate. A.8 telemetry overlay labeling + opacity. A.11 trace-shell count include in `aria-label`. A.12 tool toggle visible state label.
 
-**Opportunistic (drop at first sign of leg slippage)**: A.9 `indicator-led` labeling discipline (contract docs + call-site sweep); A.10 `section-nav` `role="group"` → drop or `role="tablist"`; A.13 README accessibility section.
+**Opportunistic in Leg 2 (drop at first sign of leg slippage)**: A.9 `indicator-led` labeling discipline (contract docs + call-site sweep); A.10 `section-nav` `role="group"` → drop or `role="tablist"`; A.13 README accessibility section.
 
-Each finding gets a separate sub-commit inside the leg so reverting any one item is clean. If a sub-fix surfaces a deeper issue, document it in the flight log Anomalies section and decide whether to scope it out.
+**Leg 3 (F1 tech-debt + tooling cleanup — NEW per F1 debrief recommendations)**: 6 atomic small fixes bundled because they share the same touch surface (Makefile + agents.md):
+- (a) `Makefile`: new `rebuild-browsers` target chaining `make rebuild` + `docker exec the-one playwright install chromium` so the recurring "rebuild wipes Chromium" foot-gun stops recurring.
+- (b) `Makefile`: shift `doctor` target's `python -c ...` to `.venv/bin/python -c ...` (matches `audit` target's shape; fixes sub-shell `python`-not-on-PATH foot-gun surfaced in F1 Leg 3).
+- (c) `Makefile`: new `audit-bytes` target: `git grep -lP "[\x{2028}\x{2029}]" -- 'the_one/*.py' 'tests/*.py'` returns empty; non-zero exit if raw LSEP/PSEP found.
+- (d) `agents.md` `### live-read-across-lazy-resolver-boundary` (line ~233): fix the test citation (currently `test_max_context_tokens_live_read_across_resolver` in `tests/test_agent_core.py` — neither exists; replace with `test_usage_event_reflects_live_max_context_tokens_at_emission` in `tests/test_process_and_broadcast_live_read.py:98`).
+- (e) `agents.md ## Project Conventions`: new `### host-side-bench-drift-detection` entry codifying the host-side `make doctor` / `make audit` convention as peer to `### gated-debug-instrumentation`.
+- (f) `agents.md` (or `SECURITY-MODEL.md`): new entry documenting npm-spec regex as a reusable security primitive. Reference `_VALID_NPX_PKG_RE` at `mcp/cache_cleanup.py:71-83` as the exemplar.
+
+Each finding in Leg 3 gets a separate sub-commit, like Leg 2's atomic-sub-commit pattern. Most are 1-5 line edits. Estimated leg size: ~1-2 hours.
+
+Each finding gets a separate sub-commit inside its leg so reverting any one item is clean. If a sub-fix surfaces a deeper issue, document it in the flight log Anomalies section and decide whether to scope it out.
 
 ### Checkpoints
 
-- [ ] Leg 1: three listbox sites have correct keyboard semantics; session-list structural fix landed; manual keyboard test passed across all three
-- [ ] Leg 2: form-field error wiring landed; light-theme contrast test green; all sweep items landed with sub-commits
+- [ ] Leg 1: three listbox sites have correct keyboard semantics; session-list structural fix landed; manual keyboard test passed across all three; `tests/browser/test_flow_keyboard.py` assertions updated
+- [ ] Leg 2: form-field error wiring landed; light-theme contrast test green; all firm sweep items landed with sub-commits; opportunistic items either landed or explicitly skipped with reason
+- [ ] Leg 3: 6 sub-fixes landed; `make doctor`/`make audit`/`make audit-bytes`/`make rebuild-browsers` all functional; `agents.md` citation fix + new conventions land cleanly
 - [ ] Local pixel baselines regenerated after Leg 2's token change (baselines are gitignored — local artifact)
 
 ### Adaptation Criteria
@@ -94,6 +116,7 @@ Each finding gets a separate sub-commit inside the leg so reverting any one item
 
 - [ ] `01-listbox-keyboard-and-structure` — Welcome agent picker: roving-tabindex + arrow keys. Session-list: drop listbox semantic, restructure to nav+buttons, update affected browser test assertions. Tools-grid: verify keyboard accessibility (no role change).
 - [ ] `02-form-errors-tokens-and-sweep` — Form-field error wiring; light-theme chrome-text contrast via scope-the-usage; firm sweep (A.5/A.6/A.7/A.8/A.11/A.12). Opportunistic (drop if leg slips): A.9, A.10, A.13.
+- [ ] `03-f1-techdebt-and-tooling-cleanup` — Bundle of 6 F1-debrief carry-forward fixes (non-methodology): `make rebuild-browsers`; `make doctor` venv-python fix; `make audit-bytes`; agents.md live-read citation fix; agents.md `### host-side-bench-drift-detection` convention; npm-spec regex documented as security primitive.
 
 ---
 
@@ -101,14 +124,16 @@ Each finding gets a separate sub-commit inside the leg so reverting any one item
 
 ### Completion Checklist
 
-- [ ] All two legs completed
-- [ ] All success criteria contributing to this flight checked off
-- [ ] Manual keyboard navigation works correctly in all three listbox sites
+- [ ] All THREE legs completed
+- [ ] All success criteria contributing to this flight checked off (accessibility + F1 tech-debt bundle)
+- [ ] Manual keyboard navigation works correctly in welcome picker + session list + tools-grid
 - [ ] Form-field error announcements work (verify with VoiceOver / NVDA / Orca screen-reader test if available; otherwise inspect DOM)
 - [ ] Light-theme contrast test passes (the existing test in `test_design_tokens_a11y.py` or equivalent)
 - [ ] Local pixel baselines regenerated (gitignored, local-only)
 - [ ] Broad pytest exits 0
-- [ ] Ruff baseline preserved (0/0)
+- [ ] Browser pytest passes (`make test-browser` — auto-restores Chromium via existing `_ensure-playwright`)
+- [ ] Ruff baseline preserved (0/0 from F1)
+- [ ] `make doctor` / `make audit` / `make audit-bytes` / `make rebuild-browsers` all functional
 - [ ] Flight debrief run (per M08 lesson)
 - [ ] Mission flight checkbox checked
 
@@ -116,6 +141,12 @@ Each finding gets a separate sub-commit inside the leg so reverting any one item
 
 - `cd /home/cprch/projects/the-one && pytest --tb=no -q` → exit 0
 - `cd /home/cprch/projects/the-one && ruff check the_one/ tests/ && ruff format --check the_one/ tests/` → both exit 0
+- `cd /home/cprch/projects/the-one && make test-browser` → exit 0 (auto-restores Chromium via existing `_ensure-playwright` if absent; preferred over raw `docker exec` to leverage existing machinery)
+- `cd /home/cprch/projects/the-one && make doctor` (HOST) → exit 0 `doctor: ok`
+- `cd /home/cprch/projects/the-one && make audit` (HOST) → runs, prints any findings, exits 0 (non-blocking)
+- `cd /home/cprch/projects/the-one && make audit-bytes` → exit 0 (no raw LSEP/PSEP)
+- `cd /home/cprch/projects/the-one && grep "test_usage_event_reflects_live_max_context_tokens_at_emission" the_one/agents.md` → match (citation fix landed)
+- `cd /home/cprch/projects/the-one && grep "^### host-side-bench-drift-detection" the_one/agents.md` → match (new convention landed)
 - Manual: open chat → click in welcome agent picker → press ArrowDown → focus moves to next agent → press Enter → agent selected
 - Manual: open chat → focus session list → press Tab through items → each item focusable; delete button per-item also focusable via Tab
 - Manual: open admin tools-grid → focus first tile → press ArrowRight/ArrowDown → focus moves; press Enter → tile activates
