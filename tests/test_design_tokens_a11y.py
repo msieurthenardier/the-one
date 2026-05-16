@@ -184,10 +184,15 @@ def test_large_or_ui_passes_aa(theme: str, fg_key: str, bg_key: str) -> None:
         # topbar/sidebar surface; primary fg is the only production text
         # consumer there today (titles, menu labels).
         # Dark:  #e0e0e0 on #20202a ≈ 12.22:1; Light: #0f172a on #d4d8df ≈ 12.49:1.
-        # Muted-text-on-chrome variants deferred — no production consumer
-        # today; light fg_muted (#64748b) on #d4d8df would compute to ≈ 3.33:1
-        # and FAIL body AA 4.5 (passes large/UI 3.0). If Studio's polish work
-        # introduces muted text on chrome, the audit must be revisited.
+        # Muted-text-on-chrome variants deferred under scope-the-usage rule
+        # (F2 Leg 2, 2026-05-16): chrome surfaces use --fg-tertiary directly
+        # rather than --fg-muted/--fg-faint. Verified consumers rescoped at
+        # base.css:144 (.stub-sidebar .subtitle), chat.css:15 (.session-group-label),
+        # and chat.css:35 (.session-item-agent). Light fg_muted (#64748b) on
+        # #d4d8df would compute to ≈ 3.33:1 and FAIL body AA 4.5 (passes UI 3.0);
+        # light fg_faint (#94a3b8) on #d4d8df ≈ 1.85:1 fails both. Re-introducing
+        # a chrome-text consumer of --fg-muted or --fg-faint requires updating
+        # BOTH this comment AND the consumer site (or pivoting to a token darken).
         ("dark", "fg", "shell_chrome_bg", 4.5),
         ("light", "fg", "shell_chrome_bg", 4.5),
     ],

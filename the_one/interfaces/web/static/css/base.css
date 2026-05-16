@@ -141,5 +141,5 @@
   .stub-content { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--fg-muted); font-size: var(--font-size-body-lg); }
   .stub-sidebar { padding: 12px 16px; border-bottom: 1px solid var(--border); }
   .stub-sidebar .title { font-weight: var(--font-weight-bold); color: var(--accent); font-size: var(--font-size-body-lg); }
-  .stub-sidebar .subtitle { color: var(--fg-muted); font-size: var(--font-size-caption); margin-top: 4px; }
+  .stub-sidebar .subtitle { color: var(--fg-tertiary); font-size: var(--font-size-caption); margin-top: 4px; }
 }
