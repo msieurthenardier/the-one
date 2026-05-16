@@ -1,7 +1,7 @@
 # Leg: 02-form-errors-tokens-and-sweep
 
-**Status**: ready
-**Flight**: [Accessibility Carry-forward](../flight.md)
+**Status**: in-flight
+**Flight**: [Accessibility Carry-forward + F1 Tech-Debt Cleanup](../flight.md)
 
 ## Objective
 
@@ -17,23 +17,29 @@ The sweep items are mostly one-liner each. They cluster in this leg because (i) 
 
 ## Inputs
 
-- `the_one/interfaces/web/static/js/areas/admin/tools-form-helpers.js:517-521` — `renderFieldErrors` site appending `<span class="field-error">`
+(Line refs verified during cycle-1 design review on 2026-05-16; locate by symbol where line numbers may drift.)
+
+- `the_one/interfaces/web/static/js/areas/admin/tools-form-helpers.js` — `renderFieldErrors` function spans **L493-536**; per-row mutation site (where `row.classList.add('field-error-highlight')` + span append happens) at **L513-521**. The function also needs to QUERY the input inside the row (`row.querySelector('input, select, .chip-list-editor')` — see Step 2 for the additivity sequence). Existing `aria-describedby` pattern from info-icon at L106-119 + L130-134; `dataAttrs += ' aria-describedby="' + descId + '"'` lands on the wrapping div for chip-list-editor (not on the inner chip input).
 - `the_one/interfaces/web/static/css/areas/admin.css:362-368` — per-row red error styling
-- `the_one/interfaces/web/static/css/tokens.css:242-243` — `--fg-muted` / `--fg-faint` light-theme variants
+- `the_one/interfaces/web/static/css/tokens.css` — `--fg-muted` at **L247** (`#64748b` light); `--fg-faint` at **L248** (`#94a3b8` light); `--fg-tertiary` at **L246** (`#475569`, AA-passing chrome-text target); `--shell-chrome-bg` at **L447** (`#d4d8df` light). Locate by token name, not line number. The "AA-borderline" comment is at L242-243 (above the definitions).
 - `the_one/interfaces/web/static/css/tokens.css:404-413` — existing `prefers-reduced-motion` token zeroing
 - `the_one/interfaces/web/static/js/areas/chat/thinking-indicator.js:18-21` — JS-driven Braille spinner setInterval
 - `the_one/interfaces/web/static/js/areas/chat/telemetry-overlay.js:20-21, 44-47` — overlay markup with `role="status"` + shorthand labels
-- `the_one/interfaces/web/static/css/areas/chat.css:67, 75` — telemetry visual style
-- `the_one/interfaces/web/static/js/areas/studio/mcp-server-editor.js:338-339` — `alt={MIME}` on icon
-- `the_one/interfaces/web/static/js/app.js:241-244` — toast auto-dismiss timing
-- `the_one/interfaces/web/static/js/areas/admin/provider-models.js:347, 376` — `indicator-led` instances without aria-label
-- `the_one/interfaces/web/static/js/areas/studio/mcp-server-editor.js:486-489` — `indicator-led` instances WITH aria-label
-- `the_one/interfaces/web/static/css/components.css:861` — `indicator-led` primitive
-- `the_one/interfaces/web/static/js/layout/section-nav.js:34-92` — `role="group"` site
-- `the_one/interfaces/web/static/js/areas/chat/trace-shell.js:33-35` — `aria-hidden` count
-- `the_one/interfaces/web/static/js/areas/admin/tools-grid.js:67-70` — tool toggle with `title=` only
+- `the_one/interfaces/web/static/css/areas/chat.css` — telemetry overlay visuals at **L80** (`.telemetry-overlay { opacity: 0.4; color: var(--fg-muted); }`) + **L88** (`.telemetry .label { color: var(--fg-faint); }`). Earlier line refs in this leg (`:67, 75`) were WRONG — those were `new-chat-header` rules.
+- `the_one/interfaces/web/static/js/areas/studio/mcp-server-editor.js:337-340` — `<img>` tag with a ternary `icons[0].mimeType ? alt=icons[0].mimeType : alt=""` (drop the ternary, always emit `alt=""` — see Step 3)
+- `the_one/interfaces/web/static/js/app.js:233, 235, 244` — toast role wiring (`role="alert"` on error at L233; `role="status"` on success at L235) is already correct; the dismiss timeout literal `2000` is at L244. WCAG 2.2.1 concern is partially mitigated by the `role` semantics; the duration bump is for visual-reading dwell time.
+- `the_one/interfaces/web/static/js/areas/admin/provider-models.js:347, 376` — `indicator-led` instances without aria-label (visible-text label adjacent → `aria-hidden="true"` per A.9 contract)
+- `the_one/interfaces/web/static/js/areas/studio/mcp-server-editor.js:486-489` — `indicator-led` instances WITH aria-label (sibling visible text exists; see A.9 design question — leave OR drop the redundant aria-label)
+- `the_one/interfaces/web/static/css/components.css:864-877` — `indicator-led` primitive definition (where the new contract comment lands)
+- `the_one/interfaces/web/static/js/areas/layout/section-nav.js:32-92` — `role="group"` site (path is `areas/layout/`, not `layout/` — original Inputs entry was wrong); container is a `<div role="group">`, NOT under a `<nav>` landmark. See A.10 design decision in Step 8.
+- `the_one/interfaces/web/static/js/areas/chat/trace-shell.js:32-35` — count CREATE site (initial `aria-label`); `:55-58` — count UPDATE site inside `appendToTrace` (where `count.textContent = String(...)` runs and `aria-label` needs the matching refresh).
+- `the_one/interfaces/web/static/js/areas/admin/tools-grid.js:67-72` — tool toggle (`title=` at L67; input + visually-hidden track at L68-71)
 - `README.md` — top-level project README
-- `tests/test_design_tokens_a11y.py:187-191` — existing contrast test
+- `tests/test_design_tokens_a11y.py:183-192` — existing contrast test. Lines 187-190 are a COMMENT BLOCK deferring `--fg-muted`-on-chrome ("Muted-text-on-chrome variants deferred — no production consumer today"); L191-192 parametrize entries are `("dark", "fg", "shell_chrome_bg", 4.5)` and `("light", "fg", "shell_chrome_bg", 4.5)` — these test PRIMARY `--fg`, NOT `--fg-muted`. Under scope-the-usage, NO new test parametrization becomes green; the deferral STAYS valid (no production consumer of `--fg-muted` on chrome). The AC #2 needs to reflect this reality — see AC.
+- Pre-enumerated chrome-text consumer sites (where to apply scope-the-usage A.3 fix):
+  - `the_one/interfaces/web/static/css/base.css:144` — `.stub-sidebar .subtitle { color: var(--fg-muted); }` paints on `#app-sidebar` (chrome) — **must scope to `var(--fg-tertiary)`**
+  - `the_one/interfaces/web/static/css/areas/chat.css:15` — `.area-chat .session-group-label { color: var(--fg-faint); }` paints on `#app-sidebar` (chrome, post-Leg-1 restructure) — **decide per A.3 scope: also switch to `var(--fg-tertiary)` OR document as accepted "borderline" case per the existing test's deferral stance**
+  - Other `var(--fg-muted)` consumers (~25 sites across `base.css`, `chat.css`, `admin.css`, `studio.css`, `components.css`) paint inside `.area-*` content panels (NOT chrome) and are out of scope for A.3
 - Existing or new browser tests that exercise form errors
 
 ## Outputs
@@ -53,7 +59,7 @@ The sweep items are mostly one-liner each. They cluster in this leg because (i) 
 ## Acceptance Criteria
 
 - [ ] Triggering a save with invalid form data: the input has `aria-invalid="true"`; the error span has a generated id; the input's `aria-describedby` includes that id; screen reader announces the error (manual verification with VoiceOver/NVDA/Orca, OR DOM inspection confirming the wiring)
-- [ ] `pytest tests/test_design_tokens_a11y.py -v` reports the light-theme `--fg-muted` vs `--shell-chrome-bg` test as PASS at WCAG AA 4.5:1 (or the test is parametrized cleanly to capture only the surfaces where muted-on-chrome is acceptable)
+- [ ] A.3 verification: under scope-the-usage, the EXISTING deferral comment at `tests/test_design_tokens_a11y.py:187-190` is updated to reference the scope-the-usage decision and confirm "no production consumer" by enumerating which sites were rescoped (Pre-enumerated chrome-text consumer sites above) — OR a new grep-based test asserts that no `var(--fg-muted)` consumer paints on `--shell-chrome-bg` (chrome). Pick one — recommended: the deferral-comment update + a `grep -rn 'var(--fg-muted)' the_one/interfaces/web/static/css/` shows no chrome-text result (sidebar/topbar selectors don't match `--fg-muted`).
 - [ ] Toast dismiss timing ≥5s OR pause-on-hover behavior verified
 - [ ] MCP server icon does NOT emit `alt="image/png"` (decorative path emits `alt=""`)
 - [ ] Thinking-indicator JS spinner does NOT update content when `prefers-reduced-motion: reduce` is active (verify by setting OS preference or `document.documentElement.style.setProperty('--reduce-motion', '1')`-equivalent + JS check)
@@ -87,29 +93,38 @@ The sweep items are mostly one-liner each. They cluster in this leg because (i) 
 
 This leg has 8 firm sub-tasks + 3 opportunistic ones (A.9, A.10, A.13). Sequence by risk: contrast fix first (smallest blast-radius approach), form-field error wiring next (highest a11y significance — second pass running), then mechanical sweep, then opportunistic items if time permits.
 
-1. **A.3 light-theme contrast — lead with scope-the-usage, NOT global token change**
-   - Architect spot-check (Phase 4b mission validation) found that the prior leg flow's "Attempt A" (darken `--fg-muted` globally) would cascade through `.oauth-callback-detail`, telemetry overlay, session-item-agent, and likely many pixel-snapshot baselines. Plan the leg with the scope-the-usage approach as the PRIMARY path.
-   - Read `the_one/interfaces/web/static/css/tokens.css` around the light-theme `--fg-muted` definition (current value `#64748b`, around line 247 — locate by token name, not line number)
-   - Enumerate the chrome-text consumer sites by `grep -rn 'var(--fg-muted)' the_one/interfaces/web/static/css/` and filter to those used on `--shell-chrome-bg` surfaces (topbar, sidebar). Likely candidates: topbar CSS, sidebar CSS, possibly `areas/layout/section-nav.css`.
-   - At each chrome-text site, replace `var(--fg-muted)` with `var(--fg-tertiary)` (already `#475569`, AA-passing on `--shell-chrome-bg`)
-   - Re-run `pytest tests/test_design_tokens_a11y.py -v` — verify the relevant test(s) now PASS. If the test is parametrized in a way that conflicts with scope-the-usage (e.g., it tests `--fg-muted` directly against `--shell-chrome-bg`), update the test parametrization to reflect the new intent ("muted-text on chrome surfaces uses `--fg-tertiary`")
-   - Visually inspect the app (light theme) to confirm the chrome text is now readable and no unwanted surfaces darkened
-   - **Fallback to Attempt A only if scope-the-usage proves intractable** (e.g., the consumer sites all use a shared partial that can't be scoped without restructuring). If A is needed, document the cascading sites and budget time for pixel-baseline regen.
-   - Regenerate local pixel baselines (gitignored per project convention)
+1. **A.3 light-theme contrast — scope-the-usage at PRE-ENUMERATED sites**
+   - **Pre-enumerated chrome-text consumer sites (from Inputs)**:
+     - **`base.css:144`** — `.stub-sidebar .subtitle { color: var(--fg-muted); }` paints on `#app-sidebar` (chrome). **Switch to `var(--fg-tertiary)`.**
+     - **`chat.css:15`** — `.area-chat .session-group-label { color: var(--fg-faint); }` paints on `#app-sidebar` (chrome, post-Leg-1 restructure). **Decision**: switch to `var(--fg-tertiary)` too, OR document as accepted "borderline" per existing `test_design_tokens_a11y.py:187-190` deferral. **Recommended**: switch to `var(--fg-tertiary)` — consistency with `base.css:144` fix; `--fg-faint`-on-chrome was the F3.5-debrief original concern.
+     - **NO OTHER sites** — re-verify via `grep -rn 'var(--fg-muted)\|var(--fg-faint)' the_one/interfaces/web/static/css/` and check each result is INSIDE a `.area-*` content panel (not chrome). If a new chrome-text consumer surfaces, add to this enumeration before editing.
+   - Make the two CSS edits.
+   - **Test parametrization update**: `tests/test_design_tokens_a11y.py:187-190` deferral comment currently reads "Muted-text-on-chrome variants deferred — no production consumer today." Update to: "Muted-text-on-chrome variants deferred under scope-the-usage rule (F2 Leg 2, 2026-05-16): chrome surfaces use `--fg-tertiary` directly (verified at `base.css:144`, `chat.css:15`). Re-introducing a chrome-text consumer of `--fg-muted` or `--fg-faint` requires updating BOTH this comment AND the consumer site."
+   - **Grep-enforce post-edit**: `grep -rn 'var(--fg-muted)\|var(--fg-faint)' the_one/interfaces/web/static/css/ | grep -E 'topbar|sidebar|chrome'` should return empty (or only `tokens.css` definitional lines).
+   - Re-run `pytest tests/test_design_tokens_a11y.py -v` — verify the existing parametrized tests still PASS (no regression on `--fg`-on-chrome).
+   - Visually inspect the app (light theme) — sidebar text should now read clearly.
+   - **Fallback to Attempt A** (global token darkening) only if the enumeration was incomplete (e.g., a hidden consumer site discovered post-edit). Pivot rule: if 3+ unanticipated chrome-text consumers surface, switch to Attempt A and document the cascade.
+   - Regenerate local pixel baselines (gitignored per project convention; verified `tests/browser/__snapshots__/` covered by `.gitignore:17-19`)
    - Sub-commit: `a11y(tokens): scope --fg-tertiary at chrome-text sites for light-theme AA`
 
 2. **A.2 form-field error wiring (HIGH significance — second pass running)**
-   - Locate `renderFieldErrors` in `admin/tools-form-helpers.js:517-521`
-   - Generate an id per error span: `errorId = field.id + '-error'` (or use a uuid if no field.id)
-   - Add `aria-invalid="true"` to the matching input
-   - Add `aria-describedby={errorId}` to the input (additively if already set from info-icon pattern: split existing value on space, dedup, rejoin)
-   - Add `role="alert"` to the first error span per save cycle (or to a banner element if save-side errors group)
-   - Verify the existing `.field-error` CSS still renders correctly; adjust if id-based selector is needed
+   - Locate `renderFieldErrors` function in `admin/tools-form-helpers.js` (function spans L493-536; per-row mutation site at L513-521 where `row.classList.add('field-error-highlight')` + span append happens).
+   - **Query the input inside each error row**: `row.querySelector('input, select, .chip-list-editor')`. Note: chip-list-editor is a `<div>` (not a native input); the `aria-describedby` target for it is the wrapping div (matches the existing info-icon pattern at L130-134 which sets `dataAttrs += ' aria-describedby="' + descId + '"'` on the wrapping div). For native `<input>`/`<select>`, the target is the element itself.
+   - Generate an id per error span: `errorId = '<field-key>-error-<row-id>'` or similar; ensure unique-per-row.
+   - Set `aria-invalid="true"` on the queried input/select/chip-list-editor target.
+   - Set `aria-describedby={existingValue + " " + errorId}` (ADDITIVE — preserve the existing info-icon `aria-describedby="<field-key>-desc"`). Concrete sequence:
+     ```js
+     const existing = (input.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean);
+     existing.push(errorId);
+     input.setAttribute('aria-describedby', Array.from(new Set(existing)).join(' '));
+     ```
+   - Set `role="alert"` on the FIRST error span per save cycle. Implementation: pass an `isFirst` flag or check `container.querySelectorAll('.field-error[role="alert"]').length === 0` before adding the attribute. If save-side errors group into a banner (`.editor-error`), prefer `role="alert"` on the banner — single alert per save instead of per-row.
+   - Verify the existing `.field-error` CSS still renders correctly; adjust if id-based selector is needed.
+   - **Clear logic**: when the field is fixed (input becomes valid mid-edit), `renderFieldErrors` should ALSO remove `aria-invalid` and de-additively remove the error id from `aria-describedby` (reverse the additive sequence). Check existing field-clear behavior at the function's clear paths.
    - Sub-commit: `a11y(forms): aria-invalid + aria-describedby + role=alert on field errors`
 
 3. **A.6 MCP icon alt-text (LOW risk, mechanical)**
-   - Edit `studio/mcp-server-editor.js:338-339`
-   - Change `alt={icon_mime}` to `alt=""` (decorative path); the title text is rendered alongside at line 343
+   - Edit `studio/mcp-server-editor.js:337-340` — the `<img>` tag has a ternary `icons[0].mimeType ? alt=icons[0].mimeType : alt=""`. **Drop the ternary; always emit `alt=""`** (icon is purely decorative; title text is rendered alongside at L343-344).
    - Sub-commit: `a11y(mcp): drop MIME alt-text on decorative icons`
 
 4. **A.7 thinking-indicator reduced-motion gate**
@@ -119,32 +134,50 @@ This leg has 8 firm sub-tasks + 3 opportunistic ones (A.9, A.10, A.13). Sequence
    - Sub-commit: `a11y(chat): thinking-indicator honors prefers-reduced-motion`
 
 5. **A.5 toast duration**
-   - Edit `app.js:241-244` — extend the dismiss timeout to 5000ms (or 5500ms)
-   - Optional improvement: add a close-button affordance to the toast; pause auto-dismiss on hover/focus. Bracket the leg's success on the simple duration bump; the close-button is opportunistic.
+   - The toast already carries `role="alert"` (error path at L233) or `role="status"` (success path at L235), so the WCAG concern is partially mitigated for screen-reader users (alert is announced immediately regardless of duration). The duration bump is primarily for visual-reading dwell time.
+   - Edit `app.js:244` — change the setTimeout literal `2000` → `5000` (extend dismiss to 5s; covers WCAG 2.2.1 minimum).
+   - Optional improvement (out of leg scope unless time permits): add a close-button affordance + pause-on-hover/focus. Bracket the leg's success on the simple duration bump.
    - Sub-commit: `a11y(toast): extend auto-dismiss to 5s (WCAG 2.2.1/2.2.3)`
 
 6. **A.8 telemetry overlay labeling + opacity**
-   - Edit `chat/telemetry-overlay.js:20-21, 44-47`
-   - Pick ONE approach: (a) add `aria-label` to each row (e.g., `"Input tokens"`) and keep `role="status"` → polite-live will re-announce per-row; OR (b) mark each row's inner spans `aria-hidden="true"` and rely on the container `aria-label` ("Token usage") — terser, less churn
-   - Bump default visual opacity from 0.4 → 0.7 (or use `var(--fg-tertiary)` directly)
+   - Edit `chat/telemetry-overlay.js:20-21, 44-47` (markup) AND `chat.css:80, 88` (visual — corrected from prior leg's :67, 75 which were wrong).
+   - Pick ONE approach: (a) add `aria-label` to each row (e.g., `"Input tokens"`) and keep `role="status"` → polite-live will re-announce per-row; OR (b) mark each row's inner spans `aria-hidden="true"` and rely on the container `aria-label` ("Token usage") — terser, less churn. **Recommended**: (b), to avoid per-token live-region churn.
+   - Bump default visual opacity at `chat.css:80` from `0.4` → `0.7` (or switch the color from `var(--fg-muted)` to `var(--fg-tertiary)` directly).
    - Sub-commit: `a11y(telemetry): row labels + opacity bump`
 
 7. **A.9 `indicator-led` labeling discipline** — OPPORTUNISTIC (drop at first sign of leg slippage)
-   - Add a comment block at the `indicator-led` primitive definition in `components.css` (locate by class name) describing the contract: "When the LED's state is fully conveyed by adjacent visible text, the LED MUST carry `aria-hidden=\"true\"`. Otherwise, the LED MUST carry an `aria-label` describing its state."
-   - Sweep call sites: `provider-models.js` LED instances → add `aria-hidden="true"` (text label is adjacent); `mcp-server-editor.js` already has `aria-label`, leave it
+   - Add a comment block at the `indicator-led` primitive definition in `components.css` (around L864-877, locate by class name) describing the contract:
+     ```
+     /* indicator-led contract:
+      *   - When adjacent visible text fully conveys state → LED is decorative; carry aria-hidden="true"
+      *   - When the LED carries state distinct from adjacent text (e.g., color encodes severity not in label) → carry aria-label describing the state
+      *   - In ambiguous cases (label partial but contextual), prefer aria-label for explicitness
+      */
+     ```
+   - Sweep call sites:
+     - `provider-models.js:347, 376` — LEDs adjacent to `.admin-pf-model-name` visible text → **add `aria-hidden="true"`**
+     - `mcp-server-editor.js:486-489` — LED with `aria-label="Connected"/"Not connected"` adjacent to "Reset connection" button. The visible button text is NOT the LED state; the LED encodes connection status (distinct from action). **Leave `aria-label` in place** per contract rule 2 ("LED carries state distinct from adjacent text"). Document this decision in the contract comment as an exemplar.
    - Sub-commit: `a11y(led): document contract + sweep call sites`
-   - **Slip rule**: if the LED-contract conversation surfaces design ambiguity (e.g., what about LEDs in tooltips without adjacent text?), drop this item and route to next maintenance pass
+   - **Slip rule**: if the LED-contract conversation surfaces design ambiguity beyond the two contract rules above (e.g., LEDs in tooltips without adjacent text — none exist today, but future case), drop this item and route to next maintenance pass.
 
 8. **A.10 `section-nav.js` role** — OPPORTUNISTIC (drop at first sign of leg slippage)
-   - Edit `the_one/interfaces/web/static/js/areas/layout/section-nav.js` (NOTE: path is `areas/layout/`, not `layout/` — Architect spot-check fix)
-   - Choose between dropping `role="group"` entirely (let surrounding `<nav>` provide semantic) OR upgrading to `role="tablist"` + `role="tab"` + `aria-controls` per tab
-   - Recommend dropping `role="group"`; the `<nav>` wrapper provides the right semantic + the current `aria-current="page"` is already correct for the navigation role
-   - Sub-commit: `a11y(section-nav): drop role=group; rely on nav landmark`
-   - **Slip rule**: if the role-drop affects an existing screen-reader behavior the operator relies on, pivot to `role="tablist"` or skip entirely; route to next maintenance pass
+   - Edit `the_one/interfaces/web/static/js/areas/layout/section-nav.js:32-92` (container at L32 currently builds a `<div role="group">`; the buttons L34-92 form the group items).
+   - **Important**: Cycle-1 design-review caught this — the original spec said "drop `role="group"`; rely on `<nav>` landmark" BUT the container is a `<div>`, NOT under a `<nav>`. Dropping the role with no replacement removes all semantic grouping.
+   - Three viable options:
+     - (i) Drop `role="group"` AND change `<div>` → `<nav>` (matches the chat session-list pattern Leg 1 introduced). Strongest grouping + landmark.
+     - (ii) Drop `role="group"` and keep `<div>` (no landmark; lightest touch, but loses grouping)
+     - (iii) Upgrade to `role="tablist"` + `role="tab"` per button + `aria-controls` per tab (most semantically accurate if the sections truly behave as tabs)
+   - **Recommended**: (i) — change `<div>` to `<nav>`, drop `role="group"`. Matches the F2-Leg-1 `<nav class="session-list">` precedent. The current `aria-current="page"` semantic is already correct for nav role.
+   - Sub-commit: `a11y(section-nav): <div role=group> → <nav>; rely on nav landmark`
+   - **Slip rule**: if the `<div>`→`<nav>` change ripples through CSS selectors (`.section-nav div` etc.) in unexpected ways, fall back to option (ii) or skip entirely; route to next maintenance pass.
 
-9. **A.11 trace-shell count in aria-label**
-   - Edit `chat/trace-shell.js:33-35`
-   - When the count text updates, ALSO update the summary's `aria-label` to include the count: `summary.setAttribute('aria-label', \`Tool activity, ${count} ${count === 1 ? 'item' : 'items'}\`)`
+9. **A.11 trace-shell count in aria-label** — edit TWO sites
+   - **Create site** (`trace-shell.js:32-35`): when the trace shell is created and the count span is built, set the summary's INITIAL `aria-label` to `"Tool activity, 0 items"` (or `"Tool activity"` if count is 0; pick the convention).
+   - **Update site** (`trace-shell.js:55-58`, inside `appendToTrace`): where `count.textContent = String(body.children.length)` runs, ALSO update the summary's `aria-label`. The summary element is accessible via `traceEl.querySelector('summary')`. Pattern:
+     ```js
+     const count = body.children.length;
+     summary.setAttribute('aria-label', `Tool activity, ${count} ${count === 1 ? 'item' : 'items'}`);
+     ```
    - Sub-commit: `a11y(trace): include count in summary accessible name`
 
 10. **A.12 tool toggle visible state label**
@@ -194,7 +227,7 @@ This leg has 8 firm sub-tasks + 3 opportunistic ones (A.9, A.10, A.13). Sequence
 - `the_one/interfaces/web/static/js/areas/chat/telemetry-overlay.js` + `static/css/areas/chat.css` — A.8 (telemetry labels + opacity)
 - `the_one/interfaces/web/static/css/components.css` — A.9 (LED contract comment)
 - `the_one/interfaces/web/static/js/areas/admin/provider-models.js` — A.9 (sweep)
-- `the_one/interfaces/web/static/js/layout/section-nav.js` — A.10 (role)
+- `the_one/interfaces/web/static/js/areas/layout/section-nav.js` — A.10 (role + `<div>`→`<nav>`; path corrected from prior leg's `js/layout/`)
 - `the_one/interfaces/web/static/js/areas/chat/trace-shell.js` — A.11 (count in label)
 - `the_one/interfaces/web/static/js/areas/admin/tools-grid.js` — A.12 (state label)
 - `README.md` — A.13 (accessibility section)
