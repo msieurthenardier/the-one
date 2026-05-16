@@ -1,6 +1,6 @@
 # Leg: 03-f1-techdebt-and-tooling-cleanup
 
-**Status**: landed
+**Status**: completed
 **Flight**: [Accessibility Carry-forward + F1 Tech-Debt Cleanup](../flight.md)
 
 ## Objective

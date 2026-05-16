@@ -44,6 +44,16 @@
 
 ## Flight Director Notes
 
+### 2026-05-16 — Flight review + flight close
+
+- **Reviewer spawned** (Sonnet, leg-review action) on all 24 commits since `flight/01-integrity-gate-restoration` HEAD (`c70b73b`). Walked every leg's acceptance criteria against the diff; ran ruff + container pytest + `make doctor` + `make audit-bytes` + `make -n rebuild-browsers` to verify gates.
+- **Outcome**: `[HANDOFF:confirmed]`. No blocking, no non-blocking issues.
+- **Key verifications**: all 3 leg ACs met; `aria-current="page"` correctly uses `removeAttribute` on inactive (not `'false'`); form-field `aria-describedby` additivity preserves info-icon `descId`; `make audit-bytes` PCRE + `:(glob)` pathspec works; `host-side-bench-drift-detection` convention entry backtick-wrapped + chronologically placed; SECURITY-MODEL peer bullet matches voice of 4 existing bullets in `## Tool Execution Boundary`; container pytest 1700, ruff 0/0, `make test-browser` 316/35, `make audit` non-blocking with 2 pre-existing urllib3 advisories.
+- **Cross-leg coherence**: Leg 1's session-list restructure + Leg 2's A.3 chrome-text rescope coordinated correctly — Leg 2's grep-enforce caught `chat.css:35 .session-item-agent` as a new chrome-text consumer post-Leg-1 and rescoped it in the same A.3 sub-commit.
+- **Implementation-time deviations captured**: (1) Leg 1 needed beyond-spec edit at `test_flow_new_chat.py:196-201` (spec's "SURVIVES" call missed the `.confirm-delete` target move from `.session-item` → `.list-item`); (2) Leg 3 needed inline pathspec fix for `make audit-bytes` (`**` glob → `:(glob)` prefix due to git fnmatch default); (3) pre-existing host-pytest `mcp.client.auth.exceptions` import failure flagged for M10 host-venv refresh. All documented in respective Leg Progress entries.
+- **Flight-close commit**: artifact statuses updated (Legs 1-3 → `completed`; Flight 2 → `landed`; checked off in `flight.md` + `mission.md`). F2 mission criteria all checked off. Flight log carries full design-review + progress tracks.
+- **F2 retrospective**: 24 commits across 3 legs in one calendar day (2026-05-16). Two-cycle design review on Leg 1 (7 high + ~10 medium/low issues caught in cycle 1; 1 path-typo high + 3 medium in cycle 2) demonstrates the cycle-2 escape hatch when cycle-1 produces substantive rewrites. Leg 2 + Leg 3 needed one cycle each. **Total design-review issues caught pre-implementation**: 1 critical (none in F2 — F1 set the bar) + 11 high + ~16 medium + ~10 low across 4 design-review passes. Strongest data point yet that **per-leg design review is the methodology's highest-ROI control**.
+
 ### 2026-05-16 — Leg 3 design review (one cycle)
 
 - **Cycle 1**: Developer (Sonnet) found **2 high + 4 medium + 2 low** issues in Leg 3 spec (the spec already incorporated F2-level Architect review during flight design; this is the per-leg developer review per skill).

@@ -1,24 +1,24 @@
 # Flight: Accessibility Carry-forward + F1 Tech-Debt Cleanup
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Maintenance (Post-M08)](../../mission.md)
 
 ## Contributing to Criteria
 
 **Accessibility (existing scope)**:
-- [ ] Chat welcome agent picker has roving-tabindex + ArrowUp/ArrowDown/Home/End working with `aria-selected` toggling; pattern lifted from `areas/layout/section-nav.js:71-91`
-- [ ] Session-list restructured: `role="listbox"`/`role="option"` removed; replaced with `<nav>` + `<ul>` of `<button>`; affected browser test assertions in `tests/browser/test_flow_keyboard.py` updated to match
-- [ ] Admin tools-grid verified keyboard-accessible (already a button-grid post-M08 F5, NOT a listbox — no role change)
-- [ ] Form-field errors carry `aria-invalid="true"` + `aria-describedby` to a generated id; `role="alert"` on first error per save cycle
-- [ ] Light-theme `--fg-muted` (and `--fg-faint` where used on shell chrome) meet WCAG AA contrast against `--shell-chrome-bg` via scope-the-usage approach (use `--fg-tertiary` at chrome-text consumer sites rather than darkening `--fg-muted` globally)
+- [x] Chat welcome agent picker has roving-tabindex + ArrowUp/ArrowDown/Home/End working with `aria-selected` toggling; pattern lifted from `areas/layout/section-nav.js:71-91`
+- [x] Session-list restructured: `role="listbox"`/`role="option"` removed; replaced with `<nav>` + `<ul>` of `<button>`; affected browser test assertions in `tests/browser/test_flow_keyboard.py` updated to match
+- [x] Admin tools-grid verified keyboard-accessible (already a button-grid post-M08 F5, NOT a listbox — no role change)
+- [x] Form-field errors carry `aria-invalid="true"` + `aria-describedby` to a generated id; `role="alert"` on first error per save cycle
+- [x] Light-theme `--fg-muted` (and `--fg-faint` where used on shell chrome) meet WCAG AA contrast against `--shell-chrome-bg` via scope-the-usage approach (use `--fg-tertiary` at chrome-text consumer sites rather than darkening `--fg-muted` globally)
 
 **F1 tech-debt carry-forward (added 2026-05-16 from F1 debrief — non-methodology recommendations)**:
-- [ ] `Makefile` gains `rebuild-browsers` target combining `make rebuild` + `docker exec the-one playwright install chromium` (breaks the recurring "rebuild wipes Chromium" foot-gun flagged in F5/F6/F6.5/F7/F1 debriefs)
-- [ ] `agents.md` `### live-read-across-lazy-resolver-boundary` entry's test citation fixed (cites `test_max_context_tokens_live_read_across_resolver` in `tests/test_agent_core.py` — neither exists; actual test is `test_usage_event_reflects_live_max_context_tokens_at_emission` in `tests/test_process_and_broadcast_live_read.py`)
-- [ ] `agents.md ## Project Conventions` gains a new `### host-side-bench-drift-detection` entry codifying the host-side `make doctor` / `make audit` convention (asymmetry from container-first `make lint`/`make format`)
-- [ ] `make doctor` target shifts from bare `python -c ...` to `.venv/bin/python -c ...` to match `make audit`'s shape (fixes sub-shell `python`-not-on-PATH foot-gun surfaced in F1 Leg 3)
-- [ ] `Makefile` gains `audit-bytes` target: `git grep -lP "[\x{2028}\x{2029}]"` against the_one/ and tests/ returns empty (catches raw U+2028/U+2029 LSEP/PSEP characters in source — the class of bug F1 Leg 3 implementation almost shipped)
-- [ ] `agents.md` (or `SECURITY-MODEL.md`) documents the npm-spec regex pattern (`^(?:@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*$`) as a reusable security primitive for "operator-supplied identifiers that flow into filesystem paths or subprocess argv must be validated against a spec-grounded allowlist, NOT a permissive character class" — references `_VALID_NPX_PKG_RE` as the exemplar
+- [x] `Makefile` gains `rebuild-browsers` target combining `make rebuild` + `docker exec the-one playwright install chromium` (breaks the recurring "rebuild wipes Chromium" foot-gun flagged in F5/F6/F6.5/F7/F1 debriefs)
+- [x] `agents.md` `### live-read-across-lazy-resolver-boundary` entry's test citation fixed (cites `test_max_context_tokens_live_read_across_resolver` in `tests/test_agent_core.py` — neither exists; actual test is `test_usage_event_reflects_live_max_context_tokens_at_emission` in `tests/test_process_and_broadcast_live_read.py`)
+- [x] `agents.md ## Project Conventions` gains a new `### host-side-bench-drift-detection` entry codifying the host-side `make doctor` / `make audit` convention (asymmetry from container-first `make lint`/`make format`)
+- [x] `make doctor` target shifts from bare `python -c ...` to `.venv/bin/python -c ...` to match `make audit`'s shape (fixes sub-shell `python`-not-on-PATH foot-gun surfaced in F1 Leg 3)
+- [x] `Makefile` gains `audit-bytes` target: `git grep -lP "[\x{2028}\x{2029}]"` against the_one/ and tests/ returns empty (catches raw U+2028/U+2029 LSEP/PSEP characters in source — the class of bug F1 Leg 3 implementation almost shipped)
+- [x] `agents.md` (or `SECURITY-MODEL.md`) documents the npm-spec regex pattern (`^(?:@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*$`) as a reusable security primitive for "operator-supplied identifiers that flow into filesystem paths or subprocess argv must be validated against a spec-grounded allowlist, NOT a permissive character class" — references `_VALID_NPX_PKG_RE` as the exemplar
 
 ---
 
@@ -114,9 +114,9 @@ Each finding gets a separate sub-commit inside its leg so reverting any one item
 
 ### Legs
 
-- [ ] `01-listbox-keyboard-and-structure` — Welcome agent picker: roving-tabindex + arrow keys. Session-list: drop listbox semantic, restructure to nav+buttons, update affected browser test assertions. Tools-grid: verify keyboard accessibility (no role change).
-- [ ] `02-form-errors-tokens-and-sweep` — Form-field error wiring; light-theme chrome-text contrast via scope-the-usage; firm sweep (A.5/A.6/A.7/A.8/A.11/A.12). Opportunistic (drop if leg slips): A.9, A.10, A.13.
-- [ ] `03-f1-techdebt-and-tooling-cleanup` — Bundle of 6 F1-debrief carry-forward fixes (non-methodology): `make rebuild-browsers`; `make doctor` venv-python fix; `make audit-bytes`; agents.md live-read citation fix; agents.md `### host-side-bench-drift-detection` convention; npm-spec regex documented as security primitive.
+- [x] `01-listbox-keyboard-and-structure` — Welcome agent picker: roving-tabindex + arrow keys. Session-list: drop listbox semantic, restructure to nav+buttons, update affected browser test assertions. Tools-grid: verify keyboard accessibility (no role change).
+- [x] `02-form-errors-tokens-and-sweep` — Form-field error wiring; light-theme chrome-text contrast via scope-the-usage; firm sweep (A.5/A.6/A.7/A.8/A.11/A.12). Opportunistic (drop if leg slips): A.9, A.10, A.13.
+- [x] `03-f1-techdebt-and-tooling-cleanup` — Bundle of 6 F1-debrief carry-forward fixes (non-methodology): `make rebuild-browsers`; `make doctor` venv-python fix; `make audit-bytes`; agents.md live-read citation fix; agents.md `### host-side-bench-drift-detection` convention; npm-spec regex documented as security primitive.
 
 ---
 
