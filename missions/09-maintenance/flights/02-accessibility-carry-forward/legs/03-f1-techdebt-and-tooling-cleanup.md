@@ -1,6 +1,6 @@
 # Leg: 03-f1-techdebt-and-tooling-cleanup
 
-**Status**: ready
+**Status**: in-flight
 **Flight**: [Accessibility Carry-forward + F1 Tech-Debt Cleanup](../flight.md)
 
 ## Objective
@@ -49,16 +49,16 @@ The unifying thread: **don't let F1's tail-end tech-debt rot for a maintenance c
 ## Acceptance Criteria
 
 - [ ] `cd /home/cprch/projects/the-one && make help | grep "rebuild-browsers"` matches (target exists)
-- [ ] `cd /home/cprch/projects/the-one && grep -E "^rebuild-browsers:" Makefile` shows the target depends on BOTH `rebuild` AND `_ensure-playwright` (uses existing `_ensure-playwright` machinery at `Makefile:39-46`, not raw `playwright install chromium`)
+- [ ] `cd /home/cprch/projects/the-one && grep -E "^rebuild-browsers: rebuild _ensure-playwright" Makefile` matches — target has both prereqs in order (uses existing `_ensure-playwright` machinery at `Makefile:39-46`, not raw `playwright install chromium`)
 - [ ] `cd /home/cprch/projects/the-one && grep -A2 "^doctor:" Makefile` shows `.venv/bin/python3 -c ...` (NOT bare `python -c ...`; matches `.venv/bin/pip-audit` shape in `audit` target)
 - [ ] `cd /home/cprch/projects/the-one && make audit-bytes` exits 0 (no raw U+2028/U+2029 chars in `the_one/` or `tests/`)
 - [ ] `cd /home/cprch/projects/the-one && grep -A2 "^audit-bytes:" Makefile` shows the target invokes `git grep -lP "[\x{2028}\x{2029}]"` against the appropriate paths
 - [ ] `cd /home/cprch/projects/the-one && grep -n "test_usage_event_reflects_live_max_context_tokens_at_emission" the_one/agents.md` matches inside the `### live-read-across-lazy-resolver-boundary` entry
 - [ ] `cd /home/cprch/projects/the-one && grep -n "test_max_context_tokens_live_read_across_resolver" the_one/agents.md` returns empty (broken citation gone)
-- [ ] `cd /home/cprch/projects/the-one && grep -n "^### host-side-bench-drift-detection" the_one/agents.md` matches (new convention landed)
+- [ ] `cd /home/cprch/projects/the-one && grep -n "^### \`host-side-bench-drift-detection\`" the_one/agents.md` matches (new convention landed — note the **backtick wrapping** per the section's convention; all five existing entries at L175, 185, 195, 205, 219, 229 use `` ### `slug` `` form)
 - [ ] `cd /home/cprch/projects/the-one && grep -n "_VALID_NPX_PKG_RE\|npm.spec" SECURITY-MODEL.md` matches in `## Tool Execution Boundary` section (security-primitive doc landed in SECURITY-MODEL per Architect F2 review)
 - [ ] `cd /home/cprch/projects/the-one && ruff check the_one/ tests/ && ruff format --check the_one/ tests/` — both exit 0 (F1 baseline preserved)
-- [ ] Broad pytest unchanged (host + container at 1700 passed)
+- [ ] Container pytest unchanged (1700 passed). Host pytest unchanged **relative to Leg 2's landed state** (host has a pre-existing `mcp.client.auth.exceptions` import failure unrelated to F2 — documented in Leg 1's flight-log entry; M10-candidate)
 
 ## Verification Steps
 
@@ -116,39 +116,41 @@ Six sub-fixes, each its own sub-commit. Order them roughly by isolation (Makefil
    - Verify by `grep -n "test_usage_event_reflects" the_one/agents.md` — should match exactly once now.
    - Sub-commit: `flight/02: agents.md live-read citation correction (F1 debrief carry-forward)`
 
-5. **(e) Add `### host-side-bench-drift-detection` convention**
-   - Open `the_one/agents.md` and locate `## Project Conventions` (around L171); find the existing `### gated-debug-instrumentation` entry (M08 F7 peer) and `### live-read-across-lazy-resolver-boundary` (F1 M09 Leg 3 peer).
-   - Add a new entry AFTER `### gated-debug-instrumentation` AND BEFORE `### live-read-across-lazy-resolver-boundary` (chronological: gated-debug landed M08 F7, host-side-bench-drift-detection codifies F1 M09 Leg 2 work, live-read-across-lazy-resolver-boundary codifies F1 M09 Leg 3 work).
+5. **(e) Add `` ### `host-side-bench-drift-detection` `` convention** (backtick the slug — section convention)
+   - Open `the_one/agents.md` and locate `## Project Conventions` (L171); find the existing entries (all wrap their slug in backticks):
+     - `` ### `trust-the-runtime` `` (L175)
+     - `` ### `gated-debug-instrumentation` `` (L185 area)
+     - `` ### `confirm-delete-pattern` `` (L195 area, if present)
+     - `` ### `live-read-across-lazy-resolver-boundary` `` (L229)
+   - Verify the existing backtick form via `grep -nE '^### \`' the_one/agents.md` before adding.
+   - Add a new entry AFTER `` ### `gated-debug-instrumentation` `` AND BEFORE `` ### `live-read-across-lazy-resolver-boundary` `` (chronological: gated-debug landed M08 F7, host-side-bench-drift-detection codifies F1 M09 Leg 2 work, live-read-across-lazy-resolver-boundary codifies F1 M09 Leg 3 work).
      ```markdown
-     ### host-side-bench-drift-detection
+     ### `host-side-bench-drift-detection`
 
      Targets whose purpose is to detect drift between the developer's HOST bench and the canonical container should run on the host (not `docker exec`), surface a clean diagnostic on failure, and be invoked manually (not on every dev iteration).
 
      **Why**: F1 (M09 Leg 2) introduced `make doctor` to catch the `asgi-lifespan`-declared-but-uninstalled drift that wasn't catchable in container-first `make lint` / `make format` / `make test` (which run via `docker exec` against the container's own venv where `pip install -e .[dev]` ran at image-build time). The host venv is where the operator runs ad-hoc `pytest` and where dev-extras drift surfaces; container-first tooling can't see it.
 
-     **Pattern**: a host-side drift target lives under a `# ── Drift detection (host-side) ──` section header in the `Makefile`, deliberately separate from container-first targets. It uses `.venv/bin/python -c "..."` (NOT bare `python -c "..."` — avoids the sub-shell PATH-resolution foot-gun where bare `python` may be absent and `python3` is the live interpreter). Exit code carries the contract: 0 if clean, non-zero with a clear `ModuleNotFoundError` / `AssertionError` if drift detected.
+     **Pattern**: a host-side drift target lives under a `# ── Drift detection (host-side) ──` section header in the `Makefile`, deliberately separate from container-first targets. It uses `.venv/bin/python3 -c "..."` (NOT bare `python -c "..."` — avoids the sub-shell PATH-resolution foot-gun where bare `python` may be absent and `python3` is the live interpreter). Exit code carries the contract: 0 if clean, non-zero with a clear `ModuleNotFoundError` / `AssertionError` if drift detected.
 
      **Live examples**: `make doctor` (probes declared dev extras from `pyproject.toml`'s `[project.optional-dependencies].dev`); `make audit` (runs `.venv/bin/pip-audit --skip-editable || true`, non-blocking); `make audit-bytes` (detects raw U+2028/U+2029 LSEP/PSEP characters in source — defends against the F1 Leg 3 implementation anomaly class).
      ```
    - Verify by `grep -n "^### host-side-bench-drift-detection" the_one/agents.md` — match.
    - Sub-commit: `flight/02: agents.md ### host-side-bench-drift-detection convention (F1 debrief carry-forward)`
 
-6. **(f) Document npm-spec regex as a security primitive** — `SECURITY-MODEL.md ## Tool Execution Boundary` (Architect-corrected from F2 design review)
-   - **Placement (revised per Architect)**: `SECURITY-MODEL.md ## Tool Execution Boundary` (L49-82) is the structurally-correct home. That section already enumerates per-category allowlists (filesystem-path, subprocess-env, web-SSRF). An "operator-supplied npm-package-name allowlist" is the same class — defensive control at a tool boundary. The original draft suggested `agents.md` for implementer guidance, but the file structure of SECURITY-MODEL strongly suggests it as primary; add a short cross-pointer in `agents.md ## Project Conventions` if desired but not required.
-   - Add as a new sub-bullet under `## Tool Execution Boundary`:
+6. **(f) Document npm-spec regex as a security primitive** — `SECURITY-MODEL.md ## Tool Execution Boundary` BULLET form (Architect-corrected + Leg-3-cycle-1 corrected)
+   - **Placement (revised per cycle-1 Leg 3 design review)**: `SECURITY-MODEL.md ## Tool Execution Boundary` (L49-82) is the structurally-correct home. **HOWEVER**, that section is a **flat bullet list** (existing entries are `- **Filesystem (M05 F3)**: ...`, `- **Execution (M05 F4)**: ...`, etc.) — NOT nested H3 headings. The original draft proposed `### npm-spec-allowlist-for-operator-supplied-paths` which would break the section's voice. **Correct shape**: add as a new top-level bullet, peer of the existing four. Inline the regex as an indented code block under the bullet.
+   - Add as a new peer bullet under `## Tool Execution Boundary`:
      ```markdown
-     ### npm-spec-allowlist-for-operator-supplied-paths
+     - **Operator-supplied identifier allowlists**: any operator-config-derived string that flows into `Path()` joins, `subprocess.run()` argv elements, or filesystem operations MUST be validated against a spec-grounded allowlist regex, NOT a permissive character class. The character class `[A-Za-z0-9._@/-]` is NOT an allowlist for paths — every character is permitted individually, so `../etc/passwd` passes. The spec-grounded form is anchored, structure-aware, and rejects path-traversal patterns by construction.
 
-     Operator-supplied identifiers that flow into filesystem paths or subprocess argv MUST be validated against a spec-grounded allowlist regex, NOT a permissive character class. The character class `[A-Za-z0-9._@/-]` is NOT an allowlist for paths — every character in that class is permitted individually, so `../etc/passwd` passes.
+       Exemplar regex (npm package-name spec — covers `lodash`, `@scope/pkg`, `pkg-with-dashes`, `pkg_with_underscores`; rejects `../etc/passwd`, `a/b/c`, `.hidden`, uppercase, shell metacharacters):
 
-     **Pattern** (npm package-name spec — covers `lodash`, `@scope/pkg`, `pkg-with-dashes`, `pkg_with_underscores`; rejects `../etc/passwd`, `a/b/c`, `.hidden`, uppercase, shell metacharacters):
-     ```python
-     _VALID_NPX_PKG_RE = re.compile(r'^(?:@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*$')
-     ```
+       ```python
+       _VALID_NPX_PKG_RE = re.compile(r'^(?:@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*$')
+       ```
 
-     **Exemplar**: `the_one/mcp/cache_cleanup.py:71-83` (`_VALID_NPX_PKG_RE`) — defined module-level, validated at function entry of `_clean_npx`, raises `ValueError` before any path operation. Established in F1 M09 Leg 3 after a design-review catch (the original draft used the broken char-class allowlist).
-
-     **When to use this pattern**: any time operator-config-derived string flows into `Path()` joins, `subprocess.run()` argv elements, or filesystem operations. The pattern's strength is the spec-grounding (anchored, structure-aware, not just a character set).
+       Implementation: `the_one/mcp/cache_cleanup.py:71-83` defines `_VALID_NPX_PKG_RE` module-level, validates at function entry of `_clean_npx`, raises `ValueError` before any path operation. Established in F1 M09 Leg 3 after a design-review catch (the original draft used the broken char-class allowlist).
      ```
    - Verify with the AC's grep.
    - Sub-commit: `flight/02: document npm-spec regex security primitive (F1 debrief carry-forward)`
