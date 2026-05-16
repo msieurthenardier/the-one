@@ -44,6 +44,19 @@
 
 ## Flight Director Notes
 
+### 2026-05-16 — Leg 1 design review (TWO cycles)
+
+- **Cycle 1**: Developer (Sonnet) found **7 high-severity issues** in the original Leg 1 spec (written during mission scaffolding 2026-05-15). The spec missed key codebase realities: welcome-picker keydown handler already exists at `chat.js:184-198` (not missing as claimed); session-list `role="listbox"` lives in `chat.js:60` (not in history-buckets.js); proposed `data-session-id` would silently break existing `data-id` consumers including `test_flow_hash_routing.py:95`; `highlightActiveSession` uses `aria-selected` (becomes invalid on plain `<button>` post-restructure — switch to `aria-current="page"`); third listbox-role assertion at `test_flow_keyboard.py:67` was missed; `test_session_delete_keyboard_reveal` (L90-100) needs `.list-item` class preserved; cross-file test impacts in `test_flow_hash_routing.py` + `test_flow_new_chat.py` weren't enumerated up-front.
+- **Cycle-1 fixes**: rewrote the leg spec end-to-end addressing all 7 high-severity findings. Inputs section now enumerates the chat.js call sites (lines 60, 129-136, 132, 184-198, 707); test impact enumerated up-front as step 1 (not a step-7 fallback); `data-id` preserved; `aria-selected` → `aria-current="page"` direction explicit; all 3 listbox-role test assertions called out; `.list-item` class preservation called out.
+- **Cycle 2**: focused 2nd-cycle review confirmed all 7 cycle-1 findings addressed. Surfaced **1 new high-severity issue** (`chat.js` path was written as `areas/chat/chat.js` throughout — actual file is at `areas/chat.js`, a sibling of the `chat/` directory) + 2 medium + 1 low.
+- **Cycle-2 fixes**:
+  - HIGH: global path correction — `areas/chat/chat.js` → `areas/chat.js` everywhere in the spec (3 occurrences)
+  - MEDIUM: pre-decided `<ul>` placement (chat.js owns the shell `<nav>...<ul></ul></nav>`; history-buckets fills the `<ul>`)
+  - MEDIUM: pre-decided welcome-handler home (stays in `chat.js` for now; re-home to `welcome.js` is M10-candidate refactoring)
+  - MEDIUM: added `aria-current="page"` rationale (hash-router treats each session view as page-like; alternative `aria-current="true"` is acceptable fallback)
+- **Per-skill rule**: max 2 design-review cycles. We're at limit. The cycle-2 high-severity finding is a mechanical text correction (file path typo), not a design issue persisting through cycles. Proceeding to implementation with the corrections applied.
+- **Net leg quality lesson**: the original Leg 1 spec, written during mission-design 2026-05-15, was based on incomplete recon (the Architect at mission-design time spot-checked tools-grid but didn't drill into chat.js's actual structure). Today's per-leg design review caught the gap. **Validates per-leg design-review discipline once again** — same lesson as F1 Leg 3's CRITICAL allowlist save.
+
 ### 2026-05-16 — Flight start (agentic-workflow kickoff)
 
 - **Phase file loaded**: `the-one/.flightops/agent-crews/leg-execution.md` (project-side, same as F1).
@@ -75,13 +88,67 @@
 
 ## Leg Progress
 
-(Populated during execution.)
+### 2026-05-16 — Leg 1 (landed at 9011576)
+
+**Welcome handler augment** (`chat.js:184-198`):
+- Augmented the existing roving-tabindex keydown to also toggle `aria-selected="true"` on the focus target and `"false"` on the others, in lockstep with the existing `tabindex` flip. Added attribution comment naming `section-nav.js:71-91` as the canonical pattern.
+- Handler stays in `chat.js` (cycle-2 pre-decision). Re-home to `welcome.js` remains an M10-candidate refactor.
+
+**Session-list restructure**:
+- `chat.js:60` shell: `<div class="session-list" role="listbox" aria-label="Chat sessions">` → `<nav class="session-list" aria-label="Chat sessions">`. The `.session-list` class is preserved for CSS.
+- `chat.js:129-136 highlightActiveSession`: `setAttribute('aria-selected', ...)` (always present, true/false) → `setAttribute('aria-current', 'page')` for the active item, `removeAttribute('aria-current')` for the rest. Matches the semantic used by `section-nav.js` and is defensible because the hash-router treats each session view as page-like (`#chat/sessions/<id>`).
+- `history-buckets.js buildSessionItem`: row went from a single `<div class="list-item session-item" role="option" tabindex="0" aria-selected=…>` containing both the title spans and the delete button → `<li class="list-item">` wrapping a `<button class="session-item" data-id=…>` (the title spans live inside the button) and a sibling `<button class="delete list-item-delete">`. The `e.target !== el` keydown bail at the old L71-80 was retired — native `<button>` Enter/Space activation handles join, and the delete button has its own click handler, so the bail is no longer relevant.
+- `history-buckets.js renderSessionList`: each bucket now uses `<ul class="session-group-list" aria-labelledby="session-group-…">` to wrap its `<li>` items. The bucket's outer `.session-group` div drops `role="group"` since the `<ul>` itself is the labelled list (the label is a sibling label element + `aria-labelledby` on the `<ul>`). This honours the cycle-2 pre-decision (chat.js owns the outer `<nav>`; history-buckets fills it with the dynamic bucket structure).
+- `chat.js` onDelete: switched `btn.closest('.session-item')` → `btn.closest('.list-item')` so `App.confirmDelete` applies `.confirm-delete` to the `<li>` wrapper (where the CSS rules `.list-item.confirm-delete[*]` are scoped) rather than the inner button.
+
+**Attribute decisions**:
+- `data-id` preserved (NOT renamed to `data-session-id`). Verified zero `data-session-id` references appear in code or tests post-edit.
+- `.list-item` class preserved on the new `<li>` so `components.css:123-124 :focus-within` reveal continues to fire when Tab moves focus from the session-button to its sibling delete-button.
+- `.session-item` class preserved on the inner button so existing selectors (`.session-item-text`, `[data-confirm-title]` queries, browser-test locators) keep matching.
+
+**CSS adjustments** (`chat.css`):
+- New `.area-chat .session-group-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; }` — strips UA `<ul>` shape so the bucket reads as the existing row stack.
+- New `.area-chat .session-item { … }` button-neutralization (transparent bg, no border/padding, inherit color/font, text-align left, flex-row) so the inner `<button>` composes visually like the old wrapper-div.
+- New `.area-chat .session-item:focus-visible` so the button still surfaces an accent ring when keyboard-focused (the existing `.list-item:focus-visible` rule becomes inert since the `<li>` is no longer the focus target).
+
+**Test updates** (all under `tests/browser/`):
+- `test_flow_keyboard.py`:
+  - `test_session_item_keyboard_select` (L25-46): docstring + L45 assertion switched `aria-selected="true"` → `aria-current="page"`.
+  - `test_session_item_has_role_option` (L49-68) renamed to `test_session_list_shape`: replaces the three listbox-role assertions (L50 docstring, L63 `role="listbox"` on `.session-list`, L67 `role="option"` on `.session-item`, plus the L68 `tabindex="0"` assertion) with a `<nav>` tagName check on the container and a `<button>` tagName check on the item.
+  - `test_session_delete_keyboard_reveal` (L73-100): selector for the delete button changed from descendant `.session-item .delete` to `.list-item .list-item-delete` (the delete is now a sibling of `.session-item` under the `<li class="list-item">`). Updated docstring to reflect the new topology.
+- `test_flow_hash_routing.py`: L86 + L95 selectors swapped `[aria-selected="true"]` → `[aria-current="page"]`. Inline comment cites F2 leg 01 rationale.
+- `test_flow_new_chat.py`: L196-201 — **beyond original spec scope**: the test originally claimed-SURVIVES under "class names preserved", but the descendant `item.locator(".delete")` query and the `to_have_class(.../confirm-delete/...)` check on `.session-item` both broke because the delete is now a sibling and `.confirm-delete` is applied to the `<li>`. Rewrote the locator to `.area-chat .session-group-list .list-item` and target the `.list-item-delete` button via that row.
+
+**Tools-grid verify** (no edit):
+- Re-read `tools-grid.js` at L55-75 (tile DOM) and L96-103 (grid container). Container has `role="list" aria-label="Built-in tools"`; each tile is `<div class="entity-tile tool-tile" role="listitem" tabindex="0">` containing inner `<label>` + `<input type="checkbox">`. Tile is focusable via `tabindex=0`; checkbox toggles via the standard label-input pair; no keyboard trap. Architect's F2 design-review assessment confirmed.
+
+**`.list-item :focus-within` reveal**: verified via the updated `test_session_delete_keyboard_reveal` post-edit; native button-focus inside the `<li>` triggers the reveal rule at `components.css:124` identically to the old shape.
+
+**Verification outcomes**:
+- `make test-browser` → exits 0 (316 passed, 35 skipped — Chromium auto-restored cleanly via `_ensure-playwright`).
+- Container broad pytest (`docker exec the-one pytest --tb=no -q --ignore=tests/browser`) → **1700 passed**, 4 skipped, 12 deselected (baseline preserved).
+- Host broad pytest: **pre-existing import failure** (`ModuleNotFoundError: No module named 'mcp.client.auth.exceptions'`) — verified by stash + replay on clean tree; **not caused by this leg**. Anomaly noted below; container is the source of truth.
+- `ruff check` + `ruff format --check` → 0/0 (baselines preserved).
+- Recon greps:
+  - `grep -rn 'role="listbox"\|role="option"' the_one/.../js/` → only welcome listbox (chat.js:73) + welcome.js options + studio/admin entity-grids match; session-list no longer matches.
+  - `grep -rn aria-selected` under chat → only welcome.js options + chat.js welcome-handler match; session-related sites cleared.
+  - `grep -n data-session-id` → empty (preserved `data-id`).
+
+**Anomalies**:
+- **Host-pytest pre-existing import failure** (`the_one/mcp/client.py:25`: `from mcp.client.auth.exceptions import ...` — `mcp.client.auth` is not a package on the host venv). Reproduces on the unmodified F2 scaffold commit (`7d13198`) — predates this leg. Container pytest is unaffected and remains the authoritative 1700-baseline. Surface candidate for M10 host-env maintenance (not in F2 scope).
+- **Beyond-spec test edit** in `test_flow_new_chat.py:196-201` — the leg spec marked it SURVIVES, but the descendant-selector + `.confirm-delete`-on-`.session-item` assumption broke under the sibling-button layout. Updated as documented above; no functional change to the deletion flow itself.
+- Pixel-snapshot suite (`test_visual_snapshots.py`, marker `pixel`) not run — out of `make test-browser` scope; baselines under `tests/browser/__snapshots__/` are gitignored and local-only per user-global policy. The session-list visual shift (div → button + `<ul>` wrapper) likely needs a local pixel-baseline regen before running `make test-pixel`; not part of this leg's verification path.
 
 ---
 
 ## Decisions
 
-(Populated during execution.)
+### 2026-05-16 — Leg 1
+
+- **`<ul>` placement (per cycle-2 pre-decision)**: chat.js owns the outer `<nav class="session-list">`; history-buckets fills it with one `<ul class="session-group-list">` per bucket (each `<ul>` is `aria-labelledby` the bucket label). The original "single `<ul>` shell" framing didn't fit the bucket-grouped reality; per-bucket `<ul>`s preserve the label-association semantics that previously lived on `role="group"`.
+- **history-buckets keydown bail (`L71-80` in the old shape)**: removed. Under the new shape the focusable element is the inner `<button class="session-item">`; native Enter/Space activation invokes the click handler that calls `onJoin`. The delete button has its own click handler and its own native activation. The bail (`e.target !== el`) is no longer needed.
+- **`.session-group` `role="group"` removed**: the bucket label association is now carried by `aria-labelledby` on the bucket's `<ul>`. Keeping `role="group"` on the outer `<div>` would have added a redundant grouping container with no accessible name (since the label is now scoped to the `<ul>`).
+- **`onDelete` callback**: switched `.closest('.session-item')` → `.closest('.list-item')` so `App.confirmDelete` operates on the `<li>` wrapper (where the CSS `.list-item.confirm-delete` styling lives). Both selectors resolve from the delete button, but only `.list-item` matches the styling contract under the new shape.
 
 ---
 
@@ -93,10 +160,20 @@
 
 ## Anomalies
 
-(Populated during execution.)
+### 2026-05-16 — Leg 1
+- **Host venv `mcp.client.auth.exceptions` import failure** (pre-existing; reproduced on clean tree). Container pytest unaffected. Surface candidate for M10 host-env maintenance.
+- **`test_flow_new_chat.py:196-201`** required a beyond-spec edit (leg artifact's "SURVIVES — class names preserved" call was incomplete; the assertion target moved from `.session-item` to `.list-item` because `.confirm-delete` now lands on the `<li>`, and `.delete` is a sibling rather than a descendant of `.session-item`).
 
 ---
 
 ## Session Notes
 
-(Populated during execution.)
+### 2026-05-16 — Leg 1 manual keyboard test
+
+- **Welcome agent picker**: not exercised manually this session — the agentic-workflow run executes headless. Behaviour verified via the existing browser tests (`test_flow_new_chat.py:77` listbox role survives; the augmented `aria-selected` toggling is observed indirectly through DOM-shape contracts in the browser suite). Operator should spot-check via Tab → ArrowDown chain when revalidating the flight.
+- **Session sidebar**: covered by the rewritten `test_session_list_shape` + `test_session_item_keyboard_select` + `test_session_delete_keyboard_reveal` in `test_flow_keyboard.py`. All three pass under `make test-browser`. The new flow: Tab into the session-button → Enter activates → `aria-current="page"` flips. Tab again → focus sibling `.list-item-delete` → `:focus-within` reveal fires → Enter triggers the two-step confirm flow.
+- **Admin tools-grid**: verify-only path. Read confirmed `role="list"`/`role="listitem"` with `tabindex=0` tiles. Existing `test_flow_admin_tools_grid.py` suite continues to pass in `make test-browser`.
+
+### Anomalies / surfacing
+- Host pytest module-resolution failure (`mcp.client.auth.exceptions`) reproduces on the pre-leg tree — escalate to M10 host-environment maintenance.
+- `test_flow_new_chat.py:196-201` rewrite was a beyond-spec correction; the original "SURVIVES" call missed that the `.confirm-delete` class moved from `.session-item` (old wrapper-div) to `.list-item` (new `<li>`) and that the delete-button selector changed from descendant to sibling.
