@@ -893,4 +893,48 @@
   }
   .cp-item.active { background: var(--accent-soft); }
   .cp-item:hover  { background: var(--hover-bg); }
+
+  /* ── L9 User Menu ────────────────────────────────────────────────────── */
+
+  .user-menu {
+    width: 220px;
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: 10px;
+    box-shadow: var(--shadow-2);
+    padding: 10px;
+    z-index: 90;
+  }
+  .user-menu-heading {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--fg-faint);
+    letter-spacing: 0.08em;
+    padding: 4px 6px;
+  }
+  .user-menu-theme {
+    display: flex;
+    gap: 4px;
+    padding: 4px 6px 8px;
+  }
+  .user-menu-item {
+    display: block;
+    padding: 8px 10px;
+    color: var(--fg);
+    text-decoration: none;
+    font-size: 13px;
+    border-radius: 6px;
+  }
+  .user-menu-item:hover { background: var(--hover-bg); }
+  .user-menu-divider {
+    height: 1px;
+    background: var(--hairline);
+    margin: 6px 0;
+  }
+  .user-menu-version {
+    padding: 4px 6px;
+    font-size: 11px;
+    color: var(--fg-faint);
+    font-family: 'JetBrains Mono', monospace;
+  }
 }
