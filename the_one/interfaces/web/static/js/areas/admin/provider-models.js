@@ -344,7 +344,7 @@
             var runVram = run.size_vram ? formatBytes(run.size_vram) : '';
             html +=
               '<div class="admin-pf-model-row">' +
-                '<span class="indicator-led indicator-led--success"></span>' +
+                '<span class="indicator-led indicator-led--success" aria-hidden="true"></span>' +
                 '<span class="admin-pf-model-name">' + escapeHtml(runName) + '</span>' +
                 renderCapabilityChips(capsBy[runName]) +
                 '<span class="admin-pf-model-size">' + escapeHtml(runVram) + '</span>' +
@@ -373,7 +373,7 @@
             var availSize = avail.size ? formatBytes(avail.size) : '';
             html +=
               '<div class="admin-pf-model-row">' +
-                '<span class="indicator-led indicator-led--idle"></span>' +
+                '<span class="indicator-led indicator-led--idle" aria-hidden="true"></span>' +
                 '<span class="admin-pf-model-name">' + escapeHtml(availName) + '</span>' +
                 renderCapabilityChips(capsBy[availName]) +
                 '<span class="admin-pf-model-size">' + escapeHtml(availSize) + '</span>' +
