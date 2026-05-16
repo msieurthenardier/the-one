@@ -51,6 +51,7 @@ instantiates providers directly and bypasses the agent loop entirely,
 so any token-count anomaly is attributable to the provider's
 ``usage`` reporting rather than agent-side history shaping.
 """
+
 from __future__ import annotations
 
 import os
@@ -101,9 +102,7 @@ async def _run_three_turn_conversation(provider, model_label: str) -> list[int]:
     for user_text in prompts:
         messages.append(Message.user(user_text))
         response = await provider.complete(messages=messages)
-        assert response.usage is not None, (
-            f"{model_label}: no usage reported by provider"
-        )
+        assert response.usage is not None, f"{model_label}: no usage reported by provider"
         counts.append(response.usage.input_tokens)
         messages.append(response)  # assistant turn enters history for next call
     return counts
@@ -145,8 +144,7 @@ def _skip_on_auth_error(provider_name: str, exc: Exception) -> None:
 async def test_anthropic_input_tokens_monotonic() -> None:
     if not os.environ.get("ANTHROPIC_API_KEY"):
         pytest.skip(
-            "ANTHROPIC_API_KEY not set — operator must export the key to run "
-            "this live test"
+            "ANTHROPIC_API_KEY not set — operator must export the key to run this live test"
         )
     try:
         import anthropic
@@ -158,9 +156,7 @@ async def test_anthropic_input_tokens_monotonic() -> None:
     provider = AnthropicProvider(model=model)
     try:
         try:
-            counts = await _run_three_turn_conversation(
-                provider, f"anthropic/{model}"
-            )
+            counts = await _run_three_turn_conversation(provider, f"anthropic/{model}")
         except (
             anthropic.PermissionDeniedError,
             anthropic.AuthenticationError,
@@ -175,10 +171,7 @@ async def test_anthropic_input_tokens_monotonic() -> None:
 @pytest.mark.live
 async def test_openai_input_tokens_monotonic() -> None:
     if not os.environ.get("OPENAI_API_KEY"):
-        pytest.skip(
-            "OPENAI_API_KEY not set — operator must export the key to run "
-            "this live test"
-        )
+        pytest.skip("OPENAI_API_KEY not set — operator must export the key to run this live test")
     try:
         import openai
     except ImportError:
@@ -189,9 +182,7 @@ async def test_openai_input_tokens_monotonic() -> None:
     provider = OpenAIProvider(model=model)
     try:
         try:
-            counts = await _run_three_turn_conversation(
-                provider, f"openai/{model}"
-            )
+            counts = await _run_three_turn_conversation(provider, f"openai/{model}")
         except (
             openai.PermissionDeniedError,
             openai.AuthenticationError,
@@ -205,9 +196,7 @@ async def test_openai_input_tokens_monotonic() -> None:
 
 @pytest.mark.live
 async def test_ollama_input_tokens_monotonic() -> None:
-    base_url = os.environ.get(
-        "LIVE_OLLAMA_BASE_URL", "http://host.docker.internal:11434/v1"
-    )
+    base_url = os.environ.get("LIVE_OLLAMA_BASE_URL", "http://host.docker.internal:11434/v1")
     import httpx
 
     # Probe Ollama via /api/tags (NOT the OpenAI-compat /v1 prefix). Strip a
@@ -251,9 +240,7 @@ async def test_ollama_input_tokens_monotonic() -> None:
     provider = OllamaProvider(model=model, base_url=base_url)
     try:
         try:
-            counts = await _run_three_turn_conversation(
-                provider, f"ollama/{model}"
-            )
+            counts = await _run_three_turn_conversation(provider, f"ollama/{model}")
         except (httpx.HTTPStatusError, httpx.HTTPError) as exc:
             # Ollama auth/permission failures surface as HTTP errors (no
             # SDK exception hierarchy to discriminate against).
@@ -268,8 +255,7 @@ async def test_ollama_input_tokens_monotonic() -> None:
 async def test_openrouter_input_tokens_monotonic() -> None:
     if not os.environ.get("OPENROUTER_API_KEY"):
         pytest.skip(
-            "OPENROUTER_API_KEY not set — operator must export the key to "
-            "run this live test"
+            "OPENROUTER_API_KEY not set — operator must export the key to run this live test"
         )
     try:
         import openai
@@ -277,15 +263,11 @@ async def test_openrouter_input_tokens_monotonic() -> None:
         pytest.skip("openai SDK (required by OpenRouter provider) not installed")
     from the_one.llm.openrouter_provider import OpenRouterProvider
 
-    model = os.environ.get(
-        "LIVE_OPENROUTER_MODEL", "meta-llama/llama-3.2-3b-instruct:free"
-    )
+    model = os.environ.get("LIVE_OPENROUTER_MODEL", "meta-llama/llama-3.2-3b-instruct:free")
     provider = OpenRouterProvider(model=model)
     try:
         try:
-            counts = await _run_three_turn_conversation(
-                provider, f"openrouter/{model}"
-            )
+            counts = await _run_three_turn_conversation(provider, f"openrouter/{model}")
         except (
             openai.PermissionDeniedError,
             openai.AuthenticationError,

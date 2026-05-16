@@ -657,7 +657,9 @@ def _mask_secret_value(value: Any) -> Any:
 # defined AFTER ``_mcp_source_response`` — a forward reference would
 # fail at module import time, so the constant lives here instead. See
 # leg L02 flight-log entry for the deliberate placement rationale).
-from the_one.mcp.oauth.storage import OAUTH_MANAGED_SECRET_KEYS as _OAUTH_MANAGED_SECRET_KEYS
+from the_one.mcp.oauth.storage import (  # noqa: E402  # deliberate placement; see comment block above re: forward-reference avoidance
+    OAUTH_MANAGED_SECRET_KEYS as _OAUTH_MANAGED_SECRET_KEYS,
+)
 
 
 def _mask_secrets(secrets: dict[str, Any]) -> dict[str, Any]:
@@ -1620,6 +1622,30 @@ async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any
 # ── OAuth callback (F5 §9) ────────────────────────────────────────────────
 
 
+def _safe_script_json(payload: dict[str, Any]) -> str:
+    """JSON-encode ``payload`` safely for embedding inside a ``<script>`` body.
+
+    Escapes the four sequences that can break out of a ``<script>`` context or
+    terminate a JS statement when a literal IdP-supplied string lands inside
+    the JSON: ``</`` (script-end tag), ``<!--`` (HTML comment start that some
+    legacy parsers treat specially inside scripts), U+2028 (LINE SEPARATOR),
+    U+2029 (PARAGRAPH SEPARATOR). The last two are line-terminators in
+    JavaScript and would prematurely end a string literal if left raw.
+
+    Without this, a hostile-or-compromised OAuth Authorization Server could
+    inject same-origin script via ``error_description=...</script>...`` —
+    the page loads from 127.0.0.1 so the injected payload runs with the
+    operator's session origin.
+    """
+    return (
+        json.dumps(payload)
+        .replace("</", "<\\/")
+        .replace("<!--", "<\\!--")
+        .replace("\u2028", "\\u2028")  # LINE SEPARATOR
+        .replace("\u2029", "\\u2029")  # PARAGRAPH SEPARATOR
+    )
+
+
 def _render_oauth_callback_page(
     *,
     status: str,
@@ -1678,9 +1704,15 @@ def _render_oauth_callback_page(
     # IdP. Targeting the page's own origin (loopback) means same-origin
     # postMessage to the opener; opener-side listener should also check
     # ``event.origin`` defensively.
+    # Escape ``</`` (script termination), ``<!--``, and U+2028/U+2029
+    # (JS line terminators) so an IdP-controlled string in ``post_message``
+    # — most notably ``error_description`` on the failed branch — cannot
+    # break out of the <script> body. The page loads from 127.0.0.1, so
+    # same-origin protections do NOT defend against this; the escape
+    # below is the only barrier.
     post_message_script = (
         f"<script>(function () {{ try {{ if (window.opener) "
-        f"{{ window.opener.postMessage({json.dumps(post_message)}, "
+        f"{{ window.opener.postMessage({_safe_script_json(post_message)}, "
         f"window.location.origin); }} }} catch (e) {{ /* opener gone / "
         f"cross-origin — silent */ }} }})();</script>"
         if post_message is not None

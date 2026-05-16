@@ -43,7 +43,9 @@ def _wait_editor_ready(page: Page, expected_tab: str = "general") -> None:
     waits for the deep-linked tab's `aria-selected="true"` before returning,
     avoiding the race with the L5 async editor-mount wrapper.
     """
-    expect(page.locator('.section-nav[aria-label="Agent Studio sections"]')).to_be_visible(timeout=8000)
+    expect(page.locator('.section-nav[aria-label="Agent Studio sections"]')).to_be_visible(
+        timeout=8000
+    )
     # If the URL hash deep-links into an agent (`#studio/agents/<name>...`),
     # the editor mount is already in flight via the async wrapper — wait for
     # it to complete instead of clicking a tile (the tile becomes hidden
@@ -188,7 +190,7 @@ def test_click_commits_tab(app_with_agent: SeededApp, page: Page) -> None:
     # Leg 02 restructured Built-in Tools tab into category tiles with iOS-pill
     # master toggles. The hidden checkbox (.tool-toggle, display:none) backs
     # the pill visual (.tool-switch). Assert the visible pill instead.
-    expect(page.locator('.tool-switch').first).to_be_visible()
+    expect(page.locator(".tool-switch").first).to_be_visible()
 
 
 @pytest.mark.browser
@@ -216,7 +218,7 @@ def test_refresh_on_tools_tab_persists(app_with_agent: SeededApp, page: Page) ->
     # Leg 02 restructured Built-in Tools tab into category tiles with iOS-pill
     # master toggles. The hidden checkbox (.tool-toggle, display:none) backs
     # the pill visual (.tool-switch). Assert the visible pill instead.
-    expect(page.locator('.tool-switch').first).to_be_visible(timeout=8000)
+    expect(page.locator(".tool-switch").first).to_be_visible(timeout=8000)
     expect(page.locator('[data-testid="tab-tools"]')).to_have_attribute("aria-selected", "true")
 
 

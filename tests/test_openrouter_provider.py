@@ -168,11 +168,7 @@ class TestSupportsTools:
         def handler(req: httpx.Request) -> httpx.Response:
             return httpx.Response(
                 200,
-                json={
-                    "data": [
-                        {"id": "google/gemma-2", "supported_parameters": ["temperature"]}
-                    ]
-                },
+                json={"data": [{"id": "google/gemma-2", "supported_parameters": ["temperature"]}]},
             )
 
         transport = httpx.MockTransport(handler)
@@ -195,11 +191,7 @@ class TestSupportsTools:
         def handler(req: httpx.Request) -> httpx.Response:
             return httpx.Response(
                 200,
-                json={
-                    "data": [
-                        {"id": "anthropic/claude-3.5", "supported_parameters": ["tools"]}
-                    ]
-                },
+                json={"data": [{"id": "anthropic/claude-3.5", "supported_parameters": ["tools"]}]},
             )
 
         transport = httpx.MockTransport(handler)

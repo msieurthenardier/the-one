@@ -76,8 +76,9 @@ async def client_and_repo(tmp_path):
     await conn.close()
 
 
-async def _seed_stdio(repo: MCPSourceRepository, sid: str, *, command="python",
-                     args=None, config_extra=None) -> None:
+async def _seed_stdio(
+    repo: MCPSourceRepository, sid: str, *, command="python", args=None, config_extra=None
+) -> None:
     cfg: dict = {"command": command, "args": args or []}
     if config_extra:
         cfg.update(config_extra)
@@ -101,8 +102,12 @@ async def test_stdio_test_connect_dispatches_to_stdio_helper(client_and_repo) ->
     ``_probe_auth_posture`` HTTP probe is NOT called for stdio.
     """
     client, repo = client_and_repo
-    await _seed_stdio(repo, "src-stdio-1", command="python",
-                     args=["-m", "tests.fixtures.mcp.hello_server", "--stdio"])
+    await _seed_stdio(
+        repo,
+        "src-stdio-1",
+        command="python",
+        args=["-m", "tests.fixtures.mcp.hello_server", "--stdio"],
+    )
 
     tool = MagicMock()
     tool.name = "echo"
@@ -153,11 +158,13 @@ async def test_stdio_test_connect_dispatches_to_stdio_helper(client_and_repo) ->
         probe_calls["n"] += 1
         return "no_auth"
 
-    with patch("the_one.mcp.client.MCPClient", _MockMCPClient), \
-         patch(
-             "the_one.mcp.transports.streamable_http._probe_auth_posture",
-             _no_probe,
-         ):
+    with (
+        patch("the_one.mcp.client.MCPClient", _MockMCPClient),
+        patch(
+            "the_one.mcp.transports.streamable_http._probe_auth_posture",
+            _no_probe,
+        ),
+    ):
         resp = await client.post("/api/mcp-sources/src-stdio-1/test/connect")
 
     assert resp.status_code == 200
@@ -363,11 +370,13 @@ async def test_no_auth_test_connect_envelopes_unexpected_exception(client_and_re
     async def _no_auth_probe(*args, **kwargs):
         return "no_auth"
 
-    with patch("the_one.mcp.client.MCPClient", _LeakingClient), \
-         patch(
-             "the_one.mcp.transports.streamable_http._probe_auth_posture",
-             _no_auth_probe,
-         ):
+    with (
+        patch("the_one.mcp.client.MCPClient", _LeakingClient),
+        patch(
+            "the_one.mcp.transports.streamable_http._probe_auth_posture",
+            _no_auth_probe,
+        ),
+    ):
         resp = await client.post("/api/mcp-sources/src-noauth-leak/test/connect")
 
     assert resp.status_code == 200, resp.text
@@ -380,9 +389,7 @@ async def test_no_auth_test_connect_envelopes_unexpected_exception(client_and_re
 # ── Caplog gate (F6 baseline preservation) ──────────────────────────────
 
 
-async def test_stdio_test_connect_no_disconnect_warning(
-    client_and_repo, caplog
-) -> None:
+async def test_stdio_test_connect_no_disconnect_warning(client_and_repo, caplog) -> None:
     """No ``MCPClient.disconnect`` warnings emitted across the stdio Test path.
 
     F9 L2 §"Caplog gate" — stdio is the first re-assertion of the F6
@@ -430,17 +437,13 @@ async def test_stdio_test_connect_no_disconnect_warning(
         def negotiated_protocol_version(self):
             return "2025-06-18"
 
-    with caplog.at_level(logging.WARNING), \
-         patch("the_one.mcp.client.MCPClient", _CleanMCPClient):
+    with caplog.at_level(logging.WARNING), patch("the_one.mcp.client.MCPClient", _CleanMCPClient):
         resp = await client.post("/api/mcp-sources/src-stdio-quiet/test/connect")
         assert resp.json()["status"] == "ok"
 
-    disconnect_warnings = [
-        r for r in caplog.records if "disconnect" in r.message.lower()
-    ]
+    disconnect_warnings = [r for r in caplog.records if "disconnect" in r.message.lower()]
     assert disconnect_warnings == [], (
-        f"Unexpected MCPClient.disconnect warnings on stdio Test path: "
-        f"{disconnect_warnings}"
+        f"Unexpected MCPClient.disconnect warnings on stdio Test path: {disconnect_warnings}"
     )
 
 
@@ -507,9 +510,7 @@ async def test_stdio_test_connect_against_fastmcp_fixture_returns_echo_add(
     assert "auth_posture" not in cache
 
     # Caplog gate: F6 baseline must hold across stdio teardown.
-    disconnect_warnings = [
-        r for r in caplog.records if "disconnect" in r.message.lower()
-    ]
+    disconnect_warnings = [r for r in caplog.records if "disconnect" in r.message.lower()]
     assert disconnect_warnings == [], (
         f"Unexpected MCPClient.disconnect warnings on stdio Test path: "
         f"{[r.message for r in disconnect_warnings]}"

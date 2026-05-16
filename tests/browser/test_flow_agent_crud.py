@@ -27,7 +27,9 @@ from playwright.sync_api import Page, expect
 # (60+ retries × 500ms then timeout), exposing a likely real F4-rebrand-era UX
 # defect. Skip remains in place pending the cleanup flight that owns this UX
 # investigation. Same symptom class as test_flow_provider_setup.py.
-pytestmark = pytest.mark.skip(reason="M08 F4 KI: hangs under post-Leg-02 markup; root cause unidentified")
+pytestmark = pytest.mark.skip(
+    reason="M08 F4 KI: hangs under post-Leg-02 markup; root cause unidentified"
+)
 
 
 @pytest.mark.browser

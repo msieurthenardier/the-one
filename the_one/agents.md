@@ -226,6 +226,18 @@ Debugging-only and measurement-only modules are gated by **both** a URL query-st
 
 The pattern applies whenever a frontend module exists primarily to support diagnosis (perf measurement, debug logging, trace capture, etc.) and is not part of the user-facing feature surface. Future modules following this convention should mirror `App.perf`'s shape: a module-load-time `isEnabled()` gate, public methods that short-circuit when disabled, and one-line activation via either URL or localStorage. The two activation channels are intentional — URL is ad-hoc (no operator commitment), localStorage is sticky (survives reloads, useful for measurement campaigns).
 
+### `live-read-across-lazy-resolver-boundary`
+
+When a provider field is **lazily resolved** on first call (i.e. the field starts as a sentinel — `None`, a default — and is replaced inside the provider's own `complete()` / `stream()` path after a one-time upstream probe), every downstream consumer must read the field **live at the point of use**, not pre-capture it at the entry of a surrounding function. Eager capture sees the pre-resolution sentinel; the resolver fires later inside the provider call, but the captured local is never re-read.
+
+**Live example**: `LLMProvider.max_context_tokens` follows this pattern as of M07 F6.5 (Ollama queries `/api/show` once per model and caches the result on the provider instance). The bug F6.5 L4 found was in `_process_and_broadcast` (`the_one/agent/core.py`) — that function captured `max_context_tokens` into a local at function entry, then looped over the agent's call sequence; the first call's resolver fire never propagated to subsequent iterations of the loop. M07 F7 L05 pins the contract with `test_max_context_tokens_live_read_across_resolver` (in `tests/test_agent_core.py`).
+
+**Pattern**: read `provider.max_context_tokens` at the point of use, not at the start of the surrounding function. If a loop body needs the value, read it inside the loop body, not before the `for`/`while` statement. If a helper function needs it, pass the provider (or the agent that owns the provider), not the pre-captured int.
+
+**Counter-example (what NOT to do)**: capturing the value into a kwarg at the top-level `agent.run()` entry "for performance" — the resolver hasn't fired yet at that point; the kwarg snapshots the sentinel and downstream context-window decisions are made against the wrong number until the agent is reconstructed.
+
+The pattern generalizes to any future field where the upstream value is unknown until a per-model / per-session probe completes (per-model token limits, per-model tool-calling shapes, etc.). The contract is: lazily-resolved fields are owned by the provider and must be read through the provider, never copied across a function boundary.
+
 ---
 
 ## Dependency Graph
@@ -1505,8 +1517,9 @@ To add a new LLM provider type, six layers must coordinate. Missing any one of t
    - `PROVIDER_TYPES` is fetched from `/api/providers/types` (post-leg-02), so the type appears in the dropdown when allowed by the API
    - Add `TYPE_DEFAULTS["<type>"] = { base_url, showBaseUrl, showApiKey }` (unconditional — needed for editing existing providers even if the type is later hidden from creation)
    - Add `<type>` to the `KNOWN_BADGE_TYPES` array in `admin.js` (so the renderer emits `.admin-provider-badge--<type>`) and add a `--badge-<type>` token in `tokens.css` plus the matching `.admin-provider-badge--<type>` rule in `admin.css` (post-leg-02 the badge styling is CSS-driven; no JS color literals)
+7. **`_init_provider_state(self, kwargs: dict) -> None`** (optional hook on `LLMProvider`) — called from `LLMProvider.__init__` after the standard fields (`model`, `api_key`, `base_url`, etc.) have been assigned. Implement when the new provider needs to capture configuration that is not part of the base field set (e.g. OpenRouter pulls `app_url` / `app_name` out of `kwargs` to populate its `HTTP-Referer` / `X-Title` analytics headers; Ollama uses the hook to seed lazy-resolved `max_context_tokens` state). Without the hook the constructor would have to be subclassed wholesale; with it, only the per-type capture lives in the subclass. Reference implementation: see `_init_provider_state` in `the_one/llm/openrouter_provider.py` (locate by symbol — line numbers drift).
 
-When all six layers are aligned, an integration test posting a provider with the new type round-trips successfully through DB persistence, factory resolution, and UI rendering.
+When all six (plus optional 7th) layers are aligned, an integration test posting a provider with the new type round-trips successfully through DB persistence, factory resolution, and UI rendering.
 
 ---
 

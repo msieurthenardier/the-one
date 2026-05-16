@@ -93,10 +93,8 @@ Flight 2)". The security-relevant invariants are:
   when the operator hasn't touched the field. See [CLAUDE.md](CLAUDE.md)
   "`__MASKED__` sentinel for API key updates".
 - `.env` is gitignored.
-- `THE_ONE_CONCOURSE_PASS` is a local-Concourse-only credential; rotation
-  happens out-of-band (M06 F1 L6 documented the rotation procedure).
-- No secrets land in `.env.example`, `Dockerfile`, `docker-compose.yml`,
-  or `ci/pipeline.yml`.
+- No secrets land in `.env.example`, `Dockerfile`, or
+  `docker-compose.yml`.
 
 ## What This Model Excludes
 
@@ -115,11 +113,23 @@ above before implementation:
 
 ## Future Work (NOT in scope today)
 
-- **Secrets manager**: would replace `THE_ONE_CONCOURSE_PASS`-style env
-  vars and unify with the existing API-key encryption surface
+- **Secrets manager**: would replace local-only `.env`-style secret
+  storage and unify with the existing API-key encryption surface
 - **MCP server trust boundaries**: each MCP server is a separate trust
   domain; connecting to a third-party MCP server widens the trust
   boundary in ways the current model does not address
+- **MCP `streamable-http` source URL gating asymmetry**: the LLM
+  provider create / update / test endpoints route `base_url` through
+  `_is_safe_provider_url` (scheme = `https` for non-localhost hosts;
+  see `the_one/interfaces/web/api.py`). The MCP source create / update
+  path does NOT apply an equivalent gate to `MCPSource.config.url`
+  for `transport_type == "streamable_http"`. Today this is safe under
+  the operator-trusted posture (the operator configures the URL by
+  hand), but the asymmetry would widen meaningfully if a future
+  "import MCP server from registry" or "share MCP source" feature
+  lands. Suggested resolution: apply an `_is_safe_provider_url`-shaped
+  validator to `MCPSource.config.url` at create / update time, with
+  the same `localhost` exemption and the same `https` floor.
 - **Multi-user form factor**: would require auth + per-user tool
   isolation + per-user encryption keys — a substantial change that
   inverts F3 Decision 10

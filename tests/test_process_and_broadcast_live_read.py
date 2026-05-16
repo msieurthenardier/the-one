@@ -106,12 +106,8 @@ async def test_usage_event_reflects_live_max_context_tokens_at_emission(
     so the resolved value appears on the FIRST message, not the second.
     """
     # Stub out the Ollama auto-load (external state, not under test).
-    monkeypatch.setattr(
-        web_app, "_ensure_ollama_model_loaded", AsyncMock(return_value=None)
-    )
-    monkeypatch.setattr(
-        web_app, "_save_session_to_db", AsyncMock(return_value=None)
-    )
+    monkeypatch.setattr(web_app, "_ensure_ollama_model_loaded", AsyncMock(return_value=None))
+    monkeypatch.setattr(web_app, "_save_session_to_db", AsyncMock(return_value=None))
 
     captured: list[dict[str, Any]] = []
 
@@ -124,11 +120,11 @@ async def test_usage_event_reflects_live_max_context_tokens_at_emission(
     # Resolved = a deliberately-distinct value (32_000) so a wrong
     # broadcast is unambiguous. A real-world example: OpenRouter resolves
     # a small open-weight model from 128k default down to (e.g.) 32k.
-    INITIAL = 128_000
-    RESOLVED = 32_000
+    initial = 128_000
+    resolved = 32_000
     agent = _LiveReadStubAgent(
-        initial_max_context_tokens=INITIAL,
-        resolved_max_context_tokens=RESOLVED,
+        initial_max_context_tokens=initial,
+        resolved_max_context_tokens=resolved,
     )
     session = Session(
         id="cs-live-read",
@@ -140,30 +136,25 @@ async def test_usage_event_reflects_live_max_context_tokens_at_emission(
 
     # Find the usage event (non-interim — the final one emitted by the
     # ASSISTANT branch in _process_and_broadcast).
-    usage_events = [
-        p
-        for p in captured
-        if p.get("type") == "usage" and not p.get("is_interim")
-    ]
+    usage_events = [p for p in captured if p.get("type") == "usage" and not p.get("is_interim")]
     assert len(usage_events) == 1, (
-        f"expected exactly one final usage event, got {len(usage_events)}: "
-        f"{usage_events!r}"
+        f"expected exactly one final usage event, got {len(usage_events)}: {usage_events!r}"
     )
     usage_event = usage_events[0]
 
     # The contract: max_context_tokens in the broadcast event reflects
-    # the LIVE attribute value at emission time (RESOLVED), NOT the
-    # value at function entry (INITIAL). If _process_and_broadcast
+    # the LIVE attribute value at emission time (resolved), NOT the
+    # value at function entry (initial). If _process_and_broadcast
     # captured the value at the top, this assertion would fail with
     # max_context_tokens == 128_000.
-    assert usage_event["max_context_tokens"] == RESOLVED, (
+    assert usage_event["max_context_tokens"] == resolved, (
         "_process_and_broadcast must read max_context_tokens LIVE at usage "
         "emission; eager-capture at function entry would emit "
-        f"{INITIAL} instead of {RESOLVED}. Got: {usage_event!r}"
+        f"{initial} instead of {resolved}. Got: {usage_event!r}"
     )
     # Sanity: agent.llm.max_context_tokens is indeed the resolved value
     # (confirms the mutation in step() ran).
-    assert agent.llm.max_context_tokens == RESOLVED
+    assert agent.llm.max_context_tokens == resolved
 
 
 if __name__ == "__main__":  # pragma: no cover

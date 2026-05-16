@@ -14,7 +14,7 @@ Covers:
 from __future__ import annotations
 
 import time
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import aiosqlite
 import pytest
@@ -380,14 +380,14 @@ async def test_phase_0_no_auth_path_returns_tools(client_and_repo) -> None:
     async def _stub_probe(server_url, *, timeout=5.0):
         return "no_auth"
 
-    with patch("the_one.mcp.client.MCPClient", _MockMCPClient), \
-         patch(
-             "the_one.mcp.transports.streamable_http._probe_auth_posture",
-             _stub_probe,
-         ):
-        resp = await client.post(
-            "/api/mcp-sources/src-phase0-1/test/connect"
-        )
+    with (
+        patch("the_one.mcp.client.MCPClient", _MockMCPClient),
+        patch(
+            "the_one.mcp.transports.streamable_http._probe_auth_posture",
+            _stub_probe,
+        ),
+    ):
+        resp = await client.post("/api/mcp-sources/src-phase0-1/test/connect")
 
     assert resp.status_code == 200
     body = resp.json()
@@ -444,15 +444,17 @@ async def test_phase_0_oauth_fall_through_preserves_phase_b(client_and_repo) -> 
     async def _stub_probe(server_url, *, timeout=5.0):
         return "oauth"
 
-    with patch(
-        "the_one.mcp.transports.streamable_http._probe_auth_posture",
-        _stub_probe,
-    ), patch(
-        "the_one.interfaces.web.api.httpx.AsyncClient", _StubHttpxClient,
+    with (
+        patch(
+            "the_one.mcp.transports.streamable_http._probe_auth_posture",
+            _stub_probe,
+        ),
+        patch(
+            "the_one.interfaces.web.api.httpx.AsyncClient",
+            _StubHttpxClient,
+        ),
     ):
-        resp = await client.post(
-            "/api/mcp-sources/src-phase0-2/test/connect"
-        )
+        resp = await client.post("/api/mcp-sources/src-phase0-2/test/connect")
 
     assert resp.status_code == 200
     body = resp.json()
@@ -517,31 +519,25 @@ async def test_phase_0_cached_hint_skips_probe(client_and_repo) -> None:
         probe_calls["n"] += 1
         return "no_auth"
 
-    with patch("the_one.mcp.client.MCPClient", _MockMCPClient), \
-         patch(
-             "the_one.mcp.transports.streamable_http._probe_auth_posture",
-             _counting_probe,
-         ):
+    with (
+        patch("the_one.mcp.client.MCPClient", _MockMCPClient),
+        patch(
+            "the_one.mcp.transports.streamable_http._probe_auth_posture",
+            _counting_probe,
+        ),
+    ):
         # First call: probe runs, verdict persisted.
-        resp1 = await client.post(
-            "/api/mcp-sources/src-phase0-3/test/connect"
-        )
+        resp1 = await client.post("/api/mcp-sources/src-phase0-3/test/connect")
         assert resp1.json()["status"] == "ok"
         assert probe_calls["n"] == 1
 
         # Second call: cached hint reads, probe SKIPPED.
-        resp2 = await client.post(
-            "/api/mcp-sources/src-phase0-3/test/connect"
-        )
+        resp2 = await client.post("/api/mcp-sources/src-phase0-3/test/connect")
         assert resp2.json()["status"] == "ok"
-        assert probe_calls["n"] == 1, (
-            "Probe must not run when _cache.auth_posture is set"
-        )
+        assert probe_calls["n"] == 1, "Probe must not run when _cache.auth_posture is set"
 
 
-async def test_phase_0_disconnect_warning_quiet_on_no_auth_path(
-    client_and_repo, caplog
-) -> None:
+async def test_phase_0_disconnect_warning_quiet_on_no_auth_path(client_and_repo, caplog) -> None:
     """No `MCPClient.disconnect` warnings emitted across the no-auth path.
 
     Verifies the bare-client probe + connect + list_tools cycle does NOT
@@ -594,21 +590,18 @@ async def test_phase_0_disconnect_warning_quiet_on_no_auth_path(
     async def _stub_probe(server_url, *, timeout=5.0):
         return "no_auth"
 
-    with caplog.at_level(logging.WARNING), \
-         patch("the_one.mcp.client.MCPClient", _CleanMCPClient), \
-         patch(
-             "the_one.mcp.transports.streamable_http._probe_auth_posture",
-             _stub_probe,
-         ):
-        resp = await client.post(
-            "/api/mcp-sources/src-phase0-4/test/connect"
-        )
+    with (
+        caplog.at_level(logging.WARNING),
+        patch("the_one.mcp.client.MCPClient", _CleanMCPClient),
+        patch(
+            "the_one.mcp.transports.streamable_http._probe_auth_posture",
+            _stub_probe,
+        ),
+    ):
+        resp = await client.post("/api/mcp-sources/src-phase0-4/test/connect")
         assert resp.json()["status"] == "ok"
 
-    disconnect_warnings = [
-        r for r in caplog.records
-        if "disconnect" in r.message.lower()
-    ]
+    disconnect_warnings = [r for r in caplog.records if "disconnect" in r.message.lower()]
     assert disconnect_warnings == [], (
         f"Unexpected MCPClient.disconnect warnings: {disconnect_warnings}"
     )

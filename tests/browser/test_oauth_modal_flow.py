@@ -101,9 +101,7 @@ def _install_window_open_stub(page: Page) -> None:
 
 
 @pytest.mark.browser
-def test_login_button_renders_with_source_name(
-    app_with_agent: SeededApp, page: Page
-) -> None:
+def test_login_button_renders_with_source_name(app_with_agent: SeededApp, page: Page) -> None:
     """The inline button renders the human-readable source_name when present
     in the event, falling back to source_id only when name is absent.
     """
@@ -219,9 +217,7 @@ def test_second_auth_required_event_navigates_popup_to_consent_url(
 
 
 @pytest.mark.browser
-def test_button_clears_on_auth_resolved_event(
-    app_with_agent: SeededApp, page: Page
-) -> None:
+def test_button_clears_on_auth_resolved_event(app_with_agent: SeededApp, page: Page) -> None:
     """A11 — auth_resolved removes the inline Login-required button."""
     _open_chat(page, app_with_agent.base_url, app_with_agent.agent_name)
     _emit_ws_event(page, {"type": "auth_required", "source_id": "src-5"})
@@ -232,9 +228,7 @@ def test_button_clears_on_auth_resolved_event(
 
 
 @pytest.mark.browser
-def test_popup_closes_on_auth_resolved_event(
-    app_with_agent: SeededApp, page: Page
-) -> None:
+def test_popup_closes_on_auth_resolved_event(app_with_agent: SeededApp, page: Page) -> None:
     """When the OAuth callback fires and broadcasts ``auth_resolved``,
     the chat handler closes the popup that was opened during the button
     click. (In production the callback page also calls window.close()

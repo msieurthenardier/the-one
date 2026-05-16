@@ -105,9 +105,7 @@ async def list_models(base_url: str, api_key: str | None) -> list[OpenRouterMode
         from the_one.config import settings
 
         if settings.dev_mode:
-            logger.info(
-                "Using THE_ONE_OPENROUTER_TEST_MODELS_JSON test seam (dev_mode=true)"
-            )
+            logger.info("Using THE_ONE_OPENROUTER_TEST_MODELS_JSON test seam (dev_mode=true)")
             raw = json.loads(test_json)
             if not isinstance(raw, list):
                 raise ValueError("THE_ONE_OPENROUTER_TEST_MODELS_JSON must be a JSON array")
@@ -161,9 +159,7 @@ async def verify_key(base_url: str, api_key: str) -> dict[str, Any]:
         try:
             return resp.json()
         except json.JSONDecodeError as e:
-            raise ValueError(
-                f"OpenRouter /auth/key returned non-JSON body: {e}"
-            ) from e
+            raise ValueError(f"OpenRouter /auth/key returned non-JSON body: {e}") from e
 
 
 async def get_model_context_length(

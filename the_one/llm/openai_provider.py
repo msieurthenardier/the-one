@@ -46,10 +46,10 @@ OPENAI_MODEL_CONTEXT: dict[str, int] = {
     "gpt-4-vision-preview": 128_000,
     "gpt-4-0125-preview": 128_000,
     "gpt-4-1106-preview": 128_000,
-    "gpt-4": 8_192,                # legacy gpt-4 default; -0613 / -0314 dated variants
+    "gpt-4": 8_192,  # legacy gpt-4 default; -0613 / -0314 dated variants
     "gpt-3.5-turbo-instruct": 4_096,
     "gpt-3.5-turbo-16k": 16_385,
-    "gpt-3.5-turbo": 16_385,       # current gpt-3.5-turbo defaults to 16k (was 4k pre-2023)
+    "gpt-3.5-turbo": 16_385,  # current gpt-3.5-turbo defaults to 16k (was 4k pre-2023)
     "o1": 200_000,
     "o3-mini": 200_000,
 }

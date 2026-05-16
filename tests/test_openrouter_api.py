@@ -215,7 +215,8 @@ class TestVerifyKey:
 
         def handler(req: httpx.Request) -> httpx.Response:
             return httpx.Response(
-                200, content="<html>Login required</html>",
+                200,
+                content="<html>Login required</html>",
                 headers={"content-type": "text/html"},
             )
 
@@ -240,21 +241,15 @@ class TestCacheLruBound:
         cap = openrouter_api._CACHE_MAX_ENTRIES
         # Fill the cache with ``cap`` distinct keys (vary api_key).
         for i in range(cap):
-            await openrouter_api.list_models(
-                "https://openrouter.ai/api/v1", f"key-{i}"
-            )
+            await openrouter_api.list_models("https://openrouter.ai/api/v1", f"key-{i}")
         assert len(openrouter_api._models_cache) == cap
 
         # Insert one more — eviction kicks in, oldest goes.
-        await openrouter_api.list_models(
-            "https://openrouter.ai/api/v1", "key-overflow"
-        )
+        await openrouter_api.list_models("https://openrouter.ai/api/v1", "key-overflow")
         assert len(openrouter_api._models_cache) == cap
 
         # The first inserted (key-0) was the LRU and should be gone.
-        first_key = openrouter_api._cache_key(
-            "https://openrouter.ai/api/v1", "key-0"
-        )
+        first_key = openrouter_api._cache_key("https://openrouter.ai/api/v1", "key-0")
         assert first_key not in openrouter_api._models_cache
 
     async def test_cache_hit_promotes_to_mru(self, monkeypatch):
@@ -270,23 +265,15 @@ class TestCacheLruBound:
         # Insert key-0 first, then fill the rest.
         await openrouter_api.list_models("https://openrouter.ai/api/v1", "key-0")
         for i in range(1, cap):
-            await openrouter_api.list_models(
-                "https://openrouter.ai/api/v1", f"key-{i}"
-            )
+            await openrouter_api.list_models("https://openrouter.ai/api/v1", f"key-{i}")
 
         # Hit key-0 — this should promote it to MRU.
         await openrouter_api.list_models("https://openrouter.ai/api/v1", "key-0")
 
         # Insert overflow — key-1 (now LRU) should be evicted instead of key-0.
-        await openrouter_api.list_models(
-            "https://openrouter.ai/api/v1", "key-overflow"
-        )
-        first_key = openrouter_api._cache_key(
-            "https://openrouter.ai/api/v1", "key-0"
-        )
-        second_key = openrouter_api._cache_key(
-            "https://openrouter.ai/api/v1", "key-1"
-        )
+        await openrouter_api.list_models("https://openrouter.ai/api/v1", "key-overflow")
+        first_key = openrouter_api._cache_key("https://openrouter.ai/api/v1", "key-0")
+        second_key = openrouter_api._cache_key("https://openrouter.ai/api/v1", "key-1")
         assert first_key in openrouter_api._models_cache, "MRU promotion failed"
         assert second_key not in openrouter_api._models_cache
 
@@ -378,10 +365,7 @@ class TestGetCapabilitiesLogging:
             "https://openrouter.ai/api/v1", "k", "m1"
         )
         assert caps is None
-        assert any(
-            "get_model_capabilities failed" in rec.message
-            for rec in caplog.records
-        )
+        assert any("get_model_capabilities failed" in rec.message for rec in caplog.records)
 
     async def test_logs_warning_on_value_error(self, monkeypatch, caplog):
         import logging
@@ -396,10 +380,7 @@ class TestGetCapabilitiesLogging:
             "https://openrouter.ai/api/v1", "k", "m1"
         )
         assert caps is None
-        assert any(
-            "get_model_capabilities failed" in rec.message
-            for rec in caplog.records
-        )
+        assert any("get_model_capabilities failed" in rec.message for rec in caplog.records)
 
 
 @pytest.mark.asyncio
@@ -416,9 +397,7 @@ class TestTestSeamDevModeGate:
             "THE_ONE_OPENROUTER_TEST_MODELS_JSON",
             '[{"id": "fake/model", "supported_parameters": ["tools"]}]',
         )
-        models = await openrouter_api.list_models(
-            "https://openrouter.ai/api/v1", "k"
-        )
+        models = await openrouter_api.list_models("https://openrouter.ai/api/v1", "k")
         assert len(models) == 1 and models[0].id == "fake/model"
 
     async def test_seam_ignored_when_dev_mode_false(self, monkeypatch, caplog):
@@ -439,12 +418,8 @@ class TestTestSeamDevModeGate:
         _mock_async_client(monkeypatch, handler)
         caplog.set_level(logging.WARNING, logger="the_one.llm.openrouter_api")
 
-        models = await openrouter_api.list_models(
-            "https://openrouter.ai/api/v1", "k"
-        )
+        models = await openrouter_api.list_models("https://openrouter.ai/api/v1", "k")
         # Real fetch wins — fake/model from env was ignored.
         assert len(models) == 1 and models[0].id == "real/model"
         # Operator gets a warning about the stray env var.
-        assert any(
-            "test seam is ignored" in rec.message for rec in caplog.records
-        )
+        assert any("test seam is ignored" in rec.message for rec in caplog.records)

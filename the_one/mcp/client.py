@@ -45,9 +45,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_UNSUPPORTED_VERSION_RE = re.compile(
-    r"Unsupported protocol version from the server: (.+)"
-)
+_UNSUPPORTED_VERSION_RE = re.compile(r"Unsupported protocol version from the server: (.+)")
 
 # Sentinel for "use the runtime default from the_one.mcp" — distinguishes
 # "caller passed nothing" from "caller explicitly passed None/0". We don't
@@ -201,9 +199,7 @@ class MCPClient:
     @property
     def server_capabilities(self) -> dict[str, Any]:
         if not self._is_alive or self._capabilities is None:
-            raise MCPConnectionError(
-                "MCPClient is not connected; cannot read server_capabilities."
-            )
+            raise MCPConnectionError("MCPClient is not connected; cannot read server_capabilities.")
         return self._capabilities.model_dump(mode="json")
 
     @property
@@ -216,9 +212,7 @@ class MCPClient:
         ``serverInfo`` from its initialize() response (spec-optional).
         """
         if not self._is_alive:
-            raise MCPConnectionError(
-                "MCPClient is not connected; cannot read server_info."
-            )
+            raise MCPConnectionError("MCPClient is not connected; cannot read server_info.")
         if self._server_info is None:
             return None
         return self._server_info.model_dump(mode="json", exclude_none=True)
@@ -231,9 +225,7 @@ class MCPClient:
         substantial guidance. Returns ``None`` when the server omits it.
         """
         if not self._is_alive:
-            raise MCPConnectionError(
-                "MCPClient is not connected; cannot read instructions."
-            )
+            raise MCPConnectionError("MCPClient is not connected; cannot read instructions.")
         return self._instructions
 
     @property
@@ -245,9 +237,7 @@ class MCPClient:
         ``server_info`` / ``instructions`` pattern.
         """
         if not self._is_alive:
-            raise MCPConnectionError(
-                "MCPClient is not connected; cannot read meta."
-            )
+            raise MCPConnectionError("MCPClient is not connected; cannot read meta.")
         return self._meta
 
     def __repr__(self) -> str:
@@ -260,7 +250,9 @@ class MCPClient:
         self._last_activity = time.monotonic()
 
     async def connect(self) -> None:
-        """Run the MCP lifecycle handshake: open transport, initialize, version-gate, capability-gate.
+        """Run the MCP lifecycle handshake.
+
+        Steps: open transport, initialize, version-gate, capability-gate.
 
         On success: ``_is_alive=True``, ``_capabilities`` and ``_protocol_version``
         populated. On failure: state restored to disconnected (transport stack
@@ -301,9 +293,7 @@ class MCPClient:
                 # per A12's "existing tests pass UNMODIFIED" contract.
                 if self._auth_provider is not None:
                     session = await self._transport_stack.enter_async_context(
-                        _transport_connect(
-                            self.source, auth_provider=self._auth_provider
-                        )
+                        _transport_connect(self.source, auth_provider=self._auth_provider)
                     )
                 else:
                     session = await self._transport_stack.enter_async_context(
@@ -402,9 +392,7 @@ class MCPClient:
             # eventually GC it. Better to leak than to hang the agent build.
             async def _safe_cleanup() -> None:
                 try:
-                    await asyncio.wait_for(
-                        self._cleanup_after_failed_connect(), timeout=3.0
-                    )
+                    await asyncio.wait_for(self._cleanup_after_failed_connect(), timeout=3.0)
                 except (
                     asyncio.TimeoutError,
                     asyncio.CancelledError,
@@ -445,9 +433,7 @@ class MCPClient:
                             and sub.response.status_code == 401
                         ):
                             await _safe_cleanup()
-                            rmd = extract_field_from_www_auth(
-                                sub.response, "resource_metadata"
-                            )
+                            rmd = extract_field_from_www_auth(sub.response, "resource_metadata")
                             raise MCPAuthRequired(
                                 source_id=self.source.id,
                                 source_name=self.source.name,
@@ -455,9 +441,7 @@ class MCPClient:
                                 consent_url=None,
                             ) from None
             await _safe_cleanup()
-            raise MCPConnectionError(
-                f"MCP connect failed: {type(e).__name__}: {e}"
-            ) from e
+            raise MCPConnectionError(f"MCP connect failed: {type(e).__name__}: {e}") from e
 
         # F6 A6 fix (post-F2-debrief): align with the SDK's supported set
         # rather than a single pinned revision. F2 chose strict-equality
@@ -475,6 +459,7 @@ class MCPClient:
         # PINNED constant remains as documentation/marker for the
         # primary-targeted revision but no longer enforces equality.
         from mcp.shared.version import SUPPORTED_PROTOCOL_VERSIONS
+
         if result.protocolVersion not in SUPPORTED_PROTOCOL_VERSIONS:
             await self._cleanup_after_failed_connect()
             raise MCPVersionMismatch(pinned=pinned, observed=result.protocolVersion)
@@ -593,9 +578,7 @@ class MCPClient:
             MCPConnectionError: if the MCPClient is not connected.
         """
         if not self._is_alive or self._session is None:
-            raise MCPConnectionError(
-                "MCPClient is not connected; cannot list tools."
-            )
+            raise MCPConnectionError("MCPClient is not connected; cannot list tools.")
         self._touch_activity()
         # L6b: SDK error translation. UrlElicitationRequiredError IS a subclass
         # of McpError (verified at L6b design review) — re-raise BEFORE the
@@ -650,9 +633,7 @@ class MCPClient:
                             auth_error = sub
                             break
                     if auth_error is not None:
-                        rmd = extract_field_from_www_auth(
-                            auth_error.response, "resource_metadata"
-                        )
+                        rmd = extract_field_from_www_auth(auth_error.response, "resource_metadata")
                         raise MCPAuthRequired(
                             source_id=self.source.id,
                             source_name=self.source.name,
@@ -680,9 +661,7 @@ class MCPClient:
             # tool.annotations is a Pydantic ToolAnnotations object (or None);
             # .model_dump(mode="json") yields a stable JSON-serializable dict.
             annotations = (
-                tool.annotations.model_dump(mode="json")
-                if tool.annotations is not None
-                else None
+                tool.annotations.model_dump(mode="json") if tool.annotations is not None else None
             )
             tools.append(
                 MCPTool(
@@ -697,9 +676,7 @@ class MCPClient:
         self._tools_cache = tools
         return tools
 
-    async def call_tool(
-        self, name: str, arguments: dict[str, Any]
-    ) -> MCPToolResult:
+    async def call_tool(self, name: str, arguments: dict[str, Any]) -> MCPToolResult:
         """Call a tool on the server and return the result.
 
         Lazy-populates self._tools_cache if needed (so unknown-tool detection
@@ -718,9 +695,7 @@ class MCPClient:
             UrlElicitationRequiredError: propagated unchanged for F3+ flows.
         """
         if not self._is_alive or self._session is None:
-            raise MCPConnectionError(
-                "MCPClient is not connected; cannot call tool."
-            )
+            raise MCPConnectionError("MCPClient is not connected; cannot call tool.")
         self._touch_activity()
 
         # Lazy-populate the tool cache for unknown-tool detection. Runs OUTSIDE
@@ -741,9 +716,7 @@ class MCPClient:
             try:
                 jsonschema_validate(arguments, tool_meta.input_schema)
             except ValidationError as e:
-                raise MCPArgumentError(
-                    tool_name=name, validation_message=str(e)
-                ) from None
+                raise MCPArgumentError(tool_name=name, validation_message=str(e)) from None
 
         # L6b: SDK error translation. UrlElicitationRequiredError IS a subclass
         # of McpError (verified at L6b design review:
@@ -795,9 +768,7 @@ class MCPClient:
                             auth_error = sub
                             break
                     if auth_error is not None:
-                        rmd = extract_field_from_www_auth(
-                            auth_error.response, "resource_metadata"
-                        )
+                        rmd = extract_field_from_www_auth(auth_error.response, "resource_metadata")
                         raise MCPAuthRequired(
                             source_id=self.source.id,
                             source_name=self.source.name,
@@ -836,13 +807,9 @@ class MCPClient:
             if block_type == "text":
                 joined_text_parts.append(block.text)
             elif block_type == "image":
-                joined_text_parts.append(
-                    f"[image: {len(block.data)} bytes, mime={block.mimeType}]"
-                )
+                joined_text_parts.append(f"[image: {len(block.data)} bytes, mime={block.mimeType}]")
             elif block_type == "audio":
-                joined_text_parts.append(
-                    f"[audio: {len(block.data)} bytes, mime={block.mimeType}]"
-                )
+                joined_text_parts.append(f"[audio: {len(block.data)} bytes, mime={block.mimeType}]")
             elif block_type == "resource_link":
                 joined_text_parts.append(f"[resource_link: {block.uri}]")
             elif block_type == "resource":

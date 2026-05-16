@@ -152,9 +152,7 @@ async def test_connect_stdio_invokes_bubblewrap_when_flag_off(
 
     with (
         patch.object(stdio_module, "BubblewrapSandbox", sandbox_cls),
-        patch.object(
-            stdio_module, "stdio_client", _stub_stdio_client_factory(captured)
-        ),
+        patch.object(stdio_module, "stdio_client", _stub_stdio_client_factory(captured)),
         patch.object(stdio_module, "ClientSession", _stub_client_session_factory()),
     ):
         async with connect_stdio(source) as session:
@@ -207,9 +205,7 @@ async def test_connect_stdio_passes_config_sandbox_to_profile(
 
     with (
         patch.object(stdio_module, "BubblewrapSandbox", sandbox_cls),
-        patch.object(
-            stdio_module, "stdio_client", _stub_stdio_client_factory(captured)
-        ),
+        patch.object(stdio_module, "stdio_client", _stub_stdio_client_factory(captured)),
         patch.object(stdio_module, "ClientSession", _stub_client_session_factory()),
     ):
         async with connect_stdio(source):
@@ -247,9 +243,7 @@ async def test_connect_stdio_double_flag_bypass_skips_sandbox(
 
     with (
         patch.object(stdio_module, "BubblewrapSandbox", sandbox_cls),
-        patch.object(
-            stdio_module, "stdio_client", _stub_stdio_client_factory(captured)
-        ),
+        patch.object(stdio_module, "stdio_client", _stub_stdio_client_factory(captured)),
         patch.object(stdio_module, "ClientSession", _stub_client_session_factory()),
     ):
         async with connect_stdio(source):
@@ -285,9 +279,7 @@ async def test_connect_stdio_only_sandbox_disabled_flag_does_not_bypass(
 
     with (
         patch.object(stdio_module, "BubblewrapSandbox", sandbox_cls),
-        patch.object(
-            stdio_module, "stdio_client", _stub_stdio_client_factory(captured)
-        ),
+        patch.object(stdio_module, "stdio_client", _stub_stdio_client_factory(captured)),
         patch.object(stdio_module, "ClientSession", _stub_client_session_factory()),
     ):
         async with connect_stdio(source):
@@ -326,9 +318,7 @@ async def test_connect_stdio_only_test_mode_flag_does_not_bypass(
 
     with (
         patch.object(stdio_module, "BubblewrapSandbox", sandbox_cls),
-        patch.object(
-            stdio_module, "stdio_client", _stub_stdio_client_factory(captured)
-        ),
+        patch.object(stdio_module, "stdio_client", _stub_stdio_client_factory(captured)),
         patch.object(stdio_module, "ClientSession", _stub_client_session_factory()),
     ):
         async with connect_stdio(source):
@@ -401,9 +391,7 @@ async def test_connect_stdio_sdk_default_env_preserved_through_setenv(
     source = source.model_copy(update={"secrets": {"MY_SECRET": "secret-value"}})
 
     with (
-        patch.object(
-            stdio_module, "stdio_client", _stub_stdio_client_factory(captured)
-        ),
+        patch.object(stdio_module, "stdio_client", _stub_stdio_client_factory(captured)),
         patch.object(stdio_module, "ClientSession", _stub_client_session_factory()),
     ):
         async with connect_stdio(source):

@@ -304,7 +304,9 @@ class TestMCPSourceRepository:
         import json
 
         source = MCPSource(
-            id="s1", name="Test", type="stdio",
+            id="s1",
+            name="Test",
+            type="stdio",
             secrets={"TOKEN": "super-secret-value"},
         )
         await mcp_repo.create(source)
@@ -343,7 +345,9 @@ class TestMCPSourceRepository:
         mcp_repo.encryptor.install_key(new_key)
 
         source = MCPSource(
-            id="s1", name="PostKey", type="stdio",
+            id="s1",
+            name="PostKey",
+            type="stdio",
             secrets={"K": "value-after-rotation"},
         )
         await mcp_repo.create(source)
@@ -353,7 +357,9 @@ class TestMCPSourceRepository:
     def test_merged_config_overlays_secrets_on_config(self) -> None:
         """secrets win on key collision; non-overlapping keys merge."""
         source = MCPSource(
-            id="s1", name="T", type="stdio",
+            id="s1",
+            name="T",
+            type="stdio",
             config={"command": "x", "TOKEN": "plaintext-default"},
             secrets={"TOKEN": "encrypted-real"},
         )

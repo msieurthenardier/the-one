@@ -75,6 +75,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # imported directly — to avoid shadowing this module's existing
     # ``_state: dict[str, Any]`` global at app.py:103.
     from the_one.mcp.oauth import start_periodic_sweep
+
     start_periodic_sweep()
     yield
     # Drain the PTY session registry on shutdown — cancels the idle
@@ -98,9 +99,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         task.cancel()
     if _inflight_resume_tasks:
         with contextlib.suppress(Exception):
-            await asyncio.gather(
-                *list(_inflight_resume_tasks), return_exceptions=True
-            )
+            await asyncio.gather(*list(_inflight_resume_tasks), return_exceptions=True)
     try:
         await _session_registry_shutdown_drain()
     except Exception:
@@ -119,6 +118,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # MCP pool drain so any in-flight OAuth refreshes triggered by
     # pool teardown can complete first.
     from the_one.mcp.oauth import stop_periodic_sweep
+
     try:
         await stop_periodic_sweep()
     except Exception:
@@ -675,9 +675,7 @@ async def _broadcast_one(
         parent_idx = len(session.agent.messages) - 1
     elif msg.role == Role.TOOL and msg.tool_result is not None:
         parent_idx = _find_parent_assistant_index(session.agent.messages)
-    parent_id: str | None = (
-        _parent_message_id_for(session, parent_idx) if parent_idx >= 0 else None
-    )
+    parent_id: str | None = _parent_message_id_for(session, parent_idx) if parent_idx >= 0 else None
 
     if msg.role == Role.ASSISTANT:
         if msg.usage:
@@ -976,14 +974,10 @@ async def _resume_paused_session(session: Session) -> None:
     try:
         await _save_session_to_db(session)
     except Exception:
-        logger.warning(
-            "Failed to save session %s after resume", session.id, exc_info=True
-        )
+        logger.warning("Failed to save session %s after resume", session.id, exc_info=True)
 
 
-async def _send_pause_snapshot_if_needed(
-    session: Session, websocket: WebSocket
-) -> None:
+async def _send_pause_snapshot_if_needed(session: Session, websocket: WebSocket) -> None:
     """Send the cached ``auth_required`` event to a NEW subscriber.
 
     Called immediately after ``session.subscribers.add(websocket)`` in
@@ -1016,14 +1010,10 @@ async def _send_pause_snapshot_if_needed(
             tool_idx = len(msgs) - 1 - rev_i
             parent_idx = _find_parent_assistant_index(msgs[:tool_idx])
             parent_id: str | None = (
-                _parent_message_id_for(session, parent_idx)
-                if parent_idx >= 0
-                else None
+                _parent_message_id_for(session, parent_idx) if parent_idx >= 0 else None
             )
             try:
-                event = _auth_required_event_from_metadata(
-                    past_msg.tool_result.metadata
-                )
+                event = _auth_required_event_from_metadata(past_msg.tool_result.metadata)
                 event["parent_message_id"] = parent_id
                 await websocket.send_json(event)
             except (RuntimeError, WebSocketDisconnect):

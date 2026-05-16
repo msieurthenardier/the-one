@@ -27,9 +27,7 @@ class MCPCapabilityMissing(MCPClientError):  # noqa: N818  (mandated by F2 contr
 
     def __init__(self, capability: str) -> None:
         self.capability = capability
-        super().__init__(
-            f"MCP server did not announce required capability: {capability!r}."
-        )
+        super().__init__(f"MCP server did not announce required capability: {capability!r}.")
 
 
 class MCPConnectionError(MCPClientError):
@@ -58,9 +56,7 @@ class MCPArgumentError(MCPClientError):
     def __init__(self, tool_name: str, validation_message: str) -> None:
         self.tool_name = tool_name
         self.validation_message = validation_message
-        super().__init__(
-            f"MCP tool {tool_name!r} rejected arguments: {validation_message}"
-        )
+        super().__init__(f"MCP tool {tool_name!r} rejected arguments: {validation_message}")
 
 
 class MCPCallError(MCPClientError):

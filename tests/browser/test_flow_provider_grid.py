@@ -22,7 +22,9 @@ from playwright.sync_api import Page, expect
 # etc.). Module-level skip applied to unblock the Flight 4 close. The whole
 # file needs redesign-aware rewrite — deferred to a follow-on cleanup flight.
 # See mission.md Known Issues.
-pytestmark = pytest.mark.skip(reason="M08 F4 KI: pre-rebrand provider-grid assertions — needs redesign-aware rewrite")
+pytestmark = pytest.mark.skip(
+    reason="M08 F4 KI: pre-rebrand provider-grid assertions — needs redesign-aware rewrite"
+)
 
 
 @pytest.mark.browser

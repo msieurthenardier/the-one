@@ -21,7 +21,9 @@ from playwright.sync_api import Page, expect
 
 def _wait_studio_ready(page: Page) -> None:
     """Wait for the studio area to mount (section-nav visible)."""
-    expect(page.locator('.section-nav[aria-label="Agent Studio sections"]')).to_be_visible(timeout=8000)
+    expect(page.locator('.section-nav[aria-label="Agent Studio sections"]')).to_be_visible(
+        timeout=8000
+    )
 
 
 @pytest.mark.browser

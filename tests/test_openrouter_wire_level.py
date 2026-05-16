@@ -32,8 +32,7 @@ def _find_chat_request(captured: list[httpx.Request]) -> httpx.Request:
         if req.url.path.endswith("/chat/completions"):
             return req
     raise AssertionError(
-        f"no /chat/completions request captured (got paths: "
-        f"{[r.url.path for r in captured]})"
+        f"no /chat/completions request captured (got paths: {[r.url.path for r in captured]})"
     )
 
 
@@ -87,7 +86,7 @@ class TestWireNoLeak:
     OpenRouterProvider constructs the SDK client with a non-None placeholder
     so that env var cannot leak. These pin the contract at the wire layer."""
 
-    async def test_no_leak_wire_with_OPENAI_API_KEY_env_set(self, monkeypatch) -> None:
+    async def test_no_leak_wire_with_OPENAI_API_KEY_env_set(self, monkeypatch) -> None:  # noqa: N802  # env var name embedded in test name
         monkeypatch.setenv("OPENAI_API_KEY", "sk-leaked")
         monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
         captured: list[httpx.Request] = []
@@ -113,7 +112,7 @@ class TestWireNoLeak:
 
         assert _find_chat_request(captured).headers.get("authorization") == "Bearer real-key"
 
-    async def test_OPENROUTER_API_KEY_env_used_when_no_explicit_key(
+    async def test_OPENROUTER_API_KEY_env_used_when_no_explicit_key(  # noqa: N802  # env var name embedded in test name
         self, monkeypatch
     ) -> None:
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)

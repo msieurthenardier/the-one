@@ -117,9 +117,7 @@ def test_studio_click_mcp_sources_section(app_clean: str, page: Page) -> None:
 
     assert page.evaluate("location.hash") == "#studio/mcp-sources"
 
-    expect(page.locator(".area-studio .page-title")).to_have_text(
-        "MCP Servers", timeout=5000
-    )
+    expect(page.locator(".area-studio .page-title")).to_have_text("MCP Servers", timeout=5000)
 
     active = page.locator('.section-nav-item[aria-current="page"]')
     expect(active).to_have_count(1)
@@ -222,17 +220,13 @@ def test_studio_mcp_sources_section_persists_on_refresh(app_clean: str, page: Pa
     page.goto(f"{app_clean}#studio/mcp-sources")
     _wait_studio_ready(page)
 
-    expect(page.locator(".area-studio .page-title")).to_have_text(
-        "MCP Servers", timeout=5000
-    )
+    expect(page.locator(".area-studio .page-title")).to_have_text("MCP Servers", timeout=5000)
     assert page.evaluate("location.hash") == "#studio/mcp-sources"
 
     page.reload()
     _wait_studio_ready(page)
 
-    expect(page.locator(".area-studio .page-title")).to_have_text(
-        "MCP Servers", timeout=5000
-    )
+    expect(page.locator(".area-studio .page-title")).to_have_text("MCP Servers", timeout=5000)
     assert page.evaluate("location.hash") == "#studio/mcp-sources"
 
     active = page.locator('.section-nav-item[aria-current="page"]')

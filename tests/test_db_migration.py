@@ -571,9 +571,7 @@ class TestSchemaV10:
             ("sh-1", "StreamableHTTP", "streamable-http", "{}"),
         )
         await conn.commit()
-        async with conn.execute(
-            "SELECT secrets FROM mcp_sources WHERE id = 'sh-1'"
-        ) as cur:
+        async with conn.execute("SELECT secrets FROM mcp_sources WHERE id = 'sh-1'") as cur:
             r = await cur.fetchone()
         assert r["secrets"] == "{}", r["secrets"]
 
@@ -586,17 +584,13 @@ class TestSchemaV10:
             await conn.commit()
 
         # schema_version reaches v10 (further migrations may bump higher).
-        async with conn.execute(
-            "SELECT COUNT(*) FROM schema_version WHERE version = 10"
-        ) as cur:
+        async with conn.execute("SELECT COUNT(*) FROM schema_version WHERE version = 10") as cur:
             row = await cur.fetchone()
         assert row[0] == 1
 
         await conn.close()
 
-    async def test_v10_migration_on_v9_fixture_db_preserves_existing_rows(
-        self, tmp_path
-    ) -> None:
+    async def test_v10_migration_on_v9_fixture_db_preserves_existing_rows(self, tmp_path) -> None:
         db_path = tmp_path / "v10-from-v9.db"
         conn = await aiosqlite.connect(str(db_path))
         conn.row_factory = aiosqlite.Row
@@ -625,14 +619,26 @@ CREATE TABLE mcp_sources (
         await conn.execute(
             "INSERT INTO mcp_sources (id, name, type, config, created_at, updated_at)"
             " VALUES (?, ?, ?, ?, ?, ?)",
-            ("sse-row", "SSE Source", "sse", '{"url": "http://example.com/sse"}',
-             "2025-01-01T00:00:00", "2025-01-02T00:00:00"),
+            (
+                "sse-row",
+                "SSE Source",
+                "sse",
+                '{"url": "http://example.com/sse"}',
+                "2025-01-01T00:00:00",
+                "2025-01-02T00:00:00",
+            ),
         )
         await conn.execute(
             "INSERT INTO mcp_sources (id, name, type, config, created_at, updated_at)"
             " VALUES (?, ?, ?, ?, ?, ?)",
-            ("stdio-row", "STDIO Source", "stdio", '{"command": "python"}',
-             "2025-01-03T00:00:00", "2025-01-04T00:00:00"),
+            (
+                "stdio-row",
+                "STDIO Source",
+                "stdio",
+                '{"command": "python"}',
+                "2025-01-03T00:00:00",
+                "2025-01-04T00:00:00",
+            ),
         )
         await conn.commit()
 
@@ -684,9 +690,7 @@ CREATE TABLE mcp_sources (
         await ensure_schema(conn)
         await ensure_schema(conn)
 
-        async with conn.execute(
-            "SELECT COUNT(*) FROM schema_version WHERE version = 10"
-        ) as cur:
+        async with conn.execute("SELECT COUNT(*) FROM schema_version WHERE version = 10") as cur:
             row = await cur.fetchone()
         assert row[0] == 1
 
@@ -792,9 +796,7 @@ class TestSchemaV11:
 
         await conn.close()
 
-    async def test_v11_migration_on_v10_fixture_db_preserves_existing_rows(
-        self, tmp_path
-    ) -> None:
+    async def test_v11_migration_on_v10_fixture_db_preserves_existing_rows(self, tmp_path) -> None:
         """v10 → v11: existing agent rows survive with mcp_overrides=NULL,
         tool_overrides column from v8 still present + populated, schema_version
         lands at CURRENT_VERSION."""
@@ -1042,9 +1044,7 @@ class TestMigrationV12:
 
         await conn.close()
 
-    async def test_v12_recovers_from_partial_apply_with_orphan_temp_table(
-        self, tmp_path
-    ) -> None:
+    async def test_v12_recovers_from_partial_apply_with_orphan_temp_table(self, tmp_path) -> None:
         """Defensive ``DROP TABLE IF EXISTS llm_providers_new`` prelude:
         if a previous run crashed AFTER the temp table was created but
         BEFORE the rename, re-running ensure_schema must succeed (without
@@ -1060,9 +1060,7 @@ class TestMigrationV12:
         await ensure_schema(conn)
         await conn.execute("DELETE FROM schema_version WHERE version = 12")
         # Synthesize the orphan temp table left by a crashed prior run.
-        await conn.execute(
-            "CREATE TABLE llm_providers_new (id TEXT, junk TEXT)"
-        )
+        await conn.execute("CREATE TABLE llm_providers_new (id TEXT, junk TEXT)")
         await conn.commit()
 
         # Re-run must complete cleanly thanks to DROP IF EXISTS prelude.
@@ -1094,9 +1092,7 @@ class TestMigrationV12:
             )
         await conn.commit()
 
-        async with conn.execute(
-            "SELECT COUNT(*) AS c FROM llm_providers"
-        ) as cursor:
+        async with conn.execute("SELECT COUNT(*) AS c FROM llm_providers") as cursor:
             row = await cursor.fetchone()
         assert row["c"] == len(PROVIDER_TYPES)
         await conn.close()

@@ -265,9 +265,7 @@ def _make_image_content(data: str = "abc", mime: str = "image/png") -> MagicMock
     block.type = "image"
     block.data = data
     block.mimeType = mime
-    block.model_dump = MagicMock(
-        return_value={"type": "image", "data": data, "mimeType": mime}
-    )
+    block.model_dump = MagicMock(return_value={"type": "image", "data": data, "mimeType": mime})
     return block
 
 
@@ -277,9 +275,7 @@ def _make_audio_content(data: str = "xyz", mime: str = "audio/wav") -> MagicMock
     block.type = "audio"
     block.data = data
     block.mimeType = mime
-    block.model_dump = MagicMock(
-        return_value={"type": "audio", "data": data, "mimeType": mime}
-    )
+    block.model_dump = MagicMock(return_value={"type": "audio", "data": data, "mimeType": mime})
     return block
 
 
@@ -288,9 +284,7 @@ def _make_resource_link_content(uri: str = "file:///x.txt") -> MagicMock:
     block = MagicMock()
     block.type = "resource_link"
     block.uri = uri
-    block.model_dump = MagicMock(
-        return_value={"type": "resource_link", "uri": uri}
-    )
+    block.model_dump = MagicMock(return_value={"type": "resource_link", "uri": uri})
     return block
 
 
@@ -301,9 +295,7 @@ def _make_embedded_resource_content(uri: str = "resource://r") -> MagicMock:
     inner = MagicMock()
     inner.uri = uri
     block.resource = inner
-    block.model_dump = MagicMock(
-        return_value={"type": "resource", "resource": {"uri": uri}}
-    )
+    block.model_dump = MagicMock(return_value={"type": "resource", "resource": {"uri": uri}})
     return block
 
 
@@ -393,9 +385,7 @@ class TestMCPClientLifecycle:
         with pytest.raises(MCPConnectionError):
             _ = c.instructions
 
-    async def test_connect_captures_meta(
-        self, patch_transport, mock_session
-    ) -> None:
+    async def test_connect_captures_meta(self, patch_transport, mock_session) -> None:
         """F4 L3 (M08): when the initialize() response carries ``_meta``,
         MCPClient surfaces it via the ``meta`` property and persistence
         callers can snapshot it inside the async-with for the cache write.
@@ -406,9 +396,7 @@ class TestMCPClientLifecycle:
           - post-disconnect state cleared so a reconnect repopulates
         """
         meta_payload = {"vendor": "cloudflare", "build": "2025.10"}
-        mock_session.initialize = AsyncMock(
-            return_value=_make_init_result(meta=meta_payload)
-        )
+        mock_session.initialize = AsyncMock(return_value=_make_init_result(meta=meta_payload))
         patch_transport(mock_session)
         c = MCPClient(_stdio_source())
 
@@ -472,9 +460,7 @@ class TestMCPClientLifecycle:
     ) -> None:
         """SDK's own RuntimeError(unsupported version) is translated to MCPVersionMismatch."""
         mock_session.initialize = AsyncMock(
-            side_effect=RuntimeError(
-                "Unsupported protocol version from the server: 1999-01-01"
-            )
+            side_effect=RuntimeError("Unsupported protocol version from the server: 1999-01-01")
         )
         patch_transport(mock_session)
         c = MCPClient(_stdio_source())
@@ -484,13 +470,9 @@ class TestMCPClientLifecycle:
         assert exc_info.value.observed == "1999-01-01"
         assert c.is_alive is False
 
-    async def test_connect_capability_tools_missing(
-        self, patch_transport, mock_session
-    ) -> None:
+    async def test_connect_capability_tools_missing(self, patch_transport, mock_session) -> None:
         """Server without tools capability raises MCPCapabilityMissing."""
-        mock_session.initialize = AsyncMock(
-            return_value=_make_init_result(tools_present=False)
-        )
+        mock_session.initialize = AsyncMock(return_value=_make_init_result(tools_present=False))
         patch_transport(mock_session)
         c = MCPClient(_stdio_source())
         with pytest.raises(MCPCapabilityMissing) as exc_info:
@@ -498,9 +480,7 @@ class TestMCPClientLifecycle:
         assert exc_info.value.capability == "tools"
         assert c.is_alive is False
 
-    async def test_connect_already_connected_raises(
-        self, patch_transport, mock_session
-    ) -> None:
+    async def test_connect_already_connected_raises(self, patch_transport, mock_session) -> None:
         """Second connect() on alive client raises MCPConnectionError."""
         patch_transport(mock_session)
         c = MCPClient(_stdio_source())
@@ -522,9 +502,7 @@ class TestMCPClientLifecycle:
         c = MCPClient(_stdio_source(), timeout_seconds=0.05)
         with pytest.raises(MCPConnectionError) as exc_info:
             await c.connect()
-        assert "did not respond within 0.05 seconds during initialize" in str(
-            exc_info.value
-        )
+        assert "did not respond within 0.05 seconds during initialize" in str(exc_info.value)
         assert c.is_alive is False
 
     async def test_connect_cancelled_error_translates_to_connection_error(
@@ -699,9 +677,7 @@ class TestMCPClientLifecycle:
         await c2.disconnect()  # no exception, no state change
         assert c2.is_alive is False
 
-    async def test_disconnect_swallows_close_errors(
-        self, monkeypatch, mock_session
-    ) -> None:
+    async def test_disconnect_swallows_close_errors(self, monkeypatch, mock_session) -> None:
         """Transport close-time exceptions are logged and swallowed."""
 
         @asynccontextmanager
@@ -711,9 +687,7 @@ class TestMCPClientLifecycle:
             finally:
                 raise RuntimeError("close failed")
 
-        monkeypatch.setattr(
-            client_mod, "_transport_connect", lambda source: _failing_cm(source)
-        )
+        monkeypatch.setattr(client_mod, "_transport_connect", lambda source: _failing_cm(source))
         c = MCPClient(_stdio_source())
         await c.connect()
         # Should NOT raise, even though _failing_cm raises on exit.
@@ -869,10 +843,7 @@ class TestAsyncExitStackContract:
         async with MCPClient(_stdio_source()) as c:
             assert c.is_alive is True
         assert c.is_alive is False
-        warns = [
-            r for r in caplog.records
-            if r.message == "MCPClient transport close failed"
-        ]
+        warns = [r for r in caplog.records if r.message == "MCPClient transport close failed"]
         assert warns == [], f"unexpected safety-net warnings: {warns}"
 
     async def test_cross_task_disconnect_logs_via_safety_net(
@@ -902,10 +873,7 @@ class TestAsyncExitStackContract:
             assert disconnect_task.exception() is None
         finally:
             assert c.is_alive is False
-        warns = [
-            r for r in caplog.records
-            if r.message == "MCPClient transport close failed"
-        ]
+        warns = [r for r in caplog.records if r.message == "MCPClient transport close failed"]
         assert len(warns) == 1, f"expected exactly one safety-net warning, got {warns}"
         assert warns[0].levelno == logging.WARNING
 
@@ -942,15 +910,10 @@ class TestAsyncExitStackContract:
         await worker
         assert worker.exception() is None
         assert c.is_alive is False
-        warns = [
-            r for r in caplog.records
-            if r.message == "MCPClient transport close failed"
-        ]
+        warns = [r for r in caplog.records if r.message == "MCPClient transport close failed"]
         assert warns == [], f"worker-task pattern leaked safety-net warning: {warns}"
 
-    async def test_connect_failure_runs_stack_aclose(
-        self, monkeypatch, mock_session
-    ) -> None:
+    async def test_connect_failure_runs_stack_aclose(self, monkeypatch, mock_session) -> None:
         """Connect failure (initialize raises) calls _transport_stack.aclose() and resets state.
 
         Spy via narrowly-scoped ``patch.object(AsyncExitStack, "aclose", ...)``
@@ -1052,9 +1015,7 @@ class TestAsyncExitStackContract:
         assert c_d._transport_stack is None
         assert c_d._session is None
 
-    async def test_direct_cross_task_still_warns(
-        self, monkeypatch, mock_session, caplog
-    ) -> None:
+    async def test_direct_cross_task_still_warns(self, monkeypatch, mock_session, caplog) -> None:
         """F5 L1: control test — direct cross-task disconnect (outside
         pool routing) STILL produces the warning via the safety net.
 
@@ -1084,9 +1045,9 @@ class TestAsyncExitStackContract:
         await disconnect_task
 
         messages = [r.getMessage() for r in caplog.records]
-        assert any(
-            "MCPClient transport close failed" in m for m in messages
-        ), f"expected cross-task warning; got: {messages}"
+        assert any("MCPClient transport close failed" in m for m in messages), (
+            f"expected cross-task warning; got: {messages}"
+        )
         assert client.is_alive is False
 
 
@@ -1138,9 +1099,7 @@ class TestListToolsAndCallTool:
         with pytest.raises(dataclasses.FrozenInstanceError):
             tools[0].name = "x"  # type: ignore[misc]
 
-    async def test_list_tools_always_refetches(
-        self, patch_transport, mock_session
-    ) -> None:
+    async def test_list_tools_always_refetches(self, patch_transport, mock_session) -> None:
         """Explicit list_tools always re-fetches from the server.
 
         The cache exists for call_tool's unknown-tool guard, NOT for
@@ -1210,9 +1169,7 @@ class TestListToolsAndCallTool:
     ) -> None:
         """list_tools translates OAuthFlowError (bare or grouped) to MCPAuthRequired."""
         patch_transport(mock_session)
-        mock_session.list_tools = AsyncMock(
-            side_effect=OAuthFlowError("discovery failed")
-        )
+        mock_session.list_tools = AsyncMock(side_effect=OAuthFlowError("discovery failed"))
 
         c = MCPClient(_stdio_source())
         await c.connect()
@@ -1231,9 +1188,7 @@ class TestListToolsAndCallTool:
     ) -> None:
         """list_tools translates OAuthTokenError (bare or grouped) to MCPAuthRequired."""
         patch_transport(mock_session)
-        mock_session.list_tools = AsyncMock(
-            side_effect=OAuthTokenError("refresh failed")
-        )
+        mock_session.list_tools = AsyncMock(side_effect=OAuthTokenError("refresh failed"))
 
         c = MCPClient(_stdio_source())
         await c.connect()
@@ -1247,9 +1202,7 @@ class TestListToolsAndCallTool:
         assert exc_info.value.resource_metadata_url is None
         assert exc_info.value.consent_url is None
 
-    async def test_call_tool_text_only_result(
-        self, patch_transport, mock_session
-    ) -> None:
+    async def test_call_tool_text_only_result(self, patch_transport, mock_session) -> None:
         """Single text content block flattens into MCPToolResult.text."""
         patch_transport(mock_session)
         mock_session.list_tools = AsyncMock(
@@ -1274,9 +1227,7 @@ class TestListToolsAndCallTool:
         assert result.structured is None
         assert result.is_error is False
 
-    async def test_call_tool_text_concatenation(
-        self, patch_transport, mock_session
-    ) -> None:
+    async def test_call_tool_text_concatenation(self, patch_transport, mock_session) -> None:
         """Multiple text content blocks concatenate in order."""
         patch_transport(mock_session)
         mock_session.list_tools = AsyncMock(
@@ -1299,9 +1250,7 @@ class TestListToolsAndCallTool:
         assert result.text == "hello world"
         assert len(result.raw) == 2
 
-    async def test_call_tool_structured_content(
-        self, patch_transport, mock_session
-    ) -> None:
+    async def test_call_tool_structured_content(self, patch_transport, mock_session) -> None:
         """structuredContent passes through; text + structured both present."""
         patch_transport(mock_session)
         mock_session.list_tools = AsyncMock(
@@ -1368,9 +1317,7 @@ class TestListToolsAndCallTool:
         finally:
             await c.disconnect()
 
-    async def test_call_tool_populates_cache_lazily(
-        self, patch_transport, mock_session
-    ) -> None:
+    async def test_call_tool_populates_cache_lazily(self, patch_transport, mock_session) -> None:
         """First call_tool without prior list_tools triggers exactly one
         internal list_tools round-trip (lazy cache populate)."""
         patch_transport(mock_session)
@@ -1400,9 +1347,7 @@ class TestListToolsAndCallTool:
         with pytest.raises(MCPConnectionError, match="not connected"):
             await c.call_tool("echo", {})
 
-    async def test_disconnect_clears_tools_cache(
-        self, patch_transport, mock_session
-    ) -> None:
+    async def test_disconnect_clears_tools_cache(self, patch_transport, mock_session) -> None:
         """disconnect() resets _tools_cache to None so re-connect rebuilds."""
         patch_transport(mock_session)
         mock_session.list_tools = AsyncMock(
@@ -1431,9 +1376,7 @@ class TestCallToolInputValidation:
     server (asserted via `mock.assert_not_called()`).
     """
 
-    async def test_valid_args_pass_validation(
-        self, patch_transport, mock_session
-    ) -> None:
+    async def test_valid_args_pass_validation(self, patch_transport, mock_session) -> None:
         """Args matching the schema pass validation and reach the wire."""
         patch_transport(mock_session)
         mock_session.list_tools = AsyncMock(
@@ -1466,9 +1409,7 @@ class TestCallToolInputValidation:
         finally:
             await c.disconnect()
 
-    async def test_type_mismatch_raises_argument_error(
-        self, patch_transport, mock_session
-    ) -> None:
+    async def test_type_mismatch_raises_argument_error(self, patch_transport, mock_session) -> None:
         """Type mismatch raises MCPArgumentError; wire call is NOT made."""
         patch_transport(mock_session)
         mock_session.list_tools = AsyncMock(
@@ -1559,9 +1500,7 @@ class TestCallToolInputValidation:
         finally:
             await c.disconnect()
 
-    async def test_no_schema_skips_validation(
-        self, patch_transport, mock_session
-    ) -> None:
+    async def test_no_schema_skips_validation(self, patch_transport, mock_session) -> None:
         """Empty input_schema bypasses validation entirely (matches SDK permissiveness)."""
         patch_transport(mock_session)
         mock_session.list_tools = AsyncMock(
@@ -1592,14 +1531,10 @@ class TestCallToolContentBlockRendering:
     accumulator is unchanged (every block lands via model_dump).
     """
 
-    async def test_image_block_placeholder(
-        self, patch_transport, mock_session
-    ) -> None:
+    async def test_image_block_placeholder(self, patch_transport, mock_session) -> None:
         """ImageContent renders as `[image: N bytes, mime=...]`."""
         patch_transport(mock_session)
-        mock_session.list_tools = AsyncMock(
-            return_value=_make_list_tools_result([_make_tool("t")])
-        )
+        mock_session.list_tools = AsyncMock(return_value=_make_list_tools_result([_make_tool("t")]))
         mock_session.call_tool = AsyncMock(
             return_value=_make_call_tool_result(
                 content=[_make_image_content(data="abc", mime="image/png")],
@@ -1616,14 +1551,10 @@ class TestCallToolContentBlockRendering:
         finally:
             await c.disconnect()
 
-    async def test_audio_block_placeholder(
-        self, patch_transport, mock_session
-    ) -> None:
+    async def test_audio_block_placeholder(self, patch_transport, mock_session) -> None:
         """AudioContent renders as `[audio: N bytes, mime=...]`."""
         patch_transport(mock_session)
-        mock_session.list_tools = AsyncMock(
-            return_value=_make_list_tools_result([_make_tool("t")])
-        )
+        mock_session.list_tools = AsyncMock(return_value=_make_list_tools_result([_make_tool("t")]))
         mock_session.call_tool = AsyncMock(
             return_value=_make_call_tool_result(
                 content=[_make_audio_content(data="xyz", mime="audio/wav")],
@@ -1639,14 +1570,10 @@ class TestCallToolContentBlockRendering:
         finally:
             await c.disconnect()
 
-    async def test_resource_link_block_placeholder(
-        self, patch_transport, mock_session
-    ) -> None:
+    async def test_resource_link_block_placeholder(self, patch_transport, mock_session) -> None:
         """ResourceLink renders as `[resource_link: <uri>]`."""
         patch_transport(mock_session)
-        mock_session.list_tools = AsyncMock(
-            return_value=_make_list_tools_result([_make_tool("t")])
-        )
+        mock_session.list_tools = AsyncMock(return_value=_make_list_tools_result([_make_tool("t")]))
         mock_session.call_tool = AsyncMock(
             return_value=_make_call_tool_result(
                 content=[_make_resource_link_content(uri="file:///x.txt")],
@@ -1662,14 +1589,10 @@ class TestCallToolContentBlockRendering:
         finally:
             await c.disconnect()
 
-    async def test_embedded_resource_block_placeholder(
-        self, patch_transport, mock_session
-    ) -> None:
+    async def test_embedded_resource_block_placeholder(self, patch_transport, mock_session) -> None:
         """EmbeddedResource renders as `[resource: <inner.uri>]`."""
         patch_transport(mock_session)
-        mock_session.list_tools = AsyncMock(
-            return_value=_make_list_tools_result([_make_tool("t")])
-        )
+        mock_session.list_tools = AsyncMock(return_value=_make_list_tools_result([_make_tool("t")]))
         mock_session.call_tool = AsyncMock(
             return_value=_make_call_tool_result(
                 content=[_make_embedded_resource_content(uri="resource://r")],
@@ -1685,14 +1608,10 @@ class TestCallToolContentBlockRendering:
         finally:
             await c.disconnect()
 
-    async def test_mixed_text_and_image_concatenation(
-        self, patch_transport, mock_session
-    ) -> None:
+    async def test_mixed_text_and_image_concatenation(self, patch_transport, mock_session) -> None:
         """Order preserved across mixed text/non-text blocks."""
         patch_transport(mock_session)
-        mock_session.list_tools = AsyncMock(
-            return_value=_make_list_tools_result([_make_tool("t")])
-        )
+        mock_session.list_tools = AsyncMock(return_value=_make_list_tools_result([_make_tool("t")]))
         mock_session.call_tool = AsyncMock(
             return_value=_make_call_tool_result(
                 content=[
@@ -1727,9 +1646,7 @@ class TestCallToolErrorTranslation:
     ) -> None:
         """asyncio.TimeoutError in call_tool wraps as MCPConnectionError."""
         patch_transport(mock_session)
-        mock_session.list_tools = AsyncMock(
-            return_value=_make_list_tools_result([_make_tool("t")])
-        )
+        mock_session.list_tools = AsyncMock(return_value=_make_list_tools_result([_make_tool("t")]))
         mock_session.call_tool = AsyncMock(side_effect=asyncio.TimeoutError())
         c = MCPClient(_stdio_source())
         await c.connect()
@@ -1758,9 +1675,7 @@ class TestCallToolErrorTranslation:
     ) -> None:
         """McpError from the SDK wraps as MCPCallError carrying the message."""
         patch_transport(mock_session)
-        mock_session.list_tools = AsyncMock(
-            return_value=_make_list_tools_result([_make_tool("t")])
-        )
+        mock_session.list_tools = AsyncMock(return_value=_make_list_tools_result([_make_tool("t")]))
         mock_session.call_tool = AsyncMock(
             side_effect=McpError(ErrorData(code=-32600, message="boom"))
         )
@@ -1779,9 +1694,7 @@ class TestCallToolErrorTranslation:
     ) -> None:
         """httpx.HTTPError wraps as MCPConnectionError ('transport error')."""
         patch_transport(mock_session)
-        mock_session.list_tools = AsyncMock(
-            return_value=_make_list_tools_result([_make_tool("t")])
-        )
+        mock_session.list_tools = AsyncMock(return_value=_make_list_tools_result([_make_tool("t")]))
         mock_session.call_tool = AsyncMock(side_effect=httpx.HTTPError("boom"))
         c = MCPClient(_stdio_source())
         await c.connect()
@@ -1796,12 +1709,8 @@ class TestCallToolErrorTranslation:
     ) -> None:
         """anyio.ClosedResourceError wraps as MCPConnectionError ('transport error')."""
         patch_transport(mock_session)
-        mock_session.list_tools = AsyncMock(
-            return_value=_make_list_tools_result([_make_tool("t")])
-        )
-        mock_session.call_tool = AsyncMock(
-            side_effect=anyio.ClosedResourceError()
-        )
+        mock_session.list_tools = AsyncMock(return_value=_make_list_tools_result([_make_tool("t")]))
+        mock_session.call_tool = AsyncMock(side_effect=anyio.ClosedResourceError())
         c = MCPClient(_stdio_source())
         await c.connect()
         try:
@@ -1822,12 +1731,8 @@ class TestCallToolErrorTranslation:
         `issubclass(UrlElicitationRequiredError, McpError) == True`).
         """
         patch_transport(mock_session)
-        mock_session.list_tools = AsyncMock(
-            return_value=_make_list_tools_result([_make_tool("t")])
-        )
-        mock_session.call_tool = AsyncMock(
-            side_effect=UrlElicitationRequiredError([])
-        )
+        mock_session.list_tools = AsyncMock(return_value=_make_list_tools_result([_make_tool("t")]))
+        mock_session.call_tool = AsyncMock(side_effect=UrlElicitationRequiredError([]))
         c = MCPClient(_stdio_source())
         await c.connect()
         try:
@@ -2004,6 +1909,4 @@ class TestBuildStdioEnviron:
 
     def test_secrets_win_over_allowlist(self) -> None:
         src = _stdio_source_for_env_test(secrets={"PATH": "/operator-override"})
-        assert build_stdio_environ(src, {"PATH": "/usr/bin"}) == {
-            "PATH": "/operator-override"
-        }
+        assert build_stdio_environ(src, {"PATH": "/usr/bin"}) == {"PATH": "/operator-override"}

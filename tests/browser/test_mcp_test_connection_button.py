@@ -19,8 +19,9 @@ Any browser-test compromises are documented in the flight log Anomalies section.
 
 from __future__ import annotations
 
-import httpx
 import json
+
+import httpx
 import pytest
 from playwright.sync_api import Page, expect
 
@@ -36,12 +37,15 @@ def test_test_connection_button_visible_for_streamable_http_edit_mode(
     app_clean: str, page: Page
 ) -> None:
     """Test button renders only in edit-mode for streamable-http sources."""
-    sid = _seed_mcp_source(app_clean, {
-        "name": "test-btn-source",
-        "type": "streamable-http",
-        "config": {"url": "https://example.com/mcp"},
-        "secrets": {},
-    })
+    sid = _seed_mcp_source(
+        app_clean,
+        {
+            "name": "test-btn-source",
+            "type": "streamable-http",
+            "config": {"url": "https://example.com/mcp"},
+            "secrets": {},
+        },
+    )
 
     page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
@@ -68,9 +72,7 @@ def test_test_connection_button_visible_for_streamable_http_edit_mode(
 
 
 @pytest.mark.browser
-def test_test_connection_button_absent_in_create_mode(
-    app_clean: str, page: Page
-) -> None:
+def test_test_connection_button_absent_in_create_mode(app_clean: str, page: Page) -> None:
     """Test button is NOT rendered in create-mode (source has no id yet)."""
     page.goto(f"{app_clean}#studio/mcp-sources/new")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
@@ -81,9 +83,7 @@ def test_test_connection_button_absent_in_create_mode(
 
 
 @pytest.mark.browser
-def test_test_connection_button_present_for_stdio_source(
-    app_clean: str, page: Page
-) -> None:
+def test_test_connection_button_present_for_stdio_source(app_clean: str, page: Page) -> None:
     """F9 L2 D1: Refresh-connection button DOES render for stdio sources.
 
     Inverted from the prior "absent for stdio" assertion: stdio Test
@@ -94,12 +94,15 @@ def test_test_connection_button_present_for_stdio_source(
     — no OAuth, no popup — so the Reset button stays absent (gated by
     hasOAuthState which is false for stdio).
     """
-    sid = _seed_mcp_source(app_clean, {
-        "name": "stdio-source",
-        "type": "stdio",
-        "config": {"command": "github-mcp"},
-        "secrets": {},
-    })
+    sid = _seed_mcp_source(
+        app_clean,
+        {
+            "name": "stdio-source",
+            "type": "stdio",
+            "config": {"command": "github-mcp"},
+            "secrets": {},
+        },
+    )
 
     page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
     expect(page.locator('[data-testid="save-mcp-source-btn"]')).to_be_visible(timeout=8000)
@@ -125,9 +128,7 @@ def test_test_connection_button_present_for_stdio_source(
 
 
 @pytest.mark.browser
-def test_test_connection_button_click_shows_result(
-    app_clean: str, page: Page
-) -> None:
+def test_test_connection_button_click_shows_result(app_clean: str, page: Page) -> None:
     """Clicking the Test button disables it and shows a result panel response.
 
     This test seeds a streamable-http source that has no dcr_credentials and
@@ -155,12 +156,15 @@ def test_test_connection_button_click_shows_result(
     fixture. We test the button render + click mechanics here; the full
     popup-flow is verified in L4 HAT (live test, human-verified).
     """
-    sid = _seed_mcp_source(app_clean, {
-        "name": "test-btn-click-source",
-        "type": "streamable-http",
-        "config": {"url": "https://invalid-host.example-does-not-exist.com/mcp"},
-        "secrets": {},
-    })
+    sid = _seed_mcp_source(
+        app_clean,
+        {
+            "name": "test-btn-click-source",
+            "type": "streamable-http",
+            "config": {"url": "https://invalid-host.example-does-not-exist.com/mcp"},
+            "secrets": {},
+        },
+    )
 
     page.goto(f"{app_clean}#studio/mcp-sources/{sid}")
     test_btn = page.locator('[data-testid="mcp-test-connection"]')
@@ -237,9 +241,7 @@ def test_test_connection_button_click_shows_result(
         "See mission 08 Known Issues."
     )
 )
-def test_capability_flags_render_for_announced_capabilities(
-    app_clean: str, page: Page
-) -> None:
+def test_capability_flags_render_for_announced_capabilities(app_clean: str, page: Page) -> None:
     """L2.1: capability flags show the spec-defined keys whose values are non-null.
 
     Stubs /test/connect to return capabilities with tools+resources announced
@@ -247,12 +249,15 @@ def test_capability_flags_render_for_announced_capabilities(
     rendered .mcp-capability-flags one-liner contains exactly the announced
     capabilities and none of the un-announced ones.
     """
-    sid = _seed_mcp_source(app_clean, {
-        "name": "polish-cap-source",
-        "type": "streamable-http",
-        "config": {"url": "https://example.com/mcp"},
-        "secrets": {},
-    })
+    sid = _seed_mcp_source(
+        app_clean,
+        {
+            "name": "polish-cap-source",
+            "type": "streamable-http",
+            "config": {"url": "https://example.com/mcp"},
+            "secrets": {},
+        },
+    )
 
     stub_payload = {
         "status": "ok",
@@ -296,9 +301,7 @@ def test_capability_flags_render_for_announced_capabilities(
 
 
 @pytest.mark.browser
-def test_input_schema_renders_pretty_json_in_tool_body(
-    app_clean: str, page: Page
-) -> None:
+def test_input_schema_renders_pretty_json_in_tool_body(app_clean: str, page: Page) -> None:
     """L2.3 (updated for Leg 03): input_schema renders as an always-visible <pre> in the tool body.
 
     Leg 03 MCP polish replaced the nested <details mcp-tool-schema-summary> with a
@@ -309,12 +312,15 @@ def test_input_schema_renders_pretty_json_in_tool_body(
     Expands the outer tool <details> and asserts the <pre> body contains
     the exact pretty-printed JSON.
     """
-    sid = _seed_mcp_source(app_clean, {
-        "name": "polish-schema-source",
-        "type": "streamable-http",
-        "config": {"url": "https://example.com/mcp"},
-        "secrets": {},
-    })
+    sid = _seed_mcp_source(
+        app_clean,
+        {
+            "name": "polish-schema-source",
+            "type": "streamable-http",
+            "config": {"url": "https://example.com/mcp"},
+            "secrets": {},
+        },
+    )
 
     schema = {"type": "object", "properties": {"x": {"type": "string"}}}
     stub_payload = {
@@ -360,20 +366,21 @@ def test_input_schema_renders_pretty_json_in_tool_body(
 
 
 @pytest.mark.browser
-def test_empty_input_schema_does_not_render_schema_details(
-    app_clean: str, page: Page
-) -> None:
+def test_empty_input_schema_does_not_render_schema_details(app_clean: str, page: Page) -> None:
     """L2.4 (negative): tools with input_schema: {} do NOT get a nested schema view.
 
     Stubs /test/connect to return one tool with an empty dict input_schema.
     Expands the outer tool <details> and asserts .mcp-tool-schema is absent.
     """
-    sid = _seed_mcp_source(app_clean, {
-        "name": "polish-empty-schema-source",
-        "type": "streamable-http",
-        "config": {"url": "https://example.com/mcp"},
-        "secrets": {},
-    })
+    sid = _seed_mcp_source(
+        app_clean,
+        {
+            "name": "polish-empty-schema-source",
+            "type": "streamable-http",
+            "config": {"url": "https://example.com/mcp"},
+            "secrets": {},
+        },
+    )
 
     stub_payload = {
         "status": "ok",

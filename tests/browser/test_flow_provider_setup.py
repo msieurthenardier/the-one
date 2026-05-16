@@ -25,7 +25,9 @@ from playwright.sync_api import Page, expect
 # with a Playwright DOM-visibility error on .new-entity-btn (60+ retries × 500ms
 # then timeout), exposing a likely real F4-rebrand-era UX defect. Skip remains
 # in place pending the cleanup flight that owns this UX investigation.
-pytestmark = pytest.mark.skip(reason="M08 F4 KI: hangs under post-Leg-02 markup; root cause unidentified")
+pytestmark = pytest.mark.skip(
+    reason="M08 F4 KI: hangs under post-Leg-02 markup; root cause unidentified"
+)
 
 
 @pytest.mark.browser

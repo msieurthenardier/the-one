@@ -632,9 +632,7 @@ class TestEncryptionRotation:
         assert get_resp.status_code == 200
         assert get_resp.json()["secrets"]["GITHUB_TOKEN"] == "***...5678"
 
-    async def test_rotate_mixed_providers_and_mcps(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_rotate_mixed_providers_and_mcps(self, client: AsyncClient) -> None:
         """One rotation re-encrypts both surfaces atomically."""
         prov_resp = await client.post(
             "/api/providers",
@@ -1937,9 +1935,7 @@ class TestApiKeyNormalization:
         assert cfg.api_key is None
 
     @pytest.mark.asyncio
-    async def test_create_strips_whitespace_round_trip(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_create_strips_whitespace_round_trip(self, client: AsyncClient) -> None:
         """A POST with leading/trailing whitespace should mask to the stripped
         last-4 (``sk-x`` → ``***``), not to ``  sk-x  ``."""
         resp = await client.post(
@@ -1961,9 +1957,7 @@ class TestApiKeyNormalization:
         assert get_resp.json()["api_key"] == "***...-key"
 
     @pytest.mark.asyncio
-    async def test_create_whitespace_only_stored_as_none(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_create_whitespace_only_stored_as_none(self, client: AsyncClient) -> None:
         """A POST with only whitespace must be stored as NULL — masking returns
         ``None`` rather than ``"   "`` or ``""``."""
         resp = await client.post(
@@ -2028,9 +2022,7 @@ class TestOpenRouterTestEndpointStatus:
     knows whether the provider is ready for chat.
     """
 
-    async def test_no_key_returns_warning_not_ok(
-        self, client: AsyncClient, monkeypatch
-    ) -> None:
+    async def test_no_key_returns_warning_not_ok(self, client: AsyncClient, monkeypatch) -> None:
         from the_one.llm import openrouter_api
 
         async def fake_list(base_url, api_key):
@@ -2054,9 +2046,7 @@ class TestOpenRouterTestEndpointStatus:
         assert body["status"] == "warning", body
         assert "Add an API key" in body["detail"]
 
-    async def test_key_set_returns_ok(
-        self, client: AsyncClient, monkeypatch
-    ) -> None:
+    async def test_key_set_returns_ok(self, client: AsyncClient, monkeypatch) -> None:
         from the_one.llm import openrouter_api
 
         async def fake_verify(base_url, api_key):
@@ -2146,9 +2136,7 @@ class TestOpenRouterModelsEndpointErrorMapping:
         assert resp.status_code == 500
         assert "contract violation" in resp.json()["detail"].lower()
 
-    async def test_timeout_maps_to_504(
-        self, client: AsyncClient, monkeypatch
-    ) -> None:
+    async def test_timeout_maps_to_504(self, client: AsyncClient, monkeypatch) -> None:
         import httpx
 
         from the_one.llm import openrouter_api
@@ -2195,5 +2183,3 @@ class TestOpenRouterModelsEndpointErrorMapping:
         resp = await client.get(f"/api/providers/{provider_id}/models")
         assert resp.status_code == 502
         assert "unreachable" in resp.json()["detail"].lower()
-
-

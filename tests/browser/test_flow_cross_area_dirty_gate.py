@@ -15,16 +15,14 @@ Both parametrize across (area_id, fixture_name, editor_setup, dirty_helper).
 
 from __future__ import annotations
 
-import urllib.parse
-
 import pytest
 from browser.seeders import SeededApp  # plus any area-specific helpers
 from playwright.sync_api import Page, expect
 
-
 # Per-area setup helpers — these abstract over the differences between
 # admin's provider-editor entry path and studio's agent-editor entry path
 # so the parametrized tests can run the same body for both.
+
 
 def _setup_studio_editor(page: Page, app: SeededApp) -> None:
     """Navigate to studio + open the seeded agent in the editor.
@@ -37,9 +35,9 @@ def _setup_studio_editor(page: Page, app: SeededApp) -> None:
     """
     page.goto(f"{app.base_url}#studio")
     # Wait for the section-nav to mount (signals studio area init complete).
-    expect(
-        page.locator('.section-nav[aria-label="Agent Studio sections"]')
-    ).to_be_visible(timeout=8000)
+    expect(page.locator('.section-nav[aria-label="Agent Studio sections"]')).to_be_visible(
+        timeout=8000
+    )
     editor_hidden = page.evaluate(
         "() => document.querySelector('.studio-editor')?.classList.contains('is-hidden')"
     )
@@ -54,13 +52,11 @@ def _setup_admin_editor(page: Page, app: SeededApp) -> None:
     direct-hash-route pattern."""
     page.goto(f"{app.base_url}#admin/providers/{app.provider_id}")
     # Wait for the admin section-nav to mount (signals admin area init complete).
-    expect(
-        page.locator('.section-nav[aria-label="System sections"]')
-    ).to_be_visible(timeout=8000)
+    expect(page.locator('.section-nav[aria-label="System sections"]')).to_be_visible(timeout=8000)
     # The provider-editor's Name field (#pf-name) is the canonical
     # always-rendered signal — it appears for every provider type. Admin
     # uses ID selectors; studio's agent-editor uses data-field selectors.
-    expect(page.locator('#pf-name')).to_be_visible(timeout=8000)
+    expect(page.locator("#pf-name")).to_be_visible(timeout=8000)
 
 
 def _dirty_studio_form(page: Page) -> None:
@@ -76,7 +72,7 @@ def _dirty_admin_form(page: Page) -> None:
     — always-rendered text input on every provider type. (Admin's
     provider editor uses ID selectors; studio's tabbed agent editor uses
     data-field selectors. Both patterns coexist in the codebase.)"""
-    name_field = page.locator('#pf-name')
+    name_field = page.locator("#pf-name")
     name_field.click()
     name_field.fill("dirty edit " + str(id(page))[:6])
 
@@ -132,17 +128,16 @@ def test_dirty_editor_topbar_cancel_keeps_state(
     # priorHash — the sub-state written by replaceSub may differ from the
     # full editor URL, but the area prefix is always correct after cancel).
     current_hash = page.evaluate("location.hash")
-    assert current_hash.startswith(f"#{area}"), \
+    assert current_hash.startswith(f"#{area}"), (
         f"Expected hash to start with #{area} after cancel, got {current_hash}"
+    )
     # The target-area content panel must NOT be active (we cancelled, so we
     # stayed on the source area). Wait briefly for any async transitions.
-    expect(
-        page.locator(f'#main-content .content-panel.area-{target}.active')
-    ).to_have_count(0)
+    expect(page.locator(f"#main-content .content-panel.area-{target}.active")).to_have_count(0)
     # Source-area content panel should be active (cancel kept us here).
-    expect(
-        page.locator(f'#main-content .content-panel.area-{area}.active')
-    ).to_be_visible(timeout=3000)
+    expect(page.locator(f"#main-content .content-panel.area-{area}.active")).to_be_visible(
+        timeout=3000
+    )
 
 
 @pytest.mark.browser
@@ -166,8 +161,9 @@ def test_dirty_editor_topbar_confirm_navigates_cleanly(
     expect(overlay).to_have_count(0)
     # URL is target area.
     target_hash = page.evaluate("location.hash")
-    assert target_hash.startswith(f"#{target}"), \
+    assert target_hash.startswith(f"#{target}"), (
         f"Expected hash to start with #{target}, got {target_hash}"
+    )
 
     # Return to source area via topbar.
     page.locator(f'#app-topbar .app-picker-button[data-area="{area}"]').click()
@@ -178,6 +174,6 @@ def test_dirty_editor_topbar_confirm_navigates_cleanly(
     expect(page.locator('[data-testid="confirm-dialog-overlay"]')).to_have_count(0)
 
     # Source-area content panel is active (wait for DOM transition).
-    expect(
-        page.locator(f'#main-content .content-panel.area-{area}.active')
-    ).to_be_visible(timeout=5000)
+    expect(page.locator(f"#main-content .content-panel.area-{area}.active")).to_be_visible(
+        timeout=5000
+    )

@@ -53,9 +53,7 @@ class TestBuildProductionHttpxKwargs:
 
         Headers, follow_redirects, timeout are preserved verbatim.
         """
-        kwargs = sh._build_production_httpx_kwargs(
-            headers={"X-Foo": "bar"}, auth_provider=None
-        )
+        kwargs = sh._build_production_httpx_kwargs(headers={"X-Foo": "bar"}, auth_provider=None)
         assert kwargs["auth"] is None
         assert kwargs["headers"] == {"X-Foo": "bar"}
         assert kwargs["follow_redirects"] is True

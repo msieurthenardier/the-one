@@ -19,9 +19,7 @@ from the_one.mcp.errors import MCPArgumentError, MCPConnectionError
 
 
 class TestL3IntegrationSmoke:
-    async def test_stdio_smoke_via_raw_sdk(
-        self, mcp_fixture_stdio_params: dict
-    ) -> None:
+    async def test_stdio_smoke_via_raw_sdk(self, mcp_fixture_stdio_params: dict) -> None:
         params = StdioServerParameters(**mcp_fixture_stdio_params)
         async with stdio_client(params) as (read, write):
             async with ClientSession(read, write) as session:
@@ -38,9 +36,7 @@ class TestL3IntegrationSmoke:
                 # SDK returns content blocks; first block should be text "hi"
                 assert echo_result.content[0].text == "hi"
 
-    async def test_streamable_http_smoke_via_raw_sdk(
-        self, mcp_fixture_http_client
-    ) -> None:
+    async def test_streamable_http_smoke_via_raw_sdk(self, mcp_fixture_http_client) -> None:
         client, url = mcp_fixture_http_client
         async with streamable_http_client(url, http_client=client) as (
             read,
@@ -181,9 +177,7 @@ class TestL5Stdio:
         assert not client.is_alive
 
     @pytest.mark.timeout(15)
-    async def test_connect_with_extra_env_passes_through(
-        self, mcp_fixture_stdio_params
-    ) -> None:
+    async def test_connect_with_extra_env_passes_through(self, mcp_fixture_stdio_params) -> None:
         # Extend the fixture's env with an extra plaintext key AND add a
         # secret. FastMCP's hello fixture doesn't read these vars, but the
         # round-trip proves the env is materialized without breaking spawn.
@@ -246,9 +240,7 @@ class TestL6aHappyPath:
     so a hung subprocess fails fast.
     """
 
-    async def test_list_tools_streamable_http(
-        self, mcp_fixture_http_client, monkeypatch
-    ) -> None:
+    async def test_list_tools_streamable_http(self, mcp_fixture_http_client, monkeypatch) -> None:
         client_httpx, url = mcp_fixture_http_client
         monkeypatch.setattr(
             "the_one.mcp.transports.streamable_http._test_http_client_override",
@@ -395,9 +387,7 @@ class TestL6bInputValidationIntegration:
             await client.disconnect()
 
     @pytest.mark.timeout(15)
-    async def test_call_tool_invalid_args_via_stdio(
-        self, mcp_fixture_stdio_params
-    ) -> None:
+    async def test_call_tool_invalid_args_via_stdio(self, mcp_fixture_stdio_params) -> None:
         params_dict = mcp_fixture_stdio_params
         source = MCPSource(
             id="src-stdio-6",

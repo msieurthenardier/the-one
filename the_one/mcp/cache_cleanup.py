@@ -45,6 +45,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import re
 import shutil
 from pathlib import Path
 from typing import Literal
@@ -66,6 +67,19 @@ _UV_CACHE_PRUNE_TIMEOUT_S: float = 8.0
 # the symlink hop and is the correct primitive for reclaiming env slots.
 UV_ENVIRONMENTS_ROOT = Path("/root/.cache/uv/environments-v2")
 NPX_CACHE_ROOT = Path("/root/.npm/_npx")
+
+# npm package-name spec (per npm-validate-package-name + RFC):
+#   - lowercase letters, digits, and the punctuation set ``._-``;
+#   - optional ``@scope/`` prefix, where ``scope`` follows the same charset;
+#   - first character of name AND scope must be alnum (no leading ``.`` or ``-``);
+#   - a ``/`` is allowed ONLY after the scope prefix (not deeper).
+# This deliberately rejects the broader ``[A-Za-z0-9._@/-]`` character class
+# used in an earlier draft of this validator: that class accepts every
+# character of ``../etc/passwd`` individually and so does NOT block path
+# traversal. The regex below pins ``/`` to the scope position and rejects
+# leading dots, closing the traversal vector at the function entry before
+# ``pkg`` flows into ``slot_dir / "node_modules" / pkg / "package.json"``.
+_VALID_NPX_PKG_RE = re.compile(r"^(?:@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*$")
 
 
 def _strip_version_pin(spec: str) -> str:
@@ -178,9 +192,7 @@ async def _clean_uvx(pkg: str) -> None:
             stderr=asyncio.subprocess.PIPE,
         )
     except FileNotFoundError:
-        logger.warning(
-            "uv binary not on PATH; skipping `uv cache prune` for %s", pkg
-        )
+        logger.warning("uv binary not on PATH; skipping `uv cache prune` for %s", pkg)
         return
     except Exception as e:  # pragma: no cover — defensive
         logger.warning("`uv cache prune` failed to start for %s: %s", pkg, e)
@@ -221,7 +233,20 @@ async def _clean_npx(pkg: str) -> None:
     these with ``Path.iterdir`` works correctly. Defensive fallback: if
     the root ``package.json`` is missing/corrupt, check
     ``node_modules/<pkg>/package.json``.
+
+    Raises:
+        ValueError: ``pkg`` is not a syntactically valid npm package name
+            per :data:`_VALID_NPX_PKG_RE`. This is a security gate, not a
+            correctness check: ``pkg`` is interpolated into a filesystem
+            path below (``slot_dir / "node_modules" / pkg / "package.json"``)
+            and must not be allowed to contain ``..`` traversal segments or
+            unconstrained slashes. Reject at function entry so the invariant
+            holds for ALL call paths (current sole caller is
+            :func:`cleanup_runtime_cache` via :func:`extract_runtime_package`,
+            but the guard belongs here so future callers can't bypass it).
     """
+    if not _VALID_NPX_PKG_RE.match(pkg):
+        raise ValueError(f"unsafe npx package name: {pkg!r}")
     try:
         if not NPX_CACHE_ROOT.exists():
             return
@@ -250,9 +275,7 @@ async def _clean_npx(pkg: str) -> None:
                     matched = True
 
             if matched:
-                logger.warning(
-                    "Removing npx slot %s (matches package %s)", slot_dir, pkg
-                )
+                logger.warning("Removing npx slot %s (matches package %s)", slot_dir, pkg)
                 shutil.rmtree(slot_dir, ignore_errors=True)
     except Exception as e:  # pragma: no cover — defensive
         logger.warning("npx cache scan failed for %s: %s", pkg, e)
@@ -263,9 +286,7 @@ async def _clean_pipx(pkg: str) -> None:
     await _clean_uvx(pkg)
 
 
-async def cleanup_runtime_cache(
-    runtime: str, package: str, *, timeout_s: float = 10.0
-) -> None:
+async def cleanup_runtime_cache(runtime: str, package: str, *, timeout_s: float = 10.0) -> None:
     """Dispatch to the per-runtime cleanup helper, swallowing all errors.
 
     Logs at WARNING on success/no-op/failure so cleanup outcomes surface
@@ -291,9 +312,7 @@ async def cleanup_runtime_cache(
         elif runtime == "pipx":
             inner = _clean_pipx(package)
         else:
-            logger.warning(
-                "cleanup_runtime_cache: unsupported runtime %r; no-op", runtime
-            )
+            logger.warning("cleanup_runtime_cache: unsupported runtime %r; no-op", runtime)
             return
 
         try:

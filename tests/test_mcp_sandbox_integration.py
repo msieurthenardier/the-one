@@ -59,6 +59,7 @@ from __future__ import annotations
 import os
 import shutil
 import socket
+import subprocess
 import sys
 import uuid
 from pathlib import Path
@@ -83,9 +84,7 @@ _BWRAP_REQUIRED_REASON = "bwrap required for real-subprocess sandbox integration
 
 # Tests #1-9 are real-subprocess; gate at module scope so collection still
 # works on hosts without bwrap. Test #10 is in-process and runs unconditionally.
-requires_bwrap = pytest.mark.skipif(
-    shutil.which("bwrap") is None, reason=_BWRAP_REQUIRED_REASON
-)
+requires_bwrap = pytest.mark.skipif(shutil.which("bwrap") is None, reason=_BWRAP_REQUIRED_REASON)
 
 
 def _build_naughty_source(
@@ -198,6 +197,38 @@ def _has_sys_admin() -> bool:
     return False
 
 
+def _can_unshare_user_namespace() -> bool:
+    """Return True if the host can create user namespaces without privilege.
+
+    Probes ``unshare -U -r true``. Succeeds on WSL2, stock Ubuntu, and
+    other Linux hosts where ``kernel.unprivileged_userns_clone=1``. Used
+    alongside ``_has_sys_admin()`` to gate Test #6c: the EPERM-on-unshare
+    path only fires when the host CANNOT create user namespaces, so when
+    this probe returns True the test should SKIP (not FAIL).
+
+    Returns False if ``unshare`` is unavailable (slim distros) or the
+    probe times out / errors — in which case the EPERM path is likely
+    exercisable and the test should run.
+    """
+    try:
+        result = subprocess.run(
+            ["unshare", "-U", "-r", "true"],
+            timeout=2,
+            check=False,
+        )
+        return result.returncode == 0
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+
+
+# Skip the EPERM-on-unshare test when the environment cannot exercise that
+# error path: either SYS_ADMIN is granted (container) OR the host permits
+# unprivileged user namespaces (WSL2, stock Ubuntu). Both shapes cause
+# unshare(CLONE_NEWUSER) to succeed, which means the test's expected EPERM
+# never fires.
+_SHOULD_SKIP_EPERM_TESTS = _has_sys_admin() or _can_unshare_user_namespace()
+
+
 # ---------------------------------------------------------------------------
 # #1 — FS scope refusal under strict-floor profile
 # ---------------------------------------------------------------------------
@@ -226,9 +257,9 @@ async def test_sandbox_refuses_fs_write_outside_writable_paths() -> None:
             )
 
     message = str(exc_info.value)
-    assert (
-        "Read-only" in message or "Permission denied" in message
-    ), f"expected strerror text in error message, got: {message!r}"
+    assert "Read-only" in message or "Permission denied" in message, (
+        f"expected strerror text in error message, got: {message!r}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -326,9 +357,7 @@ async def test_sandbox_network_refused_under_unshare_net() -> None:
         sandbox={"writable_paths": [], "network_allowed": False},
     )
     async with MCPClient(source) as client:
-        result = await client.call_tool(
-            "try_connect", {"host": "8.8.8.8", "port": 53}
-        )
+        result = await client.call_tool("try_connect", {"host": "8.8.8.8", "port": 53})
 
     text = result.text
     # Different kernels emit different strerror text for the
@@ -365,9 +394,7 @@ async def test_sandbox_network_allowed_when_network_allowed_true() -> None:
         sandbox={"writable_paths": [], "network_allowed": True},
     )
     async with MCPClient(source) as client:
-        result = await client.call_tool(
-            "try_connect", {"host": "8.8.8.8", "port": 53}
-        )
+        result = await client.call_tool("try_connect", {"host": "8.8.8.8", "port": 53})
 
     assert result.text == "connected"
 
@@ -378,7 +405,16 @@ async def test_sandbox_network_allowed_when_network_allowed_true() -> None:
 
 
 @requires_bwrap
-@pytest.mark.skip(reason="F5 L01: SDK task-group cross-task deadlock (F6 A5) routes MCPSandboxError through teardown rather than the connect() context — test expects MCPSandboxError at the `async with MCPClient(source):` line but actual chain raises MCPConnectionError there with MCPSandboxError surfacing in teardown. Pre-existing F6-class architectural issue; defer to MCP cleanup flight. Symptom class: F6-A5-deadlock.")
+@pytest.mark.skip(
+    reason=(
+        "F5 L01: SDK task-group cross-task deadlock (F6 A5) routes MCPSandboxError "
+        "through teardown rather than the connect() context — test expects "
+        "MCPSandboxError at the `async with MCPClient(source):` line but actual "
+        "chain raises MCPConnectionError there with MCPSandboxError surfacing in "
+        "teardown. Pre-existing F6-class architectural issue; defer to MCP cleanup "
+        "flight. Symptom class: F6-A5-deadlock."
+    )
+)
 async def test_sandbox_writable_paths_nonexistent_raises_at_connect() -> None:
     """Nonexistent writable_paths entry surfaces as MCPSandboxError #1.
 
@@ -418,7 +454,14 @@ async def test_sandbox_writable_paths_nonexistent_raises_at_connect() -> None:
 
 
 @requires_bwrap
-@pytest.mark.skip(reason="F5 L01: same F6 A5 SDK task-group cross-task deadlock as test_sandbox_writable_paths_nonexistent_raises_at_connect — MCPSandboxError surfaces in teardown rather than the connect() context. Symptom class: F6-A5-deadlock (batched with sibling test).")
+@pytest.mark.skip(
+    reason=(
+        "F5 L01: same F6 A5 SDK task-group cross-task deadlock as "
+        "test_sandbox_writable_paths_nonexistent_raises_at_connect — "
+        "MCPSandboxError surfaces in teardown rather than the connect() context. "
+        "Symptom class: F6-A5-deadlock (batched with sibling test)."
+    )
+)
 async def test_sandbox_bwrap_unrecognised_exit_code_raises_msc_sandbox_error_msg2(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -445,11 +488,7 @@ async def test_sandbox_bwrap_unrecognised_exit_code_raises_msc_sandbox_error_msg
         # BEFORE the `--` separator (which is the last block before the
         # command). Find `--` and insert just before it.
         sep_idx = spec.args.index("--")
-        new_args = (
-            spec.args[:sep_idx]
-            + ["--no-such-flag-for-test-6b"]
-            + spec.args[sep_idx:]
-        )
+        new_args = spec.args[:sep_idx] + ["--no-such-flag-for-test-6b"] + spec.args[sep_idx:]
         return SpawnSpec(
             command=spec.command,
             args=new_args,
@@ -457,9 +496,7 @@ async def test_sandbox_bwrap_unrecognised_exit_code_raises_msc_sandbox_error_msg
             cwd=spec.cwd,
         )
 
-    monkeypatch.setattr(
-        BubblewrapSandbox, "prepare_spawn", _patched_prepare_spawn
-    )
+    monkeypatch.setattr(BubblewrapSandbox, "prepare_spawn", _patched_prepare_spawn)
 
     source = _build_naughty_source(
         sandbox={"writable_paths": [], "network_allowed": False},
@@ -468,9 +505,7 @@ async def test_sandbox_bwrap_unrecognised_exit_code_raises_msc_sandbox_error_msg
         async with MCPClient(source):
             pass
     message = str(exc_info.value)
-    assert "bubblewrap exited non-zero" in message, (
-        f"expected catalog #2 prefix, got: {message!r}"
-    )
+    assert "bubblewrap exited non-zero" in message, f"expected catalog #2 prefix, got: {message!r}"
     # And the `bwrap stderr:` snippet preserves the underlying message
     # so an operator can debug.
     assert "bwrap stderr:" in message, (
@@ -485,8 +520,12 @@ async def test_sandbox_bwrap_unrecognised_exit_code_raises_msc_sandbox_error_msg
 
 @requires_bwrap
 @pytest.mark.skipif(
-    _has_sys_admin(),
-    reason="Test exercises the no-privilege-grants path; dev container has SYS_ADMIN",
+    _SHOULD_SKIP_EPERM_TESTS,
+    reason=(
+        "Test exercises the no-privilege-grants path; skip when SYS_ADMIN is "
+        "granted (container) OR when unshare -U succeeds without privilege "
+        "(WSL2, stock Ubuntu host)"
+    ),
 )
 async def test_sandbox_eperm_on_unshare_raises_mcp_sandbox_error_msg3() -> None:
     """EPERM on unshare surfaces as MCPSandboxError catalog #3.
@@ -566,9 +605,7 @@ async def test_inner_process_failure_does_not_translate_to_sandbox_error(
             cwd=spec.cwd,
         )
 
-    monkeypatch.setattr(
-        BubblewrapSandbox, "prepare_spawn", _patched_prepare_spawn
-    )
+    monkeypatch.setattr(BubblewrapSandbox, "prepare_spawn", _patched_prepare_spawn)
 
     source = _build_naughty_source(
         sandbox={"writable_paths": [], "network_allowed": False},
@@ -580,8 +617,7 @@ async def test_inner_process_failure_does_not_translate_to_sandbox_error(
     # to MCPSandboxError. The bwrap-prefix discriminator is the
     # load-bearing test.
     assert not isinstance(exc_info.value, MCPSandboxError), (
-        f"inner-process failure mistranslated to MCPSandboxError: "
-        f"{exc_info.value!r}"
+        f"inner-process failure mistranslated to MCPSandboxError: {exc_info.value!r}"
     )
 
 
@@ -616,9 +652,9 @@ async def test_sandbox_dump_env_no_secret_leakage_via_test_runner_env(
     assert result.structured is not None
     env_dict = result.structured
     assert isinstance(env_dict, dict)
-    assert (
-        sentinel_key not in env_dict
-    ), f"sentinel {sentinel_key!r} leaked through to sandboxed subprocess"
+    assert sentinel_key not in env_dict, (
+        f"sentinel {sentinel_key!r} leaked through to sandboxed subprocess"
+    )
 
 
 # ---------------------------------------------------------------------------

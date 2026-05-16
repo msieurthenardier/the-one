@@ -113,12 +113,8 @@ async def test_yielded_auth_required_tool_msg_broadcasts_auth_required_event_and
     """A11: auth_required tool_msg → broadcast auth_required, skip tool_result + done."""
     # Stub the Ollama auto-load + DB save out — they hit external state
     # and are not under test here.
-    monkeypatch.setattr(
-        web_app, "_ensure_ollama_model_loaded", AsyncMock(return_value=None)
-    )
-    monkeypatch.setattr(
-        web_app, "_save_session_to_db", AsyncMock(return_value=None)
-    )
+    monkeypatch.setattr(web_app, "_ensure_ollama_model_loaded", AsyncMock(return_value=None))
+    monkeypatch.setattr(web_app, "_save_session_to_db", AsyncMock(return_value=None))
 
     captured: list[dict[str, Any]] = []
 
@@ -195,12 +191,8 @@ async def oauth_callback_client(tmp_path):
     encryptor = Encryptor(Fernet.generate_key(), key_path=tmp_path / "test.key")
 
     with (
-        patch(
-            "the_one.interfaces.web.api.get_connection", return_value=conn
-        ),
-        patch(
-            "the_one.interfaces.web.api.get_encryptor", return_value=encryptor
-        ),
+        patch("the_one.interfaces.web.api.get_connection", return_value=conn),
+        patch("the_one.interfaces.web.api.get_encryptor", return_value=encryptor),
     ):
         test_app = FastAPI()
         test_app.include_router(router)
@@ -230,19 +222,13 @@ async def test_oauth_callback_resume_dispatches_resume_after_auth(
         captured.append((session.id, payload))
 
     monkeypatch.setattr(web_app, "_send_to_session", capture)
-    monkeypatch.setattr(
-        web_app, "_ensure_ollama_model_loaded", AsyncMock(return_value=None)
-    )
-    monkeypatch.setattr(
-        web_app, "_save_session_to_db", AsyncMock(return_value=None)
-    )
+    monkeypatch.setattr(web_app, "_ensure_ollama_model_loaded", AsyncMock(return_value=None))
+    monkeypatch.setattr(web_app, "_save_session_to_db", AsyncMock(return_value=None))
 
     # Build a paused stub agent: deferred=[tc_X]; resume yields one
     # success tool_msg + one final assistant message.
     tc_x = ToolCall(id="tc_x", name="tool_x", arguments={})
-    success_tool_msg = Message.tool(
-        ToolResult(tool_call_id="tc_x", content="x ok", metadata=None)
-    )
+    success_tool_msg = Message.tool(ToolResult(tool_call_id="tc_x", content="x ok", metadata=None))
     final_assistant = Message.assistant("done")
     agent = StubAgent(
         resume_messages=[success_tool_msg, final_assistant],
@@ -368,9 +354,7 @@ async def test_websocket_reconnect_replays_auth_required_from_agent_state() -> N
             Message.user("trigger"),
             Message.assistant(
                 "",
-                tool_calls=[
-                    ToolCall(id="tc_a13", name="auth_tool", arguments={})
-                ],
+                tool_calls=[ToolCall(id="tc_a13", name="auth_tool", arguments={})],
             ),
             auth_tool_msg,
             intervening_user,
@@ -421,12 +405,8 @@ async def test_paused_auth_required_carries_parent_message_id_matching_tool_call
     carries a ``parent_message_id`` matching the preceding tool_call event's
     parent. Verifies the discriminator survives the live broadcast path.
     """
-    monkeypatch.setattr(
-        web_app, "_ensure_ollama_model_loaded", AsyncMock(return_value=None)
-    )
-    monkeypatch.setattr(
-        web_app, "_save_session_to_db", AsyncMock(return_value=None)
-    )
+    monkeypatch.setattr(web_app, "_ensure_ollama_model_loaded", AsyncMock(return_value=None))
+    monkeypatch.setattr(web_app, "_save_session_to_db", AsyncMock(return_value=None))
 
     captured: list[dict[str, Any]] = []
 
@@ -487,12 +467,8 @@ async def test_resumed_tool_result_inherits_parent_message_id(monkeypatch) -> No
     for the most recent assistant with tool_calls) is consistent across
     the live broadcast and resume paths.
     """
-    monkeypatch.setattr(
-        web_app, "_ensure_ollama_model_loaded", AsyncMock(return_value=None)
-    )
-    monkeypatch.setattr(
-        web_app, "_save_session_to_db", AsyncMock(return_value=None)
-    )
+    monkeypatch.setattr(web_app, "_ensure_ollama_model_loaded", AsyncMock(return_value=None))
+    monkeypatch.setattr(web_app, "_save_session_to_db", AsyncMock(return_value=None))
 
     captured: list[dict[str, Any]] = []
 

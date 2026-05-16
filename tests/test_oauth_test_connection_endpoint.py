@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import aiosqlite
 import pytest
@@ -111,7 +111,13 @@ async def test_test_connect_returns_ok_when_tokens_present(client_and_repo) -> N
         @property
         def server_capabilities(self):
             # Minimal capabilities dict for this test (shape not asserted here).
-            return {"tools": {}, "resources": None, "prompts": None, "logging": None, "experimental": None}
+            return {
+                "tools": {},
+                "resources": None,
+                "prompts": None,
+                "logging": None,
+                "experimental": None,
+            }
 
         # F4 L2 (M08): spec-optional serverInfo + instructions; None default.
         @property
@@ -174,16 +180,13 @@ async def test_test_connect_returns_auth_required_when_no_creds(client_and_repo)
     # resolve the consent_url_future via the provider's redirect_handler.
     # We capture the provider object from build_oauth_provider_for_source.
 
-    captured_provider = {}
-
-    original_build = api_mod.__dict__.get(
+    api_mod.__dict__.get(
         "build_oauth_provider_for_source",
         None,
     )
 
     # We'll patch build_oauth_provider_for_source to capture the provider
     # and then inject a future-resolving httpx client.
-    consent_url_called = []
 
     class _FakeProvider:
         """Minimal httpx.Auth that resolves the future when auth_flow is applied."""
@@ -277,12 +280,14 @@ async def test_test_connect_returns_auth_required_when_no_creds(client_and_repo)
     async def _stub_probe(server_url, *, timeout=5.0):
         return "oauth"
 
-    with patch("the_one.mcp.client.MCPClient", _AuthRequiredMCPClient), \
-         patch(
-             "the_one.mcp.transports.streamable_http._probe_auth_posture",
-             _stub_probe,
-         ), \
-         patch("the_one.interfaces.web.api.httpx.AsyncClient", _StubHttpxClient):
+    with (
+        patch("the_one.mcp.client.MCPClient", _AuthRequiredMCPClient),
+        patch(
+            "the_one.mcp.transports.streamable_http._probe_auth_posture",
+            _stub_probe,
+        ),
+        patch("the_one.interfaces.web.api.httpx.AsyncClient", _StubHttpxClient),
+    ):
         resp = await c.post("/api/mcp-sources/src-test-connect-1/test/connect")
 
     assert resp.status_code == 200
@@ -478,12 +483,14 @@ async def test_test_connect_consent_url_timeout(client_and_repo, monkeypatch) ->
     async def _stub_probe(server_url, *, timeout=5.0):
         return "oauth"
 
-    with patch("the_one.mcp.client.MCPClient", _AuthRequiredMCPClient), \
-         patch(
-             "the_one.mcp.transports.streamable_http._probe_auth_posture",
-             _stub_probe,
-         ), \
-         patch("the_one.interfaces.web.api.httpx.AsyncClient", _StubHttpxClient):
+    with (
+        patch("the_one.mcp.client.MCPClient", _AuthRequiredMCPClient),
+        patch(
+            "the_one.mcp.transports.streamable_http._probe_auth_posture",
+            _stub_probe,
+        ),
+        patch("the_one.interfaces.web.api.httpx.AsyncClient", _StubHttpxClient),
+    ):
         resp = await c.post("/api/mcp-sources/src-test-connect-1/test/connect")
 
     assert resp.status_code == 200
@@ -523,7 +530,13 @@ async def test_test_connect_uses_override_payload_url(client_and_repo) -> None:
 
         @property
         def server_capabilities(self):
-            return {"tools": {}, "resources": None, "prompts": None, "logging": None, "experimental": None}
+            return {
+                "tools": {},
+                "resources": None,
+                "prompts": None,
+                "logging": None,
+                "experimental": None,
+            }
 
         @property
         def server_info(self):
@@ -589,7 +602,13 @@ async def test_test_connect_override_preserves_oauth_managed_secrets(client_and_
 
         @property
         def server_capabilities(self):
-            return {"tools": {}, "resources": None, "prompts": None, "logging": None, "experimental": None}
+            return {
+                "tools": {},
+                "resources": None,
+                "prompts": None,
+                "logging": None,
+                "experimental": None,
+            }
 
         @property
         def server_info(self):

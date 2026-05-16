@@ -26,7 +26,6 @@ from the_one.llm.ollama_provider import OllamaProvider
 from the_one.llm.openai_provider import OPENAI_MODEL_CONTEXT, OpenAIProvider
 from the_one.llm.openrouter_provider import OpenRouterProvider
 
-
 # ---------------------------------------------------------------------------
 # extract_ollama_context_length — pure-function helper unit tests
 # ---------------------------------------------------------------------------
@@ -77,20 +76,20 @@ class TestOpenAIPrefixLookup:
         "model, expected",
         [
             ("gpt-4o", 128_000),
-            ("gpt-4o-2024-05-13", 128_000),         # prefix match for gpt-4o
+            ("gpt-4o-2024-05-13", 128_000),  # prefix match for gpt-4o
             ("gpt-4-turbo", 128_000),
-            ("gpt-4-turbo-preview", 128_000),       # prefix match for gpt-4-turbo (NOT gpt-4 8k)
+            ("gpt-4-turbo-preview", 128_000),  # prefix match for gpt-4-turbo (NOT gpt-4 8k)
             ("gpt-4-32k", 32_768),
-            ("gpt-4-32k-0613", 32_768),             # prefix match (NOT bare gpt-4 8k)
-            ("gpt-4-vision-preview", 128_000),      # explicit (NOT bare gpt-4 8k)
-            ("gpt-4-1106-preview", 128_000),        # explicit (NOT bare gpt-4 8k)
-            ("gpt-4-0125-preview", 128_000),        # explicit (NOT bare gpt-4 8k)
-            ("gpt-4", 8_192),                       # legacy default
-            ("gpt-4-0613", 8_192),                  # dated legacy variant
+            ("gpt-4-32k-0613", 32_768),  # prefix match (NOT bare gpt-4 8k)
+            ("gpt-4-vision-preview", 128_000),  # explicit (NOT bare gpt-4 8k)
+            ("gpt-4-1106-preview", 128_000),  # explicit (NOT bare gpt-4 8k)
+            ("gpt-4-0125-preview", 128_000),  # explicit (NOT bare gpt-4 8k)
+            ("gpt-4", 8_192),  # legacy default
+            ("gpt-4-0613", 8_192),  # dated legacy variant
             ("gpt-3.5-turbo-instruct", 4_096),
             ("gpt-3.5-turbo-16k", 16_385),
             ("gpt-3.5-turbo", 16_385),
-            ("gpt-3.5-turbo-0125", 16_385),         # newer 3.5-turbo dated variant
+            ("gpt-3.5-turbo-0125", 16_385),  # newer 3.5-turbo dated variant
             ("o1", 200_000),
             ("o3-mini", 200_000),
         ],
@@ -155,7 +154,9 @@ class TestOllamaResolver:
         fake_response: dict[str, Any] = {
             "model_info": {"qwen2.context_length": 32768, "qwen2.block_count": 28},
         }
-        with patch.object(ollama_api, "show_model", new=AsyncMock(return_value=fake_response)) as mock:
+        with patch.object(
+            ollama_api, "show_model", new=AsyncMock(return_value=fake_response)
+        ) as mock:
             await provider._resolve_max_context_tokens_if_needed()
             assert provider.max_context_tokens == 32768
             assert provider._max_context_tokens_resolved is True

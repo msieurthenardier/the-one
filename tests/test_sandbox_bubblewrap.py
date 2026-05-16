@@ -217,9 +217,7 @@ def test_prepare_spawn_home_override_unconditional() -> None:
     assert a[home_idx + 1] == "/tmp", "HOME override must win over operator-supplied HOME"
     assert spec.env["HOME"] == "/tmp"
     # Verify only ONE --setenv HOME pair (no duplicates from the override path)
-    home_count = sum(
-        1 for i, x in enumerate(a) if x == "HOME" and i > 0 and a[i - 1] == "--setenv"
-    )
+    home_count = sum(1 for i, x in enumerate(a) if x == "HOME" and i > 0 and a[i - 1] == "--setenv")
     assert home_count == 1
 
 

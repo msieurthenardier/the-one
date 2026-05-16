@@ -48,6 +48,7 @@ def _bwrap_present(monkeypatch: pytest.MonkeyPatch) -> None:
         lambda name: "/usr/bin/bwrap" if name == "bwrap" else None,
     )
 
+
 # --- SandboxProfile -----------------------------------------------------------
 
 

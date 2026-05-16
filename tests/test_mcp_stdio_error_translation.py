@@ -42,7 +42,9 @@ def test_translate_filenotfounderror_falls_back_to_command_when_filename_missing
     """FileNotFoundError without `.filename` falls back to the configured command."""
     exc = FileNotFoundError("synthetic — no filename")
     err = _translate_inner_spawn_error(
-        exc=exc, stderr_text="", command="my-custom-mcp",
+        exc=exc,
+        stderr_text="",
+        command="my-custom-mcp",
     )
     assert isinstance(err, MCPConnectionError)
     assert "my-custom-mcp" in str(err)
@@ -52,11 +54,13 @@ def test_translate_module_not_found_in_stderr_returns_actionable_error() -> None
     """Inner-process ModuleNotFoundError → MCPConnectionError with uvx guidance."""
     stderr = (
         "Traceback (most recent call last):\n"
-        "  File \"/usr/lib/python3.11/runpy.py\", line 226, in _run_module_as_main\n"
+        '  File "/usr/lib/python3.11/runpy.py", line 226, in _run_module_as_main\n'
         "ModuleNotFoundError: No module named 'mcp_server_nonexistent'\n"
     )
     err = _translate_inner_spawn_error(
-        exc=None, stderr_text=stderr, command="python",
+        exc=None,
+        stderr_text=stderr,
+        command="python",
     )
     assert isinstance(err, MCPConnectionError)
     msg = str(err)
@@ -76,7 +80,9 @@ def test_translate_runpy_cli_no_module_named() -> None:
     """
     stderr = "/usr/local/bin/python: No module named mcp_server_time\n"
     err = _translate_inner_spawn_error(
-        exc=None, stderr_text=stderr, command="python",
+        exc=None,
+        stderr_text=stderr,
+        command="python",
     )
     assert isinstance(err, MCPConnectionError)
     assert "mcp_server_time" in str(err)
@@ -87,16 +93,16 @@ def test_translate_returns_none_for_generic_failure() -> None:
     """Generic stderr (no D3 pattern matches) → None (caller falls back)."""
     stderr = "[error] server crashed: SIGSEGV\n"
     err = _translate_inner_spawn_error(
-        exc=None, stderr_text=stderr, command="some-mcp",
+        exc=None,
+        stderr_text=stderr,
+        command="some-mcp",
     )
     assert err is None
 
 
 def test_translate_returns_none_for_empty_stderr_and_no_exc() -> None:
     """No exc + empty stderr → None."""
-    assert _translate_inner_spawn_error(
-        exc=None, stderr_text="", command="foo"
-    ) is None
+    assert _translate_inner_spawn_error(exc=None, stderr_text="", command="foo") is None
 
 
 # ── Bwrap-discriminator gate (F3 §6 directionality contract) ────────────
@@ -118,9 +124,7 @@ def test_bwrap_side_filenotfounderror_does_not_get_mistranslated() -> None:
     _BWRAP_OWN_PREFIX_RE.search(stderr)`. This test asserts both halves
     of that contract.
     """
-    bwrap_stderr = (
-        "bwrap: execvp some-missing-command: No such file or directory\n"
-    )
+    bwrap_stderr = "bwrap: execvp some-missing-command: No such file or directory\n"
     # 1. The bwrap-stderr translator returns an MCPSandboxError for this
     #    text (catalog #2 — generic bwrap failure, prefix-gated).
     sandbox_err = stdio_module._translate_bwrap_stderr(bwrap_stderr)
@@ -142,13 +146,14 @@ def test_inner_process_filenotfounderror_does_not_appear_with_bwrap_prefix() -> 
     operator-friendly path the leg artifact is targeting.
     """
     inner_stderr = (
-        "Traceback (most recent call last):\n"
-        "ModuleNotFoundError: No module named 'foo'\n"
+        "Traceback (most recent call last):\nModuleNotFoundError: No module named 'foo'\n"
     )
     # No bwrap prefix → discriminator does NOT match → D3 runs.
     assert stdio_module._BWRAP_OWN_PREFIX_RE.search(inner_stderr) is None
     err = _translate_inner_spawn_error(
-        exc=None, stderr_text=inner_stderr, command="python",
+        exc=None,
+        stderr_text=inner_stderr,
+        command="python",
     )
     assert isinstance(err, MCPConnectionError)
     assert "foo" in str(err)
@@ -166,12 +171,11 @@ def test_translate_python_cant_open_file_returns_actionable_error() -> None:
     Python interprets the quoted token as a script filename and exits 2
     before any module is even resolved.
     """
-    stderr = (
-        "python: can't open file '\"-m\"': "
-        "[Errno 2] No such file or directory\n"
-    )
+    stderr = "python: can't open file '\"-m\"': [Errno 2] No such file or directory\n"
     err = _translate_inner_spawn_error(
-        exc=None, stderr_text=stderr, command="python",
+        exc=None,
+        stderr_text=stderr,
+        command="python",
     )
     assert isinstance(err, MCPConnectionError)
     msg = str(err)
@@ -184,11 +188,12 @@ def test_translate_python_cant_open_file_returns_actionable_error() -> None:
 def test_translate_python_cant_open_file_with_real_path() -> None:
     """Variant: a real-looking path that doesn't exist still triggers D3."""
     stderr = (
-        "python: can't open file '/srv/missing_script.py': "
-        "[Errno 2] No such file or directory\n"
+        "python: can't open file '/srv/missing_script.py': [Errno 2] No such file or directory\n"
     )
     err = _translate_inner_spawn_error(
-        exc=None, stderr_text=stderr, command="python",
+        exc=None,
+        stderr_text=stderr,
+        command="python",
     )
     assert isinstance(err, MCPConnectionError)
     assert "/srv/missing_script.py" in str(err)
@@ -204,9 +209,7 @@ def test_python_cant_open_file_does_not_fire_when_bwrap_prefixed() -> None:
     important for the directionality contract), the gate prevents D3 from
     mistranslating it.
     """
-    bwrap_stderr = (
-        "bwrap: execvp python: can't open file 'foo': No such file or directory\n"
-    )
+    bwrap_stderr = "bwrap: execvp python: can't open file 'foo': No such file or directory\n"
     # Discriminator MUST match — caller gates D3 behind
     # `not _BWRAP_OWN_PREFIX_RE.search(stderr)`.
     assert stdio_module._BWRAP_OWN_PREFIX_RE.search(bwrap_stderr) is not None

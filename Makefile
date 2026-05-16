@@ -142,6 +142,16 @@ lint: ## Ruff check (read-only)
 format: ## Ruff format (writes changes)
 	docker exec the-one ruff format the_one/ tests/
 
+# ── Drift detection (host-side) ────────────────────────────────────────
+
+.PHONY: doctor
+doctor:  ## Verify all declared dev extras are importable on the host venv
+	@python -c "import asgi_lifespan, pytest_asyncio, pytest_timeout, pytest_playwright, pixelmatch, pip_audit; from PIL import Image; import importlib.util; assert importlib.util.find_spec('playwright'), 'missing playwright'; import ruff; print('doctor: ok')"
+
+.PHONY: audit
+audit:  ## Run pip-audit against host venv (non-blocking; surfaces advisories)
+	@.venv/bin/pip-audit --skip-editable || true
+
 # ── Help ────────────────────────────────────────────────────────────────
 
 .PHONY: help

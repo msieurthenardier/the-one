@@ -15,9 +15,9 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-
 from conftest import FakeLLM, StubTool
-from the_one.agent.core import Agent, CONTINUE_SCHEMA, SEARCH_TOOLS_SCHEMA
+
+from the_one.agent.core import Agent
 from the_one.llm.base import Message, Role, ToolCall
 from the_one.tools._search_tools import SearchTools
 from the_one.tools.base import Tool, ToolRegistry

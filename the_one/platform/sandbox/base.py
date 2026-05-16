@@ -143,8 +143,7 @@ class SandboxProfile:
             for entry in writable_paths_raw:
                 if entry is None:
                     raise ValueError(
-                        "SandboxProfile.writable_paths: None is not a valid "
-                        "path entry."
+                        "SandboxProfile.writable_paths: None is not a valid path entry."
                     )
                 writable_paths.append(str(entry))
         else:
@@ -163,22 +162,19 @@ class SandboxProfile:
         pid_unshare = data.get("pid_unshare", True)
         if not isinstance(pid_unshare, bool):
             raise ValueError(
-                "SandboxProfile.pid_unshare must be a bool, got "
-                f"{type(pid_unshare).__name__}."
+                f"SandboxProfile.pid_unshare must be a bool, got {type(pid_unshare).__name__}."
             )
 
         ipc_unshare = data.get("ipc_unshare", True)
         if not isinstance(ipc_unshare, bool):
             raise ValueError(
-                "SandboxProfile.ipc_unshare must be a bool, got "
-                f"{type(ipc_unshare).__name__}."
+                f"SandboxProfile.ipc_unshare must be a bool, got {type(ipc_unshare).__name__}."
             )
 
         uts_unshare = data.get("uts_unshare", True)
         if not isinstance(uts_unshare, bool):
             raise ValueError(
-                "SandboxProfile.uts_unshare must be a bool, got "
-                f"{type(uts_unshare).__name__}."
+                f"SandboxProfile.uts_unshare must be a bool, got {type(uts_unshare).__name__}."
             )
 
         return cls(

@@ -170,9 +170,7 @@ class AnthropicProvider(LLMProvider):
                             is_final=False,
                             usage=TokenUsage(
                                 input_tokens=0,
-                                output_tokens=int(
-                                    accumulated_bytes / BYTES_PER_TOKEN_ANTHROPIC
-                                ),
+                                output_tokens=int(accumulated_bytes / BYTES_PER_TOKEN_ANTHROPIC),
                             ),
                         )
                         last_emitted_bytes = accumulated_bytes

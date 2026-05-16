@@ -39,10 +39,10 @@ from the_one.encryption import Encryptor
 from the_one.interfaces.web.api import router
 from the_one.mcp import _pool, cache_cleanup
 from the_one.mcp.cache_cleanup import (
+    _clean_npx,
     cleanup_runtime_cache,
     extract_runtime_package,
 )
-
 
 # ── extract_runtime_package decoder table ────────────────────────────────
 
@@ -101,9 +101,7 @@ from the_one.mcp.cache_cleanup import (
         ("uvx", ["--from"], ("uvx", "--from")),
     ],
 )
-def test_extract_runtime_package_table(
-    command: str, args: list[str], expected: tuple
-) -> None:
+def test_extract_runtime_package_table(command: str, args: list[str], expected: tuple) -> None:
     assert extract_runtime_package(command, args) == expected
 
 
@@ -221,7 +219,9 @@ async def test_cleanup_npx_removes_slot(tmp_path, monkeypatch) -> None:
     slot_3 = fake_root / "hash3"
     nm = slot_3 / "node_modules" / "@modelcontextprotocol/server-everything"
     nm.mkdir(parents=True)
-    (nm / "package.json").write_text(json.dumps({"name": "@modelcontextprotocol/server-everything"}))
+    (nm / "package.json").write_text(
+        json.dumps({"name": "@modelcontextprotocol/server-everything"})
+    )
 
     monkeypatch.setattr(cache_cleanup, "NPX_CACHE_ROOT", fake_root)
 
@@ -233,9 +233,7 @@ async def test_cleanup_npx_removes_slot(tmp_path, monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_cleanup_npx_handles_corrupt_package_json(
-    tmp_path, monkeypatch
-) -> None:
+async def test_cleanup_npx_handles_corrupt_package_json(tmp_path, monkeypatch) -> None:
     """A slot with corrupt package.json should not raise; if the fallback
     node_modules path matches, the slot is still cleaned."""
     fake_root = tmp_path / "_npx"
@@ -332,9 +330,7 @@ async def test_clean_uvx_logs_prune_output_at_warning(monkeypatch, caplog) -> No
 
     async def _fake_exec(*args, **kwargs):
         proc = AsyncMock()
-        proc.communicate = AsyncMock(
-            return_value=(b"Removed 3957 files (65.2 MiB)", b"")
-        )
+        proc.communicate = AsyncMock(return_value=(b"Removed 3957 files (65.2 MiB)", b""))
         proc.kill = lambda: None
         return proc
 
@@ -549,3 +545,66 @@ async def test_find_by_runtime_package_returns_matches(tmp_path) -> None:
         assert matches_y == []
     finally:
         await conn.close()
+
+
+# ── _clean_npx package-name allowlist (Leg 03 security sweep) ────────────
+
+
+@pytest.mark.parametrize(
+    "pkg",
+    [
+        "lodash",
+        "@types/node",
+        "@scope/pkg",
+        "pkg-with-dashes",
+        "pkg_with_underscores",
+        "a",
+        "abc123",
+        "@a/b",
+    ],
+)
+@pytest.mark.asyncio
+async def test_clean_npx_accepts_valid_npm_package_names(pkg, monkeypatch) -> None:
+    """The npm-spec allowlist must accept syntactically-valid package names.
+
+    The function still no-ops (NPX_CACHE_ROOT.exists() is False in the test
+    environment), but the important thing is the validation does NOT raise.
+    """
+    # Force NPX_CACHE_ROOT.exists() False so we only exercise the validator.
+    monkeypatch.setattr(
+        cache_cleanup,
+        "NPX_CACHE_ROOT",
+        cache_cleanup.Path("/nonexistent-npx-root"),
+    )
+    await _clean_npx(pkg)  # must not raise
+
+
+@pytest.mark.parametrize(
+    "pkg",
+    [
+        "../etc/passwd",  # path traversal — the vector the original allowlist missed
+        "a/b/c",  # deep path (only scoped `@x/y` allowed)
+        ".hidden",  # leading dot
+        "-leading-dash",  # leading dash
+        "Foo",  # uppercase (npm spec is lowercase-only)
+        "pkg;name",  # shell metacharacter
+        "pkg name",  # whitespace
+        "pkg\nname",  # newline
+        "",  # empty
+        "@/x",  # malformed scope
+        "@scope/",  # missing name after scope
+    ],
+)
+@pytest.mark.asyncio
+async def test_clean_npx_rejects_unsafe_inputs(pkg) -> None:
+    """The npm-spec allowlist must raise ValueError for unsafe inputs.
+
+    Specifically: ``../etc/passwd`` and ``a/b/c`` were allowed by the
+    previous draft's ``[A-Za-z0-9._@/-]`` character-class allowlist —
+    every individual character in those strings is in that set. The
+    tightened regex pins ``/`` to the post-scope position and rejects
+    leading dots / uppercase / shell metachars, closing the traversal
+    vector at the function entry.
+    """
+    with pytest.raises(ValueError, match="unsafe npx package name"):
+        await _clean_npx(pkg)

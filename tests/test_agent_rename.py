@@ -48,9 +48,7 @@ class TestAgentRename:
     async def test_rename_happy_path(self, client: AsyncClient) -> None:
         """Rename a fresh agent — new-name load returns 200, old-name 404."""
         await client.post("/api/agents", json={"name": "alpha"})
-        resp = await client.post(
-            "/api/agents/alpha/rename", json={"new_name": "beta"}
-        )
+        resp = await client.post("/api/agents/alpha/rename", json={"new_name": "beta"})
         assert resp.status_code == 200, resp.text
         assert resp.json()["name"] == "beta"
 
@@ -63,55 +61,39 @@ class TestAgentRename:
         """Rename where the new_name is already taken — 409 Conflict."""
         await client.post("/api/agents", json={"name": "alpha"})
         await client.post("/api/agents", json={"name": "beta"})
-        resp = await client.post(
-            "/api/agents/alpha/rename", json={"new_name": "beta"}
-        )
+        resp = await client.post("/api/agents/alpha/rename", json={"new_name": "beta"})
         assert resp.status_code == 409
 
     async def test_rename_source_missing_returns_404(self, client: AsyncClient) -> None:
         """Rename a non-existent source agent — 404 Not Found."""
-        resp = await client.post(
-            "/api/agents/ghost/rename", json={"new_name": "wraith"}
-        )
+        resp = await client.post("/api/agents/ghost/rename", json={"new_name": "wraith"})
         assert resp.status_code == 404
 
     async def test_rename_same_name_returns_422(self, client: AsyncClient) -> None:
         """new_name equal to current name — 422 Unprocessable Entity."""
         await client.post("/api/agents", json={"name": "alpha"})
-        resp = await client.post(
-            "/api/agents/alpha/rename", json={"new_name": "alpha"}
-        )
+        resp = await client.post("/api/agents/alpha/rename", json={"new_name": "alpha"})
         assert resp.status_code == 422
 
     async def test_rename_empty_new_name_returns_422(self, client: AsyncClient) -> None:
         """Empty new_name — 422 Unprocessable Entity."""
         await client.post("/api/agents", json={"name": "alpha"})
-        resp = await client.post(
-            "/api/agents/alpha/rename", json={"new_name": ""}
-        )
+        resp = await client.post("/api/agents/alpha/rename", json={"new_name": ""})
         assert resp.status_code == 422
 
-    async def test_rename_whitespace_only_new_name_returns_422(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_rename_whitespace_only_new_name_returns_422(self, client: AsyncClient) -> None:
         """Whitespace-only new_name strips to empty — 422."""
         await client.post("/api/agents", json={"name": "alpha"})
-        resp = await client.post(
-            "/api/agents/alpha/rename", json={"new_name": "   "}
-        )
+        resp = await client.post("/api/agents/alpha/rename", json={"new_name": "   "})
         assert resp.status_code == 422
 
-    async def test_rename_missing_new_name_field_returns_422(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_rename_missing_new_name_field_returns_422(self, client: AsyncClient) -> None:
         """Body without a ``new_name`` key — 422."""
         await client.post("/api/agents", json={"name": "alpha"})
         resp = await client.post("/api/agents/alpha/rename", json={})
         assert resp.status_code == 422
 
-    async def test_rename_preserves_agent_config_fields(
-        self, client: AsyncClient
-    ) -> None:
+    async def test_rename_preserves_agent_config_fields(self, client: AsyncClient) -> None:
         """All non-name fields survive the rename round-trip."""
         await client.post(
             "/api/agents",
@@ -123,9 +105,7 @@ class TestAgentRename:
                 "max_iterations": 42,
             },
         )
-        resp = await client.post(
-            "/api/agents/alpha/rename", json={"new_name": "beta"}
-        )
+        resp = await client.post("/api/agents/alpha/rename", json={"new_name": "beta"})
         assert resp.status_code == 200
         body = resp.json()
         assert body["name"] == "beta"
@@ -142,9 +122,9 @@ class TestAgentRename:
         create endpoint that takes an arbitrary id/agent_name pair, and
         the repository-level test exercises the same cascade code path.
         """
+        from the_one.agent.config import AgentConfig
         from the_one.db.models import ChatSession
         from the_one.db.repositories import ChatSessionRepository, SQLiteAgentStore
-        from the_one.agent.config import AgentConfig
 
         db_path = tmp_path / "cascade.db"
         conn = await aiosqlite.connect(str(db_path))

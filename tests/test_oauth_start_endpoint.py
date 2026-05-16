@@ -131,6 +131,7 @@ async def test_start_schedules_drive_flow_and_evicts_pool(client_and_repo) -> No
         async def post(self, url, **kwargs):
             captured["url"] = url
             captured["payload"] = kwargs.get("json")
+
             # Simulate flow success without actually invoking the SDK.
             class _Resp:
                 status_code = 200
