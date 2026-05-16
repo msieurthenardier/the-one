@@ -225,6 +225,18 @@
     display: inline-block;
   }
 
+  /* L7.5 — system messages share the agent-message column geometry so
+     error rows like "Cannot start chat: …" don't span the full thread
+     width. Mirrors .msg-body { max-width: 720px } at chat.css:206. */
+  .msg-row.system {
+    display: flex;
+    justify-content: flex-start;
+  }
+  .msg-row.system .msg-text {
+    max-width: 720px;
+    color: var(--fg-mute);
+  }
+
   /* L5.2 — tool-call block with accent left-border + mono header.
    * Removes the full border in favor of a 2px accent left rail; header is
    * mono with name in accent + summary tail in fg-faint. */
