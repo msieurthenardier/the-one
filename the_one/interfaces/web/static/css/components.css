@@ -140,6 +140,7 @@
     display: flex;
     gap: 14px;
     align-items: center;
+    flex-shrink: 0;
     font-family: 'JetBrains Mono', monospace;
     font-size: 10px;
     color: var(--fg-faint);
@@ -156,43 +157,67 @@
     font-variant-numeric: tabular-nums;
   }
 
-  /* ── Nav right cluster ───────────────────────────────────────────────── */
-
-  .nav-right {
-    margin-left: auto;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-  }
+  /* M10 — flex spacer between nav-segments and right cluster */
+  .topnav-spacer { flex: 1; }
 
   /* ── Search ──────────────────────────────────────────────────────────── */
 
-  .search {
+  .search-wrap {
     display: flex;
     align-items: center;
     gap: 8px;
     padding: 6px 10px;
+    width: 240px;
     background: var(--surface);
     border: 1px solid var(--hairline);
     border-radius: 8px;
-    width: 240px;
     color: var(--fg-mute);
     font-size: 12.5px;
     transition: border-color var(--t), box-shadow var(--t);
+    margin-left: 16px;
+  }
+  .search-wrap:hover { border-color: var(--hairline-strong); }
+  .search-wrap:focus-within {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
   }
 
-  .search:hover { border-color: var(--hairline-strong); }
+  .search-input {
+    flex: 1;
+    min-width: 0;
+    background: transparent;
+    border: 0;
+    outline: 0;
+    color: var(--fg);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    padding: 0;
+  }
+  .search-input::placeholder { color: var(--fg-mute); }
 
-  /* ── Keyboard shortcut chip ──────────────────────────────────────────── */
-
-  .kbd {
-    margin-left: auto;
+  .search-kbd {
+    flex-shrink: 0;
     font-family: 'JetBrains Mono', monospace;
     font-size: 10.5px;
-    background: rgba(15, 17, 21, 0.05);
+    background: var(--surface-2);
     color: var(--fg-faint);
     padding: 1px 5px;
     border-radius: 4px;
+  }
+
+  /* ── Visually hidden (a11y) ─────────────────────────────────────────── */
+
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
 
   /* ── Avatar ──────────────────────────────────────────────────────────── */
@@ -208,10 +233,16 @@
     font-size: 11.5px;
     font-weight: 600;
     cursor: pointer;
+    border: 0;
+    margin-left: 12px;
     transition: box-shadow var(--t);
   }
 
   .avatar:hover { box-shadow: 0 0 0 3px var(--hover-bg); }
+  .avatar:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
 
   /* ── Area panels ─────────────────────────────────────────────────────── */
 
