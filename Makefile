@@ -24,6 +24,9 @@ rebuild: ## Rebuild image + restart (REQUIRED after editing JS/CSS/Python)
 	docker compose up -d the-one
 	@$(MAKE) --no-print-directory verify-serving
 
+.PHONY: rebuild-browsers
+rebuild-browsers: rebuild _ensure-playwright  ## Rebuild dev container + ensure Playwright Chromium present
+
 .PHONY: rebuild-clean
 rebuild-clean: ## Rebuild image + wipe DB volume + restart fresh (HAT prep, no confirm gate)
 	docker compose down
