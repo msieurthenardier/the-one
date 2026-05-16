@@ -1,6 +1,6 @@
 # Flight: Accessibility Carry-forward + F1 Tech-Debt Cleanup
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Maintenance (Post-M08)](../../mission.md)
 
 ## Contributing to Criteria
