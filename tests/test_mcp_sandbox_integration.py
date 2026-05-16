@@ -59,6 +59,7 @@ from __future__ import annotations
 import os
 import shutil
 import socket
+import subprocess
 import sys
 import uuid
 from pathlib import Path
@@ -194,6 +195,38 @@ def _has_sys_admin() -> bool:
     except (OSError, ValueError):
         return False
     return False
+
+
+def _can_unshare_user_namespace() -> bool:
+    """Return True if the host can create user namespaces without privilege.
+
+    Probes ``unshare -U -r true``. Succeeds on WSL2, stock Ubuntu, and
+    other Linux hosts where ``kernel.unprivileged_userns_clone=1``. Used
+    alongside ``_has_sys_admin()`` to gate Test #6c: the EPERM-on-unshare
+    path only fires when the host CANNOT create user namespaces, so when
+    this probe returns True the test should SKIP (not FAIL).
+
+    Returns False if ``unshare`` is unavailable (slim distros) or the
+    probe times out / errors — in which case the EPERM path is likely
+    exercisable and the test should run.
+    """
+    try:
+        result = subprocess.run(
+            ["unshare", "-U", "-r", "true"],
+            timeout=2,
+            check=False,
+        )
+        return result.returncode == 0
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+
+
+# Skip the EPERM-on-unshare test when the environment cannot exercise that
+# error path: either SYS_ADMIN is granted (container) OR the host permits
+# unprivileged user namespaces (WSL2, stock Ubuntu). Both shapes cause
+# unshare(CLONE_NEWUSER) to succeed, which means the test's expected EPERM
+# never fires.
+_SHOULD_SKIP_EPERM_TESTS = _has_sys_admin() or _can_unshare_user_namespace()
 
 
 # ---------------------------------------------------------------------------
@@ -487,8 +520,12 @@ async def test_sandbox_bwrap_unrecognised_exit_code_raises_msc_sandbox_error_msg
 
 @requires_bwrap
 @pytest.mark.skipif(
-    _has_sys_admin(),
-    reason="Test exercises the no-privilege-grants path; dev container has SYS_ADMIN",
+    _SHOULD_SKIP_EPERM_TESTS,
+    reason=(
+        "Test exercises the no-privilege-grants path; skip when SYS_ADMIN is "
+        "granted (container) OR when unshare -U succeeds without privilege "
+        "(WSL2, stock Ubuntu host)"
+    ),
 )
 async def test_sandbox_eperm_on_unshare_raises_mcp_sandbox_error_msg3() -> None:
     """EPERM on unshare surfaces as MCPSandboxError catalog #3.
