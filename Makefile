@@ -155,6 +155,14 @@ doctor:  ## Verify all declared dev extras are importable on the host venv
 audit:  ## Run pip-audit against host venv (non-blocking; surfaces advisories)
 	@.venv/bin/pip-audit --skip-editable || true
 
+# Note: `git grep` scans the git INDEX, not the working tree — files newly added
+# but unstaged won't be scanned. Run AFTER `git add` (or as part of pre-commit).
+# The `:(glob)` pathspec magic is required for `**` to recurse (default fnmatch
+# treats `**` literally); without it the pathspec matches nothing.
+.PHONY: audit-bytes
+audit-bytes:  ## Detect raw U+2028/U+2029 (LSEP/PSEP) chars in tracked .py source — must be empty (run after `git add`)
+	@! git grep -lP "[\x{2028}\x{2029}]" -- ':(glob)the_one/**/*.py' ':(glob)tests/**/*.py'
+
 # ── Help ────────────────────────────────────────────────────────────────
 
 .PHONY: help
