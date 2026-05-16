@@ -44,6 +44,20 @@
 
 ## Flight Director Notes
 
+### 2026-05-16 — Leg 2 design review (one cycle)
+
+- **Cycle 1**: Developer (Sonnet) found **2 high + 4 medium + 5 low issues** in the Leg 2 spec (written during M09 mission scaffolding 2026-05-15; never reviewed per-leg until now).
+- **Cycle-1 fixes applied**:
+  - **HIGH**: AC #2 for A.3 was unverifiable — no test currently parametrizes `--fg-muted` vs `--shell-chrome-bg` (the deferral comment at `test_design_tokens_a11y.py:187-190` reads "no production consumer today"). Reframed AC to: update the deferral comment to reference the scope-the-usage decision + grep-enforce no chrome-text consumer of `--fg-muted`/`--fg-faint`.
+  - **HIGH**: A.3 chrome-text consumer sites were left to implementer-time grep enumeration. Pre-enumerated in Inputs + Step 1: `base.css:144` (`.stub-sidebar .subtitle`) and `chat.css:15` (`.area-chat .session-group-label`, post-Leg-1 paint on chrome). Other ~25 `--fg-muted` consumer sites are inside `.area-*` content panels (out of A.3 scope).
+  - **MEDIUM**: `renderFieldErrors` line refs corrected (function spans L493-536, not "517-521"). A.2 additivity instruction expanded to name the `row.querySelector('input, select, .chip-list-editor')` step + chip-list-editor wrapping-div case.
+  - **MEDIUM**: `chat.css:67, 75` was wrong (those are `new-chat-header` rules). Corrected to `chat.css:80, 88` for telemetry overlay.
+  - **MEDIUM**: `section-nav.js` path in Inputs corrected to `js/areas/layout/section-nav.js` (matched the Step 8 path that was already correct).
+  - **MEDIUM**: Toast value-to-change clarified (literal `2000` at `app.js:244`; not the whole range). Added note that `role=alert/status` is already correct — duration bump is for visual dwell time.
+  - **MEDIUM**: Trace-shell A.11 now cites BOTH create site (`:32-35`) and update site (`:55-58`); update-site is in `appendToTrace` where count.textContent gets refreshed.
+  - **LOW**: A.5 toast role-context note added; A.6 MCP icon edit specificity (drop the ternary; always `alt=""`); A.9 LED contract decision clarified for `mcp-server-editor.js:489` (LED carries state distinct from "Reset connection" button text — leave `aria-label`); A.10 section-nav `<div>`→`<nav>` decision pre-made (3 options enumerated; option (i) recommended).
+- **Per-skill rule**: cycle 1 sufficed. Per skill: "Skip if only minor/cosmetic fixes were applied" — but the AC reframe + chrome-text enumeration were substantive design-review interventions, not cosmetic. Cycle 2 skipped because all cycle-1 findings were addressed by spec correction (no design-question remained); the corrections are mechanical line-ref + pre-enumeration fixes that don't introduce new design surface.
+
 ### 2026-05-16 — Leg 1 design review (TWO cycles)
 
 - **Cycle 1**: Developer (Sonnet) found **7 high-severity issues** in the original Leg 1 spec (written during mission scaffolding 2026-05-15). The spec missed key codebase realities: welcome-picker keydown handler already exists at `chat.js:184-198` (not missing as claimed); session-list `role="listbox"` lives in `chat.js:60` (not in history-buckets.js); proposed `data-session-id` would silently break existing `data-id` consumers including `test_flow_hash_routing.py:95`; `highlightActiveSession` uses `aria-selected` (becomes invalid on plain `<button>` post-restructure — switch to `aria-current="page"`); third listbox-role assertion at `test_flow_keyboard.py:67` was missed; `test_session_delete_keyboard_reveal` (L90-100) needs `.list-item` class preserved; cross-file test impacts in `test_flow_hash_routing.py` + `test_flow_new_chat.py` weren't enumerated up-front.
