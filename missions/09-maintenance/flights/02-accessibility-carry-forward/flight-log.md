@@ -44,6 +44,18 @@
 
 ## Flight Director Notes
 
+### 2026-05-16 — Leg 3 design review (one cycle)
+
+- **Cycle 1**: Developer (Sonnet) found **2 high + 4 medium + 2 low** issues in Leg 3 spec (the spec already incorporated F2-level Architect review during flight design; this is the per-leg developer review per skill).
+- **Cycle-1 fixes applied**:
+  - **HIGH**: `agents.md` convention-section uses backtick-wrapped slugs (`` ### `slug` ``) — all five existing entries use this form. Leg spec corrected to `` ### `host-side-bench-drift-detection` `` (and AC grep updated to match).
+  - **HIGH**: `SECURITY-MODEL.md ## Tool Execution Boundary` is a flat bullet-list, NOT nested H3 headings (verified: 4 existing `- **Filesystem**:` style top-level bullets). Original draft proposed `### npm-spec-allowlist-for-operator-supplied-paths` which would have been a stylistic outlier. Reshaped to a peer bullet (`- **Operator-supplied identifier allowlists**:`) with regex as indented code block.
+  - **MEDIUM**: `make rebuild-browsers` AC tightened — `grep -E "^rebuild-browsers: rebuild _ensure-playwright"` verifies BOTH prereqs in order, not just target existence.
+  - **MEDIUM**: Host pytest baseline AC clarified — host has a pre-existing `mcp.client.auth.exceptions` import failure (NOT 1700 passing); AC now says "host pytest unchanged relative to Leg 2's landed state" (the import failure is M10-candidate).
+  - **LOW**: `host-side-bench-drift-detection` convention entry's "Live examples" paragraph internal consistency — switched `.venv/bin/python -c ...` reference to `.venv/bin/python3 -c ...` to match sub-fix (b)'s explicit-path standardization.
+- **Recon corrections** (Developer cycle 1 verified): all Makefile / agents.md / SECURITY-MODEL line refs match current HEAD with ≤2 line drift; `_ensure-playwright` at L39-46 confirmed; broken citation at agents.md:233 confirmed; npm-spec exemplar at cache_cleanup.py:71-83 confirmed; PCRE git grep verified working; `.venv/bin/python3` is canonical (`.venv/bin/python` is symlink, both work); Leg 1+2 outputs don't touch Makefile / agents.md / SECURITY-MODEL — Leg 3 has structurally clean entry surface.
+- **Per-skill rule**: cycle 1 sufficed. Fixes were all corrective spec edits (no design-question remained). Proceeding to implementation.
+
 ### 2026-05-16 — Leg 2 design review (one cycle)
 
 - **Cycle 1**: Developer (Sonnet) found **2 high + 4 medium + 5 low issues** in the Leg 2 spec (written during M09 mission scaffolding 2026-05-15; never reviewed per-leg until now).
