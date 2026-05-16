@@ -39,6 +39,7 @@ from the_one.encryption import Encryptor
 from the_one.interfaces.web.api import router
 from the_one.mcp import _pool, cache_cleanup
 from the_one.mcp.cache_cleanup import (
+    _clean_npx,
     cleanup_runtime_cache,
     extract_runtime_package,
 )
@@ -544,3 +545,66 @@ async def test_find_by_runtime_package_returns_matches(tmp_path) -> None:
         assert matches_y == []
     finally:
         await conn.close()
+
+
+# ── _clean_npx package-name allowlist (Leg 03 security sweep) ────────────
+
+
+@pytest.mark.parametrize(
+    "pkg",
+    [
+        "lodash",
+        "@types/node",
+        "@scope/pkg",
+        "pkg-with-dashes",
+        "pkg_with_underscores",
+        "a",
+        "abc123",
+        "@a/b",
+    ],
+)
+@pytest.mark.asyncio
+async def test_clean_npx_accepts_valid_npm_package_names(pkg, monkeypatch) -> None:
+    """The npm-spec allowlist must accept syntactically-valid package names.
+
+    The function still no-ops (NPX_CACHE_ROOT.exists() is False in the test
+    environment), but the important thing is the validation does NOT raise.
+    """
+    # Force NPX_CACHE_ROOT.exists() False so we only exercise the validator.
+    monkeypatch.setattr(
+        cache_cleanup,
+        "NPX_CACHE_ROOT",
+        cache_cleanup.Path("/nonexistent-npx-root"),
+    )
+    await _clean_npx(pkg)  # must not raise
+
+
+@pytest.mark.parametrize(
+    "pkg",
+    [
+        "../etc/passwd",  # path traversal — the vector the original allowlist missed
+        "a/b/c",  # deep path (only scoped `@x/y` allowed)
+        ".hidden",  # leading dot
+        "-leading-dash",  # leading dash
+        "Foo",  # uppercase (npm spec is lowercase-only)
+        "pkg;name",  # shell metacharacter
+        "pkg name",  # whitespace
+        "pkg\nname",  # newline
+        "",  # empty
+        "@/x",  # malformed scope
+        "@scope/",  # missing name after scope
+    ],
+)
+@pytest.mark.asyncio
+async def test_clean_npx_rejects_unsafe_inputs(pkg) -> None:
+    """The npm-spec allowlist must raise ValueError for unsafe inputs.
+
+    Specifically: ``../etc/passwd`` and ``a/b/c`` were allowed by the
+    previous draft's ``[A-Za-z0-9._@/-]`` character-class allowlist —
+    every individual character in those strings is in that set. The
+    tightened regex pins ``/`` to the post-scope position and rejects
+    leading dots / uppercase / shell metachars, closing the traversal
+    vector at the function entry.
+    """
+    with pytest.raises(ValueError, match="unsafe npx package name"):
+        await _clean_npx(pkg)

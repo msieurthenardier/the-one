@@ -225,3 +225,56 @@ async def test_callback_sweep_race_returns_login_expired(
 
     with pytest.raises(OAuthFlowError, match="timed out"):
         await fut
+
+
+# ── _safe_script_json XSS regression tests (Leg 03 security sweep) ───────
+
+
+class TestSafeScriptJSON:
+    """Direct tests for the OAuth callback's script-context JSON escape.
+
+    The helper is the only thing standing between an IdP-controlled
+    ``error_description`` (or any other Auth-Server-controlled field) and
+    an injected same-origin ``<script>`` payload. The page loads from
+    127.0.0.1, so the operator's session origin would execute the injected
+    script if the escape regresses. Two tests: one for the ``</script>``
+    termination vector, one for the U+2028/U+2029 LSEP/PSEP vector that a
+    naive replacement-chain refactor could silently drop.
+    """
+
+    def test_safe_script_json_escapes_script_termination(self) -> None:
+        from the_one.interfaces.web.api import _safe_script_json
+
+        payload = {
+            "error": "code",
+            "description": "</script><script>alert(1)</script>",
+        }
+        out = _safe_script_json(payload)
+        # No raw script-termination reaches output.
+        assert "</script>" not in out
+        # Escape sequence IS applied.
+        assert "<\\/script>" in out
+        # Benign content survives — the page can still surface the IdP
+        # message (with the malicious tag inert) to the operator.
+        assert "alert(1)" in out
+
+    def test_safe_script_json_escapes_line_separators(self) -> None:
+        """U+2028 and U+2029 are JavaScript line terminators; if left raw
+        inside a JS string literal they terminate the statement and break
+        the postMessage call. Guards against a future refactor silently
+        dropping these escapes (which only ``</`` testing wouldn't catch).
+
+        Note: this test deliberately writes U+2028/U+2029 as Python
+        ``\\u2028``/``\\u2029`` escape sequences so the source file
+        contains no raw line-separator bytes that look like spaces.
+        """
+        from the_one.interfaces.web.api import _safe_script_json
+
+        payload = {"description": "line1\u2028line2\u2029line3"}
+        out = _safe_script_json(payload)
+        # No raw LSEP / PSEP reaches output.
+        assert "\u2028" not in out
+        assert "\u2029" not in out
+        # Both escape sequences applied.
+        assert "\\u2028" in out
+        assert "\\u2029" in out
