@@ -1,6 +1,6 @@
 # Flight: Code Hygiene + Concourse Removal
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Maintenance (Post-M08)](../../mission.md)
 
 > **Original framing**: "Integrity Gate Restoration" — restore the M06 lint+format zero-baseline AND prove the Concourse pipeline gate enforces via a deliberate-violation experiment. **Pivot 2026-05-15** (mid-flight, after Leg 1 implementation blocked on Concourse auth): operator decision to remove Concourse + self-improvement framing from the project entirely. The deliberate-violation experiment is moot. Several "fix the CI" items become "remove the CI" items. A new Leg 4 is added for the removal. The cleanup work (lint+format, asgi-lifespan, sandbox skip predicate, OAuth XSS, _clean_npx allowlist, agents.md docs, .env.example, OpenRouter rebrand strings) is still valuable and proceeds in Legs 1-3 with narrowed scope.
