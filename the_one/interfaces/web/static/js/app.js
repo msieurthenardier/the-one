@@ -238,10 +238,15 @@
     el.textContent = msg;
     container.appendChild(el);
     setTimeout(function () { el.classList.add('visible'); }, 10);
+    // F2 Leg 2 (A.5): extend auto-dismiss from 2s to 5s. role=alert/
+    // role=status already handles SR announcement immediately, but the
+    // visual dwell time was below WCAG 2.2.1's minimum-for-reading
+    // threshold. 5s covers typical English reading speed for the short
+    // status strings we emit (≈8-12 words).
     setTimeout(function () {
       el.classList.remove('visible');
       setTimeout(function () { el.remove(); }, 300);
-    }, 2000);
+    }, 5000);
   }
 
   window.App = window.App || {};
