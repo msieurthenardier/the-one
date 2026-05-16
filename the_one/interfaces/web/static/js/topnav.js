@@ -95,6 +95,11 @@
         window.App.commandPalette.open(paletteTrigger);
         return;
       }
+      var av = ev.target.closest('.avatar');
+      if (av && window.App && window.App.userMenu) {
+        window.App.userMenu.toggle(av);
+        return;
+      }
     });
   }
 
