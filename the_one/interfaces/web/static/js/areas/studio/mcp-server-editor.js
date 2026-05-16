@@ -335,8 +335,11 @@
     // Identity row — icon (if any) + title + version + protocol version badge.
     html += '<div class="mcp-server-identity">';
     if (icons.length > 0 && icons[0] && icons[0].src) {
+      // F2 Leg 2 (A.6): icon is decorative — the server title is rendered
+      // alongside (L343-344). Always emit alt="" so SR doesn't announce
+      // the icon MIME type as text content.
       html += '<img class="mcp-server-icon" src="' + escapeAttr(icons[0].src) + '"' +
-        (icons[0].mimeType ? ' alt="' + escapeAttr(icons[0].mimeType) + '"' : ' alt=""') +
+        ' alt=""' +
         ' loading="lazy" decoding="async">';
     }
     html += '<div class="mcp-server-identity-text">';
