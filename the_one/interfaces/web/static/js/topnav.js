@@ -61,7 +61,7 @@
         '<div class="brand-name">Holograph</div>' +
       '</div>' +
       '<div class="nav-segments">' + navHtml + '</div>' +
-      '<div class="spacer"></div>' +
+      '<div class="topnav-spacer"></div>' +
       '<div class="tele-strip">' + chipsHtml + '</div>' +
       '<div class="search-wrap">' +
         '<label for="topnav-search" class="visually-hidden">Search</label>' +
@@ -77,6 +77,10 @@
     // Replace contents: clear, then insertAdjacentHTML to rebuild.
     while (topnav.firstChild) topnav.removeChild(topnav.firstChild);
     topnav.insertAdjacentHTML('beforeend', buildTopnavHtml(activeArea));
+    // L7.8 lifecycle: notify popovers anchored to topnav elements that
+    // their anchors may have been replaced. Listeners: L8 command palette,
+    // L9 user menu. No-op cost when no listeners are attached.
+    document.dispatchEvent(new CustomEvent('topnav:rerender'));
   }
 
   function bindEvents(onAreaSwitch) {
