@@ -1,6 +1,6 @@
 # Flight: Connector Plugin Contract and Lifecycle Foundation
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Bi-directional Communication Connectors](../../mission.md)
 
 ## Contributing to Criteria
