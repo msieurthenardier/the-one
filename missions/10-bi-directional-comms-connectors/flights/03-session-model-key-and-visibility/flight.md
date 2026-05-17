@@ -1,6 +1,6 @@
 # Flight: Session Model — Schema, Key Normalization, Visibility
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Bi-directional Communication Connectors](../../mission.md)
 
 ## Contributing to Criteria
