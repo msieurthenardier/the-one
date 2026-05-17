@@ -1,6 +1,6 @@
 # Flight: Admin Surface for Connector Accounts
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Bi-directional Communication Connectors](../../mission.md)
 
 ## Contributing to Criteria
