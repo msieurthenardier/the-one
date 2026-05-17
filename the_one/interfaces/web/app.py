@@ -78,6 +78,27 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from the_one.mcp.oauth import start_periodic_sweep
 
     start_periodic_sweep()
+    # M10 F2 L6: dev-mode-gated test-seam — when
+    # THE_ONE_REGISTER_STUB_CONNECTOR=1 AND settings.dev_mode is True,
+    # register the in-process StubPlugin as the 'stub' connector type so
+    # browser tests running against an `app_clean` subprocess can exercise
+    # the doctor-probe and create-and-test paths end-to-end. Production
+    # never sets this env var; the dev-mode gate matches the precedent set
+    # by the LLM mock provider and OpenRouter test-models seam. Mirrors
+    # the test-seam contract documented in `_stub.py` (production code
+    # MUST NOT import that module — but the test seam is the explicit
+    # opt-in path).
+    import os
+
+    if settings.dev_mode and os.environ.get("THE_ONE_REGISTER_STUB_CONNECTOR") == "1":
+        from the_one.connectors._stub import StubPlugin
+        from the_one.connectors.registry import register_for_test
+
+        register_for_test("stub", StubPlugin)
+        logger.info(
+            "Registered StubPlugin under 'stub' connector type via "
+            "THE_ONE_REGISTER_STUB_CONNECTOR test seam (dev_mode=true)"
+        )
     yield
     # Drain the PTY session registry on shutdown — cancels the idle
     # reaper task and closes any live sessions. Wrapped in

@@ -382,6 +382,38 @@ async def test_resolve_ttl_seconds_read_at_call_time(monkeypatch) -> None:
     assert _resolve_ttl_seconds() == 120
 
 
+async def test_resolve_ttl_seconds_override_beats_env(monkeypatch) -> None:
+    """Explicit per-account override wins over the env-var fallback.
+
+    Mission 10 flight 02 leg 02: the operator's per-account
+    ``ConnectorAccount.idle_timeout_seconds`` is the authoritative source;
+    the env var is the fallback for accounts that don't set the field.
+    """
+    monkeypatch.setenv("THE_ONE_CONNECTOR_POOL_IDLE_TTL_SECONDS", "60")
+    from the_one.connectors._pool import _resolve_ttl_seconds
+
+    assert _resolve_ttl_seconds(override=300) == 300
+
+
+async def test_resolve_ttl_seconds_override_beats_default(monkeypatch) -> None:
+    """Explicit override wins over the 1800s default when no env var is set."""
+    monkeypatch.delenv("THE_ONE_CONNECTOR_POOL_IDLE_TTL_SECONDS", raising=False)
+    from the_one.connectors._pool import _resolve_ttl_seconds
+
+    assert _resolve_ttl_seconds(override=300) == 300
+
+
+async def test_resolve_ttl_seconds_none_override_falls_through(monkeypatch) -> None:
+    """``override=None`` is treated identically to the no-arg call —
+    falls through to env-var (then default). Pins the resolution-order
+    contract: explicit override → env var → default.
+    """
+    monkeypatch.setenv("THE_ONE_CONNECTOR_POOL_IDLE_TTL_SECONDS", "60")
+    from the_one.connectors._pool import _resolve_ttl_seconds
+
+    assert _resolve_ttl_seconds(override=None) == 60
+
+
 async def test_acquire_spawns_reaper(patch_plugin) -> None:
     """First ``acquire`` spawns the reaper; the second does NOT spawn a second.
 

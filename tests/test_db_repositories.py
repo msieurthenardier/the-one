@@ -512,6 +512,82 @@ class TestConnectorAccountRepository:
         fetched = await connector_repo.get("a1")
         assert fetched.secrets == {"K": "value-after-rotation"}
 
+    async def test_idle_timeout_seconds_round_trips_real_value(
+        self, connector_repo: ConnectorAccountRepository
+    ) -> None:
+        """A real ``idle_timeout_seconds`` value round-trips through
+        create → get → update → get.
+
+        Mission 10 flight 02 leg 02: the per-account override surface.
+        """
+        account = ConnectorAccount(
+            id="a1",
+            name="TTL Bot",
+            type="stub",
+            idle_timeout_seconds=600,
+        )
+        await connector_repo.create(account)
+        loaded = await connector_repo.get("a1")
+        assert loaded.idle_timeout_seconds == 600
+
+        loaded.idle_timeout_seconds = 60
+        await connector_repo.update(loaded)
+        reloaded = await connector_repo.get("a1")
+        assert reloaded.idle_timeout_seconds == 60
+
+    async def test_idle_timeout_seconds_round_trips_none(
+        self, connector_repo: ConnectorAccountRepository
+    ) -> None:
+        """An account created without ``idle_timeout_seconds`` round-trips
+        as ``None`` (the default — fall through to env-var / default in
+        ``_resolve_ttl_seconds``) and survives a no-op update.
+        """
+        account = ConnectorAccount(id="a1", name="No TTL", type="stub")
+        await connector_repo.create(account)
+        fetched = await connector_repo.get("a1")
+        assert fetched.idle_timeout_seconds is None
+
+        # No-op update preserves None.
+        await connector_repo.update(fetched)
+        refetched = await connector_repo.get("a1")
+        assert refetched.idle_timeout_seconds is None
+
+    async def test_idle_timeout_seconds_validator_rejects_zero(self) -> None:
+        """Validator rejects 0 (would make warm entries immediately reapable)."""
+        import pytest
+
+        with pytest.raises(ValueError) as exc_info:
+            ConnectorAccount(id="a", name="x", type="stub", idle_timeout_seconds=0)
+        assert "between 1 and 604800" in str(exc_info.value)
+
+    async def test_idle_timeout_seconds_validator_rejects_one_week_plus_one(
+        self,
+    ) -> None:
+        """Validator rejects 604801 (catches the ms-vs-s typo)."""
+        import pytest
+
+        with pytest.raises(ValueError) as exc_info:
+            ConnectorAccount(
+                id="a", name="x", type="stub", idle_timeout_seconds=604801
+            )
+        assert "between 1 and 604800" in str(exc_info.value)
+
+    async def test_idle_timeout_seconds_validator_accepts_bounds(self) -> None:
+        """Validator accepts 1, 604800, and None (the default)."""
+        # Lower bound: 1.
+        a1 = ConnectorAccount(id="a", name="x", type="stub", idle_timeout_seconds=1)
+        assert a1.idle_timeout_seconds == 1
+        # Upper bound: 604800 (7 days).
+        a2 = ConnectorAccount(
+            id="b", name="x", type="stub", idle_timeout_seconds=604800
+        )
+        assert a2.idle_timeout_seconds == 604800
+        # None — default; accepted, falls through to env-var / default.
+        a3 = ConnectorAccount(
+            id="c", name="x", type="stub", idle_timeout_seconds=None
+        )
+        assert a3.idle_timeout_seconds is None
+
 
 # ── Chat Session Repository ──────────────────────────────────────────────
 

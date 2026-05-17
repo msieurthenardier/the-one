@@ -467,6 +467,628 @@ class TestMCPSourceAPI:
         assert "config.url" in resp.json()["detail"]
 
 
+# ── Connector account endpoints ──────────────────────────────────────────
+
+
+class TestConnectorAccountAPI:
+    """REST surface for connector accounts (F2 L3).
+
+    Mirrors :class:`TestMCPSourceAPI` shape; the eviction tests register
+    the F1 stub plugin, acquire a warm pool entry, run the operation
+    under test, and assert the pool state matches the
+    no-op / eviction expectation per the leg's design decisions.
+    """
+
+    @pytest.fixture(autouse=True)
+    async def _isolation(self, client: AsyncClient, monkeypatch):
+        """Reset connector pool + registry + StubPlugin class-state per test.
+
+        The autouse fixture in ``tests/test_connectors_pool.py`` is
+        module-local and does NOT propagate here. Without this reset,
+        prior-test ``_pool`` entries, registry registrations, or
+        ``StubPlugin.connect_should_fail`` flags poison later tests.
+
+        Pre-registers the stub so eviction tests can acquire warm
+        entries directly; the one types-empty test calls
+        :func:`clear_for_test` inside the test body to invert.
+
+        Patches :func:`the_one.connectors._pool._load_account` to route
+        through the same test-isolated connection + encryptor the API
+        client uses — without this, the pool's function-local
+        ``get_connection()`` import would resolve the production
+        singleton instead of the function-scoped per-test SQLite, so
+        ``acquire(...)`` would see no rows. The ``client`` fixture
+        dependency is intentional: it forces the ``patch`` context
+        managers inside ``client`` to be active during the autouse
+        setup, exposing the patched ``get_connection`` /
+        ``get_encryptor`` to this helper.
+        """
+        from the_one.connectors import _pool as pool_mod
+        from the_one.connectors._stub import StubPlugin
+        from the_one.connectors.registry import (
+            clear_for_test,
+            register_for_test,
+            restore_to_baseline_for_test,
+        )
+        from the_one.db.repositories import ConnectorAccountRepository
+        from the_one.interfaces.web.api import get_connection, get_encryptor
+
+        await pool_mod._clear_for_test()
+        restore_to_baseline_for_test()
+        StubPlugin.reset_for_test()
+        register_for_test("stub", StubPlugin)
+
+        async def _patched_load_account(account_id, encryptor):
+            # The pool's production ``_load_account`` calls
+            # ``get_connection()`` from ``the_one.db.connection`` (the
+            # singleton). Tests patch the api module's view of those
+            # globals; reuse them here so the pool sees the same
+            # function-scoped SQLite + test encryptor the API just
+            # wrote into.
+            conn = await get_connection()
+            repo = ConnectorAccountRepository(conn, get_encryptor(""))
+            return await repo.get(account_id)
+
+        monkeypatch.setattr(pool_mod, "_load_account", _patched_load_account)
+
+        try:
+            yield
+        finally:
+            await pool_mod._clear_for_test()
+            clear_for_test()
+
+    async def test_crud_round_trip(self, client: AsyncClient) -> None:
+        """POST → GET → PUT → DELETE round-trip with idle_timeout_seconds."""
+        # Create
+        resp = await client.post(
+            "/api/connector-accounts",
+            json={
+                "name": "Bot 1",
+                "type": "stub",
+                "config": {"workspace": "demo"},
+                "idle_timeout_seconds": 600,
+            },
+        )
+        assert resp.status_code == 201
+        account_id = resp.json()["id"]
+        assert resp.json()["idle_timeout_seconds"] == 600
+
+        # Read
+        resp = await client.get(f"/api/connector-accounts/{account_id}")
+        assert resp.status_code == 200
+        assert resp.json()["name"] == "Bot 1"
+        assert resp.json()["config"]["workspace"] == "demo"
+        assert resp.json()["idle_timeout_seconds"] == 600
+        # Empty-secrets baseline mirrors the MCP precedent.
+        assert resp.json()["secrets"] == {}
+
+        # Update
+        resp = await client.put(
+            f"/api/connector-accounts/{account_id}",
+            json={"name": "Bot 1 renamed"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["name"] == "Bot 1 renamed"
+
+        # Delete
+        resp = await client.delete(f"/api/connector-accounts/{account_id}")
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "ok"}
+        resp = await client.get(f"/api/connector-accounts/{account_id}")
+        assert resp.status_code == 404
+
+    async def test_list_returns_masked_secrets(self, client: AsyncClient) -> None:
+        """GET /api/connector-accounts masks secret values per-key."""
+        await client.post(
+            "/api/connector-accounts",
+            json={
+                "name": "Discord Bot",
+                "type": "stub",
+                "config": {},
+                "secrets": {"BOT_TOKEN": "secret_real_value"},
+            },
+        )
+        resp = await client.get("/api/connector-accounts")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        assert data[0]["secrets"]["BOT_TOKEN"] == "***...alue"
+        assert "secret_real_value" not in resp.text
+
+    async def test_put_masked_sentinel_preserves_secret(
+        self, client: AsyncClient
+    ) -> None:
+        """PUT with secrets[key]='__MASKED__' preserves the stored value."""
+        create = await client.post(
+            "/api/connector-accounts",
+            json={
+                "name": "Bot",
+                "type": "stub",
+                "secrets": {"BOT_TOKEN": "secret_real_value"},
+            },
+        )
+        account_id = create.json()["id"]
+        await client.put(
+            f"/api/connector-accounts/{account_id}",
+            json={
+                "name": "Bot renamed",
+                "type": "stub",
+                "secrets": {"BOT_TOKEN": "__MASKED__"},
+            },
+        )
+        # ***...alue confirms the stored ciphertext still decrypts to the
+        # original "secret_real_value".
+        resp = await client.get(f"/api/connector-accounts/{account_id}")
+        assert resp.json()["secrets"]["BOT_TOKEN"] == "***...alue"
+        assert resp.json()["name"] == "Bot renamed"
+        assert "secret_real_value" not in resp.text
+
+    async def test_no_op_put_does_not_evict(self, client: AsyncClient) -> None:
+        """No-op all-masked PUT MUST NOT evict the warm pool entry.
+
+        Every secret round-trips as ``__MASKED__`` and resolves back to
+        the existing stored values; ``existing.secrets == resolved_secrets``
+        and eviction is skipped.
+        """
+        from the_one.connectors import _pool as pool_mod
+        from the_one.connectors._pool import acquire
+
+        create = await client.post(
+            "/api/connector-accounts",
+            json={
+                "name": "Bot",
+                "type": "stub",
+                "secrets": {"BOT_TOKEN": "real"},
+            },
+        )
+        account_id = create.json()["id"]
+
+        await acquire("test-agent", account_id)
+        assert ("test-agent", account_id) in pool_mod._pool
+
+        resp = await client.put(
+            f"/api/connector-accounts/{account_id}",
+            json={"secrets": {"BOT_TOKEN": "__MASKED__"}},
+        )
+        assert resp.status_code == 200
+        assert "real" not in resp.text
+
+        assert ("test-agent", account_id) in pool_mod._pool
+
+    async def test_dropping_a_key_evicts(self, client: AsyncClient) -> None:
+        """PUT with secrets={} drops all keys (REST replace) → eviction fires."""
+        from the_one.connectors import _pool as pool_mod
+        from the_one.connectors._pool import acquire
+
+        create = await client.post(
+            "/api/connector-accounts",
+            json={
+                "name": "Bot",
+                "type": "stub",
+                "secrets": {"BOT_TOKEN": "real"},
+            },
+        )
+        account_id = create.json()["id"]
+
+        await acquire("test-agent", account_id)
+        assert ("test-agent", account_id) in pool_mod._pool
+
+        resp = await client.put(
+            f"/api/connector-accounts/{account_id}",
+            json={"secrets": {}},
+        )
+        assert resp.status_code == 200
+
+        assert ("test-agent", account_id) not in pool_mod._pool
+
+    async def test_secrets_change_evicts(self, client: AsyncClient) -> None:
+        """PUT with a changed secret value evicts the warm entry."""
+        from the_one.connectors import _pool as pool_mod
+        from the_one.connectors._pool import acquire
+
+        create = await client.post(
+            "/api/connector-accounts",
+            json={
+                "name": "Bot",
+                "type": "stub",
+                "secrets": {"BOT_TOKEN": "real"},
+            },
+        )
+        account_id = create.json()["id"]
+
+        await acquire("test-agent", account_id)
+        assert ("test-agent", account_id) in pool_mod._pool
+
+        resp = await client.put(
+            f"/api/connector-accounts/{account_id}",
+            json={"secrets": {"BOT_TOKEN": "new_value"}},
+        )
+        assert resp.status_code == 200
+
+        assert ("test-agent", account_id) not in pool_mod._pool
+
+    async def test_adding_a_new_key_evicts(self, client: AsyncClient) -> None:
+        """Adding a NEW secret while masking an existing one MUST evict.
+
+        ``resolved_secrets = {"BOT_TOKEN": "real", "OTHER_KEY": "new_value"}``
+        ≠ ``existing.secrets = {"BOT_TOKEN": "real"}`` → eviction fires.
+        Pins the "shorter or longer dict differs from existing" branch.
+        """
+        from the_one.connectors import _pool as pool_mod
+        from the_one.connectors._pool import acquire
+
+        create = await client.post(
+            "/api/connector-accounts",
+            json={
+                "name": "Bot",
+                "type": "stub",
+                "secrets": {"BOT_TOKEN": "real"},
+            },
+        )
+        account_id = create.json()["id"]
+
+        await acquire("test-agent", account_id)
+        assert ("test-agent", account_id) in pool_mod._pool
+
+        resp = await client.put(
+            f"/api/connector-accounts/{account_id}",
+            json={
+                "secrets": {
+                    "BOT_TOKEN": "__MASKED__",
+                    "OTHER_KEY": "new_value",
+                },
+            },
+        )
+        assert resp.status_code == 200
+
+        assert ("test-agent", account_id) not in pool_mod._pool
+
+    async def test_delete_evicts_then_deletes(self, client: AsyncClient) -> None:
+        """DELETE evicts warm entries BEFORE the row delete."""
+        from the_one.connectors import _pool as pool_mod
+        from the_one.connectors._pool import acquire
+
+        create = await client.post(
+            "/api/connector-accounts",
+            json={
+                "name": "Bot",
+                "type": "stub",
+                "secrets": {"BOT_TOKEN": "real"},
+            },
+        )
+        account_id = create.json()["id"]
+
+        await acquire("test-agent", account_id)
+        assert ("test-agent", account_id) in pool_mod._pool
+
+        resp = await client.delete(f"/api/connector-accounts/{account_id}")
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "ok"}
+
+        assert ("test-agent", account_id) not in pool_mod._pool
+
+        resp = await client.get(f"/api/connector-accounts/{account_id}")
+        assert resp.status_code == 404
+
+    async def test_types_returns_empty_in_production(
+        self, client: AsyncClient
+    ) -> None:
+        """Without `register_for_test`, /types returns []."""
+        from the_one.connectors.registry import clear_for_test
+
+        clear_for_test()
+        resp = await client.get("/api/connector-accounts/types")
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    async def test_types_returns_registered_in_test(
+        self, client: AsyncClient
+    ) -> None:
+        """With register_for_test('stub', StubPlugin), /types returns the stub entry."""
+        resp = await client.get("/api/connector-accounts/types")
+        assert resp.status_code == 200
+        assert resp.json() == [{"value": "stub", "label": "Stub"}]
+
+    async def test_create_with_invalid_payload_returns_422(
+        self, client: AsyncClient
+    ) -> None:
+        """POST missing the required ``type`` field returns 422."""
+        resp = await client.post(
+            "/api/connector-accounts",
+            json={"name": "Bot"},  # missing `type`
+        )
+        assert resp.status_code == 422
+        # Pydantic validation error shape — a list of errors per field.
+        detail = resp.json()["detail"]
+        assert isinstance(detail, list)
+        assert any("type" in err.get("loc", []) for err in detail)
+
+    async def test_unknown_account_returns_404(self, client: AsyncClient) -> None:
+        """GET / PUT / DELETE on an unknown id return 404."""
+        resp = await client.get("/api/connector-accounts/nope")
+        assert resp.status_code == 404
+        assert "Connector account not found" in resp.json()["detail"]
+
+        resp = await client.put(
+            "/api/connector-accounts/nope",
+            json={"name": "x"},
+        )
+        assert resp.status_code == 404
+        assert "Connector account not found" in resp.json()["detail"]
+
+        resp = await client.delete("/api/connector-accounts/nope")
+        assert resp.status_code == 404
+        assert "Connector account not found" in resp.json()["detail"]
+
+    # ── Rotation eviction (F2 L4) ──────────────────────────────────────
+    async def test_rotation_evicts_warm_pool_entries(
+        self, client: AsyncClient
+    ) -> None:
+        """Encryption rotation evicts warm connector pool entries.
+
+        Closes the F1-debrief carry-forward: before this wiring, warm
+        pool entries kept serving credentials cached under the OLD key
+        until their idle-TTL elapsed (30 min default). Now the rotation
+        transaction evicts each rotated account's warm entries after the
+        DB commit and before the on-disk key replace.
+
+        The "decrypts under the new key" assertion is satisfied
+        transitively: ``acquire`` reads the row (encrypted under the new
+        key, written in step 4 of rotation) via the live encryptor,
+        whose ``install_key`` has been updated.
+        """
+        from the_one.connectors import _pool as pool_mod
+        from the_one.connectors._pool import acquire
+
+        # Setup: stub-typed account with non-empty secrets.
+        resp = await client.post(
+            "/api/connector-accounts",
+            json={
+                "name": "rotation-target",
+                "type": "stub",
+                "secrets": {"BOT_TOKEN": "original_value"},
+            },
+        )
+        assert resp.status_code == 201
+        account_id = resp.json()["id"]
+
+        # Acquire warm pool entry.
+        await acquire("test-agent", account_id)
+        key = ("test-agent", account_id)
+        assert key in pool_mod._pool, "pool seed failed"
+
+        # Trigger rotation.
+        rot = await client.post("/api/encryption/rotate")
+        assert rot.status_code == 200
+        assert rot.json() == {"status": "ok"}
+
+        # Eviction fired: the original warm entry is gone.
+        assert key not in pool_mod._pool, (
+            "rotation should have evicted warm pool entry for the rotated "
+            "account; eviction wiring at rotate_encryption_key step 4b is "
+            "the regression net"
+        )
+
+        # Fresh acquire works under the new key — the row decrypted via
+        # the live encryptor (whose install_key fired in step 7).
+        await acquire("test-agent", account_id)
+        assert key in pool_mod._pool
+
+
+# ── Connector account doctor probe (F2 L4) ────────────────────────────────
+
+
+class TestConnectorAccountDoctor:
+    """Doctor-probe REST endpoint for connector accounts (F2 L4).
+
+    Mirrors :class:`TestConnectorAccountAPI`'s autouse ``_isolation``
+    pattern: per-test reset of the pool, registry, and StubPlugin
+    class-state, plus the ``_load_account`` monkeypatch that routes the
+    pool through the test-isolated DB + encryptor. The probe itself does
+    not call ``acquire`` (no pool interaction), but mirroring the fixture
+    keeps the class shape consistent and protects against future tests
+    that DO touch the pool from this class.
+    """
+
+    @pytest.fixture(autouse=True)
+    async def _isolation(self, client: AsyncClient, monkeypatch):
+        """Reset connector pool + registry + StubPlugin class-state per test.
+
+        Verbatim copy of :meth:`TestConnectorAccountAPI._isolation` per
+        the F2 L4 leg artifact: class-scoped autouse fixtures don't
+        propagate across classes, so each class that touches the
+        connector subsystem redeclares it.
+        """
+        from the_one.connectors import _pool as pool_mod
+        from the_one.connectors._stub import StubPlugin
+        from the_one.connectors.registry import (
+            clear_for_test,
+            register_for_test,
+            restore_to_baseline_for_test,
+        )
+        from the_one.db.repositories import ConnectorAccountRepository
+        from the_one.interfaces.web.api import get_connection, get_encryptor
+
+        await pool_mod._clear_for_test()
+        restore_to_baseline_for_test()
+        StubPlugin.reset_for_test()
+        register_for_test("stub", StubPlugin)
+
+        async def _patched_load_account(account_id, encryptor):
+            conn = await get_connection()
+            repo = ConnectorAccountRepository(conn, get_encryptor(""))
+            return await repo.get(account_id)
+
+        monkeypatch.setattr(pool_mod, "_load_account", _patched_load_account)
+
+        try:
+            yield
+        finally:
+            await pool_mod._clear_for_test()
+            clear_for_test()
+
+    async def _create_stub_account(self, client: AsyncClient) -> str:
+        """Helper — create a stub-typed account, return its id."""
+        resp = await client.post(
+            "/api/connector-accounts",
+            json={
+                "name": "doctor-target",
+                "type": "stub",
+                "secrets": {"BOT_TOKEN": "any_value"},
+            },
+        )
+        assert resp.status_code == 201
+        return resp.json()["id"]
+
+    async def test_doctor_probe_success(self, client: AsyncClient) -> None:
+        """Default stub doctor → ``{status: 'ok', message: 'stub probe ok', details: {}}``."""
+        account_id = await self._create_stub_account(client)
+
+        resp = await client.post(
+            f"/api/connector-accounts/{account_id}/test/connect"
+        )
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "status": "ok",
+            "message": "stub probe ok",
+            "details": {},
+        }
+
+    async def test_doctor_probe_configured_failure(
+        self, client: AsyncClient
+    ) -> None:
+        """``StubPlugin.doctor_response = failed-report`` round-trips verbatim."""
+        from the_one.connectors._stub import StubPlugin
+        from the_one.connectors.base import DoctorReport
+
+        StubPlugin.doctor_response = DoctorReport(
+            status="failed",
+            message="bot token revoked",
+            details={"reason": "401"},
+        )
+
+        account_id = await self._create_stub_account(client)
+        resp = await client.post(
+            f"/api/connector-accounts/{account_id}/test/connect"
+        )
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "status": "failed",
+            "message": "bot token revoked",
+            "details": {"reason": "401"},
+        }
+
+    async def test_doctor_probe_degraded_status(
+        self, client: AsyncClient
+    ) -> None:
+        """Regression net for the third ``DoctorReport.status`` Literal branch."""
+        from the_one.connectors._stub import StubPlugin
+        from the_one.connectors.base import DoctorReport
+
+        StubPlugin.doctor_response = DoctorReport(
+            status="degraded",
+            message="gateway reachable but slow",
+            details={"latency_ms": 1200},
+        )
+
+        account_id = await self._create_stub_account(client)
+        resp = await client.post(
+            f"/api/connector-accounts/{account_id}/test/connect"
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "degraded"
+        assert body["message"] == "gateway reachable but slow"
+        assert body["details"] == {"latency_ms": 1200}
+
+    async def test_doctor_probe_unknown_type(self, client: AsyncClient) -> None:
+        """Account with an unregistered ``type`` → ``{status: 'error', ...}`` 200.
+
+        Mirrors the MCP "unknown transport" pattern so the UI banner
+        renders inline rather than triggering a global error handler.
+        The autouse fixture pre-registers only ``"stub"``; an account
+        with ``type='unregistered-platform'`` is unknown to the registry.
+
+        ``ConnectorAccount.type`` is currently an unconstrained ``str``,
+        so the POST validates without rejection. If a future leg
+        tightens that field to a ``Literal[...]``, this setup needs to
+        switch to repo-level insert.
+        """
+        resp = await client.post(
+            "/api/connector-accounts",
+            json={
+                "name": "alien",
+                "type": "unregistered-platform",
+                "secrets": {},
+            },
+        )
+        assert resp.status_code == 201
+        account_id = resp.json()["id"]
+
+        resp = await client.post(
+            f"/api/connector-accounts/{account_id}/test/connect"
+        )
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "status": "error",
+            "message": "Unknown connector type: unregistered-platform",
+            "details": {
+                "error": "type not registered",
+                "type": "unregistered-platform",
+            },
+        }
+
+    async def test_doctor_probe_connector_client_error(
+        self, client: AsyncClient
+    ) -> None:
+        """``ConnectorClientError`` from ``plugin.doctor`` → wrapped 200 envelope."""
+        from the_one.connectors._stub import StubPlugin
+        from the_one.connectors.errors import ConnectorClientError
+
+        StubPlugin.doctor_should_raise = ConnectorClientError(
+            "simulated probe failure"
+        )
+
+        account_id = await self._create_stub_account(client)
+        resp = await client.post(
+            f"/api/connector-accounts/{account_id}/test/connect"
+        )
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "status": "error",
+            "message": "simulated probe failure",
+            "details": {
+                "error": "simulated probe failure",
+                "exception_type": "ConnectorClientError",
+            },
+        }
+
+    async def test_doctor_probe_unknown_account_returns_404(
+        self, client: AsyncClient
+    ) -> None:
+        """POST to a made-up id returns 404 with the canonical detail string."""
+        resp = await client.post(
+            "/api/connector-accounts/does-not-exist/test/connect"
+        )
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == (
+            "Connector account not found: does-not-exist"
+        )
+
+    async def test_doctor_probe_records_the_call(
+        self, client: AsyncClient
+    ) -> None:
+        """Regression net: probe actually dispatches to ``plugin.doctor``."""
+        from the_one.connectors._stub import StubPlugin
+
+        account_id = await self._create_stub_account(client)
+        resp = await client.post(
+            f"/api/connector-accounts/{account_id}/test/connect"
+        )
+        assert resp.status_code == 200
+        assert StubPlugin.doctor_calls == [(account_id, "stub")]
+
+
 # ── Chat session endpoints ───────────────────────────────────────────────
 
 

@@ -92,6 +92,14 @@ class StubPlugin:
     connect_should_fail: ClassVar[BaseException | None] = None
     """When set, :meth:`connect` raises this instead of returning a client."""
 
+    doctor_should_raise: ClassVar[BaseException | None] = None
+    """When set, :meth:`doctor` raises this INSTEAD of returning a
+    :class:`DoctorReport`. Tests use it to drive the
+    ``ConnectorClientError`` path of the doctor-probe endpoint
+    (mirrors :attr:`connect_should_fail`). :meth:`reset_for_test`
+    clears this between tests.
+    """
+
     # ── Test-side helpers ──────────────────────────────────────────────
     @classmethod
     def reset_for_test(cls) -> None:
@@ -103,6 +111,7 @@ class StubPlugin:
         cls.outbound_records = []
         cls.doctor_response = None
         cls.connect_should_fail = None
+        cls.doctor_should_raise = None
 
     @classmethod
     def push_inbound(cls, envelope: InboundEnvelope) -> None:
@@ -149,6 +158,8 @@ class StubPlugin:
         encryptor: Encryptor,
     ) -> DoctorReport:
         type(self).doctor_calls.append((account.id, account.type))
+        if type(self).doctor_should_raise is not None:
+            raise type(self).doctor_should_raise
         if type(self).doctor_response is not None:
             return type(self).doctor_response
         return DoctorReport(

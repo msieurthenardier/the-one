@@ -126,6 +126,12 @@ def app_clean(tmp_path: Path) -> Iterator[str]:
     env = os.environ.copy()
     env["THE_ONE_DATA_DIR"] = str(data_dir)
     env["THE_ONE_DEV_MODE"] = "true"
+    # M10 F2 L6: opt the spawned subprocess into the StubPlugin test-seam
+    # so connector-account browser tests can exercise the 'stub' type via
+    # /api/connector-accounts/types and POST /test/connect. Gated server-
+    # side on `settings.dev_mode AND env-var == "1"`; production never
+    # sets the env var.
+    env["THE_ONE_REGISTER_STUB_CONNECTOR"] = "1"
     # Note: THE_ONE_PORT/THE_ONE_HOST omitted — uvicorn binds via the explicit
     # --host/--port flags below; nothing in app.py reads settings.port post-init.
 
@@ -302,6 +308,11 @@ def _spawn_app(
     env = os.environ.copy()
     env["THE_ONE_DATA_DIR"] = str(data_dir)
     env["THE_ONE_DEV_MODE"] = "true"
+    # M10 F2 L6: parity with `app_clean` — register the StubPlugin in
+    # spawned subprocesses so OpenRouter / two-provider fixtures (which
+    # don't use the connector surface today but share the spawn helper)
+    # still have a consistent server shape.
+    env["THE_ONE_REGISTER_STUB_CONNECTOR"] = "1"
     if extra_env:
         env.update(extra_env)
 

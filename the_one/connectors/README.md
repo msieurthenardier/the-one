@@ -93,6 +93,73 @@ not subsystem-wide.
 "Single contract file" (the mission criterion) means one `base.py`, not one
 Protocol. Multiple Protocols in one file satisfy the criterion.
 
+### Skeleton for a real plugin
+
+Reference shape for Flight 8 (Discord) and Flight 9 (the second connector).
+The platform is intentionally hypothetical — Discord and Slack ergonomics are
+out of scope for this skeleton.
+
+```python
+# Registered via register_builtin_connectors() in connectors/registry.py —
+# see agents.md "Connector type extension checklist".
+from typing import Any
+
+from the_one.connectors.base import (
+    ConnectorClient,
+    DoctorReport,
+    InboundEnvelope,
+    SessionKey,
+)
+from the_one.db.models import ConnectorAccount
+from the_one.encryption import Encryptor
+
+
+class HypotheticalPlatformPlugin:
+    """Structural ConnectorPlugin — no inheritance per `structural-Protocol-satisfaction`."""
+
+    async def connect(
+        self, account: ConnectorAccount, encryptor: Encryptor
+    ) -> ConnectorClient:
+        secrets = account.secrets  # already-decrypted dict from the repository
+        token = secrets["bot_token"]
+        # pseudo-code — replace with real SDK call:
+        platform_client: Any = await _open_platform_session(token)
+        return platform_client  # must structurally satisfy ConnectorClient
+
+    async def disconnect(self, client: ConnectorClient) -> None:
+        # pseudo-code — idempotent close; do not raise if already closed
+        await _close_platform_session(client)
+
+    async def doctor(
+        self, account: ConnectorAccount, encryptor: Encryptor
+    ) -> DoctorReport:
+        try:
+            client = await self.connect(account, encryptor)
+        except Exception as e:  # noqa: BLE001 — doctor surfaces failure, not raises
+            return DoctorReport(status="error", details={"error": str(e)})
+        try:
+            # pseudo-code — minimal handshake probe; no message dispatch to peers
+            info = await _platform_self_check(client)
+            return DoctorReport(status="ok", details={"identity": info["bot_user"]})
+        finally:
+            await self.disconnect(client)
+
+    def normalize_session_key(self, inbound: InboundEnvelope) -> SessionKey:
+        # Plugin owns which envelope fields participate in the binding.
+        return SessionKey(
+            platform=inbound.platform,
+            account_id=inbound.account_id,
+            channel_id=inbound.channel_id,
+            thread_id=inbound.thread_id,
+        )
+
+
+# pseudo-code — replace with real platform SDK functions
+async def _open_platform_session(token: str) -> Any: ...
+async def _close_platform_session(client: Any) -> None: ...
+async def _platform_self_check(client: Any) -> dict[str, Any]: ...
+```
+
 ## §4. Test seams
 
 Test code reaches into the subsystem via these named seams:

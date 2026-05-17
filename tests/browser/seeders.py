@@ -83,6 +83,37 @@ def seed_mock_agent(
     return r.json()["name"]
 
 
+def seed_connector_account(
+    base_url: str,
+    name: str = "Test Account",
+    type: str = "stub",
+    secrets: dict | None = None,
+    config: dict | None = None,
+    idle_timeout_seconds: int | None = None,
+) -> str:
+    """POST a connector account via /api/connector-accounts and return its id.
+
+    M10 F2 L6: mirrors ``seed_mock_provider``'s shape. Requires the
+    target app subprocess to have registered the StubPlugin under the
+    ``'stub'`` type — handled automatically by ``app_clean``'s
+    ``THE_ONE_REGISTER_STUB_CONNECTOR=1`` env var (set in conftest.py).
+
+    ``name`` is not unique-constrained server-side, so callers may seed
+    duplicates intentionally for grid-rendering tests.
+    """
+    payload: dict = {
+        "name": name,
+        "type": type,
+        "config": config or {},
+        "secrets": secrets or {},
+    }
+    if idle_timeout_seconds is not None:
+        payload["idle_timeout_seconds"] = idle_timeout_seconds
+    r = httpx.post(f"{base_url}/api/connector-accounts", json=payload, timeout=5.0)
+    assert r.status_code == 201, f"seed_connector_account failed: {r.status_code} {r.text}"
+    return r.json()["id"]
+
+
 def seed_tool_config(
     base_url: str,
     name: str,
