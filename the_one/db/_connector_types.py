@@ -9,8 +9,10 @@ re-derives its representation from.
   — landed in the models-and-repository leg of flight 1.
 - The SQLite CHECK constraint string baked into the ``connector_accounts``
   table (runtime DB-level rejection of bogus rows) — **deferred to flight 8**
-  which adds the CHECK via a v15 table-rename ceremony when there is a real
-  type to constrain (v14 is claimed by leg 2's ``name`` column ALTER).
+  which adds the CHECK via a v16 table-rename ceremony when there is a real
+  type to constrain (v14 → ``name`` column on ``connector_accounts`` (F1 L2);
+  v15 → ``idle_timeout_seconds`` (F2 L2); v16 is Flight 8's CHECK constraint
+  via the table-rename ceremony established by v6/v12).
   Until then ``connector_accounts.type`` is unconstrained at the DB level;
   the Pydantic ``Literal`` is the sole guard at the API edge.
 - The connector-type → registry-class map in ``the_one/connectors/registry.py``

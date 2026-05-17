@@ -21,9 +21,17 @@ from pydantic import ValidationError
 from the_one import __version__
 from the_one.config import settings
 from the_one.db.connection import get_connection
-from the_one.db.models import ChatSession, KBItem, KnowledgeBase, LLMProviderConfig, MCPSource
+from the_one.db.models import (
+    ChatSession,
+    ConnectorAccount,
+    KBItem,
+    KnowledgeBase,
+    LLMProviderConfig,
+    MCPSource,
+)
 from the_one.db.repositories import (
     ChatSessionRepository,
+    ConnectorAccountRepository,
     KBItemRepository,
     KnowledgeBaseRepository,
     LLMProviderRepository,
@@ -59,6 +67,12 @@ async def _mcp_repo() -> MCPSourceRepository:
     conn = await get_connection()
     encryptor = get_encryptor(settings.data_dir)
     return MCPSourceRepository(conn, encryptor)
+
+
+async def _connector_repo() -> ConnectorAccountRepository:
+    conn = await get_connection()
+    encryptor = get_encryptor(settings.data_dir)
+    return ConnectorAccountRepository(conn, encryptor)
 
 
 async def _chat_repo() -> ChatSessionRepository:
@@ -2067,6 +2081,272 @@ async def oauth_start(request: Request) -> dict[str, Any]:
     return {"status": "started", "source_id": source_id}
 
 
+# ── Connector Accounts ────────────────────────────────────────────────────
+
+
+def _connector_account_response(account: ConnectorAccount) -> dict[str, Any]:
+    """Render a ConnectorAccount into the masked HTTP response shape.
+
+    Mirrors ``_mcp_source_response`` minus the OAuth-managed-keys strip
+    (connectors have no OAuth-managed keys this flight) and minus the
+    ``_cache`` server-managed-key flag (no equivalent for connectors).
+    Just model_dump + replace ``secrets`` with the per-key masked form.
+
+    INVARIANT (mirror of ``_mcp_source_response``): ``model_dump()``
+    populates ``data["secrets"]`` with the decrypted plaintext dict; we
+    OVERWRITE that key with the masked form before returning. Any future
+    refactor that removes the overwrite would leak plaintext via the
+    API. The ``test_list_returns_masked_secrets`` assertion
+    ``"<raw-secret>" not in resp.text`` is the regression net.
+    """
+    data = account.model_dump()
+    data["secrets"] = _mask_secrets(account.secrets)
+    return data
+
+
+@router.get("/connector-accounts")
+async def list_connector_accounts() -> list[dict[str, Any]]:
+    repo = await _connector_repo()
+    accounts = await repo.list()
+    return [_connector_account_response(a) for a in accounts]
+
+
+@router.get("/connector-accounts/types")
+async def list_connector_account_types() -> list[dict[str, str]]:
+    """Return the list of connector account types selectable in the UI.
+
+    NOTE: This route MUST be registered BEFORE
+    ``/connector-accounts/{account_id}`` because FastAPI matches routes
+    in registration order. If reordered, a GET to
+    ``/connector-accounts/types`` would resolve to
+    ``get_connector_account`` with ``account_id="types"`` and 404.
+    Mirrors the MCP precedent at ``list_mcp_source_types``.
+
+    Returns an empty list in production until Flight 8 (Discord) lands
+    the first real connector type via
+    :func:`the_one.connectors.registry.register_builtin_connectors`.
+    Tests that need a populated list register the stub plugin via
+    :func:`the_one.connectors.registry.register_for_test`.
+    """
+    from the_one.connectors.registry import types as _connector_types
+
+    return [{"value": t, "label": t.capitalize()} for t in _connector_types()]
+
+
+@router.get("/connector-accounts/{account_id}")
+async def get_connector_account(account_id: str) -> dict[str, Any]:
+    repo = await _connector_repo()
+    try:
+        account = await repo.get(account_id)
+    except KeyError:
+        raise HTTPException(
+            status_code=404, detail=f"Connector account not found: {account_id}"
+        )
+    return _connector_account_response(account)
+
+
+@router.post("/connector-accounts", status_code=201)
+async def create_connector_account(request: Request) -> dict[str, Any]:
+    data = await request.json()
+    if "id" not in data:
+        data["id"] = uuid.uuid4().hex[:12]
+    try:
+        account = ConnectorAccount.model_validate(data)
+    except ValidationError as e:
+        # ``include_context=False`` so the response stays JSON-encodable
+        # — ``model_validator`` paths populate ``ctx['error']`` with raw
+        # exceptions that aren't JSON-serializable.
+        raise HTTPException(status_code=422, detail=e.errors(include_context=False))
+    # NOTE: No per-type config-shape validation in this leg — the F1 stub
+    # accepts arbitrary config, and per-type validation lands per-connector
+    # in Flights 8 / 9 (mirror of ``_validate_mcp_source_config`` which is
+    # type-aware).
+    repo = await _connector_repo()
+    await repo.create(account)
+    return _connector_account_response(account)
+
+
+@router.put("/connector-accounts/{account_id}")
+async def update_connector_account(account_id: str, request: Request) -> dict[str, Any]:
+    data = await request.json()
+    data["id"] = account_id
+    repo = await _connector_repo()
+    try:
+        existing = await repo.get(account_id)
+    except KeyError:
+        raise HTTPException(
+            status_code=404, detail=f"Connector account not found: {account_id}"
+        )
+
+    # Per-key __MASKED__ resolution: verbatim mirror of the MCP block
+    # above minus the OAuth-managed-keys preservation step (MCP-specific)
+    # and minus the ``_cache`` preservation step (also MCP-specific).
+    #
+    # ``resolved_secrets`` is initialized OUTSIDE the if-branch (to
+    # ``existing.secrets``) so the post-update eviction check
+    # (``existing.secrets != resolved_secrets``) works uniformly when
+    # the operator omits the ``secrets`` field entirely (intent: "I only
+    # changed the name, don't touch credentials" → no eviction). This is
+    # a deliberate divergence from the MCP precedent, which scopes
+    # ``resolved_secrets`` inside the ``is not None`` branch.
+    incoming_secrets = data.get("secrets")
+    resolved_secrets: dict[str, Any] = existing.secrets
+    if incoming_secrets is not None:
+        if not isinstance(incoming_secrets, dict):
+            raise HTTPException(status_code=422, detail="secrets must be a dict.")
+        resolved_secrets = {}
+        for key, value in incoming_secrets.items():
+            if value == _MASKED_API_KEY_SENTINEL:
+                if key in existing.secrets:
+                    resolved_secrets[key] = existing.secrets[key]
+                # else: client sent __MASKED__ for a key we don't have;
+                # drop it silently — same as if the client had omitted
+                # the key entirely.
+            else:
+                resolved_secrets[key] = value
+        data["secrets"] = resolved_secrets
+
+    # ``model_copy(update=...)`` does NOT re-run field validators in
+    # Pydantic v2, so a PUT with an out-of-range ``idle_timeout_seconds``
+    # (e.g. 0) would silently bypass the F2 L2 bounds validator. Round-
+    # trip through ``model_dump() | data → model_validate(...)`` so the
+    # validator fires on the merged payload and we surface the canonical
+    # 422 to the operator. M10 F2 L6.
+    try:
+        merged = existing.model_dump()
+        merged.update(data)
+        updated = ConnectorAccount.model_validate(merged)
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=e.errors(include_context=False))
+    await repo.update(updated)
+
+    if existing.secrets != resolved_secrets:
+        # Warm pool entries cache plaintext credentials inside their
+        # ConnectorClient. On any actual secrets change (including the
+        # operator dropping a key via REST replace), the entry must be
+        # evicted so the next acquire reloads with the new credentials.
+        # No-op PUT (all-masked round-trip) skips eviction because
+        # ``resolved_secrets`` is byte-identical to ``existing.secrets``.
+        #
+        # Function-local import per the ``function-local-import-to-break-load-cycle``
+        # convention codified in F2 L1: ``interfaces/web/api.py`` is a
+        # high-level module and ``the_one.connectors._pool`` reaches back
+        # into the DB layer via ``_load_account``; importing at module
+        # top would extend the import surface unnecessarily.
+        from the_one.connectors._pool import _evict_all_for_account
+
+        await _evict_all_for_account(account_id)
+
+    return _connector_account_response(updated)
+
+
+@router.delete("/connector-accounts/{account_id}")
+async def delete_connector_account(account_id: str) -> dict[str, str]:
+    """Delete a connector account and evict warm pool entries.
+
+    Flight 2 leg 3: ships the delete handler against the F1 stub plugin
+    baseline. Mirror of MCP delete shape minus the runtime-cache cleanup
+    (connectors don't have a lazy-install cache to refcount).
+
+    Future Flight 4 (mission 10) adds ``connector_account_ids`` to
+    ``AgentConfig``; at that point this handler will gain a "no agent
+    references this account" guard before the eviction step. Until then,
+    delete is unconditional.
+    """
+    # Function-local import per the convention; see the PUT handler's
+    # block comment above for the rationale.
+    from the_one.connectors._pool import _evict_all_for_account
+
+    repo = await _connector_repo()
+    try:
+        await repo.get(account_id)
+    except KeyError:
+        raise HTTPException(
+            status_code=404, detail=f"Connector account not found: {account_id}"
+        )
+
+    # Evict warm pool entries BEFORE the row delete so any concurrent
+    # acquire-in-flight observes the deletion at the repo layer rather
+    # than serving from a stale cache.
+    await _evict_all_for_account(account_id)
+
+    try:
+        await repo.delete(account_id)
+    except KeyError:
+        # Race: another caller deleted between our get and delete.
+        raise HTTPException(
+            status_code=404, detail=f"Connector account not found: {account_id}"
+        )
+
+    return {"status": "ok"}
+
+
+@router.post("/connector-accounts/{account_id}/test/connect")
+async def test_connector_connection(account_id: str) -> dict[str, Any]:
+    """Run the connector plugin's doctor probe against the account.
+
+    Returns 404 if the account is not found, otherwise an HTTP-200 envelope
+    shaped ``{status, message, details}``. ``ConnectorClientError`` is
+    converted to a ``{status: "error", ...}`` envelope (HTTP 200); other
+    exceptions are deliberately NOT caught and will surface as 500 so plugin
+    contract violations are visible.
+
+    Unknown connector types (registry has no entry for ``account.type``)
+    return ``{status: "error", ...}`` with HTTP 200, mirroring the MCP
+    "unknown transport" pattern so the UI banner can render inline rather
+    than triggering a global error handler.
+
+    No in-flight override body in Flight 2 (Design Decision) — operators
+    Create-then-Test via the leg-5 combined-action button. Route signature
+    is ``(account_id: str)`` only.
+    """
+    # Function-local import per the convention in this section.
+    from the_one.connectors.errors import (
+        ConnectorClientError,
+        ConnectorRegistrationError,
+    )
+    from the_one.connectors.registry import resolve as _resolve_plugin
+
+    repo = await _connector_repo()
+    try:
+        account = await repo.get(account_id)
+    except KeyError:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Connector account not found: {account_id}",
+        )
+
+    try:
+        plugin = _resolve_plugin(account.type)
+    except ConnectorRegistrationError:
+        return {
+            "status": "error",
+            "message": f"Unknown connector type: {account.type}",
+            "details": {
+                "error": "type not registered",
+                "type": account.type,
+            },
+        }
+
+    try:
+        report = await plugin.doctor(account, get_encryptor(settings.data_dir))
+    except ConnectorClientError as e:
+        return {
+            "status": "error",
+            "message": str(e) or type(e).__name__,
+            "details": {
+                "error": str(e),
+                "exception_type": type(e).__name__,
+            },
+        }
+
+    return {
+        "status": report.status,
+        "message": report.message,
+        "details": report.details,
+    }
+
+
 # ── Chat Sessions ─────────────────────────────────────────────────────────
 
 
@@ -2863,6 +3143,32 @@ async def rotate_encryption_key() -> dict[str, str]:
     except Exception:
         await conn.rollback()
         raise
+
+    # 4b. Evict warm connector pool entries so the next acquire reloads
+    #     credentials decrypted under the new key. Lives OUTSIDE the
+    #     commit try/except (Flight 2 Design Decision): the DB is already
+    #     in the new-key state; refusing to replace the on-disk key file
+    #     because eviction failed would leave the DB unreadable on the
+    #     next process restart. Worst case "eviction failed, key file
+    #     replaced" is that warm entries serve stale credentials until
+    #     idle-TTL elapses — exactly the pre-F1-debrief baseline.
+    #
+    #     Failure mode: log + continue. Eviction is idempotent and
+    #     self-bounded (per-entry 10s timeout in `_evict`).
+    from the_one.connectors._pool import _evict_all_for_account
+
+    for aid, _ in decrypted_connectors:
+        try:
+            await _evict_all_for_account(aid)
+        except Exception:
+            import logging
+
+            logging.getLogger(__name__).exception(
+                "rotation: connector pool eviction for account %r failed; "
+                "continuing on-disk key replace. Warm entries (if any) "
+                "will serve stale credentials until idle-TTL elapses.",
+                aid,
+            )
 
     # 5. Persist the new key to a temp file in the same directory as the
     #    canonical key path. Mode 0o600 is set at creation time via os.open

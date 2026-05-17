@@ -5,8 +5,9 @@ relocated to studio post-F2 retrofit because MCP sources are user-managed
 entities, not system settings.
 
 Covers:
-- Studio section nav has 3 entries (Agents / Knowledge / MCP Servers — the
-  Tools stub was replaced by MCP Servers in the retrofit)
+- Studio section nav has 4 entries (Agents / Knowledge / MCP Servers /
+  Connector Accounts — the Tools stub was replaced by MCP Servers in the
+  F2 retrofit; Connector Accounts was added in M10 F2 leg 05)
 - Click "MCP Servers" → URL becomes #studio/mcp-sources
 - Direct-load #studio/mcp-sources renders the MCP Servers page
 - Direct-load #studio/mcp-sources/new renders the editor
@@ -26,14 +27,14 @@ from playwright.sync_api import Page, expect
 
 @pytest.mark.browser
 def test_studio_section_nav_includes_mcp_servers(app_clean: str, page: Page) -> None:
-    """Studio section nav has 3 entries in order: Agents | Knowledge | MCP Servers."""
+    """Studio section nav has 4 entries: Agents | Knowledge | MCP Servers | Connector Accounts."""
     page.goto(f"{app_clean}#studio")
     nav = page.locator(".area-studio .section-nav")
     expect(nav).to_be_visible(timeout=5000)
     items = page.locator(".area-studio .section-nav-item")
-    expect(items).to_have_count(3)
+    expect(items).to_have_count(4)
     labels = items.evaluate_all("els => els.map(e => e.textContent.trim())")
-    assert labels == ["Agents", "Knowledge", "MCP Servers"]
+    assert labels == ["Agents", "Knowledge", "MCP Servers", "Connector Accounts"]
 
 
 @pytest.mark.browser

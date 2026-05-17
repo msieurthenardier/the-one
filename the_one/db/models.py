@@ -133,8 +133,29 @@ class ConnectorAccount(BaseModel):
     type: str  # narrows to Literal in flight 08 when CONNECTOR_TYPES is non-empty
     config: dict[str, Any] = Field(default_factory=dict)
     secrets: dict[str, Any] = Field(default_factory=dict)
+    idle_timeout_seconds: int | None = None
     created_at: str = Field(default_factory=_now_iso)
     updated_at: str = Field(default_factory=_now_iso)
+
+    @field_validator("idle_timeout_seconds")
+    @classmethod
+    def _validate_idle_timeout_seconds(cls, value: int | None) -> int | None:
+        """Bound the per-account pool idle TTL to ``[1, 604800]`` seconds.
+
+        ``None`` means "no per-account override — fall through to the env
+        var / default in ``_resolve_ttl_seconds``." The 7-day upper bound
+        catches the milliseconds-vs-seconds typo (a value like
+        ``31_536_000_000`` is suspiciously high for "keep the connection
+        warm"); the lower bound rejects zero / negative which would make
+        the warm entry immediately reapable.
+        """
+        if value is None:
+            return value
+        if not (1 <= value <= 604800):
+            raise ValueError(
+                "idle_timeout_seconds must be between 1 and 604800 seconds (7 days)"
+            )
+        return value
 
 
 class ToolConfig(BaseModel):

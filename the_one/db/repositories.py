@@ -26,6 +26,48 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+# ── Shared Fernet envelope for per-row secrets dicts ─────────────────────
+#
+# Used by both :class:`MCPSourceRepository` and
+# :class:`ConnectorAccountRepository`. The per-repository methods
+# ``_secrets_to_ciphertext`` / ``_ciphertext_to_secrets`` retained as
+# one-line delegators to keep the method-on-repository surface stable for
+# any test that mocks them; behaviour is identical to the pre-lift bodies.
+
+
+def _encrypt_secrets_blob(encryptor: Encryptor, secrets: dict[str, Any]) -> str:
+    """Serialize ``secrets`` and Fernet-encrypt the resulting JSON string."""
+    return encryptor.encrypt(json.dumps(secrets))
+
+
+def _decrypt_secrets_blob(encryptor: Encryptor, ciphertext: str | None) -> dict[str, Any]:
+    """Decrypt a secrets-column ciphertext to its dict form.
+
+    Empty/None ``ciphertext`` returns ``{}``.
+
+    ``InvalidToken`` is the migration-residue path — pre-MCP-L2 rows or
+    rows migrated by v10 / v13 carry the column default ``'{}'``
+    (plaintext) which Fernet.decrypt rejects. Silently fall back to
+    ``{}`` for that case; the next ``update()`` rewrites the column with
+    proper ciphertext.
+
+    ``JSONDecodeError`` is NOT swallowed — it means decrypt() succeeded
+    but the cleartext bytes were not valid JSON. That indicates real
+    data corruption (e.g., manual DB tampering, key reuse mishap) and
+    must surface, not be silently masked.
+    """
+    if not ciphertext:
+        return {}
+    try:
+        plaintext = encryptor.decrypt(ciphertext)
+    except InvalidToken:
+        # Migration-residue: column default '{}' is plaintext, not
+        # ciphertext. Treat as empty secrets. Will be rewritten with
+        # real ciphertext on the next update().
+        return {}
+    return json.loads(plaintext)  # JSONDecodeError propagates
+
+
 # ── Agent repository ──────────────────────────────────────────────────────
 
 
@@ -299,31 +341,12 @@ class MCPSourceRepository:
         # Mirrors LLMProviderRepository:489.
 
     def _secrets_to_ciphertext(self, secrets: dict[str, Any]) -> str:
-        return self.encryptor.encrypt(json.dumps(secrets))
+        """Delegates to :func:`_encrypt_secrets_blob`."""
+        return _encrypt_secrets_blob(self.encryptor, secrets)
 
     def _ciphertext_to_secrets(self, ciphertext: str | None) -> dict[str, Any]:
-        """Decrypt the secrets column. Empty/None ciphertext returns empty dict.
-
-        InvalidToken is the migration-residue path — pre-L2 rows or rows
-        migrated by v10 carry the column default '{}' (plaintext) which
-        Fernet.decrypt rejects. Silently fall back to {} for that case;
-        the next update() rewrites the column with proper ciphertext.
-
-        JSONDecodeError is NOT swallowed — it means decrypt() succeeded
-        but the cleartext bytes were not valid JSON. That indicates real
-        data corruption (e.g., manual DB tampering, key reuse mishap)
-        and must surface, not be silently masked.
-        """
-        if not ciphertext:
-            return {}
-        try:
-            plaintext = self.encryptor.decrypt(ciphertext)
-        except InvalidToken:
-            # Migration-residue: column default '{}' is plaintext, not
-            # ciphertext. Treat as empty secrets. Will be rewritten with
-            # real ciphertext on the next update().
-            return {}
-        return json.loads(plaintext)  # JSONDecodeError propagates
+        """Delegates to :func:`_decrypt_secrets_blob`."""
+        return _decrypt_secrets_blob(self.encryptor, ciphertext)
 
     async def list(self) -> list[MCPSource]:
         async with self.conn.execute("SELECT * FROM mcp_sources ORDER BY name") as cur:
@@ -454,29 +477,12 @@ class ConnectorAccountRepository:
         # Mirrors MCPSourceRepository at the top of this file.
 
     def _secrets_to_ciphertext(self, secrets: dict[str, Any]) -> str:
-        return self.encryptor.encrypt(json.dumps(secrets))
+        """Delegates to :func:`_encrypt_secrets_blob`."""
+        return _encrypt_secrets_blob(self.encryptor, secrets)
 
     def _ciphertext_to_secrets(self, ciphertext: str | None) -> dict[str, Any]:
-        """Decrypt the secrets column. Mirrors MCPSourceRepository's path.
-
-        Empty/None ciphertext returns ``{}``. ``InvalidToken`` is the
-        migration-residue path (v13 column default ``'{}'`` is plaintext,
-        not ciphertext); silently fall back to ``{}`` and let the next
-        ``update()`` rewrite with proper ciphertext.
-
-        ``JSONDecodeError`` propagates — that indicates real corruption,
-        not migration residue.
-        """
-        if not ciphertext:
-            return {}
-        try:
-            plaintext = self.encryptor.decrypt(ciphertext)
-        except InvalidToken:
-            # Migration-residue: column default '{}' is plaintext, not
-            # ciphertext. Treat as empty secrets. Will be rewritten with
-            # real ciphertext on the next update().
-            return {}
-        return json.loads(plaintext)  # JSONDecodeError propagates
+        """Delegates to :func:`_decrypt_secrets_blob`."""
+        return _decrypt_secrets_blob(self.encryptor, ciphertext)
 
     async def list(self) -> list[ConnectorAccount]:
         async with self.conn.execute(
@@ -496,14 +502,16 @@ class ConnectorAccountRepository:
     async def create(self, account: ConnectorAccount) -> None:
         await self.conn.execute(
             "INSERT INTO connector_accounts"
-            " (id, name, type, config, secrets, created_at, updated_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            " (id, name, type, config, secrets, idle_timeout_seconds,"
+            "  created_at, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 account.id,
                 account.name,
                 account.type,
                 json.dumps(account.config),
                 self._secrets_to_ciphertext(account.secrets),
+                account.idle_timeout_seconds,
                 account.created_at,
                 account.updated_at,
             ),
@@ -518,12 +526,14 @@ class ConnectorAccountRepository:
                 raise KeyError(f"Connector account not found: {account.id}")
         await self.conn.execute(
             "UPDATE connector_accounts"
-            " SET name=?, type=?, config=?, secrets=?, updated_at=? WHERE id=?",
+            " SET name=?, type=?, config=?, secrets=?, idle_timeout_seconds=?,"
+            " updated_at=? WHERE id=?",
             (
                 account.name,
                 account.type,
                 json.dumps(account.config),
                 self._secrets_to_ciphertext(account.secrets),
+                account.idle_timeout_seconds,
                 _now_iso(),
                 account.id,
             ),
@@ -548,6 +558,7 @@ class ConnectorAccountRepository:
             type=row["type"],
             config=json.loads(row["config"] or "{}"),
             secrets=self._ciphertext_to_secrets(row["secrets"]),
+            idle_timeout_seconds=row["idle_timeout_seconds"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )

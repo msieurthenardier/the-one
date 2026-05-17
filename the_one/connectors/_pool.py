@@ -119,16 +119,27 @@ _shutting_down: bool = False
 _reaper_task: asyncio.Task[None] | None = None
 
 
-def _resolve_ttl_seconds() -> int:
-    """Read ``THE_ONE_CONNECTOR_POOL_IDLE_TTL_SECONDS`` env at call time;
-    default 1800.
+def _resolve_ttl_seconds(override: int | None = None) -> int:
+    """Resolve the warm-entry idle TTL with per-account override support.
 
-    Read at call time so test ``monkeypatch.setenv`` works. Mirrors
-    :func:`the_one.mcp._pool._resolve_ttl_seconds`.
+    Resolution order: explicit ``override`` (if not None) → env var
+    ``THE_ONE_CONNECTOR_POOL_IDLE_TTL_SECONDS`` (if set + parseable) →
+    ``_DEFAULT_TTL_SECONDS`` (1800). Env var is read at call time so test
+    monkeypatching works; mirrors :func:`the_one.mcp._pool._resolve_ttl_seconds`.
 
-    Non-int values fall back to the default with a warning — matches the
-    MCP pool's "fail open, don't crash startup" stance.
+    The override is the per-account ``ConnectorAccount.idle_timeout_seconds``
+    value, passed through by :func:`acquire`. The pool stays ignorant of
+    which model field drives the override; the model owns the field name,
+    the resolver owns the precedence. The ``override is not None`` guard
+    short-circuits BEFORE the env-var read by design — the operator's
+    explicit per-account choice always wins, regardless of what the env
+    var says.
+
+    Non-int env-var values fall back to the default with a warning — matches
+    the MCP pool's "fail open, don't crash startup" stance.
     """
+    if override is not None:
+        return override
     raw = os.environ.get("THE_ONE_CONNECTOR_POOL_IDLE_TTL_SECONDS")
     if raw is None:
         return _DEFAULT_TTL_SECONDS
@@ -435,7 +446,7 @@ async def acquire(agent_name: str, account_id: str) -> ConnectorClient:
         entry = _pool.get(key)
         if entry is None:
             entry = _RegistryEntry(
-                ttl_seconds=_resolve_ttl_seconds(),  # leg 6
+                ttl_seconds=_resolve_ttl_seconds(override=account.idle_timeout_seconds),
                 evict_event=asyncio.Event(),
                 client_ready=asyncio.Event(),
             )

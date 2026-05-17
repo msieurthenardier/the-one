@@ -8,7 +8,7 @@ import aiosqlite
 
 from the_one.db._provider_types import PROVIDER_TYPES
 
-CURRENT_VERSION = 14
+CURRENT_VERSION = 15
 
 # Render the provider-type CHECK constraint as a comma-separated SQL
 # literal list, sourced from PROVIDER_TYPES. Both SCHEMA_V1 (fresh-DB
@@ -534,3 +534,28 @@ CREATE TABLE IF NOT EXISTS connector_accounts (
         await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (14,))
         await conn.commit()
         version = 14
+
+    if version < 15:
+        # Add `idle_timeout_seconds` column to connector_accounts. Mission 10
+        # flight 02 leg 02: operator-configurable per-account pool idle TTL.
+        # Nullable INTEGER — NULL means "use _resolve_ttl_seconds default /
+        # env-var override" (the existing pre-flight-02 behaviour). Bounded
+        # at the Pydantic layer (1 ≤ value ≤ 604800) to catch the
+        # milliseconds-vs-seconds typo.
+        #
+        # Downstream: flight 08 (Discord) previously planned a v15 CHECK
+        # migration; that renumbers to v16. See _connector_types.py
+        # docstring + tests/test_db_migration.py TestSchemaV14 docstring.
+        #
+        # Idempotency follows the v11/v14 ALTER ADD COLUMN pattern (PRAGMA
+        # guard + INSERT OR IGNORE on schema_version LAST).
+        async with conn.execute("PRAGMA table_info(connector_accounts)") as cursor:
+            existing_cols = {row[1] for row in await cursor.fetchall()}
+        if "idle_timeout_seconds" not in existing_cols:
+            await conn.execute(
+                "ALTER TABLE connector_accounts ADD COLUMN idle_timeout_seconds INTEGER NULL"
+            )
+
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (15,))
+        await conn.commit()
+        version = 15

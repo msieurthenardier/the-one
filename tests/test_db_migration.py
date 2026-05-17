@@ -224,10 +224,11 @@ class TestSchemaV8:
         # the current version. v11 added agents.mcp_overrides (M07 F06 L01);
         # v12 extended llm_providers.type CHECK to allow 'openrouter';
         # v13 added connector_accounts (M10 F01 L01); v14 added
-        # connector_accounts.name (M10 F01 L02).
-        assert CURRENT_VERSION == 14, (
-            "CURRENT_VERSION must be 14 after the connector_accounts.name v14 "
-            f"migration (got {CURRENT_VERSION})"
+        # connector_accounts.name (M10 F01 L02); v15 added
+        # connector_accounts.idle_timeout_seconds (M10 F02 L02).
+        assert CURRENT_VERSION == 15, (
+            "CURRENT_VERSION must be 15 after the connector_accounts.idle_timeout_seconds "
+            f"v15 migration (got {CURRENT_VERSION})"
         )
 
         # tool_configs table must exist.
@@ -1153,12 +1154,14 @@ class TestSchemaV13:
         self, tmp_path
     ) -> None:
         """connector_accounts has the expected columns; type is NOT NULL but
-        unconstrained (no CHECK clause until v15 in flight 8).
+        unconstrained (no CHECK clause until v16 in flight 8).
 
         Asserts the post-``ensure_schema`` shape — the ``name`` column was
-        added in v14 (M10 F01 L02) to mirror MCPSource; the CHECK
-        constraint on ``type`` is deferred to v15 (flight 08) when there
-        is a real connector type to constrain.
+        added in v14 (M10 F01 L02) to mirror MCPSource; the
+        ``idle_timeout_seconds`` column was added in v15 (M10 F02 L02) as
+        the per-account pool idle TTL override; the CHECK constraint on
+        ``type`` is deferred to v16 (flight 08) when there is a real
+        connector type to constrain.
         """
         db_path = tmp_path / "v13-cols.db"
         conn = await aiosqlite.connect(str(db_path))
@@ -1176,6 +1179,7 @@ class TestSchemaV13:
             "type",
             "config",
             "secrets",
+            "idle_timeout_seconds",
             "created_at",
             "updated_at",
         }, cols
@@ -1238,8 +1242,8 @@ class TestSchemaV14:
     are required to carry a real name by the Pydantic model (no default).
 
     Downstream: flight 08 (Discord) previously planned a v14 CHECK
-    migration; that renumbers to v15. See flight log
-    ``## Design Adjustments``.
+    migration; that renumbers to v16 (v15 is claimed by flight 02 leg 02's
+    ``idle_timeout_seconds`` ALTER). See flight log ``## Design Adjustments``.
     """
 
     async def test_v14_fresh_db_includes_name_column(self, tmp_path) -> None:
@@ -1371,6 +1375,158 @@ class TestSchemaV14:
         ) as cur:
             versions = [r[0] for r in await cur.fetchall()]
         assert 14 in versions, versions
+        assert max(versions) == CURRENT_VERSION, versions
+
+        await conn.close()
+
+
+class TestSchemaV15:
+    """Tests for the v15 migration that adds connector_accounts.idle_timeout_seconds.
+
+    Mission 10 flight 02 leg 02: operator-configurable per-account pool
+    idle TTL. Nullable INTEGER (NULL = "use _resolve_ttl_seconds env-var /
+    default"). Bounded at the Pydantic layer (1 ≤ value ≤ 604800).
+
+    Downstream: flight 08 (Discord) previously planned a v14 CHECK
+    migration; that renumbered to v15 in earlier planning, then renumbered
+    again to v16 once this leg claimed v15. See flight log
+    ``## Design Adjustments``.
+    """
+
+    async def test_v15_fresh_db_includes_idle_timeout_seconds_column(
+        self, tmp_path
+    ) -> None:
+        """Fresh DB → ensure_schema → v15 surfaces exist."""
+        db_path = tmp_path / "v15-fresh.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await ensure_schema(conn)
+
+        assert CURRENT_VERSION >= 15, CURRENT_VERSION
+
+        async with conn.execute("PRAGMA table_info(connector_accounts)") as cur:
+            cols = {r["name"]: r for r in await cur.fetchall()}
+
+        assert "idle_timeout_seconds" in cols, (
+            "v15 migration missing: connector_accounts.idle_timeout_seconds "
+            "does not exist after ensure_schema on a fresh DB"
+        )
+        ttl_col = cols["idle_timeout_seconds"]
+        assert ttl_col["type"] == "INTEGER", ttl_col["type"]
+        # notnull == 0 means the column is nullable.
+        assert ttl_col["notnull"] == 0, ttl_col["notnull"]
+        # No explicit DEFAULT clause — dflt_value must be Python None.
+        assert ttl_col["dflt_value"] is None, ttl_col["dflt_value"]
+
+        async with conn.execute(
+            "SELECT version FROM schema_version ORDER BY version"
+        ) as cur:
+            versions = [r[0] for r in await cur.fetchall()]
+        assert 15 in versions, versions
+        assert max(versions) == CURRENT_VERSION, versions
+
+        await conn.close()
+
+    async def test_v15_migration_idempotent_on_rerun(self, tmp_path) -> None:
+        """Calling ensure_schema twice on a fresh DB is a no-op the second
+        time: no errors, no duplicate schema_version rows for v15."""
+        db_path = tmp_path / "v15-rerun.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await ensure_schema(conn)
+        await ensure_schema(conn)  # second call — must be a no-op
+
+        async with conn.execute(
+            "SELECT version FROM schema_version ORDER BY version"
+        ) as cur:
+            versions = [r[0] for r in await cur.fetchall()]
+        assert versions.count(15) == 1, f"v15 row should appear exactly once: {versions}"
+
+        # The `idle_timeout_seconds` column is still present after the second call.
+        async with conn.execute("PRAGMA table_info(connector_accounts)") as cur:
+            cols = {r["name"] for r in await cur.fetchall()}
+        assert "idle_timeout_seconds" in cols
+
+        await conn.close()
+
+    async def test_v15_legacy_v14_row_decodes_with_none_idle_timeout(
+        self, tmp_path
+    ) -> None:
+        """A row seeded against a hand-built v14 schema (no
+        ``idle_timeout_seconds`` column) survives the v15 ALTER with
+        ``idle_timeout_seconds IS NULL``.
+
+        Bootstraps a real v14-shape ``connector_accounts`` table (NO
+        ``idle_timeout_seconds`` column) so the v15 ALTER actually runs
+        against a row that pre-exists without the column. Modeled on
+        ``TestSchemaV14.test_v14_preserves_v13_seeded_row_with_empty_name``.
+        """
+        db_path = tmp_path / "v15-from-real-v14.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        # Hand-build the v14 schema for ``connector_accounts`` (no
+        # ``idle_timeout_seconds`` column) and a ``schema_version`` table.
+        # Seed schema_version with versions 1..14 so the migration loop's
+        # MAX() head pointer is 14 and the v15 block enters cleanly.
+        await conn.execute(
+            "CREATE TABLE schema_version ("
+            "    version INTEGER PRIMARY KEY,"
+            "    applied_at TEXT NOT NULL DEFAULT (datetime('now'))"
+            ")"
+        )
+        for v in range(1, 15):
+            await conn.execute(
+                "INSERT INTO schema_version (version) VALUES (?)", (v,)
+            )
+        await conn.execute(
+            "CREATE TABLE connector_accounts ("
+            "    id TEXT PRIMARY KEY,"
+            "    type TEXT NOT NULL,"
+            "    config TEXT DEFAULT '{}',"
+            "    secrets TEXT DEFAULT '{}',"
+            "    created_at TEXT NOT NULL DEFAULT (datetime('now')),"
+            "    updated_at TEXT NOT NULL DEFAULT (datetime('now')),"
+            "    name TEXT NOT NULL DEFAULT ''"
+            ")"
+        )
+        # Seed a row against the v14 shape (no idle_timeout_seconds).
+        await conn.execute(
+            "INSERT INTO connector_accounts (id, name, type, config, secrets)"
+            " VALUES (?, ?, ?, ?, ?)",
+            ("seeded-v14", "Legacy Bot", "stub", "{}", "{}"),
+        )
+        await conn.commit()
+
+        # Run ensure_schema — should hit the v15 block, run the ALTER (the
+        # PRAGMA check sees no ``idle_timeout_seconds`` column), populate
+        # the seeded row's ``idle_timeout_seconds`` with NULL, and bump
+        # schema_version to 15.
+        await ensure_schema(conn)
+
+        # Row survived with NULL idle_timeout_seconds.
+        async with conn.execute(
+            "SELECT id, name, idle_timeout_seconds"
+            " FROM connector_accounts WHERE id = 'seeded-v14'"
+        ) as cur:
+            row = await cur.fetchone()
+        assert row is not None
+        assert row["name"] == "Legacy Bot"
+        assert row["idle_timeout_seconds"] is None, (
+            f"expected NULL idle_timeout_seconds, got {row['idle_timeout_seconds']!r}"
+        )
+
+        # Head pointer landed at CURRENT_VERSION (≥15).
+        async with conn.execute(
+            "SELECT version FROM schema_version ORDER BY version"
+        ) as cur:
+            versions = [r[0] for r in await cur.fetchall()]
+        assert 15 in versions, versions
         assert max(versions) == CURRENT_VERSION, versions
 
         await conn.close()
