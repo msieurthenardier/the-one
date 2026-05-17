@@ -12,6 +12,7 @@ from cryptography.fernet import InvalidToken
 from the_one.agent.config import AgentConfig
 from the_one.db.models import (
     ChatSession,
+    ConnectorAccount,
     KBItem,
     KnowledgeBase,
     LLMProviderConfig,
@@ -415,6 +416,133 @@ class MCPSourceRepository:
 
     def _row_to_model(self, row: aiosqlite.Row) -> MCPSource:
         return MCPSource(
+            id=row["id"],
+            name=row["name"],
+            type=row["type"],
+            config=json.loads(row["config"] or "{}"),
+            secrets=self._ciphertext_to_secrets(row["secrets"]),
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+
+# ── Connector account repository ─────────────────────────────────────────
+
+
+class ConnectorAccountRepository:
+    """Async CRUD for connector accounts.
+
+    Mission 10 flight 01 — sibling of :class:`MCPSourceRepository`.
+    Mirrors the MCP envelope: encryptor held by reference (not copy) so
+    post-rotation ``install_key`` propagates to live instances;
+    ``_secrets_to_ciphertext`` / ``_ciphertext_to_secrets`` per-row Fernet
+    blob; ``InvalidToken`` tolerantly collapses to ``{}`` for
+    migration-residue rows; ``JSONDecodeError`` propagates as real
+    corruption.
+
+    No ``find_by_runtime_package`` analog: connectors have no lazy-install
+    cache to refcount at delete time.
+
+    No ``__MASKED__`` sentinel handling here — that runs at the API edge
+    (mirroring ``LLMProviderConfig._normalize_api_key``'s contract).
+    """
+
+    def __init__(self, conn: aiosqlite.Connection, encryptor: Encryptor) -> None:
+        self.conn = conn
+        self.encryptor = encryptor  # Reference, NOT copy. install_key() post-rotation
+        # must propagate to live repository instances.
+        # Mirrors MCPSourceRepository at the top of this file.
+
+    def _secrets_to_ciphertext(self, secrets: dict[str, Any]) -> str:
+        return self.encryptor.encrypt(json.dumps(secrets))
+
+    def _ciphertext_to_secrets(self, ciphertext: str | None) -> dict[str, Any]:
+        """Decrypt the secrets column. Mirrors MCPSourceRepository's path.
+
+        Empty/None ciphertext returns ``{}``. ``InvalidToken`` is the
+        migration-residue path (v13 column default ``'{}'`` is plaintext,
+        not ciphertext); silently fall back to ``{}`` and let the next
+        ``update()`` rewrite with proper ciphertext.
+
+        ``JSONDecodeError`` propagates — that indicates real corruption,
+        not migration residue.
+        """
+        if not ciphertext:
+            return {}
+        try:
+            plaintext = self.encryptor.decrypt(ciphertext)
+        except InvalidToken:
+            # Migration-residue: column default '{}' is plaintext, not
+            # ciphertext. Treat as empty secrets. Will be rewritten with
+            # real ciphertext on the next update().
+            return {}
+        return json.loads(plaintext)  # JSONDecodeError propagates
+
+    async def list(self) -> list[ConnectorAccount]:
+        async with self.conn.execute(
+            "SELECT * FROM connector_accounts ORDER BY name"
+        ) as cur:
+            return [self._row_to_model(r) for r in await cur.fetchall()]
+
+    async def get(self, account_id: str) -> ConnectorAccount:
+        async with self.conn.execute(
+            "SELECT * FROM connector_accounts WHERE id = ?", (account_id,)
+        ) as cur:
+            row = await cur.fetchone()
+        if row is None:
+            raise KeyError(f"Connector account not found: {account_id}")
+        return self._row_to_model(row)
+
+    async def create(self, account: ConnectorAccount) -> None:
+        await self.conn.execute(
+            "INSERT INTO connector_accounts"
+            " (id, name, type, config, secrets, created_at, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                account.id,
+                account.name,
+                account.type,
+                json.dumps(account.config),
+                self._secrets_to_ciphertext(account.secrets),
+                account.created_at,
+                account.updated_at,
+            ),
+        )
+        await self.conn.commit()
+
+    async def update(self, account: ConnectorAccount) -> None:
+        async with self.conn.execute(
+            "SELECT 1 FROM connector_accounts WHERE id = ?", (account.id,)
+        ) as cur:
+            if await cur.fetchone() is None:
+                raise KeyError(f"Connector account not found: {account.id}")
+        await self.conn.execute(
+            "UPDATE connector_accounts"
+            " SET name=?, type=?, config=?, secrets=?, updated_at=? WHERE id=?",
+            (
+                account.name,
+                account.type,
+                json.dumps(account.config),
+                self._secrets_to_ciphertext(account.secrets),
+                _now_iso(),
+                account.id,
+            ),
+        )
+        await self.conn.commit()
+
+    async def delete(self, account_id: str) -> None:
+        async with self.conn.execute(
+            "SELECT 1 FROM connector_accounts WHERE id = ?", (account_id,)
+        ) as cur:
+            if await cur.fetchone() is None:
+                raise KeyError(f"Connector account not found: {account_id}")
+        await self.conn.execute(
+            "DELETE FROM connector_accounts WHERE id = ?", (account_id,)
+        )
+        await self.conn.commit()
+
+    def _row_to_model(self, row: aiosqlite.Row) -> ConnectorAccount:
+        return ConnectorAccount(
             id=row["id"],
             name=row["name"],
             type=row["type"],

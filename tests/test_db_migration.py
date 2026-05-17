@@ -222,9 +222,12 @@ class TestSchemaV8:
 
         # CURRENT_VERSION assertion — pins that v8 surfaces are present at
         # the current version. v11 added agents.mcp_overrides (M07 F06 L01);
-        # v12 extended llm_providers.type CHECK to allow 'openrouter'.
-        assert CURRENT_VERSION == 12, (
-            f"CURRENT_VERSION must be 12 after openrouter v12 migration (got {CURRENT_VERSION})"
+        # v12 extended llm_providers.type CHECK to allow 'openrouter';
+        # v13 added connector_accounts (M10 F01 L01); v14 added
+        # connector_accounts.name (M10 F01 L02).
+        assert CURRENT_VERSION == 14, (
+            "CURRENT_VERSION must be 14 after the connector_accounts.name v14 "
+            f"migration (got {CURRENT_VERSION})"
         )
 
         # tool_configs table must exist.
@@ -1058,7 +1061,12 @@ class TestMigrationV12:
         await conn.execute("PRAGMA foreign_keys=ON")
 
         await ensure_schema(conn)
-        await conn.execute("DELETE FROM schema_version WHERE version = 12")
+        # Rewind schema_version to BEFORE 12 so the v12 block re-enters on
+        # the next ensure_schema call. Mirrors the v11 rewind pattern:
+        # delete every row >= 12 so MAX() drops to 11 and the migration
+        # loop replays v12 (the block we're testing the orphan-recovery
+        # prelude on) and every later block (v13+) idempotently.
+        await conn.execute("DELETE FROM schema_version WHERE version >= 12")
         # Synthesize the orphan temp table left by a crashed prior run.
         await conn.execute("CREATE TABLE llm_providers_new (id TEXT, junk TEXT)")
         await conn.commit()
@@ -1095,4 +1103,274 @@ class TestMigrationV12:
         async with conn.execute("SELECT COUNT(*) AS c FROM llm_providers") as cursor:
             row = await cursor.fetchone()
         assert row["c"] == len(PROVIDER_TYPES)
+        await conn.close()
+
+
+class TestSchemaV13:
+    """Tests for the v13 migration that adds the connector_accounts table.
+
+    Mission 10 flight 01: persistence-layer foundation for bi-directional
+    communication connectors (Discord bot, Slack workspace app, etc.).
+    Mirrors TestSchemaV11 in shape — fresh-DB surfaces, idempotent re-run,
+    column-shape verification with explicit assertion that no CHECK
+    constraint pins `type` (deferred to v14 in flight 8 when 'discord' is
+    a real type to constrain).
+    """
+
+    async def test_v13_fresh_db_includes_connector_accounts_table(self, tmp_path) -> None:
+        """Fresh DB → ensure_schema → v13 surfaces exist.
+
+        Regression-loud-fail guard: if a future bump silently drops the v13
+        block, this test fails with an explicit message naming
+        ``connector_accounts``.
+        """
+        db_path = tmp_path / "v13-fresh.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await ensure_schema(conn)
+
+        assert CURRENT_VERSION >= 13, CURRENT_VERSION
+
+        async with conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='connector_accounts'"
+        ) as cur:
+            row = await cur.fetchone()
+        assert row is not None, (
+            "v13 migration missing: `connector_accounts` table does not exist "
+            "after ensure_schema on a fresh DB"
+        )
+
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
+            versions = [r[0] for r in await cur.fetchall()]
+        assert 13 in versions, versions
+        assert max(versions) == CURRENT_VERSION, versions
+
+        await conn.close()
+
+    async def test_v13_connector_accounts_has_expected_columns_and_no_check_constraint(
+        self, tmp_path
+    ) -> None:
+        """connector_accounts has the expected columns; type is NOT NULL but
+        unconstrained (no CHECK clause until v15 in flight 8).
+
+        Asserts the post-``ensure_schema`` shape — the ``name`` column was
+        added in v14 (M10 F01 L02) to mirror MCPSource; the CHECK
+        constraint on ``type`` is deferred to v15 (flight 08) when there
+        is a real connector type to constrain.
+        """
+        db_path = tmp_path / "v13-cols.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await ensure_schema(conn)
+
+        async with conn.execute("PRAGMA table_info(connector_accounts)") as cur:
+            cols = {r["name"]: r for r in await cur.fetchall()}
+
+        assert set(cols) == {
+            "id",
+            "name",
+            "type",
+            "config",
+            "secrets",
+            "created_at",
+            "updated_at",
+        }, cols
+
+        assert cols["id"]["type"] == "TEXT" and cols["id"]["pk"] == 1
+        assert cols["type"]["type"] == "TEXT" and cols["type"]["notnull"] == 1
+        assert cols["config"]["type"] == "TEXT" and cols["config"]["dflt_value"] == "'{}'"
+        assert cols["secrets"]["type"] == "TEXT" and cols["secrets"]["dflt_value"] == "'{}'"
+
+        # No CHECK constraint on type — verify by inserting a bogus type
+        # and asserting it does NOT raise (would raise IntegrityError if
+        # there were a CHECK).
+        await conn.execute(
+            "INSERT INTO connector_accounts (id, type) VALUES (?, ?)",
+            ("test-id", "bogus-type-that-flight-8-will-constrain"),
+        )
+        await conn.commit()
+
+        async with conn.execute(
+            "SELECT type FROM connector_accounts WHERE id = 'test-id'"
+        ) as cur:
+            row = await cur.fetchone()
+        assert row["type"] == "bogus-type-that-flight-8-will-constrain"
+
+        await conn.close()
+
+    async def test_v13_migration_idempotent_on_rerun(self, tmp_path) -> None:
+        """Calling ensure_schema twice on a fresh DB is a no-op the second
+        time: no errors, no duplicate schema_version rows for v13."""
+        db_path = tmp_path / "v13-rerun.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await ensure_schema(conn)
+        await ensure_schema(conn)  # second call — must be a no-op
+
+        async with conn.execute("SELECT version FROM schema_version ORDER BY version") as cur:
+            versions = [r[0] for r in await cur.fetchall()]
+        assert versions.count(13) == 1, f"v13 row should appear exactly once: {versions}"
+
+        # Table still present after the second call.
+        async with conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='connector_accounts'"
+        ) as cur:
+            row = await cur.fetchone()
+        assert row is not None
+
+        await conn.close()
+
+
+class TestSchemaV14:
+    """Tests for the v14 migration that adds connector_accounts.name.
+
+    Mission 10 flight 01 leg 02: design adjustment caught at leg planning.
+    The flight spec called for ``ConnectorAccount`` to mirror ``MCPSource``
+    shape, but the v13 migration omitted the ``name`` column. v14 adds it
+    via ``ALTER TABLE … ADD COLUMN name TEXT NOT NULL DEFAULT ''`` so
+    pre-existing rows (zero in practice) survive with empty name. New rows
+    are required to carry a real name by the Pydantic model (no default).
+
+    Downstream: flight 08 (Discord) previously planned a v14 CHECK
+    migration; that renumbers to v15. See flight log
+    ``## Design Adjustments``.
+    """
+
+    async def test_v14_fresh_db_includes_name_column(self, tmp_path) -> None:
+        """Fresh DB → ensure_schema → v14 surfaces exist."""
+        db_path = tmp_path / "v14-fresh.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await ensure_schema(conn)
+
+        assert CURRENT_VERSION >= 14, CURRENT_VERSION
+
+        async with conn.execute("PRAGMA table_info(connector_accounts)") as cur:
+            cols = {r["name"]: r for r in await cur.fetchall()}
+
+        assert "name" in cols, (
+            "v14 migration missing: connector_accounts.name does not exist "
+            "after ensure_schema on a fresh DB"
+        )
+        name_col = cols["name"]
+        assert name_col["type"] == "TEXT", name_col["type"]
+        assert name_col["notnull"] == 1, name_col["notnull"]
+        assert name_col["dflt_value"] == "''", name_col["dflt_value"]
+
+        async with conn.execute(
+            "SELECT version FROM schema_version ORDER BY version"
+        ) as cur:
+            versions = [r[0] for r in await cur.fetchall()]
+        assert 14 in versions, versions
+        assert max(versions) == CURRENT_VERSION, versions
+
+        await conn.close()
+
+    async def test_v14_migration_idempotent_on_rerun(self, tmp_path) -> None:
+        """Calling ensure_schema twice on a fresh DB is a no-op the second
+        time: no errors, no duplicate schema_version rows for v14."""
+        db_path = tmp_path / "v14-rerun.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await ensure_schema(conn)
+        await ensure_schema(conn)  # second call — must be a no-op
+
+        async with conn.execute(
+            "SELECT version FROM schema_version ORDER BY version"
+        ) as cur:
+            versions = [r[0] for r in await cur.fetchall()]
+        assert versions.count(14) == 1, f"v14 row should appear exactly once: {versions}"
+
+        # The `name` column is still present after the second call.
+        async with conn.execute("PRAGMA table_info(connector_accounts)") as cur:
+            cols = {r["name"] for r in await cur.fetchall()}
+        assert "name" in cols
+
+        await conn.close()
+
+    async def test_v14_preserves_v13_seeded_row_with_empty_name(self, tmp_path) -> None:
+        """A row seeded against a hand-built v13 schema (no ``name`` column)
+        survives the v14 ALTER with ``name=''``.
+
+        Bootstraps a real v13-shape ``connector_accounts`` table (NO
+        ``name`` column) so the v14 ALTER actually runs against a row that
+        pre-exists without the column. Modeled on
+        ``TestMigrationV12.test_v12_real_v11_to_v12_upgrade`` — hand-build
+        the pre-migration schema, INSERT rows, set ``schema_version``,
+        then call ``ensure_schema``.
+        """
+        db_path = tmp_path / "v14-from-real-v13.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        # Hand-build the v13 schema for ``connector_accounts`` (no ``name``
+        # column) and a ``schema_version`` table. We seed
+        # schema_version with versions 1..13 so the migration loop's MAX()
+        # head pointer is 13 and the v14 block enters cleanly without
+        # earlier blocks attempting to recreate prerequisite tables they
+        # already think exist.
+        await conn.execute(
+            "CREATE TABLE schema_version ("
+            "    version INTEGER PRIMARY KEY,"
+            "    applied_at TEXT NOT NULL DEFAULT (datetime('now'))"
+            ")"
+        )
+        for v in range(1, 14):
+            await conn.execute(
+                "INSERT INTO schema_version (version) VALUES (?)", (v,)
+            )
+        await conn.execute(
+            "CREATE TABLE connector_accounts ("
+            "    id TEXT PRIMARY KEY,"
+            "    type TEXT NOT NULL,"
+            "    config TEXT DEFAULT '{}',"
+            "    secrets TEXT DEFAULT '{}',"
+            "    created_at TEXT NOT NULL DEFAULT (datetime('now')),"
+            "    updated_at TEXT NOT NULL DEFAULT (datetime('now'))"
+            ")"
+        )
+        # Seed a row against the v13 shape (no name).
+        await conn.execute(
+            "INSERT INTO connector_accounts (id, type, config, secrets)"
+            " VALUES (?, ?, ?, ?)",
+            ("seeded", "stub", "{}", "{}"),
+        )
+        await conn.commit()
+
+        # Now run ensure_schema — this should hit the v14 block, run the
+        # ALTER (the PRAGMA check sees no ``name`` column), populate the
+        # seeded row's ``name`` with the DEFAULT '', and bump
+        # schema_version to 14.
+        await ensure_schema(conn)
+
+        # Row survived with empty name.
+        async with conn.execute(
+            "SELECT id, name, type FROM connector_accounts WHERE id = 'seeded'"
+        ) as cur:
+            row = await cur.fetchone()
+        assert row is not None
+        assert row["name"] == "", (
+            f"expected empty name from DEFAULT '', got {row['name']!r}"
+        )
+        assert row["type"] == "stub"
+
+        # Head pointer landed at CURRENT_VERSION (≥14).
+        async with conn.execute(
+            "SELECT version FROM schema_version ORDER BY version"
+        ) as cur:
+            versions = [r[0] for r in await cur.fetchall()]
+        assert 14 in versions, versions
+        assert max(versions) == CURRENT_VERSION, versions
+
         await conn.close()

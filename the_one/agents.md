@@ -268,6 +268,73 @@ Six layers must coordinate. Missing any one causes either silent rejection (vali
 
 ---
 
+## Connector type extension checklist
+
+Parallel to the provider-type extension checklist above. When a future flight adds a new connector type (Flight 8 — `'discord'`; Flight 9 — the second connector), the same kind of cross-layer coordination is required. Flight 1 of Mission 10 ships the contract scaffolding (the `connectors/` package, persistence, lifecycle pool, registry, encryption-rotation integration); the layers below name which flight owns each subsequent coordination point.
+
+### Checklist
+
+1. **Pydantic `Literal`** — `db/models.py` `ConnectorAccount.type`. Currently `str` (unconstrained); Flight 8 narrows to `Literal["discord"]` and lands the `assert set(get_args(...)) == set(CONNECTOR_TYPES)` invariant alongside `LLMProviderConfig`'s assert.
+2. **`CONNECTOR_TYPES` tuple** — `db/_connector_types.py`. Empty tuple in Flight 1 (`CONNECTOR_TYPES: tuple[str, ...] = ()`); Flight 8 adds `"discord"`. Canonical single-source-of-truth pinned to layers 1, 3, and 4.
+3. **Registry registration** — `connectors/registry.py:register_builtin_connectors`. Empty body in Flight 1 (no production types registered); Flight 8 extends the body to call `register("discord", DiscordPlugin)`. Layers 2 (`CONNECTOR_TYPES`) and 3 must agree — a type in `CONNECTOR_TYPES` without a registration produces a `ConnectorRegistrationError` at first dispatch.
+4. **SQLite `CHECK` constraint** — `db/schema.py`. v13/v14 deliberately ship without a CHECK on `connector_accounts.type` (rationale in `db/schema.py:490` and in the Connector subsystem section below — the `'stub'` test-only type would otherwise need to be baked into the production constraint). Flight 8's v15 migration adds the CHECK via the table-rename ceremony established by v6/v12; v14 is already claimed by leg 02's `name` column on `connector_accounts`.
+5. **API gating / branches** — `interfaces/web/api.py`: `/api/connector-accounts/*` create/update/delete/test branches. Flight 2 lands the admin REST surface; Flight 8 lands any Discord-specific gating on top.
+6. **Frontend** — `interfaces/web/static/js/areas/admin.js`: connector-type defaults, badge styles in `tokens.css` + `admin.css`. Flight 2 lands the Admin connector pages + Studio attach surface; Flight 8 supplies the Discord-specific assets.
+7. **`_init_*` state hook** *(optional)* — if a future plugin needs to capture configuration outside the base `ConnectorAccount` fields (analog to `_init_provider_state` on `LLMProvider`), expose a hook on the plugin class. Not needed for Flight 1's stub or any Flight-8/9 design currently on the table; revisit per real plugin.
+
+---
+
+## Connector subsystem
+
+Decisions, invariants, and known issues encoded by Mission 10 Flight 1. The code in `the_one/connectors/` implements them; this section is the human-readable index for maintainers. For a package-layout / entry-point reference, see `the_one/connectors/README.md`.
+
+### Typed-exception hierarchy
+
+`connectors/errors.py` defines 6 producer-side types: `ConnectorClientError` (base) → `ConnectorConfigError`, `ConnectorConnectionError`, `ConnectorAuthRequired`, `ConnectorRegistrationError`, `ConnectorRateLimitError`.
+
+Mirrors the MCP precedent in shape (`mcp/errors.py` has 10 producer-side types accreted across 11 M07 flights; the consumer-side match list in this file's MCP section collapses them into 4 categories — the "four-typed-exceptions" wording refers to that consumer surface, not the producer hierarchy). The connector hierarchy starts smaller; the **grow deliberately** stance applies — new types land only when a real platform reveals a distinct error mode that doesn't fit any existing type. `ConnectorRateLimitError` is shipped from Flight 1 specifically because Flight 10 owns rate-limit handling for both Discord and Slack outbound, and retrofitting the translation path in Flight 8/9 is structurally worse than carrying the type now.
+
+### Worker-task-per-entry pattern
+
+`connectors/_pool.py:_entry_worker` holds the platform connection on a single asyncio task. **Connect AND disconnect run on the same task**, satisfying anyio's cross-task `CancelScope.__aexit__` guard. The eviction path signals via `entry.evict_event` rather than cancelling the worker — the worker's `finally:` clause runs `plugin.disconnect(client)` on the same task that ran `plugin.connect(...)`. Mirrors `mcp/_pool.py:_entry_worker`; see the "AsyncExitStack pattern + worker-task pattern" discussion in `the_one/mcp/README.md` §3 for the canonical cross-task-safety rationale.
+
+Concurrent-acquire-same-key races to a shared worker: the lock-held branch in `connectors/_pool.py:acquire` checks `entry is None` (NOT `entry.client is None`); subsequent callers fall through to `entry.client_ready.wait()` outside the lock. The worker is the sole writer of `entry.client` and `entry.failure`; both are written BEFORE `entry.client_ready.set()`. Mirrors MCP's cycle-2 race-fix invariant.
+
+### Parallel-pool-not-shared decision
+
+`connectors/_pool.py` is a fresh implementation, not a refactor of `mcp/_pool.py` into a shared primitive. ~300 LoC of structural duplication accepted because the alternative (extracting a generic `AsyncConnectionPool[T, K]` and retrofitting the production-load-bearing MCP pool to use it) is a cross-cutting refactor that doesn't belong in a foundation flight. M07's debrief framed the same test-isolation debt as "cross-cutting refactor, deferred to follow-up architectural flight"; that framing still holds. The connector pool ships with M07's test-isolation lesson applied from day one (`_clear_for_test` resets `_shutting_down = False` along with clearing the registry — see `connectors/_pool.py:_clear_for_test`); MCP's `_shutting_down` test-isolation debt remains in `mcp/_pool.py`.
+
+**Extraction trigger**: a **third network-keyed pool**. The existing PTY session registry at `the_one/tools/_session_registry.py` is NOT counted toward this trigger — it is *process-lifecycle-keyed* (a pty either has a child process or doesn't) with no warm-connection keep-alive, no heartbeat, and no reconnect lifecycle. PTY, MCP, and Connector pools share the per-entry-worker-task hygiene pattern superficially but diverge structurally on what an "entry" represents and what eviction means; that divergence is what makes a generic extraction speculative until two true network-keyed peers exist. When a third subsystem holds warm protocol connections keyed by `(agent, source)` (e.g. a hypothetical "external workers" subsystem), extraction becomes mandatory rather than optional.
+
+### Per-Protocol structural-satisfaction discipline
+
+`connectors/base.py` declares **Protocols, plural**. Flight 1 ships `ConnectorPlugin` (4 methods: `connect`, `disconnect`, `doctor`, `normalize_session_key`) and `ConnectorClient` (1 method: `is_alive`). Flights 6 and 7 will land **additional Protocols in the same file**:
+
+- `AllowlistResolver` (Flight 6) — per-(agent, peer) and per-(agent, group/channel) ACL resolution
+- `CommandHandler` (Flight 7) — platform-side command surface (`/agents`, `/talk-to`, `/whoami`, `/reset`, `/new`, `/help`)
+
+A connector that supports allowlists structurally satisfies BOTH `ConnectorPlugin` AND `AllowlistResolver`. Per the `structural-Protocol-satisfaction` convention, implementations do NOT inherit from the Protocols — they just expose the right methods. **Structural satisfaction is per-Protocol, not subsystem-wide**: a connector that claims to satisfy `Plugin` + `AllowlistResolver` + `CommandHandler` MUST be asserted via `isinstance(conn, ProtocolType)` for each Protocol it claims, separately. The per-platform integration tests (Flight 8 Discord, Flight 9 second connector) carry those assertions. "Single contract file" is the mission criterion; multiple Protocols in one file satisfy it.
+
+### Encryption-rotation invariant (three corpora)
+
+`POST /api/encryption/rotate` (`interfaces/web/api.py:rotate_encryption_key`) re-encrypts every credential ciphertext in **one atomic transaction**. As of Mission 10 Flight 1 the rotation covers three corpora:
+
+1. `llm_providers.api_key` (Mission 03)
+2. `mcp_sources.secrets` (Mission 07)
+3. `connector_accounts.secrets` (Mission 10 Flight 1)
+
+A failure in any of the three UPDATE loops calls `conn.rollback()` and re-raises, so a partial rotation that handled only a subset is impossible. The single `await conn.commit()` is the authoritative commit point; the on-disk key file is replaced atomically via `os.replace` only AFTER the DB commit succeeds. Migration-residue rows (plaintext `'{}'` carried over from the column default) are tolerated via `InvalidToken`-swallowing decrypt and normalized to proper ciphertext for `{}` as a side-effect — same shape across all three corpora.
+
+### Known Issues
+
+Carry-forward items future flights must respect or close:
+
+- **Deferred shared-pool extraction**. `connectors/_pool.py` duplicates ~300 LoC of structural lifecycle machinery from `mcp/_pool.py`. M07's `_shutting_down` test-isolation debt remains in MCP; the connector pool ships with the fix from day one. Extraction trigger: a third **network-keyed** pool (see "Parallel-pool-not-shared decision" above for the PTY-exclusion rationale — process-lifecycle-keyed pools do not count). When a third network-keyed peer emerges, extracting `AsyncConnectionPool[T, K]` and retrofitting both pools becomes mandatory rather than optional.
+
+- **Flight 3 ratification needed for `last_activity` tracking**. `connectors/_pool.py:_RegistryEntry.last_activity` is updated by `acquire()` on every call (warm and cold paths converge on the touch). The reaper (`_reap_once`) consumes this value to decide eviction. This measures "time since last `acquire()`", NOT "time since last platform activity." Flight 3's inbound message dispatcher MUST call `acquire()` per inbound message for the metric to track "time since the connector was used to handle anything"; if Flight 3 uses a non-acquire-touching lookup mechanism (e.g. a cached client reference held outside the pool), the reaper will prematurely evict actively-used gateway connections. Flight 3 design must either **ratify** (use `acquire` per inbound) or **amend** (add a separate touch mechanism on `_RegistryEntry`, e.g. an explicit `touch_activity(key)` API).
+
+---
+
 ## Streaming protocol
 
 Provider-agnostic at the agent layer; per-provider native streaming sits behind `LLMProvider.stream(...)`. The base class supplies a default implementation that calls `complete()` and yields exactly one `StreamChunk(is_final=True, ...)`. Subclasses MAY override.

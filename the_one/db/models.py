@@ -107,6 +107,36 @@ class MCPSource(BaseModel):
         return {**self.config, **self.secrets}
 
 
+# NOTE: ``CONNECTOR_TYPES`` from ``the_one.db._connector_types`` is intentionally
+# NOT imported here yet. ``CONNECTOR_TYPES`` is an empty tuple in flight 01
+# (mission 10) — a ``Literal[*()]`` is invalid Python syntax, and a no-op
+# pinning assert against an empty tuple is misleading. Flight 08 (Discord)
+# adds the first real connector type, at which point ``ConnectorAccount.type``
+# narrows to ``Literal[...]`` and the canonical
+# ``assert set(get_args(...)) == set(CONNECTOR_TYPES)`` invariant lands —
+# paralleling ``LLMProviderConfig``'s assert above.
+class ConnectorAccount(BaseModel):
+    """A connector account — operator-registered third-party-platform identity.
+
+    Mirrors :class:`MCPSource` shape. Stored in ``connector_accounts``
+    (v13 table; v14 added the ``name`` column to match MCPSource).
+
+    ``type`` is currently :class:`str` (unconstrained). When the first real
+    connector type lands in flight 08, the spec is to narrow this to
+    ``Literal[...]`` and add a ``get_args``-based pinning assert against
+    ``CONNECTOR_TYPES`` from ``the_one.db._connector_types``, paralleling
+    :class:`LLMProviderConfig`'s assert at the top of this module.
+    """
+
+    id: str
+    name: str
+    type: str  # narrows to Literal in flight 08 when CONNECTOR_TYPES is non-empty
+    config: dict[str, Any] = Field(default_factory=dict)
+    secrets: dict[str, Any] = Field(default_factory=dict)
+    created_at: str = Field(default_factory=_now_iso)
+    updated_at: str = Field(default_factory=_now_iso)
+
+
 class ToolConfig(BaseModel):
     """A tool-level config row — operator-set defaults for a built-in tool.
 

@@ -2745,18 +2745,20 @@ async def search_ollama_library(q: str = "") -> list[dict[str, str]]:
 async def rotate_encryption_key() -> dict[str, str]:
     """Rotate the encryption key with crash-safe ordering.
 
-    Re-encrypts every LLM provider row's ``api_key`` AND every MCP source
-    row's ``secrets`` blob using a freshly generated key in memory and
-    commits the DB transaction *before* the new key file replaces the old
-    one via temp-file + ``os.replace``. Both surfaces commit atomically —
-    a partial rotation that handled only one would leave the other
-    encrypted under a key that no longer exists on disk. If the DB commit
-    fails, the on-disk key file is left byte-identical to its pre-rotation
-    contents so existing ciphertext on both surfaces remains decryptable.
+    Re-encrypts every LLM provider row's ``api_key``, every MCP source row's
+    ``secrets`` blob, AND every connector account row's ``secrets`` blob
+    using a freshly generated key in memory and commits the DB transaction
+    *before* the new key file replaces the old one via temp-file +
+    ``os.replace``. All three surfaces commit atomically — a partial
+    rotation that handled only a subset would leave the others encrypted
+    under a key that no longer exists on disk. If the DB commit fails, the
+    on-disk key file is left byte-identical to its pre-rotation contents so
+    existing ciphertext on all three surfaces remains decryptable.
 
-    Migration-residue MCP rows (plaintext ``'{}'`` carried over from the
-    v10 column default) are tolerated via InvalidToken-swallowing decrypt;
-    they are normalized to proper ciphertext for ``{}`` as a side-effect.
+    Migration-residue MCP and connector rows (plaintext ``'{}'`` carried
+    over from the column default) are tolerated via InvalidToken-swallowing
+    decrypt; they are normalized to proper ciphertext for ``{}`` as a
+    side-effect.
     """
     encryptor = get_encryptor(settings.data_dir)
     if encryptor.key_path is None:
@@ -2798,6 +2800,27 @@ async def rotate_encryption_key() -> dict[str, str]:
                 secrets_dict = {}
         decrypted_mcps.append((row["id"], secrets_dict))
 
+    async with conn.execute("SELECT id, secrets FROM connector_accounts") as cur:
+        connector_rows = await cur.fetchall()
+
+    # Tolerant decrypt mirrors the MCP path above. Pre-rotation connector
+    # rows created through ConnectorAccountRepository will already be
+    # encrypted; tolerant decrypt only matters if a future migration adds
+    # the column to pre-existing rows with the plaintext '{}' default.
+    # JSON decode errors are NOT swallowed — they indicate real corruption.
+    decrypted_connectors: list[tuple[str, dict[str, Any]]] = []
+    for row in connector_rows:
+        ciphertext = row["secrets"]
+        if not ciphertext:
+            conn_secrets_dict: dict[str, Any] = {}
+        else:
+            try:
+                plaintext = encryptor.decrypt(ciphertext)
+                conn_secrets_dict = json.loads(plaintext)
+            except InvalidToken:
+                conn_secrets_dict = {}
+        decrypted_connectors.append((row["id"], conn_secrets_dict))
+
     # 2. Generate a new key + Encryptor in memory only (no disk writes yet).
     new_key = Fernet.generate_key()
     new_encryptor = Encryptor(new_key)
@@ -2808,14 +2831,18 @@ async def rotate_encryption_key() -> dict[str, str]:
         (sid, new_encryptor.encrypt(json.dumps(secrets_dict)))
         for sid, secrets_dict in decrypted_mcps
     ]
+    reencrypted_connectors = [
+        (aid, new_encryptor.encrypt(json.dumps(secrets_dict)))
+        for aid, secrets_dict in decrypted_connectors
+    ]
 
     # 4. Write all rows in a single transaction and commit. If anything in
     #    this block raises, roll the transaction back so the connection
     #    cache does not surface uncommitted ciphertext encrypted with the
     #    new (not-yet-on-disk) key. The key file is untouched at this
     #    point, so re-raising leaves the system fully recoverable. The
-    #    single commit() covers BOTH tables — a failure in either UPDATE
-    #    loop rolls back BOTH atomically.
+    #    single commit() covers ALL THREE tables — a failure in any UPDATE
+    #    loop rolls back all three atomically.
     try:
         for pid, ct in reencrypted:
             await conn.execute(
@@ -2826,6 +2853,11 @@ async def rotate_encryption_key() -> dict[str, str]:
             await conn.execute(
                 "UPDATE mcp_sources SET secrets = ? WHERE id = ?",
                 (ct, sid),
+            )
+        for aid, ct in reencrypted_connectors:
+            await conn.execute(
+                "UPDATE connector_accounts SET secrets = ? WHERE id = ?",
+                (ct, aid),
             )
         await conn.commit()
     except Exception:

@@ -739,6 +739,206 @@ class TestEncryptionRotation:
         decrypted = Fernet(key_before).decrypt(row["secrets"].encode()).decode()
         assert _json.loads(decrypted) == {"K": "preservedmcpsecretvalue"}
 
+    async def test_rotate_connector_account_secrets(
+        self, client: AsyncClient, tmp_path: Path
+    ) -> None:
+        """After rotation, connector_accounts.secrets still decrypts under
+        the new key — re-encrypted atomically with llm_providers.api_key
+        and mcp_sources.secrets in the same single commit.
+
+        Mirrors test_rotate_mcp_source_secrets at line 612. Seeds via raw
+        SQL because Flight 1 ships no REST routes for connector_accounts —
+        those land in Flight 2. The seeding pattern mirrors the existing
+        migration-residue test's "fresh aiosqlite connection on the test
+        DB" idiom for cross-connection commit visibility.
+        """
+        import json as _json
+
+        # Seed a connector_accounts row directly via SQL. Open a fresh
+        # connection on the same DB the API fixture is using (path is
+        # ``tmp_path / "test.db"``) — proven cross-connection commit
+        # visibility ordering with the existing MCP rotation tests.
+        seed_conn = await aiosqlite.connect(str(tmp_path / "test.db"))
+        seed_conn.row_factory = aiosqlite.Row
+        try:
+            # Read the test encryptor's key from the on-disk key file the
+            # client fixture created and encrypt secrets in-process.
+            key_before = (tmp_path / "test.key").read_bytes()
+            ciphertext = (
+                Fernet(key_before)
+                .encrypt(_json.dumps({"BOT_TOKEN": "rotationtest5678"}).encode())
+                .decode()
+            )
+            await seed_conn.execute(
+                "INSERT INTO connector_accounts (id, type, config, secrets) "
+                "VALUES (?, ?, ?, ?)",
+                ("acct-rotate", "stub", "{}", ciphertext),
+            )
+            await seed_conn.commit()
+        finally:
+            await seed_conn.close()
+
+        resp = await client.post("/api/encryption/rotate")
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "ok"}
+
+        # The key file has been replaced; read the new key and verify the
+        # stored ciphertext decrypts under it (proves the row was re-
+        # encrypted in the rotation transaction's third UPDATE loop).
+        key_after = (tmp_path / "test.key").read_bytes()
+        assert key_after != key_before
+
+        verify_conn = await aiosqlite.connect(str(tmp_path / "test.db"))
+        verify_conn.row_factory = aiosqlite.Row
+        try:
+            async with verify_conn.execute(
+                "SELECT secrets FROM connector_accounts WHERE id = ?", ("acct-rotate",)
+            ) as cur:
+                row = await cur.fetchone()
+        finally:
+            await verify_conn.close()
+        assert row is not None
+        decrypted = Fernet(key_after).decrypt(row["secrets"].encode()).decode()
+        assert _json.loads(decrypted) == {"BOT_TOKEN": "rotationtest5678"}
+
+    async def test_rotate_preserves_connector_secrets_on_db_failure(
+        self, client: AsyncClient, tmp_path: Path
+    ) -> None:
+        """A DB commit failure during rotation leaves all three corpora
+        byte-identical — llm_providers.api_key, mcp_sources.secrets, AND
+        connector_accounts.secrets roll back together.
+
+        Mirrors test_rotate_preserves_mcp_secrets_on_db_failure at line 669
+        — ``unittest.mock.patch("aiosqlite.Connection.commit", side_effect=
+        RuntimeError(...))`` is the canonical pattern that exercises the
+        full try/UPDATE-loops/commit/except/rollback contract. Patching
+        earlier UPDATE statements would not fire because the rotation
+        handler gets its own connection via ``get_connection()``.
+        """
+        import json as _json
+
+        # Seed one row in each of the three encrypted corpora via the
+        # public API where possible (llm_providers, mcp_sources) and raw
+        # SQL for connector_accounts (no REST route in Flight 1).
+        prov_resp = await client.post(
+            "/api/providers",
+            json={
+                "name": "FailMix",
+                "type": "openai",
+                "base_url": "https://api.openai.com/v1",
+                "api_key": "sk-preservetokenabcd",
+            },
+        )
+        assert prov_resp.status_code in (200, 201)
+        pid = prov_resp.json()["id"]
+
+        mcp_resp = await client.post(
+            "/api/mcp-sources",
+            json={
+                "name": "FailMixMCP",
+                "type": "stdio",
+                "config": {"command": "x"},
+                "secrets": {"K": "preservedmcpvalue"},
+            },
+        )
+        assert mcp_resp.status_code in (200, 201)
+        sid = mcp_resp.json()["id"]
+
+        # Seed connector_accounts row with encrypted secrets via a fresh
+        # aiosqlite connection (no REST route until Flight 2).
+        key_before = (tmp_path / "test.key").read_bytes()
+        conn_ct_before = (
+            Fernet(key_before)
+            .encrypt(_json.dumps({"BOT_TOKEN": "preservedconnectorvalue"}).encode())
+            .decode()
+        )
+        seed_conn = await aiosqlite.connect(str(tmp_path / "test.db"))
+        seed_conn.row_factory = aiosqlite.Row
+        try:
+            await seed_conn.execute(
+                "INSERT INTO connector_accounts (id, type, config, secrets) "
+                "VALUES (?, ?, ?, ?)",
+                ("conn-preserve", "stub", "{}", conn_ct_before),
+            )
+            await seed_conn.commit()
+        finally:
+            await seed_conn.close()
+
+        # Capture pre-rotation ciphertext directly from the DB for each
+        # corpus so we can assert byte-equality post-failure.
+        snapshot_conn = await aiosqlite.connect(str(tmp_path / "test.db"))
+        snapshot_conn.row_factory = aiosqlite.Row
+        try:
+            async with snapshot_conn.execute(
+                "SELECT api_key FROM llm_providers WHERE id = ?", (pid,)
+            ) as cur:
+                llm_ct_before = (await cur.fetchone())["api_key"]
+            async with snapshot_conn.execute(
+                "SELECT secrets FROM mcp_sources WHERE id = ?", (sid,)
+            ) as cur:
+                mcp_ct_before = (await cur.fetchone())["secrets"]
+            async with snapshot_conn.execute(
+                "SELECT secrets FROM connector_accounts WHERE id = ?", ("conn-preserve",)
+            ) as cur:
+                conn_ct_actual_before = (await cur.fetchone())["secrets"]
+        finally:
+            await snapshot_conn.close()
+        assert conn_ct_actual_before == conn_ct_before
+
+        # Inject failure at the commit boundary. All three UPDATE loops
+        # run, then commit raises, then the rollback in the except path
+        # restores all three corpora atomically.
+        with (
+            patch(
+                "aiosqlite.Connection.commit",
+                side_effect=RuntimeError("simulated DB failure"),
+            ),
+            pytest.raises(RuntimeError, match="simulated DB failure"),
+        ):
+            await client.post("/api/encryption/rotate")
+
+        # (i) Key file byte-identical to its pre-rotation contents
+        assert (tmp_path / "test.key").read_bytes() == key_before
+
+        # (ii) Cached encryptor still decrypts (proves install_key NOT called).
+        # We exercise the LLM + MCP surfaces via the API; for connector
+        # accounts (no REST route yet) we open a fresh connection and
+        # decrypt with the pre-rotation key directly.
+        prov_get = await client.get(f"/api/providers/{pid}")
+        assert prov_get.status_code == 200
+        assert prov_get.json()["api_key"] == "***...abcd"
+
+        mcp_get = await client.get(f"/api/mcp-sources/{sid}")
+        assert mcp_get.status_code == 200
+        assert mcp_get.json()["secrets"]["K"] == "***...alue"
+
+        # (iii) On-disk ciphertext byte-identical for ALL THREE corpora —
+        # catches a regression where any UPDATE loop wrote new ciphertext
+        # before the commit failed.
+        post_conn = await aiosqlite.connect(str(tmp_path / "test.db"))
+        post_conn.row_factory = aiosqlite.Row
+        try:
+            async with post_conn.execute(
+                "SELECT api_key FROM llm_providers WHERE id = ?", (pid,)
+            ) as cur:
+                assert (await cur.fetchone())["api_key"] == llm_ct_before
+            async with post_conn.execute(
+                "SELECT secrets FROM mcp_sources WHERE id = ?", (sid,)
+            ) as cur:
+                assert (await cur.fetchone())["secrets"] == mcp_ct_before
+            async with post_conn.execute(
+                "SELECT secrets FROM connector_accounts WHERE id = ?", ("conn-preserve",)
+            ) as cur:
+                assert (await cur.fetchone())["secrets"] == conn_ct_before
+        finally:
+            await post_conn.close()
+
+        # Direct decrypt with the pre-rotation key still works on disk
+        # ciphertext for the connector row (closes the loop: not just byte-
+        # equality but functional decryptability under the original key).
+        decrypted = Fernet(key_before).decrypt(conn_ct_before.encode()).decode()
+        assert _json.loads(decrypted) == {"BOT_TOKEN": "preservedconnectorvalue"}
+
     async def test_rotate_with_migration_residue_mcp_row(
         self, client: AsyncClient, tmp_path: Path
     ) -> None:

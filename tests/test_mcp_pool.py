@@ -525,19 +525,23 @@ async def test_acquire_after_shutdown_drain_raises_runtime_error(
         await acquire("agent-a", "src-1")
 
 
-async def test_lifespan_order_pty_drain_before_mcp_drain_before_db_close(
-    monkeypatch,
-):
-    """Locks flight §12 ordering: PTY drain → MCP drain → DB close.
+async def test_lifespan_shutdown_drain_order(monkeypatch):
+    """Locks the lifespan shutdown ordering across subsystems:
+    PTY drain → MCP drain → connector drain → OAuth sweep stop → DB close.
 
     Mocks the four startup symbols (init_db, get_connection,
     migrate_json_to_sqlite, SQLiteAgentStore, AgentFactory) so lifespan's
-    startup does not try to talk to a real DB. Then mocks the three
-    shutdown targets and asserts call order. Per cycle-1 reviewer fix —
-    earlier drafts only mocked the shutdown targets, leaving startup to
-    crash.
+    startup does not try to talk to a real DB. Then mocks every
+    shutdown target and asserts call order.
+
+    M10 F1 L6 extension: the connector pool drain is spliced in between
+    the MCP drain and the OAuth sweep stop. The OAuth sweep
+    (``start_periodic_sweep`` / ``stop_periodic_sweep``) is imported
+    function-locally in ``lifespan`` — monkeypatch it on the
+    ``the_one.mcp.oauth`` module since that's where the import resolves.
     """
     from the_one.interfaces.web import app as app_mod
+    from the_one.mcp import oauth as oauth_mod
 
     calls: list[str] = []
 
@@ -558,6 +562,10 @@ async def test_lifespan_order_pty_drain_before_mcp_drain_before_db_close(
     monkeypatch.setattr(app_mod, "migrate_json_to_sqlite", _fake_migrate_json_to_sqlite)
     monkeypatch.setattr(app_mod, "SQLiteAgentStore", MagicMock())
     monkeypatch.setattr(app_mod, "AgentFactory", MagicMock())
+    # ``start_periodic_sweep`` is imported function-locally inside
+    # ``lifespan``; stub it on the source module so the import resolves
+    # to a no-op.
+    monkeypatch.setattr(oauth_mod, "start_periodic_sweep", lambda: None)
 
     # Shutdown spies.
     async def _fake_pty_drain():
@@ -566,11 +574,19 @@ async def test_lifespan_order_pty_drain_before_mcp_drain_before_db_close(
     async def _fake_mcp_drain():
         calls.append("mcp")
 
+    async def _fake_connector_drain():
+        calls.append("connector")
+
+    async def _fake_oauth_sweep_stop():
+        calls.append("oauth")
+
     async def _fake_close_conn():
         calls.append("db")
 
     monkeypatch.setattr(app_mod, "_session_registry_shutdown_drain", _fake_pty_drain)
     monkeypatch.setattr(app_mod, "_mcp_pool_shutdown_drain", _fake_mcp_drain)
+    monkeypatch.setattr(app_mod, "_connector_pool_shutdown_drain", _fake_connector_drain)
+    monkeypatch.setattr(oauth_mod, "stop_periodic_sweep", _fake_oauth_sweep_stop)
     monkeypatch.setattr(app_mod, "close_connection", _fake_close_conn)
 
     # Drive lifespan: enter (runs startup), exit (runs shutdown).
@@ -580,9 +596,9 @@ async def test_lifespan_order_pty_drain_before_mcp_drain_before_db_close(
     async with app_mod.lifespan(fake_app):
         pass
 
-    # Filter to the three drain steps; assert order.
-    drain_steps = [c for c in calls if c in ("pty", "mcp", "db")]
-    assert drain_steps == ["pty", "mcp", "db"]
+    # Filter to the recognized drain steps; assert the full order.
+    drain_steps = [c for c in calls if c in ("pty", "mcp", "connector", "oauth", "db")]
+    assert drain_steps == ["pty", "mcp", "connector", "oauth", "db"]
 
 
 async def test_drain_timeout_handles_stuck_worker(monkeypatch):
