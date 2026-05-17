@@ -5,9 +5,10 @@ from __future__ import annotations
 import pytest
 
 from the_one.agent.config import AgentConfig
-from the_one.db.models import ChatSession, KBItem, KnowledgeBase, MCPSource
+from the_one.db.models import ChatSession, ConnectorAccount, KBItem, KnowledgeBase, MCPSource
 from the_one.db.repositories import (
     ChatSessionRepository,
+    ConnectorAccountRepository,
     KBItemRepository,
     KnowledgeBaseRepository,
     MCPSourceRepository,
@@ -63,6 +64,24 @@ def mcp_repo_encryptor(tmp_path):
 @pytest.fixture
 def mcp_repo(conn, mcp_repo_encryptor):
     return MCPSourceRepository(conn, mcp_repo_encryptor)
+
+
+@pytest.fixture
+def connector_repo_encryptor(tmp_path):
+    # Function-scoped (default). Do NOT promote to module/session scope —
+    # would outlive the per-test `conn` fixture and create cross-test
+    # state leakage on the encryptor's in-memory key.
+    from cryptography.fernet import Fernet
+
+    from the_one.encryption import Encryptor
+
+    key = Fernet.generate_key()
+    return Encryptor(key, key_path=tmp_path / "connector.key")
+
+
+@pytest.fixture
+def connector_repo(conn, connector_repo_encryptor):
+    return ConnectorAccountRepository(conn, connector_repo_encryptor)
 
 
 @pytest.fixture
@@ -365,6 +384,133 @@ class TestMCPSourceRepository:
         )
         merged = source.merged_config()
         assert merged == {"command": "x", "TOKEN": "encrypted-real"}
+
+
+# ── Connector Account Repository ─────────────────────────────────────────
+
+
+class TestConnectorAccountRepository:
+    """CRUD coverage for ConnectorAccountRepository.
+
+    Mission 10 flight 01 leg 02 — sibling to ``TestMCPSourceRepository``,
+    minus the ``merged_config`` test (the helper is deferred to flight 06
+    per flight Design Decisions). The encryption envelope assertions and
+    reference-not-copy invariant are exercised identically.
+    """
+
+    async def test_create_and_get(
+        self, connector_repo: ConnectorAccountRepository
+    ) -> None:
+        account = ConnectorAccount(
+            id="a1", name="Test Bot", type="stub", config={"intent": "guild_messages"}
+        )
+        await connector_repo.create(account)
+        loaded = await connector_repo.get("a1")
+        assert loaded.name == "Test Bot"
+        assert loaded.config == {"intent": "guild_messages"}
+
+    async def test_list(self, connector_repo: ConnectorAccountRepository) -> None:
+        await connector_repo.create(
+            ConnectorAccount(id="b", name="Bravo Bot", type="stub")
+        )
+        await connector_repo.create(
+            ConnectorAccount(id="a", name="Alpha Bot", type="stub")
+        )
+        accounts = await connector_repo.list()
+        assert [a.name for a in accounts] == ["Alpha Bot", "Bravo Bot"]
+
+    async def test_update(self, connector_repo: ConnectorAccountRepository) -> None:
+        await connector_repo.create(
+            ConnectorAccount(id="a1", name="Old Name", type="stub")
+        )
+        account = await connector_repo.get("a1")
+        account.name = "New Name"
+        await connector_repo.update(account)
+        loaded = await connector_repo.get("a1")
+        assert loaded.name == "New Name"
+
+    async def test_delete(self, connector_repo: ConnectorAccountRepository) -> None:
+        await connector_repo.create(
+            ConnectorAccount(id="a1", name="Doomed", type="stub")
+        )
+        await connector_repo.delete("a1")
+        with pytest.raises(KeyError):
+            await connector_repo.get("a1")
+
+    async def test_secrets_round_trip(
+        self, connector_repo: ConnectorAccountRepository
+    ) -> None:
+        """secrets dict round-trips through the encryption envelope."""
+        account = ConnectorAccount(
+            id="a1",
+            name="Discord Bot",
+            type="stub",
+            config={"intent": "guild_messages"},
+            secrets={"BOT_TOKEN": "discord_secret_value_xyz"},
+        )
+        await connector_repo.create(account)
+        fetched = await connector_repo.get("a1")
+        assert fetched.config == {"intent": "guild_messages"}
+        assert fetched.secrets == {"BOT_TOKEN": "discord_secret_value_xyz"}
+
+    async def test_secrets_encrypted_at_rest(
+        self, connector_repo: ConnectorAccountRepository
+    ) -> None:
+        """Raw DB read of the secrets column yields ciphertext, NOT plaintext JSON."""
+        import json
+
+        account = ConnectorAccount(
+            id="a1",
+            name="Test",
+            type="stub",
+            secrets={"TOKEN": "super-secret-value"},
+        )
+        await connector_repo.create(account)
+        async with connector_repo.conn.execute(
+            "SELECT secrets FROM connector_accounts WHERE id = ?", ("a1",)
+        ) as cur:
+            row = await cur.fetchone()
+        raw = row["secrets"]
+        assert raw is not None
+        assert "super-secret-value" not in raw
+        assert "TOKEN" not in raw
+        # Fernet ciphertext is base64; sanity-check it decrypts back via the
+        # repo's encryptor.
+        decrypted = connector_repo.encryptor.decrypt(raw)
+        assert json.loads(decrypted) == {"TOKEN": "super-secret-value"}
+
+    async def test_empty_secrets_default(
+        self, connector_repo: ConnectorAccountRepository
+    ) -> None:
+        """An account created without secrets= round-trips with secrets={}."""
+        account = ConnectorAccount(id="a1", name="Test", type="stub", config={"x": 1})
+        await connector_repo.create(account)
+        fetched = await connector_repo.get("a1")
+        assert fetched.secrets == {}
+
+    async def test_install_key_post_create_decrypts_via_same_instance(
+        self, connector_repo: ConnectorAccountRepository
+    ) -> None:
+        """Post install_key, the same repo instance decrypts new writes.
+
+        Locks the reference-not-copy invariant: install_key() mutates the
+        Encryptor in place; the repository's stored reference sees the
+        mutation. Re-creates a row after the key swap and round-trips.
+        """
+        from cryptography.fernet import Fernet
+
+        new_key = Fernet.generate_key()
+        connector_repo.encryptor.install_key(new_key)
+
+        account = ConnectorAccount(
+            id="a1",
+            name="PostKey",
+            type="stub",
+            secrets={"K": "value-after-rotation"},
+        )
+        await connector_repo.create(account)
+        fetched = await connector_repo.get("a1")
+        assert fetched.secrets == {"K": "value-after-rotation"}
 
 
 # ── Chat Session Repository ──────────────────────────────────────────────

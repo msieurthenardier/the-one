@@ -8,7 +8,7 @@ import aiosqlite
 
 from the_one.db._provider_types import PROVIDER_TYPES
 
-CURRENT_VERSION = 12
+CURRENT_VERSION = 14
 
 # Render the provider-type CHECK constraint as a comma-separated SQL
 # literal list, sourced from PROVIDER_TYPES. Both SCHEMA_V1 (fresh-DB
@@ -475,3 +475,62 @@ PRAGMA foreign_keys=ON;
         await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (12,))
         await conn.commit()
         version = 12
+
+    if version < 13:
+        # Add connector_accounts table (mission 10 flight 01) for
+        # bi-directional communication connector identities (Discord bot,
+        # Slack workspace app, etc.). Sibling to mcp_sources at the
+        # persistence-layer level.
+        #
+        # No CHECK constraint on `type` in v13 (in contrast to mcp_sources
+        # which had `CHECK (type IN ('stdio', 'streamable-http'))` from v3).
+        # The Pydantic Literal on ConnectorAccount.type is the sole guard
+        # at the API edge; flight 8 (Discord) will land v14 with the
+        # table-rename ceremony to add the CHECK once 'discord' is a real
+        # type to constrain. The _connector_types.py tuple is the canonical
+        # source of truth — empty in v13, grown by future flights.
+        #
+        # Idempotency follows the v10/v11 contract: individual
+        # `await conn.execute(...)` calls (NOT executescript), CREATE TABLE
+        # IF NOT EXISTS makes the table creation a no-op on rerun, and the
+        # `INSERT OR IGNORE INTO schema_version` is LAST so a partial-apply
+        # leaves version=12 and the next call retries cleanly.
+        await conn.execute("""\
+CREATE TABLE IF NOT EXISTS connector_accounts (
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL,
+    config TEXT DEFAULT '{}',
+    secrets TEXT DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+)""")
+
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (13,))
+        await conn.commit()
+        version = 13
+
+    if version < 14:
+        # Add `name` column to connector_accounts. Caught during leg 02 of
+        # mission 10 flight 01: the flight spec said "mirror MCPSource shape"
+        # but the v13 migration omitted the column. MCPSource has `name: str`
+        # as a first-class column for operator-visible identification
+        # (Studio agent editor + MCP admin surface both render `name`).
+        # Connector accounts inherit the same display surface in flight 2.
+        #
+        # NOT NULL DEFAULT '' lets the ALTER succeed against any v13-seeded
+        # row (in practice zero — the table was empty at v13). New rows
+        # created through ConnectorAccountRepository will always carry a real
+        # `name` because the Pydantic model requires it (no default).
+        #
+        # Idempotency follows the v11 ALTER ADD COLUMN pattern (PRAGMA guard
+        # + INSERT OR IGNORE on schema_version LAST).
+        async with conn.execute("PRAGMA table_info(connector_accounts)") as cursor:
+            existing_cols = {row[1] for row in await cursor.fetchall()}
+        if "name" not in existing_cols:
+            await conn.execute(
+                "ALTER TABLE connector_accounts ADD COLUMN name TEXT NOT NULL DEFAULT ''"
+            )
+
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (14,))
+        await conn.commit()
+        version = 14

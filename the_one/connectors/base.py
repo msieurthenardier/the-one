@@ -1,0 +1,241 @@
+"""Connector plugin contract.
+
+The single file every future connector author opens to implement support
+for a new third-party communication platform. The four-method
+:class:`ConnectorPlugin` Protocol below is the type-level adapter contract;
+:class:`ConnectorClient` is the per-instance live-connection wrapper that
+each plugin's :meth:`connect` returns.
+
+Per ``agents.md`` ``structural-Protocol-satisfaction``: implementations
+satisfy the Protocols structurally and DO NOT inherit from them. A connector
+that supports allowlists and platform-side commands additionally satisfies
+the :class:`AllowlistResolver` and :class:`CommandHandler` Protocols
+(introduced by flights 6 and 7 of mission 10). All three Protocols will live
+in this file — "single contract file" is the mission criterion, not "single
+Protocol".
+
+Per ``agents.md`` ``canonical-import + convenience-re-export``: code that
+touches Protocol identity (``isinstance(...)`` or subclass checks) MUST use
+the canonical import path from this module, not from ``the_one.connectors``
+(the package-level ``__init__.py`` re-exports for convenience only).
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any, Literal, Protocol, runtime_checkable
+
+from the_one.db.models import ConnectorAccount
+from the_one.encryption import Encryptor
+
+
+@dataclass(frozen=True, slots=True)
+class InboundEnvelope:
+    """A message received from the external platform, normalized for routing.
+
+    The plugin's gateway-listener / webhook-receiver constructs one of
+    these per inbound message and hands it to the connector subsystem.
+    """
+
+    platform: str
+    """The connector's ``type`` value (e.g. ``"discord"``, ``"slack"``)."""
+
+    account_id: str
+    """The :class:`ConnectorAccount.id` whose gateway delivered this message."""
+
+    channel_id: str
+    """Platform-native channel identifier (Discord channel snowflake, Slack
+    channel id). For DMs, this is the DM channel; for guild messages, the
+    text channel."""
+
+    thread_id: str | None
+    """Platform-native thread identifier when the message is in a thread;
+    ``None`` for top-level channel messages."""
+
+    peer_id: str
+    """Platform-native peer identifier (the sender's Discord user id, Slack
+    user id, etc.)."""
+
+    peer_name: str
+    """The sender's display name on the platform at the moment of inbound."""
+
+    text: str
+    """The message body as plain text (platform-specific markup stripped)."""
+
+    raw: dict[str, Any] = field(hash=False, compare=False)
+    """The platform-native payload, untransformed. Plugins may consult this
+    for fields not yet promoted to first-class envelope attributes
+    (attachments, embeds, etc.).
+
+    Required at construction time. Excluded from ``__hash__`` and ``__eq__``
+    via ``field(hash=False, compare=False)`` — bare ``frozen=True, slots=True``
+    on a dataclass with a ``dict`` field constructs fine but ``hash()`` raises
+    ``TypeError: unhashable type: 'dict'``. Hashability is preserved on the
+    scalar fields; dict contents are not part of the envelope's identity.
+    """
+
+
+@dataclass(frozen=True, slots=True)
+class OutboundTarget:
+    """Where on the platform an agent's reply is being sent."""
+
+    channel_id: str
+    """The platform-native channel id to deliver the message to."""
+
+    thread_id: str | None = None
+    """Optional thread to post into; ``None`` posts in the channel itself."""
+
+
+@dataclass(frozen=True, slots=True)
+class SessionKey:
+    """Normalized binding between an external conversation and an internal
+    ``chat_sessions`` row.
+
+    Built by :meth:`ConnectorPlugin.normalize_session_key`. Hashable
+    (``frozen=True``, ``slots=True``) so it can be used as a dict key in
+    the agent-session mapping that flight 3 of mission 10 introduces.
+
+    The exact set of fields that participate in the key (e.g. does
+    ``thread_id`` separate the binding or fold into the channel?) is a
+    flight-3 design decision. This dataclass carries all candidate fields;
+    flight 3's normalization logic decides which to populate.
+    """
+
+    platform: str
+    account_id: str
+    channel_id: str
+    thread_id: str | None = None
+    peer_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class DoctorReport:
+    """Result of a :meth:`ConnectorPlugin.doctor` probe.
+
+    Mirrors the diagnostic shape M07's MCP inspector established (status
+    plus a human-readable message plus optional structured details for the
+    admin UI).
+    """
+
+    status: Literal["ok", "degraded", "failed"]
+    """The probe outcome — ``ok`` if every check passed, ``degraded`` if the
+    connection works but a non-critical check failed, ``failed`` if the
+    plugin cannot use this account."""
+
+    message: str
+    """One-sentence human-readable summary suitable for the admin UI's
+    inline status. Mirrors the small-model-friendly convention of
+    ``the_one/mcp/errors.py``."""
+
+    details: dict[str, Any] = field(hash=False, compare=False)
+    """Required structured detail surface for the admin UI's expanded
+    probe view. Plugins MAY pass an empty dict when there is nothing
+    platform-specific to surface. Plugins MAY populate platform-specific
+    fields (token fingerprint, intent coverage, gateway endpoint, etc.).
+    The shape is not standardized across plugins.
+
+    Excluded from ``__hash__`` and ``__eq__`` — same rationale as
+    :attr:`InboundEnvelope.raw`.
+    """
+
+
+@runtime_checkable
+class ConnectorClient(Protocol):
+    """Live-connection wrapper for a single connector account.
+
+    Each :meth:`ConnectorPlugin.connect` invocation produces a
+    :class:`ConnectorClient`. The per-(agent, account) lifecycle pool
+    (legs 5+6 of this flight) holds one client per warm entry and calls
+    :meth:`is_alive` to decide whether the client needs respawn.
+
+    ``runtime_checkable`` Protocol checks method NAMES only, so widening
+    this surface is non-breaking for any existing
+    ``isinstance(client, ConnectorClient)`` check. Flight 4 widens this
+    to add an outbound-send method when the platform-send tool needs it.
+    """
+
+    def is_alive(self) -> bool:
+        """Return ``True`` if the underlying platform connection is healthy.
+
+        Called periodically by the lifecycle pool's reaper. ``False``
+        triggers an evict-and-respawn; a raised exception is treated as
+        ``False`` plus logged.
+        """
+        ...
+
+
+@runtime_checkable
+class ConnectorPlugin(Protocol):
+    """Type-level adapter for a third-party communication platform.
+
+    Implementations (one per platform — ``DiscordPlugin``, ``SlackPlugin``,
+    ``StubPlugin``) structurally satisfy this Protocol WITHOUT inheriting
+    from it. Each plugin is stateless at the type level — per-account
+    state lives on the :class:`ConnectorClient` instances returned by
+    :meth:`connect`.
+
+    ``runtime_checkable`` Protocol checks method NAMES only. Widening this
+    Protocol is non-breaking for existing
+    ``isinstance(plugin, ConnectorPlugin)`` consumers, so subsequent flights
+    can add methods deliberately. Flights 6 and 7 do NOT widen this Protocol
+    — they introduce separate :class:`AllowlistResolver` and
+    :class:`CommandHandler` Protocols, also in this file, that connectors
+    structurally satisfy in addition to :class:`ConnectorPlugin`.
+    """
+
+    async def connect(
+        self,
+        account: ConnectorAccount,
+        encryptor: Encryptor,
+    ) -> ConnectorClient:
+        """Open a live platform connection for ``account`` and return the client.
+
+        ``encryptor`` is the system-wide :class:`Encryptor` instance used
+        to decrypt ``account.secrets`` at call time. The plugin MUST NOT
+        retain a reference to the decrypted plaintext past the call; the
+        ``encryptor`` reference may be retained (rotation propagates
+        through it).
+
+        Raises :class:`ConnectorConfigError` if the account's config or
+        secrets are invalid for this plugin; :class:`ConnectorConnectionError`
+        if the platform is unreachable; :class:`ConnectorAuthRequired` if
+        the platform reports that the operator needs to re-authenticate
+        before connection can proceed.
+        """
+        ...
+
+    async def disconnect(self, client: ConnectorClient) -> None:
+        """Cleanly tear down ``client``'s platform connection.
+
+        Called by the lifecycle pool at evict time and at shutdown drain.
+        Should be best-effort idempotent — calling ``disconnect`` on a
+        client that is already disconnected MUST NOT raise.
+        """
+        ...
+
+    async def doctor(
+        self,
+        account: ConnectorAccount,
+        encryptor: Encryptor,
+    ) -> DoctorReport:
+        """Probe ``account`` without dispatching messages to peers.
+
+        Verifies the connection lifecycle, token validity, and any
+        plugin-specific capability/permission preconditions. Returns a
+        :class:`DoctorReport` rather than raising — failure is a normal
+        outcome the admin UI renders, not an exception that crashes the
+        request.
+        """
+        ...
+
+    def normalize_session_key(self, inbound: InboundEnvelope) -> SessionKey:
+        """Compute the canonical :class:`SessionKey` for ``inbound``.
+
+        The plugin decides which fields of the inbound envelope participate
+        in the key (does ``thread_id`` separate the binding or fold into
+        the channel? does the peer participate in a DM-only context?). The
+        connector subsystem treats the returned key as opaque and uses it
+        as a dict-lookup primitive against the agent-session mapping in
+        flight 3 of mission 10.
+        """
+        ...

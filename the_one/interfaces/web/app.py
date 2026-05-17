@@ -35,6 +35,7 @@ from the_one.agent.factory import (
     ProviderNotFoundError,
 )
 from the_one.config import settings
+from the_one.connectors._pool import shutdown_drain as _connector_pool_shutdown_drain
 from the_one.db import close_connection, init_db
 from the_one.db.codec import (
     decode_messages,
@@ -114,6 +115,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await _mcp_pool_shutdown_drain()
     except Exception:
         logger.exception("MCP pool shutdown failed")
+    # M10 F1 L6: drain the connector pool AFTER MCP pool drain. Like MCP,
+    # connectors hold warm network connections; each subsystem's
+    # ``shutdown_drain`` bounds its drain time at ~10s via parallel
+    # gather, so sequential subsystem drains are fine. Connector pool
+    # drain runs BEFORE the OAuth sweep stop (parallel to MCP's
+    # ordering) and BEFORE DB close.
+    try:
+        await _connector_pool_shutdown_drain()
+    except Exception:
+        logger.exception("connector pool shutdown failed")
     # F5 L2: stop the OAuth pending-flow TTL sweep task. Runs AFTER the
     # MCP pool drain so any in-flight OAuth refreshes triggered by
     # pool teardown can complete first.
