@@ -8,7 +8,7 @@ import aiosqlite
 
 from the_one.db._provider_types import PROVIDER_TYPES
 
-CURRENT_VERSION = 15
+CURRENT_VERSION = 16
 
 # Render the provider-type CHECK constraint as a comma-separated SQL
 # literal list, sourced from PROVIDER_TYPES. Both SCHEMA_V1 (fresh-DB
@@ -544,7 +544,7 @@ CREATE TABLE IF NOT EXISTS connector_accounts (
         # milliseconds-vs-seconds typo.
         #
         # Downstream: flight 08 (Discord) previously planned a v15 CHECK
-        # migration; that renumbers to v16. See _connector_types.py
+        # migration; that renumbers to v17. See _connector_types.py
         # docstring + tests/test_db_migration.py TestSchemaV14 docstring.
         #
         # Idempotency follows the v11/v14 ALTER ADD COLUMN pattern (PRAGMA
@@ -559,3 +559,68 @@ CREATE TABLE IF NOT EXISTS connector_accounts (
         await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (15,))
         await conn.commit()
         version = 15
+
+    if version < 16:
+        # Mission 10 Flight 3 Leg 1: chat-session connector keying + session
+        # continuation timeout.
+        #
+        # ADDs seven nullable columns to chat_sessions that hold the external
+        # conversation identity (platform, connector_account_id, channel_id,
+        # thread_id, peer_id), plus a JSON metadata column (session_metadata;
+        # F7 routing-decision logs piggyback so we only migrate once) and a
+        # timestamp column (last_inbound_at) for the resolver's
+        # continuation-window check. All NULL on non-connector sessions; the
+        # partial index below makes the lookup fast for connector-keyed rows
+        # without paying for the (much larger) non-connector set.
+        #
+        # ADDs session_continuation_seconds to connector_accounts (sibling
+        # to v15's idle_timeout_seconds — the per-connector chat-session
+        # continuation window; defaults to 86400=24h via the resolver, NOT
+        # via a column DEFAULT, so NULL means "use resolver default").
+        #
+        # CREATEs the partial expression index for the external-key lookup.
+        # SQLite ≥3.9 supports expression indexes; COALESCE in the indexed
+        # expression list normalises NULL thread_id matches against the
+        # resolver's COALESCE(?, '') WHERE clause.
+        #
+        # Downstream: flight 08 (Discord) previously planned a v16 CHECK
+        # migration; that renumbers to v17. See _connector_types.py docstring
+        # + tests/test_db_migration.py TestSchemaV14 docstring + agents.md
+        # connector-type checklist item 4.
+        #
+        # Idempotency follows the v11/v14/v15 ALTER ADD COLUMN pattern
+        # (PRAGMA guard per column + CREATE INDEX IF NOT EXISTS + INSERT OR
+        # IGNORE on schema_version LAST).
+        async with conn.execute("PRAGMA table_info(chat_sessions)") as cursor:
+            existing_chat_cols = {row[1] for row in await cursor.fetchall()}
+        for col, ddl_type in (
+            ("platform", "TEXT"),
+            ("connector_account_id", "TEXT"),
+            ("channel_id", "TEXT"),
+            ("thread_id", "TEXT"),
+            ("peer_id", "TEXT"),
+            ("session_metadata", "TEXT"),
+            ("last_inbound_at", "TEXT"),
+        ):
+            if col not in existing_chat_cols:
+                await conn.execute(
+                    f"ALTER TABLE chat_sessions ADD COLUMN {col} {ddl_type} NULL"
+                )
+
+        async with conn.execute("PRAGMA table_info(connector_accounts)") as cursor:
+            existing_acc_cols = {row[1] for row in await cursor.fetchall()}
+        if "session_continuation_seconds" not in existing_acc_cols:
+            await conn.execute(
+                "ALTER TABLE connector_accounts"
+                " ADD COLUMN session_continuation_seconds INTEGER NULL"
+            )
+
+        await conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_chat_sessions_external_key "
+            "ON chat_sessions(platform, connector_account_id, channel_id, COALESCE(thread_id, '')) "
+            "WHERE platform IS NOT NULL"
+        )
+
+        await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (16,))
+        await conn.commit()
+        version = 16

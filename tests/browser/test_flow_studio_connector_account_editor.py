@@ -270,6 +270,51 @@ def test_delete_from_danger_zone_removes_tile(app_clean: str, page: Page) -> Non
 
 
 @pytest.mark.browser
+def test_edit_session_continuation_round_trip(app_clean: str, page: Page) -> None:
+    """Fill session_continuation_seconds → save → reopen → value round-trips.
+
+    Also asserts the helper text is visible and contains the disambiguating
+    language that distinguishes the continuation window from the pool idle
+    timeout (M10 F03 L05 acceptance criterion).
+    """
+    account_id = seed_connector_account(app_clean, name="Continuation Bot")
+    page.goto(f"{app_clean}#studio/connector-accounts/{account_id}")
+    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(timeout=8000)
+
+    # Both Lifecycle inputs present and visually adjacent.
+    expect(page.locator('[data-testid="connector-account-idle-timeout-input"]')).to_be_visible()
+    cont_input = page.locator('[data-testid="connector-account-continuation-input"]')
+    expect(cont_input).to_be_visible()
+
+    # Helper text under the continuation input disambiguates from pool-TTL.
+    cont_hint = page.locator('[data-testid="connector-account-continuation-hint"]')
+    expect(cont_hint).to_be_visible()
+    expect(cont_hint).to_contain_text("Distinct from the pool idle timeout")
+
+    # Fill the continuation field and save.
+    cont_input.fill("3600")
+    page.locator('[data-testid="save-connector-account-btn"]').click()
+    expect(page.locator(".app-flash")).to_be_visible(timeout=8000)
+
+    # Backend persisted the value.
+    after = _get_account(app_clean, account_id)
+    assert after["session_continuation_seconds"] == 3600
+
+    # Reopen the editor — go back to grid first, then click the card so the
+    # router fully re-mounts the editor (a same-URL navigate is a no-op).
+    page.locator('[data-testid="back-connector-account-btn"]').click()
+    card = page.locator(
+        '[data-testid="connector-account-card"]', has_text="Continuation Bot"
+    )
+    expect(card).to_be_visible(timeout=5000)
+    card.click()
+    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(timeout=8000)
+    expect(
+        page.locator('[data-testid="connector-account-continuation-input"]')
+    ).to_have_value("3600")
+
+
+@pytest.mark.browser
 def test_back_when_dirty_prompts_confirm_dialog(app_clean: str, page: Page) -> None:
     """Back button while dirty → confirm dialog appears; Stay keeps the editor."""
     account_id = seed_connector_account(app_clean, name="Dirty Bot")

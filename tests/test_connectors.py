@@ -7,6 +7,7 @@ import dataclasses
 import pytest
 
 from the_one.connectors import (
+    OPERATOR_VISIBILITY,
     ConnectorAuthRequired,
     ConnectorClient,
     ConnectorClientError,
@@ -376,3 +377,18 @@ class TestConnectorRegistry:
             resolve("broken")
         assert "does not satisfy" in str(excinfo.value).lower()
         assert excinfo.value.type_name == "broken"
+
+
+# ---------------------------------------------------------------------------
+# M10 F03 L02 — OPERATOR_VISIBILITY constant
+# ---------------------------------------------------------------------------
+
+
+def test_operator_visibility_constant_value_and_export() -> None:
+    """``OPERATOR_VISIBILITY`` is the single source of truth for the
+    operator-visibility tag string. F3 L4 dispatcher, F4 platform-send tool,
+    and F5 Chat-UI operator-input path all import this constant rather than
+    duplicating the literal — typos like ``"opperator"`` are caught at
+    import/IDE time instead of persisting silently in stored messages.
+    """
+    assert OPERATOR_VISIBILITY == "operator"

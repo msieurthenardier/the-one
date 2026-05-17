@@ -45,24 +45,49 @@ class Message:
     tool_calls: list[ToolCall] = field(default_factory=list)
     tool_result: ToolResult | None = None
     usage: TokenUsage | None = None
+    # M10 F03 L02: visibility tag for two-layer connector-session model.
+    # None = no operator-only restriction (platform-visible for connector
+    # sessions; the only layer for non-connector sessions).
+    # "operator" = operator-console only; never propagated to the platform.
+    # Constant published as ``OPERATOR_VISIBILITY`` from
+    # ``the_one.connectors`` — use it at every production set site
+    # (dispatcher in F3 L4; platform-send tool in F4; Chat-UI
+    # operator-input path in F5).
+    visibility: str | None = None
 
     @classmethod
-    def system(cls, content: str) -> Message:
-        return cls(role=Role.SYSTEM, content=content)
+    def system(cls, content: str, *, visibility: str | None = None) -> Message:
+        return cls(role=Role.SYSTEM, content=content, visibility=visibility)
 
     @classmethod
-    def user(cls, content: str) -> Message:
-        return cls(role=Role.USER, content=content)
+    def user(cls, content: str, *, visibility: str | None = None) -> Message:
+        return cls(role=Role.USER, content=content, visibility=visibility)
 
     @classmethod
     def assistant(
-        cls, content: str, tool_calls: list[ToolCall] | None = None, usage: TokenUsage | None = None
+        cls,
+        content: str,
+        tool_calls: list[ToolCall] | None = None,
+        usage: TokenUsage | None = None,
+        *,
+        visibility: str | None = None,
     ) -> Message:
-        return cls(role=Role.ASSISTANT, content=content, tool_calls=tool_calls or [], usage=usage)
+        return cls(
+            role=Role.ASSISTANT,
+            content=content,
+            tool_calls=tool_calls or [],
+            usage=usage,
+            visibility=visibility,
+        )
 
     @classmethod
-    def tool(cls, result: ToolResult) -> Message:
-        return cls(role=Role.TOOL, content=result.content, tool_result=result)
+    def tool(cls, result: ToolResult, *, visibility: str | None = None) -> Message:
+        return cls(
+            role=Role.TOOL,
+            content=result.content,
+            tool_result=result,
+            visibility=visibility,
+        )
 
 
 @dataclass

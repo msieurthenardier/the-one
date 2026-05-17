@@ -673,6 +673,295 @@ class TestChatSessionRepository:
         # (free-text), not nulled or removed.
         assert sessions[0].agent_name == "agent1"
 
+    # ── M10 F03 L01: connector-keyed session round-trip ──────────────────
+
+    async def test_create_and_get_with_connector_identity(
+        self, agent_store: SQLiteAgentStore, chat_repo: ChatSessionRepository
+    ) -> None:
+        """Mission 10 Flight 3 Leg 1: ChatSession with all seven connector-
+        identity columns set round-trips through create → get byte-
+        identically (including the JSON-encoded session_metadata dict).
+        """
+        await agent_store.save(AgentConfig(name="agent1"))
+        session = ChatSession(
+            id="s-conn",
+            agent_name="agent1",
+            title="Discord #engineering",
+            platform="discord",
+            connector_account_id="acc-1",
+            channel_id="ch-1",
+            thread_id=None,
+            peer_id="peer-1",
+            session_metadata={"routing": "default"},
+            last_inbound_at="2026-05-17T00:00:00+00:00",
+        )
+        await chat_repo.create(session)
+        loaded = await chat_repo.get("s-conn")
+        assert loaded.platform == "discord"
+        assert loaded.connector_account_id == "acc-1"
+        assert loaded.channel_id == "ch-1"
+        assert loaded.thread_id is None
+        assert loaded.peer_id == "peer-1"
+        assert loaded.session_metadata == {"routing": "default"}
+        assert loaded.last_inbound_at == "2026-05-17T00:00:00+00:00"
+
+    async def test_round_trip_session_metadata_dict_and_none(
+        self, agent_store: SQLiteAgentStore, chat_repo: ChatSessionRepository
+    ) -> None:
+        """All seven new fields default to None for non-connector sessions
+        (back-compat); an empty dict round-trips as {} (distinct from NULL).
+        """
+        await agent_store.save(AgentConfig(name="agent1"))
+        # Default — all seven new fields are None.
+        plain = ChatSession(id="s-plain", agent_name="agent1", title="Plain")
+        await chat_repo.create(plain)
+        loaded_plain = await chat_repo.get("s-plain")
+        assert loaded_plain.platform is None
+        assert loaded_plain.connector_account_id is None
+        assert loaded_plain.channel_id is None
+        assert loaded_plain.thread_id is None
+        assert loaded_plain.peer_id is None
+        assert loaded_plain.session_metadata is None
+        assert loaded_plain.last_inbound_at is None
+
+        # Empty-dict metadata round-trips as {} (NOT collapsed to None).
+        empty_meta = ChatSession(
+            id="s-empty-meta",
+            agent_name="agent1",
+            title="EmptyMeta",
+            platform="discord",
+            connector_account_id="acc-1",
+            channel_id="ch-1",
+            session_metadata={},
+        )
+        await chat_repo.create(empty_meta)
+        loaded_empty = await chat_repo.get("s-empty-meta")
+        assert loaded_empty.session_metadata == {}
+
+    async def test_round_trip_session_metadata_corrupt_non_dict_collapses_to_none(
+        self, agent_store: SQLiteAgentStore, chat_repo: ChatSessionRepository
+    ) -> None:
+        """Defensive normalization on `_row_to_model`: a non-dict JSON value
+        (corruption / external tampering) decodes as `session_metadata=None`
+        rather than raising — the model annotation requires dict; silently
+        degrading is safer than raising in the read path. F7 is the only
+        intended writer and only writes dicts.
+        """
+        await agent_store.save(AgentConfig(name="agent1"))
+        await chat_repo.create(
+            ChatSession(
+                id="s-corrupt",
+                agent_name="agent1",
+                title="Corrupt",
+                platform="discord",
+                connector_account_id="acc-1",
+                channel_id="ch-1",
+            )
+        )
+        # Hand-tamper the column with a JSON literal string (not a dict).
+        await chat_repo.conn.execute(
+            "UPDATE chat_sessions SET session_metadata = ? WHERE id = ?",
+            ('"hello"', "s-corrupt"),
+        )
+        await chat_repo.conn.commit()
+
+        loaded = await chat_repo.get("s-corrupt")
+        assert loaded.session_metadata is None
+
+    # ── M10 F03 L03: find_most_recent_by_external_key ────────────────────
+
+    async def test_find_most_recent_by_external_key_returns_none_on_no_match(
+        self, agent_store: SQLiteAgentStore, chat_repo: ChatSessionRepository
+    ) -> None:
+        """No matching row → returns None (resolver treats as first contact)."""
+        await agent_store.save(AgentConfig(name="agent1"))
+        result = await chat_repo.find_most_recent_by_external_key(
+            platform="discord",
+            connector_account_id="acc-1",
+            channel_id="ch-1",
+            thread_id=None,
+        )
+        assert result is None
+
+    async def test_find_most_recent_by_external_key_returns_most_recent_by_updated_at(
+        self, agent_store: SQLiteAgentStore, chat_repo: ChatSessionRepository
+    ) -> None:
+        """Three rows for the same external key with different ``updated_at`` —
+        the most recent is returned (ORDER BY updated_at DESC LIMIT 1)."""
+        await agent_store.save(AgentConfig(name="agent1"))
+        for ix, ts in enumerate(
+            [
+                "2026-05-01T00:00:00+00:00",
+                "2026-05-02T00:00:00+00:00",
+                "2026-05-03T00:00:00+00:00",
+            ]
+        ):
+            await chat_repo.create(
+                ChatSession(
+                    id=f"s-{ix}",
+                    agent_name="agent1",
+                    title=f"row-{ix}",
+                    platform="discord",
+                    connector_account_id="acc-1",
+                    channel_id="ch-1",
+                    thread_id=None,
+                    created_at=ts,
+                    updated_at=ts,
+                    last_inbound_at=ts,
+                )
+            )
+        result = await chat_repo.find_most_recent_by_external_key(
+            platform="discord",
+            connector_account_id="acc-1",
+            channel_id="ch-1",
+            thread_id=None,
+        )
+        assert result is not None
+        assert result.id == "s-2"
+        assert result.title == "row-2"
+
+    async def test_find_most_recent_by_external_key_coalesce_null_thread_id(
+        self, agent_store: SQLiteAgentStore, chat_repo: ChatSessionRepository
+    ) -> None:
+        """COALESCE handling: a row with ``thread_id=NULL`` matches a query
+        with ``thread_id=None``; a row with ``thread_id="A"`` does NOT match
+        a query with ``thread_id=None``."""
+        await agent_store.save(AgentConfig(name="agent1"))
+        # Row with NULL thread_id.
+        await chat_repo.create(
+            ChatSession(
+                id="s-null-thread",
+                agent_name="agent1",
+                platform="discord",
+                connector_account_id="acc-1",
+                channel_id="ch-1",
+                thread_id=None,
+                created_at="2026-05-01T00:00:00+00:00",
+                updated_at="2026-05-01T00:00:00+00:00",
+            )
+        )
+        # Row with thread_id="A".
+        await chat_repo.create(
+            ChatSession(
+                id="s-thread-A",
+                agent_name="agent1",
+                platform="discord",
+                connector_account_id="acc-1",
+                channel_id="ch-1",
+                thread_id="A",
+                created_at="2026-05-02T00:00:00+00:00",
+                updated_at="2026-05-02T00:00:00+00:00",
+            )
+        )
+
+        # Query with thread_id=None matches the NULL row, NOT the "A" row.
+        result_none = await chat_repo.find_most_recent_by_external_key(
+            platform="discord",
+            connector_account_id="acc-1",
+            channel_id="ch-1",
+            thread_id=None,
+        )
+        assert result_none is not None
+        assert result_none.id == "s-null-thread"
+
+        # Query with thread_id="A" matches the "A" row, NOT the NULL row.
+        result_a = await chat_repo.find_most_recent_by_external_key(
+            platform="discord",
+            connector_account_id="acc-1",
+            channel_id="ch-1",
+            thread_id="A",
+        )
+        assert result_a is not None
+        assert result_a.id == "s-thread-A"
+
+
+# ── M10 F03 L01: ConnectorAccount session_continuation_seconds ───────────
+
+
+class TestConnectorAccountSessionContinuation:
+    """Round-trip + validator coverage for the M10 F03 L01 field
+    ``session_continuation_seconds`` on ``ConnectorAccount``.
+
+    Sibling to ``TestConnectorAccountRepository`` 's
+    ``idle_timeout_seconds`` tests; same shape, distinct concern (chat-
+    session continuation window vs. pool warm-entry TTL).
+    """
+
+    async def test_session_continuation_seconds_round_trips_real_value(
+        self, connector_repo: ConnectorAccountRepository
+    ) -> None:
+        """A real ``session_continuation_seconds`` value round-trips
+        through create → get → update → get."""
+        account = ConnectorAccount(
+            id="a1",
+            name="Continuation Bot",
+            type="stub",
+            session_continuation_seconds=86400,
+        )
+        await connector_repo.create(account)
+        loaded = await connector_repo.get("a1")
+        assert loaded.session_continuation_seconds == 86400
+
+        loaded.session_continuation_seconds = 3600
+        await connector_repo.update(loaded)
+        reloaded = await connector_repo.get("a1")
+        assert reloaded.session_continuation_seconds == 3600
+
+    async def test_session_continuation_seconds_round_trips_none(
+        self, connector_repo: ConnectorAccountRepository
+    ) -> None:
+        """An account created without ``session_continuation_seconds`` round-
+        trips as ``None`` (the default — fall through to resolver default)
+        and survives a no-op update."""
+        account = ConnectorAccount(id="a1", name="No Continuation", type="stub")
+        await connector_repo.create(account)
+        fetched = await connector_repo.get("a1")
+        assert fetched.session_continuation_seconds is None
+
+        await connector_repo.update(fetched)
+        refetched = await connector_repo.get("a1")
+        assert refetched.session_continuation_seconds is None
+
+    async def test_session_continuation_seconds_validator_rejects_zero(self) -> None:
+        """Validator rejects 0 (would zero-out the continuation window)."""
+        with pytest.raises(ValueError) as exc_info:
+            ConnectorAccount(
+                id="a", name="x", type="stub", session_continuation_seconds=0
+            )
+        assert "between 1 and 604800" in str(exc_info.value)
+
+    async def test_session_continuation_seconds_validator_rejects_one_week_plus_one(
+        self,
+    ) -> None:
+        """Validator rejects 604801 (catches the ms-vs-s typo)."""
+        with pytest.raises(ValueError) as exc_info:
+            ConnectorAccount(
+                id="a", name="x", type="stub", session_continuation_seconds=604801
+            )
+        assert "between 1 and 604800" in str(exc_info.value)
+
+    async def test_session_continuation_seconds_validator_accepts_bounds(
+        self,
+    ) -> None:
+        """Validator accepts 1, 86400 (24h default), 604800 (7-day cap),
+        and None (the default)."""
+        a1 = ConnectorAccount(
+            id="a", name="x", type="stub", session_continuation_seconds=1
+        )
+        assert a1.session_continuation_seconds == 1
+        a2 = ConnectorAccount(
+            id="b", name="x", type="stub", session_continuation_seconds=86400
+        )
+        assert a2.session_continuation_seconds == 86400
+        a3 = ConnectorAccount(
+            id="c", name="x", type="stub", session_continuation_seconds=604800
+        )
+        assert a3.session_continuation_seconds == 604800
+        a4 = ConnectorAccount(
+            id="d", name="x", type="stub", session_continuation_seconds=None
+        )
+        assert a4.session_continuation_seconds is None
+
 
 # ── Tool Config Repository ───────────────────────────────────────────────
 

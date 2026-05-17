@@ -134,6 +134,7 @@ class ConnectorAccount(BaseModel):
     config: dict[str, Any] = Field(default_factory=dict)
     secrets: dict[str, Any] = Field(default_factory=dict)
     idle_timeout_seconds: int | None = None
+    session_continuation_seconds: int | None = None  # M10 F03 L01
     created_at: str = Field(default_factory=_now_iso)
     updated_at: str = Field(default_factory=_now_iso)
 
@@ -154,6 +155,33 @@ class ConnectorAccount(BaseModel):
         if not (1 <= value <= 604800):
             raise ValueError(
                 "idle_timeout_seconds must be between 1 and 604800 seconds (7 days)"
+            )
+        return value
+
+    @field_validator("session_continuation_seconds")
+    @classmethod
+    def _validate_session_continuation_seconds(cls, value: int | None) -> int | None:
+        """Bound the per-account chat-session continuation window to
+        ``[1, 604800]`` seconds.
+
+        ``None`` means "no per-account override — fall through to the
+        env var / default in
+        ``the_one.connectors._session._resolve_continuation_seconds``"
+        (the resolver lands in F3 L3; the field exists from this leg
+        so the repository round-trip is complete before the resolver
+        consumes it).
+
+        Same `1 ≤ value ≤ 604800` bounds as ``idle_timeout_seconds``
+        (the 7-day upper bound catches the ms-vs-s typo; the lower
+        bound rejects zero / negative). These two are independent
+        timeouts — pool warm-entry TTL vs. chat-session continuation
+        window — that happen to share an envelope.
+        """
+        if value is None:
+            return value
+        if not (1 <= value <= 604800):
+            raise ValueError(
+                "session_continuation_seconds must be between 1 and 604800 seconds (7 days)"
             )
         return value
 
@@ -179,7 +207,21 @@ class ToolConfig(BaseModel):
 
 
 class ChatSession(BaseModel):
-    """A chat session with message history."""
+    """A chat session with message history.
+
+    Mission 10 Flight 3 Leg 1: connector-keyed sessions add the
+    (platform, connector_account_id, channel_id, thread_id, peer_id)
+    quintuple plus a JSON metadata column and a last_inbound_at
+    timestamp. All seven default to None for non-connector sessions
+    (back-compat) and are populated by the inbound dispatcher
+    (leg 4) for connector-driven sessions.
+
+    The (platform, connector_account_id, channel_id, COALESCE(thread_id, ''))
+    4-tuple is the lookup key consumed by leg 3's resolver against the
+    partial expression index ``idx_chat_sessions_external_key``.
+    ``peer_id`` is stored for audit and future per-peer-scoped sessions
+    (Flight 6 territory) but is NOT part of the lookup key.
+    """
 
     id: str
     agent_name: str | None = None
@@ -187,3 +229,15 @@ class ChatSession(BaseModel):
     messages: str = "[]"  # JSON-encoded via codec
     created_at: str = Field(default_factory=_now_iso)
     updated_at: str = Field(default_factory=_now_iso)
+    # M10 F03 L01: connector-session external key + metadata.
+    # ``session_metadata`` is a dict at the model layer; the repository
+    # encodes via ``json.dumps`` on write and decodes via ``json.loads``
+    # on read (parallel to how ``messages`` is a JSON-encoded string in
+    # the column but a Python list at the codec layer).
+    platform: str | None = None
+    connector_account_id: str | None = None
+    channel_id: str | None = None
+    thread_id: str | None = None
+    peer_id: str | None = None
+    session_metadata: dict[str, Any] | None = None
+    last_inbound_at: str | None = None

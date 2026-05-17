@@ -503,8 +503,8 @@ class ConnectorAccountRepository:
         await self.conn.execute(
             "INSERT INTO connector_accounts"
             " (id, name, type, config, secrets, idle_timeout_seconds,"
-            "  created_at, updated_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "  session_continuation_seconds, created_at, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 account.id,
                 account.name,
@@ -512,6 +512,7 @@ class ConnectorAccountRepository:
                 json.dumps(account.config),
                 self._secrets_to_ciphertext(account.secrets),
                 account.idle_timeout_seconds,
+                account.session_continuation_seconds,
                 account.created_at,
                 account.updated_at,
             ),
@@ -527,13 +528,14 @@ class ConnectorAccountRepository:
         await self.conn.execute(
             "UPDATE connector_accounts"
             " SET name=?, type=?, config=?, secrets=?, idle_timeout_seconds=?,"
-            " updated_at=? WHERE id=?",
+            "     session_continuation_seconds=?, updated_at=? WHERE id=?",
             (
                 account.name,
                 account.type,
                 json.dumps(account.config),
                 self._secrets_to_ciphertext(account.secrets),
                 account.idle_timeout_seconds,
+                account.session_continuation_seconds,
                 _now_iso(),
                 account.id,
             ),
@@ -559,6 +561,7 @@ class ConnectorAccountRepository:
             config=json.loads(row["config"] or "{}"),
             secrets=self._ciphertext_to_secrets(row["secrets"]),
             idle_timeout_seconds=row["idle_timeout_seconds"],
+            session_continuation_seconds=row["session_continuation_seconds"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
         )
@@ -680,10 +683,50 @@ class ChatSessionRepository:
             raise KeyError(f"Chat session not found: {session_id}")
         return self._row_to_model(row)
 
+    async def find_most_recent_by_external_key(
+        self,
+        *,
+        platform: str,
+        connector_account_id: str,
+        channel_id: str,
+        thread_id: str | None,
+    ) -> ChatSession | None:
+        """Return the most recent connector-keyed session for the external 4-tuple.
+
+        Uses ``COALESCE(thread_id, '')`` on both sides to mirror the
+        partial-index expression at
+        ``the_one/db/schema.py`` (v16 migration) and handle SQLite's
+        NULL-distinct semantics — a query with ``thread_id=None`` matches
+        rows where the column is NULL (treated as empty string on both
+        sides by COALESCE).
+
+        Ordered by ``updated_at DESC LIMIT 1`` — the active session for
+        this external location is the most-recently-touched row. Older
+        superseded sessions are preserved (per flight design: historical
+        sessions remain queryable in Chat UI as distinct rows).
+
+        M10 F03 L03 — consumed by
+        :func:`the_one.connectors._session.resolve_session`.
+        """
+        async with self.conn.execute(
+            "SELECT * FROM chat_sessions"
+            " WHERE platform = ? AND connector_account_id = ?"
+            " AND channel_id = ? AND COALESCE(thread_id, '') = COALESCE(?, '')"
+            " ORDER BY updated_at DESC LIMIT 1",
+            (platform, connector_account_id, channel_id, thread_id),
+        ) as cur:
+            row = await cur.fetchone()
+        if row is None:
+            return None
+        return self._row_to_model(row)
+
     async def create(self, session: ChatSession) -> None:
         await self.conn.execute(
-            "INSERT INTO chat_sessions (id, agent_name, title, messages, created_at, updated_at)"
-            " VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO chat_sessions ("
+            " id, agent_name, title, messages, created_at, updated_at,"
+            " platform, connector_account_id, channel_id, thread_id, peer_id,"
+            " session_metadata, last_inbound_at"
+            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 session.id,
                 session.agent_name,
@@ -691,11 +734,40 @@ class ChatSessionRepository:
                 session.messages,
                 session.created_at,
                 session.updated_at,
+                session.platform,
+                session.connector_account_id,
+                session.channel_id,
+                session.thread_id,
+                session.peer_id,
+                json.dumps(session.session_metadata)
+                if session.session_metadata is not None
+                else None,
+                session.last_inbound_at,
             ),
         )
         await self.conn.commit()
 
     async def update(self, session: ChatSession) -> None:
+        """Update the mutable session fields (title, messages, updated_at).
+
+        The seven connector-keyed identity columns (platform,
+        connector_account_id, channel_id, thread_id, peer_id,
+        session_metadata, last_inbound_at) added by M10 F03 L01 are
+        intentionally NOT round-tripped by this method — they are
+        identity attributes set once at row creation (by the resolver
+        in M10 F03 L03) and mutated only through the narrow primitive
+        :meth:`update_last_inbound` (M10 F03 L04) and through this
+        method itself for whole-history mutations (e.g.
+        ``_save_session_to_db`` at
+        ``the_one/interfaces/web/app.py:469-487``; the connector
+        dispatcher at
+        ``the_one/connectors/_inbound.py:dispatch_inbound``). The
+        whole-history pattern fetches the row, calls
+        ``row.model_copy(update={"title": ..., "messages": ...})``,
+        and hands the result to ``repo.update`` — the connector-
+        identity columns survive that round-trip because this SQL
+        does not touch them.
+        """
         async with self.conn.execute(
             "SELECT 1 FROM chat_sessions WHERE id = ?", (session.id,)
         ) as cur:
@@ -729,8 +801,52 @@ class ChatSessionRepository:
         )
         await self.conn.commit()
 
+    async def update_last_inbound(self, session_id: str, when: str) -> None:
+        """Bump the connector-driven activity timestamps for a session.
+
+        Touches both ``last_inbound_at`` (consumed by the resolver's
+        continuation-window check at
+        :func:`the_one.connectors._session.resolve_session`) and
+        ``updated_at`` (the most-recent-by-updated_at ordering the
+        resolver uses to pick the active row when multiple historical
+        rows exist for the same external key).
+
+        Raises ``KeyError`` if the session doesn't exist — mirrors
+        :meth:`update` / :meth:`delete` / :meth:`purge_messages`
+        not-found semantics.
+
+        M10 F03 L04 — narrow primitive consumed by
+        :func:`the_one.connectors._inbound.dispatch_inbound`. The
+        seven connector-identity columns are intentionally not touched
+        — see :meth:`update`'s docstring for the identity-columns
+        contract.
+        """
+        async with self.conn.execute(
+            "SELECT 1 FROM chat_sessions WHERE id = ?", (session_id,)
+        ) as cur:
+            if await cur.fetchone() is None:
+                raise KeyError(f"Chat session not found: {session_id}")
+        await self.conn.execute(
+            "UPDATE chat_sessions SET last_inbound_at = ?, updated_at = ? WHERE id = ?",
+            (when, when, session_id),
+        )
+        await self.conn.commit()
+
     @staticmethod
     def _row_to_model(row: aiosqlite.Row) -> ChatSession:
+        metadata_raw = row["session_metadata"]
+        metadata: dict[str, Any] | None = None
+        if metadata_raw is not None:
+            try:
+                parsed = json.loads(metadata_raw)
+                if isinstance(parsed, dict):
+                    metadata = parsed
+                # Non-dict JSON (e.g. a literal string or list from external
+                # tampering) collapses to None — the model annotation requires
+                # dict; silently degrading is safer than raising in the read
+                # path. F7 is the only intended writer and only writes dicts.
+            except json.JSONDecodeError:
+                metadata = None
         return ChatSession(
             id=row["id"],
             agent_name=row["agent_name"],
@@ -738,6 +854,13 @@ class ChatSessionRepository:
             messages=row["messages"] or "[]",
             created_at=row["created_at"],
             updated_at=row["updated_at"],
+            platform=row["platform"],
+            connector_account_id=row["connector_account_id"],
+            channel_id=row["channel_id"],
+            thread_id=row["thread_id"],
+            peer_id=row["peer_id"],
+            session_metadata=metadata,
+            last_inbound_at=row["last_inbound_at"],
         )
 
 

@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import pytest
+
 from the_one.db.codec import (
     _tool_result_to_dict,
     decode_messages,
     encode_messages,
     message_from_dict,
+    message_to_dict,
     messages_to_ui_events,
 )
 from the_one.llm.base import Message, Role, TokenUsage, ToolCall, ToolResult
@@ -422,3 +425,200 @@ class TestMessagesToUiEventsTruncation:
         assert rt[0].tool_result is not None
         assert rt[0].tool_result.content == long_content
         assert len(rt[0].tool_result.content) == MAX_TOOL_RESULT_INLINE_CONTENT + 4000
+
+
+# ---------------------------------------------------------------------------
+# M10 F03 L02 — Message.visibility round-trip + projection
+# ---------------------------------------------------------------------------
+
+
+class TestMessageVisibilityCodec:
+    """``Message.visibility`` round-trips through ``message_to_dict`` ↔
+    ``message_from_dict``: the key is emitted only when non-None,
+    deserialization defaults to None when the key is absent (back-compat
+    with every pre-F3 session row).
+    """
+
+    def test_message_to_dict_emits_visibility_when_non_none(self) -> None:
+        msg = Message(role=Role.USER, content="hi", visibility="operator")
+        d = message_to_dict(msg)
+        assert d["visibility"] == "operator"
+
+    def test_message_to_dict_omits_visibility_when_none(self) -> None:
+        msg = Message(role=Role.USER, content="hi", visibility=None)
+        d = message_to_dict(msg)
+        assert "visibility" not in d
+
+    def test_message_from_dict_restores_visibility(self) -> None:
+        d = {"role": "user", "content": "hi", "visibility": "operator"}
+        msg = message_from_dict(d)
+        assert msg.visibility == "operator"
+
+    def test_message_from_dict_back_compat_no_visibility_key(self) -> None:
+        """Pre-F3 JSON had no visibility key — deserialize must default to None."""
+        d = {"role": "user", "content": "hi"}
+        msg = message_from_dict(d)
+        assert msg.visibility is None
+
+    def test_full_round_trip_tagged(self) -> None:
+        msgs = [Message.user("hi", visibility="operator")]
+        rt = decode_messages(encode_messages(msgs))
+        assert rt[0].visibility == "operator"
+
+    def test_full_round_trip_untagged(self) -> None:
+        msgs = [Message.user("hi")]
+        rt = decode_messages(encode_messages(msgs))
+        assert rt[0].visibility is None
+
+
+class TestMessagesToUiEventsVisibility:
+    """``messages_to_ui_events`` projects ``visibility`` into every event
+    derived from a tagged Message — across all four event branches (user,
+    assistant content, tool_call, tool_result). When source visibility is
+    None, the key is absent from the projected event (frontends treat
+    absent === platform-visible).
+    """
+
+    def test_projects_visibility_on_tagged_user_message(self) -> None:
+        msgs = [Message.user("hi", visibility="operator")]
+        events = messages_to_ui_events(msgs)
+        assert events[0]["visibility"] == "operator"
+
+    def test_omits_visibility_on_untagged_user_message(self) -> None:
+        msgs = [Message.user("hi")]
+        events = messages_to_ui_events(msgs)
+        assert "visibility" not in events[0]
+
+    def test_projects_visibility_on_assistant_content(self) -> None:
+        msgs = [Message.assistant("hi there", visibility="operator")]
+        events = messages_to_ui_events(msgs)
+        assert len(events) == 1
+        assert events[0]["type"] == "assistant"
+        assert events[0]["visibility"] == "operator"
+
+    def test_projects_visibility_on_tool_call_event(self) -> None:
+        tc1 = ToolCall(id="tc-1", name="read_file", arguments={"path": "/x"})
+        tc2 = ToolCall(id="tc-2", name="shell", arguments={"cmd": "ls"})
+        msgs = [
+            Message.assistant("", tool_calls=[tc1, tc2], visibility="operator"),
+        ]
+        events = messages_to_ui_events(msgs)
+        # Both tool_call events carry the tag
+        tc_events = [e for e in events if e["type"] == "tool_call"]
+        assert len(tc_events) == 2
+        for ev in tc_events:
+            assert ev["visibility"] == "operator"
+
+    def test_projects_visibility_on_tool_result_event(self) -> None:
+        tr = ToolResult(tool_call_id="tc-1", content="done")
+        msgs = [Message.tool(tr, visibility="operator")]
+        events = messages_to_ui_events(msgs)
+        assert len(events) == 1
+        assert events[0]["type"] == "tool_result"
+        assert events[0]["visibility"] == "operator"
+
+    def test_mixed_visibility_session(self) -> None:
+        """One tagged + one untagged user message: present-and-absent keys."""
+        msgs = [
+            Message.user("operator-only", visibility="operator"),
+            Message.user("public"),
+        ]
+        events = messages_to_ui_events(msgs)
+        assert len(events) == 2
+        assert events[0]["visibility"] == "operator"
+        assert "visibility" not in events[1]
+
+    def test_existing_assistant_text_event_shape_unchanged_when_untagged(self) -> None:
+        """Pure addition: untagged events keep their pre-F3 shape exactly."""
+        msgs = [Message.assistant("hi there")]
+        events = messages_to_ui_events(msgs)
+        assert events[0] == {"type": "assistant", "content": "hi there"}
+
+    def test_existing_user_event_shape_unchanged_when_untagged(self) -> None:
+        msgs = [Message.user("hello")]
+        events = messages_to_ui_events(msgs)
+        assert events[0] == {"type": "user", "content": "hello", "source": "restored"}
+
+    def test_existing_tool_call_event_shape_unchanged_when_untagged(self) -> None:
+        tc = ToolCall(id="tc-1", name="read_file", arguments={"path": "/x"})
+        msgs = [Message.assistant("", tool_calls=[tc])]
+        events = messages_to_ui_events(msgs)
+        assert events[0] == {
+            "type": "tool_call",
+            "name": "read_file",
+            "arguments": {"path": "/x"},
+            "parent_message_id": "replay-msg-0",
+            "tool_call_id": "tc-1",
+        }
+
+    def test_existing_tool_result_event_shape_unchanged_when_untagged(self) -> None:
+        tr = ToolResult(tool_call_id="tc-1", content="done")
+        msgs = [Message.tool(tr)]
+        events = messages_to_ui_events(msgs)
+        assert events[0] == {
+            "type": "tool_result",
+            "content": "done",
+            "is_error": False,
+            "parent_message_id": None,
+            "tool_call_id": "tc-1",
+        }
+
+
+class TestMessageVisibilityClassmethodKwargs:
+    """``visibility`` is keyword-only across all four ``Message`` classmethods.
+    Positional passthrough is rejected (TypeError) to prevent F4/F5 dispatcher
+    code from accidentally relying on positional drift.
+    """
+
+    def test_user_accepts_visibility_kwarg(self) -> None:
+        msg = Message.user("hi", visibility="operator")
+        assert msg.role == Role.USER
+        assert msg.visibility == "operator"
+
+    def test_user_default_visibility_is_none(self) -> None:
+        assert Message.user("hi").visibility is None
+
+    def test_user_rejects_positional_visibility(self) -> None:
+        with pytest.raises(TypeError):
+            Message.user("hi", "operator")  # type: ignore[misc]
+
+    def test_system_accepts_visibility_kwarg(self) -> None:
+        msg = Message.system("you are helpful", visibility="operator")
+        assert msg.role == Role.SYSTEM
+        assert msg.visibility == "operator"
+
+    def test_system_default_visibility_is_none(self) -> None:
+        assert Message.system("you are helpful").visibility is None
+
+    def test_system_rejects_positional_visibility(self) -> None:
+        with pytest.raises(TypeError):
+            Message.system("hi", "operator")  # type: ignore[misc]
+
+    def test_assistant_accepts_visibility_kwarg(self) -> None:
+        msg = Message.assistant("hi", visibility="operator")
+        assert msg.role == Role.ASSISTANT
+        assert msg.visibility == "operator"
+
+    def test_assistant_default_visibility_is_none(self) -> None:
+        assert Message.assistant("hi").visibility is None
+
+    def test_assistant_rejects_positional_visibility(self) -> None:
+        # The 3 named positional slots are content, tool_calls, usage; a 4th
+        # positional would be visibility. Keyword-only enforcement rejects it.
+        with pytest.raises(TypeError):
+            Message.assistant("hi", None, None, "operator")  # type: ignore[misc]
+
+    def test_tool_accepts_visibility_kwarg(self) -> None:
+        tr = ToolResult(tool_call_id="tc-1", content="done")
+        msg = Message.tool(tr, visibility="operator")
+        assert msg.role == Role.TOOL
+        assert msg.visibility == "operator"
+
+    def test_tool_default_visibility_is_none(self) -> None:
+        tr = ToolResult(tool_call_id="tc-1", content="done")
+        assert Message.tool(tr).visibility is None
+
+    def test_tool_rejects_positional_visibility(self) -> None:
+        tr = ToolResult(tool_call_id="tc-1", content="done")
+        with pytest.raises(TypeError):
+            Message.tool(tr, "operator")  # type: ignore[misc]

@@ -176,3 +176,17 @@ class StubPlugin:
             thread_id=inbound.thread_id,
             peer_id=inbound.peer_id,
         )
+
+    def display_channel(self, envelope: InboundEnvelope) -> str:
+        """Render a human-readable channel label for session-title derivation.
+
+        OPTIONAL hook accessed via ``getattr`` by
+        :func:`the_one.connectors._session._derive_title`. Real plugins
+        can return platform-native labels (e.g. ``"#engineering"`` for
+        Discord guild channels, ``"@alice"`` for Slack DMs). The stub
+        returns a synthetic label encoding the channel id.
+
+        See ``the_one/connectors/README.md`` "Optional hooks" section
+        for the convention.
+        """
+        return f"stub:{envelope.channel_id}"

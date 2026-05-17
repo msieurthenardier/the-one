@@ -39,6 +39,17 @@ from the_one.connectors.errors import (
 )
 from the_one.connectors.registry import ConnectorRegistry
 
+# M10 F03 L02: visibility tag for connector-attached chat sessions.
+# See ``the_one.llm.base.Message.visibility`` for semantics. The string
+# literal lives here so F3 L4's dispatcher, F4's platform-send tool, and
+# F5's operator-input path all reference one constant — a typo like
+# ``"opperator"`` at a production set-site is caught at import / IDE
+# time rather than persisting silently. Plain assignment (not
+# ``Final[str]``) matches the project's existing module-level-constant
+# style (e.g. ``MAX_TOOL_RESULT_INLINE_CONTENT`` in ``the_one.db.codec``);
+# the codebase has zero existing ``typing.Final`` usages.
+OPERATOR_VISIBILITY = "operator"
+
 __all__ = [
     # Protocols + supporting types
     "ConnectorClient",
@@ -56,4 +67,6 @@ __all__ = [
     "ConnectorRegistrationError",
     # Registry (class — module-level functions stay at the_one.connectors.registry)
     "ConnectorRegistry",
+    # Constants
+    "OPERATOR_VISIBILITY",
 ]

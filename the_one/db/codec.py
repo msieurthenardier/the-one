@@ -60,6 +60,11 @@ def message_to_dict(msg: Message) -> dict[str, Any]:
         d["tool_result"] = _tool_result_to_dict(msg.tool_result)
     if msg.usage is not None:
         d["usage"] = _usage_to_dict(msg.usage)
+    # M10 F03 L02: emit visibility only when non-None. Pre-F3 rows had
+    # no visibility key; preserve that shape for back-compat and
+    # storage efficiency. Mirrors the tool_result.metadata pattern above.
+    if msg.visibility is not None:
+        d["visibility"] = msg.visibility
     return d
 
 
@@ -91,6 +96,8 @@ def message_from_dict(d: dict[str, Any]) -> Message:
         tool_calls=tool_calls,
         tool_result=tool_result,
         usage=usage,
+        # M10 F03 L02: visibility — None on legacy rows without the key.
+        visibility=d.get("visibility"),
     )
 
 
@@ -141,11 +148,17 @@ def messages_to_ui_events(messages: list[Message]) -> list[dict[str, Any]]:
     for i, msg in enumerate(messages):
         if msg.role == Role.SYSTEM:
             continue
-        elif msg.role == Role.USER:
-            events.append({"type": "user", "content": msg.content, "source": "restored"})
+        # M10 F03 L02: visibility tag flows into every event derived from
+        # this message. Absent key when source visibility is None — frontends
+        # treat absent === platform-visible.
+        vis = {"visibility": msg.visibility} if msg.visibility is not None else {}
+        if msg.role == Role.USER:
+            events.append(
+                {"type": "user", "content": msg.content, "source": "restored", **vis}
+            )
         elif msg.role == Role.ASSISTANT:
             if msg.content:
-                events.append({"type": "assistant", "content": msg.content})
+                events.append({"type": "assistant", "content": msg.content, **vis})
             if msg.tool_calls:
                 current_parent_id = f"replay-msg-{i}"
                 for tc in msg.tool_calls:
@@ -156,6 +169,7 @@ def messages_to_ui_events(messages: list[Message]) -> list[dict[str, Any]]:
                             "arguments": tc.arguments,
                             "parent_message_id": current_parent_id,
                             "tool_call_id": tc.id,
+                            **vis,
                         }
                     )
         elif msg.role == Role.TOOL:
@@ -167,6 +181,7 @@ def messages_to_ui_events(messages: list[Message]) -> list[dict[str, Any]]:
                         "is_error": msg.tool_result.is_error,
                         "parent_message_id": current_parent_id,
                         "tool_call_id": msg.tool_result.tool_call_id,
+                        **vis,
                     }
                 )
     return events
