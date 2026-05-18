@@ -51,6 +51,63 @@ to direct, concise responses.
 """
 
 
+_CONNECTOR_TOOL_ENABLED_DIRECTIVE = (
+    "This conversation is attached to a connector account on an external "
+    "platform. Your plain-text replies in this session reach the operator "
+    "only — to reply to peers on the external platform, call the "
+    "`send_to_platform_channel` tool with the target (account_id, "
+    "channel_id, and optional thread_id) and the content to send."
+)
+
+_CONNECTOR_TOOL_DISABLED_DIRECTIVE = (
+    "This conversation is attached to a connector account on an external "
+    "platform, but the platform-send capability is currently DISABLED by "
+    "the operator. Your replies in this session reach the operator only "
+    "— they do not reach the external platform. The "
+    "`send_to_platform_channel` tool is not available right now. Do not "
+    "claim to have sent anything to the platform."
+)
+
+
+def compose_system_prompt(
+    base: str,
+    persona: str,
+    *,
+    connector_attached: bool = False,
+    send_tool_enabled: bool = False,
+) -> str:
+    """Compose the agent's system prompt.
+
+    Mission 10 Flight 4 Leg 3. Adds a connector-aware extension point so
+    agents attached to a connector account receive an explicit directive
+    about how their outbound flows.
+
+    Non-connector callers (``AgentConfig.get_system_prompt()`` for
+    persistence/edit-form use; the WS handler's prompt-equivalence
+    checks) pass ``connector_attached=False`` and receive byte-identical
+    output to the pre-F4 ``{base}\\n\\n---\\n\\n{persona}`` shape.
+
+    The connector-aware path inserts a directive between ``base`` and
+    the persona separator:
+    - ``connector_attached AND send_tool_enabled`` →
+      :data:`_CONNECTOR_TOOL_ENABLED_DIRECTIVE` (instructs the agent to
+      call the platform-send tool to reach peers).
+    - ``connector_attached AND NOT send_tool_enabled`` →
+      :data:`_CONNECTOR_TOOL_DISABLED_DIRECTIVE` (informs the agent that
+      platform-send is operator-disabled and its replies stay local).
+    """
+    parts = [base]
+    if connector_attached:
+        if send_tool_enabled:
+            parts.append(_CONNECTOR_TOOL_ENABLED_DIRECTIVE)
+        else:
+            parts.append(_CONNECTOR_TOOL_DISABLED_DIRECTIVE)
+    if persona:
+        parts.append("---")
+        parts.append(persona)
+    return "\n\n".join(parts)
+
+
 class AgentConfig(BaseModel):
     """Definition of an agent's identity and capabilities."""
 
@@ -74,6 +131,8 @@ class AgentConfig(BaseModel):
     # Associations (reference IDs only — no functional behavior yet)
     kb_ids: list[str] = Field(default_factory=list)
     mcp_source_ids: list[str] = Field(default_factory=list)
+    # M10 F4: connector accounts attached to this agent. Mirror of mcp_source_ids.
+    connector_account_ids: list[str] = Field(default_factory=list)
 
     # Tool-level constraint overrides (per-agent narrowing or substitution).
     # None means "no overrides set" (uses tool-level defaults — locked-down
@@ -106,7 +165,16 @@ class AgentConfig(BaseModel):
 
     def get_system_prompt(self) -> str:
         """Return the resolved system prompt: BASE_PROMPT, optionally
-        appended with a per-agent persona via a "---" separator."""
-        if self.system_prompt:
-            return f"{BASE_PROMPT}\n\n---\n\n{self.system_prompt}"
-        return BASE_PROMPT
+        appended with a per-agent persona via a "---" separator.
+
+        Non-connector callers (persistence edit form, WS handler's
+        prompt-equivalence checks) use this method. The factory uses
+        :func:`compose_system_prompt` directly with the actual connector
+        flags so its output reflects the connector state.
+        """
+        return compose_system_prompt(
+            BASE_PROMPT,
+            self.system_prompt,
+            connector_attached=False,
+            send_tool_enabled=False,
+        )

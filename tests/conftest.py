@@ -249,3 +249,51 @@ async def mcp_fixture_http_client():
             yield client, "http://localhost/mcp"
         finally:
             await client.aclose()
+
+
+# ---------------------------------------------------------------------------
+# Connector-dispatch fixtures (M10 F4 L5 — extracted to enable auto-
+# discovery from conftest.py without per-file explicit imports). Pytest
+# auto-discovers fixtures from conftest.py; the supporting helper FUNCTIONS
+# (``_seed_provider_and_agent``, ``_make_factory``, etc.) live in
+# ``tests/_connector_dispatch_helpers`` and are explicitly imported in
+# each consumer file (function imports do not require auto-discovery).
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+async def isolated_db(tmp_path, monkeypatch):
+    """Per-test sqlite DB at tmp_path for connector-dispatch e2e tests.
+
+    The dispatcher resolves its DB connection via ``get_connection()``
+    inside the function body, so we need the module-level singleton
+    repointed at the per-test path. Schema is applied via a side
+    connection so the singleton opens cleanly on first
+    ``get_connection()``.
+
+    Lives in ``conftest.py`` (NOT in
+    ``tests/_connector_dispatch_helpers.py``) because pytest only
+    auto-discovers fixtures from conftest. The helper FUNCTIONS that
+    consume this fixture's side effects are in
+    ``_connector_dispatch_helpers`` and imported explicitly per file.
+    """
+    import aiosqlite as _aiosqlite
+
+    from the_one.config import settings as _settings
+    from the_one.db import connection as _db_connection
+    from the_one.db.schema import ensure_schema as _ensure_schema
+
+    monkeypatch.setattr(_settings, "data_dir", tmp_path)
+    db_path = _settings.db_path
+
+    conn = await _aiosqlite.connect(str(db_path))
+    conn.row_factory = _aiosqlite.Row
+    await conn.execute("PRAGMA foreign_keys=ON")
+    await _ensure_schema(conn)
+    await conn.close()
+
+    monkeypatch.setattr(_db_connection, "_connection", None)
+    yield db_path
+
+    if _db_connection._connection is not None:
+        await _db_connection.close_connection()

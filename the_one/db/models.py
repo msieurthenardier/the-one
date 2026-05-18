@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field, field_validator
 from the_one.db._provider_types import PROVIDER_TYPES
 
 
-def _now_iso() -> str:
+def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
@@ -26,8 +26,8 @@ class LLMProviderConfig(BaseModel):
     base_url: str
     api_key: str | None = None
     config: dict = Field(default_factory=dict)
-    created_at: str = Field(default_factory=_now_iso)
-    updated_at: str = Field(default_factory=_now_iso)
+    created_at: str = Field(default_factory=now_iso)
+    updated_at: str = Field(default_factory=now_iso)
 
     @field_validator("api_key", mode="after")
     @classmethod
@@ -67,8 +67,8 @@ class KnowledgeBase(BaseModel):
     id: str
     name: str
     description: str = ""
-    created_at: str = Field(default_factory=_now_iso)
-    updated_at: str = Field(default_factory=_now_iso)
+    created_at: str = Field(default_factory=now_iso)
+    updated_at: str = Field(default_factory=now_iso)
 
 
 class KBItem(BaseModel):
@@ -80,7 +80,7 @@ class KBItem(BaseModel):
     type: Literal["file", "url"]
     path_or_url: str
     status: str = "pending"
-    created_at: str = Field(default_factory=_now_iso)
+    created_at: str = Field(default_factory=now_iso)
 
 
 class MCPSource(BaseModel):
@@ -91,8 +91,8 @@ class MCPSource(BaseModel):
     type: Literal["stdio", "streamable-http"]
     config: dict[str, Any] = Field(default_factory=dict)
     secrets: dict[str, Any] = Field(default_factory=dict)
-    created_at: str = Field(default_factory=_now_iso)
-    updated_at: str = Field(default_factory=_now_iso)
+    created_at: str = Field(default_factory=now_iso)
+    updated_at: str = Field(default_factory=now_iso)
 
     def merged_config(self) -> dict[str, Any]:
         """Return a flat dict combining `config` and `secrets`.
@@ -135,8 +135,8 @@ class ConnectorAccount(BaseModel):
     secrets: dict[str, Any] = Field(default_factory=dict)
     idle_timeout_seconds: int | None = None
     session_continuation_seconds: int | None = None  # M10 F03 L01
-    created_at: str = Field(default_factory=_now_iso)
-    updated_at: str = Field(default_factory=_now_iso)
+    created_at: str = Field(default_factory=now_iso)
+    updated_at: str = Field(default_factory=now_iso)
 
     @field_validator("idle_timeout_seconds")
     @classmethod
@@ -202,8 +202,8 @@ class ToolConfig(BaseModel):
     name: str
     config: dict = Field(default_factory=dict)
     enabled: bool = True
-    created_at: str = Field(default_factory=_now_iso)
-    updated_at: str = Field(default_factory=_now_iso)
+    created_at: str = Field(default_factory=now_iso)
+    updated_at: str = Field(default_factory=now_iso)
 
 
 class ChatSession(BaseModel):
@@ -227,8 +227,8 @@ class ChatSession(BaseModel):
     agent_name: str | None = None
     title: str = "New chat"
     messages: str = "[]"  # JSON-encoded via codec
-    created_at: str = Field(default_factory=_now_iso)
-    updated_at: str = Field(default_factory=_now_iso)
+    created_at: str = Field(default_factory=now_iso)
+    updated_at: str = Field(default_factory=now_iso)
     # M10 F03 L01: connector-session external key + metadata.
     # ``session_metadata`` is a dict at the model layer; the repository
     # encodes via ``json.dumps`` on write and decodes via ``json.loads``

@@ -27,6 +27,7 @@ from the_one.connectors.base import (
     DoctorReport,
     InboundEnvelope,
     OutboundTarget,
+    SendResult,
     SessionKey,
 )
 from the_one.connectors.errors import (
@@ -50,6 +51,16 @@ from the_one.connectors.registry import ConnectorRegistry
 # the codebase has zero existing ``typing.Final`` usages.
 OPERATOR_VISIBILITY = "operator"
 
+# M10 F04 L01: success-prefix sentinel for ``SendToPlatformChannelTool.execute()``
+# (F4 leg 2). The dispatcher's visibility-tagger (F4 leg 4) matches on this
+# prefix to decide ``visibility=None`` on the resulting tool_result message —
+# successful platform-send tool calls produce tool_result content that the
+# operator does NOT need to see in the chat-history view because the user's
+# already-displayed message is the same content. Constant lives here as the
+# single source of truth so the producer (leg 2) and consumer (leg 4) cannot
+# drift on the literal.
+PLATFORM_SEND_OK_PREFIX = "[platform-send-ok]"
+
 __all__ = [
     # Protocols + supporting types
     "ConnectorClient",
@@ -57,6 +68,7 @@ __all__ = [
     "DoctorReport",
     "InboundEnvelope",
     "OutboundTarget",
+    "SendResult",
     "SessionKey",
     # Exception hierarchy
     "ConnectorAuthRequired",
@@ -69,4 +81,5 @@ __all__ = [
     "ConnectorRegistry",
     # Constants
     "OPERATOR_VISIBILITY",
+    "PLATFORM_SEND_OK_PREFIX",
 ]

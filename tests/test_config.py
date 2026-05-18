@@ -57,6 +57,27 @@ class TestAgentConfigConstruction:
         assert not hasattr(cfg, "llm_provider")
         assert not hasattr(cfg, "llm_base_url")
 
+    def test_connector_account_ids_defaults_to_empty_list(self):
+        """M10 F4: ``connector_account_ids`` mirrors ``mcp_source_ids`` —
+        empty list is the no-attached state, not None."""
+        cfg = AgentConfig(name="t")
+        assert cfg.connector_account_ids == []
+
+    def test_connector_account_ids_round_trip(self):
+        """Non-empty ``connector_account_ids`` survives model_dump →
+        model_validate."""
+        cfg = AgentConfig(name="t", connector_account_ids=["acc-a", "acc-b"])
+        dumped = cfg.model_dump()
+        assert dumped["connector_account_ids"] == ["acc-a", "acc-b"]
+        revived = AgentConfig.model_validate(dumped)
+        assert revived.connector_account_ids == ["acc-a", "acc-b"]
+
+    def test_pre_f4_row_deserializes_with_empty_connector_account_ids(self):
+        """Back-compat: pre-F4 stored agent rows have no
+        ``connector_account_ids`` key; field defaults to []."""
+        cfg = AgentConfig.model_validate({"name": "t"})
+        assert cfg.connector_account_ids == []
+
 
 # ===================================================================
 # tool_overrides field
@@ -181,3 +202,71 @@ class TestBasePrompt:
     def test_is_non_empty_string(self):
         assert isinstance(BASE_PROMPT, str)
         assert len(BASE_PROMPT) > 0
+
+
+# ===================================================================
+# compose_system_prompt
+# ===================================================================
+
+
+class TestComposeSystemPrompt:
+    """Test the F4 (M10) connector-aware system-prompt composition."""
+
+    def test_non_connector_no_persona_returns_base_only(self):
+        """Byte-identical to pre-F4 get_system_prompt with empty persona."""
+        from the_one.agent.config import compose_system_prompt
+        out = compose_system_prompt(BASE_PROMPT, "")
+        assert out == BASE_PROMPT
+
+    def test_non_connector_with_persona_returns_base_separator_persona(self):
+        """Byte-identical to pre-F4 get_system_prompt with persona."""
+        from the_one.agent.config import compose_system_prompt
+        out = compose_system_prompt(BASE_PROMPT, "Custom.")
+        assert out == BASE_PROMPT + "\n\n---\n\nCustom."
+
+    def test_connector_attached_tool_enabled_includes_enabled_directive(self):
+        """Enabled state: directive instructs the agent to call the tool."""
+        from the_one.agent.config import (
+            _CONNECTOR_TOOL_DISABLED_DIRECTIVE,
+            _CONNECTOR_TOOL_ENABLED_DIRECTIVE,
+            compose_system_prompt,
+        )
+        out = compose_system_prompt(
+            BASE_PROMPT, "", connector_attached=True, send_tool_enabled=True
+        )
+        assert BASE_PROMPT in out
+        assert _CONNECTOR_TOOL_ENABLED_DIRECTIVE in out
+        assert _CONNECTOR_TOOL_DISABLED_DIRECTIVE not in out
+
+    def test_connector_attached_tool_disabled_includes_disabled_directive(self):
+        """Disabled state: directive tells the agent platform-send is off."""
+        from the_one.agent.config import (
+            _CONNECTOR_TOOL_DISABLED_DIRECTIVE,
+            _CONNECTOR_TOOL_ENABLED_DIRECTIVE,
+            compose_system_prompt,
+        )
+        out = compose_system_prompt(
+            BASE_PROMPT, "", connector_attached=True, send_tool_enabled=False
+        )
+        assert BASE_PROMPT in out
+        assert _CONNECTOR_TOOL_DISABLED_DIRECTIVE in out
+        assert _CONNECTOR_TOOL_ENABLED_DIRECTIVE not in out
+
+    def test_connector_attached_with_persona_persona_after_directive(self):
+        """Persona appears AFTER the directive, separated by '---'."""
+        from the_one.agent.config import (
+            _CONNECTOR_TOOL_ENABLED_DIRECTIVE,
+            compose_system_prompt,
+        )
+        out = compose_system_prompt(
+            BASE_PROMPT,
+            "Custom persona.",
+            connector_attached=True,
+            send_tool_enabled=True,
+        )
+        # Shape: base + \n\n + directive + \n\n---\n\n + persona
+        assert out.index(BASE_PROMPT) < out.index(
+            _CONNECTOR_TOOL_ENABLED_DIRECTIVE
+        )
+        assert out.index(_CONNECTOR_TOOL_ENABLED_DIRECTIVE) < out.index("---")
+        assert out.endswith("Custom persona.")

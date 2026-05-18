@@ -9,11 +9,12 @@ re-derives its representation from.
   — landed in the models-and-repository leg of flight 1.
 - The SQLite CHECK constraint string baked into the ``connector_accounts``
   table (runtime DB-level rejection of bogus rows) — **deferred to flight 8**
-  which adds the CHECK via a v17 table-rename ceremony when there is a real
+  which adds the CHECK via a v18 table-rename ceremony when there is a real
   type to constrain (v14 → ``name`` column on ``connector_accounts`` (F1 L2);
   v15 → ``idle_timeout_seconds`` (F2 L2); v16 → chat_sessions external-key
   columns + ``session_continuation_seconds`` on ``connector_accounts`` (F3 L1);
-  v17 is Flight 8's CHECK constraint via the table-rename ceremony established
+  v17 → ``agents.connector_account_ids`` persistence (F4 L5);
+  v18 is Flight 8's CHECK constraint via the table-rename ceremony established
   by v6/v12).
   Until then ``connector_accounts.type`` is unconstrained at the DB level;
   the Pydantic ``Literal`` is the sole guard at the API edge.

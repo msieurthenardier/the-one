@@ -32,6 +32,12 @@ CONTINUE_SCHEMA = {
 # to the model-visible set as a side effect of calling search_tools.
 # F10 follow-up: search_tools and search_mcps were merged into a single
 # tool that covers both the built-in catalog and any attached MCP servers.
+# F4 (M10) carve-out: `send_to_platform_channel` is pre-loaded into the
+# visible set at AgentFactory.create() time when the agent has connector
+# accounts attached AND the operator has the tool enabled — the
+# deliberate exception so connector-attached agents don't need to
+# search_tools for it. See agent/factory.py for the carve-out site and
+# agent/config.py:compose_system_prompt for the paired prompt directive.
 SEARCH_TOOLS_SCHEMA = {
     "name": "search_tools",
     "description": (

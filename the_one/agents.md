@@ -93,6 +93,18 @@ Citations:
 
 Pattern is at the 2-occurrence threshold pending a clearer 3rd documented occurrence. The function-local imports in `mcp/_pool.py` are not load-cycle-breaks (no inline comment documenting the motivation; `mcp/_pool.py` already imports `the_one.db.repositories` at the top level cleanly) and are deliberately excluded from this citation list — naming the pattern matters more than padding the count.
 
+### `optional-plugin-hook-via-getattr-sentinel`
+
+An optional plugin extension that not every plugin needs to provide is accessed via `getattr(plugin, "<hook_name>", None)` with a sensible fallback at the call site. The Protocol stays at its minimal shape; future plugin authors aren't forced to write no-op stubs. The consumer's exception-catching behavior tolerates plugin-raised exceptions and falls back. Distinct from `protocol-widening-for-required-capability` (see below) which applies when ALL plugins in scope must implement the method.
+
+Citation: `the_one/connectors/_session.py:_derive_title` accesses `plugin.display_channel` via `getattr(plugin, "display_channel", None)` with try/except fallback to `envelope.channel_id`. `StubPlugin` implements `display_channel` (`the_one/connectors/_stub.py:display_channel`); other plugins don't need to.
+
+### `protocol-widening-for-required-capability`
+
+When a capability moves from "future" (one plugin needs it, others don't) to "required" (every plugin in scope must implement it), widen the `runtime_checkable` Protocol additively rather than reaching for `getattr`-sentinel. The widening is non-breaking for existing `isinstance(...)` checks at the type level — Python's `runtime_checkable` Protocol checks method-name presence at call time, so existing implementers that satisfy the pre-widened shape continue to pass UNLESS they're missing the newly-required method (in which case the isinstance check correctly fails and surfaces the gap). Implementations still MUST NOT inherit from the Protocol — structural satisfaction is the rule (`structural-Protocol-satisfaction` convention).
+
+Citation: `the_one/connectors/base.py:ConnectorClient.send` widening (F4 leg 1) added `async def send(target: OutboundTarget, content: str) -> SendResult` to the existing 1-method `ConnectorClient` Protocol. Every connector in scope (stub, Discord at F8, second connector at F9) MUST implement `send`; the platform-send tool depends on it being callable. F4's choice contrasts with the `optional-plugin-hook-via-getattr-sentinel` convention used for `display_channel` — outbound has no sensible default (silent drop is leakage; raise is noise) so widening is structurally right.
+
 ---
 
 ## Subsystem contracts
@@ -287,10 +299,11 @@ Parallel to the provider-type extension checklist above. When a future flight ad
 1. **Pydantic `Literal`** — `db/models.py` `ConnectorAccount.type`. Currently `str` (unconstrained); Flight 8 narrows to `Literal["discord"]` and lands the `assert set(get_args(...)) == set(CONNECTOR_TYPES)` invariant alongside `LLMProviderConfig`'s assert.
 2. **`CONNECTOR_TYPES` tuple** — `db/_connector_types.py`. Empty tuple in Flight 1 (`CONNECTOR_TYPES: tuple[str, ...] = ()`); Flight 8 adds `"discord"`. Canonical single-source-of-truth pinned to layers 1, 3, and 4.
 3. **Registry registration** — `connectors/registry.py:register_builtin_connectors`. Empty body in Flight 1 (no production types registered); Flight 8 extends the body to call `register("discord", DiscordPlugin)`. Layers 2 (`CONNECTOR_TYPES`) and 3 must agree — a type in `CONNECTOR_TYPES` without a registration produces a `ConnectorRegistrationError` at first dispatch.
-4. **SQLite `CHECK` constraint** — `db/schema.py`. v13/v14 deliberately ship without a CHECK on `connector_accounts.type` (rationale in `db/schema.py:490` and in the Connector subsystem section below — the `'stub'` test-only type would otherwise need to be baked into the production constraint). v14 is claimed by leg 02's `name` column on `connector_accounts` (F1 L2); v15 by leg 02 of Flight 2 — `idle_timeout_seconds`; v16 by leg 01 of Flight 3 — chat_sessions external-key columns + `session_continuation_seconds` on `connector_accounts`. Flight 8's **v17** migration adds the CHECK via the table-rename ceremony established by v6/v12.
+4. **SQLite `CHECK` constraint** — `db/schema.py`. v13/v14 deliberately ship without a CHECK on `connector_accounts.type` (rationale in `db/schema.py:490` and in the Connector subsystem section below — the `'stub'` test-only type would otherwise need to be baked into the production constraint). v14 is claimed by leg 02's `name` column on `connector_accounts` (F1 L2); v15 by leg 02 of Flight 2 — `idle_timeout_seconds`; v16 by leg 01 of Flight 3 — chat_sessions external-key columns + `session_continuation_seconds` on `connector_accounts`; v17 by leg 05 of Flight 4 — `agents.connector_account_ids` persistence (closes the F4 L1/L4 leg-4 monkeypatch workaround). Flight 8's **v18** migration adds the CHECK via the table-rename ceremony established by v6/v12.
 5. **API gating / branches** — `interfaces/web/api.py`: `/api/connector-accounts/*` create/update/delete/test branches. Flight 2 lands the admin REST surface; Flight 8 lands any Discord-specific gating on top.
 6. **Frontend** — `interfaces/web/static/js/areas/studio/connector-accounts-grid.js` + `studio/connector-account-editor.js` + integration in `static/js/areas/studio.js`. Badge styles land in `tokens.css` + the corresponding studio CSS rule. Flight 2 lands the Studio connector pages + Studio attach surface; Flight 8 supplies the Discord-specific assets. (Admin only if a future surface needs it.)
 7. **`_init_*` state hook** *(optional)* — if a future plugin needs to capture configuration outside the base `ConnectorAccount` fields (analog to `_init_provider_state` on `LLMProvider`), expose a hook on the plugin class. Not needed for Flight 1's stub or any Flight-8/9 design currently on the table; revisit per real plugin.
+8. **Tool-target validation** — `the_one/tools/connector_send.py:SendToPlatformChannelTool.execute`. F4 ships account-scope validation: `target.account_id ∈ agent.connector_account_ids` (rejects with the standard `[error] [constraint]` envelope on mismatch). The next layer of ACL — channel-level, thread-level, peer-level — is F6 territory; the tool's execute body carries a `# F6: AllowlistResolver consultation lands here` marker for F6's diff to replace. New connectors do NOT modify the tool; they participate by being registered (layer 3) and being attached to an agent (`AgentConfig.connector_account_ids`).
 
 ---
 
@@ -334,6 +347,20 @@ A connector that supports allowlists structurally satisfies BOTH `ConnectorPlugi
 3. `connector_accounts.secrets` (Mission 10 Flight 1)
 
 A failure in any of the three UPDATE loops calls `conn.rollback()` and re-raises, so a partial rotation that handled only a subset is impossible. The single `await conn.commit()` is the authoritative commit point; the on-disk key file is replaced atomically via `os.replace` only AFTER the DB commit succeeds. Migration-residue rows (plaintext `'{}'` carried over from the column default) are tolerated via `InvalidToken`-swallowing decrypt and normalized to proper ciphertext for `{}` as a side-effect — same shape across all three corpora.
+
+### Outbound contract
+
+**The platform-send tool is the only agent→platform path.** `the_one/tools/connector_send.py:SendToPlatformChannelTool.execute()` is the sole production caller of `ConnectorClient.send(target, content) → SendResult` (`connectors/base.py:ConnectorClient.send`). No other code path in the codebase reaches `send`. The mission's enforcement-by-construction stance — peer messages can be received and persisted regardless, but outbound delivery is gated solely through this one tool — is realized structurally, not by trust.
+
+**F10 baseline carve-out.** `send_to_platform_channel` is pre-loaded into `_compute_visible_schemas`'s baseline-visible set at `the_one/agent/factory.py:AgentFactory.create()` time when (`bool(config.connector_account_ids) AND tool_enabled`). The two-layer enable check composes the operator gate (`ToolConfigRepository.enabled`) with the per-agent gate (`AgentConfig.is_tool_enabled`). The F10 strict-baseline comment at `the_one/agent/core.py:30-34` documents this as the second exception to the search_tools-only baseline.
+
+**Visibility-tagging contract** (`the_one/connectors/_inbound.py:dispatch_inbound` post-step pass): for every connector-attached session, the dispatcher walks new messages produced by `agent.step()` and tags `Message.visibility`. `Role.USER` messages (the peer inbound) keep their default `visibility=None` (peer-visible). Tool-result messages whose parent tool_call had `name == "send_to_platform_channel"` AND whose content starts with `PLATFORM_SEND_OK_PREFIX` get `visibility=None` (peers saw this content go out via the platform-send tool). Every other new message (assistant text, intermediate tool calls / results, the `continue` virtual tool_result) gets `visibility="operator"`. F5 Chat-UI rendering uses the `visibility` tag to drive the two-layer display.
+
+**System-prompt directives** (`the_one/agent/config.py:compose_system_prompt`): connector-attached agents receive an explicit directive about how their outbound flows. When the tool is operator-enabled: "to reply to peers on the platform, call the `send_to_platform_channel` tool." When operator-disabled: "the platform-send capability is currently DISABLED by the operator; your replies in this session reach the operator only — they do not reach the external platform. Do not claim to have sent anything to the platform." The pair makes the two states (enabled / disabled) deliberate operational modes, not implicit ones.
+
+**Account-scope target validation**: `SendToPlatformChannelTool.execute` rejects `target.account_id ∉ agent.connector_account_ids` with `[error] [constraint] account_id '<id>' is not attached to this agent`. F6's `AllowlistResolver` Protocol will layer channel/thread/peer ACLs on top via the documented hook point in the tool's execute body (search the tool source for the `# F6: AllowlistResolver consultation lands here` marker).
+
+**Cross-reference**: `the_one/connectors/README.md` §11 (Outbound flow trace) has the file:line walk through the full path.
 
 ### Known Issues
 

@@ -48,15 +48,15 @@ async def client(tmp_path):
 
 
 class TestListToolConfigs:
-    async def test_list_configs_returns_all_19_tools(self, client: AsyncClient) -> None:
-        """Fresh DB, no rows → GET returns 19 entries each with
+    async def test_list_configs_returns_all_20_tools(self, client: AsyncClient) -> None:
+        """Fresh DB, no rows → GET returns 20 entries each with
         `enabled=True`, `config={}`, plus the tool's description."""
         from the_one.tools.builtins import _TOOL_CLASSES
 
         resp = await client.get("/api/tools/configs")
         assert resp.status_code == 200
         rows = resp.json()
-        assert len(rows) == len(_TOOL_CLASSES) == 19
+        assert len(rows) == len(_TOOL_CLASSES) == 20
         # Sorted by name.
         names = [r["name"] for r in rows]
         assert names == sorted(_TOOL_CLASSES)
