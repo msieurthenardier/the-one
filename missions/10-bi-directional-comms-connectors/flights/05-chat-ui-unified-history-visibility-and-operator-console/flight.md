@@ -1,6 +1,6 @@
 # Flight: Chat UI — Unified History, Visibility Distinction, Operator Console
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Bi-directional Communication Connectors](../../mission.md)
 
 ## Contributing to Criteria
