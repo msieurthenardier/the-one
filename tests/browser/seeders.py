@@ -90,6 +90,7 @@ def seed_connector_account(
     secrets: dict | None = None,
     config: dict | None = None,
     idle_timeout_seconds: int | None = None,
+    session_continuation_seconds: int | None = None,
 ) -> str:
     """POST a connector account via /api/connector-accounts and return its id.
 
@@ -97,6 +98,10 @@ def seed_connector_account(
     target app subprocess to have registered the StubPlugin under the
     ``'stub'`` type — handled automatically by ``app_clean``'s
     ``THE_ONE_REGISTER_STUB_CONNECTOR=1`` env var (set in conftest.py).
+
+    F5 L8 HAT: also accepts ``session_continuation_seconds`` so tests
+    can seed a non-null continuation window and exercise the
+    "Never (always continue)" dropdown selection round-trip.
 
     ``name`` is not unique-constrained server-side, so callers may seed
     duplicates intentionally for grid-rendering tests.
@@ -109,6 +114,8 @@ def seed_connector_account(
     }
     if idle_timeout_seconds is not None:
         payload["idle_timeout_seconds"] = idle_timeout_seconds
+    if session_continuation_seconds is not None:
+        payload["session_continuation_seconds"] = session_continuation_seconds
     r = httpx.post(f"{base_url}/api/connector-accounts", json=payload, timeout=5.0)
     assert r.status_code == 201, f"seed_connector_account failed: {r.status_code} {r.text}"
     return r.json()["id"]

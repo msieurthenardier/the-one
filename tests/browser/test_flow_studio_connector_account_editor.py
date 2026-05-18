@@ -1,9 +1,16 @@
-"""Studio Connector Account editor flow tests (M10 F2 L6).
+"""Studio Connector editor flow tests (M10 F2 L6; F5 L8 HAT-rename).
 
 Mirrors `test_flow_studio_mcp_editor.py` for the connector-account
 editor. Covers create-form rendering, edit-form rendering, type-select
 population, masked-secret round-trip, idle_timeout_seconds round-trip,
 and the Danger-Zone delete affordance.
+
+F5 L8 HAT-rename: hash route is now `#studio/connectors/...`. The
+idle-timeout + continuation inputs are dropdowns offering a fixed
+ladder of operator-friendly preset values (5m / 15m / 30m / 1h / 4h /
+1d / 1w); the continuation field also offers "Never (always continue)"
+representing null. Tests use `select_option(...)` against the ladder
+values.
 
 The tests rely on the StubPlugin being registered server-side as the
 `stub` connector type — see `conftest.py`'s
@@ -37,7 +44,7 @@ def _list_accounts(base_url: str) -> list[dict]:
 def test_create_form_renders_all_sections(app_clean: str, page: Page) -> None:
     """Create-mode: header, Connection, Credentials, Lifecycle present;
     Test Connection + Danger Zone absent."""
-    page.goto(f"{app_clean}#studio/connector-accounts/new")
+    page.goto(f"{app_clean}#studio/connectors/new")
     expect(page.locator('[data-testid="create-and-test-connector-account-btn"]')).to_be_visible(
         timeout=8000
     )
@@ -59,7 +66,7 @@ def test_create_form_renders_all_sections(app_clean: str, page: Page) -> None:
 def test_edit_form_renders_all_sections(app_clean: str, page: Page) -> None:
     """Edit-mode: every section including Test Connection + Danger Zone."""
     account_id = seed_connector_account(app_clean, name="Stub Bot")
-    page.goto(f"{app_clean}#studio/connector-accounts/{account_id}")
+    page.goto(f"{app_clean}#studio/connectors/{account_id}")
     expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(timeout=8000)
 
     expect(page.locator('[data-testid="connector-account-name-input"]')).to_be_visible()
@@ -74,7 +81,7 @@ def test_edit_form_renders_all_sections(app_clean: str, page: Page) -> None:
 @pytest.mark.browser
 def test_type_select_populates_from_types_endpoint(app_clean: str, page: Page) -> None:
     """The type <select> shows the 'stub' option fetched from /types."""
-    page.goto(f"{app_clean}#studio/connector-accounts/new")
+    page.goto(f"{app_clean}#studio/connectors/new")
     expect(page.locator('[data-testid="connector-account-type-select"]')).to_be_visible(
         timeout=8000
     )
@@ -92,15 +99,17 @@ def test_create_and_test_creates_account_and_transitions_to_edit_mode(
 ) -> None:
     """Fill the create form → Create & Test → both calls fire → URL is
     in edit-mode → the new tile is visible after Back to grid."""
-    page.goto(f"{app_clean}#studio/connector-accounts/new")
+    page.goto(f"{app_clean}#studio/connectors/new")
     expect(page.locator('[data-testid="connector-account-type-select"]')).to_be_visible(
         timeout=8000
     )
 
     page.locator('[data-testid="connector-account-name-input"]').fill("Created Bot")
     page.locator('[data-testid="connector-account-type-select"]').select_option("stub")
-    # Idle timeout.
-    page.locator('[data-testid="connector-account-idle-timeout-input"]').fill("60")
+    # Idle timeout dropdown — pick the 5-minute (300s) preset from the
+    # F5 L8 HAT ladder. The previous free-form input accepted arbitrary
+    # values; the dropdown's value attribute holds the seconds-int.
+    page.locator('[data-testid="connector-account-idle-timeout-input"]').select_option("300")
 
     # Click "Create & Test" — fires POST then POST /test/connect.
     create_btn = page.locator('[data-testid="create-and-test-connector-account-btn"]')
@@ -111,8 +120,8 @@ def test_create_and_test_creates_account_and_transitions_to_edit_mode(
     expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(timeout=8000)
     # URL transitioned to edit-mode (carries the new id).
     new_hash = page.evaluate("location.hash")
-    assert new_hash.startswith("#studio/connector-accounts/"), f"unexpected hash {new_hash!r}"
-    assert new_hash != "#studio/connector-accounts/new"
+    assert new_hash.startswith("#studio/connectors/"), f"unexpected hash {new_hash!r}"
+    assert new_hash != "#studio/connectors/new"
 
     # Back to grid → the new tile is visible.
     page.locator('[data-testid="back-connector-account-btn"]').click()
@@ -131,7 +140,7 @@ def test_edit_with_unchanged_secret_preserves_stored_value(
         name="Token Bot",
         secrets={"BOT_TOKEN": "real_secret_value_xyz"},
     )
-    page.goto(f"{app_clean}#studio/connector-accounts/{account_id}")
+    page.goto(f"{app_clean}#studio/connectors/{account_id}")
     expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(timeout=8000)
 
     # Secret pre-fills with the masked tail (last-4 of the plaintext).
@@ -160,7 +169,7 @@ def test_edit_name_only_save_preserves_secrets(app_clean: str, page: Page) -> No
         name="Original Name",
         secrets={"API_KEY": "preserved_value_abcd"},
     )
-    page.goto(f"{app_clean}#studio/connector-accounts/{account_id}")
+    page.goto(f"{app_clean}#studio/connectors/{account_id}")
     expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(timeout=8000)
 
     page.locator('[data-testid="connector-account-name-input"]').fill("Renamed")
@@ -181,7 +190,7 @@ def test_edit_change_a_secret_updates_backend(app_clean: str, page: Page) -> Non
         name="Secret Bot",
         secrets={"BOT_TOKEN": "old_value_xxxx"},
     )
-    page.goto(f"{app_clean}#studio/connector-accounts/{account_id}")
+    page.goto(f"{app_clean}#studio/connectors/{account_id}")
     expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(timeout=8000)
 
     new_token = "fresh_token_zzzz"
@@ -197,33 +206,64 @@ def test_edit_change_a_secret_updates_backend(app_clean: str, page: Page) -> Non
 
 @pytest.mark.browser
 def test_edit_idle_timeout_set_to_value(app_clean: str, page: Page) -> None:
-    """Set idle_timeout_seconds to 60 → backend persists 60."""
+    """Select 5-minute ladder option → backend persists 300 seconds.
+
+    F5 L8 HAT: the free-form numeric input was replaced with a dropdown
+    offering a fixed value ladder. We select the smallest preset (300s)
+    to round-trip through PUT and verify backend storage.
+    """
     account_id = seed_connector_account(app_clean, name="TTL Bot")
-    page.goto(f"{app_clean}#studio/connector-accounts/{account_id}")
+    page.goto(f"{app_clean}#studio/connectors/{account_id}")
     expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(timeout=8000)
 
-    page.locator('[data-testid="connector-account-idle-timeout-input"]').fill("60")
+    page.locator('[data-testid="connector-account-idle-timeout-input"]').select_option("300")
     page.locator('[data-testid="save-connector-account-btn"]').click()
     expect(page.locator(".app-flash")).to_be_visible(timeout=8000)
 
     after = _get_account(app_clean, account_id)
-    assert after["idle_timeout_seconds"] == 60
+    assert after["idle_timeout_seconds"] == 300
 
 
 @pytest.mark.browser
-def test_edit_idle_timeout_cleared_persists_null(app_clean: str, page: Page) -> None:
-    """Clear idle_timeout_seconds input → backend persists null."""
+def test_edit_idle_timeout_custom_value_renders_as_disabled_option(
+    app_clean: str, page: Page
+) -> None:
+    """A persisted value that isn't on the ladder renders as a "Custom: Xs"
+    selected option so the operator can see the stored value without
+    overwriting it.
+
+    F5 L8 HAT: the ladder offers 300/900/1800/3600/14400/86400/604800.
+    A seeded 120-second value is off-ladder and round-trips as Custom.
+    """
     account_id = seed_connector_account(
         app_clean,
-        name="Clearable TTL",
+        name="Custom TTL",
         idle_timeout_seconds=120,
     )
-    page.goto(f"{app_clean}#studio/connector-accounts/{account_id}")
+    page.goto(f"{app_clean}#studio/connectors/{account_id}")
     expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(timeout=8000)
 
     idle_input = page.locator('[data-testid="connector-account-idle-timeout-input"]')
+    # The currently-selected option value is the persisted "120" carried by
+    # the synthesized custom option (selected attribute is set in the HTML).
     expect(idle_input).to_have_value("120")
-    idle_input.fill("")
+
+
+@pytest.mark.browser
+def test_edit_idle_timeout_default_persists_null(app_clean: str, page: Page) -> None:
+    """Selecting the "Use default" option (empty value) → backend persists null."""
+    account_id = seed_connector_account(
+        app_clean,
+        name="Clearable TTL",
+        idle_timeout_seconds=86400,  # ladder value so the dropdown selects it
+    )
+    page.goto(f"{app_clean}#studio/connectors/{account_id}")
+    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(timeout=8000)
+
+    idle_input = page.locator('[data-testid="connector-account-idle-timeout-input"]')
+    expect(idle_input).to_have_value("86400")
+    # Select the "Use default" sentinel (empty value → null payload).
+    idle_input.select_option("")
     page.locator('[data-testid="save-connector-account-btn"]').click()
     expect(page.locator(".app-flash")).to_be_visible(timeout=8000)
 
@@ -232,27 +272,36 @@ def test_edit_idle_timeout_cleared_persists_null(app_clean: str, page: Page) -> 
 
 
 @pytest.mark.browser
-def test_edit_idle_timeout_zero_surfaces_validation_error(
-    app_clean: str, page: Page
-) -> None:
-    """idle_timeout_seconds=0 → backend 422 → editor surfaces inline."""
-    account_id = seed_connector_account(app_clean, name="Zero TTL Bot")
-    page.goto(f"{app_clean}#studio/connector-accounts/{account_id}")
+def test_edit_continuation_never_persists_null(app_clean: str, page: Page) -> None:
+    """The continuation dropdown includes a "Never (always continue)"
+    option that serializes to null — distinct from "Use default" but
+    sharing the same null payload (the API field is nullable).
+
+    F5 L8 HAT: ensures the __NEVER__ sentinel collapses to null on the wire.
+    """
+    account_id = seed_connector_account(
+        app_clean,
+        name="Always-On Bot",
+        session_continuation_seconds=3600,
+    )
+    page.goto(f"{app_clean}#studio/connectors/{account_id}")
     expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(timeout=8000)
 
-    page.locator('[data-testid="connector-account-idle-timeout-input"]').fill("0")
+    cont_input = page.locator('[data-testid="connector-account-continuation-input"]')
+    expect(cont_input).to_have_value("3600")
+    cont_input.select_option("__NEVER__")
     page.locator('[data-testid="save-connector-account-btn"]').click()
+    expect(page.locator(".app-flash")).to_be_visible(timeout=8000)
 
-    # Error span should display a non-empty error referencing the bound.
-    error_el = page.locator('[data-testid="connector-account-editor-error"]')
-    expect(error_el).not_to_be_empty(timeout=8000)
+    after = _get_account(app_clean, account_id)
+    assert after["session_continuation_seconds"] is None
 
 
 @pytest.mark.browser
 def test_delete_from_danger_zone_removes_tile(app_clean: str, page: Page) -> None:
     """Two-click Delete fires DELETE → tile gone from grid."""
     account_id = seed_connector_account(app_clean, name="Deletable Bot")
-    page.goto(f"{app_clean}#studio/connector-accounts/{account_id}")
+    page.goto(f"{app_clean}#studio/connectors/{account_id}")
     expect(page.locator('[data-testid="delete-connector-account-btn"]')).to_be_visible(
         timeout=8000
     )
@@ -278,7 +327,7 @@ def test_edit_session_continuation_round_trip(app_clean: str, page: Page) -> Non
     timeout (M10 F03 L05 acceptance criterion).
     """
     account_id = seed_connector_account(app_clean, name="Continuation Bot")
-    page.goto(f"{app_clean}#studio/connector-accounts/{account_id}")
+    page.goto(f"{app_clean}#studio/connectors/{account_id}")
     expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(timeout=8000)
 
     # Both Lifecycle inputs present and visually adjacent.
@@ -291,8 +340,9 @@ def test_edit_session_continuation_round_trip(app_clean: str, page: Page) -> Non
     expect(cont_hint).to_be_visible()
     expect(cont_hint).to_contain_text("Distinct from the pool idle timeout")
 
-    # Fill the continuation field and save.
-    cont_input.fill("3600")
+    # Select the 1-hour (3600s) ladder option and save.
+    # F5 L8 HAT: dropdown replaces the free-form numeric input.
+    cont_input.select_option("3600")
     page.locator('[data-testid="save-connector-account-btn"]').click()
     expect(page.locator(".app-flash")).to_be_visible(timeout=8000)
 
@@ -318,7 +368,7 @@ def test_edit_session_continuation_round_trip(app_clean: str, page: Page) -> Non
 def test_back_when_dirty_prompts_confirm_dialog(app_clean: str, page: Page) -> None:
     """Back button while dirty → confirm dialog appears; Stay keeps the editor."""
     account_id = seed_connector_account(app_clean, name="Dirty Bot")
-    page.goto(f"{app_clean}#studio/connector-accounts/{account_id}")
+    page.goto(f"{app_clean}#studio/connectors/{account_id}")
     expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(timeout=8000)
 
     page.locator('[data-testid="connector-account-name-input"]').fill("Dirty Bot Edited")

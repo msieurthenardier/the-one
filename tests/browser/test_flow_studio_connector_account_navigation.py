@@ -1,16 +1,21 @@
-"""Studio Connector Accounts navigation flow tests (M10 F2 leg 05).
+"""Studio Connectors navigation flow tests (M10 F2 leg 05; F5 L8 HAT-rename).
 
-Mirrors `test_flow_studio_mcp_navigation.py`. The Connector Accounts
-section is structurally identical to MCP Sources (operator-managed
-entities, many-to-many identities); placed in Studio (not Admin) per
-the flight's "Studio placement, not Admin" design decision.
+Mirrors `test_flow_studio_mcp_navigation.py`. The Connectors section
+is structurally identical to MCP Sources (operator-managed entities,
+many-to-many identities); placed in Studio (not Admin) per the
+flight's "Studio placement, not Admin" design decision.
+
+F5 L8 HAT-rename: operator-facing label and hash slug are "Connectors"
+(was "Connector Accounts"). The internal entity name + API path stay
+as `connector-accounts` (F2 contract). The legacy hash slug remains
+accepted by hydrateState for backward-compat.
 
 Covers:
-- Studio section nav now has 4 entries ending with "Connector Accounts"
-- Click "Connector Accounts" → URL becomes #studio/connector-accounts
-- Direct-load #studio/connector-accounts renders the page
-- Direct-load #studio/connector-accounts/new mounts the editor
-- Refresh on #studio/connector-accounts preserves the section
+- Studio section nav now has 4 entries ending with "Connectors"
+- Click "Connectors" → URL becomes #studio/connectors
+- Direct-load #studio/connectors renders the page
+- Direct-load #studio/connectors/new mounts the editor
+- Refresh on #studio/connectors preserves the section
 - Empty grid shows the centered CTA + the "Flight 8 will add Discord" copy
 - New-button → Cancel round-trip restores the empty-canvas grid
 
@@ -30,37 +35,52 @@ from playwright.sync_api import Page, expect
 
 
 @pytest.mark.browser
-def test_studio_section_nav_includes_connector_accounts(app_clean: str, page: Page) -> None:
-    """Studio section nav has 4 entries ending with Connector Accounts."""
+def test_studio_section_nav_includes_connectors(app_clean: str, page: Page) -> None:
+    """Studio section nav has 4 entries ending with Connectors."""
     page.goto(f"{app_clean}#studio")
     nav = page.locator(".area-studio .section-nav")
     expect(nav).to_be_visible(timeout=5000)
     items = page.locator(".area-studio .section-nav-item")
     expect(items).to_have_count(4)
     labels = items.evaluate_all("els => els.map(e => e.textContent.trim())")
-    assert labels == ["Agents", "Knowledge", "MCP Servers", "Connector Accounts"]
+    assert labels == ["Agents", "Knowledge", "MCP Servers", "Connectors"]
 
 
 @pytest.mark.browser
-def test_studio_section_nav_click_to_connector_accounts(app_clean: str, page: Page) -> None:
+def test_studio_section_nav_click_to_connectors(app_clean: str, page: Page) -> None:
     page.goto(f"{app_clean}#studio")
     expect(page.locator(".area-studio .section-nav")).to_be_visible(timeout=5000)
-    page.locator(".area-studio .section-nav-item", has_text="Connector Accounts").click()
+    page.locator(".area-studio .section-nav-item", has_text="Connectors").click()
     expect(page.locator(".area-studio .page-title")).to_have_text(
-        "Connector Accounts", timeout=5000
+        "Connectors", timeout=5000
     )
-    assert page.evaluate("location.hash") == "#studio/connector-accounts"
+    assert page.evaluate("location.hash") == "#studio/connectors"
 
 
 @pytest.mark.browser
-def test_studio_direct_load_connector_accounts(app_clean: str, page: Page) -> None:
+def test_studio_direct_load_connectors(app_clean: str, page: Page) -> None:
+    page.goto(f"{app_clean}#studio/connectors")
+    page.wait_for_selector(".area-studio .page-title", timeout=8000)
+    assert page.locator(".area-studio .page-title").text_content().strip() == "Connectors"
+
+
+@pytest.mark.browser
+def test_studio_legacy_connector_accounts_slug_redirects_to_connectors(
+    app_clean: str, page: Page
+) -> None:
+    """Legacy hash `#studio/connector-accounts` still mounts the section
+    (backward-compat); the router rewrites the URL to the new slug."""
     page.goto(f"{app_clean}#studio/connector-accounts")
     page.wait_for_selector(".area-studio .page-title", timeout=8000)
-    assert page.locator(".area-studio .page-title").text_content().strip() == "Connector Accounts"
+    assert page.locator(".area-studio .page-title").text_content().strip() == "Connectors"
+    # F5 L8 HAT: hydrateState accepts the legacy slug; serializeState
+    # writes the new slug back via the router's serialize-after-hydrate
+    # pass, so the URL converges to `#studio/connectors`.
+    assert page.evaluate("location.hash") == "#studio/connectors"
 
 
 @pytest.mark.browser
-def test_studio_direct_load_connector_accounts_new_renders_editor(
+def test_studio_direct_load_connectors_new_renders_editor(
     app_clean: str, page: Page
 ) -> None:
     """Direct-load to the create route mounts the real editor.
@@ -68,24 +88,24 @@ def test_studio_direct_load_connector_accounts_new_renders_editor(
     M10 F2 L6: the leg-5 placeholder was replaced wholesale with the
     full editor. The name input is the stable mount anchor.
     """
-    page.goto(f"{app_clean}#studio/connector-accounts/new")
+    page.goto(f"{app_clean}#studio/connectors/new")
     name_input = page.locator('[data-testid="connector-account-name-input"]')
     expect(name_input).to_be_visible(timeout=8000)
 
 
 @pytest.mark.browser
-def test_studio_refresh_preserves_connector_accounts_section(app_clean: str, page: Page) -> None:
-    page.goto(f"{app_clean}#studio/connector-accounts")
+def test_studio_refresh_preserves_connectors_section(app_clean: str, page: Page) -> None:
+    page.goto(f"{app_clean}#studio/connectors")
     page.wait_for_selector(".area-studio .page-title", timeout=8000)
     page.reload()
     page.wait_for_selector(".area-studio .page-title", timeout=8000)
-    assert page.evaluate("location.hash") == "#studio/connector-accounts"
+    assert page.evaluate("location.hash") == "#studio/connectors"
 
 
 @pytest.mark.browser
-def test_studio_connector_accounts_empty_grid_shows_cta(app_clean: str, page: Page) -> None:
+def test_studio_connectors_empty_grid_shows_cta(app_clean: str, page: Page) -> None:
     """Empty connector_accounts table → empty-canvas with the Flight-8 copy renders."""
-    page.goto(f"{app_clean}#studio/connector-accounts")
+    page.goto(f"{app_clean}#studio/connectors")
     page.wait_for_selector('[data-testid="new-connector-account-btn-empty"]', timeout=8000)
     cta = page.locator('[data-testid="new-connector-account-btn-empty"]')
     expect(cta).to_be_visible()
@@ -95,7 +115,7 @@ def test_studio_connector_accounts_empty_grid_shows_cta(app_clean: str, page: Pa
 
 
 @pytest.mark.browser
-def test_studio_connector_accounts_new_button_opens_form_then_cancel_returns_to_grid(
+def test_studio_connectors_new_button_opens_form_then_cancel_returns_to_grid(
     app_clean: str, page: Page
 ) -> None:
     """New-button → form mounts → Cancel → empty-canvas grid restored.
@@ -103,7 +123,7 @@ def test_studio_connector_accounts_new_button_opens_form_then_cancel_returns_to_
     M10 F2 L6: assertions updated from the placeholder selector to the
     real editor's name-input + cancel-button.
     """
-    page.goto(f"{app_clean}#studio/connector-accounts")
+    page.goto(f"{app_clean}#studio/connectors")
     page.wait_for_selector('[data-testid="new-connector-account-btn-empty"]', timeout=8000)
 
     # Click the empty-canvas CTA → form mounts and URL updates.
@@ -111,11 +131,11 @@ def test_studio_connector_accounts_new_button_opens_form_then_cancel_returns_to_
     expect(page.locator('[data-testid="connector-account-name-input"]')).to_be_visible(
         timeout=5000
     )
-    assert page.evaluate("location.hash") == "#studio/connector-accounts/new"
+    assert page.evaluate("location.hash") == "#studio/connectors/new"
 
     # Cancel is disabled-until-dirty per the editor contract; use Back
     # to return to the grid (Back also routes through onBack which clears
     # the form-mode and re-renders the empty-canvas).
     page.locator('[data-testid="back-connector-account-btn"]').click()
     expect(page.locator(".empty-canvas")).to_be_visible(timeout=5000)
-    assert page.evaluate("location.hash") == "#studio/connector-accounts"
+    assert page.evaluate("location.hash") == "#studio/connectors"

@@ -38,7 +38,7 @@ def test_create_succeeds_probe_succeeds_lands_in_edit_mode_with_green_banner(
 ) -> None:
     """Create + probe ok → operator lands in edit-mode with green LED banner."""
     # Use real stub doctor — default response is status=ok.
-    page.goto(f"{app_clean}#studio/connector-accounts/new")
+    page.goto(f"{app_clean}#studio/connectors/new")
     expect(page.locator('[data-testid="create-and-test-connector-account-btn"]')).to_be_visible(
         timeout=8000
     )
@@ -83,7 +83,7 @@ def test_create_succeeds_probe_fails_persists_account_with_red_banner(
 
     page.route("**/api/connector-accounts/*/test/connect", handle_probe)
 
-    page.goto(f"{app_clean}#studio/connector-accounts/new")
+    page.goto(f"{app_clean}#studio/connectors/new")
     expect(page.locator('[data-testid="create-and-test-connector-account-btn"]')).to_be_visible(
         timeout=8000
     )
@@ -115,7 +115,14 @@ def test_create_succeeds_probe_fails_persists_account_with_red_banner(
 def test_create_422_blocks_probe_and_surfaces_error_inline(
     app_clean: str, page: Page
 ) -> None:
-    """Create returns 422 → operator stays on create form; probe NOT fired."""
+    """Create returns 422 → operator stays on create form; probe NOT fired.
+
+    F5 L8 HAT: the idle-timeout dropdown no longer allows out-of-range
+    values (the previous path to force a backend 422 from the UI). We
+    instead intercept POST /api/connector-accounts via Playwright route
+    to synthesize a 422 response, then verify the error surfaces inline
+    and the probe call is NEVER fired.
+    """
     # Capture every request to /test/connect — must be zero at the end.
     probe_requests: list[str] = []
 
@@ -125,22 +132,32 @@ def test_create_422_blocks_probe_and_surfaces_error_inline(
 
     page.on("request", on_request)
 
-    page.goto(f"{app_clean}#studio/connector-accounts/new")
+    # Intercept the POST so the test owns the 422 response. The handler
+    # MUST only fulfill on POST; GET /api/connector-accounts and GET
+    # /api/connector-accounts/types must pass through (the editor mount
+    # depends on the types fetch resolving).
+    def handle_create(route):
+        if route.request.method == "POST":
+            route.fulfill(
+                status=422,
+                content_type="application/json",
+                body=(
+                    '{"detail":[{"loc":["body","idle_timeout_seconds"],'
+                    '"msg":"value must be >= 1","type":"value_error"}]}'
+                ),
+            )
+        else:
+            route.continue_()
+
+    page.route("**/api/connector-accounts", handle_create)
+
+    page.goto(f"{app_clean}#studio/connectors/new")
     expect(page.locator('[data-testid="create-and-test-connector-account-btn"]')).to_be_visible(
         timeout=8000
     )
 
-    # Submit with an empty name → backend 422 (Pydantic rejects empty
-    # name via the model_validate path). Type set so the frontend's own
-    # 'Name is required' check doesn't short-circuit — backend ownership
-    # of validation surface is the leg-artifact expectation.
-    #
-    # To force a backend 422 (the frontend short-circuits empty name),
-    # use an out-of-range idle_timeout that the frontend allows but the
-    # backend rejects.
     page.locator('[data-testid="connector-account-name-input"]').fill("Will-422 Bot")
     page.locator('[data-testid="connector-account-type-select"]').select_option("stub")
-    page.locator('[data-testid="connector-account-idle-timeout-input"]').fill("0")
 
     page.locator('[data-testid="create-and-test-connector-account-btn"]').click()
 
@@ -151,7 +168,7 @@ def test_create_422_blocks_probe_and_surfaces_error_inline(
     # Operator stays on the create form — Create & Test button still visible.
     expect(page.locator('[data-testid="create-and-test-connector-account-btn"]')).to_be_visible()
     # URL still on /new.
-    assert page.evaluate("location.hash") == "#studio/connector-accounts/new"
+    assert page.evaluate("location.hash") == "#studio/connectors/new"
 
     # The probe MUST NOT have fired.
     assert probe_requests == [], f"unexpected probe requests: {probe_requests}"

@@ -35,7 +35,9 @@ from the_one.agent.factory import (
     ProviderNotFoundError,
 )
 from the_one.config import settings
+from the_one.connectors import OPERATOR_VISIBILITY
 from the_one.connectors._pool import shutdown_drain as _connector_pool_shutdown_drain
+from the_one.connectors.visibility import tag_post_step_visibility
 from the_one.db import close_connection, init_db
 from the_one.db.codec import (
     decode_messages,
@@ -52,6 +54,13 @@ from the_one.interfaces.web.api import router as api_router
 from the_one.interfaces.web.middleware import OriginAllowlistMiddleware, build_default_allowlist
 from the_one.llm.base import Message, Role
 from the_one.mcp import shutdown_drain as _mcp_pool_shutdown_drain
+from the_one.sessions import (
+    add_subscriber,
+    is_session_processing,
+    remove_subscriber,
+    session_locks,
+    subscribers_for,
+)
 from the_one.tools._session_registry import shutdown_drain as _session_registry_shutdown_drain
 
 logger = logging.getLogger(__name__)
@@ -107,8 +116,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # only logs.
     # Cancel any in-flight per-message processing tasks. Each task
     # observes the cancel inside its `_spawn_message_processing` wrapper
-    # and exits cleanly; the session's processing_lock is released by
-    # `async with` automatically.
+    # and exits cleanly; the shared session lock (from
+    # ``the_one.sessions``) is released by `async with` automatically.
     for task in list(_inflight_tasks):
         task.cancel()
     if _inflight_tasks:
@@ -192,13 +201,12 @@ class Session:
     title: str = "New chat"
     agent_name: str | None = None
     history: list[dict[str, Any]] = field(default_factory=list)
-    subscribers: set[WebSocket] = field(default_factory=set, repr=False)
-    # Per-session lock serializes `_process_and_broadcast` so a second
-    # in-flight message on the same session waits for the first to finish
-    # (mid-flight `agent.step` is not safe to call concurrently — it
-    # mutates `agent.messages`). Created lazily on first use to avoid
-    # binding to an event loop at dataclass construction time.
-    processing_lock: asyncio.Lock | None = field(default=None, repr=False)
+    # M10 F05 L04: connector-attached sessions carry the platform
+    # string ("stub", "discord", "slack", …) populated from
+    # ChatSession.platform at restore time. Web-native sessions
+    # carry None. The storage-edge shim in _process_and_broadcast
+    # reads this field to gate operator-visibility tagging.
+    platform: str | None = None
 
     def add_event(self, event: dict[str, Any]) -> None:
         self.history.append(event)
@@ -247,9 +255,7 @@ async def _spawn_message_processing(
     the session's subscribers as a `system` event so the user sees them
     instead of silently dropping into a crashed task.
     """
-    if session.processing_lock is None:
-        session.processing_lock = asyncio.Lock()
-    async with session.processing_lock:
+    async with session_locks[session.id]:
         # F5 L5: bind the current chat_session_id into the per-task
         # ContextVar so any pool-spawned MCP OAuth provider construction
         # below (via ``_entry_worker`` → ``build_oauth_provider_for_source``)
@@ -357,11 +363,15 @@ async def _restore_session(session_id: str) -> RestoredSession:
     """Load a session from DB and (re)build the Agent from CURRENT config.
 
     Health is re-evaluated on every call. If a Session is already cached for
-    this id, the existing object is updated in place — preserving subscribers
-    and identity — but its `.agent` is replaced with a freshly-constructed one
+    this id, the existing object is updated in place — preserving identity —
+    but its `.agent` is replaced with a freshly-constructed one
     from the current agent_config row. This way edits to system_prompt, model,
     or tools propagate at the next join, and deletions surface as agent_deleted
     on the next join.
+
+    Subscriber preservation is implicit: the WS subscriber registry lives in
+    ``the_one.sessions`` and is keyed by session id, so a refresh of the
+    cached ``Session`` dataclass does not perturb the subscriber set.
 
     Degraded states (agent_deleted, provider_missing) drop the entry from the
     cache so the next successful join starts clean.
@@ -384,11 +394,7 @@ async def _restore_session(session_id: str) -> RestoredSession:
     # duration of the in-flight turn — the next join after the turn
     # completes will pick up any config edits as before.
     cached = _sessions.get(session_id)
-    if (
-        cached is not None
-        and cached.processing_lock is not None
-        and cached.processing_lock.locked()
-    ):
+    if cached is not None and is_session_processing(session_id):
         return RestoredSession(cached, SESSION_STATUS_OK, db_session)
 
     factory = _get_factory()
@@ -435,12 +441,19 @@ async def _restore_session(session_id: str) -> RestoredSession:
     ui_events = messages_to_ui_events(messages)
 
     if session_id in _sessions:
-        # Update existing Session in place — keeps subscribers and identity.
+        # Update existing Session in place — keeps identity. Subscribers
+        # live in the neutral session registry keyed by session id, so
+        # the in-place update preserves the subscriber set implicitly.
         existing = _sessions[session_id]
         existing.agent = agent
         existing.title = db_session.title
         existing.agent_name = db_session.agent_name
         existing.history = ui_events
+        # M10 F05 L04: refresh the cached platform field from the DB row
+        # so connector-attachment state stays in sync with the persisted
+        # truth across rejoins. Drives the WS storage-edge shim gate in
+        # ``_process_and_broadcast`` + ``_resume_paused_session``.
+        existing.platform = db_session.platform
         return RestoredSession(existing, SESSION_STATUS_OK, db_session)
 
     session = Session(
@@ -450,6 +463,9 @@ async def _restore_session(session_id: str) -> RestoredSession:
         title=db_session.title,
         agent_name=db_session.agent_name,
         history=ui_events,
+        # M10 F05 L04: surface the persisted connector-attachment state to
+        # the in-memory Session so the WS storage-edge shim can gate on it.
+        platform=db_session.platform,
     )
     _sessions[session_id] = session
     return RestoredSession(session, SESSION_STATUS_OK, db_session)
@@ -487,6 +503,32 @@ async def _save_session_to_db(session: Session) -> None:
         logger.warning("Failed to save session %s to DB", session.id, exc_info=True)
 
 
+def _session_to_list_payload(s: ChatSessionModel) -> dict[str, Any]:
+    """Project a ChatSession DB row into the `session_list` per-row payload.
+
+    M10 F05 L01: extended beyond the pre-F5 five-field projection to include
+    the six connector-keying fields already on `ChatSession`. All six default
+    `None` for non-connector (web-native) sessions, so pre-F5 clients ignoring
+    the new fields keep working byte-identically. `session_metadata` is
+    intentionally NOT projected — it's free-form dict content with no F5
+    consumer and may carry sensitive routing data we shouldn't expose
+    unfiltered.
+    """
+    return {
+        "id": s.id,
+        "title": s.title,
+        "agent_name": s.agent_name,
+        "created_at": s.created_at,
+        "updated_at": s.updated_at,
+        "platform": s.platform,
+        "connector_account_id": s.connector_account_id,
+        "channel_id": s.channel_id,
+        "thread_id": s.thread_id,
+        "peer_id": s.peer_id,
+        "last_inbound_at": s.last_inbound_at,
+    }
+
+
 def _build_session_joined_ok(session: Session) -> dict[str, Any]:
     """Build a session_joined payload for a healthy in-memory session.
 
@@ -496,7 +538,7 @@ def _build_session_joined_ok(session: Session) -> dict[str, Any]:
     away from an in-flight session and back leaves the UI's per-WS
     busy flag stale).
     """
-    is_processing = bool(session.processing_lock is not None and session.processing_lock.locked())
+    is_processing = is_session_processing(session.id)
     return {
         "type": "session_joined",
         "session_id": session.id,
@@ -533,7 +575,7 @@ async def _send_to_session(
 ) -> None:
     """Send a JSON payload to all websocket subscribers of a session."""
     dead: list[WebSocket] = []
-    for ws in session.subscribers:
+    for ws in subscribers_for(session.id):
         if ws is exclude:
             continue
         try:
@@ -541,7 +583,7 @@ async def _send_to_session(
         except Exception:
             dead.append(ws)
     for ws in dead:
-        session.subscribers.discard(ws)
+        remove_subscriber(session.id, ws)
 
 
 async def _ensure_ollama_model_loaded(session: Session) -> None:
@@ -827,6 +869,16 @@ async def _process_and_broadcast(
         }
         await _send_to_session(session, interim_event)
 
+    # F5 L4: storage-edge shim for operator-visibility tagging.
+    # On a connector-attached session, every WS-typed message is
+    # operator-only by default. The agent's responses to that
+    # message (and any intermediate tool calls/results) stay in
+    # operator-console-only mode UNLESS the agent explicitly
+    # invokes send_to_platform_channel — that tool's successful
+    # tool_result is the only path to visibility=None / peer-
+    # visible from this WS write path.
+    pre_step_len = len(session.agent.messages)
+
     try:
         async for msg in session.agent.step(
             user_input,
@@ -938,6 +990,19 @@ async def _process_and_broadcast(
             {"type": "system", "content": f"Agent error: {exc}"},
         )
 
+    # F5 L4: apply visibility tagging if this is a connector-
+    # attached session. Runs whether agent.step succeeded or
+    # raised — partial messages still need tagging because
+    # _save_session_to_db persists whatever is in agent.messages.
+    if session.platform is not None:
+        tag_post_step_visibility(session.agent.messages, pre_step_len)
+        # The helper SKIPS USER messages; override the WS-typed
+        # operator input at pre_step_len explicitly. Bounds-checked
+        # in case agent.step raised before its internal
+        # Message.user(...) append landed.
+        if pre_step_len < len(session.agent.messages):
+            session.agent.messages[pre_step_len].visibility = OPERATOR_VISIBILITY
+
     # Save to DB after each complete exchange
     try:
         await _save_session_to_db(session)
@@ -975,6 +1040,13 @@ async def _resume_paused_session(session: Session) -> None:
     # model. Re-load before resume re-enters the iteration loop.
     await _ensure_ollama_model_loaded(session)
 
+    # F5 L4: capture pre-resume length so we can tag any
+    # messages appended during resume_after_auth on a connector-
+    # attached session. Mirrors the shim in
+    # _process_and_broadcast — same helper, no USER override
+    # (resume has no new WS-typed USER message).
+    pre_resume_len = len(session.agent.messages)
+
     # F5 L5: bind chat_session_id for any pool / OAuth provider construction
     # the resumed tool dispatch may trigger. Symmetric with
     # ``_spawn_message_processing``'s set/reset pattern.
@@ -1002,6 +1074,12 @@ async def _resume_paused_session(session: Session) -> None:
     finally:
         current_chat_session_id.reset(csid_token)
 
+    # F5 L4: symmetric storage-edge shim for the resume path.
+    # No USER override here — resume has no new WS-typed USER message;
+    # the original USER was tagged in the initial-step shim.
+    if session.platform is not None:
+        tag_post_step_visibility(session.agent.messages, pre_resume_len)
+
     # Persist the resumed exchange so re-joiners see the new messages.
     try:
         await _save_session_to_db(session)
@@ -1012,7 +1090,7 @@ async def _resume_paused_session(session: Session) -> None:
 async def _send_pause_snapshot_if_needed(session: Session, websocket: WebSocket) -> None:
     """Send the cached ``auth_required`` event to a NEW subscriber.
 
-    Called immediately after ``session.subscribers.add(websocket)`` in
+    Called immediately after ``add_subscriber(session.id, websocket)`` in
     any branch (join, new_session, auto-create). No-op if the session's
     agent has no pending pause. Existing subscribers don't receive
     duplicates because the send targets only the new websocket.
@@ -1196,15 +1274,15 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                     # in-flight "Loading model..." or assistant message)
                     # surface in the new session's UI after a switch.
                     if session and session.id != session_id:
-                        session.subscribers.discard(ws)
+                        remove_subscriber(session.id, ws)
                     restored = await _get_or_restore_session(session_id)
                     if restored.status == SESSION_STATUS_OK:
                         # `session` here is the WS-loop-scoped variable;
                         # restored.session is the dataclass field.
                         session = restored.session
                         assert session is not None
-                        if ws not in session.subscribers:
-                            session.subscribers.add(ws)
+                        if ws not in subscribers_for(session.id):
+                            add_subscriber(session.id, ws)
                         await ws.send_json(_build_session_joined_ok(session))
                         # F5 L3: replay a cached auth_required event to
                         # the new subscriber if the session is paused.
@@ -1219,8 +1297,8 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 elif session is not None:
                     # No session_id supplied AND outer session is already bound —
                     # preserve today's idempotent re-bind behavior.
-                    if ws not in session.subscribers:
-                        session.subscribers.add(ws)
+                    if ws not in subscribers_for(session.id):
+                        add_subscriber(session.id, ws)
                     await ws.send_json(_build_session_joined_ok(session))
                     # F5 L3: replay a cached auth_required event on
                     # idempotent re-bind too.
@@ -1235,8 +1313,8 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 except (ValueError, KeyError) as exc:
                     await ws.send_json({"type": "system", "content": f"Cannot start chat: {exc}"})
                     continue
-                if ws not in session.subscribers:
-                    session.subscribers.add(ws)
+                if ws not in subscribers_for(session.id):
+                    add_subscriber(session.id, ws)
                 await ws.send_json(_build_session_joined_ok(session))
                 # F5 L3: brand-new session has no pause state — the helper
                 # is a no-op here, included for code-pattern consistency.
@@ -1247,16 +1325,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 try:
                     repo = await _chat_repo()
                     db_sessions = await repo.list()
-                    sessions_list = [
-                        {
-                            "id": s.id,
-                            "title": s.title,
-                            "agent_name": s.agent_name,
-                            "created_at": s.created_at,
-                            "updated_at": s.updated_at,
-                        }
-                        for s in db_sessions
-                    ]
+                    sessions_list = [_session_to_list_payload(s) for s in db_sessions]
                 except Exception:
                     logger.warning("Failed to list sessions from DB", exc_info=True)
                     sessions_list = []
@@ -1271,14 +1340,14 @@ async def websocket_endpoint(ws: WebSocket) -> None:
             if action == "new_session":
                 # Leave current session
                 if session:
-                    session.subscribers.discard(ws)
+                    remove_subscriber(session.id, ws)
                 agent_name = payload.get("agent_name")
                 try:
                     session = await _create_session(agent_name=agent_name)
                 except (ValueError, KeyError) as exc:
                     await ws.send_json({"type": "system", "content": f"Cannot start chat: {exc}"})
                     continue
-                session.subscribers.add(ws)
+                add_subscriber(session.id, ws)
                 await ws.send_json(_build_session_joined_ok(session))
                 # F5 L3: brand-new session — no-op, included for code-
                 # pattern consistency.
@@ -1291,7 +1360,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                     # Remove from memory
                     if sid in _sessions:
                         if session and session.id == sid:
-                            session.subscribers.discard(ws)
+                            remove_subscriber(session.id, ws)
                             session = None
                         del _sessions[sid]
                     # Remove from DB
@@ -1317,7 +1386,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                 except (ValueError, KeyError) as exc:
                     await ws.send_json({"type": "system", "content": f"Cannot start chat: {exc}"})
                     continue
-                session.subscribers.add(ws)
+                add_subscriber(session.id, ws)
                 await ws.send_json(_build_session_joined_ok(session))
                 # F5 L3: brand-new session — no-op, included for code-
                 # pattern consistency.
@@ -1335,12 +1404,13 @@ async def websocket_endpoint(ws: WebSocket) -> None:
             # loop stays responsive — switching conversations, listing
             # sessions, etc. should not block on a long agent tool call
             # (e.g. a `sleep 200` clipped to 120s by the F4 timeout cap).
-            # The session's `processing_lock` serializes successive messages
-            # on the same session; broadcasts go to all current subscribers.
+            # The shared per-session lock (from ``the_one.sessions``)
+            # serializes successive messages on the same session;
+            # broadcasts go to all current subscribers.
             task = asyncio.create_task(_spawn_message_processing(session, user_input, "web", ws))
             _inflight_tasks.add(task)
             task.add_done_callback(_inflight_tasks.discard)
 
     except WebSocketDisconnect:
         if session:
-            session.subscribers.discard(ws)
+            remove_subscriber(session.id, ws)

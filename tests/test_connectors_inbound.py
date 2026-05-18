@@ -78,6 +78,8 @@ from the_one.db.repositories import (
 )
 from the_one.encryption import get_encryptor
 from the_one.llm.base import LLMProvider, Message, Role, StreamChunk, TokenUsage, ToolCall
+from the_one.sessions import clear_for_test as _clear_session_registry
+from the_one.sessions import session_locks
 
 # ─── Fixtures ────────────────────────────────────────────────────────────
 
@@ -96,6 +98,12 @@ async def _clear_pool_locks_registry():
     yield
     await pool_mod._clear_for_test()
     await inbound_mod._clear_for_test()
+    # F5 L2: also clear the neutral session registries (shared lock +
+    # subscribers). The inbound _clear_for_test delegates to the lock
+    # registry already, but the convenience helper also clears
+    # subscribers and keeps the call symmetrical with other autouse
+    # fixtures.
+    _clear_session_registry()
     # Hard-clear then restore baseline so each test starts from the
     # production-shaped registry (currently empty in F3).
     _registry_clear_for_test()
@@ -400,7 +408,7 @@ async def test_dispatch_inbound_serializes_concurrent_same_session(
     # task is queued on it.
     for _ in range(100):
         await asyncio.sleep(0.01)
-        lock = inbound_mod._session_locks.get(session_id)
+        lock = session_locks.get(session_id)
         if lock is not None and lock.locked() and not (task1.done() or task2.done()):
             break
     else:
@@ -413,7 +421,7 @@ async def test_dispatch_inbound_serializes_concurrent_same_session(
     sessions = await chat_repo.list()
     assert len(sessions) == 1
     assert sessions[0].id == session_id
-    assert inbound_mod._session_locks[session_id].locked()
+    assert session_locks[session_id].locked()
 
     # Release the event so the first task completes; the second
     # acquires the lock and runs through to completion.
@@ -483,7 +491,7 @@ async def test_dispatch_inbound_parallelizes_different_sessions(
         held = {
             sid
             for sid in session_ids
-            if (lock := inbound_mod._session_locks.get(sid)) is not None
+            if (lock := session_locks.get(sid)) is not None
             and lock.locked()
         }
         if held == session_ids:
@@ -495,7 +503,7 @@ async def test_dispatch_inbound_parallelizes_different_sessions(
     assert not task2.done()
     # Both locks held simultaneously — the contract.
     for sid in session_ids:
-        assert inbound_mod._session_locks[sid].locked()
+        assert session_locks[sid].locked()
 
     event.set()
     await asyncio.wait_for(asyncio.gather(task1, task2), timeout=5.0)

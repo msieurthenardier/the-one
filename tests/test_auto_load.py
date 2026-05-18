@@ -14,6 +14,8 @@ from the_one.db.models import LLMProviderConfig
 from the_one.db.repositories import LLMProviderRepository, SQLiteAgentStore
 from the_one.db.schema import ensure_schema
 from the_one.encryption import Encryptor
+from the_one.sessions import add_subscriber
+from the_one.sessions import clear_for_test as _clear_session_registry
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -129,6 +131,9 @@ def patched_app(conn, encryptor, tmp_path):
         yield app_module
 
     app_module._sessions = original_sessions
+    # F5 L2: clear the neutral session registries between tests so
+    # subscriber sets registered against test session ids don't leak.
+    _clear_session_registry()
 
 
 # ---------------------------------------------------------------------------
@@ -142,7 +147,7 @@ class TestEnsureOllamaModelLoaded:
         session = _make_session(patched_app, "ollama-agent")
 
         mock_ws = AsyncMock()
-        session.subscribers.add(mock_ws)
+        add_subscriber(session.id, mock_ws)
 
         with (
             patch("the_one.llm.ollama_api.list_running", AsyncMock(return_value=[])) as mock_list,
@@ -162,7 +167,7 @@ class TestEnsureOllamaModelLoaded:
         session = _make_session(patched_app, "ollama-agent")
 
         mock_ws = AsyncMock()
-        session.subscribers.add(mock_ws)
+        add_subscriber(session.id, mock_ws)
 
         running = [{"name": "qwen2.5:7b", "size": 4_000_000_000}]
 

@@ -773,6 +773,60 @@
      and brightens with the label on hover / .confirm-delete. */
   .area-studio .mcp-delete-btn { display: inline-flex; align-items: center; gap: 6px; }
   .area-studio .mcp-delete-btn svg { width: 14px; height: 14px; }
+  /* F5 L8 HAT — Connector editor button parity with MCP editor.
+     `connector-test-connection-btn` mirrors `mcp-refresh-connection-btn`
+     (refresh icon then label) and `connector-delete-btn` mirrors
+     `mcp-delete-btn` (trash icon then label in Danger Zone). Without
+     these rules the icon glyphs sat as block-level siblings of the
+     label text, breaking the icon-then-text idiom the rest of the
+     studio editors use. */
+  .area-studio .connector-test-connection-btn { display: inline-flex; align-items: center; gap: 6px; }
+  .area-studio .connector-test-connection-btn svg { width: 14px; height: 14px; }
+  .area-studio .connector-delete-btn { display: inline-flex; align-items: center; gap: 6px; }
+  .area-studio .connector-delete-btn svg { width: 14px; height: 14px; }
+  /* F5 L8 HAT — Connector kv-tables (Config + Credentials) inherit
+     the same shrink-to-fit table posture, header typography, and cell
+     padding as the MCP kv-table so the two surfaces read as a single
+     family. Without these rules the connector tables stretched to fill
+     the parent and the header lost its mono-caps treatment. */
+  .area-studio .connector-account-config-table,
+  .area-studio .connector-account-secrets-table { width: auto; border-collapse: collapse; margin-bottom: 8px; }
+  .area-studio .connector-account-config-thead.is-hidden,
+  .area-studio .connector-account-secrets-thead.is-hidden { display: none; }
+  .area-studio .connector-account-config-thead th,
+  .area-studio .connector-account-secrets-thead th {
+    text-align: left;
+    padding: 4px 8px;
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-tiny);
+    font-weight: var(--font-weight-bold);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--fg-secondary);
+    border-bottom: 1px solid var(--border);
+  }
+  .area-studio .connector-account-config-table tbody td,
+  .area-studio .connector-account-secrets-table tbody td { padding: 4px 8px; vertical-align: middle; }
+  /* F5 L8 HAT — Connector kv-table trash glyph for remove-row buttons:
+     mirrors `.kv-remove-row-btn` posture so the per-row remove affordance
+     reads as a glyph instead of a default button. */
+  .area-studio .config-remove-row-btn,
+  .area-studio .secret-remove-row-btn {
+    background: transparent;
+    border: 0;
+    padding: 4px;
+    cursor: pointer;
+    color: var(--fg-secondary);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 0;
+    transition: color 0.15s ease;
+  }
+  .area-studio .config-remove-row-btn:hover,
+  .area-studio .secret-remove-row-btn:hover { color: var(--status-danger); }
+  .area-studio .config-remove-row-btn svg,
+  .area-studio .secret-remove-row-btn svg { width: 16px; height: 16px; display: block; }
   /* F9 L2 vibing: helper-text hint under the args field for the stdio
      command-runtime dropdown. Low-emphasis tone (--fg-secondary,
      body-sm) matches the studio "informational text" idiom used by

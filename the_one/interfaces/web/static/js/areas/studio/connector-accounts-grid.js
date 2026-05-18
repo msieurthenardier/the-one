@@ -43,16 +43,16 @@
 
     container.innerHTML =
       '<div class="page-header">' +
-        '<h1 class="page-title">Connector Accounts</h1>' +
+        '<h1 class="page-title">Connectors</h1>' +
         // Header CTA renders icon-only at rest; expands on hover. CSS hides
         // it entirely when the grid below is empty, deferring the affordance
         // to the empty-canvas's centered CTA.
-        '<button class="new-entity-btn" type="button" data-testid="new-connector-account-btn" aria-label="New connector account">' +
-          window.App.icon('square-pen') + '<span>New Connector Account</span>' +
+        '<button class="new-entity-btn" type="button" data-testid="new-connector-account-btn" aria-label="New connector">' +
+          window.App.icon('square-pen') + '<span>New Connector</span>' +
         '</button>' +
       '</div>' +
-      '<div class="entity-tile-grid" role="listbox" aria-label="Connector accounts">' +
-        '<div class="admin-loading">Loading connector accounts…</div>' +
+      '<div class="entity-tile-grid" role="listbox" aria-label="Connectors">' +
+        '<div class="admin-loading">Loading connectors…</div>' +
       '</div>';
 
     var newBtn = container.querySelector('.new-entity-btn');
@@ -68,10 +68,10 @@
       gridEl.innerHTML =
         '<div class="empty-canvas">' +
           '<div class="empty-canvas-inner admin-provider-empty">' +
-            '<div>No connector accounts configured.</div>' +
+            '<div>No connectors configured.</div>' +
             '<div class="empty-canvas-secondary">No connector types registered yet — Flight 8 will add Discord.</div>' +
             '<button class="new-entity-btn is-expanded" type="button" data-testid="new-connector-account-btn-empty">' +
-              window.App.icon('square-pen') + '<span>New Connector Account</span>' +
+              window.App.icon('square-pen') + '<span>New Connector</span>' +
             '</button>' +
           '</div>' +
         '</div>';

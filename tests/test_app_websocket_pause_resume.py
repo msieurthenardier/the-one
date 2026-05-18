@@ -33,6 +33,7 @@ from the_one.interfaces.web.app import (
 )
 from the_one.llm.base import Message, ToolCall, ToolResult
 from the_one.mcp.oauth import _state
+from the_one.sessions import add_subscriber
 
 
 @pytest.fixture(autouse=True)
@@ -369,8 +370,8 @@ async def test_websocket_reconnect_replays_auth_required_from_agent_state() -> N
 
     new_ws = _StubWebSocket()
     existing_ws = _StubWebSocket()
-    session.subscribers.add(existing_ws)  # type: ignore[arg-type]
-    session.subscribers.add(new_ws)  # type: ignore[arg-type]
+    add_subscriber(session.id, existing_ws)
+    add_subscriber(session.id, new_ws)
 
     # Send the snapshot ONLY to the new ws
     await _send_pause_snapshot_if_needed(session, new_ws)  # type: ignore[arg-type]
@@ -589,7 +590,7 @@ async def test_pause_snapshot_emits_parent_message_id() -> None:
     )
 
     new_ws = _StubWebSocket()
-    session.subscribers.add(new_ws)  # type: ignore[arg-type]
+    add_subscriber(session.id, new_ws)
 
     await _send_pause_snapshot_if_needed(session, new_ws)  # type: ignore[arg-type]
 

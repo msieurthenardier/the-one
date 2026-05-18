@@ -111,7 +111,11 @@ def decode_messages(data: str) -> list[Message]:
     return [message_from_dict(d) for d in json.loads(data)]
 
 
-def messages_to_ui_events(messages: list[Message]) -> list[dict[str, Any]]:
+def messages_to_ui_events(
+    messages: list[Message],
+    *,
+    index_offset: int = 0,
+) -> list[dict[str, Any]]:
     """Convert stored Messages to UI event format for session replay.
 
     F5 L02: every ``tool_call`` and ``tool_result`` event carries a
@@ -142,10 +146,25 @@ def messages_to_ui_events(messages: list[Message]) -> list[dict[str, Any]]:
     Login-required affordance. See ``Agent`` class docstring. The L02
     discriminator preserves this carve-out — only the discriminator
     fields are added; ``metadata`` is still dropped.
+
+    F5 L6: ``index_offset`` (keyword-only, default 0) shifts the
+    ``enumerate(messages)`` index used to build ``parent_message_id``
+    so the dispatcher can project a POST-STEP SLICE
+    (``agent.messages[pre_step_len:]``) and still get
+    ``parent_message_id`` values unique within the session's lifetime.
+    Without this, two consecutive inbound turns whose slice starts at
+    index 0 with an assistant-with-tool_calls would both emit
+    ``replay-msg-0`` and the frontend's opaque-key grouping would
+    bucket the second turn's tool_call/tool_result events into the
+    first turn's trace shell. Callers that pass the full messages
+    list (``_restore_session`` / ``_get_or_restore_session``) leave
+    ``index_offset`` at the default 0 — byte-identical to pre-L6
+    behavior.
     """
     events: list[dict[str, Any]] = []
     current_parent_id: str | None = None
-    for i, msg in enumerate(messages):
+    for relative_i, msg in enumerate(messages):
+        i = relative_i + index_offset
         if msg.role == Role.SYSTEM:
             continue
         # M10 F03 L02: visibility tag flows into every event derived from

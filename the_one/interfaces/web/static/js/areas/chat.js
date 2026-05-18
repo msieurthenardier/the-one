@@ -230,7 +230,11 @@ App.registerArea({
         // Pass ts explicitly (server-side broadcast events carry it; DB-restored
         // events do not). When ts is undefined, addMsg's default is omitted so
         // historical messages without a stored timestamp render unsuffixed.
-        var histOpts = { ts: ev.ts || null };
+        // M10 F05 L05: forward ev.visibility so operator-only bubbles
+        // gain the visual marker on replay. Codec emits the key only when
+        // non-None (the_one/db/codec.py:154); undefined falls through to
+        // the byte-identical path inside renderMessage.
+        var histOpts = { ts: ev.ts || null, visibility: ev.visibility };
         if (ev.type === 'user') {
           var cls = ev.source === 'api' ? 'user api' : 'user';
           addMsg(cls, (ev.source && ev.source !== 'web' && ev.source !== 'restored' ? '[' + ev.source + '] ' : '') + ev.content, 'You', histOpts);
@@ -241,14 +245,14 @@ App.registerArea({
           // trace shell; fall back to a standalone bubble for legacy/null.
           var argsText = '> ' + ev.name + '(' + Object.entries(ev.arguments).map(function (kv) { return kv[0] + '=' + JSON.stringify(kv[1]); }).join(', ') + ')';
           var trace = getOrCreateTrace(ev.parent_message_id);
-          var msg = buildToolMsg(argsText, false, ev.tool_call_id);
+          var msg = buildToolMsg(argsText, false, ev.tool_call_id, { visibility: ev.visibility });
           if (trace) App.chat.appendToTrace(trace, msg);
           else messagesEl.appendChild(msg);
         }
         else if (ev.type === 'tool_result') {
           // L03: same bucketing for tool_result events.
           var trace2 = getOrCreateTrace(ev.parent_message_id);
-          var msg2 = buildToolMsg(ev.content, ev.is_error, ev.tool_call_id);
+          var msg2 = buildToolMsg(ev.content, ev.is_error, ev.tool_call_id, { visibility: ev.visibility });
           if (trace2) App.chat.appendToTrace(trace2, msg2);
           else messagesEl.appendChild(msg2);
         }
@@ -277,6 +281,17 @@ App.registerArea({
     // boundaries (`tool_call` / `tool_result`) and at the end of the agent
     // step (`done`) so iteration N+1 lands chunks in a fresh bubble.
     var currentStreamingMsg = null;
+    // M10 F05 L05: visibility for the streaming bubble. Captured from the
+    // FIRST ``assistant_chunk`` of a turn (``data.visibility`` if present)
+    // and applied at placeholder construction so the class+label land
+    // before chunk accumulation. Today's live broadcast doesn't carry
+    // ``visibility`` on ``assistant_chunk`` (known limitation: storage-edge
+    // shim runs AFTER the agent step; broadcasts fire WITHIN it) — value
+    // stays null and the bubble is unmarked until page refresh, at which
+    // point the codec replay carries the tag. Reset alongside
+    // ``currentStreamingMsg`` at the call sites of ``finalizeStreamingBubble``
+    // to preserve that function's no-signature-change contract.
+    var currentStreamingVisibility = null;
 
     // Render-pacing queue: API chunks enqueue here; a setInterval loop
     // drains characters into the bubble's pending text node (always the
@@ -457,8 +472,12 @@ App.registerArea({
       return shell;
     }
 
-    function buildToolMsg(text, isError, toolCallId) {
-      var el = App.chat.renderMessage(isError ? 'tool error' : 'tool', text);
+    // M10 F05 L05: ``opts`` forwards visibility from the source event dict
+    // (history-replay ``ev.visibility`` or live ``data.visibility``) into
+    // renderMessage. Tool bubbles inherit the persisted visibility tag so
+    // operator-only tool events render with the marker on replay.
+    function buildToolMsg(text, isError, toolCallId, opts) {
+      var el = App.chat.renderMessage(isError ? 'tool error' : 'tool', text, opts);
       if (toolCallId) el.dataset.toolCallId = toolCallId;
       return el;
     }
@@ -755,8 +774,8 @@ App.registerArea({
           App.chat.resetTelemetry(content);
           renderHistory(data.history, data.agent_name);
           setSessionHealth(data.status || 'ok');
-          // Sync per-session busy state to server ground truth (the
-          // session's `processing_lock.locked()` boolean). Without this,
+          // Sync per-session busy state to server ground truth
+          // (`is_session_processing(session.id)`). Without this,
           // switching away from an in-flight session and back leaves
           // the prior `busy` flag stale — either stuck-disabled (turn
           // finished while away) or stuck-enabled (turn still running).
@@ -826,7 +845,12 @@ App.registerArea({
 
         if (data.type === 'user') {
           var cls = data.source === 'api' ? 'user api' : 'user';
-          addMsg(cls, (data.source && data.source !== 'web' ? '[' + data.source + '] ' : '') + data.content, 'You');
+          // M10 F05 L05: forward visibility from the live user event.
+          // ``data.visibility`` is undefined on today's live broadcasts
+          // (known limitation: storage-edge shim runs post-step; live
+          // broadcast emits inline within step) — the channel is wired
+          // for the follow-on live-broadcast tagging leg.
+          addMsg(cls, (data.source && data.source !== 'web' ? '[' + data.source + '] ' : '') + data.content, 'You', { visibility: data.visibility });
         }
         else if (data.type === 'assistant_chunk') {
           // Streaming chunk path (leg-04, option B minimal rendering).
@@ -836,7 +860,14 @@ App.registerArea({
           // smooth rate. Markdown rendering on `done` lands in leg 05.
           hideThinking();
           if (!currentStreamingMsg) {
-            var bubble = App.chat.renderMessage('assistant', '', { renderMarkdown: false });
+            // M10 F05 L05: capture visibility from the FIRST chunk so the
+            // class+label land at placeholder construction (not at
+            // finalize — that would cause a visual flip). Today's live
+            // broadcast doesn't carry the tag; the placeholder renders
+            // unmarked and the persisted view (post-refresh) shows the
+            // marker via the codec replay path.
+            currentStreamingVisibility = data.visibility || null;
+            var bubble = App.chat.renderMessage('assistant', '', { renderMarkdown: false, visibility: currentStreamingVisibility });
             messagesEl.appendChild(bubble);
             messagesEl.appendChild(App.chat.renderAttribution('from-agent', currentAgentName || 'agent', new Date().toISOString()));
             // Ensure the bubble has a text node child to mutate.
@@ -854,7 +885,9 @@ App.registerArea({
           // Uniform finalize call — no-op when currentStreamingMsg is null.
           hideThinking();
           finalizeStreamingBubble();
-          addMsg('assistant', data.content, currentAgentName || 'agent');
+          currentStreamingVisibility = null;
+          // M10 F05 L05: forward visibility from the live assistant event.
+          addMsg('assistant', data.content, currentAgentName || 'agent', { visibility: data.visibility });
         }
         else if (data.type === 'tool_call') {
           hideThinking();
@@ -862,10 +895,12 @@ App.registerArea({
           // iteration N+1's chunks land in a fresh bubble (markdown
           // rendering + reset of currentStreamingMsg both happen inside).
           finalizeStreamingBubble();
+          currentStreamingVisibility = null;
           // L03: route into the trace shell for this assistant turn.
           var argsText = '> ' + data.name + '(' + Object.entries(data.arguments).map(function (kv) { return kv[0] + '=' + JSON.stringify(kv[1]); }).join(', ') + ')';
           var liveTrace = getOrCreateTrace(data.parent_message_id);
-          var liveMsg = buildToolMsg(argsText, false, data.tool_call_id);
+          // M10 F05 L05: forward visibility from the live tool_call event.
+          var liveMsg = buildToolMsg(argsText, false, data.tool_call_id, { visibility: data.visibility });
           if (liveTrace) {
             App.chat.appendToTrace(liveTrace, liveMsg);
           } else {
@@ -877,9 +912,11 @@ App.registerArea({
         else if (data.type === 'tool_result') {
           // Iteration boundary — finalize the current streaming bubble.
           finalizeStreamingBubble();
+          currentStreamingVisibility = null;
           // L03: route into the trace shell for this assistant turn.
           var resTrace = getOrCreateTrace(data.parent_message_id);
-          var resMsg = buildToolMsg(data.content, data.is_error, data.tool_call_id);
+          // M10 F05 L05: forward visibility from the live tool_result event.
+          var resMsg = buildToolMsg(data.content, data.is_error, data.tool_call_id, { visibility: data.visibility });
           if (resTrace) {
             App.chat.appendToTrace(resTrace, resMsg);
           } else {
@@ -899,6 +936,7 @@ App.registerArea({
           // browser doesn't block the navigation or convert it to a tab.
           hideThinking();
           finalizeStreamingBubble();
+          currentStreamingVisibility = null;
           if (data.consent_url && oauthPopups[data.source_id]) {
             var p = oauthPopups[data.source_id];
             try {
@@ -932,6 +970,7 @@ App.registerArea({
           // its accumulated text for the markdown-rendered fragment, and
           // the next user message starts a fresh streaming round.
           finalizeStreamingBubble();
+          currentStreamingVisibility = null;
           if (currentSessionId) delete inFlightSessions[currentSessionId];
           if (!sessionBannerEl) sendBtn.disabled = false;
           refreshSessionList();

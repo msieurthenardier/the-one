@@ -33,6 +33,92 @@
 
   var MASKED_SENTINEL = '__MASKED__';
 
+  // ── Lifecycle dropdown ladder (F5 L8 HAT) ──────────────────────────
+  // Operator-friendly preset values for idle_timeout_seconds and
+  // session_continuation_seconds. Values are seconds; labels are
+  // human-readable. Both fields share the same ladder; the continuation
+  // field also offers a "Never (always continue)" option representing
+  // null (the API field is nullable). The idle-timeout field treats the
+  // default sentinel (empty option value) as null.
+  //
+  // Values mirror the API's Pydantic bound (1 <= value <= 604800), so
+  // every option is round-tripped without backend rejection. Custom
+  // persisted values that don't match a ladder entry render as a
+  // disabled "Custom: Xs" option (collectFormData passes them through).
+  var LIFECYCLE_OPTIONS = [
+    { value: 300, label: '5 minutes' },
+    { value: 900, label: '15 minutes' },
+    { value: 1800, label: '30 minutes' },
+    { value: 3600, label: '1 hour' },
+    { value: 14400, label: '4 hours' },
+    { value: 86400, label: '1 day' },
+    { value: 604800, label: '1 week' }
+  ];
+
+  function renderLifecycleSelect(id, fieldName, testId, currentValue, options) {
+    var escapeAttr = window.App.escapeAttr;
+    var escapeHtml = window.App.escapeHtml;
+    var includeNever = !!(options && options.includeNever);
+    var defaultLabel = (options && options.defaultLabel) || 'Use default';
+
+    var currentSerialized = (currentValue === '' || currentValue == null) ? '' : String(currentValue);
+    var matched = (currentSerialized === '');
+    var ladderHtml = '';
+    for (var i = 0; i < LIFECYCLE_OPTIONS.length; i++) {
+      var opt = LIFECYCLE_OPTIONS[i];
+      var optStr = String(opt.value);
+      var selected = (currentSerialized === optStr);
+      if (selected) matched = true;
+      ladderHtml += '<option value="' + escapeAttr(optStr) + '"' +
+                    (selected ? ' selected' : '') + '>' +
+                    escapeHtml(opt.label) + '</option>';
+    }
+
+    // Default sentinel (empty string) — null payload. Selected when no
+    // current value is set.
+    var defaultSelected = (currentSerialized === '') ? ' selected' : '';
+    var defaultOptionHtml = '<option value=""' + defaultSelected + '>' +
+                            escapeHtml(defaultLabel) + '</option>';
+
+    // "Never" sentinel for continuation only — emits null payload too,
+    // distinguished from "use default" by the data attribute. Both serialize
+    // to null but the dropdown shows different labels so the operator's
+    // intent is visible.
+    var neverOptionHtml = '';
+    if (includeNever) {
+      neverOptionHtml = '<option value="__NEVER__">Never (always continue)</option>';
+    }
+
+    // Custom fallback — if the persisted value isn't on the ladder and
+    // isn't empty, render a disabled "Custom: Xs" option (selected) so
+    // the operator sees the stored value. Submitting unchanged passes
+    // the value through verbatim.
+    var customOptionHtml = '';
+    if (!matched && currentSerialized !== '') {
+      customOptionHtml = '<option value="' + escapeAttr(currentSerialized) +
+                         '" selected data-custom="1">Custom: ' +
+                         escapeHtml(currentSerialized) + 's</option>';
+    }
+
+    return '<select class="field-input field-select admin-pf-input admin-pf-select" id="' +
+           escapeAttr(id) + '" data-field="' + escapeAttr(fieldName) + '" ' +
+           'data-testid="' + escapeAttr(testId) + '">' +
+           defaultOptionHtml + neverOptionHtml + customOptionHtml + ladderHtml +
+           '</select>';
+  }
+
+  function parseLifecycleValue(container, fieldName) {
+    var el = container.querySelector('[data-field="' + fieldName + '"]');
+    if (!el) return null;
+    var raw = (el.value || '').trim();
+    if (raw === '' || raw === '__NEVER__') return null;
+    var parsed = Number(raw);
+    if (!isNaN(parsed) && isFinite(parsed)) {
+      return Math.trunc(parsed);
+    }
+    return raw; // pass-through; backend will 422
+  }
+
   // ── Hand-off state for create+test → edit-mode banner ───────────────
   // Set by handleCreateAndTest BEFORE invoking callbacks.onSaveSuccess.
   // Read + cleared by the next render-edit-mode pass. Module-level so it
@@ -73,7 +159,7 @@
     var escapeHtml = window.App.escapeHtml;
     var escapeAttr = window.App.escapeAttr;
     var isCreate = !account;
-    var name = isCreate ? 'New Connector Account' : (account.name || '');
+    var name = isCreate ? 'New Connector' : (account.name || '');
     var type = isCreate ? '' : (account.type || '');
 
     // ── Header ─────────────────────────────────────────────────────────
@@ -98,7 +184,7 @@
     var saveTestId = isCreate ? 'create-and-test-connector-account-btn' : 'save-connector-account-btn';
     var saveLabel = isCreate ? 'Create & Test' : 'Save';
     html += '<div class="form-actions">';
-    html += '<button type="button" class="btn-outlined-primary back-btn" data-testid="back-connector-account-btn" aria-label="Back to connector accounts list">' + window.App.icon('arrow-left') + ' Back</button>';
+    html += '<button type="button" class="btn-outlined-primary back-btn" data-testid="back-connector-account-btn" aria-label="Back to connectors list">' + window.App.icon('arrow-left') + ' Back</button>';
     html += '<button type="button" class="btn-outlined-primary cancel-btn" data-testid="cancel-connector-account-btn" disabled>Cancel</button>';
     html += '<button type="button" class="btn-filled-primary save-btn" data-testid="' + saveTestId + '" disabled>' + escapeHtml(saveLabel) + '</button>';
     html += '<span class="editor-error" data-testid="connector-account-editor-error"></span>';
@@ -118,6 +204,13 @@
     html += '</div>';
 
     // ── Lifecycle section ─────────────────────────────────────────────
+    // F5 L8 HAT: free-form numeric inputs replaced with dropdowns offering
+    // the operator-friendly ladder defined in LIFECYCLE_OPTIONS below. The
+    // continuation field also offers a "Never (always continue)" option
+    // representing null; the idle-timeout field only offers the default
+    // sentinel (empty string → null). Custom persisted values that don't
+    // match a ladder entry are rendered as a disabled "Custom: Xs" option
+    // so the operator sees what's stored without overwriting it.
     var idleValue = (!isCreate && account.idle_timeout_seconds != null) ? account.idle_timeout_seconds : '';
     var contValue = (!isCreate && account.session_continuation_seconds != null) ? account.session_continuation_seconds : '';
     html += '<div class="editor-section">';
@@ -125,36 +218,32 @@
 
     // Pool idle timeout (F2)
     html += '<div class="field-row admin-pf-row">';
-    html += '<label for="cf-idle-timeout">Pool idle timeout (s)</label>';
-    // No frontend min/max — backend Pydantic validator owns the truth
-    // (1 <= value <= 604800). Empty string → null payload.
-    html += '<input class="field-input admin-pf-input" id="cf-idle-timeout" type="number" ' +
-            'data-field="idle_timeout_seconds" data-testid="connector-account-idle-timeout-input" ' +
-            'value="' + escapeAttr(String(idleValue)) + '" placeholder="Use default (30 min)" />';
+    html += '<label for="cf-idle-timeout">Pool idle timeout</label>';
+    html += renderLifecycleSelect('cf-idle-timeout', 'idle_timeout_seconds',
+            'connector-account-idle-timeout-input', idleValue,
+            { defaultLabel: 'Use default (30 min)', includeNever: false });
     html += '</div>';
     html += '<div class="field-row admin-pf-row">';
     html += '<label></label>';
     html += '<small class="form-hint" data-testid="connector-account-idle-hint">' +
             'Warm connector connections are reaped after this many seconds of inactivity. ' +
-            'Leave empty to use the system default (30 min).' +
+            'Leave on "Use default" to apply the system default (30 min).' +
             '</small>';
     html += '</div>';
 
     // Chat-session continuation window (F3 L5)
     html += '<div class="field-row admin-pf-row">';
-    html += '<label for="cf-continuation-window">Chat-session continuation window (s)</label>';
-    // No frontend min/max — backend Pydantic validator owns the truth
-    // (1 <= value <= 604800). Empty string → null payload.
-    html += '<input class="field-input admin-pf-input" id="cf-continuation-window" type="number" ' +
-            'data-field="session_continuation_seconds" data-testid="connector-account-continuation-input" ' +
-            'value="' + escapeAttr(String(contValue)) + '" placeholder="Use default (24 hours)" />';
+    html += '<label for="cf-continuation-window">Chat-session continuation window</label>';
+    html += renderLifecycleSelect('cf-continuation-window', 'session_continuation_seconds',
+            'connector-account-continuation-input', contValue,
+            { defaultLabel: 'Use default (24 hours)', includeNever: true });
     html += '</div>';
     html += '<div class="field-row admin-pf-row">';
     html += '<label></label>';
     html += '<small class="form-hint" data-testid="connector-account-continuation-hint">' +
             'Inbounds on the same conversation continue an existing chat session within this window. ' +
-            'After this many seconds of platform silence, the next inbound starts a fresh session. ' +
-            'Leave empty to use the system default (24 hours). ' +
+            'After this period of platform silence, the next inbound starts a fresh session. ' +
+            'Leave on "Use default" to apply the system default (24 hours). ' +
             'Distinct from the pool idle timeout above, which controls gateway warm-keep — not chat-session lifecycle.' +
             '</small>';
     html += '</div>';
@@ -187,7 +276,7 @@
       html += '<div class="section-title danger-zone-title">Danger Zone</div>';
       html += '<button type="button" class="btn-muted-destructive delete-btn connector-delete-btn" data-testid="delete-connector-account-btn" data-name="' + escapeAttr(account.name || '') + '">' +
               window.App.icon('trash') +
-              '<span data-confirm-title>Delete Connector Account</span>' +
+              '<span data-confirm-title>Delete Connector</span>' +
               '</button>';
       html += '</div>';
     }
@@ -299,7 +388,11 @@
       html += renderConfigRow(existingRows[i], i);
     }
     html += '</tbody></table>';
-    html += '<button type="button" class="btn-outlined-primary connector-config-add-row-btn" data-testid="connector-config-add-row-btn">+ Add config row</button>';
+    // F5 L8 HAT: label "+ Add row" matches MCP's kv-add-row-btn (the section
+    // title — "Config" — already provides the row-type context). The
+    // `kv-add-row-btn` class hook brings the same studio CSS posture as
+    // MCP's add-row affordance.
+    html += '<button type="button" class="btn-outlined-primary kv-add-row-btn connector-config-add-row-btn" data-testid="connector-config-add-row-btn">+ Add row</button>';
     return html;
   }
 
@@ -325,7 +418,9 @@
       html += renderSecretRow(existingRows[i], i);
     }
     html += '</tbody></table>';
-    html += '<button type="button" class="btn-outlined-primary connector-secrets-add-row-btn" data-testid="connector-secrets-add-row-btn">+ Add credential row</button>';
+    // F5 L8 HAT: label "+ Add row" matches MCP's kv-add-row-btn pattern
+    // (the section title — "Credentials" — already provides context).
+    html += '<button type="button" class="btn-outlined-primary kv-add-row-btn connector-secrets-add-row-btn" data-testid="connector-secrets-add-row-btn">+ Add row</button>';
     return html;
   }
 
@@ -577,7 +672,7 @@
         fetch('/api/connector-accounts/' + encodeURIComponent(account.id), { method: 'DELETE' })
           .then(function (r) {
             if (!r.ok) return r.json().then(function (e) { throw new Error((e && e.detail) || 'Delete failed'); });
-            window.App.showFlash(container, 'Connector account deleted');
+            window.App.showFlash(container, 'Connector deleted');
             if (callbacks.onDeleteSuccess) callbacks.onDeleteSuccess();
           })
           .catch(function (err) {
@@ -629,7 +724,7 @@
         return r.json();
       })
       .then(function (updated) {
-        window.App.showFlash(container, 'Connector account saved');
+        window.App.showFlash(container, 'Connector saved');
         saveBtn.textContent = originalLabel;
         if (callbacks.onSaveSuccess) callbacks.onSaveSuccess(updated, false);
         recaptureSnapshot();
@@ -702,7 +797,7 @@
         });
       })
       .then(function (result) {
-        window.App.showFlash(container, 'Connector account created');
+        window.App.showFlash(container, 'Connector created');
         // Hand off the probe report to the next render-edit-mode pass.
         _pendingProbeReport = result.probe;
         if (callbacks.onSaveSuccess) callbacks.onSaveSuccess(result.account, true);
@@ -762,35 +857,12 @@
       }
     }
 
-    var idleEl = container.querySelector('[data-field="idle_timeout_seconds"]');
-    var idleRaw = idleEl ? (idleEl.value || '').trim() : '';
-    var idleValue = null;
-    if (idleRaw !== '') {
-      // Parse as number; let backend reject anything invalid via 422.
-      var parsed = Number(idleRaw);
-      if (!isNaN(parsed) && isFinite(parsed)) {
-        // Always submit as an integer if it looks like one; let backend
-        // 422 catch non-integer / out-of-range values.
-        idleValue = Math.trunc(parsed);
-      } else {
-        idleValue = idleRaw; // pass-through string; backend will 422
-      }
-    }
-
-    var contEl = container.querySelector('[data-field="session_continuation_seconds"]');
-    var contRaw = contEl ? (contEl.value || '').trim() : '';
-    var contValue = null;
-    if (contRaw !== '') {
-      // Parse as number; let backend reject anything invalid via 422.
-      var contParsed = Number(contRaw);
-      if (!isNaN(contParsed) && isFinite(contParsed)) {
-        // Always submit as an integer if it looks like one; let backend
-        // 422 catch non-integer / out-of-range values.
-        contValue = Math.trunc(contParsed);
-      } else {
-        contValue = contRaw; // pass-through string; backend will 422
-      }
-    }
+    // F5 L8 HAT: Lifecycle fields are dropdowns. Empty value (the "Use
+    // default" sentinel) and "__NEVER__" (continuation-only) both serialize
+    // to null. Any other value is parsed as an integer and passed through;
+    // backend Pydantic owns out-of-range validation.
+    var idleValue = parseLifecycleValue(container, 'idle_timeout_seconds');
+    var contValue = parseLifecycleValue(container, 'session_continuation_seconds');
 
     return {
       name: name,

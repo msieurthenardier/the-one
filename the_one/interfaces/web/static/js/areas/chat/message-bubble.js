@@ -19,13 +19,53 @@
   // { renderMarkdown: false } to force textContent for assistant — used
   // by the streaming-accumulation path so chunks append as plain text;
   // finalizeStreamingBubble swaps the buffer for markdown on `done`.
+  //
+  // M10 F05 L05: visibility distinction. When ``opts.visibility === 'operator'``,
+  // the bubble gains the ``msg-operator-only`` class and a leading
+  // ``<span class="msg-operator-only-label">[operator-only]</span>`` child.
+  // The non-markdown text body switches from ``el.textContent = text`` (which
+  // would wipe the prepended label) to ``el.appendChild(createTextNode(text))``
+  // — DOM-API, XSS-equivalent. Bubbles without ``opts.visibility === 'operator'``
+  // render byte-identically to today (no class, no label, no dataset, no DOM
+  // shape change).
   function renderMessage(cls, text, opts) {
     opts = opts || {};
     var el = document.createElement('div');
-    el.className = 'msg ' + cls;
+    var fullCls = 'msg ' + cls;
+    // M10 F05 L08 HAT: suppress the operator-only marker on the
+    // operator's own user bubbles — the operator knows what they
+    // typed and the marker is visual noise on their own messages.
+    // The marker still applies to assistant / tool bubbles where it
+    // signals "this reply / tool result is NOT visible to peers."
+    // Class & label are skipped together; dataset still records the
+    // visibility tag for DOM-shape assertions and future logic.
+    var firstToken = cls.split(' ')[0];
+    var isUserBubble = firstToken === 'user';
+    var isOperatorOnly = opts.visibility === 'operator' && !isUserBubble;
+    if (isOperatorOnly) {
+      fullCls += ' msg-operator-only';
+    }
+    el.className = fullCls;
     el.setAttribute('data-testid', 'message');
+    // Stash for DOM-shape assertions and future maintenance. Only set when
+    // visibility is a truthy string, so non-tagged bubbles preserve the
+    // pre-leg dataset-absent shape.
+    if (opts.visibility) {
+      el.dataset.visibility = opts.visibility;
+    }
+    if (isOperatorOnly) {
+      var label = document.createElement('span');
+      label.className = 'msg-operator-only-label';
+      label.textContent = '[operator-only]';
+      el.appendChild(label);
+    }
     if (shouldRenderAsMarkdown(cls, opts)) {
       el.appendChild(App.markdown.render(text));
+    } else if (isOperatorOnly) {
+      // Label was prepended — textContent assignment would wipe it.
+      // Use appendChild(createTextNode(...)) which is XSS-equivalent
+      // (DOM API, not innerHTML) but preserves the label.
+      el.appendChild(document.createTextNode(text));
     } else {
       el.textContent = text;
     }
