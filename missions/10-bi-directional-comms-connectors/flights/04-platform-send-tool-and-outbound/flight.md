@@ -1,6 +1,6 @@
 # Flight: Platform-Send Built-in Tool and Outbound Routing
 
-**Status**: ready
+**Status**: in-flight
 **Mission**: [Bi-directional Communication Connectors](../../mission.md)
 
 ## Contributing to Criteria
