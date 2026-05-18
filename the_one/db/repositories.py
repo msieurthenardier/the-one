@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
 from typing import Any
 
 import aiosqlite
@@ -18,13 +17,9 @@ from the_one.db.models import (
     LLMProviderConfig,
     MCPSource,
     ToolConfig,
+    now_iso,
 )
 from the_one.encryption import Encryptor
-
-
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
 
 # ── Shared Fernet envelope for per-row secrets dicts ─────────────────────
 #
@@ -97,15 +92,15 @@ class SQLiteAgentStore:
         return self._row_to_config(row)
 
     async def save(self, config: AgentConfig) -> None:
-        now = _now_iso()
+        now = now_iso()
         await self.conn.execute(
             """\
             INSERT INTO agents (
                 name, description, provider_config_id, llm_model,
                 system_prompt, enabled_tools, disabled_tools, max_iterations,
                 kb_ids, mcp_source_ids, tool_overrides, mcp_overrides,
-                created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                connector_account_ids, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(name) DO UPDATE SET
                 description=excluded.description,
                 provider_config_id=excluded.provider_config_id,
@@ -118,6 +113,7 @@ class SQLiteAgentStore:
                 mcp_source_ids=excluded.mcp_source_ids,
                 tool_overrides=excluded.tool_overrides,
                 mcp_overrides=excluded.mcp_overrides,
+                connector_account_ids=excluded.connector_account_ids,
                 updated_at=excluded.updated_at
             """,
             (
@@ -133,6 +129,7 @@ class SQLiteAgentStore:
                 json.dumps(config.mcp_source_ids),
                 json.dumps(config.tool_overrides) if config.tool_overrides is not None else None,
                 json.dumps(config.mcp_overrides) if config.mcp_overrides is not None else None,
+                json.dumps(config.connector_account_ids),
                 now,
                 now,
             ),
@@ -176,7 +173,7 @@ class SQLiteAgentStore:
         # Conflict check — surface ValueError so the API can map to 409.
         if await self.exists(new_name):
             raise ValueError(f"Agent config already exists: {new_name}")
-        now = _now_iso()
+        now = now_iso()
         # Single transaction: atomic PK swap + manual cascade on
         # chat_sessions.agent_name (FK was dropped in schema v5).
         await self.conn.execute(
@@ -209,6 +206,12 @@ class SQLiteAgentStore:
             # expression — `aiosqlite.Row[<missing>]` raises IndexError.
             tool_overrides=(json.loads(row["tool_overrides"]) if row["tool_overrides"] else None),
             mcp_overrides=(json.loads(row["mcp_overrides"]) if row["mcp_overrides"] else None),
+            # `or "[]"` defends against both NULL (pre-v17 rows persisted
+            # before the M10 F4 L5 migration added the column) AND the
+            # empty-string edge case. The v17 migration is the gate that
+            # guarantees the column exists; this expression handles the
+            # NULL value for legacy rows.
+            connector_account_ids=json.loads(row["connector_account_ids"] or "[]"),
         )
 
 
@@ -245,7 +248,7 @@ class KnowledgeBaseRepository:
             raise KeyError(f"Knowledge base not found: {kb.id}")
         await self.conn.execute(
             "UPDATE knowledge_bases SET name=?, description=?, updated_at=? WHERE id=?",
-            (kb.name, kb.description, _now_iso(), kb.id),
+            (kb.name, kb.description, now_iso(), kb.id),
         )
         await self.conn.commit()
 
@@ -386,7 +389,7 @@ class MCPSourceRepository:
                 source.type,
                 json.dumps(source.config),
                 self._secrets_to_ciphertext(source.secrets),
-                _now_iso(),
+                now_iso(),
                 source.id,
             ),
         )
@@ -536,7 +539,7 @@ class ConnectorAccountRepository:
                 self._secrets_to_ciphertext(account.secrets),
                 account.idle_timeout_seconds,
                 account.session_continuation_seconds,
-                _now_iso(),
+                now_iso(),
                 account.id,
             ),
         )
@@ -630,7 +633,7 @@ class ToolConfigRepository:
                 enabled=excluded.enabled,
                 updated_at=excluded.updated_at
             """,
-            (name, json.dumps(config), int(enabled), _now_iso(), _now_iso()),
+            (name, json.dumps(config), int(enabled), now_iso(), now_iso()),
         )
         await self.conn.commit()
 
@@ -775,7 +778,7 @@ class ChatSessionRepository:
                 raise KeyError(f"Chat session not found: {session.id}")
         await self.conn.execute(
             "UPDATE chat_sessions SET title=?, messages=?, updated_at=? WHERE id=?",
-            (session.title, session.messages, _now_iso(), session.id),
+            (session.title, session.messages, now_iso(), session.id),
         )
         await self.conn.commit()
 
@@ -797,7 +800,7 @@ class ChatSessionRepository:
                 raise KeyError(f"Chat session not found: {session_id}")
         await self.conn.execute(
             "UPDATE chat_sessions SET messages='[]', updated_at=? WHERE id=?",
-            (_now_iso(), session_id),
+            (now_iso(), session_id),
         )
         await self.conn.commit()
 
@@ -907,7 +910,7 @@ class LLMProviderRepository:
                 provider.base_url,
                 self.encryptor.encrypt_optional(provider.api_key),
                 json.dumps(provider.config),
-                _now_iso(),
+                now_iso(),
                 provider.id,
             ),
         )

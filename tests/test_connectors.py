@@ -8,6 +8,7 @@ import pytest
 
 from the_one.connectors import (
     OPERATOR_VISIBILITY,
+    PLATFORM_SEND_OK_PREFIX,
     ConnectorAuthRequired,
     ConnectorClient,
     ConnectorClientError,
@@ -20,6 +21,7 @@ from the_one.connectors import (
     DoctorReport,
     InboundEnvelope,
     OutboundTarget,
+    SendResult,
     SessionKey,
 )
 from the_one.connectors.registry import (
@@ -129,6 +131,9 @@ class _MinimalClient:
     def is_alive(self) -> bool:
         return True
 
+    async def send(self, target, content):  # noqa: ANN001  (test stub)
+        return SendResult(platform_message_id=None, details={})
+
 
 class _PluginMissingConnect:
     """Plugin stub missing the ``connect`` method — must FAIL isinstance check."""
@@ -165,6 +170,22 @@ class TestConnectorClientProtocol:
 
         assert not isinstance(_NoMethod(), ConnectorClient)
 
+    def test_client_missing_send_fails_check(self) -> None:
+        """After F4 widening, a client missing ``send`` fails the Protocol check.
+
+        Mirrors ``test_plugin_missing_method_fails_check`` for the
+        client-side widening. Locks the runtime_checkable semantic:
+        method-name presence on the object at isinstance time, so
+        clients written against the pre-F4 1-method shape will fail
+        the widened check at runtime.
+        """
+
+        class _OnlyAlive:
+            def is_alive(self) -> bool:
+                return True
+
+        assert not isinstance(_OnlyAlive(), ConnectorClient)
+
 
 class TestConnectorPackageExports:
     def test_canonical_and_re_exports_resolve_to_same_object(self) -> None:
@@ -178,6 +199,11 @@ class TestConnectorPackageExports:
         from the_one.connectors.errors import ConnectorClientError as ExcViaCanonical
 
         assert ExcViaPackage is ExcViaCanonical
+
+        from the_one.connectors import SendResult as SRViaPackage
+        from the_one.connectors.base import SendResult as SRViaCanonical
+
+        assert SRViaPackage is SRViaCanonical
 
     def test_supporting_types_round_trip(self) -> None:
         """Dataclass types are constructible and frozen."""
@@ -245,6 +271,38 @@ class TestConnectorPackageExports:
         rpt2 = DoctorReport(status="ok", message="connected", details={"different": "x"})
         assert hash(rpt2) == h
         assert rpt == rpt2
+
+    def test_send_result_is_hashable_despite_dict_field(self) -> None:
+        """SendResult.details is excluded from hash + eq — same contract
+        as InboundEnvelope.raw and DoctorReport.details. Bare frozen+slots
+        with a dict field constructs but blows up on hash() without the
+        ``field(hash=False, compare=False)`` discipline — locked here."""
+        r = SendResult(platform_message_id="msg-1", details={"k": "v"})
+        h = hash(r)  # must not raise
+        r2 = SendResult(platform_message_id="msg-1", details={"different": "x"})
+        # Same hash and equal — details doesn't participate in identity.
+        assert hash(r2) == h
+        assert r == r2
+        # Frozen — assignment raises FrozenInstanceError specifically.
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            r.platform_message_id = "edited"  # type: ignore[misc]
+
+    def test_send_result_accepts_none_platform_message_id(self) -> None:
+        """``platform_message_id: str | None`` permits None for platforms
+        that don't return a native message id. Pins the permissivity that
+        leg 2's SendToPlatformChannelTool.execute() exploits."""
+        r = SendResult(platform_message_id=None, details={})
+        assert r.platform_message_id is None
+        assert r.details == {}
+
+    def test_platform_send_ok_prefix_constant(self) -> None:
+        """The PLATFORM_SEND_OK_PREFIX literal is the cross-module contract.
+
+        Produced by ``SendToPlatformChannelTool.execute()`` (F4 leg 2);
+        consumed by the dispatcher's visibility-tagger (F4 leg 4) to
+        decide ``visibility=None`` on the resulting tool_result message.
+        """
+        assert PLATFORM_SEND_OK_PREFIX == "[platform-send-ok]"
 
     def test_sync_method_falsely_satisfies_async_protocol(self) -> None:
         """Document a known runtime_checkable limitation: ``isinstance(obj,

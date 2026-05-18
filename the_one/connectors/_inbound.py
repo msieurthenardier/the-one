@@ -28,16 +28,16 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import defaultdict
-from datetime import datetime, timezone
 
 from the_one.agent._context import current_chat_session_id
 from the_one.agent.factory import AgentFactory
-from the_one.connectors import registry
+from the_one.connectors import OPERATOR_VISIBILITY, PLATFORM_SEND_OK_PREFIX, registry
 from the_one.connectors._pool import acquire as pool_acquire
 from the_one.connectors._session import resolve_session
 from the_one.connectors.base import InboundEnvelope
 from the_one.connectors.errors import ConnectorRegistrationError
 from the_one.db.codec import decode_messages, encode_messages
+from the_one.db.models import now_iso
 from the_one.llm.base import Role
 
 logger = logging.getLogger(__name__)
@@ -49,10 +49,6 @@ logger = logging.getLogger(__name__)
 # lifetime. Mitigation options (WeakValueDictionary, TTL cleanup, LRU)
 # are deferred until growth matters.
 _session_locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
-
-
-def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 async def dispatch_inbound(
@@ -168,7 +164,7 @@ async def dispatch_inbound(
     async with _session_locks[session_row.id]:
         # 6. Update last_inbound_at (and updated_at — the resolver's
         # most-recent-by-updated_at ordering consumes this).
-        await chat_repo.update_last_inbound(session_row.id, _utc_now_iso())
+        await chat_repo.update_last_inbound(session_row.id, now_iso())
 
         # 7. Build a fresh agent for this turn. Errors here
         # (ProviderNotConfiguredError, ProviderNotFoundError) propagate
@@ -190,6 +186,10 @@ async def dispatch_inbound(
         # construction during agent.step routes ``auth_required``
         # broadcasts to the right session id (mirror of the WS handler
         # at ``interfaces/web/app.py:257``).
+        # Snapshot ``pre_step_len`` BEFORE entering the try — pure read,
+        # no exception risk; consumed by F4 L4's post-step visibility
+        # tagging pass below.
+        pre_step_len = len(agent.messages)
         token = current_chat_session_id.set(session_row.id)
         try:
             # 10. Drive agent.step. The agent's core appends
@@ -201,6 +201,43 @@ async def dispatch_inbound(
             # subscribers (F5 owns broadcast).
             async for _ in agent.step(envelope.text):
                 pass
+
+            # F4 (M10) L4: post-step visibility tagging.
+            # The dispatcher fires only for connector-attached inbound; every
+            # new message in the turn is tagged either platform-visible (None)
+            # or operator-only ("operator") for the F5 Chat UI's two-layer
+            # rendering. The mission's enforcement-by-construction stance
+            # (platform-send tool is the ONLY agent→platform path) makes
+            # leakage impossible regardless of tagging; visibility is a
+            # presentation metadata layer, not a security gate.
+            #
+            # Rules:
+            # - Role.USER (the inbound peer message at index pre_step_len)
+            #   keeps its default visibility=None — peer-visible by definition.
+            # - Role.TOOL whose parent tool_call.name == "send_to_platform_channel"
+            #   AND content starts with PLATFORM_SEND_OK_PREFIX → visibility=None
+            #   (peers saw this content go out via the platform-send tool).
+            # - Everything else → OPERATOR_VISIBILITY (assistant text +
+            #   intermediate tool calls/results stay operator-only).
+            new_msgs = agent.messages[pre_step_len:]
+            tool_call_names: dict[str, str] = {}
+            for msg in new_msgs:
+                if msg.role == Role.ASSISTANT:
+                    for tc in msg.tool_calls:
+                        tool_call_names[tc.id] = tc.name
+            for msg in new_msgs:
+                if msg.role == Role.USER:
+                    continue
+                is_successful_platform_send = (
+                    msg.role == Role.TOOL
+                    and msg.tool_result is not None
+                    and tool_call_names.get(msg.tool_result.tool_call_id)
+                    == "send_to_platform_channel"
+                    and msg.content.startswith(PLATFORM_SEND_OK_PREFIX)
+                )
+                msg.visibility = (
+                    None if is_successful_platform_send else OPERATOR_VISIBILITY
+                )
 
             # 11. Persist updated history. Mirror of
             # ``_save_session_to_db`` at

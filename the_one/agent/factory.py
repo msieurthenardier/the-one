@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from the_one.agent.config import AgentConfig
+from the_one.agent.config import BASE_PROMPT, AgentConfig, compose_system_prompt
 from the_one.agent.core import Agent
 from the_one.agent.store import AgentConfigStore
 from the_one.config import settings
@@ -241,6 +241,21 @@ class AgentFactory:
         disabled_names = {c.name for c in configs if not c.enabled}
         agent_overrides = config.tool_overrides or {}
 
+        # F4 (M10) L3: connector carve-out flags.
+        # - connector_attached: agent has at least one connector account.
+        # - send_tool_enabled: the platform-send tool passes both the operator
+        #   filter (not in disabled_names) AND the per-agent filter
+        #   (config.is_tool_enabled). This is the SAME predicate the
+        #   registry-build for-loop below uses.
+        # The carve-out (loading the tool's schema into the F10 baseline-
+        # visible set) and the system-prompt directive both consult these
+        # flags. Computed once here so the post-loop carve-out site reuses.
+        connector_attached = bool(config.connector_account_ids)
+        send_tool_enabled = (
+            "send_to_platform_channel" not in disabled_names
+            and config.is_tool_enabled("send_to_platform_channel")
+        )
+
         # 3. Build filtered tool registry — fresh ToolRegistry per call,
         # populated with fresh per-agent tool instances (the provider
         # invokes the resolver internally per Decision 10). The filter
@@ -297,7 +312,24 @@ class AgentFactory:
         )
 
         for provider in self.tool_providers:
-            for tool in provider.get_tools(tool_configs_by_name, agent_overrides, agent_name=name):
+            if isinstance(provider, BuiltinToolProvider):
+                tools = provider.get_tools(
+                    tool_configs_by_name,
+                    agent_overrides,
+                    agent_name=name,
+                    connector_account_ids=config.connector_account_ids,
+                )
+            else:
+                # Non-builtin providers (test stubs, future provider types)
+                # use the unwidened signature. Adding `connector_account_ids`
+                # to the ToolProvider Protocol would force every test stub
+                # to accept it; the branch keeps the change scoped.
+                tools = provider.get_tools(
+                    tool_configs_by_name,
+                    agent_overrides,
+                    agent_name=name,
+                )
+            for tool in tools:
                 if tool.name not in disabled_names and config.is_tool_enabled(tool.name):
                     registry.register(tool)
 
@@ -312,8 +344,31 @@ class AgentFactory:
                 if tool.name not in disabled_names and config.is_tool_enabled(tool.name):
                     registry.register(tool)
 
+        # F4 (M10) L3: F10 baseline carve-out. When the agent is connector-
+        # attached AND the platform-send tool is enabled (both layers), the
+        # tool's schema is pre-loaded into the baseline-visible set so the
+        # agent doesn't have to invoke `search_tools` to discover it. The
+        # `registry.tool_names` (public @property at tools/base.py:129-131)
+        # membership guard is defensive: in test scenarios where the
+        # tool_providers list omits BuiltinToolProvider, the tool is absent
+        # from the registry and the carve-out cannot fire — instead of
+        # crashing, skip silently (the test setup is non-production).
+        if (
+            connector_attached
+            and send_tool_enabled
+            and "send_to_platform_channel" in registry.tool_names
+        ):
+            _send_tool = registry.get("send_to_platform_channel")
+            loaded_schemas.append(_send_tool.to_schema())
+            loaded_tool_names.add(_send_tool.name)
+
         # 3. Resolve system prompt
-        system_prompt = config.get_system_prompt()
+        system_prompt = compose_system_prompt(
+            BASE_PROMPT,
+            config.system_prompt,
+            connector_attached=connector_attached,
+            send_tool_enabled=send_tool_enabled,
+        )
 
         # 4. Create agent
         # F10 L1: pass the shared containers so the Agent's

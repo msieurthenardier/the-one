@@ -28,19 +28,10 @@ import uuid
 from datetime import datetime, timezone
 
 from the_one.connectors.base import ConnectorPlugin, InboundEnvelope
-from the_one.db.models import ChatSession, ConnectorAccount
+from the_one.db.models import ChatSession, ConnectorAccount, now_iso
 from the_one.db.repositories import ChatSessionRepository
 
 logger = logging.getLogger(__name__)
-
-
-# NOTE: `_now_iso` in `the_one/db/models.py:13-14` is private (underscore-
-# prefixed). Rather than make this resolver the first cross-package
-# consumer of a leading-underscore symbol, inline the canonical write
-# form. If a future module needs this pattern more than twice, promote
-# `_now_iso` → `now_iso` and update the two existing call sites.
-def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 _DEFAULT_CONTINUATION_SECONDS = 86400  # 24 hours
@@ -142,7 +133,7 @@ async def resolve_session(
     5. Else (no match OR outside the window) → create a new row with
        the external-key columns populated, ``agent_name`` set, title
        derived via the optional ``display_channel`` hook,
-       ``last_inbound_at = _utc_now_iso()``. Returns the new row.
+       ``last_inbound_at = now_iso()``. Returns the new row.
 
     Pure function — no pool acquire, no lock, no agent.step. F3 L4's
     dispatcher composes this with the pool and per-session lock.
@@ -169,7 +160,7 @@ async def resolve_session(
             )
             last = None
         if last is not None:
-            # Normalise to UTC for the comparison — `_utc_now_iso` writes
+            # Normalise to UTC for the comparison — `now_iso` writes
             # UTC, but a hand-built test row may write naive; if naive,
             # treat as UTC to match the canonical write helper.
             if last.tzinfo is None:
@@ -180,21 +171,21 @@ async def resolve_session(
 
     # Create a new row on the (no-match OR outside-window) paths.
     title = _derive_title(envelope, plugin)
-    now_iso = _utc_now_iso()
+    current_iso = now_iso()
     new_session = ChatSession(
         id=uuid.uuid4().hex,
         agent_name=agent_name,
         title=title,
         messages="[]",
-        created_at=now_iso,
-        updated_at=now_iso,
+        created_at=current_iso,
+        updated_at=current_iso,
         platform=key.platform,
         connector_account_id=key.account_id,
         channel_id=key.channel_id,
         thread_id=key.thread_id,
         peer_id=key.peer_id,
         session_metadata=None,
-        last_inbound_at=now_iso,
+        last_inbound_at=current_iso,
     )
     await repo.create(new_session)
     return new_session

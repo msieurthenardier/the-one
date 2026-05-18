@@ -128,7 +128,7 @@ class TestSaveSessionToDb:
         await patched_app._save_session_to_db(session)
 
         db_after = await chat_repo.get("ts-test")
-        # repo.update() calls _now_iso() so updated_at should change
+        # repo.update() calls now_iso() so updated_at should change
         assert db_after.updated_at >= original_updated_at
 
     async def test_save_nonexistent_session_logs_warning(self, patched_app, caplog):

@@ -139,6 +139,32 @@ class DoctorReport:
     """
 
 
+@dataclass(frozen=True, slots=True)
+class SendResult:
+    """Result of a successful :meth:`ConnectorClient.send` call.
+
+    Returned by every connector's outbound-send implementation. Mirrors
+    the diagnostic shape of :class:`DoctorReport` — a small scalar
+    surface plus a structured ``details`` dict for platform-specific
+    overflow (rate-limit headers, edit timestamps, attachment id
+    arrays, etc.).
+    """
+
+    platform_message_id: str | None
+    """Best-effort platform-native message id for the delivered message.
+    Some platforms return one (Discord); others don't (webhooks-only
+    flows). ``None`` is a valid value, not an error signal.
+    """
+
+    details: dict[str, Any] = field(hash=False, compare=False)
+    """Required structured detail surface mirroring :attr:`DoctorReport.details`
+    — rate-limit headers, edit timestamps, attachment id arrays, etc.
+    Plugins MAY pass an empty dict when there is nothing platform-specific
+    to surface. Excluded from ``__hash__`` and ``__eq__`` — same rationale
+    as :attr:`InboundEnvelope.raw`.
+    """
+
+
 @runtime_checkable
 class ConnectorClient(Protocol):
     """Live-connection wrapper for a single connector account.
@@ -148,10 +174,12 @@ class ConnectorClient(Protocol):
     (legs 5+6 of this flight) holds one client per warm entry and calls
     :meth:`is_alive` to decide whether the client needs respawn.
 
-    ``runtime_checkable`` Protocol checks method NAMES only, so widening
-    this surface is non-breaking for any existing
-    ``isinstance(client, ConnectorClient)`` check. Flight 4 widens this
-    to add an outbound-send method when the platform-send tool needs it.
+    ``runtime_checkable`` Protocol checks method NAMES only. Flight 4
+    widened this Protocol with :meth:`send` to carry outbound
+    platform-bound messages. The widening is additive — existing
+    ``isinstance(client, ConnectorClient)`` checks remain valid for
+    clients that implement BOTH ``is_alive`` and ``send``; clients
+    missing ``send`` after F4 now fail the Protocol check at runtime.
     """
 
     def is_alive(self) -> bool:
@@ -160,6 +188,21 @@ class ConnectorClient(Protocol):
         Called periodically by the lifecycle pool's reaper. ``False``
         triggers an evict-and-respawn; a raised exception is treated as
         ``False`` plus logged.
+        """
+        ...
+
+    async def send(
+        self,
+        target: OutboundTarget,
+        content: str,
+    ) -> SendResult:
+        """Deliver ``content`` to ``target`` on the underlying platform.
+
+        Called by the ``platform_send`` built-in tool (F4 leg 2) when an
+        agent emits an outbound message. Returns a :class:`SendResult`
+        carrying the platform-native message id (when available) and any
+        platform-specific details. Raises on platform-side failures so
+        the tool can convert the error into a tool-result message.
         """
         ...
 

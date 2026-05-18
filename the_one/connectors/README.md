@@ -74,8 +74,11 @@ will add two more:
 - `ConnectorPlugin` (Flight 1) — `connect`, `disconnect`, `doctor`,
   `normalize_session_key` (4 methods). The type-level adapter contract;
   every plugin class structurally satisfies this Protocol.
-- `ConnectorClient` (Flight 1) — `is_alive` (1 method). The per-instance
-  live-connection wrapper returned by `ConnectorPlugin.connect`.
+- `ConnectorClient` (Flight 1, widened in Flight 4) — `is_alive` + `send`
+  (2 methods). The per-instance live-connection wrapper returned by
+  `ConnectorPlugin.connect`. F4 widened this Protocol with `send` so the
+  ``platform_send`` built-in tool can dispatch outbound platform-bound
+  messages through every plugin uniformly.
 - `AllowlistResolver` (Flight 6) — ACL-aware connectors will additionally
   satisfy this Protocol.
 - `CommandHandler` (Flight 7) — connectors that handle platform-side
@@ -108,14 +111,42 @@ from the_one.connectors.base import (
     ConnectorClient,
     DoctorReport,
     InboundEnvelope,
+    OutboundTarget,
+    SendResult,
     SessionKey,
 )
 from the_one.db.models import ConnectorAccount
 from the_one.encryption import Encryptor
 
 
+class HypotheticalPlatformClient:
+    """Structural ConnectorClient — ``is_alive`` + ``send``."""
+
+    def __init__(self, platform_session: Any) -> None:
+        self._session = platform_session
+
+    def is_alive(self) -> bool:
+        return self._session.is_open()  # pseudo-code
+
+    async def send(
+        self, target: OutboundTarget, content: str
+    ) -> SendResult:
+        # pseudo-code — real SDK call to deliver `content` to `target`:
+        platform_msg = await self._session.post(
+            channel_id=target.channel_id,
+            thread_id=target.thread_id,
+            content=content,
+        )
+        return SendResult(
+            platform_message_id=platform_msg.id,
+            details={"channel": target.channel_id},
+        )
+
+
 class HypotheticalPlatformPlugin:
-    """Structural ConnectorPlugin — no inheritance per `structural-Protocol-satisfaction`."""
+    """Structural ConnectorPlugin — ``connect`` + ``disconnect`` + ``doctor`` +
+    ``normalize_session_key``. ``connect()`` returns a ``HypotheticalPlatformClient``.
+    No inheritance per ``structural-Protocol-satisfaction``."""
 
     async def connect(
         self, account: ConnectorAccount, encryptor: Encryptor
@@ -123,8 +154,8 @@ class HypotheticalPlatformPlugin:
         secrets = account.secrets  # already-decrypted dict from the repository
         token = secrets["bot_token"]
         # pseudo-code — replace with real SDK call:
-        platform_client: Any = await _open_platform_session(token)
-        return platform_client  # must structurally satisfy ConnectorClient
+        platform_session: Any = await _open_platform_session(token)
+        return HypotheticalPlatformClient(platform_session)
 
     async def disconnect(self, client: ConnectorClient) -> None:
         # pseudo-code — idempotent close; do not raise if already closed
@@ -136,11 +167,15 @@ class HypotheticalPlatformPlugin:
         try:
             client = await self.connect(account, encryptor)
         except Exception as e:  # noqa: BLE001 — doctor surfaces failure, not raises
-            return DoctorReport(status="error", details={"error": str(e)})
+            return DoctorReport(status="failed", message=str(e), details={})
         try:
             # pseudo-code — minimal handshake probe; no message dispatch to peers
             info = await _platform_self_check(client)
-            return DoctorReport(status="ok", details={"identity": info["bot_user"]})
+            return DoctorReport(
+                status="ok",
+                message=f"connected as {info['bot_user']}",
+                details={"identity": info["bot_user"]},
+            )
         finally:
             await self.disconnect(client)
 
@@ -195,8 +230,14 @@ When to add a method to the Protocol vs. use the optional-hook convention:
   author to write a no-op stub would be friction (e.g.
   `display_channel`).
 
-Future flights (notably F4's `ConnectorClient` outbound-send extension if
-it lands as optional) may use the same pattern.
+F4's `ConnectorClient.send` extension landed as **Protocol-widening**, NOT
+optional-hook — outbound is required by every connector in scope, so
+widening is the right shape (see §10 below and the
+`protocol-widening-for-required-capability` convention in
+`the_one/agents.md`). The `display_channel` precedent above remains the
+canonical optional-hook example. Future plugin extensions choose between
+the two patterns based on whether ALL plugins in scope must implement
+(widen) or only some benefit from implementing (optional hook).
 
 ## §5. Test seams
 
@@ -304,3 +345,31 @@ invariant" for the full discussion and rationale.
   `canonical-import + convenience-re-export`,
   `structural-Protocol-satisfaction`, `verbatim-message-equality`): see
   `the_one/agents.md`'s "Project Conventions" section.
+
+## §10. Required capabilities (Protocol-widening)
+
+F4 widened `ConnectorClient` with `async def send(target: OutboundTarget, content: str) -> SendResult` (Mission 10 leg 1 of Flight 4). Every connector in scope (stub, Discord at F8, the second connector at F9) MUST implement this method — outbound is the only path from agent to platform, and the `SendToPlatformChannelTool` (the sole production caller) depends on the method being callable.
+
+The widening is non-breaking for existing implementations that already provide all the methods the widened Protocol requires. A class missing the new method fails the `runtime_checkable` isinstance check after widening — Python's Protocol semantics check method-name presence at call time, not at type definition. `tests/test_connectors.py::test_client_missing_send_fails_check` pins this behavior.
+
+The convention is codified in `the_one/agents.md` Project Conventions as `protocol-widening-for-required-capability`. Choose Protocol-widening over the optional-hook convention (§4 above) when every plugin in scope MUST implement; choose optional-hook when most plugins benefit but a sensible default exists at the call site (e.g. `display_channel` fallback to `envelope.channel_id`).
+
+## §11. Outbound flow trace
+
+End-to-end walk of an outbound delivery, from the agent's tool call to the platform message:
+
+1. **Agent invokes the tool**. The LLM's response includes a tool_call with `name="send_to_platform_channel"` and arguments `{target: {account_id, channel_id, thread_id?}, content}`. Agent core dispatches via `the_one/agent/core.py:Agent._execute_tool` (the existing per-tool dispatch path).
+
+2. **Tool execute() validates target**. `the_one/tools/connector_send.py:SendToPlatformChannelTool.execute()` validates the `target` shape (account_id, channel_id present; thread_id optional), validates `target.account_id ∈ self._connector_account_ids` (account-scope check; rejects with `[error] [constraint]` on mismatch). The `# F6: AllowlistResolver consultation lands here` marker is the hook for F6's channel/thread/peer ACL.
+
+3. **Tool acquires pool entry**. The tool calls `the_one/connectors/_pool.py:acquire(agent_name, account_id)` to fetch the warm `ConnectorClient`. The pool's worker-task-per-entry pattern ensures `connect` and `disconnect` run on the same task (anyio cross-task `CancelScope` safety). `last_activity` is touched on every successful resolve. Pool errors (`KeyError` for unknown account, `ConnectorRegistrationError` for unregistered plugin type, `ConnectorClientError` subtypes for connect failures, `RuntimeError` during shutdown) surface as `[error] <ExceptionType>: <message>` envelopes.
+
+4. **Tool calls `client.send`**. `await client.send(target_obj, content)` returns a `SendResult` (`platform_message_id: str | None`, `details: dict`). `ConnectorClientError` subtypes raised from `send` (e.g. `ConnectorRateLimitError`, `ConnectorConnectionError`) surface as the same `[error] <ExceptionType>: <message>` envelope.
+
+5. **Tool returns the success sentinel**. Format: `f"{PLATFORM_SEND_OK_PREFIX} sent to {account_id}:{channel_id}{thread_clause}: {content!r} (msg_id={result.platform_message_id})"`. The `PLATFORM_SEND_OK_PREFIX = "[platform-send-ok]"` constant lives in `the_one/connectors/__init__.py` and is the single cross-module contract between the tool and the dispatcher.
+
+6. **Agent appends the tool_result message**. Standard agent core dispatch — the tool's return string becomes a `Role.TOOL` `Message` with `tool_result.tool_call_id` matching the original tool_call's `id`.
+
+7. **Dispatcher tags visibility post-step**. `the_one/connectors/_inbound.py:dispatch_inbound`'s post-step pass walks new messages: the tool_result whose parent tool_call had `name == "send_to_platform_channel"` AND whose content starts with `PLATFORM_SEND_OK_PREFIX` gets `visibility=None` (platform-visible). Other assistant / tool-result messages produced during the turn get `visibility=OPERATOR_VISIBILITY`.
+
+8. **Dispatcher persists**. The whole updated `agent.messages` history (including the now-tagged messages) is encoded via `the_one/db/codec.py:encode_messages` and written via `ChatSessionRepository.update`. F5's Chat UI consumes the `visibility` tag for two-layer rendering.

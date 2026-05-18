@@ -101,6 +101,12 @@ def test_base_prompt_includes_discovery_section() -> None:
 @pytest.mark.asyncio
 async def test_baseline_visible_at_session_start() -> None:
     """Turn 1 LLM sees exactly [search_tools, continue] — nothing more."""
+    # NOTE (F4 M10 L3): this test pins the NON-CONNECTOR baseline
+    # (search_tools + continue only). The F4 carve-out for connector-
+    # attached agents (which also includes `send_to_platform_channel` in
+    # the baseline-visible set) is exercised in tests/test_factory.py::
+    # TestConnectorBaselineCarveOut and the prompt composition lives in
+    # tests/test_config.py::TestComposeSystemPrompt.
     llm = FakeLLM(
         [
             Message.assistant(content="done"),

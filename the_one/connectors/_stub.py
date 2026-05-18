@@ -33,6 +33,7 @@ from the_one.connectors.base import (
     DoctorReport,
     InboundEnvelope,
     OutboundTarget,
+    SendResult,
     SessionKey,
 )
 from the_one.db.models import ConnectorAccount
@@ -47,6 +48,25 @@ class StubClient:
 
     def is_alive(self) -> bool:
         return self._alive
+
+    async def send(
+        self,
+        target: OutboundTarget,
+        content: str,
+    ) -> SendResult:
+        """Record the outbound on :class:`StubPlugin` and return a fixed result.
+
+        Mirrors :meth:`StubPlugin.connect`'s failure-injection pattern: when
+        :attr:`StubPlugin.send_should_raise` is set, raise it INSTEAD of
+        recording / returning. Otherwise append ``(target, content)`` to
+        :attr:`StubPlugin.outbound_records` via
+        :meth:`StubPlugin.record_outbound` and return a fixed
+        :class:`SendResult` with ``platform_message_id="stub-msg-id"``.
+        """
+        if StubPlugin.send_should_raise is not None:
+            raise StubPlugin.send_should_raise
+        StubPlugin.record_outbound(target, content)
+        return SendResult(platform_message_id="stub-msg-id", details={})
 
 
 class StubPlugin:
@@ -100,6 +120,14 @@ class StubPlugin:
     clears this between tests.
     """
 
+    send_should_raise: ClassVar[BaseException | None] = None
+    """When set, :meth:`StubClient.send` raises this INSTEAD of recording
+    the outbound and returning a :class:`SendResult`. Tests use it to
+    drive the failure path of the platform-send tool (mirrors
+    :attr:`connect_should_fail` semantics). :meth:`reset_for_test`
+    clears this between tests.
+    """
+
     # ── Test-side helpers ──────────────────────────────────────────────
     @classmethod
     def reset_for_test(cls) -> None:
@@ -112,6 +140,7 @@ class StubPlugin:
         cls.doctor_response = None
         cls.connect_should_fail = None
         cls.doctor_should_raise = None
+        cls.send_should_raise = None
 
     @classmethod
     def push_inbound(cls, envelope: InboundEnvelope) -> None:

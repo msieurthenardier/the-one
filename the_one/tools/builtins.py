@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from typing import Any
+
 from the_one.tools._search_backends import DDGSearchBackend, SearchBackend
 from the_one.tools.base import Tool
+from the_one.tools.connector_send import SendToPlatformChannelTool
 from the_one.tools.filesystem import (
     DeleteFileTool,
     EditFileTool,
@@ -54,6 +57,7 @@ _TOOL_CLASSES: dict[str, type[Tool]] = {
     "fetch_url": FetchUrlTool,
     "download_file": DownloadFileTool,
     "web_search": WebSearchTool,
+    "send_to_platform_channel": SendToPlatformChannelTool,
 }
 
 
@@ -97,6 +101,8 @@ class BuiltinToolProvider:
         tool_configs: dict[str, dict] | None = None,
         agent_overrides: dict[str, dict] | None = None,
         agent_name: str | None = None,
+        *,
+        connector_account_ids: list[str] | None = None,
     ) -> list[Tool]:
         # Both None → introspection path (no resolver invocation).
         # `Tool.__init__` defaults `cross_configs={}` and `agent_name=None`,
@@ -144,5 +150,17 @@ class BuiltinToolProvider:
             # `cross_configs` is shared by reference across all tools in this
             # call; frozen Configs (FilesystemConfig + future ExecutionConfig)
             # prevent any tool from mutating a peer's view.
-            result.append(cls(cfg, cross_configs=cross_configs, agent_name=agent_name))
+            #
+            # F4 leg 2: SendToPlatformChannelTool needs the agent's attached
+            # connector-account ids at construction. Mirrors the
+            # SearchTools special construction at factory.py:290-297, kept
+            # inside the provider for _TOOL_CLASSES symmetry.
+            extra_kwargs: dict[str, Any] = (
+                {"connector_account_ids": connector_account_ids or []}
+                if cls is SendToPlatformChannelTool
+                else {}
+            )
+            result.append(
+                cls(cfg, cross_configs=cross_configs, agent_name=agent_name, **extra_kwargs)
+            )
         return result

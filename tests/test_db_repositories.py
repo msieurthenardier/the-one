@@ -204,6 +204,76 @@ class TestSQLiteAgentStore:
         loaded = await agent_store.load("no-mcp-overrides")
         assert loaded.mcp_overrides is None
 
+    async def test_save_round_trips_connector_account_ids(
+        self, agent_store: SQLiteAgentStore
+    ) -> None:
+        """Saving an agent with ``connector_account_ids`` set roundtrips
+        through the SQLite store (M10 F4 L5 v17 migration).
+
+        Closes the F4 L4 leg-4 monkeypatch workaround: the field is now
+        persisted to the new ``agents.connector_account_ids`` column
+        (JSON-encoded list, TEXT). ``_row_to_config`` decodes via
+        ``json.loads(row["connector_account_ids"] or "[]")``.
+        """
+        cfg = AgentConfig(
+            name="connector-attached-agent",
+            connector_account_ids=["acct-a", "acct-b"],
+        )
+        await agent_store.save(cfg)
+        loaded = await agent_store.load("connector-attached-agent")
+        assert loaded.connector_account_ids == ["acct-a", "acct-b"]
+
+        # Upsert path: re-save with a different list. Confirms the
+        # ON CONFLICT(name) DO UPDATE SET branch writes the new value
+        # (a missing connector_account_ids in the update list would
+        # silently retain the original value).
+        cfg2 = AgentConfig(
+            name="connector-attached-agent",
+            connector_account_ids=["acct-c"],
+        )
+        await agent_store.save(cfg2)
+        loaded2 = await agent_store.load("connector-attached-agent")
+        assert loaded2.connector_account_ids == ["acct-c"]
+
+    async def test_load_pre_v17_agent_has_empty_connector_account_ids(
+        self, agent_store: SQLiteAgentStore, conn
+    ) -> None:
+        """A row written with the new column explicitly set to NULL (the
+        pre-v17 row state after the v17 ALTER fires) decodes as an empty
+        list via the ``or "[]"`` default in ``_row_to_config``.
+
+        Back-compat anchor for production DBs upgraded from v16: the
+        column exists post-migration but holds NULL until the next save.
+        """
+        # Hand-write a row with connector_account_ids = NULL — simulates
+        # the post-migration state of a pre-v17 row before the next save.
+        from the_one.db.models import now_iso
+
+        now = now_iso()
+        await conn.execute(
+            "INSERT INTO agents (name, description, llm_model, system_prompt,"
+            " disabled_tools, max_iterations, kb_ids, mcp_source_ids,"
+            " connector_account_ids, created_at, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "pre-v17-agent",
+                "",
+                "mock-default",
+                "",
+                "[]",
+                20,
+                "[]",
+                "[]",
+                None,  # connector_account_ids NULL — simulates pre-v17 row
+                now,
+                now,
+            ),
+        )
+        await conn.commit()
+
+        loaded = await agent_store.load("pre-v17-agent")
+        assert loaded.connector_account_ids == []
+
 
 # ── Knowledge Base Repository ─────────────────────────────────────────────
 
@@ -1016,7 +1086,7 @@ class TestToolConfigRepository:
         await tool_config_repo.upsert("shell", {"timeout": 30})
         first = await tool_config_repo.get("shell")
         # Tiny sleep to ensure updated_at differs at second granularity.
-        # The ISO-format _now_iso() includes microseconds, but be safe.
+        # The ISO-format now_iso() includes microseconds, but be safe.
         import asyncio
 
         await asyncio.sleep(0.01)

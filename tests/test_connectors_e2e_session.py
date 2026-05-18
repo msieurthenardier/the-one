@@ -52,18 +52,25 @@ from __future__ import annotations
 import asyncio
 import json
 
-import aiosqlite
 import pytest
 
-from the_one.agent.config import AgentConfig
-from the_one.agent.factory import AgentFactory
-from the_one.config import settings
+# F4 L5 (M10 F3 debrief carry-forward): the in-file helpers moved to
+# ``tests/_connector_dispatch_helpers`` when this file became the SECOND
+# consumer (F4 L5's new e2e test file is the THIRD; the explicit-import
+# trigger was met at the second consumer per the F3 debrief). The
+# ``isolated_db`` fixture itself lives in ``tests/conftest.py`` for
+# pytest auto-discovery; only the helper FUNCTIONS are imported here.
+from tests._connector_dispatch_helpers import (
+    _envelope,
+    _make_factory,
+    _seed_provider_and_agent,
+    _seed_stub_account,
+)
 from the_one.connectors import OPERATOR_VISIBILITY
 from the_one.connectors import _inbound as inbound_mod
 from the_one.connectors import _pool as pool_mod
 from the_one.connectors._inbound import dispatch_inbound
 from the_one.connectors._stub import StubPlugin
-from the_one.connectors.base import InboundEnvelope
 from the_one.connectors.registry import (
     clear_for_test as _registry_clear_for_test,
 )
@@ -77,15 +84,8 @@ from the_one.db.codec import (
     messages_to_ui_events,
 )
 from the_one.db.connection import get_connection
-from the_one.db.models import ChatSession, ConnectorAccount, LLMProviderConfig
-from the_one.db.repositories import (
-    ChatSessionRepository,
-    ConnectorAccountRepository,
-    LLMProviderRepository,
-    SQLiteAgentStore,
-)
-from the_one.db.schema import ensure_schema
-from the_one.encryption import get_encryptor
+from the_one.db.models import ChatSession
+from the_one.db.repositories import ChatSessionRepository
 from the_one.llm.base import Message, Role
 
 # ─── Fixtures (mirror leg 4's pattern verbatim) ──────────────────────────
@@ -115,136 +115,17 @@ async def _clear_pool_locks_registry():
     restore_to_baseline_for_test()
 
 
-@pytest.fixture
-async def isolated_db(tmp_path, monkeypatch):
-    """Per-test sqlite DB at tmp_path. Mirrors leg 4's ``isolated_db``.
-
-    The dispatcher resolves its DB connection via ``get_connection()``
-    inside the function body, so we need the module-level singleton
-    repointed at the per-test path. Schema is applied via a side
-    connection so the singleton opens cleanly on first
-    ``get_connection()``.
-    """
-    from the_one.db import connection as db_connection
-
-    monkeypatch.setattr(settings, "data_dir", tmp_path)
-    db_path = settings.db_path
-
-    conn = await aiosqlite.connect(str(db_path))
-    conn.row_factory = aiosqlite.Row
-    await conn.execute("PRAGMA foreign_keys=ON")
-    await ensure_schema(conn)
-    await conn.close()
-
-    monkeypatch.setattr(db_connection, "_connection", None)
-    yield db_path
-
-    if db_connection._connection is not None:
-        await db_connection.close_connection()
-
-
-async def _seed_provider_and_agent(
-    *,
-    agent_name: str = "agent-inbound",
-    provider_id: str = "mock-provider",
-    response_content: str = "ok",
-) -> None:
-    """Seed an LLM provider + agent config so ``AgentFactory.create()``
-    has something to build against. Uses ``type='mock'`` so the LLM
-    registry resolves to :class:`the_one.llm.mock.MockProvider`.
-    """
-    conn = await get_connection()
-    encryptor = get_encryptor(settings.data_dir)
-
-    provider_repo = LLMProviderRepository(conn, encryptor)
-    await provider_repo.create(
-        LLMProviderConfig(
-            id=provider_id,
-            name="Mock Provider",
-            type="mock",
-            base_url="",
-            config={"response": {"content": response_content}},
-        )
-    )
-
-    agent_store = SQLiteAgentStore(conn)
-    await agent_store.save(
-        AgentConfig(
-            name=agent_name,
-            provider_config_id=provider_id,
-            llm_model="mock-default",
-        )
-    )
-
-
-async def _seed_stub_account(
-    *,
-    account_id: str = "acct-test",
-    session_continuation_seconds: int | None = None,
-) -> ConnectorAccount:
-    """Persist a stub-typed ConnectorAccount via the repository.
-
-    Accepts an optional ``session_continuation_seconds`` override so
-    tests can drive the per-account continuation-window code path
-    (the column path leg 5's admin editor surfaces; distinct from the
-    env-var path covered by leg 3's resolver tests).
-    """
-    conn = await get_connection()
-    encryptor = get_encryptor(settings.data_dir)
-    repo = ConnectorAccountRepository(conn, encryptor)
-    account = ConnectorAccount(
-        id=account_id,
-        name="Stub Account",
-        type="stub",
-        config={},
-        secrets={},
-        session_continuation_seconds=session_continuation_seconds,
-    )
-    await repo.create(account)
-    return account
-
-
-async def _make_factory() -> AgentFactory:
-    """Build an AgentFactory whose ``store`` reads from the per-test DB.
-
-    Disables MCP wiring (``mcp_provider=None``) so the factory doesn't
-    spawn MCP processes during the test agent build.
-    """
-    conn = await get_connection()
-    store = SQLiteAgentStore(conn)
-    return AgentFactory(store=store, mcp_provider=None)
-
-
-def _envelope(
-    *,
-    channel_id: str = "ch-1",
-    thread_id: str | None = None,
-    peer_id: str = "peer-1",
-    account_id: str = "acct-test",
-    platform: str = "stub",
-    text: str = "hello",
-) -> InboundEnvelope:
-    return InboundEnvelope(
-        platform=platform,
-        account_id=account_id,
-        channel_id=channel_id,
-        thread_id=thread_id,
-        peer_id=peer_id,
-        peer_name="Alice",
-        text=text,
-        raw={},
-    )
-
-
 # ─── Test 1 — headline: both-visibility coexistence ──────────────────────
 
 
 async def test_e2e_both_visibility_paths_coexist_in_session(isolated_db) -> None:
-    """Connector inbound creates peer-visible turn; a direct repo write
-    appends two operator-tagged Messages to the same session's history
-    (simulating F5's future operator-input path).
+    """Connector inbound creates a peer-visible USER message + an
+    operator-tagged assistant reply (F4 L4 dispatcher tagging); a
+    direct repo write appends two more operator-tagged Messages to
+    the same session's history (simulating F5's future operator-input
+    path).
 
-    F3 contract proof that F5 inherits:
+    Cross-flight contract proof that F5 inherits:
 
     - Decoded ``agent.messages`` contains BOTH peer and operator messages.
     - Encoded JSON: operator-tagged dicts carry ``"visibility": "operator"``;
@@ -256,6 +137,12 @@ async def test_e2e_both_visibility_paths_coexist_in_session(isolated_db) -> None
 
     This is the canonical example F5 will consult when implementing the
     Chat UI's visual distinction.
+
+    F4 L4 update: the dispatcher's post-step visibility-tagging pass
+    now tags the assistant reply with ``OPERATOR_VISIBILITY`` (default
+    branch — plain-text assistant message is not a successful platform-
+    send tool_result and not USER). Peer-visible (``visibility=None``)
+    is preserved only for the inbound USER message (the USER-skip rule).
     """
     await _seed_provider_and_agent()
     await _seed_stub_account()
@@ -264,8 +151,8 @@ async def test_e2e_both_visibility_paths_coexist_in_session(isolated_db) -> None
 
     envelope = _envelope(text="from peer")
 
-    # First inbound — creates the session + persists a peer turn
-    # (peer user message + agent reply, both visibility=None by F3 default).
+    # First inbound — creates the session + persists a peer USER message
+    # (visibility=None) and an operator-tagged assistant reply (F4 L4).
     await dispatch_inbound("agent-inbound", "acct-test", envelope, factory=factory)
 
     conn = await get_connection()
@@ -298,13 +185,15 @@ async def test_e2e_both_visibility_paths_coexist_in_session(isolated_db) -> None
     sess_after = await chat_repo.get(sess.id)
     msgs = decode_messages(sess_after.messages)
 
-    # Both visibility layers present. Exact count for operator (2 — we
-    # appended exactly two); lower bound for peer (peer user + at least
-    # one assistant reply; mock provider produces one).
+    # Both visibility layers present.
+    # - Operator: 1 from the F4 L4 dispatcher-tagged assistant reply
+    #   + 2 we appended directly = 3 total.
+    # - Peer (visibility=None): exactly the peer USER message (the only
+    #   non-operator-tagged dispatcher output post-F4-L4).
     operator_msgs = [m for m in msgs if m.visibility == OPERATOR_VISIBILITY]
     peer_msgs = [m for m in msgs if m.visibility is None]
-    assert len(operator_msgs) == 2
-    assert len(peer_msgs) >= 2
+    assert len(operator_msgs) == 3
+    assert len(peer_msgs) >= 1
 
     # Encoded JSON: operator-tagged dicts carry the key with value
     # ``"operator"``; peer-originated dicts do NOT carry the key
@@ -313,8 +202,8 @@ async def test_e2e_both_visibility_paths_coexist_in_session(isolated_db) -> None
     parsed = json.loads(sess_after.messages)
     operator_count = sum(1 for d in parsed if d.get("visibility") == "operator")
     absent_count = sum(1 for d in parsed if "visibility" not in d)
-    assert operator_count == 2
-    assert absent_count >= 2
+    assert operator_count == 3
+    assert absent_count >= 1
     # No peer-originated dict should carry the key with explicit None
     # or any other value — the codec MUST omit the key entirely when
     # source visibility is None. This guards against a regression where
@@ -332,8 +221,8 @@ async def test_e2e_both_visibility_paths_coexist_in_session(isolated_db) -> None
     events = messages_to_ui_events(msgs)
     operator_events = [e for e in events if e.get("visibility") == "operator"]
     absent_events = [e for e in events if "visibility" not in e]
-    assert len(operator_events) >= 2
-    assert len(absent_events) >= 2
+    assert len(operator_events) >= 3
+    assert len(absent_events) >= 1
     # Same null-key regression guard at the projection layer: no event
     # should carry ``"visibility": None`` (key absent is the contract).
     for e in events:

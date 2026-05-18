@@ -35,18 +35,33 @@ from collections.abc import AsyncIterator
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-import aiosqlite
 import pytest
 
+# F4 L5 (M10 F3 debrief carry-forward): the in-file helpers
+# (``isolated_db``, ``_seed_provider_and_agent``, ``_seed_stub_account``,
+# ``_make_factory``, ``_envelope``, ``_ScriptedProvider``,
+# ``_make_scripted_factory``) moved to ``tests/_connector_dispatch_helpers``
+# when ``tests/test_connectors_e2e_platform_send.py`` became the THIRD
+# consumer. Pytest only auto-discovers fixtures from ``conftest.py``, so
+# the ``isolated_db`` fixture must be explicitly imported into this module
+# for tests here to consume it as a function argument.
+from tests._connector_dispatch_helpers import (
+    _envelope,
+    _make_factory,
+    _make_scripted_factory,
+    _ScriptedProvider,  # noqa: F401 — kept for downstream-test access
+    _seed_provider_and_agent,
+    _seed_stub_account,
+)
 from the_one.agent._context import current_chat_session_id
-from the_one.agent.config import AgentConfig
 from the_one.agent.factory import AgentFactory
 from the_one.config import settings
+from the_one.connectors import OPERATOR_VISIBILITY, PLATFORM_SEND_OK_PREFIX
 from the_one.connectors import _inbound as inbound_mod
 from the_one.connectors import _pool as pool_mod
 from the_one.connectors._inbound import dispatch_inbound
 from the_one.connectors._stub import StubPlugin
-from the_one.connectors.base import InboundEnvelope
+from the_one.connectors.errors import ConnectorConnectionError
 from the_one.connectors.registry import (
     clear_for_test as _registry_clear_for_test,
 )
@@ -56,16 +71,13 @@ from the_one.connectors.registry import (
 )
 from the_one.db.codec import decode_messages
 from the_one.db.connection import get_connection
-from the_one.db.models import ChatSession, ConnectorAccount, LLMProviderConfig
+from the_one.db.models import ChatSession, ConnectorAccount
 from the_one.db.repositories import (
     ChatSessionRepository,
     ConnectorAccountRepository,
-    LLMProviderRepository,
-    SQLiteAgentStore,
 )
-from the_one.db.schema import ensure_schema
 from the_one.encryption import get_encryptor
-from the_one.llm.base import LLMProvider, Message, Role, StreamChunk, TokenUsage
+from the_one.llm.base import LLMProvider, Message, Role, StreamChunk, TokenUsage, ToolCall
 
 # ─── Fixtures ────────────────────────────────────────────────────────────
 
@@ -88,117 +100,6 @@ async def _clear_pool_locks_registry():
     # production-shaped registry (currently empty in F3).
     _registry_clear_for_test()
     restore_to_baseline_for_test()
-
-
-@pytest.fixture
-async def isolated_db(tmp_path, monkeypatch):
-    """Per-test sqlite DB at tmp_path. Mirrors
-    ``tests/test_connectors_e2e.py::isolated_db``.
-
-    The dispatcher resolves its DB connection via ``get_connection()``
-    inside the function body, so we need the module-level singleton
-    repointed at the per-test path. Schema is applied via a side
-    connection so the singleton opens cleanly on first
-    ``get_connection()``.
-    """
-    from the_one.db import connection as db_connection
-
-    monkeypatch.setattr(settings, "data_dir", tmp_path)
-    db_path = settings.db_path
-
-    conn = await aiosqlite.connect(str(db_path))
-    conn.row_factory = aiosqlite.Row
-    await conn.execute("PRAGMA foreign_keys=ON")
-    await ensure_schema(conn)
-    await conn.close()
-
-    monkeypatch.setattr(db_connection, "_connection", None)
-    yield db_path
-
-    if db_connection._connection is not None:
-        await db_connection.close_connection()
-
-
-async def _seed_provider_and_agent(
-    *,
-    agent_name: str = "agent-inbound",
-    provider_id: str = "mock-provider",
-    response_content: str = "ok",
-) -> None:
-    """Seed an LLM provider + agent config so ``AgentFactory.create()``
-    has something to build against. Uses ``type='mock'`` so the LLM
-    registry resolves to :class:`the_one.llm.mock.MockProvider`.
-    """
-    conn = await get_connection()
-    encryptor = get_encryptor(settings.data_dir)
-
-    provider_repo = LLMProviderRepository(conn, encryptor)
-    await provider_repo.create(
-        LLMProviderConfig(
-            id=provider_id,
-            name="Mock Provider",
-            type="mock",
-            base_url="",
-            config={"response": {"content": response_content}},
-        )
-    )
-
-    agent_store = SQLiteAgentStore(conn)
-    await agent_store.save(
-        AgentConfig(
-            name=agent_name,
-            provider_config_id=provider_id,
-            llm_model="mock-default",
-        )
-    )
-
-
-async def _seed_stub_account(account_id: str = "acct-test") -> ConnectorAccount:
-    """Persist a stub-typed ConnectorAccount via the repository."""
-    conn = await get_connection()
-    encryptor = get_encryptor(settings.data_dir)
-    repo = ConnectorAccountRepository(conn, encryptor)
-    account = ConnectorAccount(
-        id=account_id,
-        name="Stub Account",
-        type="stub",
-        config={},
-        secrets={},
-    )
-    await repo.create(account)
-    return account
-
-
-async def _make_factory() -> AgentFactory:
-    """Build an AgentFactory whose ``store`` reads from the per-test DB.
-
-    Disables MCP wiring (``mcp_provider=None``) so the factory doesn't
-    spawn MCP processes during the test agent build.
-    """
-    conn = await get_connection()
-    store = SQLiteAgentStore(conn)
-    return AgentFactory(store=store, mcp_provider=None)
-
-
-def _envelope(
-    *,
-    channel_id: str = "ch-1",
-    thread_id: str | None = None,
-    peer_id: str = "peer-1",
-    account_id: str = "acct-test",
-    platform: str = "stub",
-    text: str = "hello",
-) -> InboundEnvelope:
-    return InboundEnvelope(
-        platform=platform,
-        account_id=account_id,
-        channel_id=channel_id,
-        thread_id=thread_id,
-        peer_id=peer_id,
-        peer_name="Alice",
-        text=text,
-        raw={},
-    )
 
 
 # ─── _BlockingProvider — event-coordinated concurrency fixture ───────────
@@ -661,7 +562,11 @@ async def test_dispatch_inbound_persists_inbound_with_visibility_none(
 ) -> None:
     """The persisted user message has ``visibility=None`` — peer-visible
     by default. The codec emits no ``visibility`` key when the source
-    visibility is None."""
+    visibility is None.
+
+    F4 L4: USER messages are skipped by the visibility-tagging pass —
+    the peer inbound stays ``visibility=None``.
+    """
     await _seed_provider_and_agent()
     await _seed_stub_account()
     register_for_test("stub", StubPlugin)
@@ -678,12 +583,16 @@ async def test_dispatch_inbound_persists_inbound_with_visibility_none(
     assert user_msgs[0].visibility is None
 
 
-async def test_dispatch_inbound_persists_agent_reply_with_visibility_none(
+async def test_dispatch_inbound_persists_agent_reply_with_visibility_operator(
     isolated_db,
 ) -> None:
-    """The persisted assistant reply has ``visibility=None`` — F3
-    leaves agent replies untagged; F4 will own operator-tagging via
-    the platform-send tool."""
+    """The persisted assistant reply has ``visibility="operator"`` —
+    F4 L4 owns operator-tagging; the dispatcher's post-step pass tags
+    every non-USER new message in a connector-attached session as
+    operator-only by default. The successful-platform-send-tool_result
+    carve-out is exercised in
+    ``test_dispatch_inbound_tags_successful_send_tool_result_as_platform_visible``.
+    """
     await _seed_provider_and_agent()
     await _seed_stub_account()
     register_for_test("stub", StubPlugin)
@@ -699,7 +608,319 @@ async def test_dispatch_inbound_persists_agent_reply_with_visibility_none(
     assistant_msgs = [m for m in history if m.role == Role.ASSISTANT]
     assert assistant_msgs
     for m in assistant_msgs:
+        assert m.visibility == OPERATOR_VISIBILITY
+
+
+# ─── F4 L4 visibility-tagging coverage ───────────────────────────────────
+
+
+async def test_dispatch_inbound_tags_assistant_text_as_operator(
+    isolated_db,
+) -> None:
+    """Plain-text assistant reply (no tool call) → ``visibility="operator"``.
+
+    The default branch of the F4 L4 tagging pass: every non-USER new
+    message in a connector-attached session is operator-only unless the
+    successful-platform-send carve-out fires.
+    """
+    await _seed_provider_and_agent()
+    await _seed_stub_account()
+    register_for_test("stub", StubPlugin)
+    factory = await _make_factory()
+
+    envelope = _envelope()
+    await dispatch_inbound("agent-inbound", "acct-test", envelope, factory=factory)
+
+    conn = await get_connection()
+    chat_repo = ChatSessionRepository(conn)
+    sessions = await chat_repo.list()
+    history = decode_messages(sessions[0].messages)
+    assistant_msgs = [m for m in history if m.role == Role.ASSISTANT]
+    assert assistant_msgs
+    for m in assistant_msgs:
+        # Plain-text reply (no tool_calls); falls through to the default
+        # OPERATOR_VISIBILITY branch.
+        assert m.tool_calls == []
+        assert m.visibility == OPERATOR_VISIBILITY
+
+
+async def test_dispatch_inbound_tags_successful_send_tool_result_as_platform_visible(
+    isolated_db, monkeypatch
+) -> None:
+    """A successful ``send_to_platform_channel`` tool_result → ``visibility=None``.
+
+    The carve-out fires when ALL THREE of: ``Role.TOOL``, parent
+    tool_call name == ``"send_to_platform_channel"``, ``content``
+    starts with :data:`PLATFORM_SEND_OK_PREFIX`. The assistant message
+    that REQUESTED the tool call stays ``OPERATOR_VISIBILITY``.
+    """
+    await _seed_provider_and_agent(connector_account_ids=["acct-test"])
+    await _seed_stub_account()
+    register_for_test("stub", StubPlugin)
+
+    # Iteration 1: assistant requests platform-send.
+    # Iteration 2: assistant emits plain text to end the turn.
+    tc = ToolCall(
+        id="tc-send-1",
+        name="send_to_platform_channel",
+        arguments={
+            "target": {"account_id": "acct-test", "channel_id": "ch-1"},
+            "content": "hello peer",
+        },
+    )
+    responses = [
+        Message.assistant(content="", tool_calls=[tc]),
+        Message.assistant(content="done"),
+    ]
+    factory = await _make_scripted_factory(
+        responses, monkeypatch, connector_account_ids=["acct-test"]
+    )
+
+    envelope = _envelope()
+    await dispatch_inbound("agent-inbound", "acct-test", envelope, factory=factory)
+
+    # The stub recorded the outbound — confirms the tool actually fired.
+    assert len(StubPlugin.outbound_records) == 1
+
+    conn = await get_connection()
+    chat_repo = ChatSessionRepository(conn)
+    sessions = await chat_repo.list()
+    history = decode_messages(sessions[0].messages)
+
+    # Assistant message that carried the tool_call → OPERATOR (per the
+    # default branch — it's not a USER message and not a tool_result).
+    assistant_with_call = [
+        m for m in history if m.role == Role.ASSISTANT and m.tool_calls
+    ]
+    assert assistant_with_call
+    for m in assistant_with_call:
+        assert m.visibility == OPERATOR_VISIBILITY
+
+    # Tool_result for the platform-send → visibility=None (peer-visible).
+    tool_msgs = [m for m in history if m.role == Role.TOOL]
+    assert tool_msgs
+    send_results = [
+        m
+        for m in tool_msgs
+        if m.tool_result is not None
+        and m.content.startswith(PLATFORM_SEND_OK_PREFIX)
+    ]
+    assert send_results, "expected a successful platform-send tool_result"
+    for m in send_results:
         assert m.visibility is None
+
+
+async def test_dispatch_inbound_tags_failed_send_tool_result_as_operator(
+    isolated_db, monkeypatch
+) -> None:
+    """A failed ``send_to_platform_channel`` tool_result → ``OPERATOR_VISIBILITY``.
+
+    When the platform send raises, the tool returns an
+    ``[error] ConnectorConnectionError: ...`` envelope WITHOUT the
+    :data:`PLATFORM_SEND_OK_PREFIX`. The prefix-check sub-predicate
+    fails → the tool_result drops through to the default
+    ``OPERATOR_VISIBILITY`` branch.
+    """
+    await _seed_provider_and_agent(connector_account_ids=["acct-test"])
+    await _seed_stub_account()
+    register_for_test("stub", StubPlugin)
+    StubPlugin.send_should_raise = ConnectorConnectionError("test failure")
+
+    tc = ToolCall(
+        id="tc-send-fail",
+        name="send_to_platform_channel",
+        arguments={
+            "target": {"account_id": "acct-test", "channel_id": "ch-1"},
+            "content": "hello peer",
+        },
+    )
+    responses = [
+        Message.assistant(content="", tool_calls=[tc]),
+        Message.assistant(content="done"),
+    ]
+    factory = await _make_scripted_factory(
+        responses, monkeypatch, connector_account_ids=["acct-test"]
+    )
+
+    envelope = _envelope()
+    await dispatch_inbound("agent-inbound", "acct-test", envelope, factory=factory)
+
+    conn = await get_connection()
+    chat_repo = ChatSessionRepository(conn)
+    sessions = await chat_repo.list()
+    history = decode_messages(sessions[0].messages)
+
+    tool_msgs = [m for m in history if m.role == Role.TOOL]
+    assert tool_msgs
+    for m in tool_msgs:
+        # Failure envelope does NOT carry the success prefix.
+        assert not m.content.startswith(PLATFORM_SEND_OK_PREFIX)
+        assert m.visibility == OPERATOR_VISIBILITY
+
+
+async def test_dispatch_inbound_tagging_uses_tool_result_tool_call_id_correlation(
+    isolated_db, monkeypatch
+) -> None:
+    """Correlation is by (tool_call_id → tool_name), not by content prefix.
+
+    Drive an assistant message with TWO tool_calls: one to
+    ``send_to_platform_channel`` (success) and one to a non-platform-
+    send in-test tool that ALSO returns a string starting with
+    :data:`PLATFORM_SEND_OK_PREFIX`. Only the platform-send's
+    tool_result gets ``visibility=None`` — the in-test tool's
+    tool_result keeps ``OPERATOR_VISIBILITY`` because the name-check
+    sub-predicate fails despite the prefix-check passing.
+
+    This is a regression net against a future mis-simplification that
+    drops the name check and decides visibility purely on the content
+    prefix.
+    """
+    from the_one.tools.base import Tool
+
+    class _FakePrefixTool(Tool):
+        name = "fake_prefix_tool"
+        description = "Returns a string starting with the platform-send prefix."
+        parameters = {"type": "object", "properties": {}, "required": []}
+
+        async def execute(self, **_kwargs: Any) -> str:  # type: ignore[override]
+            return f"{PLATFORM_SEND_OK_PREFIX} but-not-really-a-platform-send"
+
+    class _FakePrefixProvider:
+        """Minimal ToolProvider that yields :class:`_FakePrefixTool`."""
+
+        @property
+        def name(self) -> str:
+            return "fake-prefix"
+
+        def get_tools(
+            self,
+            tool_configs: dict[str, dict] | None = None,
+            agent_overrides: dict[str, dict] | None = None,
+            agent_name: str | None = None,
+        ) -> list[Tool]:
+            return [_FakePrefixTool()]
+
+    await _seed_provider_and_agent(connector_account_ids=["acct-test"])
+    await _seed_stub_account()
+    register_for_test("stub", StubPlugin)
+
+    tc_send = ToolCall(
+        id="tc-send-corr",
+        name="send_to_platform_channel",
+        arguments={
+            "target": {"account_id": "acct-test", "channel_id": "ch-1"},
+            "content": "hello peer",
+        },
+    )
+    tc_fake = ToolCall(
+        id="tc-fake-corr",
+        name="fake_prefix_tool",
+        arguments={},
+    )
+    responses = [
+        Message.assistant(content="", tool_calls=[tc_send, tc_fake]),
+        Message.assistant(content="done"),
+    ]
+    factory = await _make_scripted_factory(
+        responses,
+        monkeypatch,
+        extra_tool_providers=[_FakePrefixProvider()],
+        connector_account_ids=["acct-test"],
+    )
+
+    envelope = _envelope()
+    await dispatch_inbound("agent-inbound", "acct-test", envelope, factory=factory)
+
+    conn = await get_connection()
+    chat_repo = ChatSessionRepository(conn)
+    sessions = await chat_repo.list()
+    history = decode_messages(sessions[0].messages)
+
+    tool_msgs = [m for m in history if m.role == Role.TOOL]
+    # Both tool_results should be present.
+    by_id = {m.tool_result.tool_call_id: m for m in tool_msgs if m.tool_result}
+    assert "tc-send-corr" in by_id
+    assert "tc-fake-corr" in by_id
+
+    # The platform-send tool_result → visibility=None (carve-out fires).
+    send_msg = by_id["tc-send-corr"]
+    assert send_msg.content.startswith(PLATFORM_SEND_OK_PREFIX)
+    assert send_msg.visibility is None
+
+    # The fake-prefix tool_result → OPERATOR_VISIBILITY, even though
+    # its content starts with PLATFORM_SEND_OK_PREFIX. The carve-out
+    # requires name == "send_to_platform_channel" AS WELL — not just
+    # the prefix.
+    fake_msg = by_id["tc-fake-corr"]
+    assert fake_msg.content.startswith(PLATFORM_SEND_OK_PREFIX)
+    assert fake_msg.visibility == OPERATOR_VISIBILITY
+
+
+async def test_dispatch_inbound_continue_tool_call_is_operator_visible(
+    isolated_db, monkeypatch
+) -> None:
+    """The agent's virtual ``continue`` tool_call → ``OPERATOR_VISIBILITY``.
+
+    ``continue`` synthesises its own tool_result inside
+    :meth:`Agent._dispatch_tool_calls` (no real tool dispatch). The
+    synthesised tool_result is a ``Role.TOOL`` message; its parent
+    tool_call name is ``"continue"`` — NOT ``"send_to_platform_channel"``
+    — so the carve-out predicate fails on the name check, and the
+    tool_result falls through to the default operator branch.
+
+    Pins the default-branch path for the ``continue`` signal so a future
+    refactor that special-cases continue handling doesn't accidentally
+    promote it to platform-visible.
+    """
+    await _seed_provider_and_agent(connector_account_ids=["acct-test"])
+    await _seed_stub_account()
+    register_for_test("stub", StubPlugin)
+
+    tc = ToolCall(
+        id="tc-cont-1",
+        name="continue",
+        arguments={"reason": "keep going"},
+    )
+    responses = [
+        Message.assistant(content="", tool_calls=[tc]),
+        Message.assistant(content="done"),
+    ]
+    factory = await _make_scripted_factory(
+        responses, monkeypatch, connector_account_ids=["acct-test"]
+    )
+
+    envelope = _envelope()
+    await dispatch_inbound("agent-inbound", "acct-test", envelope, factory=factory)
+
+    conn = await get_connection()
+    chat_repo = ChatSessionRepository(conn)
+    sessions = await chat_repo.list()
+    history = decode_messages(sessions[0].messages)
+
+    # The continue tool_result is the synthesised Role.TOOL message
+    # whose parent tool_call id matches the continue ToolCall above.
+    tool_msgs = [
+        m
+        for m in history
+        if m.role == Role.TOOL
+        and m.tool_result is not None
+        and m.tool_result.tool_call_id == "tc-cont-1"
+    ]
+    assert tool_msgs, "expected the continue's synthesised tool_result"
+    for m in tool_msgs:
+        assert m.visibility == OPERATOR_VISIBILITY
+
+    # The assistant message that emitted the continue tool_call also
+    # gets OPERATOR_VISIBILITY (default branch — not a USER message).
+    assistant_with_continue = [
+        m
+        for m in history
+        if m.role == Role.ASSISTANT
+        and any(c.name == "continue" for c in m.tool_calls)
+    ]
+    assert assistant_with_continue
+    for m in assistant_with_continue:
+        assert m.visibility == OPERATOR_VISIBILITY
 
 
 # ─── Failure paths ───────────────────────────────────────────────────────

@@ -8,7 +8,7 @@ import aiosqlite
 
 from the_one.db._provider_types import PROVIDER_TYPES
 
-CURRENT_VERSION = 16
+CURRENT_VERSION = 17
 
 # Render the provider-type CHECK constraint as a comma-separated SQL
 # literal list, sourced from PROVIDER_TYPES. Both SCHEMA_V1 (fresh-DB
@@ -544,7 +544,7 @@ CREATE TABLE IF NOT EXISTS connector_accounts (
         # milliseconds-vs-seconds typo.
         #
         # Downstream: flight 08 (Discord) previously planned a v15 CHECK
-        # migration; that renumbers to v17. See _connector_types.py
+        # migration; that renumbers to v18. See _connector_types.py
         # docstring + tests/test_db_migration.py TestSchemaV14 docstring.
         #
         # Idempotency follows the v11/v14 ALTER ADD COLUMN pattern (PRAGMA
@@ -584,7 +584,7 @@ CREATE TABLE IF NOT EXISTS connector_accounts (
         # resolver's COALESCE(?, '') WHERE clause.
         #
         # Downstream: flight 08 (Discord) previously planned a v16 CHECK
-        # migration; that renumbers to v17. See _connector_types.py docstring
+        # migration; that renumbers to v18. See _connector_types.py docstring
         # + tests/test_db_migration.py TestSchemaV14 docstring + agents.md
         # connector-type checklist item 4.
         #
@@ -624,3 +624,32 @@ CREATE TABLE IF NOT EXISTS connector_accounts (
         await conn.execute("INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (16,))
         await conn.commit()
         version = 16
+
+    if version < 17:
+        # Mission 10 Flight 4 Leg 5: AgentConfig.connector_account_ids
+        # persistence. F4 L1 added the Pydantic field but missed the DB
+        # column — leg 4 surfaced the gap when e2e tests had to monkey-
+        # patch _row_to_config to re-inject. Adds a nullable TEXT column
+        # storing the JSON-encoded list of attached connector_account_id
+        # values; NULL is decoded as [] (back-compat for pre-v17 rows).
+        #
+        # Downstream: flight 08 (Discord) previously planned a v17 CHECK
+        # migration; that renumbers to **v18**. See _connector_types.py
+        # docstring + tests/test_db_migration.py TestSchemaV14/V15/V16
+        # downstream-renumber docstrings + agents.md connector-type
+        # checklist item 4.
+        #
+        # Idempotency follows the v8/v9/v10/v11/v14/v15 ALTER ADD COLUMN
+        # pattern (PRAGMA guard + INSERT OR IGNORE on schema_version LAST).
+        async with conn.execute("PRAGMA table_info(agents)") as cursor:
+            existing_cols = {row[1] for row in await cursor.fetchall()}
+        if "connector_account_ids" not in existing_cols:
+            await conn.execute(
+                "ALTER TABLE agents ADD COLUMN connector_account_ids TEXT"
+            )
+
+        await conn.execute(
+            "INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (17,)
+        )
+        await conn.commit()
+        version = 17

@@ -1289,10 +1289,24 @@ class TestModelDiscovery:
         # AsyncMock auto-attributes are AsyncMocks). The dangling coroutine
         # wedged pytest-asyncio's loop teardown for ~90s on every broad
         # pytest run since F1. See mission KI "post-summary teardown wedge".
+        #
+        # F4 L5 (M10) AsyncMock-warning closure: F6.5 L04 added a sibling
+        # ``get_model_context_length`` call in ``list_provider_models``
+        # that ALSO falls through to ``show_model``'s mocked-incomplete
+        # ``.post()`` chain. The F5 L01.5 short-circuit closed only the
+        # capabilities path; the context-length path kept emitting
+        # ``AsyncMockMixin._execute_mock_call was never awaited`` warnings.
+        # Short-circuit context-length too — same shape, returning None
+        # is fail-open (the chip just doesn't render).
         with (
             patch("the_one.interfaces.web.api.httpx.AsyncClient") as mock_httpx_client,
             patch(
                 "the_one.interfaces.web.api.ollama_api.get_model_capabilities",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "the_one.interfaces.web.api.ollama_api.get_model_context_length",
                 new_callable=AsyncMock,
                 return_value=None,
             ),
