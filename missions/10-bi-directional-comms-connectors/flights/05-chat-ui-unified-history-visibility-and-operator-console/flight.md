@@ -1,6 +1,6 @@
 # Flight: Chat UI — Unified History, Visibility Distinction, Operator Console
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Bi-directional Communication Connectors](../../mission.md)
 
 ## Contributing to Criteria
@@ -213,7 +213,7 @@ Land the **operator-facing surface** of the connector subsystem: the Chat UI sid
 - [x] `chat-ui-render-visibility-distinction` — `renderMessage` consumes `visibility`; CSS rule + inline label for operator-only marker
 - [x] `dispatcher-broadcast-when-subscribed` — dispatcher emits broadcast events when WS subscribers exist; zero-subscriber case unchanged
 - [x] `e2e-tests-and-design-language` — browser-flow suite covering session list, unified history, operator-only marker, design-language bar
-- [ ] `uat-and-alignment` *(REQUIRED — user-directed at planning time)* — guided HAT session walking the operator through the full surface; fix issues inline; flight cannot land without operator sign-off
+- [x] `uat-and-alignment` *(REQUIRED — user-directed at planning time)* — guided HAT session walking the operator through the full surface; fix issues inline; flight cannot land without operator sign-off
 
 ---
 

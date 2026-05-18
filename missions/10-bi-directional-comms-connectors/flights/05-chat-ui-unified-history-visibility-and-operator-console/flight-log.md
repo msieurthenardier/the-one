@@ -894,8 +894,198 @@ Departures from planned approach.
 
 Unexpected issues encountered.
 
+### HAT — pre-existing data row violated `idle_timeout_seconds` validator (2026-05-18)
+
+**Observed**: during HAT preflight, `/api/connector-accounts` returned
+HTTP 500. Container logs showed
+`ValidationError: idle_timeout_seconds must be between 1 and 604800
+seconds`. The single existing row (id `3aebcfcb23f8`, name `X`,
+type `stub`) had `idle_timeout_seconds=0` — pre-F5 data, predates
+the F2 validator.
+
+**Severity**: blocking (Admin surface unusable, HAT can't continue).
+
+**Resolution**: direct SQL `UPDATE connector_accounts SET
+idle_timeout_seconds=1800 WHERE idle_timeout_seconds < 1 OR
+idle_timeout_seconds > 604800`. Endpoint returned 200 after fix.
+No code change.
+
+**Follow-on**: F2's pre-existing data should be migrated to the
+validator's range during the next maintenance pass. Currently the
+validator catches new INSERTs but old rows can still violate it.
+Recommend a schema-migration or row-fixup as part of F10 hardening
+or a maintenance flight.
+
 ---
 
 ## Session Notes
 
 Chronological notes from work sessions.
+
+### HAT walkthrough (2026-05-18)
+
+**Setup**:
+- Branch HEAD at commit `646748c` (legs 1-7 squashed).
+- Stub plugin is test-only (no production registration), so steps
+  6 (live dispatcher-inbound) and 8 (concurrent-turn serialization)
+  were SKIPPED — both are covered by automated tests at:
+  `tests/test_connectors_inbound_broadcast.py` (per-message
+  broadcast + multi-turn parent_message_id uniqueness) and
+  `tests/test_session_registry_lock_unification.py`
+  (same-session WS+dispatcher serialization).
+- Seeded a connector-attached session `hat-2724664d` directly via
+  sqlite3 with mixed-visibility messages (peer-visible USER +
+  operator-only ASSISTANT + operator-only platform-send tool_call +
+  peer-visible platform-send success tool_result).
+
+**Step 2 (source badge)**: PASS — operator saw the `stub` badge
+on the seeded session row in the Chat sidebar.
+
+**Step 3 (unified-history rendering)**: PASS — operator confirmed
+peer-visible bubbles render without the operator-only marker and
+operator-only bubbles render with the left-border + `[operator-only]`
+label.
+
+**Step 4 (operator-typed message + refresh)**: PASS — after
+refresh, the just-typed user bubble AND the agent's reply both
+render with the operator-only marker (codec replay path correctly
+emits `visibility` from the tagged Message).
+
+**HAT-surfaced design improvement (DEFERRED — not a blocker)**:
+The operator observed that successful platform-send tool_results
+render compactly inside the trace shell, making the actual content
+sent to peers hard to scan in the conversation flow. The render is
+correct (no operator-only marker — peer-visible per the leg-3
+helper's carve-out) but the visual treatment buries the content.
+
+**Recommendation**: a follow-on flight should promote successful
+platform-send tool_results to a first-class bubble (analogous to
+an assistant message) with an attribution like
+`[sent to #channel]` so the operator can scan what their bot
+actually sent to peers at-a-glance.
+
+This is a UX improvement, not a correctness defect; the F5 design
+treated the platform-send tool_result as "just another tool
+result" and the trace-shell grouping is consistent with how all
+other tool calls render. The improvement is a design decision for
+F10 hardening or a dedicated UI-polish flight.
+
+**Step 5 (live operator-initiated platform-send)**: SKIPPED with
+two HAT-surfaced findings (both F4-territory, not F5 defects):
+
+1. **Stub plugin not registered in production** — the in-process
+   `StubPlugin` is registered only via `register_for_test`; the
+   running container has no plugin for `type=stub`. So even with
+   the connector account attached to the agent, the platform-send
+   tool's `execute()` would fail when it tries to resolve the
+   stub plugin via the registry. This was already known (it's
+   why steps 6 + 8 were skipped); step 5 inherits the same
+   blocker.
+
+2. **Agent doesn't know its attached account_id values** — F4's
+   system prompt composition (`compose_system_prompt` at
+   `the_one/agent/config.py:72-108`) tells the agent platform-send
+   is available but does NOT enumerate the specific `account_id`
+   values from `config.connector_account_ids`. When the operator
+   asked the agent to invoke the tool, the LLM refused because it
+   was uncertain what target values to use, OR returned empty text
+   (the first attempt was empty before the SQL attachment; the
+   second was a polite refusal with the attachment in place).
+   The tool description references "Must be one of the accounts
+   attached to this agent" but the agent has no way to discover
+   them.
+
+**Recommendation for a follow-on flight**: extend
+`compose_system_prompt` to inject the agent's connector account
+ids (and any resolvable per-account channel metadata) into the
+directive so the LLM has the values it needs to call platform-send
+without operator hand-holding. Could be as simple as
+`"Your attached connector accounts: account_id=X, account_id=Y."`
+on the connector-attached branch. This is F4 design-completion
+work, not F5 scope — but F5's HAT is where the gap became
+operator-visible. The persistence + rendering contract that F5
+owns (the operator-only marker on the tool_call bubble; the
+peer-visible tool_result on success) is already verified by
+Step 3's seeded-session test.
+
+**Step 5 status**: NON-BLOCKING. The two findings are documented;
+F5 acceptance does not depend on live platform-send working —
+that's F4/F8 territory.
+
+**Steps 7, 9, 10**: continue below.
+
+### HAT inline fixes — Studio Connectors surface (L8, 2026-05-18)
+
+Four operator-visible polish items were surfaced during the HAT pass
+on the Studio Connector Accounts surface (F2 territory but addressed
+inline in F5 L8 to honor the design-language quality bar):
+
+- **Rename**: operator-facing label "Connector Accounts" → "Connectors"
+  (sidebar nav, page title, header CTA, editor titles, Danger-Zone
+  Delete label, flash messages). Hash route slug renamed from
+  `connector-accounts` → `connectors`; the legacy slug remains
+  accepted by `hydrateState` for backward-compat (the router rewrites
+  the URL on first render). API path (`/api/connector-accounts`),
+  internal entity name (`ConnectorAccount`), JS variable names, and
+  the section's internal `data-section="connector-accounts"` identifier
+  all stay — those are F2 contracts.
+- **Test / Danger-Zone button styling**: the `connector-test-connection-btn`
+  and `connector-delete-btn` lacked the `display: inline-flex;
+  align-items: center; gap: 6px` + 14px svg sizing rules that
+  `mcp-refresh-connection-btn` and `mcp-delete-btn` carry. Added
+  matching rules to `static/css/studio.css` so the icon-then-text
+  idiom reads consistently with the MCP editor.
+- **Lifecycle dropdowns**: the free-form numeric inputs for
+  `idle_timeout_seconds` and `session_continuation_seconds` were
+  replaced with `<select>` dropdowns offering a fixed value ladder
+  (5m / 15m / 30m / 1h / 4h / 1d / 1w). The continuation field also
+  offers a "Never (always continue)" option representing null. Custom
+  persisted values that don't match a ladder entry render as a
+  disabled "Custom: Xs" option so the operator can see what's stored
+  without overwriting it.
+- **Add-row button parity**: the "+ Add config row" / "+ Add credential
+  row" buttons inside the editor's Config + Credentials kv tables were
+  relabeled to "+ Add row" (matching MCP's terse pattern, since the
+  section title already carries the row-type context) and now also
+  carry the `kv-add-row-btn` class hook. Connector kv-tables also
+  inherit the MCP kv-table's shrink-to-fit posture + mono-caps header
+  typography via new selectors in `studio.css`. Per-row trash glyphs
+  get the same `--fg-secondary → --status-danger` hover treatment
+  as MCP's row-remove glyphs.
+
+Tests adapted in `tests/browser/`:
+- `test_flow_studio_connector_account_navigation.py` — route slug
+  flipped to `connectors`; new test pins the legacy-slug → new-slug
+  redirect; label assertion swapped to "Connectors".
+- `test_flow_studio_connector_account_editor.py` — idle-timeout and
+  continuation tests switched from `.fill(...)` to
+  `.select_option(...)` against the ladder values; added a custom-
+  value-renders-as-disabled-option test and a "Never" → null test;
+  removed the 0-as-out-of-range test (no longer reachable from the
+  UI — backend bounds are still tested in unit tests).
+- `test_flow_studio_connector_account_create_and_test.py` — the 422
+  test now intercepts POST `/api/connector-accounts` via Playwright
+  route to synthesize the 422 (dropdown no longer admits the
+  previously-used out-of-range value).
+- `test_flow_studio_navigation.py` and
+  `test_flow_studio_mcp_navigation.py` — label assertion swapped to
+  "Connectors" (the data-section attribute stays).
+- `tests/browser/seeders.py` — `seed_connector_account()` accepts a
+  `session_continuation_seconds` kwarg so the "Never" round-trip test
+  can seed a non-null starting value.
+
+Test results: `make test-unit` → 1983 passed, 4 skipped; `make
+test-browser` → 352 passed, 35 skipped, 12 deselected; `make lint`
+→ all checks passed.
+
+Files touched (full list):
+- `the_one/interfaces/web/static/js/areas/studio.js`
+- `the_one/interfaces/web/static/js/areas/studio/connector-accounts-grid.js`
+- `the_one/interfaces/web/static/js/areas/studio/connector-account-editor.js`
+- `the_one/interfaces/web/static/css/studio.css`
+- `tests/browser/seeders.py`
+- `tests/browser/test_flow_studio_connector_account_navigation.py`
+- `tests/browser/test_flow_studio_connector_account_editor.py`
+- `tests/browser/test_flow_studio_connector_account_create_and_test.py`
+- `tests/browser/test_flow_studio_navigation.py`
+- `tests/browser/test_flow_studio_mcp_navigation.py`

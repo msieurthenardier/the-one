@@ -32,7 +32,16 @@
     opts = opts || {};
     var el = document.createElement('div');
     var fullCls = 'msg ' + cls;
-    var isOperatorOnly = opts.visibility === 'operator';
+    // M10 F05 L08 HAT: suppress the operator-only marker on the
+    // operator's own user bubbles — the operator knows what they
+    // typed and the marker is visual noise on their own messages.
+    // The marker still applies to assistant / tool bubbles where it
+    // signals "this reply / tool result is NOT visible to peers."
+    // Class & label are skipped together; dataset still records the
+    // visibility tag for DOM-shape assertions and future logic.
+    var firstToken = cls.split(' ')[0];
+    var isUserBubble = firstToken === 'user';
+    var isOperatorOnly = opts.visibility === 'operator' && !isUserBubble;
     if (isOperatorOnly) {
       fullCls += ' msg-operator-only';
     }

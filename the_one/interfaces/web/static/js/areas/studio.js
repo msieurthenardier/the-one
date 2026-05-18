@@ -35,16 +35,20 @@ App.registerArea({
       return 'mcp-sources';
     }
     if (this._activeSection === 'connector-accounts') {
-      if (this._connectorAccountFormMode === 'add') return 'connector-accounts/new';
+      // F5 L8 HAT-rename: hash route uses 'connectors' (operator-facing slug);
+      // internal _activeSection key still 'connector-accounts' to keep the
+      // F2 entity contract intact (API path, ConnectorAccount entity name,
+      // and serializeState/hydrateState symmetry with mcp-sources).
+      if (this._connectorAccountFormMode === 'add') return 'connectors/new';
       if (this._connectorAccountFormMode === 'edit' && this._editingConnectorAccount) {
-        return 'connector-accounts/' + encodeURIComponent(this._editingConnectorAccount.id);
+        return 'connectors/' + encodeURIComponent(this._editingConnectorAccount.id);
       }
       // Hydrate-vs-fetch race: pending id known but account not yet loaded.
-      if (this._pendingConnectorAccountFormMode === 'add') return 'connector-accounts/new';
+      if (this._pendingConnectorAccountFormMode === 'add') return 'connectors/new';
       if (this._pendingConnectorAccountId) {
-        return 'connector-accounts/' + encodeURIComponent(this._pendingConnectorAccountId);
+        return 'connectors/' + encodeURIComponent(this._pendingConnectorAccountId);
       }
-      return 'connector-accounts';
+      return 'connectors';
     }
     if (this._activeSection === 'agents' && this._selectedAgent && !this._createMode) {
       var base = 'agents/' + encodeURIComponent(this._selectedAgent.name) +
@@ -110,18 +114,22 @@ App.registerArea({
       var mslashIdx = mrest.indexOf('/');
       if (mslashIdx !== -1) mrest = mrest.slice(0, mslashIdx);
       pendingMcpSourceId_local = mrest ? decodeURIComponent(mrest) : null;
-    } else if (sub === 'connector-accounts') {
+    } else if (sub === 'connectors' || sub === 'connector-accounts') {
+      // F5 L8 HAT-rename: accept both the new 'connectors' slug and the
+      // legacy 'connector-accounts' slug for backward-compat. The router's
+      // serialize-after-hydrate pass will rewrite the URL to 'connectors'.
       section = 'connector-accounts';
-    } else if (sub === 'connector-accounts/new') {
+    } else if (sub === 'connectors/new' || sub === 'connector-accounts/new') {
       section = 'connector-accounts';
       pendingConnectorAccountFormMode_local = 'add';
-    } else if (sub && sub.indexOf('connector-accounts/') === 0) {
-      // Direct-load on connector-accounts/{id}: parse the account id so
-      // the editor opens on refresh. Mirrors the mcp-sources parsing
-      // pattern above.
+    } else if (sub && (sub.indexOf('connectors/') === 0 || sub.indexOf('connector-accounts/') === 0)) {
+      // Direct-load on connectors/{id} (or legacy connector-accounts/{id}):
+      // parse the account id so the editor opens on refresh. Mirrors the
+      // mcp-sources parsing pattern above.
       section = 'connector-accounts';
       pendingConnectorAccountFormMode_local = 'edit';
-      var crest = sub.slice('connector-accounts/'.length);
+      var crestPrefix = sub.indexOf('connectors/') === 0 ? 'connectors/' : 'connector-accounts/';
+      var crest = sub.slice(crestPrefix.length);
       if (crest.charAt(crest.length - 1) === '/') crest = crest.slice(0, -1);
       // Defensive: if extra path segments, take only the first.
       var cslashIdx = crest.indexOf('/');
@@ -374,10 +382,12 @@ App.registerArea({
       { id: 'mcp-sources', label: 'MCP Servers' },
       // M10 F2 leg 05: Connector Accounts section. Operator-managed
       // identities (Discord bots, Slack workspace apps, etc.); structural
-      // match to MCP sources. URL slug 'connector-accounts' matches the
-      // /api/connector-accounts REST path; label "Connector Accounts"
-      // matches the user-facing storage entity name (no asymmetry here).
-      { id: 'connector-accounts', label: 'Connector Accounts' }
+      // match to MCP sources. Internal section id is 'connector-accounts'
+      // (matches the F2 entity contract — /api/connector-accounts REST
+      // path, ConnectorAccount entity name). F5 L8 HAT: the operator-facing
+      // hash slug and label are "Connectors" (shorter, friendlier); the
+      // entity-vs-label asymmetry mirrors MCP Servers vs. mcp-sources.
+      { id: 'connector-accounts', label: 'Connectors' }
     ], self._activeSection, {
       onSelect: function (section) {
         // F4 L5: delegate to _confirmLeaveImpl (single source of truth).
@@ -694,7 +704,7 @@ App.registerArea({
             connectorAccountFormMode = null;
             editingConnectorAccount = null;
             dirty = false;
-            if (window.App && window.App.router) App.router.replaceSub('connector-accounts');
+            if (window.App && window.App.router) App.router.replaceSub('connectors');
             renderConnectorAccountsSection();
           }
           App.studio.renderConnectorAccountEditor(sectionContentEl, editingConnectorAccount, CONNECTOR_TYPES, {
@@ -711,7 +721,7 @@ App.registerArea({
               connectorAccountFormMode = null;
               editingConnectorAccount = null;
               dirty = false;
-              if (window.App && window.App.router) App.router.replaceSub('connector-accounts');
+              if (window.App && window.App.router) App.router.replaceSub('connectors');
               renderConnectorAccountsSection();
             },
             onSaveSuccess: function (updated, isCreate) {
@@ -729,7 +739,7 @@ App.registerArea({
               connectorAccountFormMode = null;
               editingConnectorAccount = null;
               dirty = false;
-              if (window.App && window.App.router) App.router.replaceSub('connector-accounts');
+              if (window.App && window.App.router) App.router.replaceSub('connectors');
               renderConnectorAccountsSection();
             },
             onDirtyChange: function (d) { dirty = d; }

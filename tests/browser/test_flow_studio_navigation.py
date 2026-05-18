@@ -37,7 +37,12 @@ def _wait_studio_ready(page: Page) -> None:
 
 @pytest.mark.browser
 def test_studio_section_nav_renders_four_buttons(app_clean: str, page: Page) -> None:
-    """The section-nav has four buttons (Agents / Knowledge / MCP Servers / Connector Accounts)."""
+    """The section-nav has four buttons (Agents / Knowledge / MCP Servers / Connectors).
+
+    F5 L8 HAT: fourth label renamed from "Connector Accounts" → "Connectors".
+    The internal section id `connector-accounts` is unchanged (data-section
+    attribute still matches the F2 contract).
+    """
     page.goto(f"{app_clean}#studio")
     _wait_studio_ready(page)
 
@@ -46,7 +51,7 @@ def test_studio_section_nav_renders_four_buttons(app_clean: str, page: Page) -> 
     expect(buttons.nth(0)).to_have_text("Agents")
     expect(buttons.nth(1)).to_have_text("Knowledge")
     expect(buttons.nth(2)).to_have_text("MCP Servers")
-    expect(buttons.nth(3)).to_have_text("Connector Accounts")
+    expect(buttons.nth(3)).to_have_text("Connectors")
 
 
 @pytest.mark.browser

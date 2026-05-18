@@ -287,11 +287,23 @@ def test_operator_input_yields_operator_visibility_on_connector_session(
     expect(page.locator('[data-testid="message"].user').last).to_be_visible(timeout=8000)
     expect(page.locator('[data-testid="message"].assistant').last).to_be_visible(timeout=8000)
 
+    # M10 F05 L08 HAT: the operator-only marker (class + label) is
+    # suppressed on .msg.user bubbles — the operator knows what they
+    # typed, the marker is visual noise on their own messages. The
+    # underlying visibility tag is still persisted (verified via
+    # dataset.visibility) so the contract that operator-typed
+    # messages stay local is unbroken; only the visual presentation
+    # is different. The marker still applies to assistant bubbles.
     user_bubble = page.locator('[data-testid="message"].user').last
-    expect(user_bubble).to_have_class(re.compile(r"\bmsg-operator-only\b"))
-    expect(user_bubble.locator(".msg-operator-only-label")).to_have_text(
-        "[operator-only]"
+    user_has_class = user_bubble.evaluate(
+        "el => el.classList.contains('msg-operator-only')"
     )
+    assert user_has_class is False, (
+        "user bubble unexpectedly carries .msg-operator-only — the "
+        "F5 L8 HAT decision suppresses the marker on the operator's "
+        "own typed messages."
+    )
+    expect(user_bubble).to_have_attribute("data-visibility", "operator")
 
     assistant_bubble = page.locator('[data-testid="message"].assistant').last
     expect(assistant_bubble).to_have_class(re.compile(r"\bmsg-operator-only\b"))

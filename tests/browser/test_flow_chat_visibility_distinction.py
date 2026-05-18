@@ -222,18 +222,41 @@ def test_chat_renders_operator_visibility_distinction(
     # Wait for messages to actually render — at least one .msg bubble.
     expect(page.locator(".msg").first).to_be_visible(timeout=5000)
 
-    # Assertion 1: at least 2 operator-only bubbles (USER + ASSISTANT).
+    # Assertion 1: at least 1 operator-only bubble (the ASSISTANT).
+    # M10 F05 L08 HAT: the marker (class + label) is suppressed on
+    # .msg.user bubbles — the operator knows what they typed, so the
+    # marker is noise on their own messages. The marker still applies
+    # to assistant + tool bubbles.
     operator_only = page.locator(".msg-operator-only")
     operator_count = operator_only.count()
-    assert operator_count >= 2, (
-        f"expected >= 2 .msg-operator-only bubbles, got {operator_count}"
+    assert operator_count >= 1, (
+        f"expected >= 1 .msg-operator-only bubble (assistant), got {operator_count}"
+    )
+
+    # Assertion 1b: the user bubble does NOT carry the marker — it
+    # has visibility=operator persisted (verified via data-visibility)
+    # but the JS suppresses the class + label per the L8 HAT decision.
+    user_bubble = page.locator(".msg.user").first
+    user_has_class = user_bubble.evaluate(
+        "el => el.classList.contains('msg-operator-only')"
+    )
+    assert user_has_class is False, (
+        "user bubble unexpectedly carries .msg-operator-only — the "
+        "F5 L8 HAT decision suppresses the marker on the operator's "
+        "own user bubbles."
+    )
+    user_dataset = user_bubble.evaluate("el => el.dataset.visibility")
+    assert user_dataset == "operator", (
+        f"user bubble's data-visibility should still be 'operator' "
+        f"(visibility tag persisted), got {user_dataset!r}"
     )
 
     # Assertion 2: matching label spans with pinned text content.
     labels = page.locator(".msg-operator-only-label")
     label_count = labels.count()
-    assert label_count >= 2, (
-        f"expected >= 2 .msg-operator-only-label spans, got {label_count}"
+    assert label_count >= 1, (
+        f"expected >= 1 .msg-operator-only-label span (on assistant), "
+        f"got {label_count}"
     )
     assert labels.first.text_content() == "[operator-only]"
 

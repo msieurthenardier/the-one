@@ -24,7 +24,7 @@ from playwright.sync_api import Page, expect
 def test_test_connection_button_visible_in_edit_mode(app_clean: str, page: Page) -> None:
     """Test Connection button renders in edit-mode."""
     account_id = seed_connector_account(app_clean, name="Edit Mode Bot")
-    page.goto(f"{app_clean}#studio/connector-accounts/{account_id}")
+    page.goto(f"{app_clean}#studio/connectors/{account_id}")
     expect(page.locator('[data-testid="connector-test-connection-btn"]')).to_be_visible(
         timeout=8000
     )
@@ -33,7 +33,7 @@ def test_test_connection_button_visible_in_edit_mode(app_clean: str, page: Page)
 @pytest.mark.browser
 def test_test_connection_button_absent_in_create_mode(app_clean: str, page: Page) -> None:
     """Test Connection button is NOT rendered in create-mode."""
-    page.goto(f"{app_clean}#studio/connector-accounts/new")
+    page.goto(f"{app_clean}#studio/connectors/new")
     expect(page.locator('[data-testid="create-and-test-connector-account-btn"]')).to_be_visible(
         timeout=8000
     )
@@ -47,7 +47,7 @@ def test_default_stub_probe_renders_success_with_no_details(
     """Click → real stub doctor returns status=ok, details={} → green LED
     + '(no additional details)' placeholder rendered."""
     account_id = seed_connector_account(app_clean, name="OK Stub Bot")
-    page.goto(f"{app_clean}#studio/connector-accounts/{account_id}")
+    page.goto(f"{app_clean}#studio/connectors/{account_id}")
     expect(page.locator('[data-testid="connector-test-connection-btn"]')).to_be_visible(
         timeout=8000
     )
@@ -93,7 +93,7 @@ def test_configured_failure_response_renders_red_led_and_details(
         f"**/api/connector-accounts/{account_id}/test/connect", handle_test_connect
     )
 
-    page.goto(f"{app_clean}#studio/connector-accounts/{account_id}")
+    page.goto(f"{app_clean}#studio/connectors/{account_id}")
     expect(page.locator('[data-testid="connector-test-connection-btn"]')).to_be_visible(
         timeout=8000
     )
@@ -137,7 +137,7 @@ def test_degraded_response_renders_warning_led(app_clean: str, page: Page) -> No
         f"**/api/connector-accounts/{account_id}/test/connect", handle_test_connect
     )
 
-    page.goto(f"{app_clean}#studio/connector-accounts/{account_id}")
+    page.goto(f"{app_clean}#studio/connectors/{account_id}")
     expect(page.locator('[data-testid="connector-test-connection-btn"]')).to_be_visible(
         timeout=8000
     )
@@ -172,7 +172,7 @@ def test_non_string_detail_renders_as_font_mono_json(app_clean: str, page: Page)
         f"**/api/connector-accounts/{account_id}/test/connect", handle_test_connect
     )
 
-    page.goto(f"{app_clean}#studio/connector-accounts/{account_id}")
+    page.goto(f"{app_clean}#studio/connectors/{account_id}")
     expect(page.locator('[data-testid="connector-test-connection-btn"]')).to_be_visible(
         timeout=8000
     )
@@ -213,7 +213,7 @@ def test_secret_shaped_detail_value_passes_through_unmasked(
         f"**/api/connector-accounts/{account_id}/test/connect", handle_test_connect
     )
 
-    page.goto(f"{app_clean}#studio/connector-accounts/{account_id}")
+    page.goto(f"{app_clean}#studio/connectors/{account_id}")
     expect(page.locator('[data-testid="connector-test-connection-btn"]')).to_be_visible(
         timeout=8000
     )

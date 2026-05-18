@@ -52,9 +52,20 @@
     /* text */
     --fg: #e0e0e0;
     --fg-secondary: #888888;
-    --fg-tertiary: #666666;
+    /* M10 F5 L8 HAT: bumped from #666666 (~3.4:1 on #0a0a0a — fails WCAG AA)
+       to #999999 (~7.4:1 — passes AAA) so the chat sidebar's source badge,
+       agent-name, attribution labels, and operator-only label all read
+       clearly on dark. Matches --fg-tool-msg's value; 18 consumers benefit
+       at once (chat.css, studio.css, base.css). */
+    --fg-tertiary: #999999;
     --fg-muted: #a8a8a8;
-    --fg-faint: #444444;
+    /* M10 F5 L8 HAT: bumped from #444444 (~2:1 on #0a0a0a — well below
+       WCAG AA) to #808080 (~5:1 — passes AA) so .msg-attribution
+       (sender name under bubble), .msg-attribution-ts, .telemetry .label,
+       and .mcp-tool-toggle-hint all read clearly on dark. Strikethrough
+       text (.tool-name-strike) remains subordinate via the strikethrough
+       itself, not via low contrast. */
+    --fg-faint: #808080;
     --fg-on-accent: #000000;
     --fg-on-accent-muted: #333333;
     /* fg-on-danger is BLACK in dark to pass AA against the bright #ff4a4a (white-on-red is only 3.32:1; black is 6.33:1). Light theme keeps white-on-deeper-red. */
