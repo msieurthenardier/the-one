@@ -7,13 +7,18 @@ user switching conversations or listing sessions saw nothing for 1-2
 minutes until the tool call timed out.
 
 Fix: spawn `_process_and_broadcast` as an `asyncio.Task` via
-`_spawn_message_processing`. The session's `processing_lock` serializes
-successive messages on the same session; concurrent session-management
-actions go through.
+`_spawn_message_processing`. The shared per-session lock (registered in
+``the_one.sessions``) serializes successive messages on the same session;
+concurrent session-management actions go through.
 
 These tests verify the spawn-and-lock contract at the helper level
 without standing up a real WebSocket — that's covered by the live
 container smoke during HAT.
+
+F5 L2 reshape: the per-session lock used to live as
+``Session.processing_lock`` (lazy-init); it now lives in the neutral
+``the_one.sessions.session_locks`` registry keyed by session id. The
+tests below assert against the new shape — same intent, new source.
 """
 
 from __future__ import annotations
@@ -27,6 +32,13 @@ from the_one.interfaces.web.app import (
     Session,
     _inflight_tasks,
     _spawn_message_processing,
+)
+from the_one.sessions import (
+    clear_for_test as _clear_session_registry,
+)
+from the_one.sessions import (
+    is_session_processing,
+    session_locks,
 )
 
 
@@ -45,18 +57,21 @@ def _make_session(session_id: str = "s1") -> Session:
     )
 
 
-class TestProcessingLock:
+class TestSharedSessionLock:
     async def test_lock_lazily_created(self) -> None:
-        s = _make_session()
-        assert s.processing_lock is None  # not bound yet — avoids loop affinity
+        s = _make_session("lazy-sess")
+        # Before the helper runs, the registry has no entry — the read-
+        # path helper must NOT trigger the defaultdict's lazy-create.
+        assert s.id not in session_locks
+        assert is_session_processing(s.id) is False
 
-        # Acquire path: helper creates the lock on first use.
+        # Acquire path: helper creates the lock on first use via the
+        # shared registry.
         async def fake_pb(*_a, **_kw) -> None:
             pass
 
         # Monkey-patch the inner call inside `_spawn_message_processing`
         # so we exercise lock creation without driving an actual agent.
-        # We need a way that doesn't import-cycle: reach in via attribute.
         from the_one.interfaces.web import app as app_module
 
         original = app_module._process_and_broadcast
@@ -66,11 +81,13 @@ class TestProcessingLock:
         finally:
             app_module._process_and_broadcast = original  # type: ignore[assignment]
 
-        assert isinstance(s.processing_lock, asyncio.Lock)
+        # After the spawn, the registry has an entry for this session id.
+        assert s.id in session_locks
+        assert isinstance(session_locks[s.id], asyncio.Lock)
 
     async def test_second_message_waits_for_first(self) -> None:
         """Two concurrent messages on the same session: the second waits."""
-        s = _make_session()
+        s = _make_session("serialize-sess")
         from the_one.interfaces.web import app as app_module
 
         order: list[str] = []
@@ -99,7 +116,7 @@ class TestProcessingLock:
             t2 = asyncio.create_task(_spawn_message_processing(s, "m2", "web", None))
 
             # Give the second task a chance to start; it must be blocked
-            # on the lock — `second-start` should NOT be in `order` yet.
+            # on the shared lock — `second-start` should NOT be in `order` yet.
             await asyncio.sleep(0.05)
             assert order == ["first-start"], order
 
@@ -170,7 +187,8 @@ class TestRestoreSkipsRebuildDuringInflight:
     the chat blank on rejoin during a long tool call.
 
     After the fix, `_restore_session` short-circuits to the cached
-    session if its `processing_lock` is held.
+    session when ``is_session_processing(session_id)`` reports True
+    (shared lock from ``the_one.sessions`` held).
     """
 
     async def test_rebuild_skipped_when_lock_held(self) -> None:
@@ -178,7 +196,6 @@ class TestRestoreSkipsRebuildDuringInflight:
         from the_one.interfaces.web.app import _restore_session, _sessions
 
         s = _make_session("locked-sess")
-        s.processing_lock = asyncio.Lock()
         s.history = [{"type": "user", "content": "hi"}]
         _sessions[s.id] = s
 
@@ -213,12 +230,13 @@ class TestRestoreSkipsRebuildDuringInflight:
         app_module._chat_repo = fake_chat_repo  # type: ignore[assignment]
         app_module._get_factory = lambda: FakeFactory()  # type: ignore[assignment]
         try:
-            async with s.processing_lock:
+            lock = session_locks[s.id]
+            async with lock:
                 restored = await _restore_session(s.id)
             assert restored.session is s
             assert restored.session.history == [{"type": "user", "content": "hi"}]
             assert not rebuild_invoked, (
-                "factory.create should NOT run while processing_lock is held"
+                "factory.create should NOT run while session lock is held"
             )
         finally:
             app_module._chat_repo = original_repo  # type: ignore[assignment]
@@ -232,7 +250,6 @@ class TestRestoreSkipsRebuildDuringInflight:
         from the_one.interfaces.web.app import _restore_session, _sessions
 
         s = _make_session("unlocked-sess")
-        s.processing_lock = asyncio.Lock()  # exists but not held
         s.history = [{"type": "user", "content": "old"}]
         _sessions[s.id] = s
 
@@ -265,6 +282,9 @@ class TestRestoreSkipsRebuildDuringInflight:
         app_module._chat_repo = fake_chat_repo  # type: ignore[assignment]
         app_module._get_factory = lambda: FakeFactory()  # type: ignore[assignment]
         try:
+            # Lock exists but is not held — registry entry may or may
+            # not exist; either way is_session_processing() must be False.
+            assert not is_session_processing(s.id)
             restored = await _restore_session(s.id)
             assert restored.session is s
             assert rebuild_invoked, "factory.create should run for non-processing rejoins"
@@ -278,32 +298,35 @@ class TestRestoreSkipsRebuildDuringInflight:
 class TestSessionJoinedReportsIsProcessing:
     """`_build_session_joined_ok` payload includes `is_processing` so the
     UI can sync per-session busy state on join (server is the ground
-    truth — `processing_lock.locked()`)."""
+    truth — driven by ``is_session_processing(session.id)``)."""
 
     async def test_is_processing_false_when_lock_unheld(self) -> None:
         from the_one.interfaces.web.app import _build_session_joined_ok
 
         s = _make_session("idle-sess")
-        s.processing_lock = asyncio.Lock()  # not held
+        # Materialize an unheld lock in the registry.
+        _ = session_locks[s.id]
         payload = _build_session_joined_ok(s)
         assert payload["is_processing"] is False
 
-    async def test_is_processing_false_when_lock_is_none(self) -> None:
-        """Sessions that have never seen a message have `processing_lock=None`
-        (lazy creation). Payload reports False."""
+    async def test_is_processing_false_when_no_registry_entry(self) -> None:
+        """Sessions that have never seen a message have no registry entry.
+        Payload reports False — and the read MUST NOT trigger lazy-create."""
         from the_one.interfaces.web.app import _build_session_joined_ok
 
         s = _make_session("never-used")
-        assert s.processing_lock is None
+        assert s.id not in session_locks
         payload = _build_session_joined_ok(s)
         assert payload["is_processing"] is False
+        # Verify the read path did not lazy-create an entry.
+        assert s.id not in session_locks
 
     async def test_is_processing_true_when_lock_held(self) -> None:
         from the_one.interfaces.web.app import _build_session_joined_ok
 
         s = _make_session("busy-sess")
-        s.processing_lock = asyncio.Lock()
-        async with s.processing_lock:
+        lock = session_locks[s.id]
+        async with lock:
             payload = _build_session_joined_ok(s)
             assert payload["is_processing"] is True
 
@@ -311,7 +334,9 @@ class TestSessionJoinedReportsIsProcessing:
 @pytest.fixture(autouse=True)
 async def _drain_inflight() -> None:
     """Cancel any leaked tasks between tests so one test doesn't poison
-    another via the module-global `_inflight_tasks` set."""
+    another via the module-global `_inflight_tasks` set. Also drop any
+    shared-session-registry entries so locks bound to a torn-down loop
+    don't leak across tests."""
     yield
     for t in list(_inflight_tasks):
         t.cancel()
@@ -319,3 +344,4 @@ async def _drain_inflight() -> None:
         # Swallow any final exceptions from cancelled tasks.
         await asyncio.gather(*list(_inflight_tasks), return_exceptions=True)
     _inflight_tasks.clear()
+    _clear_session_registry()

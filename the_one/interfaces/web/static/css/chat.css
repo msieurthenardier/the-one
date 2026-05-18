@@ -33,6 +33,25 @@
   .area-chat .session-item-text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
   .area-chat .session-item-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .area-chat .session-item-agent { font-family: var(--font-family-mono); font-size: var(--font-size-tiny); color: var(--fg-tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* M10 F05 L01: connector-bound sessions render a source badge below the
+     agent line. Tokens mirror .session-group-label (uppercase + tiny +
+     tertiary) — the bucket header is the section-scoped analogue; this is
+     the row-scoped one. Sits inside .session-item-text so its width is
+     clipped by the flex column's min-width:0 and the .session-item-title
+     ellipsis behavior is preserved unchanged. Per-platform color theming
+     (session-item-source--{type}) is reserved for F8/F9 connector-specific
+     visual treatments — F5 ships only the base rule. */
+  .area-chat .session-item-source {
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-tiny);
+    color: var(--fg-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    margin-top: 2px;
+  }
 
   /* === Chat Area: Content === */
   /* Chrome wraps header/messages/input; toggled with welcome via `hidden`. */
@@ -183,6 +202,25 @@
     gap: 4px;
   }
   .area-chat .msg.system { align-self: center; color: var(--fg-tertiary); font-size: var(--font-size-body-sm); }
+  /* M10 F05 L05: visibility distinction for operator-only bubbles. Persisted
+     ``Message.visibility == "operator"`` reaches the render layer via the
+     codec's ``messages_to_ui_events`` projection (the_one/db/codec.py:154);
+     ``renderMessage`` consumes ``opts.visibility`` and applies this class
+     alongside the standard role class. Specificity is ``.msg.msg-operator-only``
+     so the rule overrides any role-class ``border-left`` / ``padding-left``
+     declared on ``.msg.tool`` / ``.msg.assistant`` etc. (the chat.css
+     convention puts those at single-class specificity 0,1,0; this is 0,2,0). */
+  .area-chat .msg.msg-operator-only {
+    border-left: 3px solid var(--border-strong);
+    padding-left: 8px;
+  }
+  .area-chat .msg-operator-only-label {
+    display: inline-block;
+    margin-right: 4px;
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-tiny);
+    color: var(--fg-tertiary);
+  }
   .area-chat .msg-attribution { font-size: var(--font-size-tiny); color: var(--fg-faint); font-family: var(--font-family-mono); letter-spacing: 0.04em; padding: 0 4px; margin-top: -6px; }
   .area-chat .msg-attribution.from-you { align-self: flex-end; }
   .area-chat .msg-attribution.from-agent { align-self: flex-start; }

@@ -64,6 +64,7 @@ from the_one.db.codec import decode_messages
 from the_one.db.connection import get_connection
 from the_one.db.repositories import ChatSessionRepository, ToolConfigRepository
 from the_one.llm.base import Message, Role, ToolCall
+from the_one.sessions import clear_for_test as _clear_session_registry
 
 # ─── Autouse cleanup ─────────────────────────────────────────────────────
 
@@ -85,6 +86,9 @@ async def _clear_pool_locks_registry():
     yield
     await pool_mod._clear_for_test()
     await inbound_mod._clear_for_test()
+    # F5 L2: also clear the neutral session registries (shared lock +
+    # subscribers).
+    _clear_session_registry()
     _registry_clear_for_test()
     restore_to_baseline_for_test()
 

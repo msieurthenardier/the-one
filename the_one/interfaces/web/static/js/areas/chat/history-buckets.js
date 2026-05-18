@@ -67,6 +67,25 @@
     agentSpan.textContent = s.agent_name || 'default';
     textWrap.appendChild(agentSpan);
 
+    // M10 F05 L01: connector-bound sessions show a source badge so the
+    // operator can distinguish platform-driven conversations from web-native
+    // ones at a glance. Non-connector rows (platform == null/undefined/'')
+    // render exactly as before. The typed modifier class
+    // (session-item-source--{type}) mirrors mcp-servers-grid.js's
+    // admin-mcp-badge--{type} precedent so future connector types can be
+    // color-themed via additive CSS only.
+    if (s.platform) {
+      var sourceSpan = document.createElement('span');
+      // textContent is XSS-safe (DOM API, not innerHTML); the regex strip
+      // below only matters for the className path — same defensive shape
+      // as mcp-servers-grid.js:97-98 wrapping the badge-type suffix.
+      var typeSafe = String(s.platform).replace(/[^a-zA-Z0-9_-]/g, '');
+      sourceSpan.className = 'session-item-source'
+        + (typeSafe ? ' session-item-source--' + typeSafe : '');
+      sourceSpan.textContent = s.platform;
+      textWrap.appendChild(sourceSpan);
+    }
+
     btn.appendChild(textWrap);
     btn.onclick = function () { callbacks.onJoin(s.id); };
     // Native <button> Enter/Space activation handles the join — no custom
