@@ -160,7 +160,45 @@ async def _close_platform_session(client: Any) -> None: ...
 async def _platform_self_check(client: Any) -> dict[str, Any]: ...
 ```
 
-## §4. Test seams
+## §4. Optional hooks (additive plugin extension)
+
+Some plugin extensions are useful when present but not essential for the
+subsystem to function. For these, the connector subsystem uses an
+**optional-hook convention** rather than widening a Protocol:
+
+- The consumer accesses the hook via `getattr(plugin, "<hook>", None)`
+  and falls back to a sensible default at the call site if the attribute
+  is absent.
+- The hook is documented as an optional method on plugins but is NOT
+  declared on the `ConnectorPlugin` Protocol at
+  `the_one/connectors/base.py`.
+- Plugins that implement an optional hook MUST tolerate the consumer's
+  exception-catching behavior — the consumer catches any exception from
+  the hook and uses the fallback. Plugin authors are NOT expected to
+  never raise.
+
+First instance: **`display_channel(envelope: InboundEnvelope) -> str`**
+for session-title derivation in
+`the_one.connectors._session._derive_title` (M10 F03 L03). Plugins that
+implement it return a human-readable channel label
+(e.g. `"#engineering"`, `"@alice"`); plugins that don't fall through to
+`envelope.channel_id` at the resolver layer. `StubPlugin.display_channel`
+is the reference implementation — returns `f"stub:{envelope.channel_id}"`.
+
+When to add a method to the Protocol vs. use the optional-hook convention:
+
+- **Protocol method**: every plugin MUST implement; the subsystem
+  mechanically depends on it being callable (e.g.
+  `ConnectorPlugin.connect`, `ConnectorPlugin.doctor`).
+- **Optional hook**: most plugins benefit from implementing it but the
+  subsystem has a working fallback without it; forcing every connector
+  author to write a no-op stub would be friction (e.g.
+  `display_channel`).
+
+Future flights (notably F4's `ConnectorClient` outbound-send extension if
+it lands as optional) may use the same pattern.
+
+## §5. Test seams
 
 Test code reaches into the subsystem via these named seams:
 
@@ -195,7 +233,7 @@ distinct from the rich `_stub.py` stub. The narrow helpers test pool /
 protocol internals; the rich stub is the cross-flight regression
 fixture that Flights 2–10 inherit.
 
-## §5. The `'stub'` type name is reserved for tests
+## §6. The `'stub'` type name is reserved for tests
 
 Production code MUST NOT register `'stub'` via
 `register_builtin_connectors`. The v13/v14 schema has no CHECK constraint
@@ -210,7 +248,7 @@ explicitly included in the CHECK constraint set OR the test-side seeding
 will fail. Future flights touching the CHECK MUST coordinate with this
 README and with `tests/test_connectors_e2e.py`.
 
-## §6. Encryption envelope
+## §7. Encryption envelope
 
 `connector_accounts.secrets` is a JSON-encoded dict encrypted via
 Fernet-symmetric using the system-wide encryptor
@@ -230,7 +268,7 @@ operator submits a partial update that leaves `secrets` masked, the
 repository detects the sentinel and preserves the stored ciphertext
 (mirrors the LLM provider `api_key` `__MASKED__` contract).
 
-## §7. Rotation invariant
+## §8. Rotation invariant
 
 `POST /api/encryption/rotate` (`interfaces/web/api.py:rotate_encryption_key`)
 re-encrypts **three corpora atomically** in a single transaction:
@@ -245,7 +283,7 @@ file is written to disk via `os.replace` only AFTER the DB commit
 succeeds. See `agents.md`'s "Connector subsystem → Encryption-rotation
 invariant" for the full discussion and rationale.
 
-## §8. Cross-references
+## §9. Cross-references
 
 - **Connector subsystem decisions / invariants / known issues**: see
   `the_one/agents.md`'s "Connector subsystem" section. That section is

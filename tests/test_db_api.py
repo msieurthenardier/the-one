@@ -655,6 +655,49 @@ class TestConnectorAccountAPI:
 
         assert ("test-agent", account_id) in pool_mod._pool
 
+    async def test_session_continuation_change_does_not_evict(
+        self, client: AsyncClient
+    ) -> None:
+        """PUT changing ONLY session_continuation_seconds MUST NOT evict the warm pool entry.
+
+        Pool entries represent the gateway warm-keep; session_continuation_seconds
+        is consulted by the resolver at inbound-dispatch time and is NOT cached
+        in pool state. A change takes effect on the next inbound after the PUT
+        commits; no in-memory invalidation is needed.
+
+        M10 F03 L05 — design-decision verification (see flight 03 Design
+        Decisions: "Eviction trigger for session_continuation_seconds change
+        — NONE").
+        """
+        from the_one.connectors import _pool as pool_mod
+        from the_one.connectors._pool import acquire
+
+        create = await client.post(
+            "/api/connector-accounts",
+            json={
+                "name": "Bot",
+                "type": "stub",
+                "secrets": {"BOT_TOKEN": "real"},
+            },
+        )
+        account_id = create.json()["id"]
+
+        await acquire("test-agent", account_id)
+        assert ("test-agent", account_id) in pool_mod._pool
+
+        resp = await client.put(
+            f"/api/connector-accounts/{account_id}",
+            json={"session_continuation_seconds": 3600},
+        )
+        assert resp.status_code == 200
+
+        # Pool entry survives — the new field is NOT part of the eviction trigger.
+        assert ("test-agent", account_id) in pool_mod._pool
+
+        # And the new value round-tripped.
+        getrr = await client.get(f"/api/connector-accounts/{account_id}")
+        assert getrr.json()["session_continuation_seconds"] == 3600
+
     async def test_dropping_a_key_evicts(self, client: AsyncClient) -> None:
         """PUT with secrets={} drops all keys (REST replace) → eviction fires."""
         from the_one.connectors import _pool as pool_mod

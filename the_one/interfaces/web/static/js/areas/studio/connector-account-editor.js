@@ -119,8 +119,11 @@
 
     // ── Lifecycle section ─────────────────────────────────────────────
     var idleValue = (!isCreate && account.idle_timeout_seconds != null) ? account.idle_timeout_seconds : '';
+    var contValue = (!isCreate && account.session_continuation_seconds != null) ? account.session_continuation_seconds : '';
     html += '<div class="editor-section">';
     html += '<div class="section-title">Lifecycle</div>';
+
+    // Pool idle timeout (F2)
     html += '<div class="field-row admin-pf-row">';
     html += '<label for="cf-idle-timeout">Pool idle timeout (s)</label>';
     // No frontend min/max — backend Pydantic validator owns the truth
@@ -133,10 +136,29 @@
     html += '<label></label>';
     html += '<small class="form-hint" data-testid="connector-account-idle-hint">' +
             'Warm connector connections are reaped after this many seconds of inactivity. ' +
-            'Leave empty to use the system default (30 min). ' +
-            'Flight 3 will add a chat-session continuation window field next to this one.' +
+            'Leave empty to use the system default (30 min).' +
             '</small>';
     html += '</div>';
+
+    // Chat-session continuation window (F3 L5)
+    html += '<div class="field-row admin-pf-row">';
+    html += '<label for="cf-continuation-window">Chat-session continuation window (s)</label>';
+    // No frontend min/max — backend Pydantic validator owns the truth
+    // (1 <= value <= 604800). Empty string → null payload.
+    html += '<input class="field-input admin-pf-input" id="cf-continuation-window" type="number" ' +
+            'data-field="session_continuation_seconds" data-testid="connector-account-continuation-input" ' +
+            'value="' + escapeAttr(String(contValue)) + '" placeholder="Use default (24 hours)" />';
+    html += '</div>';
+    html += '<div class="field-row admin-pf-row">';
+    html += '<label></label>';
+    html += '<small class="form-hint" data-testid="connector-account-continuation-hint">' +
+            'Inbounds on the same conversation continue an existing chat session within this window. ' +
+            'After this many seconds of platform silence, the next inbound starts a fresh session. ' +
+            'Leave empty to use the system default (24 hours). ' +
+            'Distinct from the pool idle timeout above, which controls gateway warm-keep — not chat-session lifecycle.' +
+            '</small>';
+    html += '</div>';
+
     html += '</div>';
 
     // ── Test Connection section (edit mode only) ──────────────────────
@@ -326,7 +348,7 @@
 
   function getFormSnapshot(container) {
     var staticData = {};
-    var staticFields = ['name', 'type', 'idle_timeout_seconds'];
+    var staticFields = ['name', 'type', 'idle_timeout_seconds', 'session_continuation_seconds'];
     for (var i = 0; i < staticFields.length; i++) {
       var el = container.querySelector('[data-field="' + staticFields[i] + '"]');
       staticData[staticFields[i]] = el ? el.value : '';
@@ -755,12 +777,28 @@
       }
     }
 
+    var contEl = container.querySelector('[data-field="session_continuation_seconds"]');
+    var contRaw = contEl ? (contEl.value || '').trim() : '';
+    var contValue = null;
+    if (contRaw !== '') {
+      // Parse as number; let backend reject anything invalid via 422.
+      var contParsed = Number(contRaw);
+      if (!isNaN(contParsed) && isFinite(contParsed)) {
+        // Always submit as an integer if it looks like one; let backend
+        // 422 catch non-integer / out-of-range values.
+        contValue = Math.trunc(contParsed);
+      } else {
+        contValue = contRaw; // pass-through string; backend will 422
+      }
+    }
+
     return {
       name: name,
       type: typeValue,
       config: config,
       secrets: secrets,
-      idle_timeout_seconds: idleValue
+      idle_timeout_seconds: idleValue,
+      session_continuation_seconds: contValue
     };
   }
 

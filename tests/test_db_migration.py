@@ -225,10 +225,15 @@ class TestSchemaV8:
         # v12 extended llm_providers.type CHECK to allow 'openrouter';
         # v13 added connector_accounts (M10 F01 L01); v14 added
         # connector_accounts.name (M10 F01 L02); v15 added
-        # connector_accounts.idle_timeout_seconds (M10 F02 L02).
-        assert CURRENT_VERSION == 15, (
-            "CURRENT_VERSION must be 15 after the connector_accounts.idle_timeout_seconds "
-            f"v15 migration (got {CURRENT_VERSION})"
+        # connector_accounts.idle_timeout_seconds (M10 F02 L02); v16 added
+        # chat_sessions external-key columns +
+        # connector_accounts.session_continuation_seconds (M10 F03 L01 —
+        # chat_sessions external-key columns +
+        # connector_accounts.session_continuation_seconds).
+        assert CURRENT_VERSION == 16, (
+            "CURRENT_VERSION must be 16 after the M10 F03 L01 — chat_sessions "
+            "external-key columns + connector_accounts.session_continuation_seconds "
+            f"v16 migration (got {CURRENT_VERSION})"
         )
 
         # tool_configs table must exist.
@@ -984,6 +989,14 @@ class TestMigrationV12:
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now'))
             );
+            CREATE TABLE chat_sessions (
+                id TEXT PRIMARY KEY,
+                agent_name TEXT,
+                title TEXT DEFAULT 'New chat',
+                messages TEXT DEFAULT '[]',
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
         """)
         for v in range(1, 12):
             await conn.execute("INSERT INTO schema_version (version) VALUES (?)", (v,))
@@ -1154,14 +1167,16 @@ class TestSchemaV13:
         self, tmp_path
     ) -> None:
         """connector_accounts has the expected columns; type is NOT NULL but
-        unconstrained (no CHECK clause until v16 in flight 8).
+        unconstrained (no CHECK clause until v17 in flight 8).
 
         Asserts the post-``ensure_schema`` shape — the ``name`` column was
         added in v14 (M10 F01 L02) to mirror MCPSource; the
         ``idle_timeout_seconds`` column was added in v15 (M10 F02 L02) as
-        the per-account pool idle TTL override; the CHECK constraint on
-        ``type`` is deferred to v16 (flight 08) when there is a real
-        connector type to constrain.
+        the per-account pool idle TTL override; the
+        ``session_continuation_seconds`` column was added in v16 (M10 F03
+        L01) as the per-account chat-session continuation window; the
+        CHECK constraint on ``type`` is deferred to v17 (flight 08) when
+        there is a real connector type to constrain.
         """
         db_path = tmp_path / "v13-cols.db"
         conn = await aiosqlite.connect(str(db_path))
@@ -1180,6 +1195,7 @@ class TestSchemaV13:
             "config",
             "secrets",
             "idle_timeout_seconds",
+            "session_continuation_seconds",
             "created_at",
             "updated_at",
         }, cols
@@ -1242,8 +1258,10 @@ class TestSchemaV14:
     are required to carry a real name by the Pydantic model (no default).
 
     Downstream: flight 08 (Discord) previously planned a v14 CHECK
-    migration; that renumbers to v16 (v15 is claimed by flight 02 leg 02's
-    ``idle_timeout_seconds`` ALTER). See flight log ``## Design Adjustments``.
+    migration; that renumbers to v17 (v15 is claimed by flight 02 leg 02's
+    ``idle_timeout_seconds`` ALTER; v16 is claimed by flight 03 leg 01's
+    chat_sessions external-key columns + ``session_continuation_seconds``).
+    See flight log ``## Design Adjustments``.
     """
 
     async def test_v14_fresh_db_includes_name_column(self, tmp_path) -> None:
@@ -1344,6 +1362,19 @@ class TestSchemaV14:
             "    updated_at TEXT NOT NULL DEFAULT (datetime('now'))"
             ")"
         )
+        # v13-era chat_sessions shape (post-v5 — no FK on agent_name, no v16
+        # connector-keyed columns yet). Needed so the v16 ALTER block in
+        # ``ensure_schema`` finds the table to ADD COLUMN against.
+        await conn.execute(
+            "CREATE TABLE chat_sessions ("
+            "    id TEXT PRIMARY KEY,"
+            "    agent_name TEXT,"
+            "    title TEXT DEFAULT 'New chat',"
+            "    messages TEXT DEFAULT '[]',"
+            "    created_at TEXT NOT NULL DEFAULT (datetime('now')),"
+            "    updated_at TEXT NOT NULL DEFAULT (datetime('now'))"
+            ")"
+        )
         # Seed a row against the v13 shape (no name).
         await conn.execute(
             "INSERT INTO connector_accounts (id, type, config, secrets)"
@@ -1389,8 +1420,8 @@ class TestSchemaV15:
 
     Downstream: flight 08 (Discord) previously planned a v14 CHECK
     migration; that renumbered to v15 in earlier planning, then renumbered
-    again to v16 once this leg claimed v15. See flight log
-    ``## Design Adjustments``.
+    again to v16 once F2 L1 claimed v15; F3 L1 claimed v16 and F8 CHECK
+    renumbered to v17. See flight log ``## Design Adjustments``.
     """
 
     async def test_v15_fresh_db_includes_idle_timeout_seconds_column(
@@ -1495,6 +1526,19 @@ class TestSchemaV15:
             "    name TEXT NOT NULL DEFAULT ''"
             ")"
         )
+        # v14-era chat_sessions shape (post-v5 — no v16 connector-keyed
+        # columns). Needed so the v16 ALTER block in ``ensure_schema`` finds
+        # the table to ADD COLUMN against.
+        await conn.execute(
+            "CREATE TABLE chat_sessions ("
+            "    id TEXT PRIMARY KEY,"
+            "    agent_name TEXT,"
+            "    title TEXT DEFAULT 'New chat',"
+            "    messages TEXT DEFAULT '[]',"
+            "    created_at TEXT NOT NULL DEFAULT (datetime('now')),"
+            "    updated_at TEXT NOT NULL DEFAULT (datetime('now'))"
+            ")"
+        )
         # Seed a row against the v14 shape (no idle_timeout_seconds).
         await conn.execute(
             "INSERT INTO connector_accounts (id, name, type, config, secrets)"
@@ -1527,6 +1571,228 @@ class TestSchemaV15:
         ) as cur:
             versions = [r[0] for r in await cur.fetchall()]
         assert 15 in versions, versions
+        assert max(versions) == CURRENT_VERSION, versions
+
+        await conn.close()
+
+
+class TestSchemaV16:
+    """Tests for the v16 migration that adds chat_sessions connector-keying
+    columns + connector_accounts.session_continuation_seconds.
+
+    Mission 10 flight 03 leg 01: per-row nullable columns on chat_sessions
+    hold the external conversation identity for connector-driven sessions;
+    a non-unique partial expression index on
+    (platform, connector_account_id, channel_id, COALESCE(thread_id, ''))
+    supports the resolver's most-recent-by-updated_at lookup.
+    session_continuation_seconds on connector_accounts is the per-account
+    continuation window consumed by the resolver (F3 L3).
+
+    Downstream: flight 08 (Discord) previously planned a v16 CHECK
+    migration; that renumbers to v17. See flight log
+    ``## Design Adjustments`` and _connector_types.py docstring.
+    """
+
+    async def test_v16_fresh_db_includes_chat_session_external_key_columns(
+        self, tmp_path
+    ) -> None:
+        """Fresh DB → ensure_schema → v16 surfaces exist."""
+        db_path = tmp_path / "v16-fresh.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await ensure_schema(conn)
+
+        assert CURRENT_VERSION >= 16, CURRENT_VERSION
+
+        # All seven new chat_sessions columns are present and nullable.
+        async with conn.execute("PRAGMA table_info(chat_sessions)") as cur:
+            cols = {r["name"]: r for r in await cur.fetchall()}
+        for expected in (
+            "platform",
+            "connector_account_id",
+            "channel_id",
+            "thread_id",
+            "peer_id",
+            "session_metadata",
+            "last_inbound_at",
+        ):
+            assert expected in cols, (
+                f"v16 migration missing: chat_sessions.{expected} does not exist"
+            )
+            assert cols[expected]["type"] == "TEXT", cols[expected]["type"]
+            assert cols[expected]["notnull"] == 0, cols[expected]["notnull"]
+            assert cols[expected]["dflt_value"] is None, cols[expected]["dflt_value"]
+
+        # connector_accounts.session_continuation_seconds is present.
+        async with conn.execute("PRAGMA table_info(connector_accounts)") as cur:
+            acc_cols = {r["name"]: r for r in await cur.fetchall()}
+        assert "session_continuation_seconds" in acc_cols
+        sc = acc_cols["session_continuation_seconds"]
+        assert sc["type"] == "INTEGER", sc["type"]
+        assert sc["notnull"] == 0, sc["notnull"]
+        assert sc["dflt_value"] is None, sc["dflt_value"]
+
+        # The partial expression index exists.
+        async with conn.execute(
+            "SELECT name FROM sqlite_master "
+            "WHERE type='index' AND name='idx_chat_sessions_external_key'"
+        ) as cur:
+            row = await cur.fetchone()
+        assert row is not None, (
+            "v16 migration missing: idx_chat_sessions_external_key does not exist"
+        )
+
+        async with conn.execute(
+            "SELECT version FROM schema_version ORDER BY version"
+        ) as cur:
+            versions = [r[0] for r in await cur.fetchall()]
+        assert 16 in versions, versions
+        assert max(versions) == CURRENT_VERSION, versions
+
+        await conn.close()
+
+    async def test_v16_migration_idempotent_on_rerun(self, tmp_path) -> None:
+        """Calling ensure_schema twice on a fresh DB is a no-op the second
+        time: no errors, no duplicate schema_version rows for v16, all
+        seven chat_sessions columns + the connector_accounts column + the
+        index still present."""
+        db_path = tmp_path / "v16-rerun.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await ensure_schema(conn)
+        await ensure_schema(conn)
+
+        async with conn.execute(
+            "SELECT version FROM schema_version ORDER BY version"
+        ) as cur:
+            versions = [r[0] for r in await cur.fetchall()]
+        assert versions.count(16) == 1, f"v16 row should appear exactly once: {versions}"
+
+        async with conn.execute("PRAGMA table_info(chat_sessions)") as cur:
+            cols = {r["name"] for r in await cur.fetchall()}
+        for expected in (
+            "platform",
+            "connector_account_id",
+            "channel_id",
+            "thread_id",
+            "peer_id",
+            "session_metadata",
+            "last_inbound_at",
+        ):
+            assert expected in cols
+        async with conn.execute("PRAGMA table_info(connector_accounts)") as cur:
+            acc_cols = {r["name"] for r in await cur.fetchall()}
+        assert "session_continuation_seconds" in acc_cols
+
+        await conn.close()
+
+    async def test_v16_legacy_v15_row_decodes_with_null_external_key_columns(
+        self, tmp_path
+    ) -> None:
+        """Rows seeded against a hand-built v15 schema (no v16 columns)
+        survive the v16 ALTERs with NULLs on all new columns.
+
+        Hand-builds the v15 shape of both chat_sessions AND
+        connector_accounts so the v16 ALTERs actually run against pre-
+        existing rows without the new columns. Modeled on
+        ``TestSchemaV15.test_v15_legacy_v14_row_decodes_with_none_idle_timeout``.
+        """
+        db_path = tmp_path / "v16-from-real-v15.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await conn.execute(
+            "CREATE TABLE schema_version ("
+            "    version INTEGER PRIMARY KEY,"
+            "    applied_at TEXT NOT NULL DEFAULT (datetime('now'))"
+            ")"
+        )
+        for v in range(1, 16):
+            await conn.execute(
+                "INSERT INTO schema_version (version) VALUES (?)", (v,)
+            )
+        # v15-shape chat_sessions (no v16 columns).
+        await conn.execute(
+            "CREATE TABLE chat_sessions ("
+            "    id TEXT PRIMARY KEY,"
+            "    agent_name TEXT,"
+            "    title TEXT DEFAULT 'New chat',"
+            "    messages TEXT DEFAULT '[]',"
+            "    created_at TEXT NOT NULL DEFAULT (datetime('now')),"
+            "    updated_at TEXT NOT NULL DEFAULT (datetime('now'))"
+            ")"
+        )
+        # v15-shape connector_accounts (no session_continuation_seconds).
+        await conn.execute(
+            "CREATE TABLE connector_accounts ("
+            "    id TEXT PRIMARY KEY,"
+            "    type TEXT NOT NULL,"
+            "    config TEXT DEFAULT '{}',"
+            "    secrets TEXT DEFAULT '{}',"
+            "    created_at TEXT NOT NULL DEFAULT (datetime('now')),"
+            "    updated_at TEXT NOT NULL DEFAULT (datetime('now')),"
+            "    name TEXT NOT NULL DEFAULT '',"
+            "    idle_timeout_seconds INTEGER NULL"
+            ")"
+        )
+        # Seed rows against the v15 shape.
+        await conn.execute(
+            "INSERT INTO chat_sessions (id, agent_name, title)"
+            " VALUES (?, ?, ?)",
+            ("seeded-session", "test-agent", "Pre-v16 session"),
+        )
+        await conn.execute(
+            "INSERT INTO connector_accounts (id, name, type, config, secrets, idle_timeout_seconds)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            ("seeded-account", "stub-account", "stub", "{}", "{}", 1800),
+        )
+        await conn.commit()
+
+        await ensure_schema(conn)
+
+        # Seeded chat_sessions row survived with NULLs on all v16 columns.
+        async with conn.execute(
+            "SELECT id, agent_name, title, platform, connector_account_id,"
+            " channel_id, thread_id, peer_id, session_metadata, last_inbound_at"
+            " FROM chat_sessions WHERE id = 'seeded-session'"
+        ) as cur:
+            row = await cur.fetchone()
+        assert row is not None
+        assert row["agent_name"] == "test-agent"
+        assert row["title"] == "Pre-v16 session"
+        for col in (
+            "platform",
+            "connector_account_id",
+            "channel_id",
+            "thread_id",
+            "peer_id",
+            "session_metadata",
+            "last_inbound_at",
+        ):
+            assert row[col] is None, f"{col} should be NULL on legacy row, got {row[col]!r}"
+
+        # Seeded connector_accounts row survived with idle_timeout preserved
+        # and session_continuation_seconds=NULL.
+        async with conn.execute(
+            "SELECT id, idle_timeout_seconds, session_continuation_seconds"
+            " FROM connector_accounts WHERE id = 'seeded-account'"
+        ) as cur:
+            acc_row = await cur.fetchone()
+        assert acc_row is not None
+        assert acc_row["idle_timeout_seconds"] == 1800
+        assert acc_row["session_continuation_seconds"] is None
+
+        # Head pointer landed at CURRENT_VERSION (≥16).
+        async with conn.execute(
+            "SELECT version FROM schema_version ORDER BY version"
+        ) as cur:
+            versions = [r[0] for r in await cur.fetchall()]
+        assert 16 in versions, versions
         assert max(versions) == CURRENT_VERSION, versions
 
         await conn.close()
