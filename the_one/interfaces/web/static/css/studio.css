@@ -790,11 +790,14 @@
      family. Without these rules the connector tables stretched to fill
      the parent and the header lost its mono-caps treatment. */
   .area-studio .connector-account-config-table,
-  .area-studio .connector-account-secrets-table { width: auto; border-collapse: collapse; margin-bottom: 8px; }
+  .area-studio .connector-account-secrets-table,
+  .area-studio .connector-routing-table { width: auto; border-collapse: collapse; margin-bottom: 8px; }
   .area-studio .connector-account-config-thead.is-hidden,
-  .area-studio .connector-account-secrets-thead.is-hidden { display: none; }
+  .area-studio .connector-account-secrets-thead.is-hidden,
+  .area-studio .connector-routing-thead.is-hidden { display: none; }
   .area-studio .connector-account-config-thead th,
-  .area-studio .connector-account-secrets-thead th {
+  .area-studio .connector-account-secrets-thead th,
+  .area-studio .connector-routing-thead th {
     text-align: left;
     padding: 4px 8px;
     font-family: var(--font-family-mono);
@@ -806,12 +809,20 @@
     border-bottom: 1px solid var(--border);
   }
   .area-studio .connector-account-config-table tbody td,
-  .area-studio .connector-account-secrets-table tbody td { padding: 4px 8px; vertical-align: middle; }
+  .area-studio .connector-account-secrets-table tbody td,
+  .area-studio .connector-routing-table tbody td { padding: 4px 8px; vertical-align: middle; }
   /* F5 L8 HAT — Connector kv-table trash glyph for remove-row buttons:
      mirrors `.kv-remove-row-btn` posture so the per-row remove affordance
-     reads as a glyph instead of a default button. */
+     reads as a glyph instead of a default button.
+     M10 F7 L7 — the routing-table's three per-row action buttons
+     (move-up / move-down / remove) inherit the same glyph posture so the
+     editable-table family reads consistently. The destructive hover
+     accent applies only to the remove button, matching the F6 precedent. */
   .area-studio .config-remove-row-btn,
-  .area-studio .secret-remove-row-btn {
+  .area-studio .secret-remove-row-btn,
+  .area-studio .connector-routing-move-up-btn,
+  .area-studio .connector-routing-move-down-btn,
+  .area-studio .connector-routing-remove-row-btn {
     background: transparent;
     border: 0;
     padding: 4px;
@@ -824,9 +835,15 @@
     transition: color 0.15s ease;
   }
   .area-studio .config-remove-row-btn:hover,
-  .area-studio .secret-remove-row-btn:hover { color: var(--status-danger); }
+  .area-studio .secret-remove-row-btn:hover,
+  .area-studio .connector-routing-remove-row-btn:hover { color: var(--status-danger); }
+  .area-studio .connector-routing-move-up-btn:hover,
+  .area-studio .connector-routing-move-down-btn:hover { color: var(--fg); }
   .area-studio .config-remove-row-btn svg,
-  .area-studio .secret-remove-row-btn svg { width: 16px; height: 16px; display: block; }
+  .area-studio .secret-remove-row-btn svg,
+  .area-studio .connector-routing-move-up-btn svg,
+  .area-studio .connector-routing-move-down-btn svg,
+  .area-studio .connector-routing-remove-row-btn svg { width: 16px; height: 16px; display: block; }
   /* F9 L2 vibing: helper-text hint under the args field for the stdio
      command-runtime dropdown. Low-emphasis tone (--fg-secondary,
      body-sm) matches the studio "informational text" idiom used by

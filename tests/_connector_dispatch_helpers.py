@@ -89,7 +89,19 @@ async def _seed_provider_and_agent(
     visible tool set + injects the connector-aware system-prompt
     directive). F4 L5 v17 migration persists this list; ``factory.create``
     now sees it on every invocation without a monkeypatch.
+
+    M10 F7 L3: the default (when ``connector_account_ids`` is ``None``)
+    is ``["acct-test"]`` — matches :func:`_seed_stub_account`'s default
+    ``account_id="acct-test"`` and :func:`_envelope`'s default
+    ``account_id="acct-test"``. The default attachment is required for
+    F7 L3's transitional dispatcher helper to find the agent via
+    :meth:`SQLiteAgentStore.list_by_connector_account`. Tests that
+    need an empty attachment list pass ``connector_account_ids=[]``
+    explicitly.
     """
+    if connector_account_ids is None:
+        connector_account_ids = ["acct-test"]
+
     conn = await get_connection()
     encryptor = get_encryptor(settings.data_dir)
 
@@ -110,7 +122,7 @@ async def _seed_provider_and_agent(
             name=agent_name,
             provider_config_id=provider_id,
             llm_model="mock-default",
-            connector_account_ids=connector_account_ids or [],
+            connector_account_ids=connector_account_ids,
         )
     )
 

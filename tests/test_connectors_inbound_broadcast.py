@@ -142,9 +142,7 @@ async def _dispatch_and_collect(
     the moment it fires).
     """
     warmup_factory = await _make_factory()
-    await dispatch_inbound(
-        "agent-inbound", "acct-test", _envelope(), factory=warmup_factory
-    )
+    await dispatch_inbound("acct-test", _envelope(), factory=warmup_factory)
     conn = await get_connection()
     chat_repo = ChatSessionRepository(conn)
     sessions = await chat_repo.list()
@@ -155,9 +153,7 @@ async def _dispatch_and_collect(
     if subscribe_before_dispatch:
         add_subscriber(session_id, fake_ws)
 
-    await dispatch_inbound(
-        "agent-inbound",
-        "acct-test",
+    await dispatch_inbound("acct-test",
         _envelope(text=envelope_text),
         factory=factory,
     )
@@ -208,9 +204,7 @@ async def test_dispatch_inbound_zero_subscribers_is_noop(isolated_db) -> None:
     factory = await _make_factory()
 
     # Drive the dispatcher with no add_subscriber call — must not raise.
-    await dispatch_inbound(
-        "agent-inbound", "acct-test", _envelope(), factory=factory
-    )
+    await dispatch_inbound("acct-test", _envelope(), factory=factory)
 
     # Sanity: the dispatcher still did its work (session row + history
     # exist). The point is the broadcast layer is a clean no-op.
@@ -340,9 +334,7 @@ async def test_dispatch_inbound_broadcasts_after_persistence(
             order.append("broadcast")
 
     warmup_factory = await _make_factory()
-    await dispatch_inbound(
-        "agent-inbound", "acct-test", _envelope(), factory=warmup_factory
-    )
+    await dispatch_inbound("acct-test", _envelope(), factory=warmup_factory)
     # The warmup dispatch's "persist" is in `order` once.
     assert order == ["persist"]
 
@@ -354,9 +346,7 @@ async def test_dispatch_inbound_broadcasts_after_persistence(
     ordering_ws = _OrderingWS()
     add_subscriber(session_id, ordering_ws)
 
-    await dispatch_inbound(
-        "agent-inbound", "acct-test", _envelope(text="ping"), factory=factory
-    )
+    await dispatch_inbound("acct-test", _envelope(text="ping"), factory=factory)
 
     # After the second dispatch: another "persist" is recorded, then
     # one "broadcast" per new message in the turn (here: USER + ASSISTANT).
@@ -392,9 +382,7 @@ async def test_dispatch_inbound_broadcast_exception_does_not_corrupt_state(
     factory = await _make_factory()
 
     warmup_factory = await _make_factory()
-    await dispatch_inbound(
-        "agent-inbound", "acct-test", _envelope(), factory=warmup_factory
-    )
+    await dispatch_inbound("acct-test", _envelope(), factory=warmup_factory)
     conn = await get_connection()
     chat_repo = ChatSessionRepository(conn)
     sessions = await chat_repo.list()
@@ -404,9 +392,7 @@ async def test_dispatch_inbound_broadcast_exception_does_not_corrupt_state(
     add_subscriber(session_id, raising_ws)
 
     # No exception bubbles to the caller.
-    await dispatch_inbound(
-        "agent-inbound", "acct-test", _envelope(text="ping"), factory=factory
-    )
+    await dispatch_inbound("acct-test", _envelope(text="ping"), factory=factory)
 
     # The raising WS got at least one send_json attempt.
     assert raising_ws.send_calls >= 1
@@ -471,9 +457,7 @@ async def test_dispatch_inbound_multi_turn_parent_message_ids_do_not_collide(
 
     # Warmup so the session row exists; register subscriber against it.
     warmup_factory = await _make_factory()
-    await dispatch_inbound(
-        "agent-inbound", "acct-test", _envelope(), factory=warmup_factory
-    )
+    await dispatch_inbound("acct-test", _envelope(), factory=warmup_factory)
     conn = await get_connection()
     chat_repo = ChatSessionRepository(conn)
     sessions = await chat_repo.list()
@@ -483,14 +467,10 @@ async def test_dispatch_inbound_multi_turn_parent_message_ids_do_not_collide(
     add_subscriber(session_id, fake_ws)
 
     # Turn 1
-    await dispatch_inbound(
-        "agent-inbound", "acct-test", _envelope(text="t1"), factory=factory
-    )
+    await dispatch_inbound("acct-test", _envelope(text="t1"), factory=factory)
     # Turn 2 — same session_id, same factory (the scripted provider's
     # responses iterator carries through to entries 2,3).
-    await dispatch_inbound(
-        "agent-inbound", "acct-test", _envelope(text="t2"), factory=factory
-    )
+    await dispatch_inbound("acct-test", _envelope(text="t2"), factory=factory)
 
     # Collect every parent_message_id the dispatcher broadcasted across
     # BOTH turns. The events for the tool_call + tool_result of each

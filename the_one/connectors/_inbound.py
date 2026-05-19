@@ -8,7 +8,11 @@ with a real gateway-driven inbound. F3's stub-based tests prove the
 contract holds against a synthetic envelope; F8 wires the real Discord
 gateway to call this same ``dispatch_inbound``.
 
-F4 (platform-send tool) owns outbound. This module is INBOUND ONLY.
+F4 (platform-send tool) owns outbound. This module is INBOUND ONLY —
+EXCEPT for the L5-introduced **system-outbound path** for command
+responses and the no-eligible peer-facing error, which mirrors the
+platform-send tool's ``pool_acquire → client.send`` shape but is
+invoked dispatcher-internally (NOT through the tool registry).
 
 The per-(agent, account) pool's :func:`acquire` is called per inbound
 here — that is the **last_activity ratification** of the F1 Known
@@ -45,23 +49,98 @@ dispatcher calls ``update_last_inbound`` INSIDE the per-session lock
 entering the lock — so ``last_inbound_at`` is NOT bumped on denied
 messages. This is deliberate: denied messages should not extend the
 continuation window.
+
+M10 F07 L5 — Routing + command-intercept integration.
+=====================================================
+
+The dispatcher's body composes 12 steps in a fixed canonical order
+(AC bullets in the leg artifact reference the same numbering):
+
+1. Function-local imports (load-cycle convention).
+2. Account load.
+3. Plugin resolve.
+4. Enumerate eligible attached agents via
+   :meth:`SQLiteAgentStore.list_by_connector_account` — REPLACES the
+   L3 transitional helper. Empty list ⇒ silent return (preserves L3's
+   no-attached-agents semantic).
+5. ``resolve_session`` — uses ``eligible_attached_agents[0].name`` as
+   the creation-time anchor for new rows; reuse path ignores
+   ``agent_name``.
+6. F6 resolver consult (``Permit`` / ``NeedsPairing`` / ``Deny``).
+   Sets ``working_envelope``.
+7. F7 routing engine consult — :func:`resolve_routing` walks
+   override → rule-walk → default → first-eligible-alphabetical →
+   no-eligible. The engine consults :func:`admits_inbound` internally
+   for each candidate; this dispatcher does NOT re-check ACL on the
+   engine's output.
+8. Build the routing audit entry (``ts``, ``agent``, ``rule_index``,
+   ``scope``, ``match``, ``reason``); ``disposition`` is filled in
+   per branch below.
+9. No-eligible branch — ``decision.agent is None``: ``disposition =
+   "no-eligible"``; append audit entry; emit the peer-facing "No
+   agents available for this conversation." via system-outbound using
+   ``eligible_attached_agents[0].name`` as the pool key (the bot
+   identity reflects the alphabetically-first attached agent's pool
+   entry, which IS valid for outbound emission regardless of inbound-
+   ACL state). Emit failures are logged + swallowed.
+10. Pool acquire for the routed agent — ``pool_acquire(decision.agent,
+    account_id)``. Failure ⇒ ``disposition = "no-eligible"`` (overload
+    — the inbound is unanswerable so observable shape collapses onto
+    no-eligible); append audit entry; return.
+11. Command parse + intercept — :func:`_parse_command` on
+    ``working_envelope.text``. If a command is parsed, dispatch to
+    :func:`_dispatch_builtin_command` (L5 placeholder returns ``None``
+    for every command_name; L6 fills the body). ``None`` return ⇒
+    fall through to step 12. ``CommandResponse(text)`` ⇒ ``disposition
+    = "command-intercepted"``; emit via system-outbound; return
+    without the per-session lock or ``agent.step``.
+12. Per-session lock + ``agent.step`` — existing F3+F4 logic with
+    ``agent_name = decision.agent``. ``disposition = "stepped"``;
+    append audit entry; run lock + step + visibility-tagging.
+
+Routing-audit shape (under ``session_metadata["routing"]``,
+list-append semantics via :meth:`append_to_session_metadata`):
+
+    {
+        "ts": iso_timestamp,
+        "agent": slug | None,
+        "rule_index": int | None,
+        "scope": str | None,
+        "match": str | None,
+        "reason": str,
+        "disposition": "stepped" | "command-intercepted" | "no-eligible",
+    }
+
+Mirrors F6's ``session_metadata["audit"]`` entry shape (``ts``,
+``reason`` keys reuse F6's naming) so a single Studio renderer can
+walk both logs uniformly.
+
+System-outbound path: ``pool_acquire(agent_name, account_id) →
+client.send(OutboundTarget(...), text)`` — invoked dispatcher-internally
+with function-local imports for cycle-break. Mirrors
+``the_one/tools/connector_send.py:SendToPlatformChannelTool.execute``
+lines 183-200 in shape; NOT routed through the platform-send tool
+registry. Commands work even when the tool is operator-disabled.
 """
 
 from __future__ import annotations
 
 import logging
 from dataclasses import replace
+from typing import Any
 
 from the_one.agent._context import current_chat_session_id
 from the_one.agent.factory import AgentFactory
 from the_one.connectors import registry
 from the_one.connectors._pairing import _validate_pairing_prefix
 from the_one.connectors._pool import acquire as pool_acquire
+from the_one.connectors._routing import resolve_routing
 from the_one.connectors._session import resolve_session
 from the_one.connectors.base import (
     Deny,
     InboundEnvelope,
     NeedsPairing,
+    OutboundTarget,
     _default_permit,
 )
 from the_one.connectors.errors import ConnectorRegistrationError
@@ -75,69 +154,50 @@ logger = logging.getLogger(__name__)
 
 
 async def dispatch_inbound(
-    agent_name: str,
     account_id: str,
     envelope: InboundEnvelope,
     *,
     factory: AgentFactory,
 ) -> None:
-    """Dispatch a single inbound envelope through the full pipeline.
+    """Dispatch a single inbound envelope through the full F7 pipeline.
 
-    Pool-acquires for the (agent, account) pair (touches
-    ``last_activity``; this is the F1 ratification anchor). Loads the
-    account, resolves the plugin, resolves the chat_sessions row via
-    :func:`the_one.connectors._session.resolve_session`, acquires the
-    per-session lock, updates ``last_inbound_at``, builds a fresh
-    :class:`Agent` via the injected ``factory``, loads the session's
-    message history into the agent, drives :meth:`Agent.step`, and
-    persists the updated history back to the row.
+    See module docstring for the canonical 12-step composition order
+    introduced by M10 F7 L5. The dispatcher's contract is "given an
+    ``account_id`` and an ``envelope``, dispatch correctly." The caller
+    (the plugin's inbound adapter; today only tests) does not need to
+    know agent topology — the dispatcher enumerates eligible attached
+    agents via :meth:`SQLiteAgentStore.list_by_connector_account` and
+    picks the routed agent via :func:`resolve_routing`'s 5-step engine.
 
-    The agent loop is unchanged — this dispatcher drives ``agent.step``
-    the same way the WS handler does; the only difference is the
-    trigger source (an :class:`InboundEnvelope` vs. a WS message).
-
-    Errors at the pool-acquire / account-load / plugin-resolve stages
+    Errors at the account-load / plugin-resolve / pool-acquire stages
     are logged and the function returns — a connector-layer failure
-    DOES NOT take the agent runtime down. Errors raised inside the
-    agent build (``factory.create``) or inside ``agent.step`` propagate
-    up after the ContextVar is reset; F8's gateway-listener is
-    responsible for catching them and surfacing a degraded state.
+    DOES NOT take the agent runtime down. The no-attached-agents
+    branch (step 4 returns an empty list) and the no-eligible branch
+    (step 9, ``decision.agent is None``) share the silent / log-and-
+    return shape; the difference is the no-eligible branch ALSO emits
+    a peer-facing "No agents available for this conversation." via
+    the system-outbound path. Errors raised inside the agent build
+    (``factory.create``) or inside ``agent.step`` propagate up after
+    the ContextVar is reset; F8's gateway-listener is responsible for
+    catching them and surfacing a degraded state.
     """
-    # 1. Pool acquire — touches last_activity (F1 ratification).
-    # The returned client is NOT consumed here (F4 owns outbound); the
-    # call is for the touch side effect AND to surface pool failures
-    # (account not found, plugin not registered, connect failed) BEFORE
-    # the dispatcher does any DB work.
-    try:
-        await pool_acquire(agent_name, account_id)
-    except (KeyError, ConnectorRegistrationError) as exc:
-        logger.warning(
-            "dispatch_inbound: pool acquire failed for (agent=%s, account=%s): %s",
-            agent_name,
-            account_id,
-            exc,
-        )
-        return
-    except Exception:
-        # Any other pool failure (connect raise, plugin connect timeout, etc.)
-        logger.exception(
-            "dispatch_inbound: unexpected pool acquire failure for (agent=%s, account=%s)",
-            agent_name,
-            account_id,
-        )
-        return
-
-    # 2. Function-local imports per the load-cycle convention. Mirrors
+    # 1. Function-local imports per the load-cycle convention. Mirrors
     # ``connectors/_pool._load_account``: ``db.connection`` /
     # ``db.repositories`` / ``encryption`` / ``config`` are imported at
     # call time so this module stays resilient regardless of import
-    # order. The connectors→db layer boundary carries the same circular-
-    # import risk that ``_pool.py`` and ``_session.py`` already pay for.
+    # order. The connectors→db layer boundary carries the same
+    # circular-import risk that ``_pool.py`` and ``_session.py`` already
+    # pay for.
     from the_one.config import settings
+    from the_one.connectors._commands import (
+        _dispatch_builtin_command,
+        _parse_command,
+    )
     from the_one.db.connection import get_connection
     from the_one.db.repositories import (
         ChatSessionRepository,
         ConnectorAccountRepository,
+        SQLiteAgentStore,
     )
     from the_one.encryption import get_encryptor
 
@@ -145,7 +205,9 @@ async def dispatch_inbound(
     encryptor = get_encryptor(settings.data_dir)
     acc_repo = ConnectorAccountRepository(conn, encryptor)
     chat_repo = ChatSessionRepository(conn)
+    agent_store = SQLiteAgentStore(conn)
 
+    # 2. Account load.
     try:
         account = await acc_repo.get(account_id)
     except KeyError:
@@ -155,14 +217,7 @@ async def dispatch_inbound(
         )
         return
 
-    # 3. Resolve plugin. Deliberately redundant with the pool-acquire's
-    # internal plugin resolution (``_pool._resolve_plugin`` at
-    # ``_pool.py:440`` already raises ``ConnectorRegistrationError``
-    # for unknown types) — pool acquire would have already raised on
-    # this path. The second catch is dead in the happy path; kept as
-    # defensive coding so a future reader who refactors the pool's
-    # error surface doesn't strand the dispatcher with an unhandled
-    # unknown-type path. Do NOT "simplify" by removing.
+    # 3. Plugin resolve.
     try:
         plugin = registry.resolve(account.type)
     except ConnectorRegistrationError as exc:
@@ -174,21 +229,41 @@ async def dispatch_inbound(
         )
         return
 
-    # 4. Resolve session via the leg-3 resolver.
+    # 4. Enumerate eligible attached agents (alphabetically ordered by
+    # ``AgentConfig.name`` per the ``ORDER BY`` in
+    # :meth:`SQLiteAgentStore.list_by_connector_account`). Empty list ⇒
+    # silent return (preserves the L3 no-attached-agents semantic). The
+    # routing engine's first-eligible-alphabetical step depends on this
+    # ordering; do NOT sort here or pass a reordered list to
+    # :func:`resolve_routing`.
+    eligible_attached_agents = await agent_store.list_by_connector_account(account_id)
+    if not eligible_attached_agents:
+        logger.info(
+            "dispatch_inbound: no agents attached to account_id=%s; "
+            "ignoring inbound",
+            account_id,
+        )
+        return
+    first_eligible_name = eligible_attached_agents[0].name
+
+    # 5. Resolve session via the leg-3 resolver. ``agent_name`` is the
+    # creation-time anchor for NEW rows (alphabetically-first attached
+    # agent); the reuse path ignores ``agent_name`` and returns the
+    # most-recent matching row's existing ``agent_name`` verbatim. Per-
+    # session row identity is preserved across routing decisions.
     session_row = await resolve_session(
         envelope,
         account,
         chat_repo,
-        agent_name=agent_name,
+        agent_name=first_eligible_name,
         plugin=plugin,
     )
 
-    # 4b. F6 L2: resolver consult + three-arm branch + audit write.
+    # 6. F6 resolver consult + three-arm branch + audit write.
     # The resolver is consulted AFTER ``resolve_session`` so the audit
-    # entries have a target row, and BEFORE the per-session lock so
-    # Deny / NeedsPairing-failure return WITHOUT bumping
-    # ``last_inbound_at`` (denied messages do not extend the
-    # continuation window). ``getattr`` discovery + ``_default_permit``
+    # entries have a target row, and BEFORE routing / per-session lock
+    # so Deny / NeedsPairing-failure return WITHOUT bumping
+    # ``last_inbound_at``. ``getattr`` discovery + ``_default_permit``
     # fallback means a plugin without ``resolve`` (e.g. F1's
     # ``StubPlugin``) behaves byte-identically to pre-F6.
     resolver = getattr(plugin, "resolve", _default_permit)
@@ -264,21 +339,181 @@ async def dispatch_inbound(
             },
         )
 
-    # 5-12. Per-session lock + persist + agent.step + persist.
+    # 7. F7 routing engine consult. Read ``session_metadata`` off the
+    # row (decoded dict; ``None`` collapses to ``{}``). The engine
+    # consults ``session_metadata["routing_override"]`` in step 1 of
+    # its 5-step algorithm; the read side is wired here so L6's
+    # ``/talk-to`` handler's ``set_session_metadata_key`` write is
+    # observed on the NEXT inbound (within-session sequencing).
+    db_session_for_routing = await chat_repo.get(session_row.id)
+    if db_session_for_routing.session_metadata is None:
+        session_metadata: dict[str, Any] = {}
+    else:
+        session_metadata = db_session_for_routing.session_metadata
+    decision = resolve_routing(
+        account,
+        working_envelope,
+        eligible_attached_agents,
+        session_metadata,
+    )
+
+    # 8. Build the routing audit entry. ``disposition`` is filled per
+    # branch (no-eligible / pool-failure-overload / command-intercepted
+    # / stepped) before the entry is appended.
+    audit_entry: dict[str, Any] = {
+        "ts": now_iso(),
+        "agent": decision.agent,
+        "rule_index": decision.rule_index,
+        "scope": decision.scope,
+        "match": decision.match,
+        "reason": decision.reason,
+        # "disposition" set below per branch.
+    }
+
+    # 9. No-eligible branch — ``decision.agent is None``: append audit
+    # entry, emit the peer-facing error via system-outbound using the
+    # alphabetically-first attached agent's pool entry (the bot identity
+    # reflects the eligible-list's first member, which IS valid for
+    # outbound emission regardless of inbound-ACL state — outbound ACL
+    # is a separate per-axis check the system-outbound path elides for
+    # the platform-error message).
+    if decision.agent is None:
+        audit_entry["disposition"] = "no-eligible"
+        await chat_repo.append_to_session_metadata(
+            session_row.id,
+            "routing",
+            audit_entry,
+        )
+        try:
+            client = await pool_acquire(first_eligible_name, account_id)
+            await client.send(
+                OutboundTarget(
+                    channel_id=working_envelope.channel_id,
+                    thread_id=working_envelope.thread_id,
+                ),
+                "No agents available for this conversation.",
+            )
+        except Exception:
+            # Emit failure → log + swallow. The peer's message goes
+            # unanswered; the audit log preserves the "no-eligible"
+            # disposition for the operator to debug.
+            logger.exception(
+                "dispatch_inbound: no-eligible peer-error emit failed "
+                "for (agent=%s, account=%s)",
+                first_eligible_name,
+                account_id,
+            )
+        return
+
+    # 10. Pool acquire for the routed agent. ``last_activity`` is
+    # touched here (F1 ratification anchor — the L3 dispatcher had this
+    # call BEFORE the agent enumeration; L5 moves it AFTER routing so
+    # the touch is bound to the agent that actually handles the inbound).
+    # Pool failure ⇒ ``disposition = "no-eligible"`` (overload — the
+    # inbound is unanswerable; observable shape collapses onto
+    # no-eligible). Alternative: a new ``"pool-failure"`` disposition;
+    # L5 keeps the disposition vocabulary minimal — F10 hardening can
+    # refine.
+    try:
+        client = await pool_acquire(decision.agent, account_id)
+    except (KeyError, ConnectorRegistrationError) as exc:
+        logger.warning(
+            "dispatch_inbound: pool acquire failed for "
+            "(agent=%s, account=%s): %s",
+            decision.agent,
+            account_id,
+            exc,
+        )
+        audit_entry["disposition"] = "no-eligible"
+        await chat_repo.append_to_session_metadata(
+            session_row.id,
+            "routing",
+            audit_entry,
+        )
+        return
+    except Exception:
+        # Any other pool failure (connect raise, plugin connect timeout, etc.)
+        logger.exception(
+            "dispatch_inbound: unexpected pool acquire failure for "
+            "(agent=%s, account=%s)",
+            decision.agent,
+            account_id,
+        )
+        audit_entry["disposition"] = "no-eligible"
+        await chat_repo.append_to_session_metadata(
+            session_row.id,
+            "routing",
+            audit_entry,
+        )
+        return
+
+    # 11. Command parse + intercept. L1's :func:`_parse_command` is
+    # pure; L5 wires the placeholder :func:`_dispatch_builtin_command`
+    # which returns ``None`` for every command_name (so the dispatcher
+    # falls through to ``agent.step`` in step 12). L6's leg fills in
+    # the six v1 command handlers (``/agents``, ``/talk-to``,
+    # ``/whoami``, ``/new``, ``/reset``, ``/help``) and the handler
+    # bodies will start returning real :class:`CommandResponse` values.
+    parsed = _parse_command(working_envelope.text)
+    if parsed is not None:
+        command_name, args = parsed
+        context: dict[str, Any] = {
+            "account": account,
+            "envelope": working_envelope,
+            "eligible_attached_agents": eligible_attached_agents,
+            "routed_agent_name": decision.agent,
+            "session_id": session_row.id,
+            "chat_repo": chat_repo,
+        }
+        response = await _dispatch_builtin_command(command_name, args, context)
+        if response is not None:
+            audit_entry["disposition"] = "command-intercepted"
+            await chat_repo.append_to_session_metadata(
+                session_row.id,
+                "routing",
+                audit_entry,
+            )
+            try:
+                await client.send(
+                    OutboundTarget(
+                        channel_id=working_envelope.channel_id,
+                        thread_id=working_envelope.thread_id,
+                    ),
+                    response.text,
+                )
+            except Exception:
+                logger.exception(
+                    "dispatch_inbound: command-response emit failed "
+                    "for (command=%s, agent=%s, account=%s)",
+                    command_name,
+                    decision.agent,
+                    account_id,
+                )
+            return
+        # Placeholder returned None → fall through to agent.step.
+
+    # 12. Per-session lock + persist + agent.step + persist (existing
+    # F3+F4 logic with ``agent_name = decision.agent``).
+    audit_entry["disposition"] = "stepped"
+    await chat_repo.append_to_session_metadata(
+        session_row.id,
+        "routing",
+        audit_entry,
+    )
     async with session_locks[session_row.id]:
-        # 6. Update last_inbound_at (and updated_at — the resolver's
+        # Update last_inbound_at (and updated_at — the resolver's
         # most-recent-by-updated_at ordering consumes this).
         await chat_repo.update_last_inbound(session_row.id, now_iso())
 
-        # 7. Build a fresh agent for this turn. Errors here
+        # Build a fresh agent for this turn. Errors here
         # (ProviderNotConfiguredError, ProviderNotFoundError) propagate
         # — F8's caller catches them and surfaces a degraded state.
-        agent = await factory.create(agent_name)
+        agent = await factory.create(decision.agent)
 
-        # 8. Re-fetch the session row inside the lock — history may
-        # have been mutated by a previously serialized inbound. Decode
-        # the stored messages; mirror the ``_restore_session`` shape:
-        # keep the freshly-built agent's system message, append the
+        # Re-fetch the session row inside the lock — history may have
+        # been mutated by a previously serialized inbound. Decode the
+        # stored messages; mirror the ``_restore_session`` shape: keep
+        # the freshly-built agent's system message, append the
         # non-system stored messages.
         db_session = await chat_repo.get(session_row.id)
         stored = decode_messages(db_session.messages)
@@ -286,7 +521,7 @@ async def dispatch_inbound(
             non_system = [m for m in stored if m.role != Role.SYSTEM]
             agent.messages = agent.messages[:1] + non_system
 
-        # 9. Bind the ContextVar so any pool-spawned MCP OAuth provider
+        # Bind the ContextVar so any pool-spawned MCP OAuth provider
         # construction during agent.step routes ``auth_required``
         # broadcasts to the right session id (mirror of the WS handler
         # at ``interfaces/web/app.py:257``).
@@ -296,7 +531,7 @@ async def dispatch_inbound(
         pre_step_len = len(agent.messages)
         token = current_chat_session_id.set(session_row.id)
         try:
-            # 10. Drive agent.step. The agent's core appends
+            # Drive agent.step. The agent's core appends
             # ``Message.user(envelope.text)`` internally
             # (``agent/core.py:138``); iterates LLM round-trips;
             # appends assistant + tool messages. After completion,
@@ -321,13 +556,12 @@ async def dispatch_inbound(
             # full rule enumeration.
             tag_post_step_visibility(agent.messages, pre_step_len)
 
-            # 11. Persist updated history. Mirror of
-            # ``_save_session_to_db`` at
-            # ``interfaces/web/app.py:469-487``. The leg-1 docstring
+            # Persist updated history. Mirror of ``_save_session_to_db``
+            # at ``interfaces/web/app.py:469-487``. The leg-1 docstring
             # contract on ``ChatSessionRepository.update`` guarantees
-            # the seven connector-identity columns are preserved
-            # across this call — the SQL only writes ``title``,
-            # ``messages``, ``updated_at``.
+            # the seven connector-identity columns are preserved across
+            # this call — the SQL only writes ``title``, ``messages``,
+            # ``updated_at``.
             encoded = encode_messages(agent.messages)
             updated = db_session.model_copy(
                 update={
@@ -359,8 +593,8 @@ async def dispatch_inbound(
                 for event in events:
                     await broadcast_to_session(session_row.id, event)
         finally:
-            # 12. Always reset the ContextVar — even if agent.step
-            # raises mid-stream.
+            # Always reset the ContextVar — even if agent.step raises
+            # mid-stream.
             current_chat_session_id.reset(token)
 
 

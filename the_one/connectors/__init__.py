@@ -22,6 +22,8 @@ violating any contract, but the canonical paths above are stable.
 """
 
 from the_one.connectors.base import (
+    CommandHandler,
+    CommandResponse,
     ConnectorClient,
     ConnectorPlugin,
     Deny,
@@ -67,6 +69,8 @@ PLATFORM_SEND_OK_PREFIX = "[platform-send-ok]"
 
 __all__ = [
     # Protocols + supporting types
+    "CommandHandler",
+    "CommandResponse",
     "ConnectorClient",
     "ConnectorPlugin",
     "Deny",

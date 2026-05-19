@@ -446,6 +446,151 @@ class TestSQLiteAgentStore:
         with pytest.raises(ValidationError):
             await agent_store.load("validator-fires-agent")
 
+    # ── M10 F7 L3: list_by_connector_account ─────────────────────────────
+
+    async def test_list_by_connector_account_empty_for_unknown_account(
+        self, agent_store: SQLiteAgentStore
+    ) -> None:
+        """``list_by_connector_account`` returns ``[]`` for an unknown
+        account id — no rows match, no error raised (M10 F7 L3).
+        """
+        # No agents seeded at all — empty table.
+        assert await agent_store.list_by_connector_account("nonexistent") == []
+
+        # Seed an agent attached to a different account — confirms
+        # the filter excludes non-matching rows (rather than returning
+        # all agents).
+        await agent_store.save(
+            AgentConfig(name="other", connector_account_ids=["acct-other"])
+        )
+        assert await agent_store.list_by_connector_account("nonexistent") == []
+
+    async def test_list_by_connector_account_single_attached(
+        self, agent_store: SQLiteAgentStore
+    ) -> None:
+        """Seeding one agent attached to ``acct-1`` produces a single-
+        element result (M10 F7 L3).
+        """
+        await agent_store.save(
+            AgentConfig(name="solo", connector_account_ids=["acct-1"])
+        )
+        result = await agent_store.list_by_connector_account("acct-1")
+        assert [cfg.name for cfg in result] == ["solo"]
+
+    async def test_list_by_connector_account_multi_attached_alphabetical_order(
+        self, agent_store: SQLiteAgentStore
+    ) -> None:
+        """Three agents attached to the same account return in
+        alphabetical order by name (M10 F7 L3). Pins the SQL-level
+        ``ORDER BY name`` invariant.
+        """
+        for name in ("zebra", "alpha", "marlin"):
+            await agent_store.save(
+                AgentConfig(name=name, connector_account_ids=["acct-1"])
+            )
+        result = await agent_store.list_by_connector_account("acct-1")
+        assert [cfg.name for cfg in result] == ["alpha", "marlin", "zebra"]
+
+    async def test_list_by_connector_account_filters_by_account(
+        self, agent_store: SQLiteAgentStore
+    ) -> None:
+        """``list_by_connector_account`` filters rows by the requested
+        account id; agents attached only to other accounts are excluded
+        (M10 F7 L3).
+        """
+        await agent_store.save(
+            AgentConfig(name="alice", connector_account_ids=["acct-1"])
+        )
+        await agent_store.save(
+            AgentConfig(name="bob", connector_account_ids=["acct-2"])
+        )
+        result = await agent_store.list_by_connector_account("acct-1")
+        assert [cfg.name for cfg in result] == ["alice"]
+
+    async def test_list_by_connector_account_round_trips_full_config(
+        self, agent_store: SQLiteAgentStore
+    ) -> None:
+        """The returned ``AgentConfig`` carries every non-default field
+        through ``_row_to_config`` byte-identically (M10 F7 L3).
+        Validates that the helper does NOT degrade the full-config
+        round-trip via ``_row_to_config``.
+        """
+        cfg = AgentConfig(
+            name="full-config-agent",
+            description="round-trip subject",
+            llm_model="mock-default",
+            system_prompt="you are a test",
+            enabled_tools=["tool_a"],
+            disabled_tools=["tool_b"],
+            kb_ids=["kb1"],
+            mcp_source_ids=["mcp1"],
+            tool_overrides={"shell": {"timeout": 30}},
+            connector_account_ids=["acct-1"],
+            connector_acls={"acct-1": {"peers": ["u1"], "channels": ["c1"]}},
+        )
+        await agent_store.save(cfg)
+        result = await agent_store.list_by_connector_account("acct-1")
+        assert len(result) == 1
+        loaded = result[0]
+        assert loaded.name == "full-config-agent"
+        assert loaded.description == "round-trip subject"
+        assert loaded.llm_model == "mock-default"
+        assert loaded.system_prompt == "you are a test"
+        assert loaded.enabled_tools == ["tool_a"]
+        assert loaded.disabled_tools == ["tool_b"]
+        assert loaded.kb_ids == ["kb1"]
+        assert loaded.mcp_source_ids == ["mcp1"]
+        assert loaded.tool_overrides == {"shell": {"timeout": 30}}
+        assert loaded.connector_account_ids == ["acct-1"]
+        assert loaded.connector_acls == {
+            "acct-1": {"peers": ["u1"], "channels": ["c1"]}
+        }
+
+    async def test_list_by_connector_account_single_agent_multi_attached(
+        self, agent_store: SQLiteAgentStore
+    ) -> None:
+        """One agent attached to multiple accounts appears in
+        ``list_by_connector_account`` results for EACH attached account
+        (M10 F7 L3 Edge Cases).
+        """
+        await agent_store.save(
+            AgentConfig(
+                name="multi-attached",
+                connector_account_ids=["acct-1", "acct-2"],
+            )
+        )
+        result_1 = await agent_store.list_by_connector_account("acct-1")
+        result_2 = await agent_store.list_by_connector_account("acct-2")
+        assert [cfg.name for cfg in result_1] == ["multi-attached"]
+        assert [cfg.name for cfg in result_2] == ["multi-attached"]
+
+    async def test_seed_provider_and_agent_default_attaches_to_acct_test(
+        self, isolated_db
+    ) -> None:
+        """Pinning test for M10 F7 L3 fixture-helper default change:
+        bare-calling ``_seed_provider_and_agent()`` (no
+        ``connector_account_ids`` kwarg) results in the seeded agent
+        being attached to ``acct-test`` — the default account id used by
+        ``_seed_stub_account`` and ``_envelope``.
+
+        Lives here (in the canonical repository-test class) rather than
+        the helper module itself so the default semantic has a stable
+        regression anchor.
+
+        Uses ``isolated_db`` (not ``conn``) because
+        ``_seed_provider_and_agent`` resolves its connection via
+        :func:`the_one.db.connection.get_connection` — the module-level
+        singleton that ``isolated_db`` repoints at the per-test path.
+        """
+        from the_one.db.connection import get_connection
+        from tests._connector_dispatch_helpers import _seed_provider_and_agent
+
+        await _seed_provider_and_agent()
+        conn = await get_connection()
+        store = SQLiteAgentStore(conn)
+        loaded = await store.load("agent-inbound")
+        assert loaded.connector_account_ids == ["acct-test"]
+
 
 # ── AgentConfig validator (direct construction) ─────────────────────────
 
@@ -1661,6 +1806,83 @@ class TestChatSessionRepository:
                 "audit",
                 {"outcome": "permit"},
             )
+
+    # ── M10 F07 L5: set_session_metadata_key ─────────────────────────────
+
+    async def test_set_session_metadata_key_writes_new_key(
+        self, agent_store: SQLiteAgentStore, chat_repo: ChatSessionRepository
+    ) -> None:
+        """A session with NULL ``session_metadata`` → ``set_session_metadata_key``
+        initialises to ``{key: value}`` (NULL → ``{}`` → overwrite)."""
+        await agent_store.save(AgentConfig(name="agent1"))
+        await chat_repo.create(ChatSession(id="s1", agent_name="agent1"))
+
+        await chat_repo.set_session_metadata_key("s1", "foo", "bar")
+
+        loaded = await chat_repo.get("s1")
+        assert loaded.session_metadata == {"foo": "bar"}
+
+    async def test_set_session_metadata_key_overwrites_existing_value(
+        self, agent_store: SQLiteAgentStore, chat_repo: ChatSessionRepository
+    ) -> None:
+        """Setting the same key twice keeps only the LAST writer's value —
+        the last-writer-wins concurrency posture pinned by the docstring."""
+        await agent_store.save(AgentConfig(name="agent1"))
+        await chat_repo.create(ChatSession(id="s1", agent_name="agent1"))
+
+        await chat_repo.set_session_metadata_key("s1", "foo", "bar")
+        await chat_repo.set_session_metadata_key("s1", "foo", "baz")
+
+        loaded = await chat_repo.get("s1")
+        assert loaded.session_metadata == {"foo": "baz"}
+
+    async def test_set_session_metadata_key_preserves_other_keys(
+        self, agent_store: SQLiteAgentStore, chat_repo: ChatSessionRepository
+    ) -> None:
+        """Writes to one key preserve every other top-level key —
+        last-writer-wins on the TARGET key + preserve-other invariant."""
+        await agent_store.save(AgentConfig(name="agent1"))
+        await chat_repo.create(ChatSession(id="s1", agent_name="agent1"))
+
+        await chat_repo.set_session_metadata_key("s1", "foo", "bar")
+        await chat_repo.set_session_metadata_key("s1", "other", [1, 2])
+        await chat_repo.set_session_metadata_key("s1", "foo", "baz")
+
+        loaded = await chat_repo.get("s1")
+        assert loaded.session_metadata == {"foo": "baz", "other": [1, 2]}
+
+    async def test_set_session_metadata_key_raises_on_unknown_session(
+        self, chat_repo: ChatSessionRepository
+    ) -> None:
+        """Missing session id raises ``KeyError`` — mirrors
+        :meth:`append_to_session_metadata` / :meth:`update_last_inbound`
+        not-found semantics."""
+        with pytest.raises(KeyError):
+            await chat_repo.set_session_metadata_key(
+                "no-such-session", "foo", "bar"
+            )
+
+    async def test_set_session_metadata_key_accepts_any_value_type(
+        self, agent_store: SQLiteAgentStore, chat_repo: ChatSessionRepository
+    ) -> None:
+        """JSON-serialisable scalar / list / dict / None all round-trip
+        under the same primitive — the call site doesn't have to know
+        the column's JSON-encoding shape."""
+        await agent_store.save(AgentConfig(name="agent1"))
+        await chat_repo.create(ChatSession(id="s1", agent_name="agent1"))
+
+        await chat_repo.set_session_metadata_key("s1", "dict", {"a": 1})
+        await chat_repo.set_session_metadata_key("s1", "list", [1, 2, 3])
+        await chat_repo.set_session_metadata_key("s1", "string", "hello")
+        await chat_repo.set_session_metadata_key("s1", "none", None)
+
+        loaded = await chat_repo.get("s1")
+        assert loaded.session_metadata == {
+            "dict": {"a": 1},
+            "list": [1, 2, 3],
+            "string": "hello",
+            "none": None,
+        }
 
 
 # ── M10 F03 L01: ConnectorAccount session_continuation_seconds ───────────

@@ -299,6 +299,17 @@
       html += renderAllowlistSection(account);
     }
 
+    // ── Routing Rules section (edit mode only) ────────────────────────
+    // M10 F7 L7: operator-authored, ordered routing rules + per-account
+    // default agent. Rides ``config.routing`` (L2 validator). Sits
+    // between the Allowlist (account-scope ACL) and Attached Agents
+    // (read-only summary) so the operator sees the account's scope
+    // first, the dispatch rules next, and the agents that will execute
+    // them last.
+    if (!isCreate) {
+      html += renderRoutingRulesSection(account);
+    }
+
     // ── Attached agents (read-only, edit mode only) ───────────────────
     // M10 F6 L4: read-only summary of agents whose
     // ``connector_account_ids`` includes this account, with per-agent
@@ -427,7 +438,10 @@
   // arbitrary kv-table — the dedicated sections are the only writers,
   // and ``collectFormData`` merges them back into the save payload so
   // they round-trip without operator intervention.
-  var RESERVED_CONFIG_KEYS = { pairing: true, allowlist: true };
+  // M10 F7 L7: ``routing`` joins the reserved set — the Routing Rules
+  // editor section is the only writer for ``config.routing`` and merges
+  // its state back into the PUT payload via ``collectRoutingFromContainer``.
+  var RESERVED_CONFIG_KEYS = { pairing: true, allowlist: true, routing: true };
 
   function collectConfigRows(account) {
     var rows = [];
@@ -566,11 +580,19 @@
     // with other dirty fields).
     var allowlist = collectAllowlistFromContainer(container);
 
+    // M10 F7 L7: routing-rules state participates in the dirty-tracking
+    // snapshot. The routing-section agent dropdowns are async-populated
+    // by ``fetchAttachedAgents``; the initial snapshot must be
+    // recaptured after that promise resolves (see wireRoutingRulesEvents)
+    // so the populated options don't read as a dirty edit.
+    var routing = collectRoutingFromContainer(container);
+
     return JSON.stringify({
       static: staticData,
       config: configRows,
       secrets: secretRows,
-      allowlist: allowlist
+      allowlist: allowlist,
+      routing: routing
     });
   }
 
@@ -794,10 +816,14 @@
     }
 
     // ── F6 L4: Pairing / Allowlist / Attached agents (edit only) ──────
+    // ── F7 L7: Routing rules wiring slots in alongside allowlist;
+    // its agent-dropdown options are populated AFTER fetchAttachedAgents
+    // resolves, so the routing section's own logic re-snapshots then.
     if (isEdit) {
       wirePairingEvents(container, account, callbacks);
       wirePairingCopyEvents(container);
       wireAllowlistEvents(container, account, checkDirty);
+      wireRoutingRulesEvents(container, account, checkDirty);
       // M10 F6 L7 HAT: chip-list editors are mounted lazily by
       // wireAllowlistEvents AFTER the initial snapshot was captured.
       // The chip-list content (peers / channels from
@@ -808,8 +834,10 @@
       checkDirty();
 
       // Kick off the attached-agents fetch on mount. The list renders
-      // a "Loading…" placeholder until this resolves.
-      fetchAttachedAgents(container, account.id);
+      // a "Loading…" placeholder until this resolves. The same fetch's
+      // ``.then`` populates the routing-section agent dropdowns and
+      // re-snapshots (see fetchAttachedAgents).
+      fetchAttachedAgents(container, account.id, checkDirty, recaptureSnapshot);
     }
   }
 
@@ -1028,6 +1056,22 @@
         config.allowlist = {
           peers: allowlistState.peers,
           channels: allowlistState.channels
+        };
+      }
+    }
+    // M10 F7 L7: Routing rules merge. Only emit ``config.routing`` when
+    // the operator has authored at least one complete rule OR set a
+    // default agent — empty-rules + null-default means "no routing
+    // configured" and the key is OMITTED so the L2 validator doesn't
+    // reject an empty-but-present shape and L4's engine falls through
+    // to first-eligible-alphabetical. Mirrors the allowlist precedent:
+    // "absent = no constraint."
+    if (isEdit) {
+      var routingState = collectRoutingFromContainer(container);
+      if (routingState && (routingState.rules.length > 0 || routingState.default !== null)) {
+        config.routing = {
+          rules: routingState.rules,
+          default: routingState.default
         };
       }
     }
@@ -1304,6 +1348,344 @@
     return wrapper;
   }
 
+  // ── Routing Rules section (M10 F7 L7) ──────────────────────────────
+  //
+  // Operator-authored, ordered list of routing rules and a per-account
+  // default agent. The L2 Pydantic validator enforces the shape; this
+  // editor emits the validated shape on save. Section structure mirrors
+  // ``renderAllowlistSection`` (sibling); table structure mirrors
+  // ``renderConfigKvTable`` (kv-row precedent at :463-491).
+  //
+  // Cycle-1 design-language audit verdict (F6 debrief rec #1, recorded
+  // in the leg artifact §9): ZERO new bespoke selectors beyond the F6
+  // naming convention. Scope/agent/default dropdowns use the canonical
+  // 4-class set (field-input + field-select + admin-pf-input +
+  // admin-pf-select); match input uses field-input only; move/remove
+  // buttons are bare buttons mirroring config-remove-row-btn at :488.
+
+  var _VALID_ROUTING_SCOPES = ['channel', 'thread', 'dm', 'peer'];
+
+  function _collectRoutingRows(account) {
+    var routing = (account && account.config && account.config.routing) || null;
+    if (!routing || !Array.isArray(routing.rules)) return [];
+    var out = [];
+    for (var i = 0; i < routing.rules.length; i++) {
+      var r = routing.rules[i] || {};
+      out.push({
+        scope: String(r.scope || ''),
+        match: String(r.match == null ? '' : r.match),
+        agent: String(r.agent || '')
+      });
+    }
+    return out;
+  }
+
+  function _renderRoutingScopeOptions(currentScope) {
+    var escapeAttr = window.App.escapeAttr;
+    var escapeHtml = window.App.escapeHtml;
+    var html = '<option value="" disabled' +
+               (currentScope ? '' : ' selected') + '>Select scope</option>';
+    for (var i = 0; i < _VALID_ROUTING_SCOPES.length; i++) {
+      var s = _VALID_ROUTING_SCOPES[i];
+      var sel = (s === currentScope) ? ' selected' : '';
+      html += '<option value="' + escapeAttr(s) + '"' + sel + '>' +
+              escapeHtml(s) + '</option>';
+    }
+    return html;
+  }
+
+  function _renderRoutingAgentOptions(currentAgent) {
+    // Agent options are async-populated via populateRoutingAgentDropdowns
+    // once fetchAttachedAgents resolves. The initial render emits the
+    // placeholder option plus — if a value was persisted — a single
+    // ``<option selected>`` that holds the value so a save-without-fetch
+    // round-trip still preserves the operator's prior choice. The
+    // post-fetch populator replaces the entire option list, restoring
+    // the selection by value if it's still in the attached set.
+    var escapeAttr = window.App.escapeAttr;
+    var escapeHtml = window.App.escapeHtml;
+    var html = '<option value="">Select agent</option>';
+    if (currentAgent) {
+      html += '<option value="' + escapeAttr(currentAgent) + '" selected>' +
+              escapeHtml(currentAgent) + '</option>';
+    }
+    return html;
+  }
+
+  function _renderRoutingRow(row, idx) {
+    var escapeAttr = window.App.escapeAttr;
+    var html = '';
+    html += '<tr class="connector-routing-row" data-routing-rule data-routing-rule-idx="' + idx + '">';
+    html += '<td><select class="field-input field-select admin-pf-input admin-pf-select" ' +
+            'data-routing-scope data-row="' + idx + '">' +
+            _renderRoutingScopeOptions(row.scope) +
+            '</select></td>';
+    html += '<td><input class="field-input" type="text" data-routing-match data-row="' + idx + '" ' +
+            'value="' + escapeAttr(row.match || '') + '" placeholder="match value" /></td>';
+    html += '<td><select class="field-input field-select admin-pf-input admin-pf-select" ' +
+            'data-routing-agent data-row="' + idx + '">' +
+            _renderRoutingAgentOptions(row.agent) +
+            '</select></td>';
+    html += '<td>';
+    html += '<button type="button" class="connector-routing-move-up-btn" ' +
+            'data-row="' + idx + '" aria-label="Move rule up" title="Move up">' +
+            window.App.icon('chevron-up') + '</button>';
+    html += '<button type="button" class="connector-routing-move-down-btn" ' +
+            'data-row="' + idx + '" aria-label="Move rule down" title="Move down">' +
+            window.App.icon('chevron-down') + '</button>';
+    html += '<button type="button" class="connector-routing-remove-row-btn" ' +
+            'data-row="' + idx + '" aria-label="Remove rule" title="Remove rule">' +
+            window.App.icon('trash') + '</button>';
+    html += '</td>';
+    html += '</tr>';
+    return html;
+  }
+
+  function renderRoutingRulesSection(account) {
+    var escapeAttr = window.App.escapeAttr;
+    var rows = _collectRoutingRows(account);
+    var routing = (account && account.config && account.config.routing) || null;
+    var defaultAgent = (routing && typeof routing.default === 'string') ? routing.default : '';
+    var headHiddenClass = rows.length === 0 ? ' is-hidden' : '';
+
+    var html = '';
+    html += '<div class="editor-section connector-routing-section">';
+    html += '<div class="section-title">Routing rules</div>';
+
+    html += '<table class="connector-routing-table" data-testid="connector-routing-table">';
+    html += '<thead class="connector-routing-thead' + headHiddenClass + '">' +
+            '<tr><th>Scope</th><th>Match</th><th>Agent</th>' +
+            '<th aria-label="Actions"></th></tr></thead>';
+    html += '<tbody data-testid="connector-routing-tbody">';
+    for (var i = 0; i < rows.length; i++) {
+      html += _renderRoutingRow(rows[i], i);
+    }
+    html += '</tbody></table>';
+
+    html += '<button type="button" class="btn-outlined-primary kv-add-row-btn ' +
+            'connector-routing-add-row-btn" ' +
+            'data-testid="connector-routing-add-row-btn">+ Add rule</button>';
+
+    // Per-account default agent row — mirrors the form-field row pattern
+    // at :381-399. Empty option ("None") is the default; the dropdown
+    // populates with attached-agent options once fetchAttachedAgents
+    // resolves (same async population as rule rows).
+    html += '<div class="field-row admin-pf-row connector-routing-default-row">';
+    html += '<label for="connector-routing-default">Default agent</label>';
+    html += '<select class="field-input field-select admin-pf-input admin-pf-select" ' +
+            'id="connector-routing-default" data-routing-default ' +
+            'data-testid="connector-routing-default">';
+    html += '<option value="">None</option>';
+    if (defaultAgent) {
+      html += '<option value="' + escapeAttr(defaultAgent) + '" selected>' +
+              window.App.escapeHtml(defaultAgent) + '</option>';
+    }
+    html += '</select>';
+    html += '</div>';
+    html += '<div class="field-row admin-pf-row">';
+    html += '<label></label>';
+    html += '<small class="form-hint" data-testid="connector-routing-default-hint">' +
+            'Fall back to first-eligible-alphabetical agent.' +
+            '</small>';
+    html += '</div>';
+
+    html += '</div>'; // .editor-section
+    return html;
+  }
+
+  // Populate every routing-section agent dropdown (rule rows + default
+  // agent) with the live attached-agent set. Called by
+  // ``fetchAttachedAgents``'s ``.then`` after ``renderAttachedAgentsList``
+  // so both surfaces reflect the same response. Preserves the prior
+  // selection by value if the agent is still attached; otherwise the
+  // dropdown drops to the placeholder (and the operator must re-select).
+  function populateRoutingAgentDropdowns(container, rows) {
+    var escapeAttr = window.App.escapeAttr;
+    var escapeHtml = window.App.escapeHtml;
+    var names = [];
+    for (var i = 0; i < (rows || []).length; i++) {
+      var n = String((rows[i] || {}).name || '');
+      if (n) names.push(n);
+    }
+    // Stable display order. Sorting here is for the dropdown — the
+    // routing engine (L4) does its own first-eligible-alphabetical
+    // sort downstream; this is purely a UI nicety.
+    names.sort();
+
+    function _buildOptions(currentValue, includeNone) {
+      var html = '';
+      if (includeNone) {
+        html += '<option value=""' + (currentValue === '' ? ' selected' : '') + '>None</option>';
+      } else {
+        html += '<option value=""' + (currentValue === '' ? ' selected' : '') + '>Select agent</option>';
+      }
+      var seen = false;
+      for (var j = 0; j < names.length; j++) {
+        if (names[j] === currentValue) seen = true;
+        html += '<option value="' + escapeAttr(names[j]) + '"' +
+                (names[j] === currentValue ? ' selected' : '') + '>' +
+                escapeHtml(names[j]) + '</option>';
+      }
+      // Stale-selection preservation: if the persisted value isn't in
+      // the attached set, keep it as a disabled option so the operator
+      // sees their original choice (and that it's no longer valid).
+      if (currentValue && !seen) {
+        html += '<option value="' + escapeAttr(currentValue) + '" selected disabled>' +
+                escapeHtml(currentValue) + ' (not attached)</option>';
+      }
+      return html;
+    }
+
+    var ruleAgentSelects = container.querySelectorAll('[data-routing-agent]');
+    for (var k = 0; k < ruleAgentSelects.length; k++) {
+      var sel = ruleAgentSelects[k];
+      sel.innerHTML = _buildOptions(sel.value || '', false);
+    }
+    var defaultSelect = container.querySelector('[data-routing-default]');
+    if (defaultSelect) {
+      defaultSelect.innerHTML = _buildOptions(defaultSelect.value || '', true);
+    }
+  }
+
+  function wireRoutingRulesEvents(container, account, checkDirty) {
+    var section = container.querySelector('.connector-routing-section');
+    if (!section) return;
+    var tbody = section.querySelector('tbody[data-testid="connector-routing-tbody"]');
+    var addBtn = section.querySelector('.connector-routing-add-row-btn');
+
+    // Track the next-row index for newly-added rows. data-row attributes
+    // are presentation-only (the collector reads DOM order), but keeping
+    // them stable helps when debugging via the inspector.
+    var nextRoutingRowIdx = tbody ? tbody.querySelectorAll('tr.connector-routing-row').length : 0;
+
+    function _updateRoutingHeadVisibility() {
+      var thead = section.querySelector('.connector-routing-thead');
+      if (!thead) return;
+      var n = section.querySelectorAll('tbody tr.connector-routing-row').length;
+      thead.classList.toggle('is-hidden', n === 0);
+    }
+
+    // Add rule.
+    if (addBtn) {
+      addBtn.addEventListener('click', function () {
+        if (!tbody) return;
+        var idx = nextRoutingRowIdx++;
+        var tmp = document.createElement('tbody');
+        tmp.innerHTML = _renderRoutingRow({ scope: '', match: '', agent: '' }, idx);
+        var newTr = tmp.querySelector('tr.connector-routing-row');
+        if (!newTr) return;
+        // Repopulate the new row's agent dropdown from the live
+        // attached-agents response (if it has resolved). The populator
+        // tolerates an empty rows list (places only the placeholder
+        // option), so it's safe to call even if the fetch is in-flight.
+        tbody.appendChild(newTr);
+        // Re-run the populator with whatever agents are currently in
+        // the existing dropdowns. We synthesise the names list by
+        // reading options off ANY pre-existing dropdown so the
+        // newly-added row inherits the same set without re-fetching.
+        var anyExisting = section.querySelector('[data-routing-agent]:not([data-row="' + idx + '"])') ||
+                          section.querySelector('[data-routing-default]');
+        if (anyExisting) {
+          var seenNames = [];
+          for (var oi = 0; oi < anyExisting.options.length; oi++) {
+            var optV = anyExisting.options[oi].value;
+            if (optV) seenNames.push({ name: optV });
+          }
+          populateRoutingAgentDropdowns(section, seenNames);
+        }
+        _updateRoutingHeadVisibility();
+        checkDirty();
+        var newScope = newTr.querySelector('[data-routing-scope]');
+        if (newScope) newScope.focus();
+      });
+    }
+
+    // Delegated click handler: move-up / move-down / delete.
+    if (tbody) {
+      tbody.addEventListener('click', function (e) {
+        var target = e.target;
+        if (!target) return;
+        var rowEl = target.closest && target.closest('tr.connector-routing-row');
+        if (!rowEl) return;
+        if (target.closest('.connector-routing-move-up-btn')) {
+          var prev = rowEl.previousElementSibling;
+          if (prev && prev.classList.contains('connector-routing-row')) {
+            rowEl.parentNode.insertBefore(rowEl, prev);
+            checkDirty();
+          }
+          return;
+        }
+        if (target.closest('.connector-routing-move-down-btn')) {
+          var next = rowEl.nextElementSibling;
+          if (next && next.classList.contains('connector-routing-row')) {
+            rowEl.parentNode.insertBefore(next, rowEl);
+            checkDirty();
+          }
+          return;
+        }
+        if (target.closest('.connector-routing-remove-row-btn')) {
+          rowEl.parentNode.removeChild(rowEl);
+          _updateRoutingHeadVisibility();
+          checkDirty();
+          return;
+        }
+      });
+      // Delegated input/change for scope/match/agent.
+      tbody.addEventListener('input', function (e) {
+        var t = e.target;
+        if (!t) return;
+        if (t.hasAttribute && (t.hasAttribute('data-routing-match'))) {
+          checkDirty();
+        }
+      });
+      tbody.addEventListener('change', function (e) {
+        var t = e.target;
+        if (!t) return;
+        if (t.hasAttribute && (t.hasAttribute('data-routing-scope') ||
+                               t.hasAttribute('data-routing-agent'))) {
+          checkDirty();
+        }
+      });
+    }
+
+    // Default-agent change.
+    var defaultSel = section.querySelector('[data-routing-default]');
+    if (defaultSel) {
+      defaultSel.addEventListener('change', checkDirty);
+    }
+
+    void account;
+  }
+
+  function collectRoutingFromContainer(container) {
+    var section = container.querySelector('.connector-routing-section');
+    if (!section) return null;
+
+    var rules = [];
+    var ruleRows = section.querySelectorAll('tr.connector-routing-row');
+    for (var i = 0; i < ruleRows.length; i++) {
+      var row = ruleRows[i];
+      var scopeEl = row.querySelector('[data-routing-scope]');
+      var matchEl = row.querySelector('[data-routing-match]');
+      var agentEl = row.querySelector('[data-routing-agent]');
+      var scope = scopeEl ? scopeEl.value : '';
+      var match = matchEl ? matchEl.value : '';
+      var agent = agentEl ? agentEl.value : '';
+      match = (match || '').trim();
+      // Skip incomplete rule rows (operator added a row but didn't fill
+      // every required cell). Per the L2 validator, every field is
+      // required; partial rows are stubs and treated as "not saved".
+      if (!scope || !match || !agent) continue;
+      rules.push({ scope: scope, match: match, agent: agent });
+    }
+
+    var defaultSel = section.querySelector('[data-routing-default]');
+    var defaultAgent = defaultSel ? defaultSel.value : '';
+    if (defaultAgent === '') defaultAgent = null;
+
+    return { rules: rules, default: defaultAgent };
+  }
+
   function renderAttachedAgentsSection() {
     var html = '';
     html += '<div class="editor-section connector-attached-agents-section">';
@@ -1381,7 +1763,7 @@
     listEl.innerHTML = html;
   }
 
-  function fetchAttachedAgents(container, accountId) {
+  function fetchAttachedAgents(container, accountId, checkDirty, recaptureSnapshot) {
     fetch('/api/connector-accounts/' + encodeURIComponent(accountId) + '/attached-agents')
       .then(function (resp) {
         if (!resp.ok) {
@@ -1400,6 +1782,19 @@
         if (rows == null) return;
         if (!Array.isArray(rows)) rows = [];
         renderAttachedAgentsList(container, rows);
+        // M10 F7 L7: populate routing-section agent dropdowns (rule
+        // rows + default-agent) once the attached-agents list is
+        // known. Re-snapshot AFTER population so the populated form
+        // is the dirty-tracking baseline (otherwise the operator's
+        // first edit would compare against an empty-options
+        // baseline that no longer exists in the DOM).
+        populateRoutingAgentDropdowns(container, rows);
+        if (typeof recaptureSnapshot === 'function') {
+          recaptureSnapshot();
+        }
+        if (typeof checkDirty === 'function') {
+          checkDirty();
+        }
       })
       .catch(function (err) {
         var listEl = container.querySelector('[data-testid="connector-attached-agents-list"]');
