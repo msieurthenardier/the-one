@@ -407,7 +407,29 @@ App.registerArea({
         // Without this, setActiveSection re-renders the grid behind a
         // still-mounted editor and the operator sees no change.
         var commit = function () {
-          if (section === self._activeSection) {
+          // Clear editor state of the OUTGOING section when leaving
+          // (so re-entering lands on the grid, not the prior editor).
+          // M10 F6 L7 HAT: prior logic only cleared state on
+          // same-section reclicks, so Agents → Connectors → Agents
+          // restored the previously-edited agent's editor (incl. tab).
+          // Routing should land on the listing instead.
+          var prev = self._activeSection;
+          if (prev !== section) {
+            if (prev === 'agents' && (self._selectedAgent || self._createMode)) {
+              self._selectedAgent = null;
+              self._createMode = false;
+              dirty = false;
+            } else if (prev === 'mcp-sources' && mcpSourceFormMode) {
+              mcpSourceFormMode = null;
+              editingMcpSource = null;
+              dirty = false;
+            } else if (prev === 'connector-accounts' && connectorAccountFormMode) {
+              connectorAccountFormMode = null;
+              editingConnectorAccount = null;
+              dirty = false;
+            }
+          } else {
+            // Same-section reclick: treat as "back to grid".
             if (section === 'agents' && (self._selectedAgent || self._createMode)) {
               self._selectedAgent = null;
               self._createMode = false;
@@ -2026,54 +2048,86 @@ App.registerArea({
         }
       }
 
-      // `connector_acls` from the per-account chip-list editors. Each
-      // chiplist wrapper carries `data-connector-acl-account="{id}"` +
-      // `data-connector-acl-list="peers"|"channels"` so a single DOM
-      // walk groups chips by both account and list-kind. Chip values
-      // come from `.chip` textContent (sans the trailing × glyph),
-      // mirroring readChipListValue in admin/tools-form-helpers.js —
-      // we don't re-import the helper here to avoid a hard dependency
-      // and to keep the collectFormData walk self-contained.
+      // `connector_acls` from the per-account ACL editors. L7 HAT
+      // semantic redesign: each axis is independently captured as one
+      // of three values (tri-state):
+      //   - null → inherit account-scope
+      //   - []   → explicit empty (peers: no peer; channels: DMs only)
+      //   - [items] → subset (intersected with account-scope)
       //
-      // Per leg-1c's validator: an account entry with both inner lists
-      // empty is semantically identical to an absent entry ("inherit
-      // account-scope"). We OMIT empty entries from the serialized
-      // payload so persisted state stays tidy; the validator accepts
-      // both shapes either way. `data.connector_acls = null` when the
-      // outer dict ends up empty — matches the `tool_overrides` and
-      // `mcp_overrides` null-vs-{} precedent above.
-      var aclChiplists = editorEl.querySelectorAll(
-        '.connector-acl-chiplist[data-connector-acl-account][data-connector-acl-list]'
+      // Markup is one of two modes per axis (set by connectors-tab.js):
+      //   - .connector-acl-chiplist with data-connector-acl-mode="chips"
+      //     → free chip-list editor (axis: empty chips ⇒ null,
+      //       non-empty chips ⇒ [items])
+      //   - .connector-acl-checkboxlist with
+      //     data-connector-acl-mode="checkboxes"
+      //     → checkbox list (all checked ⇒ null,
+      //       none checked ⇒ [],
+      //       some checked ⇒ [checked items])
+      //
+      // If BOTH axes of an account resolve to null (inherit-both), we
+      // OMIT the account entry from the serialized payload (matches the
+      // pre-redesign omit-when-both-empty behavior; the validator
+      // accepts both shapes either way). data.connector_acls = null
+      // when the outer dict ends up empty.
+      var aclAxisEls = editorEl.querySelectorAll(
+        '[data-connector-acl-account][data-connector-acl-list][data-connector-acl-mode]'
       );
       var aclAccounts = {};
-      for (var li = 0; li < aclChiplists.length; li++) {
-        var wrapper = aclChiplists[li];
+      for (var li = 0; li < aclAxisEls.length; li++) {
+        var wrapper = aclAxisEls[li];
         var aid = wrapper.dataset.connectorAclAccount;
         var listKind = wrapper.dataset.connectorAclList;
+        var mode = wrapper.dataset.connectorAclMode;
         if (!aid || (listKind !== 'peers' && listKind !== 'channels')) continue;
-        var chips = wrapper.querySelectorAll('.chip');
-        var values = [];
-        for (var cj = 0; cj < chips.length; cj++) {
-          var text = chips[cj].textContent || '';
-          // Strip trailing × glyph from chip text (mirrors
-          // readChipListValue's tail-trim).
-          if (text.charAt(text.length - 1) === '×') {
-            text = text.slice(0, -1);
+
+        var axisValue; // null | [] | [items]
+        if (mode === 'checkboxes') {
+          var boxes = wrapper.querySelectorAll('input[type="checkbox"]');
+          var total = boxes.length;
+          var checkedVals = [];
+          for (var bi = 0; bi < total; bi++) {
+            if (boxes[bi].checked) checkedVals.push(boxes[bi].value);
           }
-          text = text.trim();
-          if (!text) continue;
-          values.push(text);
+          if (total === 0) {
+            // No account-scope chips to choose from — treat as inherit.
+            axisValue = null;
+          } else if (checkedVals.length === total) {
+            axisValue = null; // all checked = inherit
+          } else if (checkedVals.length === 0) {
+            axisValue = []; // none checked = explicit empty
+          } else {
+            axisValue = checkedVals; // subset
+          }
+        } else {
+          // chips mode
+          var chips = wrapper.querySelectorAll('.chip');
+          var chipVals = [];
+          for (var cj = 0; cj < chips.length; cj++) {
+            var text = chips[cj].textContent || '';
+            if (text.charAt(text.length - 1) === '×') {
+              text = text.slice(0, -1);
+            }
+            text = text.trim();
+            if (!text) continue;
+            chipVals.push(text);
+          }
+          if (chipVals.length === 0) {
+            axisValue = null; // empty chip-list = inherit / unrestricted
+          } else {
+            axisValue = chipVals;
+          }
         }
-        if (!aclAccounts[aid]) aclAccounts[aid] = { peers: [], channels: [] };
-        aclAccounts[aid][listKind] = values;
+
+        if (!aclAccounts[aid]) aclAccounts[aid] = { peers: null, channels: null };
+        aclAccounts[aid][listKind] = axisValue;
       }
       var finalAcls = {};
       for (var aid2 in aclAccounts) {
         var entry = aclAccounts[aid2];
-        if ((entry.peers && entry.peers.length > 0) ||
-            (entry.channels && entry.channels.length > 0)) {
-          finalAcls[aid2] = entry;
-        }
+        // Omit accounts where BOTH axes are null (inherit-both).
+        if (entry.peers === null && entry.channels === null) continue;
+        finalAcls[aid2] = entry;
       }
       data.connector_acls = Object.keys(finalAcls).length > 0 ? finalAcls : null;
 

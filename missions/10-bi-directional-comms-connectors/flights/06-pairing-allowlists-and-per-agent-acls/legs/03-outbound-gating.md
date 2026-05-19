@@ -3,6 +3,16 @@
 **Status**: completed
 **Flight**: [Pairing, Allowlists, and Per-Agent ACLs](../flight.md)
 
+> **Post-redesign note (M10 F6 L7 HAT, 2026-05-19)**: outbound gating
+> semantics were flipped during HAT. Account-scope
+> `allowlist.channels = []` now PERMITS all channels (was: deny
+> everyone). Per-agent `channels` is tri-state — `None` inherits,
+> `[]` is the F8-deferred "DMs only" sentinel (fail closed until F8
+> ships DM classification), `[items]` narrows. See the **Deviations**
+> entry in `../flight-log.md` for the new model and surface impact.
+> The body of this artifact reflects the pre-redesign two-state
+> contract for archaeology.
+
 ## Objective
 
 Land the outbound consult that `SendToPlatformChannelTool.execute` ships with a `# F6:` placeholder. The tool's `__init__` gains a `connector_acls: dict[str, dict[str, list[str]]] | None = None` kwarg (passed by `AgentFactory.create` from `config.connector_acls`); `execute` does a function-local-import per-call fetch of the account from `ConnectorAccountRepository.get(account_id)` and intersects two scopes against `target.channel_id`: (i) account-scope `account.config["allowlist"]["channels"]` (absent → permit); (ii) per-agent `self._connector_acls[account_id]["channels"]` (account_id absent OR empty list → no agent-level narrowing). Denial returns the standard `[error] [constraint] ...` envelope; permit proceeds to the existing pool_acquire + client.send. No `ToolProvider` Protocol widening (deferred to F8 per cycle-2 finding). The `# F6:` marker comment is replaced by the actual consultation; `connectors/README.md:380` quoted marker text is updated alongside.

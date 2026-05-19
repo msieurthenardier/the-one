@@ -209,11 +209,23 @@ class ConnectorAccount(BaseModel):
           lifetime threat model of an API token.
         - ``config["allowlist"] = {"peers": list[str], "channels": list[str]}``.
           Both inner lists required (no partial shape). Empty inner lists
-          are PERMITTED and PRESERVED VERBATIM — they mean "locked account,
-          no peers admitted." Absent ``allowlist`` means "default-permit
-          (no restriction)." Distinct semantics; the leg-4 Studio surface
-          MUST NOT erase a deliberate empty lockdown back to absent. The
-          validator does NOT de-duplicate list entries.
+          are PERMITTED and PRESERVED VERBATIM. The validator does NOT
+          de-duplicate list entries.
+
+          M10 F6 L7 HAT — semantic redesign (see flight-log
+          "Deviations"). Per-axis interpretation:
+            - axis missing (``allowlist`` itself absent) → unrestricted
+              on every axis (default-permit)
+            - axis is ``[]`` (empty list) → unrestricted on THIS axis
+              (was "locked / no peer admitted" pre-redesign; flipped to
+              match the "empty = unrestricted" intent operators expressed
+              at HAT)
+            - axis is ``[items]`` → only those peers / channels are
+              permitted
+          The validator's job is shape, not semantic; the resolver and
+          outbound checks interpret the lists. Shape unchanged from
+          pre-redesign — existing rows round-trip verbatim; only the
+          downstream interpretation flipped.
 
         ``config["pairing"] = None`` (JSON ``null``) is treated as absent
         — the operator effectively un-pairs the account. Same for

@@ -3,6 +3,17 @@
 **Status**: completed
 **Flight**: [Pairing, Allowlists, and Per-Agent ACLs](../flight.md)
 
+> **Post-redesign note (M10 F6 L7 HAT, 2026-05-19)**: the per-agent
+> `connector_acls` field type was widened from
+> `dict[str, dict[str, list[str]]] | None` to
+> `dict[str, dict[str, list[str] | None]] | None` so each axis is
+> tri-state (`None` = inherit, `[]` = explicit empty / "DMs only" for
+> channels, `[items]` = subset). The v18 migration itself (column +
+> JSON encoding) is unchanged. See the **Deviations** entry in
+> `../flight-log.md` for the full new model, surface impact, and
+> rationale. The body of this artifact reflects the pre-redesign
+> two-state contract for archaeology.
+
 ## Objective
 
 Atomically land the per-agent ACL persistence surface: add `AgentConfig.connector_acls: dict[str, dict[str, list[str]]] | None = None` (account_id-keyed; inner shape `{"peers": list[str], "channels": list[str]}`); add the v18 migration that adds `agents.connector_acls TEXT` (nullable, JSON-encoded list at the value layer); round-trip through `SQLiteAgentStore.save` / `_row_to_config`; ripple the v18 renumber across all docstrings, schema comments, agents.md checklist, and migration tests that currently predict v18 = F8's CHECK constraint. Pydantic field validator enforces the nested shape (mirrors leg-1b's `_validate_config_reserved_keys` discipline). Per the flight's F4-L5-style commitment, the field + migration + repository round-trip ship in ONE leg — F4 debrief recommendation #1 ("a Pydantic field intended to persist ships its migration in the SAME leg") is the methodology trap closure.

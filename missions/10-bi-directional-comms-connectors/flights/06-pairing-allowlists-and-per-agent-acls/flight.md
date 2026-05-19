@@ -1,6 +1,6 @@
 # Flight: Pairing, Allowlists, and Per-Agent ACLs
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Bi-directional Communication Connectors](../../mission.md)
 
 ## Contributing to Criteria
@@ -176,7 +176,7 @@ F6 is **gating substrate first, persistence + writers second, consumer sites thi
 - [x] `studio-connectors-account-surface` (4) — Pairing code section + account-scope allowlist editor + read-only attached-agents summary on Studio Connectors detail page (`studio/connector-account-editor.js`); API extension or new endpoint for the reverse lookup (leg-design picks); quality bar = F5 HAT-class
 - [x] `studio-connectors-attach-tab` (5) — New Connectors tab on Studio Agent Editor (`studio/agent-editor.js` extension + new `studio/connectors-tab.js`) mirroring MCPs tab pattern; per-agent ACL editor; `studio.js:161` four-tab whitelist extension + agent-editor.js:45-119 PANEL_IDS / tablist / panel scaffolding; API: GET/PUT extends `/api/agents/{name}` to round-trip `connector_acls`; quality bar = F5 HAT-class
 - [x] `ws-pre-step-visibility-tagging` (6) — Dict-literal injection at `interfaces/web/app.py:817-819` (NOT Message-level — the live broadcast emits a raw dict, mirrored from the codec's projection rule); closes F5 carry-forward action item; test: live-broadcasted user message on connector-attached session carries `visibility=operator` without refresh; mission Known Issue update
-- [ ] `hat-and-alignment` *(REQUIRED)* — Operator-driven verification of all F6 surfaces and flows; deviations + inline fixes per F5 HAT-as-catch-all pattern
+- [x] `hat-and-alignment` *(REQUIRED)* — Operator-driven verification of all F6 surfaces and flows; deviations + inline fixes per F5 HAT-as-catch-all pattern. Pairing-code generation, account-scope allowlist editing with empty-list-preservation, per-agent ACL editing via Connectors tab, attached-agents table, allowlist semantic redesign (empty = unrestricted; per-axis tri-state override), and 14+ design-language polish iterations all verified. Operator confirmed: "we should be good."
 
 ---
 
@@ -184,12 +184,12 @@ F6 is **gating substrate first, persistence + writers second, consumer sites thi
 
 ### Completion Checklist
 
-- [ ] All legs completed
-- [ ] Code merged
-- [ ] Tests passing (unit + browser)
-- [ ] Documentation updated (`agents.md` if a new Project Convention crystallizes — e.g. `module-local-rebinding-isolates-callsite-patching` from F4 still uncodified at n=1; `connectors/README.md` for the gating architecture; per-flight test-suite metrics captured per F5 debrief rec #5)
-- [ ] Mission Known Issue closed: live-broadcast WS-typed visibility asymmetry (currently buried in code comments + F5 flight-log)
-- [ ] F4 → F6 ToolProvider Protocol widening item: deferred to F8 per per-call-account-fetch decision; documented for F8 awareness
+- [x] All legs completed
+- [ ] Code merged (pending PR review)
+- [x] Tests passing (unit + browser — 2073 passed in full-suite verification post-redesign)
+- [x] Documentation updated (`agents.md` reframed `AllowlistResolver` predictions; `connectors/README.md` §4 documents the optional `resolve` hook; allowlist semantic redesign logged in flight-log Deviations + leg artifact prefaces redirect to it)
+- [x] Mission Known Issue closed: live-broadcast WS-typed visibility asymmetry (leg-6 closure)
+- [x] F4 → F6 ToolProvider Protocol widening item: deferred to F8 per per-call-account-fetch decision; documented in `tools/connector_send.py` + cycle-2 finding closure
 
 ### Verification
 

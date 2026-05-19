@@ -45,6 +45,10 @@
   // every option is round-tripped without backend rejection. Custom
   // persisted values that don't match a ladder entry render as a
   // disabled "Custom: Xs" option (collectFormData passes them through).
+  // M10 F6 L7 HAT issue #8: single "(default)" entry instead of a
+  // separate top-of-list sentinel. The entry whose ``value`` equals
+  // the option's ``defaultSeconds`` gets the "(default)" suffix and
+  // serializes to null. Other entries serialize to their seconds value.
   var LIFECYCLE_OPTIONS = [
     { value: 300, label: '5 minutes' },
     { value: 900, label: '15 minutes' },
@@ -59,7 +63,7 @@
     var escapeAttr = window.App.escapeAttr;
     var escapeHtml = window.App.escapeHtml;
     var includeNever = !!(options && options.includeNever);
-    var defaultLabel = (options && options.defaultLabel) || 'Use default';
+    var defaultSeconds = (options && options.defaultSeconds) || 1800;
 
     var currentSerialized = (currentValue === '' || currentValue == null) ? '' : String(currentValue);
     var matched = (currentSerialized === '');
@@ -67,23 +71,23 @@
     for (var i = 0; i < LIFECYCLE_OPTIONS.length; i++) {
       var opt = LIFECYCLE_OPTIONS[i];
       var optStr = String(opt.value);
-      var selected = (currentSerialized === optStr);
+      var isDefault = (opt.value === defaultSeconds);
+      // The "(default)" entry serializes to null (empty value); other
+      // entries serialize to their seconds value.
+      var optValue = isDefault ? '' : optStr;
+      var selected = isDefault
+        ? (currentSerialized === '')
+        : (currentSerialized === optStr);
       if (selected) matched = true;
-      ladderHtml += '<option value="' + escapeAttr(optStr) + '"' +
+      var labelText = isDefault ? opt.label + ' (default)' : opt.label;
+      ladderHtml += '<option value="' + escapeAttr(optValue) + '"' +
+                    (isDefault ? ' data-default-sentinel="1"' : '') +
                     (selected ? ' selected' : '') + '>' +
-                    escapeHtml(opt.label) + '</option>';
+                    escapeHtml(labelText) + '</option>';
     }
 
-    // Default sentinel (empty string) — null payload. Selected when no
-    // current value is set.
-    var defaultSelected = (currentSerialized === '') ? ' selected' : '';
-    var defaultOptionHtml = '<option value=""' + defaultSelected + '>' +
-                            escapeHtml(defaultLabel) + '</option>';
-
     // "Never" sentinel for continuation only — emits null payload too,
-    // distinguished from "use default" by the data attribute. Both serialize
-    // to null but the dropdown shows different labels so the operator's
-    // intent is visible.
+    // distinguished from "(default)" by the literal value "__NEVER__".
     var neverOptionHtml = '';
     if (includeNever) {
       neverOptionHtml = '<option value="__NEVER__">Never (always continue)</option>';
@@ -103,7 +107,7 @@
     return '<select class="field-input field-select admin-pf-input admin-pf-select" id="' +
            escapeAttr(id) + '" data-field="' + escapeAttr(fieldName) + '" ' +
            'data-testid="' + escapeAttr(testId) + '">' +
-           defaultOptionHtml + neverOptionHtml + customOptionHtml + ladderHtml +
+           neverOptionHtml + customOptionHtml + ladderHtml +
            '</select>';
   }
 
@@ -149,6 +153,34 @@
       case 'failed': return 'Failed';
       case 'error': return 'Error';
       default: return status || 'Unknown';
+    }
+  }
+
+  // ── Inline field-level validation rendering ─────────────────────────
+  // M10 F6 L7 HAT: validation errors render adjacent to the offending
+  // field row (inline `[data-field-error]` span + `field-error-highlight`
+  // class on the row) instead of being dumped in the top action-cluster
+  // `.editor-error` span. Mirrors the admin tools-editor's
+  // `renderFieldErrors` pattern (admin.css:355-370,448-454).
+  function clearFieldErrors(container) {
+    var rows = container.querySelectorAll('[data-field-row]');
+    for (var i = 0; i < rows.length; i++) {
+      rows[i].classList.remove('field-error-highlight');
+    }
+    var spans = container.querySelectorAll('[data-field-error]');
+    for (var j = 0; j < spans.length; j++) {
+      spans[j].textContent = '';
+      spans[j].setAttribute('hidden', '');
+    }
+  }
+
+  function setFieldError(container, fieldName, message) {
+    var row = container.querySelector('[data-field-row="' + fieldName + '"]');
+    if (row) row.classList.add('field-error-highlight');
+    var span = container.querySelector('[data-field-error="' + fieldName + '"]');
+    if (span) {
+      span.textContent = message;
+      span.removeAttribute('hidden');
     }
   }
 
@@ -221,13 +253,12 @@
     html += '<label for="cf-idle-timeout">Pool idle timeout</label>';
     html += renderLifecycleSelect('cf-idle-timeout', 'idle_timeout_seconds',
             'connector-account-idle-timeout-input', idleValue,
-            { defaultLabel: 'Use default (30 min)', includeNever: false });
+            { defaultSeconds: 1800, includeNever: false });
     html += '</div>';
     html += '<div class="field-row admin-pf-row">';
     html += '<label></label>';
     html += '<small class="form-hint" data-testid="connector-account-idle-hint">' +
-            'Warm connector connections are reaped after this many seconds of inactivity. ' +
-            'Leave on "Use default" to apply the system default (30 min).' +
+            'Reap warm connection after inactivity.' +
             '</small>';
     html += '</div>';
 
@@ -236,15 +267,12 @@
     html += '<label for="cf-continuation-window">Chat-session continuation window</label>';
     html += renderLifecycleSelect('cf-continuation-window', 'session_continuation_seconds',
             'connector-account-continuation-input', contValue,
-            { defaultLabel: 'Use default (24 hours)', includeNever: true });
+            { defaultSeconds: 86400, includeNever: true });
     html += '</div>';
     html += '<div class="field-row admin-pf-row">';
     html += '<label></label>';
     html += '<small class="form-hint" data-testid="connector-account-continuation-hint">' +
-            'Inbounds on the same conversation continue an existing chat session within this window. ' +
-            'After this period of platform silence, the next inbound starts a fresh session. ' +
-            'Leave on "Use default" to apply the system default (24 hours). ' +
-            'Distinct from the pool idle timeout above, which controls gateway warm-keep — not chat-session lifecycle.' +
+            'Inbound continues the same chat session within this window.' +
             '</small>';
     html += '</div>';
 
@@ -285,14 +313,11 @@
     if (!isCreate) {
       html += '<div class="editor-section connector-test-section">';
       html += '<div class="section-title">Test Connection</div>';
-      html += '<div class="field-row admin-pf-row">';
-      html += '<label></label>';
       html += '<div class="connector-test-actions">';
       html += '<button type="button" class="btn-outlined-primary connector-test-connection-btn" data-testid="connector-test-connection-btn">' +
               window.App.icon('refresh-cw') + ' Test connection</button>';
       html += '<span class="indicator-led indicator-led--idle connector-test-led" data-testid="connector-test-led" data-state="idle" aria-label="Not tested"></span>';
-      html += '<span class="connector-test-message" data-testid="connector-test-message"></span>';
-      html += '</div>';
+      html += '<span class="connector-test-message" data-testid="connector-test-message">Not tested</span>';
       html += '</div>';
       html += '<div class="connector-test-status" data-testid="connector-test-status" hidden></div>';
       html += '<div class="connector-test-details-wrap" data-testid="connector-test-details-wrap" hidden>' +
@@ -333,25 +358,43 @@
     var escapeHtml = window.App.escapeHtml;
     var escapeAttr = window.App.escapeAttr;
     var html = '';
+    var typesList = Array.isArray(types) ? types : [];
+    var typesEmpty = isCreate && typesList.length === 0;
+
+    // M10 F6 L7 HAT: when production has zero registered connector types
+    // (CONNECTOR_TYPES = () until Flight 8 lands Discord), surface a
+    // themed banner inside the Connection section instead of just an
+    // unselectable dropdown placeholder. Operator can still test the
+    // F6 surfaces against API-seeded `stub` accounts (the schema has
+    // no CHECK constraint on `type` until v19).
+    if (typesEmpty) {
+      html += '<div class="connector-account-empty-types-banner" ' +
+              'data-testid="connector-account-empty-types-banner" role="status">';
+      html += '<strong>No connector types are registered yet.</strong> ';
+      html += 'Discord support lands in Flight 8 of Mission 10. ';
+      html += 'For HAT or local testing you can seed a <code>stub</code>-type account via ';
+      html += '<code>POST /api/connector-accounts</code> with <code>{"type":"stub", ...}</code>.';
+      html += '</div>';
+    }
 
     // Name
-    html += '<div class="field-row admin-pf-row">';
+    html += '<div class="field-row admin-pf-row" data-field-row="name">';
     html += '<label for="cf-name">Name</label>';
     html += '<input class="field-input admin-pf-input" id="cf-name" data-field="name" data-testid="connector-account-name-input" value="' +
             escapeAttr(isCreate ? '' : (account.name || '')) +
             '" placeholder="My Discord bot" />';
+    html += '<span class="field-error" data-field-error="name" hidden></span>';
     html += '</div>';
 
     // Type — select on create, read-only display on edit. Mirrors MCP's
     // edit-time type immutability: changing type would invalidate the
     // config + secrets shape, so the type is locked once chosen.
-    html += '<div class="field-row admin-pf-row">';
+    html += '<div class="field-row admin-pf-row" data-field-row="type">';
     html += '<label for="cf-type">Type</label>';
     if (isCreate) {
-      var typesList = Array.isArray(types) ? types : [];
-      html += '<select class="field-input field-select admin-pf-input admin-pf-select" id="cf-type" data-field="type" data-testid="connector-account-type-select">';
-      if (typesList.length === 0) {
-        // Production-empty: no connector types registered yet.
+      var typeDisabledAttr = typesEmpty ? ' disabled aria-disabled="true"' : '';
+      html += '<select class="field-input field-select admin-pf-input admin-pf-select" id="cf-type" data-field="type" data-testid="connector-account-type-select"' + typeDisabledAttr + '>';
+      if (typesEmpty) {
         html += '<option value="" disabled selected>No connector types registered yet</option>';
       } else {
         html += '<option value="" disabled selected>Select a connector type</option>';
@@ -365,6 +408,7 @@
       html += '<input class="field-input admin-pf-input" id="cf-type" data-field="type" data-testid="connector-account-type-readonly" value="' +
               escapeAttr(account.type || '') + '" readonly />';
     }
+    html += '<span class="field-error" data-field-error="type" hidden></span>';
     html += '</div>';
 
     // Config kv editor — plaintext key-value rows.
@@ -512,29 +556,15 @@
       });
     }
 
-    // M10 F6 L4: include the allowlist toggle + rows in the snapshot
-    // so the dirty-tracker fires on toggle changes and add/remove/edit
-    // of allowlist rows. Pairing state is NOT included — the pairing
-    // button triggers an out-of-band POST that persists immediately,
-    // independent of the editor's Save button (the in-memory
-    // ``account.config.pairing`` mirror prevents data loss when the
-    // operator then clicks Save with other dirty fields).
-    var allowlist = null;
-    var allowlistToggle = container.querySelector('.connector-allowlist-toggle');
-    if (allowlistToggle) {
-      var enabled = !!allowlistToggle.checked;
-      var peersList = [];
-      var channelsList = [];
-      var allowlistInputs = container.querySelectorAll('.connector-allowlist-input');
-      for (var a = 0; a < allowlistInputs.length; a++) {
-        var ainp = allowlistInputs[a];
-        var akind = ainp.getAttribute('data-allowlist-kind');
-        var aval = ainp.value || '';
-        if (akind === 'peers') peersList.push(aval);
-        else if (akind === 'channels') channelsList.push(aval);
-      }
-      allowlist = { enabled: enabled, peers: peersList, channels: channelsList };
-    }
+    // M10 F6 L7 HAT — semantic redesign: no Enable toggle. The
+    // snapshot captures the always-mounted peers/channels chip-lists.
+    // Empty lists are valid and meaningful (unrestricted on that axis).
+    // Pairing state is NOT included — the pairing button triggers an
+    // out-of-band POST that persists immediately, independent of the
+    // editor's Save button (the in-memory ``account.config.pairing``
+    // mirror prevents data loss when the operator then clicks Save
+    // with other dirty fields).
+    var allowlist = collectAllowlistFromContainer(container);
 
     return JSON.stringify({
       static: staticData,
@@ -718,7 +748,17 @@
         if (!payload) return;
 
         if (isEdit) {
-          handleSaveEdit(account, payload, container, callbacks, saveBtn, recaptureSnapshot);
+          // M10 F6 L7 HAT — stale-chip warning. If the operator removed
+          // a chip that an attached agent's ACL still references, warn
+          // before the PUT so the operator can keep the entry (or
+          // accept that the agent's ACL chip will be effectively
+          // dead-pointing after save).
+          _confirmStaleChipsThen(
+            account, payload, container,
+            function () {
+              handleSaveEdit(account, payload, container, callbacks, saveBtn, recaptureSnapshot);
+            }
+          );
         } else {
           handleCreateAndTest(payload, container, types, callbacks, saveBtn);
         }
@@ -757,18 +797,14 @@
     if (isEdit) {
       wirePairingEvents(container, account, callbacks);
       wirePairingCopyEvents(container);
-      wireAllowlistEvents(container, checkDirty);
-      // After wiring the allowlist events, recapture the snapshot so
-      // the initial render's allowlist state doesn't count as dirty.
-      // (renderConnectorAccountEditor pre-populates from
-      // account.config.allowlist; getFormSnapshot now reads those rows.
-      // The first call to attachStaticListeners happened before the
-      // allowlist nodes existed in earlier code paths — they do exist
-      // now since these sections render synchronously above. The
-      // initial snapshot from line ~488 already includes the allowlist
-      // state, so no recapture is strictly required, but we call
-      // checkDirty once to ensure save/cancel button state agrees with
-      // the just-rendered allowlist baseline.)
+      wireAllowlistEvents(container, account, checkDirty);
+      // M10 F6 L7 HAT: chip-list editors are mounted lazily by
+      // wireAllowlistEvents AFTER the initial snapshot was captured.
+      // The chip-list content (peers / channels from
+      // account.config.allowlist) was therefore absent from the
+      // baseline. Recapture so the just-mounted chips don't count as
+      // a dirty edit.
+      recaptureSnapshot();
       checkDirty();
 
       // Kick off the attached-agents fetch on mount. The list renders
@@ -904,18 +940,30 @@
 
   function collectFormData(container, account, isEdit) {
     var errorEl = container.querySelector('.editor-error');
+    // Clear stale state on entry — both the inline field markers and
+    // the action-cluster aggregate span (the latter is preserved for
+    // backend-422 surfacing; field-level pre-flight checks now render
+    // inline at the offending row).
+    clearFieldErrors(container);
+    if (errorEl) errorEl.textContent = '';
+
     var nameEl = container.querySelector('[data-field="name"]');
     var name = nameEl ? nameEl.value.trim() : '';
-    if (!name) {
-      if (errorEl) errorEl.textContent = 'Name is required.';
-      return null;
-    }
     var typeEl = container.querySelector('[data-field="type"]');
     var typeValue = typeEl ? typeEl.value : '';
-    if (!typeValue) {
-      if (errorEl) errorEl.textContent = 'Type is required.';
-      return null;
+
+    // Collect ALL pre-flight failures before returning so the operator
+    // sees every offender at once (vs. fix one, save, see the next).
+    var hadError = false;
+    if (!name) {
+      setFieldError(container, 'name', 'Name is required.');
+      hadError = true;
     }
+    if (!typeValue) {
+      setFieldError(container, 'type', 'Type is required.');
+      hadError = true;
+    }
+    if (hadError) return null;
 
     var config = {};
     var configRows = container.querySelectorAll('.connector-account-config-table tbody tr.connector-account-config-row');
@@ -969,24 +1017,18 @@
     if (isEdit && account && account.config && account.config.pairing) {
       config.pairing = account.config.pairing;
     }
-    // Allowlist: derive from the toggle + list editors. If the toggle
-    // is unchecked, OMIT ``config.allowlist`` entirely (default-permit
-    // semantic per leg-1b). If checked, emit ``{peers, channels}``
-    // even when both lists are empty — that's the lockdown affordance
-    // (leg-1b empty-preservation invariant).
+    // Allowlist: M10 F6 L7 HAT — semantic redesign. The chip-lists are
+    // ALWAYS mounted and ALWAYS emitted. Empty list = unrestricted on
+    // that axis (post-redesign "empty = all permitted" semantic). The
+    // shape sent is always ``{peers: [...], channels: [...]}`` — never
+    // omitted.
     if (isEdit) {
       var allowlistState = collectAllowlistFromContainer(container);
-      if (allowlistState && allowlistState.enabled) {
+      if (allowlistState) {
         config.allowlist = {
           peers: allowlistState.peers,
           channels: allowlistState.channels
         };
-      } else {
-        // Toggle unchecked — ensure no allowlist key leaks through
-        // (defensively delete in case a kv-row added one).
-        if (Object.prototype.hasOwnProperty.call(config, 'allowlist')) {
-          delete config.allowlist;
-        }
       }
     }
 
@@ -1141,92 +1183,82 @@
     html += '<div class="editor-section connector-pairing-section">';
     html += '<div class="section-title">Pairing</div>';
 
-    // Issued-at summary row — present when a pairing record exists.
-    // Empty placeholder otherwise so the section never feels blank.
+    // Action row — Generate/Regenerate button with refresh icon,
+    // followed by the status line. Order is button-then-status so the
+    // primary affordance reads first.
     html += '<div class="field-row admin-pf-row">';
     html += '<label>Status</label>';
+    html += '<div class="connector-pairing-row">';
+    html += '<button type="button" class="btn-outlined-primary connector-pairing-generate-btn" ' +
+            'data-testid="connector-pairing-generate-btn">' +
+            window.App.icon('refresh') + ' ' + escapeHtml(buttonLabel) + '</button>';
     html += '<div class="connector-pairing-status" data-testid="connector-pairing-status">';
     if (issuedAt) {
-      html += 'Code on file (issued ' + escapeHtml(issuedAt) +
-              '). The code is only shown immediately after generation — ' +
-              'regenerate to reveal a fresh code.';
+      html += 'Code on file · issued ' + escapeHtml(issuedAt);
     } else {
       html += 'No pairing code generated yet.';
     }
     html += '</div>';
     html += '</div>';
-
-    // Action row — button + transient code-reveal slot.
-    html += '<div class="field-row admin-pf-row">';
-    html += '<label></label>';
-    html += '<div class="connector-pairing-actions">';
-    html += '<button type="button" class="btn-outlined-primary connector-pairing-generate-btn" ' +
-            'data-testid="connector-pairing-generate-btn">' +
-            escapeHtml(buttonLabel) + '</button>';
-    html += '</div>';
     html += '</div>';
 
-    // Code-reveal slot — populated after the operator clicks Generate /
-    // Regenerate. Hidden on initial render (no auto-reveal on load).
+    // Code-reveal slot — only rendered into the DOM after the operator
+    // clicks Generate / Regenerate. The empty-on-load state has NO
+    // reveal row at all (issue #4: only show when there's a code).
+    // The copy button is an in-input icon button (issue #3).
     html += '<div class="field-row admin-pf-row connector-pairing-reveal-row" ' +
             'data-testid="connector-pairing-reveal-row" hidden>';
     html += '<label for="connector-pairing-code-readonly">Code</label>';
     html += '<div class="connector-pairing-reveal">';
+    html += '<div class="connector-pairing-code-wrap">';
     html += '<input type="text" id="connector-pairing-code-readonly" ' +
             'class="field-input admin-pf-input connector-pairing-code-input" ' +
             'data-testid="connector-pairing-code-input" readonly value="" />';
-    html += '<button type="button" class="btn-outlined-primary connector-pairing-copy-btn" ' +
-            'data-testid="connector-pairing-copy-btn">Copy</button>';
-    html += '<small class="form-hint">Copy this code now — it will not be ' +
-            'displayed again until you regenerate.</small>';
+    html += '<button type="button" class="connector-pairing-copy-btn" ' +
+            'data-testid="connector-pairing-copy-btn" ' +
+            'aria-label="Copy pairing code" title="Copy">' +
+            window.App.icon('copy') + '</button>';
+    html += '</div>';
+    html += '<small class="form-hint">Copy now — only shown once.</small>';
     html += '</div>';
     html += '</div>';
 
     html += '</div>';
-    // Note: pairing state is mirrored to ``account.config.pairing`` by
-    // the POST response and re-read on the next render. No form-snapshot
-    // entry is needed (the button is not a dirty source — the endpoint
-    // persists immediately, independent of the editor's Save button).
     void escapeAttr;
     return html;
   }
 
   function renderAllowlistSection(account) {
+    // M10 F6 L7 HAT — semantic redesign: dropped the Enable toggle.
+    // Chip-lists are ALWAYS rendered. Empty list = unrestricted on
+    // that axis (no constraint). Both axes empty = fully unrestricted
+    // account (the common "I want a public bot" intent that previously
+    // required toggling Enable off). See flight-log "Deviations".
     var escapeHtml = window.App.escapeHtml;
     var escapeAttr = window.App.escapeAttr;
-    var allowlist = (account && account.config && account.config.allowlist) || null;
-    var enabled = allowlist != null;
-    var peers = (allowlist && Array.isArray(allowlist.peers)) ? allowlist.peers.slice() : [];
-    var channels = (allowlist && Array.isArray(allowlist.channels)) ? allowlist.channels.slice() : [];
 
     var html = '';
     html += '<div class="editor-section connector-allowlist-section">';
     html += '<div class="section-title">Account-scope allowlist</div>';
 
-    // Toggle row.
-    html += '<div class="field-row admin-pf-row">';
-    html += '<label for="connector-allowlist-enabled">Enable</label>';
-    html += '<div>';
-    html += '<input type="checkbox" id="connector-allowlist-enabled" ' +
-            'class="connector-allowlist-toggle" ' +
-            'data-testid="connector-allowlist-toggle"' +
-            (enabled ? ' checked' : '') + ' />';
-    html += '<small class="form-hint">' +
-            'Check to gate inbounds + outbounds by peer / channel. ' +
-            'Uncheck for default-permit (no allowlist on this account). ' +
-            'When checked with empty lists below, this account is in ' +
-            'lockdown — nothing is admitted until you add an entry or ' +
-            'a pairing prefix promotes a peer.' +
+    html += '<div class="connector-allowlist-lists" ' +
+            'data-testid="connector-allowlist-lists">';
+    html += '<div class="connector-account-acl-fieldrow">';
+    html += '<label class="connector-account-acl-fieldlabel">Peers</label>';
+    html += '<div data-allowlist-chiplist-slot="peers"></div>';
+    html += '<small class="form-hint" ' +
+            'data-testid="connector-allowlist-peers-hint">' +
+            'Empty list = no peer restriction.' +
             '</small>';
     html += '</div>';
+    html += '<div class="connector-account-acl-fieldrow">';
+    html += '<label class="connector-account-acl-fieldlabel">Channels</label>';
+    html += '<div data-allowlist-chiplist-slot="channels"></div>';
+    html += '<small class="form-hint" ' +
+            'data-testid="connector-allowlist-channels-hint">' +
+            'Empty list = no channel restriction.' +
+            '</small>';
     html += '</div>';
-
-    // List editors — hidden when toggle is off.
-    var listsHidden = enabled ? '' : ' hidden';
-    html += '<div class="connector-allowlist-lists' + listsHidden +
-            '" data-testid="connector-allowlist-lists">';
-    html += renderAllowlistList('peers', 'Peers', peers);
-    html += renderAllowlistList('channels', 'Channels', channels);
     html += '</div>';
 
     html += '</div>';
@@ -1235,57 +1267,51 @@
     return html;
   }
 
-  function renderAllowlistList(kind, label, entries) {
-    var escapeHtml = window.App.escapeHtml;
-    var escapeAttr = window.App.escapeAttr;
-    var html = '';
-    html += '<div class="connector-allowlist-list" data-allowlist-kind="' +
-            escapeAttr(kind) + '" data-testid="connector-allowlist-' +
-            escapeAttr(kind) + '-list">';
-    html += '<div class="connector-allowlist-list-header">' +
-            '<strong>' + escapeHtml(label) + '</strong>' +
-            '<button type="button" class="btn-outlined-primary kv-add-row-btn ' +
-            'connector-allowlist-add-btn" data-allowlist-kind="' +
-            escapeAttr(kind) + '" data-testid="connector-allowlist-' +
-            escapeAttr(kind) + '-add-btn">+ Add</button>' +
-            '</div>';
-    html += '<div class="connector-allowlist-rows">';
-    for (var i = 0; i < entries.length; i++) {
-      html += renderAllowlistRow(kind, entries[i]);
-    }
-    html += '</div>';
-    html += '</div>';
-    return html;
-  }
+  // Build a chip-list-editor wrapper for the account-scope allowlist.
+  // Mirrors connectors-tab.js::_buildChipList exactly so the two
+  // surfaces feel identical at the operator level. Per-account ACL
+  // data attributes are NOT used here (this is the account-scope
+  // list, not a per-agent ACL); studio.js's collectFormData reads the
+  // wrapper via the studio-side ``.connector-acl-chiplist`` selector,
+  // but the connector-account-editor's own collectFormData reads via
+  // the slot dataset (data-allowlist-chiplist-slot).
+  function _buildAllowlistChipList(kind, items) {
+    var wrapper = document.createElement('div');
+    wrapper.className = 'chip-list-editor connector-allowlist-chiplist';
+    wrapper.setAttribute('data-allowlist-kind', kind);
+    wrapper.setAttribute('data-testid', 'connector-allowlist-' + kind + '-chiplist');
 
-  function renderAllowlistRow(kind, value) {
-    var escapeAttr = window.App.escapeAttr;
-    var html = '';
-    html += '<div class="connector-allowlist-row" data-allowlist-kind="' +
-            escapeAttr(kind) + '">';
-    html += '<input type="text" class="field-input admin-pf-input ' +
-            'connector-allowlist-input" data-allowlist-kind="' +
-            escapeAttr(kind) + '" value="' + escapeAttr(value || '') +
-            '" placeholder="' + (kind === 'peers' ? 'peer id' : 'channel id') + '" />';
-    html += '<button type="button" class="connector-allowlist-remove-btn" ' +
-            'data-allowlist-kind="' + escapeAttr(kind) +
-            '" aria-label="Remove entry" title="Remove">' +
-            window.App.icon('trash') + '</button>';
-    html += '</div>';
-    return html;
+    for (var i = 0; i < (items || []).length; i++) {
+      var v = String(items[i]);
+      var chip = document.createElement('span');
+      chip.className = 'chip';
+      chip.appendChild(document.createTextNode(v));
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'chip-remove';
+      btn.setAttribute('aria-label', 'Remove ' + v);
+      btn.textContent = '×'; // × multiplication sign
+      chip.appendChild(btn);
+      wrapper.appendChild(chip);
+    }
+
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'chip-list-input';
+    input.placeholder = kind === 'peers' ? 'Add peer…' : 'Add channel…';
+    input.setAttribute('aria-label', kind === 'peers' ? 'Add peer' : 'Add channel');
+    wrapper.appendChild(input);
+    return wrapper;
   }
 
   function renderAttachedAgentsSection() {
     var html = '';
     html += '<div class="editor-section connector-attached-agents-section">';
     html += '<div class="section-title">Attached agents</div>';
-    html += '<div class="field-row admin-pf-row">';
-    html += '<label></label>';
     html += '<div class="connector-attached-agents-list" ' +
             'data-testid="connector-attached-agents-list">' +
             '<em class="form-hint">Loading…</em>' +
             '</div>';
-    html += '</div>';
     html += '</div>';
     return html;
   }
@@ -1296,32 +1322,62 @@
     var listEl = container.querySelector('[data-testid="connector-attached-agents-list"]');
     if (!listEl) return;
     if (!rows || rows.length === 0) {
-      listEl.innerHTML = '<em class="form-hint">No agents attached to this connector.</em>';
+      listEl.innerHTML = '<em class="form-hint">No agents attached.</em>';
       return;
     }
-    var html = '<ul class="connector-attached-agents">';
+    // M10 F6 L7 HAT — semantic redesign: render the actual per-agent
+    // ACL chips (read-only). Each axis is tri-state:
+    //   - null → "inherits" hint
+    //   - [] → "none" (peers) / "DMs only" (channels) hint
+    //   - [items] → chips
+    // The chip primitive is reused without the remove-button affordance
+    // (read-only display); each row links to the agent editor.
+    function _renderAxis(value, axis) {
+      if (value == null) {
+        return '<em class="form-hint" data-testid="' +
+               'connector-attached-axis-inherits">inherits</em>';
+      }
+      if (Array.isArray(value) && value.length === 0) {
+        if (axis === 'channels') {
+          return '<em class="form-hint" data-testid="' +
+                 'connector-attached-axis-dms-only">DMs only</em>';
+        }
+        return '<em class="form-hint" data-testid="' +
+               'connector-attached-axis-none">none</em>';
+      }
+      var parts = '';
+      for (var ci = 0; ci < value.length; ci++) {
+        parts += '<span class="chip">' + escapeHtml(String(value[ci])) + '</span>';
+      }
+      return parts;
+    }
+
+    var html = '<table class="connector-attached-agents-table" ' +
+               'data-testid="connector-attached-agents-table">';
+    html += '<thead><tr>' +
+            '<th>Agent</th>' +
+            '<th>Peers</th>' +
+            '<th>Channels</th>' +
+            '</tr></thead>';
+    html += '<tbody>';
     for (var i = 0; i < rows.length; i++) {
       var row = rows[i] || {};
       var name = String(row.name || '');
-      var peersCount = Number(row.peers_count || 0);
-      var channelsCount = Number(row.channels_count || 0);
-      // Deep-link to the Agent Editor — leg 5 will route the
-      // ``#studio/agents/{name}`` URL with an additional fragment
-      // for the Connectors tab. Until leg 5 lands, the existing
-      // routing fallback displays the agent editor's default tab.
-      html += '<li class="connector-attached-agent" ' +
+      var peersVal = (row.peers === undefined) ? null : row.peers;
+      var channelsVal = (row.channels === undefined) ? null : row.channels;
+      html += '<tr class="connector-attached-agent-row" ' +
               'data-testid="connector-attached-agent-' + escapeAttr(name) + '">';
-      html += '<a href="#studio/agents/' + escapeAttr(name) + '" ' +
+      html += '<td><a href="#studio/agents/' + escapeAttr(name) + '" ' +
               'class="connector-attached-agent-link" ' +
               'data-testid="connector-attached-agent-link-' + escapeAttr(name) + '">' +
-              escapeHtml(name) + '</a>';
-      html += ' <span class="connector-attached-agent-counts">' +
-              'peers: ' + escapeHtml(String(peersCount)) +
-              ' · channels: ' + escapeHtml(String(channelsCount)) +
-              '</span>';
-      html += '</li>';
+              escapeHtml(name) + '</a></td>';
+      html += '<td data-testid="connector-attached-agent-peers-' +
+              escapeAttr(name) + '">' + _renderAxis(peersVal, 'peers') + '</td>';
+      html += '<td data-testid="connector-attached-agent-channels-' +
+              escapeAttr(name) + '">' + _renderAxis(channelsVal, 'channels') + '</td>';
+      html += '</tr>';
     }
-    html += '</ul>';
+    html += '</tbody></table>';
     listEl.innerHTML = html;
   }
 
@@ -1359,7 +1415,7 @@
     var btn = container.querySelector('.connector-pairing-generate-btn');
     if (!btn) return;
     btn.addEventListener('click', function () {
-      var originalLabel = btn.textContent;
+      var originalHtml = btn.innerHTML;
       btn.disabled = true;
       btn.textContent = 'Generating…';
       fetch('/api/connector-accounts/' + encodeURIComponent(account.id) + '/pairing-code', {
@@ -1390,12 +1446,12 @@
           // initial-render contract).
           var statusEl = container.querySelector('[data-testid="connector-pairing-status"]');
           if (statusEl) {
-            statusEl.textContent = 'Code on file (issued ' + (data.issued_at || '') +
-                                   '). The code is only shown immediately after generation — ' +
-                                   'regenerate to reveal a fresh code.';
+            statusEl.textContent = 'Code on file · issued ' + (data.issued_at || '');
           }
           // Relabel the button to "Regenerate code" once a code exists.
-          btn.textContent = 'Regenerate code';
+          // Use innerHTML to preserve the refresh icon — textContent would
+          // strip the SVG.
+          btn.innerHTML = window.App.icon('refresh') + ' Regenerate code';
 
           // Mirror the new pairing into the local ``account.config``
           // so any subsequent Save (collectFormData) preserves it
@@ -1406,7 +1462,7 @@
           window.App.showFlash(container, 'Pairing code generated. Click Save to persist other changes.');
         })
         .catch(function (err) {
-          btn.textContent = originalLabel;
+          btn.innerHTML = originalHtml;
           window.App.showFlash(container, 'Pairing error: ' + (err && err.message ? err.message : String(err)), true);
         })
         .then(function () {
@@ -1441,83 +1497,148 @@
     });
   }
 
-  function wireAllowlistEvents(container, checkDirty) {
-    var toggle = container.querySelector('.connector-allowlist-toggle');
-    var listsWrap = container.querySelector('[data-testid="connector-allowlist-lists"]');
-    if (toggle && listsWrap) {
-      toggle.addEventListener('change', function () {
-        listsWrap.hidden = !toggle.checked;
-        checkDirty();
-      });
+  function wireAllowlistEvents(container, account, checkDirty) {
+    // M10 F6 L7 HAT — semantic redesign: no toggle. Chip-lists are
+    // always mounted. Empty lists are valid and mean "unrestricted on
+    // this axis."
+    //
+    // Mount the chip-list editors into the slot divs. Pre-existing
+    // entries come from account.config.allowlist; if absent, empty
+    // chip-lists are mounted so the operator can start typing
+    // immediately.
+    var allowlist = (account && account.config && account.config.allowlist) || null;
+    var peersInit = (allowlist && Array.isArray(allowlist.peers)) ? allowlist.peers : [];
+    var channelsInit = (allowlist && Array.isArray(allowlist.channels)) ? allowlist.channels : [];
+    var peersSlot = container.querySelector('[data-allowlist-chiplist-slot="peers"]');
+    var channelsSlot = container.querySelector('[data-allowlist-chiplist-slot="channels"]');
+    var helpers = window.App.adminFormHelpers;
+
+    function _mountChipList(slot, kind, init) {
+      if (!slot) return;
+      slot.innerHTML = '';
+      var chiplist = _buildAllowlistChipList(kind, init);
+      slot.appendChild(chiplist);
+      if (helpers && helpers.wireChipListEditor) {
+        helpers.wireChipListEditor(chiplist, { onChange: checkDirty });
+      }
     }
-
-    // Delegated input + click events on the allowlist section so
-    // dynamically-added rows participate without re-binding.
-    var section = container.querySelector('.connector-allowlist-section');
-    if (!section) return;
-
-    section.addEventListener('input', function (e) {
-      var target = e.target;
-      if (target && target.classList && target.classList.contains('connector-allowlist-input')) {
-        checkDirty();
-      }
-    });
-
-    section.addEventListener('click', function (e) {
-      var target = e.target;
-      if (!target) return;
-      var addBtn = target.closest && target.closest('.connector-allowlist-add-btn');
-      if (addBtn) {
-        var kind = addBtn.getAttribute('data-allowlist-kind');
-        var listEl = section.querySelector('[data-allowlist-kind="' + kind +
-                                           '"].connector-allowlist-list');
-        if (!listEl) return;
-        var rowsWrap = listEl.querySelector('.connector-allowlist-rows');
-        if (!rowsWrap) return;
-        var tmp = document.createElement('div');
-        tmp.innerHTML = renderAllowlistRow(kind, '');
-        var newRow = tmp.querySelector('.connector-allowlist-row');
-        if (newRow) {
-          rowsWrap.appendChild(newRow);
-          // Focus the newly-added input so the operator can start
-          // typing immediately (keyboard reachability).
-          var input = newRow.querySelector('input');
-          if (input) input.focus();
-          checkDirty();
-        }
-        return;
-      }
-      var removeBtn = target.closest && target.closest('.connector-allowlist-remove-btn');
-      if (removeBtn) {
-        var row = removeBtn.closest('.connector-allowlist-row');
-        if (row && row.parentNode) {
-          row.parentNode.removeChild(row);
-          checkDirty();
-        }
-      }
-    });
+    _mountChipList(peersSlot, 'peers', peersInit);
+    _mountChipList(channelsSlot, 'channels', channelsInit);
   }
 
   function collectAllowlistFromContainer(container) {
-    // Returns ``{ enabled: bool, peers: list, channels: list }``. The
-    // caller decides whether to emit ``config.allowlist`` based on
-    // ``enabled``. Empty trimmed entries are dropped; whitespace-only
-    // entries are not preserved.
-    var toggle = container.querySelector('.connector-allowlist-toggle');
-    if (!toggle) return null;
-    var enabled = !!toggle.checked;
-    var peers = [];
-    var channels = [];
-    var inputs = container.querySelectorAll('.connector-allowlist-input');
-    for (var i = 0; i < inputs.length; i++) {
-      var inp = inputs[i];
-      var kind = inp.getAttribute('data-allowlist-kind');
-      var val = (inp.value || '').trim();
-      if (!val) continue;
-      if (kind === 'peers') peers.push(val);
-      else if (kind === 'channels') channels.push(val);
+    // M10 F6 L7 HAT — semantic redesign: no toggle. Returns
+    // ``{ peers: list, channels: list }`` (or null if the slots are
+    // missing — defensive). Both lists are ALWAYS emitted; empty list
+    // = unrestricted on that axis. Chips are read in DOM order; the
+    // wireChipListEditor helper guarantees only committed chip elements
+    // (not the live input) carry values. Whitespace-only entries cannot
+    // reach a chip (the helper trims before committing).
+    var peersSlot = container.querySelector('[data-allowlist-chiplist-slot="peers"]');
+    var channelsSlot = container.querySelector('[data-allowlist-chiplist-slot="channels"]');
+    if (!peersSlot && !channelsSlot) return null;
+    function _readChiplist(slot) {
+      var out = [];
+      if (!slot) return out;
+      var chips = slot.querySelectorAll('.chip');
+      for (var i = 0; i < chips.length; i++) {
+        var chip = chips[i];
+        var label = '';
+        for (var j = 0; j < chip.childNodes.length; j++) {
+          var n = chip.childNodes[j];
+          if (n.nodeType === 3) {
+            label += n.nodeValue;
+          }
+        }
+        label = (label || '').trim();
+        if (label) out.push(label);
+      }
+      return out;
     }
-    return { enabled: enabled, peers: peers, channels: channels };
+    return {
+      peers: _readChiplist(peersSlot),
+      channels: _readChiplist(channelsSlot)
+    };
+  }
+
+  // ── Stale-chip warning (M10 F6 L7 HAT) ──────────────────────────────
+  //
+  // Before save, if the operator removed any chip relative to the
+  // originally-loaded account.config.allowlist, fetch the attached
+  // agents and warn if any removed chip is still referenced by an
+  // agent's per-account ACL. The operator can cancel (abort save) or
+  // confirm (proceed; the agent's chip stays in their ACL but no
+  // longer matches an account-scope entry — effectively dead).
+
+  function _confirmStaleChipsThen(account, payload, container, proceed) {
+    var origAllowlist = (account && account.config && account.config.allowlist) || null;
+    var origPeers = (origAllowlist && Array.isArray(origAllowlist.peers)) ? origAllowlist.peers : [];
+    var origChannels = (origAllowlist && Array.isArray(origAllowlist.channels)) ? origAllowlist.channels : [];
+    var newAllowlist = (payload && payload.config && payload.config.allowlist) || null;
+    var newPeers = (newAllowlist && Array.isArray(newAllowlist.peers)) ? newAllowlist.peers : [];
+    var newChannels = (newAllowlist && Array.isArray(newAllowlist.channels)) ? newAllowlist.channels : [];
+
+    var removedPeers = [];
+    for (var i = 0; i < origPeers.length; i++) {
+      if (newPeers.indexOf(origPeers[i]) === -1) removedPeers.push(origPeers[i]);
+    }
+    var removedChannels = [];
+    for (var j = 0; j < origChannels.length; j++) {
+      if (newChannels.indexOf(origChannels[j]) === -1) removedChannels.push(origChannels[j]);
+    }
+    if (removedPeers.length === 0 && removedChannels.length === 0) {
+      // No removals — proceed immediately.
+      proceed();
+      return;
+    }
+
+    fetch('/api/connector-accounts/' + encodeURIComponent(account.id) + '/attached-agents')
+      .then(function (resp) {
+        if (!resp.ok) return null;
+        return resp.json();
+      })
+      .then(function (rows) {
+        if (!Array.isArray(rows) || rows.length === 0) {
+          proceed();
+          return;
+        }
+        var affected = []; // [{agent, kind, chip}]
+        for (var k = 0; k < rows.length; k++) {
+          var row = rows[k] || {};
+          var aname = String(row.name || '');
+          var rowPeers = Array.isArray(row.peers) ? row.peers : [];
+          var rowChannels = Array.isArray(row.channels) ? row.channels : [];
+          for (var p = 0; p < removedPeers.length; p++) {
+            if (rowPeers.indexOf(removedPeers[p]) !== -1) {
+              affected.push({ agent: aname, kind: 'peer', chip: removedPeers[p] });
+            }
+          }
+          for (var c = 0; c < removedChannels.length; c++) {
+            if (rowChannels.indexOf(removedChannels[c]) !== -1) {
+              affected.push({ agent: aname, kind: 'channel', chip: removedChannels[c] });
+            }
+          }
+        }
+        if (affected.length === 0) {
+          proceed();
+          return;
+        }
+        var lines = ['Removing these account-scope entries will leave dead references in attached agent ACLs:'];
+        for (var li = 0; li < affected.length; li++) {
+          var aff = affected[li];
+          lines.push('  - agent "' + aff.agent + '": ' + aff.kind + ' "' + aff.chip + '"');
+        }
+        lines.push('');
+        lines.push('Continue with save?');
+        var ok = window.confirm(lines.join('\n'));
+        if (ok) proceed();
+      })
+      .catch(function () {
+        // Network failure — fall back to proceeding (don't block the
+        // operator on a transient fetch failure; the save itself will
+        // surface any backend rejection).
+        proceed();
+      });
   }
 
   // ── KV table head visibility helpers ────────────────────────────────

@@ -2334,11 +2334,20 @@ async def list_attached_agents_for_connector_account(
 ) -> list[dict[str, Any]]:
     """Return agents whose ``connector_account_ids`` includes this account.
 
-    M10 F6 L4: powers the read-only "Attached agents" section of the
-    Studio Connector account editor. Per-row counts derive from
-    ``agent.connector_acls[account_id]["peers"]`` and ``["channels"]``;
-    when no per-agent ACL is configured for this account, both counts
-    are 0 (inherit / default-permit semantics per leg 1c).
+    M10 F6 L4 (extended at L7 HAT): powers the read-only "Attached
+    agents" section of the Studio Connector account editor.
+
+    Response shape per agent — M10 F6 L7 HAT semantic redesign:
+      * ``name``: agent slug.
+      * ``peers``: ``list[str] | None`` — the agent's per-account
+        ``peers`` override (None means "inherit account-scope", ``[]``
+        means "explicit empty / no peer", non-empty means "subset").
+        ``None`` when the agent has no per-account entry at all.
+      * ``channels``: ``list[str] | None`` — same tri-state semantic as
+        ``peers``.
+      * ``peers_count`` / ``channels_count``: retained for back-compat
+        with older Studio bundles in the wild; both are ``0`` when the
+        corresponding axis is ``None`` or ``[]``.
 
     Performance: O(N agents). Acceptable for the operator's small agent
     count (typically <50). If the count climbs, a JSON-extract query
@@ -2361,12 +2370,20 @@ async def list_attached_agents_for_connector_account(
         if account_id not in cfg.connector_account_ids:
             continue
         acls = cfg.connector_acls or {}
-        acl = acls.get(account_id, {})
+        acl = acls.get(account_id)
+        if acl is None:
+            peers_val: list[str] | None = None
+            channels_val: list[str] | None = None
+        else:
+            peers_val = acl.get("peers")
+            channels_val = acl.get("channels")
         result.append(
             {
                 "name": name,
-                "peers_count": len(acl.get("peers", [])),
-                "channels_count": len(acl.get("channels", [])),
+                "peers": peers_val,
+                "channels": channels_val,
+                "peers_count": len(peers_val) if peers_val else 0,
+                "channels_count": len(channels_val) if channels_val else 0,
             }
         )
     return result

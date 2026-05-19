@@ -841,4 +841,307 @@
     line-height: 1.4;
   }
   .area-studio .mcp-command-hint-row label { /* empty label slot for grid alignment */ }
+
+  /* === Inline field-level validation (M10 F6 L7 HAT) ============
+     Mirrors the .area-admin .field-error / .field-error-highlight
+     pattern (admin.css:355-370,448-454). Used by the connector
+     account editor to surface pre-flight validation errors adjacent
+     to the offending field row instead of dumping them in the
+     top action-cluster `.editor-error` span. Cleared by
+     clearFieldErrors() on next save attempt. */
+  .area-studio .field-row.field-error-highlight input,
+  .area-studio .field-row.field-error-highlight select,
+  .area-studio .field-row.field-error-highlight textarea {
+    border-color: var(--status-danger);
+    box-shadow: 0 0 0 1px var(--status-danger-glow);
+  }
+  .area-studio .field-row.field-error-highlight label {
+    color: var(--status-danger);
+  }
+  .area-studio .field-row .field-error {
+    display: block;
+    color: var(--status-danger);
+    font-size: var(--font-size-tiny);
+    margin: 4px 0 0 100px;  /* aligns with .admin-pf-row label gutter */
+  }
+  .area-studio .field-row .field-error[hidden] {
+    display: none;
+  }
+
+  /* === Empty-state banner for "no connector types registered yet" (HAT) ====
+     Production has CONNECTOR_TYPES = () until F8 ships Discord. The
+     Connection section renders this banner above the Name field so the
+     operator understands why the Type dropdown is empty and how to
+     work around it for HAT (POST /api/connector-accounts with stub). */
+  .area-studio .connector-account-empty-types-banner {
+    margin: 0 0 12px 0;
+    padding: 10px 14px;
+    background: var(--status-warning-bg-soft, rgba(255, 193, 7, 0.08));
+    border-left: 3px solid var(--status-warning, #ffc107);
+    border-radius: 4px;
+    color: var(--fg);
+    font-size: var(--font-size-body-sm);
+    line-height: 1.4;
+  }
+  .area-studio .connector-account-empty-types-banner strong {
+    color: var(--status-warning, #ffc107);
+  }
+  .area-studio .connector-account-empty-types-banner code {
+    font-family: monospace;
+    font-size: 0.9em;
+    background: var(--surface-elevated));
+    padding: 1px 4px;
+    border-radius: 3px;
+  }
+
+  /* === Connector account editor polish (M10 F6 L7 HAT) ===========
+     Issue #1: drop the inter-section divider that components.css
+     applies globally to adjacent .editor-section pairs. The
+     connector-account-editor uses section-titles + whitespace
+     instead. */
+  .area-studio .connector-account-editor .editor-section + .editor-section {
+    border-top: none;
+    padding-top: 12px;
+  }
+
+  /* Issue #2: status row is one line, not a paragraph. */
+  .area-studio .connector-pairing-row {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .area-studio .connector-pairing-status {
+    color: var(--fg-secondary);
+    font-size: var(--font-size-body-sm);
+    min-width: 0;
+  }
+  .area-studio .connector-pairing-generate-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+  .area-studio .connector-pairing-generate-btn svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  /* Issue #3 + #4: copy button sits inside the read-only code field
+     as an icon-button. The reveal row uses [hidden] to gate the
+     entire row (hint + input + copy button); explicit display:none
+     on [hidden] is required because .field-row's flex display would
+     otherwise override the platform-default hidden semantics. */
+  .area-studio .connector-pairing-reveal-row[hidden] {
+    display: none;
+  }
+  .area-studio .connector-pairing-code-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+  .area-studio .connector-pairing-code-input {
+    flex: 1;
+    font-family: monospace;
+    letter-spacing: 0.06em;
+    padding-right: 36px;  /* room for the copy button */
+  }
+  .area-studio .connector-pairing-copy-btn {
+    position: absolute;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    color: var(--fg-secondary);
+    cursor: pointer;
+    padding: 0;
+  }
+  .area-studio .connector-pairing-copy-btn:hover {
+    background: var(--surface-elevated));
+    color: var(--fg);
+  }
+  .area-studio .connector-pairing-copy-btn svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  /* Issue #5: iOS-style toggle via the .tool-enable-switch primitive.
+     The base rule (admin.css:197) ships `position: absolute` for
+     tile-corner placement; unpin here so the toggle flows inline at
+     the field-row's right of the Enable label. Same override shape
+     as .mcp-kv-sensitive-cell .tool-enable-switch above. Specificity
+     0,2,0 matches the base — but later rule wins on source order
+     within the same @layer. */
+  .area-studio .tool-enable-switch.connector-allowlist-switch {
+    position: relative;
+    bottom: auto;
+    right: auto;
+    display: inline-block;
+    vertical-align: middle;
+  }
+
+  /* Issue #6: peers and channels lists are bare — no card chrome.
+     The label + add-button + rows live directly on the section
+     background, separated by simple vertical spacing. */
+  .area-studio .connector-allowlist-lists {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    margin-top: 12px;
+  }
+  .area-studio .connector-allowlist-lists[hidden] {
+    display: none;
+  }
+  .area-studio .connector-allowlist-list {
+    /* Container chrome removed (HAT iteration #2 issue #3). */
+  }
+  /* M10 F6 L7 HAT: account-scope allowlist now uses chip-list-editor
+     (slug-style), matching the Agent Editor Connectors tab. The
+     "Peers" / "Channels" labels sit above each chiplist for clarity. */
+  .area-studio .connector-account-acl-fieldrow {
+    margin-top: 12px;
+  }
+  .area-studio .connector-account-acl-fieldlabel {
+    display: block;
+    font-size: var(--font-size-body-sm);
+    color: var(--fg-secondary);
+    margin-bottom: 4px;
+  }
+
+  /* === Per-axis ACL chevron rows (M10 F6 L7 HAT — MCP-style) ====
+     Each axis is a chevron-button row that toggles its checkbox-list
+     body, matching the MCPs tab's "N tools" expand pattern. The
+     button shape reuses .mcp-source-tile-expand-btn / -tool-count /
+     -chevron primitives; the axis title goes on the left, count
+     summary in the middle (.connector-acl-axis-count-text via
+     .mcp-source-tile-tool-count), chevron on the right. */
+  .area-studio .connector-acl-axis + .connector-acl-axis {
+    margin-top: 4px;
+  }
+  .area-studio .connector-acl-axis-toggle {
+    /* Inherits the .mcp-source-tile-expand-btn layout (flex row + gap
+       + chevron rotation on aria-expanded). Add title-left
+       alignment so the axis label reads as the affordance, not a
+       row-end caption. */
+    width: 100%;
+    justify-content: flex-start;
+    gap: 12px;
+  }
+  .area-studio .connector-acl-axis-toggle .connector-acl-axis-title {
+    font-weight: var(--font-weight-semibold, 600);
+    font-size: var(--font-size-body-sm);
+    color: var(--fg);
+    flex-shrink: 0;
+  }
+  .area-studio .connector-acl-axis-toggle .mcp-source-tile-tool-count {
+    /* Count sits next to the title with the chevron immediately
+       after — no flex-grow so the chevron doesn't get pushed to
+       the row's right edge. Matches the MCPs tab's "29 tools ▸"
+       packing. */
+    flex: 0 0 auto;
+    text-align: left;
+  }
+  .area-studio .connector-acl-axis-body {
+    margin-top: 8px;
+  }
+  .area-studio .connector-allowlist-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .area-studio .connector-allowlist-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .area-studio .connector-allowlist-input {
+    flex: 1;
+  }
+  .area-studio .connector-allowlist-remove-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    color: var(--fg-secondary);
+    cursor: pointer;
+    padding: 0;
+  }
+  .area-studio .connector-allowlist-remove-btn:hover {
+    color: var(--status-danger);
+    background: var(--surface-elevated));
+  }
+  .area-studio .connector-allowlist-remove-btn svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  /* Attached-agents table (M10 F6 L7 HAT — table format replaces
+     the prior <ul> "name peers: N · channels: M" inline text). */
+  .area-studio .connector-attached-agents-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 8px;
+  }
+  .area-studio .connector-attached-agents-table th {
+    text-align: left;
+    padding: 6px 12px;
+    font-size: var(--font-size-caption);
+    font-weight: 500;
+    color: var(--fg-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border-bottom: 1px solid var(--border);
+  }
+  .area-studio .connector-attached-agents-table th.connector-attached-agents-count-col,
+  .area-studio .connector-attached-agents-table td.connector-attached-agents-count-col {
+    width: 80px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .area-studio .connector-attached-agents-table tbody tr {
+    transition: background 0.15s ease;
+  }
+  .area-studio .connector-attached-agents-table tbody tr:hover {
+    background: var(--surface-elevated));
+  }
+  .area-studio .connector-attached-agents-table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    font-size: var(--font-size-body-sm);
+  }
+  .area-studio .connector-attached-agents-table .connector-attached-agent-link {
+    color: var(--accent);
+    text-decoration: none;
+    font-weight: 500;
+  }
+  .area-studio .connector-attached-agents-table .connector-attached-agent-link:hover {
+    text-decoration: underline;
+  }
+
+  /* Issue #7: Test connection button + LED + label all on the same
+     row, left-aligned, with the LED vertically centered and a
+     readable label adjacent. */
+  .area-studio .connector-test-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .area-studio .connector-test-led {
+    flex-shrink: 0;
+  }
+  .area-studio .connector-test-message {
+    color: var(--fg-secondary);
+    font-size: var(--font-size-body-sm);
+  }
 }

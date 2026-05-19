@@ -1322,10 +1322,17 @@ class TestConnectorAccountPairingCodeAndAttached:
         assert resp.status_code == 200
         assert resp.json() == []
 
-    async def test_attached_agents_returns_attached_with_zero_counts_when_no_acl(
+    async def test_attached_agents_returns_attached_with_null_axes_when_no_acl(
         self, client: AsyncClient
     ) -> None:
-        """Agent attached, no per-agent ACL → ``peers_count = channels_count = 0``."""
+        """Agent attached, no per-agent ACL → both axes ``None`` (inherit).
+
+        L7 HAT response-shape extension: in addition to ``peers_count`` /
+        ``channels_count`` (retained for back-compat), the row now
+        includes ``peers`` and ``channels`` as ``list[str] | None``.
+        Agents without a per-account entry get ``None`` on both axes
+        (inherit account-scope).
+        """
         account_id = await self._create_account(client)
 
         # Create the agent with this account attached but no ACLs.
@@ -1343,13 +1350,20 @@ class TestConnectorAccountPairingCodeAndAttached:
         )
         assert resp.status_code == 200
         assert resp.json() == [
-            {"name": "agent-attached", "peers_count": 0, "channels_count": 0}
+            {
+                "name": "agent-attached",
+                "peers": None,
+                "channels": None,
+                "peers_count": 0,
+                "channels_count": 0,
+            }
         ]
 
-    async def test_attached_agents_includes_acl_peer_and_channel_counts(
+    async def test_attached_agents_includes_acl_peer_and_channel_lists(
         self, client: AsyncClient
     ) -> None:
-        """Agent with a non-empty ACL → counts reflect list lengths."""
+        """Agent with a non-empty ACL → response carries the actual
+        ``peers`` and ``channels`` lists (L7 HAT shape extension)."""
         account_id = await self._create_account(client)
 
         resp = await client.post(
@@ -1368,7 +1382,7 @@ class TestConnectorAccountPairingCodeAndAttached:
         assert resp.status_code in (200, 201), resp.text
 
         # A second agent attached to the SAME account but with NO ACL —
-        # confirms multi-agent listing + zero-count fallback in one
+        # confirms multi-agent listing + null-axes fallback in one
         # response.
         resp = await client.post(
             "/api/agents",
@@ -1393,8 +1407,76 @@ class TestConnectorAccountPairingCodeAndAttached:
         assert resp.status_code == 200
         rows = sorted(resp.json(), key=lambda r: r["name"])
         assert rows == [
-            {"name": "agent-no-acl", "peers_count": 0, "channels_count": 0},
-            {"name": "agent-with-acl", "peers_count": 3, "channels_count": 2},
+            {
+                "name": "agent-no-acl",
+                "peers": None,
+                "channels": None,
+                "peers_count": 0,
+                "channels_count": 0,
+            },
+            {
+                "name": "agent-with-acl",
+                "peers": ["u1", "u2", "u3"],
+                "channels": ["c1", "c2"],
+                "peers_count": 3,
+                "channels_count": 2,
+            },
+        ]
+
+    async def test_attached_agents_response_tri_state_axes(
+        self, client: AsyncClient
+    ) -> None:
+        """L7 HAT tri-state semantic — verify each axis value (None vs
+        ``[]`` vs ``[items]``) surfaces correctly per agent.
+        """
+        account_id = await self._create_account(client)
+
+        # Agent A: peers explicit-empty, channels inherit.
+        resp = await client.post(
+            "/api/agents",
+            json={
+                "name": "agent-a",
+                "connector_account_ids": [account_id],
+                "connector_acls": {
+                    account_id: {"peers": [], "channels": None},
+                },
+            },
+        )
+        assert resp.status_code in (200, 201), resp.text
+
+        # Agent B: peers subset, channels explicit-empty (DMs-only).
+        resp = await client.post(
+            "/api/agents",
+            json={
+                "name": "agent-b",
+                "connector_account_ids": [account_id],
+                "connector_acls": {
+                    account_id: {"peers": ["u1"], "channels": []},
+                },
+            },
+        )
+        assert resp.status_code in (200, 201), resp.text
+
+        resp = await client.get(
+            f"/api/connector-accounts/{account_id}/attached-agents"
+        )
+        assert resp.status_code == 200
+        rows = sorted(resp.json(), key=lambda r: r["name"])
+        assert rows == [
+            {
+                "name": "agent-a",
+                "peers": [],
+                "channels": None,
+                "peers_count": 0,
+                "channels_count": 0,
+            },
+            {
+                "name": "agent-b",
+                "peers": ["u1"],
+                "channels": [],
+                "peers_count": 1,
+                "channels_count": 0,
+            },
         ]
 
     async def test_attached_agents_404_on_unknown_account(

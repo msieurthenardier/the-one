@@ -388,10 +388,10 @@ class TestSQLiteAgentStore:
     ) -> None:
         """Empty per-account ACL ``{"peers": [], "channels": []}`` survives
         the DB round-trip verbatim (does NOT collapse to an absent entry).
-        Mirror of leg-1b's allowlist-round-trip discipline: empty-list
-        lockdown is a SEMANTIC choice (agent narrows to nothing for this
-        account) and must survive the serialize → NULL? check → JSON load
-        path intact.
+        Mirror of leg-1b's allowlist-round-trip discipline: explicit-empty
+        is a SEMANTIC choice (L7 HAT redesign: peers = "no peer";
+        channels = "DMs only", F8-deferred) and must survive the
+        serialize → NULL? check → JSON load path intact.
         """
         config = AgentConfig(
             name="empty-per-acct-agent",
@@ -453,18 +453,25 @@ class TestSQLiteAgentStore:
 class TestAgentConfigConnectorAclsValidator:
     """Direct-construction validator tests for ``AgentConfig.connector_acls``.
 
-    M10 F6 L1c. Sibling of ``TestSQLiteAgentStore``; tests the
+    M10 F6 L1c (semantic redesigned at L7 HAT — see flight-log
+    "Deviations"). Sibling of ``TestSQLiteAgentStore``; tests the
     ``@field_validator("connector_acls", mode="after")`` invariants
     enforced at ``AgentConfig(**kwargs)`` time (no DB involved). The
     repo read-path validator-firing test is in ``TestSQLiteAgentStore``;
     these tests focus on the validator's invariants in isolation.
 
-    Pydantic v2's ``dict[str, dict[str, list[str]]] | None`` annotation
-    enforces most invariants natively (non-string outer key, non-dict
-    outer value, non-list inner value, non-string inner entry). The
-    validator adds the ONE invariant the annotation cannot express:
-    each inner dict must have EXACTLY the keys ``{"peers", "channels"}``
-    (no extra keys, no missing keys).
+    Pydantic v2's ``dict[str, dict[str, list[str] | None]] | None``
+    annotation enforces most invariants natively (non-string outer key,
+    non-dict outer value, non-list/non-None inner value, non-string inner
+    entry). The validator adds the ONE invariant the annotation cannot
+    express: each inner dict must have EXACTLY the keys
+    ``{"peers", "channels"}`` (no extra keys, no missing keys).
+
+    Per-axis tri-state semantic (L7 HAT):
+      - ``None`` → inherit account-scope
+      - ``[]`` → explicit empty (peers: no peer; channels: DMs-only
+        sentinel; outbound fails closed until F8 ships DM classification)
+      - ``[items]`` → subset (intersected with account-scope)
     """
 
     def test_default_none_is_valid(self) -> None:
@@ -477,9 +484,24 @@ class TestAgentConfigConnectorAclsValidator:
         cfg = AgentConfig(name="agent", connector_acls={})
         assert cfg.connector_acls == {}
 
+    def test_both_axes_none_is_valid(self) -> None:
+        """``{"acct-a": {"peers": None, "channels": None}}`` is valid —
+        both axes inherit account-scope (tri-state ``None``).
+        """
+        cfg = AgentConfig(
+            name="agent",
+            connector_acls={"acct-a": {"peers": None, "channels": None}},
+        )
+        assert cfg.connector_acls == {
+            "acct-a": {"peers": None, "channels": None},
+        }
+
     def test_empty_per_account_acl_is_valid(self) -> None:
-        """``{"acct-a": {"peers": [], "channels": []}}`` is valid
-        (empty-list lockdown: agent narrows to nothing for this account).
+        """``{"acct-a": {"peers": [], "channels": []}}`` is valid.
+
+        L7 HAT semantic: explicit-empty on both axes — peers means "no
+        peer permitted"; channels means "DMs-only" (F8 ships the
+        classification — until then outbound fails closed).
         """
         cfg = AgentConfig(
             name="agent",
@@ -489,7 +511,7 @@ class TestAgentConfigConnectorAclsValidator:
 
     def test_populated_per_account_acl_is_valid(self) -> None:
         """A populated per-account ACL with strings in both inner lists
-        is valid.
+        is valid (subset on both axes).
         """
         cfg = AgentConfig(
             name="agent",
@@ -501,9 +523,51 @@ class TestAgentConfigConnectorAclsValidator:
             "acct-a": {"peers": ["u1", "u2"], "channels": ["c1"]},
         }
 
+    def test_peers_none_channels_empty_is_valid(self) -> None:
+        """Tri-state matrix: peers inherits, channels is DMs-only."""
+        cfg = AgentConfig(
+            name="agent",
+            connector_acls={"acct-a": {"peers": None, "channels": []}},
+        )
+        assert cfg.connector_acls == {
+            "acct-a": {"peers": None, "channels": []},
+        }
+
+    def test_peers_none_channels_subset_is_valid(self) -> None:
+        """Tri-state matrix: peers inherits, channels narrows."""
+        cfg = AgentConfig(
+            name="agent",
+            connector_acls={"acct-a": {"peers": None, "channels": ["c1"]}},
+        )
+        assert cfg.connector_acls == {
+            "acct-a": {"peers": None, "channels": ["c1"]},
+        }
+
+    def test_peers_subset_channels_none_is_valid(self) -> None:
+        """Tri-state matrix: peers narrows, channels inherits."""
+        cfg = AgentConfig(
+            name="agent",
+            connector_acls={"acct-a": {"peers": ["u1"], "channels": None}},
+        )
+        assert cfg.connector_acls == {
+            "acct-a": {"peers": ["u1"], "channels": None},
+        }
+
+    def test_peers_empty_channels_none_is_valid(self) -> None:
+        """Tri-state matrix: peers explicit-empty, channels inherits."""
+        cfg = AgentConfig(
+            name="agent",
+            connector_acls={"acct-a": {"peers": [], "channels": None}},
+        )
+        assert cfg.connector_acls == {
+            "acct-a": {"peers": [], "channels": None},
+        }
+
     def test_missing_channels_inner_key_raises(self) -> None:
         """Inner dict missing ``"channels"`` raises ValidationError —
-        the validator enforces the exact-keys invariant.
+        the validator enforces the exact-keys invariant. Operators must
+        express per-axis intent via ``None`` vs ``[]`` vs ``[items]``,
+        not by key omission.
         """
         with pytest.raises(ValidationError):
             AgentConfig(
@@ -529,9 +593,10 @@ class TestAgentConfigConnectorAclsValidator:
                 },
             )
 
-    def test_non_list_inner_value_raises(self) -> None:
-        """Inner value that isn't a list is rejected by Pydantic's
-        annotation (``list_type`` error)."""
+    def test_non_list_non_none_inner_value_raises(self) -> None:
+        """Inner value that isn't a list and isn't None is rejected by
+        Pydantic's annotation (``list_type`` / ``union_tag_invalid``
+        error)."""
         with pytest.raises(ValidationError):
             AgentConfig(
                 name="agent",

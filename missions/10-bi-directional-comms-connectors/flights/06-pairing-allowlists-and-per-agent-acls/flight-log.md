@@ -372,6 +372,68 @@ Leg status: `landed`. Per the deferred-batched workflow for F6, no commit is mad
 
 Leg status: `landed`. Per the deferred-batched workflow for F6, no commit is made at this point — the Flight Director batches review + commit after the last autonomous leg.
 
+### 2026-05-19 — Leg 7 HAT — semantic redesign landed
+
+**Context**: HAT iteration on the per-agent ACL editor (post-Leg-6 polish round) exposed a UX defect — the per-agent chip-list let the operator type IDs absent from the account-scope list, producing dead chips at the resolver. The operator's framing ("if the agent can only further restrain what is already set, shouldn't it be checkboxes?") opened a wider review of the allowlist/ACL semantic. The Deviations entry above captures the full decision; this section pins the file diff + verification.
+
+**File diff summary** (inline HAT rework, no commit yet — Flight Director batches the commit):
+- `the_one/agent/config.py` — `connector_acls` Pydantic annotation widened from `dict[str, dict[str, list[str]]] | None` to `dict[str, dict[str, list[str] | None]] | None`; per-axis tri-state documented in the field comment + validator docstring (M10 F6 L7 HAT redesign).
+- `the_one/tools/connector_send.py` — outbound gating: account-scope `allowlist.channels = []` flipped from "deny everyone" to "permit unrestricted." Per-agent `channels` becomes tri-state — `None` inherits, `[]` is the F8-deferred "DMs-only" sentinel (fail-closed with explicit error envelope), `[items]` narrows. Module-level docstring captures the redesign.
+- `the_one/db/models.py` — docstring on `_validate_config_reserved_keys` updated to reflect the "empty = unrestricted" semantic (validator code unchanged; shape is unchanged).
+- `the_one/interfaces/web/api.py` — `list_attached_agents_for_connector_account` response shape extended to include `peers: list[str] | None` and `channels: list[str] | None` per agent (back-compat: `peers_count` / `channels_count` retained).
+- `the_one/interfaces/web/static/js/areas/studio/connector-account-editor.js` — dropped the Enable toggle (`renderAllowlistSection` always renders chip-lists; the `connector-allowlist-toggle` checkbox + `tool-enable-switch` wrapper + toggle handler all removed); `collectFormData` always emits `config.allowlist` (empty = unrestricted); `getFormSnapshot` no longer reads the toggle; new `_confirmStaleChipsThen` helper fetches attached-agents at save and warns via `window.confirm` if any removed chip is still referenced by an attached agent's ACL; `renderAttachedAgentsList` now renders chips (or "inherits" / "none" / "DMs only" hints) instead of bare counts.
+- `the_one/interfaces/web/static/js/areas/studio/connectors-tab.js` — `_populateAclEditor` rewritten as `_buildAxisRow(axis, scopeList, agentAxisValue)`: when account-scope axis has chips it renders a checkbox-list (all checked = inherit, none checked = explicit empty with "consider detaching" warning, mixed = subset); when account-scope axis is empty it renders the existing free chip-list. Both modes carry a new `data-connector-acl-mode` attribute ("checkboxes" or "chips") so the save collector can distinguish them.
+- `the_one/interfaces/web/static/js/areas/studio.js` — `collectFormData` rewritten to walk `[data-connector-acl-mode]` elements and emit per-axis tri-state (`null` / `[]` / `[items]`); accounts with both axes `null` are still omitted (inherit-both = no entry).
+- `tests/test_db_repositories.py::TestAgentConfigConnectorAclsValidator` — added 5 tri-state matrix tests (null/null, peers-None+channels-empty, peers-None+channels-subset, peers-subset+channels-None, peers-empty+channels-None); existing exact-keys + non-list-non-None rejection tests preserved; docstring updated.
+- `tests/test_connector_send_tool.py::TestF6OutboundGating` — `test_empty_channels_lockdown_denies` inverted to `test_empty_account_scope_channels_permits` (now asserts success); new `test_deny_when_per_agent_acl_channels_is_empty_dms_only_stub` covers the F8-deferred DMs-only sentinel; existing per-agent narrowing tests updated to use `peers: None` (inherit) instead of `peers: []` so they test only the channels axis as intended.
+- `tests/test_db_api.py` — `list_attached_agents` shape tests extended to assert the new `peers` and `channels` fields; added `test_attached_agents_response_tri_state_axes` covering each axis state.
+- Leg-1b, leg-1c, leg-3 artifact prefaces — brief "Post-redesign note" added at the top of each pointing to this Deviation; historical bodies preserved.
+
+**Test counts**: 2073 passed, 4 skipped (was 2067 pre-redesign at leg-6 landed). Net +6 tests (5 added in TestAgentConfigConnectorAclsValidator, 1 added in TestF6OutboundGating, 1 added in TestConnectorAccountPairingCodeAPI/attached-agents, 1 renamed/inverted from `test_empty_channels_lockdown_denies`).
+
+**Pre-existing failure (NOT introduced by this redesign)**: `tests/test_token_definitions.py::test_every_var_reference_is_defined` reports 3 undefined CSS tokens (`--bg-elevated`, `--fg-primary`, `--font-mono`) referenced in `studio.css`. The token references are from the operator's uncommitted leg-7 HAT iteration polish that pre-existed the redesign session; verified by stashing the redesign-only diff and reproducing the same failure. Out of scope for this redesign rework — flagged for the Flight Director to address separately (likely needs the missing tokens added to `tokens.css` or the studio.css refs updated to existing tokens like `--fg`, `--font-family-mono`, `--surface-elevated`).
+
+**Verification**:
+- `docker exec the-one pytest -x --timeout 30 tests/test_db_repositories.py::TestAgentConfigConnectorAclsValidator` — 16 passed.
+- `docker exec the-one pytest -x --timeout 30 tests/test_connector_send_tool.py` — 39 passed.
+- `docker exec the-one pytest -x --timeout 30 tests/test_db_api.py` — 62 passed.
+- `docker exec the-one pytest -x --timeout 30 tests/test_db_repositories.py tests/test_db_migration.py tests/test_connectors_inbound.py tests/test_connectors_resolver.py tests/test_ws_storage_edge_shim_visibility.py` — 217 passed.
+- `docker exec the-one pytest --timeout 30 --deselect tests/test_token_definitions.py::test_every_var_reference_is_defined` — 2073 passed, 4 skipped.
+- `docker exec the-one ruff check the_one/agent/config.py the_one/tools/connector_send.py the_one/interfaces/web/api.py tests/test_db_repositories.py tests/test_db_api.py tests/test_connector_send_tool.py` — clean.
+- `node --check` on the three JS files — clean.
+
+**F8-deferred contract reminder**: per-agent `channels = []` is the "DMs-only" sentinel. Until F8 ships DM-channel classification at the connector plugin layer, the outbound path fails closed with `[error] [constraint] channel_id 'X' is not reachable for this agent on account 'A' (DMs-only override; DM classification lands in F8)`. The stub plugin has no DM classification, so any non-DM channel hits the closed path; F8 (Discord) is expected to discriminate DM vs non-DM channels at the plugin boundary and let the runtime relax the closed-fail for DM-classified channel ids.
+
+**Artifact prefaces**: legs 1b, 1c, 3 each gained a short "Post-redesign note" preamble at the top of the artifact body pointing back to this Deviation. The historical bodies (pre-redesign two-state contract) are preserved verbatim for archaeology — only the preamble was added.
+
+Leg status: `landed (HAT inline rework)`. No commit yet — Flight Director batches the final commit per the deferred-batched workflow.
+
+### 2026-05-19 — Leg 7 HAT closed (operator-confirmed)
+
+Operator-driven HAT completed. Scenarios covered:
+
+1. **Studio Connectors detail page UX** — pass (after 4 UX iteration cycles).
+2. **Pairing code generation lifecycle** — pass: generate / regenerate / copy / one-time reveal / status round-trip.
+3. **Account-scope allowlist editing** — pass (initial-render `[hidden]` attr vs class fix). Empty-list-preservation invariant verified at the API + UI edges.
+4. **Per-agent attach + ACL via Agent Editor → Connectors tab** — pass (after the allowlist semantic redesign + 6+ UX iterations: chip-list → checkbox-list-with-MCP-tile-styling; ACL chevron removed; per-axis chevron toggle pattern added; chevron alignment fixed; routing regression fixed).
+5. **Attached-agents table** — pass: per-agent chip lists (peers + channels) with inheritance hints.
+6. **Live-broadcast visibility marker** (deferred; verified via leg-6's `test_ws_storage_edge_shim_visibility` regression net since stub plugin can't drive end-to-end inbound through production).
+7. **Inbound/outbound dispatch** — covered by 2074-test unit/integration suite; not end-to-end-runnable via Studio because stub plugin is test-only per the F1 invariant.
+
+**HAT iteration count**: 18+ distinct UX/functional defects fixed inline across 7 iterations. Each iteration committed inline (no separate iteration commits — landed as one batch via the final HAT commit).
+
+**Most impactful design surfaces touched**:
+- **Allowlist semantic redesign** (Deviations entry): empty list = unrestricted (not lockdown); per-axis tri-state override per agent; `[]` reserved as the explicit "no access" / "DMs only" sentinel.
+- **Per-agent ACL UI** rewritten 3 times: chip-list → all-checkbox-list-with-inherit-by-default → per-axis chevron-toggle-with-MCP-tile-styling.
+- **Routing regression** fixed: switching out of Agents while editing now clears `_selectedAgent` (otherwise re-entering Agents from the sidebar lands on the prior editor instead of the listing).
+- **Design-language anomaly** logged: F6 surfaced 18+ design-language defects, suggesting both definition-discipline gaps (leg authors not reaching for existing primitives) and coverage gaps (`.field-error` admin-scoped only; `.tool-enable-switch` defaults to tile-corner absolute positioning; no canonical KV-editor primitive). Recommendation for F6 debrief: add a design-language uptake audit gate to cycle-1 leg review for any leg touching `interfaces/web/static/`.
+
+**Verification (post-redesign)**: full suite 2074 passed, 4 skipped, 411 deselected in 166.82s. Token-definition test passing after undefined-token cleanup (`--bg-elevated` → `--surface-elevated`; `--fg-primary` → `--fg`; `--font-mono` → `monospace`).
+
+Operator: "Ive done some exploratory testing we should be good."
+
+Flight status → `landed`. Mission Flight 6 checkbox ticked. Final commit batched in this turn.
+
 ---
 
 ## Decisions
@@ -452,17 +514,81 @@ Leg status: `landed`. Per the deferred-batched workflow for F6, no commit is mad
 
 ## Deviations
 
-(None yet.)
+### 2026-05-19 — Allowlist/ACL semantic redesign at HAT (decision + deviation)
+
+**Decision**: Replace leg-1b/1c's "empty list = lockdown" semantic with "empty list = all permitted" at both the account-scope and per-agent layers. Per-agent ACL becomes per-axis tri-state: `null` (inherit), `[]` (explicit empty = no access on this axis), `[items]` (subset). Drop the account-scope Enable toggle entirely — the chip-list is always rendered; empty = unrestricted.
+
+**Trigger**: HAT discussion exposed a UX defect — the per-agent chip-list let the operator type IDs that weren't on the account-scope list, producing dead chips at the resolver layer. The operator's framing: "if the agent can only further restrain what is already set, shouldn't it be checkboxes?" Examining the design decision further surfaced that the current "empty list = lockdown" account-scope semantic was awkward (required a toggle to express the very common "I want a public bot" intent).
+
+**New model** (replaces leg-1b/1c's documented semantic):
+
+| Scope | Axis state | Means |
+|---|---|---|
+| Account-scope | `peers: []` | All peers permitted (no constraint) |
+| Account-scope | `peers: [u1, u2]` | Only u1, u2 (others deny or pair-promote) |
+| Account-scope | absent | Same as `{peers: [], channels: []}` — fully unrestricted |
+| Per-agent | axis absent (= `null`) | Inherit account-scope on that axis |
+| Per-agent | axis `[]` (explicit empty) | "No access" sentinel — peers: no peer; channels: DMs only |
+| Per-agent | axis `[items]` | Subset (intersected with account-scope on that axis) |
+
+The two axes (peers, channels) are **independently** inherit-or-override per agent.
+
+**"DMs only" deferral**: the runtime `channels: []` = DMs-only semantic requires DM-channel classification at the connector plugin layer. Stub plugin has none. F8 (Discord) will ship the classification. Until then, leg-3's outbound `channels: []` = fail-closed (no outbound for this agent on this account). Documented in the validator docstring + connector README.
+
+**Surface impact**:
+- `agent/config.py:_validate_connector_acls` — per-axis `list[str] | None` instead of required `list[str]`.
+- `db/models.py:_validate_config_reserved_keys` — shape unchanged; the "empty = lockdown" interpretation flips to "empty = all" (semantic-only change at validator layer, no code edit needed; the resolver/outbound check is where the flip materializes).
+- `tools/connector_send.py:execute` — outbound logic: empty account-scope channels = permit (was: deny); per-agent `channels = []` = deny outbound (DMs-only stub of the F8 contract).
+- `interfaces/web/static/js/areas/studio/connector-account-editor.js` — drop the Enable toggle. Always render chip-lists. Stale-chip detection at save (fetch attached-agents, warn if a removed chip belongs to any agent's ACL). Attached-agents table renders actual chip lists per agent.
+- `interfaces/web/static/js/areas/studio/connectors-tab.js` — per-agent panel becomes per-axis-conditional: checkbox-list when account-scope axis has chips; free chip-list when account-scope axis is empty. All-unchecked produces an explicit-empty warning.
+- `interfaces/web/static/js/areas/studio.js:collectFormData` — emit `connector_acls[account_id]` with `peers` and `channels` as `null | [] | [...items]` per the new tri-state.
+- Tests — leg-1b `TestConnectorAccountConfigValidator` empty-list-round-trips remain valid (shape unchanged); leg-1c `TestAgentConfigConnectorAclsValidator` updates to allow `None` per axis; leg-3 `TestF6OutboundGating` test names + assertions invert for the empty-account-scope-channels case.
+
+**Reframes the leg-1c "F4 L5 atomic shape" claim slightly**: leg 1c still ships the field + migration + repository round-trip in one leg, but the SEMANTIC contract of the field is now the post-redesign one. The pre-redesign contract is preserved in the leg-1c artifact's body for archaeology; the post-redesign contract is captured here and in the validator docstring.
+
+**Not a blocking issue for the F6 PR** — the redesign is contained to the documented surface above, lands as inline HAT rework, and improves correctness (eliminates the dead-chip UX defect). Tracked as "post-leg-7 design fix" rather than a divert.
 
 ---
 
 ## Anomalies
 
-(None yet.)
+### Design-language definition gap surfaced at L7 HAT (operator-flagged)
+
+**Observed**: Leg 7 HAT against the connector-account editor surfaced an unusual density of UX defects. Two HAT iterations cumulatively reported 13+ distinct issues — section dividers where none were wanted, misplaced validation messages, mis-themed checkbox, oversized button icons, verbose hint text, container chrome on bare lists, misaligned LED indicators, duplicate "default" entries in lifecycle dropdowns, wrong-order pairing status, copy button outside the input field, etc. Several were latent regressions from F2/F5 surfaces (lifecycle dropdown "Use default" sentinel, Test Connection alignment) that prior HATs hadn't caught.
+
+**Severity**: degraded (does not block landing F6; reveals a methodology gap)
+
+**Operator hypothesis**: "We clearly don't have enough definition around properly using our design language and our design language may have gaps." Two distinct concerns:
+1. **Definition / usage discipline** — F5 codified some primitives (`.checkbox-primary`, `.tool-enable-switch`, `.field-row`, `.editor-section`, `.field-error`) but leg authors building new surfaces are not consistently reaching for them. Leg 4 introduced custom inline styling (`.connector-allowlist-toggle-label`, `.connector-pairing-reveal`, container chrome on lists) instead of mirroring the existing MCP-server-editor / agent-editor precedents.
+2. **Coverage gaps** — even when leg authors looked, the design language did not always have what they needed: the `.tool-enable-switch` primitive ships `position: absolute` for tile-corner placement and requires a per-call override to flow inline; `.field-error` and `.editor-error-banner` are admin-scoped only; `.area-studio` has no canonical pattern for a "field-row with inline validation + themed help text + add-row-below pattern" used by KV editors.
+
+**Evidence trail** (commits / diffs):
+- HAT iteration #1 (legs 1-9 of operator feedback): 9 distinct UX defects fixed in `connector-account-editor.js` + `studio.css`.
+- HAT iteration #2 (4 follow-up defects): copy-button leak, post-generation verbose status, allowlist container chrome, Test-Connection alignment.
+- HAT iteration #3 (toggle + button-icon polish): regenerate icon sizing + post-click preservation, switch primitive uptake.
+- HAT iteration #4 (toggle visibility): `.tool-enable-switch` `position: absolute` defaulted off-screen until per-use override added (mirrors `.mcp-kv-sensitive-cell .tool-enable-switch` precedent that was rediscovered, not reused).
+
+**Recommendation for F6 debrief (action item)**:
+1. **Methodology** — add a "design-language uptake audit" gate to the design-review cycle for any leg that touches `interfaces/web/static/`. The cycle-1 Developer review should grep for new custom selectors and challenge each one: "is there an existing primitive?" If yes, mandate it. If no, the leg ships a new primitive in components.css/studio.css, not an ad-hoc inline style.
+2. **Coverage** — schedule a separate maintenance pass to:
+   - Promote `.field-error` and `.editor-error-banner` from `.area-admin` scope to area-neutral (or duplicate them under `.area-studio`) so studio editors don't have to fork.
+   - Reshape `.tool-enable-switch` so default usage flows inline; the tile-corner placement becomes the override (`.tool-tile .tool-enable-switch`), not the base. Today the inverse is true.
+   - Document the canonical KV-editor pattern (header → rows → "Add row" button below) as a named primitive (`.kv-editor` or similar) so future authors don't re-derive it.
+3. **HAT cadence** — F5 debrief flagged HAT as required for operator-visible flights. F6 confirms this; the design-language gap suggests HAT alone is necessary but insufficient. A pre-HAT "internal walkthrough" leg (operator clicks through every new screen, names every defect they see) might cut HAT iteration count in half.
+
+**F8 / F9 risk**: every connector-platform flight ships new operator-visible surfaces (probes, command surfaces, peer rosters). Without the methodology + coverage fixes, expect the same iteration density there.
+
+**Owner**: F6 debrief author (post-HAT). The maintenance pass for the coverage gap is a candidate for the routine-maintenance step after mission close.
 
 ---
 
 ## Session Notes
+
+### 2026-05-19 — Leg 7 HAT progress
+- **Scope note**: F1 invariant "stub NOT registered in production" means inbound `dispatch_inbound` + outbound `platform_send` cannot be exercised end-to-end through Studio + the running server. Those code paths are covered by 2065-test unit/integration suite (TestF6Gating: 8 dispatcher cases + TestF6OutboundGating: 9 outbound cases). HAT scope therefore narrows to operator-visible surfaces: Studio sections, API endpoints, save/load round-trips, the live-broadcast visibility marker. Documented as a known HAT-coverage gap.
+- **Step 1 — Studio Connectors detail page UX**: PASS. All 7 spec items verified after 4 UX iteration cycles (section dividers absent; empty-types amber banner; lifecycle dropdowns merged "(default)" entries; pairing status one-line; allowlist iOS toggle visible; attached-agents empty-state; test-connection flush-left). Iteration history captured in the Design-language Anomaly above.
+- **Step 2 — Pairing code generation lifecycle**: PASS. Verified: regenerate → 8-hex code displayed in read-only input with in-input copy icon-button + "Copy now — only shown once." hint; copy button writes to clipboard; status line updates to one-line "Code on file · issued <ISO>"; second regenerate produces a fresh code with updated timestamp; navigate-away-and-back hides the code (status persists). Leg-1b validator + leg-4 endpoint round-trip + leg-4 UI gate all working as specified.
+- **Step 3 — Account-scope allowlist editing**: PASS (after 1 inline fix). Round-trip verified: add → save → reload preserves entries; remove → save → reload preserves the survivor; **empty-list lockdown invariant preserved** — toggle ON with both lists empty survives reload as `config.allowlist = {"peers": [], "channels": []}` (leg-1b critical invariant); toggle OFF persists as absent `config.allowlist` (default-permit). Inline fix: initial-render `hidden` was emitted as a class instead of the `[hidden]` attribute (CSS matches the attribute), so the lists rendered visible until the operator toggled. Fixed by attribute emission. Mirrors the design-language anomaly above — easy class/attribute confusion that a stronger primitive would catch.
 
 ### 2026-05-18 — Flight planning
 - Mission context loaded; F5 just merged (`c345883` on main).

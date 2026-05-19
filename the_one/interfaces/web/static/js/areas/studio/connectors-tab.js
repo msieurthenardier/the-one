@@ -1,12 +1,18 @@
-// App.studio.renderConnectorsTab — agent-editor Connectors tab (M10 F6 L5).
+// App.studio.renderConnectorsTab — agent-editor Connectors tab
+// (M10 F6 L5; semantic redesigned at L7 HAT).
 //
 // Mirrors mcps-tab.js shape: attach toggle per connector account + a
 // collapsible details panel hosting the per-account ACL editor (peers
-// list + channels list, each rendered via the standard chip-list-editor
-// helper from admin/tools-form-helpers.js). When an attached account
-// has empty (or absent) per-account ACL, an inline label reads
-// "no restrictions — inherits account-scope" so the operator can
-// visually distinguish "inherit" from "narrowing" before saving.
+// + channels). Per axis the editor adapts to the account-scope state:
+//
+//   - account-scope axis has chips (subset narrowing): render a
+//     CHECKBOX LIST of those chips. The operator's per-agent ACL is
+//     captured as null (all checked = inherit), [] (all unchecked =
+//     "no access" / DMs-only for channels), or [items] (some checked
+//     = subset).
+//   - account-scope axis is empty / absent (unrestricted): render a
+//     free-form CHIP-LIST editor (current pattern). Empty = null
+//     (inherit / unrestricted); non-empty = [items].
 //
 // Public API:
 //   App.studio.renderConnectorsTab(panel, agent, allAccounts, callbacks)
@@ -19,14 +25,26 @@
 // Save-flow selectors (collected by studio.js::collectFormData):
 //   [data-connector-account-toggle][data-connector-account-id]:checked
 //     → connector_account_ids
-//   .connector-acl-chiplist[data-connector-acl-account][data-connector-acl-list]
-//     → connector_acls[id].peers / [id].channels
+//   For per-agent ACL each axis carries one of two markup shapes:
+//     .connector-acl-chiplist[data-connector-acl-account]
+//                            [data-connector-acl-list]
+//                            [data-connector-acl-mode="chips"]
+//       → free chip-list mode (axis emits null when empty, [items]
+//         otherwise)
+//     .connector-acl-checkboxlist[data-connector-acl-account]
+//                                 [data-connector-acl-list]
+//                                 [data-connector-acl-mode="checkboxes"]
+//       → checkbox-list mode (axis emits null when all checked, []
+//         when all unchecked, [items] otherwise)
 //
-// Empty-ACL semantic (per F6 leg-1c validator): an account entry with
-// both lists empty is OMITTED from the serialized payload by
-// collectFormData; absent === empty-lists === "inherit account-scope"
-// to the resolver. The Studio UI labels both shapes identically for
-// operator clarity.
+// L7 HAT tri-state semantic (per F6 leg-1c validator, redesigned):
+//   - axis null: inherit account-scope (no per-agent narrowing on
+//     this axis).
+//   - axis []: explicit empty — peers means "no peer"; channels
+//     means "DMs only" (F8-deferred; outbound fails closed until
+//     F8 ships DM classification).
+//   - axis [items]: narrow to those items (intersected with
+//     account-scope).
 //
 // Stale connector_account_ids (operator deleted the account on the
 // connector-accounts surface, but it remains pinned on the agent) are
@@ -99,7 +117,25 @@
 
   function _renderAccountTile(listContainer, account, attachedMap, aclsMap, onChange) {
     var isAttached = attachedMap[account.id] === true;
-    var accountAcl = aclsMap[account.id] || { peers: [], channels: [] };
+    // L7 HAT — tri-state per-axis. Default missing entry to both-null
+    // (inherit account-scope on both axes); preserve any per-axis null
+    // explicitly so the checkbox-mode "all checked" initial state
+    // matches.
+    var rawAcl = aclsMap[account.id];
+    var accountAcl;
+    if (rawAcl == null) {
+      accountAcl = { peers: null, channels: null };
+    } else {
+      accountAcl = {
+        peers: (rawAcl.peers === undefined) ? null : rawAcl.peers,
+        channels: (rawAcl.channels === undefined) ? null : rawAcl.channels
+      };
+    }
+    // Account-scope reference (per-axis lists). Drive the
+    // checkbox-vs-chip mode decision per axis.
+    var accountScope = (account && account.config && account.config.allowlist) || null;
+    var scopePeers = (accountScope && Array.isArray(accountScope.peers)) ? accountScope.peers : [];
+    var scopeChannels = (accountScope && Array.isArray(accountScope.channels)) ? accountScope.channels : [];
 
     var tile = document.createElement('div');
     tile.className = 'mcp-source-tile connector-account-tile';
@@ -149,28 +185,14 @@
 
     tile.appendChild(row1);
 
-    // ── Expand button: chevron only (no per-account "tool count") ─────
-    var expandBtn = document.createElement('button');
-    expandBtn.type = 'button';
-    expandBtn.className = 'mcp-source-tile-expand-btn';
-    expandBtn.setAttribute('aria-expanded', 'false');
-    expandBtn.setAttribute('data-testid', 'connector-account-expand-' + account.id);
-
-    var countSpan = document.createElement('span');
-    countSpan.className = 'mcp-source-tile-tool-count';
-    countSpan.textContent = 'ACL';
-    var chevron = document.createElement('span');
-    chevron.className = 'mcp-source-tile-chevron';
-    chevron.textContent = '▸';
-    expandBtn.appendChild(countSpan);
-    expandBtn.appendChild(chevron);
-    tile.appendChild(expandBtn);
-
-    // ── Details body (collapsed by default; holds the ACL editor) ────
+    // ── ACL body (always visible; M10 F6 L7 HAT — drop the
+    //    per-account chevron + collapsed-by-default details). The
+    //    peers/channels editors render inline directly under the
+    //    attach toggle row so the operator sees the per-agent state
+    //    at a glance.
     var detailsBody = document.createElement('div');
     detailsBody.className = 'mcp-source-tile-tools connector-account-details-body';
     detailsBody.setAttribute('data-testid', 'connector-account-details-body-' + account.id);
-    detailsBody.hidden = true;
     tile.appendChild(detailsBody);
 
     function _populateAclEditor() {
@@ -179,74 +201,149 @@
       var section = document.createElement('div');
       section.className = 'connector-account-acl-section';
 
-      // Inherit-affordance label — visible whenever both lists are
-      // currently empty. The label re-syncs on each chip change so it
-      // disappears as soon as the operator narrows.
-      var inheritLabel = document.createElement('p');
-      inheritLabel.className = 'connector-account-acl-inherit-label';
-      inheritLabel.setAttribute('data-testid', 'connector-account-acl-inherit-' + account.id);
-      inheritLabel.textContent = 'no restrictions — inherits account-scope';
-      section.appendChild(inheritLabel);
+      var helpers = window.App.adminFormHelpers;
 
-      // Peers list.
-      var peersWrap = document.createElement('div');
-      peersWrap.className = 'connector-account-acl-fieldrow';
-      var peersLabel = document.createElement('label');
-      peersLabel.className = 'connector-account-acl-fieldlabel';
-      peersLabel.textContent = 'Peers';
-      peersWrap.appendChild(peersLabel);
-      var peersChiplist = _buildChipList(account.id, 'peers', accountAcl.peers || []);
-      peersWrap.appendChild(peersChiplist);
-      section.appendChild(peersWrap);
+      function _buildAxisRow(axis, scopeList, agentAxisValue) {
+        // axis === 'peers' | 'channels'
+        // scopeList: account-scope chip array on this axis ([] = unrestricted)
+        // agentAxisValue: per-agent value on this axis (null / [] / [items])
+        // Each axis is a chevron-button that toggles its checkbox-list
+        // body — the same `.mcp-source-tile-expand-btn` shape used by
+        // the MCPs tab's "N tools" expand. The count span shows the
+        // live ACL summary ("3 peers", "DMs only", etc.).
+        var axisLabel = axis === 'peers' ? 'Peers' : 'Channels';
+        var details = document.createElement('div');
+        details.className = 'connector-acl-axis';
+        details.setAttribute('data-testid', 'connector-acl-axis-' + axis + '-' + account.id);
 
-      // Channels list.
-      var channelsWrap = document.createElement('div');
-      channelsWrap.className = 'connector-account-acl-fieldrow';
-      var channelsLabel = document.createElement('label');
-      channelsLabel.className = 'connector-account-acl-fieldlabel';
-      channelsLabel.textContent = 'Channels';
-      channelsWrap.appendChild(channelsLabel);
-      var channelsChiplist = _buildChipList(account.id, 'channels', accountAcl.channels || []);
-      channelsWrap.appendChild(channelsChiplist);
-      section.appendChild(channelsWrap);
+        var expandBtn = document.createElement('button');
+        expandBtn.type = 'button';
+        expandBtn.className = 'mcp-source-tile-expand-btn connector-acl-axis-toggle';
+        expandBtn.setAttribute('aria-expanded', 'false');
+        expandBtn.setAttribute('data-testid', 'connector-acl-axis-toggle-' + axis + '-' + account.id);
+        var titleSpan = document.createElement('span');
+        titleSpan.className = 'connector-acl-axis-title';
+        titleSpan.textContent = axisLabel;
+        var countSpan = document.createElement('span');
+        countSpan.className = 'mcp-source-tile-tool-count';
+        countSpan.setAttribute('data-testid', 'connector-acl-axis-count-' + axis + '-' + account.id);
+        var chevron = document.createElement('span');
+        chevron.className = 'mcp-source-tile-chevron';
+        chevron.textContent = '▸';
+        expandBtn.appendChild(titleSpan);
+        expandBtn.appendChild(countSpan);
+        expandBtn.appendChild(chevron);
+        details.appendChild(expandBtn);
+
+        var body = document.createElement('div');
+        body.className = 'connector-acl-axis-body';
+        body.hidden = true;
+        details.appendChild(body);
+
+        expandBtn.addEventListener('click', function () {
+          var nextExpanded = expandBtn.getAttribute('aria-expanded') !== 'true';
+          expandBtn.setAttribute('aria-expanded', nextExpanded ? 'true' : 'false');
+          body.hidden = !nextExpanded;
+        });
+
+        function _summarize() {
+          // Live summary computed from current DOM state, so the
+          // operator sees "2 of 3 peers" or "All channels" without
+          // saving first.
+          if (scopeList && scopeList.length > 0) {
+            var boxes = body.querySelectorAll('input[type="checkbox"]');
+            var total = boxes.length;
+            var checked = 0;
+            for (var i = 0; i < boxes.length; i++) {
+              if (boxes[i].checked) checked++;
+            }
+            if (checked === total) {
+              countSpan.textContent = 'All ' + axisLabel.toLowerCase() + ' (inheriting)';
+            } else if (checked === 0) {
+              countSpan.textContent = axis === 'channels'
+                ? 'DMs only'
+                : 'No ' + axisLabel.toLowerCase() + ' permitted';
+            } else {
+              countSpan.textContent = checked + ' of ' + total + ' ' + axisLabel.toLowerCase();
+            }
+          } else {
+            // chips mode
+            var chips = body.querySelectorAll('.chip');
+            if (chips.length === 0) {
+              countSpan.textContent = 'All ' + axisLabel.toLowerCase() + ' (no restriction)';
+            } else {
+              countSpan.textContent = chips.length + ' ' + axisLabel.toLowerCase();
+            }
+          }
+        }
+
+        if (scopeList && scopeList.length > 0) {
+          // Account-scope axis has chips → checkbox mode.
+          var checkboxWrap = _buildCheckboxList(account.id, axis, scopeList, agentAxisValue);
+          body.appendChild(checkboxWrap);
+
+          var warn = document.createElement('p');
+          warn.className = 'form-hint connector-acl-checkbox-warn';
+          warn.setAttribute('data-testid', 'connector-acl-checkbox-warn-' + axis + '-' + account.id);
+          warn.textContent = axis === 'channels'
+            ? 'No public channels permitted; agent will only receive DMs.'
+            : 'No peers permitted for this agent on this account. Consider detaching instead.';
+          warn.hidden = true;
+          body.appendChild(warn);
+
+          function _syncWarn() {
+            var boxes = checkboxWrap.querySelectorAll('input[type="checkbox"]');
+            var anyChecked = false;
+            for (var i = 0; i < boxes.length; i++) {
+              if (boxes[i].checked) { anyChecked = true; break; }
+            }
+            warn.hidden = anyChecked;
+          }
+          _syncWarn();
+          checkboxWrap.addEventListener('change', function (e) {
+            if (e && e.target && e.target.type === 'checkbox') {
+              _syncWarn();
+              _summarize();
+              onChange();
+            }
+          });
+        } else {
+          // Account-scope axis is empty / absent → free chip-list mode.
+          var initItems;
+          if (Array.isArray(agentAxisValue)) {
+            initItems = agentAxisValue;
+          } else {
+            initItems = [];
+          }
+          var chiplist = _buildChipList(account.id, axis, initItems);
+          body.appendChild(chiplist);
+          if (helpers && helpers.wireChipListEditor) {
+            helpers.wireChipListEditor(chiplist, {
+              onChange: function () { _summarize(); onChange(); }
+            });
+          }
+        }
+
+        // Initial summary line.
+        _summarize();
+        return details;
+      }
+
+      section.appendChild(_buildAxisRow('peers', scopePeers, accountAcl.peers));
+      section.appendChild(_buildAxisRow('channels', scopeChannels, accountAcl.channels));
 
       detailsBody.appendChild(section);
-
-      var helpers = window.App.adminFormHelpers;
-      function _syncInheritLabel() {
-        var pc = peersChiplist.querySelectorAll('.chip').length;
-        var cc = channelsChiplist.querySelectorAll('.chip').length;
-        inheritLabel.hidden = (pc > 0 || cc > 0);
-      }
-      _syncInheritLabel();
-
-      if (helpers && helpers.wireChipListEditor) {
-        helpers.wireChipListEditor(peersChiplist, {
-          onChange: function () { _syncInheritLabel(); onChange(); }
-        });
-        helpers.wireChipListEditor(channelsChiplist, {
-          onChange: function () { _syncInheritLabel(); onChange(); }
-        });
-      }
     }
 
     // Wire the attach toggle → onChange (dirty tracking).
     checkbox.addEventListener('change', function () { onChange(); });
 
-    // Expand toggles the details panel. The ACL editor is built lazily
-    // on first expand to avoid wiring listeners for accounts the
-    // operator never opens.
-    var loadedOnce = false;
-    expandBtn.addEventListener('click', function () {
-      var nextExpanded = expandBtn.getAttribute('aria-expanded') !== 'true';
-      tile.setAttribute('aria-expanded', nextExpanded ? 'true' : 'false');
-      expandBtn.setAttribute('aria-expanded', nextExpanded ? 'true' : 'false');
-      detailsBody.hidden = !nextExpanded;
-      if (nextExpanded && !loadedOnce) {
-        loadedOnce = true;
-        _populateAclEditor();
-      }
-    });
+    // ACL editor is built eagerly (no per-account expand). The
+    // attach toggle controls whether the row's data participates in
+    // save (collectFormData reads only attached accounts via the
+    // toggle state); the ACL chips are visible regardless so the
+    // operator can see what would apply once they attach.
+    _populateAclEditor();
 
     listContainer.appendChild(tile);
   }
@@ -268,6 +365,9 @@
     wrapper.className = 'chip-list-editor connector-acl-chiplist';
     wrapper.setAttribute('data-connector-acl-account', accountId);
     wrapper.setAttribute('data-connector-acl-list', listKind);
+    // L7 HAT — mode marker distinguishes chip-list-mode from
+    // checkbox-list-mode at save-collection time.
+    wrapper.setAttribute('data-connector-acl-mode', 'chips');
     wrapper.setAttribute('data-testid',
       'connector-acl-' + listKind + '-' + accountId);
 
@@ -294,6 +394,73 @@
     wrapper.appendChild(input);
 
     // No-op references to defeat unused-var lints in non-eval contexts.
+    void escapeAttr; void escapeHtml;
+    return wrapper;
+  }
+
+  // ── Checkbox-list factory (L7 HAT) ────────────────────────────────────
+  //
+  // Renders one labeled checkbox per account-scope chip. The initial
+  // check state derives from the per-agent axis value:
+  //   - null (inherit) → all checked
+  //   - [] (explicit empty) → all unchecked
+  //   - [items] (subset) → check the matching items only
+  // studio.js::collectFormData reads each checkbox's value attribute
+  // and emits the per-axis ACL accordingly (null / [] / [items]).
+
+  function _buildCheckboxList(accountId, listKind, scopeList, agentAxisValue) {
+    var escapeAttr = window.App.escapeAttr;
+    var escapeHtml = window.App.escapeHtml;
+
+    var wrapper = document.createElement('div');
+    wrapper.className = 'connector-acl-checkboxlist';
+    wrapper.setAttribute('data-connector-acl-account', accountId);
+    wrapper.setAttribute('data-connector-acl-list', listKind);
+    wrapper.setAttribute('data-connector-acl-mode', 'checkboxes');
+    wrapper.setAttribute('data-testid',
+      'connector-acl-' + listKind + '-checkboxes-' + accountId);
+
+    var initialAllChecked = (agentAxisValue == null);
+    var initialAllUnchecked = (Array.isArray(agentAxisValue) && agentAxisValue.length === 0);
+    var explicitItems = (!initialAllChecked && !initialAllUnchecked && Array.isArray(agentAxisValue))
+      ? agentAxisValue
+      : null;
+
+    for (var i = 0; i < scopeList.length; i++) {
+      var item = String(scopeList[i]);
+      // Tile shape mirrors the MCPs tab tool-toggle rows
+      // (.mcp-tool-toggle-label) — single-line flex row with bordered
+      // tile + hover affordance. The .connector-acl-checkboxlist-row
+      // class is preserved alongside for any future studio-scoped
+      // overrides.
+      var rowLabel = document.createElement('label');
+      rowLabel.className = 'mcp-tool-toggle-label connector-acl-checkboxlist-row';
+      rowLabel.setAttribute('data-testid',
+        'connector-acl-' + listKind + '-checkbox-row-' + accountId + '-' + item);
+      var cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.className = 'checkbox-primary connector-acl-checkbox';
+      cb.value = item;
+      cb.setAttribute('data-connector-acl-account', accountId);
+      cb.setAttribute('data-connector-acl-list', listKind);
+      if (initialAllChecked) {
+        cb.checked = true;
+      } else if (initialAllUnchecked) {
+        cb.checked = false;
+      } else {
+        cb.checked = (explicitItems && explicitItems.indexOf(item) !== -1);
+      }
+      rowLabel.appendChild(cb);
+      var text = document.createElement('div');
+      text.className = 'mcp-tool-text';
+      var nameSpan = document.createElement('span');
+      nameSpan.className = 'mcp-tool-toggle-name';
+      nameSpan.textContent = item;
+      text.appendChild(nameSpan);
+      rowLabel.appendChild(text);
+      wrapper.appendChild(rowLabel);
+    }
+
     void escapeAttr; void escapeHtml;
     return wrapper;
   }

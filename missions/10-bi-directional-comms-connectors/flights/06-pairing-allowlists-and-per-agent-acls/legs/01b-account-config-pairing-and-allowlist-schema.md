@@ -3,6 +3,16 @@
 **Status**: completed
 **Flight**: [Pairing, Allowlists, and Per-Agent ACLs](../flight.md)
 
+> **Post-redesign note (M10 F6 L7 HAT, 2026-05-19)**: the
+> account-scope `config.allowlist` SHAPE captured below is unchanged
+> (still `{"peers": list[str], "channels": list[str]}`), but the
+> SEMANTIC for empty lists was flipped during HAT: empty list now
+> means "unrestricted on this axis" (was "lockdown / no peer
+> admitted"). See the **Deviations** entry in
+> `../flight-log.md` ("Allowlist/ACL semantic redesign at HAT") for
+> the full new model, surface impact, and rationale. The body of this
+> artifact reflects the pre-redesign contract for archaeology.
+
 ## Objective
 
 Carve a typed schema into the existing `ConnectorAccount.config: dict[str, Any]` slot for two reserved keys — `config["pairing"]` (DM-pairing state: code + issuance timestamp) and `config["allowlist"]` (account-scope peers + channels lists). Validation lands as a `@field_validator("config", mode="after")` on `ConnectorAccount` that parses ONLY the reserved keys; the rest of `config` stays schema-loose per the F1 promise. Both the API write path (`api.py:create_connector_account` at L2154, `update_connector_account` at L2218) and the DB read path (`repositories.py:ConnectorAccountRepository._row_to_model` at L559-570) run through the validator because Pydantic v2's direct `ConnectorAccount(...)` construction runs `@field_validator` on `__init__` — confirmed by the existing `_validate_idle_timeout_seconds` + `_validate_session_continuation_seconds` behavior that already runs on both paths. No schema migration: rides on the existing `config TEXT` column.

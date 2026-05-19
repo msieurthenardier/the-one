@@ -581,13 +581,23 @@ class TestF6OutboundGating:
 
     The consult happens AFTER account-scope validation (existing F4
     fast-path stays the cheap denial) and BEFORE pool_acquire. Two
-    independent gates intersect:
+    independent gates intersect.
+
+    M10 F6 L7 HAT — allowlist/ACL semantic redesign:
 
     1. Account-scope channel gate: ``account.config["allowlist"]["channels"]``
-       (absent ``allowlist`` key → permit).
+       - absent ``allowlist`` key → permit
+       - ``channels = []`` (empty list) → permit (all channels OK; was
+         "deny everyone" pre-redesign; flipped to match the
+         "empty = unrestricted" intent operators expressed at HAT)
+       - ``channels = [items]`` → only those channels are reachable
     2. Per-agent ACL channel gate: ``self._connector_acls[account_id]
-       ["channels"]`` (account_id key absent OR empty channels list →
-       inherit/permit).
+       ["channels"]`` is tri-state:
+       - ``None`` (key missing or set to None) → inherit account-scope
+       - ``[]`` (explicit empty) → DMs-only sentinel; F8-deferred; fail
+         closed until F8 ships DM-channel classification
+       - ``[items]`` → narrow to those channels (intersected with
+         account-scope)
 
     Denials return ``[error] [constraint] channel_id <id> ...`` envelopes;
     permits proceed to the existing pool-acquire + client.send path.
@@ -660,7 +670,8 @@ class TestF6OutboundGating:
         self, isolated_db
     ) -> None:
         # Account allows c1 + c2; per-agent ACL narrows to c1 only;
-        # tool tries c2 → per-agent denial.
+        # tool tries c2 → per-agent denial. L7 HAT: peers axis is None
+        # (inherit) so it does not collide with the channels narrow.
         await _seed_stub_account_with_config(
             "acct-send",
             config={"allowlist": {"peers": [], "channels": ["c1", "c2"]}},
@@ -671,7 +682,7 @@ class TestF6OutboundGating:
             agent_name="test-agent",
             connector_account_ids=["acct-send"],
             connector_acls={
-                "acct-send": {"peers": [], "channels": ["c1"]},
+                "acct-send": {"peers": None, "channels": ["c1"]},
             },
         )
         result = await tool.execute(
@@ -685,10 +696,10 @@ class TestF6OutboundGating:
         assert not result.startswith(PLATFORM_SEND_OK_PREFIX)
         assert StubPlugin.outbound_records == []
 
-    async def test_permit_when_per_agent_acl_has_empty_channels_list(
+    async def test_permit_when_per_agent_acl_channels_is_none_inherits(
         self, isolated_db
     ) -> None:
-        # Per-agent ACL entry has empty channels list → inherit
+        # M10 F6 L7 HAT semantic: per-agent channels = None inherits
         # account-scope (no agent-level narrowing). Account allowlist
         # absent → permit overall.
         await _seed_stub_account_with_config("acct-send", config={})
@@ -698,7 +709,7 @@ class TestF6OutboundGating:
             agent_name="test-agent",
             connector_account_ids=["acct-send"],
             connector_acls={
-                "acct-send": {"peers": [], "channels": []},
+                "acct-send": {"peers": None, "channels": None},
             },
         )
         result = await tool.execute(
@@ -706,6 +717,35 @@ class TestF6OutboundGating:
             content="hello",
         )
         assert result.startswith(PLATFORM_SEND_OK_PREFIX)
+
+    async def test_deny_when_per_agent_acl_channels_is_empty_dms_only_stub(
+        self, isolated_db
+    ) -> None:
+        # M10 F6 L7 HAT semantic: per-agent channels = [] is the
+        # "DMs-only" sentinel. Until F8 ships DM classification, the
+        # outbound path fails closed for ALL channels with a DMs-only
+        # envelope.
+        await _seed_stub_account_with_config("acct-send", config={})
+        register_for_test("stub", StubPlugin)
+
+        tool = SendToPlatformChannelTool(
+            agent_name="test-agent",
+            connector_account_ids=["acct-send"],
+            connector_acls={
+                "acct-send": {"peers": None, "channels": []},
+            },
+        )
+        result = await tool.execute(
+            target={"account_id": "acct-send", "channel_id": "c1"},
+            content="hello",
+        )
+        assert result == (
+            "[error] [constraint] channel_id 'c1' is not reachable "
+            "for this agent on account 'acct-send' (DMs-only override; "
+            "DM classification lands in F8)"
+        )
+        assert not result.startswith(PLATFORM_SEND_OK_PREFIX)
+        assert StubPlugin.outbound_records == []
 
     async def test_permit_when_per_agent_acl_account_id_absent(
         self, isolated_db
@@ -719,7 +759,7 @@ class TestF6OutboundGating:
             agent_name="test-agent",
             connector_account_ids=["acct-send"],
             connector_acls={
-                "other-acct": {"peers": [], "channels": ["x"]},
+                "other-acct": {"peers": None, "channels": ["x"]},
             },
         )
         result = await tool.execute(
@@ -733,6 +773,7 @@ class TestF6OutboundGating:
     ) -> None:
         # Intersection-positive: both axes permit c1 → success.
         # Mirror of the deny-by-intersection test but on the success path.
+        # L7 HAT: peers axis is None (inherit).
         await _seed_stub_account_with_config(
             "acct-send",
             config={"allowlist": {"peers": [], "channels": ["c1", "c2"]}},
@@ -743,7 +784,7 @@ class TestF6OutboundGating:
             agent_name="test-agent",
             connector_account_ids=["acct-send"],
             connector_acls={
-                "acct-send": {"peers": [], "channels": ["c1"]},
+                "acct-send": {"peers": None, "channels": ["c1"]},
             },
         )
         result = await tool.execute(
@@ -782,12 +823,13 @@ class TestF6OutboundGating:
         # byte-identical. Leg 3 only inserts the new consultation block
         # AFTER this check. The denial returns BEFORE the per-call
         # account fetch, so no DB hit occurs.
+        # L7 HAT: peers axis is None (inherit).
         register_for_test("stub", StubPlugin)
         tool = SendToPlatformChannelTool(
             agent_name="test-agent",
             connector_account_ids=["acct-A"],
             connector_acls={
-                "acct-A": {"peers": [], "channels": ["c1"]},
+                "acct-A": {"peers": None, "channels": ["c1"]},
             },
         )
         result = await tool.execute(
@@ -801,10 +843,12 @@ class TestF6OutboundGating:
         assert not result.startswith(PLATFORM_SEND_OK_PREFIX)
         assert StubPlugin.outbound_records == []
 
-    async def test_empty_channels_lockdown_denies(self, isolated_db) -> None:
-        # Edge case from leg 1b: `allowlist = {"peers": [], "channels": []}`
-        # is empty-list LOCKDOWN, not absence. channel_id never in [] →
-        # denial via the account-scope branch.
+    async def test_empty_account_scope_channels_permits(self, isolated_db) -> None:
+        # M10 F6 L7 HAT semantic flip: account-scope
+        # `allowlist = {"peers": [], "channels": []}` no longer means
+        # "lockdown — deny everyone." Empty list = unrestricted on that
+        # axis. Pre-redesign this test expected a denial envelope; post-
+        # redesign the call permits and reaches the stub plugin.
         await _seed_stub_account_with_config(
             "acct-send",
             config={"allowlist": {"peers": [], "channels": []}},
@@ -819,9 +863,5 @@ class TestF6OutboundGating:
             target={"account_id": "acct-send", "channel_id": "c1"},
             content="hello",
         )
-        assert result == (
-            "[error] [constraint] channel_id 'c1' "
-            "is not reachable on account 'acct-send'"
-        )
-        assert not result.startswith(PLATFORM_SEND_OK_PREFIX)
-        assert StubPlugin.outbound_records == []
+        assert result.startswith(PLATFORM_SEND_OK_PREFIX)
+        assert "acct-send:c1" in result
