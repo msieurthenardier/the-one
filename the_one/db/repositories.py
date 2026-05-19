@@ -84,6 +84,31 @@ class SQLiteAgentStore:
         ) as cur:
             return [row[0] for row in await cur.fetchall()]
 
+    async def list_by_connector_account(self, account_id: str) -> list[AgentConfig]:
+        """Return agent configs attached to ``account_id``.
+
+        M10 F7 L3: inverse-query for the routing engine (F7 L4) and the
+        dispatcher integration (F7 L5). Returns the list alphabetically
+        ordered by ``AgentConfig.name`` (via the SQL ``ORDER BY``).
+
+        ``connector_account_ids`` is a JSON-encoded list column (F4 L5
+        v17 migration). Filtering is Python-side after a full table
+        scan — the agents table is operator-scale (tens, not millions),
+        so the linear scan is acceptable. If this becomes a hot path
+        a later mission can add a join table (or use SQLite's JSON1
+        ``json_each``).
+
+        Returns ``[]`` for unknown account; does NOT raise.
+        """
+        async with self.conn.execute("SELECT * FROM agents ORDER BY name") as cur:
+            rows = await cur.fetchall()
+        result: list[AgentConfig] = []
+        for row in rows:
+            config = self._row_to_config(row)
+            if account_id in config.connector_account_ids:
+                result.append(config)
+        return result
+
     async def load(self, name: str) -> AgentConfig:
         async with self.conn.execute("SELECT * FROM agents WHERE name = ?", (name,)) as cur:
             row = await cur.fetchone()
@@ -883,6 +908,68 @@ class ChatSessionRepository:
             existing = []
         existing.append(value)
         metadata[key] = existing
+        await self.conn.execute(
+            "UPDATE chat_sessions SET session_metadata = ? WHERE id = ?",
+            (json.dumps(metadata), session_id),
+        )
+        await self.conn.commit()
+
+    async def set_session_metadata_key(
+        self,
+        session_id: str,
+        key: str,
+        value: Any,
+    ) -> None:
+        """Set ``session_metadata[key] = value`` (overwrite semantic).
+
+        Sibling primitive to :meth:`append_to_session_metadata`. Where
+        :meth:`append_to_session_metadata` accumulates a list under a key
+        (F6's ``"audit"`` log + F7's ``"routing"`` log), this primitive
+        is for last-writer-wins single-value sets — F7 L6's
+        ``routing_override`` key.
+
+        Concurrency posture: last-writer-wins, by design. Two concurrent
+        ``/talk-to`` inbounds for the same session land in
+        non-deterministic order; the last writer's intent wins silently.
+        This is the correct semantic for an override ("most recent
+        operator/peer intent wins") and is documented at the call sites
+        in F7 L6's command handlers. Inherits the same single-connection
+        read-modify-write race :meth:`append_to_session_metadata`
+        documents — acceptable for v1 (concurrent inbounds on the same
+        session are an uncommon path; F10 hardening can wrap the
+        primitive in a transaction).
+
+        Initialises ``session_metadata`` from NULL to ``{}`` as needed.
+        Preserves every other top-level key in ``session_metadata``.
+        Accepts any JSON-serialisable ``value`` — strings, ints, lists,
+        dicts, ``None`` all round-trip via :func:`json.dumps`.
+
+        Raises ``KeyError`` if ``session_id`` doesn't exist — mirrors
+        :meth:`append_to_session_metadata` /
+        :meth:`update_last_inbound` / :meth:`update` / :meth:`delete` /
+        :meth:`purge_messages` not-found semantics.
+
+        M10 F07 L5 — narrow primitive for the F7 L6 ``/talk-to`` handler's
+        ``session_metadata["routing_override"]`` write. F7 L4's routing
+        engine already reads ``session_metadata.get("routing_override")``
+        in Step 1 of the 5-step algorithm; the write side lands here.
+        """
+        async with self.conn.execute(
+            "SELECT session_metadata FROM chat_sessions WHERE id = ?",
+            (session_id,),
+        ) as cur:
+            row = await cur.fetchone()
+        if row is None:
+            raise KeyError(f"Chat session not found: {session_id}")
+        raw = row["session_metadata"]
+        metadata: dict[str, Any] = json.loads(raw) if raw else {}
+        if not isinstance(metadata, dict):
+            # Defensive: a non-dict JSON value (corruption / tampering)
+            # collapses to {} — mirrors :meth:`append_to_session_metadata`
+            # and ``_row_to_model``'s defensive normalisation. The next
+            # write replaces the column with a well-formed dict.
+            metadata = {}
+        metadata[key] = value
         await self.conn.execute(
             "UPDATE chat_sessions SET session_metadata = ? WHERE id = ?",
             (json.dumps(metadata), session_id),

@@ -12,7 +12,9 @@ and account-scope (``target.account_id`` must be in the agent's attached
 set). Channel/per-agent ACLs are consulted at execute time via a
 per-call account fetch (M10 F6 L3); default-permit on absence.
 
-M10 F6 L7 HAT — allowlist/ACL semantic redesign:
+M10 F6 L7 HAT — allowlist/ACL semantic redesign (canonical home of
+the pure-function ACL logic is :mod:`the_one.connectors._acl`, since
+M10 F7 L2; this module delegates to ``admits_outbound``):
   * Account-scope ``allowlist.channels = []`` now PERMITS all channels
     (was: deny everyone). The "empty = unrestricted" rule applies on
     both the account-scope axis and per-agent ACL ``None``/inherit case.
@@ -164,57 +166,19 @@ class SendToPlatformChannelTool(Tool):
                 "not found"
             )
 
-        # M10 F6 L7 HAT — allowlist/ACL semantic redesign.
-        #
-        # Account-scope channel check. New semantic:
-        #   - ``allowlist`` absent → permit (unrestricted)
-        #   - ``allowlist.channels`` empty list ``[]`` → permit
-        #     (unrestricted on the channels axis — was "deny everyone"
-        #     pre-redesign; flipped to match the "empty = unrestricted"
-        #     intent operators expressed at HAT)
-        #   - ``allowlist.channels`` non-empty → only those channels
-        allowlist = account.config.get("allowlist")
-        if allowlist is not None:
-            allowed_channels = allowlist.get("channels", [])
-            if allowed_channels and channel_id not in allowed_channels:
-                return (
-                    f"[error] [constraint] channel_id {channel_id!r} "
-                    f"is not reachable on account {account_id!r}"
-                )
+        # M10 F7 L2: ACL admission extracted to connectors/_acl.py — single
+        # pure function consumed by both outbound (here) and inbound (F7 L5
+        # dispatcher). Per-axis tri-state semantic unchanged from F6 L7 HAT.
+        from the_one.connectors._acl import admits_outbound
 
-        # Per-agent ACL channel check (intersected with account-scope).
-        # Per-axis tri-state (M10 F6 L7 HAT):
-        #   - ``None`` (key missing or set to None) → inherit
-        #     account-scope (no agent-level narrowing).
-        #   - ``[]`` (explicit empty list) → "DMs only" sentinel. The
-        #     runtime resolution for DMs-only ships in F8 (Discord);
-        #     until then we fail closed — no outbound to any non-DM
-        #     channel, and the stub plugin has no DM classification, so
-        #     this effectively denies the call.
-        #   - ``[items]`` → only those channels are reachable (subset).
-        if self._connector_acls is not None:
-            agent_acl = self._connector_acls.get(account_id)
-            if agent_acl is not None:
-                agent_channels = agent_acl.get("channels")
-                if agent_channels is None:
-                    # Inherit — no narrowing on this axis.
-                    pass
-                elif agent_channels == []:
-                    # DMs-only sentinel — F8-deferred. Fail closed until
-                    # F8 ships DM-channel classification at the connector
-                    # plugin layer.
-                    return (
-                        f"[error] [constraint] channel_id {channel_id!r} "
-                        f"is not reachable for this agent on account "
-                        f"{account_id!r} (DMs-only override; DM "
-                        f"classification lands in F8)"
-                    )
-                elif channel_id not in agent_channels:
-                    return (
-                        f"[error] [constraint] channel_id {channel_id!r} "
-                        f"is not reachable for this agent on account "
-                        f"{account_id!r}"
-                    )
+        agent_acl: dict[str, list[str] | None] | None = (
+            self._connector_acls.get(account_id)
+            if self._connector_acls is not None
+            else None
+        )
+        admits, reason = admits_outbound(account, agent_acl, channel_id)
+        if not admits:
+            return f"[error] [constraint] {reason}"
 
         # ── Pool acquire + client.send ─────────────────────────────
         try:

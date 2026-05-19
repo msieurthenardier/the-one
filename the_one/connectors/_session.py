@@ -150,26 +150,34 @@ async def resolve_session(
         thread_id=key.thread_id,
     )
 
-    if existing is not None and existing.last_inbound_at is not None:
-        try:
-            last = datetime.fromisoformat(existing.last_inbound_at)
-        except ValueError:
-            logger.warning(
-                "chat_sessions.last_inbound_at=%r is not ISO; treating as stale",
-                existing.last_inbound_at,
-            )
-            last = None
-        if last is not None:
-            # Normalise to UTC for the comparison — `now_iso` writes
-            # UTC, but a hand-built test row may write naive; if naive,
-            # treat as UTC to match the canonical write helper.
-            if last.tzinfo is None:
-                last = last.replace(tzinfo=timezone.utc)
-            now = datetime.now(timezone.utc)
-            if (now - last).total_seconds() < continuation:
-                return existing
+    if existing is not None:
+        metadata = existing.session_metadata or {}
+        if "ended_at" in metadata:
+            # M10 F07 L6: the ``/new`` (or ``/reset``) command wrote an
+            # ``ended_at`` sentinel onto the session. Skip the reuse
+            # path; fall through to new-row creation below so the next
+            # inbound starts a fresh chat_sessions row.
+            pass
+        elif existing.last_inbound_at is not None:
+            try:
+                last = datetime.fromisoformat(existing.last_inbound_at)
+            except ValueError:
+                logger.warning(
+                    "chat_sessions.last_inbound_at=%r is not ISO; treating as stale",
+                    existing.last_inbound_at,
+                )
+                last = None
+            if last is not None:
+                # Normalise to UTC for the comparison — `now_iso` writes
+                # UTC, but a hand-built test row may write naive; if naive,
+                # treat as UTC to match the canonical write helper.
+                if last.tzinfo is None:
+                    last = last.replace(tzinfo=timezone.utc)
+                now = datetime.now(timezone.utc)
+                if (now - last).total_seconds() < continuation:
+                    return existing
 
-    # Create a new row on the (no-match OR outside-window) paths.
+    # Create a new row on the (no-match OR outside-window OR ended) paths.
     title = _derive_title(envelope, plugin)
     current_iso = now_iso()
     new_session = ChatSession(

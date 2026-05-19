@@ -28,8 +28,8 @@ the_one/connectors/
 │                      # dataclasses (InboundEnvelope, OutboundTarget, SessionKey,
 │                      # DoctorReport). Home of F6's resolver outcome ADT
 │                      # (Permit / NeedsPairing / Deny + ResolveOutcome) and the
-│                      # _default_permit fallback. Future home of CommandHandler
-│                      # (Flight 7).
+│                      # _default_permit fallback. Home of F7 L1's CommandHandler
+│                      # Protocol and CommandResponse dataclass.
 ├── errors.py          # 6-type exception hierarchy
 ├── registry.py        # ConnectorRegistry class + module-level singleton + builtin
 │                      # discovery hook
@@ -85,9 +85,13 @@ will add two more:
   per-(peer, channel) gating hook discoverable via `getattr` (see §4 below
   and `optional-plugin-hook-via-getattr-sentinel` in `agents.md`); NOT
   declared on the `ConnectorPlugin` Protocol.
-- `CommandHandler` (Flight 7) — connectors that handle platform-side
-  commands (`/agents`, `/talk-to`, etc.) will additionally satisfy this
-  Protocol.
+- `CommandHandler` Protocol (F7 L1) — declared in `base.py`. Connectors
+  that want to register platform-native command surfaces (Discord slash
+  commands in F8, Slack in F9) structurally satisfy it in addition to
+  `ConnectorPlugin`. Handler may return `None` to fall through to the
+  dispatcher's built-in text-prefix parser (F7 L5); returns
+  `CommandResponse(text=...)` to emit a response via the system-outbound
+  path. NOT a `ConnectorPlugin` widening.
 
 Per the `structural-Protocol-satisfaction` convention, real connectors
 (Discord — Flight 8; the second connector — Flight 9) do NOT inherit from
@@ -377,7 +381,7 @@ End-to-end walk of an outbound delivery, from the agent's tool call to the platf
 
 1. **Agent invokes the tool**. The LLM's response includes a tool_call with `name="send_to_platform_channel"` and arguments `{target: {account_id, channel_id, thread_id?}, content}`. Agent core dispatches via `the_one/agent/core.py:Agent._execute_tool` (the existing per-tool dispatch path).
 
-2. **Tool execute() validates target**. `the_one/tools/connector_send.py:SendToPlatformChannelTool.execute()` validates the `target` shape (account_id, channel_id present; thread_id optional), validates `target.account_id ∈ self._connector_account_ids` (account-scope check; rejects with `[error] [constraint]` on mismatch). It then consults the channel + per-agent ACL gates: a per-call `ConnectorAccountRepository.get(account_id)` fetch reads current account state, and the tool intersects `target.channel_id` against (i) account-scope `account.config["allowlist"]["channels"]` (absent → permit) and (ii) per-agent `AgentConfig.connector_acls[account_id]["channels"]` (account_id key absent or empty channels list → inherit). Denials return the standard `[error] [constraint]` envelope. Source of truth: `connector_send.py:execute` + `AgentConfig.connector_acls`.
+2. **Tool execute() validates target**. `the_one/tools/connector_send.py:SendToPlatformChannelTool.execute()` validates the `target` shape (account_id, channel_id present; thread_id optional), validates `target.account_id ∈ self._connector_account_ids` (account-scope check; rejects with `[error] [constraint]` on mismatch). It then consults the channel + per-agent ACL gates: a per-call `ConnectorAccountRepository.get(account_id)` fetch reads current account state, then delegates to `the_one/connectors/_acl.py:admits_outbound(account, agent_acl, channel_id) -> tuple[bool, str]` (M10 F7 L2 extraction; pure function, no I/O). The pure function intersects `target.channel_id` against (i) account-scope `account.config["allowlist"]["channels"]` (absent → permit) and (ii) per-agent `AgentConfig.connector_acls[account_id]["channels"]` (account_id key absent or empty channels list → inherit). Denials return the standard `[error] [constraint]` envelope. Source of truth: `connector_send.py:execute` + `connectors/_acl.py` + `AgentConfig.connector_acls`.
 
 3. **Tool acquires pool entry**. The tool calls `the_one/connectors/_pool.py:acquire(agent_name, account_id)` to fetch the warm `ConnectorClient`. The pool's worker-task-per-entry pattern ensures `connect` and `disconnect` run on the same task (anyio cross-task `CancelScope` safety). `last_activity` is touched on every successful resolve. Pool errors (`KeyError` for unknown account, `ConnectorRegistrationError` for unregistered plugin type, `ConnectorClientError` subtypes for connect failures, `RuntimeError` during shutdown) surface as `[error] <ExceptionType>: <message>` envelopes.
 
@@ -390,3 +394,64 @@ End-to-end walk of an outbound delivery, from the agent's tool call to the platf
 7. **Dispatcher tags visibility post-step**. `the_one/connectors/_inbound.py:dispatch_inbound`'s post-step pass walks new messages: the tool_result whose parent tool_call had `name == "send_to_platform_channel"` AND whose content starts with `PLATFORM_SEND_OK_PREFIX` gets `visibility=None` (platform-visible). Other assistant / tool-result messages produced during the turn get `visibility=OPERATOR_VISIBILITY`.
 
 8. **Dispatcher persists**. The whole updated `agent.messages` history (including the now-tagged messages) is encoded via `the_one/db/codec.py:encode_messages` and written via `ChatSessionRepository.update`. F5's Chat UI consumes the `visibility` tag for two-layer rendering.
+
+## §12. Inbound flow trace (F7 routing engine + command intercept)
+
+End-to-end walk of an inbound delivery through `the_one/connectors/_inbound.py:dispatch_inbound`, after M10 F7 L5. The dispatcher's body is a fixed 12-step canonical composition; acceptance criteria reference the same numbering:
+
+1. **Function-local imports** — `db.connection`, `db.repositories`, `encryption`, `config`, and the L1 + L5 surfaces from `connectors/_commands.py` are imported at call time. Mirrors the load-cycle convention `_pool.py` and `_session.py` already use.
+
+2. **Account load** — `ConnectorAccountRepository.get(account_id)`. Missing account ⇒ log + return.
+
+3. **Plugin resolve** — `registry.resolve(account.type)`. Unknown type ⇒ log + return. Deliberately redundant with the eventual `pool_acquire`'s internal resolution (defensive against a future pool refactor stranding this branch).
+
+4. **Enumerate eligible attached agents** — `SQLiteAgentStore.list_by_connector_account(account_id)` returns the alphabetically-ordered list of `AgentConfig` rows whose `connector_account_ids` includes `account_id`. Empty list ⇒ silent log + return (preserves the L3 no-attached-agents semantic). Replaces the L3 transitional helper `_resolve_single_attached_agent_or_first_alphabetical`, which is REMOVED in L5.
+
+5. **Resolve session** — `the_one/connectors/_session.py:resolve_session(envelope, account, chat_repo, agent_name=eligible_attached_agents[0].name, plugin=plugin)`. The `agent_name` argument is the creation-time anchor for NEW rows (alphabetically-first attached agent); the reuse path ignores it and returns the most-recent matching row verbatim. Per-session row identity is preserved across routing decisions.
+
+6. **F6 resolver consult** — `getattr(plugin, "resolve", _default_permit)(account, envelope)` returns `Permit` / `NeedsPairing` / `Deny`. Deny / NeedsPairing-failure return BEFORE entering routing — denied messages do not extend the continuation window. NeedsPairing-success rewrites `working_envelope.text` to the pairing-prefix-stripped clean text. Each gate decision appends an entry to `session_metadata["audit"]` via `ChatSessionRepository.append_to_session_metadata`.
+
+7. **F7 routing engine consult** — `the_one/connectors/_routing.py:resolve_routing(account, working_envelope, eligible_attached_agents, session_metadata)` walks the 5-step algorithm (override → rule-walk → default → first-eligible-alphabetical → no-eligible) and returns a `RoutingDecision`. ACL admission is checked INSIDE the engine via `connectors/_acl.py:admits_inbound`; the L5 dispatcher does NOT re-check ACL on the engine's output.
+
+8. **Build routing audit entry** — `{ts, agent, rule_index, scope, match, reason}` populated from the `RoutingDecision`; `disposition` filled in per branch below.
+
+9. **No-eligible branch** — `decision.agent is None`: set `disposition: "no-eligible"`; append audit entry; emit the peer-facing `"No agents available for this conversation."` via the system-outbound path (`pool_acquire(eligible_attached_agents[0].name, account_id) → client.send(OutboundTarget(channel_id, thread_id), text)` — same shape as the platform-send tool but invoked dispatcher-internally). Emit failures are logged + swallowed; the inbound goes unanswered but the audit log preserves the no-eligible disposition for the operator. Return.
+
+10. **Pool acquire for the routed agent** — `pool_acquire(decision.agent, account_id)`. F1 `last_activity` ratification anchor is here (the L3 dispatcher had this BEFORE agent enumeration; L5 moves it AFTER routing so the touch is bound to the agent that actually handles the inbound). Failure ⇒ `disposition: "no-eligible"` (overload — pool failure has the same observable shape as no-eligible: the inbound is unanswerable); append audit entry; return.
+
+11. **Command parse + intercept** — `_parse_command(working_envelope.text)`. If `None`: fall through to step 12. If a command parses: call `_dispatch_builtin_command(command_name, args, context)`. L5 ships the placeholder returning `None` for every `command_name` (the dispatcher falls through to step 12); L6 fills the body with the six v1 command handlers. A `CommandResponse(text)` return ⇒ `disposition: "command-intercepted"`; append audit entry; emit `response.text` via the same system-outbound path; emit failure log + swallow; return WITHOUT acquiring the per-session lock or running `agent.step`.
+
+12. **Per-session lock + `agent.step`** — `async with session_locks[session_row.id]`. `agent_name = decision.agent`. Update `last_inbound_at`; build a fresh `Agent` via `factory.create(decision.agent)`; restore the session's history (system message from the fresh agent + non-system stored messages); bind `current_chat_session_id`; run `agent.step(working_envelope.text)`; run the F4 L4 visibility-tagging pass; persist via `ChatSessionRepository.update`; broadcast new messages to live WS observers. `disposition: "stepped"`; append audit entry.
+
+**Routing audit entry shape** (under `session_metadata["routing"]`, list-append semantics):
+
+    {
+        "ts": iso_timestamp,
+        "agent": slug | None,
+        "rule_index": int | None,
+        "scope": str | None,
+        "match": str | None,
+        "reason": str,
+        "disposition": "stepped" | "command-intercepted" | "no-eligible",
+    }
+
+The `disposition` field discriminates routed-and-stepped from command-intercepted from no-eligible-error-emitted (or pool-failure-overload). Mirrors F6's `session_metadata["audit"]` entry shape (`ts` and `reason` keys reuse F6's naming) so a single Studio renderer walks both logs uniformly.
+
+**System-outbound path** is implemented dispatcher-internally as `pool_acquire(agent_name, account_id) → client.send(OutboundTarget(...), text)`. It is NOT routed through the platform-send tool registry. Commands and the no-eligible peer-error work even when the platform-send tool is operator-disabled.
+
+**`set_session_metadata_key` sibling primitive** (M10 F7 L5) lives in `the_one/db/repositories.py` next to `append_to_session_metadata` (the F6 list-append primitive). Same read-modify-write shape; differs in semantic: overwrite vs. append. L5 ships the primitive; F7 L6's `/talk-to` command handler is its first writer (`session_metadata["routing_override"] = "<slug>"`). The L4 routing engine already reads `session_metadata.get("routing_override")` in step 1 of its 5-step algorithm; the write side lands here. Concurrency posture: last-writer-wins (documented at the call sites and on the primitive's docstring).
+
+## §13. v1 command vocabulary (M10 F7 L6)
+
+The dispatcher's command-intercept path (step 11 of §12) consults `the_one/connectors/_commands.py:_dispatch_builtin_command`. L6 fills the L5 placeholder with six handler functions; canonical home is `_commands.py`. The dispatcher passes the parsed `(command_name, args)` tuple plus a per-invocation context dict (`account`, `envelope`, `eligible_attached_agents`, `routed_agent_name`, `session_id`, `chat_repo`); L6 packs `args` into the context under the `args` key before invoking the handler.
+
+| Command | One-liner | Notes |
+|---------|-----------|-------|
+| `/agents` | List agents the peer can talk to on this account | Filtered by per-agent ACL via `_acl.admits_inbound`. Empty list returns the same `"No agents available for this conversation."` string the no-eligible branch emits at `_inbound.py` step 9 — unified byte-for-byte. |
+| `/talk-to <slug>` | Set the session's `routing_override` to `<slug>` | Writes `session_metadata["routing_override"] = <slug>` via `ChatSessionRepository.set_session_metadata_key`. The override takes effect on the NEXT inbound (the L4 routing engine reads it in step 1). Empty / unknown / ACL-denied slug ⇒ peer-facing error. |
+| `/whoami` | Report the agent handling THIS turn | Reads `context["routed_agent_name"]`; no DB read. A preceding `/talk-to` in a separate prior inbound shows up here; a `/talk-to` in the SAME message does not (the current inbound was routed before the handler ran). |
+| `/new` | Mark the current session as ended | Writes `session_metadata["ended_at"] = <iso>` via `set_session_metadata_key`. The next inbound creates a fresh `chat_sessions` row — `_session.resolve_session`'s reuse path honors the sentinel and skips reuse. |
+| `/reset` | Alias for `/new` | Same handler body, same response text, same `ended_at` side-effect. A future HAT may differentiate; v1 ships alias-only. |
+| `/help` | List available commands | Permission-filtered: `/whoami`, `/new`, `/reset`, `/help` are ALWAYS listed; `/agents` and `/talk-to` are listed only when `_permitted_agents(context)` is non-empty. |
+
+Unknown command names (e.g. `/foo`) continue to return `None` from the dispatcher — the L5 control flow falls through to step 12 (`agent.step`) and the agent sees `"/foo"` as a regular user message. The v1 vocabulary's six names are the only command-intercept short-circuits.

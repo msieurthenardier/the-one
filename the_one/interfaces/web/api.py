@@ -2353,6 +2353,12 @@ async def list_attached_agents_for_connector_account(
     count (typically <50). If the count climbs, a JSON-extract query
     against the ``connector_account_ids`` column would scale better
     (F10 territory).
+
+    M10 F7 L3: the inline ``list_agents() → load each → filter`` pattern
+    was lifted into :meth:`SQLiteAgentStore.list_by_connector_account`,
+    the inverse-query helper introduced for the routing engine (F7 L4)
+    and dispatcher integration (F7 L5). This endpoint now consumes the
+    same helper; response shape is unchanged.
     """
     repo = await _connector_repo()
     try:
@@ -2363,12 +2369,9 @@ async def list_attached_agents_for_connector_account(
         )
 
     store = await _agent_store()
-    names = await store.list_agents()
+    attached = await store.list_by_connector_account(account_id)
     result: list[dict[str, Any]] = []
-    for name in names:
-        cfg = await store.load(name)
-        if account_id not in cfg.connector_account_ids:
-            continue
+    for cfg in attached:
         acls = cfg.connector_acls or {}
         acl = acls.get(account_id)
         if acl is None:
@@ -2379,7 +2382,7 @@ async def list_attached_agents_for_connector_account(
             channels_val = acl.get("channels")
         result.append(
             {
-                "name": name,
+                "name": cfg.name,
                 "peers": peers_val,
                 "channels": channels_val,
                 "peers_count": len(peers_val) if peers_val else 0,

@@ -15,10 +15,10 @@ flight 6 of mission 10). The hook is discovered by consumers via
 convention as F3's ``display_channel``. It is NOT declared on the
 :class:`ConnectorPlugin` Protocol; plugins opt in by exposing the method.
 The three-outcome ADT (:class:`Permit`, :class:`NeedsPairing`,
-:class:`Deny`, exposed as :data:`ResolveOutcome`) and the future
-:class:`CommandHandler` Protocol (introduced by flight 7) live alongside
-the Protocols in this file — "single contract file" is the mission
-criterion, not "single Protocol".
+:class:`Deny`, exposed as :data:`ResolveOutcome`) and the
+:class:`CommandHandler` Protocol (F7 L1) live alongside the Protocols in
+this file — "single contract file" is the mission criterion, not "single
+Protocol".
 
 Per ``agents.md`` ``canonical-import + convenience-re-export``: code that
 touches Protocol identity (``isinstance(...)`` or subclass checks) MUST use
@@ -291,9 +291,9 @@ class ConnectorPlugin(Protocol):
     ``resolve(account, envelope) -> ResolveOutcome`` hook discoverable via
     :func:`getattr` with :func:`_default_permit` as the fallback — NOT a
     Protocol widening; plugins opt in by exposing the method (same
-    convention as F3's ``display_channel``). Flight 7 will introduce a
-    separate :class:`CommandHandler` Protocol, also in this file, that
-    command-aware connectors structurally satisfy in addition to
+    convention as F3's ``display_channel``). F7 L1 declares a separate
+    :class:`CommandHandler` Protocol in this file that command-aware
+    connectors structurally satisfy in addition to
     :class:`ConnectorPlugin`.
     """
 
@@ -351,5 +351,70 @@ class ConnectorPlugin(Protocol):
         connector subsystem treats the returned key as opaque and uses it
         as a dict-lookup primitive against the agent-session mapping in
         flight 3 of mission 10.
+        """
+        ...
+
+
+@dataclass(frozen=True, slots=True)
+class CommandResponse:
+    """Result of a :class:`CommandHandler` handling a platform-side command.
+
+    The handler returns this value; the dispatcher (F7 L5) emits ``text``
+    via the system-outbound path (``pool_acquire(agent_name, account_id)
+    → client.send(target, text)``) — the same path the platform-send tool
+    uses, invoked dispatcher-internally rather than via the tool registry.
+
+    Returning ``None`` from :meth:`CommandHandler.handle_command` is
+    distinct from returning ``CommandResponse(text="")`` — ``None`` means
+    "fall through to the dispatcher's built-in handler"; an empty-text
+    response means "this handler handled the command and the response is
+    intentionally empty" (and the dispatcher MUST NOT fall through).
+    """
+
+    text: str
+
+
+@runtime_checkable
+class CommandHandler(Protocol):
+    """Optional platform-side command handler.
+
+    Declared as a SEPARATE Protocol from :class:`ConnectorPlugin` — not a
+    widening — so the existing 4-method plugin contract stays stable and
+    plugins opt into command-handling additively. Connectors that want to
+    register platform-native command surfaces (Discord slash commands via
+    the Interactions API in F8; Slack slash commands via app manifest in
+    F9) structurally satisfy this Protocol in addition to
+    :class:`ConnectorPlugin`. Connectors that do NOT implement it (the
+    stub plugin in this flight; the F8 / F9 plugins until they opt in)
+    fall through to the dispatcher's built-in text-prefix command parser
+    (F7 L5).
+
+    Returning ``None`` from :meth:`handle_command` means "I don't handle
+    this command; let the dispatcher's built-in handler take over." This
+    lets plugins handle a subset of platform-native commands while still
+    inheriting the v1 text-prefix vocabulary for the remainder.
+
+    Per ``agents.md`` ``structural-Protocol-satisfaction``: implementations
+    do NOT inherit from this Protocol. ``runtime_checkable`` Protocol
+    checks method NAMES only.
+    """
+
+    async def handle_command(
+        self,
+        envelope: InboundEnvelope,
+        command_name: str,
+        args: list[str],
+    ) -> CommandResponse | None:
+        """Handle ``command_name`` parsed from ``envelope.text``.
+
+        ``command_name`` is the bare command word (e.g. ``"agents"``,
+        ``"talk-to"`` — no leading slash). ``args`` is the
+        whitespace-separated remainder (empty list when the command has
+        no args).
+
+        Returns :class:`CommandResponse` if this plugin handles the
+        command and the dispatcher should emit the response via the
+        system-outbound path. Returns ``None`` to fall through to the
+        dispatcher's built-in handler (F7 L5).
         """
         ...
