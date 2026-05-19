@@ -1,6 +1,6 @@
 # Flight: Pairing, Allowlists, and Per-Agent ACLs
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Bi-directional Communication Connectors](../../mission.md)
 
 ## Contributing to Criteria
