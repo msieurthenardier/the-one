@@ -814,7 +814,18 @@ async def _process_and_broadcast(
     await _ensure_ollama_model_loaded(session)
 
     # Broadcast user message
-    user_event = {"type": "user", "content": user_input, "source": source}
+    user_event: dict[str, Any] = {"type": "user", "content": user_input, "source": source}
+    # M10 F06 L6: close the F5 live-broadcast carry-forward. The
+    # operator-typed message on a connector-attached session must
+    # carry the visibility tag at LIVE broadcast time (the refresh
+    # path's post-step Message-level tagging at L997-1004 handles
+    # the persistence side; this site handles the live side). Mirrors
+    # the codec's projection rule at db/codec.py:173-176 — only emit
+    # the key when the value is meaningful. The session_locks[session.id]
+    # at L258 serializes against connectors/_inbound.py:155's
+    # dispatch_inbound, so there is no race.
+    if session.platform is not None:
+        user_event["visibility"] = OPERATOR_VISIBILITY
     session.add_event(user_event)
     await _send_to_session(session, user_event, exclude=exclude_user_echo)
 

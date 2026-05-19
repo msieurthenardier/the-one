@@ -465,3 +465,80 @@ async def test_resume_on_non_connector_session_does_not_tag(monkeypatch) -> None
     await _resume_paused_session(session)
 
     assert session.agent.messages[pre_resume_len].visibility is None
+
+
+# ---------------------------------------------------------------------------
+# 9. F6 L6 — live-broadcast carries visibility on connector-attached session
+# ---------------------------------------------------------------------------
+
+
+async def test_live_broadcast_carries_operator_visibility_on_connector_attached_session(
+    monkeypatch,
+) -> None:
+    """F6 L6: closes the F5 live-broadcast carry-forward.
+
+    The user-echo event broadcast by ``_process_and_broadcast`` BEFORE
+    ``agent.step`` runs must carry ``visibility=OPERATOR_VISIBILITY``
+    on a connector-attached session (``session.platform is not None``).
+    The first captured broadcast event is the user echo.
+    """
+    captured = _patch_broadcast_and_save(monkeypatch)
+
+    system_msg = Message.system("system")
+    assistant_reply = Message.assistant("ack")
+    agent = _ShimStubAgent(
+        step_messages=[assistant_reply],
+        agent_messages=[system_msg],
+    )
+    session = Session(
+        id="cs-F6L6-1",
+        agent=agent,  # type: ignore[arg-type]
+        created="2026-05-18T00:00:00+00:00",
+        platform="stub",
+    )
+
+    await _process_and_broadcast(session, "operator hello")
+
+    # The first broadcast event is the user echo.
+    assert captured, "expected at least one broadcast event"
+    user_event = captured[0]
+    assert user_event["type"] == "user"
+    assert user_event["content"] == "operator hello"
+    assert user_event.get("visibility") == OPERATOR_VISIBILITY
+
+
+# ---------------------------------------------------------------------------
+# 10. F6 L6 — live-broadcast omits visibility on web-native session
+# ---------------------------------------------------------------------------
+
+
+async def test_live_broadcast_omits_visibility_on_web_native_session(
+    monkeypatch,
+) -> None:
+    """F6 L6 sister test: on a web-native session (``platform is None``),
+    the user-echo event MUST NOT carry the ``visibility`` key. Mirrors
+    the codec's projection rule at ``db/codec.py:173-176`` — only emit
+    the key when the value is meaningful.
+    """
+    captured = _patch_broadcast_and_save(monkeypatch)
+
+    system_msg = Message.system("system")
+    assistant_reply = Message.assistant("web ack")
+    agent = _ShimStubAgent(
+        step_messages=[assistant_reply],
+        agent_messages=[system_msg],
+    )
+    session = Session(
+        id="cs-F6L6-2",
+        agent=agent,  # type: ignore[arg-type]
+        created="2026-05-18T00:00:00+00:00",
+        platform=None,
+    )
+
+    await _process_and_broadcast(session, "web hello")
+
+    assert captured, "expected at least one broadcast event"
+    user_event = captured[0]
+    assert user_event["type"] == "user"
+    assert user_event["content"] == "web hello"
+    assert "visibility" not in user_event

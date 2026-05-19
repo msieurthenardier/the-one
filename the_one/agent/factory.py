@@ -318,6 +318,7 @@ class AgentFactory:
                     agent_overrides,
                     agent_name=name,
                     connector_account_ids=config.connector_account_ids,
+                    connector_acls=config.connector_acls,
                 )
             else:
                 # Non-builtin providers (test stubs, future provider types)

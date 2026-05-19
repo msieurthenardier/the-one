@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 
 from the_one.agent.config import AgentConfig
 from the_one.db.models import ChatSession, ConnectorAccount, KBItem, KnowledgeBase, MCPSource
@@ -273,6 +274,300 @@ class TestSQLiteAgentStore:
 
         loaded = await agent_store.load("pre-v17-agent")
         assert loaded.connector_account_ids == []
+
+    async def test_save_round_trips_connector_acls(
+        self, agent_store: SQLiteAgentStore
+    ) -> None:
+        """Saving an agent with ``connector_acls`` set roundtrips through
+        ``save`` and ``load``. Mirror of
+        ``test_save_round_trips_connector_account_ids`` for the F6 L1c
+        per-agent ACL field (M10 F6 L1c v18 migration).
+        """
+        config = AgentConfig(
+            name="acl-agent",
+            connector_acls={
+                "acct-a": {"peers": ["u1", "u2"], "channels": ["c1"]},
+                "acct-b": {"peers": [], "channels": []},
+            },
+        )
+        await agent_store.save(config)
+        loaded = await agent_store.load("acl-agent")
+        assert loaded.connector_acls == {
+            "acct-a": {"peers": ["u1", "u2"], "channels": ["c1"]},
+            "acct-b": {"peers": [], "channels": []},
+        }
+
+        # Upsert path: re-save with a different ACL. Confirms the
+        # ON CONFLICT(name) DO UPDATE SET branch writes the new value
+        # (a missing connector_acls in the update list would silently
+        # retain the original value).
+        cfg2 = AgentConfig(
+            name="acl-agent",
+            connector_acls={"acct-c": {"peers": ["u9"], "channels": []}},
+        )
+        await agent_store.save(cfg2)
+        loaded2 = await agent_store.load("acl-agent")
+        assert loaded2.connector_acls == {
+            "acct-c": {"peers": ["u9"], "channels": []},
+        }
+
+    async def test_save_round_trips_connector_acls_none(
+        self, agent_store: SQLiteAgentStore
+    ) -> None:
+        """An agent without ``connector_acls`` set roundtrips as None
+        (locked-down NULL semantic; default for agents without per-agent
+        narrowing). Mirrors the ``tool_overrides`` / ``mcp_overrides``
+        None-default test pattern.
+        """
+        cfg = AgentConfig(name="no-acls-agent", connector_acls=None)
+        await agent_store.save(cfg)
+        loaded = await agent_store.load("no-acls-agent")
+        assert loaded.connector_acls is None
+
+    async def test_save_round_trips_empty_outer_dict_connector_acls(
+        self, agent_store: SQLiteAgentStore
+    ) -> None:
+        """Saving an agent with an empty outer dict ``connector_acls={}``
+        roundtrips verbatim — NOT collapsed to ``None``.
+
+        Distinguishes the JSON-literal ``"{}"`` truthy-string path from
+        the SQL-NULL falsy path in ``_row_to_config``'s
+        ``if row["connector_acls"] else None`` decode: ``"{}"`` is a
+        truthy non-empty string, so ``json.loads`` runs and returns
+        ``{}``; SQL NULL deserializes as Python None, which is falsy and
+        triggers the ``else None`` branch. See leg-1c Edge Cases.
+        """
+        cfg = AgentConfig(name="empty-acls-agent", connector_acls={})
+        await agent_store.save(cfg)
+        loaded = await agent_store.load("empty-acls-agent")
+        assert loaded.connector_acls == {}
+        # Belt-and-braces: confirm the round-trip preserved {}, not None.
+        assert loaded.connector_acls is not None
+
+    async def test_load_pre_v18_agent_has_none_connector_acls(
+        self, agent_store: SQLiteAgentStore, conn
+    ) -> None:
+        """A row written with ``connector_acls`` explicitly NULL (the
+        pre-v18 row state after the v18 ALTER fires) decodes as ``None``
+        via the ``if row["connector_acls"] else None`` decode in
+        ``_row_to_config``.
+
+        Back-compat anchor for production DBs upgraded from v17: the
+        column exists post-migration but holds NULL until the next save.
+        """
+        from the_one.db.models import now_iso
+
+        now = now_iso()
+        await conn.execute(
+            "INSERT INTO agents (name, description, llm_model, system_prompt,"
+            " disabled_tools, max_iterations, kb_ids, mcp_source_ids,"
+            " connector_account_ids, connector_acls, created_at, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "pre-v18-agent",
+                "",
+                "mock-default",
+                "",
+                "[]",
+                20,
+                "[]",
+                "[]",
+                None,
+                None,  # connector_acls NULL — simulates pre-v18 row
+                now,
+                now,
+            ),
+        )
+        await conn.commit()
+
+        loaded = await agent_store.load("pre-v18-agent")
+        assert loaded.connector_acls is None
+
+    async def test_empty_per_account_acl_round_trips_through_save_load(
+        self, agent_store: SQLiteAgentStore
+    ) -> None:
+        """Empty per-account ACL ``{"peers": [], "channels": []}`` survives
+        the DB round-trip verbatim (does NOT collapse to an absent entry).
+        Mirror of leg-1b's allowlist-round-trip discipline: empty-list
+        lockdown is a SEMANTIC choice (agent narrows to nothing for this
+        account) and must survive the serialize → NULL? check → JSON load
+        path intact.
+        """
+        config = AgentConfig(
+            name="empty-per-acct-agent",
+            connector_acls={"acct-a": {"peers": [], "channels": []}},
+        )
+        await agent_store.save(config)
+        loaded = await agent_store.load("empty-per-acct-agent")
+        assert loaded.connector_acls == {"acct-a": {"peers": [], "channels": []}}
+        # Confirm the per-account entry survives (not just the outer dict).
+        assert loaded.connector_acls is not None
+        assert "acct-a" in loaded.connector_acls
+
+    async def test_validator_fires_on_repo_read_path_connector_acls(
+        self, agent_store: SQLiteAgentStore, conn
+    ) -> None:
+        """The ``_validate_connector_acls`` field validator fires when
+        ``_row_to_config`` constructs ``AgentConfig(**kwargs)`` from a
+        DB row whose ``connector_acls`` column holds malformed JSON
+        (e.g. missing the ``"channels"`` inner key).
+
+        Mirror of leg-1b's
+        ``test_validator_fires_on_repo_read_path_account_config`` —
+        confirms Pydantic v2 ``@field_validator(mode="after")`` runs on
+        direct kwargs construction the same as ``model_validate``, so we
+        don't need to widen ``_row_to_config`` to ``model_validate``.
+
+        H2-closure: writes a valid row through the repo's ``save``, then
+        UPDATEs the JSON column with malformed-inner-shape JSON via raw
+        SQL, then calls ``load`` and asserts ``ValidationError``.
+        """
+        # Step 1: write a valid row via the repo.
+        cfg = AgentConfig(
+            name="validator-fires-agent",
+            connector_acls={"acct-a": {"peers": ["u1"], "channels": []}},
+        )
+        await agent_store.save(cfg)
+
+        # Step 2: UPDATE the row's connector_acls to malformed inner shape
+        # (missing "channels"). Bypasses the Pydantic validator on the
+        # write path — the column is raw TEXT at the SQL layer.
+        import json
+
+        malformed = json.dumps({"acct-a": {"peers": ["u1"]}})
+        await conn.execute(
+            "UPDATE agents SET connector_acls = ? WHERE name = ?",
+            (malformed, "validator-fires-agent"),
+        )
+        await conn.commit()
+
+        # Step 3: load — the validator MUST fire on _row_to_config's
+        # direct kwargs construction and raise ValidationError.
+        with pytest.raises(ValidationError):
+            await agent_store.load("validator-fires-agent")
+
+
+# ── AgentConfig validator (direct construction) ─────────────────────────
+
+
+class TestAgentConfigConnectorAclsValidator:
+    """Direct-construction validator tests for ``AgentConfig.connector_acls``.
+
+    M10 F6 L1c. Sibling of ``TestSQLiteAgentStore``; tests the
+    ``@field_validator("connector_acls", mode="after")`` invariants
+    enforced at ``AgentConfig(**kwargs)`` time (no DB involved). The
+    repo read-path validator-firing test is in ``TestSQLiteAgentStore``;
+    these tests focus on the validator's invariants in isolation.
+
+    Pydantic v2's ``dict[str, dict[str, list[str]]] | None`` annotation
+    enforces most invariants natively (non-string outer key, non-dict
+    outer value, non-list inner value, non-string inner entry). The
+    validator adds the ONE invariant the annotation cannot express:
+    each inner dict must have EXACTLY the keys ``{"peers", "channels"}``
+    (no extra keys, no missing keys).
+    """
+
+    def test_default_none_is_valid(self) -> None:
+        """``connector_acls`` defaults to None (no per-agent narrowing)."""
+        cfg = AgentConfig(name="agent")
+        assert cfg.connector_acls is None
+
+    def test_empty_outer_dict_is_valid(self) -> None:
+        """``{}`` is valid (semantically same as None per leg-3 read rule)."""
+        cfg = AgentConfig(name="agent", connector_acls={})
+        assert cfg.connector_acls == {}
+
+    def test_empty_per_account_acl_is_valid(self) -> None:
+        """``{"acct-a": {"peers": [], "channels": []}}`` is valid
+        (empty-list lockdown: agent narrows to nothing for this account).
+        """
+        cfg = AgentConfig(
+            name="agent",
+            connector_acls={"acct-a": {"peers": [], "channels": []}},
+        )
+        assert cfg.connector_acls == {"acct-a": {"peers": [], "channels": []}}
+
+    def test_populated_per_account_acl_is_valid(self) -> None:
+        """A populated per-account ACL with strings in both inner lists
+        is valid.
+        """
+        cfg = AgentConfig(
+            name="agent",
+            connector_acls={
+                "acct-a": {"peers": ["u1", "u2"], "channels": ["c1"]},
+            },
+        )
+        assert cfg.connector_acls == {
+            "acct-a": {"peers": ["u1", "u2"], "channels": ["c1"]},
+        }
+
+    def test_missing_channels_inner_key_raises(self) -> None:
+        """Inner dict missing ``"channels"`` raises ValidationError —
+        the validator enforces the exact-keys invariant.
+        """
+        with pytest.raises(ValidationError):
+            AgentConfig(
+                name="agent",
+                connector_acls={"acct-a": {"peers": ["u1"]}},
+            )
+
+    def test_missing_peers_inner_key_raises(self) -> None:
+        """Inner dict missing ``"peers"`` raises ValidationError."""
+        with pytest.raises(ValidationError):
+            AgentConfig(
+                name="agent",
+                connector_acls={"acct-a": {"channels": []}},
+            )
+
+    def test_extra_inner_key_raises(self) -> None:
+        """Inner dict with an unexpected key raises ValidationError."""
+        with pytest.raises(ValidationError):
+            AgentConfig(
+                name="agent",
+                connector_acls={
+                    "acct-a": {"peers": [], "channels": [], "extra": []}
+                },
+            )
+
+    def test_non_list_inner_value_raises(self) -> None:
+        """Inner value that isn't a list is rejected by Pydantic's
+        annotation (``list_type`` error)."""
+        with pytest.raises(ValidationError):
+            AgentConfig(
+                name="agent",
+                connector_acls={"acct-a": {"peers": "not-a-list", "channels": []}},
+            )
+
+    def test_non_string_inner_entry_raises(self) -> None:
+        """Non-string entry inside an inner list is rejected by Pydantic's
+        annotation (``string_type`` error). Pydantic v2 does NOT coerce
+        int → str under strict annotation modes for our list-of-string
+        slot."""
+        with pytest.raises(ValidationError):
+            AgentConfig(
+                name="agent",
+                connector_acls={"acct-a": {"peers": [123], "channels": []}},
+            )
+
+    def test_non_dict_per_account_value_raises(self) -> None:
+        """Per-account value that isn't a dict is rejected by Pydantic's
+        annotation (``dict_type`` error)."""
+        with pytest.raises(ValidationError):
+            AgentConfig(
+                name="agent",
+                connector_acls={"acct-a": "not-a-dict"},
+            )
+
+    def test_non_string_outer_key_raises(self) -> None:
+        """Non-string outer key is rejected by Pydantic's annotation
+        (``string_type`` error). Pydantic v2 does NOT coerce int → str
+        for the outer dict key under our annotation.
+        """
+        with pytest.raises(ValidationError):
+            AgentConfig(
+                name="agent",
+                connector_acls={1: {"peers": [], "channels": []}},
+            )
 
 
 # ── Knowledge Base Repository ─────────────────────────────────────────────
@@ -659,6 +954,265 @@ class TestConnectorAccountRepository:
         assert a3.idle_timeout_seconds is None
 
 
+# ── Connector Account Config Validator (F6 L1b) ──────────────────────────
+
+
+class TestConnectorAccountConfigValidator:
+    """F6 L1b — config["pairing"] + config["allowlist"] schema."""
+
+    # --- Direct-construction (model-only) tests ---
+
+    def test_empty_config_is_unchanged(self) -> None:
+        account = ConnectorAccount(id="a", name="n", type="stub")
+        assert account.config == {}
+
+    def test_non_reserved_keys_pass_through(self) -> None:
+        account = ConnectorAccount(
+            id="a", name="n", type="stub",
+            config={"intent": "guild_messages", "version": 2},
+        )
+        assert account.config == {"intent": "guild_messages", "version": 2}
+
+    def test_valid_pairing_round_trips(self) -> None:
+        pairing = {"code": "abc-123", "issued_at": "2026-05-18T00:00:00Z"}
+        account = ConnectorAccount(
+            id="a", name="n", type="stub", config={"pairing": pairing}
+        )
+        assert account.config["pairing"] == pairing
+
+    def test_valid_allowlist_round_trips(self) -> None:
+        allowlist = {"peers": ["u1", "u2"], "channels": ["c1"]}
+        account = ConnectorAccount(
+            id="a", name="n", type="stub", config={"allowlist": allowlist}
+        )
+        assert account.config["allowlist"] == allowlist
+
+    def test_empty_allowlist_is_preserved_verbatim(self) -> None:
+        """Distinct from absent allowlist: empty lists mean lockdown."""
+        account = ConnectorAccount(
+            id="a", name="n", type="stub",
+            config={"allowlist": {"peers": [], "channels": []}},
+        )
+        assert account.config["allowlist"] == {"peers": [], "channels": []}
+
+    def test_mixed_reserved_and_non_reserved_round_trips(self) -> None:
+        config = {
+            "pairing": {"code": "x", "issued_at": "2026-05-18T00:00:00Z"},
+            "allowlist": {"peers": [], "channels": []},
+            "intent": "guild_messages",
+        }
+        account = ConnectorAccount(
+            id="a", name="n", type="stub", config=config
+        )
+        assert account.config == config
+
+    # --- Pairing malformed shape tests ---
+
+    def test_pairing_must_be_dict(self) -> None:
+        with pytest.raises(ValidationError):
+            ConnectorAccount(
+                id="a", name="n", type="stub",
+                config={"pairing": "not-a-dict"},
+            )
+
+    def test_pairing_missing_code_raises(self) -> None:
+        with pytest.raises(ValidationError):
+            ConnectorAccount(
+                id="a", name="n", type="stub",
+                config={"pairing": {"issued_at": "2026-05-18T00:00:00Z"}},
+            )
+
+    def test_pairing_missing_issued_at_raises(self) -> None:
+        with pytest.raises(ValidationError):
+            ConnectorAccount(
+                id="a", name="n", type="stub",
+                config={"pairing": {"code": "x"}},
+            )
+
+    def test_pairing_extra_key_raises(self) -> None:
+        with pytest.raises(ValidationError):
+            ConnectorAccount(
+                id="a", name="n", type="stub",
+                config={"pairing": {
+                    "code": "x", "issued_at": "2026-05-18T00:00:00Z",
+                    "extra": "field",
+                }},
+            )
+
+    def test_pairing_empty_code_raises(self) -> None:
+        with pytest.raises(ValidationError):
+            ConnectorAccount(
+                id="a", name="n", type="stub",
+                config={"pairing": {"code": "", "issued_at": "2026-05-18T00:00:00Z"}},
+            )
+
+    def test_pairing_non_string_code_raises(self) -> None:
+        with pytest.raises(ValidationError):
+            ConnectorAccount(
+                id="a", name="n", type="stub",
+                config={"pairing": {"code": 123, "issued_at": "2026-05-18T00:00:00Z"}},
+            )
+
+    def test_pairing_malformed_issued_at_raises(self) -> None:
+        with pytest.raises(ValidationError):
+            ConnectorAccount(
+                id="a", name="n", type="stub",
+                config={"pairing": {"code": "x", "issued_at": "not-iso"}},
+            )
+
+    def test_pairing_date_only_issued_at_raises(self) -> None:
+        """date-only strings parse via fromisoformat but lack time
+        component — leg-4 Studio writer emits full timestamps.
+        """
+        with pytest.raises(ValidationError):
+            ConnectorAccount(
+                id="a", name="n", type="stub",
+                config={"pairing": {"code": "x", "issued_at": "2026-05-18"}},
+            )
+
+    # --- Allowlist malformed shape tests ---
+
+    def test_allowlist_must_be_dict(self) -> None:
+        with pytest.raises(ValidationError):
+            ConnectorAccount(
+                id="a", name="n", type="stub",
+                config={"allowlist": ["not-a-dict"]},
+            )
+
+    def test_allowlist_missing_peers_raises(self) -> None:
+        with pytest.raises(ValidationError):
+            ConnectorAccount(
+                id="a", name="n", type="stub",
+                config={"allowlist": {"channels": []}},
+            )
+
+    def test_allowlist_missing_channels_raises(self) -> None:
+        with pytest.raises(ValidationError):
+            ConnectorAccount(
+                id="a", name="n", type="stub",
+                config={"allowlist": {"peers": []}},
+            )
+
+    def test_allowlist_extra_key_raises(self) -> None:
+        with pytest.raises(ValidationError):
+            ConnectorAccount(
+                id="a", name="n", type="stub",
+                config={"allowlist": {"peers": [], "channels": [], "extra": []}},
+            )
+
+    def test_allowlist_non_list_peers_raises(self) -> None:
+        with pytest.raises(ValidationError):
+            ConnectorAccount(
+                id="a", name="n", type="stub",
+                config={"allowlist": {"peers": "not-a-list", "channels": []}},
+            )
+
+    def test_allowlist_non_string_peer_raises(self) -> None:
+        with pytest.raises(ValidationError):
+            ConnectorAccount(
+                id="a", name="n", type="stub",
+                config={"allowlist": {"peers": [123], "channels": []}},
+            )
+
+    # --- Repository round-trip tests ---
+
+    async def test_pairing_round_trips_through_repo(
+        self, connector_repo: ConnectorAccountRepository
+    ) -> None:
+        pairing = {"code": "abc", "issued_at": "2026-05-18T00:00:00Z"}
+        account = ConnectorAccount(
+            id="a1", name="n", type="stub", config={"pairing": pairing}
+        )
+        await connector_repo.create(account)
+        loaded = await connector_repo.get("a1")
+        assert loaded.config["pairing"] == pairing
+
+    async def test_allowlist_round_trips_through_repo(
+        self, connector_repo: ConnectorAccountRepository
+    ) -> None:
+        allowlist = {"peers": ["u1"], "channels": ["c1"]}
+        account = ConnectorAccount(
+            id="a1", name="n", type="stub", config={"allowlist": allowlist}
+        )
+        await connector_repo.create(account)
+        loaded = await connector_repo.get("a1")
+        assert loaded.config["allowlist"] == allowlist
+
+    async def test_empty_allowlist_round_trips_through_repo(
+        self, connector_repo: ConnectorAccountRepository
+    ) -> None:
+        """Empty-allowlist lockdown survives DB round-trip — does NOT
+        become absent. Leg-4 Studio UI relies on this invariant.
+        """
+        empty = {"peers": [], "channels": []}
+        account = ConnectorAccount(
+            id="a1", name="n", type="stub", config={"allowlist": empty}
+        )
+        await connector_repo.create(account)
+        loaded = await connector_repo.get("a1")
+        assert loaded.config["allowlist"] == empty
+        assert "allowlist" in loaded.config  # not erased
+
+    async def test_empty_allowlist_stored_as_lists_not_null(
+        self, connector_repo: ConnectorAccountRepository
+    ) -> None:
+        """Pin the storage-layer invariant — empty lists are stored
+        literally as ``[]`` in the JSON column, NOT as ``null`` or
+        absent. The Pydantic round-trip proves the model-level
+        invariant; this proves the persistence-level invariant. Leg
+        4's UI writer reads back through Pydantic, but a raw SQL
+        inspection from a future operator tool or migration would
+        otherwise be ambiguous.
+        """
+        import json
+        empty = {"peers": [], "channels": []}
+        account = ConnectorAccount(
+            id="a1", name="n", type="stub", config={"allowlist": empty}
+        )
+        await connector_repo.create(account)
+        async with connector_repo.conn.execute(
+            "SELECT config FROM connector_accounts WHERE id = ?", ("a1",)
+        ) as cur:
+            row = await cur.fetchone()
+        raw = json.loads(row["config"])
+        assert raw == {"allowlist": {"peers": [], "channels": []}}
+        # JSON null would deserialize as None; absent key would mean
+        # "allowlist" not in raw. Neither is the case.
+        assert raw["allowlist"]["peers"] == []
+        assert raw["allowlist"]["channels"] == []
+
+    async def test_validator_fires_on_repo_read_path(
+        self, connector_repo: ConnectorAccountRepository
+    ) -> None:
+        """Hand-write a malformed config — read MUST raise.
+
+        Confirms the cycle-1 H2 concern is closed: Pydantic v2 fires
+        ``@field_validator`` on direct ``BaseModel(**kwargs)`` (which
+        is what ``_row_to_model`` does), so the read path is validated.
+
+        Implementation: create a VALID row through the repository
+        (so secrets ciphertext is well-formed), then UPDATE the
+        ``config`` column with malformed JSON via raw SQL. This
+        bypasses the model validator on write while leaving the
+        secrets ciphertext intact so the read path reaches
+        ``_validate_config_reserved_keys`` and raises there (not
+        on secrets-decrypt).
+        """
+        import json
+        account = ConnectorAccount(
+            id="bad", name="n", type="stub", secrets={"TOKEN": "x"}
+        )
+        await connector_repo.create(account)
+        malformed = json.dumps({"pairing": {"code": ""}})  # missing issued_at + empty code
+        await connector_repo.conn.execute(
+            "UPDATE connector_accounts SET config = ? WHERE id = ?",
+            (malformed, "bad"),
+        )
+        await connector_repo.conn.commit()
+        with pytest.raises(ValidationError):
+            await connector_repo.get("bad")
+
+
 # ── Chat Session Repository ──────────────────────────────────────────────
 
 
@@ -943,6 +1497,105 @@ class TestChatSessionRepository:
         )
         assert result_a is not None
         assert result_a.id == "s-thread-A"
+
+    # ── M10 F06 L2: append_to_session_metadata ───────────────────────────
+
+    async def test_append_to_session_metadata_initializes_null_to_dict(
+        self, agent_store: SQLiteAgentStore, chat_repo: ChatSessionRepository
+    ) -> None:
+        """A session with NULL ``session_metadata`` → ``append_to_session_metadata``
+        initialises it to ``{key: [value]}`` (NULL → ``{}`` → key absent → ``[]``
+        → append).
+        """
+        await agent_store.save(AgentConfig(name="agent1"))
+        await chat_repo.create(ChatSession(id="s1", agent_name="agent1"))
+        # Sanity: the freshly-created row has NULL session_metadata.
+        loaded = await chat_repo.get("s1")
+        assert loaded.session_metadata is None
+
+        entry = {"outcome": "permit", "peer_id": "p1", "ts": "t", "reason": None}
+        await chat_repo.append_to_session_metadata("s1", "audit", entry)
+
+        loaded = await chat_repo.get("s1")
+        assert loaded.session_metadata == {"audit": [entry]}
+
+    async def test_append_to_session_metadata_creates_list_for_absent_key(
+        self, agent_store: SQLiteAgentStore, chat_repo: ChatSessionRepository
+    ) -> None:
+        """An existing ``session_metadata`` dict that lacks the target key
+        → the key is created as a one-element list."""
+        await agent_store.save(AgentConfig(name="agent1"))
+        await chat_repo.create(
+            ChatSession(
+                id="s1",
+                agent_name="agent1",
+                session_metadata={"routing": "default"},
+            )
+        )
+
+        entry = {"outcome": "deny", "peer_id": "p1", "ts": "t", "reason": "x"}
+        await chat_repo.append_to_session_metadata("s1", "audit", entry)
+
+        loaded = await chat_repo.get("s1")
+        assert loaded.session_metadata == {
+            "routing": "default",
+            "audit": [entry],
+        }
+
+    async def test_append_to_session_metadata_appends_to_existing_list(
+        self, agent_store: SQLiteAgentStore, chat_repo: ChatSessionRepository
+    ) -> None:
+        """Two successive appends accumulate in insertion order on the
+        same key."""
+        await agent_store.save(AgentConfig(name="agent1"))
+        await chat_repo.create(ChatSession(id="s1", agent_name="agent1"))
+
+        e1 = {"outcome": "permit", "peer_id": "p1", "ts": "t1", "reason": None}
+        e2 = {"outcome": "permit", "peer_id": "p2", "ts": "t2", "reason": None}
+        await chat_repo.append_to_session_metadata("s1", "audit", e1)
+        await chat_repo.append_to_session_metadata("s1", "audit", e2)
+
+        loaded = await chat_repo.get("s1")
+        assert loaded.session_metadata == {"audit": [e1, e2]}
+
+    async def test_append_to_session_metadata_preserves_other_keys(
+        self, agent_store: SQLiteAgentStore, chat_repo: ChatSessionRepository
+    ) -> None:
+        """Other top-level keys in ``session_metadata`` are preserved
+        verbatim across an append on a different key."""
+        await agent_store.save(AgentConfig(name="agent1"))
+        await chat_repo.create(
+            ChatSession(
+                id="s1",
+                agent_name="agent1",
+                session_metadata={
+                    "routing": {"agent": "agent1"},
+                    "other": ["a", "b"],
+                },
+            )
+        )
+
+        entry = {"outcome": "permit", "peer_id": "p", "ts": "t", "reason": None}
+        await chat_repo.append_to_session_metadata("s1", "audit", entry)
+
+        loaded = await chat_repo.get("s1")
+        assert loaded.session_metadata == {
+            "routing": {"agent": "agent1"},
+            "other": ["a", "b"],
+            "audit": [entry],
+        }
+
+    async def test_append_to_session_metadata_raises_keyerror_on_missing_session(
+        self, chat_repo: ChatSessionRepository
+    ) -> None:
+        """Missing session id raises ``KeyError`` — mirrors
+        :meth:`update_last_inbound` not-found semantics."""
+        with pytest.raises(KeyError):
+            await chat_repo.append_to_session_metadata(
+                "no-such-session",
+                "audit",
+                {"outcome": "permit"},
+            )
 
 
 # ── M10 F03 L01: ConnectorAccount session_continuation_seconds ───────────

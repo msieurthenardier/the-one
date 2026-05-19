@@ -8,7 +8,7 @@ import aiosqlite
 
 from the_one.db._provider_types import PROVIDER_TYPES
 
-CURRENT_VERSION = 17
+CURRENT_VERSION = 18
 
 # Render the provider-type CHECK constraint as a comma-separated SQL
 # literal list, sourced from PROVIDER_TYPES. Both SCHEMA_V1 (fresh-DB
@@ -485,10 +485,16 @@ PRAGMA foreign_keys=ON;
         # No CHECK constraint on `type` in v13 (in contrast to mcp_sources
         # which had `CHECK (type IN ('stdio', 'streamable-http'))` from v3).
         # The Pydantic Literal on ConnectorAccount.type is the sole guard
-        # at the API edge; flight 8 (Discord) will land v14 with the
+        # at the API edge; flight 8 (Discord) will land v19 with the
         # table-rename ceremony to add the CHECK once 'discord' is a real
-        # type to constrain. The _connector_types.py tuple is the canonical
-        # source of truth — empty in v13, grown by future flights.
+        # type to constrain (v14 was claimed by F1 L2's `name` column on
+        # connector_accounts; v15 by F2 L2's `idle_timeout_seconds`; v16
+        # by F3 L1's chat_sessions external-key columns +
+        # `session_continuation_seconds`; v17 by F4 L5's
+        # `agents.connector_account_ids` persistence; v18 by F6 L1c's
+        # `agents.connector_acls` persistence). The _connector_types.py
+        # tuple is the canonical source of truth — empty in v13, grown by
+        # future flights.
         #
         # Idempotency follows the v10/v11 contract: individual
         # `await conn.execute(...)` calls (NOT executescript), CREATE TABLE
@@ -544,8 +550,9 @@ CREATE TABLE IF NOT EXISTS connector_accounts (
         # milliseconds-vs-seconds typo.
         #
         # Downstream: flight 08 (Discord) previously planned a v15 CHECK
-        # migration; that renumbers to v18. See _connector_types.py
-        # docstring + tests/test_db_migration.py TestSchemaV14 docstring.
+        # migration; that renumbers to v19 (v18 is claimed by F6 L1c —
+        # `agents.connector_acls`). See _connector_types.py docstring +
+        # tests/test_db_migration.py TestSchemaV14 docstring.
         #
         # Idempotency follows the v11/v14 ALTER ADD COLUMN pattern (PRAGMA
         # guard + INSERT OR IGNORE on schema_version LAST).
@@ -584,8 +591,9 @@ CREATE TABLE IF NOT EXISTS connector_accounts (
         # resolver's COALESCE(?, '') WHERE clause.
         #
         # Downstream: flight 08 (Discord) previously planned a v16 CHECK
-        # migration; that renumbers to v18. See _connector_types.py docstring
-        # + tests/test_db_migration.py TestSchemaV14 docstring + agents.md
+        # migration; that renumbers to v19 (v18 is claimed by F6 L1c —
+        # `agents.connector_acls`). See _connector_types.py docstring +
+        # tests/test_db_migration.py TestSchemaV14 docstring + agents.md
         # connector-type checklist item 4.
         #
         # Idempotency follows the v11/v14/v15 ALTER ADD COLUMN pattern
@@ -634,8 +642,9 @@ CREATE TABLE IF NOT EXISTS connector_accounts (
         # values; NULL is decoded as [] (back-compat for pre-v17 rows).
         #
         # Downstream: flight 08 (Discord) previously planned a v17 CHECK
-        # migration; that renumbers to **v18**. See _connector_types.py
-        # docstring + tests/test_db_migration.py TestSchemaV14/V15/V16
+        # migration; that renumbers to **v19** (v18 is claimed by F6 L1c —
+        # `agents.connector_acls`). See _connector_types.py docstring +
+        # tests/test_db_migration.py TestSchemaV14/V15/V16
         # downstream-renumber docstrings + agents.md connector-type
         # checklist item 4.
         #
@@ -653,3 +662,34 @@ CREATE TABLE IF NOT EXISTS connector_accounts (
         )
         await conn.commit()
         version = 17
+
+    if version < 18:
+        # Mission 10 Flight 6 Leg 1c: AgentConfig.connector_acls persistence.
+        # F6 L1c lands the per-agent ACL atomically — Pydantic field +
+        # ALTER TABLE + repository round-trip in one leg, per F4 debrief
+        # rec #1 ("a Pydantic field intended to persist ships its migration
+        # in the SAME leg"). Adds a nullable TEXT column storing the JSON-
+        # encoded outer dict {account_id: {"peers": [...], "channels": [...]}}
+        # or NULL when no per-agent narrowing exists (back-compat for pre-v18
+        # rows; matches connector_account_ids pre-v17 default decode).
+        #
+        # Downstream: flight 08 (Discord) previously planned v18 for its
+        # CHECK constraint; that renumbers to v19. See _connector_types.py
+        # docstring + tests/test_db_migration.py TestSchemaV{14,15,16,17}
+        # downstream-renumber docstrings + agents.md connector-type
+        # checklist item 4.
+        #
+        # Idempotency follows the v8/v9/v10/v11/v14/v15/v17 ALTER ADD COLUMN
+        # pattern (PRAGMA guard + INSERT OR IGNORE on schema_version LAST).
+        async with conn.execute("PRAGMA table_info(agents)") as cursor:
+            existing_cols = {row[1] for row in await cursor.fetchall()}
+        if "connector_acls" not in existing_cols:
+            await conn.execute(
+                "ALTER TABLE agents ADD COLUMN connector_acls TEXT"
+            )
+
+        await conn.execute(
+            "INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (18,)
+        )
+        await conn.commit()
+        version = 18

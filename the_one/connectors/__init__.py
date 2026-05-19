@@ -24,9 +24,13 @@ violating any contract, but the canonical paths above are stable.
 from the_one.connectors.base import (
     ConnectorClient,
     ConnectorPlugin,
+    Deny,
     DoctorReport,
     InboundEnvelope,
+    NeedsPairing,
     OutboundTarget,
+    Permit,
+    ResolveOutcome,
     SendResult,
     SessionKey,
 )
@@ -65,9 +69,13 @@ __all__ = [
     # Protocols + supporting types
     "ConnectorClient",
     "ConnectorPlugin",
+    "Deny",
     "DoctorReport",
     "InboundEnvelope",
+    "NeedsPairing",
     "OutboundTarget",
+    "Permit",
+    "ResolveOutcome",
     "SendResult",
     "SessionKey",
     # Exception hierarchy

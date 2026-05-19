@@ -103,6 +103,7 @@ class BuiltinToolProvider:
         agent_name: str | None = None,
         *,
         connector_account_ids: list[str] | None = None,
+        connector_acls: dict[str, dict[str, list[str]]] | None = None,
     ) -> list[Tool]:
         # Both None → introspection path (no resolver invocation).
         # `Tool.__init__` defaults `cross_configs={}` and `agent_name=None`,
@@ -156,7 +157,10 @@ class BuiltinToolProvider:
             # SearchTools special construction at factory.py:290-297, kept
             # inside the provider for _TOOL_CLASSES symmetry.
             extra_kwargs: dict[str, Any] = (
-                {"connector_account_ids": connector_account_ids or []}
+                {
+                    "connector_account_ids": connector_account_ids or [],
+                    "connector_acls": connector_acls,
+                }
                 if cls is SendToPlatformChannelTool
                 else {}
             )

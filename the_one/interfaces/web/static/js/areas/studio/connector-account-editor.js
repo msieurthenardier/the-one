@@ -250,6 +250,37 @@
 
     html += '</div>';
 
+    // ── Pairing section (edit mode only) ──────────────────────────────
+    // M10 F6 L4: operator generates / regenerates the account pairing
+    // code. The endpoint is the only writer for ``config["pairing"]``
+    // (leg-1b schema); the code is shown ONCE after the operator
+    // clicks. Subsequent renders display only the ``issued_at`` summary
+    // — the operator must regenerate to reveal a fresh code (leg-1b
+    // decision: plaintext storage but no auto-display on load).
+    if (!isCreate) {
+      html += renderPairingSection(account);
+    }
+
+    // ── Account-scope allowlist section (edit mode only) ──────────────
+    // M10 F6 L4: account-level peer/channel allowlist editor.
+    // Checkbox gates the two list editors; unchecked = default-permit
+    // (saving OMITS ``config.allowlist``); checked + empty lists =
+    // lockdown (saving sends ``{"peers": [], "channels": []}`` — the
+    // leg-1b empty-preservation invariant).
+    if (!isCreate) {
+      html += renderAllowlistSection(account);
+    }
+
+    // ── Attached agents (read-only, edit mode only) ───────────────────
+    // M10 F6 L4: read-only summary of agents whose
+    // ``connector_account_ids`` includes this account, with per-agent
+    // ACL counts and deep-links. Populated asynchronously on mount via
+    // GET /api/connector-accounts/{id}/attached-agents (the editor
+    // renders an empty placeholder; the fetch fills it in).
+    if (!isCreate) {
+      html += renderAttachedAgentsSection();
+    }
+
     // ── Test Connection section (edit mode only) ──────────────────────
     if (!isCreate) {
       html += '<div class="editor-section connector-test-section">';
@@ -347,11 +378,19 @@
     return html;
   }
 
+  // M10 F6 L4: reserved top-level ``config`` keys owned by dedicated
+  // editor sections (Pairing, Allowlist). These are NOT shown in the
+  // arbitrary kv-table — the dedicated sections are the only writers,
+  // and ``collectFormData`` merges them back into the save payload so
+  // they round-trip without operator intervention.
+  var RESERVED_CONFIG_KEYS = { pairing: true, allowlist: true };
+
   function collectConfigRows(account) {
     var rows = [];
     if (!account || !account.config) return rows;
     for (var k in account.config) {
       if (Object.prototype.hasOwnProperty.call(account.config, k)) {
+        if (RESERVED_CONFIG_KEYS[k]) continue;  // owned by a dedicated section
         var v = account.config[k];
         var rendered;
         if (typeof v === 'string') {
@@ -473,7 +512,36 @@
       });
     }
 
-    return JSON.stringify({ static: staticData, config: configRows, secrets: secretRows });
+    // M10 F6 L4: include the allowlist toggle + rows in the snapshot
+    // so the dirty-tracker fires on toggle changes and add/remove/edit
+    // of allowlist rows. Pairing state is NOT included — the pairing
+    // button triggers an out-of-band POST that persists immediately,
+    // independent of the editor's Save button (the in-memory
+    // ``account.config.pairing`` mirror prevents data loss when the
+    // operator then clicks Save with other dirty fields).
+    var allowlist = null;
+    var allowlistToggle = container.querySelector('.connector-allowlist-toggle');
+    if (allowlistToggle) {
+      var enabled = !!allowlistToggle.checked;
+      var peersList = [];
+      var channelsList = [];
+      var allowlistInputs = container.querySelectorAll('.connector-allowlist-input');
+      for (var a = 0; a < allowlistInputs.length; a++) {
+        var ainp = allowlistInputs[a];
+        var akind = ainp.getAttribute('data-allowlist-kind');
+        var aval = ainp.value || '';
+        if (akind === 'peers') peersList.push(aval);
+        else if (akind === 'channels') channelsList.push(aval);
+      }
+      allowlist = { enabled: enabled, peers: peersList, channels: channelsList };
+    }
+
+    return JSON.stringify({
+      static: staticData,
+      config: configRows,
+      secrets: secretRows,
+      allowlist: allowlist
+    });
   }
 
   // ── Event wiring ────────────────────────────────────────────────────
@@ -684,6 +752,29 @@
         window.App.confirmDelete(deleteBtn, doDelete, { confirmLabel: 'Confirm Delete?' });
       });
     }
+
+    // ── F6 L4: Pairing / Allowlist / Attached agents (edit only) ──────
+    if (isEdit) {
+      wirePairingEvents(container, account, callbacks);
+      wirePairingCopyEvents(container);
+      wireAllowlistEvents(container, checkDirty);
+      // After wiring the allowlist events, recapture the snapshot so
+      // the initial render's allowlist state doesn't count as dirty.
+      // (renderConnectorAccountEditor pre-populates from
+      // account.config.allowlist; getFormSnapshot now reads those rows.
+      // The first call to attachStaticListeners happened before the
+      // allowlist nodes existed in earlier code paths — they do exist
+      // now since these sections render synchronously above. The
+      // initial snapshot from line ~488 already includes the allowlist
+      // state, so no recapture is strictly required, but we call
+      // checkDirty once to ensure save/cancel button state agrees with
+      // the just-rendered allowlist baseline.)
+      checkDirty();
+
+      // Kick off the attached-agents fetch on mount. The list renders
+      // a "Loading…" placeholder until this resolves.
+      fetchAttachedAgents(container, account.id);
+    }
   }
 
   // ── Save handlers ───────────────────────────────────────────────────
@@ -864,6 +955,41 @@
     var idleValue = parseLifecycleValue(container, 'idle_timeout_seconds');
     var contValue = parseLifecycleValue(container, 'session_continuation_seconds');
 
+    // M10 F6 L4: merge the reserved ``pairing`` + ``allowlist`` keys
+    // with the existing arbitrary ``config`` kv-table rows. Order: kv
+    // rows first (so a stale ``pairing`` / ``allowlist`` row in the kv
+    // table — should not normally happen, but the operator could type
+    // one — is OVERWRITTEN by the canonical reserved-key sources here).
+    //
+    // ``account.config.pairing`` is the source of truth for the
+    // pairing key: it is set by the pairing-code endpoint click
+    // handler (wirePairingEvents) and may have changed since the
+    // editor mounted. Edit-mode only — create mode has no
+    // ``account`` to read from.
+    if (isEdit && account && account.config && account.config.pairing) {
+      config.pairing = account.config.pairing;
+    }
+    // Allowlist: derive from the toggle + list editors. If the toggle
+    // is unchecked, OMIT ``config.allowlist`` entirely (default-permit
+    // semantic per leg-1b). If checked, emit ``{peers, channels}``
+    // even when both lists are empty — that's the lockdown affordance
+    // (leg-1b empty-preservation invariant).
+    if (isEdit) {
+      var allowlistState = collectAllowlistFromContainer(container);
+      if (allowlistState && allowlistState.enabled) {
+        config.allowlist = {
+          peers: allowlistState.peers,
+          channels: allowlistState.channels
+        };
+      } else {
+        // Toggle unchecked — ensure no allowlist key leaks through
+        // (defensively delete in case a kv-row added one).
+        if (Object.prototype.hasOwnProperty.call(config, 'allowlist')) {
+          delete config.allowlist;
+        }
+      }
+    }
+
     return {
       name: name,
       type: typeValue,
@@ -986,6 +1112,412 @@
     }
     html += '</dl>';
     return html;
+  }
+
+  // ── Pairing / Allowlist / Attached agents (M10 F6 L4) ───────────────
+  //
+  // These three sections render only in edit mode (gated on
+  // ``!isCreate`` at the call site, mirroring the Test Connection +
+  // Danger Zone gate). They operate on the leg-1b reserved
+  // ``config["pairing"]`` and ``config["allowlist"]`` keys and on the
+  // new reverse-lookup endpoint
+  // ``GET /api/connector-accounts/{id}/attached-agents`` (leg-4 spec).
+  //
+  // The save flow (``collectFormData``) merges pairing + allowlist with
+  // the existing arbitrary config kv-table — no key is silently
+  // dropped. ``getFormSnapshot`` is extended so the dirty-tracker fires
+  // on the allowlist editor; the pairing button is NOT a dirty source
+  // (it issues an independent POST that persists server-side
+  // immediately).
+
+  function renderPairingSection(account) {
+    var escapeHtml = window.App.escapeHtml;
+    var escapeAttr = window.App.escapeAttr;
+    var pairing = (account && account.config && account.config.pairing) || null;
+    var issuedAt = pairing && pairing.issued_at ? String(pairing.issued_at) : '';
+    var buttonLabel = pairing ? 'Regenerate code' : 'Generate code';
+
+    var html = '';
+    html += '<div class="editor-section connector-pairing-section">';
+    html += '<div class="section-title">Pairing</div>';
+
+    // Issued-at summary row — present when a pairing record exists.
+    // Empty placeholder otherwise so the section never feels blank.
+    html += '<div class="field-row admin-pf-row">';
+    html += '<label>Status</label>';
+    html += '<div class="connector-pairing-status" data-testid="connector-pairing-status">';
+    if (issuedAt) {
+      html += 'Code on file (issued ' + escapeHtml(issuedAt) +
+              '). The code is only shown immediately after generation — ' +
+              'regenerate to reveal a fresh code.';
+    } else {
+      html += 'No pairing code generated yet.';
+    }
+    html += '</div>';
+    html += '</div>';
+
+    // Action row — button + transient code-reveal slot.
+    html += '<div class="field-row admin-pf-row">';
+    html += '<label></label>';
+    html += '<div class="connector-pairing-actions">';
+    html += '<button type="button" class="btn-outlined-primary connector-pairing-generate-btn" ' +
+            'data-testid="connector-pairing-generate-btn">' +
+            escapeHtml(buttonLabel) + '</button>';
+    html += '</div>';
+    html += '</div>';
+
+    // Code-reveal slot — populated after the operator clicks Generate /
+    // Regenerate. Hidden on initial render (no auto-reveal on load).
+    html += '<div class="field-row admin-pf-row connector-pairing-reveal-row" ' +
+            'data-testid="connector-pairing-reveal-row" hidden>';
+    html += '<label for="connector-pairing-code-readonly">Code</label>';
+    html += '<div class="connector-pairing-reveal">';
+    html += '<input type="text" id="connector-pairing-code-readonly" ' +
+            'class="field-input admin-pf-input connector-pairing-code-input" ' +
+            'data-testid="connector-pairing-code-input" readonly value="" />';
+    html += '<button type="button" class="btn-outlined-primary connector-pairing-copy-btn" ' +
+            'data-testid="connector-pairing-copy-btn">Copy</button>';
+    html += '<small class="form-hint">Copy this code now — it will not be ' +
+            'displayed again until you regenerate.</small>';
+    html += '</div>';
+    html += '</div>';
+
+    html += '</div>';
+    // Note: pairing state is mirrored to ``account.config.pairing`` by
+    // the POST response and re-read on the next render. No form-snapshot
+    // entry is needed (the button is not a dirty source — the endpoint
+    // persists immediately, independent of the editor's Save button).
+    void escapeAttr;
+    return html;
+  }
+
+  function renderAllowlistSection(account) {
+    var escapeHtml = window.App.escapeHtml;
+    var escapeAttr = window.App.escapeAttr;
+    var allowlist = (account && account.config && account.config.allowlist) || null;
+    var enabled = allowlist != null;
+    var peers = (allowlist && Array.isArray(allowlist.peers)) ? allowlist.peers.slice() : [];
+    var channels = (allowlist && Array.isArray(allowlist.channels)) ? allowlist.channels.slice() : [];
+
+    var html = '';
+    html += '<div class="editor-section connector-allowlist-section">';
+    html += '<div class="section-title">Account-scope allowlist</div>';
+
+    // Toggle row.
+    html += '<div class="field-row admin-pf-row">';
+    html += '<label for="connector-allowlist-enabled">Enable</label>';
+    html += '<div>';
+    html += '<input type="checkbox" id="connector-allowlist-enabled" ' +
+            'class="connector-allowlist-toggle" ' +
+            'data-testid="connector-allowlist-toggle"' +
+            (enabled ? ' checked' : '') + ' />';
+    html += '<small class="form-hint">' +
+            'Check to gate inbounds + outbounds by peer / channel. ' +
+            'Uncheck for default-permit (no allowlist on this account). ' +
+            'When checked with empty lists below, this account is in ' +
+            'lockdown — nothing is admitted until you add an entry or ' +
+            'a pairing prefix promotes a peer.' +
+            '</small>';
+    html += '</div>';
+    html += '</div>';
+
+    // List editors — hidden when toggle is off.
+    var listsHidden = enabled ? '' : ' hidden';
+    html += '<div class="connector-allowlist-lists' + listsHidden +
+            '" data-testid="connector-allowlist-lists">';
+    html += renderAllowlistList('peers', 'Peers', peers);
+    html += renderAllowlistList('channels', 'Channels', channels);
+    html += '</div>';
+
+    html += '</div>';
+    void escapeHtml;
+    void escapeAttr;
+    return html;
+  }
+
+  function renderAllowlistList(kind, label, entries) {
+    var escapeHtml = window.App.escapeHtml;
+    var escapeAttr = window.App.escapeAttr;
+    var html = '';
+    html += '<div class="connector-allowlist-list" data-allowlist-kind="' +
+            escapeAttr(kind) + '" data-testid="connector-allowlist-' +
+            escapeAttr(kind) + '-list">';
+    html += '<div class="connector-allowlist-list-header">' +
+            '<strong>' + escapeHtml(label) + '</strong>' +
+            '<button type="button" class="btn-outlined-primary kv-add-row-btn ' +
+            'connector-allowlist-add-btn" data-allowlist-kind="' +
+            escapeAttr(kind) + '" data-testid="connector-allowlist-' +
+            escapeAttr(kind) + '-add-btn">+ Add</button>' +
+            '</div>';
+    html += '<div class="connector-allowlist-rows">';
+    for (var i = 0; i < entries.length; i++) {
+      html += renderAllowlistRow(kind, entries[i]);
+    }
+    html += '</div>';
+    html += '</div>';
+    return html;
+  }
+
+  function renderAllowlistRow(kind, value) {
+    var escapeAttr = window.App.escapeAttr;
+    var html = '';
+    html += '<div class="connector-allowlist-row" data-allowlist-kind="' +
+            escapeAttr(kind) + '">';
+    html += '<input type="text" class="field-input admin-pf-input ' +
+            'connector-allowlist-input" data-allowlist-kind="' +
+            escapeAttr(kind) + '" value="' + escapeAttr(value || '') +
+            '" placeholder="' + (kind === 'peers' ? 'peer id' : 'channel id') + '" />';
+    html += '<button type="button" class="connector-allowlist-remove-btn" ' +
+            'data-allowlist-kind="' + escapeAttr(kind) +
+            '" aria-label="Remove entry" title="Remove">' +
+            window.App.icon('trash') + '</button>';
+    html += '</div>';
+    return html;
+  }
+
+  function renderAttachedAgentsSection() {
+    var html = '';
+    html += '<div class="editor-section connector-attached-agents-section">';
+    html += '<div class="section-title">Attached agents</div>';
+    html += '<div class="field-row admin-pf-row">';
+    html += '<label></label>';
+    html += '<div class="connector-attached-agents-list" ' +
+            'data-testid="connector-attached-agents-list">' +
+            '<em class="form-hint">Loading…</em>' +
+            '</div>';
+    html += '</div>';
+    html += '</div>';
+    return html;
+  }
+
+  function renderAttachedAgentsList(container, rows) {
+    var escapeHtml = window.App.escapeHtml;
+    var escapeAttr = window.App.escapeAttr;
+    var listEl = container.querySelector('[data-testid="connector-attached-agents-list"]');
+    if (!listEl) return;
+    if (!rows || rows.length === 0) {
+      listEl.innerHTML = '<em class="form-hint">No agents attached to this connector.</em>';
+      return;
+    }
+    var html = '<ul class="connector-attached-agents">';
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i] || {};
+      var name = String(row.name || '');
+      var peersCount = Number(row.peers_count || 0);
+      var channelsCount = Number(row.channels_count || 0);
+      // Deep-link to the Agent Editor — leg 5 will route the
+      // ``#studio/agents/{name}`` URL with an additional fragment
+      // for the Connectors tab. Until leg 5 lands, the existing
+      // routing fallback displays the agent editor's default tab.
+      html += '<li class="connector-attached-agent" ' +
+              'data-testid="connector-attached-agent-' + escapeAttr(name) + '">';
+      html += '<a href="#studio/agents/' + escapeAttr(name) + '" ' +
+              'class="connector-attached-agent-link" ' +
+              'data-testid="connector-attached-agent-link-' + escapeAttr(name) + '">' +
+              escapeHtml(name) + '</a>';
+      html += ' <span class="connector-attached-agent-counts">' +
+              'peers: ' + escapeHtml(String(peersCount)) +
+              ' · channels: ' + escapeHtml(String(channelsCount)) +
+              '</span>';
+      html += '</li>';
+    }
+    html += '</ul>';
+    listEl.innerHTML = html;
+  }
+
+  function fetchAttachedAgents(container, accountId) {
+    fetch('/api/connector-accounts/' + encodeURIComponent(accountId) + '/attached-agents')
+      .then(function (resp) {
+        if (!resp.ok) {
+          // 404 or 5xx — render a clear failure message rather than
+          // leaving the "Loading…" placeholder in place forever.
+          var listEl = container.querySelector('[data-testid="connector-attached-agents-list"]');
+          if (listEl) {
+            listEl.innerHTML = '<em class="form-hint">Could not load attached agents (status ' +
+                               resp.status + ').</em>';
+          }
+          return null;
+        }
+        return resp.json();
+      })
+      .then(function (rows) {
+        if (rows == null) return;
+        if (!Array.isArray(rows)) rows = [];
+        renderAttachedAgentsList(container, rows);
+      })
+      .catch(function (err) {
+        var listEl = container.querySelector('[data-testid="connector-attached-agents-list"]');
+        if (listEl) {
+          listEl.innerHTML = '<em class="form-hint">Network error: ' +
+                             window.App.escapeHtml(err && err.message ? err.message : String(err)) +
+                             '</em>';
+        }
+      });
+  }
+
+  function wirePairingEvents(container, account, callbacks) {
+    var btn = container.querySelector('.connector-pairing-generate-btn');
+    if (!btn) return;
+    btn.addEventListener('click', function () {
+      var originalLabel = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Generating…';
+      fetch('/api/connector-accounts/' + encodeURIComponent(account.id) + '/pairing-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      })
+        .then(function (resp) {
+          if (!resp.ok) {
+            return resp.text().then(function (body) {
+              throw new Error('Pairing-code request failed (' + resp.status + '): ' +
+                              (body || '').slice(0, 200));
+            });
+          }
+          return resp.json();
+        })
+        .then(function (data) {
+          if (!data || typeof data.code !== 'string' || !data.code) {
+            throw new Error('Malformed pairing-code response');
+          }
+          // Reveal the code in the read-only slot.
+          var revealRow = container.querySelector('[data-testid="connector-pairing-reveal-row"]');
+          var codeInput = container.querySelector('[data-testid="connector-pairing-code-input"]');
+          if (codeInput) codeInput.value = data.code;
+          if (revealRow) revealRow.hidden = false;
+
+          // Update the status row text so subsequent navigations away +
+          // back show the new issued_at without the code (matches the
+          // initial-render contract).
+          var statusEl = container.querySelector('[data-testid="connector-pairing-status"]');
+          if (statusEl) {
+            statusEl.textContent = 'Code on file (issued ' + (data.issued_at || '') +
+                                   '). The code is only shown immediately after generation — ' +
+                                   'regenerate to reveal a fresh code.';
+          }
+          // Relabel the button to "Regenerate code" once a code exists.
+          btn.textContent = 'Regenerate code';
+
+          // Mirror the new pairing into the local ``account.config``
+          // so any subsequent Save (collectFormData) preserves it
+          // through the merge step.
+          if (!account.config) account.config = {};
+          account.config.pairing = { code: data.code, issued_at: data.issued_at };
+
+          window.App.showFlash(container, 'Pairing code generated. Click Save to persist other changes.');
+        })
+        .catch(function (err) {
+          btn.textContent = originalLabel;
+          window.App.showFlash(container, 'Pairing error: ' + (err && err.message ? err.message : String(err)), true);
+        })
+        .then(function () {
+          btn.disabled = false;
+        });
+    });
+    void callbacks;
+  }
+
+  function wirePairingCopyEvents(container) {
+    var copyBtn = container.querySelector('.connector-pairing-copy-btn');
+    if (!copyBtn) return;
+    copyBtn.addEventListener('click', function () {
+      var codeInput = container.querySelector('[data-testid="connector-pairing-code-input"]');
+      if (!codeInput || !codeInput.value) return;
+      // Clipboard API path with a defensive select+execCommand fallback
+      // for older / non-secure-context environments.
+      var copied = false;
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(codeInput.value);
+          copied = true;
+        }
+      } catch (_) { /* fall through */ }
+      if (!copied) {
+        codeInput.removeAttribute('readonly');
+        codeInput.select();
+        try { document.execCommand('copy'); copied = true; } catch (_) { /* noop */ }
+        codeInput.setAttribute('readonly', 'readonly');
+      }
+      window.App.showFlash(container, copied ? 'Pairing code copied' : 'Copy failed', !copied);
+    });
+  }
+
+  function wireAllowlistEvents(container, checkDirty) {
+    var toggle = container.querySelector('.connector-allowlist-toggle');
+    var listsWrap = container.querySelector('[data-testid="connector-allowlist-lists"]');
+    if (toggle && listsWrap) {
+      toggle.addEventListener('change', function () {
+        listsWrap.hidden = !toggle.checked;
+        checkDirty();
+      });
+    }
+
+    // Delegated input + click events on the allowlist section so
+    // dynamically-added rows participate without re-binding.
+    var section = container.querySelector('.connector-allowlist-section');
+    if (!section) return;
+
+    section.addEventListener('input', function (e) {
+      var target = e.target;
+      if (target && target.classList && target.classList.contains('connector-allowlist-input')) {
+        checkDirty();
+      }
+    });
+
+    section.addEventListener('click', function (e) {
+      var target = e.target;
+      if (!target) return;
+      var addBtn = target.closest && target.closest('.connector-allowlist-add-btn');
+      if (addBtn) {
+        var kind = addBtn.getAttribute('data-allowlist-kind');
+        var listEl = section.querySelector('[data-allowlist-kind="' + kind +
+                                           '"].connector-allowlist-list');
+        if (!listEl) return;
+        var rowsWrap = listEl.querySelector('.connector-allowlist-rows');
+        if (!rowsWrap) return;
+        var tmp = document.createElement('div');
+        tmp.innerHTML = renderAllowlistRow(kind, '');
+        var newRow = tmp.querySelector('.connector-allowlist-row');
+        if (newRow) {
+          rowsWrap.appendChild(newRow);
+          // Focus the newly-added input so the operator can start
+          // typing immediately (keyboard reachability).
+          var input = newRow.querySelector('input');
+          if (input) input.focus();
+          checkDirty();
+        }
+        return;
+      }
+      var removeBtn = target.closest && target.closest('.connector-allowlist-remove-btn');
+      if (removeBtn) {
+        var row = removeBtn.closest('.connector-allowlist-row');
+        if (row && row.parentNode) {
+          row.parentNode.removeChild(row);
+          checkDirty();
+        }
+      }
+    });
+  }
+
+  function collectAllowlistFromContainer(container) {
+    // Returns ``{ enabled: bool, peers: list, channels: list }``. The
+    // caller decides whether to emit ``config.allowlist`` based on
+    // ``enabled``. Empty trimmed entries are dropped; whitespace-only
+    // entries are not preserved.
+    var toggle = container.querySelector('.connector-allowlist-toggle');
+    if (!toggle) return null;
+    var enabled = !!toggle.checked;
+    var peers = [];
+    var channels = [];
+    var inputs = container.querySelectorAll('.connector-allowlist-input');
+    for (var i = 0; i < inputs.length; i++) {
+      var inp = inputs[i];
+      var kind = inp.getAttribute('data-allowlist-kind');
+      var val = (inp.value || '').trim();
+      if (!val) continue;
+      if (kind === 'peers') peers.push(val);
+      else if (kind === 'channels') channels.push(val);
+    }
+    return { enabled: enabled, peers: peers, channels: channels };
   }
 
   // ── KV table head visibility helpers ────────────────────────────────

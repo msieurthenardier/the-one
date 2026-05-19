@@ -8,11 +8,17 @@ each plugin's :meth:`connect` returns.
 
 Per ``agents.md`` ``structural-Protocol-satisfaction``: implementations
 satisfy the Protocols structurally and DO NOT inherit from them. A connector
-that supports allowlists and platform-side commands additionally satisfies
-the :class:`AllowlistResolver` and :class:`CommandHandler` Protocols
-(introduced by flights 6 and 7 of mission 10). All three Protocols will live
-in this file — "single contract file" is the mission criterion, not "single
-Protocol".
+that supports per-(peer, channel) gating implements the OPTIONAL
+``resolve(account, envelope) -> ResolveOutcome`` hook (introduced by
+flight 6 of mission 10). The hook is discovered by consumers via
+:func:`getattr` with :func:`_default_permit` as the fallback — same
+convention as F3's ``display_channel``. It is NOT declared on the
+:class:`ConnectorPlugin` Protocol; plugins opt in by exposing the method.
+The three-outcome ADT (:class:`Permit`, :class:`NeedsPairing`,
+:class:`Deny`, exposed as :data:`ResolveOutcome`) and the future
+:class:`CommandHandler` Protocol (introduced by flight 7) live alongside
+the Protocols in this file — "single contract file" is the mission
+criterion, not "single Protocol".
 
 Per ``agents.md`` ``canonical-import + convenience-re-export``: code that
 touches Protocol identity (``isinstance(...)`` or subclass checks) MUST use
@@ -165,6 +171,67 @@ class SendResult:
     """
 
 
+@dataclass(frozen=True, slots=True)
+class Permit:
+    """Resolver outcome: the envelope is admitted; agent.step proceeds normally."""
+
+
+@dataclass(frozen=True, slots=True)
+class NeedsPairing:
+    """Resolver outcome: the peer is unknown; the dispatcher must validate a pairing prefix.
+
+    The plugin signals the SHAPE ("this peer isn't on the allowlist; pair-or-deny");
+    the dispatcher (F6 leg 2) owns prefix validation against
+    ``account.config["pairing"]["code"]``. ``reason`` surfaces in audit log
+    entries written to ``chat_sessions.session_metadata``.
+    """
+
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class Deny:
+    """Resolver outcome: the envelope is rejected outright; no pairing path.
+
+    The dispatcher logs the outcome to ``session_metadata`` and returns
+    without invoking ``agent.step``. From the peer's perspective the bot
+    is silent. ``reason`` surfaces in audit log entries.
+    """
+
+    reason: str
+
+
+ResolveOutcome = Permit | NeedsPairing | Deny
+"""Union of the three resolver outcomes produced by the optional ``resolve`` hook.
+
+Consumers (``connectors/_inbound.py`` in F6 leg 2,
+``tools/connector_send.py`` in F6 leg 3) discover the hook via
+``getattr(plugin, "resolve", _default_permit)``; the fallback is
+:func:`_default_permit` which returns :class:`Permit` unconditionally.
+``Permit()`` instances are frozen-dataclass-equal so callers may compare
+against a sentinel without identity reliance.
+"""
+
+
+def _default_permit(
+    account: ConnectorAccount,
+    envelope: InboundEnvelope,
+) -> Permit:
+    """Default resolver fallback when a plugin does not implement ``resolve``.
+
+    Used by F6's inbound dispatcher (``connectors/_inbound.py``) and
+    outbound tool (``tools/connector_send.py``) via
+    ``getattr(plugin, "resolve", _default_permit)``. Returns ``Permit()``
+    unconditionally — the plugin opted not to gate, so the subsystem
+    does not gate either.
+
+    Private to the connector package: consumers import via the canonical
+    path ``the_one.connectors.base._default_permit``, not via the
+    ``__init__.py`` convenience re-export.
+    """
+    return Permit()
+
+
 @runtime_checkable
 class ConnectorClient(Protocol):
     """Live-connection wrapper for a single connector account.
@@ -220,10 +287,14 @@ class ConnectorPlugin(Protocol):
     ``runtime_checkable`` Protocol checks method NAMES only. Widening this
     Protocol is non-breaking for existing
     ``isinstance(plugin, ConnectorPlugin)`` consumers, so subsequent flights
-    can add methods deliberately. Flights 6 and 7 do NOT widen this Protocol
-    — they introduce separate :class:`AllowlistResolver` and
-    :class:`CommandHandler` Protocols, also in this file, that connectors
-    structurally satisfy in addition to :class:`ConnectorPlugin`.
+    can add methods deliberately. Flight 6 introduces the OPTIONAL
+    ``resolve(account, envelope) -> ResolveOutcome`` hook discoverable via
+    :func:`getattr` with :func:`_default_permit` as the fallback — NOT a
+    Protocol widening; plugins opt in by exposing the method (same
+    convention as F3's ``display_channel``). Flight 7 will introduce a
+    separate :class:`CommandHandler` Protocol, also in this file, that
+    command-aware connectors structurally satisfy in addition to
+    :class:`ConnectorPlugin`.
     """
 
     async def connect(

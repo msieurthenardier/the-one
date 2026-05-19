@@ -26,8 +26,10 @@ the_one/connectors/
 ├── __init__.py        # Public surface re-exports; canonical-import discipline note
 ├── base.py            # ConnectorPlugin + ConnectorClient Protocols; supporting
 │                      # dataclasses (InboundEnvelope, OutboundTarget, SessionKey,
-│                      # DoctorReport). Future home of AllowlistResolver (Flight 6)
-│                      # and CommandHandler (Flight 7).
+│                      # DoctorReport). Home of F6's resolver outcome ADT
+│                      # (Permit / NeedsPairing / Deny + ResolveOutcome) and the
+│                      # _default_permit fallback. Future home of CommandHandler
+│                      # (Flight 7).
 ├── errors.py          # 6-type exception hierarchy
 ├── registry.py        # ConnectorRegistry class + module-level singleton + builtin
 │                      # discovery hook
@@ -79,8 +81,10 @@ will add two more:
   `ConnectorPlugin.connect`. F4 widened this Protocol with `send` so the
   ``platform_send`` built-in tool can dispatch outbound platform-bound
   messages through every plugin uniformly.
-- `AllowlistResolver` (Flight 6) — ACL-aware connectors will additionally
-  satisfy this Protocol.
+- Optional `resolve` hook (Flight 6) — ACL-aware connectors expose a
+  per-(peer, channel) gating hook discoverable via `getattr` (see §4 below
+  and `optional-plugin-hook-via-getattr-sentinel` in `agents.md`); NOT
+  declared on the `ConnectorPlugin` Protocol.
 - `CommandHandler` (Flight 7) — connectors that handle platform-side
   commands (`/agents`, `/talk-to`, etc.) will additionally satisfy this
   Protocol.
@@ -220,6 +224,19 @@ implement it return a human-readable channel label
 `envelope.channel_id` at the resolver layer. `StubPlugin.display_channel`
 is the reference implementation — returns `f"stub:{envelope.channel_id}"`.
 
+Second instance: **`resolve(account: ConnectorAccount, envelope: InboundEnvelope) -> ResolveOutcome`**
+for per-(peer, channel) gating in `the_one.connectors._inbound.dispatch_inbound`
+and `the_one.tools.connector_send.SendToPlatformChannelTool.execute`
+(M10 F06 L2 + L3). Plugins that implement it return one of three outcomes:
+`Permit()` (admit), `NeedsPairing(reason)` (dispatcher validates a pairing
+prefix), or `Deny(reason)` (reject silently). Plugins that don't implement
+it fall through to `_default_permit` at the consult sites — always
+`Permit()`. The `StubPlugin` does NOT implement `resolve`; F1–F5
+regression coverage exercises the `_default_permit` path. The hook uses
+a named-callable fallback (`_default_permit`) rather than the `None`
+sentinel that `display_channel` uses, because the default outcome is
+structured (a `Permit()` instance) rather than implicit.
+
 When to add a method to the Protocol vs. use the optional-hook convention:
 
 - **Protocol method**: every plugin MUST implement; the subsystem
@@ -277,13 +294,13 @@ fixture that Flights 2–10 inherit.
 ## §6. The `'stub'` type name is reserved for tests
 
 Production code MUST NOT register `'stub'` via
-`register_builtin_connectors`. The v13/v14 schema has no CHECK constraint
-on `connector_accounts.type` (Flight 1 ships without one — see `agents.md`
-"Connector type extension checklist" layer 4), so storing `'stub'`-typed
-rows in tests works at the persistence layer without polluting the
-production type registry.
+`register_builtin_connectors`. Schema versions before v19 have no CHECK
+constraint on `connector_accounts.type` (Flight 1 ships without one — see
+`agents.md` "Connector type extension checklist" layer 4), so storing
+`'stub'`-typed rows in tests works at the persistence layer without
+polluting the production type registry.
 
-Flight 8's v15 migration adds the CHECK constraint when `'discord'`
+Flight 8's v19 migration adds the CHECK constraint when `'discord'`
 becomes a real type to constrain — at that point `'stub'` will need to be
 explicitly included in the CHECK constraint set OR the test-side seeding
 will fail. Future flights touching the CHECK MUST coordinate with this
@@ -360,7 +377,7 @@ End-to-end walk of an outbound delivery, from the agent's tool call to the platf
 
 1. **Agent invokes the tool**. The LLM's response includes a tool_call with `name="send_to_platform_channel"` and arguments `{target: {account_id, channel_id, thread_id?}, content}`. Agent core dispatches via `the_one/agent/core.py:Agent._execute_tool` (the existing per-tool dispatch path).
 
-2. **Tool execute() validates target**. `the_one/tools/connector_send.py:SendToPlatformChannelTool.execute()` validates the `target` shape (account_id, channel_id present; thread_id optional), validates `target.account_id ∈ self._connector_account_ids` (account-scope check; rejects with `[error] [constraint]` on mismatch). The `# F6: AllowlistResolver consultation lands here` marker is the hook for F6's channel/thread/peer ACL.
+2. **Tool execute() validates target**. `the_one/tools/connector_send.py:SendToPlatformChannelTool.execute()` validates the `target` shape (account_id, channel_id present; thread_id optional), validates `target.account_id ∈ self._connector_account_ids` (account-scope check; rejects with `[error] [constraint]` on mismatch). It then consults the channel + per-agent ACL gates: a per-call `ConnectorAccountRepository.get(account_id)` fetch reads current account state, and the tool intersects `target.channel_id` against (i) account-scope `account.config["allowlist"]["channels"]` (absent → permit) and (ii) per-agent `AgentConfig.connector_acls[account_id]["channels"]` (account_id key absent or empty channels list → inherit). Denials return the standard `[error] [constraint]` envelope. Source of truth: `connector_send.py:execute` + `AgentConfig.connector_acls`.
 
 3. **Tool acquires pool entry**. The tool calls `the_one/connectors/_pool.py:acquire(agent_name, account_id)` to fetch the warm `ConnectorClient`. The pool's worker-task-per-entry pattern ensures `connect` and `disconnect` run on the same task (anyio cross-task `CancelScope` safety). `last_activity` is touched on every successful resolve. Pool errors (`KeyError` for unknown account, `ConnectorRegistrationError` for unregistered plugin type, `ConnectorClientError` subtypes for connect failures, `RuntimeError` during shutdown) surface as `[error] <ExceptionType>: <message>` envelopes.
 

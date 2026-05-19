@@ -9,8 +9,8 @@ The tool delivers content to the external platform via the F1 pool's
 covers shape (the JSON Schema layer is permissive at the LLM boundary
 but defensive validation here protects the pool from malformed inputs)
 and account-scope (``target.account_id`` must be in the agent's attached
-set). Channel/thread/peer ACLs are F6 territory — see the inline
-``# F6:`` marker.
+set). Channel/per-agent ACLs are consulted at execute time via a
+per-call account fetch (M10 F6 L3); default-permit on absence.
 
 Success returns a :data:`PLATFORM_SEND_OK_PREFIX`-prefixed string that
 the F4-leg-4 dispatcher visibility-tagger consumes to decide
@@ -92,12 +92,14 @@ class SendToPlatformChannelTool(Tool):
         cross_configs: dict[type, object] | None = None,
         agent_name: str | None = None,
         connector_account_ids: list[str] | None = None,
+        connector_acls: dict[str, dict[str, list[str]]] | None = None,
     ) -> None:
-        # All four kwargs default to None so `cls()` works on the
+        # All kwargs default to None so `cls()` works on the
         # `/api/tools` introspection path (BuiltinToolProvider.get_tools
         # at builtins.py:104-105 constructs every tool zero-arg there).
         super().__init__(config, cross_configs, agent_name)
         self._connector_account_ids: list[str] = connector_account_ids or []
+        self._connector_acls: dict[str, dict[str, list[str]]] | None = connector_acls
 
     async def execute(self, target: Any = None, content: Any = None, **_extra: Any) -> str:  # type: ignore[override]
         # `**_extra` defensively accepts unexpected kwargs from the LLM
@@ -128,10 +130,52 @@ class SendToPlatformChannelTool(Tool):
                 f"not attached to this agent"
             )
 
-        # F6: AllowlistResolver consultation lands here.
-        # F4 ships account-scope validation only; per-channel/thread/peer
-        # ACLs are F6 territory. The resolver call replaces this comment
-        # and short-circuits to an [error] [constraint] envelope on deny.
+        # ── Channel + per-agent ACL consultation (M10 F6 L3) ───────
+        # Function-local imports — adopted defensively by symmetry with
+        # connectors/_inbound.py:130-142 (the existing precedent for the
+        # connectors→db boundary). A cycle is NOT observed in tools/
+        # connector_send.py's current import graph; the convention is
+        # adopted prophylactically because per-call account fetches will
+        # multiply this module's coupling to db.repositories over time.
+        from the_one.config import settings
+        from the_one.db.connection import get_connection
+        from the_one.db.repositories import ConnectorAccountRepository
+        from the_one.encryption import get_encryptor
+
+        conn = await get_connection()
+        encryptor = get_encryptor(settings.data_dir)
+        acc_repo = ConnectorAccountRepository(conn, encryptor)
+        try:
+            account = await acc_repo.get(account_id)
+        except KeyError:
+            return (
+                f"[error] [constraint] account_id {account_id!r} "
+                "not found"
+            )
+
+        # Account-scope channel check.
+        allowlist = account.config.get("allowlist")
+        if allowlist is not None:
+            allowed_channels = allowlist.get("channels", [])
+            if channel_id not in allowed_channels:
+                return (
+                    f"[error] [constraint] channel_id {channel_id!r} "
+                    f"is not reachable on account {account_id!r}"
+                )
+
+        # Per-agent ACL channel check (intersected with account-scope).
+        if self._connector_acls is not None:
+            agent_acl = self._connector_acls.get(account_id)
+            if agent_acl is not None:
+                agent_channels = agent_acl.get("channels", [])
+                # Empty list = inherit account-scope (no agent-level
+                # narrowing). Non-empty = narrow further.
+                if agent_channels and channel_id not in agent_channels:
+                    return (
+                        f"[error] [constraint] channel_id {channel_id!r} "
+                        f"is not reachable for this agent on account "
+                        f"{account_id!r}"
+                    )
 
         # ── Pool acquire + client.send ─────────────────────────────
         try:

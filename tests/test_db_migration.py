@@ -230,10 +230,12 @@ class TestSchemaV8:
         # connector_accounts.session_continuation_seconds (M10 F03 L01);
         # v17 added agents.connector_account_ids (M10 F04 L05 — closes the
         # F4 L1/L4 monkeypatch workaround for the AgentConfig field's
-        # missing DB persistence).
-        assert CURRENT_VERSION == 17, (
-            "CURRENT_VERSION must be 17 after the M10 F04 L05 — "
-            "agents.connector_account_ids persistence v17 migration "
+        # missing DB persistence);
+        # v18 added agents.connector_acls (M10 F06 L1c — per-agent ACL
+        # persistence; F4 debrief rec #1 atomic shape).
+        assert CURRENT_VERSION == 18, (
+            "CURRENT_VERSION must be 18 after the M10 F06 L1c — "
+            "agents.connector_acls persistence v18 migration "
             f"(got {CURRENT_VERSION})"
         )
 
@@ -1128,7 +1130,7 @@ class TestSchemaV13:
     communication connectors (Discord bot, Slack workspace app, etc.).
     Mirrors TestSchemaV11 in shape — fresh-DB surfaces, idempotent re-run,
     column-shape verification with explicit assertion that no CHECK
-    constraint pins `type` (deferred to v14 in flight 8 when 'discord' is
+    constraint pins `type` (deferred to v19 in flight 8 when 'discord' is
     a real type to constrain).
     """
 
@@ -1168,7 +1170,7 @@ class TestSchemaV13:
         self, tmp_path
     ) -> None:
         """connector_accounts has the expected columns; type is NOT NULL but
-        unconstrained (no CHECK clause until v18 in flight 8).
+        unconstrained (no CHECK clause until v19 in flight 8).
 
         Asserts the post-``ensure_schema`` shape — the ``name`` column was
         added in v14 (M10 F01 L02) to mirror MCPSource; the
@@ -1176,7 +1178,7 @@ class TestSchemaV13:
         the per-account pool idle TTL override; the
         ``session_continuation_seconds`` column was added in v16 (M10 F03
         L01) as the per-account chat-session continuation window; the
-        CHECK constraint on ``type`` is deferred to v18 (flight 08) when
+        CHECK constraint on ``type`` is deferred to v19 (flight 08) when
         there is a real connector type to constrain.
         """
         db_path = tmp_path / "v13-cols.db"
@@ -1258,12 +1260,12 @@ class TestSchemaV14:
     pre-existing rows (zero in practice) survive with empty name. New rows
     are required to carry a real name by the Pydantic model (no default).
 
-    Downstream: flight 08 (Discord) previously planned a v14 CHECK
-    migration; that renumbers to v18 (v15 is claimed by flight 02 leg 02's
-    ``idle_timeout_seconds`` ALTER; v16 is claimed by flight 03 leg 01's
-    chat_sessions external-key columns + ``session_continuation_seconds``;
-    v17 is claimed by flight 04 leg 05's
-    ``agents.connector_account_ids`` ALTER).
+    Downstream: flight 08 (Discord)'s CHECK constraint now lands at v19
+    (v14 claimed by this F1 L2 leg — ``name`` column; v15 by F2 L2 —
+    ``idle_timeout_seconds``; v16 by F3 L1 — chat_sessions external-key
+    + ``session_continuation_seconds``; v17 by F4 L5 —
+    ``agents.connector_account_ids``; v18 by F6 L1c —
+    ``agents.connector_acls``).
     See flight log ``## Design Adjustments``.
     """
 
@@ -1442,11 +1444,12 @@ class TestSchemaV15:
     idle TTL. Nullable INTEGER (NULL = "use _resolve_ttl_seconds env-var /
     default"). Bounded at the Pydantic layer (1 ≤ value ≤ 604800).
 
-    Downstream: flight 08 (Discord) previously planned a v14 CHECK
-    migration; that renumbered to v15 in earlier planning, then renumbered
-    again to v16 once F2 L1 claimed v15; F3 L1 claimed v16 and F8 CHECK
-    renumbered to v17; F4 L5 claimed v17 (agents.connector_account_ids)
-    and F8 CHECK renumbered to v18. See flight log ``## Design Adjustments``.
+    Downstream: flight 08 (Discord)'s CHECK constraint now lands at v19
+    (v15 claimed by this F2 L2 leg — ``idle_timeout_seconds``; v16 by
+    F3 L1 — chat_sessions external-key + ``session_continuation_seconds``;
+    v17 by F4 L5 — ``agents.connector_account_ids``; v18 by F6 L1c —
+    ``agents.connector_acls``).
+    See flight log ``## Design Adjustments``.
     """
 
     async def test_v15_fresh_db_includes_idle_timeout_seconds_column(
@@ -1634,9 +1637,9 @@ class TestSchemaV16:
     session_continuation_seconds on connector_accounts is the per-account
     continuation window consumed by the resolver (F3 L3).
 
-    Downstream: flight 08 (Discord) previously planned a v16 CHECK
-    migration; that renumbers to v18 (v17 is claimed by flight 04 leg 05's
-    ``agents.connector_account_ids`` ALTER). See flight log
+    Downstream: flight 08 (Discord)'s CHECK constraint now lands at v19
+    (v17 claimed by F4 L5 — ``agents.connector_account_ids`` ALTER;
+    v18 by F6 L1c — ``agents.connector_acls`` ALTER). See flight log
     ``## Design Adjustments`` and _connector_types.py docstring.
     """
 
@@ -1875,7 +1878,8 @@ class TestSchemaV17:
     rows decodes to ``[]`` via the ``or "[]"`` default in ``_row_to_config``.
 
     Downstream: flight 08 (Discord) previously planned a v17 CHECK
-    migration; that renumbers to v18.
+    migration; that renumbers to v19 (v18 is claimed by F6 L1c —
+    ``agents.connector_acls``).
     """
 
     async def test_v17_fresh_db_includes_agents_connector_account_ids_column(
@@ -2026,5 +2030,173 @@ class TestSchemaV17:
         assert max(versions) == CURRENT_VERSION, versions
 
         await conn.close()
+
+        await conn.close()
+
+
+class TestSchemaV18:
+    """Tests for the v18 migration that adds agents.connector_acls.
+
+    Mission 10 Flight 6 Leg 1c: per-agent ACL persistence. Atomic shape
+    per F4 debrief rec #1 — Pydantic field + ALTER TABLE + repository
+    round-trip ship in one leg. The column is a nullable TEXT field
+    storing the JSON-encoded outer dict
+    ``{account_id: {"peers": [...], "channels": [...]}}`` or NULL when
+    no per-agent narrowing exists. Pre-v18 rows decode NULL → ``None``
+    via the ``if row["connector_acls"] else None`` decode in
+    ``SQLiteAgentStore._row_to_config``.
+
+    Downstream: flight 08 (Discord)'s CHECK constraint now lands at v19.
+    """
+
+    async def test_v18_fresh_db_includes_agents_connector_acls_column(
+        self, tmp_path
+    ) -> None:
+        """Fresh DB → ensure_schema → v18 surfaces exist."""
+        db_path = tmp_path / "v18-fresh.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await ensure_schema(conn)
+
+        assert CURRENT_VERSION >= 18, CURRENT_VERSION
+
+        async with conn.execute("PRAGMA table_info(agents)") as cur:
+            cols = {r["name"]: r for r in await cur.fetchall()}
+
+        assert "connector_acls" in cols, (
+            "v18 migration missing: agents.connector_acls does not "
+            "exist after ensure_schema on a fresh DB"
+        )
+        col = cols["connector_acls"]
+        assert col["type"] == "TEXT", col["type"]
+        # notnull == 0 means the column is nullable (we read NULL → None
+        # in `_row_to_config` via the `if row["X"] else None` decode).
+        assert col["notnull"] == 0, col["notnull"]
+        # No explicit DEFAULT clause; dflt_value is Python None.
+        assert col["dflt_value"] is None, col["dflt_value"]
+
+        async with conn.execute(
+            "SELECT version FROM schema_version ORDER BY version"
+        ) as cur:
+            versions = [r[0] for r in await cur.fetchall()]
+        assert 18 in versions, versions
+        assert max(versions) == CURRENT_VERSION, versions
+
+        await conn.close()
+
+    async def test_v18_migration_idempotent_on_rerun(self, tmp_path) -> None:
+        """Calling ensure_schema twice on a fresh DB is a no-op the second
+        time: no errors, no duplicate schema_version rows for v18, the
+        column is still present."""
+        db_path = tmp_path / "v18-rerun.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await ensure_schema(conn)
+        await ensure_schema(conn)  # second call — must be a no-op
+
+        async with conn.execute(
+            "SELECT version FROM schema_version ORDER BY version"
+        ) as cur:
+            versions = [r[0] for r in await cur.fetchall()]
+        assert versions.count(18) == 1, f"v18 row should appear exactly once: {versions}"
+
+        async with conn.execute("PRAGMA table_info(agents)") as cur:
+            cols = {r["name"] for r in await cur.fetchall()}
+        assert "connector_acls" in cols
+
+        await conn.close()
+
+    async def test_v18_legacy_v17_row_decodes_with_none_connector_acls(
+        self, tmp_path
+    ) -> None:
+        """A row seeded against a hand-built v17 schema (no
+        ``connector_acls`` column) survives the v18 ALTER with the column
+        added as NULL; the repository's ``_row_to_config`` reads
+        NULL → ``None`` (distinguishing it from ``{}``, which round-trips
+        verbatim).
+
+        Hand-builds a v17-shape ``agents`` table (with
+        ``connector_account_ids`` but no ``connector_acls`` column),
+        INSERTs a row, sets ``schema_version`` rows up to 17, then calls
+        ``ensure_schema``. Mirrors
+        ``TestSchemaV17.test_v17_legacy_v16_row_decodes_with_empty_connector_account_ids``.
+        """
+        from the_one.db.repositories import SQLiteAgentStore
+
+        db_path = tmp_path / "v18-from-real-v17.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        # Hand-build a minimal schema_version table and seed v1..v17.
+        await conn.execute(
+            "CREATE TABLE schema_version ("
+            "    version INTEGER PRIMARY KEY,"
+            "    applied_at TEXT NOT NULL DEFAULT (datetime('now'))"
+            ")"
+        )
+        for v in range(1, 18):
+            await conn.execute(
+                "INSERT INTO schema_version (version) VALUES (?)", (v,)
+            )
+        # v17-shape agents (with connector_account_ids, no connector_acls).
+        # We need only the columns the repository's `_row_to_config` reads,
+        # plus the PK.
+        await conn.execute(
+            "CREATE TABLE agents ("
+            "    name TEXT PRIMARY KEY,"
+            "    description TEXT DEFAULT '',"
+            "    provider_config_id TEXT,"
+            "    llm_model TEXT DEFAULT '',"
+            "    system_prompt TEXT DEFAULT '',"
+            "    enabled_tools TEXT,"
+            "    disabled_tools TEXT DEFAULT '[]',"
+            "    max_iterations INTEGER DEFAULT 20,"
+            "    kb_ids TEXT DEFAULT '[]',"
+            "    mcp_source_ids TEXT DEFAULT '[]',"
+            "    tool_overrides TEXT,"
+            "    mcp_overrides TEXT,"
+            "    connector_account_ids TEXT,"
+            "    created_at TEXT NOT NULL DEFAULT (datetime('now')),"
+            "    updated_at TEXT NOT NULL DEFAULT (datetime('now'))"
+            ")"
+        )
+        await conn.execute(
+            "INSERT INTO agents (name, description, llm_model) VALUES (?, ?, ?)",
+            ("legacy-v17-agent", "Pre-v18 agent", "mock-default"),
+        )
+        await conn.commit()
+
+        await ensure_schema(conn)
+
+        # The column now exists.
+        async with conn.execute("PRAGMA table_info(agents)") as cur:
+            cols = {r["name"] for r in await cur.fetchall()}
+        assert "connector_acls" in cols
+
+        # The pre-existing row has NULL on the new column.
+        async with conn.execute(
+            "SELECT connector_acls FROM agents WHERE name = 'legacy-v17-agent'"
+        ) as cur:
+            row = await cur.fetchone()
+        assert row is not None
+        assert row["connector_acls"] is None
+
+        # _row_to_config decodes NULL → None.
+        store = SQLiteAgentStore(conn)
+        loaded = await store.load("legacy-v17-agent")
+        assert loaded.connector_acls is None
+
+        # Head pointer landed at CURRENT_VERSION (≥18).
+        async with conn.execute(
+            "SELECT version FROM schema_version ORDER BY version"
+        ) as cur:
+            versions = [r[0] for r in await cur.fetchall()]
+        assert 18 in versions, versions
+        assert max(versions) == CURRENT_VERSION, versions
 
         await conn.close()

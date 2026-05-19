@@ -28,6 +28,7 @@ from the_one.db.models import (
     KnowledgeBase,
     LLMProviderConfig,
     MCPSource,
+    now_iso,
 )
 from the_one.db.repositories import (
     ChatSessionRepository,
@@ -2279,6 +2280,96 @@ async def delete_connector_account(account_id: str) -> dict[str, str]:
         )
 
     return {"status": "ok"}
+
+
+@router.post("/connector-accounts/{account_id}/pairing-code")
+async def generate_connector_account_pairing_code(
+    account_id: str,
+) -> dict[str, str]:
+    """Generate (or regenerate) the pairing code for a connector account.
+
+    M10 F6 L4: writes ``account.config["pairing"] = {"code": <8-hex>,
+    "issued_at": <iso>}`` and returns the new code + timestamp. The
+    endpoint is the ONLY writer for the ``pairing`` reserved key; the
+    operator never types the code (UX trade-off: shorter codes, no
+    whitespace / typo bugs).
+
+    Pre-existing reserved + non-reserved ``config`` keys (e.g.
+    ``allowlist``, ``intent``) are preserved — we mutate ONLY the
+    ``pairing`` sub-key and round-trip the rest of ``config`` verbatim
+    through ``ConnectorAccountRepository.update``.
+
+    Does NOT trigger warm-pool eviction. Eviction at PUT-time fires only
+    on a ``secrets`` change (see ``update_connector_account`` above);
+    ``config["pairing"]`` is consulted at inbound-dispatch time per leg 2
+    and does not live inside any cached ``ConnectorClient`` instance.
+    """
+    repo = await _connector_repo()
+    try:
+        account = await repo.get(account_id)
+    except KeyError:
+        raise HTTPException(
+            status_code=404, detail=f"Connector account not found: {account_id}"
+        )
+    code = secrets.token_hex(4)  # 8 hex chars
+    issued_at = now_iso()
+    # Preserve all other config keys (allowlist, intent, …) — only
+    # mutate the pairing sub-key. Leg-1b's field_validator fires on
+    # ``model_validate`` at repo.update time and rejects malformed
+    # shapes; the {"code", "issued_at"} dict we set here is the
+    # canonical shape.
+    new_config = dict(account.config)
+    new_config["pairing"] = {"code": code, "issued_at": issued_at}
+    updated = account.model_copy(update={"config": new_config})
+    # Round-trip through model_validate so leg-1b's @field_validator
+    # runs on the merged config (mirror of the PUT handler's pattern).
+    updated = ConnectorAccount.model_validate(updated.model_dump())
+    await repo.update(updated)
+    return {"code": code, "issued_at": issued_at}
+
+
+@router.get("/connector-accounts/{account_id}/attached-agents")
+async def list_attached_agents_for_connector_account(
+    account_id: str,
+) -> list[dict[str, Any]]:
+    """Return agents whose ``connector_account_ids`` includes this account.
+
+    M10 F6 L4: powers the read-only "Attached agents" section of the
+    Studio Connector account editor. Per-row counts derive from
+    ``agent.connector_acls[account_id]["peers"]`` and ``["channels"]``;
+    when no per-agent ACL is configured for this account, both counts
+    are 0 (inherit / default-permit semantics per leg 1c).
+
+    Performance: O(N agents). Acceptable for the operator's small agent
+    count (typically <50). If the count climbs, a JSON-extract query
+    against the ``connector_account_ids`` column would scale better
+    (F10 territory).
+    """
+    repo = await _connector_repo()
+    try:
+        await repo.get(account_id)
+    except KeyError:
+        raise HTTPException(
+            status_code=404, detail=f"Connector account not found: {account_id}"
+        )
+
+    store = await _agent_store()
+    names = await store.list_agents()
+    result: list[dict[str, Any]] = []
+    for name in names:
+        cfg = await store.load(name)
+        if account_id not in cfg.connector_account_ids:
+            continue
+        acls = cfg.connector_acls or {}
+        acl = acls.get(account_id, {})
+        result.append(
+            {
+                "name": name,
+                "peers_count": len(acl.get("peers", [])),
+                "channels_count": len(acl.get("channels", [])),
+            }
+        )
+    return result
 
 
 @router.post("/connector-accounts/{account_id}/test/connect")

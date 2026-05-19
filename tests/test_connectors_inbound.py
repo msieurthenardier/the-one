@@ -46,6 +46,7 @@ import pytest
 # the ``isolated_db`` fixture must be explicitly imported into this module
 # for tests here to consume it as a function argument.
 from tests._connector_dispatch_helpers import (
+    StubPluginWithResolver,
     _envelope,
     _make_factory,
     _make_scripted_factory,
@@ -61,6 +62,7 @@ from the_one.connectors import _inbound as inbound_mod
 from the_one.connectors import _pool as pool_mod
 from the_one.connectors._inbound import dispatch_inbound
 from the_one.connectors._stub import StubPlugin
+from the_one.connectors.base import Deny, NeedsPairing, Permit
 from the_one.connectors.errors import ConnectorConnectionError
 from the_one.connectors.registry import (
     clear_for_test as _registry_clear_for_test,
@@ -1048,3 +1050,361 @@ async def test_update_last_inbound_raises_keyerror_on_missing_session(
         await chat_repo.update_last_inbound(
             "no-such-session", datetime.now(timezone.utc).isoformat()
         )
+
+
+# ─── M10 F06 L2: TestF6Gating — resolver consult + pairing + audit ───────
+
+
+class TestF6Gating:
+    """Coverage for the F6 leg-2 dispatcher gating block.
+
+    The block lives between ``resolve_session`` and the per-session
+    lock in ``the_one/connectors/_inbound.py``. The resolver hook is
+    consulted via ``getattr(plugin, "resolve", _default_permit)``;
+    outcomes are ``Permit`` / ``NeedsPairing`` / ``Deny``. Every gate
+    decision writes an audit entry to ``session_metadata["audit"]``
+    with uniform shape ``{"outcome", "peer_id", "ts", "reason"}``.
+
+    ``last_inbound_at`` is intentionally NOT bumped on Deny /
+    NeedsPairing-failure — those branches return BEFORE entering the
+    per-session lock that owns the ``update_last_inbound`` call.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _reset_resolver_stub_state(self):
+        """Reset the variant stub's class-level resolver state per test."""
+        StubPluginWithResolver.reset_for_test()
+        yield
+        StubPluginWithResolver.reset_for_test()
+
+    @staticmethod
+    async def _audit_entries(session_id: str) -> list[dict[str, Any]]:
+        """Helper: fetch the audit list from a session's metadata."""
+        conn = await get_connection()
+        chat_repo = ChatSessionRepository(conn)
+        session = await chat_repo.get(session_id)
+        if session.session_metadata is None:
+            return []
+        return session.session_metadata.get("audit", [])
+
+    @staticmethod
+    async def _list_first_session() -> ChatSession:
+        conn = await get_connection()
+        chat_repo = ChatSessionRepository(conn)
+        sessions = await chat_repo.list()
+        assert len(sessions) == 1
+        return sessions[0]
+
+    async def test_stub_without_resolve_permits_via_default_fallback(
+        self, isolated_db
+    ) -> None:
+        """``StubPlugin`` (no ``resolve``) hits ``_default_permit`` →
+        dispatch proceeds; audit entry shows ``outcome=permit`` with
+        ``reason=None`` (uniform shape for the leg-4 renderer).
+        """
+        await _seed_provider_and_agent()
+        await _seed_stub_account()
+        register_for_test("stub", StubPlugin)
+
+        factory = await _make_factory()
+        envelope = _envelope()
+        await dispatch_inbound(
+            "agent-inbound", "acct-test", envelope, factory=factory
+        )
+
+        session = await self._list_first_session()
+        history = decode_messages(session.messages)
+        # agent.step ran — both a USER and an ASSISTANT message landed.
+        assert any(m.role == Role.USER for m in history)
+        assert any(m.role == Role.ASSISTANT for m in history)
+        audit = await self._audit_entries(session.id)
+        assert len(audit) == 1
+        assert audit[0]["outcome"] == "permit"
+        assert audit[0]["peer_id"] == "peer-1"
+        assert audit[0]["reason"] is None
+        assert "ts" in audit[0]
+
+    async def test_permit_outcome_dispatches_and_writes_audit(
+        self, isolated_db
+    ) -> None:
+        """The variant stub returning ``Permit()`` dispatches normally
+        and the audit log records the outcome with ``reason=None``."""
+        await _seed_provider_and_agent()
+        await _seed_stub_account()
+        StubPluginWithResolver.resolve_outcome = Permit()
+        register_for_test("stub", StubPluginWithResolver)
+
+        factory = await _make_factory()
+        envelope = _envelope(text="hi there")
+        await dispatch_inbound(
+            "agent-inbound", "acct-test", envelope, factory=factory
+        )
+
+        # Resolver was consulted once with the expected args.
+        assert StubPluginWithResolver.resolve_calls == [("acct-test", "peer-1")]
+
+        session = await self._list_first_session()
+        history = decode_messages(session.messages)
+        user_msgs = [m for m in history if m.role == Role.USER]
+        assert len(user_msgs) == 1
+        # The envelope text was NOT mutated on the Permit path.
+        assert user_msgs[0].content == "hi there"
+
+        audit = await self._audit_entries(session.id)
+        assert len(audit) == 1
+        assert audit[0] == {
+            "outcome": "permit",
+            "peer_id": "peer-1",
+            "ts": audit[0]["ts"],
+            "reason": None,
+        }
+
+    async def test_needs_pairing_with_valid_prefix_strips_persists_dispatches(
+        self, isolated_db
+    ) -> None:
+        """NeedsPairing + ``PAIR X hello`` against ``pairing.code='X'``:
+        strips the prefix, persists ``peer_id`` into the allowlist,
+        records ``outcome=permit, reason=paired``, and dispatches with
+        the CLEANED text.
+        """
+        await _seed_provider_and_agent()
+        # Seed an account with the pairing config configured.
+        conn = await get_connection()
+        encryptor = get_encryptor(settings.data_dir)
+        acc_repo = ConnectorAccountRepository(conn, encryptor)
+        await acc_repo.create(
+            ConnectorAccount(
+                id="acct-test",
+                name="Stub Pairing",
+                type="stub",
+                config={
+                    "pairing": {
+                        "code": "X",
+                        "issued_at": "2026-05-18T00:00:00+00:00",
+                    },
+                },
+            )
+        )
+        StubPluginWithResolver.resolve_outcome = NeedsPairing(
+            reason="unknown_peer"
+        )
+        register_for_test("stub", StubPluginWithResolver)
+
+        factory = await _make_factory()
+        envelope = _envelope(text="PAIR X hello")
+        await dispatch_inbound(
+            "agent-inbound", "acct-test", envelope, factory=factory
+        )
+
+        # Account row reflects the persisted allowlist mutation.
+        refreshed = await acc_repo.get("acct-test")
+        allowlist = refreshed.config.get("allowlist")
+        assert allowlist is not None
+        assert "peer-1" in allowlist["peers"]
+        assert allowlist["channels"] == []
+
+        # The user message persisted is the CLEANED text (prefix stripped).
+        session = await self._list_first_session()
+        history = decode_messages(session.messages)
+        user_msgs = [m for m in history if m.role == Role.USER]
+        assert len(user_msgs) == 1
+        assert user_msgs[0].content == "hello"
+
+        audit = await self._audit_entries(session.id)
+        assert len(audit) == 1
+        assert audit[0]["outcome"] == "permit"
+        assert audit[0]["reason"] == "paired"
+        assert audit[0]["peer_id"] == "peer-1"
+
+    async def test_needs_pairing_with_invalid_prefix_denies_silently(
+        self, isolated_db
+    ) -> None:
+        """NeedsPairing + ``PAIR wrong hello`` (wrong code): silent
+        deny — audit logged, allowlist unchanged, agent.step did NOT
+        run (no assistant message in history).
+        """
+        await _seed_provider_and_agent()
+        conn = await get_connection()
+        encryptor = get_encryptor(settings.data_dir)
+        acc_repo = ConnectorAccountRepository(conn, encryptor)
+        await acc_repo.create(
+            ConnectorAccount(
+                id="acct-test",
+                name="Stub Pairing",
+                type="stub",
+                config={
+                    "pairing": {
+                        "code": "X",
+                        "issued_at": "2026-05-18T00:00:00+00:00",
+                    },
+                },
+            )
+        )
+        StubPluginWithResolver.resolve_outcome = NeedsPairing(
+            reason="unknown_peer"
+        )
+        register_for_test("stub", StubPluginWithResolver)
+
+        factory = await _make_factory()
+        envelope = _envelope(text="PAIR wrong hello")
+        await dispatch_inbound(
+            "agent-inbound", "acct-test", envelope, factory=factory
+        )
+
+        # Allowlist is unchanged (absent in the original config).
+        refreshed = await acc_repo.get("acct-test")
+        assert refreshed.config.get("allowlist") is None
+
+        # Session was materialised (for the audit target) but no
+        # agent.step turn landed — no USER / ASSISTANT messages.
+        session = await self._list_first_session()
+        history = decode_messages(session.messages)
+        assert all(m.role not in (Role.USER, Role.ASSISTANT) for m in history)
+
+        audit = await self._audit_entries(session.id)
+        assert len(audit) == 1
+        assert audit[0]["outcome"] == "deny"
+        # The dispatcher prefers the NeedsPairing.reason when non-empty.
+        assert audit[0]["reason"] == "unknown_peer"
+        assert audit[0]["peer_id"] == "peer-1"
+
+    async def test_needs_pairing_with_no_prefix_denies(
+        self, isolated_db
+    ) -> None:
+        """NeedsPairing + ``hello`` (no prefix at all): same silent
+        deny semantics, audit logged."""
+        await _seed_provider_and_agent()
+        conn = await get_connection()
+        encryptor = get_encryptor(settings.data_dir)
+        acc_repo = ConnectorAccountRepository(conn, encryptor)
+        await acc_repo.create(
+            ConnectorAccount(
+                id="acct-test",
+                name="Stub Pairing",
+                type="stub",
+                config={
+                    "pairing": {
+                        "code": "X",
+                        "issued_at": "2026-05-18T00:00:00+00:00",
+                    },
+                },
+            )
+        )
+        StubPluginWithResolver.resolve_outcome = NeedsPairing(reason="")
+        register_for_test("stub", StubPluginWithResolver)
+
+        factory = await _make_factory()
+        envelope = _envelope(text="hello")
+        await dispatch_inbound(
+            "agent-inbound", "acct-test", envelope, factory=factory
+        )
+
+        session = await self._list_first_session()
+        history = decode_messages(session.messages)
+        assert all(m.role not in (Role.USER, Role.ASSISTANT) for m in history)
+
+        audit = await self._audit_entries(session.id)
+        assert len(audit) == 1
+        assert audit[0]["outcome"] == "deny"
+        # Empty NeedsPairing.reason → fallback marker "invalid_pairing".
+        assert audit[0]["reason"] == "invalid_pairing"
+
+    async def test_deny_outcome_logs_and_returns(self, isolated_db) -> None:
+        """``Deny`` outcome: audit logged with the deny reason; the
+        dispatcher returns WITHOUT entering the per-session lock — so
+        ``agent.step`` does not run and no USER/ASSISTANT messages
+        accumulate.
+        """
+        await _seed_provider_and_agent()
+        await _seed_stub_account()
+        StubPluginWithResolver.resolve_outcome = Deny(reason="blocked")
+        register_for_test("stub", StubPluginWithResolver)
+
+        factory = await _make_factory()
+        envelope = _envelope()
+        await dispatch_inbound(
+            "agent-inbound", "acct-test", envelope, factory=factory
+        )
+
+        session = await self._list_first_session()
+        history = decode_messages(session.messages)
+        assert all(m.role not in (Role.USER, Role.ASSISTANT) for m in history)
+
+        audit = await self._audit_entries(session.id)
+        assert len(audit) == 1
+        assert audit[0]["outcome"] == "deny"
+        assert audit[0]["reason"] == "blocked"
+        assert audit[0]["peer_id"] == "peer-1"
+
+    async def test_pairing_persistence_survives_fresh_repo_fetch(
+        self, isolated_db
+    ) -> None:
+        """After successful pairing the peer is persisted: a fresh
+        :class:`ConnectorAccountRepository` instance built off the same
+        DB connection sees ``peer_id`` in ``config['allowlist']['peers']``.
+
+        Mirrors the F4 e2e pattern: rebuild the repo from the existing
+        connection (no actual process restart).
+        """
+        await _seed_provider_and_agent()
+        conn = await get_connection()
+        encryptor = get_encryptor(settings.data_dir)
+        acc_repo = ConnectorAccountRepository(conn, encryptor)
+        await acc_repo.create(
+            ConnectorAccount(
+                id="acct-test",
+                name="Stub Pairing",
+                type="stub",
+                config={
+                    "pairing": {
+                        "code": "X",
+                        "issued_at": "2026-05-18T00:00:00+00:00",
+                    },
+                },
+            )
+        )
+        StubPluginWithResolver.resolve_outcome = NeedsPairing(
+            reason="unknown_peer"
+        )
+        register_for_test("stub", StubPluginWithResolver)
+
+        factory = await _make_factory()
+        envelope = _envelope(text="PAIR X hello")
+        await dispatch_inbound(
+            "agent-inbound", "acct-test", envelope, factory=factory
+        )
+
+        # Rebuild the repo from the existing connection — simulates a
+        # fresh process boot reading the persisted row.
+        fresh_repo = ConnectorAccountRepository(conn, encryptor)
+        refreshed = await fresh_repo.get("acct-test")
+        allowlist = refreshed.config.get("allowlist")
+        assert allowlist is not None
+        assert "peer-1" in allowlist["peers"]
+
+    async def test_audit_entries_accrue_across_sequential_inbounds(
+        self, isolated_db
+    ) -> None:
+        """Three sequential inbounds → three audit entries, preserved
+        in insertion order."""
+        await _seed_provider_and_agent()
+        await _seed_stub_account()
+        StubPluginWithResolver.resolve_outcome = Permit()
+        register_for_test("stub", StubPluginWithResolver)
+
+        factory = await _make_factory()
+        for text in ("first", "second", "third"):
+            await dispatch_inbound(
+                "agent-inbound",
+                "acct-test",
+                _envelope(text=text),
+                factory=factory,
+            )
+
+        session = await self._list_first_session()
+        audit = await self._audit_entries(session.id)
+        assert len(audit) == 3
+        for entry in audit:
+            assert entry["outcome"] == "permit"
+            assert entry["peer_id"] == "peer-1"
+            assert entry["reason"] is None

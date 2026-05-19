@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 BASE_PROMPT = """\
 You are an AI agent with access to a set of tools. Use them to accomplish what the \
@@ -152,8 +152,74 @@ class AgentConfig(BaseModel):
     # for the same Pydantic v2 inner-validation reason as `tool_overrides`.
     mcp_overrides: dict[str, dict[str, Any]] | None = None
 
+    # M10 F6 L1c: per-agent ACL overrides keyed by account_id.
+    # Shape: {account_id: {"peers": list[str], "channels": list[str]}}.
+    # ``None`` (the default) means "no per-agent narrowing — inherit
+    # account-scope verbatim." ``{}`` (empty outer dict) is semantically
+    # identical to ``None`` (no per-account entries means no narrowing).
+    # A per-account entry being ABSENT from a non-empty outer dict ALSO
+    # means "inherit account-scope" for that specific account — legs 2/3
+    # apply intersection semantics only when an entry IS present. Empty
+    # inner lists (``{"peers": [], "channels": []}``) are valid and mean
+    # "agent narrows to no peer / no channel for THIS account."
+    #
+    # Inner type ``dict[str, list[str]]`` (NOT bare ``dict``) so Pydantic
+    # v2 actually validates each inner value — mirrors the same rationale
+    # as ``tool_overrides`` and ``mcp_overrides`` above. The validator
+    # below enforces the inner shape further (exact keys, list-of-string
+    # entries).
+    connector_acls: dict[str, dict[str, list[str]]] | None = None
+
     # Behavior
     max_iterations: int = 20
+
+    @field_validator("connector_acls", mode="after")
+    @classmethod
+    def _validate_connector_acls(
+        cls, value: dict[str, dict[str, list[str]]] | None
+    ) -> dict[str, dict[str, list[str]]] | None:
+        """Enforce exact-keys shape on per-account ACL inner dicts.
+
+        Pydantic v2's ``dict[str, dict[str, list[str]]]`` annotation
+        already enforces:
+          - non-string outer keys → rejected (``string_type`` error)
+          - non-dict outer values → rejected (``dict_type`` error)
+          - inner values that aren't lists of strings → rejected
+        This validator's job is the ONE invariant Pydantic cannot express
+        from the annotation alone: each inner dict MUST have EXACTLY the
+        keys ``{"peers", "channels"}`` — no extra keys, no missing keys.
+        Empty inner lists are PERMITTED and PRESERVED VERBATIM (agent
+        narrows to no peer / no channel for this account).
+
+        ``None`` and ``{}`` are both valid (semantically: no per-agent
+        narrowing).
+
+        Mirrors leg-1b's ``_validate_config_reserved_keys`` pattern at
+        ``the_one/db/models.py:ConnectorAccount`` — Pydantic v2
+        ``@field_validator(mode="after")`` runs on both
+        ``model_validate`` and direct ``BaseModel(**kwargs)`` so the
+        repository read path at ``_row_to_config`` is validated without
+        a separate ``model_validate`` wrapper.
+        """
+        if value is None:
+            return value
+        for account_id, acl in value.items():
+            # Pydantic already enforced ``acl`` is a dict with str keys.
+            # The only invariant left is the exact-keys check.
+            keys = set(acl.keys())
+            extra = keys - {"peers", "channels"}
+            if extra:
+                raise ValueError(
+                    f"connector_acls[{account_id!r}] has unexpected keys: "
+                    f"{sorted(extra)}"
+                )
+            missing = {"peers", "channels"} - keys
+            if missing:
+                raise ValueError(
+                    f"connector_acls[{account_id!r}] is missing required "
+                    f"keys: {sorted(missing)}"
+                )
+        return value
 
     def is_tool_enabled(self, tool_name: str) -> bool:
         """Check if a specific tool should be available to this agent."""
