@@ -16,8 +16,20 @@ flag here and forwarded to the ``_PYTEST_SNAPSHOT_UPDATE`` env var that
 ``test_visual_snapshots.py`` reads.  The env-var bridge keeps the
 snapshot helper simple (no pytest-config dependency at import time) and
 lets ad-hoc shell ``UPDATE_SNAPSHOTS=1`` runs work identically.
-"""
 
+Automation note for manual verification:
+When using the host-side ``agent-browser`` CLI against the long-lived Docker
+container (``localhost:8484``), stale ``SingletonLock`` / CDP issues can appear
+after parallel subagent runs. Use the new escape hatch:
+
+    make agent-browser-clean
+    make agent-browser-clean FORCE=1   # full profile nuke
+
+The fixtures below (fresh subprocess + tmp_path + per-test BrowserContext)
+are the reason ``pytest -m browser`` and ``make test-browser`` / ``make test-pixel``
+have never exhibited the races that affect ad-hoc ``agent-browser --profile claude``
+usage. For anything beyond quick exploration, prefer the test suite.
+"""
 from __future__ import annotations
 
 import os

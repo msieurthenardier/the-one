@@ -39,11 +39,12 @@ App.registerArea({
     var sessions = [];
     var currentAgentName = null;
     var currentAgentModel = null;
-    var messagesEl, inputEl, sendBtn, sessionListEl, convoHeaderEl, composerEl, newSessionBtn;
+    var messagesEl, inputEl, sendBtn, sessionListEl, convoHeaderEl, composerEl, newSessionBtn, chatLayout, drawerBackdrop;
     var setupIncomplete = false;
     var sessionBannerEl = null;
     var availableAgents = [];
     var setupState = { hasProviders: false, hasAgents: false };
+    var initialListProcessed = false;
 
     // Holograph layout: .chat-layout with .sessions-pane (left) + .convo-pane (right).
     // No sidebar — the sessions pane is part of content itself.
@@ -56,6 +57,7 @@ App.registerArea({
               '<svg class="icn icn-sm" viewBox="0 0 12 12" aria-hidden="true">' +
                 '<path d="M6 2v8M2 6h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>' +
               '</svg>' +
+              '<span class="new-label">New</span>' +
             '</button>' +
           '</div>' +
           '<div class="sessions-list" id="chat-sessions-list" role="listbox" aria-label="Chat sessions"></div>' +
@@ -72,6 +74,82 @@ App.registerArea({
     messagesEl = content.querySelector('.convo-stream');
     composerEl = content.querySelector('.composer');
     newSessionBtn = content.querySelector('.new-session-btn');
+
+    // Drawer / mobile sessions state (Holograph responsive)
+    chatLayout = content.querySelector('.chat-layout');
+    drawerBackdrop = document.createElement('div');
+    drawerBackdrop.className = 'sessions-drawer-backdrop';
+    drawerBackdrop.setAttribute('aria-hidden', 'true');
+    drawerBackdrop.setAttribute('data-testid', 'sessions-drawer-backdrop');
+    chatLayout.appendChild(drawerBackdrop);
+    var isDrawerOpen = false;
+
+    // menu + drawer helpers (defined early for renderConvoHeader + early calls)
+    var menuIcon = (window.App && window.App.icon && window.App.icon('menu')) ||
+      '<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="18" y2="18"/></svg>';
+
+    function setDrawerOpen(open) {
+      isDrawerOpen = !!open;
+      chatLayout.classList.toggle('sessions-drawer-open', isDrawerOpen);
+      var toggles = convoHeaderEl ? convoHeaderEl.querySelectorAll('.sessions-toggle') : [];
+      for (var i = 0; i < toggles.length; i++) {
+        var t = toggles[i];
+        t.setAttribute('aria-expanded', isDrawerOpen ? 'true' : 'false');
+        t.setAttribute('aria-label', isDrawerOpen ? 'Close sessions' : 'Open sessions');
+      }
+      if (isDrawerOpen) {
+        document.addEventListener('keydown', onDrawerKey, true);
+        setTimeout(function () {
+          var nsBtn = chatLayout.querySelector('.sessions-pane .new-session-btn');
+          if (nsBtn && typeof nsBtn.focus === 'function') { try { nsBtn.focus(); } catch (e) {} }
+        }, 30);
+      } else {
+        document.removeEventListener('keydown', onDrawerKey, true);
+        var t = convoHeaderEl ? convoHeaderEl.querySelector('.sessions-toggle') : null;
+        if (t && typeof t.focus === 'function') { try { t.focus(); } catch (e) {} }
+      }
+    }
+    function closeDrawer() { setDrawerOpen(false); }
+    function onDrawerKey(e) {
+      if (!isDrawerOpen) return;
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        closeDrawer();
+        return;
+      }
+      if (e.key === 'Tab') {
+        var pane = chatLayout.querySelector('.sessions-pane');
+        if (!pane) return;
+        var sel = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+        var nodes = pane.querySelectorAll(sel);
+        var fs = Array.prototype.slice.call(nodes).filter(function (n) {
+          return !n.disabled && n.offsetParent !== null;
+        });
+        if (fs.length === 0) return;
+        var first = fs[0], last = fs[fs.length - 1];
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault(); last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault(); first.focus();
+        }
+      }
+    }
+
+    // Backdrop click (once)
+    drawerBackdrop.addEventListener('click', function () {
+      if (chatLayout.classList.contains('sessions-drawer-open')) {
+        setDrawerOpen(false);
+      }
+    });
+
+    // Toggle click delegation on header (works after every renderConvoHeader)
+    convoHeaderEl.addEventListener('click', function (ev) {
+      var tgl = ev.target && ev.target.closest && ev.target.closest('.sessions-toggle');
+      if (tgl) {
+        ev.preventDefault();
+        setDrawerOpen(!isDrawerOpen);
+      }
+    });
 
     // renderComposer — writes the composer-box HTML into composerEl and
     // (re-)wires the send button and Enter-key handler. Called on init and
@@ -111,10 +189,12 @@ App.registerArea({
     }
 
     // renderConvoHeader — writes the convo-header content for an active session.
-    // When session is null/undefined, renders an empty placeholder div.
+    // Always includes the mobile sessions-toggle (hamburger) as first child;
+    // hidden via CSS on desktop. The !session case also renders the toggle so
+    // users on mobile can open the drawer even from the empty/welcome state.
     function renderConvoHeader(session) {
       if (!session) {
-        convoHeaderEl.innerHTML = '<div></div>';
+        convoHeaderEl.innerHTML = '<button class="sessions-toggle" type="button" aria-label="Open sessions" data-testid="sessions-toggle" aria-expanded="false">' + menuIcon + '</button>';
         return;
       }
       var title = (session.title || 'Untitled').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -122,6 +202,7 @@ App.registerArea({
       var modelSafe = (session.model || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
       var initials = (session.agent_name || 'A').slice(0, 2).toUpperCase();
       convoHeaderEl.innerHTML =
+        '<button class="sessions-toggle" type="button" aria-label="Open sessions" data-testid="sessions-toggle" aria-expanded="false">' + menuIcon + '</button>' +
         '<div><div class="convo-title">' + title + '</div></div>' +
         '<div class="convo-agent">' +
           '<div class="agent-avatar">' + initials + '</div>' +
@@ -287,6 +368,7 @@ App.registerArea({
       currentSessionId = id;
       ws.send(JSON.stringify({ action: 'join', session_id: id }));
       highlightActiveSession();
+      if (isDrawerOpen) setDrawerOpen(false);  // auto-close drawer on mobile after picking session
     }
 
     function refreshSessionList() {
@@ -741,6 +823,22 @@ App.registerArea({
             }
             if (found) { joinSession(target); return; }
           }
+          if (!initialListProcessed) {
+            initialListProcessed = true;
+            if (sessions.length === 0 && !currentSessionId && setupState.hasProviders && setupState.hasAgents && availableAgents.length > 0) {
+              // Auto-default for first-run (seeded provider + agent, zero sessions).
+              // Uses the WS new_session path so the normal session_joined flow
+              // takes over. Only on the very first list per tab load.
+              var autoAgent = availableAgents[0].name;
+              startSessionWith(autoAgent);
+              setTimeout(function () {
+                if (window.App && App.toast) {
+                  App.toast('Created your first conversation with ' + autoAgent + '.');
+                }
+              }, 90);
+              return;
+            }
+          }
           if (sessions.length > 0 && !currentSessionId) joinSession(sessions[0].id);
           else if (!currentSessionId) showWelcome();
           return;
@@ -900,19 +998,38 @@ App.registerArea({
       };
     }
 
-    // Wire events — input/sendBtn are wired inside renderComposer() because
-    // the composer is re-rendered on agent change. newSessionBtn is static.
-    //
-    // L4.1: in the welcome ready state we have no `currentAgentName` yet
-    // (no session has been joined), so fall back to the first available
-    // agent. This makes the `+` button the canonical "start chatting"
-    // entry point for the empty-state ready flow.
-    newSessionBtn.addEventListener('click', function () {
+    // Small helper (one only) that centralizes the "pick first available agent"
+    // fallback used by both the New Session button and the command-palette
+    // `chat:new-session` CustomEvent. This keeps surface area tiny while making
+    // ⌘K → "New session" work from the welcome ready state and reuses the
+    // canonical startSessionWith path (which emits the WS `new_session` action).
+    function startNewSession() {
       var name = currentAgentName;
       if (!name && availableAgents && availableAgents.length) {
         name = availableAgents[0].name;
       }
       startSessionWith(name || null);
+    }
+
+    // Wire events — input/sendBtn are wired inside renderComposer() because
+    // the composer is re-rendered on agent change. newSessionBtn is static.
+    //
+    // L4.1: in the welcome ready state we have no `currentAgentName` yet
+    // (no session has been joined), so fall back to the first available
+    // agent via the shared startNewSession helper. The same helper is
+    // invoked by the document listener for the command-palette event,
+    // making "New session" from ⌘K work with zero extra code.
+    newSessionBtn.addEventListener('click', function () {
+      startNewSession();
+      if (isDrawerOpen) setDrawerOpen(false);  // close drawer immediately on New (convo updates async)
+    });
+
+    // L8 command-palette integration: the catalog dispatches 'chat:new-session'
+    // (see command-catalog.js). We listen once per chat init and delegate to
+    // the helper (which already does the agent fallback and WS send).
+    document.addEventListener('chat:new-session', function () {
+      startNewSession();
+      if (isDrawerOpen) setDrawerOpen(false);
     });
 
     // L4.1: Subscribe to TelemetryStore so the empty-state step cards

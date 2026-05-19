@@ -212,6 +212,19 @@ def test_snapshot_chat_with_messages(app_with_agent: SeededApp, page: Page, them
     _assert_screenshot(page, f"chat-with-messages-{theme}")
 
 
+# ── Mobile drawer note (added 2026-05-16 for sessions-pane responsiveness) ──
+# The chat sessions pane now renders as a slide-in drawer below 768px
+# (hamburger toggle in .convo-header, backdrop, Esc, focus trap, auto-close).
+# Existing snapshots are 1280px desktop only. For future regression coverage
+# of the Holograph mobile UX (matching the 390px admin captures done by prior
+# subagents), add:
+#   - test_snapshot_chat_mobile_drawer_closed (390x800 viewport, empty or seeded)
+#   - test_snapshot_chat_mobile_drawer_open (same, toggle clicked, sessions list visible)
+# Use page.set_viewport_size({"width": 390, "height": 800}) + trigger the
+# [data-testid="sessions-toggle"] click before _assert_screenshot(..., "chat-mobile-...")
+# Regenerate with --snapshot-update when adding.
+
+
 # ── Tests — Studio ────────────────────────────────────────────────────────
 
 

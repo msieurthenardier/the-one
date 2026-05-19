@@ -10,6 +10,16 @@
   //   (2) Provider, no agent         → eyebrow IDLE, step01 .done, step02 .next
   //   (3) Agent ready, no session    → eyebrow READY, no step cards (just headline)
   //
+  // When state (3) is active on the *first* list_sessions response for a tab
+  // (i.e. first visit to Chat after a provider+agent exist but before any
+  // ChatSession was created), chat.js auto-defaults a session via WS
+  // `new_session` (picking availableAgents[0]) and joins it with a subtle
+  // App.toast. This eliminates the "Ready when you are" dead-end for seeded
+  // fresh DBs (the verification pain point). The one-time `initialListProcessed`
+  // flag keeps behavior for deliberate zero-session users (delete last →
+  // welcome state; reload after delete does create a fresh default, which is
+  // friendlier than an empty list forever).
+  //
   // Renders into `container` (typically .convo-stream). Replaces content on
   // each call. Built via DOM APIs only (no innerHTML) — content is static
   // strings, but we follow the same hardened pattern as the prior welcome.js

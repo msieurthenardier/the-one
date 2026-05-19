@@ -5,6 +5,12 @@
 # the running container at port 8484 — `make rebuild` is required for
 # changes to surface. (Tests spawn their own uvicorn subprocess via the
 # conftest fixtures; that path is independent of the container.)
+#
+# Browser automation note: the long-lived container + shared agent-browser
+# profile (used for quick manual verification) can accumulate SingletonLock
+# races. For reliable E2E use `make test-browser` / `pytest -m browser`
+# (fresh app + fresh Playwright context per test). `make agent-browser-clean`
+# is the escape hatch for the host-side profile.
 
 .DEFAULT_GOAL := help
 
@@ -125,6 +131,17 @@ test-pixel: ## Run visual snapshot tests (baselines are gitignored — local reg
 .PHONY: test-live
 test-live: ## Run live-LLM tests (AIAT — requires running provider)
 	docker exec the-one pytest -m live tests/test_aiat.py -v --tb=short
+
+# ── Browser automation (agent-browser host profile hygiene) ────────────
+# The shared `~/.agent-browser/profiles/claude` (used for quick manual
+# verification against the Docker container) is prone to SingletonLock races
+# when multiple subagents or repeated runs occur. This target is the
+# documented escape hatch. Strongly prefer `make test-browser` for anything
+# that needs to be reliable.
+
+.PHONY: agent-browser-clean
+agent-browser-clean: ## Kill agent-browser daemons + remove Singleton* locks (default profile: claude). PROFILE=xxx for dedicated profiles; FORCE=1 to also delete the entire profile dir (fresh start). See scripts/reset-agent-browser.sh
+	@scripts/reset-agent-browser.sh "$${PROFILE:-claude}" "$${FORCE:-0}"
 
 # ── Smoke (F9 L2 D2 generic-runtime) ──────────────────────────────────
 

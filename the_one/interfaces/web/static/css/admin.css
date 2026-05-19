@@ -334,4 +334,99 @@
     color: var(--fg-mute);
   }
 
+  /* ── General polish (M10 iteration for 10/10) ─────────────────────────── */
+
+  /* Title row for wide card so Copy button can right-align with title */
+  .general-card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 4px;
+  }
+  .general-card-head .general-card-title {
+    margin-bottom: 0;
+  }
+
+  /* Scrollable contained base prompt — prevents the novel from dominating the viewport */
+  .admin-base-prompt-scroll {
+    max-height: 320px;
+    overflow: auto;
+    border: 1px solid var(--hairline);
+    border-radius: 6px;
+    background: var(--surface-2);
+  }
+  .admin-base-prompt {
+    margin: 0;
+    padding: 12px 14px;
+    font-size: 11.5px;
+    line-height: 1.48;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--fg);
+  }
+
+  /* Theme toggle mount inside the Appearance card — give the .seg breathing room */
+  .admin-theme-toggle {
+    margin-top: 8px;
+  }
+  .admin-theme-toggle .seg {
+    /* keep compact, left-aligned; seg itself provides the border treatment */
+  }
+
+  /* Responsive: stack cards on narrower viewports (tablet and below) */
+  @media (max-width: 860px) {
+    .general-grid {
+      grid-template-columns: 1fr;
+    }
+    .general-card--wide {
+      grid-column: 1;
+    }
+  }
+
+  /* Subtle treatment for the rotate action (warning context already in banner above) */
+  .btn-muted-destructive {
+    border: 1px solid var(--hairline);
+    color: var(--fg-mute);
+    background: var(--surface);
+  }
+  .btn-muted-destructive:hover {
+    background: var(--hover-bg);
+    color: var(--warn); /* warm emphasis for destructive-ish action */
+  }
+
+  /* Flash area under rotate */
+  .admin-system-flash {
+    margin-top: 10px;
+    font-size: 12px;
+  }
+  .admin-system-flash.success { color: var(--good); }
+  .admin-system-flash.error { color: var(--bad); }
+
+  /* Live-mounted banner styles (also defined in components.css for post-rebuild) */
+  .banner {
+    padding: 10px 12px;
+    border-radius: 6px;
+    font-size: 12.5px;
+    line-height: 1.4;
+    margin: 10px 0 4px;
+    border: 1px solid var(--hairline);
+  }
+  .banner-warning {
+    background: color-mix(in srgb, var(--warn) 9%, var(--surface));
+    border-color: color-mix(in srgb, var(--warn) 35%, var(--hairline));
+    color: var(--fg);
+  }
+  .banner-error {
+    background: color-mix(in srgb, var(--bad) 9%, var(--surface));
+    border-color: color-mix(in srgb, var(--bad) 40%, var(--hairline));
+    color: var(--fg);
+  }
+
+  /* Live-mounted disabled affordance for .btn-ghost (Copy feedback) */
+  .btn-ghost:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+    color: var(--fg-faint);
+  }
+
 }

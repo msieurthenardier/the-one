@@ -57,6 +57,52 @@ make help                   # list all targets
 
 **When `make rebuild` is NOT required**: editing files under `tests/` (the test suite spawns its own uvicorn subprocess, independent of the served daemon) or running ad-hoc one-off pytest invocations.
 
+
+## Browser Automation
+
+Use `agent-browser` (the host-side CLI) for quick manual exploration of the Holograph web UI served by the Docker container at `http://localhost:8484`.
+
+**Recommended invocation (always with a dedicated profile):**
+
+```bash
+agent-browser --profile ~/.agent-browser/profiles/claude open http://localhost:8484
+agent-browser --profile ~/.agent-browser/profiles/claude snapshot -i
+...
+agent-browser --profile ~/.agent-browser/profiles/claude close
+```
+
+**Automation hardening — the new `make agent-browser-clean` target**
+
+Past verification runs repeatedly encountered `SingletonLock` races, "Chrome exited early", and CDP session loss when the shared `claude` profile was reused across parallel subagents or after previous runs left stale daemons/locks.
+
+A reusable helper now exists:
+
+```bash
+make agent-browser-clean                  # kill daemons + clear Singleton* locks (idempotent & safe)
+make agent-browser-clean PROFILE=claude-rebuild-verify
+make agent-browser-clean FORCE=1          # also delete the entire profile dir (truly fresh start)
+```
+
+See `scripts/reset-agent-browser.sh` (executable, heavily commented) and the corresponding Makefile target for implementation. The target follows project conventions (FORCE=1 gate like `reset-db CONFIRM=1`; excellent `make help` output; calls the script).
+
+**Strong preference (for any serious work):**
+
+> For E2E flows, visual regression (`-m pixel`), or HAT verification, **always prefer the project's pytest browser suite**:
+>
+> ```bash
+> make test-browser     # pytest -m browser tests/browser/ (THE_ONE_DEV_MODE=true)
+> make test-pixel       # visual snapshots across 3 viewports + states + themes
+> ```
+>
+> Why it is far more reliable:
+> - `tests/browser/conftest.py` gives every test a **fresh uvicorn subprocess** (`app_clean` using `tmp_path` for `THE_ONE_DATA_DIR`)
+> - A **fresh Playwright `BrowserContext` + `Page`** per test (module-scoped browser, function-scoped context)
+> - No dependence on the long-lived Docker container or any shared host Chrome profile
+>
+> The Docker-served app + shared `agent-browser --profile claude` combination is **only for fast manual / exploratory work** and can drift into inconsistent states. Use `make agent-browser-clean` liberally when doing ad-hoc verification, and consider dedicated per-task profiles (`claude-rebuild-verify`, `claude-verify`, etc.) for parallel subagent execution.
+
+The browser test fixtures are documented in `tests/browser/conftest.py` (including the snapshot-update bridge and OpenRouter test seams).
+
 ## Architecture
 
 The system has four layers that compose bottom-up:

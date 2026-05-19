@@ -323,6 +323,14 @@
 
   .btn-ghost:hover { background: var(--hover-bg); color: var(--fg); }
 
+  .btn-ghost:disabled,
+  .btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+    color: var(--fg-faint);
+    pointer-events: none;
+  }
+
   /* ── Cards ───────────────────────────────────────────────────────────── */
 
   .card {
@@ -536,6 +544,26 @@
 
   .seg-btn + .seg-btn { border-left: 1px solid var(--hairline); }
   .seg-btn.active { background: var(--accent-tint); color: var(--accent); }
+
+  /* ── Banners / callouts (warning, error, info) — shared across admin editors & General */
+  .banner {
+    padding: 10px 12px;
+    border-radius: 6px;
+    font-size: 12.5px;
+    line-height: 1.4;
+    margin: 10px 0 4px;
+    border: 1px solid var(--hairline);
+  }
+  .banner-warning {
+    background: color-mix(in srgb, var(--warn) 9%, var(--surface));
+    border-color: color-mix(in srgb, var(--warn) 35%, var(--hairline));
+    color: var(--fg);
+  }
+  .banner-error {
+    background: color-mix(in srgb, var(--bad) 9%, var(--surface));
+    border-color: color-mix(in srgb, var(--bad) 40%, var(--hairline));
+    color: var(--fg);
+  }
 
   /* ── Icons ───────────────────────────────────────────────────────────── */
 

@@ -10,9 +10,6 @@
 
   function renderSystemPage(container) {
     container.innerHTML =
-      '<div class="page-header">' +
-        '<h1 class="page-title">General</h1>' +
-      '</div>' +
       '<div class="general-grid">' +
         '<div class="general-card">' +
           '<div class="general-card-title" id="admin-appearance-heading">Appearance</div>' +
@@ -34,19 +31,25 @@
           '<div class="admin-system-flash" aria-live="polite"></div>' +
         '</div>' +
         '<div class="general-card general-card--wide">' +
-          '<div class="general-card-title">Base Prompt</div>' +
+          '<div class="general-card-head">' +
+            '<div class="general-card-title">Base Prompt</div>' +
+            '<button type="button" class="btn-ghost admin-base-copy" data-testid="base-prompt-copy" aria-label="Copy base prompt to clipboard">Copy</button>' +
+          '</div>' +
           '<div class="general-card-sub">' +
             'The foundational system prompt every agent inherits. ' +
             'Per-agent personas are appended to this base; ' +
             'this content is read-only and only changes via code releases.' +
           '</div>' +
-          '<pre class="admin-base-prompt code-block" data-testid="base-prompt-content">Loading…</pre>' +
+          '<div class="admin-base-prompt-scroll">' +
+            '<pre class="admin-base-prompt code-block" data-testid="base-prompt-content">Loading…</pre>' +
+          '</div>' +
         '</div>' +
       '</div>';
 
     fetchBasePrompt(container);
     mountThemeToggle(container);
     wireEncryptionRotate(container);
+    wireBasePromptCopy(container);
   }
 
   function fetchBasePrompt(container) {
@@ -107,6 +110,47 @@
           });
       }, { confirmLabel: 'Confirm Rotate?' });
     });
+  }
+
+  function wireBasePromptCopy(container) {
+    container.addEventListener('click', function (e) {
+      var copyBtn = e.target.closest('.admin-base-copy');
+      if (!copyBtn) return;
+      var pre = container.querySelector('.admin-base-prompt');
+      if (!pre) return;
+      var text = (pre.textContent || '').trim();
+      if (!text || text === 'Loading…' || text === '(failed to load)' || text === '(base prompt unavailable)') return;
+
+      function showCopied() {
+        var orig = copyBtn.textContent;
+        copyBtn.textContent = 'Copied!';
+        copyBtn.disabled = true;
+        setTimeout(function () {
+          copyBtn.textContent = orig;
+          copyBtn.disabled = false;
+        }, 1600);
+      }
+
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(showCopied).catch(function () {
+          fallbackCopyText(text, showCopied);
+        });
+      } else {
+        fallbackCopyText(text, showCopied);
+      }
+    });
+  }
+
+  function fallbackCopyText(text, onDone) {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); } catch (_) {}
+    document.body.removeChild(ta);
+    if (onDone) onDone();
   }
 
   window.App.admin.renderSystemPage = renderSystemPage;

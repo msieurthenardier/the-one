@@ -121,23 +121,26 @@
       }
 
       container.innerHTML = '';
+      var seg = document.createElement('div');
+      seg.className = 'seg';
       for (var i = 0; i < OPTS.length; i++) {
         var o = OPTS[i];
         var btn = document.createElement('button');
         btn.type = 'button';
-        btn.className = 'admin-theme-option' + (currentPref === o.value ? ' active' : '');
+        btn.className = 'seg-btn' + (currentPref === o.value ? ' active' : '');
         btn.setAttribute('role', 'radio');
         btn.setAttribute('aria-checked', String(currentPref === o.value));
         btn.setAttribute('tabindex', currentPref === o.value ? '0' : '-1');
         btn.setAttribute('data-theme-pref', o.value);
         btn.textContent = o.label;
-        container.appendChild(btn);
+        seg.appendChild(btn);
       }
+      container.appendChild(seg);
 
       // DOM-only; never calls App.theme.set (avoids event loop:
       // set → dispatch → subscriber → set → …).
       function updateActiveOption(pref) {
-        var btns = container.querySelectorAll('.admin-theme-option');
+        var btns = container.querySelectorAll('.seg-btn');
         for (var j = 0; j < btns.length; j++) {
           var isActive = btns[j].getAttribute('data-theme-pref') === pref;
           btns[j].classList.toggle('active', isActive);
@@ -154,14 +157,14 @@
       }
 
       container.addEventListener('click', function (e) {
-        selectThemeOption(e.target.closest('.admin-theme-option'));
+        selectThemeOption(e.target.closest('.seg-btn'));
       });
 
       container.addEventListener('keydown', function (e) {
         if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight' &&
             e.key !== 'ArrowUp'  && e.key !== 'ArrowDown') return;
         var btns = Array.prototype.slice.call(
-          container.querySelectorAll('.admin-theme-option')
+          container.querySelectorAll('.seg-btn')
         );
         var idx = btns.indexOf(document.activeElement);
         if (idx === -1) return;
