@@ -185,6 +185,137 @@ class ConnectorAccount(BaseModel):
             )
         return value
 
+    @field_validator("config", mode="after")
+    @classmethod
+    def _validate_config_reserved_keys(cls, value: dict[str, Any]) -> dict[str, Any]:
+        """Enforce shape on the two F6-reserved top-level keys in ``config``.
+
+        The reserved keys are ``"pairing"`` (DM-pairing state) and
+        ``"allowlist"`` (account-scope peer/channel admission). Each is
+        OPTIONAL — when absent, the resolver subsystem defaults to permit
+        (see ``_default_permit`` at ``the_one/connectors/base.py``). All
+        other top-level keys in ``config`` pass through unchanged — the F1
+        promise that ``config`` is schema-loose remains intact.
+
+        Shape contracts (raise ``ValueError`` on violation):
+
+        - ``config["pairing"] = {"code": str (non-empty), "issued_at": str (ISO)}``.
+          No extra keys. Both fields required when ``pairing`` is present.
+          The code is stored verbatim — no whitespace trimming (a leg-4
+          Studio-form concern, not a model-validation concern). The
+          pairing CODE lives in plaintext ``config``, NOT in encrypted
+          ``secrets``, because it is a one-time low-entropy shared
+          secret meant to gate first-contact; it does not carry the
+          lifetime threat model of an API token.
+        - ``config["allowlist"] = {"peers": list[str], "channels": list[str]}``.
+          Both inner lists required (no partial shape). Empty inner lists
+          are PERMITTED and PRESERVED VERBATIM. The validator does NOT
+          de-duplicate list entries.
+
+          M10 F6 L7 HAT — semantic redesign (see flight-log
+          "Deviations"). Per-axis interpretation:
+            - axis missing (``allowlist`` itself absent) → unrestricted
+              on every axis (default-permit)
+            - axis is ``[]`` (empty list) → unrestricted on THIS axis
+              (was "locked / no peer admitted" pre-redesign; flipped to
+              match the "empty = unrestricted" intent operators expressed
+              at HAT)
+            - axis is ``[items]`` → only those peers / channels are
+              permitted
+          The validator's job is shape, not semantic; the resolver and
+          outbound checks interpret the lists. Shape unchanged from
+          pre-redesign — existing rows round-trip verbatim; only the
+          downstream interpretation flipped.
+
+        ``config["pairing"] = None`` (JSON ``null``) is treated as absent
+        — the operator effectively un-pairs the account. Same for
+        ``config["allowlist"] = None``.
+
+        Pydantic v2 ``@field_validator`` runs on both
+        ``ConnectorAccount(**kwargs)`` direct construction AND
+        ``ConnectorAccount.model_validate(dict)``, so this fires on the
+        repository read path AT
+        ``the_one/db/repositories.py:_row_to_model`` and on the API write
+        path at ``the_one/interfaces/web/api.py:{create,update}_connector_account``.
+        """
+        pairing = value.get("pairing")
+        if pairing is not None:
+            if not isinstance(pairing, dict):
+                raise ValueError(
+                    "config['pairing'] must be a dict with keys "
+                    "{'code', 'issued_at'}"
+                )
+            extra = set(pairing.keys()) - {"code", "issued_at"}
+            if extra:
+                raise ValueError(
+                    f"config['pairing'] has unexpected keys: {sorted(extra)}"
+                )
+            missing = {"code", "issued_at"} - set(pairing.keys())
+            if missing:
+                raise ValueError(
+                    f"config['pairing'] is missing required keys: {sorted(missing)}"
+                )
+            code = pairing.get("code")
+            if not isinstance(code, str) or not code:
+                raise ValueError(
+                    "config['pairing']['code'] must be a non-empty string"
+                )
+            issued_at = pairing.get("issued_at")
+            if not isinstance(issued_at, str):
+                raise ValueError(
+                    "config['pairing']['issued_at'] must be an ISO-format string"
+                )
+            # Require a time component (T separator) — date-only strings
+            # like "2026-05-18" parse cleanly through fromisoformat but
+            # carry no audit value. The leg-4 Studio writer emits full
+            # ISO timestamps with time + offset; this guard rejects
+            # accidental date-only entries.
+            if "T" not in issued_at:
+                raise ValueError(
+                    "config['pairing']['issued_at'] must include a time "
+                    "component (e.g. '2026-05-18T12:34:56Z'); got "
+                    f"date-only value {issued_at!r}"
+                )
+            try:
+                # Accept Z-suffix and naive forms; Python 3.11+
+                # ``fromisoformat`` parses both with the .replace shim.
+                datetime.fromisoformat(issued_at.replace("Z", "+00:00"))
+            except ValueError as e:
+                raise ValueError(
+                    f"config['pairing']['issued_at'] is not ISO-format: {e}"
+                )
+
+        allowlist = value.get("allowlist")
+        if allowlist is not None:
+            if not isinstance(allowlist, dict):
+                raise ValueError(
+                    "config['allowlist'] must be a dict with keys "
+                    "{'peers', 'channels'}"
+                )
+            extra = set(allowlist.keys()) - {"peers", "channels"}
+            if extra:
+                raise ValueError(
+                    f"config['allowlist'] has unexpected keys: {sorted(extra)}"
+                )
+            missing = {"peers", "channels"} - set(allowlist.keys())
+            if missing:
+                raise ValueError(
+                    f"config['allowlist'] is missing required keys: {sorted(missing)}"
+                )
+            for key in ("peers", "channels"):
+                entries = allowlist[key]
+                if not isinstance(entries, list):
+                    raise ValueError(
+                        f"config['allowlist'][{key!r}] must be a list of strings"
+                    )
+                for i, item in enumerate(entries):
+                    if not isinstance(item, str):
+                        raise ValueError(
+                            f"config['allowlist'][{key!r}][{i}] must be a string"
+                        )
+
+        return value
+
 
 class ToolConfig(BaseModel):
     """A tool-level config row — operator-set defaults for a built-in tool.

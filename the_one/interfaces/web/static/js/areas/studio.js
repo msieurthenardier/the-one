@@ -158,7 +158,7 @@ App.registerArea({
           pendingMcpAgentSourceId = decodeURIComponent(tab.slice('mcps/'.length));
           tab = 'mcps';
         }
-        if (tab === 'general' || tab === 'knowledge' || tab === 'mcps' || tab === 'tools') {
+        if (tab === 'general' || tab === 'knowledge' || tab === 'mcps' || tab === 'connectors' || tab === 'tools') {
           pendingTab = tab;
         } else {
           pendingTab = 'general';
@@ -214,6 +214,11 @@ App.registerArea({
     self._agents = [];
     self._allTools = [];
     self._allMcpSources = [];
+    // M10 F6 L5 — all connector accounts cache for the agent-editor
+    // Connectors tab. Mirrors _allMcpSources: lazy initial list from
+    // loadAll, refreshed on every agent-edit mount via
+    // refreshConnectorAccountsCache (mirror of refreshMcpSourcesCache).
+    self._allConnectorAccounts = [];
     self._allKnowledgeBases = [];
     self._allProviders = [];
     self._selectedAgent = null;
@@ -402,7 +407,29 @@ App.registerArea({
         // Without this, setActiveSection re-renders the grid behind a
         // still-mounted editor and the operator sees no change.
         var commit = function () {
-          if (section === self._activeSection) {
+          // Clear editor state of the OUTGOING section when leaving
+          // (so re-entering lands on the grid, not the prior editor).
+          // M10 F6 L7 HAT: prior logic only cleared state on
+          // same-section reclicks, so Agents → Connectors → Agents
+          // restored the previously-edited agent's editor (incl. tab).
+          // Routing should land on the listing instead.
+          var prev = self._activeSection;
+          if (prev !== section) {
+            if (prev === 'agents' && (self._selectedAgent || self._createMode)) {
+              self._selectedAgent = null;
+              self._createMode = false;
+              dirty = false;
+            } else if (prev === 'mcp-sources' && mcpSourceFormMode) {
+              mcpSourceFormMode = null;
+              editingMcpSource = null;
+              dirty = false;
+            } else if (prev === 'connector-accounts' && connectorAccountFormMode) {
+              connectorAccountFormMode = null;
+              editingConnectorAccount = null;
+              dirty = false;
+            }
+          } else {
+            // Same-section reclick: treat as "back to grid".
             if (section === 'agents' && (self._selectedAgent || self._createMode)) {
               self._selectedAgent = null;
               self._createMode = false;
@@ -923,6 +950,14 @@ App.registerArea({
     function fetchAgents() { return fetch('/api/agents').then(function (r) { return r.json(); }); }
     function fetchTools() { return fetch('/api/tools').then(function (r) { return r.json(); }); }
     function fetchMcpSources() { return fetch('/api/mcp-sources').then(function (r) { return r.json(); }); }
+    function fetchConnectorAccountsList() {
+      // M10 F6 L5 — list of all connector accounts for the agent-editor
+      // Connectors tab. Parallel to fetchMcpSources above; the REST path
+      // is the same one rendered by the connector-accounts grid (leg 4
+      // surface) so a fresh fetch picks up deletions / additions made on
+      // the connector-accounts page since the studio area mounted.
+      return fetch('/api/connector-accounts').then(function (r) { return r.json(); });
+    }
     function fetchKnowledgeBases() { return fetch('/api/knowledge-bases').then(function (r) { return r.json(); }); }
     function fetchProviders() { return fetch('/api/providers').then(function (r) { return r.json(); }); }
 
@@ -969,6 +1004,20 @@ App.registerArea({
         self._allMcpSources = sources;
       }).catch(function () {
         self._allMcpSources = self._allMcpSources || [];
+      });
+    }
+
+    // M10 F6 L5 — parallel to refreshMcpSourcesCache: re-fetch the
+    // connector accounts list on every agent-edit mount so an account
+    // created (or deleted) on the connector-accounts page becomes
+    // visible (or stops being visible — with a defensive "missing"
+    // placeholder if pinned) in the Connectors tab without a manual
+    // page reload. On error, keep the prior cache.
+    function refreshConnectorAccountsCache() {
+      return fetchConnectorAccountsList().then(function (accounts) {
+        self._allConnectorAccounts = accounts;
+      }).catch(function () {
+        self._allConnectorAccounts = self._allConnectorAccounts || [];
       });
     }
 
@@ -1072,13 +1121,22 @@ App.registerArea({
     }
 
     function loadAll() {
-      return Promise.all([fetchAgents(), fetchTools(), fetchMcpSources(), fetchKnowledgeBases(), fetchProviders()])
+      return Promise.all([
+        fetchAgents(), fetchTools(), fetchMcpSources(),
+        fetchKnowledgeBases(), fetchProviders(),
+        // M10 F6 L5 — connector accounts populate the agent-editor
+        // Connectors tab. Fetched once at area mount alongside the
+        // other entity lists; refreshed per-edit via
+        // refreshConnectorAccountsCache.
+        fetchConnectorAccountsList()
+      ])
         .then(function (results) {
           self._agents = results[0];
           self._allTools = results[1];
           self._allMcpSources = results[2];
           self._allKnowledgeBases = results[3];
           self._allProviders = results[4];
+          self._allConnectorAccounts = results[5];
           // Capability fetch chains off providers — separate Promise.all
           // because it depends on results[4]. Failures are non-fatal:
           // tiles render without chips rather than blocking the list.
@@ -1325,7 +1383,7 @@ App.registerArea({
       // F9 L3 (A-L3-1) — also refresh the MCP sources list so a source
       // created on the source-edit page appears in the MCPs tab without
       // a manual page reload. Both refreshes run in parallel.
-      Promise.all([refreshToolConfigsCache(), refreshMcpSourcesCache()]).then(function () {
+      Promise.all([refreshToolConfigsCache(), refreshMcpSourcesCache(), refreshConnectorAccountsCache()]).then(function () {
         renderEditor(agent);
         updateContentVisibility();
         writeUrl_();
@@ -1354,7 +1412,7 @@ App.registerArea({
       // F9 L3 (A-L3-1) — also refresh the MCP sources list so a freshly
       // created source is visible from the new-agent MCPs tab without
       // a manual page reload.
-      Promise.all([refreshToolConfigsCache(), refreshMcpSourcesCache()]).then(function () {
+      Promise.all([refreshToolConfigsCache(), refreshMcpSourcesCache(), refreshConnectorAccountsCache()]).then(function () {
         renderEditor(null);
         updateContentVisibility();
         writeUrl_();
@@ -1408,6 +1466,9 @@ App.registerArea({
         allMcpSources: self._allMcpSources,
         fetchMcpSourceTools: fetchMcpSourceTools,
         pendingMcpAgentSourceId: self._pendingMcpAgentSourceId || null,
+        // M10 F6 L5 — connector accounts list for the Connectors tab.
+        // Same mount-time cache pattern as allMcpSources.
+        allConnectorAccounts: self._allConnectorAccounts,
         // Callback so renderMcpsTab can notify studio.js when the selected
         // source changes (chip click → per-attachment editor). studio.js
         // updates _selectedMcpAgentSourceId and syncs the URL.
@@ -1965,6 +2026,110 @@ App.registerArea({
       }
 
       data.mcp_overrides = Object.keys(mcpOverrides).length > 0 ? mcpOverrides : null;
+
+      // ── M10 F6 L5 — connector_account_ids + connector_acls ─────────
+      //
+      // `connector_account_ids` from the Connectors-tab attach toggles
+      // (`[data-connector-account-toggle][data-connector-account-id]`).
+      // Order preserved by DOM walk (mirrors the mcp_source_ids walk
+      // above). Stale ids (pinned-but-deleted accounts) are also
+      // collected via their "(missing — account deleted)" placeholder
+      // row, which renders an enabled toggle — operator must explicitly
+      // un-check to prune. Mirrors the MCP-source-deletion behavior.
+      var connectorToggles = editorEl.querySelectorAll(
+        '[data-connector-account-toggle][data-connector-account-id]'
+      );
+      data.connector_account_ids = [];
+      for (var ci = 0; ci < connectorToggles.length; ci++) {
+        if (connectorToggles[ci].checked) {
+          data.connector_account_ids.push(
+            connectorToggles[ci].dataset.connectorAccountId
+          );
+        }
+      }
+
+      // `connector_acls` from the per-account ACL editors. L7 HAT
+      // semantic redesign: each axis is independently captured as one
+      // of three values (tri-state):
+      //   - null → inherit account-scope
+      //   - []   → explicit empty (peers: no peer; channels: DMs only)
+      //   - [items] → subset (intersected with account-scope)
+      //
+      // Markup is one of two modes per axis (set by connectors-tab.js):
+      //   - .connector-acl-chiplist with data-connector-acl-mode="chips"
+      //     → free chip-list editor (axis: empty chips ⇒ null,
+      //       non-empty chips ⇒ [items])
+      //   - .connector-acl-checkboxlist with
+      //     data-connector-acl-mode="checkboxes"
+      //     → checkbox list (all checked ⇒ null,
+      //       none checked ⇒ [],
+      //       some checked ⇒ [checked items])
+      //
+      // If BOTH axes of an account resolve to null (inherit-both), we
+      // OMIT the account entry from the serialized payload (matches the
+      // pre-redesign omit-when-both-empty behavior; the validator
+      // accepts both shapes either way). data.connector_acls = null
+      // when the outer dict ends up empty.
+      var aclAxisEls = editorEl.querySelectorAll(
+        '[data-connector-acl-account][data-connector-acl-list][data-connector-acl-mode]'
+      );
+      var aclAccounts = {};
+      for (var li = 0; li < aclAxisEls.length; li++) {
+        var wrapper = aclAxisEls[li];
+        var aid = wrapper.dataset.connectorAclAccount;
+        var listKind = wrapper.dataset.connectorAclList;
+        var mode = wrapper.dataset.connectorAclMode;
+        if (!aid || (listKind !== 'peers' && listKind !== 'channels')) continue;
+
+        var axisValue; // null | [] | [items]
+        if (mode === 'checkboxes') {
+          var boxes = wrapper.querySelectorAll('input[type="checkbox"]');
+          var total = boxes.length;
+          var checkedVals = [];
+          for (var bi = 0; bi < total; bi++) {
+            if (boxes[bi].checked) checkedVals.push(boxes[bi].value);
+          }
+          if (total === 0) {
+            // No account-scope chips to choose from — treat as inherit.
+            axisValue = null;
+          } else if (checkedVals.length === total) {
+            axisValue = null; // all checked = inherit
+          } else if (checkedVals.length === 0) {
+            axisValue = []; // none checked = explicit empty
+          } else {
+            axisValue = checkedVals; // subset
+          }
+        } else {
+          // chips mode
+          var chips = wrapper.querySelectorAll('.chip');
+          var chipVals = [];
+          for (var cj = 0; cj < chips.length; cj++) {
+            var text = chips[cj].textContent || '';
+            if (text.charAt(text.length - 1) === '×') {
+              text = text.slice(0, -1);
+            }
+            text = text.trim();
+            if (!text) continue;
+            chipVals.push(text);
+          }
+          if (chipVals.length === 0) {
+            axisValue = null; // empty chip-list = inherit / unrestricted
+          } else {
+            axisValue = chipVals;
+          }
+        }
+
+        if (!aclAccounts[aid]) aclAccounts[aid] = { peers: null, channels: null };
+        aclAccounts[aid][listKind] = axisValue;
+      }
+      var finalAcls = {};
+      for (var aid2 in aclAccounts) {
+        var entry = aclAccounts[aid2];
+        // Omit accounts where BOTH axes are null (inherit-both).
+        if (entry.peers === null && entry.channels === null) continue;
+        finalAcls[aid2] = entry;
+      }
+      data.connector_acls = Object.keys(finalAcls).length > 0 ? finalAcls : null;
 
       return data;
     }

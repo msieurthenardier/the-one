@@ -355,11 +355,16 @@ class TestPoolDispatch:
 
 
 class TestPoolAcquireFailures:
-    async def test_unknown_account_id_returns_keyerror_envelope(
+    async def test_unknown_account_id_returns_constraint_envelope(
         self, isolated_db
     ) -> None:
-        # Account is in the tool's allowed list but NOT persisted in the DB.
-        # `pool_acquire` calls `_load_account` which raises `KeyError`.
+        # Account is in the tool's attached list but NOT persisted in the
+        # DB. Post-leg-3, the per-call `ConnectorAccountRepository.get`
+        # at the channel-ACL consult site raises `KeyError` first and the
+        # defensive catch surfaces a constraint envelope BEFORE
+        # `pool_acquire`. (Pre-leg-3 the same case surfaced
+        # `[error] KeyError:` from `_load_account`; the F6 consult now
+        # intercepts it earlier with a friendlier envelope.)
         register_for_test("stub", StubPlugin)
 
         tool = SendToPlatformChannelTool(
@@ -370,7 +375,9 @@ class TestPoolAcquireFailures:
             target={"account_id": "acct-missing", "channel_id": "c1"},
             content="x",
         )
-        assert result.startswith("[error] KeyError:")
+        assert result == (
+            "[error] [constraint] account_id 'acct-missing' not found"
+        )
         assert not result.startswith(PLATFORM_SEND_OK_PREFIX)
         assert StubPlugin.outbound_records == []
 
@@ -542,3 +549,319 @@ class TestContentInterpolationRepr:
         # `startswith(PREFIX)` check still classifies this result as
         # success-prefixed.
         assert result.index(peer_content) > len(PLATFORM_SEND_OK_PREFIX)
+
+
+# ─── F6 leg 3: channel + per-agent ACL gating ────────────────────────────
+
+
+async def _seed_stub_account_with_config(
+    account_id: str, config: dict
+) -> ConnectorAccount:
+    """Persist a stub-typed ConnectorAccount with explicit ``config``.
+
+    Mirror of ``_seed_stub_account`` but allows the test to drive
+    ``account.config["allowlist"]`` (leg 1b's reserved-key shape).
+    """
+    conn = await get_connection()
+    encryptor = get_encryptor(settings.data_dir)
+    repo = ConnectorAccountRepository(conn, encryptor)
+    account = ConnectorAccount(
+        id=account_id,
+        name=f"Stub {account_id}",
+        type="stub",
+        config=config,
+        secrets={},
+    )
+    await repo.create(account)
+    return account
+
+
+class TestF6OutboundGating:
+    """Channel + per-agent ACL consultation matrix.
+
+    The consult happens AFTER account-scope validation (existing F4
+    fast-path stays the cheap denial) and BEFORE pool_acquire. Two
+    independent gates intersect.
+
+    M10 F6 L7 HAT — allowlist/ACL semantic redesign:
+
+    1. Account-scope channel gate: ``account.config["allowlist"]["channels"]``
+       - absent ``allowlist`` key → permit
+       - ``channels = []`` (empty list) → permit (all channels OK; was
+         "deny everyone" pre-redesign; flipped to match the
+         "empty = unrestricted" intent operators expressed at HAT)
+       - ``channels = [items]`` → only those channels are reachable
+    2. Per-agent ACL channel gate: ``self._connector_acls[account_id]
+       ["channels"]`` is tri-state:
+       - ``None`` (key missing or set to None) → inherit account-scope
+       - ``[]`` (explicit empty) → DMs-only sentinel; F8-deferred; fail
+         closed until F8 ships DM-channel classification
+       - ``[items]`` → narrow to those channels (intersected with
+         account-scope)
+
+    Denials return ``[error] [constraint] channel_id <id> ...`` envelopes;
+    permits proceed to the existing pool-acquire + client.send path.
+    """
+
+    async def test_permit_when_no_allowlist_no_acl(self, isolated_db) -> None:
+        # Account has no allowlist key; tool has no per-agent ACL.
+        # Both gates default-permit → success.
+        await _seed_stub_account_with_config("acct-send", config={})
+        register_for_test("stub", StubPlugin)
+
+        tool = SendToPlatformChannelTool(
+            agent_name="test-agent",
+            connector_account_ids=["acct-send"],
+        )
+        result = await tool.execute(
+            target={"account_id": "acct-send", "channel_id": "c1"},
+            content="hello",
+        )
+        assert result.startswith(PLATFORM_SEND_OK_PREFIX)
+        assert "acct-send:c1" in result
+
+    async def test_permit_when_channel_in_account_allowlist_no_acl(
+        self, isolated_db
+    ) -> None:
+        # Account allowlist includes c1; per-agent ACL absent → inherit.
+        await _seed_stub_account_with_config(
+            "acct-send",
+            config={"allowlist": {"peers": [], "channels": ["c1"]}},
+        )
+        register_for_test("stub", StubPlugin)
+
+        tool = SendToPlatformChannelTool(
+            agent_name="test-agent",
+            connector_account_ids=["acct-send"],
+        )
+        result = await tool.execute(
+            target={"account_id": "acct-send", "channel_id": "c1"},
+            content="hello",
+        )
+        assert result.startswith(PLATFORM_SEND_OK_PREFIX)
+
+    async def test_deny_when_channel_not_in_account_allowlist(
+        self, isolated_db
+    ) -> None:
+        # Account allowlist includes c1 only; tool tries c2 → denial.
+        await _seed_stub_account_with_config(
+            "acct-send",
+            config={"allowlist": {"peers": [], "channels": ["c1"]}},
+        )
+        register_for_test("stub", StubPlugin)
+
+        tool = SendToPlatformChannelTool(
+            agent_name="test-agent",
+            connector_account_ids=["acct-send"],
+        )
+        result = await tool.execute(
+            target={"account_id": "acct-send", "channel_id": "c2"},
+            content="hello",
+        )
+        assert result == (
+            "[error] [constraint] channel_id 'c2' "
+            "is not reachable on account 'acct-send'"
+        )
+        assert not result.startswith(PLATFORM_SEND_OK_PREFIX)
+        # Denial returns BEFORE pool.acquire — no outbound recorded.
+        assert StubPlugin.outbound_records == []
+
+    async def test_deny_when_channel_in_account_but_not_in_per_agent_acl(
+        self, isolated_db
+    ) -> None:
+        # Account allows c1 + c2; per-agent ACL narrows to c1 only;
+        # tool tries c2 → per-agent denial. L7 HAT: peers axis is None
+        # (inherit) so it does not collide with the channels narrow.
+        await _seed_stub_account_with_config(
+            "acct-send",
+            config={"allowlist": {"peers": [], "channels": ["c1", "c2"]}},
+        )
+        register_for_test("stub", StubPlugin)
+
+        tool = SendToPlatformChannelTool(
+            agent_name="test-agent",
+            connector_account_ids=["acct-send"],
+            connector_acls={
+                "acct-send": {"peers": None, "channels": ["c1"]},
+            },
+        )
+        result = await tool.execute(
+            target={"account_id": "acct-send", "channel_id": "c2"},
+            content="hello",
+        )
+        assert result == (
+            "[error] [constraint] channel_id 'c2' is not reachable "
+            "for this agent on account 'acct-send'"
+        )
+        assert not result.startswith(PLATFORM_SEND_OK_PREFIX)
+        assert StubPlugin.outbound_records == []
+
+    async def test_permit_when_per_agent_acl_channels_is_none_inherits(
+        self, isolated_db
+    ) -> None:
+        # M10 F6 L7 HAT semantic: per-agent channels = None inherits
+        # account-scope (no agent-level narrowing). Account allowlist
+        # absent → permit overall.
+        await _seed_stub_account_with_config("acct-send", config={})
+        register_for_test("stub", StubPlugin)
+
+        tool = SendToPlatformChannelTool(
+            agent_name="test-agent",
+            connector_account_ids=["acct-send"],
+            connector_acls={
+                "acct-send": {"peers": None, "channels": None},
+            },
+        )
+        result = await tool.execute(
+            target={"account_id": "acct-send", "channel_id": "c1"},
+            content="hello",
+        )
+        assert result.startswith(PLATFORM_SEND_OK_PREFIX)
+
+    async def test_deny_when_per_agent_acl_channels_is_empty_dms_only_stub(
+        self, isolated_db
+    ) -> None:
+        # M10 F6 L7 HAT semantic: per-agent channels = [] is the
+        # "DMs-only" sentinel. Until F8 ships DM classification, the
+        # outbound path fails closed for ALL channels with a DMs-only
+        # envelope.
+        await _seed_stub_account_with_config("acct-send", config={})
+        register_for_test("stub", StubPlugin)
+
+        tool = SendToPlatformChannelTool(
+            agent_name="test-agent",
+            connector_account_ids=["acct-send"],
+            connector_acls={
+                "acct-send": {"peers": None, "channels": []},
+            },
+        )
+        result = await tool.execute(
+            target={"account_id": "acct-send", "channel_id": "c1"},
+            content="hello",
+        )
+        assert result == (
+            "[error] [constraint] channel_id 'c1' is not reachable "
+            "for this agent on account 'acct-send' (DMs-only override; "
+            "DM classification lands in F8)"
+        )
+        assert not result.startswith(PLATFORM_SEND_OK_PREFIX)
+        assert StubPlugin.outbound_records == []
+
+    async def test_permit_when_per_agent_acl_account_id_absent(
+        self, isolated_db
+    ) -> None:
+        # `connector_acls` is present but missing this account_id →
+        # inherit (no narrowing for this account).
+        await _seed_stub_account_with_config("acct-send", config={})
+        register_for_test("stub", StubPlugin)
+
+        tool = SendToPlatformChannelTool(
+            agent_name="test-agent",
+            connector_account_ids=["acct-send"],
+            connector_acls={
+                "other-acct": {"peers": None, "channels": ["x"]},
+            },
+        )
+        result = await tool.execute(
+            target={"account_id": "acct-send", "channel_id": "c1"},
+            content="hello",
+        )
+        assert result.startswith(PLATFORM_SEND_OK_PREFIX)
+
+    async def test_permit_when_channel_in_both_account_allowlist_and_per_agent_acl(
+        self, isolated_db
+    ) -> None:
+        # Intersection-positive: both axes permit c1 → success.
+        # Mirror of the deny-by-intersection test but on the success path.
+        # L7 HAT: peers axis is None (inherit).
+        await _seed_stub_account_with_config(
+            "acct-send",
+            config={"allowlist": {"peers": [], "channels": ["c1", "c2"]}},
+        )
+        register_for_test("stub", StubPlugin)
+
+        tool = SendToPlatformChannelTool(
+            agent_name="test-agent",
+            connector_account_ids=["acct-send"],
+            connector_acls={
+                "acct-send": {"peers": None, "channels": ["c1"]},
+            },
+        )
+        result = await tool.execute(
+            target={"account_id": "acct-send", "channel_id": "c1"},
+            content="hello",
+        )
+        assert result.startswith(PLATFORM_SEND_OK_PREFIX)
+        assert "acct-send:c1" in result
+
+    async def test_keyerror_on_mid_call_account_deletion_returns_constraint(
+        self, isolated_db
+    ) -> None:
+        # The account-scope check at L125 passes (id is in the tool's
+        # attached set), but the per-call repository fetch raises
+        # KeyError because the account row was deleted mid-call. The
+        # defensive catch returns the constraint envelope.
+        register_for_test("stub", StubPlugin)
+        # NOTE: no account seeded; the tool's attached-set still permits
+        # account-scope, but the DB fetch will raise KeyError.
+        tool = SendToPlatformChannelTool(
+            agent_name="test-agent",
+            connector_account_ids=["acct-deleted"],
+        )
+        result = await tool.execute(
+            target={"account_id": "acct-deleted", "channel_id": "c1"},
+            content="hello",
+        )
+        assert result == (
+            "[error] [constraint] account_id 'acct-deleted' not found"
+        )
+        assert not result.startswith(PLATFORM_SEND_OK_PREFIX)
+        assert StubPlugin.outbound_records == []
+
+    async def test_f4_account_scope_denial_still_works(self, isolated_db) -> None:
+        # REGRESSION PIN: F4's existing account-scope envelope is
+        # byte-identical. Leg 3 only inserts the new consultation block
+        # AFTER this check. The denial returns BEFORE the per-call
+        # account fetch, so no DB hit occurs.
+        # L7 HAT: peers axis is None (inherit).
+        register_for_test("stub", StubPlugin)
+        tool = SendToPlatformChannelTool(
+            agent_name="test-agent",
+            connector_account_ids=["acct-A"],
+            connector_acls={
+                "acct-A": {"peers": None, "channels": ["c1"]},
+            },
+        )
+        result = await tool.execute(
+            target={"account_id": "acct-B", "channel_id": "c1"},
+            content="hello",
+        )
+        assert result == (
+            "[error] [constraint] account_id 'acct-B' is "
+            "not attached to this agent"
+        )
+        assert not result.startswith(PLATFORM_SEND_OK_PREFIX)
+        assert StubPlugin.outbound_records == []
+
+    async def test_empty_account_scope_channels_permits(self, isolated_db) -> None:
+        # M10 F6 L7 HAT semantic flip: account-scope
+        # `allowlist = {"peers": [], "channels": []}` no longer means
+        # "lockdown — deny everyone." Empty list = unrestricted on that
+        # axis. Pre-redesign this test expected a denial envelope; post-
+        # redesign the call permits and reaches the stub plugin.
+        await _seed_stub_account_with_config(
+            "acct-send",
+            config={"allowlist": {"peers": [], "channels": []}},
+        )
+        register_for_test("stub", StubPlugin)
+
+        tool = SendToPlatformChannelTool(
+            agent_name="test-agent",
+            connector_account_ids=["acct-send"],
+        )
+        result = await tool.execute(
+            target={"account_id": "acct-send", "channel_id": "c1"},
+            content="hello",
+        )
+        assert result.startswith(PLATFORM_SEND_OK_PREFIX)
+        assert "acct-send:c1" in result

@@ -99,8 +99,8 @@ class SQLiteAgentStore:
                 name, description, provider_config_id, llm_model,
                 system_prompt, enabled_tools, disabled_tools, max_iterations,
                 kb_ids, mcp_source_ids, tool_overrides, mcp_overrides,
-                connector_account_ids, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                connector_account_ids, connector_acls, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(name) DO UPDATE SET
                 description=excluded.description,
                 provider_config_id=excluded.provider_config_id,
@@ -114,6 +114,7 @@ class SQLiteAgentStore:
                 tool_overrides=excluded.tool_overrides,
                 mcp_overrides=excluded.mcp_overrides,
                 connector_account_ids=excluded.connector_account_ids,
+                connector_acls=excluded.connector_acls,
                 updated_at=excluded.updated_at
             """,
             (
@@ -130,6 +131,7 @@ class SQLiteAgentStore:
                 json.dumps(config.tool_overrides) if config.tool_overrides is not None else None,
                 json.dumps(config.mcp_overrides) if config.mcp_overrides is not None else None,
                 json.dumps(config.connector_account_ids),
+                json.dumps(config.connector_acls) if config.connector_acls is not None else None,
                 now,
                 now,
             ),
@@ -212,6 +214,12 @@ class SQLiteAgentStore:
             # guarantees the column exists; this expression handles the
             # NULL value for legacy rows.
             connector_account_ids=json.loads(row["connector_account_ids"] or "[]"),
+            # M10 F6 L1c: per-agent ACL override. NULL (pre-v18 rows AND
+            # the default for agents without per-agent narrowing) decodes
+            # to None, distinguishing it from `{}` (which round-trips
+            # verbatim — see the empty-outer-dict round-trip test). The
+            # truthiness mirrors `tool_overrides` / `mcp_overrides` above.
+            connector_acls=(json.loads(row["connector_acls"]) if row["connector_acls"] else None),
         )
 
 
@@ -832,6 +840,52 @@ class ChatSessionRepository:
         await self.conn.execute(
             "UPDATE chat_sessions SET last_inbound_at = ?, updated_at = ? WHERE id = ?",
             (when, when, session_id),
+        )
+        await self.conn.commit()
+
+    async def append_to_session_metadata(
+        self, session_id: str, key: str, value: Any
+    ) -> None:
+        """Append ``value`` to the list at ``session_metadata[key]``.
+
+        Initializes ``session_metadata`` from NULL to ``{}`` and the
+        list at ``key`` from absent to ``[]`` as needed. Preserves all
+        other top-level keys in ``session_metadata``. The whole column
+        is rewritten on each call (last-writer-wins; no deep-merge or
+        optimistic concurrency in leg 2 scope).
+
+        Raises ``KeyError`` if the session doesn't exist — mirrors
+        :meth:`update_last_inbound` / :meth:`update` / :meth:`delete` /
+        :meth:`purge_messages` not-found semantics.
+
+        M10 F06 L2 — narrow primitive for the audit-log writer. F7's
+        routing-decision logs will use the same primitive with a
+        different key. The audit list is unbounded by design;
+        bounded-retention is F10 territory.
+        """
+        async with self.conn.execute(
+            "SELECT session_metadata FROM chat_sessions WHERE id = ?",
+            (session_id,),
+        ) as cur:
+            row = await cur.fetchone()
+        if row is None:
+            raise KeyError(f"Chat session not found: {session_id}")
+        raw = row["session_metadata"]
+        metadata: dict[str, Any] = json.loads(raw) if raw else {}
+        if not isinstance(metadata, dict):
+            # Defensive: a non-dict JSON value (corruption / tampering)
+            # collapses to {} — mirrors ``_row_to_model``'s defensive
+            # normalization. The next write replaces the column with a
+            # well-formed dict.
+            metadata = {}
+        existing = metadata.get(key)
+        if not isinstance(existing, list):
+            existing = []
+        existing.append(value)
+        metadata[key] = existing
+        await self.conn.execute(
+            "UPDATE chat_sessions SET session_metadata = ? WHERE id = ?",
+            (json.dumps(metadata), session_id),
         )
         await self.conn.commit()
 

@@ -20,18 +20,50 @@ Per-session serialization shares the SAME asyncio.Lock with
 the WS handler. The lock registry lives at
 ``the_one.sessions.session_locks``; see F5 L2 for the
 unification that closed the M10 mission Known Issue.
+
+M10 F06 L2 — F6 gating contract.
+================================
+
+Resolver consult: after ``resolve_session`` materializes the session
+row, the dispatcher consults ``getattr(plugin, "resolve",
+_default_permit)(account, envelope)`` for EVERY inbound — Permit,
+NeedsPairing, and Deny outcomes all enter the consult. The session
+exists before the consult so audit-log writes have a target row. An
+``StubPlugin`` (without ``resolve``) hits the ``_default_permit``
+fallback and behaves byte-identically to pre-F6.
+
+Audit-log shape: each gate decision appends an entry to
+``session_metadata["audit"]`` via
+:meth:`ChatSessionRepository.append_to_session_metadata`. The entry
+shape is uniform — ``{"outcome", "peer_id", "ts", "reason"}`` — with
+``reason: None`` on default-permit so the leg-4 Studio renderer reads
+all four keys without per-entry shape checks.
+
+``last_inbound_at`` on Deny / NeedsPairing-failure: the existing
+dispatcher calls ``update_last_inbound`` INSIDE the per-session lock
+(below). Deny and NeedsPairing-failure branches ``return`` BEFORE
+entering the lock — so ``last_inbound_at`` is NOT bumped on denied
+messages. This is deliberate: denied messages should not extend the
+continuation window.
 """
 
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 
 from the_one.agent._context import current_chat_session_id
 from the_one.agent.factory import AgentFactory
 from the_one.connectors import registry
+from the_one.connectors._pairing import _validate_pairing_prefix
 from the_one.connectors._pool import acquire as pool_acquire
 from the_one.connectors._session import resolve_session
-from the_one.connectors.base import InboundEnvelope
+from the_one.connectors.base import (
+    Deny,
+    InboundEnvelope,
+    NeedsPairing,
+    _default_permit,
+)
 from the_one.connectors.errors import ConnectorRegistrationError
 from the_one.connectors.visibility import tag_post_step_visibility
 from the_one.db.codec import decode_messages, encode_messages, messages_to_ui_events
@@ -151,6 +183,87 @@ async def dispatch_inbound(
         plugin=plugin,
     )
 
+    # 4b. F6 L2: resolver consult + three-arm branch + audit write.
+    # The resolver is consulted AFTER ``resolve_session`` so the audit
+    # entries have a target row, and BEFORE the per-session lock so
+    # Deny / NeedsPairing-failure return WITHOUT bumping
+    # ``last_inbound_at`` (denied messages do not extend the
+    # continuation window). ``getattr`` discovery + ``_default_permit``
+    # fallback means a plugin without ``resolve`` (e.g. F1's
+    # ``StubPlugin``) behaves byte-identically to pre-F6.
+    resolver = getattr(plugin, "resolve", _default_permit)
+    outcome = resolver(account, envelope)
+    ts = now_iso()
+
+    if isinstance(outcome, Deny):
+        await chat_repo.append_to_session_metadata(
+            session_row.id,
+            "audit",
+            {
+                "outcome": "deny",
+                "peer_id": envelope.peer_id,
+                "ts": ts,
+                "reason": outcome.reason,
+            },
+        )
+        return
+
+    working_envelope = envelope
+    if isinstance(outcome, NeedsPairing):
+        pairing = (account.config.get("pairing") or {}).get("code")
+        success, cleaned = _validate_pairing_prefix(
+            envelope.text, pairing or ""
+        )
+        if not success:
+            await chat_repo.append_to_session_metadata(
+                session_row.id,
+                "audit",
+                {
+                    "outcome": "deny",
+                    "peer_id": envelope.peer_id,
+                    "ts": ts,
+                    "reason": outcome.reason or "invalid_pairing",
+                },
+            )
+            return
+        # Success: persist the paired peer + clean the envelope.
+        allowlist = account.config.get("allowlist") or {
+            "peers": [],
+            "channels": [],
+        }
+        peers = list(allowlist.get("peers", []))
+        if envelope.peer_id not in peers:
+            peers.append(envelope.peer_id)
+        allowlist["peers"] = peers
+        allowlist.setdefault("channels", [])
+        account.config["allowlist"] = allowlist
+        await acc_repo.update(account)
+        working_envelope = replace(envelope, text=cleaned)
+        await chat_repo.append_to_session_metadata(
+            session_row.id,
+            "audit",
+            {
+                "outcome": "permit",
+                "peer_id": envelope.peer_id,
+                "ts": ts,
+                "reason": "paired",
+            },
+        )
+    else:
+        # Permit outcome. ``reason: None`` for shape uniformity (the
+        # leg-4 Studio renderer reads all four keys without per-entry
+        # shape checks).
+        await chat_repo.append_to_session_metadata(
+            session_row.id,
+            "audit",
+            {
+                "outcome": "permit",
+                "peer_id": envelope.peer_id,
+                "ts": ts,
+                "reason": None,
+            },
+        )
+
     # 5-12. Per-session lock + persist + agent.step + persist.
     async with session_locks[session_row.id]:
         # 6. Update last_inbound_at (and updated_at — the resolver's
@@ -190,7 +303,7 @@ async def dispatch_inbound(
             # ``agent.messages`` holds the full updated history.
             # No on_chunk / on_usage callbacks — F3 has no UI
             # subscribers (F5 owns broadcast).
-            async for _ in agent.step(envelope.text):
+            async for _ in agent.step(working_envelope.text):
                 pass
 
             # F4 (M10) L4: post-step visibility tagging.

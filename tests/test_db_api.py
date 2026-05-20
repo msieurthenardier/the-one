@@ -1132,6 +1132,395 @@ class TestConnectorAccountDoctor:
         assert StubPlugin.doctor_calls == [(account_id, "stub")]
 
 
+# ── Connector account pairing-code + attached-agents (F6 L4) ─────────────
+
+
+class TestConnectorAccountPairingCodeAndAttached:
+    """REST surface for the F6 L4 Studio Connector account additions.
+
+    Covers the two new endpoints:
+
+      * ``POST /api/connector-accounts/{id}/pairing-code`` — generates
+        an 8-hex pairing code and writes ``config["pairing"]`` via the
+        repository.
+      * ``GET  /api/connector-accounts/{id}/attached-agents`` — lists
+        agents whose ``connector_account_ids`` includes the account,
+        with per-row peer/channel counts from ``connector_acls``.
+
+    Plus a regression net at the API edge for leg-1b's empty-allowlist
+    preservation invariant: PUT-ing
+    ``config.allowlist = {"peers": [], "channels": []}`` must round-trip
+    verbatim through GET (NOT collapse to absent).
+
+    Mirrors :class:`TestConnectorAccountAPI`'s autouse ``_isolation``
+    fixture so the pool, registry, and StubPlugin class-state are reset
+    per test (class-scoped autouse fixtures do not propagate across
+    classes; each class that touches the connector subsystem must
+    redeclare). The pairing-code tests do not acquire warm pool entries,
+    but the fixture is kept verbatim because future tests in this class
+    may grow that need.
+    """
+
+    @pytest.fixture(autouse=True)
+    async def _isolation(self, client: AsyncClient, monkeypatch):
+        from the_one.connectors import _pool as pool_mod
+        from the_one.connectors._stub import StubPlugin
+        from the_one.connectors.registry import (
+            clear_for_test,
+            register_for_test,
+            restore_to_baseline_for_test,
+        )
+        from the_one.db.repositories import ConnectorAccountRepository
+        from the_one.interfaces.web.api import get_connection, get_encryptor
+
+        await pool_mod._clear_for_test()
+        restore_to_baseline_for_test()
+        StubPlugin.reset_for_test()
+        register_for_test("stub", StubPlugin)
+
+        async def _patched_load_account(account_id, encryptor):
+            conn = await get_connection()
+            repo = ConnectorAccountRepository(conn, get_encryptor(""))
+            return await repo.get(account_id)
+
+        monkeypatch.setattr(pool_mod, "_load_account", _patched_load_account)
+
+        try:
+            yield
+        finally:
+            await pool_mod._clear_for_test()
+            clear_for_test()
+
+    async def _create_account(
+        self, client: AsyncClient, config: dict | None = None
+    ) -> str:
+        body = {"name": "pairing-target", "type": "stub", "secrets": {}}
+        if config is not None:
+            body["config"] = config
+        resp = await client.post("/api/connector-accounts", json=body)
+        assert resp.status_code == 201, resp.text
+        return resp.json()["id"]
+
+    # ── pairing-code endpoint ─────────────────────────────────────────────
+
+    async def test_generate_pairing_code_returns_8_hex_code_and_iso_issued_at(
+        self, client: AsyncClient
+    ) -> None:
+        """POST returns ``{code: 8-hex, issued_at: iso}``."""
+        account_id = await self._create_account(client)
+        resp = await client.post(
+            f"/api/connector-accounts/{account_id}/pairing-code"
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert set(body.keys()) == {"code", "issued_at"}
+        # 8-hex (4-byte token_hex) — chars-only, lower-cased per stdlib.
+        assert len(body["code"]) == 8
+        assert all(c in "0123456789abcdef" for c in body["code"])
+        # ISO timestamp with the ``T`` separator (leg-1b validator
+        # rejects date-only strings, so any successful round-trip
+        # implies the ``T`` is present).
+        assert "T" in body["issued_at"]
+
+    async def test_generate_pairing_code_updates_account_config_pairing(
+        self, client: AsyncClient
+    ) -> None:
+        """Generated code + timestamp are persisted to ``config["pairing"]``."""
+        account_id = await self._create_account(client)
+        gen = await client.post(
+            f"/api/connector-accounts/{account_id}/pairing-code"
+        )
+        assert gen.status_code == 200
+        expected = gen.json()
+
+        getr = await client.get(f"/api/connector-accounts/{account_id}")
+        assert getr.status_code == 200
+        pairing = getr.json()["config"]["pairing"]
+        assert pairing == {
+            "code": expected["code"],
+            "issued_at": expected["issued_at"],
+        }
+
+    async def test_regenerate_pairing_code_replaces_previous_code(
+        self, client: AsyncClient
+    ) -> None:
+        """Calling twice returns two distinct codes; stored copy = latest."""
+        account_id = await self._create_account(client)
+
+        first = await client.post(
+            f"/api/connector-accounts/{account_id}/pairing-code"
+        )
+        assert first.status_code == 200
+        first_body = first.json()
+
+        second = await client.post(
+            f"/api/connector-accounts/{account_id}/pairing-code"
+        )
+        assert second.status_code == 200
+        second_body = second.json()
+
+        # token_hex(4) collision probability is ~1/4e9 — vanishingly
+        # rare, but we assert inequality on the persisted copy to pin
+        # the "regenerate replaces" semantic without relying on the
+        # response codes being distinct.
+        getr = await client.get(f"/api/connector-accounts/{account_id}")
+        stored = getr.json()["config"]["pairing"]
+        assert stored == {
+            "code": second_body["code"],
+            "issued_at": second_body["issued_at"],
+        }
+        # Best-effort distinctness (response shapes differ on at least
+        # one of code / issued_at across the two calls).
+        assert (first_body["code"], first_body["issued_at"]) != (
+            second_body["code"],
+            second_body["issued_at"],
+        )
+
+    async def test_generate_pairing_code_preserves_other_config_keys(
+        self, client: AsyncClient
+    ) -> None:
+        """Non-reserved keys (intent) AND ``allowlist`` survive the mutation."""
+        account_id = await self._create_account(
+            client,
+            config={
+                "intent": "guild_messages",
+                "allowlist": {"peers": ["u-keep"], "channels": ["c-keep"]},
+            },
+        )
+        gen = await client.post(
+            f"/api/connector-accounts/{account_id}/pairing-code"
+        )
+        assert gen.status_code == 200
+
+        getr = await client.get(f"/api/connector-accounts/{account_id}")
+        cfg = getr.json()["config"]
+        assert cfg["intent"] == "guild_messages"
+        assert cfg["allowlist"] == {"peers": ["u-keep"], "channels": ["c-keep"]}
+        assert cfg["pairing"]["code"] == gen.json()["code"]
+
+    async def test_generate_pairing_code_404_on_unknown_account(
+        self, client: AsyncClient
+    ) -> None:
+        resp = await client.post(
+            "/api/connector-accounts/does-not-exist/pairing-code"
+        )
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == (
+            "Connector account not found: does-not-exist"
+        )
+
+    # ── attached-agents endpoint ──────────────────────────────────────────
+
+    async def test_attached_agents_empty_when_no_agents_attached(
+        self, client: AsyncClient
+    ) -> None:
+        """Account with no agent references → ``[]``."""
+        account_id = await self._create_account(client)
+        resp = await client.get(
+            f"/api/connector-accounts/{account_id}/attached-agents"
+        )
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    async def test_attached_agents_returns_attached_with_null_axes_when_no_acl(
+        self, client: AsyncClient
+    ) -> None:
+        """Agent attached, no per-agent ACL → both axes ``None`` (inherit).
+
+        L7 HAT response-shape extension: in addition to ``peers_count`` /
+        ``channels_count`` (retained for back-compat), the row now
+        includes ``peers`` and ``channels`` as ``list[str] | None``.
+        Agents without a per-account entry get ``None`` on both axes
+        (inherit account-scope).
+        """
+        account_id = await self._create_account(client)
+
+        # Create the agent with this account attached but no ACLs.
+        resp = await client.post(
+            "/api/agents",
+            json={
+                "name": "agent-attached",
+                "connector_account_ids": [account_id],
+            },
+        )
+        assert resp.status_code in (200, 201), resp.text
+
+        resp = await client.get(
+            f"/api/connector-accounts/{account_id}/attached-agents"
+        )
+        assert resp.status_code == 200
+        assert resp.json() == [
+            {
+                "name": "agent-attached",
+                "peers": None,
+                "channels": None,
+                "peers_count": 0,
+                "channels_count": 0,
+            }
+        ]
+
+    async def test_attached_agents_includes_acl_peer_and_channel_lists(
+        self, client: AsyncClient
+    ) -> None:
+        """Agent with a non-empty ACL → response carries the actual
+        ``peers`` and ``channels`` lists (L7 HAT shape extension)."""
+        account_id = await self._create_account(client)
+
+        resp = await client.post(
+            "/api/agents",
+            json={
+                "name": "agent-with-acl",
+                "connector_account_ids": [account_id],
+                "connector_acls": {
+                    account_id: {
+                        "peers": ["u1", "u2", "u3"],
+                        "channels": ["c1", "c2"],
+                    }
+                },
+            },
+        )
+        assert resp.status_code in (200, 201), resp.text
+
+        # A second agent attached to the SAME account but with NO ACL —
+        # confirms multi-agent listing + null-axes fallback in one
+        # response.
+        resp = await client.post(
+            "/api/agents",
+            json={
+                "name": "agent-no-acl",
+                "connector_account_ids": [account_id],
+            },
+        )
+        assert resp.status_code in (200, 201), resp.text
+
+        # A third agent that is NOT attached to this account — must be
+        # excluded from the response entirely.
+        resp = await client.post(
+            "/api/agents",
+            json={"name": "agent-unrelated", "connector_account_ids": []},
+        )
+        assert resp.status_code in (200, 201), resp.text
+
+        resp = await client.get(
+            f"/api/connector-accounts/{account_id}/attached-agents"
+        )
+        assert resp.status_code == 200
+        rows = sorted(resp.json(), key=lambda r: r["name"])
+        assert rows == [
+            {
+                "name": "agent-no-acl",
+                "peers": None,
+                "channels": None,
+                "peers_count": 0,
+                "channels_count": 0,
+            },
+            {
+                "name": "agent-with-acl",
+                "peers": ["u1", "u2", "u3"],
+                "channels": ["c1", "c2"],
+                "peers_count": 3,
+                "channels_count": 2,
+            },
+        ]
+
+    async def test_attached_agents_response_tri_state_axes(
+        self, client: AsyncClient
+    ) -> None:
+        """L7 HAT tri-state semantic — verify each axis value (None vs
+        ``[]`` vs ``[items]``) surfaces correctly per agent.
+        """
+        account_id = await self._create_account(client)
+
+        # Agent A: peers explicit-empty, channels inherit.
+        resp = await client.post(
+            "/api/agents",
+            json={
+                "name": "agent-a",
+                "connector_account_ids": [account_id],
+                "connector_acls": {
+                    account_id: {"peers": [], "channels": None},
+                },
+            },
+        )
+        assert resp.status_code in (200, 201), resp.text
+
+        # Agent B: peers subset, channels explicit-empty (DMs-only).
+        resp = await client.post(
+            "/api/agents",
+            json={
+                "name": "agent-b",
+                "connector_account_ids": [account_id],
+                "connector_acls": {
+                    account_id: {"peers": ["u1"], "channels": []},
+                },
+            },
+        )
+        assert resp.status_code in (200, 201), resp.text
+
+        resp = await client.get(
+            f"/api/connector-accounts/{account_id}/attached-agents"
+        )
+        assert resp.status_code == 200
+        rows = sorted(resp.json(), key=lambda r: r["name"])
+        assert rows == [
+            {
+                "name": "agent-a",
+                "peers": [],
+                "channels": None,
+                "peers_count": 0,
+                "channels_count": 0,
+            },
+            {
+                "name": "agent-b",
+                "peers": ["u1"],
+                "channels": [],
+                "peers_count": 1,
+                "channels_count": 0,
+            },
+        ]
+
+    async def test_attached_agents_404_on_unknown_account(
+        self, client: AsyncClient
+    ) -> None:
+        resp = await client.get(
+            "/api/connector-accounts/does-not-exist/attached-agents"
+        )
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == (
+            "Connector account not found: does-not-exist"
+        )
+
+    # ── Empty-allowlist API-edge round-trip (leg-1b invariant) ────────────
+
+    async def test_put_account_with_empty_allowlist_lockdown_survives_get(
+        self, client: AsyncClient
+    ) -> None:
+        """``{peers: [], channels: []}`` round-trips verbatim through PUT → GET.
+
+        Leg-1b's repository-level test pins this invariant at the model +
+        SQL layers; this is the API-edge regression net for the leg-4
+        Studio writer (the operator's "Enable allowlist" + empty lists →
+        lockdown affordance must reach the database verbatim and come
+        back out the same).
+        """
+        account_id = await self._create_account(client)
+        put = await client.put(
+            f"/api/connector-accounts/{account_id}",
+            json={
+                "name": "pairing-target",
+                "type": "stub",
+                "config": {"allowlist": {"peers": [], "channels": []}},
+            },
+        )
+        assert put.status_code == 200, put.text
+
+        getr = await client.get(f"/api/connector-accounts/{account_id}")
+        assert getr.status_code == 200
+        allowlist = getr.json()["config"]["allowlist"]
+        # Verbatim — NOT absent, NOT coerced to null/None.
+        assert allowlist == {"peers": [], "channels": []}
+
+
 # ── Chat session endpoints ───────────────────────────────────────────────
 
 

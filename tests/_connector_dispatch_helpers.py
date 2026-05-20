@@ -47,14 +47,19 @@ a non-conftest module creates ordering surprises.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 
 from the_one.agent.config import AgentConfig
 from the_one.agent.factory import AgentFactory
 from the_one.config import settings
-from the_one.connectors.base import InboundEnvelope
+from the_one.connectors._stub import StubPlugin
+from the_one.connectors.base import (
+    InboundEnvelope,
+    Permit,
+    ResolveOutcome,
+)
 from the_one.db.connection import get_connection
 from the_one.db.models import ConnectorAccount, LLMProviderConfig
 from the_one.db.repositories import (
@@ -263,3 +268,40 @@ async def _make_scripted_factory(
 
     monkeypatch.setattr(factory_mod, "get_provider", _resolver)
     return factory
+
+
+# ─── M10 F06 L2: stub variant exposing the resolve hook ──────────────────
+
+
+class StubPluginWithResolver(StubPlugin):
+    """Stub variant that implements the F6 ``resolve`` hook.
+
+    The production :class:`StubPlugin` (in ``the_one/connectors/_stub.py``)
+    deliberately does NOT implement ``resolve`` — F1-F5 tests assert that
+    a plugin without ``resolve`` behaves byte-identically by hitting the
+    ``_default_permit`` fallback at the dispatcher's ``getattr`` discovery
+    site. This test-side variant ADDS ``resolve`` so the F6 dispatcher
+    branches can be exercised.
+
+    Class-level ``resolve_outcome`` knob lets tests configure the outcome
+    per case (default :class:`Permit`); ``resolve_calls`` is the class-
+    level recording buffer for assertions. ``reset_for_test`` extends
+    :meth:`StubPlugin.reset_for_test` to also clear the resolver state.
+    """
+
+    resolve_outcome: ClassVar[ResolveOutcome] = Permit()
+    resolve_calls: ClassVar[list[tuple[str, str]]] = []
+
+    def resolve(
+        self, account: ConnectorAccount, envelope: InboundEnvelope
+    ) -> ResolveOutcome:
+        StubPluginWithResolver.resolve_calls.append(
+            (account.id, envelope.peer_id)
+        )
+        return StubPluginWithResolver.resolve_outcome
+
+    @classmethod
+    def reset_for_test(cls) -> None:
+        StubPlugin.reset_for_test()
+        cls.resolve_outcome = Permit()
+        cls.resolve_calls = []

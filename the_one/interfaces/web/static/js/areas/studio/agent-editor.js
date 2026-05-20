@@ -46,6 +46,7 @@
     general: 'agent-tab-panel-general',
     knowledge: 'agent-tab-panel-knowledge',
     mcps: 'agent-tab-panel-mcps',
+    connectors: 'agent-tab-panel-connectors',
     tools: 'agent-tab-panel-tools'
   };
 
@@ -98,6 +99,11 @@
     html += '<button type="button" role="tab" class="tab" id="agent-tab-mcps" ' +
       'aria-controls="' + PANEL_IDS.mcps + '" data-tab-id="mcps" ' +
       'data-testid="tab-mcps" aria-selected="false" tabindex="-1">MCPs</button>';
+    // M10 F6 L5: Connectors tab sits between MCPs and Built-in Tools.
+    // Attach toggles per connector account + per-account ACL editor.
+    html += '<button type="button" role="tab" class="tab" id="agent-tab-connectors" ' +
+      'aria-controls="' + PANEL_IDS.connectors + '" data-tab-id="connectors" ' +
+      'data-testid="tab-connectors" aria-selected="false" tabindex="-1">Connectors</button>';
     // `data-tab-id="tools"` + `data-testid="tab-tools"` preserved (browser
     // tests + URL routing still key off "tools"); only the visible label
     // and panel content semantics narrow to "Built-in Tools".
@@ -114,6 +120,8 @@
       '" data-tab-id="knowledge" aria-labelledby="agent-tab-knowledge" hidden></div>';
     html += '<div role="tabpanel" class="tabpanel" id="' + PANEL_IDS.mcps +
       '" data-tab-id="mcps" aria-labelledby="agent-tab-mcps" hidden></div>';
+    html += '<div role="tabpanel" class="tabpanel" id="' + PANEL_IDS.connectors +
+      '" data-tab-id="connectors" aria-labelledby="agent-tab-connectors" hidden></div>';
     html += '<div role="tabpanel" class="tabpanel" id="' + PANEL_IDS.tools +
       '" data-tab-id="tools" aria-labelledby="agent-tab-tools" hidden></div>';
     html += '</div>';
@@ -140,6 +148,7 @@
     var generalPanel = container.querySelector('#' + PANEL_IDS.general);
     var knowledgePanel = container.querySelector('#' + PANEL_IDS.knowledge);
     var mcpsPanel = container.querySelector('#' + PANEL_IDS.mcps);
+    var connectorsPanel = container.querySelector('#' + PANEL_IDS.connectors);
     var toolsPanel = container.querySelector('#' + PANEL_IDS.tools);
 
     window.App.studio.renderGeneralTab(generalPanel, agent, providers, {
@@ -156,6 +165,14 @@
       onSelectedSourceChange: callbacks.onSelectedMcpSourceChange,
       pendingSourceId: callbacks.pendingMcpAgentSourceId
     });
+    // M10 F6 L5 — Connectors tab: attach toggles + per-account ACL editor.
+    // Mirrors the renderMcpsTab call site shape. `allConnectorAccounts`
+    // is refreshed on every agent-edit mount via refreshConnectorAccountsCache
+    // (mirror of refreshMcpSourcesCache).
+    window.App.studio.renderConnectorsTab(connectorsPanel, agent,
+      callbacks.allConnectorAccounts, {
+        onChange: callbacks.onChange
+      });
     window.App.studio.renderToolsTab(toolsPanel, agent, {
       toolCategories: callbacks.toolCategories,
       allTools: callbacks.allTools,
