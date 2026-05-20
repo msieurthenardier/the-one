@@ -248,7 +248,7 @@ F7 is **command-surface scaffolding first, routing primitives second, mechanical
 - [x] `command-implementations` (6) — six command handlers (`handle_agents`, `handle_talk_to`, `handle_whoami`, `handle_new`, `handle_reset`, `handle_help`); each pure-function (with explicit injections); `/new` mechanism via `session_metadata["ended_at"]` + F3 `resolve_session` touch (one F3 ripple, scoped to this leg); `/reset` is alias for `/new`; tests cover happy + denied paths
 - [x] `studio-routing-rules-editor` (7) — new section on `connector-account-editor.js` between Allowlist and Attached Agents; per-rule editor; order via Move-up/Move-down; per-account default; API round-trip; cycle-1 design-language uptake audit (F6 debrief rec #1)
 - [x] `f6-carry-forward-bundle` (8) — `tests/test_pairing_prefix.py` (~6 cases); `# F8: DM-classification consult lands here` marker at `tools/connector_send.py:202` (post-L2 the marker target moved to `_acl.py`'s DMs-only branches); genuinely orthogonal
-- [ ] `hat-and-alignment` *(optional)* — Operator-driven verification of Routing Rules editor + audit-log entries; inline fixes per F6 HAT-as-catch-all pattern. **Deferred to post-commit** — runs interactively after the PR opens.
+- [x] `hat-and-alignment` *(optional)* — Operator-driven verification of Routing Rules editor + audit-log entries; inline fixes per F6 HAT-as-catch-all pattern. Three HAT iterations landed: (1) Connector-Account editor refactored into tabs (General + Access and Routing); (2) Routing Rules section reordered (default-agent first, drag-handle reordering, chip-list multi-value match); (3) legacy `match: str` read-path coercion to fix in-place dev-DB rows.
 
 ---
 

@@ -870,7 +870,7 @@ class TestConnectorAccountAPI:
         # PUT routing config.
         routing_payload = {
             "rules": [
-                {"scope": "channel", "match": "C1", "agent": "alpha"},
+                {"scope": "channel", "match": ["C1"], "agent": "alpha"},
             ],
             "default": "bravo",
         }
