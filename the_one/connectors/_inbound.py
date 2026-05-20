@@ -355,6 +355,7 @@ async def dispatch_inbound(
         working_envelope,
         eligible_attached_agents,
         session_metadata,
+        plugin=plugin,
     )
 
     # 8. Build the routing audit entry. ``disposition`` is filled per

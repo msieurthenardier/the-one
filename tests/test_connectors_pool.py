@@ -279,12 +279,22 @@ async def test_clear_for_test_round_trips_across_iterations(patch_plugin) -> Non
 
 
 async def test_acquire_unknown_account_type_raises_registration_error(monkeypatch) -> None:
-    """Registry returns ConnectorRegistrationError for an unregistered type."""
+    """Registry returns ConnectorRegistrationError for an unregistered type.
 
-    async def _load_unknown_type(account_id, encryptor):
-        return _make_stub_account(account_id=account_id, type_name="unregistered")
+    M10 F8 L2: the Pydantic Literal narrowing on ``ConnectorAccount.type``
+    now rejects bogus type strings at the model edge. The test seeds a
+    ``'stub'``-typed account AND clears the registry (so neither
+    ``'stub'`` nor the post-F8 ``'discord'`` builtin is registered) to
+    exercise the original intent — pool.acquire encounters an unknown
+    type and surfaces :class:`ConnectorRegistrationError`.
+    """
+    from the_one.connectors.registry import clear_for_test
 
-    monkeypatch.setattr(pool_mod, "_load_account", _load_unknown_type)
+    async def _load_stub_type(account_id, encryptor):
+        return _make_stub_account(account_id=account_id, type_name="stub")
+
+    monkeypatch.setattr(pool_mod, "_load_account", _load_stub_type)
+    clear_for_test()
 
     with pytest.raises(ConnectorRegistrationError):
         await acquire("agent-a", "acct-1")

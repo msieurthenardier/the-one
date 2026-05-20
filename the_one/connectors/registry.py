@@ -147,22 +147,39 @@ def restore_to_baseline_for_test() -> None:
 def register_builtin_connectors() -> None:
     """Production discovery hook — called once at module import time.
 
-    Flight 1 registers nothing (no real connector types yet — the empty
-    ``CONNECTOR_TYPES`` tuple at :mod:`the_one.db._connector_types` reflects
-    this).
+    Registers ``"discord"`` → :class:`DiscordPlugin` (M10 F8 L2). The
+    ``"stub"`` test-only type is NOT registered here — tests register it
+    explicitly via :func:`register_for_test` per the production-purity
+    convention codified in ``_stub.py:18-19`` (and mirrored by
+    ``_connector_types.py``'s docstring).
 
-    Future flights extend the body:
+    Future flights extend the body — Flight 9 (second connector) registers
+    the second platform's plugin.
 
-    - Flight 8 (Discord): ``register("discord", DiscordPlugin)``
-    - Flight 9 (second connector): registers the second platform's plugin
-
-    Per the connector-type six-layer checklist (landed in agents.md by
-    leg 8), this is layer 3 of the coordination — the runtime-dispatch
-    registration that pairs with the persistence-layer type literal and
-    the API-layer gating.
+    Per the connector-type 6-layer checklist (``agents.md`` §"Connector
+    type extension checklist"), this is layer 3 of the coordination — the
+    runtime-dispatch registration that pairs with the persistence-layer
+    type literal (layer 1), the ``CONNECTOR_TYPES`` tuple (layer 2), and
+    the SQL CHECK constraint (layer 4).
     """
-    # Intentionally empty in flight 1. Future flights extend.
-    return
+    # Function-local import per the
+    # ``function-local-import-to-break-load-cycle`` convention codified in
+    # ``agents.md``. ``_discord`` may eventually need to reach back into
+    # ``registry`` (e.g. for the F7 CommandHandler / F8 L9 surface);
+    # deferring the import until ``register_builtin_connectors`` is
+    # actually invoked keeps the module-import graph acyclic.
+    from the_one.connectors._discord import DiscordPlugin
+
+    # Idempotency: the second-call contract pinned by
+    # ``test_register_builtin_connectors_is_idempotent`` predates F8 L2.
+    # Re-running the hook must not raise (``restore_to_baseline_for_test``
+    # calls ``_registry._plugins.clear()`` then ``register_builtin_connectors``
+    # back-to-back; that path works as long as this function is happy to
+    # be called from a clean OR a discord-present registry). The skip-if-
+    # already-registered guard preserves the F1 contract while honoring
+    # the F1 collision-check on the first call.
+    if "discord" not in _registry._plugins:
+        register("discord", DiscordPlugin)
 
 
 register_builtin_connectors()

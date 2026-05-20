@@ -969,10 +969,21 @@ async def test_dispatch_inbound_unknown_connector_type_returns_gracefully(
     M10 F7 L3: the failure source shifted from "pool.acquire raises
     ConnectorRegistrationError on unknown type" to "no attached agents
     → helper returns ``None`` → early silent return." The observable
-    outcome (no exception, no session) is byte-identical."""
+    outcome (no exception, no session) is byte-identical.
+
+    M10 F8 L2: the Pydantic Literal narrowing now rejects bogus type
+    names at the model edge, so the test seeds a ``'stub'``-typed account
+    AND clears the registry (the production registry registers
+    ``'discord'`` only; ``'stub'`` is test-only via
+    :func:`register_for_test`). With ``register_for_test`` never called
+    here, the dispatcher encounters an account whose type is unknown to
+    the registry — exercising the same gracefully-handle-unknown-type
+    path the test was designed for, just via the post-F8 carve-out
+    instead of an unconstrained type string.
+    """
+    from the_one.connectors.registry import clear_for_test
+
     await _seed_provider_and_agent()
-    # Seed an account with an unregistered type. Registry has no
-    # builtins in F3, so any type name is unknown.
     conn = await get_connection()
     encryptor = get_encryptor(settings.data_dir)
     acc_repo = ConnectorAccountRepository(conn, encryptor)
@@ -980,12 +991,17 @@ async def test_dispatch_inbound_unknown_connector_type_returns_gracefully(
         ConnectorAccount(
             id="acct-mystery",
             name="Mystery",
-            type="not-a-real-connector",
+            type="stub",
         )
     )
+    # Wipe the registry so dispatch encounters "type unknown" on the
+    # ``stub``-typed account. Note that the production registry would
+    # carry ``'discord'`` at this point; ``clear_for_test`` is a hard
+    # clear that drops it for the duration of this test.
+    clear_for_test()
     factory = await _make_factory()
 
-    envelope = _envelope(account_id="acct-mystery", platform="not-a-real-connector")
+    envelope = _envelope(account_id="acct-mystery", platform="stub")
 
     # Must not raise.
     await dispatch_inbound("acct-mystery", envelope, factory=factory)

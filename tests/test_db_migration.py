@@ -232,10 +232,13 @@ class TestSchemaV8:
         # F4 L1/L4 monkeypatch workaround for the AgentConfig field's
         # missing DB persistence);
         # v18 added agents.connector_acls (M10 F06 L1c — per-agent ACL
-        # persistence; F4 debrief rec #1 atomic shape).
-        assert CURRENT_VERSION == 18, (
-            "CURRENT_VERSION must be 18 after the M10 F06 L1c — "
-            "agents.connector_acls persistence v18 migration "
+        # persistence; F4 debrief rec #1 atomic shape);
+        # v19 added CHECK (type IN ('discord', 'stub')) on
+        # connector_accounts.type via the table-rename ceremony (M10 F08
+        # L02 — first real connector type registered).
+        assert CURRENT_VERSION == 19, (
+            "CURRENT_VERSION must be 19 after the M10 F08 L02 — "
+            "connector_accounts.type CHECK v19 migration "
             f"(got {CURRENT_VERSION})"
         )
 
@@ -1166,11 +1169,11 @@ class TestSchemaV13:
 
         await conn.close()
 
-    async def test_v13_connector_accounts_has_expected_columns_and_no_check_constraint(
+    async def test_v13_connector_accounts_has_expected_columns_and_v19_check_constraint(
         self, tmp_path
     ) -> None:
-        """connector_accounts has the expected columns; type is NOT NULL but
-        unconstrained (no CHECK clause until v19 in flight 8).
+        """connector_accounts has the expected columns; type is NOT NULL and
+        now constrained by the v19 CHECK clause (F8 L2).
 
         Asserts the post-``ensure_schema`` shape — the ``name`` column was
         added in v14 (M10 F01 L02) to mirror MCPSource; the
@@ -1178,8 +1181,9 @@ class TestSchemaV13:
         the per-account pool idle TTL override; the
         ``session_continuation_seconds`` column was added in v16 (M10 F03
         L01) as the per-account chat-session continuation window; the
-        CHECK constraint on ``type`` is deferred to v19 (flight 08) when
-        there is a real connector type to constrain.
+        CHECK constraint on ``type`` landed in v19 (F8 L2) via the table-
+        rename ceremony (admits ``'discord'`` and ``'stub'`` per the M07
+        ``'mock'``-in-PROVIDER_TYPES precedent).
         """
         db_path = tmp_path / "v13-cols.db"
         conn = await aiosqlite.connect(str(db_path))
@@ -1208,20 +1212,34 @@ class TestSchemaV13:
         assert cols["config"]["type"] == "TEXT" and cols["config"]["dflt_value"] == "'{}'"
         assert cols["secrets"]["type"] == "TEXT" and cols["secrets"]["dflt_value"] == "'{}'"
 
-        # No CHECK constraint on type — verify by inserting a bogus type
-        # and asserting it does NOT raise (would raise IntegrityError if
-        # there were a CHECK).
+        # CHECK constraint on type — present after v19 (F8 L2). Verify by
+        # inserting a bogus type and asserting it raises (would NOT raise
+        # if the CHECK were missing).
+        import sqlite3
+
+        with pytest.raises(sqlite3.IntegrityError):
+            await conn.execute(
+                "INSERT INTO connector_accounts (id, type) VALUES (?, ?)",
+                ("test-id", "bogus-type-not-in-connector-types"),
+            )
+        await conn.rollback()
+
+        # Valid types round-trip cleanly.
         await conn.execute(
             "INSERT INTO connector_accounts (id, type) VALUES (?, ?)",
-            ("test-id", "bogus-type-that-flight-8-will-constrain"),
+            ("discord-id", "discord"),
+        )
+        await conn.execute(
+            "INSERT INTO connector_accounts (id, type) VALUES (?, ?)",
+            ("stub-id", "stub"),
         )
         await conn.commit()
 
         async with conn.execute(
-            "SELECT type FROM connector_accounts WHERE id = 'test-id'"
+            "SELECT id, type FROM connector_accounts ORDER BY id"
         ) as cur:
-            row = await cur.fetchone()
-        assert row["type"] == "bogus-type-that-flight-8-will-constrain"
+            rows = [(r["id"], r["type"]) for r in await cur.fetchall()]
+        assert rows == [("discord-id", "discord"), ("stub-id", "stub")]
 
         await conn.close()
 
@@ -1999,6 +2017,25 @@ class TestSchemaV17:
             "INSERT INTO agents (name, description, llm_model) VALUES (?, ?, ?)",
             ("legacy-agent", "Pre-v17 agent", "mock-default"),
         )
+        # v16-shape connector_accounts (9 cols, no CHECK on type). v19
+        # (F8 L2) rebuilds this via the table-rename ceremony and would
+        # error on "no such table" if absent — hand-build the v16 shape
+        # so the v19 INSERT INTO _new SELECT * source exists. No row
+        # seeded (the test exercises agents.connector_account_ids, not
+        # connector_accounts data preservation).
+        await conn.execute(
+            "CREATE TABLE connector_accounts ("
+            "    id TEXT PRIMARY KEY,"
+            "    type TEXT NOT NULL,"
+            "    config TEXT DEFAULT '{}',"
+            "    secrets TEXT DEFAULT '{}',"
+            "    created_at TEXT NOT NULL DEFAULT (datetime('now')),"
+            "    updated_at TEXT NOT NULL DEFAULT (datetime('now')),"
+            "    name TEXT NOT NULL DEFAULT '',"
+            "    idle_timeout_seconds INTEGER NULL,"
+            "    session_continuation_seconds INTEGER NULL"
+            ")"
+        )
         await conn.commit()
 
         await ensure_schema(conn)
@@ -2168,6 +2205,25 @@ class TestSchemaV18:
         await conn.execute(
             "INSERT INTO agents (name, description, llm_model) VALUES (?, ?, ?)",
             ("legacy-v17-agent", "Pre-v18 agent", "mock-default"),
+        )
+        # v17-shape connector_accounts (9 cols, no CHECK on type). v19
+        # (F8 L2) rebuilds this via the table-rename ceremony and would
+        # error on "no such table" if absent — hand-build the v17 shape
+        # so the v19 INSERT INTO _new SELECT * source exists. No row
+        # seeded (the test exercises agents.connector_acls, not
+        # connector_accounts data preservation).
+        await conn.execute(
+            "CREATE TABLE connector_accounts ("
+            "    id TEXT PRIMARY KEY,"
+            "    type TEXT NOT NULL,"
+            "    config TEXT DEFAULT '{}',"
+            "    secrets TEXT DEFAULT '{}',"
+            "    created_at TEXT NOT NULL DEFAULT (datetime('now')),"
+            "    updated_at TEXT NOT NULL DEFAULT (datetime('now')),"
+            "    name TEXT NOT NULL DEFAULT '',"
+            "    idle_timeout_seconds INTEGER NULL,"
+            "    session_continuation_seconds INTEGER NULL"
+            ")"
         )
         await conn.commit()
 

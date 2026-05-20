@@ -742,7 +742,7 @@ class TestF6OutboundGating:
         assert result == (
             "[error] [constraint] channel_id 'c1' is not reachable "
             "for this agent on account 'acct-send' (DMs-only override; "
-            "DM classification lands in F8)"
+            "target is not a DM)"
         )
         assert not result.startswith(PLATFORM_SEND_OK_PREFIX)
         assert StubPlugin.outbound_records == []

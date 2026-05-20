@@ -200,8 +200,9 @@ class AgentConfig(BaseModel):
           - inner values that aren't ``list[str] | None`` → rejected
         This validator's job is the ONE invariant Pydantic cannot
         express from the annotation alone: each inner dict MUST have
-        EXACTLY the keys ``{"peers", "channels"}`` — no extra keys, no
-        missing keys.
+        the required keys ``{"peers", "channels"}`` and MAY optionally
+        carry the M10 F8 L8 axes ``{"guilds", "roles"}`` — no other
+        keys, no missing required keys.
 
         M10 F6 L7 HAT semantic — each axis is tri-state:
           - ``None`` → inherit account-scope
@@ -209,6 +210,12 @@ class AgentConfig(BaseModel):
             sentinel; runtime resolution for DMs-only ships in F8 — until
             then outbound fails closed)
           - ``[items]`` → subset (intersected with account-scope)
+
+        M10 F8 L8 — ``guilds`` and ``roles`` axes (Discord-flavored)
+        join the inner-dict surface as OPTIONAL keys. Existing 2-key
+        ACL rows still validate (back-compat). Same tri-state semantic
+        applies; the per-agent narrowing convention is uniform across
+        all 4 axes.
 
         ``None`` and ``{}`` outer values are both valid (semantically:
         no per-agent narrowing).
@@ -224,8 +231,10 @@ class AgentConfig(BaseModel):
             # Pydantic already enforced ``acl`` is a dict with str keys
             # and inner values are ``list[str] | None``.
             # The only invariant left is the exact-keys check.
+            # M10 F8 L8 — accept ``guilds`` + ``roles`` as OPTIONAL
+            # axes alongside the required ``peers`` + ``channels``.
             keys = set(acl.keys())
-            extra = keys - {"peers", "channels"}
+            extra = keys - {"peers", "channels", "guilds", "roles"}
             if extra:
                 raise ValueError(
                     f"connector_acls[{account_id!r}] has unexpected keys: "

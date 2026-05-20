@@ -21,6 +21,11 @@ dependencies = [
     "jinja2>=3.1",
     "aiosqlite>=0.20",
     "cryptography>=43.0",
+    # M10 mission constraint: "Wire-protocol clients use maintained SDKs
+    # with pinned versions" — F8 L2 pins discord.py (the Discord gateway
+    # SDK used by DiscordPlugin in F8 L3+). Bound to 2.4.x to lock the
+    # connector's surface against accidental major-version SDK upgrades.
+    "discord.py>=2.4,<2.5",
     "mcp==1.27.0",
 ]
 

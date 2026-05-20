@@ -2123,11 +2123,10 @@ async def list_connector_account_types() -> list[dict[str, str]]:
     ``get_connector_account`` with ``account_id="types"`` and 404.
     Mirrors the MCP precedent at ``list_mcp_source_types``.
 
-    Returns an empty list in production until Flight 8 (Discord) lands
-    the first real connector type via
-    :func:`the_one.connectors.registry.register_builtin_connectors`.
-    Tests that need a populated list register the stub plugin via
-    :func:`the_one.connectors.registry.register_for_test`.
+    Returns the registered types from
+    :func:`the_one.connectors.registry.register_builtin_connectors`; F8 L2
+    added ``'discord'``. Tests that need ``'stub'`` in the list register
+    it via :func:`the_one.connectors.registry.register_for_test`.
     """
     from the_one.connectors.registry import types as _connector_types
 

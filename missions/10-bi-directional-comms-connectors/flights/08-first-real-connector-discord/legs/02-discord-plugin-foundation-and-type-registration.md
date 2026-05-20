@@ -1,6 +1,6 @@
 # Leg: discord-plugin-foundation-and-type-registration
 
-**Status**: ready
+**Status**: completed
 **Flight**: [First Real Connector — Discord](../flight.md)
 
 ## Objective

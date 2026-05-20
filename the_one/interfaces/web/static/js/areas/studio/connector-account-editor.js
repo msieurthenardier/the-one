@@ -457,12 +457,12 @@
     var typesList = Array.isArray(types) ? types : [];
     var typesEmpty = isCreate && typesList.length === 0;
 
-    // M10 F6 L7 HAT: when production has zero registered connector types
-    // (CONNECTOR_TYPES = () until Flight 8 lands Discord), surface a
-    // themed banner inside the Connection section instead of just an
-    // unselectable dropdown placeholder. Operator can still test the
-    // F6 surfaces against API-seeded `stub` accounts (the schema has
-    // no CHECK constraint on `type` until v19).
+    // M10 F6 L7 HAT: when production has zero registered connector types,
+    // surface a themed banner inside the Connection section instead of
+    // just an unselectable dropdown placeholder. F8 L2 registered
+    // `'discord'`, so production normally renders a populated dropdown;
+    // the banner remains a fallback when the registry is empty (e.g.
+    // tests, or operator override of `register_builtin_connectors`).
     if (typesEmpty) {
       html += '<div class="connector-account-empty-types-banner" ' +
               'data-testid="connector-account-empty-types-banner" role="status">';
@@ -655,14 +655,14 @@
       });
     }
 
-    // M10 F6 L7 HAT — semantic redesign: no Enable toggle. The
-    // snapshot captures the always-mounted peers/channels chip-lists.
-    // Empty lists are valid and meaningful (unrestricted on that axis).
-    // Pairing state is NOT included — the pairing button triggers an
-    // out-of-band POST that persists immediately, independent of the
-    // editor's Save button (the in-memory ``account.config.pairing``
-    // mirror prevents data loss when the operator then clicks Save
-    // with other dirty fields).
+    // M10 F6 L7 HAT — semantic redesign: chip-lists are always
+    // mounted. Empty lists are valid and meaningful (unrestricted on
+    // that axis). M10 F8 L8 extends the snapshot to the 4 axes
+    // (peers, channels, guilds, roles). Pairing state is NOT included
+    // — the pairing button triggers an out-of-band POST that persists
+    // immediately, independent of the editor's Save button (the
+    // in-memory ``account.config.pairing`` mirror prevents data loss
+    // when the operator then clicks Save with other dirty fields).
     var allowlist = collectAllowlistFromContainer(container);
 
     // M10 F7 L7: routing-rules state participates in the dirty-tracking
@@ -1134,13 +1134,18 @@
     // ALWAYS mounted and ALWAYS emitted. Empty list = unrestricted on
     // that axis (post-redesign "empty = all permitted" semantic). The
     // shape sent is always ``{peers: [...], channels: [...]}`` — never
-    // omitted.
+    // omitted. M10 F8 L8 adds the ``guilds`` and ``roles`` axes; both
+    // are OPTIONAL on the backend validator but the editor always
+    // emits them (empty list = unrestricted; uniform shape across all
+    // 4 axes on the wire).
     if (isEdit) {
       var allowlistState = collectAllowlistFromContainer(container);
       if (allowlistState) {
         config.allowlist = {
           peers: allowlistState.peers,
-          channels: allowlistState.channels
+          channels: allowlistState.channels,
+          guilds: allowlistState.guilds,
+          roles: allowlistState.roles
         };
       }
     }
@@ -1358,11 +1363,13 @@
   }
 
   function renderAllowlistSection(account) {
-    // M10 F6 L7 HAT — semantic redesign: dropped the Enable toggle.
-    // Chip-lists are ALWAYS rendered. Empty list = unrestricted on
-    // that axis (no constraint). Both axes empty = fully unrestricted
-    // account (the common "I want a public bot" intent that previously
-    // required toggling Enable off). See flight-log "Deviations".
+    // M10 F6 L7 HAT — chip-lists are ALWAYS rendered. Empty list =
+    // unrestricted on that axis. M10 F8 L8 — the editor surfaces 4
+    // axes: peers, channels (cross-platform) + guilds, roles (Discord-
+    // flavored; other platforms ignore absent/empty values). All 4
+    // rows render on every account regardless of platform — the
+    // pragmatic generic-UI choice; F10 can revisit per-platform
+    // visibility if HAT surfaces operator confusion.
     var escapeHtml = window.App.escapeHtml;
     var escapeAttr = window.App.escapeAttr;
 
@@ -1386,6 +1393,24 @@
     html += '<small class="form-hint" ' +
             'data-testid="connector-allowlist-channels-hint">' +
             'Empty list = no channel restriction.' +
+            '</small>';
+    html += '</div>';
+    html += '<div class="connector-account-acl-fieldrow">';
+    html += '<label class="connector-account-acl-fieldlabel">Guilds</label>';
+    html += '<div data-allowlist-chiplist-slot="guilds"></div>';
+    html += '<small class="form-hint" ' +
+            'data-testid="connector-allowlist-guilds-hint">' +
+            'Empty list = no guild restriction. ' +
+            'Discord-flavored; ignored by other platforms.' +
+            '</small>';
+    html += '</div>';
+    html += '<div class="connector-account-acl-fieldrow">';
+    html += '<label class="connector-account-acl-fieldlabel">Roles</label>';
+    html += '<div data-allowlist-chiplist-slot="roles"></div>';
+    html += '<small class="form-hint" ' +
+            'data-testid="connector-allowlist-roles-hint">' +
+            'Empty list = no role restriction. ' +
+            'Any-of overlap; Discord-flavored.' +
             '</small>';
     html += '</div>';
     html += '</div>';
@@ -1427,8 +1452,18 @@
     var input = document.createElement('input');
     input.type = 'text';
     input.className = 'chip-list-input';
-    input.placeholder = kind === 'peers' ? 'Add peer…' : 'Add channel…';
-    input.setAttribute('aria-label', kind === 'peers' ? 'Add peer' : 'Add channel');
+    // M10 F8 L8 — per-axis placeholder + aria-label. Keep the
+    // singular noun matching the kind ("peer", "channel", "guild",
+    // "role") so screen-readers announce the right field.
+    var _AXIS_NOUN = {
+      peers: 'peer',
+      channels: 'channel',
+      guilds: 'guild',
+      roles: 'role'
+    };
+    var noun = _AXIS_NOUN[kind] || kind;
+    input.placeholder = 'Add ' + noun + '…';
+    input.setAttribute('aria-label', 'Add ' + noun);
     wrapper.appendChild(input);
     return wrapper;
   }
@@ -2110,9 +2145,9 @@
   }
 
   function wireAllowlistEvents(container, account, checkDirty) {
-    // M10 F6 L7 HAT — semantic redesign: no toggle. Chip-lists are
-    // always mounted. Empty lists are valid and mean "unrestricted on
-    // this axis."
+    // M10 F6 L7 HAT — chip-lists are always mounted. Empty lists are
+    // valid and mean "unrestricted on this axis." M10 F8 L8 extends
+    // the mount to the 4 axes (peers, channels, guilds, roles).
     //
     // Mount the chip-list editors into the slot divs. Pre-existing
     // entries come from account.config.allowlist; if absent, empty
@@ -2121,8 +2156,12 @@
     var allowlist = (account && account.config && account.config.allowlist) || null;
     var peersInit = (allowlist && Array.isArray(allowlist.peers)) ? allowlist.peers : [];
     var channelsInit = (allowlist && Array.isArray(allowlist.channels)) ? allowlist.channels : [];
+    var guildsInit = (allowlist && Array.isArray(allowlist.guilds)) ? allowlist.guilds : [];
+    var rolesInit = (allowlist && Array.isArray(allowlist.roles)) ? allowlist.roles : [];
     var peersSlot = container.querySelector('[data-allowlist-chiplist-slot="peers"]');
     var channelsSlot = container.querySelector('[data-allowlist-chiplist-slot="channels"]');
+    var guildsSlot = container.querySelector('[data-allowlist-chiplist-slot="guilds"]');
+    var rolesSlot = container.querySelector('[data-allowlist-chiplist-slot="roles"]');
     var helpers = window.App.adminFormHelpers;
 
     function _mountChipList(slot, kind, init) {
@@ -2136,19 +2175,23 @@
     }
     _mountChipList(peersSlot, 'peers', peersInit);
     _mountChipList(channelsSlot, 'channels', channelsInit);
+    _mountChipList(guildsSlot, 'guilds', guildsInit);
+    _mountChipList(rolesSlot, 'roles', rolesInit);
   }
 
   function collectAllowlistFromContainer(container) {
-    // M10 F6 L7 HAT — semantic redesign: no toggle. Returns
-    // ``{ peers: list, channels: list }`` (or null if the slots are
-    // missing — defensive). Both lists are ALWAYS emitted; empty list
-    // = unrestricted on that axis. Chips are read in DOM order; the
-    // wireChipListEditor helper guarantees only committed chip elements
-    // (not the live input) carry values. Whitespace-only entries cannot
-    // reach a chip (the helper trims before committing).
+    // M10 F6 L7 HAT — Returns ``{ peers, channels, guilds, roles }``
+    // (or null if the slots are missing — defensive). All 4 lists are
+    // ALWAYS emitted; empty list = unrestricted on that axis. Chips
+    // are read in DOM order; the wireChipListEditor helper guarantees
+    // only committed chip elements (not the live input) carry values.
+    // Whitespace-only entries cannot reach a chip (the helper trims
+    // before committing). M10 F8 L8 added the guilds + roles axes.
     var peersSlot = container.querySelector('[data-allowlist-chiplist-slot="peers"]');
     var channelsSlot = container.querySelector('[data-allowlist-chiplist-slot="channels"]');
-    if (!peersSlot && !channelsSlot) return null;
+    var guildsSlot = container.querySelector('[data-allowlist-chiplist-slot="guilds"]');
+    var rolesSlot = container.querySelector('[data-allowlist-chiplist-slot="roles"]');
+    if (!peersSlot && !channelsSlot && !guildsSlot && !rolesSlot) return null;
     function _readChiplist(slot) {
       var out = [];
       if (!slot) return out;
@@ -2169,7 +2212,9 @@
     }
     return {
       peers: _readChiplist(peersSlot),
-      channels: _readChiplist(channelsSlot)
+      channels: _readChiplist(channelsSlot),
+      guilds: _readChiplist(guildsSlot),
+      roles: _readChiplist(rolesSlot)
     };
   }
 

@@ -12,6 +12,14 @@ ladder of operator-friendly preset values (5m / 15m / 30m / 1h / 4h /
 representing null. Tests use `select_option(...)` against the ladder
 values.
 
+M10 F8 L10 (closes F7 debrief Important #5): the four
+``test_routing_rules_*`` tests below pin the F7 L7/L9 HAT2 routing-rules
+editor against regression — add-rule + chip-list match values, native
+HTML5 drag-reorder, default-agent persistence, and the
+load-without-interaction baseline-not-dirty contract. Previously
+HAT-only-validated; now Playwright-covered. No snapshot baselines — DOM
+shape assertions only (per user-global rule on uncommitted golden files).
+
 The tests rely on the StubPlugin being registered server-side as the
 `stub` connector type — see `conftest.py`'s
 ``THE_ONE_REGISTER_STUB_CONNECTOR=1`` env-var wiring.
@@ -21,7 +29,7 @@ from __future__ import annotations
 
 import httpx
 import pytest
-from browser.seeders import seed_connector_account
+from browser.seeders import seed_connector_account, seed_mock_agent, seed_mock_provider
 from playwright.sync_api import Page, expect
 
 
@@ -35,6 +43,47 @@ def _list_accounts(base_url: str) -> list[dict]:
     r = httpx.get(f"{base_url}/api/connector-accounts", timeout=5.0)
     assert r.status_code == 200
     return r.json()
+
+
+def _attach_agent_to_account(base_url: str, agent_name: str, account_id: str) -> None:
+    """Mutate an existing agent so its ``connector_account_ids`` includes
+    ``account_id``. PUT /api/agents is REPLACE semantic — we GET the
+    current config first and re-PUT with the connector id appended.
+
+    M10 F8 L10: required so the routing-rules editor's agent dropdown
+    (rule rows + default) populates with this agent's name once
+    ``fetchAttachedAgents`` resolves. Without an attached agent the
+    dropdowns stay at the placeholder, blocking the persistence
+    assertions.
+    """
+    cur = httpx.get(f"{base_url}/api/agents/{agent_name}", timeout=5.0)
+    assert cur.status_code == 200, f"get agent failed: {cur.status_code} {cur.text}"
+    cfg = cur.json()
+    ids = list(cfg.get("connector_account_ids") or [])
+    if account_id not in ids:
+        ids.append(account_id)
+    cfg["connector_account_ids"] = ids
+    r = httpx.put(f"{base_url}/api/agents/{agent_name}", json=cfg, timeout=5.0)
+    assert r.status_code == 200, f"attach agent failed: {r.status_code} {r.text}"
+
+
+def _seed_account_with_agent(
+    base_url: str,
+    *,
+    account_name: str = "Routing Bot",
+    agent_name: str = "router-agent",
+    config: dict | None = None,
+) -> tuple[str, str]:
+    """Seed (provider, agent, account) and attach the agent to the account.
+
+    Returns ``(account_id, agent_name)``. Used by every L10 routing-rules
+    test so the agent dropdown has at least one selectable option.
+    """
+    provider_id = seed_mock_provider(base_url, name=f"mock-for-{agent_name}")
+    seed_mock_agent(base_url, provider_id, name=agent_name)
+    account_id = seed_connector_account(base_url, name=account_name, config=config)
+    _attach_agent_to_account(base_url, agent_name, account_id)
+    return account_id, agent_name
 
 
 def _activate_access_and_routing_tab(page: Page) -> None:
@@ -403,3 +452,227 @@ def test_back_when_dirty_prompts_confirm_dialog(app_clean: str, page: Page) -> N
     page.locator('[data-testid="back-connector-account-btn"]').click()
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
     expect(overlay).to_be_visible(timeout=4000)
+
+
+# ── M10 F8 L10: routing-rules editor (closes F7 debrief Important #5) ────
+#
+# The routing-rules section lives behind the "Access and Routing" tab in
+# edit mode. Each row carries: a drag-handle (data-routing-drag-handle),
+# a scope select (data-routing-scope), a chip-list (data-routing-match)
+# wrapping a `.chip-list-input` text input + zero-or-more `.chip` spans,
+# and an agent select (data-routing-agent). Below the table sits the
+# "+ Add rule" button (data-testid="connector-routing-add-row-btn") and,
+# at the top of the section, the default-agent dropdown
+# (data-testid="connector-routing-default"). The agent dropdowns are
+# async-populated from /api/connector-accounts/{id}/attached-agents — so
+# tests must attach an agent to the account before interacting (see
+# ``_seed_account_with_agent``).
+
+
+def _wait_for_routing_agent_dropdown_populated(page: Page, agent_name: str) -> None:
+    """Block until the routing default-agent dropdown carries ``agent_name``.
+
+    ``fetchAttachedAgents`` is fired post-render; its `.then` populates
+    every routing-section agent dropdown. Polling on a specific option
+    value avoids racing the async population during the test.
+    """
+    expect(
+        page.locator(
+            f'[data-testid="connector-routing-default"] option[value="{agent_name}"]'
+        )
+    ).to_be_attached(timeout=5000)
+
+
+@pytest.mark.browser
+def test_routing_rules_add_rule_with_chip_list(app_clean: str, page: Page) -> None:
+    """Add rule → scope+chips+agent → save → reload → persistence asserted.
+
+    Closes F7 debrief Important #5 (a slice): exercises the add-rule +
+    multi-value chip-list path that F7 HAT-validated.
+    """
+    account_id, agent_name = _seed_account_with_agent(
+        app_clean,
+        account_name="Add-Rule Bot",
+        agent_name="router-add",
+    )
+    page.goto(f"{app_clean}#studio/connectors/{account_id}")
+    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(timeout=8000)
+    _activate_access_and_routing_tab(page)
+    _wait_for_routing_agent_dropdown_populated(page, agent_name)
+
+    # Click "+ Add rule" — appends a row with empty scope/match/agent.
+    page.locator('[data-testid="connector-routing-add-row-btn"]').click()
+    row = page.locator('tr.connector-routing-row[data-routing-rule-idx="0"]')
+    expect(row).to_be_attached(timeout=2000)
+
+    # Fill the row: scope=channel, match=[ch1, ch2], agent=router-add.
+    row.locator("[data-routing-scope]").select_option("channel")
+    match_input = row.locator("[data-routing-match] .chip-list-input")
+    match_input.fill("ch1")
+    match_input.press("Enter")
+    match_input.fill("ch2")
+    match_input.press("Enter")
+    # Two committed chips visible in the match cell.
+    expect(row.locator("[data-routing-match] .chip")).to_have_count(2)
+    row.locator("[data-routing-agent]").select_option(agent_name)
+
+    # Save — dirty-tracker should have enabled the save button.
+    save_btn = page.locator('[data-testid="save-connector-account-btn"]')
+    expect(save_btn).not_to_be_disabled()
+    save_btn.click()
+    expect(page.locator(".app-flash")).to_be_visible(timeout=8000)
+
+    # Reload + reassert persistence via the API (DOM-level shape).
+    page.reload()
+    page.wait_for_load_state("networkidle")
+    after = _get_account(app_clean, account_id)
+    routing = (after.get("config") or {}).get("routing")
+    assert routing is not None, f"expected config.routing to persist, got {after}"
+    assert routing["rules"] == [
+        {"scope": "channel", "match": ["ch1", "ch2"], "agent": agent_name}
+    ]
+
+
+@pytest.mark.browser
+def test_routing_rules_drag_reorder(app_clean: str, page: Page) -> None:
+    """Drag rule-0's handle past rule-2 → save → reload → new order persisted.
+
+    Closes F7 debrief Important #5 (a slice): exercises the HTML5 native
+    drag-and-drop reorder that F7 L9 HAT2 introduced (replacing chevron
+    move buttons).
+    """
+    seeded_rules = [
+        {"scope": "channel", "match": ["ch-a"], "agent": "router-drag"},
+        {"scope": "channel", "match": ["ch-b"], "agent": "router-drag"},
+        {"scope": "channel", "match": ["ch-c"], "agent": "router-drag"},
+    ]
+    account_id, _agent = _seed_account_with_agent(
+        app_clean,
+        account_name="Reorder Bot",
+        agent_name="router-drag",
+        config={"routing": {"rules": seeded_rules, "default": None}},
+    )
+    page.goto(f"{app_clean}#studio/connectors/{account_id}")
+    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(timeout=8000)
+    _activate_access_and_routing_tab(page)
+    _wait_for_routing_agent_dropdown_populated(page, "router-drag")
+
+    # Sanity: three rows rendered in the seeded order. Chip elements
+    # include the `×` remove-button glyph as a child, so assertions use
+    # ``to_contain_text`` rather than equality against the chip label.
+    rows = page.locator("tr.connector-routing-row")
+    expect(rows).to_have_count(3)
+    expect(rows.nth(0).locator("[data-routing-match] .chip")).to_contain_text("ch-a")
+    expect(rows.nth(1).locator("[data-routing-match] .chip")).to_contain_text("ch-b")
+    expect(rows.nth(2).locator("[data-routing-match] .chip")).to_contain_text("ch-c")
+
+    # Drag rule-0's handle onto rule-2 (DOM-below target → editor inserts
+    # the dragged row AFTER the target, so post-drop order is [b, c, a]).
+    source_handle = rows.nth(0).locator("[data-routing-drag-handle]")
+    target_row = rows.nth(2)
+    source_handle.drag_to(target_row)
+
+    # Save.
+    save_btn = page.locator('[data-testid="save-connector-account-btn"]')
+    expect(save_btn).not_to_be_disabled(timeout=4000)
+    save_btn.click()
+    expect(page.locator(".app-flash")).to_be_visible(timeout=8000)
+
+    # Reload + assert backend reflects [b, c, a].
+    page.reload()
+    page.wait_for_load_state("networkidle")
+    after = _get_account(app_clean, account_id)
+    routing = (after.get("config") or {}).get("routing")
+    assert routing is not None, f"routing config missing post-save: {after}"
+    persisted_matches = [r["match"] for r in routing["rules"]]
+    assert persisted_matches == [["ch-b"], ["ch-c"], ["ch-a"]], (
+        f"expected drag-reorder to produce [b,c,a]; got {persisted_matches}"
+    )
+
+
+@pytest.mark.browser
+def test_routing_rules_default_agent_persists(app_clean: str, page: Page) -> None:
+    """Select default agent → save → reload → backend stores it; UI reflects it.
+
+    Closes F7 debrief Important #5 (a slice): the per-account
+    default-agent dropdown introduced in F7 L7.
+    """
+    account_id, agent_name = _seed_account_with_agent(
+        app_clean,
+        account_name="Default-Agent Bot",
+        agent_name="router-default",
+    )
+    page.goto(f"{app_clean}#studio/connectors/{account_id}")
+    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(timeout=8000)
+    _activate_access_and_routing_tab(page)
+    _wait_for_routing_agent_dropdown_populated(page, agent_name)
+
+    default_sel = page.locator('[data-testid="connector-routing-default"]')
+    expect(default_sel).to_have_value("")  # baseline: None
+    default_sel.select_option(agent_name)
+
+    save_btn = page.locator('[data-testid="save-connector-account-btn"]')
+    expect(save_btn).not_to_be_disabled()
+    save_btn.click()
+    expect(page.locator(".app-flash")).to_be_visible(timeout=8000)
+
+    # Backend persisted the default.
+    after = _get_account(app_clean, account_id)
+    routing = (after.get("config") or {}).get("routing")
+    assert routing is not None and routing["default"] == agent_name, (
+        f"expected routing.default={agent_name!r}; got {routing!r}"
+    )
+
+    # Reload — UI re-renders with the persisted default selected.
+    page.reload()
+    page.wait_for_load_state("networkidle")
+    _activate_access_and_routing_tab(page)
+    _wait_for_routing_agent_dropdown_populated(page, agent_name)
+    expect(page.locator('[data-testid="connector-routing-default"]')).to_have_value(agent_name)
+
+
+@pytest.mark.browser
+def test_routing_rules_baseline_not_dirty(app_clean: str, page: Page) -> None:
+    """Load page → activate tab → no interaction → save button stays disabled.
+
+    F7 HAT2 surfaced a subtle bug class: async-populated dropdowns can
+    appear as a "dirty edit" against the snapshot taken before the
+    fetchAttachedAgents promise resolves. The fix re-snapshots
+    post-populate. This test pins that contract — opening an edit page
+    with pre-existing routing config MUST NOT mark the form dirty.
+    """
+    seeded_rules = [
+        {"scope": "channel", "match": ["only-ch"], "agent": "router-baseline"},
+    ]
+    account_id, _agent = _seed_account_with_agent(
+        app_clean,
+        account_name="Baseline Bot",
+        agent_name="router-baseline",
+        config={
+            "routing": {
+                "rules": seeded_rules,
+                "default": "router-baseline",
+            }
+        },
+    )
+    page.goto(f"{app_clean}#studio/connectors/{account_id}")
+    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(timeout=8000)
+    _activate_access_and_routing_tab(page)
+    _wait_for_routing_agent_dropdown_populated(page, "router-baseline")
+
+    # Both rule-row + default agent dropdowns now show the persisted
+    # value. The snapshot recaptured by fetchAttachedAgents's .then means
+    # the dirty-tracker must report clean: save + cancel stay disabled.
+    expect(
+        page.locator(
+            'tr.connector-routing-row[data-routing-rule-idx="0"] [data-routing-agent]'
+        )
+    ).to_have_value("router-baseline")
+    expect(page.locator('[data-testid="connector-routing-default"]')).to_have_value(
+        "router-baseline"
+    )
+
+    save_btn = page.locator('[data-testid="save-connector-account-btn"]')
+    cancel_btn = page.locator('[data-testid="cancel-connector-account-btn"]')
+    expect(save_btn).to_be_disabled()
+    expect(cancel_btn).to_be_disabled()

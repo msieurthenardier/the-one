@@ -99,7 +99,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from the_one.agent.config import AgentConfig
-from the_one.connectors._acl import admits_inbound
+from the_one.connectors._acl import _default_not_dm, admits_inbound
 from the_one.connectors.base import InboundEnvelope
 from the_one.db.models import ConnectorAccount
 
@@ -142,18 +142,49 @@ def _agent_admits(
     account: ConnectorAccount,
     agent_config: AgentConfig,
     envelope: InboundEnvelope,
+    plugin: Any | None = None,
 ) -> bool:
     """ACL admission helper — wraps :func:`admits_inbound` for the
     agent's per-account ACL.
 
     Per L2 docstring: per-agent ACL inner dict is keyed by
     ``account.id`` in :attr:`AgentConfig.connector_acls`.
+
+    ``plugin`` is the resolved :class:`ConnectorPlugin` instance for
+    ``account.type`` (the F8 dispatcher already resolves it via
+    :func:`the_one.connectors.registry.resolve`). The plugin's
+    optional ``is_dm`` hook is consulted via the
+    ``optional-plugin-hook-via-getattr-sentinel`` convention to
+    resolve DM-truth for the envelope; the resolved bool is threaded
+    into :func:`admits_inbound` so the per-agent DMs-only branch can
+    permit DM envelopes. ``plugin=None`` (defensive fallback;
+    shouldn't happen in practice — the dispatcher always resolves it)
+    short-circuits to :func:`_default_not_dm`, preserving pre-F8
+    fail-closed behavior.
     """
     agent_acl: dict[str, list[str] | None] | None = None
     if agent_config.connector_acls is not None:
         agent_acl = agent_config.connector_acls.get(account.id)
+    if plugin is None:
+        is_dm_value = _default_not_dm(envelope)
+    else:
+        is_dm_value = getattr(plugin, "is_dm", _default_not_dm)(envelope)
+    # M10 F8 L8 — thread the F8 L4 envelope-populated guild_id +
+    # member_roles into the ACL admission check so the per-axis
+    # guilds/roles tri-state can evaluate. L4 ensures
+    # ``envelope.raw["guild_id"]`` is a str-or-None and
+    # ``envelope.raw["member_roles"]`` is a list[str] (defaulting to
+    # an empty list for DMs and pre-L4 plugins).
+    guild_id = envelope.raw.get("guild_id")
+    member_roles = envelope.raw.get("member_roles", [])
     admits, _reason = admits_inbound(
-        account, agent_acl, envelope.peer_id, envelope.channel_id
+        account,
+        agent_acl,
+        envelope.peer_id,
+        envelope.channel_id,
+        is_dm=is_dm_value,
+        guild_id=guild_id,
+        member_roles=member_roles,
     )
     return admits
 
@@ -212,6 +243,7 @@ def resolve_routing(
     envelope: InboundEnvelope,
     eligible_attached_agents: list[AgentConfig],
     session_metadata: dict[str, Any] | None,
+    plugin: Any | None = None,
 ) -> RoutingDecision:
     """Pick an attached agent for ``envelope`` per the 5-step algorithm.
 
@@ -225,6 +257,14 @@ def resolve_routing(
     passing a non-alphabetized list breaks the
     first-eligible-alphabetical semantic the dispatcher's audit log
     promises.
+
+    ``plugin`` is the resolved :class:`ConnectorPlugin` instance for
+    ``account.type``. F8 L6 added it so :func:`_agent_admits` can
+    consult the plugin's optional ``is_dm`` hook for the per-agent
+    DMs-only ACL branch. Default ``None`` preserves pre-F8 behavior
+    for callers that haven't been updated (the consult site short-
+    circuits to :func:`_default_not_dm`, which returns ``False`` —
+    the historical fail-closed semantic).
     """
     agents_by_name: dict[str, AgentConfig] = {
         a.name: a for a in eligible_attached_agents
@@ -234,7 +274,9 @@ def resolve_routing(
     override = (session_metadata or {}).get("routing_override")
     if isinstance(override, str) and override:
         candidate = agents_by_name.get(override)
-        if candidate is not None and _agent_admits(account, candidate, envelope):
+        if candidate is not None and _agent_admits(
+            account, candidate, envelope, plugin
+        ):
             return RoutingDecision(
                 agent=override,
                 rule_index=None,
@@ -254,7 +296,7 @@ def resolve_routing(
         candidate = agents_by_name.get(rule["agent"])
         if candidate is None:
             continue
-        if not _agent_admits(account, candidate, envelope):
+        if not _agent_admits(account, candidate, envelope, plugin):
             continue
         return RoutingDecision(
             agent=rule["agent"],
@@ -268,7 +310,9 @@ def resolve_routing(
     default = routing.get("default")
     if isinstance(default, str) and default:
         candidate = agents_by_name.get(default)
-        if candidate is not None and _agent_admits(account, candidate, envelope):
+        if candidate is not None and _agent_admits(
+            account, candidate, envelope, plugin
+        ):
             return RoutingDecision(
                 agent=default,
                 rule_index=None,
@@ -280,7 +324,7 @@ def resolve_routing(
 
     # Step 4 — First-eligible-alphabetical.
     for agent_config in eligible_attached_agents:
-        if _agent_admits(account, agent_config, envelope):
+        if _agent_admits(account, agent_config, envelope, plugin):
             return RoutingDecision(
                 agent=agent_config.name,
                 rule_index=None,

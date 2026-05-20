@@ -667,3 +667,67 @@ class TestFactoryToolProviderWiring:
         assert captured_builtin["kwargs"].get("connector_account_ids") == ["acc-1"]
         # Stub provider does NOT receive the kwarg (no isinstance branch hit).
         assert captured_stub["agent_name"] == "connector-agent"
+
+
+# ---------------------------------------------------------------------------
+# Module-level factory accessor (M10 F8 L4)
+# ---------------------------------------------------------------------------
+#
+# Gateway listeners (Discord's on_message in F8 L4, Slack's event handler in
+# F9, …) need access to the application AgentFactory at dispatch time but
+# cannot receive it through plugin.connect's signature. The accessor pattern
+# at the_one/agent/factory.py:set_factory / get_factory codifies the
+# read/write contract; these tests pin round-trip behavior + the
+# pre-startup-None case.
+
+
+class TestFactoryAccessor:
+    """Round-trip + reset semantics for set_factory / get_factory."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_module_slot(self) -> Any:
+        """Reset the module-level ``_factory`` slot around every test.
+
+        Without this, a test that calls ``set_factory(factory)`` would
+        leave the slot populated for subsequent tests, including the
+        pre-startup-None pin below. The fixture restores the prior
+        value so we play nicely with parallel tests if any survive
+        between cases.
+        """
+        from the_one.agent import factory as factory_mod
+
+        saved = factory_mod._factory
+        factory_mod._factory = None
+        try:
+            yield
+        finally:
+            factory_mod._factory = saved
+
+    def test_get_returns_none_before_set(self) -> None:
+        from the_one.agent.factory import get_factory
+
+        assert get_factory() is None
+
+    def test_set_then_get_round_trip(self) -> None:
+        from the_one.agent.factory import AgentFactory, get_factory, set_factory
+
+        instance = AgentFactory()
+        set_factory(instance)
+        assert get_factory() is instance
+
+    def test_set_none_clears_the_slot(self) -> None:
+        from the_one.agent.factory import AgentFactory, get_factory, set_factory
+
+        set_factory(AgentFactory())
+        assert get_factory() is not None
+        set_factory(None)
+        assert get_factory() is None
+
+    def test_set_overwrites_prior_value(self) -> None:
+        from the_one.agent.factory import AgentFactory, get_factory, set_factory
+
+        first = AgentFactory()
+        second = AgentFactory()
+        set_factory(first)
+        set_factory(second)
+        assert get_factory() is second

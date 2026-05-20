@@ -1,6 +1,6 @@
 # Leg: f7-carry-forward-bundle
 
-**Status**: landed
+**Status**: completed
 **Flight**: [First Real Connector — Discord](../flight.md)
 
 ## Objective

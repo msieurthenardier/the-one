@@ -134,6 +134,60 @@ assert set(_PROVIDER_TYPE_MAP.keys()) == set(PROVIDER_TYPES), (
 )
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Module-level factory accessor (M10 F8 L4)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Gateway listeners (Discord's ``on_message`` handler in F8, Slack's
+# event handler in F9, …) spawn from inside ``plugin.connect`` — i.e.
+# inside the pool's per-(agent, account) worker task — so they cannot
+# receive an :class:`AgentFactory` reference through the
+# ``plugin.connect(account, encryptor)`` signature. Adding it would also
+# break the stateless-plugin contract.
+#
+# Instead, the FastAPI lifespan startup calls :func:`set_factory` once
+# after constructing the application factory; listeners call
+# :func:`get_factory` at dispatch time. Returns ``None`` during the
+# pre-startup window and after shutdown; consumers MUST handle the
+# ``None`` case defensively (log and return rather than dereference).
+#
+# Mirrors the existing precedent at
+# ``the_one/interfaces/web/app.py:_get_factory`` (which reads from a
+# private dict). The module-level accessor here is the canonical
+# subsystem-facing surface; ``app.py``'s helper continues to serve the
+# web routes.
+#
+# Thread-safety: ``set_factory`` is called exactly once at lifespan
+# startup (single-task synchronous write); ``get_factory`` reads only
+# (no read-write race possible after startup completes). Tests may
+# reset the slot to ``None`` between cases.
+
+_factory: "AgentFactory | None" = None
+
+
+def set_factory(factory: "AgentFactory | None") -> None:
+    """Install the application :class:`AgentFactory` for gateway-listener access.
+
+    Called once at FastAPI lifespan startup after constructing the
+    factory (see ``the_one/interfaces/web/app.py``). Pass ``None`` at
+    teardown to release the reference.
+    """
+    global _factory
+    _factory = factory
+
+
+def get_factory() -> "AgentFactory | None":
+    """Return the application :class:`AgentFactory`, or ``None`` pre-startup.
+
+    Consumed by gateway listeners (Discord's ``on_message`` in F8 L4,
+    Slack's event handler in F9, …) at dispatch time. Returns ``None``
+    when the lifespan has not yet run :func:`set_factory` or has torn
+    down — callers MUST handle this gracefully (log a WARNING and
+    return rather than dereferencing).
+    """
+    return _factory
+
+
 class AgentNotFoundError(KeyError):
     """Raised when a named agent config does not exist.
 

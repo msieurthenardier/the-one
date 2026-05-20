@@ -788,3 +788,182 @@ class TestResolveRouting:
         decision = resolve_routing(account, _envelope(), [alice, bob], None)
         assert decision.agent == "alice"
         assert decision.reason == "default"
+
+
+# ─────────────────────────────────────────────────────────────────
+# M10 F8 L6 — ``_agent_admits`` plugin ``is_dm`` consult
+# ─────────────────────────────────────────────────────────────────
+
+
+class _IsDmPlugin:
+    """Test-only plugin stub exposing only the ``is_dm`` hook.
+
+    Mirrors the F8 L6 ``DiscordPlugin.is_dm`` shape (sync callable on
+    ``InboundEnvelope``). Other Protocol methods are absent — the
+    ``getattr`` sentinel consult site only reaches for ``is_dm`` so
+    the routing engine doesn't trip on the missing surface.
+    """
+
+    def __init__(self, result: bool) -> None:
+        self._result = result
+
+    def is_dm(self, envelope: InboundEnvelope) -> bool:
+        return self._result
+
+
+class _NoHooksPlugin:
+    """Test-only plugin stub that does NOT implement ``is_dm``.
+
+    Mirrors the test-only stub plugin's shape — the consult site
+    falls back to :func:`_default_not_dm` (returning False) so the
+    DMs-only branch keeps its historical fail-closed semantic for
+    plugins without the optional hook.
+    """
+
+
+class TestAgentAdmitsIsDmHook:
+    """F8 L6 — ``_agent_admits`` consults ``plugin.is_dm`` for the
+    per-agent DMs-only ACL branch."""
+
+    def test_plugin_with_is_dm_true_permits_dms_only_branch(self) -> None:
+        """Eligible list ``[alpha]`` with DMs-only ACL
+        (``channels: []``); plugin reports ``is_dm=True`` → step-4
+        first-eligible permits alpha (the DMs-only branch flips from
+        deny to permit)."""
+        alpha = _agent(
+            "alpha",
+            connector_acls={"acct-test": {"peers": None, "channels": []}},
+        )
+        decision = resolve_routing(
+            _account(),
+            _envelope(),
+            [alpha],
+            None,
+            plugin=_IsDmPlugin(result=True),
+        )
+        assert decision.agent == "alpha"
+        assert decision.reason == "first-eligible"
+
+    def test_plugin_without_is_dm_denies_dms_only_branch(self) -> None:
+        """Eligible list ``[alpha]`` with DMs-only ACL
+        (``channels: []``); plugin does NOT implement ``is_dm`` →
+        :func:`_default_not_dm` fallback returns False → DMs-only
+        branch denies → no-eligible. Pins the F8 back-compat
+        invariant: pre-F8 plugins (e.g. the test-only stub) keep
+        their historical fail-closed behavior byte-identically."""
+        alpha = _agent(
+            "alpha",
+            connector_acls={"acct-test": {"peers": None, "channels": []}},
+        )
+        decision = resolve_routing(
+            _account(),
+            _envelope(),
+            [alpha],
+            None,
+            plugin=_NoHooksPlugin(),
+        )
+        assert decision.agent is None
+        assert decision.reason == "no-eligible-agent"
+
+
+# ─────────────────────────────────────────────────────────────────
+# M10 F8 L8 — ``_agent_admits`` threads guild_id + member_roles
+# ─────────────────────────────────────────────────────────────────
+
+
+def _envelope_with_guild(
+    *,
+    guild_id: str | None,
+    member_roles: list[str],
+    channel_id: str = "ch-1",
+    peer_id: str = "peer-1",
+    account_id: str = "acct-test",
+) -> InboundEnvelope:
+    """Builder for an envelope whose ``raw`` carries the L4-populated
+    ``guild_id`` and ``member_roles`` keys that L8 reads."""
+    return InboundEnvelope(
+        platform="stub",
+        account_id=account_id,
+        channel_id=channel_id,
+        thread_id=None,
+        peer_id=peer_id,
+        peer_name="Alice",
+        text="hello",
+        raw={"guild_id": guild_id, "member_roles": member_roles},
+    )
+
+
+class TestAgentAdmitsThreadsGuildIdAndMemberRoles:
+    """L8 — ``_routing._agent_admits`` reads
+    ``envelope.raw["guild_id"]`` and ``envelope.raw["member_roles"]``
+    and passes them into :func:`admits_inbound`. Pins the integration:
+    an account-scope ``guilds`` restriction must take effect at the
+    routing-engine layer, not just at the pure-function layer."""
+
+    def test_routing_consults_guild_id_from_envelope_raw(self) -> None:
+        """Account-scope ``guilds=["G1"]`` + envelope ``guild_id="G2"``
+        → ACL denies → no eligible. Pins the L8 threading."""
+        alpha = _agent("alpha")
+        account = _account(allowlist={
+            "peers": [], "channels": [], "guilds": ["G1"],
+        })
+        envelope = _envelope_with_guild(
+            guild_id="G2", member_roles=[],
+        )
+        decision = resolve_routing(account, envelope, [alpha], None)
+        # G2 not in allowlist → ACL denies → no eligible agent.
+        assert decision.agent is None
+        assert decision.reason == "no-eligible-agent"
+
+    def test_routing_consults_member_roles_from_envelope_raw(self) -> None:
+        """Account-scope ``roles=["R1"]`` + envelope ``member_roles=[]``
+        → ACL denies → no eligible. Pins the L8 threading on the roles
+        axis."""
+        alpha = _agent("alpha")
+        account = _account(allowlist={
+            "peers": [], "channels": [], "roles": ["R1"],
+        })
+        envelope = _envelope_with_guild(
+            guild_id="G1", member_roles=[],
+        )
+        decision = resolve_routing(account, envelope, [alpha], None)
+        assert decision.agent is None
+        assert decision.reason == "no-eligible-agent"
+
+    def test_routing_admits_when_guild_and_roles_match(self) -> None:
+        """Sanity pin — account-scope guilds + roles both restrict but
+        envelope matches both → admit (first-eligible-alphabetical)."""
+        alpha = _agent("alpha")
+        account = _account(allowlist={
+            "peers": [], "channels": [],
+            "guilds": ["G1"], "roles": ["R1"],
+        })
+        envelope = _envelope_with_guild(
+            guild_id="G1", member_roles=["R1"],
+        )
+        decision = resolve_routing(account, envelope, [alpha], None)
+        assert decision.agent == "alpha"
+        assert decision.reason == "first-eligible"
+
+    def test_routing_envelope_without_guild_keys_defaults_safely(self) -> None:
+        """Pre-L8 envelopes (or test envelopes that don't populate
+        ``guild_id`` / ``member_roles``) → ``raw.get`` returns None /
+        empty list → ACL evaluates as "unrestricted on these axes" when
+        the account does not restrict either axis. Pins the back-compat
+        wiring: the threading does NOT introduce a regression for
+        pre-L8 inbound payloads."""
+        alpha = _agent("alpha")
+        # Empty raw — no guild_id, no member_roles populated.
+        envelope = InboundEnvelope(
+            platform="stub",
+            account_id="acct-test",
+            channel_id="ch-1",
+            thread_id=None,
+            peer_id="peer-1",
+            peer_name="Alice",
+            text="hello",
+            raw={},
+        )
+        decision = resolve_routing(_account(), envelope, [alpha], None)
+        assert decision.agent == "alpha"
+        assert decision.reason == "first-eligible"

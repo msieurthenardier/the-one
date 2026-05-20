@@ -33,6 +33,7 @@ from the_one.agent.factory import (
     AgentNotFoundError,
     ProviderNotConfiguredError,
     ProviderNotFoundError,
+    set_factory as _set_module_factory,
 )
 from the_one.config import settings
 from the_one.connectors import OPERATOR_VISIBILITY
@@ -79,6 +80,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     store = SQLiteAgentStore(conn)
     await migrate_json_to_sqlite(store)
     _state["factory"] = AgentFactory(store=store)
+    # M10 F8 L4: install the application factory into the module-level
+    # accessor at ``the_one.agent.factory`` so gateway-listener handlers
+    # (Discord's ``on_message`` in F8, Slack's event handler in F9, …)
+    # spawned inside ``plugin.connect`` can resolve it without changing
+    # the plugin contract. Teardown clears the slot below.
+    _set_module_factory(_state["factory"])
     # F5 L2: start the OAuth pending-flow TTL sweep task. The
     # ``_state`` (OAuth) module is reached via the public lifespan
     # hooks ``start_periodic_sweep`` / ``stop_periodic_sweep`` — NOT
@@ -164,6 +171,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await stop_periodic_sweep()
     except Exception:
         logger.exception("OAuth periodic sweep shutdown failed")
+    # M10 F8 L4: release the module-level factory reference so post-
+    # shutdown ``get_factory()`` reads return None. Defensive — not
+    # strictly required for correctness because the process is exiting,
+    # but symmetric with the startup ``set_factory`` call and keeps
+    # subsequent tests from observing a stale slot.
+    _set_module_factory(None)
     await close_connection()
 
 

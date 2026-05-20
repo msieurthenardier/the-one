@@ -907,11 +907,20 @@
     display: none;
   }
 
+  /* === Connector Type Badges (M10 F8 L2) ====
+     Mirrors the provider-badge pattern at admin.css:158-165. Adding a new
+     connector type requires a matching rule here + a --badge-<type> token
+     in tokens.css (see agents.md "Connector type extension checklist"
+     layer 6). */
+  .area-studio .admin-connector-badge--discord { background: var(--badge-discord); }
+  .area-studio .admin-connector-badge--unknown { background: var(--badge-unknown); }
+
   /* === Empty-state banner for "no connector types registered yet" (HAT) ====
-     Production has CONNECTOR_TYPES = () until F8 ships Discord. The
-     Connection section renders this banner above the Name field so the
-     operator understands why the Type dropdown is empty and how to
-     work around it for HAT (POST /api/connector-accounts with stub). */
+     Kept after F8 L2's `register("discord", DiscordPlugin)` landing for two
+     reasons: (a) the editor still surfaces the banner if the Studio area
+     is mounted against a registry with zero types (e.g. operator overrode
+     the builtin registration); (b) the empty-state styling remains useful
+     for future test seams that exercise the empty-types path. */
   .area-studio .connector-account-empty-types-banner {
     margin: 0 0 12px 0;
     padding: 10px 14px;

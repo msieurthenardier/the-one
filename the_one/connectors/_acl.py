@@ -56,15 +56,36 @@ short operator-readable string suitable for embedding into the
 
 from __future__ import annotations
 
+from the_one.connectors.base import InboundEnvelope
 from the_one.db.models import ConnectorAccount
 
-__all__ = ["admits_outbound", "admits_inbound"]
+__all__ = ["admits_outbound", "admits_inbound", "_default_not_dm"]
+
+
+def _default_not_dm(envelope: InboundEnvelope) -> bool:
+    """Sentinel fallback for the ``is_dm`` plugin hook.
+
+    Returned by ``getattr(plugin, "is_dm", _default_not_dm)`` at the
+    inbound-routing consult site for plugins that do not implement the
+    optional ``is_dm`` extension. Returning ``False`` preserves the
+    historical fail-closed behavior of the DMs-only ACL branch for
+    plugins (e.g. the test-only stub) without a DM-classification hook.
+
+    Mirrors F6's :func:`_default_permit` shape (named module-level
+    callable returning the default outcome — see ``agents.md`` §
+    ``optional-plugin-hook-via-getattr-sentinel``).
+    """
+    return False
 
 
 def admits_outbound(
     account: ConnectorAccount,
     agent_acl: dict[str, list[str] | None] | None,
     channel_id: str,
+    *,
+    is_dm: bool = False,
+    guild_id: str | None = None,
+    member_roles: list[str] | None = None,
 ) -> tuple[bool, str]:
     """Check whether outbound to ``channel_id`` on ``account`` is permitted.
 
@@ -74,7 +95,34 @@ def admits_outbound(
 
     Per-axis tri-state per the module docstring. Account-scope channels
     intersected with per-agent channels.
+
+    ``is_dm`` participates only in the per-agent DMs-only branch
+    (``agent_channels == []``): if the caller signals the target is a
+    DM, the branch permits; otherwise it denies. Default ``False``
+    preserves pre-F8 fail-closed behavior for callers that have not
+    resolved the DM-truth at the consult site.
+
+    **Outbound DM-truth posture (F8 L6)** — the F4 platform-send tool
+    has ``(account, channel_id, thread_id)`` at outbound time but no
+    inbound envelope context. It therefore omits ``is_dm`` (or passes
+    ``False``); the DMs-only branch then denies. F10 hardening can
+    add a plugin-level outbound DM determination if HAT surfaces the
+    need (e.g. ``plugin.is_dm_target(target)``).
+
+    **M10 F8 L8 — guilds/roles axes accepted but NOT consulted on
+    outbound.** The F4 platform-send tool has no envelope context, so
+    there is no ``guild_id`` or ``member_roles`` to evaluate at outbound
+    time. The kwargs are accepted for signature uniformity with
+    :func:`admits_inbound` (a future call site could pass them); the
+    body silently ignores them. This is consistent with the F6
+    channel-axis fallback rationale — outbound runs with the subset of
+    axes that have target-side meaning. F10 hardening can revisit if
+    HAT surfaces concrete needs (e.g. a plugin-resolved
+    ``send_target_guild_id``).
     """
+    # M10 F8 L8 — guilds/roles deliberately not consulted on outbound;
+    # the kwargs are accepted for signature uniformity. See docstring.
+    del guild_id, member_roles
     account_id = account.id
     # Account-scope channels axis.
     allowlist = account.config.get("allowlist")
@@ -92,12 +140,17 @@ def admits_outbound(
         if agent_channels is None:
             pass  # inherit account-scope
         elif agent_channels == []:
-            # F8: DM classification lands here — replace this fail-closed deny with "permit if envelope is a DM; else deny."
+            # Per-agent DMs-only sentinel: ``[]`` means "no non-DM
+            # channels admitted; DMs only." The plugin-resolved
+            # ``is_dm`` bool decides the branch — permit if the target
+            # is a DM, else deny.
+            if is_dm:
+                return True, ""
             return (
                 False,
                 f"channel_id {channel_id!r} is not reachable "
                 f"for this agent on account {account_id!r} (DMs-only override; "
-                f"DM classification lands in F8)",
+                f"target is not a DM)",
             )
         elif channel_id not in agent_channels:
             return (
@@ -113,21 +166,63 @@ def admits_inbound(
     agent_acl: dict[str, list[str] | None] | None,
     peer_id: str,
     channel_id: str,
+    *,
+    is_dm: bool = False,
+    guild_id: str | None = None,
+    member_roles: list[str] | None = None,
 ) -> tuple[bool, str]:
     """Check whether inbound from ``peer_id`` in ``channel_id`` on
     ``account`` is permitted to invoke this agent.
 
     Returns ``(True, "")`` on admit; ``(False, reason)`` on deny.
-    Both axes (peers AND channels) must permit. Peers checked first;
-    short-circuit on first deny.
+    All four axes (peers AND channels AND guilds AND roles) must
+    permit. Order: peers → channels → guilds → roles at account-scope;
+    same order at per-agent scope. Short-circuit on first deny.
 
     Used by F7 L5 dispatcher AFTER the routing engine (F7 L4) picks an
     agent, to verify the picked agent's per-agent ACL admits this
-    (peer, channel) combination. F6's plugin resolver hook handles
-    account-scope first-contact pairing — this function is the
-    per-agent admission layer that composes on top.
+    (peer, channel, guild, roles) combination. F6's plugin resolver
+    hook handles account-scope first-contact pairing — this function
+    is the per-agent admission layer that composes on top.
+
+    ``is_dm`` participates only in the per-agent DMs-only branch
+    (``agent_channels == []``): if the envelope is a DM, the branch
+    permits; otherwise it denies. The routing engine's
+    :func:`_agent_admits` consults the plugin's optional ``is_dm``
+    hook via the ``optional-plugin-hook-via-getattr-sentinel``
+    convention and passes the resolved bool here. Default ``False``
+    preserves pre-F8 fail-closed behavior for callers that have not
+    resolved the DM-truth.
+
+    **M10 F8 L8 — guilds and roles axes**. ``guild_id`` is the
+    envelope-resolved guild identifier (str) or ``None`` for DMs and
+    other guildless contexts. ``member_roles`` is the envelope-resolved
+    list of role IDs the peer holds in the guild (empty list for DMs).
+    Both axes follow the per-axis tri-state semantic (see module
+    docstring + ``per-axis-tri-state-override`` in agents.md):
+
+      - axis absent from ``allowlist`` / ``agent_acl`` → unrestricted
+      - axis is ``[]`` → unrestricted on this axis at account-scope;
+        explicit-empty narrowing at per-agent scope
+      - axis is ``[items]`` → subset (must match for admit)
+
+    **DM-with-guild-restriction posture** — if the account-scope
+    ``guilds`` axis is non-empty AND the envelope is a DM
+    (``guild_id is None``), the guild check denies (``None`` is not in
+    a list of guild ID strings). This is the deliberate "operator
+    narrowed to specific guilds; DMs are out-of-scope" semantic. If
+    the operator wants DMs admitted under a guild-restricted account,
+    they leave the ``guilds`` axis absent or empty.
+
+    **Roles overlap semantic** — if the ``roles`` axis is non-empty,
+    admit iff ``set(member_roles) & set(allowlist['roles'])`` is
+    non-empty (any-of overlap). Empty ``member_roles`` against a
+    non-empty ``roles`` axis denies (peer has no roles, role-
+    restricted account denies — consistent with the per-axis subset
+    semantic).
     """
     account_id = account.id
+    member_roles_set = set(member_roles or [])
     # Account-scope peers axis.
     allowlist = account.config.get("allowlist")
     if allowlist is not None:
@@ -143,6 +238,26 @@ def admits_inbound(
             return (
                 False,
                 f"channel_id {channel_id!r} is not admitted on account "
+                f"{account_id!r}",
+            )
+        # M10 F8 L8 — account-scope guilds axis. Non-empty list
+        # narrows to those guilds; ``guild_id=None`` (DM context)
+        # against a non-empty list denies. See docstring "DM-with-
+        # guild-restriction posture".
+        allowed_guilds = allowlist.get("guilds", [])
+        if allowed_guilds and guild_id not in allowed_guilds:
+            return (
+                False,
+                f"guild_id {guild_id!r} is not admitted on account "
+                f"{account_id!r}",
+            )
+        # M10 F8 L8 — account-scope roles axis. Any-of overlap; empty
+        # ``member_roles`` against a non-empty axis denies.
+        allowed_roles = allowlist.get("roles", [])
+        if allowed_roles and not (member_roles_set & set(allowed_roles)):
+            return (
+                False,
+                f"peer roles do not overlap with admitted roles on account "
                 f"{account_id!r}",
             )
     # Per-agent peers axis.
@@ -168,17 +283,62 @@ def admits_inbound(
         if agent_channels is None:
             pass  # inherit account-scope
         elif agent_channels == []:
-            # F8: DM classification lands here — replace this fail-closed deny with "permit if envelope is a DM; else deny."
+            # Per-agent DMs-only sentinel — same shape as outbound:
+            # the consult site (:func:`_routing._agent_admits`)
+            # resolves DM-truth via the plugin's optional ``is_dm``
+            # hook and passes it here.
+            if is_dm:
+                return True, ""
             return (
                 False,
                 f"channel_id {channel_id!r} is not admitted for this agent "
-                f"on account {account_id!r} (DMs-only override; DM "
-                f"classification lands in F8)",
+                f"on account {account_id!r} (DMs-only override; "
+                f"envelope is not a DM)",
             )
         elif channel_id not in agent_channels:
             return (
                 False,
                 f"channel_id {channel_id!r} is not admitted for this agent "
                 f"on account {account_id!r}",
+            )
+        # M10 F8 L8 — per-agent guilds axis. Same tri-state shape as
+        # the peers axis: ``None`` → inherit account-scope; ``[]`` →
+        # explicit-empty narrowing (no guild admitted via this agent
+        # on this account); non-empty → subset narrows further.
+        agent_guilds = agent_acl.get("guilds")
+        if agent_guilds is None:
+            pass  # inherit account-scope
+        elif agent_guilds == []:
+            return (
+                False,
+                f"guild_id {guild_id!r} is not admitted for this agent on "
+                f"account {account_id!r} (per-agent guilds axis is "
+                f"explicitly empty)",
+            )
+        elif guild_id not in agent_guilds:
+            return (
+                False,
+                f"guild_id {guild_id!r} is not admitted for this agent on "
+                f"account {account_id!r}",
+            )
+        # M10 F8 L8 — per-agent roles axis. ``None`` → inherit; ``[]``
+        # → explicit-empty narrowing (no role admitted via this agent
+        # on this account); non-empty → any-of overlap against
+        # member_roles.
+        agent_roles = agent_acl.get("roles")
+        if agent_roles is None:
+            pass  # inherit account-scope
+        elif agent_roles == []:
+            return (
+                False,
+                f"peer roles do not overlap with admitted roles for this "
+                f"agent on account {account_id!r} (per-agent roles axis "
+                f"is explicitly empty)",
+            )
+        elif not (member_roles_set & set(agent_roles)):
+            return (
+                False,
+                f"peer roles do not overlap with admitted roles for this "
+                f"agent on account {account_id!r}",
             )
     return True, ""

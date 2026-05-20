@@ -827,10 +827,18 @@ class TestConnectorAccountAPI:
     async def test_types_returns_registered_in_test(
         self, client: AsyncClient
     ) -> None:
-        """With register_for_test('stub', StubPlugin), /types returns the stub entry."""
+        """The autouse fixture restores the production baseline
+        (``'discord'`` post-F8 L2) then registers the stub on top, so
+        /types returns both entries in sorted order.
+        """
         resp = await client.get("/api/connector-accounts/types")
         assert resp.status_code == 200
-        assert resp.json() == [{"value": "stub", "label": "Stub"}]
+        # ``registry.types()`` returns a sorted list — the API mirrors that
+        # order verbatim.
+        assert resp.json() == [
+            {"value": "discord", "label": "Discord"},
+            {"value": "stub", "label": "Stub"},
+        ]
 
     async def test_create_with_invalid_payload_returns_422(
         self, client: AsyncClient
@@ -1088,24 +1096,35 @@ class TestConnectorAccountDoctor:
 
         Mirrors the MCP "unknown transport" pattern so the UI banner
         renders inline rather than triggering a global error handler.
-        The autouse fixture pre-registers only ``"stub"``; an account
-        with ``type='unregistered-platform'`` is unknown to the registry.
 
-        ``ConnectorAccount.type`` is currently an unconstrained ``str``,
-        so the POST validates without rejection. If a future leg
-        tightens that field to a ``Literal[...]``, this setup needs to
-        switch to repo-level insert.
+        M10 F8 L2: ``ConnectorAccount.type`` was tightened to
+        ``Literal["discord", "stub"]``, so the POST path can no longer
+        accept an arbitrary type string. The test now seeds a
+        ``'discord'``-typed account via the API (the production registry
+        carries ``'discord'`` from F8 L2's
+        ``register_builtin_connectors``), then clears the registry so the
+        doctor probe encounters an unknown type at runtime. The autouse
+        fixture's ``register_for_test("stub", StubPlugin)`` is also wiped
+        by the ``clear_for_test`` call, so both production builtins and
+        the test-registered stub disappear — the doctor probe surfaces
+        the "type not registered" envelope.
         """
+        from the_one.connectors.registry import clear_for_test
+
         resp = await client.post(
             "/api/connector-accounts",
             json={
                 "name": "alien",
-                "type": "unregistered-platform",
+                "type": "discord",
                 "secrets": {},
             },
         )
         assert resp.status_code == 201
         account_id = resp.json()["id"]
+
+        # Wipe the registry so the doctor probe encounters "type not
+        # registered" on the ``'discord'``-typed account.
+        clear_for_test()
 
         resp = await client.post(
             f"/api/connector-accounts/{account_id}/test/connect"
@@ -1113,10 +1132,10 @@ class TestConnectorAccountDoctor:
         assert resp.status_code == 200
         assert resp.json() == {
             "status": "error",
-            "message": "Unknown connector type: unregistered-platform",
+            "message": "Unknown connector type: discord",
             "details": {
                 "error": "type not registered",
-                "type": "unregistered-platform",
+                "type": "discord",
             },
         }
 
