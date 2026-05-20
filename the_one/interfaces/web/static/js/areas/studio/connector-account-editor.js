@@ -25,13 +25,34 @@
 // fresh-editor render path picks up _pendingProbeReport and renders
 // the banner before clearing the variable.
 //
-// callbacks: { onBack, onCancel, onSaveSuccess, onDeleteSuccess, onDirtyChange }
+// callbacks: { onBack, onCancel, onSaveSuccess, onDeleteSuccess, onDirtyChange,
+//              onTabChange, initialTab }
+//
+// M10 F7 L9 HAT: edit-mode renders a tabbed layout matching the Agent
+// Editor's pattern. Operator-specified split:
+//   Tab "General"            — Connection, Credentials, Pairing,
+//                              Attached agents, Test connection,
+//                              Danger zone.
+//   Tab "Access and Routing" — Lifecycle, Allowlist, Routing rules.
+// Create mode renders flat (only the Connection + Credentials + Lifecycle
+// sections render there — not enough sections to justify the tab split).
+// All tab panel contents mount SYNCHRONOUSLY at editor-load time so the
+// L7 dirty-tracker / snapshot logic + selectors continue to resolve
+// against any section regardless of which tab is currently active.
 (function () {
   'use strict';
   window.App = window.App || {};
   window.App.studio = window.App.studio || {};
 
   var MASKED_SENTINEL = '__MASKED__';
+
+  // M10 F7 L9 HAT: tab panel ids. Mirror agent-editor.js's PANEL_IDS
+  // pattern so test selectors that hop between the two editors share a
+  // naming convention.
+  var PANEL_IDS = {
+    general: 'connector-tab-panel-general',
+    accessAndRouting: 'connector-tab-panel-access-and-routing'
+  };
 
   // ── Lifecycle dropdown ladder (F5 L8 HAT) ──────────────────────────
   // Operator-friendly preset values for idle_timeout_seconds and
@@ -193,6 +214,11 @@
     var isCreate = !account;
     var name = isCreate ? 'New Connector' : (account.name || '');
     var type = isCreate ? '' : (account.type || '');
+    // M10 F7 L9 HAT: tabbed-layout default. Mirrors agent-editor.js
+    // (initialTab callback param, default to 'general'). The studio
+    // shell does not yet route _activeTab into the connector-account
+    // editor, but the hook is in place for future wiring.
+    var initialTab = callbacks.initialTab || 'general';
 
     // ── Header ─────────────────────────────────────────────────────────
     var html = '';
@@ -223,19 +249,30 @@
     html += '</div>';
     html += '</div>'; // .editor-header
 
-    // ── Connection section ────────────────────────────────────────────
-    html += '<div class="editor-section">';
-    html += '<div class="section-title">Connection</div>';
-    html += renderConnectionFields(account, types, isCreate);
-    html += '</div>';
+    // ── Build per-section HTML fragments ──────────────────────────────
+    // M10 F7 L9 HAT: section emission decoupled from layout so the same
+    // fragments can be slotted either flat (create mode) or partitioned
+    // across two tab panels (edit mode). All sections mount
+    // SYNCHRONOUSLY at editor-load time — never lazy — so the L7
+    // dirty-tracker / collectFormData selectors continue to resolve
+    // against every section regardless of which tab is currently
+    // active.
 
-    // ── Credentials section ───────────────────────────────────────────
-    html += '<div class="editor-section">';
-    html += '<div class="section-title">Credentials</div>';
-    html += renderSecretsKvTable(account);
-    html += '</div>';
+    // Connection section.
+    var connectionHtml = '';
+    connectionHtml += '<div class="editor-section">';
+    connectionHtml += '<div class="section-title">Connection</div>';
+    connectionHtml += renderConnectionFields(account, types, isCreate);
+    connectionHtml += '</div>';
 
-    // ── Lifecycle section ─────────────────────────────────────────────
+    // Credentials section.
+    var credentialsHtml = '';
+    credentialsHtml += '<div class="editor-section">';
+    credentialsHtml += '<div class="section-title">Credentials</div>';
+    credentialsHtml += renderSecretsKvTable(account);
+    credentialsHtml += '</div>';
+
+    // Lifecycle section.
     // F5 L8 HAT: free-form numeric inputs replaced with dropdowns offering
     // the operator-friendly ladder defined in LIFECYCLE_OPTIONS below. The
     // continuation field also offers a "Never (always continue)" option
@@ -245,101 +282,160 @@
     // so the operator sees what's stored without overwriting it.
     var idleValue = (!isCreate && account.idle_timeout_seconds != null) ? account.idle_timeout_seconds : '';
     var contValue = (!isCreate && account.session_continuation_seconds != null) ? account.session_continuation_seconds : '';
-    html += '<div class="editor-section">';
-    html += '<div class="section-title">Lifecycle</div>';
+    var lifecycleHtml = '';
+    lifecycleHtml += '<div class="editor-section">';
+    lifecycleHtml += '<div class="section-title">Lifecycle</div>';
 
     // Pool idle timeout (F2)
-    html += '<div class="field-row admin-pf-row">';
-    html += '<label for="cf-idle-timeout">Pool idle timeout</label>';
-    html += renderLifecycleSelect('cf-idle-timeout', 'idle_timeout_seconds',
+    lifecycleHtml += '<div class="field-row admin-pf-row">';
+    lifecycleHtml += '<label for="cf-idle-timeout">Pool idle timeout</label>';
+    lifecycleHtml += renderLifecycleSelect('cf-idle-timeout', 'idle_timeout_seconds',
             'connector-account-idle-timeout-input', idleValue,
             { defaultSeconds: 1800, includeNever: false });
-    html += '</div>';
-    html += '<div class="field-row admin-pf-row">';
-    html += '<label></label>';
-    html += '<small class="form-hint" data-testid="connector-account-idle-hint">' +
+    lifecycleHtml += '</div>';
+    lifecycleHtml += '<div class="field-row admin-pf-row">';
+    lifecycleHtml += '<label></label>';
+    lifecycleHtml += '<small class="form-hint" data-testid="connector-account-idle-hint">' +
             'Reap warm connection after inactivity.' +
             '</small>';
-    html += '</div>';
+    lifecycleHtml += '</div>';
 
     // Chat-session continuation window (F3 L5)
-    html += '<div class="field-row admin-pf-row">';
-    html += '<label for="cf-continuation-window">Chat-session continuation window</label>';
-    html += renderLifecycleSelect('cf-continuation-window', 'session_continuation_seconds',
+    lifecycleHtml += '<div class="field-row admin-pf-row">';
+    lifecycleHtml += '<label for="cf-continuation-window">Chat-session continuation window</label>';
+    lifecycleHtml += renderLifecycleSelect('cf-continuation-window', 'session_continuation_seconds',
             'connector-account-continuation-input', contValue,
             { defaultSeconds: 86400, includeNever: true });
-    html += '</div>';
-    html += '<div class="field-row admin-pf-row">';
-    html += '<label></label>';
-    html += '<small class="form-hint" data-testid="connector-account-continuation-hint">' +
+    lifecycleHtml += '</div>';
+    lifecycleHtml += '<div class="field-row admin-pf-row">';
+    lifecycleHtml += '<label></label>';
+    lifecycleHtml += '<small class="form-hint" data-testid="connector-account-continuation-hint">' +
             'Inbound continues the same chat session within this window.' +
             '</small>';
-    html += '</div>';
+    lifecycleHtml += '</div>';
 
-    html += '</div>';
+    lifecycleHtml += '</div>';
 
-    // ── Pairing section (edit mode only) ──────────────────────────────
+    // Pairing section (edit mode only).
     // M10 F6 L4: operator generates / regenerates the account pairing
-    // code. The endpoint is the only writer for ``config["pairing"]``
-    // (leg-1b schema); the code is shown ONCE after the operator
-    // clicks. Subsequent renders display only the ``issued_at`` summary
-    // — the operator must regenerate to reveal a fresh code (leg-1b
-    // decision: plaintext storage but no auto-display on load).
-    if (!isCreate) {
-      html += renderPairingSection(account);
-    }
+    // code. The endpoint is the only writer for ``config["pairing"]``.
+    var pairingHtml = isCreate ? '' : renderPairingSection(account);
 
-    // ── Account-scope allowlist section (edit mode only) ──────────────
+    // Account-scope allowlist section (edit mode only).
     // M10 F6 L4: account-level peer/channel allowlist editor.
-    // Checkbox gates the two list editors; unchecked = default-permit
-    // (saving OMITS ``config.allowlist``); checked + empty lists =
-    // lockdown (saving sends ``{"peers": [], "channels": []}`` — the
-    // leg-1b empty-preservation invariant).
-    if (!isCreate) {
-      html += renderAllowlistSection(account);
-    }
+    var allowlistHtml = isCreate ? '' : renderAllowlistSection(account);
 
-    // ── Attached agents (read-only, edit mode only) ───────────────────
+    // Routing Rules section (edit mode only).
+    // M10 F7 L7: operator-authored, ordered routing rules + per-account
+    // default agent. Rides ``config.routing`` (L2 validator).
+    var routingHtml = isCreate ? '' : renderRoutingRulesSection(account);
+
+    // Attached agents (read-only, edit mode only).
     // M10 F6 L4: read-only summary of agents whose
-    // ``connector_account_ids`` includes this account, with per-agent
-    // ACL counts and deep-links. Populated asynchronously on mount via
-    // GET /api/connector-accounts/{id}/attached-agents (the editor
-    // renders an empty placeholder; the fetch fills it in).
-    if (!isCreate) {
-      html += renderAttachedAgentsSection();
-    }
+    // ``connector_account_ids`` includes this account.
+    var attachedAgentsHtml = isCreate ? '' : renderAttachedAgentsSection();
 
-    // ── Test Connection section (edit mode only) ──────────────────────
+    // Test Connection section (edit mode only).
+    var testConnectionHtml = '';
     if (!isCreate) {
-      html += '<div class="editor-section connector-test-section">';
-      html += '<div class="section-title">Test Connection</div>';
-      html += '<div class="connector-test-actions">';
-      html += '<button type="button" class="btn-outlined-primary connector-test-connection-btn" data-testid="connector-test-connection-btn">' +
+      testConnectionHtml += '<div class="editor-section connector-test-section">';
+      testConnectionHtml += '<div class="section-title">Test Connection</div>';
+      testConnectionHtml += '<div class="connector-test-actions">';
+      testConnectionHtml += '<button type="button" class="btn-outlined-primary connector-test-connection-btn" data-testid="connector-test-connection-btn">' +
               window.App.icon('refresh-cw') + ' Test connection</button>';
-      html += '<span class="indicator-led indicator-led--idle connector-test-led" data-testid="connector-test-led" data-state="idle" aria-label="Not tested"></span>';
-      html += '<span class="connector-test-message" data-testid="connector-test-message">Not tested</span>';
-      html += '</div>';
-      html += '<div class="connector-test-status" data-testid="connector-test-status" hidden></div>';
-      html += '<div class="connector-test-details-wrap" data-testid="connector-test-details-wrap" hidden>' +
+      testConnectionHtml += '<span class="indicator-led indicator-led--idle connector-test-led" data-testid="connector-test-led" data-state="idle" aria-label="Not tested"></span>';
+      testConnectionHtml += '<span class="connector-test-message" data-testid="connector-test-message">Not tested</span>';
+      testConnectionHtml += '</div>';
+      testConnectionHtml += '<div class="connector-test-status" data-testid="connector-test-status" hidden></div>';
+      testConnectionHtml += '<div class="connector-test-details-wrap" data-testid="connector-test-details-wrap" hidden>' +
               '<div data-testid="connector-test-details"></div>' +
               '</div>';
-      html += '</div>';
+      testConnectionHtml += '</div>';
     }
 
-    // ── Danger Zone (edit only) ───────────────────────────────────────
+    // Danger Zone (edit only).
+    var dangerZoneHtml = '';
     if (!isCreate) {
-      html += '<div class="editor-section danger-zone">';
-      html += '<div class="section-title danger-zone-title">Danger Zone</div>';
-      html += '<button type="button" class="btn-muted-destructive delete-btn connector-delete-btn" data-testid="delete-connector-account-btn" data-name="' + escapeAttr(account.name || '') + '">' +
+      dangerZoneHtml += '<div class="editor-section danger-zone">';
+      dangerZoneHtml += '<div class="section-title danger-zone-title">Danger Zone</div>';
+      dangerZoneHtml += '<button type="button" class="btn-muted-destructive delete-btn connector-delete-btn" data-testid="delete-connector-account-btn" data-name="' + escapeAttr(account.name || '') + '">' +
               window.App.icon('trash') +
               '<span data-confirm-title>Delete Connector</span>' +
               '</button>';
+      dangerZoneHtml += '</div>';
+    }
+
+    // ── Layout assembly ───────────────────────────────────────────────
+    // Create mode: flat layout (only Connection / Credentials / Lifecycle
+    // render anyway — not enough sections to justify the tab split).
+    // Edit mode: two-tab layout per operator partition:
+    //   "General"            — Connection, Credentials, Pairing,
+    //                          Attached agents, Test connection,
+    //                          Danger zone.
+    //   "Access and Routing" — Lifecycle, Allowlist, Routing rules.
+    if (isCreate) {
+      html += connectionHtml;
+      html += credentialsHtml;
+      html += lifecycleHtml;
+    } else {
+      // Tablist.
+      html += '<div role="tablist" class="tablist" aria-label="Connector account settings">';
+      html += '<button type="button" role="tab" class="tab" id="connector-tab-general" ' +
+              'aria-controls="' + PANEL_IDS.general + '" data-tab-id="general" ' +
+              'data-testid="tab-general" aria-selected="false" tabindex="-1">General</button>';
+      html += '<button type="button" role="tab" class="tab" id="connector-tab-access-and-routing" ' +
+              'aria-controls="' + PANEL_IDS.accessAndRouting + '" data-tab-id="access-and-routing" ' +
+              'data-testid="tab-access-and-routing" aria-selected="false" tabindex="-1">Access and Routing</button>';
       html += '</div>';
+
+      // Tab panels — ALL section content is mounted into the DOM
+      // synchronously here. App.tabs only toggles the `hidden` attribute
+      // for non-active panels, so every selector that L7 wired (form
+      // snapshot, dirty-tracker, collectFormData, attached-agents fetch)
+      // continues to resolve against any section regardless of which
+      // tab is currently active.
+      html += '<div class="tabpanels">';
+      // General tab — Connection, Credentials, Pairing, Attached agents,
+      // Test connection, Danger zone.
+      html += '<div role="tabpanel" class="tabpanel" id="' + PANEL_IDS.general +
+              '" data-tab-id="general" aria-labelledby="connector-tab-general" hidden>';
+      html += connectionHtml;
+      html += credentialsHtml;
+      html += pairingHtml;
+      html += attachedAgentsHtml;
+      html += testConnectionHtml;
+      html += dangerZoneHtml;
+      html += '</div>';
+      // Access and Routing tab — Lifecycle, Allowlist, Routing rules.
+      // Lifecycle (session-continuation window) is policy-shaped enough
+      // to belong with the access controls per operator intent.
+      html += '<div role="tabpanel" class="tabpanel" id="' + PANEL_IDS.accessAndRouting +
+              '" data-tab-id="access-and-routing" aria-labelledby="connector-tab-access-and-routing" hidden>';
+      html += lifecycleHtml;
+      html += allowlistHtml;
+      html += routingHtml;
+      html += '</div>';
+      html += '</div>'; // .tabpanels
     }
 
     html += '</div>'; // .connector-account-editor
 
     container.innerHTML = html;
+
+    // Initialize App.tabs in edit mode. The tablist + tabpanels are
+    // already in the DOM; this just wires keyboard navigation +
+    // aria-selected + hidden-attr toggling, and activates the initial
+    // tab so its panel becomes visible synchronously.
+    if (!isCreate) {
+      var tablistEl = container.querySelector('.tablist');
+      var panelsEl = container.querySelector('.tabpanels');
+      if (tablistEl && panelsEl && window.App.tabs) {
+        window.App.tabs(tablistEl, panelsEl, {
+          onChange: callbacks.onTabChange,
+          initial: initialTab
+        });
+      }
+    }
 
     wireEditorEvents(container, account, types, callbacks, isCreate);
 
@@ -427,7 +523,10 @@
   // arbitrary kv-table — the dedicated sections are the only writers,
   // and ``collectFormData`` merges them back into the save payload so
   // they round-trip without operator intervention.
-  var RESERVED_CONFIG_KEYS = { pairing: true, allowlist: true };
+  // M10 F7 L7: ``routing`` joins the reserved set — the Routing Rules
+  // editor section is the only writer for ``config.routing`` and merges
+  // its state back into the PUT payload via ``collectRoutingFromContainer``.
+  var RESERVED_CONFIG_KEYS = { pairing: true, allowlist: true, routing: true };
 
   function collectConfigRows(account) {
     var rows = [];
@@ -566,11 +665,19 @@
     // with other dirty fields).
     var allowlist = collectAllowlistFromContainer(container);
 
+    // M10 F7 L7: routing-rules state participates in the dirty-tracking
+    // snapshot. The routing-section agent dropdowns are async-populated
+    // by ``fetchAttachedAgents``; the initial snapshot must be
+    // recaptured after that promise resolves (see wireRoutingRulesEvents)
+    // so the populated options don't read as a dirty edit.
+    var routing = collectRoutingFromContainer(container);
+
     return JSON.stringify({
       static: staticData,
       config: configRows,
       secrets: secretRows,
-      allowlist: allowlist
+      allowlist: allowlist,
+      routing: routing
     });
   }
 
@@ -794,10 +901,14 @@
     }
 
     // ── F6 L4: Pairing / Allowlist / Attached agents (edit only) ──────
+    // ── F7 L7: Routing rules wiring slots in alongside allowlist;
+    // its agent-dropdown options are populated AFTER fetchAttachedAgents
+    // resolves, so the routing section's own logic re-snapshots then.
     if (isEdit) {
       wirePairingEvents(container, account, callbacks);
       wirePairingCopyEvents(container);
       wireAllowlistEvents(container, account, checkDirty);
+      wireRoutingRulesEvents(container, account, checkDirty);
       // M10 F6 L7 HAT: chip-list editors are mounted lazily by
       // wireAllowlistEvents AFTER the initial snapshot was captured.
       // The chip-list content (peers / channels from
@@ -808,8 +919,10 @@
       checkDirty();
 
       // Kick off the attached-agents fetch on mount. The list renders
-      // a "Loading…" placeholder until this resolves.
-      fetchAttachedAgents(container, account.id);
+      // a "Loading…" placeholder until this resolves. The same fetch's
+      // ``.then`` populates the routing-section agent dropdowns and
+      // re-snapshots (see fetchAttachedAgents).
+      fetchAttachedAgents(container, account.id, checkDirty, recaptureSnapshot);
     }
   }
 
@@ -1028,6 +1141,22 @@
         config.allowlist = {
           peers: allowlistState.peers,
           channels: allowlistState.channels
+        };
+      }
+    }
+    // M10 F7 L7: Routing rules merge. Only emit ``config.routing`` when
+    // the operator has authored at least one complete rule OR set a
+    // default agent — empty-rules + null-default means "no routing
+    // configured" and the key is OMITTED so the L2 validator doesn't
+    // reject an empty-but-present shape and L4's engine falls through
+    // to first-eligible-alphabetical. Mirrors the allowlist precedent:
+    // "absent = no constraint."
+    if (isEdit) {
+      var routingState = collectRoutingFromContainer(container);
+      if (routingState && (routingState.rules.length > 0 || routingState.default !== null)) {
+        config.routing = {
+          rules: routingState.rules,
+          default: routingState.default
         };
       }
     }
@@ -1304,6 +1433,476 @@
     return wrapper;
   }
 
+  // ── Routing Rules section (M10 F7 L7) ──────────────────────────────
+  //
+  // Operator-authored, ordered list of routing rules and a per-account
+  // default agent. The L2 Pydantic validator enforces the shape; this
+  // editor emits the validated shape on save. Section structure mirrors
+  // ``renderAllowlistSection`` (sibling); table structure mirrors
+  // ``renderConfigKvTable`` (kv-row precedent at :463-491).
+  //
+  // Cycle-1 design-language audit verdict (F6 debrief rec #1, recorded
+  // in the leg artifact §9): ZERO new bespoke selectors beyond the F6
+  // naming convention. Scope/agent/default dropdowns use the canonical
+  // 4-class set (field-input + field-select + admin-pf-input +
+  // admin-pf-select); match input uses field-input only; move/remove
+  // buttons are bare buttons mirroring config-remove-row-btn at :488.
+
+  var _VALID_ROUTING_SCOPES = ['channel', 'thread', 'dm', 'peer'];
+
+  function _collectRoutingRows(account) {
+    var routing = (account && account.config && account.config.routing) || null;
+    if (!routing || !Array.isArray(routing.rules)) return [];
+    var out = [];
+    for (var i = 0; i < routing.rules.length; i++) {
+      var r = routing.rules[i] || {};
+      // M10 F7 L9 HAT2: ``match`` is now a list of strings (operator-
+      // entered chips). Tolerate the old single-string shape during
+      // in-memory upgrades — at write time the L2 validator enforces
+      // list-form.
+      var matchList = [];
+      if (Array.isArray(r.match)) {
+        for (var m = 0; m < r.match.length; m++) {
+          var mv = String(r.match[m] || '').trim();
+          if (mv) matchList.push(mv);
+        }
+      } else if (typeof r.match === 'string' && r.match) {
+        matchList.push(r.match);
+      }
+      out.push({
+        scope: String(r.scope || ''),
+        match: matchList,
+        agent: String(r.agent || '')
+      });
+    }
+    return out;
+  }
+
+  function _renderRoutingScopeOptions(currentScope) {
+    var escapeAttr = window.App.escapeAttr;
+    var escapeHtml = window.App.escapeHtml;
+    var html = '<option value="" disabled' +
+               (currentScope ? '' : ' selected') + '>Select scope</option>';
+    for (var i = 0; i < _VALID_ROUTING_SCOPES.length; i++) {
+      var s = _VALID_ROUTING_SCOPES[i];
+      var sel = (s === currentScope) ? ' selected' : '';
+      html += '<option value="' + escapeAttr(s) + '"' + sel + '>' +
+              escapeHtml(s) + '</option>';
+    }
+    return html;
+  }
+
+  function _renderRoutingAgentOptions(currentAgent) {
+    // Agent options are async-populated via populateRoutingAgentDropdowns
+    // once fetchAttachedAgents resolves. The initial render emits the
+    // placeholder option plus — if a value was persisted — a single
+    // ``<option selected>`` that holds the value so a save-without-fetch
+    // round-trip still preserves the operator's prior choice. The
+    // post-fetch populator replaces the entire option list, restoring
+    // the selection by value if it's still in the attached set.
+    var escapeAttr = window.App.escapeAttr;
+    var escapeHtml = window.App.escapeHtml;
+    var html = '<option value="">Select agent</option>';
+    if (currentAgent) {
+      html += '<option value="' + escapeAttr(currentAgent) + '" selected>' +
+              escapeHtml(currentAgent) + '</option>';
+    }
+    return html;
+  }
+
+  function _renderRoutingRow(row, idx) {
+    var escapeAttr = window.App.escapeAttr;
+    var html = '';
+    // M10 F7 L9 HAT2: rule rows gain a leading drag-handle cell; chevron
+    // move buttons removed in favour of native HTML5 drag-and-drop
+    // (wired in ``wireRoutingRulesEvents``). The row itself becomes the
+    // drop target; the handle is the drag source.
+    html += '<tr class="connector-routing-row" data-routing-rule data-routing-rule-idx="' + idx + '">';
+    html += '<td class="connector-routing-drag-cell">' +
+            '<span class="connector-routing-drag-handle" draggable="true" ' +
+            'role="button" aria-label="Drag to reorder rule" title="Drag to reorder" ' +
+            'data-routing-drag-handle data-row="' + idx + '">' +
+            window.App.icon('grip-vertical') +
+            '</span></td>';
+    html += '<td><select class="field-input field-select admin-pf-input admin-pf-select" ' +
+            'data-routing-scope data-row="' + idx + '">' +
+            _renderRoutingScopeOptions(row.scope) +
+            '</select></td>';
+    // M10 F7 L9 HAT2: ``match`` is a chip-list (one or more values; the
+    // rule fires if ANY value matches the envelope's corresponding
+    // field). Cell mounts a chip-list-editor wrapper; the wireRouting
+    // pass wires it via ``adminFormHelpers.wireChipListEditor`` for the
+    // same operator UX the F6 allowlist editor uses.
+    var matchValues = Array.isArray(row.match) ? row.match : [];
+    html += '<td class="connector-routing-match-cell">';
+    html += '<div class="chip-list-editor connector-routing-match-chiplist" ' +
+            'data-routing-match data-row="' + idx + '">';
+    for (var ci = 0; ci < matchValues.length; ci++) {
+      var v = String(matchValues[ci]);
+      html += '<span class="chip">' + window.App.escapeHtml(v) +
+              '<button type="button" class="chip-remove" aria-label="Remove ' +
+              escapeAttr(v) + '">×</button></span>';
+    }
+    html += '<input type="text" class="chip-list-input" ' +
+            'placeholder="Add match value…" aria-label="Add match value" />';
+    html += '</div></td>';
+    html += '<td><select class="field-input field-select admin-pf-input admin-pf-select" ' +
+            'data-routing-agent data-row="' + idx + '">' +
+            _renderRoutingAgentOptions(row.agent) +
+            '</select></td>';
+    html += '<td>';
+    html += '<button type="button" class="connector-routing-remove-row-btn" ' +
+            'data-row="' + idx + '" aria-label="Remove rule" title="Remove rule">' +
+            window.App.icon('trash') + '</button>';
+    html += '</td>';
+    html += '</tr>';
+    return html;
+  }
+
+  function renderRoutingRulesSection(account) {
+    var escapeAttr = window.App.escapeAttr;
+    var rows = _collectRoutingRows(account);
+    var routing = (account && account.config && account.config.routing) || null;
+    var defaultAgent = (routing && typeof routing.default === 'string') ? routing.default : '';
+    var headHiddenClass = rows.length === 0 ? ' is-hidden' : '';
+
+    var html = '';
+    html += '<div class="editor-section connector-routing-section">';
+    html += '<div class="section-title">Routing rules</div>';
+
+    // M10 F7 L9 HAT2: default-agent row moves to the TOP of the section
+    // (operator visual-hierarchy feedback during HAT). The rules table +
+    // "Add rule" button follow. The form-hint stays directly under the
+    // default-agent dropdown so the "fall back to first-eligible"
+    // micro-copy explains both empty-default AND empty-rules states.
+    html += '<div class="field-row admin-pf-row connector-routing-default-row">';
+    html += '<label for="connector-routing-default">Default agent</label>';
+    html += '<select class="field-input field-select admin-pf-input admin-pf-select" ' +
+            'id="connector-routing-default" data-routing-default ' +
+            'data-testid="connector-routing-default">';
+    html += '<option value="">None</option>';
+    if (defaultAgent) {
+      html += '<option value="' + escapeAttr(defaultAgent) + '" selected>' +
+              window.App.escapeHtml(defaultAgent) + '</option>';
+    }
+    html += '</select>';
+    html += '</div>';
+    html += '<div class="field-row admin-pf-row">';
+    html += '<label></label>';
+    html += '<small class="form-hint" data-testid="connector-routing-default-hint">' +
+            'Fall back to first-eligible-alphabetical agent.' +
+            '</small>';
+    html += '</div>';
+
+    html += '<table class="connector-routing-table" data-testid="connector-routing-table">';
+    // M10 F7 L9 HAT2: leading drag-handle column (no header label).
+    // Trailing actions column now holds only the remove button.
+    html += '<thead class="connector-routing-thead' + headHiddenClass + '">' +
+            '<tr><th aria-label="Reorder"></th>' +
+            '<th>Scope</th><th>Match</th><th>Agent</th>' +
+            '<th aria-label="Actions"></th></tr></thead>';
+    html += '<tbody data-testid="connector-routing-tbody">';
+    for (var i = 0; i < rows.length; i++) {
+      html += _renderRoutingRow(rows[i], i);
+    }
+    html += '</tbody></table>';
+
+    html += '<button type="button" class="btn-outlined-primary kv-add-row-btn ' +
+            'connector-routing-add-row-btn" ' +
+            'data-testid="connector-routing-add-row-btn">+ Add rule</button>';
+
+    html += '</div>'; // .editor-section
+    return html;
+  }
+
+  // Populate every routing-section agent dropdown (rule rows + default
+  // agent) with the live attached-agent set. Called by
+  // ``fetchAttachedAgents``'s ``.then`` after ``renderAttachedAgentsList``
+  // so both surfaces reflect the same response. Preserves the prior
+  // selection by value if the agent is still attached; otherwise the
+  // dropdown drops to the placeholder (and the operator must re-select).
+  function populateRoutingAgentDropdowns(container, rows) {
+    var escapeAttr = window.App.escapeAttr;
+    var escapeHtml = window.App.escapeHtml;
+    var names = [];
+    for (var i = 0; i < (rows || []).length; i++) {
+      var n = String((rows[i] || {}).name || '');
+      if (n) names.push(n);
+    }
+    // Stable display order. Sorting here is for the dropdown — the
+    // routing engine (L4) does its own first-eligible-alphabetical
+    // sort downstream; this is purely a UI nicety.
+    names.sort();
+
+    function _buildOptions(currentValue, includeNone) {
+      var html = '';
+      if (includeNone) {
+        html += '<option value=""' + (currentValue === '' ? ' selected' : '') + '>None</option>';
+      } else {
+        html += '<option value=""' + (currentValue === '' ? ' selected' : '') + '>Select agent</option>';
+      }
+      var seen = false;
+      for (var j = 0; j < names.length; j++) {
+        if (names[j] === currentValue) seen = true;
+        html += '<option value="' + escapeAttr(names[j]) + '"' +
+                (names[j] === currentValue ? ' selected' : '') + '>' +
+                escapeHtml(names[j]) + '</option>';
+      }
+      // Stale-selection preservation: if the persisted value isn't in
+      // the attached set, keep it as a disabled option so the operator
+      // sees their original choice (and that it's no longer valid).
+      if (currentValue && !seen) {
+        html += '<option value="' + escapeAttr(currentValue) + '" selected disabled>' +
+                escapeHtml(currentValue) + ' (not attached)</option>';
+      }
+      return html;
+    }
+
+    var ruleAgentSelects = container.querySelectorAll('[data-routing-agent]');
+    for (var k = 0; k < ruleAgentSelects.length; k++) {
+      var sel = ruleAgentSelects[k];
+      sel.innerHTML = _buildOptions(sel.value || '', false);
+    }
+    var defaultSelect = container.querySelector('[data-routing-default]');
+    if (defaultSelect) {
+      defaultSelect.innerHTML = _buildOptions(defaultSelect.value || '', true);
+    }
+  }
+
+  function wireRoutingRulesEvents(container, account, checkDirty) {
+    var section = container.querySelector('.connector-routing-section');
+    if (!section) return;
+    var tbody = section.querySelector('tbody[data-testid="connector-routing-tbody"]');
+    var addBtn = section.querySelector('.connector-routing-add-row-btn');
+    var helpers = window.App.adminFormHelpers;
+
+    // Track the next-row index for newly-added rows. data-row attributes
+    // are presentation-only (the collector reads DOM order), but keeping
+    // them stable helps when debugging via the inspector.
+    var nextRoutingRowIdx = tbody ? tbody.querySelectorAll('tr.connector-routing-row').length : 0;
+
+    function _updateRoutingHeadVisibility() {
+      var thead = section.querySelector('.connector-routing-thead');
+      if (!thead) return;
+      var n = section.querySelectorAll('tbody tr.connector-routing-row').length;
+      thead.classList.toggle('is-hidden', n === 0);
+    }
+
+    // M10 F7 L9 HAT2: wire the chip-list editor for a row's match cell.
+    // ``adminFormHelpers.wireChipListEditor`` provides the same operator
+    // UX as the F6 allowlist editor (Enter/Tab/comma commit, click-×
+    // remove, Backspace-on-empty delete-last). The onChange callback
+    // re-triggers dirty-tracking on every chip add/remove.
+    function _wireRoutingMatchChiplist(rowEl) {
+      if (!helpers || !helpers.wireChipListEditor) return;
+      var chiplist = rowEl.querySelector('.connector-routing-match-chiplist');
+      if (!chiplist) return;
+      helpers.wireChipListEditor(chiplist, { onChange: checkDirty });
+    }
+
+    // ── HTML5 native drag-and-drop reordering (M10 F7 L9 HAT2) ──────
+    //
+    // The handle is the drag source (draggable=true); the row is the
+    // drop target. Drop semantics: dropping ON a target row inserts the
+    // dragged row BEFORE the target. Dropping past the last row (i.e.
+    // on the tbody itself, not a row) appends to the end. We track the
+    // dragged row via a closure variable; dataTransfer's `text/plain`
+    // is set defensively (some browsers require a non-empty payload to
+    // initiate a drag).
+    //
+    // Accessibility / keyboard fallback: NOT shipped in this HAT cycle.
+    // The leg spec gave a "pick pragmatically" out for keyboard
+    // reordering. Native drag-and-drop covers mouse; keyboard reorder
+    // can be re-added in a future HAT iteration if the operator flags
+    // it. The Add-rule flow + per-row Remove still work via keyboard.
+    var draggedRow = null;
+
+    function _wireRoutingDragHandle(rowEl) {
+      var handle = rowEl.querySelector('[data-routing-drag-handle]');
+      if (!handle) return;
+      handle.addEventListener('dragstart', function (e) {
+        draggedRow = rowEl;
+        rowEl.classList.add('is-dragging');
+        if (e.dataTransfer) {
+          // Setting text/plain to a non-empty string is required by
+          // some browsers (Firefox) to actually start the drag.
+          e.dataTransfer.setData('text/plain', rowEl.dataset.routingRuleIdx || '');
+          e.dataTransfer.effectAllowed = 'move';
+        }
+      });
+      handle.addEventListener('dragend', function () {
+        if (draggedRow) draggedRow.classList.remove('is-dragging');
+        draggedRow = null;
+      });
+    }
+
+    function _wireRoutingDropTarget(rowEl) {
+      rowEl.addEventListener('dragover', function (e) {
+        if (!draggedRow || draggedRow === rowEl) return;
+        e.preventDefault();
+        if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+      });
+      rowEl.addEventListener('drop', function (e) {
+        if (!draggedRow || draggedRow === rowEl) return;
+        e.preventDefault();
+        // Insert dragged BEFORE the target if dragged came from below,
+        // AFTER the target if dragged came from above. Compare DOM
+        // positions to pick the side.
+        var parent = rowEl.parentNode;
+        if (!parent) return;
+        var rows = Array.prototype.slice.call(
+          parent.querySelectorAll('tr.connector-routing-row')
+        );
+        var draggedIdx = rows.indexOf(draggedRow);
+        var targetIdx = rows.indexOf(rowEl);
+        if (draggedIdx === -1 || targetIdx === -1) return;
+        if (draggedIdx < targetIdx) {
+          // Dragged came from above target → insert after.
+          parent.insertBefore(draggedRow, rowEl.nextSibling);
+        } else {
+          // Dragged came from below target → insert before.
+          parent.insertBefore(draggedRow, rowEl);
+        }
+        checkDirty();
+      });
+    }
+
+    function _wireRoutingRow(rowEl) {
+      _wireRoutingMatchChiplist(rowEl);
+      _wireRoutingDragHandle(rowEl);
+      _wireRoutingDropTarget(rowEl);
+    }
+
+    // Initial wiring for pre-rendered rows.
+    if (tbody) {
+      var initialRows = tbody.querySelectorAll('tr.connector-routing-row');
+      for (var ir = 0; ir < initialRows.length; ir++) {
+        _wireRoutingRow(initialRows[ir]);
+      }
+    }
+
+    // Add rule.
+    if (addBtn) {
+      addBtn.addEventListener('click', function () {
+        if (!tbody) return;
+        var idx = nextRoutingRowIdx++;
+        var tmp = document.createElement('tbody');
+        tmp.innerHTML = _renderRoutingRow({ scope: '', match: [], agent: '' }, idx);
+        var newTr = tmp.querySelector('tr.connector-routing-row');
+        if (!newTr) return;
+        // Repopulate the new row's agent dropdown from the live
+        // attached-agents response (if it has resolved). The populator
+        // tolerates an empty rows list (places only the placeholder
+        // option), so it's safe to call even if the fetch is in-flight.
+        tbody.appendChild(newTr);
+        // Wire chip-list editor + drag-handle on the new row.
+        _wireRoutingRow(newTr);
+        // Re-run the populator with whatever agents are currently in
+        // the existing dropdowns. We synthesise the names list by
+        // reading options off ANY pre-existing dropdown so the
+        // newly-added row inherits the same set without re-fetching.
+        var anyExisting = section.querySelector('[data-routing-agent]:not([data-row="' + idx + '"])') ||
+                          section.querySelector('[data-routing-default]');
+        if (anyExisting) {
+          var seenNames = [];
+          for (var oi = 0; oi < anyExisting.options.length; oi++) {
+            var optV = anyExisting.options[oi].value;
+            if (optV) seenNames.push({ name: optV });
+          }
+          populateRoutingAgentDropdowns(section, seenNames);
+        }
+        _updateRoutingHeadVisibility();
+        checkDirty();
+        var newScope = newTr.querySelector('[data-routing-scope]');
+        if (newScope) newScope.focus();
+      });
+    }
+
+    // Delegated click handler: only delete (move-up / move-down replaced
+    // by drag-handle reordering).
+    if (tbody) {
+      tbody.addEventListener('click', function (e) {
+        var target = e.target;
+        if (!target) return;
+        var rowEl = target.closest && target.closest('tr.connector-routing-row');
+        if (!rowEl) return;
+        if (target.closest('.connector-routing-remove-row-btn')) {
+          rowEl.parentNode.removeChild(rowEl);
+          _updateRoutingHeadVisibility();
+          checkDirty();
+          return;
+        }
+      });
+      // Delegated change for scope/agent. (match dirty-tracking is wired
+      // per-row via the chip-list editor's onChange.)
+      tbody.addEventListener('change', function (e) {
+        var t = e.target;
+        if (!t) return;
+        if (t.hasAttribute && (t.hasAttribute('data-routing-scope') ||
+                               t.hasAttribute('data-routing-agent'))) {
+          checkDirty();
+        }
+      });
+    }
+
+    // Default-agent change.
+    var defaultSel = section.querySelector('[data-routing-default]');
+    if (defaultSel) {
+      defaultSel.addEventListener('change', checkDirty);
+    }
+
+    void account;
+  }
+
+  function collectRoutingFromContainer(container) {
+    var section = container.querySelector('.connector-routing-section');
+    if (!section) return null;
+
+    var rules = [];
+    var ruleRows = section.querySelectorAll('tr.connector-routing-row');
+    for (var i = 0; i < ruleRows.length; i++) {
+      var row = ruleRows[i];
+      var scopeEl = row.querySelector('[data-routing-scope]');
+      var matchEl = row.querySelector('[data-routing-match]');
+      var agentEl = row.querySelector('[data-routing-agent]');
+      var scope = scopeEl ? scopeEl.value : '';
+      var agent = agentEl ? agentEl.value : '';
+      // M10 F7 L9 HAT2: match is a chip-list. Read the committed chips
+      // (live input value is ignored — operator must commit via
+      // Enter/Tab/comma for a value to count). Reads chips in DOM
+      // order; the wireChipListEditor helper guarantees only committed
+      // chip elements carry values.
+      var matchValues = [];
+      if (matchEl) {
+        var chips = matchEl.querySelectorAll('.chip');
+        for (var c = 0; c < chips.length; c++) {
+          var chip = chips[c];
+          var label = '';
+          for (var n = 0; n < chip.childNodes.length; n++) {
+            var node = chip.childNodes[n];
+            if (node.nodeType === 3) {
+              label += node.nodeValue;
+            }
+          }
+          label = (label || '').trim();
+          if (label) matchValues.push(label);
+        }
+      }
+      // Skip incomplete rule rows (operator added a row but didn't fill
+      // every required cell). Per the L2 validator, every field is
+      // required; partial rows (no scope / no chips / no agent) are
+      // stubs and treated as "not saved".
+      if (!scope || matchValues.length === 0 || !agent) continue;
+      rules.push({ scope: scope, match: matchValues, agent: agent });
+    }
+
+    var defaultSel = section.querySelector('[data-routing-default]');
+    var defaultAgent = defaultSel ? defaultSel.value : '';
+    if (defaultAgent === '') defaultAgent = null;
+
+    return { rules: rules, default: defaultAgent };
+  }
+
   function renderAttachedAgentsSection() {
     var html = '';
     html += '<div class="editor-section connector-attached-agents-section">';
@@ -1381,7 +1980,7 @@
     listEl.innerHTML = html;
   }
 
-  function fetchAttachedAgents(container, accountId) {
+  function fetchAttachedAgents(container, accountId, checkDirty, recaptureSnapshot) {
     fetch('/api/connector-accounts/' + encodeURIComponent(accountId) + '/attached-agents')
       .then(function (resp) {
         if (!resp.ok) {
@@ -1400,6 +1999,19 @@
         if (rows == null) return;
         if (!Array.isArray(rows)) rows = [];
         renderAttachedAgentsList(container, rows);
+        // M10 F7 L7: populate routing-section agent dropdowns (rule
+        // rows + default-agent) once the attached-agents list is
+        // known. Re-snapshot AFTER population so the populated form
+        // is the dirty-tracking baseline (otherwise the operator's
+        // first edit would compare against an empty-options
+        // baseline that no longer exists in the DOM).
+        populateRoutingAgentDropdowns(container, rows);
+        if (typeof recaptureSnapshot === 'function') {
+          recaptureSnapshot();
+        }
+        if (typeof checkDirty === 'function') {
+          checkDirty();
+        }
       })
       .catch(function (err) {
         var listEl = container.querySelector('[data-testid="connector-attached-agents-list"]');
@@ -1658,4 +2270,8 @@
   }
 
   window.App.studio.renderConnectorAccountEditor = renderConnectorAccountEditor;
+  // M10 F7 L9 HAT: expose PANEL_IDS mirroring agent-editor's
+  // AGENT_PANEL_IDS for parity (no current consumer, but anchors the
+  // contract for future studio.js URL routing).
+  window.App.studio.CONNECTOR_ACCOUNT_PANEL_IDS = PANEL_IDS;
 })();

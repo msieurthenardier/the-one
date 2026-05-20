@@ -115,6 +115,12 @@ class MCPSource(BaseModel):
 # narrows to ``Literal[...]`` and the canonical
 # ``assert set(get_args(...)) == set(CONNECTOR_TYPES)`` invariant lands —
 # paralleling ``LLMProviderConfig``'s assert above.
+
+# Hoisted module-level so the F7 L7 Studio editor (and any future routing UI)
+# can import the enum without going through the validator.
+_VALID_ROUTING_SCOPES = frozenset({"channel", "thread", "dm", "peer"})
+
+
 class ConnectorAccount(BaseModel):
     """A connector account — operator-registered third-party-platform identity.
 
@@ -188,14 +194,15 @@ class ConnectorAccount(BaseModel):
     @field_validator("config", mode="after")
     @classmethod
     def _validate_config_reserved_keys(cls, value: dict[str, Any]) -> dict[str, Any]:
-        """Enforce shape on the two F6-reserved top-level keys in ``config``.
+        """Enforce shape on the three reserved top-level keys in ``config``.
 
-        The reserved keys are ``"pairing"`` (DM-pairing state) and
-        ``"allowlist"`` (account-scope peer/channel admission). Each is
-        OPTIONAL — when absent, the resolver subsystem defaults to permit
-        (see ``_default_permit`` at ``the_one/connectors/base.py``). All
-        other top-level keys in ``config`` pass through unchanged — the F1
-        promise that ``config`` is schema-loose remains intact.
+        The reserved keys are ``"pairing"`` (DM-pairing state),
+        ``"allowlist"`` (account-scope peer/channel admission), and
+        ``"routing"`` (M10 F7: account-scope per-channel agent selection).
+        Each is OPTIONAL — when absent, the resolver subsystem defaults to
+        permit (see ``_default_permit`` at ``the_one/connectors/base.py``).
+        All other top-level keys in ``config`` pass through unchanged — the
+        F1 promise that ``config`` is schema-loose remains intact.
 
         Shape contracts (raise ``ValueError`` on violation):
 
@@ -226,10 +233,20 @@ class ConnectorAccount(BaseModel):
           outbound checks interpret the lists. Shape unchanged from
           pre-redesign — existing rows round-trip verbatim; only the
           downstream interpretation flipped.
+        - ``config["routing"] = {"rules": list[RoutingRule], "default": str | None}``
+          where ``RoutingRule = {"scope": Literal["channel","thread","dm","peer"], "match": list[str], "agent": str}``.
+          ``match`` is a non-empty list of non-empty strings — set-membership /
+          OR semantics: the rule fires if ANY listed value matches the envelope's
+          corresponding field.
+          The rule list is operator-declared order; the routing engine in F7 L4
+          walks it top-to-bottom and the first match wins (Specificity-then-order
+          precedence per F7 design decisions). Empty rule list is permitted.
+          ``default`` is the per-account fallback agent slug; ``None`` means
+          "use first-eligible-attached-agent at routing-engine time."
 
         ``config["pairing"] = None`` (JSON ``null``) is treated as absent
         — the operator effectively un-pairs the account. Same for
-        ``config["allowlist"] = None``.
+        ``config["allowlist"] = None`` and ``config["routing"] = None``.
 
         Pydantic v2 ``@field_validator`` runs on both
         ``ConnectorAccount(**kwargs)`` direct construction AND
@@ -313,6 +330,84 @@ class ConnectorAccount(BaseModel):
                         raise ValueError(
                             f"config['allowlist'][{key!r}][{i}] must be a string"
                         )
+
+        routing = value.get("routing")
+        if routing is not None:
+            if not isinstance(routing, dict):
+                raise ValueError(
+                    "config['routing'] must be a dict with keys "
+                    "{'rules', 'default'}"
+                )
+            extra = set(routing.keys()) - {"rules", "default"}
+            if extra:
+                raise ValueError(
+                    f"config['routing'] has unexpected keys: {sorted(extra)}"
+                )
+            missing = {"rules", "default"} - set(routing.keys())
+            if missing:
+                raise ValueError(
+                    f"config['routing'] is missing required keys: {sorted(missing)}"
+                )
+            rules = routing["rules"]
+            if not isinstance(rules, list):
+                raise ValueError(
+                    "config['routing']['rules'] must be a list"
+                )
+            for i, rule in enumerate(rules):
+                if not isinstance(rule, dict):
+                    raise ValueError(
+                        f"config['routing']['rules'][{i}] must be a dict with keys "
+                        "{'scope', 'match', 'agent'}"
+                    )
+                extra = set(rule.keys()) - {"scope", "match", "agent"}
+                if extra:
+                    raise ValueError(
+                        f"config['routing']['rules'][{i}] has unexpected keys: "
+                        f"{sorted(extra)}"
+                    )
+                missing = {"scope", "match", "agent"} - set(rule.keys())
+                if missing:
+                    raise ValueError(
+                        f"config['routing']['rules'][{i}] is missing required keys: "
+                        f"{sorted(missing)}"
+                    )
+                scope = rule["scope"]
+                if not isinstance(scope, str) or scope not in _VALID_ROUTING_SCOPES:
+                    raise ValueError(
+                        f"config['routing']['rules'][{i}]['scope'] must be one of "
+                        f"{sorted(_VALID_ROUTING_SCOPES)}; got {scope!r}"
+                    )
+                match = rule["match"]
+                if isinstance(match, str):
+                    # Legacy single-value form (pre-HAT2). Coerce in-place
+                    # to the multi-value list form. Subsequent writes
+                    # round-trip the coerced shape, so each row converges
+                    # to the new form on next save. No SQL migration needed.
+                    match = [match]
+                    rule["match"] = match
+                if not isinstance(match, list) or not match:
+                    raise ValueError(
+                        f"config['routing']['rules'][{i}]['match'] must be a "
+                        "non-empty list of non-empty strings"
+                    )
+                for j, match_value in enumerate(match):
+                    if not isinstance(match_value, str) or not match_value:
+                        raise ValueError(
+                            f"config['routing']['rules'][{i}]['match'][{j}] "
+                            "must be a non-empty string"
+                        )
+                agent = rule["agent"]
+                if not isinstance(agent, str) or not agent:
+                    raise ValueError(
+                        f"config['routing']['rules'][{i}]['agent'] must be a "
+                        "non-empty string"
+                    )
+            default = routing["default"]
+            if default is not None and (not isinstance(default, str) or not default):
+                raise ValueError(
+                    "config['routing']['default'] must be either None or a "
+                    "non-empty string"
+                )
 
         return value
 

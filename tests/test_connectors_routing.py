@@ -1,0 +1,790 @@
+"""Routing-engine tests for F7 L4's ``connectors/_routing.py``.
+
+Pins the 5-step algorithm:
+
+1. Override from ``session_metadata["routing_override"]``.
+2. Rule-walk against ``config["routing"]["rules"]`` in declared order.
+3. Per-account default agent.
+4. First-eligible-alphabetical attached agent.
+5. No-eligible deny.
+
+Plus scope-match semantics (channel / thread / dm / peer); ACL
+admission via :func:`admits_inbound`; ``RoutingDecision`` dataclass
+surface (frozen, slotted, equal, hashable, canonical-import
+identity).
+
+Inline minimal fixtures — mirrors ``tests/test_connectors_acl.py``.
+"""
+
+from __future__ import annotations
+
+from dataclasses import FrozenInstanceError
+
+import pytest
+
+from the_one.agent.config import AgentConfig
+from the_one.connectors._routing import RoutingDecision, resolve_routing
+from the_one.connectors.base import InboundEnvelope
+from the_one.db.models import ConnectorAccount
+
+
+def _account(
+    *,
+    account_id: str = "acct-test",
+    allowlist: dict | None = None,
+    routing: dict | None = None,
+) -> ConnectorAccount:
+    """Build a minimal ConnectorAccount with optional allowlist/routing."""
+    config: dict = {}
+    if allowlist is not None:
+        config["allowlist"] = allowlist
+    if routing is not None:
+        config["routing"] = routing
+    return ConnectorAccount(
+        id=account_id,
+        name="Test Account",
+        type="stub",
+        config=config,
+        secrets={},
+    )
+
+
+def _envelope(
+    *,
+    channel_id: str = "ch-1",
+    thread_id: str | None = None,
+    peer_id: str = "peer-1",
+    account_id: str = "acct-test",
+) -> InboundEnvelope:
+    return InboundEnvelope(
+        platform="stub",
+        account_id=account_id,
+        channel_id=channel_id,
+        thread_id=thread_id,
+        peer_id=peer_id,
+        peer_name="Alice",
+        text="hello",
+        raw={},
+    )
+
+
+def _agent(
+    name: str,
+    *,
+    connector_account_ids: list[str] | None = None,
+    connector_acls: dict | None = None,
+) -> AgentConfig:
+    return AgentConfig(
+        name=name,
+        provider_config_id="mock-provider",
+        llm_model="mock",
+        connector_account_ids=(
+            connector_account_ids
+            if connector_account_ids is not None
+            else ["acct-test"]
+        ),
+        connector_acls=connector_acls,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────
+# RoutingDecision dataclass surface
+# ─────────────────────────────────────────────────────────────────
+
+
+class TestRoutingDecision:
+    """Pin ``RoutingDecision``'s dataclass surface: frozen, slotted,
+    equal, hashable, canonical-import identity."""
+
+    def test_construct_with_all_fields(self) -> None:
+        d = RoutingDecision(
+            agent="alice",
+            rule_index=0,
+            scope="channel",
+            match="C1",
+            reason="rule-match",
+        )
+        assert d.agent == "alice"
+        assert d.rule_index == 0
+        assert d.scope == "channel"
+        assert d.match == "C1"
+        assert d.reason == "rule-match"
+
+    def test_frozen_mutation_raises(self) -> None:
+        d = RoutingDecision(
+            agent="alice",
+            rule_index=0,
+            scope="channel",
+            match="C1",
+            reason="rule-match",
+        )
+        with pytest.raises(FrozenInstanceError):
+            d.agent = "bob"  # type: ignore[misc]
+
+    def test_equality_and_hashability(self) -> None:
+        d1 = RoutingDecision(
+            agent="alice",
+            rule_index=0,
+            scope="channel",
+            match="C1",
+            reason="rule-match",
+        )
+        d2 = RoutingDecision(
+            agent="alice",
+            rule_index=0,
+            scope="channel",
+            match="C1",
+            reason="rule-match",
+        )
+        d3 = RoutingDecision(
+            agent="bob",
+            rule_index=0,
+            scope="channel",
+            match="C1",
+            reason="rule-match",
+        )
+        assert d1 == d2
+        # Hashable (frozen + slots + scalar fields).
+        assert hash(d1) == hash(d2)
+        assert {d1, d2, d3} == {d1, d3}
+
+    def test_slots_blocks_attribute_addition(self) -> None:
+        """``slots=True`` means no ``__dict__`` — confirms the dataclass
+        is truly slotted (mirrors the type-level surface guarantee).
+        Combined with ``frozen=True`` setting any attribute (including
+        an unlisted one) raises — exact exception type is interpreter-
+        defined (``FrozenInstanceError`` / ``TypeError`` /
+        ``AttributeError`` per implementation), so assert via the
+        slot-level introspection instead."""
+        d = RoutingDecision(
+            agent="alice",
+            rule_index=0,
+            scope="channel",
+            match="C1",
+            reason="rule-match",
+        )
+        assert not hasattr(d, "__dict__")
+        assert RoutingDecision.__slots__ == (
+            "agent",
+            "rule_index",
+            "scope",
+            "match",
+            "reason",
+        )
+
+    def test_canonical_import_identity(self) -> None:
+        """``RoutingDecision.__module__`` pins the canonical import
+        path — mirrors ``_default_permit``'s assertion in
+        ``test_connectors_resolver.py``."""
+        assert RoutingDecision.__module__ == "the_one.connectors._routing"
+
+
+# ─────────────────────────────────────────────────────────────────
+# resolve_routing — 5-step algorithm matrix
+# ─────────────────────────────────────────────────────────────────
+
+
+class TestResolveRouting:
+    """Pin the 5-step algorithm matrix + scope-match semantics."""
+
+    # ── Step 1 — Override ─────────────────────────────────────────
+
+    def test_step1_override_with_eligible_agent_short_circuits(self) -> None:
+        """Override pointing to an eligible agent returns immediately —
+        no rule-walk, no default consultation."""
+        alice = _agent("alice")
+        bob = _agent("bob")
+        # Add a rule that would route to bob if we fell through.
+        account = _account(
+            routing={
+                "rules": [
+                    {"scope": "channel", "match": ["ch-1"], "agent": "bob"},
+                ],
+                "default": None,
+            }
+        )
+        decision = resolve_routing(
+            account,
+            _envelope(),
+            [alice, bob],
+            {"routing_override": "alice"},
+        )
+        assert decision == RoutingDecision(
+            agent="alice",
+            rule_index=None,
+            scope="override",
+            match=None,
+            reason="override",
+        )
+
+    def test_step1_override_to_ineligible_agent_falls_through_to_rule_walk(
+        self,
+    ) -> None:
+        """Override to an agent NOT in eligible_attached_agents → fall
+        through; the rule-walk's first match wins."""
+        alice = _agent("alice")
+        bob = _agent("bob")
+        account = _account(
+            routing={
+                "rules": [
+                    {"scope": "channel", "match": ["ch-1"], "agent": "bob"},
+                ],
+                "default": None,
+            }
+        )
+        decision = resolve_routing(
+            account,
+            _envelope(),
+            [alice, bob],
+            # "charlie" not in eligible list → override ignored.
+            {"routing_override": "charlie"},
+        )
+        assert decision.agent == "bob"
+        assert decision.reason == "rule-match"
+        assert decision.rule_index == 0
+        assert decision.scope == "channel"
+        assert decision.match == "ch-1"
+
+    def test_step1_override_to_acl_denied_agent_falls_through(self) -> None:
+        """Override pointing to an attached agent whose per-agent ACL
+        denies → fall through."""
+        # alice is attached but per-agent ACL denies on the peers axis.
+        alice = _agent(
+            "alice",
+            connector_acls={"acct-test": {"peers": [], "channels": None}},
+        )
+        bob = _agent("bob")
+        account = _account(
+            routing={
+                "rules": [
+                    {"scope": "peer", "match": ["peer-1"], "agent": "bob"},
+                ],
+                "default": None,
+            }
+        )
+        decision = resolve_routing(
+            account,
+            _envelope(),
+            [alice, bob],
+            {"routing_override": "alice"},
+        )
+        assert decision.agent == "bob"
+        assert decision.reason == "rule-match"
+
+    def test_step1_override_empty_string_falls_through(self) -> None:
+        """Override is ``""`` → fall through (no agent named ``""``)."""
+        alice = _agent("alice")
+        decision = resolve_routing(
+            _account(),
+            _envelope(),
+            [alice],
+            {"routing_override": ""},
+        )
+        # Falls through to step 4 (no routing config; alice is eligible).
+        assert decision.agent == "alice"
+        assert decision.reason == "first-eligible"
+
+    def test_step1_session_metadata_none_falls_through(self) -> None:
+        """``session_metadata=None`` → step 1 skipped via
+        ``(session_metadata or {})``; falls through to step 4."""
+        alice = _agent("alice")
+        decision = resolve_routing(
+            _account(),
+            _envelope(),
+            [alice],
+            None,
+        )
+        assert decision.agent == "alice"
+        assert decision.reason == "first-eligible"
+
+    def test_step1_override_non_string_falls_through(self) -> None:
+        """Defensive: ``routing_override`` is not a string (e.g. ``42``
+        from a malformed write) → ``isinstance`` guard skips step 1."""
+        alice = _agent("alice")
+        decision = resolve_routing(
+            _account(),
+            _envelope(),
+            [alice],
+            {"routing_override": 42},
+        )
+        assert decision.agent == "alice"
+        assert decision.reason == "first-eligible"
+
+    # ── Step 2 — Rule-walk: scope-match semantics ─────────────────
+
+    def test_step2_channel_rule_matches(self) -> None:
+        """Single channel rule, envelope's channel_id matches → rule
+        wins; rule_index pinned."""
+        alice = _agent("alice")
+        account = _account(
+            routing={
+                "rules": [
+                    {"scope": "channel", "match": ["ch-1"], "agent": "alice"},
+                ],
+                "default": None,
+            }
+        )
+        decision = resolve_routing(account, _envelope(), [alice], None)
+        assert decision == RoutingDecision(
+            agent="alice",
+            rule_index=0,
+            scope="channel",
+            match="ch-1",
+            reason="rule-match",
+        )
+
+    def test_step2_thread_rule_matches(self) -> None:
+        """Single thread rule, envelope's thread_id matches → rule wins."""
+        alice = _agent("alice")
+        account = _account(
+            routing={
+                "rules": [
+                    {"scope": "thread", "match": ["T1"], "agent": "alice"},
+                ],
+                "default": None,
+            }
+        )
+        decision = resolve_routing(
+            account,
+            _envelope(thread_id="T1"),
+            [alice],
+            None,
+        )
+        assert decision.agent == "alice"
+        assert decision.reason == "rule-match"
+        assert decision.scope == "thread"
+        assert decision.match == "T1"
+        assert decision.rule_index == 0
+
+    def test_step2_thread_rule_skipped_for_non_thread_envelope(self) -> None:
+        """``envelope.thread_id is None`` → thread rule is skipped;
+        falls through to step 4."""
+        alice = _agent("alice")
+        account = _account(
+            routing={
+                "rules": [
+                    {"scope": "thread", "match": ["T1"], "agent": "alice"},
+                ],
+                "default": None,
+            }
+        )
+        decision = resolve_routing(
+            account,
+            _envelope(thread_id=None),
+            [alice],
+            None,
+        )
+        assert decision.reason == "first-eligible"
+        assert decision.agent == "alice"
+
+    def test_step2_dm_rule_matches_top_level_conversation(self) -> None:
+        """``envelope.thread_id is None AND peer_id == match`` → dm
+        rule wins."""
+        alice = _agent("alice")
+        account = _account(
+            routing={
+                "rules": [
+                    {"scope": "dm", "match": ["peer-1"], "agent": "alice"},
+                ],
+                "default": None,
+            }
+        )
+        decision = resolve_routing(
+            account,
+            _envelope(thread_id=None, peer_id="peer-1"),
+            [alice],
+            None,
+        )
+        assert decision.agent == "alice"
+        assert decision.reason == "rule-match"
+        assert decision.scope == "dm"
+        assert decision.match == "peer-1"
+
+    def test_step2_dm_rule_skipped_for_thread_envelope(self) -> None:
+        """``envelope.thread_id is not None`` → dm rule is skipped
+        even when peer_id matches; falls through."""
+        alice = _agent("alice")
+        account = _account(
+            routing={
+                "rules": [
+                    {"scope": "dm", "match": ["peer-1"], "agent": "alice"},
+                ],
+                "default": None,
+            }
+        )
+        decision = resolve_routing(
+            account,
+            _envelope(thread_id="T1", peer_id="peer-1"),
+            [alice],
+            None,
+        )
+        assert decision.reason == "first-eligible"
+        assert decision.agent == "alice"
+
+    @pytest.mark.parametrize(
+        "thread_id",
+        [None, "T1"],
+        ids=["non_thread_envelope", "thread_envelope"],
+    )
+    def test_step2_peer_rule_matches_regardless_of_channel(
+        self, thread_id: str | None
+    ) -> None:
+        """Peer rule matches on ``peer_id`` regardless of
+        channel_id / thread_id. Parameterized to pin the "regardless of
+        channel_id/thread_id" claim explicitly across both shapes."""
+        alice = _agent("alice")
+        account = _account(
+            routing={
+                "rules": [
+                    {"scope": "peer", "match": ["peer-1"], "agent": "alice"},
+                ],
+                "default": None,
+            }
+        )
+        decision = resolve_routing(
+            account,
+            _envelope(
+                channel_id="ch-different",
+                thread_id=thread_id,
+                peer_id="peer-1",
+            ),
+            [alice],
+            None,
+        )
+        assert decision.agent == "alice"
+        assert decision.reason == "rule-match"
+        assert decision.scope == "peer"
+        assert decision.match == "peer-1"
+
+    def test_step2_channel_rule_matches_thread_message_in_matched_channel(
+        self,
+    ) -> None:
+        """A thread message inside a matched channel still matches a
+        channel rule UNLESS an earlier thread rule won. Pins the
+        docstring claim."""
+        alice = _agent("alice")
+        account = _account(
+            routing={
+                "rules": [
+                    {"scope": "channel", "match": ["C1"], "agent": "alice"},
+                ],
+                "default": None,
+            }
+        )
+        decision = resolve_routing(
+            account,
+            _envelope(channel_id="C1", thread_id="T1"),
+            [alice],
+            None,
+        )
+        assert decision.agent == "alice"
+        assert decision.reason == "rule-match"
+        assert decision.scope == "channel"
+        assert decision.match == "C1"
+
+    def test_step2_unknown_scope_rule_skipped(self) -> None:
+        """Defensive: an unknown-scope rule (would be rejected by the
+        L2 validator at write time, but constructible via
+        ``model_construct``) is skipped by ``_scope_matches``; falls
+        through. Pins the unknown-scope branch."""
+        alice = _agent("alice")
+        # Bypass the L2 validator with model_construct.
+        account = ConnectorAccount.model_construct(
+            id="acct-test",
+            name="Test Account",
+            type="stub",
+            config={
+                "routing": {
+                    "rules": [
+                        {"scope": "weird", "match": ["x"], "agent": "alice"},
+                    ],
+                    "default": None,
+                }
+            },
+            secrets={},
+        )
+        decision = resolve_routing(account, _envelope(), [alice], None)
+        # Falls through past step 2 to step 4 (no default).
+        assert decision.agent == "alice"
+        assert decision.reason == "first-eligible"
+
+    def test_step2_multi_value_match_fires_for_each_listed_value(self) -> None:
+        """A rule with ``match: ["C1", "C2"]`` fires for envelopes whose
+        ``channel_id`` is EITHER ``"C1"`` OR ``"C2"`` — the per-rule
+        match list has set-membership / OR semantics. ``decision.match``
+        records the SINGLE envelope value that hit, not the full list."""
+        alice = _agent("alice")
+        account = _account(
+            routing={
+                "rules": [
+                    {
+                        "scope": "channel",
+                        "match": ["C1", "C2"],
+                        "agent": "alice",
+                    },
+                ],
+                "default": None,
+            }
+        )
+        # Hits via C1.
+        decision_c1 = resolve_routing(
+            account,
+            _envelope(channel_id="C1"),
+            [alice],
+            None,
+        )
+        assert decision_c1.agent == "alice"
+        assert decision_c1.reason == "rule-match"
+        assert decision_c1.scope == "channel"
+        assert decision_c1.match == "C1"
+        # Hits via C2 — same rule, different envelope value.
+        decision_c2 = resolve_routing(
+            account,
+            _envelope(channel_id="C2"),
+            [alice],
+            None,
+        )
+        assert decision_c2.agent == "alice"
+        assert decision_c2.reason == "rule-match"
+        assert decision_c2.scope == "channel"
+        assert decision_c2.match == "C2"
+        # Misses both values → falls through to first-eligible.
+        decision_miss = resolve_routing(
+            account,
+            _envelope(channel_id="C3"),
+            [alice],
+            None,
+        )
+        assert decision_miss.reason == "first-eligible"
+
+    def test_step2_first_match_wins_in_declared_order(self) -> None:
+        """Two channel rules both could match; the FIRST declared wins;
+        rule_index = 0."""
+        alice = _agent("alice")
+        bob = _agent("bob")
+        account = _account(
+            routing={
+                "rules": [
+                    {"scope": "channel", "match": ["ch-1"], "agent": "alice"},
+                    {"scope": "channel", "match": ["ch-1"], "agent": "bob"},
+                ],
+                "default": None,
+            }
+        )
+        decision = resolve_routing(account, _envelope(), [alice, bob], None)
+        assert decision.agent == "alice"
+        assert decision.rule_index == 0
+        assert decision.reason == "rule-match"
+
+    def test_step2_rule_with_ineligible_agent_skipped(self) -> None:
+        """Rule's ``agent`` is not in eligible_attached_agents → rule
+        skipped; next rule wins."""
+        alice = _agent("alice")
+        bob = _agent("bob")
+        account = _account(
+            routing={
+                "rules": [
+                    # "charlie" is not attached → skipped.
+                    {"scope": "channel", "match": ["ch-1"], "agent": "charlie"},
+                    {"scope": "channel", "match": ["ch-1"], "agent": "bob"},
+                ],
+                "default": None,
+            }
+        )
+        decision = resolve_routing(account, _envelope(), [alice, bob], None)
+        assert decision.agent == "bob"
+        assert decision.rule_index == 1
+        assert decision.reason == "rule-match"
+
+    def test_step2_rule_with_acl_denied_agent_skipped(self) -> None:
+        """Rule's target agent is attached but ACL denies → rule
+        skipped; next rule wins."""
+        # alice attached but per-agent ACL denies on peers axis.
+        alice = _agent(
+            "alice",
+            connector_acls={"acct-test": {"peers": [], "channels": None}},
+        )
+        bob = _agent("bob")
+        account = _account(
+            routing={
+                "rules": [
+                    {"scope": "channel", "match": ["ch-1"], "agent": "alice"},
+                    {"scope": "channel", "match": ["ch-1"], "agent": "bob"},
+                ],
+                "default": None,
+            }
+        )
+        decision = resolve_routing(account, _envelope(), [alice, bob], None)
+        assert decision.agent == "bob"
+        assert decision.rule_index == 1
+        assert decision.reason == "rule-match"
+
+    # ── Step 3 — Per-account default ──────────────────────────────
+
+    def test_step3_default_returns_when_no_rules_match(self) -> None:
+        """``config["routing"]["default"] = "alice"``; alice is
+        eligible + ACL permits → default wins."""
+        alice = _agent("alice")
+        bob = _agent("bob")
+        account = _account(
+            routing={
+                # Rule won't match this envelope.
+                "rules": [
+                    {"scope": "channel", "match": ["ch-different"], "agent": "bob"},
+                ],
+                "default": "alice",
+            }
+        )
+        decision = resolve_routing(account, _envelope(), [alice, bob], None)
+        assert decision == RoutingDecision(
+            agent="alice",
+            rule_index=None,
+            scope="default",
+            match=None,
+            reason="default",
+        )
+
+    def test_step3_default_ineligible_falls_through_to_first_eligible(
+        self,
+    ) -> None:
+        """Default points to an unattached agent → falls through to
+        step 4."""
+        alice = _agent("alice")
+        account = _account(
+            routing={
+                "rules": [],
+                "default": "charlie",  # unattached
+            }
+        )
+        decision = resolve_routing(account, _envelope(), [alice], None)
+        assert decision.agent == "alice"
+        assert decision.reason == "first-eligible"
+
+    def test_step3_default_acl_denied_falls_through(self) -> None:
+        """Default is attached but ACL denies → falls through to step 4."""
+        # alice's default would match if not for ACL deny.
+        alice = _agent(
+            "alice",
+            connector_acls={"acct-test": {"peers": [], "channels": None}},
+        )
+        bob = _agent("bob")
+        account = _account(
+            routing={
+                "rules": [],
+                "default": "alice",
+            }
+        )
+        decision = resolve_routing(account, _envelope(), [alice, bob], None)
+        # alice denied; falls through to first-eligible (which skips alice
+        # and lands bob).
+        assert decision.agent == "bob"
+        assert decision.reason == "first-eligible"
+
+    def test_step3_default_none_falls_through(self) -> None:
+        """``config["routing"]["default"] is None`` → falls through."""
+        alice = _agent("alice")
+        account = _account(
+            routing={
+                "rules": [],
+                "default": None,
+            }
+        )
+        decision = resolve_routing(account, _envelope(), [alice], None)
+        assert decision.agent == "alice"
+        assert decision.reason == "first-eligible"
+
+    # ── Step 4 — First-eligible-alphabetical ──────────────────────
+
+    def test_step4_first_eligible_alphabetical(self) -> None:
+        """Eligible list ``[alpha, beta, charlie]``; all ACL-permit →
+        alpha returned with reason ``"first-eligible"``."""
+        alpha = _agent("alpha")
+        beta = _agent("beta")
+        charlie = _agent("charlie")
+        decision = resolve_routing(
+            _account(),
+            _envelope(),
+            [alpha, beta, charlie],
+            None,
+        )
+        assert decision == RoutingDecision(
+            agent="alpha",
+            rule_index=None,
+            scope="first-eligible",
+            match=None,
+            reason="first-eligible",
+        )
+
+    def test_step4_skips_acl_denied_agents(self) -> None:
+        """Eligible list ``[alpha, beta, charlie]``; alpha denied; beta
+        permitted → beta returned."""
+        alpha = _agent(
+            "alpha",
+            connector_acls={"acct-test": {"peers": [], "channels": None}},
+        )
+        beta = _agent("beta")
+        charlie = _agent("charlie")
+        decision = resolve_routing(
+            _account(),
+            _envelope(),
+            [alpha, beta, charlie],
+            None,
+        )
+        assert decision.agent == "beta"
+        assert decision.reason == "first-eligible"
+
+    # ── Step 5 — No-eligible ──────────────────────────────────────
+
+    def test_step5_no_eligible_when_all_denied(self) -> None:
+        """Eligible list ``[alpha]``; ACL denies → ``agent=None``;
+        reason ``"no-eligible-agent"``."""
+        alpha = _agent(
+            "alpha",
+            connector_acls={"acct-test": {"peers": [], "channels": None}},
+        )
+        decision = resolve_routing(_account(), _envelope(), [alpha], None)
+        assert decision == RoutingDecision(
+            agent=None,
+            rule_index=None,
+            scope="no-eligible-agent",
+            match=None,
+            reason="no-eligible-agent",
+        )
+
+    def test_step5_no_eligible_when_list_empty(self) -> None:
+        """Eligible list ``[]`` → no-eligible."""
+        decision = resolve_routing(_account(), _envelope(), [], None)
+        assert decision.agent is None
+        assert decision.reason == "no-eligible-agent"
+        assert decision.scope == "no-eligible-agent"
+
+    # ── Fall-through composition cases ────────────────────────────
+
+    def test_no_routing_config_falls_through_to_step4(self) -> None:
+        """``account.config = {}`` (no routing key) → bypass steps 2-3
+        → step 4 first-eligible-alphabetical."""
+        alpha = _agent("alpha")
+        beta = _agent("beta")
+        decision = resolve_routing(
+            _account(),
+            _envelope(),
+            [alpha, beta],
+            None,
+        )
+        assert decision.agent == "alpha"
+        assert decision.reason == "first-eligible"
+
+    def test_routing_rules_empty_list_falls_through_to_default(self) -> None:
+        """``config["routing"] = {"rules": [], "default": "alice"}`` →
+        step 2 trivially yields nothing → step 3 default."""
+        alice = _agent("alice")
+        bob = _agent("bob")
+        account = _account(
+            routing={
+                "rules": [],
+                "default": "alice",
+            }
+        )
+        decision = resolve_routing(account, _envelope(), [alice, bob], None)
+        assert decision.agent == "alice"
+        assert decision.reason == "default"

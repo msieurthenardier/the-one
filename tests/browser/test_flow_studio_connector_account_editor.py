@@ -37,6 +37,17 @@ def _list_accounts(base_url: str) -> list[dict]:
     return r.json()
 
 
+def _activate_access_and_routing_tab(page: Page) -> None:
+    """M10 F7 L9 HAT: edit-mode renders a two-tab layout. The
+    Lifecycle, Allowlist, and Routing rules sections live behind the
+    "Access and Routing" tab. Tests that need to interact with those
+    sections must click the tab first so the panel is visible /
+    actionable. Create mode renders flat (no tabs), so this helper is
+    only needed in edit-mode flows.
+    """
+    page.locator('[data-testid="tab-access-and-routing"]').click()
+
+
 # ── Tests ────────────────────────────────────────────────────────────────
 
 
@@ -73,9 +84,14 @@ def test_edit_form_renders_all_sections(app_clean: str, page: Page) -> None:
     # In edit-mode the type field renders as a read-only input.
     expect(page.locator('[data-testid="connector-account-type-readonly"]')).to_be_visible()
     expect(page.locator('[data-testid="connector-account-secrets-table"]')).to_be_attached()
-    expect(page.locator('[data-testid="connector-account-idle-timeout-input"]')).to_be_visible()
     expect(page.locator('[data-testid="connector-test-connection-btn"]')).to_be_visible()
     expect(page.locator('[data-testid="delete-connector-account-btn"]')).to_be_visible()
+    # M10 F7 L9 HAT: Lifecycle lives in the "Access and Routing" tab.
+    # Attached check (it's in the DOM regardless of which tab is
+    # active); visibility requires activating the tab.
+    expect(page.locator('[data-testid="connector-account-idle-timeout-input"]')).to_be_attached()
+    _activate_access_and_routing_tab(page)
+    expect(page.locator('[data-testid="connector-account-idle-timeout-input"]')).to_be_visible()
 
 
 @pytest.mark.browser
@@ -216,6 +232,8 @@ def test_edit_idle_timeout_set_to_value(app_clean: str, page: Page) -> None:
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
     expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(timeout=8000)
 
+    # M10 F7 L9 HAT: Lifecycle is behind the Access and Routing tab.
+    _activate_access_and_routing_tab(page)
     page.locator('[data-testid="connector-account-idle-timeout-input"]').select_option("300")
     page.locator('[data-testid="save-connector-account-btn"]').click()
     expect(page.locator(".app-flash")).to_be_visible(timeout=8000)
@@ -243,6 +261,8 @@ def test_edit_idle_timeout_custom_value_renders_as_disabled_option(
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
     expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(timeout=8000)
 
+    # M10 F7 L9 HAT: Lifecycle lives in the Access and Routing tab.
+    _activate_access_and_routing_tab(page)
     idle_input = page.locator('[data-testid="connector-account-idle-timeout-input"]')
     # The currently-selected option value is the persisted "120" carried by
     # the synthesized custom option (selected attribute is set in the HTML).
@@ -260,6 +280,8 @@ def test_edit_idle_timeout_default_persists_null(app_clean: str, page: Page) -> 
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
     expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(timeout=8000)
 
+    # M10 F7 L9 HAT: Lifecycle lives in the Access and Routing tab.
+    _activate_access_and_routing_tab(page)
     idle_input = page.locator('[data-testid="connector-account-idle-timeout-input"]')
     expect(idle_input).to_have_value("86400")
     # Select the "Use default" sentinel (empty value → null payload).
@@ -287,6 +309,8 @@ def test_edit_continuation_never_persists_null(app_clean: str, page: Page) -> No
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
     expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(timeout=8000)
 
+    # M10 F7 L9 HAT: Lifecycle lives in the Access and Routing tab.
+    _activate_access_and_routing_tab(page)
     cont_input = page.locator('[data-testid="connector-account-continuation-input"]')
     expect(cont_input).to_have_value("3600")
     cont_input.select_option("__NEVER__")
@@ -329,6 +353,9 @@ def test_edit_session_continuation_round_trip(app_clean: str, page: Page) -> Non
     account_id = seed_connector_account(app_clean, name="Continuation Bot")
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
     expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(timeout=8000)
+
+    # M10 F7 L9 HAT: Lifecycle lives in the Access and Routing tab.
+    _activate_access_and_routing_tab(page)
 
     # Both Lifecycle inputs present and visually adjacent.
     expect(page.locator('[data-testid="connector-account-idle-timeout-input"]')).to_be_visible()

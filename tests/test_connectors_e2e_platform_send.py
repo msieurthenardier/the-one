@@ -142,7 +142,7 @@ async def test_e2e_enabled_state_platform_send_delivers(
     )
 
     envelope = _envelope(channel_id="c1")
-    await dispatch_inbound("agent-inbound", "acct-test", envelope, factory=factory)
+    await dispatch_inbound("acct-test", envelope, factory=factory)
 
     # Outbound recorded with the expected target + content.
     assert len(StubPlugin.outbound_records) == 1
@@ -224,7 +224,7 @@ async def test_e2e_disabled_state_inbound_received_no_outbound(
     assert "platform-send capability is currently DISABLED" in agent.system_prompt
 
     envelope = _envelope()
-    await dispatch_inbound("agent-inbound", "acct-test", envelope, factory=factory)
+    await dispatch_inbound("acct-test", envelope, factory=factory)
 
     # No outbound delivery occurred.
     assert StubPlugin.outbound_records == []
@@ -280,7 +280,7 @@ async def test_e2e_disabled_to_enabled_re_dispatch_restores_outbound(
     )
 
     envelope = _envelope(channel_id="c1")
-    await dispatch_inbound("agent-inbound", "acct-test", envelope, factory=first_factory)
+    await dispatch_inbound("acct-test", envelope, factory=first_factory)
     assert StubPlugin.outbound_records == []
 
     # Operator flips the switch mid-session (NO restart of the
@@ -311,7 +311,7 @@ async def test_e2e_disabled_to_enabled_re_dispatch_restores_outbound(
         monkeypatch,
     )
 
-    await dispatch_inbound("agent-inbound", "acct-test", envelope, factory=second_factory)
+    await dispatch_inbound("acct-test", envelope, factory=second_factory)
 
     assert len(StubPlugin.outbound_records) == 1
     target, content = StubPlugin.outbound_records[0]
@@ -372,7 +372,7 @@ async def test_e2e_target_validation_rejects_unattached_account(
     monkeypatch.setattr(tool_mod, "pool_acquire", _counting_acquire)
 
     envelope = _envelope(account_id="acct-A", channel_id="c1")
-    await dispatch_inbound("agent-inbound", "acct-A", envelope, factory=factory)
+    await dispatch_inbound("acct-A", envelope, factory=factory)
 
     # The tool's account-scope short-circuit returns the constraint
     # envelope BEFORE pool_acquire is called.
@@ -444,7 +444,7 @@ async def test_e2e_pool_acquire_touches_last_activity_on_outbound(
 
     envelope = _envelope(channel_id="c1")
     # Turn 1: warm the pool.
-    await dispatch_inbound("agent-inbound", "acct-test", envelope, factory=factory)
+    await dispatch_inbound("acct-test", envelope, factory=factory)
     key = ("agent-inbound", "acct-test")
     assert key in pool_mod._pool
     before = pool_mod._pool[key].last_activity
@@ -456,7 +456,7 @@ async def test_e2e_pool_acquire_touches_last_activity_on_outbound(
 
     # Turn 2: the agent calls the tool, which calls pool_acquire which
     # bumps last_activity.
-    await dispatch_inbound("agent-inbound", "acct-test", envelope, factory=factory)
+    await dispatch_inbound("acct-test", envelope, factory=factory)
     after = pool_mod._pool[key].last_activity
 
     assert after > before
@@ -512,7 +512,7 @@ async def test_e2e_plugin_resolve_failure_dispatcher_logs_and_returns(
     envelope = _envelope()
     # Must NOT raise — the dispatcher's redundant catch swallows the
     # ConnectorRegistrationError and returns.
-    await dispatch_inbound("agent-inbound", "acct-test", envelope, factory=factory)
+    await dispatch_inbound("acct-test", envelope, factory=factory)
 
     # A log entry mentioning the failed resolve was emitted.
     resolve_log_records = [

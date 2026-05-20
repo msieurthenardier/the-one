@@ -218,7 +218,7 @@ async def test_dispatch_inbound_creates_session_on_first_contact(isolated_db) ->
     factory = await _make_factory()
     envelope = _envelope()
 
-    await dispatch_inbound("agent-inbound", "acct-test", envelope, factory=factory)
+    await dispatch_inbound("acct-test", envelope, factory=factory)
 
     conn = await get_connection()
     chat_repo = ChatSessionRepository(conn)
@@ -257,7 +257,7 @@ async def test_dispatch_inbound_persists_exactly_one_user_message_per_inbound(
     factory = await _make_factory()
     envelope = _envelope(text="single-shot-input")
 
-    await dispatch_inbound("agent-inbound", "acct-test", envelope, factory=factory)
+    await dispatch_inbound("acct-test", envelope, factory=factory)
 
     conn = await get_connection()
     chat_repo = ChatSessionRepository(conn)
@@ -281,8 +281,8 @@ async def test_dispatch_inbound_reuses_session_within_window(isolated_db) -> Non
     env1 = _envelope(text="first")
     env2 = _envelope(text="second")
 
-    await dispatch_inbound("agent-inbound", "acct-test", env1, factory=factory)
-    await dispatch_inbound("agent-inbound", "acct-test", env2, factory=factory)
+    await dispatch_inbound("acct-test", env1, factory=factory)
+    await dispatch_inbound("acct-test", env2, factory=factory)
 
     conn = await get_connection()
     chat_repo = ChatSessionRepository(conn)
@@ -316,7 +316,7 @@ async def test_dispatch_inbound_creates_new_session_after_window(
     factory = await _make_factory()
 
     envelope = _envelope()
-    await dispatch_inbound("agent-inbound", "acct-test", envelope, factory=factory)
+    await dispatch_inbound("acct-test", envelope, factory=factory)
 
     # Seed the existing session's last_inbound_at to two hours ago via
     # repo internals so we don't actually wait. Mirrors the resolver's
@@ -327,7 +327,7 @@ async def test_dispatch_inbound_creates_new_session_after_window(
     stale_iso = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
     await chat_repo.update_last_inbound(sessions[0].id, stale_iso)
 
-    await dispatch_inbound("agent-inbound", "acct-test", envelope, factory=factory)
+    await dispatch_inbound("acct-test", envelope, factory=factory)
 
     sessions = await chat_repo.list()
     assert len(sessions) == 2
@@ -344,7 +344,7 @@ async def test_dispatch_inbound_touches_pool_last_activity(isolated_db) -> None:
 
     envelope = _envelope()
     # First dispatch warms the pool; second dispatch we measure.
-    await dispatch_inbound("agent-inbound", "acct-test", envelope, factory=factory)
+    await dispatch_inbound("acct-test", envelope, factory=factory)
     key = ("agent-inbound", "acct-test")
     assert key in pool_mod._pool
     before = pool_mod._pool[key].last_activity
@@ -352,7 +352,7 @@ async def test_dispatch_inbound_touches_pool_last_activity(isolated_db) -> None:
     # Ensure monotonic() advances enough to be observable.
     await asyncio.sleep(0.01)
 
-    await dispatch_inbound("agent-inbound", "acct-test", envelope, factory=factory)
+    await dispatch_inbound("acct-test", envelope, factory=factory)
     after = pool_mod._pool[key].last_activity
 
     assert after > before
@@ -384,9 +384,7 @@ async def test_dispatch_inbound_serializes_concurrent_same_session(
     # resolve to the SAME row.
     warmup_factory = await _make_factory()
     envelope = _envelope()
-    await dispatch_inbound(
-        "agent-inbound", "acct-test", envelope, factory=warmup_factory
-    )
+    await dispatch_inbound("acct-test", envelope, factory=warmup_factory)
 
     conn = await get_connection()
     chat_repo = ChatSessionRepository(conn)
@@ -399,10 +397,10 @@ async def test_dispatch_inbound_serializes_concurrent_same_session(
     factory = await _make_blocking_factory(event, monkeypatch)
 
     task1 = asyncio.create_task(
-        dispatch_inbound("agent-inbound", "acct-test", envelope, factory=factory)
+        dispatch_inbound("acct-test", envelope, factory=factory)
     )
     task2 = asyncio.create_task(
-        dispatch_inbound("agent-inbound", "acct-test", envelope, factory=factory)
+        dispatch_inbound("acct-test", envelope, factory=factory)
     )
 
     # Spin until the per-session lock for the established session_id
@@ -459,12 +457,8 @@ async def test_dispatch_inbound_parallelizes_different_sessions(
 
     # Warmup both sessions.
     warmup_factory = await _make_factory()
-    await dispatch_inbound(
-        "agent-inbound", "acct-test", env_a, factory=warmup_factory
-    )
-    await dispatch_inbound(
-        "agent-inbound", "acct-test", env_b, factory=warmup_factory
-    )
+    await dispatch_inbound("acct-test", env_a, factory=warmup_factory)
+    await dispatch_inbound("acct-test", env_b, factory=warmup_factory)
 
     conn = await get_connection()
     chat_repo = ChatSessionRepository(conn)
@@ -478,10 +472,10 @@ async def test_dispatch_inbound_parallelizes_different_sessions(
     factory = await _make_blocking_factory(event, monkeypatch)
 
     task1 = asyncio.create_task(
-        dispatch_inbound("agent-inbound", "acct-test", env_a, factory=factory)
+        dispatch_inbound("acct-test", env_a, factory=factory)
     )
     task2 = asyncio.create_task(
-        dispatch_inbound("agent-inbound", "acct-test", env_b, factory=factory)
+        dispatch_inbound("acct-test", env_b, factory=factory)
     )
 
     # Wait until BOTH session locks are held concurrently — that's
@@ -550,7 +544,7 @@ async def test_dispatch_inbound_sets_and_resets_context_var(
     monkeypatch.setattr(factory, "create", _wrapped_create)
 
     envelope = _envelope()
-    await dispatch_inbound("agent-inbound", "acct-test", envelope, factory=factory)
+    await dispatch_inbound("acct-test", envelope, factory=factory)
 
     # Captured value during the step is non-None (= session id).
     assert captured["csid_in_step"] is not None
@@ -583,7 +577,7 @@ async def test_dispatch_inbound_persists_inbound_with_visibility_none(
     factory = await _make_factory()
 
     envelope = _envelope()
-    await dispatch_inbound("agent-inbound", "acct-test", envelope, factory=factory)
+    await dispatch_inbound("acct-test", envelope, factory=factory)
 
     conn = await get_connection()
     chat_repo = ChatSessionRepository(conn)
@@ -609,7 +603,7 @@ async def test_dispatch_inbound_persists_agent_reply_with_visibility_operator(
     factory = await _make_factory()
 
     envelope = _envelope()
-    await dispatch_inbound("agent-inbound", "acct-test", envelope, factory=factory)
+    await dispatch_inbound("acct-test", envelope, factory=factory)
 
     conn = await get_connection()
     chat_repo = ChatSessionRepository(conn)
@@ -639,7 +633,7 @@ async def test_dispatch_inbound_tags_assistant_text_as_operator(
     factory = await _make_factory()
 
     envelope = _envelope()
-    await dispatch_inbound("agent-inbound", "acct-test", envelope, factory=factory)
+    await dispatch_inbound("acct-test", envelope, factory=factory)
 
     conn = await get_connection()
     chat_repo = ChatSessionRepository(conn)
@@ -687,7 +681,7 @@ async def test_dispatch_inbound_tags_successful_send_tool_result_as_platform_vis
     )
 
     envelope = _envelope()
-    await dispatch_inbound("agent-inbound", "acct-test", envelope, factory=factory)
+    await dispatch_inbound("acct-test", envelope, factory=factory)
 
     # The stub recorded the outbound — confirms the tool actually fired.
     assert len(StubPlugin.outbound_records) == 1
@@ -753,7 +747,7 @@ async def test_dispatch_inbound_tags_failed_send_tool_result_as_operator(
     )
 
     envelope = _envelope()
-    await dispatch_inbound("agent-inbound", "acct-test", envelope, factory=factory)
+    await dispatch_inbound("acct-test", envelope, factory=factory)
 
     conn = await get_connection()
     chat_repo = ChatSessionRepository(conn)
@@ -839,7 +833,7 @@ async def test_dispatch_inbound_tagging_uses_tool_result_tool_call_id_correlatio
     )
 
     envelope = _envelope()
-    await dispatch_inbound("agent-inbound", "acct-test", envelope, factory=factory)
+    await dispatch_inbound("acct-test", envelope, factory=factory)
 
     conn = await get_connection()
     chat_repo = ChatSessionRepository(conn)
@@ -900,7 +894,7 @@ async def test_dispatch_inbound_continue_tool_call_is_operator_visible(
     )
 
     envelope = _envelope()
-    await dispatch_inbound("agent-inbound", "acct-test", envelope, factory=factory)
+    await dispatch_inbound("acct-test", envelope, factory=factory)
 
     conn = await get_connection()
     chat_repo = ChatSessionRepository(conn)
@@ -939,9 +933,15 @@ async def test_dispatch_inbound_continue_tool_call_is_operator_visible(
 async def test_dispatch_inbound_account_not_found_returns_gracefully(
     isolated_db,
 ) -> None:
-    """A non-existent account_id → pool.acquire raises KeyError; the
-    dispatcher logs and returns without raising. No session row is
-    created."""
+    """A non-existent account_id → no agents are attached → the F7 L3
+    transitional helper returns ``None`` → the dispatcher logs and
+    returns without raising, BEFORE pool.acquire. No session row is
+    created.
+
+    M10 F7 L3: the failure source shifted from "pool.acquire raises
+    KeyError on missing account row" to "no attached agents → helper
+    returns ``None`` → early silent return." The observable outcome
+    (no exception, no session) is byte-identical."""
     await _seed_provider_and_agent()
     # No account seeded — pool.acquire's _load_account will raise.
     register_for_test("stub", StubPlugin)
@@ -950,7 +950,7 @@ async def test_dispatch_inbound_account_not_found_returns_gracefully(
     envelope = _envelope(account_id="non-existent")
 
     # Must not raise.
-    await dispatch_inbound("agent-inbound", "non-existent", envelope, factory=factory)
+    await dispatch_inbound("non-existent", envelope, factory=factory)
 
     conn = await get_connection()
     chat_repo = ChatSessionRepository(conn)
@@ -961,9 +961,15 @@ async def test_dispatch_inbound_account_not_found_returns_gracefully(
 async def test_dispatch_inbound_unknown_connector_type_returns_gracefully(
     isolated_db,
 ) -> None:
-    """An account whose ``type`` isn't in the registry → pool.acquire
-    raises ConnectorRegistrationError; the dispatcher logs and
-    returns. No session row is created."""
+    """An account whose ``type`` isn't in the registry → no agents are
+    attached to that account → the F7 L3 transitional helper returns
+    ``None`` → the dispatcher logs and returns BEFORE pool.acquire.
+    No session row is created.
+
+    M10 F7 L3: the failure source shifted from "pool.acquire raises
+    ConnectorRegistrationError on unknown type" to "no attached agents
+    → helper returns ``None`` → early silent return." The observable
+    outcome (no exception, no session) is byte-identical."""
     await _seed_provider_and_agent()
     # Seed an account with an unregistered type. Registry has no
     # builtins in F3, so any type name is unknown.
@@ -982,7 +988,7 @@ async def test_dispatch_inbound_unknown_connector_type_returns_gracefully(
     envelope = _envelope(account_id="acct-mystery", platform="not-a-real-connector")
 
     # Must not raise.
-    await dispatch_inbound("agent-inbound", "acct-mystery", envelope, factory=factory)
+    await dispatch_inbound("acct-mystery", envelope, factory=factory)
 
     chat_repo = ChatSessionRepository(conn)
     sessions = await chat_repo.list()
@@ -1002,7 +1008,7 @@ async def test_dispatch_inbound_does_not_call_record_outbound(isolated_db) -> No
     factory = await _make_factory()
 
     envelope = _envelope()
-    await dispatch_inbound("agent-inbound", "acct-test", envelope, factory=factory)
+    await dispatch_inbound("acct-test", envelope, factory=factory)
 
     assert StubPlugin.outbound_records == []
 
@@ -1108,9 +1114,7 @@ class TestF6Gating:
 
         factory = await _make_factory()
         envelope = _envelope()
-        await dispatch_inbound(
-            "agent-inbound", "acct-test", envelope, factory=factory
-        )
+        await dispatch_inbound("acct-test", envelope, factory=factory)
 
         session = await self._list_first_session()
         history = decode_messages(session.messages)
@@ -1136,9 +1140,7 @@ class TestF6Gating:
 
         factory = await _make_factory()
         envelope = _envelope(text="hi there")
-        await dispatch_inbound(
-            "agent-inbound", "acct-test", envelope, factory=factory
-        )
+        await dispatch_inbound("acct-test", envelope, factory=factory)
 
         # Resolver was consulted once with the expected args.
         assert StubPluginWithResolver.resolve_calls == [("acct-test", "peer-1")]
@@ -1192,9 +1194,7 @@ class TestF6Gating:
 
         factory = await _make_factory()
         envelope = _envelope(text="PAIR X hello")
-        await dispatch_inbound(
-            "agent-inbound", "acct-test", envelope, factory=factory
-        )
+        await dispatch_inbound("acct-test", envelope, factory=factory)
 
         # Account row reflects the persisted allowlist mutation.
         refreshed = await acc_repo.get("acct-test")
@@ -1247,9 +1247,7 @@ class TestF6Gating:
 
         factory = await _make_factory()
         envelope = _envelope(text="PAIR wrong hello")
-        await dispatch_inbound(
-            "agent-inbound", "acct-test", envelope, factory=factory
-        )
+        await dispatch_inbound("acct-test", envelope, factory=factory)
 
         # Allowlist is unchanged (absent in the original config).
         refreshed = await acc_repo.get("acct-test")
@@ -1295,9 +1293,7 @@ class TestF6Gating:
 
         factory = await _make_factory()
         envelope = _envelope(text="hello")
-        await dispatch_inbound(
-            "agent-inbound", "acct-test", envelope, factory=factory
-        )
+        await dispatch_inbound("acct-test", envelope, factory=factory)
 
         session = await self._list_first_session()
         history = decode_messages(session.messages)
@@ -1322,9 +1318,7 @@ class TestF6Gating:
 
         factory = await _make_factory()
         envelope = _envelope()
-        await dispatch_inbound(
-            "agent-inbound", "acct-test", envelope, factory=factory
-        )
+        await dispatch_inbound("acct-test", envelope, factory=factory)
 
         session = await self._list_first_session()
         history = decode_messages(session.messages)
@@ -1370,9 +1364,7 @@ class TestF6Gating:
 
         factory = await _make_factory()
         envelope = _envelope(text="PAIR X hello")
-        await dispatch_inbound(
-            "agent-inbound", "acct-test", envelope, factory=factory
-        )
+        await dispatch_inbound("acct-test", envelope, factory=factory)
 
         # Rebuild the repo from the existing connection — simulates a
         # fresh process boot reading the persisted row.
@@ -1394,9 +1386,7 @@ class TestF6Gating:
 
         factory = await _make_factory()
         for text in ("first", "second", "third"):
-            await dispatch_inbound(
-                "agent-inbound",
-                "acct-test",
+            await dispatch_inbound("acct-test",
                 _envelope(text=text),
                 factory=factory,
             )
@@ -1408,3 +1398,572 @@ class TestF6Gating:
             assert entry["outcome"] == "permit"
             assert entry["peer_id"] == "peer-1"
             assert entry["reason"] is None
+
+
+# ─────────────────────────────────────────────────────────────────
+# M10 F7 L5: routing + command-intercept integration
+# ─────────────────────────────────────────────────────────────────
+
+
+class TestF7RoutingIntegration:
+    """Coverage for the F7 L5 dispatcher integration: routing engine
+    consult + audit-log + system-outbound for no-eligible + command
+    parse + intercept (placeholder fall-through pinned for L5).
+
+    Mirrors :class:`TestF6Gating`'s shape — class-level grouping for
+    a single feature stripe; per-test stub-state reset is handled by
+    the module-level autouse fixtures.
+
+    Helpers:
+    - :meth:`_seed_two_agents` — provisions two agents sharing one
+      mock provider so the routing engine has at least two candidates
+      for the rule-walk / override / first-eligible / ACL-fallback
+      branches.
+    - :meth:`_routing_entries` — fetches the ``"routing"`` audit list
+      off the resolved session's metadata.
+    - :meth:`_RecordingFactory` — wraps an :class:`AgentFactory` and
+      records every ``factory.create(name)`` call so the dispatcher's
+      choice of routed agent can be asserted directly.
+    """
+
+    @staticmethod
+    async def _seed_two_agents(
+        *,
+        alpha_acls: dict[str, list[str] | None] | None = None,
+        bravo_acls: dict[str, list[str] | None] | None = None,
+    ) -> None:
+        """Seed two agents (``alpha``, ``bravo``) sharing one mock
+        provider; both attached to ``acct-test``.
+
+        Per-agent ACLs accept the inner-dict shape consumed by L2's
+        :func:`admits_inbound` (must carry the ``"peers"`` and
+        ``"channels"`` keys when provided).
+        """
+        await _seed_provider_and_agent(
+            agent_name="alpha",
+            provider_id="mock-provider",
+            connector_account_ids=["acct-test"],
+        )
+        # Second agent reuses the same provider row — direct
+        # ``agent_store.save`` avoids the duplicate-provider-row insert
+        # that calling ``_seed_provider_and_agent`` twice would attempt.
+        from the_one.agent.config import AgentConfig
+        from the_one.db.repositories import SQLiteAgentStore
+
+        conn = await get_connection()
+        agent_store = SQLiteAgentStore(conn)
+        await agent_store.save(
+            AgentConfig(
+                name="bravo",
+                provider_config_id="mock-provider",
+                llm_model="mock-default",
+                connector_account_ids=["acct-test"],
+                connector_acls=(
+                    {"acct-test": bravo_acls} if bravo_acls is not None else None
+                ),
+            )
+        )
+        if alpha_acls is not None:
+            # Re-save alpha with the requested ACL — :meth:`save` is
+            # ``INSERT … ON CONFLICT UPDATE`` so it doubles as an update.
+            await agent_store.save(
+                AgentConfig(
+                    name="alpha",
+                    provider_config_id="mock-provider",
+                    llm_model="mock-default",
+                    connector_account_ids=["acct-test"],
+                    connector_acls={"acct-test": alpha_acls},
+                )
+            )
+
+    @staticmethod
+    async def _routing_entries(session_id: str) -> list[dict[str, Any]]:
+        """Helper: fetch the ``routing`` audit list from session metadata."""
+        conn = await get_connection()
+        chat_repo = ChatSessionRepository(conn)
+        session = await chat_repo.get(session_id)
+        if session.session_metadata is None:
+            return []
+        return session.session_metadata.get("routing", [])
+
+    @staticmethod
+    async def _first_session_id() -> str:
+        conn = await get_connection()
+        chat_repo = ChatSessionRepository(conn)
+        sessions = await chat_repo.list()
+        assert len(sessions) == 1
+        return sessions[0].id
+
+    class _RecordingFactory:
+        """Wraps an :class:`AgentFactory` and records every
+        ``create(name)`` call so tests can assert which agent was built.
+
+        Implements the same ``async def create(name)`` shape as
+        :class:`AgentFactory` — the dispatcher only calls ``.create``
+        on the factory, so structural compat is sufficient.
+        """
+
+        def __init__(self, inner: AgentFactory) -> None:
+            self._inner = inner
+            self.created_with: list[str] = []
+
+        async def create(self, name: str = "default"):
+            self.created_with.append(name)
+            return await self._inner.create(name)
+
+    # ── Routing-match ─────────────────────────────────────────────────
+
+    async def test_dispatch_inbound_routes_to_agent_per_rule_match(
+        self, isolated_db
+    ) -> None:
+        """Routing engine's rule-walk step 2 picks ``bravo`` on ch-1
+        when the rules list pins that scope-match. The audit-log entry
+        records the rule index, scope, match, and ``reason=rule-match``."""
+        await self._seed_two_agents()
+        # Account with routing rules: ch-1 → bravo.
+        conn = await get_connection()
+        encryptor = get_encryptor(settings.data_dir)
+        acc_repo = ConnectorAccountRepository(conn, encryptor)
+        await acc_repo.create(
+            ConnectorAccount(
+                id="acct-test",
+                name="Stub Routing",
+                type="stub",
+                config={
+                    "routing": {
+                        "rules": [
+                            {"scope": "channel", "match": ["ch-1"], "agent": "bravo"},
+                        ],
+                        "default": None,
+                    },
+                },
+            )
+        )
+        register_for_test("stub", StubPlugin)
+
+        inner = await _make_factory()
+        factory = self._RecordingFactory(inner)
+        envelope = _envelope()
+        await dispatch_inbound("acct-test", envelope, factory=factory)
+
+        # The dispatcher built bravo, not alpha (alphabetically-first).
+        assert factory.created_with == ["bravo"]
+
+        session_id = await self._first_session_id()
+        routing = await self._routing_entries(session_id)
+        assert len(routing) == 1
+        entry = routing[0]
+        assert entry["agent"] == "bravo"
+        assert entry["rule_index"] == 0
+        assert entry["scope"] == "channel"
+        assert entry["match"] == "ch-1"
+        assert entry["reason"] == "rule-match"
+        assert entry["disposition"] == "stepped"
+        assert "ts" in entry
+
+    # ── Override ──────────────────────────────────────────────────────
+
+    async def test_dispatch_inbound_routing_override_short_circuits_rule_walk(
+        self, isolated_db
+    ) -> None:
+        """A pre-seeded ``session_metadata["routing_override"] = "alpha"``
+        wins over a rule that would otherwise pick ``bravo``. Audit
+        reason is ``"override"``; the override is consumed via the new
+        :meth:`ChatSessionRepository.set_session_metadata_key` primitive."""
+        await self._seed_two_agents()
+        conn = await get_connection()
+        encryptor = get_encryptor(settings.data_dir)
+        acc_repo = ConnectorAccountRepository(conn, encryptor)
+        await acc_repo.create(
+            ConnectorAccount(
+                id="acct-test",
+                name="Stub Routing",
+                type="stub",
+                config={
+                    "routing": {
+                        "rules": [
+                            {"scope": "channel", "match": ["ch-1"], "agent": "bravo"},
+                        ],
+                        "default": None,
+                    },
+                },
+            )
+        )
+        register_for_test("stub", StubPlugin)
+
+        # Warmup dispatch materialises the session row so the override
+        # write target exists; warmup intentionally routes by rule
+        # (no override yet) — produces ONE prior routing audit entry
+        # we filter on in the assertion.
+        inner = await _make_factory()
+        warmup_factory = self._RecordingFactory(inner)
+        await dispatch_inbound(
+            "acct-test", _envelope(text="warmup"), factory=warmup_factory
+        )
+        session_id = await self._first_session_id()
+
+        # Write the override via the new primitive — this is the path
+        # F7 L6's ``/talk-to`` handler will exercise.
+        chat_repo = ChatSessionRepository(conn)
+        await chat_repo.set_session_metadata_key(
+            session_id, "routing_override", "alpha"
+        )
+
+        # Second inbound — the override should now drive routing.
+        factory = self._RecordingFactory(inner)
+        await dispatch_inbound("acct-test", _envelope(), factory=factory)
+
+        assert factory.created_with == ["alpha"]
+
+        routing = await self._routing_entries(session_id)
+        # Two entries: warmup (rule-match) + override-driven.
+        assert len(routing) == 2
+        override_entry = routing[-1]
+        assert override_entry["agent"] == "alpha"
+        assert override_entry["reason"] == "override"
+        assert override_entry["disposition"] == "stepped"
+
+    # ── Default fallback ─────────────────────────────────────────────
+
+    async def test_dispatch_inbound_falls_back_to_default_when_no_rule_matches(
+        self, isolated_db
+    ) -> None:
+        """No rules / no override / per-account default = ``alpha`` →
+        routing step 3 picks ``alpha``. Audit ``reason="default"``."""
+        await self._seed_two_agents()
+        conn = await get_connection()
+        encryptor = get_encryptor(settings.data_dir)
+        acc_repo = ConnectorAccountRepository(conn, encryptor)
+        await acc_repo.create(
+            ConnectorAccount(
+                id="acct-test",
+                name="Stub Routing",
+                type="stub",
+                config={"routing": {"rules": [], "default": "alpha"}},
+            )
+        )
+        register_for_test("stub", StubPlugin)
+
+        inner = await _make_factory()
+        factory = self._RecordingFactory(inner)
+        await dispatch_inbound("acct-test", _envelope(), factory=factory)
+
+        assert factory.created_with == ["alpha"]
+
+        session_id = await self._first_session_id()
+        routing = await self._routing_entries(session_id)
+        assert len(routing) == 1
+        entry = routing[0]
+        assert entry["agent"] == "alpha"
+        assert entry["reason"] == "default"
+        assert entry["scope"] == "default"
+        assert entry["rule_index"] is None
+        assert entry["match"] is None
+        assert entry["disposition"] == "stepped"
+
+    # ── First-eligible-alphabetical fallback ─────────────────────────
+
+    async def test_dispatch_inbound_falls_back_to_first_eligible_when_no_default(
+        self, isolated_db
+    ) -> None:
+        """No rules, no default, two eligible agents → routing step 4
+        picks ``alpha`` (alphabetically-first). Audit ``reason=
+        "first-eligible"``."""
+        await self._seed_two_agents()
+        await _seed_stub_account()
+        register_for_test("stub", StubPlugin)
+
+        inner = await _make_factory()
+        factory = self._RecordingFactory(inner)
+        await dispatch_inbound("acct-test", _envelope(), factory=factory)
+
+        assert factory.created_with == ["alpha"]
+
+        session_id = await self._first_session_id()
+        routing = await self._routing_entries(session_id)
+        assert len(routing) == 1
+        entry = routing[0]
+        assert entry["agent"] == "alpha"
+        assert entry["reason"] == "first-eligible"
+        assert entry["disposition"] == "stepped"
+
+    # ── No-eligible (peer-error via system-outbound) ─────────────────
+
+    async def test_dispatch_inbound_no_eligible_emits_peer_error_via_system_outbound(
+        self, isolated_db
+    ) -> None:
+        """One attached agent with an ACL that denies the peer → routing
+        engine returns ``decision.agent=None`` → dispatcher emits the
+        peer-facing "No agents available for this conversation." via
+        the system-outbound path (``pool_acquire → client.send``).
+        ``agent.step`` does NOT run."""
+        # Single agent with peers ACL that denies the peer.
+        await _seed_provider_and_agent(
+            agent_name="alpha", connector_account_ids=["acct-test"]
+        )
+        # Update alpha with the denying ACL.
+        conn = await get_connection()
+        from the_one.agent.config import AgentConfig
+        from the_one.db.repositories import SQLiteAgentStore
+
+        agent_store = SQLiteAgentStore(conn)
+        await agent_store.save(
+            AgentConfig(
+                name="alpha",
+                provider_config_id="mock-provider",
+                llm_model="mock-default",
+                connector_account_ids=["acct-test"],
+                connector_acls={
+                    "acct-test": {"peers": [], "channels": None}
+                },
+            )
+        )
+        await _seed_stub_account()
+        register_for_test("stub", StubPlugin)
+
+        inner = await _make_factory()
+        factory = self._RecordingFactory(inner)
+        await dispatch_inbound("acct-test", _envelope(), factory=factory)
+
+        # agent.step never ran — no AgentFactory.create call.
+        assert factory.created_with == []
+
+        # System-outbound emitted exactly one peer-facing error.
+        assert len(StubPlugin.outbound_records) == 1
+        target, content = StubPlugin.outbound_records[0]
+        assert target.channel_id == "ch-1"
+        assert target.thread_id is None
+        assert content == "No agents available for this conversation."
+
+        # Routing audit entry pins the no-eligible disposition.
+        session_id = await self._first_session_id()
+        routing = await self._routing_entries(session_id)
+        assert len(routing) == 1
+        entry = routing[0]
+        assert entry["agent"] is None
+        assert entry["reason"] == "no-eligible-agent"
+        assert entry["disposition"] == "no-eligible"
+
+    # ── No-attached-agents (silent return; no audit entry) ───────────
+
+    async def test_dispatch_inbound_no_attached_agents_silent_return_no_peer_error(
+        self, isolated_db
+    ) -> None:
+        """Agent attached to NO accounts → step 4 returns empty list →
+        silent return BEFORE ``resolve_session``: no exception, no
+        peer-facing error, no chat_sessions row, no routing audit.
+        Preserves L3's silent-ignore semantic."""
+        await _seed_provider_and_agent(
+            agent_name="alpha", connector_account_ids=[]
+        )
+        await _seed_stub_account()
+        register_for_test("stub", StubPlugin)
+
+        inner = await _make_factory()
+        factory = self._RecordingFactory(inner)
+        # Must not raise.
+        await dispatch_inbound("acct-test", _envelope(), factory=factory)
+
+        assert factory.created_with == []
+        assert StubPlugin.outbound_records == []
+
+        conn = await get_connection()
+        chat_repo = ChatSessionRepository(conn)
+        sessions = await chat_repo.list()
+        assert len(sessions) == 0
+
+    # ── Command intercept (L6 wired) ─────────────────────────────────
+
+    async def test_dispatch_inbound_command_text_intercepted_after_L6(
+        self, isolated_db
+    ) -> None:
+        """M10 F7 L6: ``/agents`` is now intercepted by
+        :func:`_dispatch_builtin_command` — the L5 placeholder is
+        replaced with the six v1 handler implementations. The
+        dispatcher emits the command response via the system-outbound
+        path (captured by :attr:`StubPlugin.outbound_records`); audit
+        ``disposition="command-intercepted"``; ``agent.step`` does NOT
+        run.
+
+        Rewrite of the L5-pinned
+        ``test_dispatch_inbound_command_text_falls_through_to_agent_step_in_L5``
+        — the L5 test asserted the placeholder semantic (fall-through);
+        L6's leg rewrites it to the post-L6 semantic (intercept).
+        """
+        await _seed_provider_and_agent(
+            agent_name="alpha", connector_account_ids=["acct-test"]
+        )
+        await _seed_stub_account()
+        register_for_test("stub", StubPlugin)
+
+        inner = await _make_factory()
+        factory = self._RecordingFactory(inner)
+        envelope = _envelope(text="/agents")
+        await dispatch_inbound("acct-test", envelope, factory=factory)
+
+        # agent.step did NOT run — the command was intercepted before
+        # the per-session lock + step.
+        assert factory.created_with == []
+
+        # The session row's messages stayed empty (no user message
+        # persisted, no assistant reply).
+        session_id = await self._first_session_id()
+        conn = await get_connection()
+        chat_repo = ChatSessionRepository(conn)
+        session = await chat_repo.get(session_id)
+        history = decode_messages(session.messages)
+        assert history == []
+
+        # System-outbound captured the /agents response text.
+        assert len(StubPlugin.outbound_records) == 1
+        target, content = StubPlugin.outbound_records[0]
+        assert target.channel_id == envelope.channel_id
+        assert target.thread_id == envelope.thread_id
+        # The response lists the alphabetically-first attached agent.
+        assert content == (
+            "Agents available to you on this account:\n- alpha"
+        )
+
+        # Audit-log entry records the intercept disposition.
+        routing = await self._routing_entries(session_id)
+        assert len(routing) == 1
+        assert routing[0]["disposition"] == "command-intercepted"
+        assert routing[0]["agent"] == "alpha"
+
+    # ── Pool-failure-overload (routed agent, post-routing) ───────────
+
+    async def test_dispatch_inbound_pool_failure_at_step_10_logs_no_eligible_disposition(
+        self, isolated_db, monkeypatch
+    ) -> None:
+        """Routing picks ``alpha`` via first-eligible-alphabetical, but
+        ``pool_acquire("alpha", …)`` raises ``ConnectorRegistrationError``
+        → dispatcher returns; audit entry carries the routing
+        ``reason="first-eligible"`` AND the overloaded ``disposition=
+        "no-eligible"`` (pool-failure-overload). Pins the documented
+        overload behaviour so a future refactor doesn't silently flip
+        it."""
+        await _seed_provider_and_agent(
+            agent_name="alpha", connector_account_ids=["acct-test"]
+        )
+        await _seed_stub_account()
+        register_for_test("stub", StubPlugin)
+
+        # Monkeypatch the pool_acquire used INSIDE _inbound to raise.
+        from the_one.connectors import _inbound as inbound_mod_local
+        from the_one.connectors.errors import ConnectorRegistrationError
+
+        async def _raising_pool_acquire(agent_name: str, account_id: str):
+            raise ConnectorRegistrationError(
+                f"forced for agent={agent_name} account={account_id}"
+            )
+
+        monkeypatch.setattr(
+            inbound_mod_local, "pool_acquire", _raising_pool_acquire
+        )
+
+        inner = await _make_factory()
+        factory = self._RecordingFactory(inner)
+        await dispatch_inbound("acct-test", _envelope(), factory=factory)
+
+        # agent.step never ran — pool failed before the lock + step.
+        assert factory.created_with == []
+
+        session_id = await self._first_session_id()
+        routing = await self._routing_entries(session_id)
+        assert len(routing) == 1
+        entry = routing[0]
+        # The routing decision itself was first-eligible — that's what
+        # the audit log preserves; the disposition overload tells the
+        # operator the inbound went unanswered because the pool failed.
+        assert entry["agent"] == "alpha"
+        assert entry["reason"] == "first-eligible"
+        assert entry["disposition"] == "no-eligible"
+
+    # ── No-eligible emit failure swallowed ───────────────────────────
+
+    async def test_dispatch_inbound_no_eligible_system_outbound_emit_failure_is_swallowed(
+        self, isolated_db
+    ) -> None:
+        """``client.send`` raising during the no-eligible peer-error
+        emission is logged + swallowed; the dispatcher returns cleanly
+        and the audit entry still records ``disposition="no-eligible"``.
+        Pins the swallow-and-log contract."""
+        await _seed_provider_and_agent(
+            agent_name="alpha", connector_account_ids=["acct-test"]
+        )
+        # Update alpha to deny the peer so routing returns
+        # decision.agent=None.
+        conn = await get_connection()
+        from the_one.agent.config import AgentConfig
+        from the_one.db.repositories import SQLiteAgentStore
+
+        agent_store = SQLiteAgentStore(conn)
+        await agent_store.save(
+            AgentConfig(
+                name="alpha",
+                provider_config_id="mock-provider",
+                llm_model="mock-default",
+                connector_account_ids=["acct-test"],
+                connector_acls={
+                    "acct-test": {"peers": [], "channels": None}
+                },
+            )
+        )
+        await _seed_stub_account()
+        register_for_test("stub", StubPlugin)
+        # Configure the stub's send to raise.
+        StubPlugin.send_should_raise = ConnectorConnectionError(
+            "emit failed"
+        )
+
+        inner = await _make_factory()
+        factory = self._RecordingFactory(inner)
+        # Must NOT raise.
+        await dispatch_inbound("acct-test", _envelope(), factory=factory)
+
+        # agent.step never ran; no outbound recorded (send raised
+        # before the record_outbound call); audit still pinned.
+        assert factory.created_with == []
+        assert StubPlugin.outbound_records == []
+
+        session_id = await self._first_session_id()
+        routing = await self._routing_entries(session_id)
+        assert len(routing) == 1
+        entry = routing[0]
+        assert entry["agent"] is None
+        assert entry["reason"] == "no-eligible-agent"
+        assert entry["disposition"] == "no-eligible"
+
+    # ── ACL-denied routed agent falls back to next eligible ──────────
+
+    async def test_dispatch_inbound_acl_denied_routed_agent_falls_back_to_next_eligible(
+        self, isolated_db
+    ) -> None:
+        """Two attached agents (``alpha``, ``bravo``). ``alpha``'s ACL
+        denies the peer; routing engine's step 4
+        (first-eligible-alphabetical) walks past ``alpha``, picks
+        ``bravo``. ``agent.step`` runs on ``bravo``; audit ``reason=
+        "first-eligible"``, ``agent="bravo"``.
+
+        The engine's ACL admission check on step 4 is exercised end-
+        to-end through the dispatcher — the L5 dispatcher does NOT
+        re-check ACL on the engine's output (the engine already did)."""
+        await self._seed_two_agents(
+            alpha_acls={"peers": [], "channels": None}
+        )
+        await _seed_stub_account()
+        register_for_test("stub", StubPlugin)
+
+        inner = await _make_factory()
+        factory = self._RecordingFactory(inner)
+        await dispatch_inbound("acct-test", _envelope(), factory=factory)
+
+        assert factory.created_with == ["bravo"]
+
+        session_id = await self._first_session_id()
+        routing = await self._routing_entries(session_id)
+        assert len(routing) == 1
+        entry = routing[0]
+        assert entry["agent"] == "bravo"
+        assert entry["reason"] == "first-eligible"
+        assert entry["disposition"] == "stepped"

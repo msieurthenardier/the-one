@@ -424,3 +424,80 @@ async def test_resolve_session_peer_id_stored_but_not_in_lookup(
     # rewrite it on the reuse path).
     loaded = await chat_repo.get(s1.id)
     assert loaded.peer_id == "peer-A"
+
+
+# ─── resolve_session — M10 F7 L6 /new ended_at sentinel ──────────────────
+
+
+async def test_resolve_session_skips_reuse_when_ended_at_is_set(
+    chat_repo, seeded_agent, stub_plugin
+) -> None:
+    """M10 F7 L6: ``/new`` writes ``session_metadata["ended_at"] = <iso>``.
+    The reuse-path check in ``resolve_session`` honors the sentinel —
+    even within the continuation window, an existing row with
+    ``ended_at`` set is NOT reused; a new row is created.
+
+    Pins the structural change in ``_session.py``'s reuse branch (the
+    nested-if restructure) and the behavioural contract (`/new`'s
+    "next inbound starts a fresh session" promise).
+    """
+    envelope = _envelope()
+    # Wide window — without the sentinel, the existing row would be
+    # reused.
+    account = _account(session_continuation_seconds=86400)
+
+    # Seed an existing row matching the envelope's external key,
+    # within the continuation window, with the ended_at sentinel set.
+    recent_iso = datetime.now(timezone.utc).isoformat()
+    ended = ChatSession(
+        id="ended-1",
+        agent_name=seeded_agent,
+        title="prior",
+        platform="stub",
+        connector_account_id="acc-1",
+        channel_id="ch-1",
+        thread_id=None,
+        peer_id="peer-1",
+        last_inbound_at=recent_iso,
+        created_at=recent_iso,
+        updated_at=recent_iso,
+        session_metadata={"ended_at": recent_iso},
+    )
+    await chat_repo.create(ended)
+
+    fresh = await resolve_session(
+        envelope, account, chat_repo, agent_name=seeded_agent, plugin=stub_plugin
+    )
+
+    # A new row, not the ended one.
+    assert fresh.id != "ended-1"
+    # The ended row is preserved untouched.
+    old = await chat_repo.get("ended-1")
+    assert old.session_metadata == {"ended_at": recent_iso}
+    # Both rows exist for this external key.
+    sessions = await chat_repo.list()
+    assert len(sessions) == 2
+
+
+async def test_resolve_session_without_ended_at_still_reuses_within_window(
+    chat_repo, seeded_agent, stub_plugin
+) -> None:
+    """Behavioural-additivity pin: the L6 reuse-path restructure is
+    additive — existing rows WITHOUT ``ended_at`` continue to be reused
+    when within the continuation window. Mirrors
+    :func:`test_resolve_session_reuses_row_within_window` but explicit
+    about the no-sentinel branch staying intact."""
+    envelope = _envelope()
+    account = _account()
+
+    first = await resolve_session(
+        envelope, account, chat_repo, agent_name=seeded_agent, plugin=stub_plugin
+    )
+    # Confirm no ended_at on the row.
+    loaded = await chat_repo.get(first.id)
+    assert loaded.session_metadata is None
+
+    second = await resolve_session(
+        envelope, account, chat_repo, agent_name=seeded_agent, plugin=stub_plugin
+    )
+    assert second.id == first.id

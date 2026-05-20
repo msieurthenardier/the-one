@@ -846,6 +846,45 @@ class TestConnectorAccountAPI:
         assert isinstance(detail, list)
         assert any("type" in err.get("loc", []) for err in detail)
 
+    async def test_update_connector_account_routing_round_trips(
+        self, client: AsyncClient
+    ) -> None:
+        """PUT ``config.routing`` round-trips verbatim through GET.
+
+        M10 F7 L7 regression net: the Studio Routing Rules editor rides
+        the existing PUT endpoint with no schema migration and no new
+        endpoint — the L2 validator (`_validate_config_reserved_keys`)
+        already covers the shape, and the repository round-trips
+        ``config`` as a JSON blob. This test pins the contract end-to-end
+        so future refactors of the validator or repository don't
+        silently break the Studio editor's save flow.
+        """
+        # Seed an account.
+        create = await client.post(
+            "/api/connector-accounts",
+            json={"name": "Bot", "type": "stub"},
+        )
+        assert create.status_code == 201
+        account_id = create.json()["id"]
+
+        # PUT routing config.
+        routing_payload = {
+            "rules": [
+                {"scope": "channel", "match": ["C1"], "agent": "alpha"},
+            ],
+            "default": "bravo",
+        }
+        resp = await client.put(
+            f"/api/connector-accounts/{account_id}",
+            json={"config": {"routing": routing_payload}},
+        )
+        assert resp.status_code == 200, resp.text
+
+        # GET round-trip parity.
+        getrr = await client.get(f"/api/connector-accounts/{account_id}")
+        assert getrr.status_code == 200
+        assert getrr.json()["config"]["routing"] == routing_payload
+
     async def test_unknown_account_returns_404(self, client: AsyncClient) -> None:
         """GET / PUT / DELETE on an unknown id return 404."""
         resp = await client.get("/api/connector-accounts/nope")

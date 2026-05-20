@@ -157,7 +157,7 @@ async def test_e2e_both_visibility_paths_coexist_in_session(isolated_db) -> None
 
     # First inbound — creates the session + persists a peer USER message
     # (visibility=None) and an operator-tagged assistant reply (F4 L4).
-    await dispatch_inbound("agent-inbound", "acct-test", envelope, factory=factory)
+    await dispatch_inbound("acct-test", envelope, factory=factory)
 
     conn = await get_connection()
     chat_repo = ChatSessionRepository(conn)
@@ -309,7 +309,7 @@ async def test_e2e_continuation_window_real_time_supersede(isolated_db) -> None:
     envelope = _envelope(text="ping")
 
     # 1st inbound — creates session.
-    await dispatch_inbound("agent-inbound", "acct-test", envelope, factory=factory)
+    await dispatch_inbound("acct-test", envelope, factory=factory)
 
     conn = await get_connection()
     chat_repo = ChatSessionRepository(conn)
@@ -322,7 +322,7 @@ async def test_e2e_continuation_window_real_time_supersede(isolated_db) -> None:
     await asyncio.sleep(2)
 
     # 2nd inbound — should create a NEW session (window elapsed).
-    await dispatch_inbound("agent-inbound", "acct-test", envelope, factory=factory)
+    await dispatch_inbound("acct-test", envelope, factory=factory)
 
     sessions = await chat_repo.list()
     assert len(sessions) == 2
