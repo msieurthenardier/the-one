@@ -4,13 +4,86 @@
 
 ## Summary
 
-Planning complete. F8 is designed; Phase 5b Architect design review landed (2026-05-20, 2 cycles); high-severity feedback incorporated. Operator signed off 2026-05-20; status flipped `planning` → `ready`. F8 is ready for leg cycle start via `/agentic-workflow`.
+Planning complete; Phase 5b Architect design review landed (2026-05-20, 2 cycles); operator sign-off 2026-05-20. Status flipped `ready` → `in-flight` 2026-05-20; `/agentic-workflow` orchestrator engaged on branch `flight/08-planning-discord` (planning branch continues as execution branch — no separate execution branch). L1 design starting.
 
 ---
 
 ## Leg Progress
 
-_(no legs executed yet)_
+### Leg 1 — f7-carry-forward-bundle
+**Status**: landed
+**Started**: 2026-05-20 (design)
+**Completed**: 2026-05-20 (implementation landed)
+
+#### Design Review Cycles
+
+**Cycle 1** surfaced 5 issues:
+- HIGH: `tests/test_pairing_prefix.py` already exists (F7 L8, 8 tests) — original AC declared it "NEW" and contradicted shipped `test_leading_whitespace_fails` behavior. Reframed as EXTEND with 4 non-overlapping cases (ZWJ in code arg, NBSP between PAIR and code, smart quotes inside code, multi-line text remainder). Dropped contradictory "leading/trailing whitespace tolerated" case.
+- HIGH: Plugin-consult vs built-in audit-write symmetry not documented. Added Edge Case explaining audit-then-send ordering matches built-in path.
+- MEDIUM: No timeout on `plugin.handle_command` await. Deferred to F10 per existing built-in unbounded posture; explicit carry-forward note added to Post-Completion Checklist.
+- MEDIUM: Audit-log discriminator missing. Added `intercept_source: "plugin" | "builtin"` sibling key to both consult-paths.
+- LOW: Byte-identical regression wording and post-edit grep verification tightened.
+
+**Cycle 2** surfaced drift fixes only:
+- HIGH: "(NEW)" stale + "six" count in Files Affected / Verification Steps corrected to "(EXISTING)" + "four".
+- HIGH: `agents.md` §2 conventions list was wrong (claimed 9, actual 12) and section is insertion-ordered NOT alphabetical. Rewrote AC #6 to drop alphabetical framing and name correct cluster positions.
+- MEDIUM: Plugin-timeout F10 carry-forward needed explicit checklist step — added.
+- LOW: Grep bound tightened to ≥6; ZWJ test case input made explicit.
+
+Cycles consumed: 2 of 2 (max). Status flipped `planning` → `ready`.
+
+#### Changes Made
+
+Ten surfaces landed in the order prescribed by Implementation Guidance (independent items first, dispatcher consult last so it landed on a green baseline):
+
+1. **`tests/test_pairing_prefix.py`** — extended the existing `TestValidatePairingPrefix` class with four new whitespace edge cases (ZWJ in code arg, NBSP between PAIR and code, smart quotes inside code, multi-line text remainder). Module docstring updated with M10 F8 L1 cross-reference alongside the F7 L8 citation. Class is now 12 tests (8 existing + 4 added).
+2. **`the_one/db/models.py`** — `_VALID_ROUTING_SCOPES` → `VALID_ROUTING_SCOPES` rename at the declaration (line 121) and two consumers (lines 375, 378). Verified grep: 0 underscored hits, 3 unprefixed hits.
+3. **F7 spec typo correction** — four `AgentConfigRepository` → `SQLiteAgentStore` replacements in `missions/10-bi-directional-comms-connectors/flights/07-multi-agent-routing-and-command-surface/flight.md` (lines 38, 104, 170, 233). Each carries a `<!-- F8 L1 post-hoc reconciliation -->` HTML comment for auditability. Verified post-edit: 0 `AgentConfigRepository` hits, 6 `SQLiteAgentStore` hits.
+4. **`connectors/README.md` §13** — added a one-sentence note to the `whoami` paragraph promoting `_handle_whoami`'s same-turn semantic ("response reflects the same `RoutingDecision` the dispatcher just resolved for this inbound — never stale state from a prior message").
+5. **`agents.md` §2 Project Conventions** — added two entries in insertion order at cited cluster positions:
+   - `hat-driven-contract-flip-migration-discipline` after `host-side-bench-drift-detection` (methodology cluster). Cites F6 HAT3.
+   - `per-axis-tri-state-override` after `optional-plugin-hook-via-getattr-sentinel` (connector-conventions cluster). Cites F6 `_acl.py` + F8 L8 future extension.
+6. **`_inbound.py` step-10/step-12 boundary comment** — single-line annotation noting the two pool acquisitions do NOT share state.
+7. **`_routing.py` module docstring + `agents.md` Connector subsystem cross-reference + F7 spec language reconciliation** — three coordinated doc updates landing the audit-log "single-winner" clarification. F7 spec's "fallback is audit-logged with the original failed pick" promise reconciled with an explicit "F8 L1 post-hoc reconciliation" paragraph; matching paragraphs in `_routing.py` docstring and `agents.md` Connector subsystem section cross-reference the canonical contract.
+8. **`_inbound.py` step-11 docstring rewrite** — replaced the F7-leg-referencing block at lines 450-456 with shipped-behavior language describing the (i) parse, (ii) plugin consult via `getattr` sentinel, (iii) built-in dispatch, (iv) fall-through-to-agent.step flow. New comment cites M10 F8 L1.
+9. **`_inbound.py` step-11 plugin-consult sub-step insertion** — added the `getattr(plugin, "handle_command", None)` consult BEFORE `_dispatch_builtin_command` per the exact code shape in AC #1. Plugin-raised exceptions are logged + treated as `None`. `audit_entry["intercept_source"] = "plugin"` write on the plugin-intercept path; matching `audit_entry["intercept_source"] = "builtin"` write added to the existing built-in path. Both paths preserve the existing `disposition="command-intercepted"` value.
+10. **`tests/test_connectors_inbound.py`** — two new tests appended to `TestF7RoutingIntegration` per AC: (a) `test_dispatch_inbound_plugin_handle_command_intercepts_before_builtin` — plugin returns non-None response, asserts outbound emit + audit-log `intercept_source="plugin"` + `_dispatch_builtin_command` not called (monkeypatch-spied); (b) `test_dispatch_inbound_plugin_handle_command_returning_none_falls_through_to_builtin` — plugin returns None, dispatcher falls through to built-in handler, audit-log carries `intercept_source="builtin"`. Both tests use a per-test `_CommandHandlingStub` / `_NoneReturningPlugin` subclass of `StubPlugin` registered via `register_for_test`.
+
+#### Test Results
+
+- `docker exec the-one pytest tests/test_pairing_prefix.py -x --timeout 30` — 12 passed (8 existing + 4 added).
+- `docker exec the-one pytest tests/test_connectors_inbound.py -x --timeout 30` — 40 passed (38 existing + 2 added).
+- `docker exec the-one pytest tests/ -x --timeout 30` — 2268 passed, 4 skipped, 411 deselected (default-excluded browser tests). No F1-F7 regression. A pre-existing aiosqlite teardown warning ("Event loop is closed") is unrelated to L1 changes.
+
+#### Notes
+
+- The dispatcher's function-local import pattern for `_dispatch_builtin_command` made the plugin-intercept spy patch reach via `the_one.connectors._commands._dispatch_builtin_command` (the source module attribute) — not via `the_one.connectors._inbound._dispatch_builtin_command` (which doesn't exist at module scope). Documented inline in the test.
+- All ten AC items verified. Bundle is sub-day total; each surface is independently revertible.
+
+##### F10 Carry-Forward
+
+- **Plugin-handler-timeout** — L1's plugin `handle_command` consult is NOT wrapped in `asyncio.wait_for(...)`. The built-in `_dispatch_builtin_command` is also unbounded — matching the F7-shipped posture. Adding a timeout for plugin paths only would introduce an asymmetry the leg shouldn't carry. **Revisit in F10 hardening** if F8 L11 HAT surfaces actual stall scenarios; F10 design should add a uniform per-handler timeout (both paths) rather than asymmetric coverage.
+
+---
+
+### Leg 2 — discord-plugin-foundation-and-type-registration
+**Status**: ready (design complete; implementation pending)
+**Started**: 2026-05-20 (design)
+**Completed**: _(pending)_
+
+#### Design Review Cycles
+
+**Cycle 1** surfaced four issues, all incorporated:
+- HIGH: `DiscordPlugin.__init__(self, account, encryptor)` was wrong against the F1 construction site (`registry.py:76` calls `cls()` zero-arg; `StubPlugin` at `_stub.py:72+` is stateless). Reshaped to stateless plugin matching the StubPlugin precedent — methods take `account, encryptor` as parameters from the pool's call site; L3 places per-connection state on the returned `ConnectorClient`, not on the plugin.
+- HIGH: Registry-vs-tuple consistency check was a subset (too loose — wouldn't catch drift like adding `"slack"` to `CONNECTOR_TYPES` without registering it). Tightened to `set(registry.types()) == set(CONNECTOR_TYPES) - {"stub"}` exact equality with `"stub"` carved out by literal name.
+- MEDIUM: `_CONNECTOR_TYPES_SQL` placement wording ambiguous ("at schema.py:17" could be read as "overwrite line 17"). Changed to "immediately below `_PROVIDER_TYPES_SQL`."
+- MEDIUM: v13 `connector_accounts` comment at `schema.py:485-490` still reads as forward-looking. Added new AC to update the comment + cite the v3/v6-vs-v13/v19 divergence (v3 had CHECK from day one; v13 deferred because `CONNECTOR_TYPES` was empty).
+
+Plus a JS module-scope cache edge case added (operators with Studio already mounted will see stale empty list until refresh).
+
+**Cycle 2**: API hit transient 529 Overloaded errors twice; review skipped. Cycle-1 fixes verified by direct code-read against `StubPlugin` (`_stub.py:72-200`) and `registry.py:76` `cls()` call site. Implementation Developer is the safety net for any remaining drift.
+
+Cycles consumed: 1 of 2 (cycle 2 attempted but the API was overloaded; proceeding to implementation).
 
 ---
 

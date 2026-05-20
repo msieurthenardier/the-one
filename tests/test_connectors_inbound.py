@@ -1967,3 +1967,158 @@ class TestF7RoutingIntegration:
         assert entry["agent"] == "bravo"
         assert entry["reason"] == "first-eligible"
         assert entry["disposition"] == "stepped"
+
+    # ── M10 F8 L1 — CommandHandler plugin-consult ────────────────────
+
+    async def test_dispatch_inbound_plugin_handle_command_intercepts_before_builtin(
+        self, isolated_db, monkeypatch
+    ) -> None:
+        """M10 F8 L1: the dispatcher's step-11 plugin-consult sub-step
+        runs BEFORE ``_dispatch_builtin_command``. When the plugin's
+        ``handle_command`` returns a non-None :class:`CommandResponse`,
+        the dispatcher emits it via the system-outbound path, audit-
+        logs ``disposition="command-intercepted"`` + ``intercept_source=
+        "plugin"``, and short-circuits the built-in handler.
+
+        Asserts: (i) plugin response emitted via outbound;
+        (ii) ``_dispatch_builtin_command`` was NOT invoked;
+        (iii) audit-log carries the plugin intercept-source key.
+        """
+        from the_one.connectors.base import CommandResponse
+
+        await _seed_provider_and_agent(
+            agent_name="alpha", connector_account_ids=["acct-test"]
+        )
+        await _seed_stub_account()
+
+        class _CommandHandlingStub(StubPlugin):
+            """Stub variant adding the ``handle_command`` hook."""
+
+            handle_command_calls: list[tuple[str, list[str]]] = []
+
+            async def handle_command(
+                self, envelope, command_name, args
+            ):
+                _CommandHandlingStub.handle_command_calls.append(
+                    (command_name, list(args))
+                )
+                return CommandResponse(text="plugin-intercepted-response")
+
+        register_for_test("stub", _CommandHandlingStub)
+
+        # Spy on the built-in dispatcher to assert it was NOT called.
+        from the_one.connectors import _inbound as inbound_mod_local
+        builtin_calls: list[tuple[str, list[str]]] = []
+
+        async def _spy_builtin(command_name, args, context):
+            builtin_calls.append((command_name, list(args)))
+            return None
+
+        # The dispatcher imports ``_dispatch_builtin_command`` via a
+        # function-local import inside ``dispatch_inbound``. Patch the
+        # source module attribute so the dispatcher's function-local
+        # import binds to the spy.
+        from the_one.connectors import _commands as commands_mod
+        monkeypatch.setattr(
+            commands_mod, "_dispatch_builtin_command", _spy_builtin
+        )
+
+        inner = await _make_factory()
+        factory = self._RecordingFactory(inner)
+        envelope = _envelope(text="/agents")
+        await dispatch_inbound("acct-test", envelope, factory=factory)
+
+        # agent.step did NOT run — the command was intercepted by the
+        # plugin's handle_command at step 11 before the per-session
+        # lock + step.
+        assert factory.created_with == []
+
+        # Plugin's handle_command was consulted with the right command.
+        assert _CommandHandlingStub.handle_command_calls == [
+            ("agents", [])
+        ]
+
+        # The built-in handler was NEVER invoked — the plugin's non-
+        # None response short-circuited the dispatcher.
+        assert builtin_calls == []
+
+        # System-outbound captured the plugin's response text.
+        assert len(StubPlugin.outbound_records) == 1
+        target, content = StubPlugin.outbound_records[0]
+        assert target.channel_id == envelope.channel_id
+        assert target.thread_id == envelope.thread_id
+        assert content == "plugin-intercepted-response"
+
+        # Audit-log entry records the plugin intercept-source key.
+        session_id = await self._first_session_id()
+        routing = await self._routing_entries(session_id)
+        assert len(routing) == 1
+        entry = routing[0]
+        assert entry["disposition"] == "command-intercepted"
+        assert entry["intercept_source"] == "plugin"
+        assert entry["agent"] == "alpha"
+
+    async def test_dispatch_inbound_plugin_handle_command_returning_none_falls_through_to_builtin(
+        self, isolated_db
+    ) -> None:
+        """M10 F8 L1: when the plugin's ``handle_command`` returns
+        ``None``, the dispatcher falls through to the built-in handler.
+        The built-in's response emits with ``intercept_source=
+        "builtin"`` — sibling discriminator to the plugin path.
+
+        Asserts: (i) plugin's ``handle_command`` was consulted but
+        returned ``None``; (ii) the built-in handler ran and produced
+        the ``/agents`` response (the alphabetically-first attached
+        agent's slug); (iii) audit-log carries ``intercept_source=
+        "builtin"``.
+        """
+        await _seed_provider_and_agent(
+            agent_name="alpha", connector_account_ids=["acct-test"]
+        )
+        await _seed_stub_account()
+
+        class _NoneReturningPlugin(StubPlugin):
+            """Stub variant whose ``handle_command`` returns ``None``."""
+
+            handle_command_calls: list[tuple[str, list[str]]] = []
+
+            async def handle_command(
+                self, envelope, command_name, args
+            ):
+                _NoneReturningPlugin.handle_command_calls.append(
+                    (command_name, list(args))
+                )
+                return None
+
+        register_for_test("stub", _NoneReturningPlugin)
+
+        inner = await _make_factory()
+        factory = self._RecordingFactory(inner)
+        envelope = _envelope(text="/agents")
+        await dispatch_inbound("acct-test", envelope, factory=factory)
+
+        # agent.step did NOT run — the built-in handler short-
+        # circuited after the plugin returned None.
+        assert factory.created_with == []
+
+        # Plugin's handle_command was consulted.
+        assert _NoneReturningPlugin.handle_command_calls == [
+            ("agents", [])
+        ]
+
+        # The built-in /agents handler ran and produced its standard
+        # response.
+        assert len(StubPlugin.outbound_records) == 1
+        _, content = StubPlugin.outbound_records[0]
+        assert content == (
+            "Agents available to you on this account:\n- alpha"
+        )
+
+        # Audit-log entry records the builtin intercept-source key.
+        session_id = await self._first_session_id()
+        routing = await self._routing_entries(session_id)
+        assert len(routing) == 1
+        entry = routing[0]
+        assert entry["disposition"] == "command-intercepted"
+        assert entry["intercept_source"] == "builtin"
+        assert entry["agent"] == "alpha"

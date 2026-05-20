@@ -1,6 +1,6 @@
 # Flight: First Real Connector — Discord
 
-**Status**: ready
+**Status**: in-flight
 **Mission**: [Bi-directional Communication Connectors](../../mission.md)
 
 ## Contributing to Criteria
@@ -202,7 +202,7 @@ F8 is **the F7-carry-forward bundle first, the Discord plugin foundation second,
 
 > **Note:** These are tentative suggestions, not commitments. Legs are planned and created one at a time as the flight progresses. This list will evolve based on discoveries during implementation.
 
-- [ ] `f7-carry-forward-bundle` (1) — `CommandHandler` Protocol dispatcher consult + step-11 docstring rewrite; F7 audit-log doc reconciliation; agents.md codification of HAT-driven contract-flip discipline + per-axis-tri-state-override; three minor doc fixes (`_handle_whoami`, pool-acquire branches, rename `_VALID_ROUTING_SCOPES` → `VALID_ROUTING_SCOPES`); F7-spec class-name typo correction; F6 carry-forward `tests/test_pairing_prefix.py` (~6 whitespace-edge cases)
+- [x] `f7-carry-forward-bundle` (1) — `CommandHandler` Protocol dispatcher consult + step-11 docstring rewrite; F7 audit-log doc reconciliation; agents.md codification of HAT-driven contract-flip discipline + per-axis-tri-state-override; three minor doc fixes (`_handle_whoami`, pool-acquire branches, rename `_VALID_ROUTING_SCOPES` → `VALID_ROUTING_SCOPES`); F7-spec class-name typo correction; F6 carry-forward `tests/test_pairing_prefix.py` (~6 whitespace-edge cases)
 - [ ] `discord-plugin-foundation-and-type-registration` (2) — 8-layer connector-type extension checklist (layers 1+2+3+4+5+6): `ConnectorAccount.type: Literal["discord", "stub"]` narrowing (stub included per M07 precedent); `CONNECTOR_TYPES = ("discord", "stub")`; `register_builtin_connectors()` body registers only `'discord'` (the stub stays test-only per `_stub.py:18-19`); **v19 schema migration with `CHECK (type IN ('discord', 'stub'))` via table-rename ceremony** (CHECK set derived from `CONNECTOR_TYPES` via a `_CONNECTOR_TYPES_SQL` projection, mirroring `_PROVIDER_TYPES_SQL`); verify `/api/connector-accounts/*` type-agnostic; Studio frontend Discord badge + tokens. Plus: `discord.py 2.4.x` SDK pin in `pyproject.toml`; new module `connectors/_discord.py` with `DiscordPlugin` skeleton (raises `NotImplementedError` from `connect`); `test_db_repositories.py:1024-1029` updated to use `'discord'` type (sites that exercise stub behavior keep `'stub'`)
 - [ ] `discord-gateway-client` (3) — `DiscordClient(ConnectorClient)` with `connect`/`disconnect`/`is_alive`/`send`; intents wiring (Message Content + Guild Members); SDK-internal reconnect with 5-attempt exponential backoff (pool layer does NOT reconnect — see Adaptation Criteria); presence configuration
 - [ ] `discord-inbound-ingestion` (4) — `on_message` event handler; `_translate_discord_message_to_envelope` helper in a pure-function module (`_discord_translate.py` or sub-package); end-to-end dispatcher integration; tests against a recorded fixture; document what fields land in `envelope.raw` (including `is_dm` for L6)

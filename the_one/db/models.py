@@ -118,7 +118,7 @@ class MCPSource(BaseModel):
 
 # Hoisted module-level so the F7 L7 Studio editor (and any future routing UI)
 # can import the enum without going through the validator.
-_VALID_ROUTING_SCOPES = frozenset({"channel", "thread", "dm", "peer"})
+VALID_ROUTING_SCOPES = frozenset({"channel", "thread", "dm", "peer"})
 
 
 class ConnectorAccount(BaseModel):
@@ -372,10 +372,10 @@ class ConnectorAccount(BaseModel):
                         f"{sorted(missing)}"
                     )
                 scope = rule["scope"]
-                if not isinstance(scope, str) or scope not in _VALID_ROUTING_SCOPES:
+                if not isinstance(scope, str) or scope not in VALID_ROUTING_SCOPES:
                     raise ValueError(
                         f"config['routing']['rules'][{i}]['scope'] must be one of "
-                        f"{sorted(_VALID_ROUTING_SCOPES)}; got {scope!r}"
+                        f"{sorted(VALID_ROUTING_SCOPES)}; got {scope!r}"
                     )
                 match = rule["match"]
                 if isinstance(match, str):

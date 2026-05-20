@@ -76,6 +76,21 @@ handler discards the override implicitly by starting a new session.
 
 Used by F7 L5 dispatcher integration. F7 L7 Studio editor authors
 ``config["routing"]``; this engine consumes the validated shape.
+
+**Audit-log single-winner semantic (M10 F8 L1 clarification).** A
+SINGLE :class:`RoutingDecision` is emitted per ``dispatch_inbound``
+invocation. The audit-log entry that lands in
+``session_metadata["routing"]`` captures the eventual winner's
+``agent``, ``match``, ``reason``, ``scope``, ``rule_index``, and
+``disposition`` — rules that were considered and skipped (because
+their target agent was ACL-denied, no longer attached, or unknown)
+are NOT enumerated alongside the winner. The F7 flight spec's
+language about a "chain of skipped candidates" was post-hoc
+reconciled in F8 L1: the shipped engine emits the winner only, and
+the single-winner shape is the contract. A richer chain-audit (e.g.
+listing every candidate the engine walked past, with its
+skip-reason) is **deferred to F10 hardening** — operator UX
+requirements there will drive whether the audit-entry shape grows.
 """
 
 from __future__ import annotations

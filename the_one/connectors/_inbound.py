@@ -447,13 +447,26 @@ async def dispatch_inbound(
         )
         return
 
-    # 11. Command parse + intercept. L1's :func:`_parse_command` is
-    # pure; L5 wires the placeholder :func:`_dispatch_builtin_command`
-    # which returns ``None`` for every command_name (so the dispatcher
-    # falls through to ``agent.step`` in step 12). L6's leg fills in
-    # the six v1 command handlers (``/agents``, ``/talk-to``,
-    # ``/whoami``, ``/new``, ``/reset``, ``/help``) and the handler
-    # bodies will start returning real :class:`CommandResponse` values.
+    # 11. Command parse + intercept (M10 F8 L1 — consult-then-fallthrough).
+    # (i) Parse via :func:`_parse_command`; if the envelope text is not
+    # a command, fall through to step 12 (``agent.step``). (ii) If a
+    # command parses, consult an optional plugin handler via
+    # ``getattr(plugin, "handle_command", None)`` per the
+    # ``optional-plugin-hook-via-getattr-sentinel`` convention — a
+    # plugin returning a non-None :class:`CommandResponse` short-
+    # circuits the dispatcher with the same outbound + audit-log
+    # treatment the built-in path uses (``disposition="command-
+    # intercepted"``; ``intercept_source="plugin"`` for the
+    # discriminator). Plugin exceptions are logged and treated as
+    # ``None``. (iii) If the plugin returns ``None`` (or no plugin
+    # consult was wired), dispatch to :func:`_dispatch_builtin_command`
+    # — the six v1 handlers (``/agents``, ``/talk-to``, ``/whoami``,
+    # ``/new``, ``/reset``, ``/help``); a non-None return emits with
+    # ``intercept_source="builtin"``. (iv) If neither the plugin nor
+    # the built-in handler produced a response (built-in returned
+    # ``None`` for an unknown command name like ``/foo``), fall through
+    # to step 12 (``agent.step``) — the agent sees the command text as
+    # a regular user message.
     parsed = _parse_command(working_envelope.text)
     if parsed is not None:
         command_name, args = parsed
@@ -465,9 +478,65 @@ async def dispatch_inbound(
             "session_id": session_row.id,
             "chat_repo": chat_repo,
         }
+        # F8 L1: optional plugin command-handler consult via the
+        # ``optional-plugin-hook-via-getattr-sentinel`` convention. A
+        # plugin opting into platform-native command handling
+        # implements ``handle_command`` (per the ``CommandHandler``
+        # Protocol in ``connectors/base.py``); the dispatcher consults
+        # it BEFORE the built-in handler so a plugin response can
+        # override the v1 built-in vocabulary. A plugin without
+        # ``handle_command`` (the stub; pre-F8 plugins) short-circuits
+        # past the consult via the ``getattr`` sentinel. Plugin-raised
+        # exceptions are logged + swallowed (defensive fallback per the
+        # F6 ``_acl`` precedent); we fall through to the built-in
+        # handler on either ``None`` or exception.
+        plugin_handle = getattr(plugin, "handle_command", None)
+        if plugin_handle is not None:
+            try:
+                response = await plugin_handle(
+                    working_envelope, command_name, args
+                )
+            except Exception:
+                logger.exception(
+                    "dispatch_inbound: plugin handle_command raised "
+                    "for (command=%s, agent=%s, account=%s); "
+                    "falling back to built-in handler",
+                    command_name,
+                    decision.agent,
+                    account_id,
+                )
+                response = None
+            if response is not None:
+                audit_entry["disposition"] = "command-intercepted"
+                audit_entry["intercept_source"] = "plugin"
+                await chat_repo.append_to_session_metadata(
+                    session_row.id,
+                    "routing",
+                    audit_entry,
+                )
+                try:
+                    await client.send(
+                        OutboundTarget(
+                            channel_id=working_envelope.channel_id,
+                            thread_id=working_envelope.thread_id,
+                        ),
+                        response.text,
+                    )
+                except Exception:
+                    logger.exception(
+                        "dispatch_inbound: plugin command-response emit failed "
+                        "for (command=%s, agent=%s, account=%s)",
+                        command_name,
+                        decision.agent,
+                        account_id,
+                    )
+                return
+        # No plugin consult OR plugin returned None → fall through to
+        # the built-in handler below.
         response = await _dispatch_builtin_command(command_name, args, context)
         if response is not None:
             audit_entry["disposition"] = "command-intercepted"
+            audit_entry["intercept_source"] = "builtin"
             await chat_repo.append_to_session_metadata(
                 session_row.id,
                 "routing",
@@ -490,7 +559,10 @@ async def dispatch_inbound(
                     account_id,
                 )
             return
-        # Placeholder returned None → fall through to agent.step.
+        # Built-in returned None (unknown command name) → fall through
+        # to agent.step.
+
+    # NOTE: step-10 and step-12 are independent pool acquisitions and do NOT share state — step-10 holds the dispatcher's outbound ``client`` for command/error emit; step-12's ``agent.step`` may acquire its own ``ConnectorClient`` references via the platform-send tool independently.
 
     # 12. Per-session lock + persist + agent.step + persist (existing
     # F3+F4 logic with ``agent_name = decision.agent``).
