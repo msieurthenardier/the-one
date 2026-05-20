@@ -44,18 +44,23 @@ Pure — no I/O. The caller (F7 L5 dispatcher) is responsible for:
 **Scope-match semantics** (F7 L4 ships a plugin-agnostic semantic;
 F8 / F9 plugins MAY narrow it via future plugin hooks):
 
-- ``channel`` — matches when ``envelope.channel_id == rule.match``,
-  regardless of thread_id. A thread message inside a matched channel
-  still matches a channel rule UNLESS an earlier thread rule wins.
+Each rule's ``match`` is a ``list[str]`` of one or more values; the
+rule fires if ANY listed value matches the envelope's corresponding
+field (set-membership / OR semantics).
+
+- ``channel`` — matches when ``envelope.channel_id`` is in
+  ``rule.match``, regardless of thread_id. A thread message inside a
+  matched channel still matches a channel rule UNLESS an earlier
+  thread rule wins.
 - ``thread`` — matches when ``envelope.thread_id is not None AND
-  envelope.thread_id == rule.match``. Top-level (non-thread)
+  envelope.thread_id`` is in ``rule.match``. Top-level (non-thread)
   envelopes never match a thread rule.
 - ``dm`` — matches when ``envelope.thread_id is None AND
-  envelope.peer_id == rule.match``. The "no thread" condition is the
-  closest plugin-agnostic proxy for "this is a DM, not a guild
+  envelope.peer_id`` is in ``rule.match``. The "no thread" condition
+  is the closest plugin-agnostic proxy for "this is a DM, not a guild
   channel." F8 / F9 plugins that distinguish DMs more precisely can
   refine this in their plugin layer.
-- ``peer`` — matches when ``envelope.peer_id == rule.match``,
+- ``peer`` — matches when ``envelope.peer_id`` is in ``rule.match``,
   regardless of channel_id / thread_id.
 
 **ACL admission** — every step that returns an agent (override,
@@ -92,7 +97,8 @@ class RoutingDecision:
 
     Carries the picked agent (or ``None`` on no-eligible) plus the
     metadata F7 L5's audit-log writer needs (which step picked it,
-    which rule index matched, the matched scope and match string).
+    which rule index matched, the matched scope and the envelope value
+    that hit).
 
     **Scope-uniformity invariant** — ``scope`` is ALWAYS a non-empty
     string for every path (``"channel"`` / ``"thread"`` / ``"dm"`` /
@@ -102,6 +108,12 @@ class RoutingDecision:
     ``f"reason={d.reason}, scope={d.scope}"`` without a None branch.
     Do NOT "simplify" this back to ``scope=None`` for non-rule paths
     — the renderer relies on the uniformity.
+
+    **``match`` semantics** — the SINGLE envelope value that triggered
+    the rule (e.g. ``envelope.channel_id`` for a ``channel`` rule), not
+    the rule's full match list. This makes the audit log read clearly
+    ("the rule fired because channel was C2") even when the rule's
+    match list contains multiple values. ``None`` on non-rule paths.
     """
 
     agent: str | None
@@ -133,33 +145,51 @@ def _agent_admits(
 
 def _scope_matches(
     rule_scope: str,
-    rule_match: str,
+    rule_match: list[str],
     envelope: InboundEnvelope,
-) -> bool:
+) -> str | None:
     """Check whether a rule's scope matches the envelope.
 
+    ``rule_match`` is a non-empty list of values (set-membership / OR
+    semantics — the rule fires if ANY listed value matches the
+    envelope's corresponding field).
+
+    Returns the envelope value that triggered the match (e.g.
+    ``envelope.channel_id`` for a ``channel`` rule) on success, or
+    ``None`` if the rule does not match. The returned value is what
+    :class:`RoutingDecision.match` carries downstream — the audit log
+    records the value that hit, not the full rule list.
+
     See module docstring for the per-scope semantics. The unknown-scope
-    branch returns False defensively — the L2 validator rejects
+    branch returns ``None`` defensively — the L2 validator rejects
     unknown scopes at write time, so this branch is unreachable from
     persisted configs but guards against direct-construct test
     artifacts and future-plugin-introduced scope strings the engine
     doesn't know about.
     """
     if rule_scope == "channel":
-        return envelope.channel_id == rule_match
+        if envelope.channel_id in rule_match:
+            return envelope.channel_id
+        return None
     if rule_scope == "thread":
-        return (
+        if (
             envelope.thread_id is not None
-            and envelope.thread_id == rule_match
-        )
+            and envelope.thread_id in rule_match
+        ):
+            return envelope.thread_id
+        return None
     if rule_scope == "dm":
-        return (
+        if (
             envelope.thread_id is None
-            and envelope.peer_id == rule_match
-        )
+            and envelope.peer_id in rule_match
+        ):
+            return envelope.peer_id
+        return None
     if rule_scope == "peer":
-        return envelope.peer_id == rule_match
-    return False  # unknown scope — defensive; validator should reject
+        if envelope.peer_id in rule_match:
+            return envelope.peer_id
+        return None
+    return None  # unknown scope — defensive; validator should reject
 
 
 def resolve_routing(
@@ -203,7 +233,8 @@ def resolve_routing(
     routing = account.config.get("routing") or {}
     rules = routing.get("rules") or []
     for i, rule in enumerate(rules):
-        if not _scope_matches(rule["scope"], rule["match"], envelope):
+        matched_value = _scope_matches(rule["scope"], rule["match"], envelope)
+        if matched_value is None:
             continue
         candidate = agents_by_name.get(rule["agent"])
         if candidate is None:
@@ -214,7 +245,7 @@ def resolve_routing(
             agent=rule["agent"],
             rule_index=i,
             scope=rule["scope"],
-            match=rule["match"],
+            match=matched_value,
             reason="rule-match",
         )
 

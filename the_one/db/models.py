@@ -234,7 +234,10 @@ class ConnectorAccount(BaseModel):
           pre-redesign — existing rows round-trip verbatim; only the
           downstream interpretation flipped.
         - ``config["routing"] = {"rules": list[RoutingRule], "default": str | None}``
-          where ``RoutingRule = {"scope": Literal["channel","thread","dm","peer"], "match": str, "agent": str}``.
+          where ``RoutingRule = {"scope": Literal["channel","thread","dm","peer"], "match": list[str], "agent": str}``.
+          ``match`` is a non-empty list of non-empty strings — set-membership /
+          OR semantics: the rule fires if ANY listed value matches the envelope's
+          corresponding field.
           The rule list is operator-declared order; the routing engine in F7 L4
           walks it top-to-bottom and the first match wins (Specificity-then-order
           precedence per F7 design decisions). Empty rule list is permitted.
@@ -375,11 +378,24 @@ class ConnectorAccount(BaseModel):
                         f"{sorted(_VALID_ROUTING_SCOPES)}; got {scope!r}"
                     )
                 match = rule["match"]
-                if not isinstance(match, str) or not match:
+                if isinstance(match, str):
+                    # Legacy single-value form (pre-HAT2). Coerce in-place
+                    # to the multi-value list form. Subsequent writes
+                    # round-trip the coerced shape, so each row converges
+                    # to the new form on next save. No SQL migration needed.
+                    match = [match]
+                    rule["match"] = match
+                if not isinstance(match, list) or not match:
                     raise ValueError(
                         f"config['routing']['rules'][{i}]['match'] must be a "
-                        "non-empty string"
+                        "non-empty list of non-empty strings"
                     )
+                for j, match_value in enumerate(match):
+                    if not isinstance(match_value, str) or not match_value:
+                        raise ValueError(
+                            f"config['routing']['rules'][{i}]['match'][{j}] "
+                            "must be a non-empty string"
+                        )
                 agent = rule["agent"]
                 if not isinstance(agent, str) or not agent:
                     raise ValueError(

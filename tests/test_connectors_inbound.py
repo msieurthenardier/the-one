@@ -1532,7 +1532,7 @@ class TestF7RoutingIntegration:
                 config={
                     "routing": {
                         "rules": [
-                            {"scope": "channel", "match": "ch-1", "agent": "bravo"},
+                            {"scope": "channel", "match": ["ch-1"], "agent": "bravo"},
                         ],
                         "default": None,
                     },
@@ -1582,7 +1582,7 @@ class TestF7RoutingIntegration:
                 config={
                     "routing": {
                         "rules": [
-                            {"scope": "channel", "match": "ch-1", "agent": "bravo"},
+                            {"scope": "channel", "match": ["ch-1"], "agent": "bravo"},
                         ],
                         "default": None,
                     },

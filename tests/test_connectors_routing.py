@@ -198,7 +198,7 @@ class TestResolveRouting:
         account = _account(
             routing={
                 "rules": [
-                    {"scope": "channel", "match": "ch-1", "agent": "bob"},
+                    {"scope": "channel", "match": ["ch-1"], "agent": "bob"},
                 ],
                 "default": None,
             }
@@ -227,7 +227,7 @@ class TestResolveRouting:
         account = _account(
             routing={
                 "rules": [
-                    {"scope": "channel", "match": "ch-1", "agent": "bob"},
+                    {"scope": "channel", "match": ["ch-1"], "agent": "bob"},
                 ],
                 "default": None,
             }
@@ -257,7 +257,7 @@ class TestResolveRouting:
         account = _account(
             routing={
                 "rules": [
-                    {"scope": "peer", "match": "peer-1", "agent": "bob"},
+                    {"scope": "peer", "match": ["peer-1"], "agent": "bob"},
                 ],
                 "default": None,
             }
@@ -319,7 +319,7 @@ class TestResolveRouting:
         account = _account(
             routing={
                 "rules": [
-                    {"scope": "channel", "match": "ch-1", "agent": "alice"},
+                    {"scope": "channel", "match": ["ch-1"], "agent": "alice"},
                 ],
                 "default": None,
             }
@@ -339,7 +339,7 @@ class TestResolveRouting:
         account = _account(
             routing={
                 "rules": [
-                    {"scope": "thread", "match": "T1", "agent": "alice"},
+                    {"scope": "thread", "match": ["T1"], "agent": "alice"},
                 ],
                 "default": None,
             }
@@ -363,7 +363,7 @@ class TestResolveRouting:
         account = _account(
             routing={
                 "rules": [
-                    {"scope": "thread", "match": "T1", "agent": "alice"},
+                    {"scope": "thread", "match": ["T1"], "agent": "alice"},
                 ],
                 "default": None,
             }
@@ -384,7 +384,7 @@ class TestResolveRouting:
         account = _account(
             routing={
                 "rules": [
-                    {"scope": "dm", "match": "peer-1", "agent": "alice"},
+                    {"scope": "dm", "match": ["peer-1"], "agent": "alice"},
                 ],
                 "default": None,
             }
@@ -407,7 +407,7 @@ class TestResolveRouting:
         account = _account(
             routing={
                 "rules": [
-                    {"scope": "dm", "match": "peer-1", "agent": "alice"},
+                    {"scope": "dm", "match": ["peer-1"], "agent": "alice"},
                 ],
                 "default": None,
             }
@@ -436,7 +436,7 @@ class TestResolveRouting:
         account = _account(
             routing={
                 "rules": [
-                    {"scope": "peer", "match": "peer-1", "agent": "alice"},
+                    {"scope": "peer", "match": ["peer-1"], "agent": "alice"},
                 ],
                 "default": None,
             }
@@ -466,7 +466,7 @@ class TestResolveRouting:
         account = _account(
             routing={
                 "rules": [
-                    {"scope": "channel", "match": "C1", "agent": "alice"},
+                    {"scope": "channel", "match": ["C1"], "agent": "alice"},
                 ],
                 "default": None,
             }
@@ -496,7 +496,7 @@ class TestResolveRouting:
             config={
                 "routing": {
                     "rules": [
-                        {"scope": "weird", "match": "x", "agent": "alice"},
+                        {"scope": "weird", "match": ["x"], "agent": "alice"},
                     ],
                     "default": None,
                 }
@@ -508,6 +508,55 @@ class TestResolveRouting:
         assert decision.agent == "alice"
         assert decision.reason == "first-eligible"
 
+    def test_step2_multi_value_match_fires_for_each_listed_value(self) -> None:
+        """A rule with ``match: ["C1", "C2"]`` fires for envelopes whose
+        ``channel_id`` is EITHER ``"C1"`` OR ``"C2"`` — the per-rule
+        match list has set-membership / OR semantics. ``decision.match``
+        records the SINGLE envelope value that hit, not the full list."""
+        alice = _agent("alice")
+        account = _account(
+            routing={
+                "rules": [
+                    {
+                        "scope": "channel",
+                        "match": ["C1", "C2"],
+                        "agent": "alice",
+                    },
+                ],
+                "default": None,
+            }
+        )
+        # Hits via C1.
+        decision_c1 = resolve_routing(
+            account,
+            _envelope(channel_id="C1"),
+            [alice],
+            None,
+        )
+        assert decision_c1.agent == "alice"
+        assert decision_c1.reason == "rule-match"
+        assert decision_c1.scope == "channel"
+        assert decision_c1.match == "C1"
+        # Hits via C2 — same rule, different envelope value.
+        decision_c2 = resolve_routing(
+            account,
+            _envelope(channel_id="C2"),
+            [alice],
+            None,
+        )
+        assert decision_c2.agent == "alice"
+        assert decision_c2.reason == "rule-match"
+        assert decision_c2.scope == "channel"
+        assert decision_c2.match == "C2"
+        # Misses both values → falls through to first-eligible.
+        decision_miss = resolve_routing(
+            account,
+            _envelope(channel_id="C3"),
+            [alice],
+            None,
+        )
+        assert decision_miss.reason == "first-eligible"
+
     def test_step2_first_match_wins_in_declared_order(self) -> None:
         """Two channel rules both could match; the FIRST declared wins;
         rule_index = 0."""
@@ -516,8 +565,8 @@ class TestResolveRouting:
         account = _account(
             routing={
                 "rules": [
-                    {"scope": "channel", "match": "ch-1", "agent": "alice"},
-                    {"scope": "channel", "match": "ch-1", "agent": "bob"},
+                    {"scope": "channel", "match": ["ch-1"], "agent": "alice"},
+                    {"scope": "channel", "match": ["ch-1"], "agent": "bob"},
                 ],
                 "default": None,
             }
@@ -536,8 +585,8 @@ class TestResolveRouting:
             routing={
                 "rules": [
                     # "charlie" is not attached → skipped.
-                    {"scope": "channel", "match": "ch-1", "agent": "charlie"},
-                    {"scope": "channel", "match": "ch-1", "agent": "bob"},
+                    {"scope": "channel", "match": ["ch-1"], "agent": "charlie"},
+                    {"scope": "channel", "match": ["ch-1"], "agent": "bob"},
                 ],
                 "default": None,
             }
@@ -559,8 +608,8 @@ class TestResolveRouting:
         account = _account(
             routing={
                 "rules": [
-                    {"scope": "channel", "match": "ch-1", "agent": "alice"},
-                    {"scope": "channel", "match": "ch-1", "agent": "bob"},
+                    {"scope": "channel", "match": ["ch-1"], "agent": "alice"},
+                    {"scope": "channel", "match": ["ch-1"], "agent": "bob"},
                 ],
                 "default": None,
             }
@@ -581,7 +630,7 @@ class TestResolveRouting:
             routing={
                 # Rule won't match this envelope.
                 "rules": [
-                    {"scope": "channel", "match": "ch-different", "agent": "bob"},
+                    {"scope": "channel", "match": ["ch-different"], "agent": "bob"},
                 ],
                 "default": "alice",
             }

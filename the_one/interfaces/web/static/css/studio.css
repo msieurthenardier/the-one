@@ -814,14 +814,12 @@
   /* F5 L8 HAT — Connector kv-table trash glyph for remove-row buttons:
      mirrors `.kv-remove-row-btn` posture so the per-row remove affordance
      reads as a glyph instead of a default button.
-     M10 F7 L7 — the routing-table's three per-row action buttons
-     (move-up / move-down / remove) inherit the same glyph posture so the
-     editable-table family reads consistently. The destructive hover
-     accent applies only to the remove button, matching the F6 precedent. */
+     M10 F7 L7 — the routing-table's per-row remove button inherits the
+     same glyph posture so the editable-table family reads consistently.
+     M10 F7 L9 HAT2 — move-up / move-down buttons removed in favour of
+     drag-handle reordering (see .connector-routing-drag-handle below). */
   .area-studio .config-remove-row-btn,
   .area-studio .secret-remove-row-btn,
-  .area-studio .connector-routing-move-up-btn,
-  .area-studio .connector-routing-move-down-btn,
   .area-studio .connector-routing-remove-row-btn {
     background: transparent;
     border: 0;
@@ -837,13 +835,37 @@
   .area-studio .config-remove-row-btn:hover,
   .area-studio .secret-remove-row-btn:hover,
   .area-studio .connector-routing-remove-row-btn:hover { color: var(--status-danger); }
-  .area-studio .connector-routing-move-up-btn:hover,
-  .area-studio .connector-routing-move-down-btn:hover { color: var(--fg); }
   .area-studio .config-remove-row-btn svg,
   .area-studio .secret-remove-row-btn svg,
-  .area-studio .connector-routing-move-up-btn svg,
-  .area-studio .connector-routing-move-down-btn svg,
   .area-studio .connector-routing-remove-row-btn svg { width: 16px; height: 16px; display: block; }
+  /* M10 F7 L9 HAT2 — drag-handle for routing-rule row reorder. The
+     handle is the drag source (native HTML5 drag-and-drop); the row
+     itself is the drop target. ``cursor: grab`` signals draggability;
+     ``cursor: grabbing`` during the active drag (via .is-dragging on
+     the source row). The dragged row dims to 0.5 opacity so the
+     operator visually tracks which row is moving. */
+  .area-studio .connector-routing-drag-handle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--fg-secondary);
+    cursor: grab;
+    padding: 4px;
+    line-height: 0;
+    user-select: none;
+  }
+  .area-studio .connector-routing-drag-handle:hover { color: var(--fg); }
+  .area-studio .connector-routing-drag-handle:active { cursor: grabbing; }
+  .area-studio .connector-routing-drag-handle svg { width: 16px; height: 16px; display: block; }
+  .area-studio .connector-routing-row.is-dragging { opacity: 0.5; }
+  .area-studio .connector-routing-row.is-dragging .connector-routing-drag-handle { cursor: grabbing; }
+  /* Chip-list in the match cell: keep table-row vertical rhythm tight.
+     The shared .chip-list-editor styles (admin.css) give the wrapper a
+     min-height that fights against compact table rows; override to a
+     more table-cell-friendly metric while still allowing chips to wrap
+     to multiple lines for multi-value rules. */
+  .area-studio .connector-routing-match-cell { min-width: 240px; }
+  .area-studio .connector-routing-match-chiplist { min-height: 32px; padding: 2px 4px; }
   /* F9 L2 vibing: helper-text hint under the args field for the stdio
      command-runtime dropdown. Low-emphasis tone (--fg-secondary,
      body-sm) matches the studio "informational text" idiom used by

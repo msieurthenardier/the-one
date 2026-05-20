@@ -8,6 +8,7 @@ Pins the shape contract:
 - exact-keys enforcement (no extra; no missing)
 - per-rule shape (scope, match, agent — all required, all type-checked)
 - scope in {channel, thread, dm, peer} (case-sensitive)
+- match is a non-empty ``list[str]`` of non-empty strings
 - default in {None, non-empty str}
 
 The routing engine in F7 L4 consumes the validated shape; F7 L5
@@ -49,9 +50,24 @@ class TestRoutingSchema:
         """Full valid shape round-trips byte-equal through the validator."""
         routing = {
             "rules": [
-                {"scope": "channel", "match": "C1", "agent": "alice"},
+                {"scope": "channel", "match": ["C1"], "agent": "alice"},
             ],
             "default": "bob",
+        }
+        acc = _account(config={"routing": routing})
+        assert acc.config["routing"] == routing
+
+    def test_valid_multi_value_match_round_trip(self) -> None:
+        """A rule with multiple match values round-trips byte-equal."""
+        routing = {
+            "rules": [
+                {
+                    "scope": "peer",
+                    "match": ["P1", "P2", "P3"],
+                    "agent": "bob",
+                },
+            ],
+            "default": None,
         }
         acc = _account(config={"routing": routing})
         assert acc.config["routing"] == routing
@@ -128,7 +144,7 @@ class TestRoutingSchema:
             _account(
                 config={
                     "routing": {
-                        "rules": [{"match": "C1", "agent": "a"}],
+                        "rules": [{"match": ["C1"], "agent": "a"}],
                         "default": None,
                     }
                 }
@@ -154,7 +170,7 @@ class TestRoutingSchema:
             _account(
                 config={
                     "routing": {
-                        "rules": [{"scope": "channel", "match": "C1"}],
+                        "rules": [{"scope": "channel", "match": ["C1"]}],
                         "default": None,
                     }
                 }
@@ -170,7 +186,7 @@ class TestRoutingSchema:
                         "rules": [
                             {
                                 "scope": "channel",
-                                "match": "C1",
+                                "match": ["C1"],
                                 "agent": "a",
                                 "extra": "x",
                             }
@@ -189,7 +205,7 @@ class TestRoutingSchema:
         acc = _account(
             config={
                 "routing": {
-                    "rules": [{"scope": scope, "match": "M1", "agent": "a"}],
+                    "rules": [{"scope": scope, "match": ["M1"], "agent": "a"}],
                     "default": None,
                 }
             }
@@ -203,7 +219,7 @@ class TestRoutingSchema:
                 config={
                     "routing": {
                         "rules": [
-                            {"scope": "Channel", "match": "C1", "agent": "a"}
+                            {"scope": "Channel", "match": ["C1"], "agent": "a"}
                         ],
                         "default": None,
                     }
@@ -218,7 +234,7 @@ class TestRoutingSchema:
                 config={
                     "routing": {
                         "rules": [
-                            {"scope": "group", "match": "C1", "agent": "a"}
+                            {"scope": "group", "match": ["C1"], "agent": "a"}
                         ],
                         "default": None,
                     }
@@ -231,7 +247,7 @@ class TestRoutingSchema:
             _account(
                 config={
                     "routing": {
-                        "rules": [{"scope": 42, "match": "C1", "agent": "a"}],
+                        "rules": [{"scope": 42, "match": ["C1"], "agent": "a"}],
                         "default": None,
                     }
                 }
@@ -240,7 +256,35 @@ class TestRoutingSchema:
 
     # ── Match ─────────────────────────────────────────────────────
 
-    def test_rule_match_empty_string_rejected(self) -> None:
+    def test_legacy_match_str_coerced_to_singleton_list_on_read(self) -> None:
+        """Pre-HAT2 ``match: str`` form is coerced in-place to ``[str]``.
+
+        HAT iteration 3: the validator accepts the legacy single-value
+        string form on the READ path and normalizes it to the new
+        multi-value list form in the validated dict. Subsequent writes
+        round-trip the coerced shape — each row converges to the new
+        form on next save. Writes still require ``match: list[str]``;
+        only the read path coerces.
+        """
+        acc = _account(
+            config={
+                "routing": {
+                    "rules": [
+                        {"scope": "channel", "match": "C1", "agent": "alpha"}
+                    ],
+                    "default": None,
+                }
+            }
+        )
+        assert acc.config["routing"]["rules"][0]["match"] == ["C1"]
+
+    def test_legacy_match_empty_string_still_rejects(self) -> None:
+        """``match: ""`` coerces to ``[""]`` and then fails per-element check.
+
+        The legacy-shape coercion only normalizes the container; the
+        per-element non-empty-string contract still applies. An empty
+        string is not a valid match value under either shape.
+        """
         with pytest.raises(ValidationError) as exc:
             _account(
                 config={
@@ -252,12 +296,56 @@ class TestRoutingSchema:
             )
         assert "non-empty string" in str(exc.value)
 
-    def test_rule_match_not_a_string_rejected(self) -> None:
+    def test_rule_match_empty_list_rejected(self) -> None:
+        """An empty list is rejected — at least one value required."""
+        with pytest.raises(ValidationError) as exc:
+            _account(
+                config={
+                    "routing": {
+                        "rules": [{"scope": "channel", "match": [], "agent": "a"}],
+                        "default": None,
+                    }
+                }
+            )
+        assert "non-empty list" in str(exc.value)
+
+    def test_rule_match_not_a_list_rejected(self) -> None:
+        """``match`` must be a list (not int, dict, etc.)."""
         with pytest.raises(ValidationError) as exc:
             _account(
                 config={
                     "routing": {
                         "rules": [{"scope": "channel", "match": 42, "agent": "a"}],
+                        "default": None,
+                    }
+                }
+            )
+        assert "non-empty list" in str(exc.value)
+
+    def test_rule_match_element_empty_string_rejected(self) -> None:
+        """Empty string in the match list is rejected."""
+        with pytest.raises(ValidationError) as exc:
+            _account(
+                config={
+                    "routing": {
+                        "rules": [
+                            {"scope": "channel", "match": ["C1", ""], "agent": "a"}
+                        ],
+                        "default": None,
+                    }
+                }
+            )
+        assert "non-empty string" in str(exc.value)
+
+    def test_rule_match_element_not_a_string_rejected(self) -> None:
+        """Non-string element in the match list is rejected."""
+        with pytest.raises(ValidationError) as exc:
+            _account(
+                config={
+                    "routing": {
+                        "rules": [
+                            {"scope": "channel", "match": ["C1", 42], "agent": "a"}
+                        ],
                         "default": None,
                     }
                 }
@@ -271,7 +359,7 @@ class TestRoutingSchema:
             _account(
                 config={
                     "routing": {
-                        "rules": [{"scope": "channel", "match": "C1", "agent": ""}],
+                        "rules": [{"scope": "channel", "match": ["C1"], "agent": ""}],
                         "default": None,
                     }
                 }
@@ -283,7 +371,7 @@ class TestRoutingSchema:
             _account(
                 config={
                     "routing": {
-                        "rules": [{"scope": "channel", "match": "C1", "agent": 42}],
+                        "rules": [{"scope": "channel", "match": ["C1"], "agent": 42}],
                         "default": None,
                     }
                 }

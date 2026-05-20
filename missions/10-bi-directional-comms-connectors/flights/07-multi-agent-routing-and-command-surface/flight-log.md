@@ -301,6 +301,27 @@ _(none observed yet)_
 - Re-review skipped: changes were targeted and small (no new high-severity surface added). Per `/agentic-workflow` protocol "Skip if only minor/cosmetic fixes were applied" — applied.
 - Leg 1 status flipped `planning → ready`. Ready for implementation.
 
+### 2026-05-19 — Leg 9 HAT complete
+
+All non-skipped HAT steps passed. Three iterations landed inline:
+
+- **HAT iteration 1** — Connector-Account editor refactored from a flat 9-section page into a 2-tab layout (General + Access and Routing) matching the Agent Editor's `App.tabs` pattern. Operator-specified split per the iteration entry above. Create mode stays flat (3 sections). Zero new CSS primitives.
+- **HAT iteration 2** — Routing Rules section: layout reordered (default-agent dropdown at TOP, then rules table + Add-rule button); chevron move-buttons replaced with `grip-vertical` drag handles + native HTML5 drag-drop reordering; `match` cell converted to chip-list (multi-value); backend schema change `match: str → list[str]` with `_scope_matches` updated to set-membership (`in` instead of `==`). `RoutingDecision.match` kept as `str | None` (the envelope value that hit, not the rule's list — audit-log readability win). Keyboard reorder fallback deferred to future iteration.
+- **HAT iteration 3** — Bug surfaced during Step 2 re-verification: existing dev-DB rows with the pre-HAT2 `match: str` shape failed Pydantic validation on read, taking down `GET /api/connector-accounts` and cascading into the Agent Studio (which fetches connector accounts on mount). Fixed via read-path coercion in `_validate_config_reserved_keys` — legacy `str` form coerces in-place to singleton `list[str]` before the list-shape validation runs. Forward-compatible: writes continue to emit the new shape; existing data converges on next save. No SQL migration needed.
+
+**HAT step results**:
+- Step 1 (visual fit) — initially failed (page too dense); fix landed in iteration 1; re-verified pass.
+- Step 2 (rule CRUD + drag reorder + chip-list match) — initially deferred for the iteration 2 changes (default-agent placement + drag handle + multi-value match); iteration 3 fix surfaced from the resulting dev-DB validator break; re-verified pass.
+- Step 3 (default-agent dropdown round-trip) — pass.
+- Step 4 (snapshot-after-async-population baseline) — pass.
+- Step 5 (stale-agent UX — `(not attached)` disabled option) — pass.
+- Step 6 (DB-level audit-log inspection) — accepted via unit-test coverage (`tests/test_connectors_inbound.py:TestF7RoutingIntegration` 10 tests cover the audit-write paths).
+- Step 7 (smoke commands) — deferred to F8+ (no real platform fixture).
+
+**Test totals across HAT**: F7-bundle regression at 557 passed (post-HAT3); +6 vs the post-L8 commit's 551 (+5 in iteration 2 for multi-value match coverage; -1+2 in iteration 3 for the legacy-coercion contract). Full project sweep (excl. browser) at ~2261 passed. Zero unrelated regressions.
+
+**Leg 9 status flipped `in-flight → landed`. Flight ready for HAT commit + PR retarget.**
+
 ---
 
 ## Session Notes
@@ -330,3 +351,56 @@ F1-F6 scaffolding inventory verified via Explore agent. All F7 prerequisites pre
 | agents.md routing/command conventions | drifted | `agents.md` Connector subsystem present but no routing/command coverage | F7 documentation step adds during L1-L4 leg execution |
 
 Zero conflicting scaffolding (grep verified): no existing `_routing`, `_commands`, `CommandHandler`, `resolve_routing`, or routing-rule shape in the codebase outside docstring forward-refs.
+
+### 2026-05-19 — Leg 9 HAT iteration 1: connector-account editor tabbed layout
+
+Operator feedback during HAT Step 1 (visual / design-language fit): the Connector Account editor page had grown too dense — nine sections stacked on a single scroll surface (Connection, Credentials, Lifecycle, Pairing, Allowlist, Routing rules, Attached agents, Test connection, Danger zone). Operator requested a tabbed layout matching the Agent Editor's `App.tabs` pattern.
+
+- **Operator-specified tab partition**:
+  - **General** — Connection, Credentials, Pairing, Attached agents, Test connection, Danger zone.
+  - **Access and Routing** — Lifecycle, Allowlist, Routing rules.
+- Lifecycle was placed in the access tab even though it currently renders between Credentials and Pairing — operator framing is that session-continuation is a policy concern.
+- **Files updated**:
+  - `the_one/interfaces/web/static/js/areas/studio/connector-account-editor.js` — refactored `renderConnectorAccountEditor` to decouple section emission from layout. Each section now builds into a named HTML fragment first; the layout step then either flattens them (create mode) or partitions them into two tab panels (edit mode). Tablist + tabpanels match `agent-editor.js`'s pattern verbatim (`role="tablist"` + `role="tab"` + `role="tabpanel"`; classes `.tablist / .tab / .tabpanel / .tabpanels`; ARIA `aria-controls` / `aria-labelledby` / `aria-selected`; `data-tab-id="general|access-and-routing"`; `data-testid="tab-general|tab-access-and-routing"`). Panel ids: `connector-tab-panel-general`, `connector-tab-panel-access-and-routing`. Initialized via `window.App.tabs(tablistEl, panelsEl, {onChange: callbacks.onTabChange, initial: initialTab})` AFTER content is mounted. Added an `initialTab` callbacks param (default `general`) mirroring agent-editor's hook (studio.js does not yet route `_activeTab` to the connector-account editor; the hook is in place for future wiring). Exposed `window.App.studio.CONNECTOR_ACCOUNT_PANEL_IDS` for parity with `AGENT_PANEL_IDS`.
+  - `tests/browser/test_flow_studio_connector_account_editor.py` — added `_activate_access_and_routing_tab(page)` helper and inserted activation calls into edit-mode tests that interact with Lifecycle inputs (idle-timeout dropdown, continuation dropdown + hint). `to_be_visible()` assertions for moved sections gain the tab activation; `to_be_attached()` checks (e.g. line 75's `connector-account-secrets-table`) remain valid without activation since panels are in the DOM regardless of `hidden` state.
+- **Mount-time DOM availability** (critical invariant): all tab panels' content is mounted SYNCHRONOUSLY at editor-load time. `App.tabs` only toggles the `hidden` attribute on non-active panels. This preserves the L7 dirty-tracker / `getFormSnapshot` / `collectFormData` contract — every selector that queries by `data-field=...`, `.connector-routing-section`, `[data-allowlist-chiplist-slot=...]`, etc. continues to resolve against ANY section regardless of which tab is currently active. `fetchAttachedAgents` populates dropdowns in both the Attached Agents section (General tab) AND the Routing Rules section (Access and Routing tab) regardless of which tab is active at fetch time. `recaptureSnapshot()` after async fetch still fires unchanged.
+- **Create-mode decision**: rendered FLAT (no tabs). Only Connection + Credentials + Lifecycle render in create mode; the other six sections are gated on `!isCreate`. A two-tab split over three sections costs more than it gives, and the "Create & Test" affordance reads better on a single short form. Mirrors operator recommendation. Agent-editor uses tabs in both modes, but agent-editor's create form populates more sections (knowledge / MCPs / connectors / tools) — different shape, different choice.
+- **CSS**: ZERO new CSS. Tab styles already exist in studio CSS via the agent-editor; the `[hidden]` attribute drives panel visibility per W3C ARIA.
+- **Acceptance verification**:
+  - JavaScript syntax check: `node -c connector-account-editor.js` → OK.
+  - Regression: `docker exec the-one sh -c 'pytest tests/test_connectors*.py tests/test_connector_send_tool.py tests/test_db_repositories.py tests/test_db_api.py tests/test_pairing*.py -x --timeout 30'` → **551 passed in 54.87s** (UI-only refactor; backend byte-identical).
+- **Deviations**: None from the operator's brief. Create-mode flat-render decision was the optional choice the brief flagged ("Decide which approach works best with the existing flow") — picked flat for the reasons above.
+- **Open question to operator**: agent-editor's `tab-general` `data-testid` and connector-account-editor's new `tab-general` `data-testid` share the literal value. They never coexist in the DOM (each studio section mounts its own editor; the inactive section's editor is unmounted), so Playwright strict-mode selection works fine. Documented here so a future test cross-area mounting both editors would know to scope selectors.
+
+### 2026-05-19 — Leg 9 HAT iteration 2: Routing Rules editor redesign
+
+Operator iteration on the Routing Rules editor (Access and Routing tab). Three changes applied as a batch.
+
+- **Change 1 — Section layout reorder**: Default-agent dropdown moves to the TOP of the Routing Rules section; the rules table + "Add rule" button move below. Form-hint "Fall back to first-eligible-alphabetical agent" stays directly under the default-agent dropdown so it explains both empty-default AND empty-rules states. `renderRoutingRulesSection` HTML order changed accordingly.
+- **Change 2 — Drag-handle reordering**: Replaced chevron move-up / move-down buttons with a single drag handle at the LEFT of each rule row (new first column). Native HTML5 drag-and-drop (`dragstart` on handle records the source row + adds `.is-dragging` opacity-0.5 cue; `dragover` + `drop` on rows perform the swap by comparing dragged-vs-target DOM positions; `dragend` cleans up). Added the canonical Lucide v0.265.0 `grip-vertical` icon to `icons.js`. Trailing actions cell now holds only the trash button. CSS adds `.connector-routing-drag-handle { cursor: grab }` (and `cursor: grabbing` on `:active` / `.is-dragging`) plus the row dim rule. Move-up / move-down click handlers removed; chevron-up icon kept in `icons.js` as future-use (zero non-routing-editor usages currently). **Keyboard-fallback decision**: not shipped in this HAT cycle — the leg spec gave a "pick pragmatically" out; reorder is mouse-only for now, all other interactions remain keyboard-accessible.
+- **Change 3 — `match` becomes a `list[str]` (chip-list)**: schema, engine, tests, and frontend all updated to per-rule set-membership / OR semantics (the rule fires if ANY listed value matches the envelope's corresponding field).
+  - Backend: `_validate_config_reserved_keys` now rejects `match` that is not a non-empty list of non-empty strings (rejects `match: "string"`, `match: []`, `match: ["x", ""]`, `match: ["x", 42]`). `_scope_matches` signature becomes `(rule_scope, rule_match: list[str], envelope) -> str | None`, using `in` instead of `==` and returning the SINGLE envelope value that hit. `resolve_routing` records `decision.match = matched_value` (the envelope field value, not the rule's full list).
+  - **`RoutingDecision.match` field shape decision**: kept as `str | None` — the SINGLE envelope value that triggered the rule. Rationale: the audit log reads more clearly ("the rule fired because channel was C2") when the field records the value that hit; downstream renderers (F7 L5) keep their existing `match: str | None` shape unchanged. The dataclass docstring pins this semantic explicitly.
+  - Frontend: match cell becomes a chip-list editor mirroring F6's allowlist chip-list (same CSS classes; `wireChipListEditor` from `adminFormHelpers`). `_collectRoutingRows` reads list-form (tolerates legacy string-form for in-memory upgrades). `collectRoutingFromContainer` walks `.chip` children into a `matchValues: list[str]`; rows with zero chips are stub rows skipped at collect time (preserves the L7 stub-row semantic). CSS adds `.connector-routing-match-cell { min-width: 240px }` and a slight chip-list padding tweak for table-cell sizing.
+  - Tests: `test_connectors_routing_schema.py` updated end-to-end (valid + invalid cases re-aimed at list-form; old "non-empty string" assertions inverted) + multi-value round-trip test added. `test_connectors_routing.py` rule fixtures updated; new `test_step2_multi_value_match_fires_for_each_listed_value` pins the multi-value OR semantic AND the `decision.match` "envelope value that hit" contract. `test_db_api.py` round-trip test updated. `test_connectors_inbound.py` two fixtures updated.
+  - Not in scope (per spec, confirmed): no SQL migration (config is JSON; validator-layer enforcement); F6 outbound reason strings untouched; agent loop untouched; F4 platform-send tool untouched.
+- **Acceptance verification**:
+  - `docker exec the-one sh -c 'pytest tests/test_connectors*.py tests/test_connector_send_tool.py tests/test_db_repositories.py tests/test_db_api.py tests/test_pairing*.py -x --timeout 30'` → **556 passed in 55.44s** (+5 vs L8 baseline of 551).
+  - Full non-browser regression `docker exec the-one pytest tests/ --ignore=tests/browser -x --timeout 30` → **2261 passed, 4 skipped, 12 deselected** in 164s.
+- **Deviations**: None from the operator's brief. The "pick pragmatically" keyboard-reorder decision is documented above.
+
+### 2026-05-19 — Leg 9 HAT iteration 3: Legacy `match: str` coercion on read
+
+Hot-fix for a regression introduced by HAT iteration 2. After HAT2 tightened `config["routing"]["rules"][i]["match"]` to `list[str]` at the validator (both read AND write paths), the operator's dev DB still contained at least one `connector_accounts` row whose routing rule had been authored under the OLD `match: str` shape. The validator rejected that row on read; `GET /api/connector-accounts` returned 500; agent studio failed to populate; the entire connector-aware UI broke until the row was removed or hand-patched in SQL.
+
+- **Root cause**: HAT2 contract change was strict in both directions. Pre-HAT2 data exists in the wild (operator dev DB, possibly any future production DB) and cannot satisfy the new shape. No SQL migration was shipped in HAT2.
+- **Fix — read-path coercion**: `_validate_config_reserved_keys` in `the_one/db/models.py` now coerces `match: str` to `match: [str]` IN-PLACE on the validated `value` dict, before the existing list-shape validation runs. Pydantic v2 `@field_validator(mode="after")` carries the mutation through, so subsequent reads and round-trips emit the new shape. Each affected row converges to the new form on next save — no SQL migration needed.
+- **Coercion matrix**: `match: "C1"` → `["C1"]` (accepted); `match: ["C1","C2"]` → unchanged; `match: ""` → `[""]` → still fails per-element non-empty check (ValueError); `match: []` → still rejects; `match: ["C1", 42]` → still rejects; `match: 42` → rejects. Write path unchanged — writes still require `list[str]`; the editor's `collectRoutingFromContainer` already emits the new shape so new writes are never legacy.
+- **Test updates**: `tests/test_connectors_routing_schema.py` — removed `test_rule_match_as_string_rejected` (HAT2 contract superseded; legacy string is now ACCEPTED on read); added `test_legacy_match_str_coerced_to_singleton_list_on_read` (asserts coercion lands in the validated dict) and `test_legacy_match_empty_string_still_rejects` (asserts the per-element non-empty check still fires post-coercion).
+- **Acceptance verification**:
+  - `docker exec the-one pytest tests/test_connectors_routing_schema.py -x --timeout 30` → **34 passed** (+1 net vs HAT2: -1 removed + 2 added).
+  - `docker exec the-one sh -c 'pytest tests/test_connectors*.py tests/test_connector_send_tool.py tests/test_db_repositories.py tests/test_db_api.py tests/test_pairing*.py -x --timeout 30'` → **557 passed in 53.87s** (+1 vs HAT2's 556, same -1/+2 swap).
+  - `curl -s http://localhost:8484/api/connector-accounts` → **HTTP 200** with a JSON array. The operator's previously-broken connector account's `config["routing"]["rules"][0]["match"]` now reads as `["channel-1"]` (singleton list — coerced in-memory from the pre-HAT2 string still stored in the DB row).
+- **Not in scope (per spec, confirmed)**: SQL data migration (validator coercion handles it in-memory; converges on next write); loosening the strict-on-write contract (writes still require `list[str]`).
+- **Preservation invariants verified**: HAT2 baseline (556) preserved + 1 = 557; agent loop untouched; F4 platform-send untouched; F6 outbound reason strings untouched.
+- **Deviations**: The leg spec predicted "556 + 2 = 558" passes after adding two tests. Actual is 557 because the existing `test_rule_match_as_string_rejected` (which asserted the HAT2 contract that HAT3 explicitly inverts) had to be removed, not augmented. Net: -1 + 2 = +1. No functional deviation — the math just netted differently.
