@@ -359,12 +359,15 @@ def _make_account(
     bot_token_plaintext: str = "discord-bot-token-secret",
     presence: dict[str, str] | None = None,
     ready_timeout_seconds: float | None = None,
+    intents: dict[str, bool] | None = None,
 ) -> ConnectorAccount:
     config: dict[str, Any] = {}
     if presence is not None:
         config["presence"] = presence
     if ready_timeout_seconds is not None:
         config["ready_timeout_seconds"] = ready_timeout_seconds
+    if intents is not None:
+        config["intents"] = intents
     return ConnectorAccount(
         id="acct-discord-test",
         name="Discord Test",
@@ -430,6 +433,32 @@ async def test_intent_construction(monkeypatch: pytest.MonkeyPatch) -> None:
         assert intents.presences is False
         assert intents.typing is False
         assert intents.bans is False
+    finally:
+        await plugin.disconnect(client)
+
+
+async def test_intents_from_config_honored(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``account.config['intents']`` drives the three intent flags.
+
+    M11 F1 L2: with the hardcoded ``= True`` literals replaced by
+    config-driven reads, an explicit ``config['intents']`` block flows
+    through unchanged. Here ``message_content`` is explicitly disabled —
+    the plugin must surface that as ``False`` on the client.
+    """
+    _patch_discord(monkeypatch)
+    encryptor = _make_encryptor()
+    plugin = DiscordPlugin()
+    account = _make_account(
+        encryptor,
+        intents={"message_content": False, "members": True, "guilds": True},
+    )
+
+    client = await plugin.connect(account, encryptor)
+    try:
+        intents = client._intents
+        assert intents.message_content is False
+        assert intents.members is True
+        assert intents.guilds is True
     finally:
         await plugin.disconnect(client)
 

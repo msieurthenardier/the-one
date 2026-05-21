@@ -852,6 +852,160 @@ def _validate_mcp_source_config(source: MCPSource) -> None:
         )
 
 
+# Discord presence ``type`` enum pinned at the API boundary.
+#
+# This frozenset literal is the operator-meaningful subset of
+# ``discord.ActivityType`` values. We deliberately do NOT read from
+# ``discord.ActivityType`` at import time so the validator remains
+# testable without the Discord SDK patched in (see M11 F1 L2 Design
+# Decisions §2). L4's typed dropdown UI inherits this exact set.
+#
+# Excluded:
+# - ``"unknown"`` — Discord-SDK default sentinel, never an operator choice
+# - ``"custom"`` — Discord-API-only via custom status, not supported by
+#   the bot-presence surface
+_DISCORD_PRESENCE_TYPES = frozenset(
+    {"playing", "streaming", "listening", "watching", "competing"}
+)
+
+
+def _validate_connector_account_config(account: ConnectorAccount) -> None:
+    """Per-type shape validation for ConnectorAccount.config.
+
+    Raises HTTPException(422, detail=...) on shape mismatch. Mirrors
+    the :func:`_validate_mcp_source_config` precedent — validator
+    lives at the API write boundary; the error path returns a clean
+    422 with a human-readable detail string. Pydantic's Literal
+    validation already gates the ``type`` field at model validation
+    time, so the trailing ``else`` raise is defensive
+    exhaustiveness (see ``_validate_mcp_source_config`` at line 840).
+
+    Discord (M11 F1 L2): validates the three operator-meaningful
+    config keys — ``intents``, ``guilds``, ``presence`` — each
+    optional. Absent keys round-trip cleanly so M10 F8 accounts
+    (which lack ``intents``) keep working byte-identically.
+
+    Stub: pass-through. The F1 stub-type carve-out accepts arbitrary
+    config — per-type knowledge does not apply to stubs.
+    """
+    cfg = account.config
+
+    if account.type == "discord":
+        # ── intents ──────────────────────────────────────────────
+        if "intents" in cfg:
+            intents = cfg["intents"]
+            if not isinstance(intents, dict):
+                raise HTTPException(
+                    status_code=422,
+                    detail="Discord connector config.intents must be a dict.",
+                )
+            required = {"message_content", "members", "guilds"}
+            if set(intents.keys()) != required:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"Discord connector config.intents must have exactly "
+                        f"these keys: {sorted(required)}; got: "
+                        f"{sorted(intents.keys())}."
+                    ),
+                )
+            for key, value in intents.items():
+                # ``bool`` is a subclass of ``int`` in Python; the
+                # ``isinstance(value, bool)`` check (NOT ``int``) means
+                # a JSON ``1`` from a buggy client gets a 422. Mirrors
+                # the MCP precedent at api.py:816.
+                if not isinstance(value, bool):
+                    raise HTTPException(
+                        status_code=422,
+                        detail=(
+                            f"Discord connector config.intents.{key} must be "
+                            f"a boolean; got {type(value).__name__}."
+                        ),
+                    )
+
+        # ── guilds ───────────────────────────────────────────────
+        if "guilds" in cfg:
+            guilds = cfg["guilds"]
+            if not isinstance(guilds, list):
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "Discord connector config.guilds must be a list of "
+                        "digit-only strings if present."
+                    ),
+                )
+            for entry in guilds:
+                if not isinstance(entry, str):
+                    raise HTTPException(
+                        status_code=422,
+                        detail=(
+                            f"Discord connector config.guilds entries must "
+                            f"be strings; got {type(entry).__name__}."
+                        ),
+                    )
+                if len(entry) == 0 or not entry.isdigit():
+                    raise HTTPException(
+                        status_code=422,
+                        detail=(
+                            f"Discord connector config.guilds entries must "
+                            f"be non-empty decimal-digit strings; "
+                            f"got {entry!r}."
+                        ),
+                    )
+
+        # ── presence ─────────────────────────────────────────────
+        if "presence" in cfg:
+            presence = cfg["presence"]
+            if not isinstance(presence, dict):
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "Discord connector config.presence must be a dict "
+                        "if present."
+                    ),
+                )
+            if "name" in presence:
+                name = presence["name"]
+                if not isinstance(name, str) or not name.strip():
+                    raise HTTPException(
+                        status_code=422,
+                        detail=(
+                            "Discord connector config.presence.name must be "
+                            "a non-empty string."
+                        ),
+                    )
+            if "type" in presence:
+                ptype = presence["type"]
+                if not isinstance(ptype, str) or ptype not in _DISCORD_PRESENCE_TYPES:
+                    raise HTTPException(
+                        status_code=422,
+                        detail=(
+                            f"Discord connector config.presence.type must be "
+                            f"one of: {sorted(_DISCORD_PRESENCE_TYPES)}; "
+                            f"got: {ptype!r}."
+                        ),
+                    )
+
+    elif account.type == "stub":
+        # Stub-type carve-out — F1 trust posture accepts arbitrary
+        # config for the placeholder connector. Per-type Discord-shape
+        # checks do NOT apply.
+        pass
+
+    else:
+        # Defensive exhaustiveness — Pydantic's Literal validator
+        # already rejects unknown ``type`` values at
+        # ConnectorAccount.model_validate time, so this branch is
+        # unreachable for properly-validated input. A future
+        # contributor who adds a new connector type literal to the
+        # model and forgets to extend this helper trips the raise.
+        # Mirrors the MCP precedent at api.py:840-849.
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unknown connector type: {account.type!r}",
+        )
+
+
 @router.get("/mcp-sources")
 async def list_mcp_sources() -> list[dict[str, Any]]:
     repo = await _mcp_repo()
@@ -2157,10 +2311,7 @@ async def create_connector_account(request: Request) -> dict[str, Any]:
         # — ``model_validator`` paths populate ``ctx['error']`` with raw
         # exceptions that aren't JSON-serializable.
         raise HTTPException(status_code=422, detail=e.errors(include_context=False))
-    # NOTE: No per-type config-shape validation in this leg — the F1 stub
-    # accepts arbitrary config, and per-type validation lands per-connector
-    # in Flights 8 / 9 (mirror of ``_validate_mcp_source_config`` which is
-    # type-aware).
+    _validate_connector_account_config(account)
     repo = await _connector_repo()
     await repo.create(account)
     return _connector_account_response(account)
@@ -2218,6 +2369,7 @@ async def update_connector_account(account_id: str, request: Request) -> dict[st
         updated = ConnectorAccount.model_validate(merged)
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=e.errors(include_context=False))
+    _validate_connector_account_config(updated)
     await repo.update(updated)
 
     if existing.secrets != resolved_secrets:

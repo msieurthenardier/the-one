@@ -46,6 +46,35 @@
 
   var MASKED_SENTINEL = '__MASKED__';
 
+  // M11 F1 L6 — Display-text vocabulary substitution. The substrate's
+  // persisted vocabulary stays at "peer / channel / guild / role"
+  // (Pydantic models, ACL field names, _VALID_ROUTING_SCOPES literals,
+  // audit-log keys); only the rendered display labels vary per
+  // connector type. Call sites consult ``App.studio.connectorVocabulary``
+  // via the triple-guard below; if the script failed to load, the
+  // inline ``_DEFAULT_VOCAB_INLINE`` reproduces the pre-L6 baseline
+  // ("Peers / Channels / Guilds / Roles") byte-for-byte so no rendering
+  // path throws or drifts.
+  var _DEFAULT_VOCAB_INLINE = {
+    peer: 'peer', peers: 'peers',
+    group: 'guild', groups: 'guilds',
+    channel: 'channel', channels: 'channels',
+    role: 'role', roles: 'roles',
+    hintTone: 'generic'
+  };
+
+  function _capitalize(s) {
+    return s ? s.charAt(0).toUpperCase() + s.slice(1) : '';
+  }
+
+  function _vocabForAccount(account) {
+    var type = (account && account.type) || '';
+    var v = (window.App && window.App.studio && window.App.studio.connectorVocabulary)
+      ? window.App.studio.connectorVocabulary.get(type)
+      : null;
+    return v || _DEFAULT_VOCAB_INLINE;
+  }
+
   // M10 F7 L9 HAT: tab panel ids. Mirror agent-editor.js's PANEL_IDS
   // pattern so test selectors that hop between the two editors share a
   // naming convention.
@@ -377,6 +406,21 @@
       testConnectionHtml += '</div>';
     }
 
+    // Invite section (edit mode only) — M11 F1 L5.
+    // The Invite section is registry-mediated: the active connector
+    // type's entry provides an OPTIONAL ``renderInviteSection(account)``
+    // hook. Unregistered types (e.g. ``'stub'``) or types without the
+    // hook produce no section — preserves byte-identical DOM for
+    // ``'stub'`` tests.
+    var inviteHtml = '';
+    if (!isCreate) {
+      var inviteRegistry = (window.App && window.App.studio && window.App.studio.connectorFormRegistry) || null;
+      var inviteEntry = (inviteRegistry && account && account.type) ? inviteRegistry.get(account.type) : undefined;
+      if (inviteEntry && typeof inviteEntry.renderInviteSection === 'function') {
+        inviteHtml = inviteEntry.renderInviteSection(account);
+      }
+    }
+
     // Danger Zone (edit only).
     var dangerZoneHtml = '';
     if (!isCreate) {
@@ -428,6 +472,7 @@
       html += pairingHtml;
       html += attachedAgentsHtml;
       html += testConnectionHtml;
+      html += inviteHtml;
       html += dangerZoneHtml;
       html += '</div>';
       // Access and Routing tab — Lifecycle, Allowlist, Routing rules.
@@ -468,7 +513,7 @@
     if (!isCreate && _pendingProbeReport) {
       var report = _pendingProbeReport;
       _pendingProbeReport = null;
-      renderTestConnectionBanner(container, report);
+      renderTestConnectionBanner(container, report, account.id);
     }
   }
 
@@ -532,10 +577,26 @@
     html += '</div>';
 
     // Config kv editor — plaintext key-value rows.
+    //
+    // M11 F1 L3: per-type form registry consult. The substrate emits
+    // the outer field-row wrapper unconditionally so the
+    // ``[data-testid="connector-account-config"]`` selector keeps
+    // resolving for tests; only the inner content varies between the
+    // typed (entry.renderConnectionFields) and generic
+    // (renderConfigKvTable) render paths. Triple-guard against an
+    // early-load race where the registry script hasn't attached yet.
+    var connRegistry = (window.App && window.App.studio && window.App.studio.connectorFormRegistry) || null;
+    var connActiveType = isCreate ? '' : ((account && account.type) || '');
+    var connEntry = (connRegistry && connActiveType) ? connRegistry.get(connActiveType) : undefined;
+
     html += '<div class="field-row admin-pf-row connector-account-config-wrap">';
     html += '<label>Config</label>';
     html += '<div class="connector-account-config" data-testid="connector-account-config">';
-    html += renderConfigKvTable(account);
+    if (connEntry && typeof connEntry.renderConnectionFields === 'function') {
+      html += connEntry.renderConnectionFields(account, isCreate);
+    } else {
+      html += renderConfigKvTable(account);
+    }
     html += '</div>';
     html += '</div>';
 
@@ -555,9 +616,29 @@
   function collectConfigRows(account) {
     var rows = [];
     if (!account || !account.config) return rows;
+
+    // M11 F1 L3: compose the effective reserved set as the union of
+    // the substrate baseline ``RESERVED_CONFIG_KEYS`` and any per-type
+    // ``reservedConfigKeys`` declared by a registered registry entry.
+    // The baseline constant stays untouched; composition happens at
+    // call time so the registry's lifecycle (entries may register
+    // late, after module load) is transparently respected.
+    var ccrRegistry = (window.App && window.App.studio && window.App.studio.connectorFormRegistry) || null;
+    var ccrEntry = (ccrRegistry && account.type) ? ccrRegistry.get(account.type) : undefined;
+    var ccrPerType = (ccrEntry && Array.isArray(ccrEntry.reservedConfigKeys)) ? ccrEntry.reservedConfigKeys : [];
+    var effectiveReserved = {};
+    for (var rk in RESERVED_CONFIG_KEYS) {
+      if (Object.prototype.hasOwnProperty.call(RESERVED_CONFIG_KEYS, rk)) {
+        effectiveReserved[rk] = true;
+      }
+    }
+    for (var pi = 0; pi < ccrPerType.length; pi++) {
+      effectiveReserved[ccrPerType[pi]] = true;
+    }
+
     for (var k in account.config) {
       if (Object.prototype.hasOwnProperty.call(account.config, k)) {
-        if (RESERVED_CONFIG_KEYS[k]) continue;  // owned by a dedicated section
+        if (effectiveReserved[k]) continue;  // owned by a dedicated section or per-type form
         var v = account.config[k];
         var rendered;
         if (typeof v === 'string') {
@@ -614,6 +695,22 @@
   }
 
   function renderSecretsKvTable(account) {
+    // M11 F1 L3: per-type form registry consult. When a registered
+    // entry exposes ``renderCredentialsFields``, the substitute its
+    // return for the inner secrets table HTML; otherwise fall through
+    // to the generic kv-table render. The function's outer return
+    // value remains the "inner content" the caller mounts inside the
+    // existing ``.editor-section`` / ``.connector-account-secrets``
+    // wrappers (`renderConnectorAccountEditor:268-273`), so the
+    // wrapper-contract for byte-identical fallback DOM is preserved at
+    // the caller layer. Triple-guard against an early-load race.
+    var secRegistry = (window.App && window.App.studio && window.App.studio.connectorFormRegistry) || null;
+    var secActiveType = (account && account.type) || '';
+    var secEntry = (secRegistry && secActiveType) ? secRegistry.get(secActiveType) : undefined;
+    if (secEntry && typeof secEntry.renderCredentialsFields === 'function') {
+      return secEntry.renderCredentialsFields(account);
+    }
+
     var existingRows = collectSecretRows(account);
     var headHiddenClass = existingRows.length === 0 ? ' is-hidden' : '';
     var html = '<table class="connector-account-secrets-table" data-testid="connector-account-secrets-table">';
@@ -702,13 +799,37 @@
     // so the populated options don't read as a dirty edit.
     var routing = collectRoutingFromContainer(container);
 
-    return JSON.stringify({
+    var snapshotObj = {
       static: staticData,
       config: configRows,
       secrets: secretRows,
       allowlist: allowlist,
       routing: routing
-    });
+    };
+
+    // M11 F1 L4: per-type registry consult for typed-field snapshot.
+    // The entry's optional ``snapshot(container)`` returns a
+    // JSON-serializable view of the typed inputs (intent checkboxes,
+    // presence dropdown, BOT_TOKEN value, etc.) so the dirty-tracker's
+    // serialize-and-compare loop catches operator edits to inputs that
+    // live OUTSIDE ``.editor-section .field-input`` / ``.field-select``.
+    // Byte-stability contract: when no entry is registered (e.g.
+    // ``'stub'``) OR the entry omits ``snapshot``, the snapshot object
+    // MUST NOT carry a ``typedFields`` key at all — no
+    // ``typedFields: undefined`` placeholder, no key-reordering. Triple
+    // guard on the registry access for early-load safety.
+    var snapRegistry = (window.App && window.App.studio && window.App.studio.connectorFormRegistry) || null;
+    var snapActiveType = container.querySelector('[data-field="type"]');
+    var snapTypeValue = snapActiveType ? (snapActiveType.value || '') : '';
+    var snapEntry = (snapRegistry && snapTypeValue) ? snapRegistry.get(snapTypeValue) : undefined;
+    if (snapEntry && typeof snapEntry.snapshot === 'function') {
+      var typed = snapEntry.snapshot(container);
+      if (typed !== undefined) {
+        snapshotObj.typedFields = typed;
+      }
+    }
+
+    return JSON.stringify(snapshotObj);
   }
 
   // ── Event wiring ────────────────────────────────────────────────────
@@ -760,6 +881,28 @@
       }
     }
     attachStaticListeners();
+
+    // M11 F1 L4: per-type registry consult for typed-field event
+    // wiring. The entry's optional ``wireEvents(container, checkDirty)``
+    // attaches the per-input listeners for typed inputs that live
+    // OUTSIDE the ``.editor-section .field-input`` / ``.field-select``
+    // delegation pattern (raw checkboxes, ``<select>`` without
+    // ``.field-select``, secret-style inputs not in the kv-table). The
+    // substrate does no per-input-type dispatch — the entry owns its
+    // own DOM coupling. Triple-guard for early-load safety; absent
+    // hook → no-op (existing behavior preserved for unregistered
+    // types and entries without typed inputs).
+    var wireRegistry = (window.App && window.App.studio && window.App.studio.connectorFormRegistry) || null;
+    var wireActiveType = container.querySelector('[data-field="type"]');
+    var wireTypeValue = wireActiveType ? (wireActiveType.value || '') : '';
+    var wireEntry = (wireRegistry && wireTypeValue) ? wireRegistry.get(wireTypeValue) : undefined;
+    if (wireEntry && typeof wireEntry.wireEvents === 'function') {
+      // M11 F1 L5: pass ``account`` as a third arg so the entry's
+      // invite-section helpers can key the application_id cache by
+      // ``account.id``. L4's two-arg signature stays backward-compatible
+      // (extra args are ignored).
+      wireEntry.wireEvents(container, checkDirty, account);
+    }
 
     // ── Config kv table delegated events ──────────────────────────────
     var configTable = container.querySelector('.connector-account-config-table');
@@ -960,7 +1103,7 @@
       // a "Loading…" placeholder until this resolves. The same fetch's
       // ``.then`` populates the routing-section agent dropdowns and
       // re-snapshots (see fetchAttachedAgents).
-      fetchAttachedAgents(container, account.id, checkDirty, recaptureSnapshot);
+      fetchAttachedAgents(container, account, checkDirty, recaptureSnapshot);
     }
   }
 
@@ -1117,33 +1260,66 @@
     if (hadError) return null;
 
     var config = {};
-    var configRows = container.querySelectorAll('.connector-account-config-table tbody tr.connector-account-config-row');
-    for (var i = 0; i < configRows.length; i++) {
-      var crow = configRows[i];
-      var ck = crow.querySelector('.config-key-input');
-      var cv = crow.querySelector('.config-value-input');
-      if (!ck || !cv) continue;
-      var ckey = (ck.value || '').trim();
-      if (!ckey) continue;
-      config[ckey] = cv.value || '';
-    }
-
     var secrets = {};
-    var secretRows = container.querySelectorAll('.connector-account-secrets-table tbody tr.connector-account-secret-row');
-    for (var j = 0; j < secretRows.length; j++) {
-      var srow = secretRows[j];
-      var sk = srow.querySelector('.secret-key-input');
-      var sv = srow.querySelector('.secret-value-input');
-      if (!sk || !sv) continue;
-      var skey = (sk.value || '').trim();
-      if (!skey) continue;
-      var value = sv.value || '';
-      var origMasked = sv.dataset.originalMasked || '';
-      if (origMasked && value === origMasked) {
-        // Per-row __MASKED__ — backend preserves the stored secret.
-        secrets[skey] = MASKED_SENTINEL;
-      } else {
-        secrets[skey] = value;
+
+    // M11 F1 L3: per-type registry's ``collect`` hook runs FIRST when
+    // an entry exists for the current type; its returned
+    // ``{config, secrets}`` seeds the substrate's payload. The
+    // substrate's pairing / allowlist / routing / auto_relay merge
+    // code below then OVERLAYS the substrate-known reserved keys onto
+    // the registry's config, so the entry cannot accidentally write
+    // them. When no entry exists, the generic DOM-scan path runs
+    // unchanged — this is the regression contract for unregistered
+    // types (``'stub'`` today; any future-type-without-UI tomorrow).
+    var cfdRegistry = (window.App && window.App.studio && window.App.studio.connectorFormRegistry) || null;
+    var cfdEntry = (cfdRegistry && typeValue) ? cfdRegistry.get(typeValue) : undefined;
+    var cfdCollected = (cfdEntry && typeof cfdEntry.collect === 'function')
+      ? cfdEntry.collect(container, account, isEdit)
+      : null;
+
+    if (cfdCollected) {
+      if (cfdCollected.config) {
+        for (var rck in cfdCollected.config) {
+          if (Object.prototype.hasOwnProperty.call(cfdCollected.config, rck)) {
+            config[rck] = cfdCollected.config[rck];
+          }
+        }
+      }
+      if (cfdCollected.secrets) {
+        for (var rsk in cfdCollected.secrets) {
+          if (Object.prototype.hasOwnProperty.call(cfdCollected.secrets, rsk)) {
+            secrets[rsk] = cfdCollected.secrets[rsk];
+          }
+        }
+      }
+    } else {
+      var configRows = container.querySelectorAll('.connector-account-config-table tbody tr.connector-account-config-row');
+      for (var i = 0; i < configRows.length; i++) {
+        var crow = configRows[i];
+        var ck = crow.querySelector('.config-key-input');
+        var cv = crow.querySelector('.config-value-input');
+        if (!ck || !cv) continue;
+        var ckey = (ck.value || '').trim();
+        if (!ckey) continue;
+        config[ckey] = cv.value || '';
+      }
+
+      var secretRows = container.querySelectorAll('.connector-account-secrets-table tbody tr.connector-account-secret-row');
+      for (var j = 0; j < secretRows.length; j++) {
+        var srow = secretRows[j];
+        var sk = srow.querySelector('.secret-key-input');
+        var sv = srow.querySelector('.secret-value-input');
+        if (!sk || !sv) continue;
+        var skey = (sk.value || '').trim();
+        if (!skey) continue;
+        var value = sv.value || '';
+        var origMasked = sv.dataset.originalMasked || '';
+        if (origMasked && value === origMasked) {
+          // Per-row __MASKED__ — backend preserves the stored secret.
+          secrets[skey] = MASKED_SENTINEL;
+        } else {
+          secrets[skey] = value;
+        }
       }
     }
 
@@ -1265,7 +1441,7 @@
         });
       })
       .then(function (report) {
-        renderTestConnectionBanner(container, report);
+        renderTestConnectionBanner(container, report, accountId);
       })
       .catch(function (err) {
         // Network / 5xx — render as a synthetic error banner so the UI is
@@ -1274,14 +1450,14 @@
           status: 'error',
           message: 'Network error: ' + (err && err.message ? err.message : String(err)),
           details: {}
-        });
+        }, accountId);
       })
       .then(function () {
         testBtn.disabled = false;
       });
   }
 
-  function renderTestConnectionBanner(container, report) {
+  function renderTestConnectionBanner(container, report, accountId) {
     var escapeHtml = window.App.escapeHtml;
     var statusEl = container.querySelector('[data-testid="connector-test-status"]');
     var detailsWrap = container.querySelector('[data-testid="connector-test-details-wrap"]');
@@ -1292,6 +1468,18 @@
     var status = (report && report.status) || 'error';
     var message = (report && report.message) || '';
     var details = (report && report.details) || {};
+
+    // M11 F1 L5: if the probe surfaced a Discord ``application_id`` and
+    // the Discord namespace is mounted, push the id into its cache so
+    // the Invite section's URL renders. No-op when the namespace is
+    // absent (e.g. ``'stub'`` tests / future types without an invite
+    // helper).
+    var applicationId = details && details.application_id;
+    if (applicationId && accountId &&
+        window.App && window.App.studio && window.App.studio.connectorFormDiscord &&
+        typeof window.App.studio.connectorFormDiscord.setApplicationId === 'function') {
+      window.App.studio.connectorFormDiscord.setApplicationId(accountId, applicationId);
+    }
 
     if (ledEl) {
       ledEl.className = 'indicator-led ' + statusLedClass(status) + ' connector-test-led';
@@ -1469,8 +1657,19 @@
     // rows render on every account regardless of platform — the
     // pragmatic generic-UI choice; F10 can revisit per-platform
     // visibility if HAT surfaces operator confusion.
+    //
+    // M11 F1 L6 — Display labels + hint texts route through the
+    // per-type vocabulary map. The persisted chip-list slot keys
+    // (``data-allowlist-chiplist-slot="peers"``/``channels``/``guilds``/
+    // ``roles``) stay at the substrate's literal field names; only the
+    // rendered ``<label>`` text + ``<small>`` hint text vary per type.
+    // ``hintTone === 'native'`` drops the "Discord-flavored" qualifier
+    // on the groups + roles rows (redundant noise when the label
+    // already says "Servers / Roles").
     var escapeHtml = window.App.escapeHtml;
     var escapeAttr = window.App.escapeAttr;
+    var vocab = _vocabForAccount(account);
+    var nativeTone = vocab.hintTone === 'native';
 
     var html = '';
     html += '<div class="editor-section connector-allowlist-section">';
@@ -1479,43 +1678,47 @@
     html += '<div class="connector-allowlist-lists" ' +
             'data-testid="connector-allowlist-lists">';
     html += '<div class="connector-account-acl-fieldrow">';
-    html += '<label class="connector-account-acl-fieldlabel">Peers</label>';
+    html += '<label class="connector-account-acl-fieldlabel">' +
+            escapeHtml(_capitalize(vocab.peers)) + '</label>';
     html += '<div data-allowlist-chiplist-slot="peers"></div>';
     html += '<small class="form-hint" ' +
             'data-testid="connector-allowlist-peers-hint">' +
-            'Empty list = no peer restriction.' +
+            'Empty list = no ' + escapeHtml(vocab.peer) + ' restriction.' +
             '</small>';
     html += '</div>';
     html += '<div class="connector-account-acl-fieldrow">';
-    html += '<label class="connector-account-acl-fieldlabel">Channels</label>';
+    html += '<label class="connector-account-acl-fieldlabel">' +
+            escapeHtml(_capitalize(vocab.channels)) + '</label>';
     html += '<div data-allowlist-chiplist-slot="channels"></div>';
     html += '<small class="form-hint" ' +
             'data-testid="connector-allowlist-channels-hint">' +
-            'Empty list = no channel restriction.' +
+            'Empty list = no ' + escapeHtml(vocab.channel) + ' restriction.' +
             '</small>';
     html += '</div>';
     html += '<div class="connector-account-acl-fieldrow">';
-    html += '<label class="connector-account-acl-fieldlabel">Guilds</label>';
+    html += '<label class="connector-account-acl-fieldlabel">' +
+            escapeHtml(_capitalize(vocab.groups)) + '</label>';
     html += '<div data-allowlist-chiplist-slot="guilds"></div>';
     html += '<small class="form-hint" ' +
             'data-testid="connector-allowlist-guilds-hint">' +
-            'Empty list = no guild restriction. ' +
-            'Discord-flavored; ignored by other platforms.' +
+            'Empty list = no ' + escapeHtml(vocab.group) + ' restriction.' +
+            (nativeTone ? '' : ' Discord-flavored; ignored by other platforms.') +
             '</small>';
     html += '</div>';
     html += '<div class="connector-account-acl-fieldrow">';
-    html += '<label class="connector-account-acl-fieldlabel">Roles</label>';
+    html += '<label class="connector-account-acl-fieldlabel">' +
+            escapeHtml(_capitalize(vocab.roles)) + '</label>';
     html += '<div data-allowlist-chiplist-slot="roles"></div>';
     html += '<small class="form-hint" ' +
             'data-testid="connector-allowlist-roles-hint">' +
-            'Empty list = no role restriction. ' +
-            'Any-of overlap; Discord-flavored.' +
+            'Empty list = no ' + escapeHtml(vocab.role) + ' restriction. ' +
+            'Any-of overlap.' +
+            (nativeTone ? '' : ' Discord-flavored.') +
             '</small>';
     html += '</div>';
     html += '</div>';
 
     html += '</div>';
-    void escapeHtml;
     void escapeAttr;
     return html;
   }
@@ -1612,16 +1815,31 @@
     return out;
   }
 
-  function _renderRoutingScopeOptions(currentScope) {
+  function _renderRoutingScopeOptions(currentScope, vocab) {
+    // M11 F1 L6 — ``<option value>`` STAYS at the substrate's literal
+    // scope value (the persistence vocabulary is unchanged). Only the
+    // option's textContent is substituted per the per-type vocabulary
+    // map. Today only ``peer`` and ``channel`` have vocabulary
+    // entries; ``thread`` and ``dm`` render their literal values
+    // unchanged (no Discord-specific labels). ``vocab`` defaults to
+    // the inline generic baseline so existing callers/legacy paths
+    // see byte-identical pre-L6 output.
     var escapeAttr = window.App.escapeAttr;
     var escapeHtml = window.App.escapeHtml;
+    var v = vocab || _DEFAULT_VOCAB_INLINE;
     var html = '<option value="" disabled' +
                (currentScope ? '' : ' selected') + '>Select scope</option>';
     for (var i = 0; i < _VALID_ROUTING_SCOPES.length; i++) {
       var s = _VALID_ROUTING_SCOPES[i];
       var sel = (s === currentScope) ? ' selected' : '';
+      var label = s;
+      if (s === 'peer') {
+        label = v.peer;
+      } else if (s === 'channel') {
+        label = v.channel;
+      }
       html += '<option value="' + escapeAttr(s) + '"' + sel + '>' +
-              escapeHtml(s) + '</option>';
+              escapeHtml(label) + '</option>';
     }
     return html;
   }
@@ -1644,7 +1862,12 @@
     return html;
   }
 
-  function _renderRoutingRow(row, idx) {
+  function _renderRoutingRow(row, idx, vocab) {
+    // M11 F1 L6 — ``vocab`` threaded through to ``_renderRoutingScopeOptions``
+    // so the scope dropdown's option textContent reflects the per-type
+    // vocabulary (e.g. Discord shows "user" / "channel" instead of
+    // "peer" / "channel"). The ``<option value>`` stays at the literal
+    // scope value; only the visible label varies.
     var escapeAttr = window.App.escapeAttr;
     var html = '';
     // M10 F7 L9 HAT2: rule rows gain a leading drag-handle cell; chevron
@@ -1660,7 +1883,7 @@
             '</span></td>';
     html += '<td><select class="field-input field-select admin-pf-input admin-pf-select" ' +
             'data-routing-scope data-row="' + idx + '">' +
-            _renderRoutingScopeOptions(row.scope) +
+            _renderRoutingScopeOptions(row.scope, vocab) +
             '</select></td>';
     // M10 F7 L9 HAT2: ``match`` is a chip-list (one or more values; the
     // rule fires if ANY value matches the envelope's corresponding
@@ -1699,6 +1922,9 @@
     var routing = (account && account.config && account.config.routing) || null;
     var defaultAgent = (routing && typeof routing.default === 'string') ? routing.default : '';
     var headHiddenClass = rows.length === 0 ? ' is-hidden' : '';
+    // M11 F1 L6 — vocabulary threaded into ``_renderRoutingRow`` for
+    // the scope-dropdown textContent substitution.
+    var vocab = _vocabForAccount(account);
 
     var html = '';
     html += '<div class="editor-section connector-routing-section">';
@@ -1737,7 +1963,7 @@
             '<th aria-label="Actions"></th></tr></thead>';
     html += '<tbody data-testid="connector-routing-tbody">';
     for (var i = 0; i < rows.length; i++) {
-      html += _renderRoutingRow(rows[i], i);
+      html += _renderRoutingRow(rows[i], i, vocab);
     }
     html += '</tbody></table>';
 
@@ -1921,7 +2147,11 @@
         if (!tbody) return;
         var idx = nextRoutingRowIdx++;
         var tmp = document.createElement('tbody');
-        tmp.innerHTML = _renderRoutingRow({ scope: '', match: [], agent: '' }, idx);
+        // M11 F1 L6 — pass the per-type vocabulary so the new row's
+        // scope dropdown renders the same substituted labels as the
+        // pre-rendered rows above.
+        var addVocab = _vocabForAccount(account);
+        tmp.innerHTML = _renderRoutingRow({ scope: '', match: [], agent: '' }, idx, addVocab);
         var newTr = tmp.querySelector('tr.connector-routing-row');
         if (!newTr) return;
         // Repopulate the new row's agent dropdown from the live
@@ -2049,9 +2279,15 @@
     return html;
   }
 
-  function renderAttachedAgentsList(container, rows) {
+  function renderAttachedAgentsList(container, rows, account) {
+    // M11 F1 L6 — table headers consult the per-type vocabulary so a
+    // Discord-type account renders "Users" / "Channels" instead of
+    // the substrate's neutral "Peers" / "Channels". The per-row
+    // ``_renderAxis`` calls do not vary by type — the empty-list
+    // copy ("DMs only" / "none") remains shared across types.
     var escapeHtml = window.App.escapeHtml;
     var escapeAttr = window.App.escapeAttr;
+    var vocab = _vocabForAccount(account);
     var listEl = container.querySelector('[data-testid="connector-attached-agents-list"]');
     if (!listEl) return;
     if (!rows || rows.length === 0) {
@@ -2089,8 +2325,8 @@
                'data-testid="connector-attached-agents-table">';
     html += '<thead><tr>' +
             '<th>Agent</th>' +
-            '<th>Peers</th>' +
-            '<th>Channels</th>' +
+            '<th>' + escapeHtml(_capitalize(vocab.peers)) + '</th>' +
+            '<th>' + escapeHtml(_capitalize(vocab.channels)) + '</th>' +
             '</tr></thead>';
     html += '<tbody>';
     for (var i = 0; i < rows.length; i++) {
@@ -2114,7 +2350,12 @@
     listEl.innerHTML = html;
   }
 
-  function fetchAttachedAgents(container, accountId, checkDirty, recaptureSnapshot) {
+  function fetchAttachedAgents(container, account, checkDirty, recaptureSnapshot) {
+    // M11 F1 L6 — accept the full ``account`` object (not just the
+    // id) so ``renderAttachedAgentsList`` can consult the per-type
+    // vocabulary for the table-header text. ``account.id`` drives the
+    // fetch URL; ``account.type`` drives the vocabulary lookup.
+    var accountId = account && account.id;
     fetch('/api/connector-accounts/' + encodeURIComponent(accountId) + '/attached-agents')
       .then(function (resp) {
         if (!resp.ok) {
@@ -2132,7 +2373,7 @@
       .then(function (rows) {
         if (rows == null) return;
         if (!Array.isArray(rows)) rows = [];
-        renderAttachedAgentsList(container, rows);
+        renderAttachedAgentsList(container, rows, account);
         // M10 F7 L7: populate routing-section agent dropdowns (rule
         // rows + default-agent) once the attached-agents list is
         // known. Re-snapshot AFTER population so the populated form
@@ -2414,6 +2655,13 @@
   }
 
   window.App.studio.renderConnectorAccountEditor = renderConnectorAccountEditor;
+  // M11 F1 L4: expose the generic config kv-table renderer on the
+  // studio namespace so per-type registry entries (e.g. the Discord
+  // entry's "Advanced (kv-table)" disclosure) can mount it inside
+  // their own typed-field markup. The function body is UNCHANGED —
+  // only its accessibility extends. Removing this exposure would
+  // break L4's Advanced disclosure render.
+  window.App.studio.renderConfigKvTable = renderConfigKvTable;
   // M10 F7 L9 HAT: expose PANEL_IDS mirroring agent-editor's
   // AGENT_PANEL_IDS for parity (no current consumer, but anchors the
   // contract for future studio.js URL routing).

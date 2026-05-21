@@ -617,9 +617,32 @@ class DiscordPlugin:
         """
         token = account.secrets["BOT_TOKEN"]
         intents = discord.Intents.default()
-        intents.message_content = True
-        intents.members = True
-        intents.guilds = True
+        # M11 F1 L2: intents flow through ``account.config["intents"]``
+        # with True-fallback defaults. The fallback preserves M10 F8
+        # backward compatibility byte-identically — accounts without
+        # ``config["intents"]`` get all three intents True, matching the
+        # pre-L2 hardcoded behavior. The API-layer validator
+        # (:func:`_validate_connector_account_config`) gates the shape at
+        # write time, so any malformed ``config["intents"]`` reaching the
+        # plugin originated from a direct DB edit outside the API write
+        # path (the F1 single-user local-tool trust posture treats that
+        # as the operator's problem).
+        intents_cfg = account.config.get("intents", {})
+        intents.message_content = intents_cfg.get("message_content", True)
+        intents.members = intents_cfg.get("members", True)
+        intents.guilds = intents_cfg.get("guilds", True)
+        if intents.message_content is False:
+            # M11 F1 L2 deviation note: the M10 F8 baseline had no log
+            # for disabled intents because they couldn't be disabled
+            # (hardcoded True). The WARNING-log is novel and surfaces
+            # what would otherwise be a silent silence — a bot whose
+            # message_content intent is False reads every channel
+            # message as an empty string with no observable error.
+            logger.warning(
+                "Discord intents.message_content disabled in config for "
+                "account %s; bot will silently receive no channel messages",
+                account.id,
+            )
 
         activity = _build_activity(account.config.get("presence"))
         ready_timeout = float(

@@ -25,6 +25,8 @@ Rules: `config.py` is the leaf (imported by everything, imports nothing). `llm/`
 
 Named project-wide patterns. Apply across the codebase, not only where they were first introduced. Reviewers flag deviations by name.
 
+### Project-wide
+
 ### `trust-the-runtime`
 
 Don't validate at the API layer what the runtime will catch with a clear error. Pre-validation duplicates the check, introduces TOCTOU windows, and bloats the surface translating good-enough runtime errors into hand-written API errors.
@@ -116,6 +118,72 @@ Citations: `the_one/connectors/_acl.py:admits_inbound` (F6 — account-scope adm
 When a capability moves from "future" (one plugin needs it, others don't) to "required" (every plugin in scope must implement it), widen the `runtime_checkable` Protocol additively rather than reaching for `getattr`-sentinel. The widening is non-breaking for existing `isinstance(...)` checks at the type level — Python's `runtime_checkable` Protocol checks method-name presence at call time, so existing implementers that satisfy the pre-widened shape continue to pass UNLESS they're missing the newly-required method (in which case the isinstance check correctly fails and surfaces the gap). Implementations still MUST NOT inherit from the Protocol — structural satisfaction is the rule (`structural-Protocol-satisfaction` convention).
 
 Citation: `the_one/connectors/base.py:ConnectorClient.send` widening (F4 leg 1) added `async def send(target: OutboundTarget, content: str) -> SendResult` to the existing 1-method `ConnectorClient` Protocol. Every connector in scope (stub, Discord at F8, second connector at F9) MUST implement `send`; the platform-send tool depends on it being callable. F4's choice contrasts with the `optional-plugin-hook-via-getattr-sentinel` convention used for `display_channel` — outbound has no sensible default (silent drop is leakage; raise is noise) so widening is structurally right.
+
+### `cross-subsystem-pattern-premise-revalidation`
+
+Every "mirror X" rationale invoked in a design must include an explicit paragraph: "the original design rests on premise P; does P hold here?" Pattern-transfer without premise validation ships defects that survive design review. Reviewers must demand the premise-revalidation paragraph before approving any cross-subsystem mirror.
+
+Applies to any cross-subsystem pattern reuse where the precedent's premise is implicit. Does NOT apply to local refactors within a subsystem — a single-subsystem change can mirror its own siblings without re-deriving the premise.
+
+Citation: `the_one/connectors/_pool.py` — F1 mirrored `mcp/_pool.py`'s per-agent pool keying without re-validating the gateway-protocol-vs-MCP premise mismatch (gateway protocols are one-IDENTIFY-per-token; per-agent keying is incompatible). The mismatch surfaced at F8 L11 HAT seven flights after the original commit. Fix #6 shipped the sentinel-wrapper `_CONNECTOR_POOL_AGENT_SENTINEL = "__connector__"` at `the_one/connectors/_pool.py:148` and the convenience `connector_acquire(account_id)` at `the_one/connectors/_pool.py:512-530` as a tactical patch (call sites: `the_one/tools/connector_send.py:194`, `the_one/connectors/_inbound.py:140`). M11 F2 owns the proper refactor to an account-keyed primitive.
+
+Source: M10 mission-debrief "Process §2" — codify `cross-subsystem-pattern-premise-revalidation`; also listed in "Action Items → Codify 6 new agents.md Project Conventions."
+
+### `prompt-discipline-needs-mechanical-fallback`
+
+Any agent behavior the system depends on but the LLM controls requires either empirical HAT validation against the production model OR a mechanical dispatcher-side fallback that enforces the behavior without relying on prompt compliance. Decision-only (prompt-only) paths are not production contracts — LLM directive compliance is not a contract the system can build on.
+
+Applies to any system-level invariant whose enforcement passes through the LLM (outbound channels, tool-call-mandatory flows, content-filter directives). Does NOT apply to UX-only directives that fail soft if ignored (style guidance, persona instructions).
+
+Citation: `the_one/agent/config.py:_CONNECTOR_TOOL_ENABLED_DIRECTIVE` at lines ~54-67 — the original F4 directive "MUST call the `send_to_platform_channel` tool to deliver your reply." Sonnet 4.7 ignored the directive at F8 L11 HAT (twice, with strengthened versions). F8 L11 Fix #4 shipped the mechanical fallback at `the_one/connectors/_inbound.py:711` — `auto_relay = account.config.get("auto_relay_platform_replies", True)` defaults ON and the dispatcher auto-relays the assistant text via `client.send` regardless of whether the tool was called.
+
+Source: M10 mission-debrief "Process §3" — codify `prompt-discipline-needs-mechanical-fallback`; also "Lessons Learned §11" (LLM directive compliance is not a production contract).
+
+### `mechanical-fallback-prompt-truth-pairing`
+
+When a mechanical fallback ships alongside a system-prompt directive (per `prompt-discipline-needs-mechanical-fallback`), the prompt must accurately describe the actual behavior the dispatcher delivers. Lying in the prompt about what auto-runs (e.g., still saying "MUST call tool X" when the dispatcher now auto-relays anyway) confuses LLMs trained for honesty and produces hedging / over-explanation. The directive and the dispatcher's truth ship in the same diff.
+
+Applies whenever a mechanical fallback exists for a behavior the system-prompt also describes. Does NOT apply when the dispatcher honors the original prompt's contract verbatim (no fallback divergence).
+
+Citation: `the_one/agent/config.py:_CONNECTOR_AUTO_RELAY_DIRECTIVE` at lines ~69-84 — F8 L11 Fix #4 shipped the paired directive when auto-relay is ON: "Auto-relay is ON: your plaintext replies in this session ARE automatically delivered to platform peers." The original `_CONNECTOR_TOOL_ENABLED_DIRECTIVE` survives at lines 54-67 for the (currently unreachable but conceptually distinct) "tool-mandatory-no-auto-relay" composition; `compose_system_prompt` at `the_one/agent/config.py:96+` selects between them via the `auto_relay: bool` parameter. Distinct from `hat-driven-contract-flip-migration-discipline` — that convention governs schema/contract flips at HAT; this one governs prompt/dispatcher pair synchronization.
+
+Source: M10 mission-debrief "Documentation §1" — companion to `prompt-discipline-needs-mechanical-fallback`; also "Lessons Learned §4" (Auto-relay default-on with a mechanical fallback is the right shape for bot UX).
+
+### `lifespan-wiring-same-leg-as-installation`
+
+Event-handler installation (registering a handler that depends on application-level state) and the lifespan-time call site that triggers it land in the same leg, OR the leg's acceptance criteria include a runtime end-to-end test exercising the installed handler. Installing a handler without wiring the lifespan that fires it leaves the entire code path unreachable in production — silently, until somebody triggers the handler end-to-end.
+
+Applies to any event-driven handler (gateway listeners, periodic sweeps, background workers, lifespan-startup callbacks) that depends on application-level dependency injection. Does NOT apply to handlers wired into a synchronous import path that runs at module-load. The pattern is connector-agnostic and applies project-wide to any lifespan-driven handler.
+
+Citation: F8 L4 installed Discord's `on_message` at `the_one/connectors/_discord.py:DiscordPlugin.connect` (line ~731) but deferred lifespan-time `pool.acquire(...)` wiring to L11; the entire L4 inbound code path was end-to-end unreachable in production until F8 L11 Fix #3 added the lifespan walk. The canonical wiring shape: `the_one/agent/factory.py:set_factory` at line ~168 (module-level accessor) consumed by `the_one/interfaces/web/app.py` lifespan startup at line ~88 (`_set_module_factory(_state["factory"])`); gateway listeners call `get_factory()` at dispatch time per the convention codified in the "Gateway-listener factory access (M10 F8 L4)" subsection below.
+
+Source: M10 mission-debrief "Process §6" — add `lifespan-wiring-same-leg-as-installation` to `/leg` and `/flight` design guidance; also "Methodology Feedback §4."
+
+### `atomic-leg-pattern`
+
+When a single contract change touches multiple coordinated sites (Pydantic field + DB migration + repository CRUD + downstream ripple-sites that load or persist the value), all sites land in the same leg. Splitting the contract across legs leaves intermediate commits where one half of the contract exists without the other — the column exists in the schema but the Pydantic model doesn't know to write to it, or the model has the field but the repository drops it on save.
+
+Applies whenever a contract change crosses two or more of {Pydantic schema, DB schema, repository codec, runtime consumer that reads the value}. Does NOT apply to contract-additive changes that are fully optional at every site (e.g., adding a Pydantic field with a default that no existing consumer reads).
+
+Citations (n=2 — pattern is at codification threshold per `function-local-import-to-break-load-cycle` precedent):
+- F4 L5: `AgentConfig.connector_account_ids` field landed alongside schema v17 migration, `AgentConfigRepository` insert/load codec, and `AgentFactory.create` consumer in a single leg. See `the_one/db/_connector_types.py:22` — "v17 → ``agents.connector_account_ids`` persistence (F4 L5)".
+- F6 L1c: `AgentConfig.connector_acls` field landed alongside schema v18 migration, `AgentConfigRepository` codec, and `_acl.admits_inbound` consumer in a single leg. See `the_one/db/_connector_types.py:22` — "v18 → ``agents.connector_acls`` persistence (F6 L1c)".
+
+Source: M10 mission-debrief "Documentation §1 (Architect addition)" — `atomic-leg-pattern` (Pydantic field + migration + repository + ripple-sites in one leg; F4 L5 + F6 L1c are n=2); also "Methodology Feedback §8."
+
+### Mission-specific (M10)
+
+Patterns that emerged in Mission 10 (bi-directional comms connectors) whose project-wide generalization has not yet been demonstrated. They live here until a second-mission citation lifts them into `### Project-wide` above. Future missions extending this file add their own `### Mission-specific (M{NN})` subsection per the same pattern.
+
+### `encryptor-parameter-receive-but-not-consume`
+
+A plugin Protocol method receives an `Encryptor` parameter but does not call it because the repository's contract already delivers plaintext secrets in `account.secrets[...]`. The parameter is present to satisfy the Protocol signature and to allow future plugins that need encryption-aware paths to opt in, NOT because every call site decrypts. Each receive-but-not-consume call site documents the contract in its docstring so reviewers and future authors don't reintroduce a double-decrypt.
+
+Applies to any plugin where the repository already performs the encryption boundary crossing (`ConnectorAccount`, `MCPSource`) and hands the plugin already-decrypted secrets. Does NOT apply when the plugin is itself the encryption boundary (e.g., a future plugin that handles per-call ephemeral key derivation).
+
+Citation: `the_one/connectors/_discord.py:DiscordPlugin.connect` — the docstring at line ~596 explicitly states "`encryptor` parameter is received to satisfy the F1 Protocol but not consumed at this site"; same pattern at `the_one/connectors/_discord.py:DiscordPlugin.doctor` (docstring at line ~1077).
+
+Source: M10 mission-debrief "Documentation §1" — F8 L11 BOT_TOKEN double-decrypt bug (the spec said `encryptor.decrypt(account.secrets["X"])` but the repository had already decrypted; the convention prevents the recurrence). Tagged "Mission-specific (M10)" because M10 debrief Documentation §1 explicitly calls it "M10-specific shape; project-wide principle" — the project-wide form ("repository contract delivery is part of any Protocol's contract") is captured by `cross-subsystem-pattern-premise-revalidation` above.
 
 ---
 
