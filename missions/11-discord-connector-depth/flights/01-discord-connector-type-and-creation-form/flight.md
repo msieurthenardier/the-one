@@ -1,6 +1,6 @@
 # Flight: Discord Connector-Type Registration + Discord-Shaped Creation Form
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Discord Connector Depth & Robustness](../../mission.md)
 
 ## Contributing to Criteria
