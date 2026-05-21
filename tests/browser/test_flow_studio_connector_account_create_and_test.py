@@ -172,3 +172,88 @@ def test_create_422_blocks_probe_and_surfaces_error_inline(
 
     # The probe MUST NOT have fired.
     assert probe_requests == [], f"unexpected probe requests: {probe_requests}"
+
+
+@pytest.mark.browser
+def test_create_mode_pick_discord_renders_typed_form(
+    app_clean: str, page: Page
+) -> None:
+    """M11 F1 L7 HAT: picking Discord in create mode re-renders the typed form.
+
+    Pre-fix bug: ``connActiveType`` was hardcoded to ``''`` in create
+    mode, so the registry-mediated typed-form path never ran — the
+    operator saw the generic kv-table fallback even after picking
+    Discord.
+
+    Fix verifies:
+      - The Discord typed-form fields (intents fieldset with all three
+        checkboxes checked, BOT_TOKEN typed field, guilds list, presence
+        editor, Advanced disclosure) appear after picking ``discord``.
+      - The generic kv-table is no longer at the top level (it lives
+        inside the Advanced ``<details>`` disclosure now).
+      - The operator's prior Name input is preserved across the
+        re-render.
+      - The Type select retains the picked value.
+    """
+    page.goto(f"{app_clean}#studio/connectors/new")
+    expect(page.locator('[data-testid="create-and-test-connector-account-btn"]')).to_be_visible(
+        timeout=8000
+    )
+
+    # Pre-fix baseline: with no type picked, the generic kv-table is in
+    # the DOM (the pre-stub render path falls back to it). Pre-pick the
+    # Discord typed-form fields MUST NOT be mounted yet — confirms the
+    # registry consult is gated on the picked type.
+    expect(page.locator('[data-testid="connector-account-config-table"]')).to_have_count(
+        1, timeout=4000
+    )
+    expect(page.locator('[data-testid="discord-intents-fieldset"]')).to_have_count(0)
+    expect(page.locator('[data-testid="discord-bot-token"]')).to_have_count(0)
+
+    # Operator types a name BEFORE picking type — must be preserved on re-render.
+    page.locator('[data-testid="connector-account-name-input"]').fill("My Discord Bot")
+
+    # Pick Discord — triggers the create-mode type-change re-render.
+    page.locator('[data-testid="connector-account-type-select"]').select_option("discord")
+
+    # Typed Discord fields are now present.
+    expect(page.locator('[data-testid="discord-intents-fieldset"]')).to_be_visible(timeout=4000)
+    # All three intent checkboxes are checked by default.
+    for axis in ("message_content", "members", "guilds"):
+        expect(page.locator(f'[data-testid="discord-intent-{axis}"]')).to_be_checked()
+    # Typed BOT_TOKEN field.
+    expect(page.locator('[data-testid="discord-bot-token"]')).to_be_visible()
+    # Guilds list + presence editor.
+    expect(page.locator('[data-testid="discord-guilds-list"]')).to_be_visible()
+    expect(page.locator('[data-testid="discord-presence-name"]')).to_be_visible()
+    expect(page.locator('[data-testid="discord-presence-type"]')).to_be_visible()
+    # Advanced kv-table disclosure (closed by default — assert <details>
+    # is present but NOT open).
+    advanced = page.locator('[data-testid="discord-advanced-kv-disclosure"]')
+    expect(advanced).to_be_visible()
+    assert advanced.evaluate("(el) => el.open") is False
+
+    # The top-level generic kv-table is no longer at the top of the
+    # Config section — it now lives inside the Advanced disclosure.
+    # The disclosure being closed means the kv-table is hidden from
+    # view, but the DOM node still exists inside <details>. Assert the
+    # kv-table's ancestor chain includes the Advanced disclosure.
+    kv_table = page.locator('[data-testid="connector-account-config-table"]')
+    in_disclosure = kv_table.evaluate(
+        "(el) => !!el.closest('[data-testid=\"discord-advanced-kv-disclosure\"]')"
+    )
+    assert in_disclosure, "generic kv-table should be nested inside the Advanced disclosure"
+
+    # Operator's Name input is preserved across the re-render.
+    name_input = page.locator('[data-testid="connector-account-name-input"]')
+    expect(name_input).to_have_value("My Discord Bot")
+
+    # Type select retains the picked value.
+    type_select = page.locator('[data-testid="connector-account-type-select"]')
+    expect(type_select).to_have_value("discord")
+
+    # Save button is enabled (picking a type IS a dirty edit relative
+    # to the pre-pick baseline).
+    expect(
+        page.locator('[data-testid="create-and-test-connector-account-btn"]')
+    ).to_be_enabled()

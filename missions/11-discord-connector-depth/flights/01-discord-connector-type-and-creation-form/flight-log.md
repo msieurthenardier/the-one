@@ -251,6 +251,35 @@ Walk of every M11 mission item that names F1 scope or sources F1 work, classifie
     - Initial test wrote page-wide `get_by_text("Guilds", exact=True).count() == 0` which collided with the L4 Discord form's connection-side "Guilds" label. Switched to section-scoped selector — see inline decision above.
   - **Files affected counts**: 1 new JS vocabulary module (69 LOC), 1 modified JS editor file (~80 LOC net across 4 consult sites + 3 helpers), 1 modified `index.html` (+1 line script tag), 1 new test file (366 LOC). Total: ~516 LOC across 4 files (excluding artifact updates). No backend, API, DB, or CSS file modified — purely additive frontend JS + new test. Substrate (Pydantic models, ACL field names, `_VALID_ROUTING_SCOPES` literals, audit-log keys) verified unchanged via grep parity.
 
+### L7 — `uat-and-alignment` (in progress)
+
+- **Started**: 2026-05-21 (operator-paced HAT walk)
+- **Status**: `in-flight` — walking the 10 verification steps with the operator.
+
+- **HAT-discovered bug (Step 2)** — *create-mode type-pick does not trigger the typed form*:
+  - **Symptom**: In create mode (`#studio/connectors/new`), after the operator selects "Discord" from the Type dropdown, the form does NOT re-render to show the Discord typed fields (intents checkboxes, BOT_TOKEN typed field, guilds list, presence editor, Advanced disclosure). It stays at the generic kv-table fallback.
+  - **Root cause**: `connector-account-editor.js:589` hardcoded `var connActiveType = isCreate ? '' : ((account && account.type) || '');` — in create mode `activeType` was always empty, so `registry.get('')` returned `undefined` and the form fell back to the generic kv-table even after the operator picked Discord. The first render happens with `account === null` (no type yet), so there was no mechanism to re-consult the registry once the operator picked a type.
+  - **Fix** (Option A, full re-mount on type change):
+    - `the_one/interfaces/web/static/js/areas/studio/connector-account-editor.js`:
+      - `renderConnectorAccountEditor` signature extended with an additive 5th positional arg `forceCreate` (default falsy). When truthy, the function treats the render as create mode even when an `account` object is passed — this lets the type-change re-render thread a stub `{name, type, config:{}, secrets:{}}` carrying the operator's pre-pick state.
+      - `renderConnectionFields` updated to honor `account.name` and `account.type` in create mode (when present on a stub) so the Name input value is restored and the Type select pre-selects the picked option after the re-render. The placeholder option is `selected` only when no type is picked (`createType === ''`); otherwise the matching ladder entry carries `selected`.
+      - The registry consult at the old `:589` site now reads `var connActiveType = (account && account.type) || '';` unconditionally — no `isCreate` gating. Pre-stub renders pass `account === null`, so `connActiveType` evaluates to `''` and the generic kv-table fallback path still runs (preserves pre-pick baseline). Post-stub renders carry the picked type, and the registry-mediated typed-form path runs.
+      - `wireEditorEvents` now wires a `change` listener on `[data-field="type"]` when `isCreate === true`. On change: capture the current Name input value, build the stub, call `renderConnectorAccountEditor(container, stub, types, callbacks, true)`. After the re-render returns, the listener manually enables Save + Cancel and calls `callbacks.onDirtyChange(true)` because picking a type IS a dirty edit relative to the pre-pick baseline, but the fresh editor's snapshot includes `type=newType` so its own `checkDirty` reads clean. The manual flip is the smallest-surface fix to keep the operator's create-flow forward (so they can submit the form after picking a type without needing to make a second edit).
+  - **Verification**: type-agnostic — `registry.get(newType)` resolves any registered entry. Unregistered types (`'stub'`) re-render into the generic kv-table (their existing baseline), with no special-casing.
+  - **Test added**: `tests/browser/test_flow_studio_connector_account_create_and_test.py::test_create_mode_pick_discord_renders_typed_form`. Asserts:
+    - Pre-pick: generic kv-table present (count=1), no Discord typed fields (`discord-intents-fieldset` / `discord-bot-token` count=0).
+    - Operator types a name BEFORE picking type ("My Discord Bot").
+    - After picking Discord: intents fieldset visible, all three intent checkboxes checked, BOT_TOKEN field visible, guilds-list visible, presence name + type visible, Advanced disclosure visible and closed (`<details>.open === false`).
+    - The pre-existing generic kv-table is now nested inside the Advanced disclosure (DOM ancestry check).
+    - The Name input value "My Discord Bot" is preserved across the re-render.
+    - The Type select retains `value="discord"`.
+    - Create & Test button is enabled (picking a type is a dirty edit).
+  - **Substrate-contract reversal check** (per L1's `prompt-discipline-needs-mechanical-fallback` convention applied to this leg's Context): the fix is purely ADDITIVE — the 5th-arg signature is backward-compatible, existing callers pass 4 args and behave unchanged. The registry-consult contract from L3 (consult `account.type` to dispatch) is NOT reversed; the bug was specifically the create-mode shortcut that bypassed that contract. No flight pause required.
+- **Test outcomes**:
+  - `docker exec the-one pytest -x --timeout 60 -m browser tests/browser/test_flow_studio_connector_account_create_and_test.py tests/browser/test_flow_studio_connector_discord_form.py tests/browser/test_flow_studio_connector_invite_section.py tests/browser/test_flow_studio_connector_discord_vocabulary.py tests/browser/test_connector_form_registry.py` → **31 passed** (30 pre-existing UNMODIFIED + 1 new), 43.95s. Zero regressions.
+- **Files affected counts**: 1 modified JS editor file (~55 LOC net — signature extension, two render-path updates, change-listener wiring), 1 modified test file (+78 LOC for the new test case). Total: ~133 LOC across 2 files (excluding artifact updates).
+- **Commit**: NONE this step — the L7 walk continues; per the leg's Post-Completion Checklist the single L7 commit lands after the operator confirms the remaining verification steps pass.
+
 ---
 
 ## Decisions
@@ -328,3 +357,44 @@ Architect's assessment: **approve with changes**. Resolutions and fixes applied 
     - Protocol-signature-vs-actual-contract: N/A for chosen option (a) at validation layer.
 
 No substantive structural issues to escalate. Spec ready for user walk-through.
+
+### L7 — `uat-and-alignment`
+
+**Status**: landed (HAT walk complete)
+**Started**: 2026-05-21
+**Completed**: 2026-05-21
+
+#### Verification walk (all 10 steps green)
+
+1. ✅ **Dev server up** — `localhost:8484` reachable; Studio loads; Connectors grid shows Discord Constellation + Stub HAT Account with correct Discord badge styling.
+2. ✅ **Create form → select Discord** — *FIXED INLINE during the walk* (see HAT-discovered bug below). After fix: picking Discord re-mounts the editor; typed Intents fieldset (3 checkboxes), Guilds input, Presence editor, Advanced disclosure, Bot Token typed field all render correctly.
+3. ✅ **BOT_TOKEN typed field** — masked-edit with eye-icon toggle visible; placeholder "Bot token"; help text "Discord bot token. Stored encrypted at rest; shown masked on read."
+4. ✅ **Test Connection** — clicking Test Connection on Discord Constellation surfaced "Discord probe ok"; probe completed without errors.
+5. ✅ **Invite section post-probe** — URL rendered: `https://discord.com/oauth2/authorize?client_id=1506767486002135280&permissions=2147552256&scope=bot+applications.commands`. **The corrected permissions integer `2147552256` from L5 shows live** — empirical confirmation of the L5 fix against a real Discord application_id.
+6. ✅ **Intent-recompute stability** — toggling `message_content` off and back kept the URL byte-identical; `permissions=2147552256` substring preserved across the toggle. Intents are orthogonal to permissions, as designed.
+7. ✅ **Out-of-band invite** — pre-verified: gleepglorp already in `#gleepglorp-testing` from M10 F8 HAT; URL above is operationally working.
+8. ✅ **Attach to agent** — pre-verified: Cave Man Bot + Pirate Bot already attached to Discord Constellation per the Attached Agents section.
+9. ✅ **Vocabulary on Allowlist + Attached Agents** — labels "Users / Channels / Servers / Roles" (NOT "Peers / Guilds"); hint text uses "Empty list = no user restriction." / "no server restriction."; "Discord-flavored; ignored by other platforms." qualifier DROPPED on Servers + Roles hints per `hintTone: 'native'`. Attached Agents table header shows "USERS / CHANNELS".
+10. ✅ **Routing-scope dropdown vocabulary** — `+ Add rule` produced a scope `<select>` with options: `{value: "channel", text: "channel"}`, `{value: "thread", text: "thread"}`, `{value: "dm", text: "dm"}`, **`{value: "peer", text: "user"}`**. Substrate persistence value `peer` preserved; display text substituted to `user` per L6's contract.
+
+#### HAT-discovered bug (FIXED INLINE)
+
+**Symptom**: In create mode (`#studio/connectors/new`), after picking "Discord" from the Type dropdown, the form did NOT re-render to the typed Discord shape — stayed at the generic kv-table fallback.
+
+**Root cause**: `connector-account-editor.js:589` hardcoded `var connActiveType = isCreate ? '' : ((account && account.type) || '');` — in create mode, `activeType` was always empty so `registry.get('')` returned undefined and the form always fell back to the generic kv-table even after the operator picked Discord.
+
+**Why L4's tests didn't catch it**: L4's `test_flow_studio_connector_discord_form.py` exercised edit-mode flows (where `account.type === 'discord'` is set at mount time). The Edge Cases section of the L4 leg artifact mentioned "Operator creates a new Discord account" but no AC pinned it as a verification gate, so the implementer's tests covered the path that worked and skipped the path that didn't.
+
+**Fix shipped inline**: extended `renderConnectorAccountEditor` signature with a `forceCreate` 5th positional arg; added a `change` listener on `[data-field="type"]` in create mode that captures the Name input value, builds a stub `{name, type, config: {}, secrets: {}}`, and re-mounts the editor. Manually enables Save+Cancel post-re-mount because picking a type is a dirty edit relative to the pre-pick baseline. New browser test `test_create_mode_pick_discord_renders_typed_form` covers the path. Implemented by a spawned Developer agent; ~55 LOC source + 78 LOC test.
+
+**Methodology lesson for debrief**: HAT-discovered create-mode bug after L4 shipped "all 14 ACs satisfied" with passing tests — the L4 AC didn't pin create-mode-after-type-pick as a verification gate. Convention candidate at flight-debrief: when a registry-mediated typed-render path exists, BOTH create-mode-after-type-pick AND edit-mode-with-type-set MUST appear as explicit ACs. Generalize beyond connector-form-registry to any registry-mediated UI dispatch.
+
+#### Non-blocking polish observations (not fixed in L7)
+
+- **Chip-input placeholders not vocabulary-substituted**: the Account-scope Allowlist chip inputs show placeholders "Add peer..." / "Add channel..." / "Add guild..." / "Add role..." — generic vocabulary. The section labels above them substitute to "Users / Channels / Servers / Roles" correctly. L6 substituted labels and hints but missed the chip-input placeholder strings. Minor UX inconsistency; defer to a follow-up flight to scrub chip-input placeholders.
+
+#### Tests
+
+- L7-fix browser test: `test_create_mode_pick_discord_renders_typed_form` ✅ passes
+- All pre-existing connector-account-editor / Discord-form / invite-section / vocabulary / registry tests: pass UNMODIFIED post-L7-fix (31 passed)
+- No regressions

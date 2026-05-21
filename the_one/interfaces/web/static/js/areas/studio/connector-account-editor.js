@@ -236,13 +236,23 @@
 
   // ── Public entry point ──────────────────────────────────────────────
 
-  function renderConnectorAccountEditor(container, account, types, callbacks) {
+  function renderConnectorAccountEditor(container, account, types, callbacks, forceCreate) {
     callbacks = callbacks || {};
     var escapeHtml = window.App.escapeHtml;
     var escapeAttr = window.App.escapeAttr;
-    var isCreate = !account;
+    // M11 F1 L7 HAT: ``forceCreate`` lets the create-mode type-change
+    // re-render path pass an account-shaped stub (carrying the freshly
+    // picked ``type`` + any operator-entered ``name``) while still
+    // rendering as create mode. The five-arg signature is additive —
+    // existing callers (studio.js shell, edit-mode Cancel re-render at
+    // L1021) pass four args and behave unchanged.
+    var isCreate = forceCreate ? true : !account;
+    // In create mode, the header title stays "New Connector" regardless
+    // of any operator-entered name (the name lives in the form input).
+    // The stub passed at type-change time may carry a ``name`` field so
+    // the input value can be restored; the title is a separate concern.
     var name = isCreate ? 'New Connector' : (account.name || '');
-    var type = isCreate ? '' : (account.type || '');
+    var type = isCreate ? ((account && account.type) || '') : (account.type || '');
     // M10 F7 L9 HAT: tabbed-layout default. Mirrors agent-editor.js
     // (initialTab callback param, default to 'general'). The studio
     // shell does not yet route _activeTab into the connector-account
@@ -542,11 +552,19 @@
       html += '</div>';
     }
 
+    // M11 F1 L7 HAT: in create mode, an account-shaped stub may carry
+    // ``name`` (operator-typed before picking type) and ``type`` (the
+    // freshly picked type) so the type-change re-render restores those
+    // values. Pre-stub renders pass ``account === null``; ``createName``
+    // / ``createType`` then default to empty and the placeholder selects.
+    var createName = (isCreate && account && typeof account.name === 'string') ? account.name : '';
+    var createType = (isCreate && account && typeof account.type === 'string') ? account.type : '';
+
     // Name
     html += '<div class="field-row admin-pf-row" data-field-row="name">';
     html += '<label for="cf-name">Name</label>';
     html += '<input class="field-input admin-pf-input" id="cf-name" data-field="name" data-testid="connector-account-name-input" value="' +
-            escapeAttr(isCreate ? '' : (account.name || '')) +
+            escapeAttr(isCreate ? createName : (account.name || '')) +
             '" placeholder="My Discord bot" />';
     html += '<span class="field-error" data-field-error="name" hidden></span>';
     html += '</div>';
@@ -562,10 +580,16 @@
       if (typesEmpty) {
         html += '<option value="" disabled selected>No connector types registered yet</option>';
       } else {
-        html += '<option value="" disabled selected>Select a connector type</option>';
+        // M11 F1 L7 HAT: the placeholder option is ``selected`` only
+        // when no type has been picked yet (``createType === ''``);
+        // otherwise the matching ladder entry below carries ``selected``
+        // so the re-render restores the operator's pick.
+        var placeholderSelected = createType === '' ? ' selected' : '';
+        html += '<option value="" disabled' + placeholderSelected + '>Select a connector type</option>';
         for (var i = 0; i < typesList.length; i++) {
           var t = typesList[i];
-          html += '<option value="' + escapeAttr(t.value) + '">' + escapeHtml(t.label) + '</option>';
+          var optSelected = (t.value === createType) ? ' selected' : '';
+          html += '<option value="' + escapeAttr(t.value) + '"' + optSelected + '>' + escapeHtml(t.label) + '</option>';
         }
       }
       html += '</select>';
@@ -585,8 +609,14 @@
     // typed (entry.renderConnectionFields) and generic
     // (renderConfigKvTable) render paths. Triple-guard against an
     // early-load race where the registry script hasn't attached yet.
+    // M11 F1 L7 HAT: in create mode, consult the registry against the
+    // type carried on the account stub (set by the type-change
+    // re-render in ``wireEditorEvents`` when the operator picks a
+    // connector type). Pre-stub renders pass ``account === null``;
+    // ``connActiveType`` then evaluates to '' and the generic kv-table
+    // fallback path stays in place — preserving the pre-pick baseline.
     var connRegistry = (window.App && window.App.studio && window.App.studio.connectorFormRegistry) || null;
-    var connActiveType = isCreate ? '' : ((account && account.type) || '');
+    var connActiveType = (account && account.type) || '';
     var connEntry = (connRegistry && connActiveType) ? connRegistry.get(connActiveType) : undefined;
 
     html += '<div class="field-row admin-pf-row connector-account-config-wrap">';
@@ -902,6 +932,63 @@
       // ``account.id``. L4's two-arg signature stays backward-compatible
       // (extra args are ignored).
       wireEntry.wireEvents(container, checkDirty, account);
+    }
+
+    // ── M11 F1 L7 HAT: create-mode type-change re-render ───────────────
+    //
+    // In create mode, picking a type from the dropdown must cause the
+    // form to re-render so the per-type registry entry's typed fields
+    // (intents fieldset, BOT_TOKEN typed input, etc.) replace the
+    // generic kv-table fallback. The substrate hardcoded
+    // ``isCreate ? '' : account.type`` for the registry consult before
+    // this fix, so the typed form never rendered at create time.
+    //
+    // Approach (Option A — full re-mount): capture the Name input
+    // value, build an account-shaped stub carrying the new type +
+    // captured name, and call ``renderConnectorAccountEditor`` with
+    // ``forceCreate=true``. The re-render path re-attaches all
+    // listeners (this attachStaticListeners + the registry's
+    // wireEvents). The Name value is restored via the stub so the
+    // operator's prior typing isn't lost.
+    //
+    // The fix is type-agnostic: ``registry.get(newType)`` resolves any
+    // registered entry. Unregistered types (e.g. ``'stub'``) re-render
+    // into the generic kv-table — the existing baseline for those
+    // types — without special-casing.
+    //
+    // Edit mode: the type field is read-only (``readonly`` attribute,
+    // no ``change`` event for the operator to fire), so this listener
+    // would be inert; it's gated behind ``isCreate`` anyway.
+    if (isCreate) {
+      var typeSelectEl = container.querySelector('[data-field="type"]');
+      if (typeSelectEl && typeSelectEl.tagName === 'SELECT') {
+        typeSelectEl.addEventListener('change', function () {
+          var newType = typeSelectEl.value || '';
+          if (!newType) return;
+          // Capture the Name input value so the re-render restores it.
+          var nameEl = container.querySelector('[data-field="name"]');
+          var capturedName = nameEl ? (nameEl.value || '') : '';
+          var stub = {
+            name: capturedName,
+            type: newType,
+            config: {},
+            secrets: {}
+          };
+          renderConnectorAccountEditor(container, stub, types, callbacks, true);
+          // Picking a type IS a dirty edit relative to the pre-pick
+          // baseline. The fresh editor's snapshot includes ``type=newType``,
+          // so its own ``checkDirty`` would read clean — manually flip
+          // the Save / Cancel state so the operator can complete the
+          // form and submit. Re-finding the elements (not capturing
+          // pre-re-render references) because the previous DOM was
+          // replaced.
+          var newSaveBtn = container.querySelector('.save-btn');
+          var newCancelBtn = container.querySelector('.cancel-btn');
+          if (newSaveBtn) newSaveBtn.disabled = false;
+          if (newCancelBtn) newCancelBtn.disabled = false;
+          if (callbacks.onDirtyChange) callbacks.onDirtyChange(true);
+        });
+      }
     }
 
     // ── Config kv table delegated events ──────────────────────────────
