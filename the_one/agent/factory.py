@@ -246,6 +246,7 @@ class AgentFactory:
         # Resolve provider config from DB
         from the_one.db.connection import get_connection
         from the_one.db.repositories import (
+            ConnectorAccountRepository,
             LLMProviderRepository,
             ToolConfigRepository,
         )
@@ -309,6 +310,36 @@ class AgentFactory:
             "send_to_platform_channel" not in disabled_names
             and config.is_tool_enabled("send_to_platform_channel")
         )
+
+        # M10 F8 L11 HAT Fix #5: auto-relay-aware system-prompt directive.
+        # ===============================================================
+        # The dispatcher's auto-relay (Fix #4) is default-ON; it reads
+        # ``account.config.get("auto_relay_platform_replies", True)`` per
+        # attached account. Mirror that read here so the system prompt
+        # tells the agent the truth about how its plaintext flows.
+        #
+        # Multi-account policy: if ANY attached account has auto_relay
+        # explicitly disabled, treat the agent as auto_relay=False so the
+        # directive instructs the agent to use ``send_to_platform_channel``
+        # deliberately (the existing ENABLED directive). Operator opt-out
+        # is a deliberate signal; default-on is the permissive default.
+        #
+        # Skip the lookup when no connector accounts are attached or the
+        # send tool is disabled — auto_relay is moot for those paths.
+        auto_relay = True
+        if connector_attached and send_tool_enabled and config.connector_account_ids:
+            account_repo = ConnectorAccountRepository(conn, encryptor)
+            for account_id in config.connector_account_ids:
+                try:
+                    account = await account_repo.get(account_id)
+                except KeyError:
+                    # Deleted account in the ID list — skip; the runtime
+                    # gateway-listener path will warn about the same
+                    # mismatch. Don't crash agent creation.
+                    continue
+                if not account.config.get("auto_relay_platform_replies", True):
+                    auto_relay = False
+                    break
 
         # 3. Build filtered tool registry — fresh ToolRegistry per call,
         # populated with fresh per-agent tool instances (the provider
@@ -423,6 +454,7 @@ class AgentFactory:
             config.system_prompt,
             connector_attached=connector_attached,
             send_tool_enabled=send_tool_enabled,
+            auto_relay=auto_relay,
         )
 
         # 4. Create agent

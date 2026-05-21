@@ -314,6 +314,30 @@
             '</small>';
     lifecycleHtml += '</div>';
 
+    // Auto-relay peer replies to platform (M10 F8 L11 HAT Fix #4).
+    // Default-on opt-in setting; stored in ``config.auto_relay_platform_replies``.
+    // Absent → treated as True at consume time (dispatcher reads
+    // ``account.config.get("auto_relay_platform_replies", True)``).
+    // The checkbox renders checked (= auto-relay ON) by default for new
+    // accounts AND for existing accounts that lack the key explicitly.
+    var autoRelayConfigValue = (!isCreate && account.config && Object.prototype.hasOwnProperty.call(account.config, 'auto_relay_platform_replies'))
+        ? !!account.config.auto_relay_platform_replies
+        : true;
+    lifecycleHtml += '<div class="field-row admin-pf-row">';
+    lifecycleHtml += '<label for="cf-auto-relay">Auto-relay peer replies to platform</label>';
+    lifecycleHtml += '<input type="checkbox" id="cf-auto-relay" ' +
+            'data-field="auto_relay_platform_replies" ' +
+            'data-testid="connector-account-auto-relay-toggle"' +
+            (autoRelayConfigValue ? ' checked' : '') + ' />';
+    lifecycleHtml += '</div>';
+    lifecycleHtml += '<div class="field-row admin-pf-row">';
+    lifecycleHtml += '<label></label>';
+    lifecycleHtml += '<small class="form-hint" data-testid="connector-account-auto-relay-hint">' +
+            "When enabled, the agent's plaintext replies to platform peers are automatically posted back to the platform. " +
+            'Disable to require the agent to explicitly invoke send_to_platform_channel — useful if you want the agent to deliberate before responding to peers.' +
+            '</small>';
+    lifecycleHtml += '</div>';
+
     lifecycleHtml += '</div>';
 
     // Pairing section (edit mode only).
@@ -630,6 +654,12 @@
       var el = container.querySelector('[data-field="' + staticFields[i] + '"]');
       staticData[staticFields[i]] = el ? el.value : '';
     }
+    // M10 F8 L11 HAT Fix #4: auto_relay_platform_replies is a
+    // checkbox — captured separately by ``.checked`` so a re-render of
+    // the editor (with the same toggle state) produces a byte-identical
+    // snapshot.
+    var autoRelayEl = container.querySelector('[data-field="auto_relay_platform_replies"]');
+    staticData['auto_relay_platform_replies'] = autoRelayEl ? !!autoRelayEl.checked : true;
 
     var configRows = [];
     var configRowEls = container.querySelectorAll('.connector-account-config-table tbody tr.connector-account-config-row');
@@ -719,6 +749,14 @@
       for (var i = 0; i < inputs.length; i++) {
         inputs[i].addEventListener('input', checkDirty);
         inputs[i].addEventListener('change', checkDirty);
+      }
+      // M10 F8 L11 HAT Fix #4: the auto-relay toggle is a bare
+      // ``<input type="checkbox">`` without the ``.field-input`` class
+      // (it's neither a text input nor a select). Wire its change
+      // event explicitly so dirty-tracking observes operator edits.
+      var autoRelayToggle = container.querySelector('[data-field="auto_relay_platform_replies"]');
+      if (autoRelayToggle) {
+        autoRelayToggle.addEventListener('change', checkDirty);
       }
     }
     attachStaticListeners();
@@ -1166,6 +1204,19 @@
       }
     }
 
+    // M10 F8 L11 HAT Fix #4: auto_relay_platform_replies merge.
+    // The toggle is always present (create + edit modes both render
+    // it). We always EMIT the bool so the validator sees an explicit
+    // shape — there's no "absent" UI path: the operator either ticks
+    // (True) or unticks (False) the checkbox. Default rendering is
+    // checked / True for new accounts; existing accounts respect the
+    // persisted value (absent → True at render time per
+    // ``autoRelayConfigValue`` above).
+    var autoRelayEl = container.querySelector('[data-field="auto_relay_platform_replies"]');
+    if (autoRelayEl) {
+      config.auto_relay_platform_replies = !!autoRelayEl.checked;
+    }
+
     return {
       name: name,
       type: typeValue,
@@ -1255,36 +1306,84 @@
       statusEl.innerHTML = escapeHtml(message || statusAriaLabel(status));
     }
     if (detailsEl && detailsWrap) {
-      detailsEl.innerHTML = renderDetailsBlock(details);
-      detailsWrap.hidden = false;
+      // Hide the details panel on a clean "ok" status — green LED + message
+      // is enough. Surface the details only when the operator needs to
+      // debug (degraded / failed / error). Mirrors the M07 inspector
+      // convention: status + one-sentence message at-a-glance; full
+      // structured detail behind a panel that opens only when there's
+      // something to debug.
+      if (status === 'ok') {
+        detailsEl.innerHTML = '';
+        detailsWrap.hidden = true;
+      } else {
+        detailsEl.innerHTML = renderDetailsBlock(details);
+        detailsWrap.hidden = false;
+      }
     }
   }
 
   function renderDetailsBlock(details) {
-    var escapeHtml = window.App.escapeHtml;
     if (!details || typeof details !== 'object' || Object.keys(details).length === 0) {
       return '<div class="connector-test-details-empty"><em>(no additional details)</em></div>';
     }
-    var html = '<dl class="connector-test-details-list kv-display">';
-    var keys = Object.keys(details);
-    for (var i = 0; i < keys.length; i++) {
-      var key = keys[i];
-      var value = details[key];
-      var renderedValue;
-      if (typeof value === 'string') {
-        // Secret-shaped values (start with '***') pass through unchanged —
-        // do NOT re-mask, do NOT escape transform. Plain HTML escape only.
-        renderedValue = '<span class="connector-test-details-value">' + escapeHtml(value) + '</span>';
-      } else {
-        var json = '';
-        try {
-          json = JSON.stringify(value);
-        } catch (_) {
-          json = String(value);
-        }
-        renderedValue = '<code class="font-mono connector-test-details-value">' + escapeHtml(json) + '</code>';
+    return _renderDetailsValue(details, 0);
+  }
+
+  // Render a single value (scalar / array / object) in the doctor-report
+  // details panel. Recursive on nested objects so the M10 F8 L7 doctor's
+  // ``details["checks"] = {token: {...}, application: {...}, ...}`` shape
+  // renders per-check rows instead of one JSON-stringify dump.
+  function _renderDetailsValue(value, depth) {
+    var escapeHtml = window.App.escapeHtml;
+    if (value === null || value === undefined) {
+      return '<span class="connector-test-details-value"><em>(none)</em></span>';
+    }
+    if (typeof value === 'string') {
+      // Secret-shaped values (start with '***') pass through unchanged —
+      // do NOT re-mask, do NOT escape transform. Plain HTML escape only.
+      return '<span class="connector-test-details-value">' + escapeHtml(value) + '</span>';
+    }
+    if (typeof value === 'number' || typeof value === 'boolean') {
+      return '<span class="connector-test-details-value">' + escapeHtml(String(value)) + '</span>';
+    }
+    if (Array.isArray(value)) {
+      if (value.length === 0) {
+        return '<span class="connector-test-details-value"><em>(none)</em></span>';
       }
-      html += '<dt class="connector-test-details-key">' + escapeHtml(key) + '</dt><dd>' + renderedValue + '</dd>';
+      // Render arrays as comma-joined values for short scalar lists; fall
+      // back to JSON for nested-array / array-of-object shapes.
+      var allScalar = value.every(function (v) {
+        return v === null || typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean';
+      });
+      if (allScalar) {
+        return '<span class="connector-test-details-value">' +
+               value.map(function (v) { return escapeHtml(String(v)); }).join(', ') +
+               '</span>';
+      }
+      var json = '';
+      try { json = JSON.stringify(value); } catch (_) { json = String(value); }
+      return '<code class="font-mono connector-test-details-value">' + escapeHtml(json) + '</code>';
+    }
+    // Object (nested dict). Render as a nested <dl>. Cap depth defensively
+    // (4 levels) so a circular or pathological payload never blows the
+    // stack.
+    if (depth >= 4) {
+      var json2 = '';
+      try { json2 = JSON.stringify(value); } catch (_) { json2 = String(value); }
+      return '<code class="font-mono connector-test-details-value">' + escapeHtml(json2) + '</code>';
+    }
+    var keys = Object.keys(value);
+    if (keys.length === 0) {
+      return '<span class="connector-test-details-value"><em>(none)</em></span>';
+    }
+    var nestedClass = depth === 0
+      ? 'connector-test-details-list kv-display'
+      : 'connector-test-details-list connector-test-details-nested kv-display';
+    var html = '<dl class="' + nestedClass + '">';
+    for (var i = 0; i < keys.length; i++) {
+      var k = keys[i];
+      html += '<dt class="connector-test-details-key">' + escapeHtml(k) + '</dt>' +
+              '<dd>' + _renderDetailsValue(value[k], depth + 1) + '</dd>';
     }
     html += '</dl>';
     return html;

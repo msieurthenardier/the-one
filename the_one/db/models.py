@@ -190,15 +190,20 @@ class ConnectorAccount(BaseModel):
     @field_validator("config", mode="after")
     @classmethod
     def _validate_config_reserved_keys(cls, value: dict[str, Any]) -> dict[str, Any]:
-        """Enforce shape on the three reserved top-level keys in ``config``.
+        """Enforce shape on the four reserved top-level keys in ``config``.
 
         The reserved keys are ``"pairing"`` (DM-pairing state),
-        ``"allowlist"`` (account-scope peer/channel admission), and
-        ``"routing"`` (M10 F7: account-scope per-channel agent selection).
-        Each is OPTIONAL — when absent, the resolver subsystem defaults to
-        permit (see ``_default_permit`` at ``the_one/connectors/base.py``).
-        All other top-level keys in ``config`` pass through unchanged — the
-        F1 promise that ``config`` is schema-loose remains intact.
+        ``"allowlist"`` (account-scope peer/channel admission),
+        ``"routing"`` (M10 F7: account-scope per-channel agent selection),
+        and ``"auto_relay_platform_replies"`` (M10 F8 L11 HAT Fix #4:
+        opt-in default-on mechanical relay of agent plaintext replies to
+        the platform). Each is OPTIONAL — when absent, the consumer
+        applies its own default (permit for ``pairing`` / ``allowlist`` /
+        ``routing`` via ``_default_permit`` at
+        ``the_one/connectors/base.py``; TRUE for
+        ``auto_relay_platform_replies`` at the dispatcher consume site).
+        All other top-level keys in ``config`` pass through unchanged —
+        the F1 promise that ``config`` is schema-loose remains intact.
 
         Shape contracts (raise ``ValueError`` on violation):
 
@@ -412,6 +417,22 @@ class ConnectorAccount(BaseModel):
                 raise ValueError(
                     "config['routing']['default'] must be either None or a "
                     "non-empty string"
+                )
+
+        # M10 F8 L11 HAT Fix #4 — ``auto_relay_platform_replies``:
+        # optional bool. Absent → consume-time default-True (the
+        # dispatcher reads ``account.config.get(
+        # "auto_relay_platform_replies", True)``). Present → must be a
+        # bool; anything else (including int 0/1, "yes"/"no") is
+        # rejected so the operator can't accidentally smuggle truthy /
+        # falsy non-bools through the kv-table editor path.
+        if "auto_relay_platform_replies" in value:
+            auto_relay = value["auto_relay_platform_replies"]
+            if not isinstance(auto_relay, bool):
+                raise ValueError(
+                    "config['auto_relay_platform_replies'] must be a bool "
+                    "(True or False) when present; absent is treated as "
+                    "default-True at consume time"
                 )
 
         return value

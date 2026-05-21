@@ -53,10 +53,34 @@ to direct, concise responses.
 
 _CONNECTOR_TOOL_ENABLED_DIRECTIVE = (
     "This conversation is attached to a connector account on an external "
-    "platform. Your plain-text replies in this session reach the operator "
-    "only — to reply to peers on the external platform, call the "
-    "`send_to_platform_channel` tool with the target (account_id, "
-    "channel_id, and optional thread_id) and the content to send."
+    "platform (Discord, Slack, etc.). Messages tagged ``visibility=\"platform\"`` "
+    "in the history came from platform peers; messages tagged "
+    "``visibility=\"operator\"`` came from the operator's private local Chat "
+    "console. When a platform-peer message in this session needs a response, "
+    "you MUST call the ``send_to_platform_channel`` tool to deliver your reply "
+    "to peers — your plain-text replies in this session reach only the "
+    "operator's local console, NOT peers. The operator console is for the "
+    "operator to direct or observe you; only deliberate ``send_to_platform_channel`` "
+    "calls reach the platform. The tool takes a target (account_id, channel_id, "
+    "and optional thread_id) plus content. Use the account_id and channel_id "
+    "from the platform-inbound message you're replying to."
+)
+
+_CONNECTOR_AUTO_RELAY_DIRECTIVE = (
+    "This conversation is attached to a connector account on an external "
+    "platform (Discord, Slack, etc.). Auto-relay is ON: your plaintext "
+    "replies in this session ARE automatically delivered to platform peers "
+    "— treat the conversation as the platform conversation itself. Do NOT "
+    "ask the operator for permission to respond on the platform; do NOT "
+    "narrate that you're 'using send_to_platform_channel'; just reply "
+    "naturally as you would in any chat. Messages tagged "
+    "``visibility=\"platform\"`` in the history came from platform peers; "
+    "messages tagged ``visibility=\"operator\"`` came from the operator's "
+    "private local Chat console (operator-only — these are NOT relayed). "
+    "If you need to send a message to a different channel or thread on "
+    "the platform (not the current channel), use the "
+    "``send_to_platform_channel`` tool explicitly with a target "
+    "specifying that destination."
 )
 
 _CONNECTOR_TOOL_DISABLED_DIRECTIVE = (
@@ -75,6 +99,7 @@ def compose_system_prompt(
     *,
     connector_attached: bool = False,
     send_tool_enabled: bool = False,
+    auto_relay: bool = True,
 ) -> str:
     """Compose the agent's system prompt.
 
@@ -89,17 +114,32 @@ def compose_system_prompt(
 
     The connector-aware path inserts a directive between ``base`` and
     the persona separator:
-    - ``connector_attached AND send_tool_enabled`` →
+    - ``connector_attached AND send_tool_enabled AND auto_relay`` →
+      :data:`_CONNECTOR_AUTO_RELAY_DIRECTIVE` (informs the agent that
+      its plaintext replies ARE the platform reply by default; do not
+      ask permission to respond on the platform).
+    - ``connector_attached AND send_tool_enabled AND NOT auto_relay`` →
       :data:`_CONNECTOR_TOOL_ENABLED_DIRECTIVE` (instructs the agent to
-      call the platform-send tool to reach peers).
+      call the platform-send tool to reach peers; opt-out path from
+      L11 HAT Fix #4).
     - ``connector_attached AND NOT send_tool_enabled`` →
       :data:`_CONNECTOR_TOOL_DISABLED_DIRECTIVE` (informs the agent that
       platform-send is operator-disabled and its replies stay local).
+      The ``auto_relay`` value is moot when send is disabled.
+
+    M10 F8 L11 HAT Fix #5: the auto-relay branch fixes the broken UX
+    where Fix #4's mechanical auto-relay combined with the Fix #1
+    directive ("plaintext reaches only the operator") produced agents
+    that ask for permission to reply on the platform — and then the
+    auto-relay posts THAT question to the platform.
     """
     parts = [base]
     if connector_attached:
         if send_tool_enabled:
-            parts.append(_CONNECTOR_TOOL_ENABLED_DIRECTIVE)
+            if auto_relay:
+                parts.append(_CONNECTOR_AUTO_RELAY_DIRECTIVE)
+            else:
+                parts.append(_CONNECTOR_TOOL_ENABLED_DIRECTIVE)
         else:
             parts.append(_CONNECTOR_TOOL_DISABLED_DIRECTIVE)
     if persona:
@@ -270,4 +310,5 @@ class AgentConfig(BaseModel):
             self.system_prompt,
             connector_attached=False,
             send_tool_enabled=False,
+            auto_relay=True,
         )

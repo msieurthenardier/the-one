@@ -60,6 +60,24 @@ async def _registry_cleanup():
     await _clear_for_test()
 
 
+@pytest.fixture(autouse=True)
+async def _connector_pool_cleanup():
+    """M10 F8 L11 HAT Fix #6: connector-pool tests in this file
+    exercise the lifespan warm-acquire and leave entries in the
+    module-level ``_pool`` dict. Clear after every test to avoid
+    cross-test bleed.
+    """
+    from the_one.connectors._pool import _clear_for_test as _clear_connector_pool
+    from the_one.connectors._stub import StubPlugin
+    from the_one.connectors.registry import clear_for_test as _clear_registry
+
+    StubPlugin.reset_for_test()
+    yield
+    await _clear_connector_pool()
+    _clear_registry()
+    StubPlugin.reset_for_test()
+
+
 @pytest.fixture
 def _isolated_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Point the global ``settings`` at a tmp data dir AND reset the
@@ -125,3 +143,169 @@ async def test_lifespan_drain_with_no_sessions_is_clean(
 
     # Still clean afterward.
     assert reg._reaper_task is None
+
+
+async def test_lifespan_warm_acquires_connector_accounts_per_account(
+    _isolated_data_dir,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """M10 F8 L11 HAT Fix #6: lifespan warm-acquire walks connector
+    accounts (not agents). With N agents attached to one connector
+    account, ``connector_acquire`` is called ONCE per account — yielding
+    one gateway connection per bot. Pre-Fix-#6 the warm-acquire picked
+    the "first alphabetical attached agent" and used the bare
+    ``acquire(agent_name, account_id)``; with multiple agents that
+    keying would still have produced one warm-acquire per account, but
+    the dispatcher/tool/auto-relay paths would each create separate
+    pool entries on first call — Fix #6 routes all paths through
+    ``connector_acquire`` so the warm entry is reused.
+
+    This test sets up TWO agents attached to one connector account,
+    spies on ``connector_acquire``, enters the lifespan, and asserts
+    one and only one warm-acquire call for the account.
+    """
+    from the_one.agent.config import AgentConfig
+    from the_one.connectors import _pool as pool_mod
+    from the_one.connectors._stub import StubPlugin
+    from the_one.connectors.registry import register_for_test
+    from the_one.db.connection import get_connection
+    from the_one.db.models import ConnectorAccount, LLMProviderConfig
+    from the_one.db.repositories import (
+        ConnectorAccountRepository,
+        LLMProviderRepository,
+        SQLiteAgentStore,
+    )
+    from the_one.db.schema import ensure_schema
+    from the_one.encryption import get_encryptor
+
+    # Register the stub plugin so the warm-acquire's plugin.connect
+    # resolves to something benign.
+    register_for_test("stub", StubPlugin)
+
+    # Pre-seed the DB before lifespan startup. The lifespan calls
+    # init_db internally — but ensure_schema is idempotent, so we can
+    # seed first and let the lifespan re-run ensure_schema harmlessly.
+    from the_one.config import settings as _settings
+
+    conn = await get_connection()
+    await ensure_schema(conn)
+    encryptor = get_encryptor(_settings.data_dir)
+
+    # Seed account.
+    acc_repo = ConnectorAccountRepository(conn, encryptor)
+    await acc_repo.create(
+        ConnectorAccount(
+            id="acct-warm",
+            name="Warm Account",
+            type="stub",
+            config={},
+            secrets={},
+        )
+    )
+    # Seed provider + two agents attached to the same account.
+    provider_repo = LLMProviderRepository(conn, encryptor)
+    await provider_repo.create(
+        LLMProviderConfig(
+            id="mock-provider",
+            name="Mock Provider",
+            type="mock",
+            base_url="",
+            config={"response": {"content": "ok"}},
+        )
+    )
+    agent_store = SQLiteAgentStore(conn)
+    for name in ("alpha", "bravo"):
+        await agent_store.save(
+            AgentConfig(
+                name=name,
+                provider_config_id="mock-provider",
+                llm_model="mock-default",
+                connector_account_ids=["acct-warm"],
+            )
+        )
+
+    # Spy on connector_acquire. The lifespan does a function-local
+    # import (``from the_one.connectors._pool import connector_acquire``)
+    # at call time — so we patch the function on the module, which the
+    # local import resolves to.
+    acquire_calls: list[str] = []
+    original_connector_acquire = pool_mod.connector_acquire
+
+    async def _spying_acquire(account_id: str):
+        acquire_calls.append(account_id)
+        return await original_connector_acquire(account_id)
+
+    monkeypatch.setattr(pool_mod, "connector_acquire", _spying_acquire)
+
+    from the_one.interfaces.web.app import app, lifespan
+
+    async with lifespan(app):
+        # Inside the lifespan: warm-acquire should have fired exactly
+        # once for the account, regardless of how many agents are
+        # attached.
+        assert acquire_calls == ["acct-warm"], acquire_calls
+        # Pool reflects one sentinel-keyed entry.
+        keys_for_account = [
+            k for k in pool_mod._pool if k[1] == "acct-warm"
+        ]
+        assert len(keys_for_account) == 1
+        assert keys_for_account[0] == (
+            pool_mod._CONNECTOR_POOL_AGENT_SENTINEL,
+            "acct-warm",
+        )
+
+    # After lifespan exit the connector pool was drained.
+    assert all(k[1] != "acct-warm" for k in pool_mod._pool)
+
+
+async def test_lifespan_warm_acquire_skips_accounts_with_no_attached_agents(
+    _isolated_data_dir,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """M10 F8 L11 HAT Fix #6: lifespan policy preserves the
+    skip-when-unattached behaviour — an account with no attached
+    agents does NOT get a warm-acquire (no point warming a gateway
+    that no agent will route through).
+    """
+    from the_one.connectors import _pool as pool_mod
+    from the_one.connectors._stub import StubPlugin
+    from the_one.connectors.registry import register_for_test
+    from the_one.db.connection import get_connection
+    from the_one.db.models import ConnectorAccount
+    from the_one.db.repositories import ConnectorAccountRepository
+    from the_one.db.schema import ensure_schema
+    from the_one.encryption import get_encryptor
+
+    register_for_test("stub", StubPlugin)
+
+    from the_one.config import settings as _settings
+
+    conn = await get_connection()
+    await ensure_schema(conn)
+    encryptor = get_encryptor(_settings.data_dir)
+
+    acc_repo = ConnectorAccountRepository(conn, encryptor)
+    await acc_repo.create(
+        ConnectorAccount(
+            id="acct-orphan",
+            name="Orphan Account",
+            type="stub",
+            config={},
+            secrets={},
+        )
+    )
+
+    acquire_calls: list[str] = []
+    original_connector_acquire = pool_mod.connector_acquire
+
+    async def _spying_acquire(account_id: str):
+        acquire_calls.append(account_id)
+        return await original_connector_acquire(account_id)
+
+    monkeypatch.setattr(pool_mod, "connector_acquire", _spying_acquire)
+
+    from the_one.interfaces.web.app import app, lifespan
+
+    async with lifespan(app):
+        # The unattached account was skipped — no warm-acquire fired.
+        assert acquire_calls == [], acquire_calls

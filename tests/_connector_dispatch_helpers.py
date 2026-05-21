@@ -131,6 +131,7 @@ async def _seed_stub_account(
     account_id: str = "acct-test",
     *,
     session_continuation_seconds: int | None = None,
+    config: dict[str, Any] | None = None,
 ) -> ConnectorAccount:
     """Persist a stub-typed ConnectorAccount via the repository.
 
@@ -138,6 +139,12 @@ async def _seed_stub_account(
     tests can drive the per-account continuation-window code path
     (the column path the F3 admin editor surfaces; distinct from the
     env-var path covered by F3 L3 resolver tests).
+
+    M10 F8 L11 HAT Fix #4: ``config`` override lets tests opt out of
+    auto-relay (``{"auto_relay_platform_replies": False}``) or supply
+    any other reserved-key payload (pairing, allowlist, routing) at
+    seed time without an extra round-trip through ``repo.update``.
+    Empty / missing ``config`` defaults to ``{}`` (same as pre-Fix-#4).
     """
     conn = await get_connection()
     encryptor = get_encryptor(settings.data_dir)
@@ -146,7 +153,7 @@ async def _seed_stub_account(
         id=account_id,
         name="Stub Account",
         type="stub",
-        config={},
+        config=config if config is not None else {},
         secrets={},
         session_continuation_seconds=session_continuation_seconds,
     )

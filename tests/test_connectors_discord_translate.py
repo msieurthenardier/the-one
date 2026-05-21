@@ -112,14 +112,23 @@ def _make_message(
     author: SimpleNamespace,
     channel: SimpleNamespace,
     content: str = "hello there",
+    clean_content: str | None = None,
     attachments: list[SimpleNamespace] | None = None,
     guild_id: int | None = 7777,
 ) -> SimpleNamespace:
+    """Synthetic ``discord.Message`` stub.
+
+    ``clean_content`` defaults to ``content`` so tests that don't care
+    about mention-resolution exercise the helper as before; tests that
+    care override it to mimic the SDK's behavior of resolving
+    ``<@123...>`` markup to ``@display_name``.
+    """
     guild = SimpleNamespace(id=guild_id) if guild_id is not None else None
     return SimpleNamespace(
         author=author,
         channel=channel,
         content=content,
+        clean_content=clean_content if clean_content is not None else content,
         attachments=list(attachments or []),
         guild=guild,
     )
@@ -232,6 +241,59 @@ def test_peer_name_uses_display_name_not_global_name() -> None:
     env = _translate_discord_message_to_envelope(msg, account_id="acct-1")
 
     assert env.peer_name == "Nick-in-server"
+
+
+def test_text_uses_clean_content_not_raw_content() -> None:
+    """envelope.text reads ``message.clean_content`` so mentions resolve.
+
+    L11 HAT finding — a peer's mention of the bot arrived as raw
+    ``<@1506767486002135280>`` in ``message.content``. The discord SDK
+    exposes the resolved-mention form via ``message.clean_content``
+    (``@gleepglorp``), which is what peers actually see in the UI.
+
+    The raw ``message.content`` remains available via
+    ``raw["discord_message"].content`` for any caller that needs the
+    unresolved markup.
+    """
+    author = _make_author()
+    channel = _make_guild_channel()
+    msg = _make_message(
+        author=author,
+        channel=channel,
+        content="hey <@1506767486002135280> how are you",
+        clean_content="hey @gleepglorp how are you",
+    )
+
+    env = _translate_discord_message_to_envelope(msg, account_id="acct-1")
+
+    assert env.text == "hey @gleepglorp how are you"
+    # The raw SDK message reference still exposes the unresolved markup.
+    assert env.raw["discord_message"].content == (
+        "hey <@1506767486002135280> how are you"
+    )
+
+
+def test_text_falls_back_to_content_when_clean_content_missing() -> None:
+    """If a stub or non-standard message lacks ``clean_content``, fall back to ``content``.
+
+    Defensive fallback for synthetic fixtures and any non-``discord.Message``
+    input that might not carry ``clean_content``. The SDK always populates
+    it for real messages.
+    """
+    author = _make_author()
+    channel = _make_guild_channel()
+    # Bypass _make_message's default and build a stub without clean_content.
+    msg = SimpleNamespace(
+        author=author,
+        channel=channel,
+        content="raw text",
+        attachments=[],
+        guild=SimpleNamespace(id=7777),
+    )
+
+    env = _translate_discord_message_to_envelope(msg, account_id="acct-1")
+
+    assert env.text == "raw text"
 
 
 def test_attachments_captured_in_raw() -> None:

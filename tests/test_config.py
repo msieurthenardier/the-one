@@ -224,19 +224,83 @@ class TestComposeSystemPrompt:
         out = compose_system_prompt(BASE_PROMPT, "Custom.")
         assert out == BASE_PROMPT + "\n\n---\n\nCustom."
 
-    def test_connector_attached_tool_enabled_includes_enabled_directive(self):
-        """Enabled state: directive instructs the agent to call the tool."""
+    def test_connector_attached_tool_enabled_auto_relay_off_includes_enabled_directive(
+        self,
+    ):
+        """Auto-relay OFF + send-tool enabled: directive instructs the agent
+        to call the platform-send tool deliberately (legacy ENABLED
+        directive). Behavior post-L11 HAT Fix #5: auto_relay must be
+        explicitly False to land this directive."""
         from the_one.agent.config import (
+            _CONNECTOR_AUTO_RELAY_DIRECTIVE,
             _CONNECTOR_TOOL_DISABLED_DIRECTIVE,
             _CONNECTOR_TOOL_ENABLED_DIRECTIVE,
             compose_system_prompt,
         )
         out = compose_system_prompt(
-            BASE_PROMPT, "", connector_attached=True, send_tool_enabled=True
+            BASE_PROMPT,
+            "",
+            connector_attached=True,
+            send_tool_enabled=True,
+            auto_relay=False,
         )
         assert BASE_PROMPT in out
         assert _CONNECTOR_TOOL_ENABLED_DIRECTIVE in out
         assert _CONNECTOR_TOOL_DISABLED_DIRECTIVE not in out
+        assert _CONNECTOR_AUTO_RELAY_DIRECTIVE not in out
+
+    def test_connector_attached_tool_enabled_auto_relay_on_includes_auto_relay_directive(
+        self,
+    ):
+        """M10 F8 L11 HAT Fix #5: auto-relay ON + send-tool enabled lands
+        the auto-relay directive — telling the agent its plaintext IS the
+        platform reply by default, no permission-asking required."""
+        from the_one.agent.config import (
+            _CONNECTOR_AUTO_RELAY_DIRECTIVE,
+            _CONNECTOR_TOOL_DISABLED_DIRECTIVE,
+            _CONNECTOR_TOOL_ENABLED_DIRECTIVE,
+            compose_system_prompt,
+        )
+        out = compose_system_prompt(
+            BASE_PROMPT,
+            "",
+            connector_attached=True,
+            send_tool_enabled=True,
+            auto_relay=True,
+        )
+        assert BASE_PROMPT in out
+        assert _CONNECTOR_AUTO_RELAY_DIRECTIVE in out
+        assert _CONNECTOR_TOOL_ENABLED_DIRECTIVE not in out
+        assert _CONNECTOR_TOOL_DISABLED_DIRECTIVE not in out
+
+    def test_connector_attached_send_disabled_ignores_auto_relay(self):
+        """M10 F8 L11 HAT Fix #5: when the send tool is disabled, the
+        DISABLED directive lands regardless of the auto_relay value (the
+        relay path can't fire anyway since the tool is gone)."""
+        from the_one.agent.config import (
+            _CONNECTOR_AUTO_RELAY_DIRECTIVE,
+            _CONNECTOR_TOOL_DISABLED_DIRECTIVE,
+            _CONNECTOR_TOOL_ENABLED_DIRECTIVE,
+            compose_system_prompt,
+        )
+        out_on = compose_system_prompt(
+            BASE_PROMPT,
+            "",
+            connector_attached=True,
+            send_tool_enabled=False,
+            auto_relay=True,
+        )
+        out_off = compose_system_prompt(
+            BASE_PROMPT,
+            "",
+            connector_attached=True,
+            send_tool_enabled=False,
+            auto_relay=False,
+        )
+        assert out_on == out_off
+        assert _CONNECTOR_TOOL_DISABLED_DIRECTIVE in out_on
+        assert _CONNECTOR_AUTO_RELAY_DIRECTIVE not in out_on
+        assert _CONNECTOR_TOOL_ENABLED_DIRECTIVE not in out_on
 
     def test_connector_attached_tool_disabled_includes_disabled_directive(self):
         """Disabled state: directive tells the agent platform-send is off."""
@@ -255,7 +319,7 @@ class TestComposeSystemPrompt:
     def test_connector_attached_with_persona_persona_after_directive(self):
         """Persona appears AFTER the directive, separated by '---'."""
         from the_one.agent.config import (
-            _CONNECTOR_TOOL_ENABLED_DIRECTIVE,
+            _CONNECTOR_AUTO_RELAY_DIRECTIVE,
             compose_system_prompt,
         )
         out = compose_system_prompt(
@@ -264,9 +328,10 @@ class TestComposeSystemPrompt:
             connector_attached=True,
             send_tool_enabled=True,
         )
-        # Shape: base + \n\n + directive + \n\n---\n\n + persona
+        # Shape: base + \n\n + directive + \n\n---\n\n + persona.
+        # Default auto_relay=True ⇒ AUTO_RELAY directive lands here.
         assert out.index(BASE_PROMPT) < out.index(
-            _CONNECTOR_TOOL_ENABLED_DIRECTIVE
+            _CONNECTOR_AUTO_RELAY_DIRECTIVE
         )
-        assert out.index(_CONNECTOR_TOOL_ENABLED_DIRECTIVE) < out.index("---")
+        assert out.index(_CONNECTOR_AUTO_RELAY_DIRECTIVE) < out.index("---")
         assert out.endswith("Custom persona.")

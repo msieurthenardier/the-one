@@ -1552,6 +1552,50 @@ class TestConnectorAccountConfigValidator:
         with pytest.raises(ValidationError):
             await connector_repo.get("bad")
 
+    # --- M10 F8 L11 HAT Fix #4 — auto_relay_platform_replies ---
+
+    def test_validate_config_accepts_auto_relay_platform_replies_bool(
+        self,
+    ) -> None:
+        """Explicit True and False both validate cleanly. Absent is
+        equivalent to default-True at consume time (the dispatcher
+        applies the ``.get(..., True)`` default) but is also a valid
+        on-disk shape — covered implicitly by every pre-Fix-#4 row.
+        """
+        account_true = ConnectorAccount(
+            id="a-true", name="n", type="stub",
+            config={"auto_relay_platform_replies": True},
+        )
+        assert account_true.config["auto_relay_platform_replies"] is True
+
+        account_false = ConnectorAccount(
+            id="a-false", name="n", type="stub",
+            config={"auto_relay_platform_replies": False},
+        )
+        assert account_false.config["auto_relay_platform_replies"] is False
+
+    def test_validate_config_rejects_non_bool_auto_relay(self) -> None:
+        """A string "yes" / int 1 / None / list — none of these are
+        accepted. Operators can't smuggle truthy / falsy non-bools
+        through the kv-table editor path; the validator forces an
+        explicit bool.
+        """
+        with pytest.raises(ValidationError):
+            ConnectorAccount(
+                id="a", name="n", type="stub",
+                config={"auto_relay_platform_replies": "yes"},
+            )
+        with pytest.raises(ValidationError):
+            ConnectorAccount(
+                id="a", name="n", type="stub",
+                config={"auto_relay_platform_replies": 1},
+            )
+        with pytest.raises(ValidationError):
+            ConnectorAccount(
+                id="a", name="n", type="stub",
+                config={"auto_relay_platform_replies": None},
+            )
+
 
 # ── Chat Session Repository ──────────────────────────────────────────────
 

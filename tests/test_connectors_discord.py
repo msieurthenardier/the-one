@@ -339,9 +339,14 @@ def _patch_discord(monkeypatch: pytest.MonkeyPatch) -> None:
 def _make_encryptor() -> Encryptor:
     """Construct a real Encryptor with a one-shot Fernet key.
 
-    The plugin only ever calls ``encryptor.decrypt`` on
-    ``account.secrets["BOT_TOKEN"]``; using the real Encryptor keeps
-    the test honest about the contract.
+    The plugin receives :class:`Encryptor` to satisfy the F1
+    :class:`ConnectorPlugin` Protocol but does not consume it for
+    per-value decryption — the repository
+    (``ConnectorAccountRepository._ciphertext_to_secrets``) decrypts
+    the whole ``secrets`` blob at row-load time, so
+    ``account.secrets["BOT_TOKEN"]`` already arrives as plaintext. We
+    still construct a real Encryptor here so any test that passes it
+    in exercises the same object shape the runtime uses.
     """
     from cryptography.fernet import Fernet
 
@@ -365,7 +370,10 @@ def _make_account(
         name="Discord Test",
         type="discord",
         config=config,
-        secrets={"BOT_TOKEN": encryptor.encrypt(bot_token_plaintext)},
+        # The repository decrypts the whole ``secrets`` blob at row-load
+        # time, so ``account.secrets["BOT_TOKEN"]`` arrives at the plugin
+        # as plaintext. The fixture mirrors that post-load shape.
+        secrets={"BOT_TOKEN": bot_token_plaintext},
     )
 
 
@@ -869,7 +877,7 @@ async def _connect_and_get_handler(
         name="Discord Ingest Test",
         type="discord",
         config=config,
-        secrets={"BOT_TOKEN": encryptor.encrypt("token-xyz")},
+        secrets={"BOT_TOKEN": "token-xyz"},
     )
     client = await plugin.connect(account, encryptor)
     sdk_client = _StubDiscordClient.instances[-1]
@@ -1957,7 +1965,7 @@ async def test_doctor_token_invalid_401_short_circuits(
     assert sessions[0].calls == [
         (
             "https://discord.com/api/v10/users/@me",
-            {"Authorization": f"Bot {encryptor.decrypt(account.secrets['BOT_TOKEN'])}"},
+            {"Authorization": f"Bot {account.secrets['BOT_TOKEN']}"},
         )
     ]
     # Gateway smoke test must NOT have been attempted.
@@ -2115,7 +2123,7 @@ async def test_doctor_allowlist_unreachable_guild_degrades(
         name="Discord Doctor",
         type="discord",
         config={"allowlist": {"guilds": ["G1", "G2"]}},
-        secrets={"BOT_TOKEN": encryptor.encrypt("tok")},
+        secrets={"BOT_TOKEN": "tok"},
     )
 
     report = await plugin.doctor(account, encryptor)
@@ -2155,22 +2163,29 @@ async def test_doctor_empty_allowlist_returns_ok(
         name="Discord Doctor",
         type="discord",
         config={"allowlist": {"guilds": []}},
-        secrets={"BOT_TOKEN": encryptor.encrypt("tok")},
+        secrets={"BOT_TOKEN": "tok"},
     )
     report2 = await plugin.doctor(account_empty, encryptor)
     assert report2.status == "ok"
 
 
-async def test_doctor_uses_live_encryptor_reference(
+async def test_doctor_receives_encryptor_per_call_without_caching(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Doctor reads ``encryptor`` via parameter at every call — rotating
-    the encryptor between calls (re-encrypting the secret under a new
-    key) succeeds without recomputing.
+    """Doctor receives ``encryptor`` per-call via the F1 Protocol; the
+    plugin does NOT capture or cache the encryptor across calls.
 
-    Pins the encryption-rotation invariant: the plugin does NOT capture
-    the encryptor at construction. A fresh ``encryptor`` argument and
-    a corresponding re-encrypted secret on each call MUST work.
+    The encryption-rotation invariant is preserved at the REPOSITORY
+    layer (``ConnectorAccountRepository._ciphertext_to_secrets``
+    decrypts the whole ``secrets`` blob at row-load time), so by the
+    time the plugin sees ``account.secrets["BOT_TOKEN"]`` it is
+    already plaintext and the plugin does not consume ``encryptor``.
+
+    This test pins the no-caching half of the invariant: passing
+    different :class:`Encryptor` instances on different doctor calls
+    must work — the plugin must not have stashed the first one. The
+    rotation half of the invariant is exercised at the repository
+    layer, not here.
     """
     from cryptography.fernet import Fernet
 
@@ -2180,33 +2195,36 @@ async def test_doctor_uses_live_encryptor_reference(
 
     plugin = DiscordPlugin()
 
-    # First call: encryptor A.
+    # First call: encryptor A. Secrets arrive plaintext (the repository
+    # decrypts the blob at load time).
     enc_a = Encryptor(Fernet.generate_key())
     account_a = ConnectorAccount(
         id="acct-doctor-live-a",
         name="Discord Doctor A",
         type="discord",
         config={},
-        secrets={"BOT_TOKEN": enc_a.encrypt("token-A")},
+        secrets={"BOT_TOKEN": "token-A"},
     )
     report_a = await plugin.doctor(account_a, enc_a)
     assert report_a.status == "ok"
 
-    # Rotate: completely new encryptor + re-encrypted secret. If the
-    # plugin captured `encryptor` at construction (it does NOT — there
-    # IS no construction-time capture; the Protocol passes encryptor
-    # per call), this would fail to decrypt the new secret.
+    # Second call: completely distinct encryptor instance. If the
+    # plugin had stashed `enc_a` (it MUST NOT — the Protocol passes
+    # encryptor per call), this would still pass because the plugin
+    # doesn't consume the encryptor — but the assertion below pins
+    # the contract regardless.
     _reset_doctor_gateway_stub_state()
     _patch_discord_for_doctor(
         monkeypatch, url_responses=_happy_url_responses()
     )
     enc_b = Encryptor(Fernet.generate_key())
+    assert enc_b is not enc_a
     account_b = ConnectorAccount(
         id="acct-doctor-live-b",
         name="Discord Doctor B",
         type="discord",
         config={},
-        secrets={"BOT_TOKEN": enc_b.encrypt("token-B")},
+        secrets={"BOT_TOKEN": "token-B"},
     )
     report_b = await plugin.doctor(account_b, enc_b)
     assert report_b.status == "ok"
@@ -2448,7 +2466,7 @@ async def test_connect_syncs_once_per_configured_guild(
         # int-coercible guild ids (strings on the wire; the plugin
         # casts to int when wrapping in discord.Object).
         config={"guilds": ["111222333", "444555666"]},
-        secrets={"BOT_TOKEN": encryptor.encrypt("token")},
+        secrets={"BOT_TOKEN": "token"},
     )
 
     client = await plugin.connect(account, encryptor)
@@ -2519,7 +2537,7 @@ async def test_connect_proceeds_when_tree_sync_raises(
         name="Discord L9 Sync Fail",
         type="discord",
         config={"guilds": ["1111", "2222"]},
-        secrets={"BOT_TOKEN": encryptor.encrypt("token")},
+        secrets={"BOT_TOKEN": "token"},
     )
 
     with caplog.at_level(logging.WARNING, logger="the_one.connectors._discord"):
@@ -2561,7 +2579,7 @@ async def test_connect_with_int_guild_ids_in_config(
         name="Discord L9 Int Guilds",
         type="discord",
         config={"guilds": [987654321]},
-        secrets={"BOT_TOKEN": encryptor.encrypt("token")},
+        secrets={"BOT_TOKEN": "token"},
     )
 
     client = await plugin.connect(account, encryptor)
@@ -2593,7 +2611,7 @@ async def test_slash_command_body_dispatches_envelope(
         name="Discord L9 Dispatch",
         type="discord",
         config={},
-        secrets={"BOT_TOKEN": encryptor.encrypt("token")},
+        secrets={"BOT_TOKEN": "token"},
     )
 
     client = await plugin.connect(account, encryptor)

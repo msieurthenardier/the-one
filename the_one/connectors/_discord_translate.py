@@ -63,6 +63,14 @@ def _translate_discord_message_to_envelope(
     nickname when present and falls back to the global username, so
     it matches what peers see in the UI.
 
+    ``text`` uses ``message.clean_content`` (NOT ``.content``) so user
+    and channel mentions are resolved to their display-name form
+    (``@username``, ``#channel-name``) rather than the raw
+    ``<@123456...>`` / ``<#123456...>`` markup. The raw
+    ``message.content`` remains accessible via
+    ``raw["discord_message"].content`` for any caller that needs the
+    unresolved markup.
+
     Imports of :mod:`discord` are deferred to call time (``TYPE_CHECKING``
     block at module scope; ``import discord`` inside the function body
     so the module-level import graph stays clean and tests can pass
@@ -115,7 +123,7 @@ def _translate_discord_message_to_envelope(
         thread_id=thread_id_str,
         peer_id=str(message.author.id),
         peer_name=message.author.display_name,
-        text=message.content or "",
+        text=getattr(message, "clean_content", None) or message.content or "",
         raw={
             "is_dm": is_dm,
             "guild_id": guild_id_str,

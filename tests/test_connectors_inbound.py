@@ -345,7 +345,10 @@ async def test_dispatch_inbound_touches_pool_last_activity(isolated_db) -> None:
     envelope = _envelope()
     # First dispatch warms the pool; second dispatch we measure.
     await dispatch_inbound("acct-test", envelope, factory=factory)
-    key = ("agent-inbound", "acct-test")
+    # M10 F8 L11 HAT Fix #6: pool keys on the connector sentinel,
+    # not the agent name — all agents attached to one account share
+    # one gateway connection.
+    key = (pool_mod._CONNECTOR_POOL_AGENT_SENTINEL, "acct-test")
     assert key in pool_mod._pool
     before = pool_mod._pool[key].last_activity
 
@@ -596,9 +599,16 @@ async def test_dispatch_inbound_persists_agent_reply_with_visibility_operator(
     operator-only by default. The successful-platform-send-tool_result
     carve-out is exercised in
     ``test_dispatch_inbound_tags_successful_send_tool_result_as_platform_visible``.
+
+    M10 F8 L11 HAT Fix #4: auto-relay is opted OUT here so this test
+    continues to exercise the pre-auto-relay operator-tagging branch in
+    isolation. The auto-relay-flips-visibility branch is covered by the
+    new dedicated tests in this file.
     """
     await _seed_provider_and_agent()
-    await _seed_stub_account()
+    await _seed_stub_account(
+        config={"auto_relay_platform_replies": False}
+    )
     register_for_test("stub", StubPlugin)
     factory = await _make_factory()
 
@@ -626,9 +636,16 @@ async def test_dispatch_inbound_tags_assistant_text_as_operator(
     The default branch of the F4 L4 tagging pass: every non-USER new
     message in a connector-attached session is operator-only unless the
     successful-platform-send carve-out fires.
+
+    M10 F8 L11 HAT Fix #4: auto-relay is opted OUT here so this test
+    pins the pre-auto-relay tagging pass in isolation. The
+    auto-relay-flips-plaintext-to-platform-visible branch is covered
+    separately.
     """
     await _seed_provider_and_agent()
-    await _seed_stub_account()
+    await _seed_stub_account(
+        config={"auto_relay_platform_replies": False}
+    )
     register_for_test("stub", StubPlugin)
     factory = await _make_factory()
 
@@ -1017,9 +1034,19 @@ async def test_dispatch_inbound_unknown_connector_type_returns_gracefully(
 async def test_dispatch_inbound_does_not_call_record_outbound(isolated_db) -> None:
     """F3 L4 owns ZERO outbound. ``StubPlugin.outbound_records`` is
     untouched by ``dispatch_inbound``. F4 will own the platform-send
-    tool that populates this buffer."""
+    tool that populates this buffer.
+
+    M10 F8 L11 HAT Fix #4: auto-relay (default-on) is opted OUT here so
+    the F3-era invariant ("dispatcher itself does not own platform
+    outbound") still holds when explicitly disabled. The
+    auto-relay-default-on path that DOES drive ``client.send`` from the
+    dispatcher is covered by
+    ``test_auto_relay_default_on_platform_inbound_invokes_client_send``.
+    """
     await _seed_provider_and_agent()
-    await _seed_stub_account()
+    await _seed_stub_account(
+        config={"auto_relay_platform_replies": False}
+    )
     register_for_test("stub", StubPlugin)
     factory = await _make_factory()
 
@@ -1027,6 +1054,363 @@ async def test_dispatch_inbound_does_not_call_record_outbound(isolated_db) -> No
     await dispatch_inbound("acct-test", envelope, factory=factory)
 
     assert StubPlugin.outbound_records == []
+
+
+# ─── M10 F8 L11 HAT Fix #4: auto-relay platform replies ──────────────────
+
+
+async def test_auto_relay_default_on_platform_inbound_invokes_client_send(
+    isolated_db,
+) -> None:
+    """Default-on auto-relay: a platform inbound where the agent
+    produces a plaintext reply (without calling ``send_to_platform_channel``)
+    triggers the dispatcher's mechanical ``client.send`` on behalf of
+    the agent. ``StubPlugin.outbound_records`` captures the relayed
+    content.
+
+    The persisted assistant message's visibility flips from
+    ``OPERATOR_VISIBILITY`` (default of the F4 L4 tagging pass) to
+    ``None`` (platform-visible) — because the message DID make it to
+    peers via this relay, the Chat UI must render it correctly as a
+    platform-bound reply.
+    """
+    await _seed_provider_and_agent(response_content="hi from agent")
+    # Default config — no opt-out — so auto-relay default-True fires.
+    await _seed_stub_account()
+    register_for_test("stub", StubPlugin)
+    factory = await _make_factory()
+
+    envelope = _envelope()
+    await dispatch_inbound("acct-test", envelope, factory=factory)
+
+    # Auto-relay went through StubClient.send → recorded on StubPlugin.
+    assert len(StubPlugin.outbound_records) == 1
+    target, content = StubPlugin.outbound_records[0]
+    assert target.channel_id == envelope.channel_id
+    assert target.thread_id == envelope.thread_id
+    assert content == "hi from agent"
+
+    # The persisted assistant reply is now platform-visible (visibility
+    # flipped from OPERATOR_VISIBILITY → None by the auto-relay branch).
+    conn = await get_connection()
+    chat_repo = ChatSessionRepository(conn)
+    sessions = await chat_repo.list()
+    history = decode_messages(sessions[0].messages)
+    assistant_msgs = [m for m in history if m.role == Role.ASSISTANT]
+    plaintext_replies = [
+        m for m in assistant_msgs if not m.tool_calls and m.content
+    ]
+    assert plaintext_replies, "expected a plaintext assistant reply"
+    for m in plaintext_replies:
+        assert m.visibility is None, (
+            "auto-relayed plaintext reply must be platform-visible "
+            "(visibility=None)"
+        )
+
+
+async def test_auto_relay_off_platform_inbound_does_not_invoke_client_send(
+    isolated_db,
+) -> None:
+    """Opt-out: ``account.config["auto_relay_platform_replies"] = False``
+    disables the auto-relay. The agent's plaintext reply stays
+    operator-only and the dispatcher does NOT call ``client.send``.
+
+    The pre-Fix-#4 invariant (agent must explicitly invoke
+    ``send_to_platform_channel`` to reach peers) is preserved on the
+    opt-out path.
+    """
+    await _seed_provider_and_agent(response_content="silent reply")
+    await _seed_stub_account(
+        config={"auto_relay_platform_replies": False}
+    )
+    register_for_test("stub", StubPlugin)
+    factory = await _make_factory()
+
+    envelope = _envelope()
+    await dispatch_inbound("acct-test", envelope, factory=factory)
+
+    assert StubPlugin.outbound_records == []
+
+    # Reply stays operator-only.
+    conn = await get_connection()
+    chat_repo = ChatSessionRepository(conn)
+    sessions = await chat_repo.list()
+    history = decode_messages(sessions[0].messages)
+    plaintext_replies = [
+        m for m in history
+        if m.role == Role.ASSISTANT and not m.tool_calls and m.content
+    ]
+    assert plaintext_replies
+    for m in plaintext_replies:
+        assert m.visibility == OPERATOR_VISIBILITY
+
+
+async def test_auto_relay_skips_when_agent_already_called_tool(
+    isolated_db, monkeypatch
+) -> None:
+    """When the agent invokes ``send_to_platform_channel`` during the
+    step, the auto-relay branch detects the tool call in the new
+    messages and skips — avoiding a double-send to peers.
+
+    The platform-send tool's own outbound (recorded once) IS captured
+    by ``StubPlugin.outbound_records``; the dispatcher MUST NOT add a
+    second record.
+    """
+    await _seed_provider_and_agent(connector_account_ids=["acct-test"])
+    await _seed_stub_account()
+    register_for_test("stub", StubPlugin)
+
+    # Iter1: assistant invokes the platform-send tool.
+    # Iter2: assistant emits final plaintext to end the turn.
+    tc = ToolCall(
+        id="tc-send-no-double",
+        name="send_to_platform_channel",
+        arguments={
+            "target": {"account_id": "acct-test", "channel_id": "ch-1"},
+            "content": "agent-deliberate send",
+        },
+    )
+    responses = [
+        Message.assistant(content="", tool_calls=[tc]),
+        Message.assistant(content="done"),
+    ]
+    factory = await _make_scripted_factory(
+        responses, monkeypatch, connector_account_ids=["acct-test"]
+    )
+
+    envelope = _envelope()
+    await dispatch_inbound("acct-test", envelope, factory=factory)
+
+    # Exactly ONE outbound — from the platform-send tool. The auto-relay
+    # branch detected the tool call and skipped its own client.send.
+    assert len(StubPlugin.outbound_records) == 1
+    _target, content = StubPlugin.outbound_records[0]
+    assert content == "agent-deliberate send"
+
+
+async def test_auto_relay_skips_when_agent_reply_is_empty(
+    isolated_db, monkeypatch
+) -> None:
+    """When the agent produces no plaintext (e.g. only tool calls and
+    a final empty assistant message), the auto-relay branch finds no
+    candidate reply and skips — no spurious empty-content outbound.
+    """
+    await _seed_provider_and_agent(connector_account_ids=["acct-test"])
+    await _seed_stub_account()
+    register_for_test("stub", StubPlugin)
+
+    # The scripted provider returns an assistant with empty content
+    # and no tool calls — the agent ends the turn with nothing to say.
+    responses = [Message.assistant(content="")]
+    factory = await _make_scripted_factory(
+        responses, monkeypatch, connector_account_ids=["acct-test"]
+    )
+
+    envelope = _envelope()
+    await dispatch_inbound("acct-test", envelope, factory=factory)
+
+    # No outbound recorded — auto-relay had nothing to relay.
+    assert StubPlugin.outbound_records == []
+
+
+async def test_auto_relay_handles_client_send_exception_gracefully(
+    isolated_db,
+) -> None:
+    """``client.send`` raising mid-relay must be logged + swallowed —
+    the inbound is still considered handled (the dispatcher returns
+    cleanly), and the agent's reply is preserved as operator-only
+    (the visibility flip never happens because the send raised before
+    it).
+    """
+    await _seed_provider_and_agent(response_content="reply text")
+    await _seed_stub_account()
+    register_for_test("stub", StubPlugin)
+    # Make StubClient.send raise on every call.
+    StubPlugin.send_should_raise = ConnectorConnectionError(
+        "auto-relay send failure"
+    )
+    factory = await _make_factory()
+
+    envelope = _envelope()
+    # Must NOT raise — auto-relay swallows the failure.
+    await dispatch_inbound("acct-test", envelope, factory=factory)
+
+    # No outbound recorded (the raise pre-empts record_outbound).
+    assert StubPlugin.outbound_records == []
+
+    # Reply stays in history with operator-only visibility (the flip
+    # never ran because the send raised before it).
+    conn = await get_connection()
+    chat_repo = ChatSessionRepository(conn)
+    sessions = await chat_repo.list()
+    history = decode_messages(sessions[0].messages)
+    plaintext_replies = [
+        m for m in history
+        if m.role == Role.ASSISTANT and not m.tool_calls and m.content
+    ]
+    assert plaintext_replies
+    for m in plaintext_replies:
+        assert m.visibility == OPERATOR_VISIBILITY
+
+
+async def test_auto_relay_does_not_fire_on_operator_console_inbound(
+    isolated_db, monkeypatch
+) -> None:
+    """Operator-typed inbound (Chat UI WS path) does NOT route through
+    ``dispatch_inbound`` — it goes through
+    :func:`_spawn_message_processing` in ``interfaces/web/app.py``,
+    which has NO auto-relay code. By construction the agent's plaintext
+    reply stays in the operator console and the auto-relay branch
+    cannot fire.
+
+    Pins this structural separation as a regression net so a future
+    "unify the two entry points" refactor doesn't accidentally route
+    operator-typed input through the auto-relay branch.
+    """
+    from the_one.db.models import ChatSession
+    from the_one.interfaces.web import app as web_app
+    from the_one.interfaces.web.app import (
+        _get_or_restore_session,
+        _spawn_message_processing,
+    )
+
+    await _seed_provider_and_agent(connector_account_ids=["acct-test"])
+    # Auto-relay is default-on — explicit no-config-override below.
+    await _seed_stub_account()
+    register_for_test("stub", StubPlugin)
+
+    async def _noop(*args, **kwargs):  # noqa: ARG001
+        return None
+
+    monkeypatch.setattr(web_app, "_send_to_session", _noop)
+    monkeypatch.setattr(web_app, "_ensure_ollama_model_loaded", _noop)
+
+    # Seed a connector-attached chat session.
+    conn = await get_connection()
+    chat_repo = ChatSessionRepository(conn)
+    session_id = "cs-auto-relay-operator-typed"
+    await chat_repo.create(
+        ChatSession(
+            id=session_id,
+            agent_name="agent-inbound",
+            title="connector session",
+            platform="stub",
+            connector_account_id="acct-test",
+            channel_id="ch-1",
+            thread_id=None,
+            peer_id="peer-1",
+            messages="[]",
+        )
+    )
+
+    factory = await _make_scripted_factory(
+        [Message.assistant(content="operator-only reply")],
+        monkeypatch,
+        connector_account_ids=["acct-test"],
+    )
+    web_app._state["factory"] = factory
+
+    try:
+        restored = await _get_or_restore_session(session_id)
+        assert restored.session is not None
+        await _spawn_message_processing(
+            restored.session,
+            "operator types here",
+            source="web",
+            exclude_user_echo=None,
+        )
+
+        # No auto-relay outbound — the operator-typed path has no
+        # auto-relay logic. ``client.send`` was never called from this
+        # entry point.
+        assert StubPlugin.outbound_records == []
+    finally:
+        web_app._sessions.clear()
+
+
+# ─── M10 F8 L11 HAT Fix #6: multi-agent auto-relay shares one client ─────
+
+
+async def test_multi_agent_auto_relay_shares_one_pool_client(
+    isolated_db,
+) -> None:
+    """Auto-relay's pool acquire goes through ``connector_acquire`` so
+    every agent attached to one connector account relays via the SAME
+    ``ConnectorClient`` instance.
+
+    The dispatcher's step-10 acquire and the step-12 auto-relay
+    acquire both resolve to the same warm pool entry — one gateway
+    connection, one client object, regardless of which agent's
+    plaintext reply is being relayed.
+    """
+    # Seed two agents sharing one account.
+    await _seed_provider_and_agent(
+        agent_name="alpha",
+        response_content="alpha reply",
+        connector_account_ids=["acct-test"],
+    )
+    from the_one.agent.config import AgentConfig
+    from the_one.db.repositories import SQLiteAgentStore
+
+    conn = await get_connection()
+    agent_store = SQLiteAgentStore(conn)
+    await agent_store.save(
+        AgentConfig(
+            name="bravo",
+            provider_config_id="mock-provider",
+            llm_model="mock-default",
+            connector_account_ids=["acct-test"],
+        )
+    )
+
+    # Routing rule: ch-1 → bravo; ch-2 falls back to alpha (alphabetical).
+    encryptor = get_encryptor(settings.data_dir)
+    acc_repo = ConnectorAccountRepository(conn, encryptor)
+    await acc_repo.create(
+        ConnectorAccount(
+            id="acct-test",
+            name="Stub Routing",
+            type="stub",
+            config={
+                "routing": {
+                    "rules": [
+                        {"scope": "channel", "match": ["ch-1"], "agent": "bravo"},
+                    ],
+                    "default": None,
+                },
+            },
+        )
+    )
+    register_for_test("stub", StubPlugin)
+    factory = await _make_factory()
+
+    # Drive both inbounds — both should auto-relay (default-on).
+    await dispatch_inbound(
+        "acct-test", _envelope(channel_id="ch-1"), factory=factory
+    )
+    await dispatch_inbound(
+        "acct-test", _envelope(channel_id="ch-2"), factory=factory
+    )
+
+    # Both relays landed via StubPlugin.outbound_records (mock provider
+    # produces ``"ok"`` by default — bravo's agent config uses the same
+    # mock provider so its content is also ``"ok"``).
+    assert len(StubPlugin.outbound_records) == 2
+
+    # plugin.connect was called exactly ONCE — the second auto-relay
+    # acquire reused the warm pool entry. This is the structural
+    # invariant Fix #6 enforces.
+    assert StubPlugin.connect_calls == [("acct-test", "stub")]
+
+    # Pool has exactly one entry, sentinel-keyed.
+    keys_for_account = [
+        k for k in pool_mod._pool if k[1] == "acct-test"
+    ]
+    assert len(keys_for_account) == 1
+    assert keys_for_account[0] == (
+        pool_mod._CONNECTOR_POOL_AGENT_SENTINEL,
+        "acct-test",
+    )
 
 
 # ─── Repository-unit tests for the new ChatSessionRepository primitive ───
@@ -1852,29 +2236,35 @@ class TestF7RoutingIntegration:
         self, isolated_db, monkeypatch
     ) -> None:
         """Routing picks ``alpha`` via first-eligible-alphabetical, but
-        ``pool_acquire("alpha", …)`` raises ``ConnectorRegistrationError``
+        ``connector_acquire(…)`` raises ``ConnectorRegistrationError``
         → dispatcher returns; audit entry carries the routing
         ``reason="first-eligible"`` AND the overloaded ``disposition=
         "no-eligible"`` (pool-failure-overload). Pins the documented
         overload behaviour so a future refactor doesn't silently flip
-        it."""
+        it.
+
+        M10 F8 L11 HAT Fix #6: pool key is now ``(__connector__,
+        account_id)`` not ``(agent_name, account_id)`` — the test
+        monkeypatches ``connector_acquire`` on the inbound module
+        instead of the bare ``pool_acquire``.
+        """
         await _seed_provider_and_agent(
             agent_name="alpha", connector_account_ids=["acct-test"]
         )
         await _seed_stub_account()
         register_for_test("stub", StubPlugin)
 
-        # Monkeypatch the pool_acquire used INSIDE _inbound to raise.
+        # Monkeypatch the connector_acquire used INSIDE _inbound to raise.
         from the_one.connectors import _inbound as inbound_mod_local
         from the_one.connectors.errors import ConnectorRegistrationError
 
-        async def _raising_pool_acquire(agent_name: str, account_id: str):
+        async def _raising_connector_acquire(account_id: str):
             raise ConnectorRegistrationError(
-                f"forced for agent={agent_name} account={account_id}"
+                f"forced for account={account_id}"
             )
 
         monkeypatch.setattr(
-            inbound_mod_local, "pool_acquire", _raising_pool_acquire
+            inbound_mod_local, "connector_acquire", _raising_connector_acquire
         )
 
         inner = await _make_factory()
@@ -2138,3 +2528,163 @@ class TestF7RoutingIntegration:
         assert entry["disposition"] == "command-intercepted"
         assert entry["intercept_source"] == "builtin"
         assert entry["agent"] == "alpha"
+
+    # ── M10 F8 L11 HAT Fix #6 — multi-agent connector-account sharing ──
+
+    async def test_multi_agent_routing_shares_pool_entry(
+        self, isolated_db
+    ) -> None:
+        """Multi-agent routing on a single connector account uses ONE
+        pool entry — the account-shared sentinel keying.
+
+        Background: pre-Fix-#6 the pool keyed on
+        ``(agent_name, account_id)``, so two agents attached to the
+        same Discord bot spawned two ``plugin.connect`` calls and two
+        gateway WebSockets with the SAME bot token. Discord rejects
+        the second IDENTIFY on a duplicate token, breaking multi-
+        agent routing on a single connector account at the structural
+        level.
+
+        Post-Fix-#6: every connector-side caller routes through
+        :func:`connector_acquire` which keys on the
+        ``_CONNECTOR_POOL_AGENT_SENTINEL`` instead of the routed
+        agent's name. This test attaches TWO agents to one account,
+        drives routing through each in turn (rule-match then alpha-
+        fallback on a separate channel), and asserts that the pool
+        ends up with EXACTLY ONE entry for that account.
+        """
+        await self._seed_two_agents()
+        # Account with a rule that pins ch-1 → bravo; ch-2 falls back
+        # to first-eligible-alphabetical (alpha).
+        conn = await get_connection()
+        encryptor = get_encryptor(settings.data_dir)
+        acc_repo = ConnectorAccountRepository(conn, encryptor)
+        await acc_repo.create(
+            ConnectorAccount(
+                id="acct-test",
+                name="Stub Routing",
+                type="stub",
+                config={
+                    "routing": {
+                        "rules": [
+                            {"scope": "channel", "match": ["ch-1"], "agent": "bravo"},
+                        ],
+                        "default": None,
+                    },
+                },
+            )
+        )
+        register_for_test("stub", StubPlugin)
+
+        inner = await _make_factory()
+        factory = self._RecordingFactory(inner)
+
+        # First inbound: ch-1 routes to bravo (rule-match).
+        await dispatch_inbound(
+            "acct-test", _envelope(channel_id="ch-1"), factory=factory
+        )
+        # Second inbound: ch-2 falls back to alpha (alphabetical).
+        await dispatch_inbound(
+            "acct-test", _envelope(channel_id="ch-2"), factory=factory
+        )
+
+        # Both agents were exercised through the routing layer.
+        assert set(factory.created_with) == {"alpha", "bravo"}
+
+        # Pool has exactly ONE entry for the account, keyed on the
+        # connector sentinel — NOT one per (agent, account).
+        keys_for_account = [
+            k for k in pool_mod._pool if k[1] == "acct-test"
+        ]
+        assert len(keys_for_account) == 1, keys_for_account
+        assert keys_for_account[0] == (
+            pool_mod._CONNECTOR_POOL_AGENT_SENTINEL,
+            "acct-test",
+        )
+
+    async def test_multi_agent_routing_single_plugin_connect_call(
+        self, isolated_db
+    ) -> None:
+        """M10 F8 L11 HAT Fix #6: regardless of how many agents route
+        through one connector account, the plugin's ``connect`` is
+        called exactly ONCE for that account.
+
+        This is the load-bearing invariant for Discord (and any other
+        gateway-style protocol): one IDENTIFY frame per bot token.
+        """
+        await self._seed_two_agents()
+        # No rules → both channels fall back to first-eligible (alpha)
+        # unless we override per-channel. Use a rule to drive bravo on
+        # ch-1 so both agents are actually exercised.
+        conn = await get_connection()
+        encryptor = get_encryptor(settings.data_dir)
+        acc_repo = ConnectorAccountRepository(conn, encryptor)
+        await acc_repo.create(
+            ConnectorAccount(
+                id="acct-test",
+                name="Stub Routing",
+                type="stub",
+                config={
+                    "routing": {
+                        "rules": [
+                            {"scope": "channel", "match": ["ch-1"], "agent": "bravo"},
+                            {"scope": "channel", "match": ["ch-2"], "agent": "alpha"},
+                        ],
+                        "default": None,
+                    },
+                },
+            )
+        )
+        register_for_test("stub", StubPlugin)
+
+        # StubPlugin.connect_calls is a ClassVar list that the autouse
+        # ``_reset_stub_state`` fixture clears between tests.
+        assert StubPlugin.connect_calls == []
+
+        inner = await _make_factory()
+        factory = self._RecordingFactory(inner)
+
+        # Drive two inbounds; each routes to a different agent.
+        await dispatch_inbound(
+            "acct-test", _envelope(channel_id="ch-1"), factory=factory
+        )
+        await dispatch_inbound(
+            "acct-test", _envelope(channel_id="ch-2"), factory=factory
+        )
+
+        # Both agents stepped — routing fired for both.
+        assert set(factory.created_with) == {"alpha", "bravo"}
+
+        # plugin.connect was called exactly ONCE for the account.
+        # The second routing dispatch reuses the warm pool entry.
+        assert StubPlugin.connect_calls == [("acct-test", "stub")]
+
+    async def test_dispatch_inbound_pool_key_uses_connector_sentinel(
+        self, isolated_db
+    ) -> None:
+        """Single-agent regression: even with one attached agent, the
+        pool entry keys on ``_CONNECTOR_POOL_AGENT_SENTINEL`` — not on
+        the routed agent's name. Pins the keying invariant so a
+        future refactor cannot silently fall back to the bare
+        ``acquire(agent_name, account_id)`` shape that pre-Fix-#6
+        broke multi-agent routing on a single bot token.
+        """
+        await _seed_provider_and_agent()
+        await _seed_stub_account()
+        register_for_test("stub", StubPlugin)
+
+        factory = await _make_factory()
+        await dispatch_inbound("acct-test", _envelope(), factory=factory)
+
+        # The agent's name does NOT appear in the pool keys.
+        agent_keyed = [
+            k for k in pool_mod._pool
+            if k[0] != pool_mod._CONNECTOR_POOL_AGENT_SENTINEL
+            and k[1] == "acct-test"
+        ]
+        assert agent_keyed == [], agent_keyed
+        # The sentinel-keyed entry exists.
+        assert (
+            pool_mod._CONNECTOR_POOL_AGENT_SENTINEL,
+            "acct-test",
+        ) in pool_mod._pool

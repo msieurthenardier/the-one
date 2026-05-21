@@ -1,6 +1,6 @@
 # Flight: First Real Connector — Discord
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Bi-directional Communication Connectors](../../mission.md)
 
 ## Contributing to Criteria
@@ -177,7 +177,7 @@ F8 is **the F7-carry-forward bundle first, the Discord plugin foundation second,
 - [x] Allowlist `guilds` + `roles` axes validated; Studio editor renders the new chip-lists; ACL admission consults them
 - [x] Slash-command registration via `CommandHandler`; 6 v1 commands appear in Discord client; per-guild registration confirmed
 - [x] Browser test for routing-rules editor passes
-- [ ] HAT passes against a real Discord bot
+- [x] HAT passes against a real Discord bot (substantially passed; connectivity + filters + multi-agent routing validated; deeper polish/UX rolled into a follow-on mission per operator's call to scope down M10)
 
 ### Adaptation Criteria
 

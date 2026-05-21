@@ -10,13 +10,14 @@ import pytest
 from conftest import FakeLLM, StubTool
 
 from the_one.agent.config import (
+    _CONNECTOR_AUTO_RELAY_DIRECTIVE,
     _CONNECTOR_TOOL_DISABLED_DIRECTIVE,
     _CONNECTOR_TOOL_ENABLED_DIRECTIVE,
     BASE_PROMPT,
     AgentConfig,
 )
 from the_one.agent.factory import AgentFactory
-from the_one.db.models import LLMProviderConfig, ToolConfig
+from the_one.db.models import ConnectorAccount, LLMProviderConfig, ToolConfig
 from the_one.tools.base import Tool
 from the_one.tools.builtins import BuiltinToolProvider
 
@@ -118,6 +119,15 @@ def factory(store: InMemoryStore) -> AgentFactory:
     mock_tool_repo = AsyncMock()
     mock_tool_repo.list = AsyncMock(return_value=[])
 
+    # M10 F8 L11 HAT Fix #5: factory now does a per-account lookup to
+    # resolve ``auto_relay`` for the system-prompt directive. Mock the
+    # repository to return a permissive (auto_relay=True default) account
+    # for any account_id the caller's AgentConfig references.
+    mock_acc_repo = AsyncMock()
+    mock_acc_repo.get = AsyncMock(
+        side_effect=lambda aid: ConnectorAccount(id=aid, name=aid, type="stub")
+    )
+
     with (
         patch("the_one.agent.factory.get_provider", _fake_get_provider),
         patch("the_one.agent.factory.settings") as mock_settings,
@@ -125,6 +135,10 @@ def factory(store: InMemoryStore) -> AgentFactory:
         patch("the_one.encryption.get_encryptor", return_value=AsyncMock()),
         patch("the_one.db.repositories.LLMProviderRepository", return_value=mock_repo),
         patch("the_one.db.repositories.ToolConfigRepository", return_value=mock_tool_repo),
+        patch(
+            "the_one.db.repositories.ConnectorAccountRepository",
+            return_value=mock_acc_repo,
+        ),
     ):
         mock_settings.agents_dir = Path("/tmp/test-agents")
         mock_settings.data_dir = Path("/tmp/test-data")
@@ -424,11 +438,28 @@ def factory_with_builtin_tool_configs(store: InMemoryStore):
     def _make_with_tool_configs(
         tool_configs: list[ToolConfig] | None = None,
         extra_tool_providers: list | None = None,
+        connector_accounts: dict[str, ConnectorAccount] | None = None,
     ):
         class _Ctx:
             def __enter__(self):
                 mock_tool_repo = AsyncMock()
                 mock_tool_repo.list = AsyncMock(return_value=tool_configs or [])
+
+                # M10 F8 L11 HAT Fix #5: per-account lookup for auto_relay
+                # resolution. ``connector_accounts`` is a {account_id:
+                # ConnectorAccount} mapping; missing IDs synthesize a
+                # default-on (no opt-out) ConnectorAccount so the
+                # caller's existing tests stay green without rework.
+                accounts_map = dict(connector_accounts or {})
+                mock_acc_repo = AsyncMock()
+
+                async def _acc_get(aid: str) -> ConnectorAccount:
+                    if aid in accounts_map:
+                        return accounts_map[aid]
+                    return ConnectorAccount(id=aid, name=aid, type="stub")
+
+                mock_acc_repo.get = AsyncMock(side_effect=_acc_get)
+
                 self._patches = [
                     patch("the_one.agent.factory.get_provider", _fake_get_provider),
                     patch("the_one.agent.factory.settings"),
@@ -441,6 +472,10 @@ def factory_with_builtin_tool_configs(store: InMemoryStore):
                     patch(
                         "the_one.db.repositories.ToolConfigRepository",
                         return_value=mock_tool_repo,
+                    ),
+                    patch(
+                        "the_one.db.repositories.ConnectorAccountRepository",
+                        return_value=mock_acc_repo,
                     ),
                 ]
                 self._active = [p.start() for p in self._patches]
@@ -568,11 +603,13 @@ class TestConnectorSystemPrompt:
             agent = await factory.create("non-connector-agent")
         assert agent.system_prompt == BASE_PROMPT
 
-    async def test_connector_attached_tool_enabled_includes_enabled_directive(
+    async def test_connector_attached_tool_enabled_default_auto_relay_includes_auto_relay_directive(
         self,
         factory_with_builtin_tool_configs,
         store: InMemoryStore,
     ) -> None:
+        """M10 F8 L11 HAT Fix #5: default-on auto-relay lands the auto-relay
+        directive, NOT the legacy ENABLED directive."""
         cfg = AgentConfig(
             name="connector-agent",
             provider_config_id="test-provider",
@@ -582,8 +619,70 @@ class TestConnectorSystemPrompt:
         await store.save(cfg)
         with factory_with_builtin_tool_configs(tool_configs=[]) as factory:
             agent = await factory.create("connector-agent")
-        assert _CONNECTOR_TOOL_ENABLED_DIRECTIVE in agent.system_prompt
+        assert _CONNECTOR_AUTO_RELAY_DIRECTIVE in agent.system_prompt
+        assert _CONNECTOR_TOOL_ENABLED_DIRECTIVE not in agent.system_prompt
         assert _CONNECTOR_TOOL_DISABLED_DIRECTIVE not in agent.system_prompt
+
+    async def test_connector_attached_tool_enabled_auto_relay_opt_out_includes_enabled_directive(
+        self,
+        factory_with_builtin_tool_configs,
+        store: InMemoryStore,
+    ) -> None:
+        """M10 F8 L11 HAT Fix #5: opt-out (``auto_relay_platform_replies=False``
+        on the attached account) lands the legacy ENABLED directive that
+        instructs the agent to use the platform-send tool deliberately."""
+        cfg = AgentConfig(
+            name="connector-agent",
+            provider_config_id="test-provider",
+            llm_model="stub-model",
+            connector_account_ids=["acc-1"],
+        )
+        await store.save(cfg)
+        opt_out_account = ConnectorAccount(
+            id="acc-1",
+            name="acc-1",
+            type="stub",
+            config={"auto_relay_platform_replies": False},
+        )
+        with factory_with_builtin_tool_configs(
+            tool_configs=[],
+            connector_accounts={"acc-1": opt_out_account},
+        ) as factory:
+            agent = await factory.create("connector-agent")
+        assert _CONNECTOR_TOOL_ENABLED_DIRECTIVE in agent.system_prompt
+        assert _CONNECTOR_AUTO_RELAY_DIRECTIVE not in agent.system_prompt
+        assert _CONNECTOR_TOOL_DISABLED_DIRECTIVE not in agent.system_prompt
+
+    async def test_connector_attached_multi_account_any_opt_out_wins(
+        self,
+        factory_with_builtin_tool_configs,
+        store: InMemoryStore,
+    ) -> None:
+        """M10 F8 L11 HAT Fix #5: multi-account agents where ANY attached
+        account has auto_relay=False ⇒ treat as opt-out (most-restrictive
+        wins). The remaining accounts' default-on stance does not
+        re-enable the auto-relay directive."""
+        cfg = AgentConfig(
+            name="connector-agent",
+            provider_config_id="test-provider",
+            llm_model="stub-model",
+            connector_account_ids=["acc-1", "acc-2"],
+        )
+        await store.save(cfg)
+        acc1 = ConnectorAccount(id="acc-1", name="acc-1", type="stub")
+        acc2_opt_out = ConnectorAccount(
+            id="acc-2",
+            name="acc-2",
+            type="stub",
+            config={"auto_relay_platform_replies": False},
+        )
+        with factory_with_builtin_tool_configs(
+            tool_configs=[],
+            connector_accounts={"acc-1": acc1, "acc-2": acc2_opt_out},
+        ) as factory:
+            agent = await factory.create("connector-agent")
+        assert _CONNECTOR_TOOL_ENABLED_DIRECTIVE in agent.system_prompt
+        assert _CONNECTOR_AUTO_RELAY_DIRECTIVE not in agent.system_prompt
 
     async def test_connector_attached_tool_disabled_includes_disabled_directive(
         self,
@@ -604,6 +703,7 @@ class TestConnectorSystemPrompt:
             agent = await factory.create("connector-agent")
         assert _CONNECTOR_TOOL_DISABLED_DIRECTIVE in agent.system_prompt
         assert _CONNECTOR_TOOL_ENABLED_DIRECTIVE not in agent.system_prompt
+        assert _CONNECTOR_AUTO_RELAY_DIRECTIVE not in agent.system_prompt
 
 
 class TestFactoryToolProviderWiring:

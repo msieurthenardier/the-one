@@ -83,10 +83,13 @@ The dispatcher's body composes 12 steps in a fixed canonical order
    identity reflects the alphabetically-first attached agent's pool
    entry, which IS valid for outbound emission regardless of inbound-
    ACL state). Emit failures are logged + swallowed.
-10. Pool acquire for the routed agent — ``pool_acquire(decision.agent,
-    account_id)``. Failure ⇒ ``disposition = "no-eligible"`` (overload
-    — the inbound is unanswerable so observable shape collapses onto
-    no-eligible); append audit entry; return.
+10. Pool acquire for the routed agent — ``connector_acquire(account_id)``.
+    M10 F8 L11 HAT Fix #6: account-shared keying — ``decision.agent``
+    drives routing audit but NOT the pool key, so all agents attached
+    to one connector account share ONE gateway WebSocket. Failure
+    ⇒ ``disposition = "no-eligible"`` (overload — the inbound is
+    unanswerable so observable shape collapses onto no-eligible);
+    append audit entry; return.
 11. Command parse + intercept — :func:`_parse_command` on
     ``working_envelope.text``. If a command is parsed, dispatch to
     :func:`_dispatch_builtin_command` (L5 placeholder returns ``None``
@@ -115,9 +118,9 @@ Mirrors F6's ``session_metadata["audit"]`` entry shape (``ts``,
 ``reason`` keys reuse F6's naming) so a single Studio renderer can
 walk both logs uniformly.
 
-System-outbound path: ``pool_acquire(agent_name, account_id) →
-client.send(OutboundTarget(...), text)`` — invoked dispatcher-internally
-with function-local imports for cycle-break. Mirrors
+System-outbound path: ``connector_acquire(account_id) →
+client.send(OutboundTarget(...), text)`` (M10 F8 L11 HAT Fix #6;
+formerly ``pool_acquire(agent_name, account_id)``). Mirrors
 ``the_one/tools/connector_send.py:SendToPlatformChannelTool.execute``
 lines 183-200 in shape; NOT routed through the platform-send tool
 registry. Commands work even when the tool is operator-disabled.
@@ -134,6 +137,7 @@ from the_one.agent.factory import AgentFactory
 from the_one.connectors import registry
 from the_one.connectors._pairing import _validate_pairing_prefix
 from the_one.connectors._pool import acquire as pool_acquire
+from the_one.connectors._pool import connector_acquire
 from the_one.connectors._routing import resolve_routing
 from the_one.connectors._session import resolve_session
 from the_one.connectors.base import (
@@ -386,7 +390,10 @@ async def dispatch_inbound(
             audit_entry,
         )
         try:
-            client = await pool_acquire(first_eligible_name, account_id)
+            # M10 F8 L11 HAT Fix #6: account-shared pool entry — one
+            # gateway connection per account regardless of which
+            # agent's identity surfaced in the no-eligible audit.
+            client = await connector_acquire(account_id)
             await client.send(
                 OutboundTarget(
                     channel_id=working_envelope.channel_id,
@@ -416,7 +423,14 @@ async def dispatch_inbound(
     # L5 keeps the disposition vocabulary minimal — F10 hardening can
     # refine.
     try:
-        client = await pool_acquire(decision.agent, account_id)
+        # M10 F8 L11 HAT Fix #6: account-shared pool entry — all
+        # agents attached to one connector account share a single
+        # gateway WebSocket. Per-agent credentials are out of scope
+        # for connectors (gateway protocols are physically one-token-
+        # one-connection); the routed agent's identity continues to
+        # flow through ``decision.agent`` for routing audit purposes,
+        # not through the pool key.
+        client = await connector_acquire(account_id)
     except (KeyError, ConnectorRegistrationError) as exc:
         logger.warning(
             "dispatch_inbound: pool acquire failed for "
@@ -665,6 +679,132 @@ async def dispatch_inbound(
                 )
                 for event in events:
                     await broadcast_to_session(session_row.id, event)
+
+            # M10 F8 L11 HAT Fix #4 — auto-relay platform replies.
+            # ===================================================
+            # Default-ON mechanical relay of the agent's plaintext
+            # assistant reply to the platform, opt-out via
+            # ``account.config["auto_relay_platform_replies"] = False``.
+            # Operator-approved at L11 HAT after observing that even a
+            # strengthened system-prompt directive doesn't reliably get
+            # the LLM (Sonnet 4.7) to invoke ``send_to_platform_channel``
+            # — the model asks for permission instead of replying
+            # autonomously to peer messages.
+            #
+            # F4 invariant is preserved: outbound STILL goes through
+            # ``client.send`` (the pool-mediated platform conduit). The
+            # dispatcher is just an additional caller of ``client.send``;
+            # the send_to_platform_channel tool remains the
+            # agent-deliberate path, this branch is the system-default
+            # path.
+            #
+            # Skip conditions (any one ⇒ skip):
+            #   * Setting is False (explicit opt-out).
+            #   * Agent already called ``send_to_platform_channel``
+            #     during this step (avoid double-send).
+            #   * Agent produced no plaintext (e.g. only tool calls).
+            #
+            # Failure of ``client.send`` is logged + swallowed — the
+            # inbound is considered handled; the auto-relay failure is
+            # non-fatal (mirrors the F7 L5 no-eligible peer-error and
+            # plugin/builtin command-response emit-swallow precedents).
+            auto_relay = account.config.get(
+                "auto_relay_platform_replies", True
+            )
+            if auto_relay:
+                # Detect agent-deliberate platform-send during this step
+                # — if the agent already called the tool, the auto-relay
+                # path must NOT fire (avoid double-send to peers).
+                already_sent_via_tool = False
+                for msg in new_msgs:
+                    if msg.role == Role.ASSISTANT:
+                        for tc in msg.tool_calls:
+                            if tc.name == "send_to_platform_channel":
+                                already_sent_via_tool = True
+                                break
+                    if already_sent_via_tool:
+                        break
+
+                # Find the LAST plaintext assistant reply produced this
+                # step. The agent.step loop emits one or more assistant
+                # messages; the final one (with no tool_calls and
+                # non-empty content) is the user-facing reply.
+                reply_text: str | None = None
+                for msg in reversed(new_msgs):
+                    if (
+                        msg.role == Role.ASSISTANT
+                        and not msg.tool_calls
+                        and msg.content
+                    ):
+                        reply_text = msg.content
+                        break
+
+                if (
+                    not already_sent_via_tool
+                    and reply_text is not None
+                ):
+                    try:
+                        # M10 F8 L11 HAT Fix #6: account-shared pool —
+                        # auto-relay uses the same gateway connection
+                        # the dispatcher already warmed at step 10.
+                        relay_client = await connector_acquire(account_id)
+                        send_result = await relay_client.send(
+                            OutboundTarget(
+                                channel_id=working_envelope.channel_id,
+                                thread_id=working_envelope.thread_id,
+                            ),
+                            reply_text,
+                        )
+                        # Flip the agent's plaintext assistant reply
+                        # from OPERATOR_VISIBILITY (tagged by
+                        # ``tag_post_step_visibility`` above) to
+                        # platform-visible (``visibility=None``) — the
+                        # message DID make it to peers via this relay.
+                        # The Chat UI then renders it correctly as a
+                        # platform-bound reply rather than an
+                        # operator-only deliberation.
+                        for msg in reversed(new_msgs):
+                            if (
+                                msg.role == Role.ASSISTANT
+                                and not msg.tool_calls
+                                and msg.content == reply_text
+                            ):
+                                msg.visibility = None
+                                break
+                        # Re-persist to capture the visibility flip on
+                        # the assistant message.
+                        encoded = encode_messages(agent.messages)
+                        db_session_after_relay = await chat_repo.get(
+                            session_row.id
+                        )
+                        await chat_repo.update(
+                            db_session_after_relay.model_copy(
+                                update={"messages": encoded}
+                            )
+                        )
+                        logger.info(
+                            "Auto-relayed agent %s reply to platform "
+                            "via account %s channel %s (message_id=%s)",
+                            decision.agent,
+                            account_id,
+                            working_envelope.channel_id,
+                            send_result.platform_message_id,
+                        )
+                    except Exception:
+                        # Log + swallow. The agent already produced the
+                        # reply; the operator-console view still shows
+                        # it (visibility stays OPERATOR_VISIBILITY since
+                        # the flip block above did not run). The
+                        # operator can manually invoke
+                        # ``send_to_platform_channel`` or retry.
+                        logger.exception(
+                            "dispatch_inbound: auto-relay client.send "
+                            "failed for (agent=%s, account=%s, channel=%s); "
+                            "agent reply preserved as operator-only",
+                            decision.agent,
+                            account_id,
+                            working_envelope.channel_id,
+                        )
         finally:
             # Always reset the ContextVar — even if agent.step raises
             # mid-stream.

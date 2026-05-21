@@ -115,6 +115,57 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             "Registered StubPlugin under 'stub' connector type via "
             "THE_ONE_REGISTER_STUB_CONNECTOR test seam (dev_mode=true)"
         )
+
+    # M10 F8 L11 HAT: warm-acquire each connector account at startup so
+    # the gateway listeners (e.g. Discord's on_message handler) spin up
+    # immediately. Without this, accounts stay offline until the first
+    # agent-initiated outbound triggers acquire — meaning inbound
+    # traffic is silently missed until then.
+    #
+    # M10 F8 L11 HAT Fix #6: Walk all connector accounts (not just
+    # those with attached agents) and acquire via the account-shared
+    # ``connector_acquire`` wrapper. The earlier "first alphabetical
+    # attached agent" probe is irrelevant once the pool keys on the
+    # connector-sentinel — one pool entry per account, full-stop.
+    # We still skip accounts with no attached agents to avoid the
+    # cost of warming a gateway that no agent will route through;
+    # this is a policy choice, not a structural requirement.
+    # Errors are logged but do NOT prevent the-one from starting —
+    # a misbehaving connector must not take the rest of the system down.
+    try:
+        from the_one.connectors._pool import connector_acquire
+        from the_one.db.repositories import ConnectorAccountRepository
+
+        connector_repo = ConnectorAccountRepository(conn, get_encryptor(settings.data_dir))
+        accounts = await connector_repo.list()
+        for account in accounts:
+            try:
+                attached = await store.list_by_connector_account(account.id)
+                if not attached:
+                    logger.info(
+                        "Connector account %r (type=%r) has no attached agents; "
+                        "skipping startup acquire",
+                        account.id, account.type,
+                    )
+                    continue
+                await connector_acquire(account.id)
+                logger.info(
+                    "Warm-acquired connector account %r (type=%r) at startup "
+                    "(account-shared pool entry; %d attached agent(s))",
+                    account.id, account.type, len(attached),
+                )
+            except Exception:
+                logger.exception(
+                    "Failed to warm-acquire connector account %r (type=%r) at startup; "
+                    "listener will spin up on first agent-initiated outbound instead",
+                    account.id, account.type,
+                )
+    except Exception:
+        logger.exception(
+            "Connector-account warm-acquire pass at startup failed entirely; "
+            "individual accounts may stay offline until first outbound triggers acquire"
+        )
+
     yield
     # Drain the PTY session registry on shutdown — cancels the idle
     # reaper task and closes any live sessions. Wrapped in

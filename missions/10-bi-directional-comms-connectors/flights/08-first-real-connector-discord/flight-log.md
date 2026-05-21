@@ -6,6 +6,8 @@
 
 Planning complete; Phase 5b Architect design review landed (2026-05-20, 2 cycles); operator sign-off 2026-05-20. Status flipped `ready` → `in-flight` 2026-05-20; `/agentic-workflow` orchestrator engaged on branch `flight/08-planning-discord` (planning branch continues as execution branch — no separate execution branch). L1 design starting.
 
+**Update 2026-05-20 — Flight landed**: L1-L11 all `completed`. Flight status flipped `in-flight` → `landed`. L11 HAT empirically validated the F8 Discord connector end-to-end against a real bot, including the multi-agent routing pipeline. Operator scoped down M10 — F9 (second connector) + F10 (cross-connector hardening) DEFERRED past M10 to a follow-on Discord-depth mission. M10's "two-connector" success criterion goes UNMET; the depth/polish/operator-tooling work rolls into the next mission. See `mission.md` "Mission Scope Change — 2026-05-20" for the full framing. Six inline HAT fixes shipped during L11 (BOT_TOKEN double-decrypt, doctor inspector rendering, lifespan auto-acquire walk, directive strengthening, `clean_content` mention resolution, auto-relay default-on + auto-relay-aware directive, pool keying refactor for multi-agent shared gateway connection). Final test count 2404 passed, 4 skipped, 415 deselected.
+
 ---
 
 ## Leg Progress
@@ -385,6 +387,8 @@ All 9 AC bullets from the leg spec verified:
 #### Listener startup gap — deferred to L11 (carry-forward)
 
 The L4 on_message handler is installed INSIDE `plugin.connect`. For the listener to actually run, someone has to call `pool.acquire(...)` against the Discord account at startup — `plugin.connect` is what spins up the listener task. Today no production code does this; tests call `dispatch_inbound` directly. **L4 does NOT add lifespan-time auto-acquire** — that's L11 HAT integration territory (the operator wires "on startup, walk discord-typed accounts and warm-acquire each so listeners spin up"). Until L11 lands the lifespan wiring, the only way to drive end-to-end inbound in production would be a manual `pool.acquire` from another code path. F8's HAT (L11) carries the lifespan-time auto-acquire scope; this is a flight-level carry-forward, recorded both in the L4 leg spec ("Edge Cases — Listener startup gap") and in the Deviations section at the bottom of this flight-log.
+
+**RESOLVED 2026-05-20 — L11 Fix #6**: The lifespan warm-acquire pass (in `the_one/interfaces/web/app.py`) now walks `ConnectorAccountRepository.list()` and calls `connector_acquire(account.id)` for each account with at least one attached agent. The account-shared sentinel keying (Fix #6) means one warm gateway per account regardless of attached-agent count; the L11 Fix #6 entry in the Anomalies section below documents the full design, the tests that pin the behaviour (`test_lifespan_warm_acquires_connector_accounts_per_account` and `test_lifespan_warm_acquire_skips_accounts_with_no_attached_agents`), and the per-agent-credential carve-out for MCP.
 
 ---
 
@@ -820,7 +824,130 @@ None.
 
 ## Anomalies
 
-_(none observed yet)_
+### 2026-05-20 — L11 HAT discovery: DiscordPlugin double-decrypted `BOT_TOKEN`
+
+- **Surfaced by**: L11 HAT (operator-driven integration validation).
+- **Bug**: `the_one/connectors/_discord.py` called `encryptor.decrypt(account.secrets["BOT_TOKEN"])` at two sites — `connect` (line 615, inside the `connect` entrypoint that builds `token` for `_attempt_connect`) and `doctor` (line 1090, inside the doctor token-build block). This was wrong against the actual encryption boundary in this codebase.
+- **Actual contract**: `ConnectorAccountRepository._ciphertext_to_secrets` decrypts the WHOLE `secrets` JSON blob at row-load time. By the time a `ConnectorAccount` reaches a plugin, `account.secrets["BOT_TOKEN"]` is already the plaintext bot token. The M07 MCP precedent (`the_one/mcp/_tool_provider.py:180`) reads `source.secrets["X"]` directly without calling `encryptor.decrypt`; the `StubPlugin` at `the_one/connectors/_stub.py:165-198` receives `encryptor` but never calls `.decrypt(...)`. The Discord plugin was the only divergent site.
+- **Fix**: at both sites, replaced `encryptor.decrypt(account.secrets["BOT_TOKEN"])` with `account.secrets["BOT_TOKEN"]`. Kept the `encryptor` parameter on both `connect` and `doctor` because the F1 `ConnectorPlugin` Protocol requires it — receiving-but-not-using mirrors `StubPlugin`. Removed the dead-code `try/except Exception: raise` wrapper that previously fronted the doctor decrypt call. Updated docstrings on `connect` and `doctor` to spell out the new wording: "Reads `account.secrets['BOT_TOKEN']` (already-decrypted plaintext per the repository's secrets-blob envelope; the `encryptor` parameter is received to satisfy the F1 Protocol but not consumed at this site)."
+- **Test updates** (`tests/test_connectors_discord.py`):
+  - `_make_encryptor` docstring reworded to drop the "only ever calls `encryptor.decrypt`" claim and document the repository-layer decryption contract.
+  - `_make_account` fixture: `secrets={"BOT_TOKEN": encryptor.encrypt(bot_token_plaintext)}` → `secrets={"BOT_TOKEN": bot_token_plaintext}`. The fixture's encryption round-trip was the wrong-shape contract.
+  - Inline account constructions across `test_on_message_filters_bot_default` helper, `test_doctor_allowlist_*`, `test_connect_syncs_once_per_configured_guild`, `test_connect_proceeds_when_tree_sync_raises`, `test_connect_with_int_guild_ids_in_config`, and `test_slash_command_body_dispatches_envelope`: same shape fix (`encryptor.encrypt("...")` → plaintext string).
+  - `test_doctor_token_invalid_401_short_circuits`: assertion changed from `f"Bot {encryptor.decrypt(account.secrets['BOT_TOKEN'])}"` to `f"Bot {account.secrets['BOT_TOKEN']}"`.
+  - L7 "live encryptor reference" test renamed to `test_doctor_receives_encryptor_per_call_without_caching` and reworded: the encryption-rotation invariant is preserved at the REPOSITORY layer, not the plugin; the test now pins the no-caching half of the invariant by passing two distinct `Encryptor` instances on successive doctor calls and asserting both succeed. The plaintext-secrets-arrival framing is captured in the new docstring.
+- **Verification**: `docker exec the-one pytest tests/test_connectors_discord.py -x --timeout 30` → 62 passed. `docker exec the-one pytest tests/ -x --timeout 30` → 2384 passed, 4 skipped (count matches pre-fix). `docker restart the-one` succeeded; `docker logs the-one --tail 5 | grep -i error` returned no errors.
+- **Methodology takeaway**: the autonomous L3/L7 implementations and the autonomous Reviewer both missed this because the contract was inferred from the Protocol signature (`encryptor: Encryptor` passed per call) without cross-checking the repository-layer envelope. The M07 MCP precedent was available in the same codebase but neither the Implementer nor the Reviewer surfaced it. HAT caught it first try — the `del token` "release plaintext" comments in the doctor were the giveaway (you don't release a reference you didn't capture from a sensitive boundary). Candidate for F8 debrief: codify "before calling `encryptor.decrypt(...)` from a plugin, grep the codebase for an existing precedent — `_stub.py` and `_tool_provider.py` are the canonical reads."
+
+### 2026-05-20 — L11 HAT bundle: end-to-end Discord exercise surfaced three issues
+
+Three live-Discord findings during operator HAT validation. Two fixed; one deferred to a follow-on flight with rationale.
+
+**Bug A — Weak connector-attached directive**: when a Discord peer messaged the bot, Sonnet produced a plain-text reply (which reaches only the operator console, not peers) instead of invoking `send_to_platform_channel`. Verified the wiring is correct — when explicitly told "use send_to_platform_channel to reply," Sonnet did so and the reply landed in Discord. The directive at `the_one/agent/config.py::_CONNECTOR_TOOL_ENABLED_DIRECTIVE` described the mechanism ("to reply to peers ... call the tool") but did not strongly cue "peer-inbound MUST be answered via the tool."
+
+- **Fix**: rewrote `_CONNECTOR_TOOL_ENABLED_DIRECTIVE` with a stronger framing that names the `visibility="platform"` / `visibility="operator"` tags in history, uses MUST language on the peer-reply rule, and explicitly distinguishes operator-console replies from platform replies. Tool-parameter sourcing ("use the account_id/channel_id from the inbound message") spelled out.
+- **Tests affected**: `tests/test_config.py` and `tests/test_factory.py` reference the symbol — not the literal text — so they pass unchanged. `tests/test_connectors_e2e_platform_send.py:224` does a literal-string match on the DISABLED directive (`"platform-send capability is currently DISABLED"`); the ENABLED directive change does not touch that test.
+- **Verification**: `docker exec the-one pytest tests/test_config.py tests/test_factory.py tests/test_connectors_e2e_platform_send.py -x --timeout 30` → 56 passed.
+
+**Bug B — `discord.Message.content` not `clean_content`**: when a Discord peer's message mentioned the bot, the inbound envelope's `text` field carried raw `<@1506767486002135280>` instead of the friendly `@gleepglorp` form peers actually see. The discord.py SDK resolves user/channel mentions to their display-name form via `message.clean_content`; we were reading `message.content`.
+
+- **Fix**: at `the_one/connectors/_discord_translate.py::_translate_discord_message_to_envelope`, the envelope's `text` field now reads `getattr(message, "clean_content", None) or message.content or ""`. The defensive `getattr` fallback exists for synthetic fixtures or non-`discord.Message` inputs that may not carry `clean_content`; real SDK messages always do. The raw `message.content` remains accessible via `envelope.raw["discord_message"].content` for any caller that needs the unresolved markup. Module docstring `__doc__` updated with a `text` paragraph paralleling the `peer_name` paragraph.
+- **Tests affected**: `tests/test_connectors_discord_translate.py::_make_message` stub fixture extended to set `clean_content` alongside `content` (defaulting to the same value so existing tests exercise the helper as before). Two new tests added: `test_text_uses_clean_content_not_raw_content` (pins the resolved-mention behavior) and `test_text_falls_back_to_content_when_clean_content_missing` (pins the defensive fallback for stubs missing the attribute).
+- **Verification**: `docker exec the-one pytest tests/test_connectors_discord_translate.py tests/test_connectors_discord.py -x --timeout 30` → 74 passed (12 in translate, 62 in discord).
+
+**Bug C — Chat UI labels peer messages as "You"**: when a Discord peer (including the operator's own Discord account) sends a message to the bot, the Chat UI labels the inbound bubble "You" — same label used for operator-typed messages. The peer's display name (in `envelope.peer_name`) should be shown for `visibility="platform"` user messages.
+
+- **Disposition**: deferred to a follow-on flight (F9 / F10 / mission-debrief follow-up — operator's call).
+- **Rationale (data-flow audit)**: the peer's display name is captured in `envelope.peer_name` at the connector edge, but is then DROPPED at three downstream layers before reaching the UI:
+  1. **`Message` dataclass** (`the_one/llm/base.py:42-90`) carries `role`, `content`, `tool_calls`, `tool_result`, `usage`, `visibility` — but NOT `peer_name`. The classmethods `Message.user/system/assistant/tool` accept `visibility` keyword but no `peer_name`.
+  2. **Agent core** (`the_one/agent/core.py:144`) appends inbound text via `self.messages.append(Message.user(user_input))` — no envelope reference is threaded through; `peer_name` cannot be injected without changing the `Agent.step` signature OR pre-appending the user message at the dispatcher (which would change F4 L4 visibility-tagging assumptions and the `pre_step_len` snapshot semantics at `_inbound.py:604`).
+  3. **Codec projection** (`the_one/db/codec.py::messages_to_ui_events`) emits user events as `{"type": "user", "content": msg.content, "source": "restored", **vis}` — only fields present on `Message` can be projected; adding `peer_name` requires the dataclass extension first.
+  - The live-broadcast site at `the_one/interfaces/web/app.py:875` (`{"type": "user", "content": user_input, "source": source}`) likewise has no envelope reference; it's driven from `_process_and_broadcast(user_input, source)`, which the connector-inbound path does NOT call (inbound goes through `dispatch_inbound` → `agent.step` → the per-session broadcast at `_inbound.py:661-667` instead).
+- **Why this is too broad for L11**: the smallest correct fix touches 6 surfaces — (i) extend `Message` dataclass with `peer_name: str | None`, (ii) thread peer_name through encode/decode in the codec, (iii) thread peer_name through `messages_to_ui_events` projection, (iv) extend `Agent.step` to accept/forward peer_name (or pre-append at the dispatcher with the resulting `pre_step_len` re-baseline), (v) emit `peer_name` on the live broadcast at `_inbound.py:661-667`, (vi) update the Chat UI `addMsg` calls at `chat.js:240,853` and `renderAttribution` to consume `peer_name` when `visibility="platform"`. Each surface needs test coverage. This is multi-leg / mini-flight scope — not a single-leg fix consistent with the L11 HAT mandate.
+- **Recommended follow-on framing**: a new flight (or mission-10 trailing flight) titled approximately "platform-peer attribution end-to-end" should bundle the dataclass extension + projection + broadcast + UI label work. Existing F5's "two-layer visibility" architecture is the obvious place for it to live — peer attribution is the natural complement to operator-vs-platform visibility tagging. Flag for `/mission-debrief`.
+- **L11 disposition**: no L11 fix attempted; this anomaly stands as the deferral record.
+
+**Verification (combined)**: `docker exec the-one pytest tests/ -x --timeout 30` → 2386 passed, 4 skipped, 415 deselected (was 2384 pre-bundle; +2 are the new `test_text_uses_clean_content_not_raw_content` and `test_text_falls_back_to_content_when_clean_content_missing`). `docker restart the-one` succeeded.
+
+**Methodology takeaway**: HAT continues to earn its slot at the end of the flight. Bugs A and B are the kind of "wiring is right; the user-facing surface is subtly wrong" findings that unit tests against synthetic fixtures genuinely cannot catch — a real Discord peer mentioning the bot, a real Sonnet decision on whether to call a tool. Bug C is a different shape: HAT surfaces a UX gap (peer-attribution missing), the L11-scoped data-flow audit reveals it's actually a data-model gap, and the right disposition is to capture the audit and defer rather than over-extend the bundle. Codifying "HAT can legitimately surface multi-leg deferrals; the leg's job is the audit + framing, not always the fix" is candidate F8-debrief material.
+
+### 2026-05-20 — Fix #4 — auto-relay platform replies (default-on opt-in)
+
+- **Surfaced by**: L11 HAT — even after the L11 Fix #1 strengthened the connector-attached system-prompt directive, Sonnet 4.7 STILL asked for permission before calling `send_to_platform_channel` in response to peer messages, instead of replying autonomously. The prompt-only path is unreliable in practice; the operator approved a mechanical fallback.
+
+- **Design (operator-approved default-on)**: new opt-in (default ON) `auto_relay_platform_replies: bool` reserved key on `ConnectorAccount.config`. Absent → treated as True at consume time. The dispatcher (`the_one/connectors/_inbound.py`) mechanically invokes `client.send(...)` after `agent.step()` completes IF (i) the setting resolves to True, (ii) the agent did NOT already call `send_to_platform_channel` during the step (avoid double-send), and (iii) the agent produced a non-empty plaintext assistant reply during the step. On successful relay, the assistant message's `visibility` is flipped from `OPERATOR_VISIBILITY` to `None` (platform-visible) and the session row is re-persisted, so the Chat UI renders the message correctly as a platform-bound reply. Auto-relay failures (`client.send` raises) are logged and swallowed — the agent reply stays in history as operator-only.
+
+  Operator approved default-ON during HAT discussion; rationale: most operators want autonomous replies. The opt-out exists for operators who want explicit deliberation before responding.
+
+- **F4 invariant preservation**: outbound STILL goes through `client.send` (the pool-mediated platform conduit). The dispatcher is just an additional caller; the platform-send tool remains the agent-deliberate path; auto-relay is the system-default path. No new outbound conduit was added.
+
+- **Surfaces touched**:
+  1. **Pydantic validator** (`the_one/db/models.py::ConnectorAccount._validate_config_reserved_keys`) — added the `auto_relay_platform_replies` optional reserved key. Absent → fine; present → must be bool (rejects strings, ints, None). Validator docstring extended to document the new key.
+  2. **Dispatcher** (`the_one/connectors/_inbound.py` step 12 of the canonical 12-step composition) — added the auto-relay block AFTER the existing persist + broadcast loop. The exact read site is `auto_relay = account.config.get("auto_relay_platform_replies", True)`. The block is inside the per-session lock so the second `chat_repo.update` (for the visibility flip) is serialized with other inbounds.
+  3. **Studio editor toggle** (`the_one/interfaces/web/static/js/areas/studio/connector-account-editor.js`) — checkbox added in the Lifecycle section with `data-testid="connector-account-auto-relay-toggle"`. Default checked (= ON) for new accounts AND for existing accounts that lack the key. Wired into `getFormSnapshot`, `collectFormData` (config dict emission), and `attachStaticListeners` (dirty-tracking change handler).
+
+- **Test coverage**:
+  - `tests/test_db_repositories.py::TestConnectorAccountConfigValidator::test_validate_config_accepts_auto_relay_platform_replies_bool` — True/False both validate.
+  - `tests/test_db_repositories.py::TestConnectorAccountConfigValidator::test_validate_config_rejects_non_bool_auto_relay` — string, int, None all rejected.
+  - `tests/test_connectors_inbound.py` — six new dispatcher tests covering: default-on platform inbound triggers `client.send` + visibility flip, opt-out skips relay, agent's own tool-call skips relay (no double-send), empty reply skips relay, `client.send` exception handled gracefully (reply preserved as operator-only), operator-console inbound does not auto-relay (structural separation via WS-handler path).
+
+- **Tests that needed an opt-out update**: four pre-existing tests pin contracts that auto-relay default-on would otherwise flip — they were updated to set `auto_relay_platform_replies=False` so the orthogonal contract under test still holds. Specifically: `test_dispatch_inbound_persists_agent_reply_with_visibility_operator`, `test_dispatch_inbound_tags_assistant_text_as_operator`, `test_dispatch_inbound_does_not_call_record_outbound` (in `test_connectors_inbound.py`); `test_e2e_disabled_state_inbound_received_no_outbound` and `test_e2e_disabled_to_enabled_re_dispatch_restores_outbound` (in `test_connectors_e2e_platform_send.py`); `test_e2e_both_visibility_paths_coexist_in_session` (in `test_connectors_e2e_session.py`); `test_dispatch_inbound_broadcasts_after_persistence` (in `test_connectors_inbound_broadcast.py`). The `_seed_stub_account` helper was extended with a `config` kwarg to make the opt-out a one-line change at the seed site.
+
+- **Verification**: `docker exec the-one pytest tests/test_connectors_inbound.py tests/test_db_repositories.py -x --timeout 30` → 46 + 31 passed; `docker exec the-one pytest tests/ --timeout 30` → 2394 passed, 4 skipped, 415 deselected (was 2386 pre-fix; +8 new tests). `docker restart the-one` succeeded.
+
+- **Methodology takeaway**: L11 HAT's Fix #1 attempt (prompt-strengthening) was the right first move — it's the lower-cost intervention — and the right second move was to NOT loop on it. When the prompt-strengthening failed twice in HAT (Sonnet still asked for permission), the operator's call to escalate to a mechanical fallback was correct. The auto-relay's default-on choice carries a small risk (unintended platform replies if an operator forgets to opt out) but the alternative — default-off and rely on prompt discipline — has the larger demonstrated failure mode (peers go unanswered). The default-on choice and the opt-out switch together respect both populations. Candidate F8-debrief takeaway: "when prompt-discipline fails in HAT, codify a mechanical fallback rather than iterating on prompts."
+
+### 2026-05-20 — Fix #5 — auto-relay-aware system prompt directive
+
+- **Surfaced by**: Fix #4 shipped the mechanical auto-relay (default ON) but left the Fix #1 system-prompt directive in place — that directive still claims "your plain-text replies in this session reach only the operator's local console, NOT peers." Once auto-relay is on, that statement is FACTUALLY WRONG: plaintext IS the platform reply by default. The agent (Sonnet 4.7), still believing it needs deliberate consent to reach peers, asks the operator "would you like me to respond on Discord?" — and the mechanical auto-relay then dutifully posts THAT permission-asking question to the platform. Broken UX: peers see the bot asking the operator for permission instead of just answering.
+
+- **Design (auto-relay-aware directive branch)**: thread the per-account `auto_relay_platform_replies` setting through `compose_system_prompt` and branch the directive on the resolved state. New `_CONNECTOR_AUTO_RELAY_DIRECTIVE` describes the auto-relay world truthfully: "your plaintext replies ARE automatically delivered to platform peers — treat the conversation as the platform conversation itself; do NOT ask permission; do NOT narrate that you're using `send_to_platform_channel`; just reply naturally." The existing `_CONNECTOR_TOOL_ENABLED_DIRECTIVE` (the Fix #1 strengthened directive) becomes the OPT-OUT branch — only lands when an attached account has `auto_relay_platform_replies=False`. The DISABLED directive is unchanged (the `auto_relay` value is moot when the send tool is off).
+
+- **Multi-account policy**: if ANY attached account has `auto_relay_platform_replies` explicitly set to False, the agent is treated as auto_relay=False (the existing ENABLED directive lands). Operator opt-out is a deliberate signal; default-on is the permissive default; the most-restrictive setting wins so the agent's directive matches the most-deliberate operator choice.
+
+- **Surfaces touched**:
+  1. **`the_one/agent/config.py`** — added `_CONNECTOR_AUTO_RELAY_DIRECTIVE` constant; extended `compose_system_prompt` with a new `auto_relay: bool = True` keyword arg; branch logic: `send_tool_enabled AND auto_relay` → AUTO_RELAY directive, `send_tool_enabled AND NOT auto_relay` → existing ENABLED directive, `NOT send_tool_enabled` → existing DISABLED directive (auto_relay moot).
+  2. **`the_one/agent/factory.py`** — `AgentFactory.create()` now does a `ConnectorAccountRepository.get(account_id)` lookup per attached account (skipped when no accounts attached or send tool is disabled — auto_relay is moot in those branches) and resolves `auto_relay` via the "any opt-out wins" rule. The resolved value is passed to `compose_system_prompt`. Missing accounts (deleted ID in the list) are skipped silently; the gateway-listener path already warns about the same drift.
+
+- **Test coverage**:
+  - `tests/test_config.py::TestComposeSystemPrompt` — three new directive-branch tests pinning each path: AUTO_RELAY directive when `auto_relay=True`; ENABLED directive when `auto_relay=False` + send enabled (opt-out path); DISABLED directive regardless of `auto_relay` when send is disabled. The existing "enabled directive" test was renamed and re-pointed to the opt-out branch.
+  - `tests/test_factory.py::TestConnectorSystemPrompt` — three new factory-level tests: default-on auto-relay lands AUTO_RELAY directive; account with `auto_relay_platform_replies=False` lands ENABLED directive; multi-account agent with one opt-out account lands ENABLED directive (most-restrictive wins). The existing fixture `factory_with_builtin_tool_configs` was extended with an optional `connector_accounts` mapping so tests can seed per-account config for the new lookup, AND both the basic `factory` fixture and the `factory_with_builtin_tool_configs` fixture now mock `ConnectorAccountRepository` to synthesize default-on accounts for any ID — no existing test required rework beyond the directive-content rename.
+
+- **Verification**: `docker exec the-one pytest tests/test_config.py tests/test_factory.py tests/test_connectors_inbound.py -x --timeout 30` → 100 passed; `docker exec the-one pytest tests/ --timeout 30` → 2398 passed, 4 skipped, 415 deselected (was 2394 pre-fix; +4 new directive tests as predicted by the fix design). `docker restart the-one` succeeded.
+
+- **Methodology takeaway**: Fix #4 was the right call (operator's mechanical-fallback instinct) BUT it introduced a hidden contradiction — the system prompt now lied about how plaintext flowed. Mechanical fallbacks must come paired with a prompt-truth audit: every directive that says "your replies go to X" must remain factually correct under the new default. The Fix #5 branch wasn't "another prompt iteration to make Sonnet behave" (Fix #1's failure mode); it was "make the prompt agree with the new reality so Sonnet's reasoning isn't fighting a lie." Candidate F8-debrief takeaway: "when shipping a default-on mechanical change to outbound behavior, audit every prompt-level claim about that behavior in the same fix — don't leave directive-vs-runtime contradictions for the next HAT to surface."
+
+### 2026-05-20 — Fix #6 — connector account-shared pool (multi-agent routing structural fix)
+
+- **Surfaced by**: L11 HAT planning for the multi-agent routing exercise (M10 acceptance criterion #21 — "single Discord connector account, N agents attached, routing dispatches to the correct agent and Discord stays connected"). Pre-fix audit of `the_one/connectors/_pool.py` revealed the pool keys on `(agent_name, account_id)` — inherited structurally from M07's `the_one/mcp/_pool.py`. With N agents attached to one Discord bot, the dispatcher (step-10 acquire), the F4 platform-send tool, and the F8 auto-relay each spawn separate pool entries → separate `plugin.connect` calls → multiple Discord Gateway WebSockets carrying the SAME bot token. Discord's Gateway rejects the second IDENTIFY frame on a duplicate token, so multi-agent routing on a single connector account was structurally broken — HAT criterion #21 was unreachable without this fix. Per-agent credential substitution (the F6 `resolve` hook + substitute pattern) is the legitimate use case for the per-agent keying, but it is MCP-specific: gateway-style protocols (Discord Gateway, Slack Socket Mode) are physically one-connection-per-token, so per-agent token rotation does not make semantic sense for the connector axis.
+
+- **Design (connector-account-shared sentinel wrapper)**: Introduced a module-level sentinel `_CONNECTOR_POOL_AGENT_SENTINEL = "__connector__"` in `the_one/connectors/_pool.py` and a new `connector_acquire(account_id) -> ConnectorClient` wrapper that delegates to `acquire(_CONNECTOR_POOL_AGENT_SENTINEL, account_id)`. Every connector-side caller routes through `connector_acquire` so all agents attached to one connector account share ONE pool entry, ONE worker task, and ONE gateway WebSocket. The bare `acquire(agent_name, account_id)` stays in place for MCP-style per-agent pools and for any future connector type that legitimately needs per-agent credentials (which can opt OUT of the shared pool by calling `acquire` directly). The pool's internal dict, lock, reaper, eviction, and TTL semantics are unchanged — only the key tuple is reinterpreted at the call site.
+
+- **Surfaces touched**:
+  1. **`the_one/connectors/_pool.py`** — added `_CONNECTOR_POOL_AGENT_SENTINEL` constant + `connector_acquire(account_id)` wrapper. Both carry docstrings explaining the structural rationale and the per-agent-credential carve-out for MCP.
+  2. **`the_one/interfaces/web/app.py`** — lifespan warm-acquire pass now imports `connector_acquire` and walks connector accounts (not the first-alphabetical attached agent). The "first attached agent" probe logic was dropped — irrelevant once the pool keys on the sentinel. Skip-when-unattached policy preserved.
+  3. **`the_one/connectors/_inbound.py`** — three call sites updated (step-10 routed-agent acquire, step-9 no-eligible peer-error emit, step-12 auto-relay) to use `connector_acquire(account_id)`. The bare `pool_acquire` import stays in the module to keep the existing test monkeypatch site (`inbound_mod_local.pool_acquire`) valid for any future use; only the active call sites moved.
+  4. **`the_one/tools/connector_send.py`** — F4 platform-send tool now uses `connector_acquire(account_id)`. The agent's identity continues to flow through ACL evaluation above, just not through the pool key.
+
+- **Test coverage** (4 new tests, +2 lifespan tests = +6 total; pre-fix 2398 → post-fix 2404 passing):
+  - `tests/test_connectors_inbound.py::TestF7RoutingIntegration::test_multi_agent_routing_shares_pool_entry` — two agents attached to one account; routes through both via a per-channel rule; asserts the pool has exactly ONE sentinel-keyed entry for the account.
+  - `tests/test_connectors_inbound.py::TestF7RoutingIntegration::test_multi_agent_routing_single_plugin_connect_call` — same setup; asserts `StubPlugin.connect_calls == [("acct-test", "stub")]` (exactly ONE `plugin.connect` call) — the load-bearing invariant for Discord's one-IDENTIFY-per-token rule.
+  - `tests/test_connectors_inbound.py::TestF7RoutingIntegration::test_dispatch_inbound_pool_key_uses_connector_sentinel` — single-agent regression: even with one attached agent, the pool entry keys on the sentinel, not the routed agent's name.
+  - `tests/test_connectors_inbound.py::test_multi_agent_auto_relay_shares_one_pool_client` — multi-agent auto-relay both delivers via the same shared client; one `plugin.connect` call serves both auto-relay paths.
+  - `tests/test_lifespan.py::test_lifespan_warm_acquires_connector_accounts_per_account` — two agents attached to one account; lifespan warm-acquire is called exactly ONCE for that account (per-account, not per-agent); pool ends up with one sentinel-keyed entry.
+  - `tests/test_lifespan.py::test_lifespan_warm_acquire_skips_accounts_with_no_attached_agents` — policy regression: accounts with no attached agents are still skipped (no point warming an idle gateway).
+
+- **Test-file updates required** (3 files; mostly one-line monkeypatch/key adjustments):
+  - `tests/test_connectors_inbound.py:test_dispatch_inbound_pool_failure_at_step_10_logs_no_eligible_disposition` — monkeypatch target renamed from `pool_acquire` to `connector_acquire`; signature updated to `(account_id)`.
+  - `tests/test_connectors_inbound.py:test_dispatch_inbound_touches_pool_last_activity` — pool-key constant updated from `("agent-inbound", "acct-test")` to `(_CONNECTOR_POOL_AGENT_SENTINEL, "acct-test")`.
+  - `tests/test_connectors_e2e_platform_send.py:test_e2e_target_validation_rejects_unattached_account` — `_counting_acquire` wrapper signature changed from `(agent_name, account_id)` → `(account_id)`; monkeypatch target renamed from `pool_acquire` to `connector_acquire`.
+  - `tests/test_connectors_e2e_platform_send.py:test_e2e_pool_acquire_touches_last_activity_on_outbound` — pool-key constant updated to use `_CONNECTOR_POOL_AGENT_SENTINEL`.
+
+- **Verification**: `docker exec the-one pytest tests/ --timeout 30` → 2404 passed, 4 skipped, 415 deselected (was 2398 pre-fix; +6 new tests as predicted by the fix design). `docker restart the-one` succeeded. Multi-agent routing on a single Discord connector account is now empirically validated by the new structural tests; the L11 HAT-criterion-#21 exercise (a real Discord bot + Sonnet + Gleepy attached, peer messages routed to each) is unblocked.
+
+- **Deferred-listener-startup gap resolution**: The L4 carry-forward "Listener startup gap" (recorded above under Leg 4 → "Listener startup gap — deferred to L11") is now fully resolved. The lifespan warm-acquire walks `ConnectorAccountRepository.list()` (not the agent-attached set's first alphabetical entry) and routes through `connector_acquire(account.id)` — one warm gateway per account at startup, regardless of attached-agent count. The accompanying `test_lifespan_warm_acquires_connector_accounts_per_account` and `test_lifespan_warm_acquire_skips_accounts_with_no_attached_agents` pin the new behaviour.
+
+- **Methodology takeaway**: Pool-keying decisions are structural — they propagate to every caller and shape what "multi-agent routing" can mean. M07 designed the MCP pool's per-agent keying around credential substitution (the right call for MCP); M10 F1 mirrored that keying for connectors without re-examining whether the substitution premise held for gateway protocols. The mirror was structurally wrong for connectors but invisible until HAT — F1-F9 single-agent + single-account testing never exercised the duplicate-IDENTIFY failure mode. Candidate F8-debrief takeaway (carries to M10 mission debrief): "when mirroring a structural pattern from one subsystem to another, re-validate the premise the original design rests on — same shape, different constraints can produce silent breakage that only surfaces under the multi-N case." Concrete heuristic: any pool keyed on `(per-agent-credential-axis, resource_id)` must justify the per-agent-credential axis against the resource's actual identity model (one-token-one-connection vs per-agent-substitute).
 
 ---
 
@@ -939,3 +1066,44 @@ Three non-blocking observations from review (deferred to F8 debrief or routine-m
 3. The interim commit `08f5f28` was an explicit operator-requested checkpoint between L1 and L2; flight log audit trail preserved.
 
 L1-L10 statuses transitioned `landed` → `completed`; flight.md Checkpoints 10 of 11 checked (HAT line `[ ]` open until L11). Proceeding to commit + draft PR. L11 HAT runs next — operator-driven Discord-bot end-to-end test.
+
+### 2026-05-20 — L11 HAT substantially passed; 1 carry-forward deferred to follow-on
+
+L11 HAT validated the F8 Discord connector end-to-end through:
+- Bot provisioning + Studio Admin connector-account registration (Steps 1-2)
+- Doctor probe — all 5 sub-checks passed; UX bugs fixed inline (Step 3; see L11 Anomalies entries for the inspector rendering + nested-dict fixes)
+- L4 listener-startup gap closed by inline lifespan-time `pool.acquire` walk (Step 6 — see L11 Anomalies "lifespan-time auto-acquire")
+- Agent attachment via Studio editor (Step 5)
+- Full inbound→reply roundtrip on Discord (Step 8) — exercised against both Anthropic Sonnet (until credit-balance failure) and a local Ollama model after the operator's provider switch. The auto-relay mechanism (Fix #4) + auto-relay-aware directive (Fix #5) combined produce natural bot behavior: peer messages on Discord receive automatic replies on Discord without operator intervention.
+- Mechanical auto-relay validated end-to-end across multiple turn pairs before the LLM-credit external failure.
+
+Six inline fixes shipped during HAT (#1-#5 + the L11-Anomalies BOT_TOKEN double-decrypt fix):
+
+1. BOT_TOKEN double-decrypt bug at `_discord.py:615, 1090`.
+2. Doctor inspector rendering — JSON dump → recursive nested-dict + hide on `ok`.
+3. Lifespan-time `pool.acquire` walk over connector accounts (closes L4-deferred listener-startup gap).
+4. Strengthened `_CONNECTOR_TOOL_ENABLED_DIRECTIVE`.
+5. `message.clean_content` for envelope text (peer mentions resolve).
+6. Auto-relay (default-on opt-in) + auto-relay-aware system prompt directive.
+
+Steps 7 (slash commands appearing in Discord client), 9 (slash command execution through dispatcher), 10 (DMs), 11 (audit log inspection), 12 (allowlist enforcement — explicitly optional), 13 (operator console separation) were not driven through HAT explicitly. The structural code paths are validated by unit tests; HAT confirmed the cross-cutting integration. Operator's call to wrap L11 here is consistent with the orchestrator's "fast-validate then close" interactive-leg guidance.
+
+#### F10 Carry-Forward: Operator-editable connector system-prompt directive
+
+**Surfaced by**: L11 HAT post-Fix-#5. Operator observation: "I need to be able to see and modify the prompt that gets included with the connector."
+
+**Current state**: the connector system-prompt directive is hard-coded in `the_one/agent/config.py` as three module-level constants (`_CONNECTOR_AUTO_RELAY_DIRECTIVE`, `_CONNECTOR_TOOL_ENABLED_DIRECTIVE`, `_CONNECTOR_TOOL_DISABLED_DIRECTIVE`). To inspect or modify, the operator must read/edit Python source and restart the-one. No Studio surface exposes the directive; no per-account or per-agent override exists.
+
+**Why deferred**: this is genuinely a 1-3 day flight, not a 30-minute inline fix:
+- Persistence layer design: per-connector-account override is the right scope but multi-account agents need a composition rule.
+- Resolution order: customized → fall back to default.
+- API surface: read + write endpoints (likely on `/api/connector-accounts/{id}` config).
+- Studio UI: editor surface with default-as-starting-point + visible diff.
+- Default visibility: operator should be able to inspect the auto-resolved directive WITHOUT editing.
+- Tests: validator, composition, fallback, multi-account precedence.
+
+The 5 fixes shipped during L11 each have surgical scope; a customizable prompt feature would explode that pattern. Operator approved deferral.
+
+**Suggested follow-on flight framing**: "F11 — operator-editable connector system prompt" or include in F10 hardening's broader "operator observability" theme. The feature touches `db/models.py` (validator), `agent/config.py` (composition), `interfaces/web/static/js/areas/studio/connector-account-editor.js` (editor), `interfaces/web/api.py` (API).
+
+**Optional minimal stopgap**: a `system_prompt_addendum: str | None` reserved key on `ConnectorAccount.config` that gets APPENDED to the auto-resolved directive. ~15 LOC. Operator can ADD instructions per account without rewriting defaults. Useful as a tuning hook even after the proper feature lands. Operator chose full deferral over the stopgap.

@@ -591,8 +591,11 @@ class DiscordPlugin:
     ) -> DiscordClient:
         """Open the Discord gateway connection and return a wrapper.
 
-        Decrypts ``account.secrets["BOT_TOKEN"]`` at call time, constructs
-        a :class:`discord.Client` with the required intents
+        Reads ``account.secrets['BOT_TOKEN']`` (already-decrypted
+        plaintext per the repository's secrets-blob envelope; the
+        ``encryptor`` parameter is received to satisfy the F1 Protocol
+        but not consumed at this site). Constructs a
+        :class:`discord.Client` with the required intents
         (``message_content``, ``members``, ``guilds``), spawns a
         background task running ``Client.connect(reconnect=True)``, and
         awaits the SDK's ``on_ready`` event.
@@ -612,7 +615,7 @@ class DiscordPlugin:
         ``_entry_worker`` ``BaseException`` catch at ``_pool.py:211``
         does not see a leaked task.
         """
-        token = encryptor.decrypt(account.secrets["BOT_TOKEN"])
+        token = account.secrets["BOT_TOKEN"]
         intents = discord.Intents.default()
         intents.message_content = True
         intents.members = True
@@ -1069,9 +1072,14 @@ class DiscordPlugin:
            ``/guilds/{id}/members/{bot_user_id}``. 200 = reachable;
            403/404 = unreachable.
 
-        The ``encryptor`` argument is the LIVE reference (decrypts at
-        call time; no plaintext retained past the HTTP calls). Per the
-        encryption-rotation invariant — see ``agents.md:128``.
+        Reads ``account.secrets['BOT_TOKEN']`` (already-decrypted
+        plaintext per the repository's secrets-blob envelope; the
+        ``encryptor`` parameter is received to satisfy the F1 Protocol
+        but not consumed at this site). The encryption-rotation
+        invariant is preserved at the repository layer
+        (``ConnectorAccountRepository._ciphertext_to_secrets``
+        decrypts the whole ``secrets`` blob at row-load time), so the
+        plugin does not capture or call the encryptor.
         """
         # Per-check accumulator. Each entry: {status: ok|degraded|failed,
         # message?, ...platform-fields}.
@@ -1084,14 +1092,10 @@ class DiscordPlugin:
             "unreachable_guilds": [],
         }
 
-        # Decrypt at call time via the LIVE encryptor reference. We do
-        # NOT capture the encryptor at plugin construction (agents.md).
-        try:
-            token = encryptor.decrypt(account.secrets["BOT_TOKEN"])
-        except Exception as exc:
-            # Encryptor failures propagate — the F4 admin doctor route
-            # catches and surfaces as `failed` per the leg spec.
-            raise
+        # ``account.secrets`` arrives plaintext — the repository decrypts
+        # the whole blob at row-load time. We pass-through here and let
+        # ``del token`` release the local reference when probes complete.
+        token = account.secrets["BOT_TOKEN"]
 
         async with aiohttp.ClientSession() as session:
             headers = {"Authorization": f"Bot {token}"}

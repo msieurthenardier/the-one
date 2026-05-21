@@ -119,6 +119,35 @@ _shutting_down: bool = False
 _reaper_task: asyncio.Task[None] | None = None
 
 
+# M10 F8 L11 HAT Fix #6: Sentinel agent_name for connector-account-shared
+# pool entries. The original pool keying ``(agent_name, account_id)`` —
+# inherited structurally from :mod:`the_one.mcp._pool` — meant that N
+# agents attached to one Discord connector account each spawned a
+# separate pool entry, a separate ``plugin.connect`` call, and a
+# separate gateway WebSocket carrying the SAME bot token. Discord's
+# Gateway rejects the second IDENTIFY frame on a duplicate token, so
+# multi-agent routing on a single connector account is structurally
+# broken on the bare per-agent keying.
+#
+# All connector-subsystem callers (lifespan listener-warmup,
+# ``dispatch_inbound`` step 10, F4 platform-send tool, F8 auto-relay)
+# MUST acquire via :func:`connector_acquire` below — which routes
+# every connector-side caller through ONE pool entry per account
+# (keyed on this sentinel + the account id), guaranteeing ONE
+# gateway connection per bot.
+#
+# Per-agent credential substitution is OUT OF SCOPE for connectors:
+# gateway-style protocols (Discord Gateway, Slack Socket Mode) are
+# physically one-connection-per-token, so per-agent token rotation
+# does not make semantic sense for the connector axis. The bare
+# :func:`acquire` is preserved for MCP-style per-agent pools where
+# the F6 ``resolve`` hook + substitute pattern legitimately produces
+# different credentials per agent. A future connector type that
+# needs per-agent credentials can opt OUT of the shared pool by
+# calling :func:`acquire` directly.
+_CONNECTOR_POOL_AGENT_SENTINEL = "__connector__"
+
+
 def _resolve_ttl_seconds(override: int | None = None) -> int:
     """Resolve the warm-entry idle TTL with per-account override support.
 
@@ -478,6 +507,27 @@ async def acquire(agent_name: str, account_id: str) -> ConnectorClient:
     # converge here). The pool is the sole owner of the lifecycle clock.
     entry.last_activity = time.monotonic()
     return client
+
+
+async def connector_acquire(account_id: str) -> ConnectorClient:
+    """Acquire a connector-account-shared pool entry.
+
+    Equivalent to ``acquire(_CONNECTOR_POOL_AGENT_SENTINEL, account_id)``
+    but expresses the intent: gateway connections are account-shared,
+    not per-agent. All connector-subsystem callers (lifespan
+    listener-warmup, ``dispatch_inbound`` step 10, F4 platform-send
+    tool, F8 auto-relay) MUST use this wrapper instead of the bare
+    ``acquire(agent_name, account_id)``.
+
+    Per the M10 F8 L11 HAT Fix #6 design, this guarantees ONE pool
+    entry — and ONE gateway WebSocket — per connector account
+    regardless of how many agents are attached. The bare
+    :func:`acquire` stays for MCP-style per-agent pools where
+    credential substitution differs per agent; for connectors,
+    per-agent credentials are out of scope because gateway-style
+    protocols are physically one-connection-per-token.
+    """
+    return await acquire(_CONNECTOR_POOL_AGENT_SENTINEL, account_id)
 
 
 async def _clear_for_test() -> None:
