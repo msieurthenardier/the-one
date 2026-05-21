@@ -1,6 +1,6 @@
 # Flight: First Real Connector — Discord
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Bi-directional Communication Connectors](../../mission.md)
 
 ## Contributing to Criteria
