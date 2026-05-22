@@ -1,6 +1,6 @@
 # Flight: Pool-Keying Refactor + Per-Account System-Prompt Directive Surface
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Discord Connector Depth & Robustness](../../mission.md)
 
 ## Contributing to Criteria
