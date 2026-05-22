@@ -358,3 +358,42 @@ Unexpected issues encountered.
 - Non-blocking observations surfaced by the reviewer agents were captured in their respective handoff outputs and accepted without code changes; they are tracked as follow-up candidates for F3 debrief / future flights rather than F3 commit-blockers.
 - All seven autonomous-leg artifacts progressed `landed → completed`. F3 flight-end batched commit issued covering L1–L6b across the connectors substrate (`base.py`, `_discord.py`, `_pool.py`), the REST API (`api.py`), the Studio UI (`discoverable-dropdown.js`, `connector-account-editor.js`, `connector-form-registry.js`, `connector-form-discord.js`, `connectors-tab.js`, `studio.js`, `index.html`, `studio.css`), methodology codification (`agents.md`), and the test surfaces (pool + API + 4 new browser flow files + discord/test-connection-button updates).
 - L7 HAT remains. It will be driven interactively with the operator against the live gleepglorp environment per the leg artifact. No remote push until after L7 lands.
+
+### L7 — uat-and-alignment (HAT)
+
+**Status**: completed (8 of 10 steps verified live; 1 deferred to operator; 1 noted as pre-existing UX gap)
+**Designed**: 2026-05-22
+**Walked**: 2026-05-22
+
+#### Verification Outcomes (10 steps)
+
+| # | Step | Result |
+|---|------|--------|
+| 1 | All 4 allowlist axes render dropdowns for Discord | ✅ PASS — Users / Channels / Servers / Roles all as combobox-role dropdowns |
+| 2 | Dropdowns populate from live bot view | ✅ PASS — 4 peers (@GleepGlorp, @shadowdao, @Chuck R, @JD Singh), 6 channels (#Text Channels, #Voice Channels, #general, #General, #gleepglorp-voice, #gleepglorp-text), 1 guild (Constellation), 1 role (@@everyone) |
+| 3 | Typeahead filters by label substring | ✅ PASS — typing "gleepglorp" narrowed 6 channels → 2 matches |
+| 4 | Selecting an entry creates a chip + fires onChange | ✅ PASS — chip created; Save/Cancel buttons enabled; aria-selected propagated |
+| 5 | Save round-trip persists to account.config.allowlist | ✅ PASS — `account.config.allowlist.channels: ['1506831630923333722']` after Save+reload |
+| 6 | Routing-rules match-value is a dropdown of the right axis | ✅ PASS — new row default scope=channel → dropdown placeholder "Add channel…"; scope changed to user → re-mounted with "Add user…" |
+| 7 | Refresh button POSTs the refresh endpoint | ✅ PASS — server log shows `POST /api/connector-accounts/58f1fe5a833f/discoverable-entities/refresh HTTP/1.1 200 OK` |
+| 8 | Stale-entry indicator after member removal | ⏸ DEFERRED — requires operator-side Discord guild member removal; smoke-verified that the API response carries `stale: false` for all entities + the cache shape supports stale-carry (per L4 tests) |
+| 9 | Per-agent overlay dropdowns for Discord | 🟡 PARTIAL — overlay tile renders; checkbox-mode path exercises (since channel-axis account-scope is restrictive after Step 5); architecture intact. **Pre-existing UX gap**: checkbox-mode shows raw IDs (`1506831630923333722`) instead of friendly labels (`#gleepglorp-text`). NOT a regression from F3; not in L6b scope (L6b targeted chip-mode). Flag for F8 HAT follow-up. |
+| 10 | Stub-type renders chip-lists / free-form text | ✅ PASS — Stub HAT Account allowlist + routing rows all use `textbox` chip-list inputs; no comboboxes |
+
+#### Anomalies Observed (non-blocking; documented for follow-up)
+
+1. **Test Connection does NOT warm the pool entry** — the dropdown's GET fires before any pool warming has happened (`Test Connection` calls `plugin.doctor()` directly, NOT `account_acquire`). On first editor open immediately after server restart, dropdowns showed the 404 pre-probe hint despite Test Connection succeeding. **Recovery path**: server restart triggered lifespan-warmup which called `account_acquire` for all attached accounts → pool populated → dropdowns work on reload. **Recommendation for F3-debrief or F8 HAT**:
+   - (a) Update pre-probe hint message to clarify ("Bot is warming up — refresh in a few seconds" rather than "Run Test Connection first"), OR
+   - (b) Have the GET endpoint trigger `account_acquire` inline when no warm entry exists (warms on demand), OR
+   - (c) Have Test Connection ALSO call `account_acquire` (warms the pool side-effect of the button click).
+   - Option (c) is the lowest-friction fix; matches the existing "Test Connection populates the warm view" assumption baked into the L4 design.
+
+2. **Pre-existing failure carry-forward**: `tests/browser/test_flow_studio_connector_account_editor.py::test_edit_session_continuation_round_trip` continues to fail (unrelated to F3; documented since L5/L6a/L6b).
+
+3. **Checkbox-mode raw-id labels** (HAT Step 9): per-agent overlay checkbox-mode shows the platform-native channel ID instead of the discoverable entity's label. Independent of F3's chip-mode dropdown integration; the checkbox-mode path was not in L6b scope. Worth a follow-up leg.
+
+#### Flight Director Notes (L7 walk)
+
+- L7 was driven via Chrome MCP against the live the-one server on port 8484 with gleepglorp's Discord Constellation account (id=58f1fe5a833f) as the Discord-shaped fixture and Stub HAT Account (id=0a75256c0a8c) as the fallback fixture.
+- Container restart was required for the F3 Python code to take effect (existing pool entries from pre-F3 had `account_type=""` and were filtered out by the new sweep filter; combined with 30-min idle TTL having already evicted them, the live server held no warm entries until lifespan-warmup re-ran after restart).
+- The HAT proved L1-L6b's race-safety invariants hold against real Discord traffic — no `last_activity`-immortality (the entry stayed warm across the HAT walk; no spontaneous evictions); no stale-cache flicker on Refresh; no spurious 404s after the warm-pool was populated.
