@@ -131,6 +131,88 @@ class TestConnectorFormRegistry:
             f"Expected message to name renderConnectionFields; got: {result['message']!r}"
         )
 
+    def test_registry_optionalFns_includes_renderDiscoverableDropdown(
+        self, app_clean: str, page: Page
+    ) -> None:
+        """M11 F3 L5: the optionalFns array gains a 5th hook
+        ``renderDiscoverableDropdown`` validated as "must be a function
+        IF present". Probes the validator by registering two stub
+        entries — one with a function body (registration succeeds), one
+        with a string body (validator throws TypeError naming the hook).
+        Also asserts the Discord entry exposes the bridge method.
+        """
+        page.goto(app_clean)
+        page.wait_for_load_state("domcontentloaded")
+
+        result = page.evaluate(
+            """
+            () => {
+                // Accept-path: function body → registration succeeds.
+                const acceptEntry = {
+                    type: 'dd-accept',
+                    renderConnectionFields: function () { return ''; },
+                    renderCredentialsFields: function () { return ''; },
+                    collect: function () { return { config: {}, secrets: {} }; },
+                    reservedConfigKeys: [],
+                    renderDiscoverableDropdown: function () { return null; }
+                };
+                let acceptThrew = false;
+                try {
+                    window.App.studio.connectorFormRegistry.register('dd-accept', acceptEntry);
+                } catch (e) { acceptThrew = true; }
+
+                const acceptGot = window.App.studio.connectorFormRegistry.get('dd-accept');
+                const acceptHookType = typeof (acceptGot && acceptGot.renderDiscoverableDropdown);
+
+                // Reject-path: non-function body → registration throws.
+                let rejectThrew = false;
+                let rejectMessage = '';
+                try {
+                    window.App.studio.connectorFormRegistry.register('dd-reject', {
+                        type: 'dd-reject',
+                        renderConnectionFields: function () { return ''; },
+                        renderCredentialsFields: function () { return ''; },
+                        collect: function () { return { config: {}, secrets: {} }; },
+                        reservedConfigKeys: [],
+                        renderDiscoverableDropdown: 'not-a-function'
+                    });
+                } catch (e) {
+                    rejectThrew = true;
+                    rejectMessage = e.message;
+                }
+
+                // Discord entry exposes the bridge method.
+                const discordEntry = window.App.studio.connectorFormRegistry.get('discord');
+                const discordHookType = typeof (discordEntry && discordEntry.renderDiscoverableDropdown);
+
+                return {
+                    acceptThrew: acceptThrew,
+                    acceptHookType: acceptHookType,
+                    rejectThrew: rejectThrew,
+                    rejectMessage: rejectMessage,
+                    discordHookType: discordHookType
+                };
+            }
+            """
+        )
+        assert result["acceptThrew"] is False, (
+            "Expected a stub entry with renderDiscoverableDropdown=function "
+            "to register cleanly; got threw=True"
+        )
+        assert result["acceptHookType"] == "function"
+        assert result["rejectThrew"] is True, (
+            "Expected a stub entry with renderDiscoverableDropdown='not-a-function' "
+            "to throw at register time"
+        )
+        assert "renderDiscoverableDropdown" in result["rejectMessage"], (
+            f"Expected error message to name the offending hook; got: "
+            f"{result['rejectMessage']!r}"
+        )
+        assert result["discordHookType"] == "function", (
+            f"Expected the Discord entry to expose renderDiscoverableDropdown as a "
+            f"function; got: {result['discordHookType']!r}"
+        )
+
     def test_type_mismatch_raises_type_error(self, app_clean: str, page: Page) -> None:
         page.goto(app_clean)
         page.wait_for_load_state("domcontentloaded")

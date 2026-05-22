@@ -37,7 +37,12 @@ import pytest
 
 from the_one.connectors import _discord as discord_mod
 from the_one.connectors._discord import DiscordClient, DiscordPlugin
-from the_one.connectors.base import OutboundTarget
+from the_one.connectors._stub import StubPlugin
+from the_one.connectors.base import (
+    DiscoverableEntities,
+    DiscoverableEntity,
+    OutboundTarget,
+)
 from the_one.connectors.errors import ConnectorConnectionError
 from the_one.db.models import ConnectorAccount
 from the_one.encryption import Encryptor
@@ -181,6 +186,14 @@ class _StubDiscordClient:
         self.connect_calls: list[dict[str, Any]] = []
         self.close_calls = 0
         self.change_presence_calls: list[_StubActivity | None] = []
+        # M11 F3 L3: live-cache surface the plugin's
+        # ``enumerate_discoverable_entities`` reads. Tests that exercise
+        # the hook populate these post-connect on the wrapped SDK stub;
+        # all other tests leave them empty (no observable difference for
+        # paths that never touch ``users`` / ``guilds`` /
+        # ``get_all_channels()``).
+        self.users: list[Any] = []
+        self.guilds: list[Any] = []
         type(self).instances.append(self)
 
     # --- discord.Client surface the plugin actually touches ----------
@@ -236,6 +249,17 @@ class _StubDiscordClient:
         self, *, activity: _StubActivity | None = None, **_: Any
     ) -> None:
         self.change_presence_calls.append(activity)
+
+    def get_all_channels(self) -> Any:
+        """Yield every guild channel — matches the real SDK shape.
+
+        The real ``discord.Client.get_all_channels`` iterates
+        ``for g in self.guilds: yield from g.channels``. The stub
+        mirrors that so the plugin's hook receives a fresh generator
+        each call.
+        """
+        for guild in self.guilds:
+            yield from guild.channels
 
 
 class _StubObject:
@@ -2936,5 +2960,414 @@ async def test_slash_command_body_returns_when_factory_unavailable(
         assert warnings_logged, (
             "expected a WARNING log when the factory is unavailable"
         )
+    finally:
+        await plugin.disconnect(client)
+
+
+# ─────────────────────────────────────────────────────────────────
+# M11 F3 L3: enumerate_discoverable_entities — substrate hook
+# ─────────────────────────────────────────────────────────────────
+#
+# Path B: extend ``_StubDiscordClient`` (the SDK-stub the test file
+# already uses for ``plugin.connect``) to populate ``users`` / ``guilds``
+# / ``get_all_channels()``; then call ``plugin.enumerate_discoverable_entities(client)``
+# on the real ``DiscordClient`` produced by ``plugin.connect(...)``.
+# This reuses the established connect-path fixture pattern and avoids
+# hand-constructing ``DiscordClient`` with its 5 internal fields.
+
+
+class _StubDiscoverableUser:
+    """Mirrors the subset of ``discord.User`` the hook touches.
+
+    The hook reads ``id``, ``name``, ``global_name``, ``bot``.
+    """
+
+    def __init__(
+        self,
+        *,
+        id: int,  # noqa: A002 — mirrors SDK
+        name: str,
+        global_name: str | None = None,
+        bot: bool = False,
+    ) -> None:
+        self.id = id
+        self.name = name
+        self.global_name = global_name
+        self.bot = bot
+
+
+class _StubDiscoverableRole:
+    """Mirrors the subset of ``discord.Role`` the hook touches.
+
+    The hook reads ``id``, ``name``, ``position``, ``mentionable``.
+    """
+
+    def __init__(
+        self,
+        *,
+        id: int,  # noqa: A002 — mirrors SDK
+        name: str,
+        position: int = 0,
+        mentionable: bool = False,
+    ) -> None:
+        self.id = id
+        self.name = name
+        self.position = position
+        self.mentionable = mentionable
+
+
+class _StubDiscoverableChannel:
+    """Mirrors the subset of ``discord.GuildChannel`` the hook touches.
+
+    The hook reads ``id``, ``name``, ``type``, ``guild.id``. ``guild``
+    is back-linked from the parent ``_StubDiscoverableGuild``.
+    """
+
+    def __init__(
+        self,
+        *,
+        id: int,  # noqa: A002 — mirrors SDK
+        name: str,
+        type: str,  # noqa: A002 — mirrors SDK
+    ) -> None:
+        self.id = id
+        self.name = name
+        self.type = type
+        self.guild: _StubDiscoverableGuild | None = None  # back-linked
+
+
+class _StubDiscoverableGuild:
+    """Mirrors the subset of ``discord.Guild`` the hook touches.
+
+    The hook reads ``id``, ``name``, ``member_count``, iterates
+    ``channels`` (via ``Client.get_all_channels``) and ``roles``.
+    Back-links ``channel.guild = self`` so the hook's
+    ``channel.guild.id`` access resolves.
+    """
+
+    def __init__(
+        self,
+        *,
+        id: int,  # noqa: A002 — mirrors SDK
+        name: str,
+        member_count: int | None,
+        channels: list[_StubDiscoverableChannel] | None = None,
+        roles: list[_StubDiscoverableRole] | None = None,
+    ) -> None:
+        self.id = id
+        self.name = name
+        self.member_count = member_count
+        self.channels = channels or []
+        self.roles = roles or []
+        for ch in self.channels:
+            ch.guild = self
+
+
+def _populate_discoverable_caches(stub_sdk_client: _StubDiscordClient) -> None:
+    """Populate the connected stub SDK client with two guilds + users.
+
+    Matches the shape the hook expects to read from:
+
+    - 2 users (one with ``global_name``, one without; mix of bot/human)
+    - 2 guilds, each with 2 channels (text + voice) and 2 roles
+    - ``get_all_channels()`` iterates ``for g in self.guilds: yield from g.channels``
+      via the method already defined on ``_StubDiscordClient``.
+    """
+    users = [
+        _StubDiscoverableUser(
+            id=1001,
+            name="alice_legacy",
+            global_name="Alice",
+            bot=False,
+        ),
+        _StubDiscoverableUser(
+            id=1002,
+            name="oldname_bob",
+            global_name=None,  # exercises the ``global_name or name`` fallback
+            bot=False,
+        ),
+        _StubDiscoverableUser(
+            id=1003,
+            name="helper_bot",
+            global_name="Helper",
+            bot=True,
+        ),
+    ]
+    guild_a = _StubDiscoverableGuild(
+        id=2001,
+        name="Test Guild A",
+        member_count=42,
+        channels=[
+            _StubDiscoverableChannel(id=3001, name="general", type="text"),
+            _StubDiscoverableChannel(id=3002, name="voice-lobby", type="voice"),
+        ],
+        roles=[
+            _StubDiscoverableRole(
+                id=4001, name="moderators", position=2, mentionable=True
+            ),
+            _StubDiscoverableRole(
+                id=4002, name="everyone", position=0, mentionable=False
+            ),
+        ],
+    )
+    guild_b = _StubDiscoverableGuild(
+        id=2002,
+        name="Test Guild B",
+        member_count=7,
+        channels=[
+            _StubDiscoverableChannel(id=3003, name="lounge", type="text"),
+        ],
+        roles=[
+            _StubDiscoverableRole(
+                id=4003, name="vip", position=1, mentionable=True
+            ),
+        ],
+    )
+    stub_sdk_client.users = list(users)
+    stub_sdk_client.guilds = [guild_a, guild_b]
+
+
+def test_discord_plugin_implements_enumerate_discoverable_entities() -> None:
+    """The plugin exposes the OPTIONAL hook discoverable via ``getattr``.
+
+    Pins the substrate-side contract: ``hasattr`` is True, the resolved
+    attribute is not None, and it is callable. The L4 cache sweep and
+    Studio API endpoint will dispatch via this same ``getattr`` shape.
+    """
+    plugin = DiscordPlugin()
+    assert hasattr(plugin, "enumerate_discoverable_entities") is True
+    hook = getattr(plugin, "enumerate_discoverable_entities", None)
+    assert hook is not None
+    assert callable(hook)
+
+
+async def test_discord_plugin_enumerate_returns_populated_axes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Happy-path: the hook returns a fully-populated snapshot.
+
+    Path B fixture: ``plugin.connect`` produces the real ``DiscordClient``
+    wrapping a stub SDK client; the test then populates the stub's
+    ``users`` / ``guilds`` / ``get_all_channels()`` caches and invokes
+    the hook. Asserts the four axes, the ``@``/``#`` label prefixes,
+    the ``guild:{id}`` grouping for channels and roles, and the
+    ``+00:00``-offset ISO 8601 ``fetched_at`` shape.
+    """
+    import re
+
+    _patch_discord(monkeypatch)
+    encryptor = _make_encryptor()
+    plugin = DiscordPlugin()
+    account = _make_account(encryptor)
+
+    client = await plugin.connect(account, encryptor)
+    try:
+        stub_sdk = _StubDiscordClient.instances[-1]
+        _populate_discoverable_caches(stub_sdk)
+
+        result = plugin.enumerate_discoverable_entities(client)
+
+        assert isinstance(result, DiscoverableEntities)
+
+        # Peers — 3 users, all with @-prefixed labels. ``global_name`` is
+        # preferred when present (alice → "@Alice"; helper_bot → "@Helper");
+        # falls back to ``name`` when None (oldname_bob → "@oldname_bob").
+        peer_by_id = {p.id: p for p in result.peers}
+        assert set(peer_by_id) == {"1001", "1002", "1003"}
+        assert peer_by_id["1001"].label == "@Alice"
+        assert peer_by_id["1002"].label == "@oldname_bob"
+        assert peer_by_id["1003"].label == "@Helper"
+        assert peer_by_id["1003"].metadata == {"bot": True}
+        assert peer_by_id["1001"].metadata == {"bot": False}
+        assert all(p.group is None for p in result.peers)
+
+        # Channels — 3 total (2 from guild A, 1 from guild B), all with
+        # ``#`` labels and ``guild:{id}`` group keys.
+        channel_by_id = {c.id: c for c in result.channels}
+        assert set(channel_by_id) == {"3001", "3002", "3003"}
+        assert channel_by_id["3001"].label == "#general"
+        assert channel_by_id["3001"].group == "guild:2001"
+        assert channel_by_id["3001"].metadata == {"type": "text"}
+        assert channel_by_id["3002"].metadata == {"type": "voice"}
+        assert channel_by_id["3003"].group == "guild:2002"
+
+        # Groups — 2 guilds, bare names as labels.
+        group_by_id = {g.id: g for g in result.groups}
+        assert set(group_by_id) == {"2001", "2002"}
+        assert group_by_id["2001"].label == "Test Guild A"
+        assert group_by_id["2001"].metadata == {"member_count": 42}
+        assert group_by_id["2002"].metadata == {"member_count": 7}
+        assert all(g.group is None for g in result.groups)
+
+        # Roles — 3 total (2 from guild A, 1 from guild B), ``@``-prefixed
+        # labels, ``guild:{id}`` group keys, full metadata.
+        role_by_id = {r.id: r for r in result.roles}
+        assert set(role_by_id) == {"4001", "4002", "4003"}
+        assert role_by_id["4001"].label == "@moderators"
+        assert role_by_id["4001"].group == "guild:2001"
+        assert role_by_id["4001"].metadata == {
+            "position": 2,
+            "mentionable": True,
+        }
+        assert role_by_id["4003"].group == "guild:2002"
+
+        # ``fetched_at`` — ISO 8601 with ``+00:00`` offset (the substrate
+        # stays with ``datetime.now(UTC).isoformat()``'s default form; no
+        # ``Z``-suffix substitution).
+        assert re.match(
+            r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?\+00:00$",
+            result.fetched_at,
+        ), result.fetched_at
+    finally:
+        await plugin.disconnect(client)
+
+
+def test_stub_plugin_does_not_implement_enumerate_discoverable_entities() -> None:
+    """The stub plugin pins the fallback contract — hook is absent.
+
+    Per the substrate design: ``StubPlugin`` deliberately does NOT
+    implement ``enumerate_discoverable_entities``. Consumers reach via
+    ``getattr(plugin, "enumerate_discoverable_entities", None)`` and
+    fall back to the chip-list editor when ``None`` comes back. This
+    test pins that the stub stays absent so future maintenance does
+    not silently add the hook and break the fallback regression net.
+    """
+    plugin = StubPlugin()
+    assert getattr(plugin, "enumerate_discoverable_entities", None) is None
+
+
+async def test_discord_plugin_enumerate_tolerates_unknown_member_count(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``Guild.member_count is None`` collapses to ``metadata["member_count"] == 0``.
+
+    Discord's ``Guild.member_count`` is intent-gated — without the
+    ``members`` intent (or under partial-chunking) it can be ``None``.
+    The substrate stays defensive and reports 0 to keep the JSON shape
+    stable at the API layer.
+    """
+    _patch_discord(monkeypatch)
+    encryptor = _make_encryptor()
+    plugin = DiscordPlugin()
+    account = _make_account(encryptor)
+
+    client = await plugin.connect(account, encryptor)
+    try:
+        stub_sdk = _StubDiscordClient.instances[-1]
+        stub_sdk.users = []
+        stub_sdk.guilds = [
+            _StubDiscoverableGuild(
+                id=5001,
+                name="Member-Count-Unknown Guild",
+                member_count=None,  # the intent-gated case
+                channels=[],
+                roles=[],
+            ),
+        ]
+
+        result = plugin.enumerate_discoverable_entities(client)
+
+        assert len(result.groups) == 1
+        assert result.groups[0].id == "5001"
+        assert result.groups[0].metadata == {"member_count": 0}
+    finally:
+        await plugin.disconnect(client)
+
+
+async def test_discord_plugin_enumerate_user_label_falls_back_to_name_when_global_name_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``user.global_name`` None → label uses ``user.name``; present → uses ``global_name``.
+
+    Discord's username-system migration: newer accounts expose
+    ``global_name`` (the display name); older accounts only have
+    ``name``. The substrate exercises ``global_name or name`` and
+    prefixes with ``@``.
+    """
+    _patch_discord(monkeypatch)
+    encryptor = _make_encryptor()
+    plugin = DiscordPlugin()
+    account = _make_account(encryptor)
+
+    client = await plugin.connect(account, encryptor)
+    try:
+        stub_sdk = _StubDiscordClient.instances[-1]
+        stub_sdk.users = [
+            _StubDiscoverableUser(
+                id=6001,
+                name="legacy_user",
+                global_name=None,
+                bot=False,
+            ),
+            _StubDiscoverableUser(
+                id=6002,
+                name="raw_handle",
+                global_name="Display Name",
+                bot=False,
+            ),
+        ]
+        stub_sdk.guilds = []
+
+        result = plugin.enumerate_discoverable_entities(client)
+
+        peer_by_id = {p.id: p for p in result.peers}
+        assert peer_by_id["6001"].label == "@legacy_user"
+        assert peer_by_id["6002"].label == "@Display Name"
+    finally:
+        await plugin.disconnect(client)
+
+
+async def test_discord_plugin_enumerate_dedupes_users_defensively(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Defensive id-keyed dedup — first occurrence wins.
+
+    The SDK's ``Client.users`` is already unique-by-id (via
+    ``list(self._connection._users.values())``). The hook nevertheless
+    deduplicates via a dict keyed by id to guard against
+    scaffold-only duplication in tests and future SDK behavior change.
+    This test passes a stub ``users`` list with two entries sharing an
+    id; only the first occurrence appears in the result.
+    """
+    _patch_discord(monkeypatch)
+    encryptor = _make_encryptor()
+    plugin = DiscordPlugin()
+    account = _make_account(encryptor)
+
+    client = await plugin.connect(account, encryptor)
+    try:
+        stub_sdk = _StubDiscordClient.instances[-1]
+        stub_sdk.users = [
+            _StubDiscoverableUser(
+                id=7001,
+                name="first_appearance",
+                global_name="First",
+                bot=False,
+            ),
+            _StubDiscoverableUser(
+                # Same id; different name. First-occurrence wins.
+                id=7001,
+                name="second_appearance",
+                global_name="Second",
+                bot=True,
+            ),
+            _StubDiscoverableUser(
+                id=7002,
+                name="unique_user",
+                global_name="Unique",
+                bot=False,
+            ),
+        ]
+        stub_sdk.guilds = []
+
+        result = plugin.enumerate_discoverable_entities(client)
+
+        peers_by_id = {p.id: p for p in result.peers}
+        assert set(peers_by_id) == {"7001", "7002"}
+        # First-occurrence wins: ``@First`` not ``@Second``.
+        assert peers_by_id["7001"].label == "@First"
+        assert peers_by_id["7001"].metadata == {"bot": False}
+        # Result list length matches dedup expectation.
+        assert len(result.peers) == 2
     finally:
         await plugin.disconnect(client)

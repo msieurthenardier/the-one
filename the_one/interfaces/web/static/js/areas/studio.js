@@ -2101,16 +2101,34 @@ App.registerArea({
           }
         } else {
           // chips mode
-          var chips = wrapper.querySelectorAll('.chip');
+          //
+          // M11 F3 L6b — per-agent overlay dispatch: when the wrapper
+          // carries an ``_overlayChipValues`` getter (installed by
+          // connectors-tab.js when the per-agent overlay swaps in the
+          // dropdown for Discord-type accounts), consult it first. The
+          // dropdown's chip DOM shape differs from the chip-list
+          // editor's; falling through to the text-node walk would
+          // mis-read dropdown chips. Stub-type / no-entry accounts
+          // continue rendering the chip-list and the text-node walk
+          // reads them identically to the pre-L6b shape.
           var chipVals = [];
-          for (var cj = 0; cj < chips.length; cj++) {
-            var text = chips[cj].textContent || '';
-            if (text.charAt(text.length - 1) === '×') {
-              text = text.slice(0, -1);
+          if (typeof wrapper._overlayChipValues === 'function') {
+            var overlayVals = wrapper._overlayChipValues() || [];
+            for (var ov = 0; ov < overlayVals.length; ov++) {
+              var ovStr = (overlayVals[ov] == null) ? '' : String(overlayVals[ov]);
+              if (ovStr) chipVals.push(ovStr);
             }
-            text = text.trim();
-            if (!text) continue;
-            chipVals.push(text);
+          } else {
+            var chips = wrapper.querySelectorAll('.chip');
+            for (var cj = 0; cj < chips.length; cj++) {
+              var text = chips[cj].textContent || '';
+              if (text.charAt(text.length - 1) === '×') {
+                text = text.slice(0, -1);
+              }
+              text = text.trim();
+              if (!text) continue;
+              chipVals.push(text);
+            }
           }
           if (chipVals.length === 0) {
             axisValue = null; // empty chip-list = inherit / unrestricted

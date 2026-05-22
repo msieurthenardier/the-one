@@ -2151,6 +2151,105 @@
     }
   }
 
+  // M11 F3 L6b — per-row routing-rules match-cell editor mount dispatch.
+  //
+  // Mirrors L6a's ``_mountAllowlistAxisEditor`` shape for the
+  // routing-rules table's per-row match cell. Routing rows are scoped
+  // (channel / thread / dm / peer per F7 vocab); the match values
+  // target the corresponding API axis per the mapping below. For
+  // Discord accounts the registry-entry ``renderDiscoverableDropdown``
+  // hook mounts the live-data dropdown; stub-type accounts fall back
+  // to the existing chip-list editor (preserves the regression
+  // contract for F6/F7 stub-type tests).
+  //
+  // Scope → API axis mapping (centralized here):
+  //   ``'channel'`` → ``'channels'``
+  //   ``'thread'``  → ``'channels'`` (threads narrow channels at
+  //                                   routing-engine time per F7 logic)
+  //   ``'dm'``      → ``'peers'``
+  //   ``'peer'``    → ``'peers'``
+  //
+  // Dropdown path installs ``slotEl._routingMatchValues = () => ids``
+  // on the chip-list slot — the canonical bridge for the collect path
+  // in ``collectRoutingFromContainer``. The chip-list fallback does
+  // NOT install the getter (collect path falls through to the
+  // text-node walk on the seeded ``.chip`` elements).
+  function _mountRoutingMatchEditor(slotEl, account, scope, currentValues, vocab, checkDirty) {
+    if (!slotEl) return;
+    var state = { values: (currentValues || []).slice() };
+    var registry = (window.App && window.App.studio && window.App.studio.connectorFormRegistry) || null;
+    var entry = (registry && account && account.type) ? registry.get(account.type) : null;
+    // Scope → API axis. Routes the dropdown to the right entity feed.
+    var apiAxis;
+    if (scope === 'channel' || scope === 'thread') {
+      apiAxis = 'channels';
+    } else if (scope === 'dm' || scope === 'peer') {
+      apiAxis = 'peers';
+    } else {
+      // Empty or unknown scope (e.g. a freshly-added row before the
+      // operator picks a scope). Default to ``channels`` for the
+      // dropdown so the operator has something to scan; the
+      // scope-change listener re-mounts as soon as the operator
+      // picks a scope.
+      apiAxis = 'channels';
+    }
+    if (entry && typeof entry.renderDiscoverableDropdown === 'function') {
+      var dropdownEl = entry.renderDiscoverableDropdown(
+        account,
+        apiAxis,
+        state.values,
+        vocab,
+        function onChange(newValues) {
+          state.values = (newValues || []).slice();
+          if (typeof checkDirty === 'function') checkDirty();
+        }
+      );
+      if (dropdownEl) {
+        slotEl.innerHTML = '';
+        slotEl.appendChild(dropdownEl);
+        slotEl._routingMatchValues = function () { return state.values.slice(); };
+        return;
+      }
+    }
+    // Fallback: chip-list editor (stub-type / no-entry regression
+    // contract). Preserves the same DOM shape as ``_renderRoutingRow``
+    // emits, so the collect-path text-node walk reads the values back
+    // identically to the pre-L6b shape.
+    var helpers = window.App.adminFormHelpers;
+    // Clear any previously-installed getter so the collect path falls
+    // through to the text-node walk after a re-mount.
+    if (slotEl._routingMatchValues) {
+      try { delete slotEl._routingMatchValues; }
+      catch (_) { slotEl._routingMatchValues = null; }
+    }
+    slotEl.innerHTML = '';
+    var escapeAttr = window.App.escapeAttr;
+    var escapeHtml = window.App.escapeHtml;
+    for (var i = 0; i < state.values.length; i++) {
+      var v = String(state.values[i]);
+      var chip = document.createElement('span');
+      chip.className = 'chip';
+      chip.appendChild(document.createTextNode(v));
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'chip-remove';
+      btn.setAttribute('aria-label', 'Remove ' + v);
+      btn.textContent = '×';
+      chip.appendChild(btn);
+      slotEl.appendChild(chip);
+    }
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'chip-list-input';
+    input.placeholder = 'Add match value…';
+    input.setAttribute('aria-label', 'Add match value');
+    slotEl.appendChild(input);
+    if (helpers && helpers.wireChipListEditor) {
+      helpers.wireChipListEditor(slotEl, { onChange: checkDirty });
+    }
+    void escapeAttr; void escapeHtml;
+  }
+
   function wireRoutingRulesEvents(container, account, checkDirty) {
     var section = container.querySelector('.connector-routing-section');
     if (!section) return;
@@ -2170,16 +2269,40 @@
       thead.classList.toggle('is-hidden', n === 0);
     }
 
-    // M10 F7 L9 HAT2: wire the chip-list editor for a row's match cell.
-    // ``adminFormHelpers.wireChipListEditor`` provides the same operator
-    // UX as the F6 allowlist editor (Enter/Tab/comma commit, click-×
-    // remove, Backspace-on-empty delete-last). The onChange callback
-    // re-triggers dirty-tracking on every chip add/remove.
+    // M10 F7 L9 HAT2 / M11 F3 L6b: wire the per-row match-cell editor.
+    //
+    // L6b dispatches through ``_mountRoutingMatchEditor`` which mirrors
+    // L6a's ``_mountAllowlistAxisEditor`` shape — Discord-type accounts
+    // get the live-data dropdown component (axis selected per the row's
+    // current scope: channel/thread → ``channels``; dm/peer →
+    // ``peers``); stub-type accounts fall back to the chip-list editor.
+    //
+    // The pre-rendered chip-list mount-site stays in the row HTML (per
+    // ``_renderRoutingRow``); when the dropdown path is taken the slot
+    // is wholesale replaced and a per-slot ``_routingMatchValues``
+    // getter is installed for the collect-path bridge.
     function _wireRoutingMatchChiplist(rowEl) {
-      if (!helpers || !helpers.wireChipListEditor) return;
-      var chiplist = rowEl.querySelector('.connector-routing-match-chiplist');
-      if (!chiplist) return;
-      helpers.wireChipListEditor(chiplist, { onChange: checkDirty });
+      var slot = rowEl.querySelector('.connector-routing-match-chiplist');
+      if (!slot) return;
+      var scopeEl = rowEl.querySelector('[data-routing-scope]');
+      var scope = scopeEl ? scopeEl.value : '';
+      // Read the initial committed match values from the pre-rendered
+      // chip-list (``_renderRoutingRow`` emits a ``.chip`` per seeded
+      // match value; the input is ignored).
+      var initialValues = [];
+      var seededChips = slot.querySelectorAll('.chip');
+      for (var si = 0; si < seededChips.length; si++) {
+        var chip = seededChips[si];
+        var label = '';
+        for (var sn = 0; sn < chip.childNodes.length; sn++) {
+          var node = chip.childNodes[sn];
+          if (node.nodeType === 3) label += node.nodeValue;
+        }
+        label = (label || '').trim();
+        if (label) initialValues.push(label);
+      }
+      var vocab = _vocabForAccount(account);
+      _mountRoutingMatchEditor(slot, account, scope, initialValues, vocab, checkDirty);
     }
 
     // ── HTML5 native drag-and-drop reordering (M10 F7 L9 HAT2) ──────
@@ -2321,11 +2444,28 @@
       });
       // Delegated change for scope/agent. (match dirty-tracking is wired
       // per-row via the chip-list editor's onChange.)
+      //
+      // M11 F3 L6b: scope change re-mounts the row's match-value editor
+      // because the API axis (and therefore the dropdown's data source)
+      // depends on the row's scope. Previous match values are CLEARED on
+      // scope change — the simpler semantics; ids belonging to the
+      // previous axis are no longer valid against the new axis.
       tbody.addEventListener('change', function (e) {
         var t = e.target;
         if (!t) return;
-        if (t.hasAttribute && (t.hasAttribute('data-routing-scope') ||
-                               t.hasAttribute('data-routing-agent'))) {
+        if (t.hasAttribute && t.hasAttribute('data-routing-scope')) {
+          var rowEl = t.closest && t.closest('tr.connector-routing-row');
+          if (rowEl) {
+            var slot = rowEl.querySelector('.connector-routing-match-chiplist');
+            if (slot) {
+              var vocab = _vocabForAccount(account);
+              _mountRoutingMatchEditor(slot, account, t.value, [], vocab, checkDirty);
+            }
+          }
+          checkDirty();
+          return;
+        }
+        if (t.hasAttribute && t.hasAttribute('data-routing-agent')) {
           checkDirty();
         }
       });
@@ -2358,20 +2498,36 @@
       // Enter/Tab/comma for a value to count). Reads chips in DOM
       // order; the wireChipListEditor helper guarantees only committed
       // chip elements carry values.
+      //
+      // M11 F3 L6b: when the row's match cell is mounted as the
+      // dropdown component (Discord-type accounts), the per-slot
+      // ``_routingMatchValues`` getter is the canonical bridge — the
+      // dropdown's chip DOM shape differs structurally from the
+      // chip-list editor's, so falling through to the text-node walk
+      // would mis-read dropdown chips. The chip-list fallback path
+      // does NOT install the getter; collect path falls through.
       var matchValues = [];
       if (matchEl) {
-        var chips = matchEl.querySelectorAll('.chip');
-        for (var c = 0; c < chips.length; c++) {
-          var chip = chips[c];
-          var label = '';
-          for (var n = 0; n < chip.childNodes.length; n++) {
-            var node = chip.childNodes[n];
-            if (node.nodeType === 3) {
-              label += node.nodeValue;
-            }
+        if (typeof matchEl._routingMatchValues === 'function') {
+          var vals = matchEl._routingMatchValues() || [];
+          for (var vi = 0; vi < vals.length; vi++) {
+            var vStr = (vals[vi] == null) ? '' : String(vals[vi]);
+            if (vStr) matchValues.push(vStr);
           }
-          label = (label || '').trim();
-          if (label) matchValues.push(label);
+        } else {
+          var chips = matchEl.querySelectorAll('.chip');
+          for (var c = 0; c < chips.length; c++) {
+            var chip = chips[c];
+            var label = '';
+            for (var n = 0; n < chip.childNodes.length; n++) {
+              var node = chip.childNodes[n];
+              if (node.nodeType === 3) {
+                label += node.nodeValue;
+              }
+            }
+            label = (label || '').trim();
+            if (label) matchValues.push(label);
+          }
         }
       }
       // Skip incomplete rule rows (operator added a row but didn't fill
@@ -2606,15 +2762,76 @@
     });
   }
 
+  // M11 F3 L6a — per-axis allowlist editor mount dispatch.
+  //
+  // For each allowlist axis, consult the per-type connector form
+  // registry: if the account's type entry exposes a
+  // ``renderDiscoverableDropdown`` hook, mount the live-data dropdown
+  // component for that axis; otherwise fall back to the chip-list
+  // editor (the stub-type / no-entry regression contract).
+  //
+  // Storage axis ``'guilds'`` translates to API axis ``'groups'`` (per
+  // the L3 ``DiscoverableEntities`` shape) before invoking the hook.
+  // The other three axes (``peers``, ``channels``, ``roles``) pass
+  // through unchanged.
+  //
+  // Dropdown path installs a per-slot ``_allowlistValues`` getter that
+  // returns the current id array — the collect-path and snapshot-path
+  // bridge for dropdown-driven values (whose ``.chip`` DOM shape is
+  // structurally distinct from the chip-list editor and cannot be
+  // read via the text-node walk). The chip-list fallback does NOT
+  // install the getter; the collect path falls through to the
+  // existing text-node walk.
+  function _mountAllowlistAxisEditor(slotEl, account, storageAxis, currentValues, vocab, checkDirty) {
+    if (!slotEl) return;
+    var state = { values: (currentValues || []).slice() };
+    var registry = (window.App && window.App.studio && window.App.studio.connectorFormRegistry) || null;
+    var entry = (registry && account && account.type) ? registry.get(account.type) : null;
+    if (entry && typeof entry.renderDiscoverableDropdown === 'function') {
+      var apiAxis = (storageAxis === 'guilds') ? 'groups' : storageAxis;
+      var dropdownEl = entry.renderDiscoverableDropdown(
+        account,
+        apiAxis,
+        state.values,
+        vocab,
+        function onChange(newValues) {
+          state.values = (newValues || []).slice();
+          if (typeof checkDirty === 'function') checkDirty();
+        }
+      );
+      if (dropdownEl) {
+        slotEl.innerHTML = '';
+        slotEl.appendChild(dropdownEl);
+        slotEl._allowlistValues = function () { return state.values.slice(); };
+        return;
+      }
+    }
+    // Fallback: chip-list (preserves stub-type / no-entry behavior).
+    var helpers = window.App.adminFormHelpers;
+    slotEl.innerHTML = '';
+    var chiplist = _buildAllowlistChipList(storageAxis, state.values);
+    slotEl.appendChild(chiplist);
+    if (helpers && helpers.wireChipListEditor) {
+      helpers.wireChipListEditor(chiplist, { onChange: checkDirty });
+    }
+    // No _allowlistValues getter installed — chip-list path falls
+    // through to the text-node walk in collectAllowlistFromContainer.
+  }
+
   function wireAllowlistEvents(container, account, checkDirty) {
     // M10 F6 L7 HAT — chip-lists are always mounted. Empty lists are
     // valid and mean "unrestricted on this axis." M10 F8 L8 extends
     // the mount to the 4 axes (peers, channels, guilds, roles).
     //
-    // Mount the chip-list editors into the slot divs. Pre-existing
-    // entries come from account.config.allowlist; if absent, empty
-    // chip-lists are mounted so the operator can start typing
-    // immediately.
+    // M11 F3 L6a — per-axis mount now dispatches through
+    // ``_mountAllowlistAxisEditor``: for connector types whose
+    // registry entry exposes ``renderDiscoverableDropdown``, the
+    // dropdown component renders; otherwise the chip-list editor
+    // mounts unchanged.
+    //
+    // Pre-existing entries come from account.config.allowlist; if
+    // absent, the editor mounts with no current values so the
+    // operator can start typing immediately.
     var allowlist = (account && account.config && account.config.allowlist) || null;
     var peersInit = (allowlist && Array.isArray(allowlist.peers)) ? allowlist.peers : [];
     var channelsInit = (allowlist && Array.isArray(allowlist.channels)) ? allowlist.channels : [];
@@ -2624,21 +2841,12 @@
     var channelsSlot = container.querySelector('[data-allowlist-chiplist-slot="channels"]');
     var guildsSlot = container.querySelector('[data-allowlist-chiplist-slot="guilds"]');
     var rolesSlot = container.querySelector('[data-allowlist-chiplist-slot="roles"]');
-    var helpers = window.App.adminFormHelpers;
+    var vocab = _vocabForAccount(account);
 
-    function _mountChipList(slot, kind, init) {
-      if (!slot) return;
-      slot.innerHTML = '';
-      var chiplist = _buildAllowlistChipList(kind, init);
-      slot.appendChild(chiplist);
-      if (helpers && helpers.wireChipListEditor) {
-        helpers.wireChipListEditor(chiplist, { onChange: checkDirty });
-      }
-    }
-    _mountChipList(peersSlot, 'peers', peersInit);
-    _mountChipList(channelsSlot, 'channels', channelsInit);
-    _mountChipList(guildsSlot, 'guilds', guildsInit);
-    _mountChipList(rolesSlot, 'roles', rolesInit);
+    _mountAllowlistAxisEditor(peersSlot, account, 'peers', peersInit, vocab, checkDirty);
+    _mountAllowlistAxisEditor(channelsSlot, account, 'channels', channelsInit, vocab, checkDirty);
+    _mountAllowlistAxisEditor(guildsSlot, account, 'guilds', guildsInit, vocab, checkDirty);
+    _mountAllowlistAxisEditor(rolesSlot, account, 'roles', rolesInit, vocab, checkDirty);
   }
 
   function collectAllowlistFromContainer(container) {
@@ -2649,6 +2857,15 @@
     // only committed chip elements (not the live input) carry values.
     // Whitespace-only entries cannot reach a chip (the helper trims
     // before committing). M10 F8 L8 added the guilds + roles axes.
+    //
+    // M11 F3 L6a — per-slot ``_allowlistValues`` getter (installed by
+    // ``_mountAllowlistAxisEditor`` when the dropdown path is taken)
+    // is the canonical bridge for dropdown-driven values. The dropdown
+    // component's ``.chip`` DOM shape is structurally distinct from
+    // the chip-list editor's, so falling through to the text-node walk
+    // would mis-read the dropdown chips. The getter wraps the
+    // dropdown's own state. Chip-list path does NOT install the
+    // getter; we fall back to the text-node walk.
     var peersSlot = container.querySelector('[data-allowlist-chiplist-slot="peers"]');
     var channelsSlot = container.querySelector('[data-allowlist-chiplist-slot="channels"]');
     var guildsSlot = container.querySelector('[data-allowlist-chiplist-slot="guilds"]');
@@ -2657,6 +2874,14 @@
     function _readChiplist(slot) {
       var out = [];
       if (!slot) return out;
+      if (typeof slot._allowlistValues === 'function') {
+        var vals = slot._allowlistValues() || [];
+        for (var k = 0; k < vals.length; k++) {
+          var v = (vals[k] == null) ? '' : String(vals[k]);
+          if (v) out.push(v);
+        }
+        return out;
+      }
       var chips = slot.querySelectorAll('.chip');
       for (var i = 0; i < chips.length; i++) {
         var chip = chips[i];

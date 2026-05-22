@@ -177,10 +177,12 @@ When a registry entry needs to participate in substrate machinery — dirty trac
 
 Applies when a registry/dispatch primitive owns substrate-touching machinery (event listeners, snapshot serialization, lifecycle callbacks) where some per-type entries opt in and others don't. Does NOT apply to dispatch tables where every entry must implement every method (use Protocol-widening then; see `protocol-widening-for-required-capability`).
 
-Citations (n=3 from M11 F1):
-- `the_one/interfaces/web/static/js/areas/studio/connector-form-registry.js:_validateEntry` — the `optionalFns = ['snapshot', 'wireEvents', 'renderInviteSection']` array; each name is an optional entry-shape hook. The per-name validation is "must be a function IF present" — absent without error.
+Citations (n=5 from M11 F1+F2+F3):
+- `the_one/interfaces/web/static/js/areas/studio/connector-form-registry.js:_validateEntry` — the `optionalFns = ['snapshot', 'wireEvents', 'renderInviteSection', 'renderDirectiveSection', 'renderDiscoverableDropdown']` array; each name is an optional entry-shape hook. The per-name validation is "must be a function IF present" — absent without error.
 - F1 L4 added `snapshot(container) → object` (entry's typed-input state for dirty-tracker) + `wireEvents(container, checkDirty, account)` (entry's own listener wiring for typed inputs outside the substrate's delegation scope). See `the_one/interfaces/web/static/js/areas/studio/connector-form-discord.js:snapshot` and `:wireEvents`.
 - F1 L5 added `renderInviteSection(account) → string` (entry-rendered detail-page section). See `the_one/interfaces/web/static/js/areas/studio/connector-form-discord.js:renderInviteSection`.
+- F2 L4 added `renderDirectiveSection(account) → string` (entry-rendered System Prompt Directive section on the General tab). See `the_one/interfaces/web/static/js/areas/studio/connector-form-discord.js:renderDirectiveSection`.
+- F3 L5 added `renderDiscoverableDropdown(account, axis, currentValues, vocab, onChange) → HTMLElement | null` (entry-rendered live-data combobox for allowlist + routing surfaces). See `the_one/interfaces/web/static/js/areas/studio/connector-form-discord.js:renderDiscoverableDropdown` and the shared component at `the_one/interfaces/web/static/js/areas/studio/discoverable-dropdown.js`.
 
 Source: M11 F1 flight-debrief "Key Learnings §3" (the F1 added three optional hooks; the additive-extension shape is generalizable) + "Recommendations §2" (operator-confirmed codification at debrief).
 
@@ -195,6 +197,29 @@ Citation (n=1 from M11 F1 L7, codified by methodology-promotion per F1 debrief R
 This is the first codification under the n=1-by-methodology-promotion shape — the F1 debrief elevated this convention on the strength of the methodology lesson (registry-mediated dispatch is a structural pattern that demands symmetric ACs), not on a recurring-pattern threshold. Future occurrences citing this convention re-validate the structural claim; if they don't, the convention is a candidate for retirement at a later mission debrief.
 
 Source: M11 F1 flight-debrief "Recommendations §2" + "Key Learnings §5" (HAT essential signal even at the end of autonomous flights) + F1 L7 leg-progress entry.
+
+### `primitive-rename-test-classification`
+
+When a leg spec touches a primitive's name (rename, split, consolidation), every test file that contains the primitive's name is default-classified as `code-update` — i.e., the leg must read the test to determine whether the rename ripples into functional code. Downgrade to `docstring-sweep` (the rename only changes prose in test docstrings) ONLY after `grep` verifies the name appears solely inside `"""..."""` docstring blocks across the entire file. The cycle-0 default of "docstring-sweep until proven otherwise" inverts the safe direction — it treats a name appearance as docstring noise until refuted, when the truth-table is the opposite (a name appearance is functional usage until refuted).
+
+Applies whenever a leg's scope includes renaming, splitting, or consolidating a named primitive (function, class, dataclass, constant, or method) that is referenced by tests. Does NOT apply to leg-internal symbol renames whose names never appear in test files (grep returns zero hits in `tests/`).
+
+Citations (n=1 trigger, n=3 evidence files from M11 F2 L2 cycle-1):
+- `tests/test_connectors_inbound.py` — monkeypatch + sentinel filter (functional, ~5 lines).
+- `tests/test_lifespan.py` — getattr/setattr sites + assertion (functional, multi-site).
+- `tests/test_connectors_e2e_platform_send.py` — monkeypatch + assertion + function rename (functional).
+
+Source: M11 F2 flight-debrief "Recommendations §Important — codify two methodology rules as agents.md project conventions" (convention 1) + "What Could Be Improved §Important — primitive-rename test classification rule."
+
+### `flight-spec-dom-order-audit`
+
+At flight-design time, when a flight or leg artifact's natural-language wording describes adjacency between rendered DOM sections (e.g., "between section X and section Y" in Design Decisions, leg objectives, or implementation guidance), the architect must re-walk the current DOM order in the live source before committing the wording. Memory of a prior DOM walk is unreliable across flight boundaries — sections may have been added, removed, or reordered between the original audit and the current flight-design session.
+
+Applies whenever a flight or leg artifact's natural-language wording describes adjacency between rendered DOM sections (Studio editor sections, Chat UI panels, settings sub-pages, connector account detail page sub-surfaces). Does NOT apply to logical ordering claims that are not DOM-rendered (file ordering in a directory, leg execution ordering within a flight, mission flight ordering).
+
+Citation (n=1 from M11 F2 L4 cycle-1, codified by methodology-promotion per the same F1-L7-derived precedent as `registry-dispatch-create-mode-AC`): F2 flight.md Design Decisions §3 originally claimed the directive section landed "between Pairing and Test Connection," but a fresh DOM walk at cycle-1 showed Attached Agents between Pairing and Test Connection in the current source, so the correct placement was "between Pairing and Attached Agents." The reviewer caught the divergence; the leg spec was reworded to match the actual DOM; no structural harm done at L4 itself, but the symptom indicates the flight spec was written without a fresh DOM-order audit.
+
+Source: M11 F2 flight-debrief "Recommendations §Important — codify two methodology rules as agents.md project conventions" (convention 2) + "What Could Be Improved §Minor — flight-spec wording drift from DOM order."
 
 ### Mission-specific (M10)
 

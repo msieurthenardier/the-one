@@ -16,7 +16,7 @@ import httpx
 from cryptography.fernet import Fernet, InvalidToken
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
-from pydantic import ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from the_one import __version__
 from the_one.config import settings
@@ -2634,6 +2634,247 @@ async def test_connector_connection(account_id: str) -> dict[str, Any]:
         "message": report.message,
         "details": report.details,
     }
+
+
+# ── Discoverable Entities (M11 F3 L4) ─────────────────────────────────────
+
+
+class _DiscoverableEntityOut(BaseModel):
+    """Pydantic response shape for one discoverable entity.
+
+    Mirrors :class:`the_one.connectors.base.DiscoverableEntity`'s fields
+    plus the projected ``stale: bool`` flag — staleness is a render-time
+    concern, NOT a substrate dataclass field (see M11 F3 L4 leg artifact
+    Design Decision "stale flag projection at API time").
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    label: str
+    group: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    stale: bool = False
+
+
+class _DiscoverableEntitiesResponse(BaseModel):
+    """Pydantic response shape for the discoverable-entities endpoints.
+
+    The four axes (``peers``, ``channels``, ``groups``, ``roles``) are
+    flattened lists where fresh entries (from the pool's
+    ``discoverable_entities_cache``) precede stale entries (from the
+    pool's ``discoverable_entities_stale_carry``); each entry carries
+    ``stale: false`` or ``stale: true`` respectively.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    entities: dict[str, list[_DiscoverableEntityOut]]
+    fetched_at: str
+    stale_seconds: float
+
+
+def _empty_discoverable_response() -> _DiscoverableEntitiesResponse:
+    """Build the fail-open empty response for first-call edge cases.
+
+    Used when the warm entry exists but the inline refresh returns
+    ``False`` (mid-connect race, evicted-mid-refresh, plugin raised).
+    The frontend's manual Refresh button is the recovery path; the next
+    periodic sweep fires within ≤ 5 minutes.
+    """
+    return _DiscoverableEntitiesResponse(
+        entities={"peers": [], "channels": [], "groups": [], "roles": []},
+        fetched_at=now_iso(),
+        stale_seconds=0.0,
+    )
+
+
+def _project_discoverable_entity(
+    entity: Any, *, stale: bool
+) -> _DiscoverableEntityOut:
+    """Project a :class:`DiscoverableEntity` dataclass into the response shape.
+
+    The substrate dataclass has no ``stale`` field — staleness is the
+    API layer's render-time projection per M11 F3 L4 Design Decisions.
+    """
+    return _DiscoverableEntityOut(
+        id=entity.id,
+        label=entity.label,
+        group=entity.group,
+        metadata=dict(entity.metadata),
+        stale=stale,
+    )
+
+
+def _build_discoverable_response(snapshot: Any) -> _DiscoverableEntitiesResponse:
+    """Build a populated :class:`_DiscoverableEntitiesResponse` from a
+    cache snapshot returned by ``_get_account_cache_snapshot``.
+
+    Caller must ensure ``snapshot.cache`` is not ``None``. Stale entries
+    (from ``snapshot.stale_carry``) are appended to each axis after the
+    fresh entries; both carry the projected ``stale`` flag.
+    """
+    cache = snapshot.cache
+    stale_carry = snapshot.stale_carry
+    entities: dict[str, list[_DiscoverableEntityOut]] = {}
+    for axis in ("peers", "channels", "groups", "roles"):
+        fresh = [
+            _project_discoverable_entity(e, stale=False)
+            for e in getattr(cache, axis)
+        ]
+        stale_list: list[_DiscoverableEntityOut] = []
+        if stale_carry is not None:
+            stale_list = [
+                _project_discoverable_entity(e, stale=True)
+                for e in getattr(stale_carry, axis)
+            ]
+        entities[axis] = fresh + stale_list
+    fetched_at = cache.fetched_at or now_iso()
+    if snapshot.fetched_at_monotonic is not None:
+        stale_seconds = max(0.0, time.monotonic() - snapshot.fetched_at_monotonic)
+    else:
+        stale_seconds = 0.0
+    return _DiscoverableEntitiesResponse(
+        entities=entities,
+        fetched_at=fetched_at,
+        stale_seconds=stale_seconds,
+    )
+
+
+@router.get(
+    "/connector-accounts/{account_id}/discoverable-entities",
+    response_model=_DiscoverableEntitiesResponse,
+)
+async def get_discoverable_entities(account_id: str) -> _DiscoverableEntitiesResponse:
+    """Return the cached discoverable-entities view for a connector account.
+
+    Contracts:
+      - 404 (Connector account not found): the repo lookup raises
+        ``KeyError`` (no such account in the DB).
+      - 404 (Run Test Connection first): the account exists but the
+        pool has no warm entry — operator must populate the pool first
+        (via Test Connection, lifespan listener-warmup, or any other
+        ``account_acquire`` path).
+      - 503: the account's connector plugin does NOT implement
+        ``enumerate_discoverable_entities`` (e.g., the stub plugin).
+      - 200 (populated cache): the warm entry has a fresh
+        ``discoverable_entities_cache``; the response carries the four
+        axes plus the projected ``stale`` flag for each entity.
+      - 200 (first-call inline refresh): the warm entry exists but
+        ``cache is None`` — the endpoint fires a single inline refresh
+        via :func:`_refresh_discoverable_entities_for_account`. If the
+        refresh returns ``True``, the populated response is returned;
+        if ``False`` (mid-connect race / evicted-mid-refresh), the
+        endpoint fails open with an empty 200 (Design Decision per leg).
+    """
+    # Function-local imports per this section's convention. See the
+    # ``test_connector_connection`` handler's import block for the
+    # rationale (function-local-import-to-break-load-cycle).
+    from the_one.connectors._pool import (
+        _get_account_cache_snapshot,
+        _refresh_discoverable_entities_for_account,
+    )
+    from the_one.connectors.errors import ConnectorRegistrationError
+    from the_one.connectors.registry import resolve as _resolve_plugin
+
+    repo = await _connector_repo()
+    try:
+        await repo.get(account_id)
+    except KeyError:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Connector account not found: {account_id}",
+        )
+
+    snapshot = await _get_account_cache_snapshot(account_id)
+    if snapshot is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Run Test Connection first to populate the bot's discoverable view.",
+        )
+
+    try:
+        plugin = _resolve_plugin(snapshot.account_type)
+    except ConnectorRegistrationError:
+        raise HTTPException(
+            status_code=503,
+            detail="This connector type does not expose discoverable entities.",
+        )
+    if getattr(plugin, "enumerate_discoverable_entities", None) is None:
+        raise HTTPException(
+            status_code=503,
+            detail="This connector type does not expose discoverable entities.",
+        )
+
+    if snapshot.cache is None:
+        refreshed = await _refresh_discoverable_entities_for_account(account_id)
+        if not refreshed:
+            return _empty_discoverable_response()
+        snapshot = await _get_account_cache_snapshot(account_id)
+        if snapshot is None or snapshot.cache is None:
+            return _empty_discoverable_response()
+
+    return _build_discoverable_response(snapshot)
+
+
+@router.post(
+    "/connector-accounts/{account_id}/discoverable-entities/refresh",
+    response_model=_DiscoverableEntitiesResponse,
+)
+async def refresh_discoverable_entities(
+    account_id: str,
+) -> _DiscoverableEntitiesResponse:
+    """Force a synchronous refresh of the discoverable-entities cache.
+
+    Same 404 / 503 contracts as the GET handler. Always invokes
+    :func:`_refresh_discoverable_entities_for_account` (regardless of
+    whether the cache is currently populated); on ``False`` return the
+    endpoint fails open with an empty 200 response (Design Decision per
+    the leg artifact's first-call edge-case handling).
+    """
+    from the_one.connectors._pool import (
+        _get_account_cache_snapshot,
+        _refresh_discoverable_entities_for_account,
+    )
+    from the_one.connectors.errors import ConnectorRegistrationError
+    from the_one.connectors.registry import resolve as _resolve_plugin
+
+    repo = await _connector_repo()
+    try:
+        await repo.get(account_id)
+    except KeyError:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Connector account not found: {account_id}",
+        )
+
+    snapshot = await _get_account_cache_snapshot(account_id)
+    if snapshot is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Run Test Connection first to populate the bot's discoverable view.",
+        )
+
+    try:
+        plugin = _resolve_plugin(snapshot.account_type)
+    except ConnectorRegistrationError:
+        raise HTTPException(
+            status_code=503,
+            detail="This connector type does not expose discoverable entities.",
+        )
+    if getattr(plugin, "enumerate_discoverable_entities", None) is None:
+        raise HTTPException(
+            status_code=503,
+            detail="This connector type does not expose discoverable entities.",
+        )
+
+    refreshed = await _refresh_discoverable_entities_for_account(account_id)
+    if not refreshed:
+        return _empty_discoverable_response()
+    snapshot = await _get_account_cache_snapshot(account_id)
+    if snapshot is None or snapshot.cache is None:
+        return _empty_discoverable_response()
+    return _build_discoverable_response(snapshot)
 
 
 # ── Chat Sessions ─────────────────────────────────────────────────────────

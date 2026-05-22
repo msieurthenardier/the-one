@@ -309,6 +309,16 @@
           });
         } else {
           // Account-scope axis is empty / absent → free chip-list mode.
+          //
+          // M11 F3 L6b — per-agent overlay dispatch: for connector
+          // types whose registry entry exposes
+          // ``renderDiscoverableDropdown`` (Discord today), the
+          // chip-list editor is replaced with the live-data dropdown.
+          // The dropdown's getter is installed as
+          // ``_overlayChipValues`` on the wrapper so studio.js's
+          // collect path consults it before falling back to the
+          // text-node walk. Stub-type / no-entry accounts fall back
+          // to the existing chip-list editor.
           var initItems;
           if (Array.isArray(agentAxisValue)) {
             initItems = agentAxisValue;
@@ -317,7 +327,46 @@
           }
           var chiplist = _buildChipList(account.id, axis, initItems);
           body.appendChild(chiplist);
-          if (helpers && helpers.wireChipListEditor) {
+
+          var overlayRegistry = (window.App && window.App.studio
+            && window.App.studio.connectorFormRegistry) || null;
+          var overlayEntry = (overlayRegistry && account && account.type)
+            ? overlayRegistry.get(account.type)
+            : null;
+          var mounted = false;
+          if (overlayEntry && typeof overlayEntry.renderDiscoverableDropdown === 'function') {
+            var overlayState = { values: initItems.slice() };
+            // Per-agent overlay axes are ``peers``/``channels`` — these
+            // already match the API axis names (no storage→API
+            // translation needed at this surface; the storage→API
+            // mapping for ``guilds``→``groups`` is allowlist-only).
+            var dropdownEl = overlayEntry.renderDiscoverableDropdown(
+              account,
+              axis,
+              overlayState.values,
+              null,  // vocab — per-agent overlay surface stays neutral
+              function onOverlayChange(newValues) {
+                overlayState.values = (newValues || []).slice();
+                _summarize();
+                onChange();
+              }
+            );
+            if (dropdownEl) {
+              // Wholesale replace the chip-list shell's children with
+              // the dropdown. The wrapper still carries the
+              // ``data-connector-acl-*`` attributes the collect path
+              // looks up; the ``_overlayChipValues`` getter is the
+              // canonical bridge so studio.js reads the dropdown's
+              // selected ids (not its internal chip DOM).
+              chiplist.innerHTML = '';
+              chiplist.appendChild(dropdownEl);
+              chiplist._overlayChipValues = function () {
+                return overlayState.values.slice();
+              };
+              mounted = true;
+            }
+          }
+          if (!mounted && helpers && helpers.wireChipListEditor) {
             helpers.wireChipListEditor(chiplist, {
               onChange: function () { _summarize(); onChange(); }
             });

@@ -45,7 +45,9 @@ def test_default_stub_probe_renders_success_with_no_details(
     app_clean: str, page: Page
 ) -> None:
     """Click → real stub doctor returns status=ok, details={} → green LED
-    + '(no additional details)' placeholder rendered."""
+    + no details panel surfaced (M07 inspector convention: status +
+    one-sentence message at-a-glance; details panel opens only on
+    debug-needed states)."""
     account_id = seed_connector_account(app_clean, name="OK Stub Bot")
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
     expect(page.locator('[data-testid="connector-test-connection-btn"]')).to_be_visible(
@@ -64,9 +66,7 @@ def test_default_stub_probe_renders_success_with_no_details(
     expect(message).to_contain_text("stub probe ok")
 
     details_wrap = page.locator('[data-testid="connector-test-details-wrap"]')
-    expect(details_wrap).to_be_visible()
-    details = page.locator('[data-testid="connector-test-details"]')
-    expect(details).to_contain_text("no additional details")
+    expect(details_wrap).to_be_hidden()
 
 
 @pytest.mark.browser
@@ -152,7 +152,9 @@ def test_degraded_response_renders_warning_led(app_clean: str, page: Page) -> No
 
 @pytest.mark.browser
 def test_non_string_detail_renders_as_font_mono_json(app_clean: str, page: Page) -> None:
-    """Non-string detail values render as <code class='font-mono'> JSON."""
+    """Non-string detail values do NOT surface on `status:'ok'` — details
+    panel stays hidden per M07 inspector convention. (Failure-status path
+    covers the structured-details rendering shape.)"""
     account_id = seed_connector_account(app_clean, name="NonString Bot")
 
     stub_payload = {
@@ -181,18 +183,18 @@ def test_non_string_detail_renders_as_font_mono_json(app_clean: str, page: Page)
     expect(page.locator('[data-testid="connector-test-led"]')).to_have_attribute(
         "data-state", "ok", timeout=8000
     )
-    # Non-string values render inside <code class="font-mono">.
-    details = page.locator('[data-testid="connector-test-details"]')
-    expect(details.locator("code.font-mono", has_text="42")).to_be_visible()
-    expect(details.locator("code.font-mono", has_text="true")).to_be_visible()
+    details_wrap = page.locator('[data-testid="connector-test-details-wrap"]')
+    expect(details_wrap).to_be_hidden()
 
 
 @pytest.mark.browser
 def test_secret_shaped_detail_value_passes_through_unmasked(
     app_clean: str, page: Page
 ) -> None:
-    """A details value that is already masked (`***...abc1`) passes
-    through verbatim — no double-masking, no plaintext leakage path."""
+    """A masked-token detail value on `status:'ok'` is never surfaced —
+    `details_wrap` stays hidden per M07 inspector convention. The
+    no-leak property is preserved structurally: the wrap never renders
+    on the ok path, so the token never reaches the DOM."""
     account_id = seed_connector_account(app_clean, name="Masked Detail Bot")
 
     masked_value = "***...abc1"
@@ -219,5 +221,7 @@ def test_secret_shaped_detail_value_passes_through_unmasked(
     )
     page.locator('[data-testid="connector-test-connection-btn"]').click()
 
-    details = page.locator('[data-testid="connector-test-details"]')
-    expect(details).to_contain_text(masked_value, timeout=8000)
+    led = page.locator('[data-testid="connector-test-led"]')
+    expect(led).to_have_attribute("data-state", "ok", timeout=8000)
+    details_wrap = page.locator('[data-testid="connector-test-details-wrap"]')
+    expect(details_wrap).to_be_hidden(timeout=8000)

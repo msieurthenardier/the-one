@@ -38,6 +38,27 @@
 // will land the Discord entry as the first consumer; the existing
 // `'stub'`-type Playwright tests exercise the fallback path (no entry
 // → generic kv-table render unchanged).
+//
+// ## Optional Hooks (each function-if-present per `_validateEntry`)
+//
+// Each connector-form-registry entry MAY expose any of the five
+// optional hooks below. Absent → the substrate's default (chip-list /
+// generic kv-table / no section render) applies. Each hook is
+// independently opt-in; entries pick the surfaces they need.
+//
+// - snapshot(container) → object: per-type typed-state snapshot for
+//   the dirty-tracker (F1 L4).
+// - wireEvents(container, checkDirty, account) → void: per-type
+//   listener wiring outside the substrate's delegation (F1 L4).
+// - renderInviteSection(account) → string: per-type detail-page HTML
+//   section mounted between Test Connection and Danger Zone (F1 L5).
+// - renderDirectiveSection(account, params) → HTMLElement: per-type
+//   per-account directive surface mounted between Pairing and
+//   Attached Agents (F2 L4).
+// - renderDiscoverableDropdown(account, axis, currentValues, vocab,
+//   onChange) → HTMLElement | null: per-type axis-specific live-data
+//   dropdown for the allowlist + routing-rules editors (F3 L5; absent
+//   → consumers fall back to the chip-list editor).
 
 (function () {
   'use strict';
@@ -95,7 +116,22 @@
     // between Pairing and Attached Agents. Absent → no directive
     // section renders (the ``'stub'`` fallback path and any
     // future-type-with-no-directive-surface).
-    var optionalFns = ['snapshot', 'wireEvents', 'renderInviteSection', 'renderDirectiveSection'];
+    // M11 F3 L5 extends the optional set with ``renderDiscoverableDropdown``:
+    // ``renderDiscoverableDropdown(account, axis, currentValues, vocab, onChange)
+    // → HTMLElement | null`` is the entry's opt-in for the live-data
+    // discoverable-dropdown component shipped by F3 (combobox shape
+    // backed by the ``GET /api/connector-accounts/{id}/discoverable-entities``
+    // endpoint). Absent → consumers (allowlist + routing-rules editors
+    // in L6) fall back to the existing chip-list editor. The 5th hook
+    // preserves the flat-array ``optionalFns`` shape per the F2 debrief
+    // operator decision (no object-map restructure at n=5).
+    var optionalFns = [
+      'snapshot',
+      'wireEvents',
+      'renderInviteSection',
+      'renderDirectiveSection',
+      'renderDiscoverableDropdown'
+    ];
     for (var oi = 0; oi < optionalFns.length; oi++) {
       var ofn = optionalFns[oi];
       if (entry[ofn] !== undefined && typeof entry[ofn] !== 'function') {

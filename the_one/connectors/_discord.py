@@ -52,6 +52,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import UTC, datetime
 from typing import Any, cast
 
 import aiohttp
@@ -60,6 +61,8 @@ import discord
 from the_one.connectors.base import (
     CommandResponse,
     ConnectorClient,
+    DiscoverableEntities,
+    DiscoverableEntity,
     DoctorReport,
     InboundEnvelope,
     OutboundTarget,
@@ -1652,6 +1655,127 @@ class DiscordPlugin:
         # simple uniform fall-through.
         del envelope, command_name, args  # explicit "not consumed"
         return None
+
+    def enumerate_discoverable_entities(
+        self, client: ConnectorClient
+    ) -> DiscoverableEntities:
+        """Snapshot Discord's live cache for the four discoverable axes.
+
+        OPTIONAL plugin hook (M11 F3 L3) — discovered by consumers via
+        ``getattr(plugin, "enumerate_discoverable_entities", None)`` with
+        ``None`` as the fallback sentinel per ``agents.md``
+        ``optional-plugin-hook-via-getattr-sentinel``. The hook is NOT
+        declared on the :class:`ConnectorPlugin` Protocol; plugins opt
+        in by exposing the method.
+
+        Reads the SDK's gateway-populated caches synchronously
+        (``Client.users``, ``Client.guilds``, ``Client.get_all_channels()``,
+        ``Guild.roles`` are all in-memory data the SDK's gateway listener
+        maintains). The L4 cache sweep is an asyncio task that calls
+        this hook directly without ``await`` — see the design decision
+        in the leg artifact for the sync-vs-async rationale.
+
+        Axes populated:
+
+        - ``peers``: every user in ``Client.users``. Labels use
+          ``@{global_name or name}`` (Discord's username-system
+          migration: ``global_name`` is the new display field; older
+          accounts still expose only ``name``). Defensively
+          deduplicated by id — the SDK's
+          ``return list(self._connection._users.values())`` already
+          guarantees uniqueness, but the dict-keyed-by-id loop guards
+          against scaffold-only duplication and future SDK churn.
+        - ``channels``: every ``GuildChannel`` subclass yielded by
+          ``Client.get_all_channels()`` — TextChannel, VoiceChannel,
+          CategoryChannel, ForumChannel, StageChannel. ``metadata["type"]``
+          carries the channel-type token so L5/L6 can filter to
+          text-postable channels at the render layer. Thread channels
+          are NOT included (``Thread`` is not a ``GuildChannel``); F3
+          defers thread-target discoverability to a future leg.
+        - ``groups``: every guild in ``Client.guilds``.
+          ``metadata["member_count"]`` falls back to ``0`` when the
+          intent-gated ``Guild.member_count`` is ``None``.
+        - ``roles``: every role of every guild, with
+          ``group=f"guild:{guild.id}"`` so the render layer can cluster
+          roles by guild.
+
+        Returns a :class:`DiscoverableEntities` snapshot with
+        ``fetched_at`` set to ``datetime.now(UTC).isoformat()`` (emits
+        the ``+00:00`` offset form).
+        """
+        # M11 F3 L3: ``discord.Client`` cache read — same ``_client``-access
+        # practice as ``disconnect`` at L1068 and the ``_user`` capture at
+        # L350. The SDK's gateway listener populates ``users``, ``guilds``,
+        # and per-guild ``channels``/``roles``; we read from those caches
+        # under the plugin's existing connection-lifetime guarantees. The
+        # Protocol allows any ConnectorClient; in practice the pool only
+        # ever passes back the DiscordClient instance we returned from
+        # connect, so ``cast`` silences the type checker without a runtime
+        # isinstance gate (matches the disconnect precedent).
+        discord_client = cast(DiscordClient, client)._client
+
+        peers_by_id: dict[str, DiscoverableEntity] = {}
+        for user in discord_client.users:
+            uid = str(user.id)
+            if uid in peers_by_id:
+                # Defensive dedup; SDK's ``Client.users`` is already
+                # unique-by-id via ``_users.values()``. Pinned by
+                # ``test_discord_plugin_enumerate_dedupes_users_defensively``.
+                continue
+            peers_by_id[uid] = DiscoverableEntity(
+                id=uid,
+                label=f"@{user.global_name or user.name}",
+                group=None,
+                metadata={"bot": bool(user.bot)},
+            )
+
+        channels: list[DiscoverableEntity] = []
+        for channel in discord_client.get_all_channels():
+            # Every channel from ``get_all_channels()`` has a guild
+            # (the SDK iterates ``for g in self.guilds: yield from
+            # g.channels``); no defensive ``getattr`` needed.
+            channels.append(
+                DiscoverableEntity(
+                    id=str(channel.id),
+                    label=f"#{channel.name}",
+                    group=f"guild:{channel.guild.id}",
+                    metadata={"type": str(channel.type)},
+                )
+            )
+
+        groups: list[DiscoverableEntity] = []
+        roles: list[DiscoverableEntity] = []
+        for guild in discord_client.guilds:
+            groups.append(
+                DiscoverableEntity(
+                    id=str(guild.id),
+                    label=guild.name,
+                    group=None,
+                    # ``member_count`` is intent-gated; collapse ``None``
+                    # to ``0`` for shape stability at the API layer.
+                    metadata={"member_count": guild.member_count or 0},
+                )
+            )
+            for role in guild.roles:
+                roles.append(
+                    DiscoverableEntity(
+                        id=str(role.id),
+                        label=f"@{role.name}",
+                        group=f"guild:{guild.id}",
+                        metadata={
+                            "position": role.position,
+                            "mentionable": role.mentionable,
+                        },
+                    )
+                )
+
+        return DiscoverableEntities(
+            peers=list(peers_by_id.values()),
+            channels=channels,
+            groups=groups,
+            roles=roles,
+            fetched_at=datetime.now(UTC).isoformat(),
+        )
 
     def normalize_session_key(self, inbound: InboundEnvelope) -> SessionKey:
         """Build the canonical :class:`SessionKey` for ``inbound``.

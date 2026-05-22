@@ -717,6 +717,20 @@
     snapshot: snapshot,
     wireEvents: wireEvents,
     renderInviteSection: renderInviteSection,
-    renderDirectiveSection: renderDirectiveSection
+    renderDirectiveSection: renderDirectiveSection,
+    // M11 F3 L5: positional-to-opts bridge to the shared
+    // ``App.studio.discoverableDropdown`` component. The registry
+    // calls this hook with a 5-positional signature; the component
+    // takes a single opts object. Body is mechanical — no internal
+    // logic beyond the parameter remap.
+    renderDiscoverableDropdown: function (account, axis, currentValues, vocab, onChange) {
+      return App.studio.discoverableDropdown({
+        axis: axis,
+        accountId: account.id,
+        currentValues: currentValues,
+        onChange: onChange,
+        vocab: vocab
+      });
+    }
   });
 })();

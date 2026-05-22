@@ -577,3 +577,251 @@ async def test_keys_for_test_returns_current_keys(patch_plugin) -> None:
     assert ("alice", "acct-1") in keys
     assert (_ACCOUNT_POOL_AGENT_SLOT, "acct-1") in keys
     assert len(keys) == 2
+
+
+# ─────────────────────────────────────────────────────────────────
+# M11 F3 L4 tests: discoverable-entities cache + refresh sweep
+# ─────────────────────────────────────────────────────────────────
+
+
+from the_one.connectors.base import DiscoverableEntities, DiscoverableEntity
+
+
+class _DiscoverablePlugin(_StubPlugin):
+    """Stub plugin implementing ``enumerate_discoverable_entities``.
+
+    Returns a configurable snapshot. Tests can mutate
+    ``next_snapshot`` between sweeps to simulate platform-side change
+    (entities appearing / disappearing for stale-carry verification).
+    """
+
+    enumerate_count = 0
+    next_snapshot: DiscoverableEntities = DiscoverableEntities(
+        peers=[
+            DiscoverableEntity(id="u1", label="@alice"),
+            DiscoverableEntity(id="u2", label="@bob"),
+        ],
+        channels=[DiscoverableEntity(id="c1", label="#general")],
+        groups=[DiscoverableEntity(id="g1", label="Guild One")],
+        roles=[DiscoverableEntity(id="r1", label="@everyone", group="guild:g1")],
+        fetched_at="2026-05-22T00:00:00+00:00",
+    )
+
+    def enumerate_discoverable_entities(self, client):  # noqa: ANN001
+        type(self).enumerate_count += 1
+        return type(self).next_snapshot
+
+
+class _HooklessPlugin(_StubPlugin):
+    """Stub plugin that deliberately omits ``enumerate_discoverable_entities``."""
+
+
+@pytest.fixture
+def patch_discoverable_plugin(monkeypatch):
+    """Register :class:`_DiscoverablePlugin` and patch ``_load_account``."""
+    _StubPlugin.connect_count = 0
+    _StubPlugin.disconnect_count = 0
+    _StubClient._instance_count = 0
+    _DiscoverablePlugin.enumerate_count = 0
+    _DiscoverablePlugin.next_snapshot = DiscoverableEntities(
+        peers=[
+            DiscoverableEntity(id="u1", label="@alice"),
+            DiscoverableEntity(id="u2", label="@bob"),
+        ],
+        channels=[DiscoverableEntity(id="c1", label="#general")],
+        groups=[DiscoverableEntity(id="g1", label="Guild One")],
+        roles=[DiscoverableEntity(id="r1", label="@everyone", group="guild:g1")],
+        fetched_at="2026-05-22T00:00:00+00:00",
+    )
+    register_for_test("stub", _DiscoverablePlugin)
+
+    async def _patched_load_account(account_id, encryptor):
+        return _make_stub_account(account_id=account_id)
+
+    monkeypatch.setattr(pool_mod, "_load_account", _patched_load_account)
+    return _DiscoverablePlugin
+
+
+async def test_refresh_loop_populates_cache_for_warm_account_entry(
+    patch_discoverable_plugin, monkeypatch
+) -> None:
+    """A warm account-keyed entry has its discoverable-entities cache
+    populated by the periodic refresh sweep after one tick.
+
+    Monkeypatches the refresh interval down to 10ms and awaits up to
+    1s for the sweep to land the cache write.
+    """
+    monkeypatch.setattr(pool_mod, "_DISCOVERABLE_REFRESH_INTERVAL_SECONDS", 0.01)
+
+    await account_acquire("acct-1")
+    key = (_ACCOUNT_POOL_AGENT_SLOT, "acct-1")
+    entry = pool_mod._pool[key]
+    assert entry.discoverable_entities_cache is None  # not yet populated
+
+    for _ in range(100):
+        await asyncio.sleep(0.02)
+        if entry.discoverable_entities_cache is not None:
+            break
+    assert entry.discoverable_entities_cache is not None
+    assert len(entry.discoverable_entities_cache.peers) == 2
+    assert entry.discoverable_entities_fetched_at_monotonic is not None
+
+
+async def test_refresh_loop_does_not_touch_last_activity(
+    patch_discoverable_plugin,
+) -> None:
+    """The refresh sweep MUST NOT update ``entry.last_activity``.
+
+    If it did, the 5-minute refresh would reset the 30-minute idle
+    TTL on every sweep and warm entries would never be reaped — the
+    cycle-1 race that the leg's design caught.
+    """
+    from the_one.connectors._pool import (
+        _refresh_discoverable_entities_for_account,
+    )
+
+    await account_acquire("acct-1")
+    key = (_ACCOUNT_POOL_AGENT_SLOT, "acct-1")
+    entry = pool_mod._pool[key]
+    before = entry.last_activity
+
+    await asyncio.sleep(0.01)
+    refreshed = await _refresh_discoverable_entities_for_account("acct-1")
+    assert refreshed is True
+    assert entry.last_activity == before
+
+
+async def test_refresh_handles_evicted_entry_gracefully(
+    patch_discoverable_plugin, monkeypatch
+) -> None:
+    """If the entry is evicted between the first lock release and the
+    re-acquire's identity check, the refresh helper bails with ``False``
+    and does NOT raise."""
+    from the_one.connectors._pool import (
+        _refresh_discoverable_entities_for_account,
+    )
+
+    await account_acquire("acct-1")
+    key = (_ACCOUNT_POOL_AGENT_SLOT, "acct-1")
+
+    eviction_done = asyncio.Event()
+    original_hook = _DiscoverablePlugin.enumerate_discoverable_entities
+
+    def _evicting_hook(self, client):  # noqa: ANN001
+        # Simulate concurrent eviction: pop the entry from the pool by
+        # identity-mutating its client to a sentinel that fails the
+        # identity check on re-acquire.
+        entry = pool_mod._pool.get(key)
+        if entry is not None:
+            entry.client = object()  # different identity
+        eviction_done.set()
+        return original_hook(self, client)
+
+    monkeypatch.setattr(
+        _DiscoverablePlugin, "enumerate_discoverable_entities", _evicting_hook
+    )
+
+    refreshed = await _refresh_discoverable_entities_for_account("acct-1")
+    assert refreshed is False
+    assert eviction_done.is_set()
+
+
+async def test_refresh_computes_stale_carry_from_diff(
+    patch_discoverable_plugin,
+) -> None:
+    """Stale-carry is computed as ``prior_cache - new_snapshot`` per axis.
+
+    Cycle 0: cache={A,B,C}; stale_carry={}.
+    Cycle 1: snapshot={A,B}; cache={A,B}; stale_carry={C}.
+    Cycle 2: snapshot={A,B}; cache={A,B}; stale_carry={} (C dropped).
+    """
+    from the_one.connectors._pool import (
+        _refresh_discoverable_entities_for_account,
+    )
+
+    _DiscoverablePlugin.next_snapshot = DiscoverableEntities(
+        peers=[
+            DiscoverableEntity(id="A", label="@alpha"),
+            DiscoverableEntity(id="B", label="@bravo"),
+            DiscoverableEntity(id="C", label="@charlie"),
+        ],
+        fetched_at="2026-05-22T00:00:00+00:00",
+    )
+
+    await account_acquire("acct-1")
+    key = (_ACCOUNT_POOL_AGENT_SLOT, "acct-1")
+
+    assert await _refresh_discoverable_entities_for_account("acct-1") is True
+    entry = pool_mod._pool[key]
+    assert {e.id for e in entry.discoverable_entities_cache.peers} == {"A", "B", "C"}
+    assert entry.discoverable_entities_stale_carry is not None
+    assert entry.discoverable_entities_stale_carry.peers == []
+
+    # Cycle 1: C disappears.
+    _DiscoverablePlugin.next_snapshot = DiscoverableEntities(
+        peers=[
+            DiscoverableEntity(id="A", label="@alpha"),
+            DiscoverableEntity(id="B", label="@bravo"),
+        ],
+        fetched_at="2026-05-22T00:05:00+00:00",
+    )
+    assert await _refresh_discoverable_entities_for_account("acct-1") is True
+    assert {e.id for e in entry.discoverable_entities_cache.peers} == {"A", "B"}
+    assert [e.id for e in entry.discoverable_entities_stale_carry.peers] == ["C"]
+
+    # Cycle 2: still {A, B}; C is now fully gone (was in stale_carry of
+    # cycle 1, but NOT in cache of cycle 2, so the diff excludes it).
+    assert await _refresh_discoverable_entities_for_account("acct-1") is True
+    assert {e.id for e in entry.discoverable_entities_cache.peers} == {"A", "B"}
+    assert entry.discoverable_entities_stale_carry.peers == []
+
+
+async def test_refresh_skips_entries_without_hook(monkeypatch) -> None:
+    """A plugin without ``enumerate_discoverable_entities`` is silently
+    skipped by the sweep — no exception, no cache populated."""
+    from the_one.connectors._pool import _discoverable_refresh_once
+
+    register_for_test("stub", _HooklessPlugin)
+
+    async def _patched_load_account(account_id, encryptor):
+        return _make_stub_account(account_id=account_id)
+
+    monkeypatch.setattr(pool_mod, "_load_account", _patched_load_account)
+
+    await account_acquire("acct-1")
+    key = (_ACCOUNT_POOL_AGENT_SLOT, "acct-1")
+    entry = pool_mod._pool[key]
+    assert entry.discoverable_entities_cache is None
+
+    refreshed_count = await _discoverable_refresh_once()
+    assert refreshed_count == 0
+    assert entry.discoverable_entities_cache is None
+
+
+async def test_refresh_task_started_on_first_account_acquire(
+    patch_discoverable_plugin,
+) -> None:
+    """``_discoverable_refresh_task`` is None before any acquire; after
+    the first ``account_acquire`` the task is running."""
+    assert pool_mod._discoverable_refresh_task is None
+
+    await account_acquire("acct-1")
+    assert pool_mod._discoverable_refresh_task is not None
+    assert not pool_mod._discoverable_refresh_task.done()
+
+
+async def test_shutdown_drain_cancels_refresh_task(
+    patch_discoverable_plugin,
+) -> None:
+    """``shutdown_drain`` cancels the refresh task alongside the reaper
+    and resets it to ``None``."""
+    from the_one.connectors._pool import shutdown_drain
+
+    await account_acquire("acct-1")
+    assert pool_mod._discoverable_refresh_task is not None
+
+    await shutdown_drain()
+
+    assert pool_mod._discoverable_refresh_task is None
+    assert pool_mod._reaper_task is None
+    assert pool_mod._shutting_down is True

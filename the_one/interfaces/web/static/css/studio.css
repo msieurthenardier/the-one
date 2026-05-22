@@ -1192,4 +1192,128 @@
     color: var(--fg-secondary);
     font-size: var(--font-size-body-sm);
   }
+
+  /* Discoverable Dropdown (M11 F3 L5) — live-data combobox shared by
+     L6a's allowlist editor + L6b's routing-rules & per-agent overlay.
+     Visual posture mirrors the existing `.chip-list-editor` (admin.css
+     :388-433): glass-border, panel-radius-sm, inset bezel shadow,
+     accent-glow focus ring. Color tokens are the project's --fg /
+     --fg-secondary / --fg-muted suite (tokens.css :53-69). */
+  .area-studio .discoverable-dropdown,
+  .discoverable-dropdown {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    width: 100%;
+  }
+  .discoverable-dropdown-input-row {
+    display: flex;
+    align-items: stretch;
+    gap: 6px;
+  }
+  .discoverable-dropdown-input {
+    flex: 1;
+    padding: 6px 8px;
+    background: var(--surface);
+    color: var(--fg);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--panel-radius-sm);
+    box-shadow: var(--bezel-shadow-inset);
+    font-size: var(--font-size-body-sm);
+    font-family: inherit;
+    line-height: var(--line-height-normal);
+  }
+  .discoverable-dropdown-input::placeholder {
+    color: var(--fg-muted);
+  }
+  .discoverable-dropdown-input:focus,
+  .discoverable-dropdown-input:focus-visible {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: var(--bezel-shadow-inset), 0 0 0 3px var(--accent-glow);
+  }
+  .discoverable-dropdown-input[disabled] {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+  .discoverable-dropdown-refresh {
+    flex-shrink: 0;
+    padding: 4px 10px;
+    background: var(--accent-translucent);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--panel-radius-sm);
+    color: var(--fg);
+    cursor: pointer;
+    font-size: var(--font-size-body);
+    line-height: 1;
+  }
+  .discoverable-dropdown-refresh:hover {
+    background: var(--accent-translucent-hover, var(--accent-translucent));
+    border-color: var(--accent);
+  }
+  .discoverable-dropdown-refresh:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+    box-shadow: 0 0 0 3px var(--accent-glow);
+  }
+  .discoverable-dropdown-menu {
+    max-height: 260px;
+    overflow-y: auto;
+    background: var(--surface);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--panel-radius-sm);
+    box-shadow: var(--bezel-shadow-inset);
+    padding: 4px 0;
+  }
+  .discoverable-dropdown-menu[hidden] {
+    display: none;
+  }
+  .discoverable-dropdown-group {
+    padding: 2px 0;
+  }
+  .discoverable-dropdown-group[hidden] {
+    display: none;
+  }
+  .discoverable-dropdown-group-header {
+    padding: 4px 10px 2px;
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-tiny);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--fg-muted);
+  }
+  .discoverable-dropdown-item {
+    padding: 4px 10px;
+    color: var(--fg);
+    font-size: var(--font-size-body-sm);
+    cursor: pointer;
+  }
+  .discoverable-dropdown-item[hidden] {
+    display: none;
+  }
+  .discoverable-dropdown-item:hover,
+  .discoverable-dropdown-item--focused {
+    background: var(--accent-translucent);
+  }
+  .discoverable-dropdown-item[aria-selected="true"] {
+    color: var(--accent);
+  }
+  .discoverable-dropdown-chips {
+    /* Inherits the canonical .chip-list-editor styling from admin.css
+       :388-433 (both classes apply). No extra rules needed unless we
+       want to constrain min-height differently — leave to inheritance. */
+  }
+  .discoverable-dropdown-status {
+    min-height: 1em;
+    font-size: var(--font-size-body-sm);
+    color: var(--fg-secondary);
+  }
+  /* Stale-entry styling — scoped to the dropdown's items and chips so
+     the broad ``[data-stale="true"]`` selector stays free for sibling
+     surfaces. */
+  .discoverable-dropdown-item[data-stale="true"],
+  .discoverable-dropdown .chip[data-stale="true"] {
+    text-decoration: line-through;
+    opacity: 0.6;
+  }
 }
