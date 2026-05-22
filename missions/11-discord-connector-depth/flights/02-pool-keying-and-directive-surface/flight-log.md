@@ -238,3 +238,32 @@ Unexpected issues encountered.
 - F1 debrief Architect-checklist (grep cited symbols; walk delegation/lifecycle paths; verify computed constants) applied at flight-design review (cycle 1 caught 2 HIGH + several MED; cycle 2 clean). Apply at every leg-design review cycle too.
 - Symbolic-anchor citations as default discipline per F1 debrief.
 - Dependency ordering: L1 first; L3 before L4 (L4 textarea posts a field L3's validator must accept); L2 and L5 independent; L6 last.
+
+### L6 — `uat-and-alignment` (required HAT)
+
+- **Started**: 2026-05-21
+- **Completed**: 2026-05-21
+- **Status**: landed
+- **Walk shape**: Chrome-MCP-driven, Flight Director drives, operator confirms. Walked against gleepglorp (existing F1 L7 reuse).
+
+#### Verification walk (all 10 steps green)
+
+1. ✅ **Dev server up + Discord Constellation loads with directive section** — Studio loads; editor renders typed Discord form + Invite section + NEW System Prompt Directive section between Pairing and Attached Agents.
+2. ✅ **Directive section structure** — textarea with placeholder + help text; three `<details>` disclosures (all closed); "(this account's current)" annotation on auto-relay-ON disclosure.
+3. ✅ **Disclosure verbatim text** — auto-relay-ON disclosure expanded; verbatim Python `_CONNECTOR_AUTO_RELAY_DIRECTIVE` text rendered ("This conversation is attached to a connector account on an external platform... Auto-relay is ON..."). Browser test `test_three_default_disclosures_render_verbatim_python_text` already pins JS↔Python equality automatically.
+4. ✅ **Annotation reactivity to auto-relay toggle** — uncheck auto-relay → annotation moves to auto-relay-OFF disclosure live (no save). Re-check → annotation moves back to auto-relay-ON. No save needed for the annotation repaint.
+5. ✅ **Directive save round-trip** — typed `"Sign every reply with a coffee emoji ☕."` → Save → GET `/api/connector-accounts/{id}` returns `config.system_prompt_directive` with the saved string; emoji preserved through encoding.
+6. ✅ **Empty directive omits the key** — cleared textarea → Save → GET confirms `system_prompt_directive` NOT in `config` (key omitted, no empty-string noise). Config keys post-save: `[allowlist, auto_relay_platform_replies]`.
+7. ✅ **Pool-keying verification** — substrate-verified via L2's two new pool tests (`test_account_acquire_routes_to_account_keyed_slot` + `test_keys_for_test_returns_current_keys` pinning the `(_ACCOUNT_POOL_AGENT_SLOT, account_id)` tuple shape) AND probe-OK in step 10 (proves `account_acquire` is reachable through the lifespan warm-up path). Real-traffic multi-agent verification deferred — Cave Man + Pirate Bot already attached and gleepglorp hasn't shown doubly-online behavior since F1 L7, which is the implicit empirical pre-check.
+8. ✅ **`data-account-id` attribute** — `.connector-account-editor` element carries `data-account-id="58f1fe5a833f"` matching gleepglorp's ID. F1 L5's hash-parse replacement working.
+9. ✅ **`MASKED_SENTINEL` global constant** — `window.App.studio.MASKED_SENTINEL === '__MASKED__'`.
+10. ✅ **Probe + intents alignment** — Test Connection → "Discord probe ok"; Invite URL still renders with the corrected `permissions=2147552256` (F1 L5 integer). L5's lift means probe now reads `account.config.get("intents")` with byte-identical fallback — confirmed by probe success on account without an explicit intents key (falls back to all-True).
+
+#### Non-blocking observations (logged for follow-up)
+
+- Pool-keying multi-agent real-traffic verification (sending peer messages through Discord from two different attached agents and asserting ONE pool entry handles both) was substrate-verified via L2 unit tests + probe-OK rather than driving actual Discord traffic. The full real-traffic test is M11 F8's scope per the mission's tentative HAT-script flight plan.
+
+#### Methodology notes
+
+- F1 debrief Architect-checklist applied throughout F2 design reviews caught the L2 + L4 + L5 issues at design time that would otherwise have surfaced at HAT (the L1-codified discipline is operational).
+- The L4 directive section's reactive annotation works exactly as specified — the auto-relay toggle on the Access-and-Routing tab triggers a repaint on the General-tab directive disclosures even though they're on different tabs (per design: both tab panels mount synchronously at editor-load time per the M10 F7 L9 contract).
