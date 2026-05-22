@@ -100,6 +100,7 @@ def compose_system_prompt(
     connector_attached: bool = False,
     send_tool_enabled: bool = False,
     auto_relay: bool = True,
+    operator_directive: str | None = None,
 ) -> str:
     """Compose the agent's system prompt.
 
@@ -132,6 +133,18 @@ def compose_system_prompt(
     directive ("plaintext reaches only the operator") produced agents
     that ask for permission to reply on the platform — and then the
     auto-relay posts THAT question to the platform.
+
+    M11 F2 L3: ``operator_directive`` is an APPEND-mode extension. When
+    truthy, it is appended AFTER the selected connector default
+    directive and BEFORE the persona separator — letting the operator
+    add persona/formatting/peer-engagement guidance without overwriting
+    the substrate's behavioral contract (MUST-call-tool /
+    auto-relay-truth / send-disabled-truth). The factory aggregates
+    per-account ``system_prompt_directive`` values across attached
+    connector accounts in sorted-id order and passes the joined string
+    here. The ``operator_directive=None`` default (and the falsy-check
+    on ``""``) preserves byte-identical legacy output for every
+    pre-L3 caller — verified by the existing test cluster.
     """
     parts = [base]
     if connector_attached:
@@ -142,6 +155,8 @@ def compose_system_prompt(
                 parts.append(_CONNECTOR_TOOL_ENABLED_DIRECTIVE)
         else:
             parts.append(_CONNECTOR_TOOL_DISABLED_DIRECTIVE)
+    if operator_directive:
+        parts.append(operator_directive)
     if persona:
         parts.append("---")
         parts.append(persona)

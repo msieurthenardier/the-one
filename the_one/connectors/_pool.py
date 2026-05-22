@@ -1,36 +1,44 @@
-"""Connector account pool — per-(agent, account) keyed worker-task-per-entry registry.
+"""Connector account pool — composite-keyed worker-task-per-entry registry.
 
 Mirrors :mod:`the_one.mcp._pool` at the structural level: module-level
-dict keyed on ``(agent_name, account_id)``; ``asyncio.Lock`` for serialized
-mutations; per-entry worker task that holds the platform connection on a
-SINGLE task — connect AND disconnect run on the same task, satisfying
-anyio's cross-task ``CancelScope.__aexit__`` guard.
+dict keyed on a composite ``(slot, account_id)`` tuple; ``asyncio.Lock``
+for serialized mutations; per-entry worker task that holds the platform
+connection on a SINGLE task — connect AND disconnect run on the same
+task, satisfying anyio's cross-task ``CancelScope.__aexit__`` guard.
 
-Flight 1 lands the pool in two legs:
-  - L5: :class:`_RegistryEntry` (without ``last_activity``), ``_pool``,
-    ``_lock``, :func:`_load_account`, :func:`_entry_worker`,
-    :func:`_evict`, :func:`_evict_all_for_account`, :func:`acquire`
-    (with ``ttl_seconds=0`` placeholder), :func:`_clear_for_test`
-    (without the reaper-cancel branch).
-  - L6 (this leg landed):  ``_DEFAULT_TTL_SECONDS``,
-    ``_REAPER_INTERVAL_SECONDS``, ``_reaper_task`` module state,
-    ``_RegistryEntry.last_activity``, :func:`_resolve_ttl_seconds`,
-    :func:`_ensure_reaper_running_locked`, :func:`_reap_once`,
-    :func:`_reap_loop`, :func:`shutdown_drain`. :func:`acquire` now
-    populates ``ttl_seconds`` via :func:`_resolve_ttl_seconds`, touches
-    ``last_activity`` on every resolution, and spawns the reaper on
-    first insert. :func:`_clear_for_test` cancels the reaper first.
-    FastAPI lifespan integration in :mod:`the_one.interfaces.web.app`.
+Two semantic primitives sit atop one composite-key dict:
+
+  - :func:`agent_acquire` (MCP-style per-agent keying) — used by the F6
+    resolver pattern where ``plugin.resolve(account, agent_name)``
+    legitimately yields different credentials per agent. The slot
+    portion of the key is the agent name.
+  - :func:`account_acquire` (gateway-protocol account-keyed) — used by
+    every connector-subsystem caller (lifespan listener-warmup,
+    ``dispatch_inbound``, F4 platform-send tool, F8 auto-relay). The
+    slot portion is the constant :data:`_ACCOUNT_POOL_AGENT_SLOT` so
+    every connector caller resolves to ONE pool entry — and ONE
+    gateway WebSocket — per account, regardless of how many agents
+    are attached. Gateway-style protocols (Discord Gateway, Slack
+    Socket Mode) are one-IDENTIFY-per-token by physical necessity;
+    per-agent keying would multiplex N agents onto N gateway
+    WebSockets carrying the same token and fail.
+
+Both primitives walk the same composite-key dict; eviction, the reaper
+loop, the encryption-rotation invariant, and the cycle-2 race-fix
+invariant operate uniformly across both slot kinds.
 
 Public API (re-exported from :mod:`the_one.connectors` at leg 8):
-  - :func:`acquire`
+  - :func:`agent_acquire`
+  - :func:`account_acquire`
   - :func:`shutdown_drain`
 
 Internal symbols (underscore-prefixed; tests reach in for ``_clear_for_test``
 and friends):
   - :class:`_RegistryEntry`, ``_pool``, ``_lock``, ``_shutting_down``
+  - :data:`_ACCOUNT_POOL_AGENT_SLOT`
   - :func:`_load_account`, :func:`_entry_worker`, :func:`_evict`,
-    :func:`_evict_all_for_account`, :func:`_clear_for_test`
+    :func:`_evict_all_for_account`, :func:`_clear_for_test`,
+    :func:`_keys_for_test`
 
 Race-handling invariant (mirroring MCP's cycle-2 fix):
   The lock-held branch checks ``entry is None`` (NOT ``entry.client is
@@ -85,11 +93,11 @@ evicted on the next sweep. Tests can monkeypatch for fast sweeps."""
 @dataclass
 class _RegistryEntry:
     """A pool entry. Holds connection state shared between the entry
-    worker and any concurrent :func:`acquire` callers waiting on
+    worker and any concurrent :func:`agent_acquire` callers waiting on
     ``client_ready``.
 
     Mirrors :class:`the_one.mcp._pool._RegistryEntry`. ``ttl_seconds`` is
-    resolved at :func:`acquire` time via :func:`_resolve_ttl_seconds`;
+    resolved at :func:`agent_acquire` time via :func:`_resolve_ttl_seconds`;
     the reaper consumes this value to decide when the entry is idle past
     its budget.
     """
@@ -119,33 +127,20 @@ _shutting_down: bool = False
 _reaper_task: asyncio.Task[None] | None = None
 
 
-# M10 F8 L11 HAT Fix #6: Sentinel agent_name for connector-account-shared
-# pool entries. The original pool keying ``(agent_name, account_id)`` —
-# inherited structurally from :mod:`the_one.mcp._pool` — meant that N
-# agents attached to one Discord connector account each spawned a
-# separate pool entry, a separate ``plugin.connect`` call, and a
-# separate gateway WebSocket carrying the SAME bot token. Discord's
-# Gateway rejects the second IDENTIFY frame on a duplicate token, so
-# multi-agent routing on a single connector account is structurally
-# broken on the bare per-agent keying.
+# Slot literal occupying the per-agent portion of the composite key
+# when an entry is account-shared (i.e. created via
+# :func:`account_acquire`). The two acquire primitives walk the same
+# ``_pool`` dict; the slot value distinguishes per-agent entries
+# (``slot == agent_name``) from account-shared entries
+# (``slot == _ACCOUNT_POOL_AGENT_SLOT``).
 #
-# All connector-subsystem callers (lifespan listener-warmup,
-# ``dispatch_inbound`` step 10, F4 platform-send tool, F8 auto-relay)
-# MUST acquire via :func:`connector_acquire` below — which routes
-# every connector-side caller through ONE pool entry per account
-# (keyed on this sentinel + the account id), guaranteeing ONE
-# gateway connection per bot.
-#
-# Per-agent credential substitution is OUT OF SCOPE for connectors:
-# gateway-style protocols (Discord Gateway, Slack Socket Mode) are
-# physically one-connection-per-token, so per-agent token rotation
-# does not make semantic sense for the connector axis. The bare
-# :func:`acquire` is preserved for MCP-style per-agent pools where
-# the F6 ``resolve`` hook + substitute pattern legitimately produces
-# different credentials per agent. A future connector type that
-# needs per-agent credentials can opt OUT of the shared pool by
-# calling :func:`acquire` directly.
-_CONNECTOR_POOL_AGENT_SENTINEL = "__connector__"
+# The literal value ``"__connector__"`` is preserved verbatim from the
+# F8 L11 sentinel so the composite-key tuples in any pre-deploy warm
+# pool match the post-deploy key shape — no eviction churn at swap
+# time. (M11 F2 L2 split the public API into the two primitives; the
+# F8 L11 retrofit was a tactical patch.) Treat as a module-private
+# implementation detail: not exported, not part of the public API.
+_ACCOUNT_POOL_AGENT_SLOT = "__connector__"
 
 
 def _resolve_ttl_seconds(override: int | None = None) -> int:
@@ -157,7 +152,7 @@ def _resolve_ttl_seconds(override: int | None = None) -> int:
     monkeypatching works; mirrors :func:`the_one.mcp._pool._resolve_ttl_seconds`.
 
     The override is the per-account ``ConnectorAccount.idle_timeout_seconds``
-    value, passed through by :func:`acquire`. The pool stays ignorant of
+    value, passed through by :func:`agent_acquire`. The pool stays ignorant of
     which model field drives the override; the model owns the field name,
     the resolver owns the precedence. The ``override is not None`` guard
     short-circuits BEFORE the env-var read by design — the operator's
@@ -192,7 +187,7 @@ async def _load_account(account_id: str, encryptor: Encryptor) -> ConnectorAccou
 
     Takes ``encryptor`` explicitly rather than calling ``get_encryptor`` —
     avoids double-call drift if test fixtures swap ``settings.data_dir`` or
-    wipe ``_encryptor_cache``. The single resolution point is :func:`acquire`.
+    wipe ``_encryptor_cache``. The single resolution point is :func:`agent_acquire`.
 
     ``get_connection`` and ``ConnectorAccountRepository`` are imported
     function-locally to break a module-import cycle: ``repositories.py``
@@ -285,8 +280,9 @@ async def _evict_all_for_account(account_id: str) -> None:
     """Evict every pool entry whose key matches ``account_id`` across all agents.
 
     Called when an operator updates a connector account's credentials
-    (flight 2) so the next ``acquire(agent_name, account_id)`` for the
-    same account spawns a fresh worker with the new credentials.
+    (flight 2) so the next ``agent_acquire(agent_name, account_id)`` or
+    ``account_acquire(account_id)`` for the same account spawns a fresh
+    worker with the new credentials.
     Without this, the warm cache would hand out a stale-credential
     ``ConnectorClient`` indefinitely.
 
@@ -310,7 +306,7 @@ async def _ensure_reaper_running_locked() -> None:
     """Spawn the reaper Task if not already running.
 
     MUST be called under ``_lock`` — avoids a double-spawn race when two
-    concurrent :func:`acquire` calls for different keys both try to start
+    concurrent :func:`agent_acquire` calls for different keys both try to start
     the reaper in parallel. Mirrors
     :func:`the_one.mcp._pool._ensure_reaper_running_locked`.
     """
@@ -334,7 +330,7 @@ async def _reap_once() -> list[tuple[str, str]]:
     Guards ``entry.client is not None`` — entries mid-connect have not
     yet had their ``client`` populated and are NOT reaped this pass.
     The worker that eventually populates ``entry.client`` also updates
-    ``entry.last_activity``-style state through :func:`acquire`'s
+    ``entry.last_activity``-style state through :func:`agent_acquire`'s
     return-path touch, so a freshly-connected entry is not immediately
     eligible for the next sweep either.
     """
@@ -396,11 +392,12 @@ async def shutdown_drain() -> None:
 
     Wired into the FastAPI ``lifespan`` shutdown branch between the MCP
     pool drain and the OAuth periodic-sweep stop. After this runs,
-    :func:`acquire` raises ``RuntimeError`` for any late-arriving caller.
+    :func:`agent_acquire` raises ``RuntimeError`` for any late-arriving caller.
 
     Order:
-      1. Set ``_shutting_down = True`` FIRST so any concurrent ``acquire``
-         sees the flag at the next lock acquisition.
+      1. Set ``_shutting_down = True`` FIRST so any concurrent
+         ``agent_acquire``/``account_acquire`` sees the flag at the next
+         lock acquisition.
       2. Cancel ``_reaper_task``; suppress ``CancelledError`` on its await
          (the reaper's own ``CancelledError`` handler runs the drain).
       3. Belt-and-suspenders: snapshot any remaining keys (rare — the
@@ -433,7 +430,7 @@ async def shutdown_drain() -> None:
     _reaper_task = None
 
 
-async def acquire(agent_name: str, account_id: str) -> ConnectorClient:
+async def agent_acquire(agent_name: str, account_id: str) -> ConnectorClient:
     """Look up or spawn the warm :class:`ConnectorClient` for ``(agent, account)``.
 
     Per the cycle-2 race-handling invariant inherited from MCP: pre-load
@@ -509,25 +506,25 @@ async def acquire(agent_name: str, account_id: str) -> ConnectorClient:
     return client
 
 
-async def connector_acquire(account_id: str) -> ConnectorClient:
+async def account_acquire(account_id: str) -> ConnectorClient:
     """Acquire a connector-account-shared pool entry.
 
-    Equivalent to ``acquire(_CONNECTOR_POOL_AGENT_SENTINEL, account_id)``
-    but expresses the intent: gateway connections are account-shared,
-    not per-agent. All connector-subsystem callers (lifespan
-    listener-warmup, ``dispatch_inbound`` step 10, F4 platform-send
-    tool, F8 auto-relay) MUST use this wrapper instead of the bare
-    ``acquire(agent_name, account_id)``.
+    Routes every caller through ONE pool entry per account by pinning
+    the slot portion of the composite key to
+    :data:`_ACCOUNT_POOL_AGENT_SLOT`. All connector-subsystem callers
+    (lifespan listener-warmup, ``dispatch_inbound``, F4 platform-send
+    tool, F8 auto-relay) MUST use this primitive instead of
+    :func:`agent_acquire`.
 
-    Per the M10 F8 L11 HAT Fix #6 design, this guarantees ONE pool
-    entry — and ONE gateway WebSocket — per connector account
-    regardless of how many agents are attached. The bare
-    :func:`acquire` stays for MCP-style per-agent pools where
-    credential substitution differs per agent; for connectors,
-    per-agent credentials are out of scope because gateway-style
-    protocols are physically one-connection-per-token.
+    This expresses the gateway-protocol constraint structurally:
+    Discord Gateway, Slack Socket Mode, and similar gateway-style
+    protocols are one-IDENTIFY-per-token by physical necessity, so
+    per-agent keying is incompatible with the protocol shape.
+    :func:`agent_acquire` remains for MCP-style per-agent pools where
+    the F6 resolver pattern legitimately produces different
+    credentials per agent.
     """
-    return await acquire(_CONNECTOR_POOL_AGENT_SENTINEL, account_id)
+    return await agent_acquire(_ACCOUNT_POOL_AGENT_SLOT, account_id)
 
 
 async def _clear_for_test() -> None:
@@ -572,3 +569,14 @@ async def _clear_for_test() -> None:
                 await worker
 
     _shutting_down = False
+
+
+def _keys_for_test() -> list[tuple[str, str]]:
+    """Test seam: snapshot the current pool keys.
+
+    Pure read — no lock acquisition required for the snapshot semantics
+    tests need. Used by HAT inspection (L6) and by the L2 pinning tests
+    that verify :func:`account_acquire` produces an entry at
+    ``(_ACCOUNT_POOL_AGENT_SLOT, account_id)``.
+    """
+    return list(_pool.keys())

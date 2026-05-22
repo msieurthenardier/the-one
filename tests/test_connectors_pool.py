@@ -43,9 +43,12 @@ import pytest
 
 from the_one.connectors import _pool as pool_mod
 from the_one.connectors._pool import (
+    _ACCOUNT_POOL_AGENT_SLOT,
     _evict,
     _evict_all_for_account,
-    acquire,
+    _keys_for_test,
+    account_acquire,
+    agent_acquire,
 )
 from the_one.connectors.base import DoctorReport, SessionKey
 from the_one.connectors.errors import (
@@ -165,14 +168,14 @@ class _FailingPlugin(_StubPlugin):
 
 
 async def test_acquire_lazy_spawns_on_first_call(patch_plugin) -> None:
-    client = await acquire("agent-a", "acct-1")
+    client = await agent_acquire("agent-a", "acct-1")
     assert isinstance(client, _StubClient)
     assert _StubPlugin.connect_count == 1
 
 
 async def test_acquire_reuses_warm_entry(patch_plugin) -> None:
-    client1 = await acquire("agent-a", "acct-1")
-    client2 = await acquire("agent-a", "acct-1")
+    client1 = await agent_acquire("agent-a", "acct-1")
+    client2 = await agent_acquire("agent-a", "acct-1")
     assert client1 is client2
     assert _StubPlugin.connect_count == 1
 
@@ -198,7 +201,7 @@ async def test_concurrent_acquire_same_key_shares_one_worker(patch_plugin) -> No
     register_for_test("stub", _SlowStubPlugin)
 
     results = await asyncio.gather(
-        *(acquire("agent-a", "acct-1") for _ in range(10))
+        *(agent_acquire("agent-a", "acct-1") for _ in range(10))
     )
     assert _SlowStubPlugin.connect_count == 1  # exactly ONE worker spawned
     first = results[0]
@@ -207,8 +210,8 @@ async def test_concurrent_acquire_same_key_shares_one_worker(patch_plugin) -> No
 
 
 async def test_different_keys_spawn_independent_workers(patch_plugin) -> None:
-    c1 = await acquire("agent-a", "acct-1")
-    c2 = await acquire("agent-a", "acct-2")
+    c1 = await agent_acquire("agent-a", "acct-1")
+    c2 = await agent_acquire("agent-a", "acct-2")
     assert c1 is not c2
     assert _StubPlugin.connect_count == 2
 
@@ -217,7 +220,7 @@ async def test_connect_failure_propagates(patch_plugin, monkeypatch) -> None:
     register_for_test("stub", _FailingPlugin)
     _FailingPlugin.connect_count = 0
     with pytest.raises(ConnectorConnectionError, match="simulated connect failure"):
-        await acquire("agent-a", "acct-1")
+        await agent_acquire("agent-a", "acct-1")
     # Entry popped on failure.
     assert pool_mod._pool == {}
 
@@ -226,7 +229,7 @@ async def test_concurrent_acquire_with_failure_pops_once(patch_plugin) -> None:
     register_for_test("stub", _FailingPlugin)
     _FailingPlugin.connect_count = 0
     results = await asyncio.gather(
-        *(acquire("agent-a", "acct-1") for _ in range(5)),
+        *(agent_acquire("agent-a", "acct-1") for _ in range(5)),
         return_exceptions=True,
     )
     # All callers see the same exception type.
@@ -242,8 +245,8 @@ async def test_evict_idempotent_on_missing_key() -> None:
 
 async def test_evict_all_for_account_flushes_warm_entries(patch_plugin) -> None:
     # Spawn two warm entries for the same account under different agents.
-    c1 = await acquire("agent-a", "acct-1")
-    c2 = await acquire("agent-b", "acct-1")
+    c1 = await agent_acquire("agent-a", "acct-1")
+    c2 = await agent_acquire("agent-b", "acct-1")
     assert _StubPlugin.connect_count == 2
     # Different agents, same account → distinct keys, both warm.
     assert len(pool_mod._pool) == 2
@@ -264,7 +267,7 @@ async def test_clear_for_test_round_trips_across_iterations(patch_plugin) -> Non
     Note: the autouse fixture runs AFTER each test, so to exercise the
     round-trip in a single test we call _clear_for_test manually.
     """
-    await acquire("agent-a", "acct-1")
+    await agent_acquire("agent-a", "acct-1")
     assert len(pool_mod._pool) == 1
     assert pool_mod._shutting_down is False
 
@@ -274,7 +277,7 @@ async def test_clear_for_test_round_trips_across_iterations(patch_plugin) -> Non
     assert pool_mod._shutting_down is False  # _clear_for_test does not leak True
 
     # Subsequent acquire works cleanly.
-    client = await acquire("agent-a", "acct-1")
+    client = await agent_acquire("agent-a", "acct-1")
     assert isinstance(client, _StubClient)
 
 
@@ -297,7 +300,7 @@ async def test_acquire_unknown_account_type_raises_registration_error(monkeypatc
     clear_for_test()
 
     with pytest.raises(ConnectorRegistrationError):
-        await acquire("agent-a", "acct-1")
+        await agent_acquire("agent-a", "acct-1")
 
 
 async def test_load_account_runs_outside_lock(patch_plugin, monkeypatch) -> None:
@@ -317,7 +320,7 @@ async def test_load_account_runs_outside_lock(patch_plugin, monkeypatch) -> None
 
     monkeypatch.setattr(pool_mod, "_load_account", _checking_load_account)
 
-    await acquire("agent-a", "acct-1")
+    await agent_acquire("agent-a", "acct-1")
 
     assert locked_during_load is False, (
         "_load_account ran while _lock was held — cycle-2 race-fix invariant violated"
@@ -332,7 +335,7 @@ async def test_entry_ttl_seconds_is_resolved_at_acquire_time(patch_plugin) -> No
     ``_DEFAULT_TTL_SECONDS``."""
     from the_one.connectors._pool import _DEFAULT_TTL_SECONDS
 
-    await acquire("agent-a", "acct-1")
+    await agent_acquire("agent-a", "acct-1")
     entry = pool_mod._pool[("agent-a", "acct-1")]
     assert entry.ttl_seconds == _DEFAULT_TTL_SECONDS, (
         f"Expected {_DEFAULT_TTL_SECONDS}, got {entry.ttl_seconds}"
@@ -343,7 +346,7 @@ async def test_acquire_during_shutdown_raises_runtime_error(patch_plugin) -> Non
     pool_mod._shutting_down = True
     try:
         with pytest.raises(RuntimeError, match="shutting down"):
-            await acquire("agent-a", "acct-1")
+            await agent_acquire("agent-a", "acct-1")
     finally:
         pool_mod._shutting_down = False  # local cleanup; autouse fixture also restores
 
@@ -433,11 +436,11 @@ async def test_acquire_spawns_reaper(patch_plugin) -> None:
     """
     assert pool_mod._reaper_task is None
 
-    await acquire("agent-a", "acct-1")
+    await agent_acquire("agent-a", "acct-1")
     assert pool_mod._reaper_task is not None
     first_task = pool_mod._reaper_task
 
-    await acquire("agent-b", "acct-2")
+    await agent_acquire("agent-b", "acct-2")
     assert pool_mod._reaper_task is first_task
 
 
@@ -446,7 +449,7 @@ async def test_reap_once_evicts_idle_entries(patch_plugin) -> None:
     ``_reap_once`` returns the key and evicts the entry."""
     from the_one.connectors._pool import _reap_once
 
-    await acquire("agent-a", "acct-1")
+    await agent_acquire("agent-a", "acct-1")
     entry = pool_mod._pool[("agent-a", "acct-1")]
     entry.last_activity = 0.0  # very old — definitely past any TTL
 
@@ -460,7 +463,7 @@ async def test_reap_once_does_not_evict_fresh_entries(patch_plugin) -> None:
     ``_reap_once`` returns the empty list and the pool is unchanged."""
     from the_one.connectors._pool import _reap_once
 
-    await acquire("agent-a", "acct-1")
+    await agent_acquire("agent-a", "acct-1")
     expired = await _reap_once()
     assert expired == []
     assert ("agent-a", "acct-1") in pool_mod._pool
@@ -498,12 +501,12 @@ async def test_acquire_updates_last_activity_on_warm_reuse(patch_plugin) -> None
     though the warm worker is reused — the touch is unconditional in the
     return path. A small sleep ensures ``time.monotonic`` advances on
     coarse-clock hosts (WSL2 / CI)."""
-    await acquire("agent-a", "acct-1")
+    await agent_acquire("agent-a", "acct-1")
     entry = pool_mod._pool[("agent-a", "acct-1")]
     first_activity = entry.last_activity
 
     await asyncio.sleep(0.05)
-    await acquire("agent-a", "acct-1")
+    await agent_acquire("agent-a", "acct-1")
     assert entry.last_activity > first_activity
 
 
@@ -513,8 +516,8 @@ async def test_shutdown_drain_cancels_reaper_and_drains_pool(patch_plugin) -> No
     Subsequent acquire raises ``RuntimeError``."""
     from the_one.connectors._pool import shutdown_drain
 
-    await acquire("agent-a", "acct-1")
-    await acquire("agent-b", "acct-2")
+    await agent_acquire("agent-a", "acct-1")
+    await agent_acquire("agent-b", "acct-2")
     assert len(pool_mod._pool) == 2
     assert pool_mod._reaper_task is not None
 
@@ -525,20 +528,52 @@ async def test_shutdown_drain_cancels_reaper_and_drains_pool(patch_plugin) -> No
     assert pool_mod._shutting_down is True
 
     with pytest.raises(RuntimeError, match="shutting down"):
-        await acquire("agent-c", "acct-3")
+        await agent_acquire("agent-c", "acct-3")
 
 
 async def test_clear_for_test_cancels_reaper(patch_plugin) -> None:
     """``_clear_for_test`` cancels the reaper FIRST (before the worker-
     cancel loop) and resets ``_reaper_task = None``. A subsequent acquire
     spawns a fresh reaper distinct from the one we just cancelled."""
-    await acquire("agent-a", "acct-1")
+    await agent_acquire("agent-a", "acct-1")
     assert pool_mod._reaper_task is not None
     first_task = pool_mod._reaper_task
 
     await pool_mod._clear_for_test()
     assert pool_mod._reaper_task is None
 
-    await acquire("agent-a", "acct-1")
+    await agent_acquire("agent-a", "acct-1")
     assert pool_mod._reaper_task is not None
     assert pool_mod._reaper_task is not first_task
+
+
+async def test_account_acquire_routes_to_account_keyed_slot(patch_plugin) -> None:
+    """``account_acquire(account_id)`` produces a pool entry at
+    ``(_ACCOUNT_POOL_AGENT_SLOT, account_id)`` — the slot portion of the
+    composite key is the constant sentinel, NOT an agent name. Pins the
+    F2 L2 contract: every connector-subsystem caller resolves to ONE pool
+    entry per account regardless of how many agents are attached.
+    """
+    client = await account_acquire("acct-1")
+    assert isinstance(client, _StubClient)
+    keys = _keys_for_test()
+    assert (_ACCOUNT_POOL_AGENT_SLOT, "acct-1") in keys
+    # Exactly one entry was created — no per-agent shadowing.
+    assert len(keys) == 1
+
+
+async def test_keys_for_test_returns_current_keys(patch_plugin) -> None:
+    """``_keys_for_test`` reflects the live pool state.
+
+    Empty pool ⇒ empty list. After mixed ``agent_acquire`` +
+    ``account_acquire`` calls, both kinds of slot keys appear.
+    """
+    assert _keys_for_test() == []
+
+    await agent_acquire("alice", "acct-1")
+    await account_acquire("acct-1")
+
+    keys = set(_keys_for_test())
+    assert ("alice", "acct-1") in keys
+    assert (_ACCOUNT_POOL_AGENT_SLOT, "acct-1") in keys
+    assert len(keys) == 2

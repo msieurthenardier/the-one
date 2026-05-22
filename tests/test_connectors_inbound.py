@@ -348,7 +348,7 @@ async def test_dispatch_inbound_touches_pool_last_activity(isolated_db) -> None:
     # M10 F8 L11 HAT Fix #6: pool keys on the connector sentinel,
     # not the agent name — all agents attached to one account share
     # one gateway connection.
-    key = (pool_mod._CONNECTOR_POOL_AGENT_SENTINEL, "acct-test")
+    key = (pool_mod._ACCOUNT_POOL_AGENT_SLOT, "acct-test")
     assert key in pool_mod._pool
     before = pool_mod._pool[key].last_activity
 
@@ -1334,7 +1334,7 @@ async def test_auto_relay_does_not_fire_on_operator_console_inbound(
 async def test_multi_agent_auto_relay_shares_one_pool_client(
     isolated_db,
 ) -> None:
-    """Auto-relay's pool acquire goes through ``connector_acquire`` so
+    """Auto-relay's pool acquire goes through ``account_acquire`` so
     every agent attached to one connector account relays via the SAME
     ``ConnectorClient`` instance.
 
@@ -1408,7 +1408,7 @@ async def test_multi_agent_auto_relay_shares_one_pool_client(
     ]
     assert len(keys_for_account) == 1
     assert keys_for_account[0] == (
-        pool_mod._CONNECTOR_POOL_AGENT_SENTINEL,
+        pool_mod._ACCOUNT_POOL_AGENT_SLOT,
         "acct-test",
     )
 
@@ -2095,7 +2095,7 @@ class TestF7RoutingIntegration:
         """One attached agent with an ACL that denies the peer → routing
         engine returns ``decision.agent=None`` → dispatcher emits the
         peer-facing "No agents available for this conversation." via
-        the system-outbound path (``pool_acquire → client.send``).
+        the system-outbound path (``account_acquire → client.send``).
         ``agent.step`` does NOT run."""
         # Single agent with peers ACL that denies the peer.
         await _seed_provider_and_agent(
@@ -2236,17 +2236,18 @@ class TestF7RoutingIntegration:
         self, isolated_db, monkeypatch
     ) -> None:
         """Routing picks ``alpha`` via first-eligible-alphabetical, but
-        ``connector_acquire(…)`` raises ``ConnectorRegistrationError``
+        ``account_acquire(…)`` raises ``ConnectorRegistrationError``
         → dispatcher returns; audit entry carries the routing
         ``reason="first-eligible"`` AND the overloaded ``disposition=
         "no-eligible"`` (pool-failure-overload). Pins the documented
         overload behaviour so a future refactor doesn't silently flip
         it.
 
-        M10 F8 L11 HAT Fix #6: pool key is now ``(__connector__,
-        account_id)`` not ``(agent_name, account_id)`` — the test
-        monkeypatches ``connector_acquire`` on the inbound module
-        instead of the bare ``pool_acquire``.
+        Pool key is ``(_ACCOUNT_POOL_AGENT_SLOT, account_id)`` (M11 F2 L2;
+        formerly the F8 L11 sentinel-wrapper retrofit) not
+        ``(agent_name, account_id)`` — the test monkeypatches
+        ``account_acquire`` on the inbound module instead of the bare
+        ``agent_acquire``.
         """
         await _seed_provider_and_agent(
             agent_name="alpha", connector_account_ids=["acct-test"]
@@ -2254,17 +2255,17 @@ class TestF7RoutingIntegration:
         await _seed_stub_account()
         register_for_test("stub", StubPlugin)
 
-        # Monkeypatch the connector_acquire used INSIDE _inbound to raise.
+        # Monkeypatch the account_acquire used INSIDE _inbound to raise.
         from the_one.connectors import _inbound as inbound_mod_local
         from the_one.connectors.errors import ConnectorRegistrationError
 
-        async def _raising_connector_acquire(account_id: str):
+        async def _raising_account_acquire(account_id: str):
             raise ConnectorRegistrationError(
                 f"forced for account={account_id}"
             )
 
         monkeypatch.setattr(
-            inbound_mod_local, "connector_acquire", _raising_connector_acquire
+            inbound_mod_local, "account_acquire", _raising_account_acquire
         )
 
         inner = await _make_factory()
@@ -2546,8 +2547,8 @@ class TestF7RoutingIntegration:
         level.
 
         Post-Fix-#6: every connector-side caller routes through
-        :func:`connector_acquire` which keys on the
-        ``_CONNECTOR_POOL_AGENT_SENTINEL`` instead of the routed
+        :func:`account_acquire` which keys on the
+        ``_ACCOUNT_POOL_AGENT_SLOT`` instead of the routed
         agent's name. This test attaches TWO agents to one account,
         drives routing through each in turn (rule-match then alpha-
         fallback on a separate channel), and asserts that the pool
@@ -2598,7 +2599,7 @@ class TestF7RoutingIntegration:
         ]
         assert len(keys_for_account) == 1, keys_for_account
         assert keys_for_account[0] == (
-            pool_mod._CONNECTOR_POOL_AGENT_SENTINEL,
+            pool_mod._ACCOUNT_POOL_AGENT_SLOT,
             "acct-test",
         )
 
@@ -2663,7 +2664,7 @@ class TestF7RoutingIntegration:
         self, isolated_db
     ) -> None:
         """Single-agent regression: even with one attached agent, the
-        pool entry keys on ``_CONNECTOR_POOL_AGENT_SENTINEL`` — not on
+        pool entry keys on ``_ACCOUNT_POOL_AGENT_SLOT`` — not on
         the routed agent's name. Pins the keying invariant so a
         future refactor cannot silently fall back to the bare
         ``acquire(agent_name, account_id)`` shape that pre-Fix-#6
@@ -2679,12 +2680,12 @@ class TestF7RoutingIntegration:
         # The agent's name does NOT appear in the pool keys.
         agent_keyed = [
             k for k in pool_mod._pool
-            if k[0] != pool_mod._CONNECTOR_POOL_AGENT_SENTINEL
+            if k[0] != pool_mod._ACCOUNT_POOL_AGENT_SLOT
             and k[1] == "acct-test"
         ]
         assert agent_keyed == [], agent_keyed
         # The sentinel-keyed entry exists.
         assert (
-            pool_mod._CONNECTOR_POOL_AGENT_SENTINEL,
+            pool_mod._ACCOUNT_POOL_AGENT_SLOT,
             "acct-test",
         ) in pool_mod._pool

@@ -5,7 +5,7 @@ so it surfaces in the existing built-in-tools admin grid; operator
 enable/disable lives at :class:`ToolConfigRepository.enabled`.
 
 The tool delivers content to the external platform via the F1 pool's
-``acquire`` → ``client.send`` path. Validation in :meth:`execute`
+``account_acquire`` → ``client.send`` path. Validation in :meth:`execute`
 covers shape (the JSON Schema layer is permissive at the LLM boundary
 but defensive validation here protects the pool from malformed inputs)
 and account-scope (``target.account_id`` must be in the agent's attached
@@ -34,8 +34,7 @@ from __future__ import annotations
 from typing import Any
 
 from the_one.connectors import PLATFORM_SEND_OK_PREFIX
-from the_one.connectors._pool import acquire as pool_acquire
-from the_one.connectors._pool import connector_acquire
+from the_one.connectors._pool import account_acquire
 from the_one.connectors.base import OutboundTarget
 from the_one.connectors.errors import ConnectorClientError, ConnectorRegistrationError
 from the_one.tools.base import Tool
@@ -191,7 +190,7 @@ class SendToPlatformChannelTool(Tool):
         # is still relevant for ACL evaluation above; just not for
         # the connector pool key.
         try:
-            client = await connector_acquire(account_id)
+            client = await account_acquire(account_id)
         except (KeyError, ConnectorRegistrationError, ConnectorClientError, RuntimeError) as exc:
             return f"[error] {type(exc).__name__}: {exc}"
 

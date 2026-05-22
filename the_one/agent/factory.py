@@ -341,6 +341,49 @@ class AgentFactory:
                     auto_relay = False
                     break
 
+        # M11 F2 L3: per-account system-prompt directive collection.
+        # ==============================================================
+        # Iterates ``sorted(config.connector_account_ids)`` for
+        # deterministic prompt-cache stability — an explicit divergence
+        # from the auto-relay aggregation above, which keeps persisted
+        # list-order because its first-opt-out short-circuit is
+        # order-sensitive. Sorted iteration on str is lexicographic-by-
+        # Unicode-codepoint, Timsort-stable, locale-independent,
+        # identical across CPython 3.x.
+        #
+        # Drops None / missing directive values; joins remaining with
+        # ``"\n\n"``. Empty result → ``operator_directive`` stays None
+        # (no composer effect).
+        #
+        # GUARD DIFFERS from auto-relay: directives apply even when the
+        # send tool is disabled — the operator may want to author
+        # guidance for the disabled-tool default just as much as the
+        # enabled-tool ones. So DO NOT gate on ``send_tool_enabled``.
+        #
+        # ``directive_account_repo`` is a LOCAL instance — not hoisted
+        # above the auto-relay block — because the two blocks have
+        # different guards (the connector-attached-but-tool-disabled
+        # path runs this block but not the auto-relay one). Repo
+        # construction is cheap (reuses the already-resolved ``conn`` +
+        # ``encryptor``); the duplicate instance in the both-blocks-run
+        # path is acceptable overhead.
+        operator_directive: str | None = None
+        if connector_attached and config.connector_account_ids:
+            directive_account_repo = ConnectorAccountRepository(conn, encryptor)
+            directives: list[str] = []
+            for account_id in sorted(config.connector_account_ids):
+                try:
+                    account = await directive_account_repo.get(account_id)
+                except KeyError:
+                    # Deleted account in the ID list — skip silently;
+                    # mirrors the auto-relay block's handling above.
+                    continue
+                directive = account.config.get("system_prompt_directive")
+                if directive:
+                    directives.append(directive)
+            if directives:
+                operator_directive = "\n\n".join(directives)
+
         # 3. Build filtered tool registry — fresh ToolRegistry per call,
         # populated with fresh per-agent tool instances (the provider
         # invokes the resolver internally per Decision 10). The filter
@@ -455,6 +498,7 @@ class AgentFactory:
             connector_attached=connector_attached,
             send_tool_enabled=send_tool_enabled,
             auto_relay=auto_relay,
+            operator_directive=operator_directive,
         )
 
         # 4. Create agent

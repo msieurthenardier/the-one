@@ -44,7 +44,13 @@
   window.App = window.App || {};
   window.App.studio = window.App.studio || {};
 
-  var MASKED_SENTINEL = '__MASKED__';
+  // M11 F2 L4: ``MASKED_SENTINEL`` is hoisted to
+  // ``window.App.studio.MASKED_SENTINEL`` (set in
+  // ``connector-form-registry.js`` at module-load time — the studio's
+  // earliest-loading module). The local declaration was deleted in
+  // L4 to remove the duplication between this file and
+  // ``connector-form-discord.js``. Use sites read the shared
+  // constant directly: ``window.App.studio.MASKED_SENTINEL``.
 
   // M11 F1 L6 — Display-text vocabulary substitution. The substrate's
   // persisted vocabulary stays at "peer / channel / guild / role"
@@ -261,7 +267,17 @@
 
     // ── Header ─────────────────────────────────────────────────────────
     var html = '';
-    html += '<div class="connector-account-editor">';
+    // M11 F2 L4: ``data-account-id`` is set ONLY in edit mode. Create
+    // mode (and the F1 L7 stub re-mount path that picks Discord) keeps
+    // the attribute absent because ``account.id`` doesn't exist yet.
+    // The attribute is the new authoritative source for
+    // ``connector-form-discord.js:_resolveAccountFromContainer`` —
+    // replaces the prior ``window.location.hash`` parse.
+    var editorRootAttrs = '';
+    if (!isCreate && account && account.id) {
+      editorRootAttrs = ' data-account-id="' + escapeAttr(String(account.id)) + '"';
+    }
+    html += '<div class="connector-account-editor"' + editorRootAttrs + '>';
     html += '<div class="editor-header">';
     html += '<div class="editor-header-text">';
     html += '<h1 class="editor-title">' + escapeHtml(name) + '</h1>';
@@ -431,6 +447,24 @@
       }
     }
 
+    // Directive section (edit mode only) — M11 F2 L4.
+    // The System Prompt Directive section is registry-mediated through
+    // the same registry used for the invite section. The active
+    // connector type's entry provides an OPTIONAL
+    // ``renderDirectiveSection(account)`` hook. Unregistered types
+    // (e.g. ``'stub'``) or types without the hook produce no section —
+    // preserves byte-identical DOM for ``'stub'`` tests AND avoids the
+    // F1 L7 create-mode-pick-Discord re-mount crashing (the re-mount
+    // is still ``isCreate=true`` so this block is skipped).
+    var directiveHtml = '';
+    if (!isCreate) {
+      var directiveRegistry = (window.App && window.App.studio && window.App.studio.connectorFormRegistry) || null;
+      var directiveEntry = (directiveRegistry && account && account.type) ? directiveRegistry.get(account.type) : undefined;
+      if (directiveEntry && typeof directiveEntry.renderDirectiveSection === 'function') {
+        directiveHtml = directiveEntry.renderDirectiveSection(account);
+      }
+    }
+
     // Danger Zone (edit only).
     var dangerZoneHtml = '';
     if (!isCreate) {
@@ -480,6 +514,7 @@
       html += connectionHtml;
       html += credentialsHtml;
       html += pairingHtml;
+      html += directiveHtml;  // M11 F2 L4 — between Pairing and Attached Agents
       html += attachedAgentsHtml;
       html += testConnectionHtml;
       html += inviteHtml;
@@ -1403,7 +1438,7 @@
         var origMasked = sv.dataset.originalMasked || '';
         if (origMasked && value === origMasked) {
           // Per-row __MASKED__ — backend preserves the stored secret.
-          secrets[skey] = MASKED_SENTINEL;
+          secrets[skey] = window.App.studio.MASKED_SENTINEL;
         } else {
           secrets[skey] = value;
         }

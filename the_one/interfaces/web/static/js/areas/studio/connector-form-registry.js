@@ -89,7 +89,13 @@
     // section mounted in the General tab between Test Connection and
     // Danger Zone. Absent → no invite section renders (the ``'stub'``
     // fallback path and any future-type-with-no-invite-helper).
-    var optionalFns = ['snapshot', 'wireEvents', 'renderInviteSection'];
+    // M11 F2 L4 extends the optional set with ``renderDirectiveSection``:
+    // an entry-provided hook that returns the HTML for the per-type
+    // System Prompt Directive section mounted on the General tab
+    // between Pairing and Attached Agents. Absent → no directive
+    // section renders (the ``'stub'`` fallback path and any
+    // future-type-with-no-directive-surface).
+    var optionalFns = ['snapshot', 'wireEvents', 'renderInviteSection', 'renderDirectiveSection'];
     for (var oi = 0; oi < optionalFns.length; oi++) {
       var ofn = optionalFns[oi];
       if (entry[ofn] !== undefined && typeof entry[ofn] !== 'function') {
@@ -123,4 +129,13 @@
     register: register,
     get: get
   };
+
+  // M11 F2 L4: shared masked-edit sentinel hoisted from per-module
+  // duplicates in ``connector-account-editor.js`` and
+  // ``connector-form-discord.js``. The studio's earliest-loading module
+  // is the registry IIFE, so setting the constant here makes it
+  // available to both editor + form-discord modules at their own
+  // module-load time. Value is the same ``'__MASKED__'`` sentinel the
+  // backend ``api.py`` honors per-secret-key for round-trip preservation.
+  window.App.studio.MASKED_SENTINEL = '__MASKED__';
 })();

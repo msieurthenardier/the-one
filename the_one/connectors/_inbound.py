@@ -11,14 +11,14 @@ gateway to call this same ``dispatch_inbound``.
 F4 (platform-send tool) owns outbound. This module is INBOUND ONLY —
 EXCEPT for the L5-introduced **system-outbound path** for command
 responses and the no-eligible peer-facing error, which mirrors the
-platform-send tool's ``pool_acquire → client.send`` shape but is
+platform-send tool's ``account_acquire → client.send`` shape but is
 invoked dispatcher-internally (NOT through the tool registry).
 
-The per-(agent, account) pool's :func:`acquire` is called per inbound
+The connector pool's :func:`account_acquire` is called per inbound
 here — that is the **last_activity ratification** of the F1 Known
 Issue (see ``the_one/agents.md``'s Connector subsystem section). The
 dispatcher does NOT cache the :class:`ConnectorClient` reference
-outside the pool; every inbound goes through ``acquire``.
+outside the pool; every inbound goes through ``account_acquire``.
 
 Per-session serialization shares the SAME asyncio.Lock with
 the WS handler. The lock registry lives at
@@ -83,10 +83,11 @@ The dispatcher's body composes 12 steps in a fixed canonical order
    identity reflects the alphabetically-first attached agent's pool
    entry, which IS valid for outbound emission regardless of inbound-
    ACL state). Emit failures are logged + swallowed.
-10. Pool acquire for the routed agent — ``connector_acquire(account_id)``.
-    M10 F8 L11 HAT Fix #6: account-shared keying — ``decision.agent``
-    drives routing audit but NOT the pool key, so all agents attached
-    to one connector account share ONE gateway WebSocket. Failure
+10. Pool acquire for the routed agent — ``account_acquire(account_id)``.
+    Account-shared keying (M11 F2 L2, formerly M10 F8 L11 Fix #6):
+    ``decision.agent`` drives routing audit but NOT the pool key, so
+    all agents attached to one connector account share ONE gateway
+    WebSocket. Failure
     ⇒ ``disposition = "no-eligible"`` (overload — the inbound is
     unanswerable so observable shape collapses onto no-eligible);
     append audit entry; return.
@@ -118,9 +119,9 @@ Mirrors F6's ``session_metadata["audit"]`` entry shape (``ts``,
 ``reason`` keys reuse F6's naming) so a single Studio renderer can
 walk both logs uniformly.
 
-System-outbound path: ``connector_acquire(account_id) →
-client.send(OutboundTarget(...), text)`` (M10 F8 L11 HAT Fix #6;
-formerly ``pool_acquire(agent_name, account_id)``). Mirrors
+System-outbound path: ``account_acquire(account_id) →
+client.send(OutboundTarget(...), text)`` (M11 F2 L2; formerly
+``acquire(agent_name, account_id)`` pre-M10 F8 L11). Mirrors
 ``the_one/tools/connector_send.py:SendToPlatformChannelTool.execute``
 lines 183-200 in shape; NOT routed through the platform-send tool
 registry. Commands work even when the tool is operator-disabled.
@@ -136,8 +137,7 @@ from the_one.agent._context import current_chat_session_id
 from the_one.agent.factory import AgentFactory
 from the_one.connectors import registry
 from the_one.connectors._pairing import _validate_pairing_prefix
-from the_one.connectors._pool import acquire as pool_acquire
-from the_one.connectors._pool import connector_acquire
+from the_one.connectors._pool import account_acquire
 from the_one.connectors._routing import resolve_routing
 from the_one.connectors._session import resolve_session
 from the_one.connectors.base import (
@@ -393,7 +393,7 @@ async def dispatch_inbound(
             # M10 F8 L11 HAT Fix #6: account-shared pool entry — one
             # gateway connection per account regardless of which
             # agent's identity surfaced in the no-eligible audit.
-            client = await connector_acquire(account_id)
+            client = await account_acquire(account_id)
             await client.send(
                 OutboundTarget(
                     channel_id=working_envelope.channel_id,
@@ -430,7 +430,7 @@ async def dispatch_inbound(
         # one-connection); the routed agent's identity continues to
         # flow through ``decision.agent`` for routing audit purposes,
         # not through the pool key.
-        client = await connector_acquire(account_id)
+        client = await account_acquire(account_id)
     except (KeyError, ConnectorRegistrationError) as exc:
         logger.warning(
             "dispatch_inbound: pool acquire failed for "
@@ -747,7 +747,7 @@ async def dispatch_inbound(
                         # M10 F8 L11 HAT Fix #6: account-shared pool —
                         # auto-relay uses the same gateway connection
                         # the dispatcher already warmed at step 10.
-                        relay_client = await connector_acquire(account_id)
+                        relay_client = await account_acquire(account_id)
                         send_result = await relay_client.send(
                             OutboundTarget(
                                 channel_id=working_envelope.channel_id,

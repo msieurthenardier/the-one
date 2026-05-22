@@ -335,3 +335,88 @@ class TestComposeSystemPrompt:
         )
         assert out.index(_CONNECTOR_AUTO_RELAY_DIRECTIVE) < out.index("---")
         assert out.endswith("Custom persona.")
+
+    # ── M11 F2 L3: operator_directive append-mode tests ───────────
+
+    def test_operator_directive_appended_when_truthy(self):
+        """M11 F2 L3: a truthy ``operator_directive`` is appended AFTER
+        the selected connector default and BEFORE the persona separator.
+        Shape: base + \\n\\n + selected_default + \\n\\n + operator_directive
+        + \\n\\n---\\n\\n + persona."""
+        from the_one.agent.config import (
+            _CONNECTOR_AUTO_RELAY_DIRECTIVE,
+            compose_system_prompt,
+        )
+        directive = "Sign every reply with a coffee emoji."
+        out = compose_system_prompt(
+            BASE_PROMPT,
+            "Persona text.",
+            connector_attached=True,
+            send_tool_enabled=True,
+            auto_relay=True,
+            operator_directive=directive,
+        )
+        # The directive text appears in the prompt.
+        assert directive in out
+        # Ordering: base < default-directive < operator-directive < ---
+        # < persona.
+        assert out.index(BASE_PROMPT) < out.index(_CONNECTOR_AUTO_RELAY_DIRECTIVE)
+        assert out.index(_CONNECTOR_AUTO_RELAY_DIRECTIVE) < out.index(directive)
+        assert out.index(directive) < out.index("---")
+        assert out.endswith("Persona text.")
+
+    def test_operator_directive_none_is_byte_identical_to_legacy(self):
+        """M11 F2 L3: ``operator_directive=None`` produces byte-identical
+        output to the call shape that omits the kwarg entirely. Pins the
+        legacy-preservation contract that the existing test cluster
+        already exercises via the omitted-kwarg call shape."""
+        from the_one.agent.config import compose_system_prompt
+        # Non-connector path.
+        out_with_none = compose_system_prompt(
+            BASE_PROMPT, "Persona.", operator_directive=None
+        )
+        out_without_kwarg = compose_system_prompt(BASE_PROMPT, "Persona.")
+        assert out_with_none == out_without_kwarg
+        # Connector-attached path.
+        out_with_none_c = compose_system_prompt(
+            BASE_PROMPT,
+            "Persona.",
+            connector_attached=True,
+            send_tool_enabled=True,
+            auto_relay=True,
+            operator_directive=None,
+        )
+        out_without_kwarg_c = compose_system_prompt(
+            BASE_PROMPT,
+            "Persona.",
+            connector_attached=True,
+            send_tool_enabled=True,
+            auto_relay=True,
+        )
+        assert out_with_none_c == out_without_kwarg_c
+
+    def test_operator_directive_empty_string_is_no_op(self):
+        """M11 F2 L3: an empty-string ``operator_directive`` is a no-op
+        (matches the ``None`` default behavior). Pinned by the falsy-check
+        ``if operator_directive:`` in the composer. Backstop against the
+        API validator's empty-string rejection — if a malformed value
+        ever bypasses the validator, the composer's falsy-check ensures
+        no empty separator pair lands in the prompt."""
+        from the_one.agent.config import compose_system_prompt
+        out_empty = compose_system_prompt(
+            BASE_PROMPT,
+            "Persona.",
+            connector_attached=True,
+            send_tool_enabled=True,
+            auto_relay=True,
+            operator_directive="",
+        )
+        out_none = compose_system_prompt(
+            BASE_PROMPT,
+            "Persona.",
+            connector_attached=True,
+            send_tool_enabled=True,
+            auto_relay=True,
+            operator_directive=None,
+        )
+        assert out_empty == out_none

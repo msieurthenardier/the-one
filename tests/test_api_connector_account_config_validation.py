@@ -297,6 +297,93 @@ class TestConnectorAccountConfigValidation:
         )
         assert resp.status_code == 201
 
+    # ── system_prompt_directive rejection cases ───────────────────
+    # M11 F2 L3: per-account operator-authored system-prompt directive.
+    # Optional key on Discord-type config; APPEND-mode at the composer
+    # (L3 substrate; L4 ships the UI). Absent → no override. Present →
+    # must be a non-empty string.
+
+    async def test_discord_system_prompt_directive_non_string_rejected(
+        self, client: AsyncClient
+    ) -> None:
+        """system_prompt_directive as an int → 422."""
+        resp = await client.post(
+            "/api/connector-accounts",
+            json=_discord_payload({"system_prompt_directive": 42}),
+        )
+        assert resp.status_code == 422
+        assert resp.json()["detail"] == (
+            "Discord connector config.system_prompt_directive must be a string "
+            "if present; got int."
+        )
+
+    async def test_discord_system_prompt_directive_empty_string_rejected(
+        self, client: AsyncClient
+    ) -> None:
+        """system_prompt_directive='' → 422 (absence is the canonical
+        'no override' signal; empty string is operator-confusing noise)."""
+        resp = await client.post(
+            "/api/connector-accounts",
+            json=_discord_payload({"system_prompt_directive": ""}),
+        )
+        assert resp.status_code == 422
+        assert resp.json()["detail"] == (
+            "Discord connector config.system_prompt_directive must be a "
+            "non-empty string if present (use absence to mean 'no override')."
+        )
+
+    # ── system_prompt_directive happy-path cases ──────────────────
+
+    async def test_discord_system_prompt_directive_absent_passes(
+        self, client: AsyncClient
+    ) -> None:
+        """Absent system_prompt_directive → 201 (M10 F8 back-compat: the
+        key is optional; absence is the canonical 'no override' signal)."""
+        resp = await client.post(
+            "/api/connector-accounts",
+            json=_discord_payload({}),
+        )
+        assert resp.status_code == 201
+
+    async def test_discord_system_prompt_directive_short_string_passes(
+        self, client: AsyncClient
+    ) -> None:
+        """A short, well-formed directive → 201."""
+        resp = await client.post(
+            "/api/connector-accounts",
+            json=_discord_payload(
+                {"system_prompt_directive": "Sign replies with a coffee emoji."}
+            ),
+        )
+        assert resp.status_code == 201
+
+    async def test_discord_system_prompt_directive_long_string_passes(
+        self, client: AsyncClient
+    ) -> None:
+        """A 5000-char directive → 201 (no length cap)."""
+        resp = await client.post(
+            "/api/connector-accounts",
+            json=_discord_payload({"system_prompt_directive": "x" * 5000}),
+        )
+        assert resp.status_code == 201
+
+    async def test_stub_system_prompt_directive_pass_through(
+        self, client: AsyncClient
+    ) -> None:
+        """Stub-type with system_prompt_directive in arbitrary shape → 201
+        (stubs don't validate per-type config; this pins the carve-out
+        behavior for the new key alongside the existing keys)."""
+        resp = await client.post(
+            "/api/connector-accounts",
+            json={
+                "name": "Stub Bot",
+                "type": "stub",
+                "config": {"system_prompt_directive": 42},
+                "secrets": {"BOT_TOKEN": "stub-token"},
+            },
+        )
+        assert resp.status_code == 201
+
     # ── update path coverage ──────────────────────────────────────
 
     async def test_update_path_with_malformed_config_rejected(

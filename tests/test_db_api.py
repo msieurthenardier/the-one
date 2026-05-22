@@ -631,7 +631,7 @@ class TestConnectorAccountAPI:
         and eviction is skipped.
         """
         from the_one.connectors import _pool as pool_mod
-        from the_one.connectors._pool import acquire
+        from the_one.connectors._pool import agent_acquire
 
         create = await client.post(
             "/api/connector-accounts",
@@ -643,7 +643,7 @@ class TestConnectorAccountAPI:
         )
         account_id = create.json()["id"]
 
-        await acquire("test-agent", account_id)
+        await agent_acquire("test-agent", account_id)
         assert ("test-agent", account_id) in pool_mod._pool
 
         resp = await client.put(
@@ -670,7 +670,7 @@ class TestConnectorAccountAPI:
         — NONE").
         """
         from the_one.connectors import _pool as pool_mod
-        from the_one.connectors._pool import acquire
+        from the_one.connectors._pool import agent_acquire
 
         create = await client.post(
             "/api/connector-accounts",
@@ -682,7 +682,7 @@ class TestConnectorAccountAPI:
         )
         account_id = create.json()["id"]
 
-        await acquire("test-agent", account_id)
+        await agent_acquire("test-agent", account_id)
         assert ("test-agent", account_id) in pool_mod._pool
 
         resp = await client.put(
@@ -701,7 +701,7 @@ class TestConnectorAccountAPI:
     async def test_dropping_a_key_evicts(self, client: AsyncClient) -> None:
         """PUT with secrets={} drops all keys (REST replace) → eviction fires."""
         from the_one.connectors import _pool as pool_mod
-        from the_one.connectors._pool import acquire
+        from the_one.connectors._pool import agent_acquire
 
         create = await client.post(
             "/api/connector-accounts",
@@ -713,7 +713,7 @@ class TestConnectorAccountAPI:
         )
         account_id = create.json()["id"]
 
-        await acquire("test-agent", account_id)
+        await agent_acquire("test-agent", account_id)
         assert ("test-agent", account_id) in pool_mod._pool
 
         resp = await client.put(
@@ -727,7 +727,7 @@ class TestConnectorAccountAPI:
     async def test_secrets_change_evicts(self, client: AsyncClient) -> None:
         """PUT with a changed secret value evicts the warm entry."""
         from the_one.connectors import _pool as pool_mod
-        from the_one.connectors._pool import acquire
+        from the_one.connectors._pool import agent_acquire
 
         create = await client.post(
             "/api/connector-accounts",
@@ -739,7 +739,7 @@ class TestConnectorAccountAPI:
         )
         account_id = create.json()["id"]
 
-        await acquire("test-agent", account_id)
+        await agent_acquire("test-agent", account_id)
         assert ("test-agent", account_id) in pool_mod._pool
 
         resp = await client.put(
@@ -758,7 +758,7 @@ class TestConnectorAccountAPI:
         Pins the "shorter or longer dict differs from existing" branch.
         """
         from the_one.connectors import _pool as pool_mod
-        from the_one.connectors._pool import acquire
+        from the_one.connectors._pool import agent_acquire
 
         create = await client.post(
             "/api/connector-accounts",
@@ -770,7 +770,7 @@ class TestConnectorAccountAPI:
         )
         account_id = create.json()["id"]
 
-        await acquire("test-agent", account_id)
+        await agent_acquire("test-agent", account_id)
         assert ("test-agent", account_id) in pool_mod._pool
 
         resp = await client.put(
@@ -789,7 +789,7 @@ class TestConnectorAccountAPI:
     async def test_delete_evicts_then_deletes(self, client: AsyncClient) -> None:
         """DELETE evicts warm entries BEFORE the row delete."""
         from the_one.connectors import _pool as pool_mod
-        from the_one.connectors._pool import acquire
+        from the_one.connectors._pool import agent_acquire
 
         create = await client.post(
             "/api/connector-accounts",
@@ -801,7 +801,7 @@ class TestConnectorAccountAPI:
         )
         account_id = create.json()["id"]
 
-        await acquire("test-agent", account_id)
+        await agent_acquire("test-agent", account_id)
         assert ("test-agent", account_id) in pool_mod._pool
 
         resp = await client.delete(f"/api/connector-accounts/{account_id}")
@@ -928,7 +928,7 @@ class TestConnectorAccountAPI:
         whose ``install_key`` has been updated.
         """
         from the_one.connectors import _pool as pool_mod
-        from the_one.connectors._pool import acquire
+        from the_one.connectors._pool import agent_acquire
 
         # Setup: stub-typed account with non-empty secrets.
         resp = await client.post(
@@ -943,7 +943,7 @@ class TestConnectorAccountAPI:
         account_id = resp.json()["id"]
 
         # Acquire warm pool entry.
-        await acquire("test-agent", account_id)
+        await agent_acquire("test-agent", account_id)
         key = ("test-agent", account_id)
         assert key in pool_mod._pool, "pool seed failed"
 
@@ -961,7 +961,7 @@ class TestConnectorAccountAPI:
 
         # Fresh acquire works under the new key — the row decrypted via
         # the live encryptor (whose install_key fired in step 7).
-        await acquire("test-agent", account_id)
+        await agent_acquire("test-agent", account_id)
         assert key in pool_mod._pool
 
 

@@ -125,7 +125,7 @@ Every "mirror X" rationale invoked in a design must include an explicit paragrap
 
 Applies to any cross-subsystem pattern reuse where the precedent's premise is implicit. Does NOT apply to local refactors within a subsystem — a single-subsystem change can mirror its own siblings without re-deriving the premise.
 
-Citation: `the_one/connectors/_pool.py` — F1 mirrored `mcp/_pool.py`'s per-agent pool keying without re-validating the gateway-protocol-vs-MCP premise mismatch (gateway protocols are one-IDENTIFY-per-token; per-agent keying is incompatible). The mismatch surfaced at F8 L11 HAT seven flights after the original commit. Fix #6 shipped the sentinel-wrapper `_CONNECTOR_POOL_AGENT_SENTINEL = "__connector__"` at `the_one/connectors/_pool.py:148` and the convenience `connector_acquire(account_id)` at `the_one/connectors/_pool.py:512-530` as a tactical patch (call sites: `the_one/tools/connector_send.py:194`, `the_one/connectors/_inbound.py:140`). M11 F2 owns the proper refactor to an account-keyed primitive.
+Citation: `the_one/connectors/_pool.py` — F1 mirrored `mcp/_pool.py`'s per-agent pool keying without re-validating the gateway-protocol-vs-MCP premise mismatch (gateway protocols are one-IDENTIFY-per-token; per-agent keying is incompatible). The mismatch surfaced at F8 L11 HAT seven flights after the original commit; that flight shipped a sentinel-wrapper as a tactical patch. M11 F2 L2 closed the convention's loop by splitting the public API into two semantic primitives: `the_one/connectors/_pool.py:agent_acquire` (MCP-style per-agent keying for the F6 resolver pattern) and `the_one/connectors/_pool.py:account_acquire` (gateway-protocol account-keyed, one entry per account). The proper refactor invoked this convention by name; the citation here documents both the original violation and the eventual resolution.
 
 Source: M10 mission-debrief "Process §2" — codify `cross-subsystem-pattern-premise-revalidation`; also listed in "Action Items → Codify 6 new agents.md Project Conventions."
 
@@ -170,6 +170,31 @@ Citations (n=2 — pattern is at codification threshold per `function-local-impo
 - F6 L1c: `AgentConfig.connector_acls` field landed alongside schema v18 migration, `AgentConfigRepository` codec, and `_acl.admits_inbound` consumer in a single leg. See `the_one/db/_connector_types.py:22` — "v18 → ``agents.connector_acls`` persistence (F6 L1c)".
 
 Source: M10 mission-debrief "Documentation §1 (Architect addition)" — `atomic-leg-pattern` (Pydantic field + migration + repository + ripple-sites in one leg; F4 L5 + F6 L1c are n=2); also "Methodology Feedback §8."
+
+### `optional-registry-entry-hook`
+
+When a registry entry needs to participate in substrate machinery — dirty tracking, namespace exposure, lifecycle hooks, render-time integrations — add OPTIONAL function fields to the entry's contract, validated as "must be a function IF present" but absent without error. Required entry fields are the render-time contract (the substrate calls them to produce the entry's per-type UI); optional fields are substrate-integration opt-ins (the substrate calls them when its machinery has work to dispatch to the entry, but absence means "this entry doesn't participate at that integration site"). The validator extends linearly: a new optional hook adds one name to an `optionalFns` list, no structural validator change.
+
+Applies when a registry/dispatch primitive owns substrate-touching machinery (event listeners, snapshot serialization, lifecycle callbacks) where some per-type entries opt in and others don't. Does NOT apply to dispatch tables where every entry must implement every method (use Protocol-widening then; see `protocol-widening-for-required-capability`).
+
+Citations (n=3 from M11 F1):
+- `the_one/interfaces/web/static/js/areas/studio/connector-form-registry.js:_validateEntry` — the `optionalFns = ['snapshot', 'wireEvents', 'renderInviteSection']` array; each name is an optional entry-shape hook. The per-name validation is "must be a function IF present" — absent without error.
+- F1 L4 added `snapshot(container) → object` (entry's typed-input state for dirty-tracker) + `wireEvents(container, checkDirty, account)` (entry's own listener wiring for typed inputs outside the substrate's delegation scope). See `the_one/interfaces/web/static/js/areas/studio/connector-form-discord.js:snapshot` and `:wireEvents`.
+- F1 L5 added `renderInviteSection(account) → string` (entry-rendered detail-page section). See `the_one/interfaces/web/static/js/areas/studio/connector-form-discord.js:renderInviteSection`.
+
+Source: M11 F1 flight-debrief "Key Learnings §3" (the F1 added three optional hooks; the additive-extension shape is generalizable) + "Recommendations §2" (operator-confirmed codification at debrief).
+
+### `registry-dispatch-create-mode-AC`
+
+Any registry-mediated typed-render path requires BOTH "create-mode-after-dispatch-key" AND "edit-mode-with-dispatch-key-set" as explicit acceptance criteria. The dispatch key (the value the registry uses to pick a per-type entry — connector type, provider type, plugin type) may be absent at first render in create mode and only populated when the operator picks it; the AC must verify that the post-pick render produces the typed entry's content, not the substrate's fallback. Edit-mode tests alone are insufficient — they exercise the dispatch-key-set path and miss the dispatch-key-absent-then-set transition that operators actually hit.
+
+Applies when a registry/dispatch primitive renders different content based on a dispatch key that may be absent on first render (operator-picked type in a create form; post-fetch resolved key in an async-populated editor). Does NOT apply when the dispatch key is structurally guaranteed at mount (e.g., the key is part of the URL route fragment and a renderer is mounted at all only when the key is present).
+
+Citation (n=1 from M11 F1 L7, codified by methodology-promotion per F1 debrief Recommendations §2 — operator-confirmed): F1 L4's tests exercised only edit-mode-with-type-set; the create-mode-after-type-pick path was bug-prone because `the_one/interfaces/web/static/js/areas/studio/connector-account-editor.js:renderConnectionFields` zeroed the dispatch key (`connActiveType`) in create mode regardless of the operator's pick, so `registry.get('')` always returned undefined and the substrate fallback rendered instead of the typed entry. HAT-caught at F1 L7; the fix removed the create-mode zeroing and added a `forceCreate` 5th-arg type-change re-render path (see `the_one/interfaces/web/static/js/areas/studio/connector-account-editor.js:renderConnectorAccountEditor`) so picking Discord re-mounts the editor against the typed entry. The resolution test `tests/browser/test_flow_studio_connector_account_create_and_test.py:test_create_mode_pick_discord_renders_typed_form` now pins the AC.
+
+This is the first codification under the n=1-by-methodology-promotion shape — the F1 debrief elevated this convention on the strength of the methodology lesson (registry-mediated dispatch is a structural pattern that demands symmetric ACs), not on a recurring-pattern threshold. Future occurrences citing this convention re-validate the structural claim; if they don't, the convention is a candidate for retirement at a later mission debrief.
+
+Source: M11 F1 flight-debrief "Recommendations §2" + "Key Learnings §5" (HAT essential signal even at the end of autonomous flights) + F1 L7 leg-progress entry.
 
 ### Mission-specific (M10)
 

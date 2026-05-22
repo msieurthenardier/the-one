@@ -151,17 +151,17 @@ async def test_lifespan_warm_acquires_connector_accounts_per_account(
 ) -> None:
     """M10 F8 L11 HAT Fix #6: lifespan warm-acquire walks connector
     accounts (not agents). With N agents attached to one connector
-    account, ``connector_acquire`` is called ONCE per account — yielding
+    account, ``account_acquire`` is called ONCE per account — yielding
     one gateway connection per bot. Pre-Fix-#6 the warm-acquire picked
     the "first alphabetical attached agent" and used the bare
     ``acquire(agent_name, account_id)``; with multiple agents that
     keying would still have produced one warm-acquire per account, but
     the dispatcher/tool/auto-relay paths would each create separate
     pool entries on first call — Fix #6 routes all paths through
-    ``connector_acquire`` so the warm entry is reused.
+    ``account_acquire`` so the warm entry is reused.
 
     This test sets up TWO agents attached to one connector account,
-    spies on ``connector_acquire``, enters the lifespan, and asserts
+    spies on ``account_acquire``, enters the lifespan, and asserts
     one and only one warm-acquire call for the account.
     """
     from the_one.agent.config import AgentConfig
@@ -224,18 +224,18 @@ async def test_lifespan_warm_acquires_connector_accounts_per_account(
             )
         )
 
-    # Spy on connector_acquire. The lifespan does a function-local
-    # import (``from the_one.connectors._pool import connector_acquire``)
+    # Spy on account_acquire. The lifespan does a function-local
+    # import (``from the_one.connectors._pool import account_acquire``)
     # at call time — so we patch the function on the module, which the
     # local import resolves to.
     acquire_calls: list[str] = []
-    original_connector_acquire = pool_mod.connector_acquire
+    original_account_acquire = pool_mod.account_acquire
 
     async def _spying_acquire(account_id: str):
         acquire_calls.append(account_id)
-        return await original_connector_acquire(account_id)
+        return await original_account_acquire(account_id)
 
-    monkeypatch.setattr(pool_mod, "connector_acquire", _spying_acquire)
+    monkeypatch.setattr(pool_mod, "account_acquire", _spying_acquire)
 
     from the_one.interfaces.web.app import app, lifespan
 
@@ -250,7 +250,7 @@ async def test_lifespan_warm_acquires_connector_accounts_per_account(
         ]
         assert len(keys_for_account) == 1
         assert keys_for_account[0] == (
-            pool_mod._CONNECTOR_POOL_AGENT_SENTINEL,
+            pool_mod._ACCOUNT_POOL_AGENT_SLOT,
             "acct-warm",
         )
 
@@ -296,13 +296,13 @@ async def test_lifespan_warm_acquire_skips_accounts_with_no_attached_agents(
     )
 
     acquire_calls: list[str] = []
-    original_connector_acquire = pool_mod.connector_acquire
+    original_account_acquire = pool_mod.account_acquire
 
     async def _spying_acquire(account_id: str):
         acquire_calls.append(account_id)
-        return await original_connector_acquire(account_id)
+        return await original_account_acquire(account_id)
 
-    monkeypatch.setattr(pool_mod, "connector_acquire", _spying_acquire)
+    monkeypatch.setattr(pool_mod, "account_acquire", _spying_acquire)
 
     from the_one.interfaces.web.app import app, lifespan
 

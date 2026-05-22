@@ -986,6 +986,33 @@ def _validate_connector_account_config(account: ConnectorAccount) -> None:
                         ),
                     )
 
+        # ── system_prompt_directive ──────────────────────────────
+        # M11 F2 L3: optional per-account operator-authored directive
+        # appended to the connector system prompt. Absent → no override.
+        # Present → must be a non-empty string. Empty string is rejected
+        # explicitly (absence is the canonical "no override" signal).
+        # No length cap; no content validation. The composer APPENDS
+        # this text after the selected default directive — the operator
+        # cannot overwrite the substrate's behavioral contract.
+        if "system_prompt_directive" in cfg:
+            directive = cfg["system_prompt_directive"]
+            if not isinstance(directive, str):
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"Discord connector config.system_prompt_directive must be "
+                        f"a string if present; got {type(directive).__name__}."
+                    ),
+                )
+            if not directive:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "Discord connector config.system_prompt_directive must be "
+                        "a non-empty string if present (use absence to mean 'no override')."
+                    ),
+                )
+
     elif account.type == "stub":
         # Stub-type carve-out — F1 trust posture accepts arbitrary
         # config for the placeholder connector. Per-type Discord-shape

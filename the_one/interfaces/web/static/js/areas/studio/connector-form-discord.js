@@ -35,7 +35,67 @@
     );
   }
 
-  var MASKED_SENTINEL = '__MASKED__';
+  // ── M11 F2 L4: System Prompt Directive defaults ───────────────────
+  //
+  // VERBATIM copies of the Python constants in
+  // ``the_one/agent/config.py``. The Studio's directive section
+  // renders these as read-only ``<pre><code>`` blocks inside the three
+  // ``<details>`` disclosures, so the operator authoring their own
+  // ``system_prompt_directive`` sees exactly which default fires for
+  // each ``(connector_attached, send_tool_enabled, auto_relay)`` state
+  // and what their text will be appended to.
+  //
+  // CONTRACT: each constant must equal its Python twin byte-for-byte.
+  // A future flight that edits the Python constants MUST update these
+  // JS twins in the same atomic diff (the leg artifact's
+  // ``test_three_default_disclosures_render_verbatim_python_text``
+  // test pins the byte-equality). The trailing comments name the
+  // Python symbols so a grep on the Python symbol surfaces the JS
+  // twin instantly.
+
+  // Python twin: ``the_one/agent/config.py:_CONNECTOR_AUTO_RELAY_DIRECTIVE``.
+  var _DIRECTIVE_AUTO_RELAY_DEFAULT = (
+    'This conversation is attached to a connector account on an external ' +
+    'platform (Discord, Slack, etc.). Auto-relay is ON: your plaintext ' +
+    'replies in this session ARE automatically delivered to platform peers ' +
+    '— treat the conversation as the platform conversation itself. Do NOT ' +
+    'ask the operator for permission to respond on the platform; do NOT ' +
+    'narrate that you\'re \'using send_to_platform_channel\'; just reply ' +
+    'naturally as you would in any chat. Messages tagged ' +
+    '``visibility="platform"`` in the history came from platform peers; ' +
+    'messages tagged ``visibility="operator"`` came from the operator\'s ' +
+    'private local Chat console (operator-only — these are NOT relayed). ' +
+    'If you need to send a message to a different channel or thread on ' +
+    'the platform (not the current channel), use the ' +
+    '``send_to_platform_channel`` tool explicitly with a target ' +
+    'specifying that destination.'
+  );
+
+  // Python twin: ``the_one/agent/config.py:_CONNECTOR_TOOL_ENABLED_DIRECTIVE``.
+  var _DIRECTIVE_TOOL_ENABLED_DEFAULT = (
+    'This conversation is attached to a connector account on an external ' +
+    'platform (Discord, Slack, etc.). Messages tagged ``visibility="platform"`` ' +
+    'in the history came from platform peers; messages tagged ' +
+    '``visibility="operator"`` came from the operator\'s private local Chat ' +
+    'console. When a platform-peer message in this session needs a response, ' +
+    'you MUST call the ``send_to_platform_channel`` tool to deliver your reply ' +
+    'to peers — your plain-text replies in this session reach only the ' +
+    'operator\'s local console, NOT peers. The operator console is for the ' +
+    'operator to direct or observe you; only deliberate ``send_to_platform_channel`` ' +
+    'calls reach the platform. The tool takes a target (account_id, channel_id, ' +
+    'and optional thread_id) plus content. Use the account_id and channel_id ' +
+    'from the platform-inbound message you\'re replying to.'
+  );
+
+  // Python twin: ``the_one/agent/config.py:_CONNECTOR_TOOL_DISABLED_DIRECTIVE``.
+  var _DIRECTIVE_TOOL_DISABLED_DEFAULT = (
+    'This conversation is attached to a connector account on an external ' +
+    'platform, but the platform-send capability is currently DISABLED by ' +
+    'the operator. Your replies in this session reach the operator only ' +
+    '— they do not reach the external platform. The ' +
+    '`send_to_platform_channel` tool is not available right now. Do not ' +
+    'claim to have sent anything to the platform.'
+  );
 
   // ── M11 F1 L5: Invite-URL section ──────────────────────────────────
   //
@@ -277,9 +337,21 @@
       var tokenValue = tokenEl.value || '';
       var origMasked = tokenEl.getAttribute('data-original-masked') || '';
       if (origMasked && tokenValue === origMasked) {
-        secrets.BOT_TOKEN = MASKED_SENTINEL;
+        secrets.BOT_TOKEN = window.App.studio.MASKED_SENTINEL;
       } else {
         secrets.BOT_TOKEN = tokenValue;
+      }
+    }
+
+    // ── M11 F2 L4: System Prompt Directive ──────────────────────────
+    // Trim leading/trailing whitespace per UI convention. Empty value
+    // (after trim) → OMIT the key entirely (L3's API validator rejects
+    // empty strings; emit-and-reject would be a UX bug).
+    var directiveEl = container.querySelector('[data-field="system-prompt-directive"]');
+    if (directiveEl) {
+      var directiveValue = (directiveEl.value || '').replace(/^\s+|\s+$/g, '');
+      if (directiveValue) {
+        config.system_prompt_directive = directiveValue;
       }
     }
 
@@ -289,6 +361,11 @@
   // ── Snapshot: typed-input state → JSON-serializable view ───────────
 
   function snapshot(container) {
+    // M11 F2 L4: ``systemPromptDirective`` is the raw textarea value
+    // (NOT trimmed) so the dirty-tracker fires on any whitespace-only
+    // edit; symmetric with the secrets-row snapshot pattern.
+    var directiveEl = container.querySelector('[data-field="system-prompt-directive"]');
+    var systemPromptDirective = directiveEl ? (directiveEl.value || '') : '';
     return {
       intents: {
         message_content: _readIntentChecked(container, 'message_content'),
@@ -298,7 +375,8 @@
       guildsList: _readInputValue(container, 'guilds-list'),
       presenceName: _readInputValue(container, 'presence-name'),
       presenceType: _readInputValue(container, 'presence-type'),
-      botTokenValue: _readInputValue(container, 'bot-token')
+      botTokenValue: _readInputValue(container, 'bot-token'),
+      systemPromptDirective: systemPromptDirective
     };
   }
 
@@ -330,6 +408,111 @@
     html += '</div>';
     html += '</section>';
     return html;
+  }
+
+  // ── M11 F2 L4: System Prompt Directive section ────────────────────
+  //
+  // Edit-mode-only section mounted on the General tab between Pairing
+  // and Attached Agents. Renders a textarea for the operator's
+  // per-account directive (APPEND-mode — substrate-enforced by L3) +
+  // three read-only ``<details>`` disclosures showing the verbatim
+  // Python defaults for each ``(connector_attached, send_tool_enabled,
+  // auto_relay)`` state-triple. The disclosure for the account's
+  // currently-active state gets a ``(this account's current)``
+  // annotation that lives in the ``<summary>`` and repaints live on
+  // auto-relay toggles.
+  //
+  // The summary text is rendered EMPTY at initial mount; the SOLE
+  // writer of summary ``textContent`` is ``_updateDirectiveAnnotation``,
+  // which is called once at ``wireEvents`` time AND on every auto-relay
+  // checkbox change. Same code path = byte-stable summary text
+  // (no escapeHtml-vs-textContent asymmetry between initial render and
+  // post-toggle re-render).
+
+  function renderDirectiveSection(account) {
+    var cfg = (account && account.config) || {};
+    var existingDirective = (typeof cfg.system_prompt_directive === 'string')
+      ? cfg.system_prompt_directive
+      : '';
+
+    var html = '';
+    html += '<section class="editor-section connector-directive-section" ' +
+            'data-testid="connector-account-directive-section">';
+    html += '<div class="section-title">System Prompt Directive</div>';
+
+    html += '<textarea data-field="system-prompt-directive" ' +
+            'data-testid="connector-account-system-prompt-directive" ' +
+            'rows="6" placeholder="(leave empty for no override)">' +
+            _escapeHtml(existingDirective) + '</textarea>';
+    html += '<small class="form-hint">Your text is appended to whichever ' +
+            'default fires for this account\'s current state. Empty = no override.</small>';
+
+    // Three disclosures. Summaries are rendered with EMPTY content
+    // here; ``_updateDirectiveAnnotation`` is called once at
+    // ``wireEvents`` time to set the initial textContent, guaranteeing
+    // byte-identical text between initial render and post-auto-relay-
+    // toggle re-render (single code path — no escapeHtml-vs-textContent
+    // asymmetry).
+    html += _renderDirectiveDisclosure('auto-relay-on', _DIRECTIVE_AUTO_RELAY_DEFAULT);
+    html += _renderDirectiveDisclosure('auto-relay-off', _DIRECTIVE_TOOL_ENABLED_DEFAULT);
+    html += _renderDirectiveDisclosure('tool-disabled', _DIRECTIVE_TOOL_DISABLED_DEFAULT);
+
+    html += '</section>';
+    return html;
+  }
+
+  function _renderDirectiveDisclosure(stateKey, defaultText) {
+    var html = '<details class="connector-directive-disclosure" ' +
+               'data-state-key="' + _escapeAttr(stateKey) + '">';
+    // Summary text intentionally empty here — initialized by
+    // ``_updateDirectiveAnnotation`` post-mount via ``textContent``.
+    html += '<summary data-testid="directive-default-' +
+            _escapeAttr(stateKey) + '-summary"></summary>';
+    html += '<pre><code data-testid="directive-default-' +
+            _escapeAttr(stateKey) + '-text">' +
+            _escapeHtml(defaultText) + '</code></pre>';
+    html += '</details>';
+    return html;
+  }
+
+  function _updateDirectiveAnnotation(container) {
+    if (!container) return;
+    var autoRelayEl = container.querySelector('[data-field="auto_relay_platform_replies"]');
+    // Default to autoRelay=true when checkbox isn't found (matches
+    // ``account.config.auto_relay_platform_replies`` absent → True at
+    // dispatcher consume time per M10 F8 L11 HAT Fix #4 semantics).
+    var autoRelay = autoRelayEl ? !!autoRelayEl.checked : true;
+
+    var onSummary = container.querySelector(
+      '[data-testid="directive-default-auto-relay-on-summary"]'
+    );
+    var offSummary = container.querySelector(
+      '[data-testid="directive-default-auto-relay-off-summary"]'
+    );
+    var disabledSummary = container.querySelector(
+      '[data-testid="directive-default-tool-disabled-summary"]'
+    );
+
+    // Guards keep this a no-op in create mode (registry-dispatch-create-
+    // mode-AC) where the directive section is absent → the summaries
+    // don't exist → the auto-relay checkbox change still fires but
+    // querySelector returns null for each.
+    if (onSummary) {
+      onSummary.textContent = autoRelay
+        ? "When auto-relay is ON (this account's current)"
+        : 'When auto-relay is ON';
+    }
+    if (offSummary) {
+      offSummary.textContent = autoRelay
+        ? 'When auto-relay is OFF and platform-send tool is enabled'
+        : "When auto-relay is OFF and platform-send tool is enabled (this account's current)";
+    }
+    // Tool-disabled is an AGENT-level setting; the account editor has
+    // no agent context, so the annotation can NEVER land here from
+    // this surface.
+    if (disabledSummary) {
+      disabledSummary.textContent = 'When the platform-send tool is disabled';
+    }
   }
 
   function _updateInviteUrlDisplay(container, account) {
@@ -420,6 +603,28 @@
       });
     }
 
+    // ── L4: Directive section wiring ───────────────────────────────
+    // (a) initial population of disclosure summaries — one call at
+    //     mount time; same code path as the auto-relay change handler
+    //     guarantees byte-stable summary text.
+    _updateDirectiveAnnotation(container);
+
+    // (b) directive textarea input → dirty tracker. Per-keystroke so
+    //     the dirty-state shape matches the other text-input fields.
+    _wireListener(container, '[data-field="system-prompt-directive"]', 'input', checkDirty);
+
+    // (c) auto-relay change → repaint annotation. The substrate's
+    //     existing change listener on the same element also fires
+    //     ``checkDirty`` (attachStaticListeners); the two listeners
+    //     are independent and additive — no conflict, no double
+    //     dirty-fire (checkDirty is idempotent).
+    var autoRelayEl = container.querySelector('[data-field="auto_relay_platform_replies"]');
+    if (autoRelayEl) {
+      autoRelayEl.addEventListener('change', function () {
+        _updateDirectiveAnnotation(container);
+      });
+    }
+
     // ── L5: Invite-section Copy + Recompute buttons ────────────────
     var copyBtn = container.querySelector('[data-testid="connector-invite-copy-btn"]');
     if (copyBtn) {
@@ -444,23 +649,32 @@
     }
   }
 
-  // ── M11 F1 L5: account resolution from container DOM ───────────────
+  // ── M11 F2 L4: account resolution from container DOM ───────────────
   //
   // When the substrate calls ``wireEvents(container, checkDirty)``
-  // without an explicit account arg (the L4 signature), the invite
-  // helpers need to know which account.id keys the cache. Read the
-  // editor's name input's ancestor container — the editor itself
-  // doesn't carry a ``data-account-id``, so we fall back to the
-  // hash-route fragment which carries ``#studio/connectors/{id}``.
+  // without an explicit account arg, the invite helpers need to know
+  // which account.id keys the cache. The editor's mount node now
+  // carries a ``data-account-id`` attribute in edit mode (set by
+  // ``connector-account-editor.js:renderConnectorAccountEditor``); we
+  // read it instead of parsing ``window.location.hash`` so the helper
+  // is fully DOM-anchored and survives any future routing changes.
+  // Returns ``null`` when no ``data-account-id`` is present (create
+  // mode, stub re-mount, or detached test container).
 
   function _resolveAccountFromContainer(container) {
-    // The editor mounts inside ``.connector-account-editor`` and the
-    // current route is the only authoritative source of the account id.
-    if (typeof window === 'undefined' || !window.location) return null;
-    var hash = window.location.hash || '';
-    var m = hash.match(/#studio\/connectors\/([^/?#]+)/);
-    if (m && m[1] && m[1] !== 'new') {
-      return { id: m[1] };
+    if (!container) return null;
+    // The editor's root element is ``.connector-account-editor``;
+    // ``container.closest`` walks up from any nested section. Fallback
+    // to the container itself if it IS the mount node (no ancestor
+    // with the class).
+    var mountEl = null;
+    if (typeof container.closest === 'function') {
+      mountEl = container.closest('.connector-account-editor');
+    }
+    if (!mountEl) mountEl = container;
+    var accountId = mountEl.getAttribute && mountEl.getAttribute('data-account-id');
+    if (accountId && accountId !== 'new') {
+      return { id: accountId };
     }
     return null;
   }
@@ -493,12 +707,16 @@
 
   window.App.studio.connectorFormRegistry.register('discord', {
     type: 'discord',
-    reservedConfigKeys: ['intents', 'guilds', 'presence'],
+    // M11 F2 L4: ``system_prompt_directive`` is rendered through the
+    // entry's typed directive surface; reserve it so the Advanced
+    // kv-table on Discord accounts does NOT also render it as a row.
+    reservedConfigKeys: ['intents', 'guilds', 'presence', 'system_prompt_directive'],
     renderConnectionFields: renderConnectionFields,
     renderCredentialsFields: renderCredentialsFields,
     collect: collect,
     snapshot: snapshot,
     wireEvents: wireEvents,
-    renderInviteSection: renderInviteSection
+    renderInviteSection: renderInviteSection,
+    renderDirectiveSection: renderDirectiveSection
   });
 })();

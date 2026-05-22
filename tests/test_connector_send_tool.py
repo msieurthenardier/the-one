@@ -362,7 +362,7 @@ class TestPoolAcquireFailures:
         # DB. Post-leg-3, the per-call `ConnectorAccountRepository.get`
         # at the channel-ACL consult site raises `KeyError` first and the
         # defensive catch surfaces a constraint envelope BEFORE
-        # `pool_acquire`. (Pre-leg-3 the same case surfaced
+        # `account_acquire`. (Pre-leg-3 the same case surfaced
         # `[error] KeyError:` from `_load_account`; the F6 consult now
         # intercepts it earlier with a friendlier envelope.)
         register_for_test("stub", StubPlugin)
@@ -580,7 +580,7 @@ class TestF6OutboundGating:
     """Channel + per-agent ACL consultation matrix.
 
     The consult happens AFTER account-scope validation (existing F4
-    fast-path stays the cheap denial) and BEFORE pool_acquire. Two
+    fast-path stays the cheap denial) and BEFORE account_acquire. Two
     independent gates intersect.
 
     M10 F6 L7 HAT — allowlist/ACL semantic redesign:

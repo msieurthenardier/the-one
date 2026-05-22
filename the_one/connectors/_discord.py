@@ -1168,7 +1168,14 @@ class DiscordPlugin:
                 )
 
             # ---- 4. Gateway-connect smoke test ----------------------
-            gateway_result = await self._probe_gateway_connect(token)
+            # M11 F2 L5: pass per-account intents so the probe tests
+            # against the same intents connect() will use — closes the
+            # F1 L2 known gap where probe-says-OK could mask a
+            # connect()-silently-receives-nothing case when
+            # message_content is operator-disabled.
+            gateway_result = await self._probe_gateway_connect(
+                token, account.config.get("intents")
+            )
             checks["gateway"] = gateway_result
             if gateway_result["status"] == "failed":
                 del token
@@ -1408,19 +1415,30 @@ class DiscordPlugin:
         }
 
     @staticmethod
-    async def _probe_gateway_connect(token: str) -> dict[str, Any]:
+    async def _probe_gateway_connect(
+        token: str,
+        intents_cfg: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Open a short-lived gateway session; await on_ready with a 30s timeout.
 
-        Constructs a fresh :class:`discord.Client` with the same intents
-        :meth:`connect` uses (``message_content`` + ``members`` +
-        ``guilds``). Registers ``on_ready`` only — NO ``on_message`` —
-        so the probe dispatches no inbound traffic. Closes the SDK
-        client (and awaits the connect task) regardless of outcome.
+        Constructs a fresh :class:`discord.Client` with intents read from
+        ``intents_cfg`` (M11 F2 L5; mirrors :meth:`connect`'s F1 L2
+        shape). ``intents_cfg=None`` / ``{}`` → all three intents True
+        (M10 F8 byte-identical fallback). Per-axis fallback shape:
+        ``intents_cfg.get("<axis>", True)`` for ``message_content``,
+        ``members``, ``guilds``. Registers ``on_ready`` only — NO
+        ``on_message`` — so the probe dispatches no inbound traffic.
+        Closes the SDK client (and awaits the connect task) regardless
+        of outcome.
         """
         intents = discord.Intents.default()
-        intents.message_content = True
-        intents.members = True
-        intents.guilds = True
+        # M11 F2 L5: read intents from per-account config with the same
+        # fallback shape as DiscordPlugin.connect (F1 L2). Default None →
+        # empty dict → all three intents True (M10 F8 byte-identical).
+        cfg = intents_cfg or {}
+        intents.message_content = cfg.get("message_content", True)
+        intents.members = cfg.get("members", True)
+        intents.guilds = cfg.get("guilds", True)
 
         client = discord.Client(intents=intents)
         ready_event = asyncio.Event()

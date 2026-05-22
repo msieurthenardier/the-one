@@ -50,12 +50,21 @@ not the convenience re-exports.
 Production code interacts with the pool via two functions in
 `the_one.connectors._pool`:
 
-- `acquire(agent_name, account_id) -> ConnectorClient` — look up or spawn
-  the warm client for `(agent, account)`. Cycle-2 race-safe; concurrent
+- `agent_acquire(agent_name, account_id) -> ConnectorClient` — look up
+  or spawn the warm client for `(agent, account)`. MCP-style per-agent
+  keying for the F6 resolver pattern. Cycle-2 race-safe; concurrent
   same-key acquires share one worker (the lock-held branch creates the
   entry on the first caller; subsequent callers wait on
-  `entry.client_ready` outside the lock). Touches `entry.last_activity` on
-  every successful resolve.
+  `entry.client_ready` outside the lock). Touches `entry.last_activity`
+  on every successful resolve.
+- `account_acquire(account_id) -> ConnectorClient` — gateway-protocol
+  account-keyed acquire. All connector-subsystem callers (lifespan
+  listener-warmup, `dispatch_inbound`, the F4 platform-send tool, F8
+  auto-relay) use this primitive so every connector caller resolves to
+  ONE pool entry — and ONE gateway WebSocket — per account, regardless
+  of how many agents are attached. Internally pins the slot portion of
+  the composite key to `_ACCOUNT_POOL_AGENT_SLOT` (M11 F2 L2; formerly
+  the F8 L11 sentinel-wrapper retrofit).
 - `shutdown_drain() -> None` — cancel the reaper task and drain every
   warm entry. Wired into `interfaces/web/app.py:lifespan` AFTER the MCP
   pool drain and BEFORE the OAuth periodic-sweep stop. Bounded at ~10s
@@ -383,7 +392,7 @@ End-to-end walk of an outbound delivery, from the agent's tool call to the platf
 
 2. **Tool execute() validates target**. `the_one/tools/connector_send.py:SendToPlatformChannelTool.execute()` validates the `target` shape (account_id, channel_id present; thread_id optional), validates `target.account_id ∈ self._connector_account_ids` (account-scope check; rejects with `[error] [constraint]` on mismatch). It then consults the channel + per-agent ACL gates: a per-call `ConnectorAccountRepository.get(account_id)` fetch reads current account state, then delegates to `the_one/connectors/_acl.py:admits_outbound(account, agent_acl, channel_id) -> tuple[bool, str]` (M10 F7 L2 extraction; pure function, no I/O). The pure function intersects `target.channel_id` against (i) account-scope `account.config["allowlist"]["channels"]` (absent → permit) and (ii) per-agent `AgentConfig.connector_acls[account_id]["channels"]` (account_id key absent or empty channels list → inherit). Denials return the standard `[error] [constraint]` envelope. Source of truth: `connector_send.py:execute` + `connectors/_acl.py` + `AgentConfig.connector_acls`.
 
-3. **Tool acquires pool entry**. The tool calls `the_one/connectors/_pool.py:acquire(agent_name, account_id)` to fetch the warm `ConnectorClient`. The pool's worker-task-per-entry pattern ensures `connect` and `disconnect` run on the same task (anyio cross-task `CancelScope` safety). `last_activity` is touched on every successful resolve. Pool errors (`KeyError` for unknown account, `ConnectorRegistrationError` for unregistered plugin type, `ConnectorClientError` subtypes for connect failures, `RuntimeError` during shutdown) surface as `[error] <ExceptionType>: <message>` envelopes.
+3. **Tool acquires pool entry**. The tool calls `the_one/connectors/_pool.py:account_acquire(account_id)` to fetch the warm `ConnectorClient`. The pool's worker-task-per-entry pattern ensures `connect` and `disconnect` run on the same task (anyio cross-task `CancelScope` safety). `last_activity` is touched on every successful resolve. Pool errors (`KeyError` for unknown account, `ConnectorRegistrationError` for unregistered plugin type, `ConnectorClientError` subtypes for connect failures, `RuntimeError` during shutdown) surface as `[error] <ExceptionType>: <message>` envelopes.
 
 4. **Tool calls `client.send`**. `await client.send(target_obj, content)` returns a `SendResult` (`platform_message_id: str | None`, `details: dict`). `ConnectorClientError` subtypes raised from `send` (e.g. `ConnectorRateLimitError`, `ConnectorConnectionError`) surface as the same `[error] <ExceptionType>: <message>` envelope.
 
@@ -403,7 +412,7 @@ End-to-end walk of an inbound delivery through `the_one/connectors/_inbound.py:d
 
 2. **Account load** — `ConnectorAccountRepository.get(account_id)`. Missing account ⇒ log + return.
 
-3. **Plugin resolve** — `registry.resolve(account.type)`. Unknown type ⇒ log + return. Deliberately redundant with the eventual `pool_acquire`'s internal resolution (defensive against a future pool refactor stranding this branch).
+3. **Plugin resolve** — `registry.resolve(account.type)`. Unknown type ⇒ log + return. Deliberately redundant with the eventual `account_acquire`'s internal resolution (defensive against a future pool refactor stranding this branch).
 
 4. **Enumerate eligible attached agents** — `SQLiteAgentStore.list_by_connector_account(account_id)` returns the alphabetically-ordered list of `AgentConfig` rows whose `connector_account_ids` includes `account_id`. Empty list ⇒ silent log + return (preserves the L3 no-attached-agents semantic). Replaces the L3 transitional helper `_resolve_single_attached_agent_or_first_alphabetical`, which is REMOVED in L5.
 
@@ -415,9 +424,9 @@ End-to-end walk of an inbound delivery through `the_one/connectors/_inbound.py:d
 
 8. **Build routing audit entry** — `{ts, agent, rule_index, scope, match, reason}` populated from the `RoutingDecision`; `disposition` filled in per branch below.
 
-9. **No-eligible branch** — `decision.agent is None`: set `disposition: "no-eligible"`; append audit entry; emit the peer-facing `"No agents available for this conversation."` via the system-outbound path (`pool_acquire(eligible_attached_agents[0].name, account_id) → client.send(OutboundTarget(channel_id, thread_id), text)` — same shape as the platform-send tool but invoked dispatcher-internally). Emit failures are logged + swallowed; the inbound goes unanswered but the audit log preserves the no-eligible disposition for the operator. Return.
+9. **No-eligible branch** — `decision.agent is None`: set `disposition: "no-eligible"`; append audit entry; emit the peer-facing `"No agents available for this conversation."` via the system-outbound path (`account_acquire(account_id) → client.send(OutboundTarget(channel_id, thread_id), text)` — same shape as the platform-send tool but invoked dispatcher-internally). Emit failures are logged + swallowed; the inbound goes unanswered but the audit log preserves the no-eligible disposition for the operator. Return.
 
-10. **Pool acquire for the routed agent** — `pool_acquire(decision.agent, account_id)`. F1 `last_activity` ratification anchor is here (the L3 dispatcher had this BEFORE agent enumeration; L5 moves it AFTER routing so the touch is bound to the agent that actually handles the inbound). Failure ⇒ `disposition: "no-eligible"` (overload — pool failure has the same observable shape as no-eligible: the inbound is unanswerable); append audit entry; return.
+10. **Pool acquire for the routed agent** — `account_acquire(account_id)` (M11 F2 L2). F1 `last_activity` ratification anchor is here (the L3 dispatcher had this BEFORE agent enumeration; L5 moves it AFTER routing so the touch is bound to the agent that actually handles the inbound). The pool key uses the account-shared slot regardless of `decision.agent` — N agents attached to one account share ONE gateway connection. Failure ⇒ `disposition: "no-eligible"` (overload — pool failure has the same observable shape as no-eligible: the inbound is unanswerable); append audit entry; return.
 
 11. **Command parse + intercept** — `_parse_command(working_envelope.text)`. If `None`: fall through to step 12. If a command parses: call `_dispatch_builtin_command(command_name, args, context)`. L5 ships the placeholder returning `None` for every `command_name` (the dispatcher falls through to step 12); L6 fills the body with the six v1 command handlers. A `CommandResponse(text)` return ⇒ `disposition: "command-intercepted"`; append audit entry; emit `response.text` via the same system-outbound path; emit failure log + swallow; return WITHOUT acquiring the per-session lock or running `agent.step`.
 
@@ -437,7 +446,7 @@ End-to-end walk of an inbound delivery through `the_one/connectors/_inbound.py:d
 
 The `disposition` field discriminates routed-and-stepped from command-intercepted from no-eligible-error-emitted (or pool-failure-overload). Mirrors F6's `session_metadata["audit"]` entry shape (`ts` and `reason` keys reuse F6's naming) so a single Studio renderer walks both logs uniformly.
 
-**System-outbound path** is implemented dispatcher-internally as `pool_acquire(agent_name, account_id) → client.send(OutboundTarget(...), text)`. It is NOT routed through the platform-send tool registry. Commands and the no-eligible peer-error work even when the platform-send tool is operator-disabled.
+**System-outbound path** is implemented dispatcher-internally as `account_acquire(account_id) → client.send(OutboundTarget(...), text)`. It is NOT routed through the platform-send tool registry. Commands and the no-eligible peer-error work even when the platform-send tool is operator-disabled.
 
 **`set_session_metadata_key` sibling primitive** (M10 F7 L5) lives in `the_one/db/repositories.py` next to `append_to_session_metadata` (the F6 list-append primitive). Same read-modify-write shape; differs in semantic: overwrite vs. append. L5 ships the primitive; F7 L6's `/talk-to` command handler is its first writer (`session_metadata["routing_override"] = "<slug>"`). The L4 routing engine already reads `session_metadata.get("routing_override")` in step 1 of its 5-step algorithm; the write side lands here. Concurrency posture: last-writer-wins (documented at the call sites and on the primitive's docstring).
 

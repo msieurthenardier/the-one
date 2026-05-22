@@ -360,11 +360,10 @@ class CommandResponse:
     """Result of a :class:`CommandHandler` handling a platform-side command.
 
     The handler returns this value; the dispatcher (F7 L5) emits ``text``
-    via the system-outbound path (``connector_acquire(account_id) →
-    client.send(target, text)`` — M10 F8 L11 HAT Fix #6; formerly
-    ``pool_acquire(agent_name, account_id)``) — the same path the
-    platform-send tool uses, invoked dispatcher-internally rather than
-    via the tool registry.
+    via the system-outbound path (``account_acquire(account_id) →
+    client.send(target, text)``) — the same path the platform-send tool
+    uses, invoked dispatcher-internally rather than via the tool
+    registry.
 
     Returning ``None`` from :meth:`CommandHandler.handle_command` is
     distinct from returning ``CommandResponse(text="")`` — ``None`` means

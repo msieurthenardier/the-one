@@ -122,18 +122,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # agent-initiated outbound triggers acquire — meaning inbound
     # traffic is silently missed until then.
     #
-    # M10 F8 L11 HAT Fix #6: Walk all connector accounts (not just
-    # those with attached agents) and acquire via the account-shared
-    # ``connector_acquire`` wrapper. The earlier "first alphabetical
-    # attached agent" probe is irrelevant once the pool keys on the
-    # connector-sentinel — one pool entry per account, full-stop.
+    # M11 F2 L2 (formerly M10 F8 L11 Fix #6): Walk all connector accounts
+    # (not just those with attached agents) and acquire via the
+    # account-shared ``account_acquire`` primitive. The earlier "first
+    # alphabetical attached agent" probe is irrelevant once the pool
+    # routes connector callers through one entry per account — full-stop.
     # We still skip accounts with no attached agents to avoid the
     # cost of warming a gateway that no agent will route through;
     # this is a policy choice, not a structural requirement.
     # Errors are logged but do NOT prevent the-one from starting —
     # a misbehaving connector must not take the rest of the system down.
     try:
-        from the_one.connectors._pool import connector_acquire
+        from the_one.connectors._pool import account_acquire
         from the_one.db.repositories import ConnectorAccountRepository
 
         connector_repo = ConnectorAccountRepository(conn, get_encryptor(settings.data_dir))
@@ -148,7 +148,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                         account.id, account.type,
                     )
                     continue
-                await connector_acquire(account.id)
+                await account_acquire(account.id)
                 logger.info(
                     "Warm-acquired connector account %r (type=%r) at startup "
                     "(account-shared pool entry; %d attached agent(s))",

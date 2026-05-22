@@ -463,6 +463,65 @@ async def test_intents_from_config_honored(monkeypatch: pytest.MonkeyPatch) -> N
         await plugin.disconnect(client)
 
 
+@pytest.mark.asyncio
+async def test_probe_gateway_intents_from_config_honored(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """M11 F2 L5: probe reads intents from ``intents_cfg`` with fallback.
+
+    Mirrors :func:`test_intents_from_config_honored` (F1 L2) but on the
+    doctor's gateway-connect smoke-test path. With ``message_content``
+    explicitly disabled, the probe's underlying ``discord.Client`` must
+    surface that as ``False`` — closing the F1 L2 known gap where the
+    probe used hardcoded all-True intents.
+    """
+    _patch_discord(monkeypatch)
+    intents_cfg = {"message_content": False, "members": True, "guilds": True}
+    await DiscordPlugin._probe_gateway_connect(
+        "test-token", intents_cfg=intents_cfg
+    )
+    # Most recently constructed stub client carries the intents.
+    last_intents = _StubDiscordClient.instances[-1].intents
+    assert last_intents.message_content is False
+    assert last_intents.members is True
+    assert last_intents.guilds is True
+
+
+@pytest.mark.asyncio
+async def test_probe_gateway_intents_none_defaults_to_all_true(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """M11 F2 L5: probe with ``intents_cfg=None`` → all True.
+
+    Byte-identical legacy behavior (M10 F8 baseline) preserved for any
+    caller that doesn't pass the new ``intents_cfg`` arg.
+    """
+    _patch_discord(monkeypatch)
+    await DiscordPlugin._probe_gateway_connect("test-token")
+    last_intents = _StubDiscordClient.instances[-1].intents
+    assert last_intents.message_content is True
+    assert last_intents.members is True
+    assert last_intents.guilds is True
+
+
+@pytest.mark.asyncio
+async def test_probe_gateway_intents_empty_dict_defaults_to_all_true(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """M11 F2 L5: probe with ``intents_cfg={}`` → all True.
+
+    M10 F8 round-trip: accounts without a ``config['intents']`` key
+    surface ``{}`` from ``account.config.get('intents', {})`` and the
+    probe still applies per-axis ``True`` defaults.
+    """
+    _patch_discord(monkeypatch)
+    await DiscordPlugin._probe_gateway_connect("test-token", intents_cfg={})
+    last_intents = _StubDiscordClient.instances[-1].intents
+    assert last_intents.message_content is True
+    assert last_intents.members is True
+    assert last_intents.guilds is True
+
+
 async def test_reconnect_recovers_after_two_transient_failures(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
