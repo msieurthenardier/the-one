@@ -1,6 +1,6 @@
 # Flight: Live-Data Discoverable Dropdowns
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Discord Connector Depth & Robustness](../../mission.md)
 
 ## Contributing to Criteria
