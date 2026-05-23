@@ -411,10 +411,16 @@ def test_edit_session_continuation_round_trip(app_clean: str, page: Page) -> Non
     cont_input = page.locator('[data-testid="connector-account-continuation-input"]')
     expect(cont_input).to_be_visible()
 
-    # Helper text under the continuation input describes the session-continuation behavior.
+    # Helper text describes the session-continuation behavior. F5 L3
+    # moved the verbose <small> hint into a .field-info-icon button
+    # tooltip (browser-native title= + visually-hidden sibling for
+    # screen readers); the testid migrated to the info-icon so the
+    # check resolves against the new affordance.
     cont_hint = page.locator('[data-testid="connector-account-continuation-hint"]')
     expect(cont_hint).to_be_visible()
-    expect(cont_hint).to_contain_text("Inbound continues the same chat session within this window.")
+    expect(cont_hint).to_have_attribute(
+        "title", "Inbound continues the same chat session within this window."
+    )
 
     # Select the 1-hour (3600s) ladder option and save.
     # F5 L8 HAT: dropdown replaces the free-form numeric input.

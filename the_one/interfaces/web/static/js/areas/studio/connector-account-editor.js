@@ -3,12 +3,38 @@
 // Structurally mirrors mcp-server-editor.js minus MCP-specific concerns
 // (no transport-specific config, no OAuth, no tools list, no sandbox).
 //
-//   <div class="editor-header"> … </div>
-//   <div class="editor-section">Connection</div>          (name, type, config kv)
-//   <div class="editor-section">Credentials</div>         (secrets kv with __MASKED__ round-trip)
-//   <div class="editor-section">Lifecycle</div>           (idle_timeout_seconds)
-//   <div class="editor-section">Test Connection</div>     (edit-mode only — probe + banner)
-//   <div class="editor-section danger-zone"> … </div>     (edit-mode only)
+// Edit-mode tabbed layout (M10 F7 L9 HAT; F5 L3 moved Runtime Config
+// across tabs):
+//
+//   General tab — WHAT the bot is:
+//     Connection — name, type, config kv (with substrate-managed
+//                  Test Connection footer-row + registry-mediated
+//                  Invite block per F5 L2 MCP-parity refactor
+//                  mirroring mcp-server-editor.js mcp-test-row
+//                  placement)
+//     Credentials — secrets kv with __MASKED__ round-trip
+//     Pairing — operator-generated pairing code
+//     System Prompt Directive — registry-mediated (Discord today)
+//     Attached Agents — read-only summary
+//     Danger Zone — delete button
+//
+//   Access and Routing tab — HOW it behaves at runtime:
+//     Lifecycle — idle_timeout_seconds, session_continuation_seconds,
+//                 Auto-reply toggle
+//     Runtime Config — registry-mediated (Discord today; mounts the
+//                      typed Intents/Servers/Presence/Advanced block
+//                      per F5 L3)
+//     Allowlist — account-scope peer/channel/server/role allowlist
+//     Routing Rules — operator-authored routing rules + default agent
+//
+// Create mode renders flat (only Connection + Credentials + Lifecycle
+// render there — not enough sections to justify the tab split). The
+// Discord typed runtime-config block renders INSIDE the Connection
+// section in create-mode (per F5 L3 — flat layout has no tabs to
+// mount it on; the registry's ``renderConnectionFields(account,
+// isCreate=true)`` delegates to the same shared body used by
+// ``renderRuntimeConfigFields`` in edit-mode for single-source-of-truth
+// markup).
 //
 // Per-key __MASKED__ round-trip mirrors MCP exactly: each secret row
 // captures `_originalMasked` via the data-original-masked attribute at
@@ -30,9 +56,10 @@
 //
 // M10 F7 L9 HAT: edit-mode renders a tabbed layout matching the Agent
 // Editor's pattern. Operator-specified split:
-//   Tab "General"            — Connection, Credentials, Pairing,
-//                              Attached agents, Test connection,
-//                              Danger zone.
+//   Tab "General"            — Connection (with Test Connection
+//                              footer-row + Invite block folded in
+//                              per F5 L2 MCP-parity), Credentials,
+//                              Pairing, Attached agents, Danger zone.
 //   Tab "Access and Routing" — Lifecycle, Allowlist, Routing rules.
 // Create mode renders flat (only the Connection + Credentials + Lifecycle
 // sections render there — not enough sections to justify the tab split).
@@ -314,10 +341,27 @@
     // active.
 
     // Connection section.
+    // F5 L2: edit-mode hosts the Test Connection footer-row + the
+    // registry-mediated Invite block INSIDE this section, mirroring
+    // mcp-server-editor.js:472-501's mcp-test-row placement. The
+    // wrapping <div> carries data-testid="connector-connection-section"
+    // so future tests can assert "Test Connection lives inside
+    // Connection" by DOM ancestry.
     var connectionHtml = '';
-    connectionHtml += '<div class="editor-section">';
+    connectionHtml += '<div class="editor-section" data-testid="connector-connection-section">';
     connectionHtml += '<div class="section-title">Connection</div>';
     connectionHtml += renderConnectionFields(account, types, isCreate);
+    if (!isCreate) {
+      connectionHtml += renderTestConnectionRow();
+      // Invite block — registry-mediated (Discord today). Returns
+      // wrapper-less content per F5 L2's renderInviteSection contract
+      // change (see connector-form-discord.js:renderInviteSection).
+      var inviteRegistry = (window.App && window.App.studio && window.App.studio.connectorFormRegistry) || null;
+      var inviteEntry = (inviteRegistry && account && account.type) ? inviteRegistry.get(account.type) : undefined;
+      if (inviteEntry && typeof inviteEntry.renderInviteSection === 'function') {
+        connectionHtml += inviteEntry.renderInviteSection(account);
+      }
+    }
     connectionHtml += '</div>';
 
     // Credentials section.
@@ -341,56 +385,84 @@
     lifecycleHtml += '<div class="editor-section">';
     lifecycleHtml += '<div class="section-title">Lifecycle</div>';
 
+    // F5 L3: ``<small class="form-hint">`` blocks replaced with
+    // ``.field-info-icon`` tooltips per Design Decision. Production
+    // pattern matches ``mcp-server-editor.js:790-795``: a ``<button
+    // type="button" class="field-info-icon" title="...">`` next to the
+    // label provides the browser-native tooltip; an ``aria-describedby``
+    // + ``visually-hidden`` sibling carries the screen-reader text. The
+    // ``data-testid`` on the info-icon button preserves the
+    // ``connector-account-{idle,continuation,auto-relay}-hint`` testid
+    // lineage from the dropped ``<small>`` elements so existing tests
+    // resolve against the new affordance (`continuation-hint` test is
+    // updated to ``to_have_attribute("title", ...)`` since the tooltip
+    // text lives in the title attribute now).
+    var infoIcon = (window.App && window.App.icon) ? window.App.icon('info') : 'ⓘ';
+    var escAttr = window.App.escapeAttr;
+    var escHtml = window.App.escapeHtml;
+
     // Pool idle timeout (F2)
+    var idleTipText = 'Reap warm connection after inactivity.';
     lifecycleHtml += '<div class="field-row admin-pf-row">';
     lifecycleHtml += '<label for="cf-idle-timeout">Pool idle timeout</label>';
+    lifecycleHtml += '<button type="button" class="field-info-icon" ' +
+            'title="' + escAttr(idleTipText) + '" ' +
+            'aria-describedby="connector-account-idle-help-text" ' +
+            'data-testid="connector-account-idle-hint">' + infoIcon + '</button>';
+    lifecycleHtml += '<span id="connector-account-idle-help-text" class="visually-hidden">' +
+            escHtml(idleTipText) + '</span>';
     lifecycleHtml += renderLifecycleSelect('cf-idle-timeout', 'idle_timeout_seconds',
             'connector-account-idle-timeout-input', idleValue,
             { defaultSeconds: 1800, includeNever: false });
     lifecycleHtml += '</div>';
-    lifecycleHtml += '<div class="field-row admin-pf-row">';
-    lifecycleHtml += '<label></label>';
-    lifecycleHtml += '<small class="form-hint" data-testid="connector-account-idle-hint">' +
-            'Reap warm connection after inactivity.' +
-            '</small>';
-    lifecycleHtml += '</div>';
 
     // Chat-session continuation window (F3 L5)
+    var contTipText = 'Inbound continues the same chat session within this window.';
     lifecycleHtml += '<div class="field-row admin-pf-row">';
     lifecycleHtml += '<label for="cf-continuation-window">Chat-session continuation window</label>';
+    lifecycleHtml += '<button type="button" class="field-info-icon" ' +
+            'title="' + escAttr(contTipText) + '" ' +
+            'aria-describedby="connector-account-continuation-help-text" ' +
+            'data-testid="connector-account-continuation-hint">' + infoIcon + '</button>';
+    lifecycleHtml += '<span id="connector-account-continuation-help-text" class="visually-hidden">' +
+            escHtml(contTipText) + '</span>';
     lifecycleHtml += renderLifecycleSelect('cf-continuation-window', 'session_continuation_seconds',
             'connector-account-continuation-input', contValue,
             { defaultSeconds: 86400, includeNever: true });
     lifecycleHtml += '</div>';
-    lifecycleHtml += '<div class="field-row admin-pf-row">';
-    lifecycleHtml += '<label></label>';
-    lifecycleHtml += '<small class="form-hint" data-testid="connector-account-continuation-hint">' +
-            'Inbound continues the same chat session within this window.' +
-            '</small>';
-    lifecycleHtml += '</div>';
 
-    // Auto-relay peer replies to platform (M10 F8 L11 HAT Fix #4).
+    // Auto-reply to platform messages (M10 F8 L11 HAT Fix #4).
     // Default-on opt-in setting; stored in ``config.auto_relay_platform_replies``.
     // Absent → treated as True at consume time (dispatcher reads
     // ``account.config.get("auto_relay_platform_replies", True)``).
     // The checkbox renders checked (= auto-relay ON) by default for new
     // accounts AND for existing accounts that lack the key explicitly.
+    // F5 L3: visible label + aria-label rewritten for friendliness
+    // (the prior wording included the "peer" jargon and the technical
+    // term "relay"); the persisted ``config`` key intentionally stays
+    // ``auto_relay_platform_replies`` so the existing backend +
+    // database contract is unchanged.
     var autoRelayConfigValue = (!isCreate && account.config && Object.prototype.hasOwnProperty.call(account.config, 'auto_relay_platform_replies'))
         ? !!account.config.auto_relay_platform_replies
         : true;
-    lifecycleHtml += '<div class="field-row admin-pf-row">';
-    lifecycleHtml += '<label for="cf-auto-relay">Auto-relay peer replies to platform</label>';
-    lifecycleHtml += '<input type="checkbox" id="cf-auto-relay" ' +
+    var autoRelayTipText = "When on, the agent's replies post back to Discord automatically. " +
+            "Off requires the agent to explicitly invoke send_to_platform_channel.";
+    lifecycleHtml += '<div class="field-row admin-pf-row cf-auto-relay-row">';
+    lifecycleHtml += '<label for="cf-auto-relay">Auto-reply to platform messages</label>';
+    lifecycleHtml += '<button type="button" class="field-info-icon" ' +
+            'title="' + escAttr(autoRelayTipText) + '" ' +
+            'aria-describedby="connector-account-auto-relay-help-text" ' +
+            'data-testid="connector-account-auto-relay-hint">' + infoIcon + '</button>';
+    lifecycleHtml += '<span id="connector-account-auto-relay-help-text" class="visually-hidden">' +
+            escHtml(autoRelayTipText) + '</span>';
+    lifecycleHtml += '<label class="tool-enable-switch">';
+    lifecycleHtml += '<input type="checkbox" class="field-input" id="cf-auto-relay" ' +
             'data-field="auto_relay_platform_replies" ' +
             'data-testid="connector-account-auto-relay-toggle"' +
+            ' aria-label="Auto-reply to platform messages"' +
             (autoRelayConfigValue ? ' checked' : '') + ' />';
-    lifecycleHtml += '</div>';
-    lifecycleHtml += '<div class="field-row admin-pf-row">';
-    lifecycleHtml += '<label></label>';
-    lifecycleHtml += '<small class="form-hint" data-testid="connector-account-auto-relay-hint">' +
-            "When enabled, the agent's plaintext replies to platform peers are automatically posted back to the platform. " +
-            'Disable to require the agent to explicitly invoke send_to_platform_channel — useful if you want the agent to deliberate before responding to peers.' +
-            '</small>';
+    lifecycleHtml += '<span class="tool-enable-switch-track" aria-hidden="true"></span>';
+    lifecycleHtml += '</label>';
     lifecycleHtml += '</div>';
 
     lifecycleHtml += '</div>';
@@ -399,6 +471,33 @@
     // M10 F6 L4: operator generates / regenerates the account pairing
     // code. The endpoint is the only writer for ``config["pairing"]``.
     var pairingHtml = isCreate ? '' : renderPairingSection(account);
+
+    // Runtime Config section (edit mode only) — F5 L3.
+    // Registry-mediated section that mounts per-type runtime-config
+    // content on the Access-and-Routing tab between Lifecycle and
+    // Allowlist. The hook returns wrapper-less content; the substrate
+    // wraps in an ``editor-section`` with section-title "Runtime Config".
+    // Discord today; future typed connectors with runtime config blocks
+    // plug in via the same hook. Absent → no section renders (Stub
+    // type fails the typeof check; runtimeConfigHtml stays ''). The
+    // create-mode flat layout has no tabs to mount this on; Discord's
+    // ``renderConnectionFields(account, isCreate=true)`` delegates to
+    // the same shared body so the runtime-config inputs render inside
+    // the Connection section during creation.
+    var runtimeConfigHtml = '';
+    if (!isCreate) {
+      var runtimeRegistry = (window.App && window.App.studio && window.App.studio.connectorFormRegistry) || null;
+      var runtimeEntry = (runtimeRegistry && account && account.type) ? runtimeRegistry.get(account.type) : undefined;
+      if (runtimeEntry && typeof runtimeEntry.renderRuntimeConfigFields === 'function') {
+        var runtimeInner = runtimeEntry.renderRuntimeConfigFields(account);
+        if (runtimeInner) {
+          runtimeConfigHtml += '<div class="editor-section" data-testid="connector-account-runtime-config-section">';
+          runtimeConfigHtml += '<div class="section-title">Runtime Config</div>';
+          runtimeConfigHtml += runtimeInner;
+          runtimeConfigHtml += '</div>';
+        }
+      }
+    }
 
     // Account-scope allowlist section (edit mode only).
     // M10 F6 L4: account-level peer/channel allowlist editor.
@@ -414,38 +513,9 @@
     // ``connector_account_ids`` includes this account.
     var attachedAgentsHtml = isCreate ? '' : renderAttachedAgentsSection();
 
-    // Test Connection section (edit mode only).
-    var testConnectionHtml = '';
-    if (!isCreate) {
-      testConnectionHtml += '<div class="editor-section connector-test-section">';
-      testConnectionHtml += '<div class="section-title">Test Connection</div>';
-      testConnectionHtml += '<div class="connector-test-actions">';
-      testConnectionHtml += '<button type="button" class="btn-outlined-primary connector-test-connection-btn" data-testid="connector-test-connection-btn">' +
-              window.App.icon('refresh-cw') + ' Test connection</button>';
-      testConnectionHtml += '<span class="indicator-led indicator-led--idle connector-test-led" data-testid="connector-test-led" data-state="idle" aria-label="Not tested"></span>';
-      testConnectionHtml += '<span class="connector-test-message" data-testid="connector-test-message">Not tested</span>';
-      testConnectionHtml += '</div>';
-      testConnectionHtml += '<div class="connector-test-status" data-testid="connector-test-status" hidden></div>';
-      testConnectionHtml += '<div class="connector-test-details-wrap" data-testid="connector-test-details-wrap" hidden>' +
-              '<div data-testid="connector-test-details"></div>' +
-              '</div>';
-      testConnectionHtml += '</div>';
-    }
+    // Test Connection content lives INSIDE the Connection section above (F5 L2 MCP-parity refactor).
 
-    // Invite section (edit mode only) — M11 F1 L5.
-    // The Invite section is registry-mediated: the active connector
-    // type's entry provides an OPTIONAL ``renderInviteSection(account)``
-    // hook. Unregistered types (e.g. ``'stub'``) or types without the
-    // hook produce no section — preserves byte-identical DOM for
-    // ``'stub'`` tests.
-    var inviteHtml = '';
-    if (!isCreate) {
-      var inviteRegistry = (window.App && window.App.studio && window.App.studio.connectorFormRegistry) || null;
-      var inviteEntry = (inviteRegistry && account && account.type) ? inviteRegistry.get(account.type) : undefined;
-      if (inviteEntry && typeof inviteEntry.renderInviteSection === 'function') {
-        inviteHtml = inviteEntry.renderInviteSection(account);
-      }
-    }
+    // Invite content lives INSIDE the Connection section above (F5 L2 MCP-parity refactor); the registry hook is called from there.
 
     // Directive section (edit mode only) — M11 F2 L4.
     // The System Prompt Directive section is registry-mediated through
@@ -507,8 +577,9 @@
       // continues to resolve against any section regardless of which
       // tab is currently active.
       html += '<div class="tabpanels">';
-      // General tab — Connection, Credentials, Pairing, Attached agents,
-      // Test connection, Danger zone.
+      // General tab — Connection (with Test Connection footer-row +
+      // Invite block folded in per F5 L2 MCP-parity refactor),
+      // Credentials, Pairing, Attached agents, Danger zone.
       html += '<div role="tabpanel" class="tabpanel" id="' + PANEL_IDS.general +
               '" data-tab-id="general" aria-labelledby="connector-tab-general" hidden>';
       html += connectionHtml;
@@ -516,16 +587,19 @@
       html += pairingHtml;
       html += directiveHtml;  // M11 F2 L4 — between Pairing and Attached Agents
       html += attachedAgentsHtml;
-      html += testConnectionHtml;
-      html += inviteHtml;
+      // F5 L2: testConnectionHtml + inviteHtml folded into connectionHtml
+      // above to mirror MCP editor's mcp-test-row placement.
       html += dangerZoneHtml;
       html += '</div>';
-      // Access and Routing tab — Lifecycle, Allowlist, Routing rules.
-      // Lifecycle (session-continuation window) is policy-shaped enough
-      // to belong with the access controls per operator intent.
+      // Access and Routing tab — Lifecycle, Runtime Config (F5 L3),
+      // Allowlist, Routing rules. Lifecycle (session-continuation
+      // window) is policy-shaped enough to belong with the access
+      // controls per operator intent. Runtime Config slots between
+      // Lifecycle and Allowlist per F5 Design Decision.
       html += '<div role="tabpanel" class="tabpanel" id="' + PANEL_IDS.accessAndRouting +
               '" data-tab-id="access-and-routing" aria-labelledby="connector-tab-access-and-routing" hidden>';
       html += lifecycleHtml;
+      html += runtimeConfigHtml;
       html += allowlistHtml;
       html += routingHtml;
       html += '</div>';
@@ -615,12 +689,14 @@
       if (typesEmpty) {
         html += '<option value="" disabled selected>No connector types registered yet</option>';
       } else {
-        // M11 F1 L7 HAT: the placeholder option is ``selected`` only
-        // when no type has been picked yet (``createType === ''``);
-        // otherwise the matching ladder entry below carries ``selected``
-        // so the re-render restores the operator's pick.
-        var placeholderSelected = createType === '' ? ' selected' : '';
-        html += '<option value="" disabled' + placeholderSelected + '>Select a connector type</option>';
+        // M11 F1 L7 HAT: the placeholder option renders ONLY when no
+        // type has been picked yet (``createType === ''``); once the
+        // operator picks a real type, the placeholder is suppressed
+        // from the rendered list and the matching ladder entry below
+        // carries ``selected`` so the re-render restores the pick.
+        if (createType === '') {
+          html += '<option value="" disabled selected>Select a connector type</option>';
+        }
         for (var i = 0; i < typesList.length; i++) {
           var t = typesList[i];
           var optSelected = (t.value === createType) ? ' selected' : '';
@@ -935,14 +1011,6 @@
       for (var i = 0; i < inputs.length; i++) {
         inputs[i].addEventListener('input', checkDirty);
         inputs[i].addEventListener('change', checkDirty);
-      }
-      // M10 F8 L11 HAT Fix #4: the auto-relay toggle is a bare
-      // ``<input type="checkbox">`` without the ``.field-input`` class
-      // (it's neither a text input nor a select). Wire its change
-      // event explicitly so dirty-tracking observes operator edits.
-      var autoRelayToggle = container.querySelector('[data-field="auto_relay_platform_replies"]');
-      if (autoRelayToggle) {
-        autoRelayToggle.addEventListener('change', checkDirty);
       }
     }
     attachStaticListeners();
@@ -1712,6 +1780,44 @@
               '<dd>' + _renderDetailsValue(value[k], depth + 1) + '</dd>';
     }
     html += '</dl>';
+    return html;
+  }
+
+  // ── Test Connection footer-row (F5 L2 — MCP-parity placement) ─────
+  //
+  // Returns the Test Connection actions field-row + status banner +
+  // details-wrap as WRAPPER-LESS content (no <div class="editor-section">,
+  // no <div class="section-title">) so the caller can embed it INSIDE
+  // the Connection section. Mirrors mcp-server-editor.js:472-501's
+  // ``<div class="field-row admin-pf-row mcp-test-row">`` placement
+  // inside the MCP Connection section.
+  //
+  // The status banner + details-wrap live as SIBLINGS to the field-row
+  // (not nested inside it) because they're full-width conditional
+  // panels that don't fit the 2-column field-row shape. The Connection
+  // section's <div class="editor-section"> is their visual container.
+  //
+  // All data-testids preserved byte-identical from the pre-L2
+  // standalone-section shape — the click-handler at
+  // connector-account-editor.js:~1177-1182 looks up
+  // ``[data-testid="connector-test-connection-btn"]`` and resolves it
+  // regardless of DOM position.
+
+  function renderTestConnectionRow() {
+    var html = '';
+    html += '<div class="field-row admin-pf-row connector-test-row">';
+    html += '<label></label>';
+    html += '<div class="connector-test-actions">';
+    html += '<button type="button" class="btn-outlined-primary connector-test-connection-btn" data-testid="connector-test-connection-btn">' +
+            window.App.icon('refresh-cw') + ' Test connection</button>';
+    html += '<span class="indicator-led indicator-led--idle connector-test-led" data-testid="connector-test-led" data-state="idle" aria-label="Not tested"></span>';
+    html += '<span class="connector-test-message" data-testid="connector-test-message">Not tested</span>';
+    html += '</div>';
+    html += '</div>';
+    html += '<div class="connector-test-status" data-testid="connector-test-status" hidden></div>';
+    html += '<div class="connector-test-details-wrap" data-testid="connector-test-details-wrap" hidden>' +
+            '<div data-testid="connector-test-details"></div>' +
+            '</div>';
     return html;
   }
 

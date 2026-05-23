@@ -123,7 +123,12 @@
   .area-studio .tool-row-overrides .error { font-size: var(--font-size-body-sm); color: var(--status-danger); padding: 4px 8px; }
 
   /* === MCP source-editor: Test connection + Tools section (F6.5 L3+L4) === */
-  .area-studio .mcp-test-row { margin-top: 8px; }
+  /* M11 F5 L2: ``.connector-test-row`` shares MCP's ``.mcp-test-row`` margin
+     so the connector editor's Test Connection footer-row (folded INSIDE
+     the Connection section per the MCP-parity refactor) has the same
+     spacing as MCP's mcp-test-row inside the MCP Connection section. */
+  .area-studio .mcp-test-row,
+  .area-studio .connector-test-row { margin-top: 8px; }
   /* F9 L1 (vibing follow-up): Reset connection button paired next to
      Refresh in the Connection block (moved out of Danger Zone). The
      flex container groups them inline with a small gap so they read as
@@ -1096,8 +1101,18 @@
     flex: 0 0 auto;
     text-align: left;
   }
+  /* M11 F5 L4 item 6: per-axis body containment — visually scopes the
+     per-axis editor (Peers / Channels) so the expanded body reads as
+     "this is the {axis} editor for this account" rather than as a
+     free-floating dropdown spanning the full tile width. `--surface-elevated`
+     gives a tonal step-up from the parent tile's `--surface`; matches
+     the nested-surface treatment used elsewhere in the area-studio. */
   .area-studio .connector-acl-axis-body {
     margin-top: 8px;
+    border-left: 2px solid var(--border);
+    padding: 8px 0 8px 12px;
+    background: var(--surface-elevated);
+    border-radius: var(--panel-radius-sm);
   }
   .area-studio .connector-allowlist-rows {
     display: flex;
@@ -1302,6 +1317,16 @@
     /* Inherits the canonical .chip-list-editor styling from admin.css
        :388-433 (both classes apply). No extra rules needed unless we
        want to constrain min-height differently — leave to inheritance. */
+  }
+  /* M11 F5 L4 item 7: hide-when-empty override. The JS toggle in
+     _renderChips (discoverable-dropdown.js) sets/removes the `hidden`
+     attribute based on chip count, but the user-agent `[hidden]` rule
+     (specificity 0,0,1,0) is overridden by `.area-studio .chip-list-editor`'s
+     `display: flex` (admin.css:393-406, specificity 0,0,2,0). This rule
+     at specificity 0,0,3,0 outranks the chip-list-editor display so the
+     `hidden` attribute actually hides the empty container. */
+  .area-studio .discoverable-dropdown-chips[hidden] {
+    display: none;
   }
   .discoverable-dropdown-status {
     min-height: 1em;

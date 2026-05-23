@@ -71,6 +71,21 @@ def _seed_discord(base_url: str, *, name: str = "Invite Bot", **kwargs) -> str:
     )
 
 
+def _activate_access_and_routing_tab(page: Page) -> None:
+    """F5 L3: edit-mode renders runtime-config (intents, guilds,
+    presence, advanced kv) on the Access-and-Routing tab (was: the
+    General tab's Connection section). Tests that interact with
+    ``discord-intent-*`` testids must click the tab first so the panel
+    is visible / actionable. Mirrors the helper at
+    ``test_flow_studio_connector_discord_form.py:45``; inlined here for
+    minimum cross-file coupling.
+    """
+    page.locator('[data-testid="tab-access-and-routing"]').click()
+    expect(
+        page.locator('[data-testid="connector-account-runtime-config-section"]')
+    ).to_be_visible(timeout=4000)
+
+
 def _fulfill_probe(page: Page, account_id: str, application_id: str) -> None:
     """Install a ``page.route`` interceptor that returns a doctor
     report with ``details.application_id=application_id`` on the
@@ -174,6 +189,9 @@ def test_intent_toggle_preserves_url_and_permissions_constant(
     ), f"baseline URL missing permissions constant: {url_before!r}"
 
     # Toggle message_content intent and let the change-handler tick.
+    # F5 L3 moved the Intent checkboxes from the General tab to the
+    # Access-and-Routing tab; activate that tab before interacting.
+    _activate_access_and_routing_tab(page)
     page.locator('[data-testid="discord-intent-message_content"]').click()
     page.wait_for_timeout(50)
 

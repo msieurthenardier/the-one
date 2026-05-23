@@ -281,6 +281,11 @@
     bottom: auto;
     right: auto;
   }
+  .area-studio .field-row.cf-auto-relay-row .tool-enable-switch {
+    position: relative;
+    bottom: auto;
+    right: auto;
+  }
 
   /* === Editor prompt block (F6 HAT inline fix #1) ============================
      The tool's `description` IS the prompt baked into the LLM tools schema.

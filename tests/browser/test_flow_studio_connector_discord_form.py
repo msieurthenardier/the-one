@@ -42,6 +42,22 @@ def _get_account(base_url: str, account_id: str) -> dict:
     return r.json()
 
 
+def _activate_access_and_routing_tab(page: Page) -> None:
+    """F5 L3: edit-mode renders runtime-config on the Access-and-Routing
+    tab (was: Connection section on the General tab). Tests that
+    interact with ``discord-intent-*`` / ``discord-guilds-list`` /
+    ``discord-presence-*`` / ``discord-advanced-kv-disclosure`` testids
+    must click the tab first so the panel is visible / actionable.
+    Mirrors the helper at
+    ``test_flow_studio_connector_account_editor.py:89``; inlined here
+    for minimum cross-file coupling.
+    """
+    page.locator('[data-testid="tab-access-and-routing"]').click()
+    expect(
+        page.locator('[data-testid="connector-account-runtime-config-section"]')
+    ).to_be_visible(timeout=4000)
+
+
 def _seed_discord(base_url: str, **kwargs) -> str:
     """Seed a ``type='discord'`` account with default BOT_TOKEN.
 
@@ -79,6 +95,10 @@ def test_edit_mode_renders_typed_fields_with_persisted_intents(
         timeout=8000
     )
 
+    # F5 L3: runtime-config (intents, guilds, presence) moved to the
+    # Access-and-Routing tab.
+    _activate_access_and_routing_tab(page)
+
     # The three intent checkboxes mount with the persisted values.
     msg = page.locator('[data-testid="discord-intent-message_content"]')
     members = page.locator('[data-testid="discord-intent-members"]')
@@ -88,7 +108,10 @@ def test_edit_mode_renders_typed_fields_with_persisted_intents(
     expect(members).to_be_checked()
     expect(guilds).to_be_checked()
 
-    # Typed BOT_TOKEN input present with the masked value.
+    # Typed BOT_TOKEN input present with the masked value. The BOT_TOKEN
+    # input lives in the Credentials section on the General tab — switch
+    # back to verify it (then leave the tab where the test ended).
+    page.locator('[data-testid="tab-general"]').click()
     expect(page.locator('[data-testid="discord-bot-token"]')).to_be_visible()
     expect(page.locator('[data-testid="discord-bot-token"]')).to_have_value("***...abcd")
 
@@ -103,6 +126,8 @@ def test_intent_toggle_re_enables_save(app_clean: str, page: Page) -> None:
     # Baseline: Save disabled on load.
     expect(save_btn).to_be_disabled()
 
+    # F5 L3: intents moved to the Access-and-Routing tab.
+    _activate_access_and_routing_tab(page)
     page.locator('[data-testid="discord-intent-message_content"]').click()
     expect(save_btn).not_to_be_disabled()
 
@@ -182,6 +207,8 @@ def test_intent_toggle_save_emits_typed_payload(app_clean: str, page: Page) -> N
         timeout=8000
     )
 
+    # F5 L3: intents moved to the Access-and-Routing tab.
+    _activate_access_and_routing_tab(page)
     page.locator('[data-testid="discord-intent-message_content"]').click()
     page.locator('[data-testid="save-connector-account-btn"]').click()
     expect(page.locator(".app-flash")).to_be_visible(timeout=8000)
@@ -204,6 +231,8 @@ def test_guilds_add_saves(app_clean: str, page: Page) -> None:
         timeout=8000
     )
 
+    # F5 L3: guilds input moved to the Access-and-Routing tab.
+    _activate_access_and_routing_tab(page)
     page.locator('[data-testid="discord-guilds-list"]').fill("12345, 67890")
     page.locator('[data-testid="save-connector-account-btn"]').click()
     expect(page.locator(".app-flash")).to_be_visible(timeout=8000)
@@ -222,6 +251,8 @@ def test_presence_name_and_type_save(app_clean: str, page: Page) -> None:
         timeout=8000
     )
 
+    # F5 L3: presence editor moved to the Access-and-Routing tab.
+    _activate_access_and_routing_tab(page)
     page.locator('[data-testid="discord-presence-name"]').fill("with friends")
     page.locator('[data-testid="discord-presence-type"]').select_option("playing")
     page.locator('[data-testid="save-connector-account-btn"]').click()
@@ -251,6 +282,10 @@ def test_advanced_disclosure_hides_reserved_keys(app_clean: str, page: Page) -> 
     expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(
         timeout=8000
     )
+
+    # F5 L3: Advanced disclosure moved to the Access-and-Routing tab
+    # (inside the Runtime Config section).
+    _activate_access_and_routing_tab(page)
 
     # The disclosure exists.
     expect(

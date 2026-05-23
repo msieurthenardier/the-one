@@ -124,6 +124,22 @@
     if (!chipsEl) return;
     chipsEl.innerHTML = '';
 
+    // M11 F5 L4 item 7: hide the chip container when empty so it doesn't
+    // render as a confusing blank box. The chip-list-editor CSS gives it
+    // a min-height + flex layout (admin.css:393-406); hiding via the
+    // `hidden` attribute prevents the empty-state from looking like a
+    // stray empty rectangle. NOTE: the `hidden` attribute alone is
+    // insufficient because `.area-studio .chip-list-editor`'s
+    // `display: flex` (specificity 0,0,2,0) overrides the user-agent
+    // `[hidden] { display: none }` rule. A companion CSS override
+    // `.area-studio .discoverable-dropdown-chips[hidden] { display: none; }`
+    // (specificity 0,0,3,0) lands in studio.css to make this take effect.
+    if (!state.currentValues || state.currentValues.length === 0) {
+      chipsEl.setAttribute('hidden', '');
+      return;
+    }
+    chipsEl.removeAttribute('hidden');
+
     for (var i = 0; i < state.currentValues.length; i++) {
       var id = state.currentValues[i];
       var entity = _findEntityById(state.entities, state.axis, id);

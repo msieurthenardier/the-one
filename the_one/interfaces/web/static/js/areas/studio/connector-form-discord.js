@@ -158,19 +158,43 @@
     return window.App.escapeAttr(s == null ? '' : String(s));
   }
 
-  // ── Render: Connection (intents + guilds + presence + advanced) ────
+  // ── Render: Runtime Config (intents + guilds + presence + advanced) ─
+  //
+  // F5 L3: extracted from the old ``renderConnectionFields`` body so the
+  // SAME markup can be rendered either in the Connection section
+  // (create-mode flat layout, no tabs) OR on the Access-and-Routing tab
+  // between Lifecycle and Allowlist (edit-mode tabbed layout). Single
+  // source-of-truth for the runtime-config markup; ``renderConnectionFields``
+  // (create-mode) and ``renderRuntimeConfigFields`` (edit-mode-hook for
+  // the substrate) both delegate to this helper.
+  //
+  // Verbose ``<small class="form-hint">`` blocks replaced with
+  // ``.field-info-icon`` tooltips per F5 Design Decision; production
+  // pattern matches ``mcp-server-editor.js:790-795`` (browser-native
+  // ``title=`` tooltip + ``aria-describedby`` + ``visually-hidden`` sibling
+  // for screen readers). Guilds label rewritten "Guilds" → "Servers" per
+  // Discord-native vocabulary (already established in M11 F1's vocabulary
+  // substitution).
 
-  function renderConnectionFields(account, isCreate) {
+  function _renderRuntimeConfigBody(account) {
     var cfg = (account && account.config) || {};
     var intentsCfg = (typeof cfg.intents === 'object' && cfg.intents) ? cfg.intents : {};
     var guildsCfg = Array.isArray(cfg.guilds) ? cfg.guilds : [];
     var presenceCfg = (typeof cfg.presence === 'object' && cfg.presence) ? cfg.presence : {};
 
     var html = '';
+    var infoIcon = (window.App && window.App.icon) ? window.App.icon('info') : 'ⓘ';
 
     // ── Intents fieldset ─────────────────────────────────────────────
+    var intentsTipText = 'Discord event types the bot receives. All on is the safe default.';
     html += '<fieldset class="discord-intents-fieldset" data-testid="discord-intents-fieldset">';
     html += '<legend>Intents</legend>';
+    html += '<button type="button" class="field-info-icon" ' +
+            'title="' + _escapeAttr(intentsTipText) + '" ' +
+            'aria-describedby="discord-intents-help-text">' +
+            infoIcon + '</button>';
+    html += '<span id="discord-intents-help-text" class="visually-hidden">' +
+            _escapeHtml(intentsTipText) + '</span>';
     for (var i = 0; i < INTENT_AXES.length; i++) {
       var axis = INTENT_AXES[i];
       // Default-on when the operator has never set intents (M10 F8 hardcoded
@@ -181,35 +205,45 @@
       }
       var checkedAttr = checked ? ' checked' : '';
       html += '<label class="discord-intent-row">';
-      html += '<input type="checkbox" data-field="intent-' + axis.key +
+      html += '<input type="checkbox" class="checkbox-primary" data-field="intent-' + axis.key +
               '" data-testid="discord-intent-' + axis.key + '"' + checkedAttr + ' />';
       html += '<span>' + _escapeHtml(axis.label) + '</span>';
       html += '</label>';
     }
-    html += '<small class="form-hint">Discord gateway intents — controls which ' +
-            'event types the bot receives. All on is the safe default; disable ' +
-            'individual intents only if you understand the consequences.</small>';
     html += '</fieldset>';
 
     // ── Guilds list ──────────────────────────────────────────────────
     var guildsValue = guildsCfg.join(', ');
+    var guildsTipText = 'Comma-separated server IDs. Leave blank to allow all servers the bot is in.';
     html += '<div class="discord-guilds-row">';
-    html += '<label for="cf-discord-guilds">Guilds</label>';
-    html += '<input type="text" id="cf-discord-guilds" data-field="guilds-list" ' +
+    html += '<label for="cf-discord-guilds">Servers</label>';
+    html += '<button type="button" class="field-info-icon" ' +
+            'title="' + _escapeAttr(guildsTipText) + '" ' +
+            'aria-describedby="discord-guilds-help-text">' +
+            infoIcon + '</button>';
+    html += '<span id="discord-guilds-help-text" class="visually-hidden">' +
+            _escapeHtml(guildsTipText) + '</span>';
+    html += '<input class="field-input" type="text" id="cf-discord-guilds" data-field="guilds-list" ' +
             'data-testid="discord-guilds-list" value="' + _escapeAttr(guildsValue) +
             '" placeholder="" />';
-    html += '<small class="form-hint">Comma-separated Discord guild IDs (digit-only).</small>';
     html += '</div>';
 
     // ── Presence editor ──────────────────────────────────────────────
     var presenceName = (typeof presenceCfg.name === 'string') ? presenceCfg.name : '';
     var presenceType = (typeof presenceCfg.type === 'string') ? presenceCfg.type : '';
+    var presenceTipText = "What the bot shows as its activity status. Blank for default.";
 
     html += '<div class="discord-presence-row">';
     html += '<label>Presence</label>';
-    html += '<input type="text" data-field="presence-name" data-testid="discord-presence-name" ' +
+    html += '<button type="button" class="field-info-icon" ' +
+            'title="' + _escapeAttr(presenceTipText) + '" ' +
+            'aria-describedby="discord-presence-help-text">' +
+            infoIcon + '</button>';
+    html += '<span id="discord-presence-help-text" class="visually-hidden">' +
+            _escapeHtml(presenceTipText) + '</span>';
+    html += '<input class="field-input" type="text" data-field="presence-name" data-testid="discord-presence-name" ' +
             'value="' + _escapeAttr(presenceName) + '" placeholder="Activity name" />';
-    html += '<select data-field="presence-type" data-testid="discord-presence-type">';
+    html += '<select class="field-input field-select" data-field="presence-type" data-testid="discord-presence-type">';
     var emptySelected = presenceType === '' ? ' selected' : '';
     html += '<option value=""' + emptySelected + '>(default)</option>';
     for (var p = 0; p < PRESENCE_TYPES.length; p++) {
@@ -218,8 +252,6 @@
       html += '<option value="' + _escapeAttr(pt) + '"' + sel + '>' + _escapeHtml(pt) + '</option>';
     }
     html += '</select>';
-    html += '<small class="form-hint">Activity name + type for the bot\'s status. ' +
-            'Leave both blank to use the default presence.</small>';
     html += '</div>';
 
     // ── Advanced kv-table disclosure ─────────────────────────────────
@@ -236,6 +268,36 @@
     html += '</details>';
 
     return html;
+  }
+
+  // ── Render: Connection (create-mode: runtime-config; edit-mode: empty) ─
+  //
+  // F5 L3: in create-mode (flat layout, no tabs), runtime-config renders
+  // here so the operator can configure Intents/Servers/Presence before
+  // clicking Create & Test. In edit-mode (tabbed), runtime-config moves
+  // to the Access-and-Routing tab via ``renderRuntimeConfigFields`` so
+  // tab semantics are coherent (General = WHAT the bot is; Access and
+  // Routing = HOW it behaves at runtime). Discord has no typed
+  // Connection-level fields anymore — Connection holds the substrate-
+  // managed Name + Type + Test Connection + Invite only.
+
+  function renderConnectionFields(account, isCreate) {
+    if (isCreate) {
+      return _renderRuntimeConfigBody(account);
+    }
+    return '';
+  }
+
+  // ── Render: Runtime Config (edit-mode hook) ────────────────────────
+  //
+  // F5 L3: registry-mediated optional hook called by the substrate from
+  // ``connector-account-editor.js`` when building the Access-and-Routing
+  // tab. Substrate wraps the returned content in an ``<div
+  // class="editor-section">`` with ``<div class="section-title">Runtime
+  // Config</div>``; this helper returns the inner content only.
+
+  function renderRuntimeConfigFields(account) {
+    return _renderRuntimeConfigBody(account);
   }
 
   // ── Render: Credentials (typed BOT_TOKEN with masked-edit) ─────────
@@ -390,9 +452,15 @@
     var url = appId ? _computeInviteUrl(appId) : '';
 
     var html = '';
-    html += '<section class="editor-section connector-invite-section" ' +
+    // F5 L2: returns wrapper-less content (no <section class="editor-section">,
+    // no <div class="section-title">Invite</div>); the caller
+    // (connector-account-editor.js) embeds this inside the Connection
+    // section per the MCP-parity placement refactor. The
+    // ``data-testid="connector-invite-section"`` testid moves from the
+    // removed <section> onto the new <div class="connector-invite-block">
+    // so DOM-by-testid lookups keep resolving.
+    html += '<div class="connector-invite-block" ' +
             'data-testid="connector-invite-section">';
-    html += '<div class="section-title">Invite</div>';
     html += '<p class="connector-invite-hint" ' +
             'data-testid="connector-invite-hint"' + hintHidden + '>' +
             'Run Test Connection first to fetch your application ID.' +
@@ -406,7 +474,7 @@
     html += '<button type="button" class="btn-outlined-primary connector-invite-recompute-btn" ' +
             'data-testid="connector-invite-recompute-btn">Recompute</button>';
     html += '</div>';
-    html += '</section>';
+    html += '</div>';
     return html;
   }
 
@@ -712,6 +780,7 @@
     // kv-table on Discord accounts does NOT also render it as a row.
     reservedConfigKeys: ['intents', 'guilds', 'presence', 'system_prompt_directive'],
     renderConnectionFields: renderConnectionFields,
+    renderRuntimeConfigFields: renderRuntimeConfigFields,
     renderCredentialsFields: renderCredentialsFields,
     collect: collect,
     snapshot: snapshot,
