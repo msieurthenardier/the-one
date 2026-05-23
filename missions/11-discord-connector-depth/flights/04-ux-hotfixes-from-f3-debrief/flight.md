@@ -1,6 +1,6 @@
 # Flight: UX Hotfixes from F3 Debrief
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Discord Connector Depth & Robustness](../../mission.md)
 
 ## Contributing to Criteria
