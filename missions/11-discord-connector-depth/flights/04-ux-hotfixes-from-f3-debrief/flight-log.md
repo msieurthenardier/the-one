@@ -111,13 +111,54 @@ Walk of every F3-debrief-cited source item against current code state (2026-05-2
 - The `_applyLabelsToCheckboxes` walk is idempotent — re-running it after the cache resolves only mutates spans whose ids have a resolved label; spans missing from the cache keep their raw-id text. This preserves the F9-deferred stale-entry-indicator UX as a separate concern.
 - Browser marker filter (`-m browser`) required per pyproject.toml addopts (default deselects browser tests).
 
+### L4 — uat-and-alignment
+
+**Status**: completed.
+
+**Changes made**:
+- HAT-driven walk of all 6 verification steps against the live gleepglorp Discord bot via the chrome-devtools MCP. 6 of 6 PASS.
+- One HAT-discovered UX gap surfaced at Step 3 and folded into F4 per the Adaptation Criteria (NOT deferred to F8/F10).
+- Inline fix (cross-component event-driven nudge) committed as part of the L4 commit. See Decisions + Anomalies sections below.
+
+**Per-step outcomes**:
+- Step 1 (cold-pool setup): PASS — `make restart` cycled the container; pool empty.
+- Step 2 (pre-probe hint): PASS — Access and Routing tab dropdowns showed "Run Test Connection first to populate the bot's discoverable view." on all 4 axes.
+- Step 3 (A1 closure — dropdowns auto-populate after Test Connection): **initial FAIL → PASS after fold-in fix.** Test Connection succeeded (envelope confirmed `pool_warmed: true`), but the already-mounted dropdowns kept stale 404 state. Folded in the cross-component event-driven nudge fix; after rebrowser-reload + re-restart, click Test Connection → 4 new GETs to `/discoverable-entities` fired automatically (reqids 365-368) → dropdowns populated without page reload.
+- Step 4 (envelope inspection): PASS — POST `/test/connect` response carried `details.pool_warmed: true` + `details.pool_warm_error: null` + the full doctor `checks` block + invite URL details.
+- Step 5 (A2 closure for Discord): PASS — added `#gleepglorp-text` to Discord Constellation's account-scope channels; navigated to Cave Man Bot Connectors tab; expanded the Discord Constellation Channels axis; checkbox-row displayed friendly label `#gleepglorp-text` (NOT the raw snowflake `1506831630923333722`). L3's lazy-fetch + `_applyLabelsToCheckboxes` walk worked as designed.
+- Step 6 (regression contract for stub): PASS — Stub HAT Account's Channels axis rendered checkbox-mode with raw strings (`chanel-1`, `channel-2`); the 503 path falls back to raw-id display per the L3 contract.
+
+**Verification**:
+- All 6 HAT steps PASS (operator-confirmed).
+- L4 fold-in fix: 8 browser tests pass in the discoverable-dropdown file (7 existing + 1 new for the pool-warmed event).
+- Broader regression sweep at fold-in commit: 30 browser tests pass across connector-account-editor, per-agent-overlay-dropdown, per-agent-overlay-label-resolver, and test-connection-button files.
+
+**Notes**:
+- Operator chose to leave the `#gleepglorp-text` chip in Discord Constellation's account-scope (option A) rather than restore the empty pre-test state (B). Account state at HAT end: `config.allowlist.channels = ["1506831630923333722"]`.
+- The pre-probe-404 state for the dropdowns is a race against the lifespan-listener-warmup (which runs at container startup and warms pools for accounts with attached agents). On a fresh container restart, the timing window between page-mount and warmup-completion determines whether the operator sees 404 or 200. For HAT determinism, we observed the 404 state in the first walkthrough; the second walkthrough (post-fold-in) used the longer wait-until-ready loop and saw the lifespan-warmed state.
+- Container required `playwright install chromium` + `playwright install-deps chromium` before the L3 + L4-fold-in browser tests could run. Pre-existing tooling state, not a leg artifact.
+
 ---
 
 ## Decisions
 
 Runtime decisions not in original plan.
 
-*(empty — to be populated during execution)*
+### 2026-05-23 — L4 HAT fold-in: pool-warmed cross-component nudge
+
+L4 HAT (interactive smoke-verify of A1 + A2) surfaced a UX gap: A1 successfully warms the pool on a Test Connection click (envelope confirms `details.pool_warmed=true`), but the already-mounted `discoverable-dropdown` components on the Access and Routing tab held their stale pre-probe-404 state — the operator had to click each axis's Refresh button manually (or page-reload) to see the post-warm entity list. The fix is in scope per F4 Adaptation Criteria ("if HAT surfaces new UX issues, fold into F4 OR escalate as Known UX Gap with near-term path — NOT F8/F10 deferral"); chose fold.
+
+Design: event-driven cross-component nudge (loose coupling between editor and dropdown components).
+- `renderTestConnectionBanner` (`connector-account-editor.js`) dispatches a `connector-account-pool-warmed` CustomEvent on `document` whenever the response carries `status='ok' && details.pool_warmed===true`, with `detail: {accountId}`. Sits after the existing `application_id` side-effect block — same shape, different consumer.
+- `discoverableDropdown` init function (`discoverable-dropdown.js`) subscribes to that event. The handler matches on `event.detail.accountId === state.accountId` and calls `_fetchEntities(state)` so the dropdown re-fetches its entity list. Self-detaches when the dropdown's DOM is removed (`!document.body.contains(state.root)` check fires on next event after removal — small leak surface, accepted).
+
+Coupling rationale: editor doesn't know about dropdowns (they may not be mounted in create-mode, may not exist for connector types without a `renderDiscoverableDropdown` hook, may unmount before the event fires), and dropdowns don't know about the Test Connection button (they're mounted by `_mountAllowlistAxisEditor` independent of the test-connection section). Document-level events keep the two surfaces decoupled.
+
+Convention cited: this is the warmup-signal-propagation extension of `pool-warming-entrypoints-are-finite-and-named` (codified in F4 L1). The named entrypoint (`test_connector_connection` → `account_acquire`) announces its success via a named event; listeners react to the named event. No new convention added; the existing one already covers the natural extension.
+
+New browser test: `test_test_connection_pool_warmed_event_refreshes_dropdowns` in `tests/browser/test_flow_studio_connector_discoverable_dropdown.py`. Mocks the L4 GET to return 404 while a `pool_state["warm"]` flag is False and 200 with `#general` payload once it flips; mocks the Test Connection POST to flip the flag as a side-effect and return the A1 envelope. Asserts the channels-axis dropdown repopulates without a page reload AND that at least one warm GET fired AFTER the POST (proves the event-driven re-fetch, not stale render carry-over). All 8 tests in the file pass; regression sweep across `test_connector_test_connection_button.py` + `test_flow_studio_per_agent_overlay_dropdown.py` + `test_flow_studio_per_agent_overlay_label_resolver.py` + `test_flow_studio_connector_account_editor.py` — 30 passed.
+
+L3 label cache (per-tile per-agent overlay) deliberately NOT touched — it's lazy-on-expand (not pre-fetched), so it doesn't suffer the same staleness pattern. Scoping the fix to the dropdown component avoids over-reach.
 
 ---
 
@@ -133,7 +174,17 @@ Departures from planned approach.
 
 Unexpected issues encountered.
 
-*(empty)*
+### 2026-05-23 — L4 HAT: stale dropdowns after Test Connection succeeds
+
+**Surfaced during**: L4 HAT smoke-verify of A1 + A2 — the interactive run revealed that even though Test Connection's envelope correctly carried `pool_warmed=true` (A1 contract verified), the operator still had to click each axis's Refresh button on the Access and Routing tab to see the post-warm entity list. The dropdowns held their pre-probe-404 state silently.
+
+**Root cause**: A1 closed the server-side gap (pool gets warmed) but the UI gap was unaddressed — no signal was propagated from the Test Connection success path to the already-mounted dropdown components on the other tab. Each component fetches at mount-time only; subsequent state transitions (cold → warm) were invisible to them.
+
+**Fix path**: Folded into F4 as event-driven cross-component nudge (see Decisions entry above). The fix is the natural extension of the `pool-warming-entrypoints-are-finite-and-named` convention F4 L1 codified: the named entrypoint now also announces its success via a `connector-account-pool-warmed` CustomEvent, and dropdown components subscribe.
+
+**Coverage**: New browser test `test_test_connection_pool_warmed_event_refreshes_dropdowns` pins the contract. Regression sweep (30 tests) green.
+
+**Methodology note**: This anomaly validates the F4 HAT-before-commit ordering — had L1-L3 been committed first and HAT been a separate post-commit pass, the fold-in would have either landed as a follow-up PR (commit-noise) or escalated to a Known UX Gap (deferring the operator-facing fix). HAT-gated commit kept the fix in-flight.
 
 ---
 

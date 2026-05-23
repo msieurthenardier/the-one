@@ -1,12 +1,12 @@
 # Flight: UX Hotfixes from F3 Debrief
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Discord Connector Depth & Robustness](../../mission.md)
 
 ## Contributing to Criteria
 
-- [ ] Mission criterion #18 (fresh operator under fifteen minutes): A1 closes the cold-start dropdown 404 friction; A2 closes the per-agent-overlay identification gap. Both surfaced at F3 L7 HAT against gleepglorp.
-- [ ] Mission criterion #19 (full working-day daily-driver): A1 closes the cold-restart path where dropdowns 404 immediately after server restart despite Test Connection succeeding.
+- [x] Mission criterion #18 (fresh operator under fifteen minutes): A1 closes the cold-start dropdown 404 friction; A2 closes the per-agent-overlay identification gap. Both surfaced at F3 L7 HAT against gleepglorp; both HAT-verified at F4 L4.
+- [x] Mission criterion #19 (full working-day daily-driver): A1 closes the cold-restart path where dropdowns 404 immediately after server restart despite Test Connection succeeding (HAT-verified at F4 L4 with the L4 fold-in fix that auto-refreshes dropdowns on pool-warmed event).
 
 ## Source artifacts driving this flight
 
@@ -110,7 +110,7 @@ The flight is explicitly framed as the operator-requested intervention to arrest
 - [x] L1 — `agents.md` grows 4 new conventions (`pool-warming-entrypoints-are-finite-and-named`, `frozen-snapshot-for-cross-lock-read`, `slot-getter-bridge-for-dropdown-collect-path`, `two-concurrent-callers-reasoning`) plus `cross-flight-ux-debt-reconciliation` + `touched-surface-ux-debt-folding` project-side notes; `missions/11-discord-connector-depth/criterion-coverage.md` seeded with M11's 19 mission criteria + initial status.
 - [x] L2 — `api.py:test_connector_connection` calls `await account_acquire(account_id)` AFTER `plugin.doctor()` succeeds; response envelope grows `details.pool_warmed` field. `test_connector_test_connection_button.py` adds AC for `pool_warmed=true` on the success path. `test_edit_session_continuation_round_trip` updated to assert `"Inbound continues the same chat session within this window."` (C1 closure).
 - [x] L3 — `connectors-tab.js:_renderAccountTile` checkbox-mode renderer fetches the discoverable-entities cache via `GET /api/connector-accounts/{id}/discoverable-entities` and looks up `entity.label` by id; falls back to raw id if no match (stub-type / unknown-id). New browser test pins Discord-account-checkbox-shows-`#gleepglorp-text` AND stub-account-checkbox-shows-raw-id-fallback.
-- [ ] L4 — HAT smoke-verify A1 (cold dropdown → Test Connection → dropdown populates without restart) + A2 (per-agent overlay shows friendly labels) against gleepglorp.
+- [x] L4 — HAT smoke-verify A1 (cold dropdown → Test Connection → dropdown populates without restart) + A2 (per-agent overlay shows friendly labels) against gleepglorp. All 6 steps PASS; one HAT-discovered UX gap folded into F4 (Test Connection success now dispatches `connector-account-pool-warmed` event so mounted dropdowns auto-refresh).
 
 ### Adaptation Criteria
 
@@ -137,7 +137,7 @@ The flight is explicitly framed as the operator-requested intervention to arrest
 
 - [x] `per-agent-overlay-checkbox-label-resolver` — A2. Refactor `connectors-tab.js:_renderAccountTile` checkbox-mode renderer to fetch the discoverable-entities cache via the L4 GET endpoint and look up `entity.label` by id. Fallback to raw id when (a) account type lacks the hook (503), (b) id is not in the cache (unknown-id), (c) network error (degrade gracefully). New browser test file `test_flow_per_agent_overlay_label_resolver.py` pins: Discord-attached-checkbox-shows-`#gleepglorp-text`-style-label; stub-attached-checkbox-shows-raw-id-fallback; network-error-checkbox-shows-raw-id-fallback.
 
-- [ ] `uat-and-alignment` *(required HAT — touched both Studio and the Test Connection control plane)* — Chrome-MCP-driven walk against gleepglorp. Verification steps: (1) restart the-one container — this IS the cold-pool setup (no separate test-only API exists to evict a single warm entry; idle TTL is 30 min per `_pool.py:78`); (2) open Discord Constellation editor → Access and Routing tab → dropdowns initially show pre-probe hint "Run Test Connection first…"; (3) click Test Connection → after success, dropdowns repopulate WITHOUT page reload (A1 closure — Test Connection's new `account_acquire` call warmed the pool; the GET fires from the dropdown re-mount and now returns 200 with entities); (4) inspect Test Connection response envelope (browser devtools network panel) — verify `details.pool_warmed: true` on success; (5) navigate to Cave Man Bot → Connectors tab → expand the Discord Constellation Channels checkbox-mode section → verify checkboxes show friendly labels (`#gleepglorp-text` etc.) instead of raw IDs like `1506831630923333722` (A2 closure); (6) navigate to a Stub HAT Account-attached agent → expand a per-axis checkbox section → verify raw-id fallback path renders (regression contract for stub-type / 503 path). HAT-discovered fixes land in flight-log L4 Anomalies; HAT-discovered NEW UX issues land in the **Known UX Gaps** subsection of the F4 `flight-debrief.md` (not mission known-issues; not F8/F10 deferral). Substrate-contract reversals pause the flight per Adaptation Criteria.
+- [x] `uat-and-alignment` *(required HAT — touched both Studio and the Test Connection control plane)* — Chrome-MCP-driven walk against gleepglorp. Verification steps: (1) restart the-one container — this IS the cold-pool setup (no separate test-only API exists to evict a single warm entry; idle TTL is 30 min per `_pool.py:78`); (2) open Discord Constellation editor → Access and Routing tab → dropdowns initially show pre-probe hint "Run Test Connection first…"; (3) click Test Connection → after success, dropdowns repopulate WITHOUT page reload (A1 closure — Test Connection's new `account_acquire` call warmed the pool; the GET fires from the dropdown re-mount and now returns 200 with entities); (4) inspect Test Connection response envelope (browser devtools network panel) — verify `details.pool_warmed: true` on success; (5) navigate to Cave Man Bot → Connectors tab → expand the Discord Constellation Channels checkbox-mode section → verify checkboxes show friendly labels (`#gleepglorp-text` etc.) instead of raw IDs like `1506831630923333722` (A2 closure); (6) navigate to a Stub HAT Account-attached agent → expand a per-axis checkbox section → verify raw-id fallback path renders (regression contract for stub-type / 503 path). HAT-discovered fixes land in flight-log L4 Anomalies; HAT-discovered NEW UX issues land in the **Known UX Gaps** subsection of the F4 `flight-debrief.md` (not mission known-issues; not F8/F10 deferral). Substrate-contract reversals pause the flight per Adaptation Criteria.
 
 ---
 
@@ -145,8 +145,8 @@ The flight is explicitly framed as the operator-requested intervention to arrest
 
 ### Completion Checklist
 
-- [ ] All 4 legs (L1-L4) completed
-- [ ] L4 HAT walk completed with operator-confirmed pass
+- [x] All 4 legs (L1-L4) completed
+- [x] L4 HAT walk completed with operator-confirmed pass
 - [ ] Code merged on `main` (or stacked behind F3 PR #71 until F3 merges)
 - [ ] Tests passing at or above F3's 2879 baseline + F4 additions
 - [ ] `agents.md` grows 4 new conventions + 2 project-side notes

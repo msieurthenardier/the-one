@@ -641,6 +641,25 @@
     _renderChips(state);
     _fetchEntities(state);
 
+    // M11 F4 L4 fold-in (HAT-discovered): subscribe to Test Connection's
+    // ``connector-account-pool-warmed`` event so this dropdown re-fetches
+    // when the pool transitions cold → warm without the operator having
+    // to click Refresh on each axis. Self-detaches when this dropdown's
+    // DOM has been removed (next event after removal unbinds the
+    // listener); small leak surface, accepted. See the warmup-signal-
+    // propagation extension of ``pool-warming-entrypoints-are-finite-
+    // and-named`` (M11 F4 L1).
+    state.poolWarmHandler = function (event) {
+      if (!state.root || !document.body.contains(state.root)) {
+        document.removeEventListener('connector-account-pool-warmed', state.poolWarmHandler);
+        return;
+      }
+      if (event && event.detail && event.detail.accountId === state.accountId) {
+        _fetchEntities(state);
+      }
+    };
+    document.addEventListener('connector-account-pool-warmed', state.poolWarmHandler);
+
     return root;
   }
 

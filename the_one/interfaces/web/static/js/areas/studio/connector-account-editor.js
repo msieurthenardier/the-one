@@ -1603,6 +1603,22 @@
       window.App.studio.connectorFormDiscord.setApplicationId(accountId, applicationId);
     }
 
+    // M11 F4 L4 fold-in (HAT-discovered): when Test Connection's response
+    // carries ``pool_warmed=true`` (A1 contract), dispatch a
+    // ``connector-account-pool-warmed`` event so any mounted
+    // ``discoverable-dropdown`` for this account re-fetches its entity
+    // list. Without this nudge, dropdowns hold their stale pre-probe-404
+    // state until the operator clicks each axis's Refresh manually. This
+    // is the warmup-signal-propagation extension of the
+    // ``pool-warming-entrypoints-are-finite-and-named`` convention
+    // (M11 F4 L1): the named entrypoint announces its success, listeners
+    // react.
+    if (status === 'ok' && details && details.pool_warmed === true && accountId) {
+      document.dispatchEvent(new CustomEvent('connector-account-pool-warmed', {
+        detail: { accountId: accountId }
+      }));
+    }
+
     if (ledEl) {
       ledEl.className = 'indicator-led ' + statusLedClass(status) + ' connector-test-led';
       ledEl.setAttribute('data-state', status);

@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 
 import pytest
+from browser.seeders import seed_connector_account
 from playwright.sync_api import Page, expect
 
 
@@ -314,3 +315,199 @@ class TestDiscoverableDropdown:
 
         menu = page.locator('[data-testid="discoverable-dropdown-menu-channels"]')
         expect(menu).to_be_hidden()
+
+
+# ── M11 F4 L4 fold-in: pool-warmed event refreshes mounted dropdowns ──
+
+
+_WARMED_PAYLOAD = {
+    "entities": {
+        "peers": [],
+        "channels": [
+            {
+                "id": "111",
+                "label": "#general",
+                "group": "guild-1",
+                "metadata": {},
+                "stale": False,
+            }
+        ],
+        "groups": [
+            {
+                "id": "guild-1",
+                "label": "GleepGlorp Guild",
+                "group": None,
+                "metadata": {},
+                "stale": False,
+            }
+        ],
+        "roles": [],
+    },
+    "fetched_at": "2026-05-23T00:00:00Z",
+    "stale_seconds": 0,
+}
+
+
+@pytest.mark.browser
+def test_test_connection_pool_warmed_event_refreshes_dropdowns(
+    app_clean: str, page: Page
+) -> None:
+    """M11 F4 L4 HAT fold-in: Test Connection that warms the pool
+    (envelope ``details.pool_warmed=true``, the A1 contract) must
+    re-fetch any mounted ``discoverable-dropdown`` for the same
+    account without requiring the operator to click each axis's
+    Refresh button.
+
+    Setup:
+      - Seed a Discord account.
+      - Stub the L4 GET ``/discoverable-entities`` to return 404
+        ("cold pool") for the FIRST call, then 200 with a payload
+        carrying ``#general`` for subsequent calls — modeling the
+        cold → warm transition.
+      - Stub the POST ``/test/connect`` to return
+        ``{status: "ok", details: {pool_warmed: true, ...}}``.
+
+    Click Test Connection. Assert the dropdown repopulates from
+    the second GET response (``#general`` becomes visible) WITHOUT
+    a page reload.
+    """
+    account_id = seed_connector_account(
+        app_clean,
+        name="F4 L4 Warm Bot",
+        type="discord",
+        secrets={"BOT_TOKEN": "real_bot_token_xyzw"},
+    )
+
+    # Pool-state-driven L4 GET router: while the pool is cold, every
+    # GET → 404 with the operator-facing hint (mirroring all 4 axes
+    # mounted on the Access and Routing tab). After Test Connection's
+    # POST flips the state to warm, subsequent GETs → 200 with payload.
+    pool_state = {"warm": False}
+    get_calls = {"cold": 0, "warm": 0}
+
+    def handle_discoverable(route):
+        if route.request.method == "GET":
+            if not pool_state["warm"]:
+                get_calls["cold"] += 1
+                route.fulfill(
+                    status=404,
+                    content_type="application/json",
+                    body=json.dumps(
+                        {"detail": "Run Test Connection first — cold account."}
+                    ),
+                )
+                return
+            get_calls["warm"] += 1
+            route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=json.dumps(_WARMED_PAYLOAD),
+            )
+            return
+        # POST /refresh path — irrelevant to this test, mirror 200.
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(_WARMED_PAYLOAD),
+        )
+
+    page.route(
+        f"**/api/connector-accounts/{account_id}/discoverable-entities*",
+        handle_discoverable,
+    )
+
+    # Stub the Test Connection POST to return a warmed-pool envelope
+    # matching the A1 contract pinned at F4 L2. The side-effect of
+    # serving this response flips ``pool_state`` so subsequent GETs
+    # return the warm payload.
+    def handle_test_connect(route):
+        pool_state["warm"] = True
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "status": "ok",
+                    "message": "ok",
+                    "details": {
+                        "pool_warmed": True,
+                        "pool_warm_error": None,
+                    },
+                }
+            ),
+        )
+
+    page.route(
+        f"**/api/connector-accounts/{account_id}/test/connect",
+        handle_test_connect,
+    )
+
+    page.goto(f"{app_clean}#studio/connectors/{account_id}")
+    expect(
+        page.locator('[data-testid="save-connector-account-btn"]')
+    ).to_be_visible(timeout=8000)
+
+    # Open the Access and Routing tab so the discoverable-dropdown
+    # components mount and fire their initial (cold-pool 404) GET.
+    # The components ARE mounted as soon as the editor renders (the
+    # tab system only toggles the ``hidden`` attribute on panels —
+    # both panels' DOM exists simultaneously), but clicking the tab
+    # also exercises the operator-realistic mount path.
+    page.locator('[data-testid="tab-access-and-routing"]').click()
+
+    # Pre-condition: the channels-axis dropdown rendered its 404 hint —
+    # confirms the listener is registered against an initially-cold state.
+    channels_status = page.locator(
+        '[data-testid="discoverable-dropdown-status-channels"]'
+    )
+    expect(channels_status).to_contain_text(
+        "Run Test Connection first", timeout=8000
+    )
+
+    # Sanity: at least one cold-pool GET fired (one per mounted axis
+    # — peers/channels/groups/roles). We only require ≥1 to confirm
+    # the cold-pool state was observed by at least one listener.
+    assert get_calls["cold"] >= 1, (
+        f"expected ≥1 cold-pool GET, got {get_calls['cold']}"
+    )
+    assert get_calls["warm"] == 0, (
+        f"expected 0 warm GETs pre-click, got {get_calls['warm']}"
+    )
+
+    # Switch back to the General tab — that's where Test Connection
+    # lives. The Access and Routing panel's dropdowns remain mounted
+    # in the DOM (just hidden), so their pool-warmed event listeners
+    # are still active.
+    page.locator('[data-testid="tab-general"]').click()
+
+    # Click Test Connection. The mocked POST returns
+    # ``details.pool_warmed=true``, which should dispatch
+    # ``connector-account-pool-warmed`` and re-fetch the dropdowns
+    # even though their tab panel is hidden.
+    page.locator('[data-testid="connector-test-connection-btn"]').click()
+
+    # Wait for the LED to flip to ``ok`` so we know
+    # ``renderTestConnectionBanner`` ran (and therefore the
+    # pool-warmed event has been dispatched).
+    expect(
+        page.locator('[data-testid="connector-test-led"]')
+    ).to_have_attribute("data-state", "ok", timeout=8000)
+
+    # Flip back to Access and Routing to observe the dropdown's
+    # post-event state. (The re-fetch already happened in the
+    # background while the panel was hidden.)
+    page.locator('[data-testid="tab-access-and-routing"]').click()
+
+    # Assert the channels-axis dropdown repopulated from the
+    # post-warm GET response without a page reload.
+    items = page.locator('[data-testid="discoverable-dropdown-item-channels"]')
+    expect(items).to_have_count(1, timeout=8000)
+    expect(items.first).to_contain_text("#general")
+
+    # And at least one warm GET fired AFTER the POST — proving the
+    # event-driven nudge actually triggered a fresh fetch (not just
+    # a stale render carried over).
+    assert get_calls["warm"] >= 1, (
+        f"expected ≥1 warm GET after pool-warmed event, "
+        f"got {get_calls['warm']}"
+    )
