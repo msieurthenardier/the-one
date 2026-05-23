@@ -3,6 +3,8 @@
 **Status**: completed
 **Mission**: [Discord Connector Depth & Robustness](../../mission.md)
 
+**Subsequent corrections**: L4's Test-Connection-warms-pool assumption corrected at F4 L2; see `missions/11-discord-connector-depth/flights/04-ux-hotfixes-from-f3-debrief/legs/02-test-connection-warms-pool-and-fix-session-continuation-test.md` (and F4 flight-debrief once landed).
+
 ## Contributing to Criteria
 
 - [x] The allowlist editor for a Discord connector account (account-scope and per-agent overlay) replaces M10's free-form chip-list with searchable dropdowns sourced from the live bot's view of the Discord users, channels, servers, and roles it can actually reach; the operator types to filter and selects from real entries rather than pasting in IDs from external Discord-developer-mode lookups; entries that the bot can no longer see (user left server, channel deleted, bot kicked) are flagged in the editor with a stale-entry indicator.

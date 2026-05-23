@@ -2590,6 +2590,7 @@ async def test_connector_connection(account_id: str) -> dict[str, Any]:
     is ``(account_id: str)`` only.
     """
     # Function-local import per the convention in this section.
+    from the_one.connectors._pool import account_acquire
     from the_one.connectors.errors import (
         ConnectorClientError,
         ConnectorRegistrationError,
@@ -2629,10 +2630,27 @@ async def test_connector_connection(account_id: str) -> dict[str, Any]:
             },
         }
 
+    # Shallow-copy report.details so we don't mutate the plugin's-owned dict
+    # (M11 F4 L2 — convention `pool-warming-entrypoints-are-finite-and-named`).
+    details = dict(report.details)
+    pool_warmed = False
+    pool_warm_error: str | None = None
+
+    if report.status == "ok":
+        try:
+            await account_acquire(account_id)
+        except Exception as exc:  # noqa: BLE001 — best-effort warmup; isolated from doctor verdict per F4 L2.
+            pool_warm_error = str(exc)
+        else:
+            pool_warmed = True
+
+    details["pool_warmed"] = pool_warmed
+    details["pool_warm_error"] = pool_warm_error
+
     return {
         "status": report.status,
         "message": report.message,
-        "details": report.details,
+        "details": details,
     }
 
 

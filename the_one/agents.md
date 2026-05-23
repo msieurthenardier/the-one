@@ -221,6 +221,69 @@ Citation (n=1 from M11 F2 L4 cycle-1, codified by methodology-promotion per the 
 
 Source: M11 F2 flight-debrief "Recommendations §Important — codify two methodology rules as agents.md project conventions" (convention 2) + "What Could Be Improved §Minor — flight-spec wording drift from DOM order."
 
+### `pool-warming-entrypoints-are-finite-and-named`
+
+Any subsystem with a pool primitive must explicitly enumerate the entrypoints that warm the pool; design-time reasoning may not assume that any operator-triggered action implicitly populates the pool unless the action's handler explicitly calls one of the named entrypoints. `grep` for the entrypoint name in the candidate handler is the mechanical fallback that converts assumed-warming into verified-warming.
+
+Applies whenever a flight or leg artifact's design assumes a pool entry is warm at a given UX-trigger point. Does NOT apply to read-only pool inspection paths or to lifespan-driven warmup (which is structurally-guaranteed at startup, not operator-triggered).
+
+Citation (n=1 from M11 F3 L4 design-time + L7 HAT anomaly #1, codified by methodology-promotion per the same F1-L7-derived precedent as `registry-dispatch-create-mode-AC`): F3 L4's design assumed Test Connection populated the pool via the lifespan-listener-warmup path (a named entrypoint in `the_one/connectors/_pool.py`); the assumption was structurally false — Test Connection's handler at `the_one/interfaces/web/api.py:test_connector_connection` calls `plugin.doctor()` but never `account_acquire`; HAT step caught the gap at F3 L7 (dropdowns 404 immediately after Test Connection succeeded); the F4 L2 leg is closing the underlying code-side mismatch by wiring `account_acquire` after `doctor()` succeeds. The convention codifies the methodology fallback that prevents recurrence: enumerate-and-grep at design time.
+
+Source: M11 F3 flight-debrief "Recommendations §Critical §3" + "Key Learnings §2" + "What Could Be Improved §Process — recon should default-walk L1 codifications."
+
+### `frozen-snapshot-for-cross-lock-read`
+
+When handler code reads multi-field cache state outside the lock that protects mutation, build a frozen-snapshot dataclass inside the lock and return the snapshot for outside-the-lock consumption. The pattern prevents inconsistent-multi-field-read races without requiring all readers to hold the lock for the entire read window.
+
+Applies whenever a cache or shared mutable state exposes multiple correlated fields that callers may read outside the mutation lock. Does NOT apply to single-field atomic reads or to fully-immutable shared state.
+
+Citation (n=1 from M11 F3 L4 cycle-1, codified by methodology-promotion per the same F1-L7-derived precedent as `registry-dispatch-create-mode-AC`): F3 L4 architect cycle-1 caught that the cache exposes a `(client_id, entities, last_refresh)` triple that handler code reads outside the lock; cycle-1 introduced `_DiscoverableCacheSnapshot` as the frozen-triple dataclass returned from a lock-held read.
+
+Source: M11 F3 flight-debrief "Recommendations §Methodology §12" + "Deviations and Lessons Learned" table (L4 `_DiscoverableCacheSnapshot` row).
+
+### `slot-getter-bridge-for-dropdown-collect-path`
+
+When a new editor shape (e.g., a dropdown chip-list) must integrate with an existing DOM-walking collect path that expects a specific child-element shape (e.g., text nodes), install a function-valued property (a slot getter) on the slot's container element that the collect path can invoke to retrieve the editor's current values. The getter bridges the new editor shape to the existing collect path without rewriting either side.
+
+Applies whenever a new UI editor surface must integrate with a pre-existing DOM-walking collect/serialize path that doesn't natively understand the new editor's DOM shape. Does NOT apply when the collect path can be cleanly rewritten in lockstep with the new editor.
+
+Citations (n=3 from M11 F3 L6a + L6b):
+- `_allowlistValues` (L6a allowlist) — installed as a function-valued property on the allowlist slot container so `collectAllowlistFromContainer`'s text-node walk can extract dropdown selections.
+- `_routingMatchValues` (L6b routing match-value) — installed as a function-valued property on the routing match-value slot container so the existing routing collect path can extract dropdown selections.
+- `_overlayChipValues` (L6b per-agent overlay) — installed as a function-valued property on the per-agent overlay slot container so the existing overlay collect path can extract dropdown selections.
+
+Source: M11 F3 flight-debrief "Recommendations §Methodology §13" + "Deviations and Lessons Learned" table (L6a/L6b row).
+
+### `two-concurrent-callers-reasoning`
+
+At design-review time, when a leg touches code that may be invoked by two or more concurrent callers (handler + background task; refresh-loop + read-loop; lifespan-warmup + operator-triggered acquire), the architect must walk the two-concurrent-callers thought experiment for every shared mutable state the leg touches. Sketch-based reasoning about a single caller is not naturally extended to two concurrent callers; the discipline is to explicitly enumerate the second caller, the interleaving point, and the partial-success / partial-failure shape.
+
+Applies whenever a leg touches code that may be invoked by two or more concurrent callers and the leg modifies or reads shared mutable state (in-process caches, locks, pool entries, refresh loops). Does NOT apply to leg-internal pure functions or to single-caller-by-design paths (e.g., startup-only initialization that the runtime guarantees against re-entry).
+
+Citation (n=3 from M11 F3 L4 cycle-1 within a single leg, codified by methodology-promotion per the same F1-L7-derived precedent as `registry-dispatch-create-mode-AC`): F3 L4 cycle-1 caught three concurrent-caller race-safety issues — (1) `prior_cache` race between refresh-loop and operator-triggered read; (2) `_shutting_down` bail interleaving with re-acquire; (3) identity-check on `client` to detect mid-refresh reconnection. All three would have been cycle-0-discoverable had the architect explicitly walked the two-concurrent-callers thought experiment.
+
+Source: M11 F3 flight-debrief "Recommendations §Methodology §16" + "Key Learnings §4 — cycle-1 race-reasoning has limits."
+
+### `cross-flight-ux-debt-reconciliation`
+
+Every flight's reconnaissance phase MUST include a section walking the prior 2-3 flight debriefs' AND the parent mission-debrief's deferred-UX items, classifying each as "in-scope-for-this-flight" / "out-of-scope-with-reason" / "structurally-blocked-by-X." The discipline arrests the "fold into F8/F10/follow-on-mission" structural source of UX-debt accumulation by forcing each new flight to explicitly cross-check the deferred queue rather than passively inheriting it.
+
+Applies to every flight reconnaissance phase. Does NOT apply to the first flight of a mission (no prior debriefs to cross-check) — though that flight should still cross-check the mission-debrief of any predecessor mission whose work it inherits.
+
+Citation (n=1 from M11 F3 debrief root-cause analysis, codified by methodology-promotion): F3 debrief surfaced an n=1 trigger of the 4-step UX-debt-accumulation pattern (HAT discovers → deferred → subsequent flight touches surface → deferral not folded). The primary codification destination is mission-control's `/flight` skill prompt (out of project scope); this agents.md entry is the project-side binding fallback that holds even if the mission-control skill prompts are out of date. The F4 `flight-log.md`'s Reconnaissance Report (Recon table R1-R11) is the n=1 application of this discipline.
+
+Source: M11 F3 flight-debrief "Recommendations §Critical §1" + "UX-Debt Accumulation §Root cause of the accumulation pattern."
+
+### `touched-surface-ux-debt-folding`
+
+When a flight touches a code surface (file or component), the architect MUST enumerate all open UX-debt items against that surface from prior debriefs and either fold them in or explicitly state why they're left. The discipline prevents the "touched the file but missed the gap" failure mode (F3 L6b touched `connectors-tab.js` but missed A2's raw-id checkbox-mode rendering because the leg's contributing-criteria framing was narrow).
+
+Applies whenever a leg's Files Affected list includes a source file with open UX-debt items in prior debriefs. Does NOT apply to files with no prior-debrief UX-debt entries.
+
+Citation (n=1 from M11 F3 L6b miss, codified by methodology-promotion): F3 L6b touched `connectors-tab.js:_renderAccountTile` for per-agent overlay dispatch but did not fold A2 (checkbox-mode raw-id rendering) into scope; A2 surfaced at F3 L7 HAT and is now closed by F4 L3. The primary codification destination is mission-control's `/flight` skill prompt (out of project scope); this agents.md entry is the project-side binding fallback.
+
+Source: M11 F3 flight-debrief "Recommendations §Critical §2" + "What Could Be Improved §Process — touched-surface UX-debt folding."
+
 ### Mission-specific (M10)
 
 Patterns that emerged in Mission 10 (bi-directional comms connectors) whose project-wide generalization has not yet been demonstrated. They live here until a second-mission citation lifts them into `### Project-wide` above. Future missions extending this file add their own `### Mission-specific (M{NN})` subsection per the same pattern.

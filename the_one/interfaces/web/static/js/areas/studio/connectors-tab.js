@@ -137,6 +137,62 @@
     var scopePeers = (accountScope && Array.isArray(accountScope.peers)) ? accountScope.peers : [];
     var scopeChannels = (accountScope && Array.isArray(accountScope.channels)) ? accountScope.channels : [];
 
+    // A2 (M11 F4 L3) — lazy per-tile label cache for checkbox-mode rows.
+    // Discord and similar live-data connector accounts expose
+    // ``enumerate_discoverable_entities`` via the L4 cache; the cache
+    // resolves Discord snowflake IDs to friendly labels (``#general``
+    // etc.) so the per-agent overlay's checkbox-mode does not surface
+    // raw IDs. Stub-type / cold-pool / network-error all fall back to
+    // the raw-id render preserved by the initial DOM mount.
+    var _labelCache = null;
+    var _labelCachePromise = null;
+
+    function _ensureLabelCache() {
+      if (_labelCachePromise) return _labelCachePromise;
+      var url = '/api/connector-accounts/' +
+        encodeURIComponent(account.id) +
+        '/discoverable-entities';
+      _labelCachePromise = fetch(url).then(function (response) {
+        if (!response.ok) {
+          _labelCache = {};
+          return _labelCache;
+        }
+        return response.json().then(function (body) {
+          var map = {};
+          var ents = (body && body.entities) || {};
+          var axes = ['peers', 'channels', 'groups', 'roles'];
+          for (var a = 0; a < axes.length; a++) {
+            var list = ents[axes[a]] || [];
+            for (var i = 0; i < list.length; i++) {
+              var e = list[i];
+              if (e && e.id && e.label) map[String(e.id)] = e.label;
+            }
+          }
+          _labelCache = map;
+          return _labelCache;
+        });
+      }).catch(function (err) {
+        _labelCache = {};
+        try { console.error('connectors-tab label-cache fetch failed:', err); }
+        catch (logErr) { /* console missing */ }
+        return _labelCache;
+      });
+      return _labelCachePromise;
+    }
+
+    function _applyLabelsToCheckboxes(bodyEl) {
+      if (!_labelCache) return;
+      var rows = bodyEl.querySelectorAll('.connector-acl-checkboxlist-row');
+      for (var i = 0; i < rows.length; i++) {
+        var cb = rows[i].querySelector('input[type="checkbox"]');
+        if (!cb) continue;
+        var label = _labelCache[String(cb.value)];
+        if (!label) continue;
+        var nameSpan = rows[i].querySelector('.mcp-tool-toggle-name');
+        if (nameSpan) nameSpan.textContent = label;
+      }
+    }
+
     var tile = document.createElement('div');
     tile.className = 'mcp-source-tile connector-account-tile';
     tile.setAttribute('data-connector-account-id', account.id);
@@ -244,6 +300,14 @@
           var nextExpanded = expandBtn.getAttribute('aria-expanded') !== 'true';
           expandBtn.setAttribute('aria-expanded', nextExpanded ? 'true' : 'false');
           body.hidden = !nextExpanded;
+          // A2: lazy label resolution for checkbox-mode rows. Fires once
+          // per tile (single-flight promise); collapse-then-re-expand
+          // reuses the cache.
+          if (nextExpanded && scopeList && scopeList.length > 0) {
+            _ensureLabelCache().then(function () {
+              _applyLabelsToCheckboxes(body);
+            });
+          }
         });
 
         function _summarize() {

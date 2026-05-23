@@ -1041,7 +1041,7 @@ class TestConnectorAccountDoctor:
         assert resp.json() == {
             "status": "ok",
             "message": "stub probe ok",
-            "details": {},
+            "details": {"pool_warmed": True, "pool_warm_error": None},
         }
 
     async def test_doctor_probe_configured_failure(
@@ -1065,7 +1065,11 @@ class TestConnectorAccountDoctor:
         assert resp.json() == {
             "status": "failed",
             "message": "bot token revoked",
-            "details": {"reason": "401"},
+            "details": {
+                "reason": "401",
+                "pool_warmed": False,
+                "pool_warm_error": None,
+            },
         }
 
     async def test_doctor_probe_degraded_status(
@@ -1089,7 +1093,11 @@ class TestConnectorAccountDoctor:
         body = resp.json()
         assert body["status"] == "degraded"
         assert body["message"] == "gateway reachable but slow"
-        assert body["details"] == {"latency_ms": 1200}
+        assert body["details"] == {
+            "latency_ms": 1200,
+            "pool_warmed": False,
+            "pool_warm_error": None,
+        }
 
     async def test_doctor_probe_unknown_type(self, client: AsyncClient) -> None:
         """Account with an unregistered ``type`` → ``{status: 'error', ...}`` 200.
@@ -1188,6 +1196,94 @@ class TestConnectorAccountDoctor:
         )
         assert resp.status_code == 200
         assert StubPlugin.doctor_calls == [(account_id, "stub")]
+
+    async def test_doctor_probe_success_warms_pool(
+        self, client: AsyncClient
+    ) -> None:
+        """OK doctor → pool gets warmed; envelope advertises pool_warmed=True.
+
+        Closes M11 F4 A1 (Test Connection warms pool). The L4-design-time
+        assumption that lifespan-warmup populated the pool entry was
+        structurally false; F4 L2 explicitly wires account_acquire after
+        doctor() succeeds. Convention reference: ``pool-warming-entrypoints-
+        are-finite-and-named`` (agents.md Project-wide).
+        """
+        from the_one.connectors import _pool as pool_mod
+        from the_one.connectors._pool import _ACCOUNT_POOL_AGENT_SLOT
+
+        account_id = await self._create_stub_account(client)
+        resp = await client.post(
+            f"/api/connector-accounts/{account_id}/test/connect"
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "ok"
+        assert body["details"]["pool_warmed"] is True
+        assert body["details"]["pool_warm_error"] is None
+        # Pool actually warmed — entry exists at the canonical key tuple.
+        assert (_ACCOUNT_POOL_AGENT_SLOT, account_id) in pool_mod._pool
+
+    async def test_doctor_probe_failed_skips_warmup(
+        self, client: AsyncClient
+    ) -> None:
+        """Non-ok doctor → warmup is SKIPPED; envelope advertises
+        pool_warmed=False + pool_warm_error=None (skipped, not failed)."""
+        from the_one.connectors import _pool as pool_mod
+        from the_one.connectors._stub import StubPlugin
+        from the_one.connectors.base import DoctorReport
+
+        StubPlugin.doctor_response = DoctorReport(
+            status="failed",
+            message="bot token revoked",
+            details={"reason": "401"},
+        )
+
+        account_id = await self._create_stub_account(client)
+        resp = await client.post(
+            f"/api/connector-accounts/{account_id}/test/connect"
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "failed"
+        assert body["details"]["pool_warmed"] is False
+        assert body["details"]["pool_warm_error"] is None
+        assert pool_mod._pool == {}
+
+    async def test_doctor_probe_ok_warmup_failure_does_not_escalate(
+        self, client: AsyncClient, monkeypatch
+    ) -> None:
+        """OK doctor + raising account_acquire → envelope STILL status=ok;
+        warmup failure isolated to pool_warm_error field.
+
+        Convention reference: ``two-concurrent-callers-reasoning`` (agents.md
+        Project-wide) — the partial-success shape was worked out before
+        commit, not after."""
+        from the_one.connectors import _pool as pool_mod
+        from the_one.connectors.errors import ConnectorClientError
+
+        async def _failing_acquire(account_id: str):
+            # ConnectorClientError chosen because it's the realistic
+            # production failure mode; any Exception subclass would prove
+            # the same partial-success isolation contract.
+            raise ConnectorClientError("simulated warmup failure")
+
+        # The handler's function-local `from ._pool import account_acquire`
+        # resolves pool_mod.account_acquire at handler-entry time, so
+        # patching the source-module attribute is in effect when the
+        # handler runs.
+        monkeypatch.setattr(pool_mod, "account_acquire", _failing_acquire)
+
+        account_id = await self._create_stub_account(client)
+        resp = await client.post(
+            f"/api/connector-accounts/{account_id}/test/connect"
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        # CRITICAL: doctor's verdict is preserved despite warmup failure.
+        assert body["status"] == "ok"
+        assert body["details"]["pool_warmed"] is False
+        assert body["details"]["pool_warm_error"] == "simulated warmup failure"
+        assert pool_mod._pool == {}
 
 
 # ── Connector account pairing-code + attached-agents (F6 L4) ─────────────
