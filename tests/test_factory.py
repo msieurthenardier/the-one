@@ -10,13 +10,14 @@ import pytest
 from conftest import FakeLLM, StubTool
 
 from the_one.agent.config import (
+    _CONNECTOR_AUTO_RELAY_DIRECTIVE,
     _CONNECTOR_TOOL_DISABLED_DIRECTIVE,
     _CONNECTOR_TOOL_ENABLED_DIRECTIVE,
     BASE_PROMPT,
     AgentConfig,
 )
 from the_one.agent.factory import AgentFactory
-from the_one.db.models import LLMProviderConfig, ToolConfig
+from the_one.db.models import ConnectorAccount, LLMProviderConfig, ToolConfig
 from the_one.tools.base import Tool
 from the_one.tools.builtins import BuiltinToolProvider
 
@@ -118,6 +119,15 @@ def factory(store: InMemoryStore) -> AgentFactory:
     mock_tool_repo = AsyncMock()
     mock_tool_repo.list = AsyncMock(return_value=[])
 
+    # M10 F8 L11 HAT Fix #5: factory now does a per-account lookup to
+    # resolve ``auto_relay`` for the system-prompt directive. Mock the
+    # repository to return a permissive (auto_relay=True default) account
+    # for any account_id the caller's AgentConfig references.
+    mock_acc_repo = AsyncMock()
+    mock_acc_repo.get = AsyncMock(
+        side_effect=lambda aid: ConnectorAccount(id=aid, name=aid, type="stub")
+    )
+
     with (
         patch("the_one.agent.factory.get_provider", _fake_get_provider),
         patch("the_one.agent.factory.settings") as mock_settings,
@@ -125,6 +135,10 @@ def factory(store: InMemoryStore) -> AgentFactory:
         patch("the_one.encryption.get_encryptor", return_value=AsyncMock()),
         patch("the_one.db.repositories.LLMProviderRepository", return_value=mock_repo),
         patch("the_one.db.repositories.ToolConfigRepository", return_value=mock_tool_repo),
+        patch(
+            "the_one.db.repositories.ConnectorAccountRepository",
+            return_value=mock_acc_repo,
+        ),
     ):
         mock_settings.agents_dir = Path("/tmp/test-agents")
         mock_settings.data_dir = Path("/tmp/test-data")
@@ -424,11 +438,28 @@ def factory_with_builtin_tool_configs(store: InMemoryStore):
     def _make_with_tool_configs(
         tool_configs: list[ToolConfig] | None = None,
         extra_tool_providers: list | None = None,
+        connector_accounts: dict[str, ConnectorAccount] | None = None,
     ):
         class _Ctx:
             def __enter__(self):
                 mock_tool_repo = AsyncMock()
                 mock_tool_repo.list = AsyncMock(return_value=tool_configs or [])
+
+                # M10 F8 L11 HAT Fix #5: per-account lookup for auto_relay
+                # resolution. ``connector_accounts`` is a {account_id:
+                # ConnectorAccount} mapping; missing IDs synthesize a
+                # default-on (no opt-out) ConnectorAccount so the
+                # caller's existing tests stay green without rework.
+                accounts_map = dict(connector_accounts or {})
+                mock_acc_repo = AsyncMock()
+
+                async def _acc_get(aid: str) -> ConnectorAccount:
+                    if aid in accounts_map:
+                        return accounts_map[aid]
+                    return ConnectorAccount(id=aid, name=aid, type="stub")
+
+                mock_acc_repo.get = AsyncMock(side_effect=_acc_get)
+
                 self._patches = [
                     patch("the_one.agent.factory.get_provider", _fake_get_provider),
                     patch("the_one.agent.factory.settings"),
@@ -441,6 +472,10 @@ def factory_with_builtin_tool_configs(store: InMemoryStore):
                     patch(
                         "the_one.db.repositories.ToolConfigRepository",
                         return_value=mock_tool_repo,
+                    ),
+                    patch(
+                        "the_one.db.repositories.ConnectorAccountRepository",
+                        return_value=mock_acc_repo,
                     ),
                 ]
                 self._active = [p.start() for p in self._patches]
@@ -568,11 +603,13 @@ class TestConnectorSystemPrompt:
             agent = await factory.create("non-connector-agent")
         assert agent.system_prompt == BASE_PROMPT
 
-    async def test_connector_attached_tool_enabled_includes_enabled_directive(
+    async def test_connector_attached_tool_enabled_default_auto_relay_includes_auto_relay_directive(
         self,
         factory_with_builtin_tool_configs,
         store: InMemoryStore,
     ) -> None:
+        """M10 F8 L11 HAT Fix #5: default-on auto-relay lands the auto-relay
+        directive, NOT the legacy ENABLED directive."""
         cfg = AgentConfig(
             name="connector-agent",
             provider_config_id="test-provider",
@@ -582,8 +619,70 @@ class TestConnectorSystemPrompt:
         await store.save(cfg)
         with factory_with_builtin_tool_configs(tool_configs=[]) as factory:
             agent = await factory.create("connector-agent")
-        assert _CONNECTOR_TOOL_ENABLED_DIRECTIVE in agent.system_prompt
+        assert _CONNECTOR_AUTO_RELAY_DIRECTIVE in agent.system_prompt
+        assert _CONNECTOR_TOOL_ENABLED_DIRECTIVE not in agent.system_prompt
         assert _CONNECTOR_TOOL_DISABLED_DIRECTIVE not in agent.system_prompt
+
+    async def test_connector_attached_tool_enabled_auto_relay_opt_out_includes_enabled_directive(
+        self,
+        factory_with_builtin_tool_configs,
+        store: InMemoryStore,
+    ) -> None:
+        """M10 F8 L11 HAT Fix #5: opt-out (``auto_relay_platform_replies=False``
+        on the attached account) lands the legacy ENABLED directive that
+        instructs the agent to use the platform-send tool deliberately."""
+        cfg = AgentConfig(
+            name="connector-agent",
+            provider_config_id="test-provider",
+            llm_model="stub-model",
+            connector_account_ids=["acc-1"],
+        )
+        await store.save(cfg)
+        opt_out_account = ConnectorAccount(
+            id="acc-1",
+            name="acc-1",
+            type="stub",
+            config={"auto_relay_platform_replies": False},
+        )
+        with factory_with_builtin_tool_configs(
+            tool_configs=[],
+            connector_accounts={"acc-1": opt_out_account},
+        ) as factory:
+            agent = await factory.create("connector-agent")
+        assert _CONNECTOR_TOOL_ENABLED_DIRECTIVE in agent.system_prompt
+        assert _CONNECTOR_AUTO_RELAY_DIRECTIVE not in agent.system_prompt
+        assert _CONNECTOR_TOOL_DISABLED_DIRECTIVE not in agent.system_prompt
+
+    async def test_connector_attached_multi_account_any_opt_out_wins(
+        self,
+        factory_with_builtin_tool_configs,
+        store: InMemoryStore,
+    ) -> None:
+        """M10 F8 L11 HAT Fix #5: multi-account agents where ANY attached
+        account has auto_relay=False ⇒ treat as opt-out (most-restrictive
+        wins). The remaining accounts' default-on stance does not
+        re-enable the auto-relay directive."""
+        cfg = AgentConfig(
+            name="connector-agent",
+            provider_config_id="test-provider",
+            llm_model="stub-model",
+            connector_account_ids=["acc-1", "acc-2"],
+        )
+        await store.save(cfg)
+        acc1 = ConnectorAccount(id="acc-1", name="acc-1", type="stub")
+        acc2_opt_out = ConnectorAccount(
+            id="acc-2",
+            name="acc-2",
+            type="stub",
+            config={"auto_relay_platform_replies": False},
+        )
+        with factory_with_builtin_tool_configs(
+            tool_configs=[],
+            connector_accounts={"acc-1": acc1, "acc-2": acc2_opt_out},
+        ) as factory:
+            agent = await factory.create("connector-agent")
+        assert _CONNECTOR_TOOL_ENABLED_DIRECTIVE in agent.system_prompt
+        assert _CONNECTOR_AUTO_RELAY_DIRECTIVE not in agent.system_prompt
 
     async def test_connector_attached_tool_disabled_includes_disabled_directive(
         self,
@@ -604,6 +703,203 @@ class TestConnectorSystemPrompt:
             agent = await factory.create("connector-agent")
         assert _CONNECTOR_TOOL_DISABLED_DIRECTIVE in agent.system_prompt
         assert _CONNECTOR_TOOL_ENABLED_DIRECTIVE not in agent.system_prompt
+        assert _CONNECTOR_AUTO_RELAY_DIRECTIVE not in agent.system_prompt
+
+
+class TestConnectorOperatorDirectiveCollection:
+    """M11 F2 L3: per-account ``system_prompt_directive`` collection at
+    ``AgentFactory.create``. The factory iterates
+    ``sorted(config.connector_account_ids)``, reads each account's
+    ``config["system_prompt_directive"]``, drops None / missing values,
+    joins remaining with ``"\\n\\n"``, and passes the joined string as
+    ``operator_directive`` to ``compose_system_prompt`` (where it is
+    appended after the selected default directive)."""
+
+    async def test_multi_account_directives_collected_in_sorted_order(
+        self,
+        factory_with_builtin_tool_configs,
+        store: InMemoryStore,
+    ) -> None:
+        """Agent attached to 3 accounts with non-lex-sorted persisted IDs;
+        the factory iterates sorted(IDs) so directives appear in
+        lexicographic order (alpha, mike, zeta) regardless of persisted
+        order in ``connector_account_ids``."""
+        cfg = AgentConfig(
+            name="connector-agent",
+            provider_config_id="test-provider",
+            llm_model="stub-model",
+            connector_account_ids=["zeta", "alpha", "mike"],
+        )
+        await store.save(cfg)
+        accounts = {
+            "alpha": ConnectorAccount(
+                id="alpha",
+                name="alpha",
+                type="stub",
+                config={"system_prompt_directive": "ALPHA_DIRECTIVE"},
+            ),
+            "mike": ConnectorAccount(
+                id="mike",
+                name="mike",
+                type="stub",
+                config={"system_prompt_directive": "MIKE_DIRECTIVE"},
+            ),
+            "zeta": ConnectorAccount(
+                id="zeta",
+                name="zeta",
+                type="stub",
+                config={"system_prompt_directive": "ZETA_DIRECTIVE"},
+            ),
+        }
+        with factory_with_builtin_tool_configs(
+            tool_configs=[],
+            connector_accounts=accounts,
+        ) as factory:
+            agent = await factory.create("connector-agent")
+        prompt = agent.system_prompt
+        # All three directives land.
+        assert "ALPHA_DIRECTIVE" in prompt
+        assert "MIKE_DIRECTIVE" in prompt
+        assert "ZETA_DIRECTIVE" in prompt
+        # Lexicographic ordering — alpha first, then mike, then zeta.
+        assert prompt.index("ALPHA_DIRECTIVE") < prompt.index("MIKE_DIRECTIVE")
+        assert prompt.index("MIKE_DIRECTIVE") < prompt.index("ZETA_DIRECTIVE")
+        # Joined with the inter-block "\n\n" separator (no padding
+        # between directives — the join produces clean composition with
+        # the composer's own "\n\n".join(parts)).
+        joined = "ALPHA_DIRECTIVE\n\nMIKE_DIRECTIVE\n\nZETA_DIRECTIVE"
+        assert joined in prompt
+
+    async def test_directive_absent_account_skipped_in_join(
+        self,
+        factory_with_builtin_tool_configs,
+        store: InMemoryStore,
+    ) -> None:
+        """Agent attached to 3 accounts; only ONE has the directive set.
+        The join contains just that one directive — no empty-string
+        padding, no separator noise from the missing-directive accounts."""
+        cfg = AgentConfig(
+            name="connector-agent",
+            provider_config_id="test-provider",
+            llm_model="stub-model",
+            connector_account_ids=["alpha", "bravo", "charlie"],
+        )
+        await store.save(cfg)
+        accounts = {
+            "alpha": ConnectorAccount(id="alpha", name="alpha", type="stub"),
+            "bravo": ConnectorAccount(
+                id="bravo",
+                name="bravo",
+                type="stub",
+                config={"system_prompt_directive": "ONLY_DIRECTIVE"},
+            ),
+            "charlie": ConnectorAccount(id="charlie", name="charlie", type="stub"),
+        }
+        with factory_with_builtin_tool_configs(
+            tool_configs=[],
+            connector_accounts=accounts,
+        ) as factory:
+            agent = await factory.create("connector-agent")
+        prompt = agent.system_prompt
+        # The lone directive lands.
+        assert "ONLY_DIRECTIVE" in prompt
+        # No empty-string separator noise — the directive should appear
+        # exactly once, surrounded by the composer's "\n\n" pair. The
+        # ``"\n\n\n\n"`` pattern would indicate an empty entry that
+        # leaked through the drop-None filter. Pin its absence.
+        assert "\n\n\n\nONLY_DIRECTIVE" not in prompt
+        assert "ONLY_DIRECTIVE\n\n\n\n" not in prompt
+
+    async def test_deleted_account_skipped_silently(
+        self,
+        factory_with_builtin_tool_configs,
+        store: InMemoryStore,
+    ) -> None:
+        """Agent's ``connector_account_ids`` references an account that's
+        been deleted (the repo raises KeyError on ``get(deleted_id)``).
+        The factory swallows the KeyError and continues — mirrors the
+        auto-relay block's handling — and the agent still creates
+        cleanly with the remaining accounts' directives."""
+        cfg = AgentConfig(
+            name="connector-agent",
+            provider_config_id="test-provider",
+            llm_model="stub-model",
+            connector_account_ids=["alpha", "missing", "zeta"],
+        )
+        await store.save(cfg)
+
+        # The factory fixture's ``factory_with_builtin_tool_configs``
+        # synthesizes default ConnectorAccounts for unknown IDs; here
+        # we need a STRICT side-effect that raises KeyError on
+        # "missing" so the deleted-account path is actually exercised.
+        # Build a one-off context that bolts onto the same patches with
+        # a tailored repo mock.
+        from unittest.mock import AsyncMock, patch
+
+        mock_repo = AsyncMock()
+        mock_repo.get = AsyncMock(return_value=_make_provider_config())
+        mock_tool_repo = AsyncMock()
+        mock_tool_repo.list = AsyncMock(return_value=[])
+
+        accounts_map = {
+            "alpha": ConnectorAccount(
+                id="alpha",
+                name="alpha",
+                type="stub",
+                config={"system_prompt_directive": "ALPHA_DIRECTIVE"},
+            ),
+            "zeta": ConnectorAccount(
+                id="zeta",
+                name="zeta",
+                type="stub",
+                config={"system_prompt_directive": "ZETA_DIRECTIVE"},
+            ),
+        }
+        mock_acc_repo = AsyncMock()
+
+        async def _acc_get(aid: str) -> ConnectorAccount:
+            if aid not in accounts_map:
+                raise KeyError(f"ConnectorAccount not found: {aid}")
+            return accounts_map[aid]
+
+        mock_acc_repo.get = AsyncMock(side_effect=_acc_get)
+
+        with (
+            patch("the_one.agent.factory.get_provider", _fake_get_provider),
+            patch("the_one.agent.factory.settings") as mock_settings,
+            patch("the_one.db.connection.get_connection", new_callable=AsyncMock),
+            patch("the_one.encryption.get_encryptor", return_value=AsyncMock()),
+            patch(
+                "the_one.db.repositories.LLMProviderRepository",
+                return_value=mock_repo,
+            ),
+            patch(
+                "the_one.db.repositories.ToolConfigRepository",
+                return_value=mock_tool_repo,
+            ),
+            patch(
+                "the_one.db.repositories.ConnectorAccountRepository",
+                return_value=mock_acc_repo,
+            ),
+        ):
+            mock_settings.agents_dir = Path("/tmp/test-agents")
+            mock_settings.data_dir = Path("/tmp/test-data")
+            mock_settings.ensure_dirs = lambda: None
+            factory = AgentFactory(
+                store=store,
+                tool_providers=[BuiltinToolProvider()],
+                mcp_provider=None,
+            )
+            agent = await factory.create("connector-agent")
+
+        prompt = agent.system_prompt
+        # Surviving accounts contribute their directives.
+        assert "ALPHA_DIRECTIVE" in prompt
+        assert "ZETA_DIRECTIVE" in prompt
+        # The deleted account contributed nothing — no error, no empty
+        # padding between the two surviving directives (just the inter-
+        # directive "\n\n" separator).
+        assert "ALPHA_DIRECTIVE\n\nZETA_DIRECTIVE" in prompt
 
 
 class TestFactoryToolProviderWiring:
@@ -667,3 +963,67 @@ class TestFactoryToolProviderWiring:
         assert captured_builtin["kwargs"].get("connector_account_ids") == ["acc-1"]
         # Stub provider does NOT receive the kwarg (no isinstance branch hit).
         assert captured_stub["agent_name"] == "connector-agent"
+
+
+# ---------------------------------------------------------------------------
+# Module-level factory accessor (M10 F8 L4)
+# ---------------------------------------------------------------------------
+#
+# Gateway listeners (Discord's on_message in F8 L4, Slack's event handler in
+# F9, …) need access to the application AgentFactory at dispatch time but
+# cannot receive it through plugin.connect's signature. The accessor pattern
+# at the_one/agent/factory.py:set_factory / get_factory codifies the
+# read/write contract; these tests pin round-trip behavior + the
+# pre-startup-None case.
+
+
+class TestFactoryAccessor:
+    """Round-trip + reset semantics for set_factory / get_factory."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_module_slot(self) -> Any:
+        """Reset the module-level ``_factory`` slot around every test.
+
+        Without this, a test that calls ``set_factory(factory)`` would
+        leave the slot populated for subsequent tests, including the
+        pre-startup-None pin below. The fixture restores the prior
+        value so we play nicely with parallel tests if any survive
+        between cases.
+        """
+        from the_one.agent import factory as factory_mod
+
+        saved = factory_mod._factory
+        factory_mod._factory = None
+        try:
+            yield
+        finally:
+            factory_mod._factory = saved
+
+    def test_get_returns_none_before_set(self) -> None:
+        from the_one.agent.factory import get_factory
+
+        assert get_factory() is None
+
+    def test_set_then_get_round_trip(self) -> None:
+        from the_one.agent.factory import AgentFactory, get_factory, set_factory
+
+        instance = AgentFactory()
+        set_factory(instance)
+        assert get_factory() is instance
+
+    def test_set_none_clears_the_slot(self) -> None:
+        from the_one.agent.factory import AgentFactory, get_factory, set_factory
+
+        set_factory(AgentFactory())
+        assert get_factory() is not None
+        set_factory(None)
+        assert get_factory() is None
+
+    def test_set_overwrites_prior_value(self) -> None:
+        from the_one.agent.factory import AgentFactory, get_factory, set_factory
+
+        first = AgentFactory()
+        second = AgentFactory()
+        set_factory(first)
+        set_factory(second)
+        assert get_factory() is second

@@ -308,9 +308,19 @@ async def test_dispatch_inbound_broadcasts_after_persistence(
     appends ``"broadcast"``. The resulting list must start with
     ``"persist"`` and have every subsequent entry be ``"broadcast"``
     (one per broadcast event).
+
+    M10 F8 L11 HAT Fix #4: auto-relay is opted OUT here because it
+    issues a second ``chat_repo.update`` (re-persisting the assistant
+    reply with flipped visibility) after the broadcast loop —
+    confounding the persist/broadcast ordering count. The
+    persist-then-broadcast ordering contract is verified on the pure
+    inbound path; the auto-relay re-persist's relative ordering is
+    not under test here.
     """
     await _seed_provider_and_agent()
-    await _seed_stub_account()
+    await _seed_stub_account(
+        config={"auto_relay_platform_replies": False}
+    )
     register_for_test("stub", StubPlugin)
     factory = await _make_factory()
 

@@ -25,6 +25,8 @@ Rules: `config.py` is the leaf (imported by everything, imports nothing). `llm/`
 
 Named project-wide patterns. Apply across the codebase, not only where they were first introduced. Reviewers flag deviations by name.
 
+### Project-wide
+
 ### `trust-the-runtime`
 
 Don't validate at the API layer what the runtime will catch with a clear error. Pre-validation duplicates the check, introduces TOCTOU windows, and bloats the surface translating good-enough runtime errors into hand-written API errors.
@@ -58,6 +60,12 @@ Targets that detect drift between the host bench and the canonical container run
 Pattern: live under `# ── Drift detection (host-side) ──` in the `Makefile`; use `.venv/bin/python3 -c "..."` (NOT bare `python -c`, which has a PATH foot-gun); exit 0 if clean, non-zero with a clear `ModuleNotFoundError` / `AssertionError` if drift detected. Spec MUST include both a positive probe (clean → exit 0) AND a negative probe (deliberate violation → non-zero) — "clean tree exits 0" alone doesn't prove detection. For `git grep` recursive `**` pathspecs, use the `:(glob)` prefix; git's default mode treats `**` literally.
 
 Reference: `make doctor`, `make audit`, `make audit-bytes`.
+
+### `hat-driven-contract-flip-migration-discipline`
+
+When a HAT iteration flips a previously-shipped contract (semantic, schema, or behavioral default), apply a three-part migration discipline: (i) preserve the original behavior as a backward-compatible read-side coercion path so existing data round-trips through the new shape without operator intervention; (ii) document the flip plus the rationale in the flight log Deviations section so reviewers can audit the contract change post-hoc; (iii) close out the read-side coercion in a follow-up flight with explicit deprecation language (the coercion is migration scaffolding, not a permanent compatibility shim). Distinct from `verbatim-message-equality` — that convention pins operator-facing error strings byte-for-byte; this one governs operational contract changes mid-mission.
+
+Citation: M10 F6 HAT3 — the per-axis tri-state semantic flipped under operator review (legacy `match: str` form coerced in-place to the multi-value `match: list[str]` form on next save; deviation logged; coercion explicitly tagged for follow-up cleanup).
 
 ### `live-read-across-lazy-resolver-boundary`
 
@@ -97,13 +105,198 @@ Pattern is at the 2-occurrence threshold pending a clearer 3rd documented occurr
 
 An optional plugin extension that not every plugin needs to provide is accessed via `getattr(plugin, "<hook_name>", None)` with a sensible fallback at the call site. The Protocol stays at its minimal shape; future plugin authors aren't forced to write no-op stubs. The consumer's exception-catching behavior tolerates plugin-raised exceptions and falls back. Distinct from `protocol-widening-for-required-capability` (see below) which applies when ALL plugins in scope must implement the method. The fallback may be `None` (consult site short-circuits — `display_channel`'s shape) OR a named callable that returns the default outcome (when the default outcome is structured — F6's `_default_permit` returns a `Permit()` instance).
 
-Citation: `the_one/connectors/_session.py:_derive_title` accesses `plugin.display_channel` via `getattr(plugin, "display_channel", None)` with try/except fallback to `envelope.channel_id`. `StubPlugin` implements `display_channel` (`the_one/connectors/_stub.py:display_channel`); other plugins don't need to.
+Citations: `the_one/connectors/_session.py:_derive_title` accesses `plugin.display_channel` via `getattr(plugin, "display_channel", None)` with try/except fallback to `envelope.channel_id`; `StubPlugin` implements `display_channel` (`the_one/connectors/_stub.py:display_channel`), other plugins don't need to. F6's `the_one/connectors/_inbound.py:dispatch_inbound` consults `plugin.resolve` via `getattr(plugin, "resolve", _default_permit)` for per-(peer, channel) ACL resolution (`_default_permit` returns a `Permit()` sentinel; `StubPlugin` opts in via `_stub.py:resolve`). F8 L6's `the_one/connectors/_routing.py:_agent_admits` consults `plugin.is_dm` via `getattr(plugin, "is_dm", _default_not_dm)` for the per-agent DMs-only ACL branch in `_acl.py:admits_inbound` / `admits_outbound` (`_default_not_dm` at `the_one/connectors/_acl.py:_default_not_dm` returns False, preserving fail-closed back-compat for plugins without the hook — e.g. the test-only stub; `DiscordPlugin.is_dm` opts in via `the_one/connectors/_discord.py:DiscordPlugin.is_dm`).
+
+### `per-axis-tri-state-override`
+
+When an allowlist or ACL composes multiple independent axes (peers, channels, guilds, roles, …), each axis carries an independent **tri-state**: **absent** ⇒ unrestricted on this axis; **`[]`** ⇒ unrestricted on this axis at account scope, with per-agent narrowing free to override; **non-empty list** ⇒ subset allowed. The composition across axes is **per-axis AND, not single-list AND** — an inbound is admitted only when every axis admits independently. Per-agent overlays narrow per-axis on top of the account scope using the same tri-state.
+
+Citations: `the_one/connectors/_acl.py:admits_inbound` (F6 — account-scope admission across `peers` + `channels`); F8 L8 extends with `guilds` + `roles` axes for the Discord plugin (third occurrence — the framing generalizes naturally across connectors that distinguish workspace-style and role-style axes).
 
 ### `protocol-widening-for-required-capability`
 
 When a capability moves from "future" (one plugin needs it, others don't) to "required" (every plugin in scope must implement it), widen the `runtime_checkable` Protocol additively rather than reaching for `getattr`-sentinel. The widening is non-breaking for existing `isinstance(...)` checks at the type level — Python's `runtime_checkable` Protocol checks method-name presence at call time, so existing implementers that satisfy the pre-widened shape continue to pass UNLESS they're missing the newly-required method (in which case the isinstance check correctly fails and surfaces the gap). Implementations still MUST NOT inherit from the Protocol — structural satisfaction is the rule (`structural-Protocol-satisfaction` convention).
 
 Citation: `the_one/connectors/base.py:ConnectorClient.send` widening (F4 leg 1) added `async def send(target: OutboundTarget, content: str) -> SendResult` to the existing 1-method `ConnectorClient` Protocol. Every connector in scope (stub, Discord at F8, second connector at F9) MUST implement `send`; the platform-send tool depends on it being callable. F4's choice contrasts with the `optional-plugin-hook-via-getattr-sentinel` convention used for `display_channel` — outbound has no sensible default (silent drop is leakage; raise is noise) so widening is structurally right.
+
+### `cross-subsystem-pattern-premise-revalidation`
+
+Every "mirror X" rationale invoked in a design must include an explicit paragraph: "the original design rests on premise P; does P hold here?" Pattern-transfer without premise validation ships defects that survive design review. Reviewers must demand the premise-revalidation paragraph before approving any cross-subsystem mirror.
+
+Applies to any cross-subsystem pattern reuse where the precedent's premise is implicit. Does NOT apply to local refactors within a subsystem — a single-subsystem change can mirror its own siblings without re-deriving the premise.
+
+Citation: `the_one/connectors/_pool.py` — F1 mirrored `mcp/_pool.py`'s per-agent pool keying without re-validating the gateway-protocol-vs-MCP premise mismatch (gateway protocols are one-IDENTIFY-per-token; per-agent keying is incompatible). The mismatch surfaced at F8 L11 HAT seven flights after the original commit; that flight shipped a sentinel-wrapper as a tactical patch. M11 F2 L2 closed the convention's loop by splitting the public API into two semantic primitives: `the_one/connectors/_pool.py:agent_acquire` (MCP-style per-agent keying for the F6 resolver pattern) and `the_one/connectors/_pool.py:account_acquire` (gateway-protocol account-keyed, one entry per account). The proper refactor invoked this convention by name; the citation here documents both the original violation and the eventual resolution.
+
+Source: M10 mission-debrief "Process §2" — codify `cross-subsystem-pattern-premise-revalidation`; also listed in "Action Items → Codify 6 new agents.md Project Conventions."
+
+### `prompt-discipline-needs-mechanical-fallback`
+
+Any agent behavior the system depends on but the LLM controls requires either empirical HAT validation against the production model OR a mechanical dispatcher-side fallback that enforces the behavior without relying on prompt compliance. Decision-only (prompt-only) paths are not production contracts — LLM directive compliance is not a contract the system can build on.
+
+Applies to any system-level invariant whose enforcement passes through the LLM (outbound channels, tool-call-mandatory flows, content-filter directives). Does NOT apply to UX-only directives that fail soft if ignored (style guidance, persona instructions).
+
+Citation: `the_one/agent/config.py:_CONNECTOR_TOOL_ENABLED_DIRECTIVE` at lines ~54-67 — the original F4 directive "MUST call the `send_to_platform_channel` tool to deliver your reply." Sonnet 4.7 ignored the directive at F8 L11 HAT (twice, with strengthened versions). F8 L11 Fix #4 shipped the mechanical fallback at `the_one/connectors/_inbound.py:711` — `auto_relay = account.config.get("auto_relay_platform_replies", True)` defaults ON and the dispatcher auto-relays the assistant text via `client.send` regardless of whether the tool was called.
+
+Source: M10 mission-debrief "Process §3" — codify `prompt-discipline-needs-mechanical-fallback`; also "Lessons Learned §11" (LLM directive compliance is not a production contract).
+
+### `mechanical-fallback-prompt-truth-pairing`
+
+When a mechanical fallback ships alongside a system-prompt directive (per `prompt-discipline-needs-mechanical-fallback`), the prompt must accurately describe the actual behavior the dispatcher delivers. Lying in the prompt about what auto-runs (e.g., still saying "MUST call tool X" when the dispatcher now auto-relays anyway) confuses LLMs trained for honesty and produces hedging / over-explanation. The directive and the dispatcher's truth ship in the same diff.
+
+Applies whenever a mechanical fallback exists for a behavior the system-prompt also describes. Does NOT apply when the dispatcher honors the original prompt's contract verbatim (no fallback divergence).
+
+Citation: `the_one/agent/config.py:_CONNECTOR_AUTO_RELAY_DIRECTIVE` at lines ~69-84 — F8 L11 Fix #4 shipped the paired directive when auto-relay is ON: "Auto-relay is ON: your plaintext replies in this session ARE automatically delivered to platform peers." The original `_CONNECTOR_TOOL_ENABLED_DIRECTIVE` survives at lines 54-67 for the (currently unreachable but conceptually distinct) "tool-mandatory-no-auto-relay" composition; `compose_system_prompt` at `the_one/agent/config.py:96+` selects between them via the `auto_relay: bool` parameter. Distinct from `hat-driven-contract-flip-migration-discipline` — that convention governs schema/contract flips at HAT; this one governs prompt/dispatcher pair synchronization.
+
+Source: M10 mission-debrief "Documentation §1" — companion to `prompt-discipline-needs-mechanical-fallback`; also "Lessons Learned §4" (Auto-relay default-on with a mechanical fallback is the right shape for bot UX).
+
+### `lifespan-wiring-same-leg-as-installation`
+
+Event-handler installation (registering a handler that depends on application-level state) and the lifespan-time call site that triggers it land in the same leg, OR the leg's acceptance criteria include a runtime end-to-end test exercising the installed handler. Installing a handler without wiring the lifespan that fires it leaves the entire code path unreachable in production — silently, until somebody triggers the handler end-to-end.
+
+Applies to any event-driven handler (gateway listeners, periodic sweeps, background workers, lifespan-startup callbacks) that depends on application-level dependency injection. Does NOT apply to handlers wired into a synchronous import path that runs at module-load. The pattern is connector-agnostic and applies project-wide to any lifespan-driven handler.
+
+Citation: F8 L4 installed Discord's `on_message` at `the_one/connectors/_discord.py:DiscordPlugin.connect` (line ~731) but deferred lifespan-time `pool.acquire(...)` wiring to L11; the entire L4 inbound code path was end-to-end unreachable in production until F8 L11 Fix #3 added the lifespan walk. The canonical wiring shape: `the_one/agent/factory.py:set_factory` at line ~168 (module-level accessor) consumed by `the_one/interfaces/web/app.py` lifespan startup at line ~88 (`_set_module_factory(_state["factory"])`); gateway listeners call `get_factory()` at dispatch time per the convention codified in the "Gateway-listener factory access (M10 F8 L4)" subsection below.
+
+Source: M10 mission-debrief "Process §6" — add `lifespan-wiring-same-leg-as-installation` to `/leg` and `/flight` design guidance; also "Methodology Feedback §4."
+
+### `atomic-leg-pattern`
+
+When a single contract change touches multiple coordinated sites (Pydantic field + DB migration + repository CRUD + downstream ripple-sites that load or persist the value), all sites land in the same leg. Splitting the contract across legs leaves intermediate commits where one half of the contract exists without the other — the column exists in the schema but the Pydantic model doesn't know to write to it, or the model has the field but the repository drops it on save.
+
+Applies whenever a contract change crosses two or more of {Pydantic schema, DB schema, repository codec, runtime consumer that reads the value}. Does NOT apply to contract-additive changes that are fully optional at every site (e.g., adding a Pydantic field with a default that no existing consumer reads).
+
+Citations (n=2 — pattern is at codification threshold per `function-local-import-to-break-load-cycle` precedent):
+- F4 L5: `AgentConfig.connector_account_ids` field landed alongside schema v17 migration, `AgentConfigRepository` insert/load codec, and `AgentFactory.create` consumer in a single leg. See `the_one/db/_connector_types.py:22` — "v17 → ``agents.connector_account_ids`` persistence (F4 L5)".
+- F6 L1c: `AgentConfig.connector_acls` field landed alongside schema v18 migration, `AgentConfigRepository` codec, and `_acl.admits_inbound` consumer in a single leg. See `the_one/db/_connector_types.py:22` — "v18 → ``agents.connector_acls`` persistence (F6 L1c)".
+
+Source: M10 mission-debrief "Documentation §1 (Architect addition)" — `atomic-leg-pattern` (Pydantic field + migration + repository + ripple-sites in one leg; F4 L5 + F6 L1c are n=2); also "Methodology Feedback §8."
+
+### `optional-registry-entry-hook`
+
+When a registry entry needs to participate in substrate machinery — dirty tracking, namespace exposure, lifecycle hooks, render-time integrations — add OPTIONAL function fields to the entry's contract, validated as "must be a function IF present" but absent without error. Required entry fields are the render-time contract (the substrate calls them to produce the entry's per-type UI); optional fields are substrate-integration opt-ins (the substrate calls them when its machinery has work to dispatch to the entry, but absence means "this entry doesn't participate at that integration site"). The validator extends linearly: a new optional hook adds one name to an `optionalFns` list, no structural validator change.
+
+Applies when a registry/dispatch primitive owns substrate-touching machinery (event listeners, snapshot serialization, lifecycle callbacks) where some per-type entries opt in and others don't. Does NOT apply to dispatch tables where every entry must implement every method (use Protocol-widening then; see `protocol-widening-for-required-capability`).
+
+Citations (n=5 from M11 F1+F2+F3):
+- `the_one/interfaces/web/static/js/areas/studio/connector-form-registry.js:_validateEntry` — the `optionalFns = ['snapshot', 'wireEvents', 'renderInviteSection', 'renderDirectiveSection', 'renderDiscoverableDropdown']` array; each name is an optional entry-shape hook. The per-name validation is "must be a function IF present" — absent without error.
+- F1 L4 added `snapshot(container) → object` (entry's typed-input state for dirty-tracker) + `wireEvents(container, checkDirty, account)` (entry's own listener wiring for typed inputs outside the substrate's delegation scope). See `the_one/interfaces/web/static/js/areas/studio/connector-form-discord.js:snapshot` and `:wireEvents`.
+- F1 L5 added `renderInviteSection(account) → string` (entry-rendered detail-page section). See `the_one/interfaces/web/static/js/areas/studio/connector-form-discord.js:renderInviteSection`.
+- F2 L4 added `renderDirectiveSection(account) → string` (entry-rendered System Prompt Directive section on the General tab). See `the_one/interfaces/web/static/js/areas/studio/connector-form-discord.js:renderDirectiveSection`.
+- F3 L5 added `renderDiscoverableDropdown(account, axis, currentValues, vocab, onChange) → HTMLElement | null` (entry-rendered live-data combobox for allowlist + routing surfaces). See `the_one/interfaces/web/static/js/areas/studio/connector-form-discord.js:renderDiscoverableDropdown` and the shared component at `the_one/interfaces/web/static/js/areas/studio/discoverable-dropdown.js`.
+
+Source: M11 F1 flight-debrief "Key Learnings §3" (the F1 added three optional hooks; the additive-extension shape is generalizable) + "Recommendations §2" (operator-confirmed codification at debrief).
+
+### `registry-dispatch-create-mode-AC`
+
+Any registry-mediated typed-render path requires BOTH "create-mode-after-dispatch-key" AND "edit-mode-with-dispatch-key-set" as explicit acceptance criteria. The dispatch key (the value the registry uses to pick a per-type entry — connector type, provider type, plugin type) may be absent at first render in create mode and only populated when the operator picks it; the AC must verify that the post-pick render produces the typed entry's content, not the substrate's fallback. Edit-mode tests alone are insufficient — they exercise the dispatch-key-set path and miss the dispatch-key-absent-then-set transition that operators actually hit.
+
+Applies when a registry/dispatch primitive renders different content based on a dispatch key that may be absent on first render (operator-picked type in a create form; post-fetch resolved key in an async-populated editor). Does NOT apply when the dispatch key is structurally guaranteed at mount (e.g., the key is part of the URL route fragment and a renderer is mounted at all only when the key is present).
+
+Citation (n=1 from M11 F1 L7, codified by methodology-promotion per F1 debrief Recommendations §2 — operator-confirmed): F1 L4's tests exercised only edit-mode-with-type-set; the create-mode-after-type-pick path was bug-prone because `the_one/interfaces/web/static/js/areas/studio/connector-account-editor.js:renderConnectionFields` zeroed the dispatch key (`connActiveType`) in create mode regardless of the operator's pick, so `registry.get('')` always returned undefined and the substrate fallback rendered instead of the typed entry. HAT-caught at F1 L7; the fix removed the create-mode zeroing and added a `forceCreate` 5th-arg type-change re-render path (see `the_one/interfaces/web/static/js/areas/studio/connector-account-editor.js:renderConnectorAccountEditor`) so picking Discord re-mounts the editor against the typed entry. The resolution test `tests/browser/test_flow_studio_connector_account_create_and_test.py:test_create_mode_pick_discord_renders_typed_form` now pins the AC.
+
+This is the first codification under the n=1-by-methodology-promotion shape — the F1 debrief elevated this convention on the strength of the methodology lesson (registry-mediated dispatch is a structural pattern that demands symmetric ACs), not on a recurring-pattern threshold. Future occurrences citing this convention re-validate the structural claim; if they don't, the convention is a candidate for retirement at a later mission debrief.
+
+Source: M11 F1 flight-debrief "Recommendations §2" + "Key Learnings §5" (HAT essential signal even at the end of autonomous flights) + F1 L7 leg-progress entry.
+
+### `primitive-rename-test-classification`
+
+When a leg spec touches a primitive's name (rename, split, consolidation), every test file that contains the primitive's name is default-classified as `code-update` — i.e., the leg must read the test to determine whether the rename ripples into functional code. Downgrade to `docstring-sweep` (the rename only changes prose in test docstrings) ONLY after `grep` verifies the name appears solely inside `"""..."""` docstring blocks across the entire file. The cycle-0 default of "docstring-sweep until proven otherwise" inverts the safe direction — it treats a name appearance as docstring noise until refuted, when the truth-table is the opposite (a name appearance is functional usage until refuted).
+
+Applies whenever a leg's scope includes renaming, splitting, or consolidating a named primitive (function, class, dataclass, constant, or method) that is referenced by tests. Does NOT apply to leg-internal symbol renames whose names never appear in test files (grep returns zero hits in `tests/`).
+
+Citations (n=1 trigger, n=3 evidence files from M11 F2 L2 cycle-1):
+- `tests/test_connectors_inbound.py` — monkeypatch + sentinel filter (functional, ~5 lines).
+- `tests/test_lifespan.py` — getattr/setattr sites + assertion (functional, multi-site).
+- `tests/test_connectors_e2e_platform_send.py` — monkeypatch + assertion + function rename (functional).
+
+Source: M11 F2 flight-debrief "Recommendations §Important — codify two methodology rules as agents.md project conventions" (convention 1) + "What Could Be Improved §Important — primitive-rename test classification rule."
+
+### `flight-spec-dom-order-audit`
+
+At flight-design time, when a flight or leg artifact's natural-language wording describes adjacency between rendered DOM sections (e.g., "between section X and section Y" in Design Decisions, leg objectives, or implementation guidance), the architect must re-walk the current DOM order in the live source before committing the wording. Memory of a prior DOM walk is unreliable across flight boundaries — sections may have been added, removed, or reordered between the original audit and the current flight-design session.
+
+Applies whenever a flight or leg artifact's natural-language wording describes adjacency between rendered DOM sections (Studio editor sections, Chat UI panels, settings sub-pages, connector account detail page sub-surfaces). Does NOT apply to logical ordering claims that are not DOM-rendered (file ordering in a directory, leg execution ordering within a flight, mission flight ordering).
+
+Citation (n=1 from M11 F2 L4 cycle-1, codified by methodology-promotion per the same F1-L7-derived precedent as `registry-dispatch-create-mode-AC`): F2 flight.md Design Decisions §3 originally claimed the directive section landed "between Pairing and Test Connection," but a fresh DOM walk at cycle-1 showed Attached Agents between Pairing and Test Connection in the current source, so the correct placement was "between Pairing and Attached Agents." The reviewer caught the divergence; the leg spec was reworded to match the actual DOM; no structural harm done at L4 itself, but the symptom indicates the flight spec was written without a fresh DOM-order audit.
+
+Source: M11 F2 flight-debrief "Recommendations §Important — codify two methodology rules as agents.md project conventions" (convention 2) + "What Could Be Improved §Minor — flight-spec wording drift from DOM order."
+
+### `pool-warming-entrypoints-are-finite-and-named`
+
+Any subsystem with a pool primitive must explicitly enumerate the entrypoints that warm the pool; design-time reasoning may not assume that any operator-triggered action implicitly populates the pool unless the action's handler explicitly calls one of the named entrypoints. `grep` for the entrypoint name in the candidate handler is the mechanical fallback that converts assumed-warming into verified-warming.
+
+Applies whenever a flight or leg artifact's design assumes a pool entry is warm at a given UX-trigger point. Does NOT apply to read-only pool inspection paths or to lifespan-driven warmup (which is structurally-guaranteed at startup, not operator-triggered).
+
+Citation (n=1 from M11 F3 L4 design-time + L7 HAT anomaly #1, codified by methodology-promotion per the same F1-L7-derived precedent as `registry-dispatch-create-mode-AC`): F3 L4's design assumed Test Connection populated the pool via the lifespan-listener-warmup path (a named entrypoint in `the_one/connectors/_pool.py`); the assumption was structurally false — Test Connection's handler at `the_one/interfaces/web/api.py:test_connector_connection` calls `plugin.doctor()` but never `account_acquire`; HAT step caught the gap at F3 L7 (dropdowns 404 immediately after Test Connection succeeded); the F4 L2 leg is closing the underlying code-side mismatch by wiring `account_acquire` after `doctor()` succeeds. The convention codifies the methodology fallback that prevents recurrence: enumerate-and-grep at design time.
+
+Source: M11 F3 flight-debrief "Recommendations §Critical §3" + "Key Learnings §2" + "What Could Be Improved §Process — recon should default-walk L1 codifications."
+
+### `frozen-snapshot-for-cross-lock-read`
+
+When handler code reads multi-field cache state outside the lock that protects mutation, build a frozen-snapshot dataclass inside the lock and return the snapshot for outside-the-lock consumption. The pattern prevents inconsistent-multi-field-read races without requiring all readers to hold the lock for the entire read window.
+
+Applies whenever a cache or shared mutable state exposes multiple correlated fields that callers may read outside the mutation lock. Does NOT apply to single-field atomic reads or to fully-immutable shared state.
+
+Citation (n=1 from M11 F3 L4 cycle-1, codified by methodology-promotion per the same F1-L7-derived precedent as `registry-dispatch-create-mode-AC`): F3 L4 architect cycle-1 caught that the cache exposes a `(client_id, entities, last_refresh)` triple that handler code reads outside the lock; cycle-1 introduced `_DiscoverableCacheSnapshot` as the frozen-triple dataclass returned from a lock-held read.
+
+Source: M11 F3 flight-debrief "Recommendations §Methodology §12" + "Deviations and Lessons Learned" table (L4 `_DiscoverableCacheSnapshot` row).
+
+### `slot-getter-bridge-for-dropdown-collect-path`
+
+When a new editor shape (e.g., a dropdown chip-list) must integrate with an existing DOM-walking collect path that expects a specific child-element shape (e.g., text nodes), install a function-valued property (a slot getter) on the slot's container element that the collect path can invoke to retrieve the editor's current values. The getter bridges the new editor shape to the existing collect path without rewriting either side.
+
+Applies whenever a new UI editor surface must integrate with a pre-existing DOM-walking collect/serialize path that doesn't natively understand the new editor's DOM shape. Does NOT apply when the collect path can be cleanly rewritten in lockstep with the new editor.
+
+Citations (n=3 from M11 F3 L6a + L6b):
+- `_allowlistValues` (L6a allowlist) — installed as a function-valued property on the allowlist slot container so `collectAllowlistFromContainer`'s text-node walk can extract dropdown selections.
+- `_routingMatchValues` (L6b routing match-value) — installed as a function-valued property on the routing match-value slot container so the existing routing collect path can extract dropdown selections.
+- `_overlayChipValues` (L6b per-agent overlay) — installed as a function-valued property on the per-agent overlay slot container so the existing overlay collect path can extract dropdown selections.
+
+Source: M11 F3 flight-debrief "Recommendations §Methodology §13" + "Deviations and Lessons Learned" table (L6a/L6b row).
+
+### `two-concurrent-callers-reasoning`
+
+At design-review time, when a leg touches code that may be invoked by two or more concurrent callers (handler + background task; refresh-loop + read-loop; lifespan-warmup + operator-triggered acquire), the architect must walk the two-concurrent-callers thought experiment for every shared mutable state the leg touches. Sketch-based reasoning about a single caller is not naturally extended to two concurrent callers; the discipline is to explicitly enumerate the second caller, the interleaving point, and the partial-success / partial-failure shape.
+
+Applies whenever a leg touches code that may be invoked by two or more concurrent callers and the leg modifies or reads shared mutable state (in-process caches, locks, pool entries, refresh loops). Does NOT apply to leg-internal pure functions or to single-caller-by-design paths (e.g., startup-only initialization that the runtime guarantees against re-entry).
+
+Citation (n=3 from M11 F3 L4 cycle-1 within a single leg, codified by methodology-promotion per the same F1-L7-derived precedent as `registry-dispatch-create-mode-AC`): F3 L4 cycle-1 caught three concurrent-caller race-safety issues — (1) `prior_cache` race between refresh-loop and operator-triggered read; (2) `_shutting_down` bail interleaving with re-acquire; (3) identity-check on `client` to detect mid-refresh reconnection. All three would have been cycle-0-discoverable had the architect explicitly walked the two-concurrent-callers thought experiment.
+
+Source: M11 F3 flight-debrief "Recommendations §Methodology §16" + "Key Learnings §4 — cycle-1 race-reasoning has limits."
+
+### `cross-flight-ux-debt-reconciliation`
+
+Every flight's reconnaissance phase MUST include a section walking the prior 2-3 flight debriefs' AND the parent mission-debrief's deferred-UX items, classifying each as "in-scope-for-this-flight" / "out-of-scope-with-reason" / "structurally-blocked-by-X." The discipline arrests the "fold into F8/F10/follow-on-mission" structural source of UX-debt accumulation by forcing each new flight to explicitly cross-check the deferred queue rather than passively inheriting it.
+
+Applies to every flight reconnaissance phase. Does NOT apply to the first flight of a mission (no prior debriefs to cross-check) — though that flight should still cross-check the mission-debrief of any predecessor mission whose work it inherits.
+
+Citation (n=1 from M11 F3 debrief root-cause analysis, codified by methodology-promotion): F3 debrief surfaced an n=1 trigger of the 4-step UX-debt-accumulation pattern (HAT discovers → deferred → subsequent flight touches surface → deferral not folded). The primary codification destination is mission-control's `/flight` skill prompt (out of project scope); this agents.md entry is the project-side binding fallback that holds even if the mission-control skill prompts are out of date. The F4 `flight-log.md`'s Reconnaissance Report (Recon table R1-R11) is the n=1 application of this discipline.
+
+Source: M11 F3 flight-debrief "Recommendations §Critical §1" + "UX-Debt Accumulation §Root cause of the accumulation pattern."
+
+### `touched-surface-ux-debt-folding`
+
+When a flight touches a code surface (file or component), the architect MUST enumerate all open UX-debt items against that surface from prior debriefs and either fold them in or explicitly state why they're left. The discipline prevents the "touched the file but missed the gap" failure mode (F3 L6b touched `connectors-tab.js` but missed A2's raw-id checkbox-mode rendering because the leg's contributing-criteria framing was narrow).
+
+Applies whenever a leg's Files Affected list includes a source file with open UX-debt items in prior debriefs. Does NOT apply to files with no prior-debrief UX-debt entries.
+
+Citation (n=1 from M11 F3 L6b miss, codified by methodology-promotion): F3 L6b touched `connectors-tab.js:_renderAccountTile` for per-agent overlay dispatch but did not fold A2 (checkbox-mode raw-id rendering) into scope; A2 surfaced at F3 L7 HAT and is now closed by F4 L3. The primary codification destination is mission-control's `/flight` skill prompt (out of project scope); this agents.md entry is the project-side binding fallback.
+
+Source: M11 F3 flight-debrief "Recommendations §Critical §2" + "What Could Be Improved §Process — touched-surface UX-debt folding."
+
+### Mission-specific (M10)
+
+Patterns that emerged in Mission 10 (bi-directional comms connectors) whose project-wide generalization has not yet been demonstrated. They live here until a second-mission citation lifts them into `### Project-wide` above. Future missions extending this file add their own `### Mission-specific (M{NN})` subsection per the same pattern.
+
+### `encryptor-parameter-receive-but-not-consume`
+
+A plugin Protocol method receives an `Encryptor` parameter but does not call it because the repository's contract already delivers plaintext secrets in `account.secrets[...]`. The parameter is present to satisfy the Protocol signature and to allow future plugins that need encryption-aware paths to opt in, NOT because every call site decrypts. Each receive-but-not-consume call site documents the contract in its docstring so reviewers and future authors don't reintroduce a double-decrypt.
+
+Applies to any plugin where the repository already performs the encryption boundary crossing (`ConnectorAccount`, `MCPSource`) and hands the plugin already-decrypted secrets. Does NOT apply when the plugin is itself the encryption boundary (e.g., a future plugin that handles per-call ephemeral key derivation).
+
+Citation: `the_one/connectors/_discord.py:DiscordPlugin.connect` — the docstring at line ~596 explicitly states "`encryptor` parameter is received to satisfy the F1 Protocol but not consumed at this site"; same pattern at `the_one/connectors/_discord.py:DiscordPlugin.doctor` (docstring at line ~1077).
+
+Source: M10 mission-debrief "Documentation §1" — F8 L11 BOT_TOKEN double-decrypt bug (the spec said `encryptor.decrypt(account.secrets["X"])` but the repository had already decrypted; the convention prevents the recurrence). Tagged "Mission-specific (M10)" because M10 debrief Documentation §1 explicitly calls it "M10-specific shape; project-wide principle" — the project-wide form ("repository contract delivery is part of any Protocol's contract") is captured by `cross-subsystem-pattern-premise-revalidation` above.
 
 ---
 
@@ -296,12 +489,12 @@ Parallel to the provider-type extension checklist above. When a future flight ad
 
 ### Checklist
 
-1. **Pydantic `Literal`** — `db/models.py` `ConnectorAccount.type`. Currently `str` (unconstrained); Flight 8 narrows to `Literal["discord"]` and lands the `assert set(get_args(...)) == set(CONNECTOR_TYPES)` invariant alongside `LLMProviderConfig`'s assert.
-2. **`CONNECTOR_TYPES` tuple** — `db/_connector_types.py`. Empty tuple in Flight 1 (`CONNECTOR_TYPES: tuple[str, ...] = ()`); Flight 8 adds `"discord"`. Canonical single-source-of-truth pinned to layers 1, 3, and 4.
-3. **Registry registration** — `connectors/registry.py:register_builtin_connectors`. Empty body in Flight 1 (no production types registered); Flight 8 extends the body to call `register("discord", DiscordPlugin)`. Layers 2 (`CONNECTOR_TYPES`) and 3 must agree — a type in `CONNECTOR_TYPES` without a registration produces a `ConnectorRegistrationError` at first dispatch.
-4. **SQLite `CHECK` constraint** — `db/schema.py`. v13/v14 deliberately ship without a CHECK on `connector_accounts.type` (rationale in `db/schema.py:490` and in the Connector subsystem section below — the `'stub'` test-only type would otherwise need to be baked into the production constraint). v14 is claimed by leg 02's `name` column on `connector_accounts` (F1 L2); v15 by leg 02 of Flight 2 — `idle_timeout_seconds`; v16 by leg 01 of Flight 3 — chat_sessions external-key columns + `session_continuation_seconds` on `connector_accounts`; v17 by leg 05 of Flight 4 — `agents.connector_account_ids` persistence (closes the F4 L1/L4 leg-4 monkeypatch workaround); v18 by leg 1c of Flight 6 — `agents.connector_acls` persistence (closes the F6 per-agent ACL substrate atomically per F4 debrief rec #1). Flight 8's **v19** migration adds the CHECK via the table-rename ceremony established by v6/v12.
+1. **Pydantic `Literal`** — `db/models.py` `ConnectorAccount.type`. F8 L2 narrowed to `Literal["discord", "stub"]` (`'stub'` included per the M07 `'mock'`-in-`PROVIDER_TYPES` precedent — see `_connector_types.py` docstring) and landed the `assert set(get_args(...)) == set(CONNECTOR_TYPES)` invariant alongside `LLMProviderConfig`'s assert. Future connector types add their value to the `Literal[...]` arg-set in the same leg they're added to `CONNECTOR_TYPES`.
+2. **`CONNECTOR_TYPES` tuple** — `db/_connector_types.py`. F8 L2 populated to `("discord", "stub")`. Canonical single-source-of-truth pinned to layers 1, 3, and 4 by `tests/test_connector_types_consistency.py`.
+3. **Registry registration** — `connectors/registry.py:register_builtin_connectors`. F8 L2 registers `register("discord", DiscordPlugin)` via a function-local import per the `function-local-import-to-break-load-cycle` convention. Layers 2 (`CONNECTOR_TYPES`) and 3 must agree — a type in `CONNECTOR_TYPES` without a registration produces a `ConnectorRegistrationError` at first dispatch (the `'stub'` carve-out is documented in the consistency test).
+4. **SQLite `CHECK` constraint** — `db/schema.py`. v13/v14 deliberately shipped without a CHECK on `connector_accounts.type` (`CONNECTOR_TYPES` was empty at v13 landing; the v3/v6 precedent of CHECK-in-CREATE-TABLE didn't apply because there was nothing to constrain initially). v14 is claimed by leg 02's `name` column on `connector_accounts` (F1 L2); v15 by leg 02 of Flight 2 — `idle_timeout_seconds`; v16 by leg 01 of Flight 3 — chat_sessions external-key columns + `session_continuation_seconds` on `connector_accounts`; v17 by leg 05 of Flight 4 — `agents.connector_account_ids` persistence (closes the F4 L1/L4 leg-4 monkeypatch workaround); v18 by leg 1c of Flight 6 — `agents.connector_acls` persistence (closes the F6 per-agent ACL substrate atomically per F4 debrief rec #1). **v19 (F8 L2)** added `CHECK (type IN ('discord', 'stub'))` via the table-rename ceremony established by v6/v12 (CHECK literal list sourced from `_CONNECTOR_TYPES_SQL` mirroring `_PROVIDER_TYPES_SQL`).
 5. **API gating / branches** — `interfaces/web/api.py`: `/api/connector-accounts/*` create/update/delete/test branches. Flight 2 lands the admin REST surface; Flight 8 lands any Discord-specific gating on top.
-6. **Frontend** — `interfaces/web/static/js/areas/studio/connector-accounts-grid.js` + `studio/connector-account-editor.js` + integration in `static/js/areas/studio.js`. Badge styles land in `tokens.css` + the corresponding studio CSS rule. Flight 2 lands the Studio connector pages + Studio attach surface; Flight 8 supplies the Discord-specific assets. (Admin only if a future surface needs it.)
+6. **Frontend** — `interfaces/web/static/js/areas/studio/connector-accounts-grid.js` + `studio/connector-account-editor.js` + integration in `static/js/areas/studio.js`. Badge styles land in `tokens.css` + the corresponding studio CSS rule. Flight 2 landed the Studio connector pages + Studio attach surface; **F8 L2 shipped the `--badge-discord` token (`tokens.css:158`) + `.admin-connector-badge--discord` rule (`studio.css` Connector Type Badges section).** (Admin only if a future surface needs it.)
 7. **`_init_*` state hook** *(optional)* — if a future plugin needs to capture configuration outside the base `ConnectorAccount` fields (analog to `_init_provider_state` on `LLMProvider`), expose a hook on the plugin class. Not needed for Flight 1's stub or any Flight-8/9 design currently on the table; revisit per real plugin.
 8. **Tool-target validation** — `the_one/tools/connector_send.py:SendToPlatformChannelTool.execute`. F4 ships account-scope validation: `target.account_id ∈ agent.connector_account_ids` (rejects with the standard `[error] [constraint]` envelope on mismatch). The next layer of ACL — channel-level, thread-level, peer-level — is F6 territory; the tool's execute body carries a `# F6: optional resolver hook consultation lands here` marker for F6's diff to replace. New connectors do NOT modify the tool; they participate by being registered (layer 3) and being attached to an agent (`AgentConfig.connector_account_ids`).
 
@@ -364,7 +557,23 @@ A failure in any of the three UPDATE loops calls `conn.rollback()` and re-raises
 
 **Routing convention** (M10 F7 L5): the inbound dispatcher composes two pure functions to pick which attached agent handles an inbound. The routing engine at `the_one/connectors/_routing.py:resolve_routing(account, envelope, eligible_attached_agents, session_metadata) -> RoutingDecision` is pure (no I/O); it walks the 5-step algorithm (override → rule-walk → default → first-eligible-alphabetical → no-eligible). The ACL gate at `the_one/connectors/_acl.py:admits_inbound` (symmetric to `admits_outbound`) is also pure; the routing engine calls it for every candidate it considers, so the dispatcher does NOT re-check ACL on the engine's output. The L5 dispatcher composes them in canonical step 7 (routing engine consult) of its 12-step body — pure pieces, integration at the call site. Routing decisions are audit-logged under `session_metadata["routing"]` via the F6 list-append primitive (`ChatSessionRepository.append_to_session_metadata`); each entry carries `{ts, agent, rule_index, scope, match, reason, disposition}` where `disposition ∈ {"stepped", "command-intercepted", "no-eligible"}` discriminates routed-and-stepped from command-intercepted from no-eligible-error-emitted (pool-failure-overload collapses onto `"no-eligible"`). The audit-entry shape mirrors F6's `session_metadata["audit"]` entry shape — `ts` and `reason` keys reuse F6's naming so a single Studio renderer walks both logs uniformly. The F7 L6 `/talk-to` handler writes `session_metadata["routing_override"] = "<slug>"` via the sibling primitive `ChatSessionRepository.set_session_metadata_key` (last-writer-wins concurrency posture); the engine reads that override in step 1 of its 5-step algorithm. `the_one/connectors/README.md` §12 (Inbound flow trace) carries the file:line walk through the full 12-step dispatcher body.
 
+**Audit-log single-winner semantic** (M10 F8 L1 clarification): a single `RoutingDecision` is emitted per `dispatch_inbound` invocation; only the eventual winner's path lands in `session_metadata["routing"]`. Candidates the engine considered and skipped (ACL-denied, missing-attachment, unknown-slug) are NOT enumerated in the audit entry; see `the_one/connectors/_routing.py` module docstring for the canonical contract and the F10 deferral for richer chain-audit.
+
 **v1 command surface** (M10 F7 L6): the dispatcher's command-intercept path (step 11 of the 12-step body) consults `the_one/connectors/_commands.py:_dispatch_builtin_command`. The L1 parser `_parse_command(text)` extracts `(command_name, args)` from any envelope whose `text` starts with a single forward slash followed by a lowercase-letter-led `[a-z0-9-]` word. Six v1 commands intercept and emit via the system-outbound path (NOT through the platform-send tool): `/agents`, `/talk-to <slug>`, `/whoami`, `/new`, `/reset` (alias for `/new`), `/help`. Two `session_metadata` keys carry the command-side state: `"routing_override"` (written by `/talk-to`, consumed by the L4 engine on the NEXT inbound — current inbound was already routed) and `"ended_at"` (written by `/new` / `/reset`, consumed by `_session.resolve_session`'s reuse path to skip an existing row and create a fresh one on the next inbound). Both keys are written via `ChatSessionRepository.set_session_metadata_key` (last-writer-wins overwrite). Unknown command names (e.g. `/foo`) fall through to `agent.step` as regular user messages — the v1 vocabulary's six names are the only short-circuits. `/agents` and `/help` are permission-filtered: `_permitted_agents(context)` applies the per-agent `admits_inbound` ACL on top of the dispatcher's `eligible_attached_agents` list; `/agents` returns the byte-identical no-eligible string when the filter is empty, and `/help` lists `/agents` + `/talk-to` only when the filter is non-empty (the four agent-independent commands are always listed). Cross-reference: `the_one/connectors/README.md` §13 (v1 command vocabulary).
+
+### 4-axis allowlist + outbound fallback (M10 F8 L8)
+
+The account-scope `config["allowlist"]` and per-agent `AgentConfig.connector_acls[account_id]` admission surfaces both carry four parallel axes: `peers`, `channels` (cross-platform, F6 baseline), plus `guilds` and `roles` (Discord-flavored, F8 L8). Each axis is independently tri-state per the `per-axis-tri-state-override` convention — composition is per-axis AND, never single-list AND. `peers` and `channels` remain REQUIRED on the inner-dict shape (back-compat with all pre-L8 rows); `guilds` and `roles` are OPTIONAL — absent axis = unrestricted on that axis. The L4 Discord plugin populates `envelope.raw["guild_id"]` (str or None for DMs) and `envelope.raw["member_roles"]` (list of str role IDs, empty for DMs); `_routing._agent_admits` threads both into `_acl.admits_inbound`, which evaluates the guilds axis as set-membership and the roles axis as any-of overlap against `member_roles`. **DM-with-guild-restriction posture**: when `allowlist["guilds"]` is non-empty AND the envelope is a DM (`guild_id=None`), the guild check denies — the operator narrowed to specific guilds, DMs are out-of-scope. Operators wanting DMs admitted under a guild-restricted account leave the axis absent or empty. **Outbound fallback**: `_acl.admits_outbound` accepts the new kwargs for signature uniformity but does NOT consult them — the F4 platform-send tool has no envelope context (just `account, channel_id, thread_id`), so there is no `guild_id` / `member_roles` to evaluate at outbound time. The kwargs are silently ignored; this is consistent with the F6 channel-axis fallback rationale. F10 hardening can revisit if HAT surfaces concrete outbound needs (e.g. plugin-resolved `send_target_guild_id`).
+
+### Slash commands via `CommandHandler` (M10 F8 L9)
+
+Platform-native command surfaces (Discord application commands; Slack slash commands in F9; …) plug into the F7 v1 command vocabulary via the `CommandHandler` Protocol consult site at `_inbound.py:494` — a plugin that opts in implements `async def handle_command(envelope, command_name, args) -> CommandResponse | None`, returning `None` to fall through to the F7 built-in handlers and a `CommandResponse` to short-circuit with a platform-customized reply. DiscordPlugin structurally satisfies the Protocol (in addition to `ConnectorPlugin`); `isinstance(DiscordPlugin(), CommandHandler)` is True after L9. **L9 fall-through default**: `DiscordPlugin.handle_command` returns `None` for every command (the six v1 names AND unknown commands), so slash invocations inherit the F7 v1 vocabulary byte-for-byte; Discord-native ephemeral-response customization (e.g. `/help` visible only to the invoking peer) is deferred to F10 hardening — the simpler uniform fall-through keeps L9 scope tight and avoids the "two response paths" branching the dispatcher's outbound shape would force. **Registration shape**: a `discord.app_commands.CommandTree` is built inside `DiscordPlugin.connect` post-client-construction and decorated with the six commands (`agents`, `talk_to`, `whoami`, `new`, `reset`, `help` — note: `talk_to`, NOT `talk-to`, because Discord's application-command name regex rejects ASCII hyphens; the F7 `_parse_command` whitespace-splits, so the synthesized envelope text `/talk_to my-agent` reaches the dispatcher unchanged). **Per-guild PUT-style sync**: post-READY, the connect path calls `await tree.sync(guild=discord.Object(id=int(g)))` for each `g in account.config.get("guilds", [])`. Sync is a PUT — it replaces the guild's command list with the current `tree` contents, never appends; idempotent on every reconnect. Empty / absent guild list → skip with an INFO log (slash commands won't appear in any guild). Per-guild sync failures (`discord.errors.Forbidden` when the bot lacks the `applications.commands` scope; network blip; guild not found) log at WARNING and continue — the gateway connection still goes live, and subsequent guilds are still attempted. **Global registration deferred to F10** (per-guild registers in ≤5 minutes vs ≤1 hour for global; F8 HAT iteration is faster on per-guild). **Slash-command body**: each registered callback acks via `interaction.response.defer(ephemeral=True)` to satisfy Discord's 3-second interaction timeout, then translates the `Interaction` into an `InboundEnvelope` (text synthesizes the F7 form `/<name> <args>`; `peer_id` / `peer_name` from `interaction.user`; `channel_id` / `thread_id` follow L4's thread/channel convention; `raw` carries `is_dm` for the L6 consult site, `guild_id` and `member_roles` for the L8 4-axis allowlist) and calls `dispatch_inbound(account.id, envelope, factory=get_factory())` — the same path the `on_message` handler uses. The visible reply is posted by the dispatcher's outbound `client.send` path in the same channel; the ephemeral defer is just the Discord-required handshake.
+
+### Gateway-listener factory access (M10 F8 L4)
+
+Gateway listeners spawned inside `plugin.connect` (Discord's `on_message` in F8 L4, Slack's event handler in F9, …) cannot receive an `AgentFactory` reference through the `plugin.connect(account, encryptor)` signature — they fire from inside the pool's per-(agent, account) worker task, BEFORE any caller has a handle to set attributes on the returned client. Adding the factory to `connect`'s signature would also break the stateless-plugin contract.
+
+The codified convention: `the_one.agent.factory` exports a module-level accessor pair — `set_factory(factory: AgentFactory | None) -> None` and `get_factory() -> AgentFactory | None`. FastAPI's lifespan startup calls `set_factory(...)` once after constructing the application factory; the lifespan teardown calls `set_factory(None)` to release the reference. Gateway listeners call `get_factory()` at dispatch time; `None` (pre-startup race / post-shutdown / test fixtures that never set it) means log at WARNING and return — the platform message is effectively dropped for the brief race window. The pattern mirrors the existing precedent at `interfaces/web/app.py:_get_factory` (which reads from a private dict for the web routes); the module-level accessor is the canonical subsystem-facing surface for gateway listeners and applies uniformly to Discord (F8), Slack (F9), and any future platform whose SDK delivers inbounds via event-handler registration.
 
 ### Known Issues
 

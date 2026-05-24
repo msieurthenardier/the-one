@@ -16,7 +16,7 @@ import httpx
 from cryptography.fernet import Fernet, InvalidToken
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
-from pydantic import ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from the_one import __version__
 from the_one.config import settings
@@ -849,6 +849,187 @@ def _validate_mcp_source_config(source: MCPSource) -> None:
         raise HTTPException(
             status_code=422,
             detail=f"Unsupported MCP source type: {source.type}",
+        )
+
+
+# Discord presence ``type`` enum pinned at the API boundary.
+#
+# This frozenset literal is the operator-meaningful subset of
+# ``discord.ActivityType`` values. We deliberately do NOT read from
+# ``discord.ActivityType`` at import time so the validator remains
+# testable without the Discord SDK patched in (see M11 F1 L2 Design
+# Decisions §2). L4's typed dropdown UI inherits this exact set.
+#
+# Excluded:
+# - ``"unknown"`` — Discord-SDK default sentinel, never an operator choice
+# - ``"custom"`` — Discord-API-only via custom status, not supported by
+#   the bot-presence surface
+_DISCORD_PRESENCE_TYPES = frozenset(
+    {"playing", "streaming", "listening", "watching", "competing"}
+)
+
+
+def _validate_connector_account_config(account: ConnectorAccount) -> None:
+    """Per-type shape validation for ConnectorAccount.config.
+
+    Raises HTTPException(422, detail=...) on shape mismatch. Mirrors
+    the :func:`_validate_mcp_source_config` precedent — validator
+    lives at the API write boundary; the error path returns a clean
+    422 with a human-readable detail string. Pydantic's Literal
+    validation already gates the ``type`` field at model validation
+    time, so the trailing ``else`` raise is defensive
+    exhaustiveness (see ``_validate_mcp_source_config`` at line 840).
+
+    Discord (M11 F1 L2): validates the three operator-meaningful
+    config keys — ``intents``, ``guilds``, ``presence`` — each
+    optional. Absent keys round-trip cleanly so M10 F8 accounts
+    (which lack ``intents``) keep working byte-identically.
+
+    Stub: pass-through. The F1 stub-type carve-out accepts arbitrary
+    config — per-type knowledge does not apply to stubs.
+    """
+    cfg = account.config
+
+    if account.type == "discord":
+        # ── intents ──────────────────────────────────────────────
+        if "intents" in cfg:
+            intents = cfg["intents"]
+            if not isinstance(intents, dict):
+                raise HTTPException(
+                    status_code=422,
+                    detail="Discord connector config.intents must be a dict.",
+                )
+            required = {"message_content", "members", "guilds"}
+            if set(intents.keys()) != required:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"Discord connector config.intents must have exactly "
+                        f"these keys: {sorted(required)}; got: "
+                        f"{sorted(intents.keys())}."
+                    ),
+                )
+            for key, value in intents.items():
+                # ``bool`` is a subclass of ``int`` in Python; the
+                # ``isinstance(value, bool)`` check (NOT ``int``) means
+                # a JSON ``1`` from a buggy client gets a 422. Mirrors
+                # the MCP precedent at api.py:816.
+                if not isinstance(value, bool):
+                    raise HTTPException(
+                        status_code=422,
+                        detail=(
+                            f"Discord connector config.intents.{key} must be "
+                            f"a boolean; got {type(value).__name__}."
+                        ),
+                    )
+
+        # ── guilds ───────────────────────────────────────────────
+        if "guilds" in cfg:
+            guilds = cfg["guilds"]
+            if not isinstance(guilds, list):
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "Discord connector config.guilds must be a list of "
+                        "digit-only strings if present."
+                    ),
+                )
+            for entry in guilds:
+                if not isinstance(entry, str):
+                    raise HTTPException(
+                        status_code=422,
+                        detail=(
+                            f"Discord connector config.guilds entries must "
+                            f"be strings; got {type(entry).__name__}."
+                        ),
+                    )
+                if len(entry) == 0 or not entry.isdigit():
+                    raise HTTPException(
+                        status_code=422,
+                        detail=(
+                            f"Discord connector config.guilds entries must "
+                            f"be non-empty decimal-digit strings; "
+                            f"got {entry!r}."
+                        ),
+                    )
+
+        # ── presence ─────────────────────────────────────────────
+        if "presence" in cfg:
+            presence = cfg["presence"]
+            if not isinstance(presence, dict):
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "Discord connector config.presence must be a dict "
+                        "if present."
+                    ),
+                )
+            if "name" in presence:
+                name = presence["name"]
+                if not isinstance(name, str) or not name.strip():
+                    raise HTTPException(
+                        status_code=422,
+                        detail=(
+                            "Discord connector config.presence.name must be "
+                            "a non-empty string."
+                        ),
+                    )
+            if "type" in presence:
+                ptype = presence["type"]
+                if not isinstance(ptype, str) or ptype not in _DISCORD_PRESENCE_TYPES:
+                    raise HTTPException(
+                        status_code=422,
+                        detail=(
+                            f"Discord connector config.presence.type must be "
+                            f"one of: {sorted(_DISCORD_PRESENCE_TYPES)}; "
+                            f"got: {ptype!r}."
+                        ),
+                    )
+
+        # ── system_prompt_directive ──────────────────────────────
+        # M11 F2 L3: optional per-account operator-authored directive
+        # appended to the connector system prompt. Absent → no override.
+        # Present → must be a non-empty string. Empty string is rejected
+        # explicitly (absence is the canonical "no override" signal).
+        # No length cap; no content validation. The composer APPENDS
+        # this text after the selected default directive — the operator
+        # cannot overwrite the substrate's behavioral contract.
+        if "system_prompt_directive" in cfg:
+            directive = cfg["system_prompt_directive"]
+            if not isinstance(directive, str):
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"Discord connector config.system_prompt_directive must be "
+                        f"a string if present; got {type(directive).__name__}."
+                    ),
+                )
+            if not directive:
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        "Discord connector config.system_prompt_directive must be "
+                        "a non-empty string if present (use absence to mean 'no override')."
+                    ),
+                )
+
+    elif account.type == "stub":
+        # Stub-type carve-out — F1 trust posture accepts arbitrary
+        # config for the placeholder connector. Per-type Discord-shape
+        # checks do NOT apply.
+        pass
+
+    else:
+        # Defensive exhaustiveness — Pydantic's Literal validator
+        # already rejects unknown ``type`` values at
+        # ConnectorAccount.model_validate time, so this branch is
+        # unreachable for properly-validated input. A future
+        # contributor who adds a new connector type literal to the
+        # model and forgets to extend this helper trips the raise.
+        # Mirrors the MCP precedent at api.py:840-849.
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unknown connector type: {account.type!r}",
         )
 
 
@@ -2123,11 +2304,10 @@ async def list_connector_account_types() -> list[dict[str, str]]:
     ``get_connector_account`` with ``account_id="types"`` and 404.
     Mirrors the MCP precedent at ``list_mcp_source_types``.
 
-    Returns an empty list in production until Flight 8 (Discord) lands
-    the first real connector type via
-    :func:`the_one.connectors.registry.register_builtin_connectors`.
-    Tests that need a populated list register the stub plugin via
-    :func:`the_one.connectors.registry.register_for_test`.
+    Returns the registered types from
+    :func:`the_one.connectors.registry.register_builtin_connectors`; F8 L2
+    added ``'discord'``. Tests that need ``'stub'`` in the list register
+    it via :func:`the_one.connectors.registry.register_for_test`.
     """
     from the_one.connectors.registry import types as _connector_types
 
@@ -2158,10 +2338,7 @@ async def create_connector_account(request: Request) -> dict[str, Any]:
         # — ``model_validator`` paths populate ``ctx['error']`` with raw
         # exceptions that aren't JSON-serializable.
         raise HTTPException(status_code=422, detail=e.errors(include_context=False))
-    # NOTE: No per-type config-shape validation in this leg — the F1 stub
-    # accepts arbitrary config, and per-type validation lands per-connector
-    # in Flights 8 / 9 (mirror of ``_validate_mcp_source_config`` which is
-    # type-aware).
+    _validate_connector_account_config(account)
     repo = await _connector_repo()
     await repo.create(account)
     return _connector_account_response(account)
@@ -2219,6 +2396,7 @@ async def update_connector_account(account_id: str, request: Request) -> dict[st
         updated = ConnectorAccount.model_validate(merged)
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=e.errors(include_context=False))
+    _validate_connector_account_config(updated)
     await repo.update(updated)
 
     if existing.secrets != resolved_secrets:
@@ -2412,6 +2590,7 @@ async def test_connector_connection(account_id: str) -> dict[str, Any]:
     is ``(account_id: str)`` only.
     """
     # Function-local import per the convention in this section.
+    from the_one.connectors._pool import account_acquire
     from the_one.connectors.errors import (
         ConnectorClientError,
         ConnectorRegistrationError,
@@ -2451,11 +2630,269 @@ async def test_connector_connection(account_id: str) -> dict[str, Any]:
             },
         }
 
+    # Shallow-copy report.details so we don't mutate the plugin's-owned dict
+    # (M11 F4 L2 — convention `pool-warming-entrypoints-are-finite-and-named`).
+    details = dict(report.details)
+    pool_warmed = False
+    pool_warm_error: str | None = None
+
+    if report.status == "ok":
+        try:
+            await account_acquire(account_id)
+        except Exception as exc:  # noqa: BLE001 — best-effort warmup; isolated from doctor verdict per F4 L2.
+            pool_warm_error = str(exc)
+        else:
+            pool_warmed = True
+
+    details["pool_warmed"] = pool_warmed
+    details["pool_warm_error"] = pool_warm_error
+
     return {
         "status": report.status,
         "message": report.message,
-        "details": report.details,
+        "details": details,
     }
+
+
+# ── Discoverable Entities (M11 F3 L4) ─────────────────────────────────────
+
+
+class _DiscoverableEntityOut(BaseModel):
+    """Pydantic response shape for one discoverable entity.
+
+    Mirrors :class:`the_one.connectors.base.DiscoverableEntity`'s fields
+    plus the projected ``stale: bool`` flag — staleness is a render-time
+    concern, NOT a substrate dataclass field (see M11 F3 L4 leg artifact
+    Design Decision "stale flag projection at API time").
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    label: str
+    group: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    stale: bool = False
+
+
+class _DiscoverableEntitiesResponse(BaseModel):
+    """Pydantic response shape for the discoverable-entities endpoints.
+
+    The four axes (``peers``, ``channels``, ``groups``, ``roles``) are
+    flattened lists where fresh entries (from the pool's
+    ``discoverable_entities_cache``) precede stale entries (from the
+    pool's ``discoverable_entities_stale_carry``); each entry carries
+    ``stale: false`` or ``stale: true`` respectively.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    entities: dict[str, list[_DiscoverableEntityOut]]
+    fetched_at: str
+    stale_seconds: float
+
+
+def _empty_discoverable_response() -> _DiscoverableEntitiesResponse:
+    """Build the fail-open empty response for first-call edge cases.
+
+    Used when the warm entry exists but the inline refresh returns
+    ``False`` (mid-connect race, evicted-mid-refresh, plugin raised).
+    The frontend's manual Refresh button is the recovery path; the next
+    periodic sweep fires within ≤ 5 minutes.
+    """
+    return _DiscoverableEntitiesResponse(
+        entities={"peers": [], "channels": [], "groups": [], "roles": []},
+        fetched_at=now_iso(),
+        stale_seconds=0.0,
+    )
+
+
+def _project_discoverable_entity(
+    entity: Any, *, stale: bool
+) -> _DiscoverableEntityOut:
+    """Project a :class:`DiscoverableEntity` dataclass into the response shape.
+
+    The substrate dataclass has no ``stale`` field — staleness is the
+    API layer's render-time projection per M11 F3 L4 Design Decisions.
+    """
+    return _DiscoverableEntityOut(
+        id=entity.id,
+        label=entity.label,
+        group=entity.group,
+        metadata=dict(entity.metadata),
+        stale=stale,
+    )
+
+
+def _build_discoverable_response(snapshot: Any) -> _DiscoverableEntitiesResponse:
+    """Build a populated :class:`_DiscoverableEntitiesResponse` from a
+    cache snapshot returned by ``_get_account_cache_snapshot``.
+
+    Caller must ensure ``snapshot.cache`` is not ``None``. Stale entries
+    (from ``snapshot.stale_carry``) are appended to each axis after the
+    fresh entries; both carry the projected ``stale`` flag.
+    """
+    cache = snapshot.cache
+    stale_carry = snapshot.stale_carry
+    entities: dict[str, list[_DiscoverableEntityOut]] = {}
+    for axis in ("peers", "channels", "groups", "roles"):
+        fresh = [
+            _project_discoverable_entity(e, stale=False)
+            for e in getattr(cache, axis)
+        ]
+        stale_list: list[_DiscoverableEntityOut] = []
+        if stale_carry is not None:
+            stale_list = [
+                _project_discoverable_entity(e, stale=True)
+                for e in getattr(stale_carry, axis)
+            ]
+        entities[axis] = fresh + stale_list
+    fetched_at = cache.fetched_at or now_iso()
+    if snapshot.fetched_at_monotonic is not None:
+        stale_seconds = max(0.0, time.monotonic() - snapshot.fetched_at_monotonic)
+    else:
+        stale_seconds = 0.0
+    return _DiscoverableEntitiesResponse(
+        entities=entities,
+        fetched_at=fetched_at,
+        stale_seconds=stale_seconds,
+    )
+
+
+@router.get(
+    "/connector-accounts/{account_id}/discoverable-entities",
+    response_model=_DiscoverableEntitiesResponse,
+)
+async def get_discoverable_entities(account_id: str) -> _DiscoverableEntitiesResponse:
+    """Return the cached discoverable-entities view for a connector account.
+
+    Contracts:
+      - 404 (Connector account not found): the repo lookup raises
+        ``KeyError`` (no such account in the DB).
+      - 404 (Run Test Connection first): the account exists but the
+        pool has no warm entry — operator must populate the pool first
+        (via Test Connection, lifespan listener-warmup, or any other
+        ``account_acquire`` path).
+      - 503: the account's connector plugin does NOT implement
+        ``enumerate_discoverable_entities`` (e.g., the stub plugin).
+      - 200 (populated cache): the warm entry has a fresh
+        ``discoverable_entities_cache``; the response carries the four
+        axes plus the projected ``stale`` flag for each entity.
+      - 200 (first-call inline refresh): the warm entry exists but
+        ``cache is None`` — the endpoint fires a single inline refresh
+        via :func:`_refresh_discoverable_entities_for_account`. If the
+        refresh returns ``True``, the populated response is returned;
+        if ``False`` (mid-connect race / evicted-mid-refresh), the
+        endpoint fails open with an empty 200 (Design Decision per leg).
+    """
+    # Function-local imports per this section's convention. See the
+    # ``test_connector_connection`` handler's import block for the
+    # rationale (function-local-import-to-break-load-cycle).
+    from the_one.connectors._pool import (
+        _get_account_cache_snapshot,
+        _refresh_discoverable_entities_for_account,
+    )
+    from the_one.connectors.errors import ConnectorRegistrationError
+    from the_one.connectors.registry import resolve as _resolve_plugin
+
+    repo = await _connector_repo()
+    try:
+        await repo.get(account_id)
+    except KeyError:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Connector account not found: {account_id}",
+        )
+
+    snapshot = await _get_account_cache_snapshot(account_id)
+    if snapshot is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Run Test Connection first to populate the bot's discoverable view.",
+        )
+
+    try:
+        plugin = _resolve_plugin(snapshot.account_type)
+    except ConnectorRegistrationError:
+        raise HTTPException(
+            status_code=503,
+            detail="This connector type does not expose discoverable entities.",
+        )
+    if getattr(plugin, "enumerate_discoverable_entities", None) is None:
+        raise HTTPException(
+            status_code=503,
+            detail="This connector type does not expose discoverable entities.",
+        )
+
+    if snapshot.cache is None:
+        refreshed = await _refresh_discoverable_entities_for_account(account_id)
+        if not refreshed:
+            return _empty_discoverable_response()
+        snapshot = await _get_account_cache_snapshot(account_id)
+        if snapshot is None or snapshot.cache is None:
+            return _empty_discoverable_response()
+
+    return _build_discoverable_response(snapshot)
+
+
+@router.post(
+    "/connector-accounts/{account_id}/discoverable-entities/refresh",
+    response_model=_DiscoverableEntitiesResponse,
+)
+async def refresh_discoverable_entities(
+    account_id: str,
+) -> _DiscoverableEntitiesResponse:
+    """Force a synchronous refresh of the discoverable-entities cache.
+
+    Same 404 / 503 contracts as the GET handler. Always invokes
+    :func:`_refresh_discoverable_entities_for_account` (regardless of
+    whether the cache is currently populated); on ``False`` return the
+    endpoint fails open with an empty 200 response (Design Decision per
+    the leg artifact's first-call edge-case handling).
+    """
+    from the_one.connectors._pool import (
+        _get_account_cache_snapshot,
+        _refresh_discoverable_entities_for_account,
+    )
+    from the_one.connectors.errors import ConnectorRegistrationError
+    from the_one.connectors.registry import resolve as _resolve_plugin
+
+    repo = await _connector_repo()
+    try:
+        await repo.get(account_id)
+    except KeyError:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Connector account not found: {account_id}",
+        )
+
+    snapshot = await _get_account_cache_snapshot(account_id)
+    if snapshot is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Run Test Connection first to populate the bot's discoverable view.",
+        )
+
+    try:
+        plugin = _resolve_plugin(snapshot.account_type)
+    except ConnectorRegistrationError:
+        raise HTTPException(
+            status_code=503,
+            detail="This connector type does not expose discoverable entities.",
+        )
+    if getattr(plugin, "enumerate_discoverable_entities", None) is None:
+        raise HTTPException(
+            status_code=503,
+            detail="This connector type does not expose discoverable entities.",
+        )
+
+    refreshed = await _refresh_discoverable_entities_for_account(account_id)
+    if not refreshed:
+        return _empty_discoverable_response()
+    snapshot = await _get_account_cache_snapshot(account_id)
+    if snapshot is None or snapshot.cache is None:
+        return _empty_discoverable_response()
+    return _build_discoverable_response(snapshot)
 
 
 # ── Chat Sessions ─────────────────────────────────────────────────────────

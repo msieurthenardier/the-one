@@ -20,6 +20,17 @@ The three-outcome ADT (:class:`Permit`, :class:`NeedsPairing`,
 this file — "single contract file" is the mission criterion, not "single
 Protocol".
 
+Per ``agents.md`` ``optional-plugin-hook-via-getattr-sentinel`` (L1-codified
+by flight 1 of mission 11): connectors that can enumerate the platform
+entities the bot has live visibility into implement the OPTIONAL
+``enumerate_discoverable_entities(client: ConnectorClient) -> DiscoverableEntities``
+hook (introduced by flight 3 of mission 11 for live-data discoverable
+dropdowns). Discovered via ``getattr(plugin, "enumerate_discoverable_entities", None)``
+with ``None`` as the fallback sentinel — consumers (the L4 pool cache
+refresh sweep and the per-account Studio API endpoint) treat the
+``None`` return as "this plugin doesn't expose live data; fall back to
+the chip-list editor."
+
 Per ``agents.md`` ``canonical-import + convenience-re-export``: code that
 touches Protocol identity (``isinstance(...)`` or subclass checks) MUST use
 the canonical import path from this module, not from ``the_one.connectors``
@@ -360,9 +371,10 @@ class CommandResponse:
     """Result of a :class:`CommandHandler` handling a platform-side command.
 
     The handler returns this value; the dispatcher (F7 L5) emits ``text``
-    via the system-outbound path (``pool_acquire(agent_name, account_id)
-    → client.send(target, text)``) — the same path the platform-send tool
-    uses, invoked dispatcher-internally rather than via the tool registry.
+    via the system-outbound path (``account_acquire(account_id) →
+    client.send(target, text)``) — the same path the platform-send tool
+    uses, invoked dispatcher-internally rather than via the tool
+    registry.
 
     Returning ``None`` from :meth:`CommandHandler.handle_command` is
     distinct from returning ``CommandResponse(text="")`` — ``None`` means
@@ -372,6 +384,106 @@ class CommandResponse:
     """
 
     text: str
+
+
+@dataclass(frozen=True, slots=True)
+class DiscoverableEntity:
+    """A single platform entity the bot has live visibility into.
+
+    Returned in axis-keyed lists by the OPTIONAL
+    :meth:`ConnectorPlugin.enumerate_discoverable_entities` hook (the
+    name appears on the plugin only — :class:`ConnectorPlugin` Protocol
+    body is NOT widened; see module docstring). The substrate treats
+    this dataclass as opaque except for :attr:`id`, which is the
+    platform-native ID used to round-trip a selection back into
+    ``account.config.allowlist`` entries.
+
+    The dataclass is platform-neutral: Discord's plugin emits
+    ``@username`` peer labels and ``#channel-name`` channel labels;
+    future Slack/Matrix plugins emit their own native forms. Vocabulary
+    substitution (Discord renders ``groups`` as "servers", Slack as
+    "workspaces") happens at the Studio render layer (M11 F3 L5/L6),
+    NOT at this substrate layer.
+    """
+
+    id: str
+    """Platform-native identifier (Discord snowflake string, Slack user
+    id, etc.). Used as the dict key when the consumer round-trips a
+    selection back into ``account.config.allowlist`` entries."""
+
+    label: str
+    """Platform-native display form, suitable for direct display in a
+    dropdown chip without further transformation: e.g. ``@alice`` for
+    Discord peers, ``#general`` for Discord channels, the bare guild
+    name for Discord groups, ``@moderators`` for Discord roles."""
+
+    group: str | None = None
+    """Optional cross-axis grouping key the Studio render layer uses to
+    visually cluster entities (e.g. ``"guild:123456789"`` for channels
+    and roles belonging to the same Discord guild). ``None`` when the
+    axis is naturally flat (peers span guilds; groups don't nest)."""
+
+    metadata: dict[str, Any] = field(default_factory=dict)
+    """Platform-specific extras the substrate carries opaquely through
+    to the render layer. Discord uses ``{"bot": bool}`` on peers,
+    ``{"type": str}`` on channels (the channel-type token so the render
+    layer can filter to text-postable channels), ``{"member_count":
+    int}`` on groups, ``{"position": int, "mentionable": bool}`` on
+    roles. The L4 API layer JSON-serializes this dict; plugins should
+    keep the values JSON-friendly (str / int / bool / None)."""
+
+
+@dataclass(frozen=True, slots=True)
+class DiscoverableEntities:
+    """A snapshot of the four discoverable axes for one connector account.
+
+    Returned by :meth:`ConnectorPlugin.enumerate_discoverable_entities`
+    (when the plugin implements the hook). The four axes match the
+    existing ``account.config.allowlist`` shape so a Studio-layer
+    dropdown selection round-trips directly into the allowlist without
+    a name-translation step.
+
+    Axes at the substrate layer:
+
+    - :attr:`peers` — platform users the bot can see (Discord's
+      ``Client.users``, Slack's reachable users, etc.).
+    - :attr:`channels` — platform channels the bot has visibility into
+      (Discord's guild channels via ``get_all_channels()``, Slack's
+      channels, etc.). DMs and threads are NOT included at this layer.
+    - :attr:`groups` — platform-level containers (Discord guilds,
+      Slack workspaces, Matrix spaces). The Studio render layer
+      substitutes the platform-native vocabulary at display time.
+    - :attr:`roles` — platform role / permission-group entities
+      (Discord guild roles; Slack user groups; etc.).
+
+    :attr:`fetched_at` is the ISO 8601 timestamp at which the plugin
+    read the live caches. The substrate stays neutral on staleness
+    policy; the L4 pool cache decides when to re-sweep.
+    """
+
+    peers: list[DiscoverableEntity] = field(default_factory=list)
+    """Platform users the bot can see. Discord populates from
+    ``Client.users``."""
+
+    channels: list[DiscoverableEntity] = field(default_factory=list)
+    """Platform channels the bot has visibility into. Discord populates
+    from ``Client.get_all_channels()`` (guild channels only — DMs and
+    threads are out of scope at the substrate layer)."""
+
+    groups: list[DiscoverableEntity] = field(default_factory=list)
+    """Platform-level containers (Discord guilds, Slack workspaces).
+    Discord populates from ``Client.guilds``."""
+
+    roles: list[DiscoverableEntity] = field(default_factory=list)
+    """Platform role / permission-group entities. Discord populates by
+    iterating ``Guild.roles`` for each guild in ``Client.guilds``."""
+
+    fetched_at: str = ""
+    """ISO 8601 timestamp of the live read, produced by
+    ``datetime.now(UTC).isoformat()`` at the plugin's call site
+    (emitting the ``+00:00`` offset form). Defaults to the empty
+    string so the dataclass is constructable in tests without a
+    timestamp; plugins always populate this in production."""
 
 
 @runtime_checkable

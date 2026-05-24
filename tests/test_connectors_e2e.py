@@ -17,7 +17,7 @@ from the_one.connectors._pool import (
 from the_one.connectors._pool import (
     _evict_all_for_account,
     _reap_once,
-    acquire,
+    agent_acquire,
     shutdown_drain,
 )
 from the_one.connectors._stub import StubClient, StubPlugin
@@ -127,7 +127,7 @@ async def test_e2e_full_lifecycle(isolated_db) -> None:
     register_for_test("stub", StubPlugin)
 
     # 3. Acquire — triggers plugin.connect().
-    client = await acquire("agent-e2e", "acct-e2e")
+    client = await agent_acquire("agent-e2e", "acct-e2e")
     assert isinstance(client, StubClient)
     assert client.is_alive()
     assert StubPlugin.connect_calls == [("acct-e2e", "stub")]
@@ -204,7 +204,7 @@ async def test_e2e_connect_failure_propagates_to_acquire_caller(isolated_db) -> 
     StubPlugin.connect_should_fail = ConnectorConnectionError("simulated connect failure")
 
     with pytest.raises(ConnectorConnectionError, match="simulated connect failure"):
-        await acquire("agent-e2e", "acct-e2e")
+        await agent_acquire("agent-e2e", "acct-e2e")
 
     # Pool empty after failure (idempotent pop).
     assert pool_mod._pool == {}
@@ -215,8 +215,8 @@ async def test_e2e_multiple_agents_on_same_account_reap_together(isolated_db) ->
     await _seed_stub_account()
     register_for_test("stub", StubPlugin)
 
-    c1 = await acquire("agent-a", "acct-e2e")
-    c2 = await acquire("agent-b", "acct-e2e")
+    c1 = await agent_acquire("agent-a", "acct-e2e")
+    c2 = await agent_acquire("agent-b", "acct-e2e")
     assert StubPlugin.connect_calls == [
         ("acct-e2e", "stub"),
         ("acct-e2e", "stub"),

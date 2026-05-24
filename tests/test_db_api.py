@@ -631,7 +631,7 @@ class TestConnectorAccountAPI:
         and eviction is skipped.
         """
         from the_one.connectors import _pool as pool_mod
-        from the_one.connectors._pool import acquire
+        from the_one.connectors._pool import agent_acquire
 
         create = await client.post(
             "/api/connector-accounts",
@@ -643,7 +643,7 @@ class TestConnectorAccountAPI:
         )
         account_id = create.json()["id"]
 
-        await acquire("test-agent", account_id)
+        await agent_acquire("test-agent", account_id)
         assert ("test-agent", account_id) in pool_mod._pool
 
         resp = await client.put(
@@ -670,7 +670,7 @@ class TestConnectorAccountAPI:
         — NONE").
         """
         from the_one.connectors import _pool as pool_mod
-        from the_one.connectors._pool import acquire
+        from the_one.connectors._pool import agent_acquire
 
         create = await client.post(
             "/api/connector-accounts",
@@ -682,7 +682,7 @@ class TestConnectorAccountAPI:
         )
         account_id = create.json()["id"]
 
-        await acquire("test-agent", account_id)
+        await agent_acquire("test-agent", account_id)
         assert ("test-agent", account_id) in pool_mod._pool
 
         resp = await client.put(
@@ -701,7 +701,7 @@ class TestConnectorAccountAPI:
     async def test_dropping_a_key_evicts(self, client: AsyncClient) -> None:
         """PUT with secrets={} drops all keys (REST replace) → eviction fires."""
         from the_one.connectors import _pool as pool_mod
-        from the_one.connectors._pool import acquire
+        from the_one.connectors._pool import agent_acquire
 
         create = await client.post(
             "/api/connector-accounts",
@@ -713,7 +713,7 @@ class TestConnectorAccountAPI:
         )
         account_id = create.json()["id"]
 
-        await acquire("test-agent", account_id)
+        await agent_acquire("test-agent", account_id)
         assert ("test-agent", account_id) in pool_mod._pool
 
         resp = await client.put(
@@ -727,7 +727,7 @@ class TestConnectorAccountAPI:
     async def test_secrets_change_evicts(self, client: AsyncClient) -> None:
         """PUT with a changed secret value evicts the warm entry."""
         from the_one.connectors import _pool as pool_mod
-        from the_one.connectors._pool import acquire
+        from the_one.connectors._pool import agent_acquire
 
         create = await client.post(
             "/api/connector-accounts",
@@ -739,7 +739,7 @@ class TestConnectorAccountAPI:
         )
         account_id = create.json()["id"]
 
-        await acquire("test-agent", account_id)
+        await agent_acquire("test-agent", account_id)
         assert ("test-agent", account_id) in pool_mod._pool
 
         resp = await client.put(
@@ -758,7 +758,7 @@ class TestConnectorAccountAPI:
         Pins the "shorter or longer dict differs from existing" branch.
         """
         from the_one.connectors import _pool as pool_mod
-        from the_one.connectors._pool import acquire
+        from the_one.connectors._pool import agent_acquire
 
         create = await client.post(
             "/api/connector-accounts",
@@ -770,7 +770,7 @@ class TestConnectorAccountAPI:
         )
         account_id = create.json()["id"]
 
-        await acquire("test-agent", account_id)
+        await agent_acquire("test-agent", account_id)
         assert ("test-agent", account_id) in pool_mod._pool
 
         resp = await client.put(
@@ -789,7 +789,7 @@ class TestConnectorAccountAPI:
     async def test_delete_evicts_then_deletes(self, client: AsyncClient) -> None:
         """DELETE evicts warm entries BEFORE the row delete."""
         from the_one.connectors import _pool as pool_mod
-        from the_one.connectors._pool import acquire
+        from the_one.connectors._pool import agent_acquire
 
         create = await client.post(
             "/api/connector-accounts",
@@ -801,7 +801,7 @@ class TestConnectorAccountAPI:
         )
         account_id = create.json()["id"]
 
-        await acquire("test-agent", account_id)
+        await agent_acquire("test-agent", account_id)
         assert ("test-agent", account_id) in pool_mod._pool
 
         resp = await client.delete(f"/api/connector-accounts/{account_id}")
@@ -827,10 +827,18 @@ class TestConnectorAccountAPI:
     async def test_types_returns_registered_in_test(
         self, client: AsyncClient
     ) -> None:
-        """With register_for_test('stub', StubPlugin), /types returns the stub entry."""
+        """The autouse fixture restores the production baseline
+        (``'discord'`` post-F8 L2) then registers the stub on top, so
+        /types returns both entries in sorted order.
+        """
         resp = await client.get("/api/connector-accounts/types")
         assert resp.status_code == 200
-        assert resp.json() == [{"value": "stub", "label": "Stub"}]
+        # ``registry.types()`` returns a sorted list — the API mirrors that
+        # order verbatim.
+        assert resp.json() == [
+            {"value": "discord", "label": "Discord"},
+            {"value": "stub", "label": "Stub"},
+        ]
 
     async def test_create_with_invalid_payload_returns_422(
         self, client: AsyncClient
@@ -920,7 +928,7 @@ class TestConnectorAccountAPI:
         whose ``install_key`` has been updated.
         """
         from the_one.connectors import _pool as pool_mod
-        from the_one.connectors._pool import acquire
+        from the_one.connectors._pool import agent_acquire
 
         # Setup: stub-typed account with non-empty secrets.
         resp = await client.post(
@@ -935,7 +943,7 @@ class TestConnectorAccountAPI:
         account_id = resp.json()["id"]
 
         # Acquire warm pool entry.
-        await acquire("test-agent", account_id)
+        await agent_acquire("test-agent", account_id)
         key = ("test-agent", account_id)
         assert key in pool_mod._pool, "pool seed failed"
 
@@ -953,7 +961,7 @@ class TestConnectorAccountAPI:
 
         # Fresh acquire works under the new key — the row decrypted via
         # the live encryptor (whose install_key fired in step 7).
-        await acquire("test-agent", account_id)
+        await agent_acquire("test-agent", account_id)
         assert key in pool_mod._pool
 
 
@@ -1033,7 +1041,7 @@ class TestConnectorAccountDoctor:
         assert resp.json() == {
             "status": "ok",
             "message": "stub probe ok",
-            "details": {},
+            "details": {"pool_warmed": True, "pool_warm_error": None},
         }
 
     async def test_doctor_probe_configured_failure(
@@ -1057,7 +1065,11 @@ class TestConnectorAccountDoctor:
         assert resp.json() == {
             "status": "failed",
             "message": "bot token revoked",
-            "details": {"reason": "401"},
+            "details": {
+                "reason": "401",
+                "pool_warmed": False,
+                "pool_warm_error": None,
+            },
         }
 
     async def test_doctor_probe_degraded_status(
@@ -1081,31 +1093,46 @@ class TestConnectorAccountDoctor:
         body = resp.json()
         assert body["status"] == "degraded"
         assert body["message"] == "gateway reachable but slow"
-        assert body["details"] == {"latency_ms": 1200}
+        assert body["details"] == {
+            "latency_ms": 1200,
+            "pool_warmed": False,
+            "pool_warm_error": None,
+        }
 
     async def test_doctor_probe_unknown_type(self, client: AsyncClient) -> None:
         """Account with an unregistered ``type`` → ``{status: 'error', ...}`` 200.
 
         Mirrors the MCP "unknown transport" pattern so the UI banner
         renders inline rather than triggering a global error handler.
-        The autouse fixture pre-registers only ``"stub"``; an account
-        with ``type='unregistered-platform'`` is unknown to the registry.
 
-        ``ConnectorAccount.type`` is currently an unconstrained ``str``,
-        so the POST validates without rejection. If a future leg
-        tightens that field to a ``Literal[...]``, this setup needs to
-        switch to repo-level insert.
+        M10 F8 L2: ``ConnectorAccount.type`` was tightened to
+        ``Literal["discord", "stub"]``, so the POST path can no longer
+        accept an arbitrary type string. The test now seeds a
+        ``'discord'``-typed account via the API (the production registry
+        carries ``'discord'`` from F8 L2's
+        ``register_builtin_connectors``), then clears the registry so the
+        doctor probe encounters an unknown type at runtime. The autouse
+        fixture's ``register_for_test("stub", StubPlugin)`` is also wiped
+        by the ``clear_for_test`` call, so both production builtins and
+        the test-registered stub disappear — the doctor probe surfaces
+        the "type not registered" envelope.
         """
+        from the_one.connectors.registry import clear_for_test
+
         resp = await client.post(
             "/api/connector-accounts",
             json={
                 "name": "alien",
-                "type": "unregistered-platform",
+                "type": "discord",
                 "secrets": {},
             },
         )
         assert resp.status_code == 201
         account_id = resp.json()["id"]
+
+        # Wipe the registry so the doctor probe encounters "type not
+        # registered" on the ``'discord'``-typed account.
+        clear_for_test()
 
         resp = await client.post(
             f"/api/connector-accounts/{account_id}/test/connect"
@@ -1113,10 +1140,10 @@ class TestConnectorAccountDoctor:
         assert resp.status_code == 200
         assert resp.json() == {
             "status": "error",
-            "message": "Unknown connector type: unregistered-platform",
+            "message": "Unknown connector type: discord",
             "details": {
                 "error": "type not registered",
-                "type": "unregistered-platform",
+                "type": "discord",
             },
         }
 
@@ -1169,6 +1196,94 @@ class TestConnectorAccountDoctor:
         )
         assert resp.status_code == 200
         assert StubPlugin.doctor_calls == [(account_id, "stub")]
+
+    async def test_doctor_probe_success_warms_pool(
+        self, client: AsyncClient
+    ) -> None:
+        """OK doctor → pool gets warmed; envelope advertises pool_warmed=True.
+
+        Closes M11 F4 A1 (Test Connection warms pool). The L4-design-time
+        assumption that lifespan-warmup populated the pool entry was
+        structurally false; F4 L2 explicitly wires account_acquire after
+        doctor() succeeds. Convention reference: ``pool-warming-entrypoints-
+        are-finite-and-named`` (agents.md Project-wide).
+        """
+        from the_one.connectors import _pool as pool_mod
+        from the_one.connectors._pool import _ACCOUNT_POOL_AGENT_SLOT
+
+        account_id = await self._create_stub_account(client)
+        resp = await client.post(
+            f"/api/connector-accounts/{account_id}/test/connect"
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "ok"
+        assert body["details"]["pool_warmed"] is True
+        assert body["details"]["pool_warm_error"] is None
+        # Pool actually warmed — entry exists at the canonical key tuple.
+        assert (_ACCOUNT_POOL_AGENT_SLOT, account_id) in pool_mod._pool
+
+    async def test_doctor_probe_failed_skips_warmup(
+        self, client: AsyncClient
+    ) -> None:
+        """Non-ok doctor → warmup is SKIPPED; envelope advertises
+        pool_warmed=False + pool_warm_error=None (skipped, not failed)."""
+        from the_one.connectors import _pool as pool_mod
+        from the_one.connectors._stub import StubPlugin
+        from the_one.connectors.base import DoctorReport
+
+        StubPlugin.doctor_response = DoctorReport(
+            status="failed",
+            message="bot token revoked",
+            details={"reason": "401"},
+        )
+
+        account_id = await self._create_stub_account(client)
+        resp = await client.post(
+            f"/api/connector-accounts/{account_id}/test/connect"
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "failed"
+        assert body["details"]["pool_warmed"] is False
+        assert body["details"]["pool_warm_error"] is None
+        assert pool_mod._pool == {}
+
+    async def test_doctor_probe_ok_warmup_failure_does_not_escalate(
+        self, client: AsyncClient, monkeypatch
+    ) -> None:
+        """OK doctor + raising account_acquire → envelope STILL status=ok;
+        warmup failure isolated to pool_warm_error field.
+
+        Convention reference: ``two-concurrent-callers-reasoning`` (agents.md
+        Project-wide) — the partial-success shape was worked out before
+        commit, not after."""
+        from the_one.connectors import _pool as pool_mod
+        from the_one.connectors.errors import ConnectorClientError
+
+        async def _failing_acquire(account_id: str):
+            # ConnectorClientError chosen because it's the realistic
+            # production failure mode; any Exception subclass would prove
+            # the same partial-success isolation contract.
+            raise ConnectorClientError("simulated warmup failure")
+
+        # The handler's function-local `from ._pool import account_acquire`
+        # resolves pool_mod.account_acquire at handler-entry time, so
+        # patching the source-module attribute is in effect when the
+        # handler runs.
+        monkeypatch.setattr(pool_mod, "account_acquire", _failing_acquire)
+
+        account_id = await self._create_stub_account(client)
+        resp = await client.post(
+            f"/api/connector-accounts/{account_id}/test/connect"
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        # CRITICAL: doctor's verdict is preserved despite warmup failure.
+        assert body["status"] == "ok"
+        assert body["details"]["pool_warmed"] is False
+        assert body["details"]["pool_warm_error"] == "simulated warmup failure"
+        assert pool_mod._pool == {}
 
 
 # ── Connector account pairing-code + attached-agents (F6 L4) ─────────────

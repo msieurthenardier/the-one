@@ -53,10 +53,34 @@ to direct, concise responses.
 
 _CONNECTOR_TOOL_ENABLED_DIRECTIVE = (
     "This conversation is attached to a connector account on an external "
-    "platform. Your plain-text replies in this session reach the operator "
-    "only — to reply to peers on the external platform, call the "
-    "`send_to_platform_channel` tool with the target (account_id, "
-    "channel_id, and optional thread_id) and the content to send."
+    "platform (Discord, Slack, etc.). Messages tagged ``visibility=\"platform\"`` "
+    "in the history came from platform peers; messages tagged "
+    "``visibility=\"operator\"`` came from the operator's private local Chat "
+    "console. When a platform-peer message in this session needs a response, "
+    "you MUST call the ``send_to_platform_channel`` tool to deliver your reply "
+    "to peers — your plain-text replies in this session reach only the "
+    "operator's local console, NOT peers. The operator console is for the "
+    "operator to direct or observe you; only deliberate ``send_to_platform_channel`` "
+    "calls reach the platform. The tool takes a target (account_id, channel_id, "
+    "and optional thread_id) plus content. Use the account_id and channel_id "
+    "from the platform-inbound message you're replying to."
+)
+
+_CONNECTOR_AUTO_RELAY_DIRECTIVE = (
+    "This conversation is attached to a connector account on an external "
+    "platform (Discord, Slack, etc.). Auto-relay is ON: your plaintext "
+    "replies in this session ARE automatically delivered to platform peers "
+    "— treat the conversation as the platform conversation itself. Do NOT "
+    "ask the operator for permission to respond on the platform; do NOT "
+    "narrate that you're 'using send_to_platform_channel'; just reply "
+    "naturally as you would in any chat. Messages tagged "
+    "``visibility=\"platform\"`` in the history came from platform peers; "
+    "messages tagged ``visibility=\"operator\"`` came from the operator's "
+    "private local Chat console (operator-only — these are NOT relayed). "
+    "If you need to send a message to a different channel or thread on "
+    "the platform (not the current channel), use the "
+    "``send_to_platform_channel`` tool explicitly with a target "
+    "specifying that destination."
 )
 
 _CONNECTOR_TOOL_DISABLED_DIRECTIVE = (
@@ -75,6 +99,8 @@ def compose_system_prompt(
     *,
     connector_attached: bool = False,
     send_tool_enabled: bool = False,
+    auto_relay: bool = True,
+    operator_directive: str | None = None,
 ) -> str:
     """Compose the agent's system prompt.
 
@@ -89,19 +115,48 @@ def compose_system_prompt(
 
     The connector-aware path inserts a directive between ``base`` and
     the persona separator:
-    - ``connector_attached AND send_tool_enabled`` →
+    - ``connector_attached AND send_tool_enabled AND auto_relay`` →
+      :data:`_CONNECTOR_AUTO_RELAY_DIRECTIVE` (informs the agent that
+      its plaintext replies ARE the platform reply by default; do not
+      ask permission to respond on the platform).
+    - ``connector_attached AND send_tool_enabled AND NOT auto_relay`` →
       :data:`_CONNECTOR_TOOL_ENABLED_DIRECTIVE` (instructs the agent to
-      call the platform-send tool to reach peers).
+      call the platform-send tool to reach peers; opt-out path from
+      L11 HAT Fix #4).
     - ``connector_attached AND NOT send_tool_enabled`` →
       :data:`_CONNECTOR_TOOL_DISABLED_DIRECTIVE` (informs the agent that
       platform-send is operator-disabled and its replies stay local).
+      The ``auto_relay`` value is moot when send is disabled.
+
+    M10 F8 L11 HAT Fix #5: the auto-relay branch fixes the broken UX
+    where Fix #4's mechanical auto-relay combined with the Fix #1
+    directive ("plaintext reaches only the operator") produced agents
+    that ask for permission to reply on the platform — and then the
+    auto-relay posts THAT question to the platform.
+
+    M11 F2 L3: ``operator_directive`` is an APPEND-mode extension. When
+    truthy, it is appended AFTER the selected connector default
+    directive and BEFORE the persona separator — letting the operator
+    add persona/formatting/peer-engagement guidance without overwriting
+    the substrate's behavioral contract (MUST-call-tool /
+    auto-relay-truth / send-disabled-truth). The factory aggregates
+    per-account ``system_prompt_directive`` values across attached
+    connector accounts in sorted-id order and passes the joined string
+    here. The ``operator_directive=None`` default (and the falsy-check
+    on ``""``) preserves byte-identical legacy output for every
+    pre-L3 caller — verified by the existing test cluster.
     """
     parts = [base]
     if connector_attached:
         if send_tool_enabled:
-            parts.append(_CONNECTOR_TOOL_ENABLED_DIRECTIVE)
+            if auto_relay:
+                parts.append(_CONNECTOR_AUTO_RELAY_DIRECTIVE)
+            else:
+                parts.append(_CONNECTOR_TOOL_ENABLED_DIRECTIVE)
         else:
             parts.append(_CONNECTOR_TOOL_DISABLED_DIRECTIVE)
+    if operator_directive:
+        parts.append(operator_directive)
     if persona:
         parts.append("---")
         parts.append(persona)
@@ -200,8 +255,9 @@ class AgentConfig(BaseModel):
           - inner values that aren't ``list[str] | None`` → rejected
         This validator's job is the ONE invariant Pydantic cannot
         express from the annotation alone: each inner dict MUST have
-        EXACTLY the keys ``{"peers", "channels"}`` — no extra keys, no
-        missing keys.
+        the required keys ``{"peers", "channels"}`` and MAY optionally
+        carry the M10 F8 L8 axes ``{"guilds", "roles"}`` — no other
+        keys, no missing required keys.
 
         M10 F6 L7 HAT semantic — each axis is tri-state:
           - ``None`` → inherit account-scope
@@ -209,6 +265,12 @@ class AgentConfig(BaseModel):
             sentinel; runtime resolution for DMs-only ships in F8 — until
             then outbound fails closed)
           - ``[items]`` → subset (intersected with account-scope)
+
+        M10 F8 L8 — ``guilds`` and ``roles`` axes (Discord-flavored)
+        join the inner-dict surface as OPTIONAL keys. Existing 2-key
+        ACL rows still validate (back-compat). Same tri-state semantic
+        applies; the per-agent narrowing convention is uniform across
+        all 4 axes.
 
         ``None`` and ``{}`` outer values are both valid (semantically:
         no per-agent narrowing).
@@ -224,8 +286,10 @@ class AgentConfig(BaseModel):
             # Pydantic already enforced ``acl`` is a dict with str keys
             # and inner values are ``list[str] | None``.
             # The only invariant left is the exact-keys check.
+            # M10 F8 L8 — accept ``guilds`` + ``roles`` as OPTIONAL
+            # axes alongside the required ``peers`` + ``channels``.
             keys = set(acl.keys())
-            extra = keys - {"peers", "channels"}
+            extra = keys - {"peers", "channels", "guilds", "roles"}
             if extra:
                 raise ValueError(
                     f"connector_acls[{account_id!r}] has unexpected keys: "
@@ -261,4 +325,5 @@ class AgentConfig(BaseModel):
             self.system_prompt,
             connector_attached=False,
             send_tool_enabled=False,
+            auto_relay=True,
         )

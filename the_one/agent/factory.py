@@ -134,6 +134,60 @@ assert set(_PROVIDER_TYPE_MAP.keys()) == set(PROVIDER_TYPES), (
 )
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Module-level factory accessor (M10 F8 L4)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Gateway listeners (Discord's ``on_message`` handler in F8, Slack's
+# event handler in F9, …) spawn from inside ``plugin.connect`` — i.e.
+# inside the pool's per-(agent, account) worker task — so they cannot
+# receive an :class:`AgentFactory` reference through the
+# ``plugin.connect(account, encryptor)`` signature. Adding it would also
+# break the stateless-plugin contract.
+#
+# Instead, the FastAPI lifespan startup calls :func:`set_factory` once
+# after constructing the application factory; listeners call
+# :func:`get_factory` at dispatch time. Returns ``None`` during the
+# pre-startup window and after shutdown; consumers MUST handle the
+# ``None`` case defensively (log and return rather than dereference).
+#
+# Mirrors the existing precedent at
+# ``the_one/interfaces/web/app.py:_get_factory`` (which reads from a
+# private dict). The module-level accessor here is the canonical
+# subsystem-facing surface; ``app.py``'s helper continues to serve the
+# web routes.
+#
+# Thread-safety: ``set_factory`` is called exactly once at lifespan
+# startup (single-task synchronous write); ``get_factory`` reads only
+# (no read-write race possible after startup completes). Tests may
+# reset the slot to ``None`` between cases.
+
+_factory: "AgentFactory | None" = None
+
+
+def set_factory(factory: "AgentFactory | None") -> None:
+    """Install the application :class:`AgentFactory` for gateway-listener access.
+
+    Called once at FastAPI lifespan startup after constructing the
+    factory (see ``the_one/interfaces/web/app.py``). Pass ``None`` at
+    teardown to release the reference.
+    """
+    global _factory
+    _factory = factory
+
+
+def get_factory() -> "AgentFactory | None":
+    """Return the application :class:`AgentFactory`, or ``None`` pre-startup.
+
+    Consumed by gateway listeners (Discord's ``on_message`` in F8 L4,
+    Slack's event handler in F9, …) at dispatch time. Returns ``None``
+    when the lifespan has not yet run :func:`set_factory` or has torn
+    down — callers MUST handle this gracefully (log a WARNING and
+    return rather than dereferencing).
+    """
+    return _factory
+
+
 class AgentNotFoundError(KeyError):
     """Raised when a named agent config does not exist.
 
@@ -192,6 +246,7 @@ class AgentFactory:
         # Resolve provider config from DB
         from the_one.db.connection import get_connection
         from the_one.db.repositories import (
+            ConnectorAccountRepository,
             LLMProviderRepository,
             ToolConfigRepository,
         )
@@ -255,6 +310,79 @@ class AgentFactory:
             "send_to_platform_channel" not in disabled_names
             and config.is_tool_enabled("send_to_platform_channel")
         )
+
+        # M10 F8 L11 HAT Fix #5: auto-relay-aware system-prompt directive.
+        # ===============================================================
+        # The dispatcher's auto-relay (Fix #4) is default-ON; it reads
+        # ``account.config.get("auto_relay_platform_replies", True)`` per
+        # attached account. Mirror that read here so the system prompt
+        # tells the agent the truth about how its plaintext flows.
+        #
+        # Multi-account policy: if ANY attached account has auto_relay
+        # explicitly disabled, treat the agent as auto_relay=False so the
+        # directive instructs the agent to use ``send_to_platform_channel``
+        # deliberately (the existing ENABLED directive). Operator opt-out
+        # is a deliberate signal; default-on is the permissive default.
+        #
+        # Skip the lookup when no connector accounts are attached or the
+        # send tool is disabled — auto_relay is moot for those paths.
+        auto_relay = True
+        if connector_attached and send_tool_enabled and config.connector_account_ids:
+            account_repo = ConnectorAccountRepository(conn, encryptor)
+            for account_id in config.connector_account_ids:
+                try:
+                    account = await account_repo.get(account_id)
+                except KeyError:
+                    # Deleted account in the ID list — skip; the runtime
+                    # gateway-listener path will warn about the same
+                    # mismatch. Don't crash agent creation.
+                    continue
+                if not account.config.get("auto_relay_platform_replies", True):
+                    auto_relay = False
+                    break
+
+        # M11 F2 L3: per-account system-prompt directive collection.
+        # ==============================================================
+        # Iterates ``sorted(config.connector_account_ids)`` for
+        # deterministic prompt-cache stability — an explicit divergence
+        # from the auto-relay aggregation above, which keeps persisted
+        # list-order because its first-opt-out short-circuit is
+        # order-sensitive. Sorted iteration on str is lexicographic-by-
+        # Unicode-codepoint, Timsort-stable, locale-independent,
+        # identical across CPython 3.x.
+        #
+        # Drops None / missing directive values; joins remaining with
+        # ``"\n\n"``. Empty result → ``operator_directive`` stays None
+        # (no composer effect).
+        #
+        # GUARD DIFFERS from auto-relay: directives apply even when the
+        # send tool is disabled — the operator may want to author
+        # guidance for the disabled-tool default just as much as the
+        # enabled-tool ones. So DO NOT gate on ``send_tool_enabled``.
+        #
+        # ``directive_account_repo`` is a LOCAL instance — not hoisted
+        # above the auto-relay block — because the two blocks have
+        # different guards (the connector-attached-but-tool-disabled
+        # path runs this block but not the auto-relay one). Repo
+        # construction is cheap (reuses the already-resolved ``conn`` +
+        # ``encryptor``); the duplicate instance in the both-blocks-run
+        # path is acceptable overhead.
+        operator_directive: str | None = None
+        if connector_attached and config.connector_account_ids:
+            directive_account_repo = ConnectorAccountRepository(conn, encryptor)
+            directives: list[str] = []
+            for account_id in sorted(config.connector_account_ids):
+                try:
+                    account = await directive_account_repo.get(account_id)
+                except KeyError:
+                    # Deleted account in the ID list — skip silently;
+                    # mirrors the auto-relay block's handling above.
+                    continue
+                directive = account.config.get("system_prompt_directive")
+                if directive:
+                    directives.append(directive)
+            if directives:
+                operator_directive = "\n\n".join(directives)
 
         # 3. Build filtered tool registry — fresh ToolRegistry per call,
         # populated with fresh per-agent tool instances (the provider
@@ -369,6 +497,8 @@ class AgentFactory:
             config.system_prompt,
             connector_attached=connector_attached,
             send_tool_enabled=send_tool_enabled,
+            auto_relay=auto_relay,
+            operator_directive=operator_directive,
         )
 
         # 4. Create agent

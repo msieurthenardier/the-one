@@ -147,9 +147,17 @@ async def test_e2e_both_visibility_paths_coexist_in_session(isolated_db) -> None
     branch — plain-text assistant message is not a successful platform-
     send tool_result and not USER). Peer-visible (``visibility=None``)
     is preserved only for the inbound USER message (the USER-skip rule).
+
+    M10 F8 L11 HAT Fix #4: auto-relay is opted OUT here so the F4 L4
+    operator-tagging branch fires unflipped. The auto-relay path
+    (which would flip the assistant reply back to platform-visible)
+    is covered by dedicated tests in
+    ``tests/test_connectors_inbound.py``.
     """
     await _seed_provider_and_agent()
-    await _seed_stub_account()
+    await _seed_stub_account(
+        config={"auto_relay_platform_replies": False}
+    )
     register_for_test("stub", StubPlugin)
     factory = await _make_factory()
 

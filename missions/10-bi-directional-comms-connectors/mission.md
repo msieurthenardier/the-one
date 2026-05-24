@@ -1,6 +1,6 @@
 # Mission: Bi-directional Communication Connectors
 
-**Status**: active
+**Status**: completed
 
 ## Outcome
 
@@ -114,6 +114,30 @@ Emergent blockers and issues discovered during execution. Add items here as flig
 - [x] Flight 5: **Chat UI — unified history, visibility distinction, operator console** — extend `ChatSessionRepository.list()` and the `list_sessions` WebSocket action in `interfaces/web/app.py` to surface connector-bound sessions alongside Chat-UI-native sessions with per-source metadata. The Chat UI renders the unified history (platform-visible + operator-console messages) with a clear visual distinction at the message level. Operator typing into a connector-attached session drives `agent.step()` with the message tagged as operator-console-visibility via a storage-edge shim around the existing `_spawn_message_processing` call — NO signature change to `agent.step()`, preserving the "agent loop is not modified" mission constraint. The broadcast surface generalizes to handle the connector-driven case where ZERO operators have the session open in Chat (just persist) and the case where an operator is observing in real time (broadcast as today); platform delivery happens inside the platform-send tool's `execute()`, independent of WebSocket broadcast. Meets M04/M06 design-language bar without alignment-flight rework.
 - [x] Flight 6: **Pairing, allowlists, and per-agent ACLs** — DM-pairing flow for unknown senders against a stubbed connector; allowlists at two scopes (connector-account level: "can this peer talk to this bot at all" + per-agent ACL: "can this peer invoke this specific agent"). Studio surfaces the per-agent attachment in the same shape as the MCPs tab plus the new ACL controls. The allowlist resolver established here is the same primitive the platform-send tool from Flight 4 consults for outbound-target validation. Landed 2026-05-19 (HAT iteration redesigned the semantic: empty list = unrestricted; per-axis tri-state override on the per-agent side — see F6 flight-log Deviations).
 - [x] Flight 7: **Multi-agent routing and the platform-side command surface** — operator-configured default-routing rules when multiple agents attach to one connector account (per-channel, per-DM, per-(account, peer) precedence); a connector-agnostic command primitive (`/agents`, `/talk-to`, `/whoami`, `/reset`, `/new`, `/help`) implemented once against the stub and inherited by all future connectors; text-prefix parsing as the v1 mechanism with the abstraction shaped to allow platform-native slash-command registration additively per connector. Permissions integrate with Flight 6's per-agent ACLs. Routing decisions logged into the session-metadata column that Flight 3's migration introduced — no new migration needed here.
-- [ ] Flight 8: **First real connector — Discord** — Discord gateway client (intents, heartbeats, reconnect with exponential backoff, presence) using a maintained SDK with a pinned version; inbound message ingestion through the session-key normalizer and visibility-layer tagging; outbound adapter driven by the platform-send tool; Discord-specific allowlist (guild + channel + role + user); Discord doctor probe (token validity, intent coverage, gateway connect, application summary, allowlist resolution); per-platform shape of the command surface from Flight 7. Drives the entire contract against the hardest persistent-connection case.
-- [ ] Flight 9: **Second connector and contract validation** — Slack (default) or alternative resolved in the open question. Adds zero files outside its own directory and the registration site. Re-uses every abstraction Flight 1–7 established. If Slack: handles the dual-credential shape (xapp + xoxb) cleanly through the connector-account schema, not as a Slack-special-case. The diff that introduces it is the empirical answer to "is the contract additive."
-- [ ] Flight 10: **Hardening and observability** — outbound rate limiting and backpressure for the platform-send tool, reply-correspondence semantics (edit/delete: confirm "do nothing" or implement otherwise per the open question), end-to-end automated coverage on both connectors (encrypted persistence, contract on a stub plus on both real connectors, session-key + lifecycle round-trip, visibility-layer storage, platform-send disabled-state test, pairing/allowlist/ACL gating, multi-agent routing + command surface, lifecycle pool's reaper and reconnect paths, doctor probe success and failure paths), failure-isolation regression tests, log-redaction verification.
+- [x] Flight 8: **First real connector — Discord** — landed 2026-05-20. Discord gateway client (intents, heartbeats, exponential-backoff reconnect, presence) via `discord.py 2.4.x` pinned; inbound through F3 session-key normalizer + F7 dispatcher; outbound via F4 platform-send tool + F8 auto-relay default-on mechanism; Discord doctor probe (5 read-only checks); per-platform slash-command surface via `CommandHandler`. Pool keying refactored to `connector_acquire(account_id)` so multi-agent on one account shares ONE gateway connection (M10 #21 structurally validated by tests + HAT). L11 HAT proved end-to-end: bot online, inbound→reply roundtrip working with auto-relay, multi-agent routing pipeline functional. See `flights/08-first-real-connector-discord/flight-log.md` Anomalies for the 6 inline HAT fixes (BOT_TOKEN double-decrypt, doctor inspector rendering, lifespan auto-acquire, directive strengthening, `clean_content`, auto-relay, pool keying).
+- [ ] ~~Flight 9: **Second connector and contract validation**~~ — **DEFERRED past M10**. Operator decision 2026-05-20 after F8 HAT: Discord's depth requirements surfaced more operator-tooling, UX-polish, and hardening work than the original flight plan anticipated. Shipping a second connector in M10 isn't viable; a Discord-depth mission supersedes both this flight and F10. M10's "two-connector contract validation" success criterion goes UNMET in this mission; the contract validation work moves to the follow-on Discord-depth mission's debrief or a subsequent connector-addition mission.
+- [ ] ~~Flight 10: **Hardening and observability**~~ — **DEFERRED past M10**. Was scoped as cross-connector hardening (rate limits for Discord+Slack, edit/delete semantics, coverage on both real connectors); with F9 dropped, the cross-connector premise is moot. Discord-specific hardening (operator-editable system-prompt directive, audit-log inspector UI, peer-name surfacing in Chat UI, ephemeral slash-command responses, plugin-handler-timeout, idle-eviction exemption for listener entries, outbound rate-limiting, etc.) rolls into the follow-on Discord-depth mission.
+
+---
+
+## Mission Scope Change — 2026-05-20
+
+After F8 HAT empirically validated the F1-F7 substrate + Discord plugin, the operator made the call to **close M10 with F8 as the final flight** rather than continue with F9 + F10. Rationale captured in the F8 flight-log Summary section + the follow-on mission planning.
+
+What the mission shipped:
+- F1: connector plugin contract + lifecycle pool foundation
+- F2: Admin surface for connector accounts
+- F3: session model — schema migration, key normalization, two-visibility-layer storage
+- F4: platform-send built-in tool + outbound routing
+- F5: Chat UI — unified history, visibility distinction, operator console
+- F6: pairing, allowlists, per-agent ACLs
+- F7: multi-agent routing + platform-side command surface
+- F8: first real connector (Discord) — end-to-end-validated against a live bot
+
+What did NOT ship (deferred to follow-on Discord-depth mission):
+- Second connector (Slack or alternative)
+- Cross-connector hardening (rate limiting on both, edit/delete semantics on both)
+- Discord-depth: operator-editable system-prompt directive, audit-log inspector UI, peer-name surfacing in Chat UI, ephemeral slash-command responses, plugin-handler-timeout, idle-eviction exemption for listener entries, outbound rate-limiting
+- Webhook-driven platforms (always out of scope; explicit constraint)
+
+Success-criterion-by-criterion assessment lives in the M10 mission debrief (run via `/mission-debrief` after F8 lands).

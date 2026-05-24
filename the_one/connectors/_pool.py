@@ -1,36 +1,44 @@
-"""Connector account pool — per-(agent, account) keyed worker-task-per-entry registry.
+"""Connector account pool — composite-keyed worker-task-per-entry registry.
 
 Mirrors :mod:`the_one.mcp._pool` at the structural level: module-level
-dict keyed on ``(agent_name, account_id)``; ``asyncio.Lock`` for serialized
-mutations; per-entry worker task that holds the platform connection on a
-SINGLE task — connect AND disconnect run on the same task, satisfying
-anyio's cross-task ``CancelScope.__aexit__`` guard.
+dict keyed on a composite ``(slot, account_id)`` tuple; ``asyncio.Lock``
+for serialized mutations; per-entry worker task that holds the platform
+connection on a SINGLE task — connect AND disconnect run on the same
+task, satisfying anyio's cross-task ``CancelScope.__aexit__`` guard.
 
-Flight 1 lands the pool in two legs:
-  - L5: :class:`_RegistryEntry` (without ``last_activity``), ``_pool``,
-    ``_lock``, :func:`_load_account`, :func:`_entry_worker`,
-    :func:`_evict`, :func:`_evict_all_for_account`, :func:`acquire`
-    (with ``ttl_seconds=0`` placeholder), :func:`_clear_for_test`
-    (without the reaper-cancel branch).
-  - L6 (this leg landed):  ``_DEFAULT_TTL_SECONDS``,
-    ``_REAPER_INTERVAL_SECONDS``, ``_reaper_task`` module state,
-    ``_RegistryEntry.last_activity``, :func:`_resolve_ttl_seconds`,
-    :func:`_ensure_reaper_running_locked`, :func:`_reap_once`,
-    :func:`_reap_loop`, :func:`shutdown_drain`. :func:`acquire` now
-    populates ``ttl_seconds`` via :func:`_resolve_ttl_seconds`, touches
-    ``last_activity`` on every resolution, and spawns the reaper on
-    first insert. :func:`_clear_for_test` cancels the reaper first.
-    FastAPI lifespan integration in :mod:`the_one.interfaces.web.app`.
+Two semantic primitives sit atop one composite-key dict:
+
+  - :func:`agent_acquire` (MCP-style per-agent keying) — used by the F6
+    resolver pattern where ``plugin.resolve(account, agent_name)``
+    legitimately yields different credentials per agent. The slot
+    portion of the key is the agent name.
+  - :func:`account_acquire` (gateway-protocol account-keyed) — used by
+    every connector-subsystem caller (lifespan listener-warmup,
+    ``dispatch_inbound``, F4 platform-send tool, F8 auto-relay). The
+    slot portion is the constant :data:`_ACCOUNT_POOL_AGENT_SLOT` so
+    every connector caller resolves to ONE pool entry — and ONE
+    gateway WebSocket — per account, regardless of how many agents
+    are attached. Gateway-style protocols (Discord Gateway, Slack
+    Socket Mode) are one-IDENTIFY-per-token by physical necessity;
+    per-agent keying would multiplex N agents onto N gateway
+    WebSockets carrying the same token and fail.
+
+Both primitives walk the same composite-key dict; eviction, the reaper
+loop, the encryption-rotation invariant, and the cycle-2 race-fix
+invariant operate uniformly across both slot kinds.
 
 Public API (re-exported from :mod:`the_one.connectors` at leg 8):
-  - :func:`acquire`
+  - :func:`agent_acquire`
+  - :func:`account_acquire`
   - :func:`shutdown_drain`
 
 Internal symbols (underscore-prefixed; tests reach in for ``_clear_for_test``
 and friends):
   - :class:`_RegistryEntry`, ``_pool``, ``_lock``, ``_shutting_down``
+  - :data:`_ACCOUNT_POOL_AGENT_SLOT`
   - :func:`_load_account`, :func:`_entry_worker`, :func:`_evict`,
-    :func:`_evict_all_for_account`, :func:`_clear_for_test`
+    :func:`_evict_all_for_account`, :func:`_clear_for_test`,
+    :func:`_keys_for_test`
 
 Race-handling invariant (mirroring MCP's cycle-2 fix):
   The lock-held branch checks ``entry is None`` (NOT ``entry.client is
@@ -58,7 +66,7 @@ import time
 from dataclasses import dataclass, field
 
 from the_one.config import settings
-from the_one.connectors.base import ConnectorClient, ConnectorPlugin
+from the_one.connectors.base import ConnectorClient, ConnectorPlugin, DiscoverableEntities, DiscoverableEntity
 from the_one.connectors.registry import resolve as _resolve_plugin
 from the_one.db.models import ConnectorAccount
 from the_one.encryption import Encryptor, get_encryptor
@@ -81,15 +89,57 @@ _REAPER_INTERVAL_SECONDS = 30.0
 """Reaper sweep interval, in seconds. Entries idle past their TTL are
 evicted on the next sweep. Tests can monkeypatch for fast sweeps."""
 
+_DISCOVERABLE_REFRESH_INTERVAL_SECONDS: float = 300.0
+"""Discoverable-entities refresh sweep interval, in seconds (5 minutes
+default). Sibling task to the reaper — see
+:func:`_discoverable_refresh_loop`. Configurable via env var
+``THE_ONE_CONNECTOR_DISCOVERABLE_REFRESH_INTERVAL_SECONDS`` (read at
+call time via :func:`_resolve_discoverable_refresh_interval_seconds`).
+Tests can monkeypatch this module-level constant for fast sweeps.
+
+Mirrors :data:`_REAPER_INTERVAL_SECONDS`'s float type so per-test
+monkeypatches can use sub-second values. 5 minutes is short enough for
+operators to see post-platform-change updates within a reasonable
+dropdown-open cadence but long enough not to thrash the SDK caches.
+"""
+
+
+def _resolve_discoverable_refresh_interval_seconds() -> float:
+    """Resolve the discoverable refresh interval from env var or default.
+
+    Resolution order: env var
+    ``THE_ONE_CONNECTOR_DISCOVERABLE_REFRESH_INTERVAL_SECONDS`` (if set
+    + parseable) → the current module-level
+    ``_DISCOVERABLE_REFRESH_INTERVAL_SECONDS`` value (default 300.0).
+    Env var is read at call time so test monkeypatching works.
+
+    Mirrors :func:`_resolve_ttl_seconds`'s read-at-call-time pattern.
+    Non-float env-var values fall back to the default with a warning —
+    same "fail open, don't crash startup" stance.
+    """
+    raw = os.environ.get("THE_ONE_CONNECTOR_DISCOVERABLE_REFRESH_INTERVAL_SECONDS")
+    if raw is None:
+        return _DISCOVERABLE_REFRESH_INTERVAL_SECONDS
+    try:
+        return float(raw)
+    except ValueError:
+        logger.warning(
+            "THE_ONE_CONNECTOR_DISCOVERABLE_REFRESH_INTERVAL_SECONDS=%r is not a float; "
+            "falling back to %f",
+            raw,
+            _DISCOVERABLE_REFRESH_INTERVAL_SECONDS,
+        )
+        return _DISCOVERABLE_REFRESH_INTERVAL_SECONDS
+
 
 @dataclass
 class _RegistryEntry:
     """A pool entry. Holds connection state shared between the entry
-    worker and any concurrent :func:`acquire` callers waiting on
+    worker and any concurrent :func:`agent_acquire` callers waiting on
     ``client_ready``.
 
     Mirrors :class:`the_one.mcp._pool._RegistryEntry`. ``ttl_seconds`` is
-    resolved at :func:`acquire` time via :func:`_resolve_ttl_seconds`;
+    resolved at :func:`agent_acquire` time via :func:`_resolve_ttl_seconds`;
     the reaper consumes this value to decide when the entry is idle past
     its budget.
     """
@@ -109,6 +159,46 @@ class _RegistryEntry:
     client_ready: asyncio.Event | None = None
     client: ConnectorClient | None = None
     failure: BaseException | None = None
+    # M11 F3 L4: connector plugin type for the discoverable-entities
+    # refresh sweep filter. Populated by :func:`agent_acquire` /
+    # :func:`account_acquire` at entry-creation time. Empty-string
+    # default keeps direct ``_RegistryEntry(...)`` test scaffolding
+    # invisible to the sweep (the sweep filters entries where
+    # ``account_type == ""``).
+    account_type: str = ""
+    # M11 F3 L4: cache of the most recent successful refresh of the
+    # plugin's ``enumerate_discoverable_entities`` hook. ``None`` until
+    # the first refresh lands.
+    discoverable_entities_cache: DiscoverableEntities | None = None
+    # M11 F3 L4: entries present in the previous refresh's cache but
+    # absent from the latest refresh. Persists for exactly ONE refresh
+    # cycle (next refresh re-derives from prior_cache - new_snapshot).
+    discoverable_entities_stale_carry: DiscoverableEntities | None = None
+    # M11 F3 L4: ``time.monotonic()`` at the moment of the most recent
+    # successful refresh. Used by the API layer to compute
+    # ``stale_seconds`` in the response. ``None`` until the first
+    # refresh lands.
+    discoverable_entities_fetched_at_monotonic: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _DiscoverableCacheSnapshot:
+    """Immutable triple of cache state + account_type for the API handler.
+
+    Captured under ``_lock`` by :func:`_get_account_cache_snapshot`;
+    readable outside the lock with no consistency risk because the
+    dataclass is frozen and the underlying :class:`DiscoverableEntities`
+    instances are themselves frozen dataclasses (M11 F3 L3).
+
+    The handler uses :attr:`account_type` to resolve the plugin (for
+    the hook-presence check that gates 503 vs 200) without a second lock
+    acquisition.
+    """
+
+    cache: DiscoverableEntities | None
+    stale_carry: DiscoverableEntities | None
+    fetched_at_monotonic: float | None
+    account_type: str
 
 
 # Module-level state. All mutations to ``_pool`` (other than the lazy lock
@@ -117,6 +207,26 @@ _pool: dict[tuple[str, str], _RegistryEntry] = {}
 _lock: asyncio.Lock = asyncio.Lock()
 _shutting_down: bool = False
 _reaper_task: asyncio.Task[None] | None = None
+# M11 F3 L4: discoverable-entities refresh sweep task. Spawned lazily on
+# the first cold-entry creation in :func:`agent_acquire`; cancelled by
+# :func:`shutdown_drain`. Mirrors ``_reaper_task`` lifecycle.
+_discoverable_refresh_task: asyncio.Task[None] | None = None
+
+
+# Slot literal occupying the per-agent portion of the composite key
+# when an entry is account-shared (i.e. created via
+# :func:`account_acquire`). The two acquire primitives walk the same
+# ``_pool`` dict; the slot value distinguishes per-agent entries
+# (``slot == agent_name``) from account-shared entries
+# (``slot == _ACCOUNT_POOL_AGENT_SLOT``).
+#
+# The literal value ``"__connector__"`` is preserved verbatim from the
+# F8 L11 sentinel so the composite-key tuples in any pre-deploy warm
+# pool match the post-deploy key shape — no eviction churn at swap
+# time. (M11 F2 L2 split the public API into the two primitives; the
+# F8 L11 retrofit was a tactical patch.) Treat as a module-private
+# implementation detail: not exported, not part of the public API.
+_ACCOUNT_POOL_AGENT_SLOT = "__connector__"
 
 
 def _resolve_ttl_seconds(override: int | None = None) -> int:
@@ -128,7 +238,7 @@ def _resolve_ttl_seconds(override: int | None = None) -> int:
     monkeypatching works; mirrors :func:`the_one.mcp._pool._resolve_ttl_seconds`.
 
     The override is the per-account ``ConnectorAccount.idle_timeout_seconds``
-    value, passed through by :func:`acquire`. The pool stays ignorant of
+    value, passed through by :func:`agent_acquire`. The pool stays ignorant of
     which model field drives the override; the model owns the field name,
     the resolver owns the precedence. The ``override is not None`` guard
     short-circuits BEFORE the env-var read by design — the operator's
@@ -163,7 +273,7 @@ async def _load_account(account_id: str, encryptor: Encryptor) -> ConnectorAccou
 
     Takes ``encryptor`` explicitly rather than calling ``get_encryptor`` —
     avoids double-call drift if test fixtures swap ``settings.data_dir`` or
-    wipe ``_encryptor_cache``. The single resolution point is :func:`acquire`.
+    wipe ``_encryptor_cache``. The single resolution point is :func:`agent_acquire`.
 
     ``get_connection`` and ``ConnectorAccountRepository`` are imported
     function-locally to break a module-import cycle: ``repositories.py``
@@ -256,8 +366,9 @@ async def _evict_all_for_account(account_id: str) -> None:
     """Evict every pool entry whose key matches ``account_id`` across all agents.
 
     Called when an operator updates a connector account's credentials
-    (flight 2) so the next ``acquire(agent_name, account_id)`` for the
-    same account spawns a fresh worker with the new credentials.
+    (flight 2) so the next ``agent_acquire(agent_name, account_id)`` or
+    ``account_acquire(account_id)`` for the same account spawns a fresh
+    worker with the new credentials.
     Without this, the warm cache would hand out a stale-credential
     ``ConnectorClient`` indefinitely.
 
@@ -281,7 +392,7 @@ async def _ensure_reaper_running_locked() -> None:
     """Spawn the reaper Task if not already running.
 
     MUST be called under ``_lock`` — avoids a double-spawn race when two
-    concurrent :func:`acquire` calls for different keys both try to start
+    concurrent :func:`agent_acquire` calls for different keys both try to start
     the reaper in parallel. Mirrors
     :func:`the_one.mcp._pool._ensure_reaper_running_locked`.
     """
@@ -305,7 +416,7 @@ async def _reap_once() -> list[tuple[str, str]]:
     Guards ``entry.client is not None`` — entries mid-connect have not
     yet had their ``client`` populated and are NOT reaped this pass.
     The worker that eventually populates ``entry.client`` also updates
-    ``entry.last_activity``-style state through :func:`acquire`'s
+    ``entry.last_activity``-style state through :func:`agent_acquire`'s
     return-path touch, so a freshly-connected entry is not immediately
     eligible for the next sweep either.
     """
@@ -362,29 +473,252 @@ async def _reap_loop() -> None:
         raise
 
 
+async def _ensure_discoverable_refresh_running_locked() -> None:
+    """Spawn the discoverable-entities refresh sweep task if not already running.
+
+    MUST be called under ``_lock`` — avoids a double-spawn race when two
+    concurrent ``agent_acquire`` / ``account_acquire`` calls for
+    different keys both try to start the sweep in parallel. Mirrors
+    :func:`_ensure_reaper_running_locked`.
+    """
+    global _discoverable_refresh_task
+    if _discoverable_refresh_task is None or _discoverable_refresh_task.done():
+        _discoverable_refresh_task = asyncio.create_task(_discoverable_refresh_loop())
+
+
+async def _refresh_discoverable_entities_for_account(account_id: str) -> bool:
+    """Refresh the discoverable-entities cache for one account-pool entry.
+
+    Returns ``True`` if the cache was updated successfully; ``False`` for
+    any bail-out (cold entry, mid-connect, evicted-mid-refresh, plugin
+    missing the hook, plugin raised, shutdown in flight). Per the
+    flight design decisions, this helper is the SINGLE write path for
+    the cache fields; both the periodic sweep and the inline GET /
+    POST-refresh paths funnel through here so the write-back race is
+    serialized at the re-acquired lock.
+
+    Race-safety contract (M11 F3 L4 cycle-1 review):
+      - First lock acquisition: capture ``client`` and ``account_type``;
+        bail if entry is cold, mid-connect, or has no account_type.
+      - Plugin resolve + hook call OUTSIDE the lock.
+      - Re-acquire the lock: bail if shutting down; identity-check the
+        entry (use-after-evict guard); read ``prior_cache`` INSIDE this
+        re-acquired lock so the stale-carry computation observes the
+        most recent prior write regardless of any concurrent refresh.
+      - Write the three cache fields. Do NOT touch ``last_activity`` —
+        the 5-minute refresh would otherwise reset the 30-minute idle
+        TTL and warm entries would never reap.
+    """
+    from the_one.connectors.errors import ConnectorRegistrationError
+
+    key = (_ACCOUNT_POOL_AGENT_SLOT, account_id)
+    async with _lock:
+        entry = _pool.get(key)
+        if entry is None or entry.client is None:
+            return False
+        if entry.account_type == "":
+            return False
+        if entry.client_ready is not None and not entry.client_ready.is_set():
+            return False
+        client = entry.client
+        account_type = entry.account_type
+
+    try:
+        plugin = _resolve_plugin(account_type)
+    except ConnectorRegistrationError:
+        logger.warning(
+            "Discoverable refresh: unknown account_type=%r for account_id=%s",
+            account_type,
+            account_id,
+        )
+        return False
+
+    hook = getattr(plugin, "enumerate_discoverable_entities", None)
+    if hook is None:
+        return False
+
+    try:
+        new_snapshot = hook(client)
+    except Exception as exc:
+        logger.warning(
+            "Discoverable refresh failed for account_id=%s account_type=%s: %r",
+            account_id,
+            account_type,
+            exc,
+        )
+        return False
+
+    async with _lock:
+        if _shutting_down:
+            return False
+        current = _pool.get(key)
+        if current is None or current.client is not client:
+            return False
+        # Read prior_cache INSIDE this re-acquired lock — guards the
+        # write-side race when two refresh paths overlap.
+        prior_cache = current.discoverable_entities_cache
+        stale_carry = _compute_stale_carry(prior_cache, new_snapshot)
+        current.discoverable_entities_cache = new_snapshot
+        current.discoverable_entities_stale_carry = stale_carry
+        current.discoverable_entities_fetched_at_monotonic = time.monotonic()
+        # Deliberately do NOT touch current.last_activity — see docstring.
+    return True
+
+
+def _compute_stale_carry(
+    prior_cache: DiscoverableEntities | None,
+    new_snapshot: DiscoverableEntities,
+) -> DiscoverableEntities:
+    """Compute the 1-cycle stale-carry as ``prior_cache - new_snapshot``
+    per-axis, by ``entity.id``.
+
+    Retained entities are emitted from ``prior_cache``'s axis lists so
+    their old labels/metadata are preserved for the operator's
+    stale-display rendering. Entities present in BOTH cycles are
+    excluded (their NEW form lives in the fresh ``cache``).
+
+    If ``prior_cache`` is ``None`` (first refresh), returns an empty
+    :class:`DiscoverableEntities` (no entries to carry).
+    """
+    if prior_cache is None:
+        return DiscoverableEntities()
+
+    def _diff_axis(
+        prior_axis: list[DiscoverableEntity],
+        new_axis: list[DiscoverableEntity],
+    ) -> list[DiscoverableEntity]:
+        new_ids = {e.id for e in new_axis}
+        return [e for e in prior_axis if e.id not in new_ids]
+
+    return DiscoverableEntities(
+        peers=_diff_axis(prior_cache.peers, new_snapshot.peers),
+        channels=_diff_axis(prior_cache.channels, new_snapshot.channels),
+        groups=_diff_axis(prior_cache.groups, new_snapshot.groups),
+        roles=_diff_axis(prior_cache.roles, new_snapshot.roles),
+    )
+
+
+async def _discoverable_refresh_once() -> int:
+    """Run a single refresh pass across every eligible warm pool entry.
+
+    Snapshots eligible ``account_id``s under ``_lock`` (entries where
+    ``key[0] == _ACCOUNT_POOL_AGENT_SLOT`` AND ``entry.client is not
+    None`` AND ``entry.account_type`` is non-empty), then calls
+    :func:`_refresh_discoverable_entities_for_account` for each
+    concurrently via ``asyncio.gather(..., return_exceptions=True)``.
+
+    Returns the count of entries that were refreshed successfully
+    (``True`` returns from the helper). Per-call exceptions are
+    absorbed by the helper's own ``try/except`` + ``logger.warning``;
+    the gather's ``return_exceptions=True`` is belt-and-suspenders.
+    """
+    async with _lock:
+        account_ids = [
+            key[1]
+            for key, entry in _pool.items()
+            if key[0] == _ACCOUNT_POOL_AGENT_SLOT
+            and entry.client is not None
+            and entry.account_type != ""
+        ]
+    if not account_ids:
+        return 0
+    results = await asyncio.gather(
+        *(_refresh_discoverable_entities_for_account(aid) for aid in account_ids),
+        return_exceptions=True,
+    )
+    refreshed = 0
+    for aid, result in zip(account_ids, results):
+        if isinstance(result, BaseException):
+            if not isinstance(result, asyncio.CancelledError):
+                logger.exception(
+                    "Discoverable refresh raised for account_id=%s: %r",
+                    aid,
+                    result,
+                )
+            continue
+        if result:
+            refreshed += 1
+    return refreshed
+
+
+async def _discoverable_refresh_loop() -> None:
+    """Background loop: sleep, refresh, repeat.
+
+    Sleeps on :func:`_resolve_discoverable_refresh_interval_seconds` so
+    test monkeypatches of the module-level constant and env-var
+    overrides take effect across iterations. On ``Exception`` from a
+    sweep pass, logs and continues. On ``CancelledError``, re-raises —
+    nothing to drain because the cache is in-memory state that clears
+    when the pool clears.
+    """
+    while True:
+        try:
+            await asyncio.sleep(_resolve_discoverable_refresh_interval_seconds())
+        except asyncio.CancelledError:
+            raise
+        try:
+            await _discoverable_refresh_once()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Discoverable refresh sweep raised; continuing")
+
+
+async def _get_account_cache_snapshot(
+    account_id: str,
+) -> _DiscoverableCacheSnapshot | None:
+    """Return an immutable frozen-triple snapshot of the warm pool entry's
+    cache fields, captured atomically under ``_lock``. Readable outside
+    the lock with no consistency risk — the snapshot is by-value, not a
+    live entry reference.
+
+    Returns ``None`` if no warm entry exists for ``account_id`` (the
+    account is cold — the operator must run Test Connection first). The
+    snapshot's ``cache`` may itself be ``None`` when the entry is warm
+    but the first refresh has not yet landed (first-call inline-refresh
+    edge case).
+    """
+    key = (_ACCOUNT_POOL_AGENT_SLOT, account_id)
+    async with _lock:
+        entry = _pool.get(key)
+        if entry is None or entry.client is None:
+            return None
+        return _DiscoverableCacheSnapshot(
+            cache=entry.discoverable_entities_cache,
+            stale_carry=entry.discoverable_entities_stale_carry,
+            fetched_at_monotonic=entry.discoverable_entities_fetched_at_monotonic,
+            account_type=entry.account_type,
+        )
+
+
 async def shutdown_drain() -> None:
     """Cancel the reaper task; evict every remaining entry.
 
     Wired into the FastAPI ``lifespan`` shutdown branch between the MCP
     pool drain and the OAuth periodic-sweep stop. After this runs,
-    :func:`acquire` raises ``RuntimeError`` for any late-arriving caller.
+    :func:`agent_acquire` raises ``RuntimeError`` for any late-arriving caller.
 
     Order:
-      1. Set ``_shutting_down = True`` FIRST so any concurrent ``acquire``
-         sees the flag at the next lock acquisition.
+      1. Set ``_shutting_down = True`` FIRST so any concurrent
+         ``agent_acquire``/``account_acquire`` sees the flag at the next
+         lock acquisition.
       2. Cancel ``_reaper_task``; suppress ``CancelledError`` on its await
          (the reaper's own ``CancelledError`` handler runs the drain).
-      3. Belt-and-suspenders: snapshot any remaining keys (rare — the
+      3. Cancel ``_discoverable_refresh_task`` (M11 F3 L4): same
+         cancel-suppress-await shape; there is no drain because the
+         refresh sweep holds no per-entry resources.
+      4. Belt-and-suspenders: snapshot any remaining keys (rare — the
          reaper's drain already ran). Concurrent ``_evict`` via gather
          with ``return_exceptions``.
-      4. Reset ``_reaper_task = None`` so the next test's
+      5. Reset ``_reaper_task = None`` and
+         ``_discoverable_refresh_task = None`` so the next test's
          :func:`_clear_for_test` sees a clean slate.
 
     Total drain time is bounded at ~10s regardless of pool size because
     each ``_evict`` has a 10s per-entry timeout AND the gather'd evicts
     run in parallel.
     """
-    global _reaper_task, _shutting_down
+    global _reaper_task, _discoverable_refresh_task, _shutting_down
     _shutting_down = True
 
     task = _reaper_task
@@ -392,6 +726,12 @@ async def shutdown_drain() -> None:
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task
+
+    refresh_task = _discoverable_refresh_task
+    if refresh_task is not None and not refresh_task.done():
+        refresh_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await refresh_task
 
     async with _lock:
         keys = list(_pool.keys())
@@ -402,9 +742,10 @@ async def shutdown_drain() -> None:
         )
 
     _reaper_task = None
+    _discoverable_refresh_task = None
 
 
-async def acquire(agent_name: str, account_id: str) -> ConnectorClient:
+async def agent_acquire(agent_name: str, account_id: str) -> ConnectorClient:
     """Look up or spawn the warm :class:`ConnectorClient` for ``(agent, account)``.
 
     Per the cycle-2 race-handling invariant inherited from MCP: pre-load
@@ -449,6 +790,7 @@ async def acquire(agent_name: str, account_id: str) -> ConnectorClient:
                 ttl_seconds=_resolve_ttl_seconds(override=account.idle_timeout_seconds),
                 evict_event=asyncio.Event(),
                 client_ready=asyncio.Event(),
+                account_type=account.type,
             )
             entry.worker = asyncio.create_task(
                 _entry_worker(plugin, account, encryptor, entry)
@@ -460,6 +802,11 @@ async def acquire(agent_name: str, account_id: str) -> ConnectorClient:
             # concurrent ``acquire``s for different keys insert at the
             # same time.
             await _ensure_reaper_running_locked()
+            # M11 F3 L4: ensure the discoverable-entities refresh sweep
+            # is running. Same idempotence and double-spawn-race posture
+            # as the reaper. Spawned on cold-entry creation only — warm-
+            # reuse paths do NOT respawn (matches the reaper precedent).
+            await _ensure_discoverable_refresh_running_locked()
         # else: entry exists. Wait on client_ready outside the lock.
 
     assert entry.client_ready is not None
@@ -480,6 +827,27 @@ async def acquire(agent_name: str, account_id: str) -> ConnectorClient:
     return client
 
 
+async def account_acquire(account_id: str) -> ConnectorClient:
+    """Acquire a connector-account-shared pool entry.
+
+    Routes every caller through ONE pool entry per account by pinning
+    the slot portion of the composite key to
+    :data:`_ACCOUNT_POOL_AGENT_SLOT`. All connector-subsystem callers
+    (lifespan listener-warmup, ``dispatch_inbound``, F4 platform-send
+    tool, F8 auto-relay) MUST use this primitive instead of
+    :func:`agent_acquire`.
+
+    This expresses the gateway-protocol constraint structurally:
+    Discord Gateway, Slack Socket Mode, and similar gateway-style
+    protocols are one-IDENTIFY-per-token by physical necessity, so
+    per-agent keying is incompatible with the protocol shape.
+    :func:`agent_acquire` remains for MCP-style per-agent pools where
+    the F6 resolver pattern legitimately produces different
+    credentials per agent.
+    """
+    return await agent_acquire(_ACCOUNT_POOL_AGENT_SLOT, account_id)
+
+
 async def _clear_for_test() -> None:
     """Test seam: cancel reaper + all worker tasks; empty the pool; reset state.
 
@@ -495,7 +863,7 @@ async def _clear_for_test() -> None:
 
     Tests should call this in an autouse fixture AFTER each test.
     """
-    global _reaper_task, _shutting_down
+    global _reaper_task, _discoverable_refresh_task, _shutting_down
 
     # Cancel the reaper FIRST so it does not race the worker-cancel
     # loop below. The reaper's own CancelledError handler tries to
@@ -507,6 +875,16 @@ async def _clear_for_test() -> None:
         with contextlib.suppress(BaseException):
             await task
     _reaper_task = None
+
+    # M11 F3 L4: cancel the discoverable-entities refresh sweep
+    # alongside the reaper. No drain path on cancel — see
+    # :func:`_discoverable_refresh_loop`.
+    refresh_task = _discoverable_refresh_task
+    if refresh_task is not None and not refresh_task.done():
+        refresh_task.cancel()
+        with contextlib.suppress(BaseException):
+            await refresh_task
+    _discoverable_refresh_task = None
 
     async with _lock:
         snapshot = list(_pool.items())
@@ -522,3 +900,14 @@ async def _clear_for_test() -> None:
                 await worker
 
     _shutting_down = False
+
+
+def _keys_for_test() -> list[tuple[str, str]]:
+    """Test seam: snapshot the current pool keys.
+
+    Pure read — no lock acquisition required for the snapshot semantics
+    tests need. Used by HAT inspection (L6) and by the L2 pinning tests
+    that verify :func:`account_acquire` produces an entry at
+    ``(_ACCOUNT_POOL_AGENT_SLOT, account_id)``.
+    """
+    return list(_pool.keys())

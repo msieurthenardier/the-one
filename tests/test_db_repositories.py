@@ -779,6 +779,56 @@ class TestAgentConfigConnectorAclsValidator:
                 connector_acls={1: {"peers": [], "channels": []}},
             )
 
+    # --- M10 F8 L8 — per-agent guilds + roles axes ---
+
+    def test_per_agent_acl_4_axis_shape_validates(self) -> None:
+        """All 4 axes (peers, channels, guilds, roles) on the per-agent
+        inner dict round-trip verbatim — pins the L8 extension on the
+        per-agent ACL surface."""
+        cfg = AgentConfig(
+            name="agent",
+            connector_acls={
+                "acct-a": {
+                    "peers": ["u1"],
+                    "channels": ["c1"],
+                    "guilds": ["g1"],
+                    "roles": ["r1"],
+                }
+            },
+        )
+        assert cfg.connector_acls == {
+            "acct-a": {
+                "peers": ["u1"], "channels": ["c1"],
+                "guilds": ["g1"], "roles": ["r1"],
+            }
+        }
+
+    def test_per_agent_acl_pre_l8_two_key_shape_still_validates(self) -> None:
+        """Back-compat — pre-L8 ACL inner dicts with just
+        ``{peers, channels}`` still validate (guilds + roles are
+        OPTIONAL)."""
+        cfg = AgentConfig(
+            name="agent",
+            connector_acls={"acct-a": {"peers": [], "channels": []}},
+        )
+        assert cfg.connector_acls == {"acct-a": {"peers": [], "channels": []}}
+
+    def test_per_agent_acl_extra_key_outside_4_axes_raises(self) -> None:
+        """Inner dict with a key outside the L8 4-axis allowed set still
+        raises — extension widens to exactly
+        ``{peers, channels, guilds, roles}``, no further."""
+        with pytest.raises(ValidationError):
+            AgentConfig(
+                name="agent",
+                connector_acls={
+                    "acct-a": {
+                        "peers": [], "channels": [],
+                        "guilds": [], "roles": [],
+                        "workspaces": [],  # not allowed
+                    }
+                },
+            )
+
 
 # ── Knowledge Base Repository ─────────────────────────────────────────────
 
@@ -1324,6 +1374,86 @@ class TestConnectorAccountConfigValidator:
                 config={"allowlist": {"peers": [123], "channels": []}},
             )
 
+    # --- M10 F8 L8 — 4-axis allowlist (guilds + roles) ---
+
+    def test_allowlist_full_4_axis_shape_round_trips(self) -> None:
+        """All 4 axes (peers, channels, guilds, roles) populate and
+        round-trip verbatim — pins the L8 shape contract. Verifies the
+        validator accepts ``guilds`` + ``roles`` as legal keys."""
+        allowlist = {
+            "peers": ["u1", "u2"],
+            "channels": ["c1"],
+            "guilds": ["g1", "g2"],
+            "roles": ["r1"],
+        }
+        account = ConnectorAccount(
+            id="a", name="n", type="stub", config={"allowlist": allowlist}
+        )
+        assert account.config["allowlist"] == allowlist
+
+    def test_allowlist_partial_axes_round_trips(self) -> None:
+        """Partial L8 shapes are accepted — ``guilds`` alone (no roles),
+        ``roles`` alone (no guilds), and pre-L8 2-key shape all validate.
+        Pins the back-compat invariant: guilds + roles are OPTIONAL."""
+        # Pre-L8 2-key shape still works.
+        acc1 = ConnectorAccount(
+            id="a1", name="n", type="stub",
+            config={"allowlist": {"peers": [], "channels": []}},
+        )
+        assert acc1.config["allowlist"] == {"peers": [], "channels": []}
+        # peers + channels + guilds only (no roles).
+        acc2 = ConnectorAccount(
+            id="a2", name="n", type="stub",
+            config={"allowlist": {
+                "peers": [], "channels": [], "guilds": ["G1"],
+            }},
+        )
+        assert acc2.config["allowlist"]["guilds"] == ["G1"]
+        assert "roles" not in acc2.config["allowlist"]
+        # peers + channels + roles only (no guilds).
+        acc3 = ConnectorAccount(
+            id="a3", name="n", type="stub",
+            config={"allowlist": {
+                "peers": [], "channels": [], "roles": ["R1"],
+            }},
+        )
+        assert acc3.config["allowlist"]["roles"] == ["R1"]
+        assert "guilds" not in acc3.config["allowlist"]
+
+    def test_allowlist_extra_key_still_rejected_after_l8(self) -> None:
+        """The L8 4-axis allowed set is exactly
+        ``{peers, channels, guilds, roles}`` — anything else still
+        rejects. Pins the validator does NOT silently widen beyond the
+        new axes."""
+        with pytest.raises(ValidationError):
+            ConnectorAccount(
+                id="a", name="n", type="stub",
+                config={"allowlist": {
+                    "peers": [], "channels": [],
+                    "guilds": [], "roles": [],
+                    "workspaces": [],  # not in the 4-axis allowed set
+                }},
+            )
+
+    def test_allowlist_non_string_guild_or_role_raises(self) -> None:
+        """Per-item-string validation applies uniformly to all 4 axes
+        — ``guilds`` and ``roles`` reject non-string entries the same
+        way ``peers`` and ``channels`` do."""
+        with pytest.raises(ValidationError):
+            ConnectorAccount(
+                id="a", name="n", type="stub",
+                config={"allowlist": {
+                    "peers": [], "channels": [], "guilds": [42],
+                }},
+            )
+        with pytest.raises(ValidationError):
+            ConnectorAccount(
+                id="a", name="n", type="stub",
+                config={"allowlist": {
+                    "peers": [], "channels": [], "roles": [None],
+                }},
+            )
+
     # --- Repository round-trip tests ---
 
     async def test_pairing_round_trips_through_repo(
@@ -1421,6 +1551,50 @@ class TestConnectorAccountConfigValidator:
         await connector_repo.conn.commit()
         with pytest.raises(ValidationError):
             await connector_repo.get("bad")
+
+    # --- M10 F8 L11 HAT Fix #4 — auto_relay_platform_replies ---
+
+    def test_validate_config_accepts_auto_relay_platform_replies_bool(
+        self,
+    ) -> None:
+        """Explicit True and False both validate cleanly. Absent is
+        equivalent to default-True at consume time (the dispatcher
+        applies the ``.get(..., True)`` default) but is also a valid
+        on-disk shape — covered implicitly by every pre-Fix-#4 row.
+        """
+        account_true = ConnectorAccount(
+            id="a-true", name="n", type="stub",
+            config={"auto_relay_platform_replies": True},
+        )
+        assert account_true.config["auto_relay_platform_replies"] is True
+
+        account_false = ConnectorAccount(
+            id="a-false", name="n", type="stub",
+            config={"auto_relay_platform_replies": False},
+        )
+        assert account_false.config["auto_relay_platform_replies"] is False
+
+    def test_validate_config_rejects_non_bool_auto_relay(self) -> None:
+        """A string "yes" / int 1 / None / list — none of these are
+        accepted. Operators can't smuggle truthy / falsy non-bools
+        through the kv-table editor path; the validator forces an
+        explicit bool.
+        """
+        with pytest.raises(ValidationError):
+            ConnectorAccount(
+                id="a", name="n", type="stub",
+                config={"auto_relay_platform_replies": "yes"},
+            )
+        with pytest.raises(ValidationError):
+            ConnectorAccount(
+                id="a", name="n", type="stub",
+                config={"auto_relay_platform_replies": 1},
+            )
+        with pytest.raises(ValidationError):
+            ConnectorAccount(
+                id="a", name="n", type="stub",
+                config={"auto_relay_platform_replies": None},
+            )
 
 
 # ── Chat Session Repository ──────────────────────────────────────────────

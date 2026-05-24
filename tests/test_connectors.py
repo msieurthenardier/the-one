@@ -357,36 +357,49 @@ class TestConnectorRegistry:
         assert excinfo.value.type_name == "stub"
 
     def test_types_returns_sorted(self, clean_registry) -> None:
+        # ``clean_registry`` restores the production baseline which (post-
+        # F8 L2) includes ``"discord"``. Clear it so this test exercises
+        # only its own registrations.
+        clear_for_test()
         register("zebra", _MinimalPlugin)
         register("alpha", _MinimalPlugin)
         register("mango", _MinimalPlugin)
         assert types() == ["alpha", "mango", "zebra"]
 
     def test_register_for_test_bypasses_collision_check(self, clean_registry) -> None:
+        # ``clean_registry`` restores the production baseline which (post-
+        # F8 L2) includes ``"discord"``. Clear it so this test exercises
+        # only its own registrations.
+        clear_for_test()
         register("stub", _MinimalPlugin)
         # register_for_test must NOT raise on duplicate.
         register_for_test("stub", _MinimalPlugin)
         assert types() == ["stub"]
 
     def test_clear_for_test_empties_registry(self, clean_registry) -> None:
+        # ``clean_registry`` restores the production baseline which (post-
+        # F8 L2) includes ``"discord"``. Clear it first so the test
+        # exercises only its own registrations.
+        clear_for_test()
         register("stub_a", _MinimalPlugin)
         register("stub_b", _MinimalPlugin)
         assert len(types()) == 2
         clear_for_test()
         # clear_for_test is a HARD clear — does not re-run register_builtin_connectors.
-        # In flight 1 this happens to equal the baseline (empty); in flight 8+
-        # they will differ.
+        # Post-F8 L2 the baseline contains ``"discord"``; the hard clear
+        # differs from baseline restoration here.
         assert types() == []
 
     def test_restore_to_baseline_re_runs_builtin_discovery(self, clean_registry) -> None:
-        register("stub", _MinimalPlugin)
+        # F8 L2 changed the baseline: ``register_builtin_connectors`` now
+        # registers ``"discord"`` (and ``"stub"`` remains test-only). The
+        # test seam ``restore_to_baseline_for_test`` clears the registry
+        # then re-runs the hook, so the resulting set is exactly the
+        # production builtins.
+        register_for_test("stub", _MinimalPlugin)
         assert "stub" in types()
         restore_to_baseline_for_test()
-        # Flight 1's baseline is empty (register_builtin_connectors is a no-op).
-        # When flight 8 adds discord registration, this test will need to
-        # update to assert "discord" in types() — that's the intended
-        # behavior, not an oversight.
-        assert types() == []
+        assert types() == ["discord"]
 
     def test_module_level_functions_delegate_to_singleton(self, clean_registry) -> None:
         register("stub", _MinimalPlugin)
@@ -400,6 +413,10 @@ class TestConnectorRegistry:
         assert via_module is not via_singleton
 
     def test_fresh_registry_isolated_from_singleton(self, clean_registry) -> None:
+        # ``clean_registry`` restores the production baseline which (post-
+        # F8 L2) includes ``"discord"``. Clear the singleton so the
+        # isolation contract reads against an empty singleton.
+        clear_for_test()
         fresh = ConnectorRegistry()
         fresh.register("stub", _MinimalPlugin)
         # Singleton unchanged.
@@ -408,15 +425,17 @@ class TestConnectorRegistry:
         assert fresh.types() == ["stub"]
 
     def test_register_builtin_connectors_is_idempotent(self, clean_registry) -> None:
-        # Currently empty body — calling it repeatedly must not raise. Flight 8
-        # changes the body to register("discord", DiscordPlugin); this test
-        # locks the contract so flight 8's expansion uses idempotent registration
-        # (e.g. via register_for_test inside the function, or a check-before-register
-        # guard). Without idempotency, restore_to_baseline_for_test would raise
-        # on the second call.
+        # F8 L2 changed the body to ``register("discord", DiscordPlugin)``;
+        # the hook uses a check-before-register guard so calling it
+        # repeatedly does NOT raise. The pinned contract is "calling twice
+        # leaves the registry in the same shape as calling once," which
+        # ``restore_to_baseline_for_test`` relies on (it does clear +
+        # re-run, so a non-idempotent hook would still work — but the
+        # broader idempotency contract is what tests like
+        # ``test_resolve_plugin_called_after_baseline_restore`` lean on).
         register_builtin_connectors()
         register_builtin_connectors()
-        assert types() == []
+        assert types() == ["discord"]
 
     def test_resolve_rejects_plugin_that_does_not_satisfy_protocol(
         self, clean_registry

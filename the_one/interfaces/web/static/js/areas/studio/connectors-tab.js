@@ -137,6 +137,62 @@
     var scopePeers = (accountScope && Array.isArray(accountScope.peers)) ? accountScope.peers : [];
     var scopeChannels = (accountScope && Array.isArray(accountScope.channels)) ? accountScope.channels : [];
 
+    // A2 (M11 F4 L3) — lazy per-tile label cache for checkbox-mode rows.
+    // Discord and similar live-data connector accounts expose
+    // ``enumerate_discoverable_entities`` via the L4 cache; the cache
+    // resolves Discord snowflake IDs to friendly labels (``#general``
+    // etc.) so the per-agent overlay's checkbox-mode does not surface
+    // raw IDs. Stub-type / cold-pool / network-error all fall back to
+    // the raw-id render preserved by the initial DOM mount.
+    var _labelCache = null;
+    var _labelCachePromise = null;
+
+    function _ensureLabelCache() {
+      if (_labelCachePromise) return _labelCachePromise;
+      var url = '/api/connector-accounts/' +
+        encodeURIComponent(account.id) +
+        '/discoverable-entities';
+      _labelCachePromise = fetch(url).then(function (response) {
+        if (!response.ok) {
+          _labelCache = {};
+          return _labelCache;
+        }
+        return response.json().then(function (body) {
+          var map = {};
+          var ents = (body && body.entities) || {};
+          var axes = ['peers', 'channels', 'groups', 'roles'];
+          for (var a = 0; a < axes.length; a++) {
+            var list = ents[axes[a]] || [];
+            for (var i = 0; i < list.length; i++) {
+              var e = list[i];
+              if (e && e.id && e.label) map[String(e.id)] = e.label;
+            }
+          }
+          _labelCache = map;
+          return _labelCache;
+        });
+      }).catch(function (err) {
+        _labelCache = {};
+        try { console.error('connectors-tab label-cache fetch failed:', err); }
+        catch (logErr) { /* console missing */ }
+        return _labelCache;
+      });
+      return _labelCachePromise;
+    }
+
+    function _applyLabelsToCheckboxes(bodyEl) {
+      if (!_labelCache) return;
+      var rows = bodyEl.querySelectorAll('.connector-acl-checkboxlist-row');
+      for (var i = 0; i < rows.length; i++) {
+        var cb = rows[i].querySelector('input[type="checkbox"]');
+        if (!cb) continue;
+        var label = _labelCache[String(cb.value)];
+        if (!label) continue;
+        var nameSpan = rows[i].querySelector('.mcp-tool-toggle-name');
+        if (nameSpan) nameSpan.textContent = label;
+      }
+    }
+
     var tile = document.createElement('div');
     tile.className = 'mcp-source-tile connector-account-tile';
     tile.setAttribute('data-connector-account-id', account.id);
@@ -244,6 +300,14 @@
           var nextExpanded = expandBtn.getAttribute('aria-expanded') !== 'true';
           expandBtn.setAttribute('aria-expanded', nextExpanded ? 'true' : 'false');
           body.hidden = !nextExpanded;
+          // A2: lazy label resolution for checkbox-mode rows. Fires once
+          // per tile (single-flight promise); collapse-then-re-expand
+          // reuses the cache.
+          if (nextExpanded && scopeList && scopeList.length > 0) {
+            _ensureLabelCache().then(function () {
+              _applyLabelsToCheckboxes(body);
+            });
+          }
         });
 
         function _summarize() {
@@ -309,6 +373,16 @@
           });
         } else {
           // Account-scope axis is empty / absent → free chip-list mode.
+          //
+          // M11 F3 L6b — per-agent overlay dispatch: for connector
+          // types whose registry entry exposes
+          // ``renderDiscoverableDropdown`` (Discord today), the
+          // chip-list editor is replaced with the live-data dropdown.
+          // The dropdown's getter is installed as
+          // ``_overlayChipValues`` on the wrapper so studio.js's
+          // collect path consults it before falling back to the
+          // text-node walk. Stub-type / no-entry accounts fall back
+          // to the existing chip-list editor.
           var initItems;
           if (Array.isArray(agentAxisValue)) {
             initItems = agentAxisValue;
@@ -317,7 +391,46 @@
           }
           var chiplist = _buildChipList(account.id, axis, initItems);
           body.appendChild(chiplist);
-          if (helpers && helpers.wireChipListEditor) {
+
+          var overlayRegistry = (window.App && window.App.studio
+            && window.App.studio.connectorFormRegistry) || null;
+          var overlayEntry = (overlayRegistry && account && account.type)
+            ? overlayRegistry.get(account.type)
+            : null;
+          var mounted = false;
+          if (overlayEntry && typeof overlayEntry.renderDiscoverableDropdown === 'function') {
+            var overlayState = { values: initItems.slice() };
+            // Per-agent overlay axes are ``peers``/``channels`` — these
+            // already match the API axis names (no storage→API
+            // translation needed at this surface; the storage→API
+            // mapping for ``guilds``→``groups`` is allowlist-only).
+            var dropdownEl = overlayEntry.renderDiscoverableDropdown(
+              account,
+              axis,
+              overlayState.values,
+              null,  // vocab — per-agent overlay surface stays neutral
+              function onOverlayChange(newValues) {
+                overlayState.values = (newValues || []).slice();
+                _summarize();
+                onChange();
+              }
+            );
+            if (dropdownEl) {
+              // Wholesale replace the chip-list shell's children with
+              // the dropdown. The wrapper still carries the
+              // ``data-connector-acl-*`` attributes the collect path
+              // looks up; the ``_overlayChipValues`` getter is the
+              // canonical bridge so studio.js reads the dropdown's
+              // selected ids (not its internal chip DOM).
+              chiplist.innerHTML = '';
+              chiplist.appendChild(dropdownEl);
+              chiplist._overlayChipValues = function () {
+                return overlayState.values.slice();
+              };
+              mounted = true;
+            }
+          }
+          if (!mounted && helpers && helpers.wireChipListEditor) {
             helpers.wireChipListEditor(chiplist, {
               onChange: function () { _summarize(); onChange(); }
             });

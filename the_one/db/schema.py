@@ -6,15 +6,23 @@ import json
 
 import aiosqlite
 
+from the_one.db._connector_types import CONNECTOR_TYPES
 from the_one.db._provider_types import PROVIDER_TYPES
 
-CURRENT_VERSION = 18
+CURRENT_VERSION = 19
 
 # Render the provider-type CHECK constraint as a comma-separated SQL
 # literal list, sourced from PROVIDER_TYPES. Both SCHEMA_V1 (fresh-DB
 # path) and the v10 migration (existing-DB path) inject this so a future
 # addition only needs to touch ``_provider_types.py``.
 _PROVIDER_TYPES_SQL = ", ".join(f"'{t}'" for t in PROVIDER_TYPES)
+
+# Build comma-separated quoted SQL literal list, sourced from
+# CONNECTOR_TYPES. The v19 CHECK constraint (added by F8 L2's
+# table-rename ceremony on ``connector_accounts.type``) references this;
+# future connector types added to the tuple flow automatically into the
+# constraint via the next CHECK-changing migration.
+_CONNECTOR_TYPES_SQL = ", ".join(f"'{t}'" for t in CONNECTOR_TYPES)
 
 SCHEMA_V1 = f"""\
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -484,17 +492,20 @@ PRAGMA foreign_keys=ON;
         #
         # No CHECK constraint on `type` in v13 (in contrast to mcp_sources
         # which had `CHECK (type IN ('stdio', 'streamable-http'))` from v3).
-        # The Pydantic Literal on ConnectorAccount.type is the sole guard
-        # at the API edge; flight 8 (Discord) will land v19 with the
-        # table-rename ceremony to add the CHECK once 'discord' is a real
-        # type to constrain (v14 was claimed by F1 L2's `name` column on
-        # connector_accounts; v15 by F2 L2's `idle_timeout_seconds`; v16
-        # by F3 L1's chat_sessions external-key columns +
-        # `session_continuation_seconds`; v17 by F4 L5's
+        # v19 (F8 L2 — landed) added the CHECK via table-rename ceremony per
+        # the table-rebuild precedent used in v3/v6 for `llm_providers`. v13
+        # deliberately deferred the CHECK because `CONNECTOR_TYPES` was empty
+        # at v13 landing; the v3/v6 precedent (CHECK in CREATE TABLE from
+        # day one + later extension via rebuild) doesn't apply because there
+        # was nothing to constrain initially. v14 was claimed by F1 L2's
+        # `name` column on connector_accounts; v15 by F2 L2's
+        # `idle_timeout_seconds`; v16 by F3 L1's chat_sessions external-key
+        # columns + `session_continuation_seconds`; v17 by F4 L5's
         # `agents.connector_account_ids` persistence; v18 by F6 L1c's
-        # `agents.connector_acls` persistence). The _connector_types.py
-        # tuple is the canonical source of truth — empty in v13, grown by
-        # future flights.
+        # `agents.connector_acls` persistence; v19 by F8 L2's CHECK
+        # constraint table-rename ceremony. The _connector_types.py tuple is
+        # the canonical source of truth — empty in v13, populated to
+        # `("discord", "stub")` in F8 L2.
         #
         # Idempotency follows the v10/v11 contract: individual
         # `await conn.execute(...)` calls (NOT executescript), CREATE TABLE
@@ -693,3 +704,65 @@ CREATE TABLE IF NOT EXISTS connector_accounts (
         )
         await conn.commit()
         version = 18
+
+    if version < 19:
+        # Mission 10 Flight 8 Leg 2: add the
+        # ``CHECK (type IN ('discord', 'stub'))`` constraint to
+        # ``connector_accounts.type`` via the table-rename ceremony
+        # established by v6 (``llm_providers`` ``'mock'`` extension) and
+        # v12. F8 L2 lands layer 4 of the connector-type 6-layer extension
+        # checklist documented in ``agents.md:299-306``.
+        #
+        # CHECK set is sourced from ``_CONNECTOR_TYPES_SQL`` (defined at
+        # module top, mirroring ``_PROVIDER_TYPES_SQL``) so future
+        # connector types added to ``CONNECTOR_TYPES`` flow automatically
+        # into the next CHECK-changing migration without editing this
+        # block. ``'stub'`` is in the CHECK per the M07 ``'mock'``-in-
+        # PROVIDER_TYPES precedent — 69+ test sites construct
+        # ``ConnectorAccount(type='stub')``; the production-purity
+        # invariant ("no production code path inserts a stub-typed row")
+        # is enforced by ``_stub.py:18-19``'s import-time guard +
+        # ``register_builtin_connectors`` registering ``'discord'`` only,
+        # NOT by the CHECK.
+        #
+        # Preserves all 9 columns of the v13/v14/v15/v16 incrementally-
+        # evolved ``connector_accounts`` shape: ``id``, ``type``,
+        # ``config``, ``secrets``, ``created_at``, ``updated_at``,
+        # ``name``, ``idle_timeout_seconds``,
+        # ``session_continuation_seconds``.
+        #
+        # Idempotency: ``if version < 19:`` short-circuits on re-run.
+        # ``executescript`` is transactional in SQLite — either the whole
+        # block lands or none of it does, so partial-apply tolerance
+        # matches the v6 pattern. ``INSERT OR IGNORE INTO schema_version``
+        # is LAST so a partial-apply leaves version=18 and the next
+        # ``ensure_schema`` call retries cleanly.
+        await conn.executescript(f"""\
+PRAGMA foreign_keys=OFF;
+
+CREATE TABLE connector_accounts_new (
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL CHECK (type IN ({_CONNECTOR_TYPES_SQL})),
+    config TEXT DEFAULT '{{}}',
+    secrets TEXT DEFAULT '{{}}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    name TEXT NOT NULL DEFAULT '',
+    idle_timeout_seconds INTEGER NULL,
+    session_continuation_seconds INTEGER NULL
+);
+
+INSERT INTO connector_accounts_new (id, type, config, secrets, created_at, updated_at, name, idle_timeout_seconds, session_continuation_seconds)
+    SELECT id, type, config, secrets, created_at, updated_at, name, idle_timeout_seconds, session_continuation_seconds FROM connector_accounts;
+
+DROP TABLE connector_accounts;
+
+ALTER TABLE connector_accounts_new RENAME TO connector_accounts;
+
+PRAGMA foreign_keys=ON;
+""")
+        await conn.execute(
+            "INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (19,)
+        )
+        await conn.commit()
+        version = 19

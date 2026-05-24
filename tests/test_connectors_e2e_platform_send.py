@@ -20,7 +20,7 @@ Plus three regression nets the F4 flight mandated:
 - ``test_e2e_target_validation_rejects_unattached_account`` (criterion
   #15): the platform-send tool's account-scope check rejects targets
   whose ``account_id`` is not in the agent's attached set.
-- ``test_e2e_pool_acquire_touches_last_activity_on_outbound``: the F3
+- ``test_e2e_account_acquire_touches_last_activity_on_outbound``: the F3
   ratification's ``last_activity`` touch is the F1 anchor; F3's inbound
   path verified this; F4's outbound path needs its own verification.
 - ``test_e2e_plugin_resolve_failure_dispatcher_logs_and_returns``: the
@@ -192,9 +192,17 @@ async def test_e2e_disabled_state_inbound_received_no_outbound(
 
     The agent's system prompt carries the DISABLED-tool directive so
     the model is informed that its replies stay local.
+
+    M10 F8 L11 HAT Fix #4: auto-relay is opted OUT here because this
+    test pins the tool-disabled → no-outbound contract specifically.
+    Auto-relay is a SEPARATE per-account switch that can also drive
+    outbound from the dispatcher; the orthogonal coverage of that
+    switch lives in ``tests/test_connectors_inbound.py``.
     """
     await _seed_provider_and_agent(connector_account_ids=["acct-test"])
-    await _seed_stub_account()
+    await _seed_stub_account(
+        config={"auto_relay_platform_replies": False}
+    )
     register_for_test("stub", StubPlugin)
 
     # Operator-disable the tool before dispatch.
@@ -264,9 +272,16 @@ async def test_e2e_disabled_to_enabled_re_dispatch_restores_outbound(
     3. Dispatch a SECOND inbound: ``factory.create`` rebuilds the agent
        (per F3 L4 dispatcher contract), the carve-out now fires, the
        agent calls the tool, ``outbound_records`` captures the delivery.
+
+    M10 F8 L11 HAT Fix #4: auto-relay is opted OUT here so the first
+    "tool disabled = no outbound" assertion holds. The orthogonal
+    auto-relay switch is covered in
+    ``tests/test_connectors_inbound.py``.
     """
     await _seed_provider_and_agent(connector_account_ids=["acct-test"])
-    await _seed_stub_account()
+    await _seed_stub_account(
+        config={"auto_relay_platform_replies": False}
+    )
     register_for_test("stub", StubPlugin)
 
     conn = await get_connection()
@@ -330,8 +345,8 @@ async def test_e2e_target_validation_rejects_unattached_account(
 
     Asserts:
     - The tool_result content starts with the constraint envelope.
-    - NO pool acquire was attempted on the wrong account (pool_acquire
-      patched to count calls per account_id).
+    - NO pool acquire was attempted on the wrong account
+      (``account_acquire`` patched to count calls per account_id).
     - ``StubPlugin.outbound_records`` does NOT contain the failed
       delivery.
     """
@@ -356,26 +371,29 @@ async def test_e2e_target_validation_rejects_unattached_account(
     ]
     factory = await _make_scripted_factory(responses, monkeypatch)
 
-    # Wrap pool_acquire to count per-(agent, account) calls so we can
+    # Wrap account_acquire to count per-account_id calls so we can
     # assert the wrong-account target never reached the pool. We patch
-    # at the SQLite-tool's module-local binding (`the_one.tools.connector_send.pool_acquire`)
-    # since the tool captured the function reference at import time.
+    # at the SQLite-tool's module-local binding
+    # (`the_one.tools.connector_send.account_acquire`) since the
+    # tool captured the function reference at import time.
+    # M11 F2 L2 (formerly M10 F8 L11 Fix #6): tool uses the account-shared
+    # ``account_acquire`` primitive (no agent_name in the pool key).
     from the_one.tools import connector_send as tool_mod
 
-    acquire_calls: list[tuple[str, str]] = []
-    original_acquire = tool_mod.pool_acquire
+    acquire_calls: list[str] = []
+    original_acquire = tool_mod.account_acquire
 
-    async def _counting_acquire(agent_name: str, account_id: str):
-        acquire_calls.append((agent_name, account_id))
-        return await original_acquire(agent_name, account_id)
+    async def _counting_acquire(account_id: str):
+        acquire_calls.append(account_id)
+        return await original_acquire(account_id)
 
-    monkeypatch.setattr(tool_mod, "pool_acquire", _counting_acquire)
+    monkeypatch.setattr(tool_mod, "account_acquire", _counting_acquire)
 
     envelope = _envelope(account_id="acct-A", channel_id="c1")
     await dispatch_inbound("acct-A", envelope, factory=factory)
 
     # The tool's account-scope short-circuit returns the constraint
-    # envelope BEFORE pool_acquire is called.
+    # envelope BEFORE account_acquire is called.
     conn = await get_connection()
     chat_repo = ChatSessionRepository(conn)
     sessions = await chat_repo.list()
@@ -393,7 +411,7 @@ async def test_e2e_target_validation_rejects_unattached_account(
     # The wrong account_id never reached the platform-send tool's pool
     # acquire; the dispatcher's own pool acquire fired for acct-A (the
     # inbound's account_id).
-    wrong_acquires = [c for c in acquire_calls if c[1] == "acct-B"]
+    wrong_acquires = [c for c in acquire_calls if c == "acct-B"]
     assert wrong_acquires == [], wrong_acquires
 
     # No platform delivery happened for the rejected target.
@@ -405,14 +423,14 @@ async def test_e2e_target_validation_rejects_unattached_account(
 # ─── Test 5 — pool acquire touches last_activity on outbound ─────────────
 
 
-async def test_e2e_pool_acquire_touches_last_activity_on_outbound(
+async def test_e2e_account_acquire_touches_last_activity_on_outbound(
     isolated_db, monkeypatch
 ) -> None:
     """The F3 ratification's ``last_activity`` touch is the F1 Known-Issue
     anchor. F3's inbound path verifies it
     (``test_dispatch_inbound_touches_pool_last_activity``); F4's
     outbound path needs its own verification — the platform-send tool's
-    ``pool_acquire`` call must touch the same ``_RegistryEntry.last_activity``.
+    ``account_acquire`` call must touch the same ``_RegistryEntry.last_activity``.
 
     Asserts ``after > before`` on the pool entry's ``last_activity``
     snapshotted around the second dispatch (the first dispatch warms
@@ -445,7 +463,10 @@ async def test_e2e_pool_acquire_touches_last_activity_on_outbound(
     envelope = _envelope(channel_id="c1")
     # Turn 1: warm the pool.
     await dispatch_inbound("acct-test", envelope, factory=factory)
-    key = ("agent-inbound", "acct-test")
+    # M10 F8 L11 HAT Fix #6: pool keys on the connector sentinel,
+    # not the agent name — all agents attached to one account share
+    # one gateway connection.
+    key = (pool_mod._ACCOUNT_POOL_AGENT_SLOT, "acct-test")
     assert key in pool_mod._pool
     before = pool_mod._pool[key].last_activity
 
@@ -454,7 +475,7 @@ async def test_e2e_pool_acquire_touches_last_activity_on_outbound(
 
     await asyncio.sleep(0.01)
 
-    # Turn 2: the agent calls the tool, which calls pool_acquire which
+    # Turn 2: the agent calls the tool, which calls account_acquire which
     # bumps last_activity.
     await dispatch_inbound("acct-test", envelope, factory=factory)
     after = pool_mod._pool[key].last_activity
@@ -498,7 +519,7 @@ async def test_e2e_plugin_resolve_failure_dispatcher_logs_and_returns(
     # Build a fake-registry object with a failing resolve. Patch the
     # MODULE-local binding in ``_inbound`` — NOT the registry module's
     # ``resolve`` function. The pool's captured ``_resolve_plugin``
-    # reference stays intact so pool_acquire succeeds; only the
+    # reference stays intact so account_acquire succeeds; only the
     # dispatcher's second resolve hits the patched code.
     def _failing_resolve(connector_type: str):
         raise ConnectorRegistrationError(connector_type, "test failure")

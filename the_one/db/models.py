@@ -7,6 +7,7 @@ from typing import Any, Literal, get_args
 
 from pydantic import BaseModel, Field, field_validator
 
+from the_one.db._connector_types import CONNECTOR_TYPES
 from the_one.db._provider_types import PROVIDER_TYPES
 
 
@@ -107,36 +108,31 @@ class MCPSource(BaseModel):
         return {**self.config, **self.secrets}
 
 
-# NOTE: ``CONNECTOR_TYPES`` from ``the_one.db._connector_types`` is intentionally
-# NOT imported here yet. ``CONNECTOR_TYPES`` is an empty tuple in flight 01
-# (mission 10) — a ``Literal[*()]`` is invalid Python syntax, and a no-op
-# pinning assert against an empty tuple is misleading. Flight 08 (Discord)
-# adds the first real connector type, at which point ``ConnectorAccount.type``
-# narrows to ``Literal[...]`` and the canonical
-# ``assert set(get_args(...)) == set(CONNECTOR_TYPES)`` invariant lands —
-# paralleling ``LLMProviderConfig``'s assert above.
-
 # Hoisted module-level so the F7 L7 Studio editor (and any future routing UI)
 # can import the enum without going through the validator.
-_VALID_ROUTING_SCOPES = frozenset({"channel", "thread", "dm", "peer"})
+VALID_ROUTING_SCOPES = frozenset({"channel", "thread", "dm", "peer"})
 
 
 class ConnectorAccount(BaseModel):
     """A connector account — operator-registered third-party-platform identity.
 
     Mirrors :class:`MCPSource` shape. Stored in ``connector_accounts``
-    (v13 table; v14 added the ``name`` column to match MCPSource).
+    (v13 table; v14 added the ``name`` column to match MCPSource; v19 added
+    the ``CHECK (type IN ('discord', 'stub'))`` constraint via the F8 L2
+    table-rename ceremony).
 
-    ``type`` is currently :class:`str` (unconstrained). When the first real
-    connector type lands in flight 08, the spec is to narrow this to
-    ``Literal[...]`` and add a ``get_args``-based pinning assert against
-    ``CONNECTOR_TYPES`` from ``the_one.db._connector_types``, paralleling
+    ``type`` is narrowed to ``Literal["discord", "stub"]`` (F8 L2). The
+    module-load assertion below pins the Literal arg-set to
+    ``CONNECTOR_TYPES`` so the two cannot drift, paralleling
     :class:`LLMProviderConfig`'s assert at the top of this module.
     """
 
     id: str
     name: str
-    type: str  # narrows to Literal in flight 08 when CONNECTOR_TYPES is non-empty
+    # NOTE: keep this ``Literal[...]`` spelled out explicitly — Pydantic /
+    # static type checkers cannot consume ``Literal[*CONNECTOR_TYPES]``
+    # unpacking. The module-load assertion below pins the two in sync.
+    type: Literal["discord", "stub"]
     config: dict[str, Any] = Field(default_factory=dict)
     secrets: dict[str, Any] = Field(default_factory=dict)
     idle_timeout_seconds: int | None = None
@@ -194,15 +190,20 @@ class ConnectorAccount(BaseModel):
     @field_validator("config", mode="after")
     @classmethod
     def _validate_config_reserved_keys(cls, value: dict[str, Any]) -> dict[str, Any]:
-        """Enforce shape on the three reserved top-level keys in ``config``.
+        """Enforce shape on the four reserved top-level keys in ``config``.
 
         The reserved keys are ``"pairing"`` (DM-pairing state),
-        ``"allowlist"`` (account-scope peer/channel admission), and
-        ``"routing"`` (M10 F7: account-scope per-channel agent selection).
-        Each is OPTIONAL — when absent, the resolver subsystem defaults to
-        permit (see ``_default_permit`` at ``the_one/connectors/base.py``).
-        All other top-level keys in ``config`` pass through unchanged — the
-        F1 promise that ``config`` is schema-loose remains intact.
+        ``"allowlist"`` (account-scope peer/channel admission),
+        ``"routing"`` (M10 F7: account-scope per-channel agent selection),
+        and ``"auto_relay_platform_replies"`` (M10 F8 L11 HAT Fix #4:
+        opt-in default-on mechanical relay of agent plaintext replies to
+        the platform). Each is OPTIONAL — when absent, the consumer
+        applies its own default (permit for ``pairing`` / ``allowlist`` /
+        ``routing`` via ``_default_permit`` at
+        ``the_one/connectors/base.py``; TRUE for
+        ``auto_relay_platform_replies`` at the dispatcher consume site).
+        All other top-level keys in ``config`` pass through unchanged —
+        the F1 promise that ``config`` is schema-loose remains intact.
 
         Shape contracts (raise ``ValueError`` on violation):
 
@@ -307,9 +308,15 @@ class ConnectorAccount(BaseModel):
             if not isinstance(allowlist, dict):
                 raise ValueError(
                     "config['allowlist'] must be a dict with keys "
-                    "{'peers', 'channels'}"
+                    "{'peers', 'channels'} (optionally 'guilds', 'roles')"
                 )
-            extra = set(allowlist.keys()) - {"peers", "channels"}
+            # M10 F8 L8 — 4-axis allowlist extension. ``guilds`` and
+            # ``roles`` are OPTIONAL Discord-flavored axes; existing 2-key
+            # rows still validate (back-compat). The per-axis tri-state
+            # semantic (see ``per-axis-tri-state-override`` in agents.md)
+            # applies uniformly to all 4 axes downstream — absent axis =
+            # unrestricted on this axis.
+            extra = set(allowlist.keys()) - {"peers", "channels", "guilds", "roles"}
             if extra:
                 raise ValueError(
                     f"config['allowlist'] has unexpected keys: {sorted(extra)}"
@@ -319,7 +326,10 @@ class ConnectorAccount(BaseModel):
                 raise ValueError(
                     f"config['allowlist'] is missing required keys: {sorted(missing)}"
                 )
-            for key in ("peers", "channels"):
+            for key in ("peers", "channels", "guilds", "roles"):
+                if key not in allowlist:
+                    # guilds + roles are optional; only validate when present.
+                    continue
                 entries = allowlist[key]
                 if not isinstance(entries, list):
                     raise ValueError(
@@ -372,10 +382,10 @@ class ConnectorAccount(BaseModel):
                         f"{sorted(missing)}"
                     )
                 scope = rule["scope"]
-                if not isinstance(scope, str) or scope not in _VALID_ROUTING_SCOPES:
+                if not isinstance(scope, str) or scope not in VALID_ROUTING_SCOPES:
                     raise ValueError(
                         f"config['routing']['rules'][{i}]['scope'] must be one of "
-                        f"{sorted(_VALID_ROUTING_SCOPES)}; got {scope!r}"
+                        f"{sorted(VALID_ROUTING_SCOPES)}; got {scope!r}"
                     )
                 match = rule["match"]
                 if isinstance(match, str):
@@ -409,7 +419,34 @@ class ConnectorAccount(BaseModel):
                     "non-empty string"
                 )
 
+        # M10 F8 L11 HAT Fix #4 — ``auto_relay_platform_replies``:
+        # optional bool. Absent → consume-time default-True (the
+        # dispatcher reads ``account.config.get(
+        # "auto_relay_platform_replies", True)``). Present → must be a
+        # bool; anything else (including int 0/1, "yes"/"no") is
+        # rejected so the operator can't accidentally smuggle truthy /
+        # falsy non-bools through the kv-table editor path.
+        if "auto_relay_platform_replies" in value:
+            auto_relay = value["auto_relay_platform_replies"]
+            if not isinstance(auto_relay, bool):
+                raise ValueError(
+                    "config['auto_relay_platform_replies'] must be a bool "
+                    "(True or False) when present; absent is treated as "
+                    "default-True at consume time"
+                )
+
         return value
+
+
+# Pin the explicit ``Literal`` arg-set to ``CONNECTOR_TYPES`` at import time so
+# any future drift between ``_connector_types.py`` and the model annotation
+# trips immediately rather than at first DB write. M10 F8 L2 — paralleling
+# ``LLMProviderConfig``'s assert above (mirrors the M07 ``'mock'``-in-
+# ``PROVIDER_TYPES`` precedent; ``'stub'`` is the test-only carve-out
+# documented in ``_connector_types.py``).
+assert set(get_args(ConnectorAccount.model_fields["type"].annotation)) == set(CONNECTOR_TYPES), (
+    "ConnectorAccount.type Literal drifted from CONNECTOR_TYPES — update both in lockstep."
+)
 
 
 class ToolConfig(BaseModel):

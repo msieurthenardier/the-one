@@ -224,19 +224,83 @@ class TestComposeSystemPrompt:
         out = compose_system_prompt(BASE_PROMPT, "Custom.")
         assert out == BASE_PROMPT + "\n\n---\n\nCustom."
 
-    def test_connector_attached_tool_enabled_includes_enabled_directive(self):
-        """Enabled state: directive instructs the agent to call the tool."""
+    def test_connector_attached_tool_enabled_auto_relay_off_includes_enabled_directive(
+        self,
+    ):
+        """Auto-relay OFF + send-tool enabled: directive instructs the agent
+        to call the platform-send tool deliberately (legacy ENABLED
+        directive). Behavior post-L11 HAT Fix #5: auto_relay must be
+        explicitly False to land this directive."""
         from the_one.agent.config import (
+            _CONNECTOR_AUTO_RELAY_DIRECTIVE,
             _CONNECTOR_TOOL_DISABLED_DIRECTIVE,
             _CONNECTOR_TOOL_ENABLED_DIRECTIVE,
             compose_system_prompt,
         )
         out = compose_system_prompt(
-            BASE_PROMPT, "", connector_attached=True, send_tool_enabled=True
+            BASE_PROMPT,
+            "",
+            connector_attached=True,
+            send_tool_enabled=True,
+            auto_relay=False,
         )
         assert BASE_PROMPT in out
         assert _CONNECTOR_TOOL_ENABLED_DIRECTIVE in out
         assert _CONNECTOR_TOOL_DISABLED_DIRECTIVE not in out
+        assert _CONNECTOR_AUTO_RELAY_DIRECTIVE not in out
+
+    def test_connector_attached_tool_enabled_auto_relay_on_includes_auto_relay_directive(
+        self,
+    ):
+        """M10 F8 L11 HAT Fix #5: auto-relay ON + send-tool enabled lands
+        the auto-relay directive — telling the agent its plaintext IS the
+        platform reply by default, no permission-asking required."""
+        from the_one.agent.config import (
+            _CONNECTOR_AUTO_RELAY_DIRECTIVE,
+            _CONNECTOR_TOOL_DISABLED_DIRECTIVE,
+            _CONNECTOR_TOOL_ENABLED_DIRECTIVE,
+            compose_system_prompt,
+        )
+        out = compose_system_prompt(
+            BASE_PROMPT,
+            "",
+            connector_attached=True,
+            send_tool_enabled=True,
+            auto_relay=True,
+        )
+        assert BASE_PROMPT in out
+        assert _CONNECTOR_AUTO_RELAY_DIRECTIVE in out
+        assert _CONNECTOR_TOOL_ENABLED_DIRECTIVE not in out
+        assert _CONNECTOR_TOOL_DISABLED_DIRECTIVE not in out
+
+    def test_connector_attached_send_disabled_ignores_auto_relay(self):
+        """M10 F8 L11 HAT Fix #5: when the send tool is disabled, the
+        DISABLED directive lands regardless of the auto_relay value (the
+        relay path can't fire anyway since the tool is gone)."""
+        from the_one.agent.config import (
+            _CONNECTOR_AUTO_RELAY_DIRECTIVE,
+            _CONNECTOR_TOOL_DISABLED_DIRECTIVE,
+            _CONNECTOR_TOOL_ENABLED_DIRECTIVE,
+            compose_system_prompt,
+        )
+        out_on = compose_system_prompt(
+            BASE_PROMPT,
+            "",
+            connector_attached=True,
+            send_tool_enabled=False,
+            auto_relay=True,
+        )
+        out_off = compose_system_prompt(
+            BASE_PROMPT,
+            "",
+            connector_attached=True,
+            send_tool_enabled=False,
+            auto_relay=False,
+        )
+        assert out_on == out_off
+        assert _CONNECTOR_TOOL_DISABLED_DIRECTIVE in out_on
+        assert _CONNECTOR_AUTO_RELAY_DIRECTIVE not in out_on
+        assert _CONNECTOR_TOOL_ENABLED_DIRECTIVE not in out_on
 
     def test_connector_attached_tool_disabled_includes_disabled_directive(self):
         """Disabled state: directive tells the agent platform-send is off."""
@@ -255,7 +319,7 @@ class TestComposeSystemPrompt:
     def test_connector_attached_with_persona_persona_after_directive(self):
         """Persona appears AFTER the directive, separated by '---'."""
         from the_one.agent.config import (
-            _CONNECTOR_TOOL_ENABLED_DIRECTIVE,
+            _CONNECTOR_AUTO_RELAY_DIRECTIVE,
             compose_system_prompt,
         )
         out = compose_system_prompt(
@@ -264,9 +328,95 @@ class TestComposeSystemPrompt:
             connector_attached=True,
             send_tool_enabled=True,
         )
-        # Shape: base + \n\n + directive + \n\n---\n\n + persona
+        # Shape: base + \n\n + directive + \n\n---\n\n + persona.
+        # Default auto_relay=True ⇒ AUTO_RELAY directive lands here.
         assert out.index(BASE_PROMPT) < out.index(
-            _CONNECTOR_TOOL_ENABLED_DIRECTIVE
+            _CONNECTOR_AUTO_RELAY_DIRECTIVE
         )
-        assert out.index(_CONNECTOR_TOOL_ENABLED_DIRECTIVE) < out.index("---")
+        assert out.index(_CONNECTOR_AUTO_RELAY_DIRECTIVE) < out.index("---")
         assert out.endswith("Custom persona.")
+
+    # ── M11 F2 L3: operator_directive append-mode tests ───────────
+
+    def test_operator_directive_appended_when_truthy(self):
+        """M11 F2 L3: a truthy ``operator_directive`` is appended AFTER
+        the selected connector default and BEFORE the persona separator.
+        Shape: base + \\n\\n + selected_default + \\n\\n + operator_directive
+        + \\n\\n---\\n\\n + persona."""
+        from the_one.agent.config import (
+            _CONNECTOR_AUTO_RELAY_DIRECTIVE,
+            compose_system_prompt,
+        )
+        directive = "Sign every reply with a coffee emoji."
+        out = compose_system_prompt(
+            BASE_PROMPT,
+            "Persona text.",
+            connector_attached=True,
+            send_tool_enabled=True,
+            auto_relay=True,
+            operator_directive=directive,
+        )
+        # The directive text appears in the prompt.
+        assert directive in out
+        # Ordering: base < default-directive < operator-directive < ---
+        # < persona.
+        assert out.index(BASE_PROMPT) < out.index(_CONNECTOR_AUTO_RELAY_DIRECTIVE)
+        assert out.index(_CONNECTOR_AUTO_RELAY_DIRECTIVE) < out.index(directive)
+        assert out.index(directive) < out.index("---")
+        assert out.endswith("Persona text.")
+
+    def test_operator_directive_none_is_byte_identical_to_legacy(self):
+        """M11 F2 L3: ``operator_directive=None`` produces byte-identical
+        output to the call shape that omits the kwarg entirely. Pins the
+        legacy-preservation contract that the existing test cluster
+        already exercises via the omitted-kwarg call shape."""
+        from the_one.agent.config import compose_system_prompt
+        # Non-connector path.
+        out_with_none = compose_system_prompt(
+            BASE_PROMPT, "Persona.", operator_directive=None
+        )
+        out_without_kwarg = compose_system_prompt(BASE_PROMPT, "Persona.")
+        assert out_with_none == out_without_kwarg
+        # Connector-attached path.
+        out_with_none_c = compose_system_prompt(
+            BASE_PROMPT,
+            "Persona.",
+            connector_attached=True,
+            send_tool_enabled=True,
+            auto_relay=True,
+            operator_directive=None,
+        )
+        out_without_kwarg_c = compose_system_prompt(
+            BASE_PROMPT,
+            "Persona.",
+            connector_attached=True,
+            send_tool_enabled=True,
+            auto_relay=True,
+        )
+        assert out_with_none_c == out_without_kwarg_c
+
+    def test_operator_directive_empty_string_is_no_op(self):
+        """M11 F2 L3: an empty-string ``operator_directive`` is a no-op
+        (matches the ``None`` default behavior). Pinned by the falsy-check
+        ``if operator_directive:`` in the composer. Backstop against the
+        API validator's empty-string rejection — if a malformed value
+        ever bypasses the validator, the composer's falsy-check ensures
+        no empty separator pair lands in the prompt."""
+        from the_one.agent.config import compose_system_prompt
+        out_empty = compose_system_prompt(
+            BASE_PROMPT,
+            "Persona.",
+            connector_attached=True,
+            send_tool_enabled=True,
+            auto_relay=True,
+            operator_directive="",
+        )
+        out_none = compose_system_prompt(
+            BASE_PROMPT,
+            "Persona.",
+            connector_attached=True,
+            send_tool_enabled=True,
+            auto_relay=True,
+            operator_directive=None,
+        )
+        assert out_empty == out_none
