@@ -471,6 +471,68 @@ class TestMessageVisibilityCodec:
         assert rt[0].visibility is None
 
 
+# ---------------------------------------------------------------------------
+# M11 F06 L01 — Message.peer_name round-trip
+# ---------------------------------------------------------------------------
+
+
+class TestMessagePeerNameCodec:
+    """``Message.peer_name`` round-trips through ``message_to_dict`` ↔
+    ``message_from_dict``: the key is emitted only when non-None,
+    deserialization defaults to None when the key is absent (back-compat
+    with every pre-F6 session row).
+    """
+
+    def test_message_to_dict_emits_peer_name_when_non_none(self) -> None:
+        msg = Message(role=Role.USER, content="hi", peer_name="alice")
+        d = message_to_dict(msg)
+        assert d["peer_name"] == "alice"
+
+    def test_message_to_dict_omits_peer_name_when_none(self) -> None:
+        msg = Message(role=Role.USER, content="hi", peer_name=None)
+        d = message_to_dict(msg)
+        assert "peer_name" not in d
+
+    def test_message_from_dict_restores_peer_name(self) -> None:
+        d = {"role": "user", "content": "hi", "peer_name": "alice"}
+        msg = message_from_dict(d)
+        assert msg.peer_name == "alice"
+
+    def test_message_from_dict_back_compat_no_peer_name_key(self) -> None:
+        """Pre-F6 JSON had no peer_name key — deserialize must default to None."""
+        d = {"role": "user", "content": "hi"}
+        msg = message_from_dict(d)
+        assert msg.peer_name is None
+
+    def test_full_round_trip_with_peer_name(self) -> None:
+        msgs = [Message.user("hi", peer_name="alice")]
+        rt = decode_messages(encode_messages(msgs))
+        assert rt[0].peer_name == "alice"
+
+    def test_full_round_trip_without_peer_name(self) -> None:
+        msgs = [Message.user("hi")]
+        rt = decode_messages(encode_messages(msgs))
+        assert rt[0].peer_name is None
+
+    def test_message_user_default_peer_name_is_none(self) -> None:
+        """``Message.user`` defaults peer_name to None (kwarg-only contract)."""
+        assert Message.user("hi").peer_name is None
+
+    def test_message_user_kwarg_sets_peer_name(self) -> None:
+        """``Message.user`` threads peer_name kwarg into the constructor."""
+        assert Message.user("hi", peer_name="alice").peer_name == "alice"
+
+    def test_round_trip_with_peer_name_and_visibility(self) -> None:
+        """Both new optional fields compose: peer_name and visibility
+        round-trip independently (cross-cutting back-compat check — neither
+        field interferes with the other's encode/decode site).
+        """
+        msgs = [Message.user("hi", peer_name="alice", visibility="operator")]
+        rt = decode_messages(encode_messages(msgs))
+        assert rt[0].peer_name == "alice"
+        assert rt[0].visibility == "operator"
+
+
 class TestMessagesToUiEventsVisibility:
     """``messages_to_ui_events`` projects ``visibility`` into every event
     derived from a tagged Message — across all four event branches (user,
@@ -562,6 +624,89 @@ class TestMessagesToUiEventsVisibility:
             "parent_message_id": None,
             "tool_call_id": "tc-1",
         }
+
+
+class TestMessagesToUiEventsPeerName:
+    """``messages_to_ui_events`` projects ``peer_name`` ONLY onto user-role
+    events. Assistant/tool branches are unaffected — peer_name is
+    meaningful only on user-role messages, and the projection's per-branch
+    spread is gated accordingly. Composes cleanly with the visibility
+    projection (both keys spread independently from per-message dicts).
+    """
+
+    def test_projects_peer_name_on_user_message(self) -> None:
+        msgs = [Message.user("hi", peer_name="alice")]
+        events = messages_to_ui_events(msgs)
+        assert events[0]["peer_name"] == "alice"
+
+    def test_omits_peer_name_on_user_message_without_peer_name(self) -> None:
+        msgs = [Message.user("hi")]
+        events = messages_to_ui_events(msgs)
+        assert "peer_name" not in events[0]
+
+    def test_does_not_project_peer_name_on_assistant_event(self) -> None:
+        # Direct constructor — paranoia: even if peer_name is somehow set
+        # on a non-USER message, the projection MUST NOT propagate it.
+        msgs = [Message(role=Role.ASSISTANT, content="hi there", peer_name="alice")]
+        events = messages_to_ui_events(msgs)
+        assert len(events) == 1
+        assert events[0]["type"] == "assistant"
+        assert "peer_name" not in events[0]
+
+    def test_does_not_project_peer_name_on_tool_call_event(self) -> None:
+        tc1 = ToolCall(id="tc-1", name="read_file", arguments={"path": "/x"})
+        msgs = [
+            Message(
+                role=Role.ASSISTANT,
+                content="",
+                tool_calls=[tc1],
+                peer_name="alice",
+            )
+        ]
+        events = messages_to_ui_events(msgs)
+        tc_events = [e for e in events if e["type"] == "tool_call"]
+        assert len(tc_events) == 1
+        assert "peer_name" not in tc_events[0]
+
+    def test_does_not_project_peer_name_on_tool_result_event(self) -> None:
+        tr = ToolResult(tool_call_id="tc-1", content="done")
+        msgs = [
+            Message(
+                role=Role.TOOL,
+                content="done",
+                tool_result=tr,
+                peer_name="alice",
+            )
+        ]
+        events = messages_to_ui_events(msgs)
+        assert len(events) == 1
+        assert events[0]["type"] == "tool_result"
+        assert "peer_name" not in events[0]
+
+    def test_user_event_carries_both_peer_name_and_visibility(self) -> None:
+        msgs = [Message.user("hi", peer_name="alice", visibility="operator")]
+        events = messages_to_ui_events(msgs)
+        assert events[0]["peer_name"] == "alice"
+        assert events[0]["visibility"] == "operator"
+
+    def test_mixed_user_messages_in_session(self) -> None:
+        """Three user messages with different (peer_name, visibility) combos:
+        keys present/absent independently per message."""
+        msgs = [
+            Message.user("plain"),
+            Message.user("from-alice", peer_name="alice"),
+            Message.user(
+                "operator-and-alice", peer_name="alice", visibility="operator"
+            ),
+        ]
+        events = messages_to_ui_events(msgs)
+        assert len(events) == 3
+        assert "peer_name" not in events[0]
+        assert "visibility" not in events[0]
+        assert events[1]["peer_name"] == "alice"
+        assert "visibility" not in events[1]
+        assert events[2]["peer_name"] == "alice"
+        assert events[2]["visibility"] == "operator"
 
 
 class TestMessageVisibilityClassmethodKwargs:

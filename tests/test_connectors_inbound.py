@@ -590,6 +590,66 @@ async def test_dispatch_inbound_persists_inbound_with_visibility_none(
     assert user_msgs[0].visibility is None
 
 
+async def test_dispatch_inbound_persists_inbound_with_peer_name_from_envelope(
+    isolated_db,
+) -> None:
+    """The persisted user message's ``peer_name`` equals the inbound
+    envelope's ``peer_name`` — the dispatcher's post-step binding
+    writes the envelope value onto ``agent.messages[pre_step_len]``
+    after ``agent.step`` returns.
+
+    M11 F6 L3: closes the Message-side half of Bug C (peer_name
+    data-model gap). The helper ``_envelope()`` defaults to
+    ``peer_name="Alice"``.
+    """
+    await _seed_provider_and_agent()
+    await _seed_stub_account()
+    register_for_test("stub", StubPlugin)
+    factory = await _make_factory()
+
+    envelope = _envelope()
+    await dispatch_inbound("acct-test", envelope, factory=factory)
+
+    conn = await get_connection()
+    chat_repo = ChatSessionRepository(conn)
+    sessions = await chat_repo.list()
+    history = decode_messages(sessions[0].messages)
+    user_msgs = [m for m in history if m.role == Role.USER]
+    assert user_msgs[0].peer_name == "Alice"
+
+
+async def test_dispatch_inbound_persists_user_message_role_invariant(
+    isolated_db,
+) -> None:
+    """Production code at the L3 binding site contains a defensive
+    ``assert agent.messages[pre_step_len].role == Role.USER``. This
+    test pins the same invariant as a regular unit-test assertion so
+    a future agent-loop refactor that violates it fails a normal test
+    run, not just a runtime assert in production.
+
+    M11 F6 L3.
+    """
+    await _seed_provider_and_agent()
+    await _seed_stub_account()
+    register_for_test("stub", StubPlugin)
+    factory = await _make_factory()
+
+    envelope = _envelope()
+    await dispatch_inbound("acct-test", envelope, factory=factory)
+
+    conn = await get_connection()
+    chat_repo = ChatSessionRepository(conn)
+    sessions = await chat_repo.list()
+    history = decode_messages(sessions[0].messages)
+    non_system = [m for m in history if m.role != Role.SYSTEM]
+    # The first non-system message in the persisted history is the
+    # dispatcher-appended user turn (agent.step prepends nothing in
+    # the connector path — the freshly-built agent's system message
+    # was kept and non-system stored messages were appended; on the
+    # first inbound there are no prior non-system stored messages).
+    assert non_system[0].role == Role.USER
+
+
 async def test_dispatch_inbound_persists_agent_reply_with_visibility_operator(
     isolated_db,
 ) -> None:

@@ -643,6 +643,25 @@ async def dispatch_inbound(
             # full rule enumeration.
             tag_post_step_visibility(agent.messages, pre_step_len)
 
+            # M11 F06 L03: post-step peer_name binding.
+            # The Discord plugin's gateway translator populates
+            # ``InboundEnvelope.peer_name`` (the_one/connectors/_discord_translate.py:125)
+            # but ``Agent.step`` constructs ``Message.user(working_envelope.text)``
+            # at agent/core.py:144 with no peer_name. The M11 mission constraint
+            # forbids modifying ``agent/core.py`` and ``agent/factory.py``, so the
+            # dispatcher binds peer_name here POST-step on the appended user
+            # message, mirroring the ``tag_post_step_visibility`` pattern just
+            # above (same idiom: fill in the metadata the agent loop doesn't
+            # know about). The mutation is inside the per-session lock
+            # (session_locks[session_row.id]) and inside the try block, so it
+            # composes correctly with concurrent operator-typed turns and is
+            # skipped on agent.step exceptions. Closes M10 debrief Bug C
+            # (peer_name data-model gap, 6 surfaces) / M11 criterion #13.
+            assert agent.messages[pre_step_len].role == Role.USER, (
+                "agent.step must append a Role.USER message at pre_step_len"
+            )
+            agent.messages[pre_step_len].peer_name = working_envelope.peer_name
+
             # Persist updated history. Mirror of ``_save_session_to_db``
             # at ``interfaces/web/app.py:469-487``. The leg-1 docstring
             # contract on ``ChatSessionRepository.update`` guarantees

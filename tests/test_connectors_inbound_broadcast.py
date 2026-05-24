@@ -295,6 +295,67 @@ async def test_dispatch_inbound_broadcasts_carry_visibility(
     assert assistant_event["content"] == "done"
 
 
+# ─── Test: peer_name carried on broadcast events ─────────────────────────
+
+
+async def test_dispatch_inbound_broadcasts_carry_peer_name(
+    isolated_db, monkeypatch
+) -> None:
+    """The inbound envelope's ``peer_name`` propagates through the
+    dispatcher's post-step binding (M11 F6 L3) into the persisted
+    USER message, then through the codec's ``messages_to_ui_events``
+    Role.USER spread (M11 F6 L2) into the live broadcast event.
+
+    Branch coverage:
+    - USER event: carries ``peer_name == "Alice"`` (the envelope
+      helper's default value).
+    - TOOL_CALL, TOOL_RESULT, ASSISTANT events: do NOT carry a
+      ``peer_name`` key — L2's projection is gated to the USER branch.
+
+    Composes with the visibility test above — the same scripted
+    response chain (assistant-with-tool_call + final assistant)
+    drives all four event types.
+    """
+    await _seed_provider_and_agent(connector_account_ids=["acct-test"])
+    await _seed_stub_account()
+    register_for_test("stub", StubPlugin)
+
+    tc = ToolCall(
+        id="tc-send-1",
+        name="send_to_platform_channel",
+        arguments={
+            "target": {"account_id": "acct-test", "channel_id": "ch-1"},
+            "content": "hello peer",
+        },
+    )
+    responses = [
+        Message.assistant(content="", tool_calls=[tc]),
+        Message.assistant(content="done"),
+    ]
+    factory = await _make_scripted_factory(
+        responses, monkeypatch, connector_account_ids=["acct-test"]
+    )
+
+    _, fake_ws = await _dispatch_and_collect(factory=factory)
+
+    types = [p["type"] for p in fake_ws.payloads]
+    assert types == ["user", "tool_call", "tool_result", "assistant"], (
+        f"unexpected event sequence: {types}"
+    )
+
+    user_event, tool_call_event, tool_result_event, assistant_event = (
+        fake_ws.payloads
+    )
+
+    # USER: peer_name from the envelope.
+    assert user_event["peer_name"] == "Alice"
+
+    # Non-USER branches: peer_name absent (per L2 branch-gating).
+    assert "peer_name" not in tool_call_event
+    assert "peer_name" not in tool_result_event
+    assert "peer_name" not in assistant_event
+
+
 # ─── Test: broadcast runs AFTER persistence ──────────────────────────────
 
 
