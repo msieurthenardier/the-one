@@ -411,10 +411,16 @@ def test_edit_session_continuation_round_trip(app_clean: str, page: Page) -> Non
     cont_input = page.locator('[data-testid="connector-account-continuation-input"]')
     expect(cont_input).to_be_visible()
 
-    # Helper text under the continuation input describes the session-continuation behavior.
+    # Helper text describes the session-continuation behavior. F5 L3
+    # moved the verbose <small> hint into a .field-info-icon button
+    # tooltip (browser-native title= + visually-hidden sibling for
+    # screen readers); the testid migrated to the info-icon so the
+    # check resolves against the new affordance.
     cont_hint = page.locator('[data-testid="connector-account-continuation-hint"]')
     expect(cont_hint).to_be_visible()
-    expect(cont_hint).to_contain_text("Inbound continues the same chat session within this window.")
+    expect(cont_hint).to_have_attribute(
+        "title", "Inbound continues the same chat session within this window."
+    )
 
     # Select the 1-hour (3600s) ladder option and save.
     # F5 L8 HAT: dropdown replaces the free-form numeric input.
@@ -568,8 +574,16 @@ def test_routing_rules_drag_reorder(app_clean: str, page: Page) -> None:
 
     # Drag rule-0's handle onto rule-2 (DOM-below target → editor inserts
     # the dragged row AFTER the target, so post-drop order is [b, c, a]).
+    #
+    # F5 L6 HAT R4: the Access-and-Routing tab now emits sections in
+    # Discord → Access → Routing → Session order (was Session/Lifecycle
+    # → Discord/Runtime → Access → Routing). Scroll the target row
+    # into view before dragging — Playwright's `drag_to` auto-scrolls
+    # the source but the target's mouse-move sequence can land outside
+    # the viewport at 1280×720 when Routing sits above-the-fold-edge.
     source_handle = rows.nth(0).locator("[data-routing-drag-handle]")
     target_row = rows.nth(2)
+    target_row.scroll_into_view_if_needed()
     source_handle.drag_to(target_row)
 
     # Save.

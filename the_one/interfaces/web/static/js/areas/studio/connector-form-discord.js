@@ -2,9 +2,9 @@
 //
 // First consumer of the L3 registry substrate. Registers the
 // ``'discord'`` entry at module load time so the connector-account
-// editor renders typed Discord-shaped fields (intents fieldset, guilds
-// list, presence editor, masked BOT_TOKEN, Advanced kv-table
-// disclosure) instead of falling back to the generic kv-table.
+// editor renders typed Discord-shaped fields (intents row, scope-to-
+// servers list, bot-status editor, masked BOT_TOKEN, Additional
+// Config kv-table) instead of falling back to the generic kv-table.
 //
 // Contract:
 //   - L3's ``connector-form-registry.js`` MUST load before this file
@@ -35,67 +35,11 @@
     );
   }
 
-  // ── M11 F2 L4: System Prompt Directive defaults ───────────────────
-  //
-  // VERBATIM copies of the Python constants in
-  // ``the_one/agent/config.py``. The Studio's directive section
-  // renders these as read-only ``<pre><code>`` blocks inside the three
-  // ``<details>`` disclosures, so the operator authoring their own
-  // ``system_prompt_directive`` sees exactly which default fires for
-  // each ``(connector_attached, send_tool_enabled, auto_relay)`` state
-  // and what their text will be appended to.
-  //
-  // CONTRACT: each constant must equal its Python twin byte-for-byte.
-  // A future flight that edits the Python constants MUST update these
-  // JS twins in the same atomic diff (the leg artifact's
-  // ``test_three_default_disclosures_render_verbatim_python_text``
-  // test pins the byte-equality). The trailing comments name the
-  // Python symbols so a grep on the Python symbol surfaces the JS
-  // twin instantly.
-
-  // Python twin: ``the_one/agent/config.py:_CONNECTOR_AUTO_RELAY_DIRECTIVE``.
-  var _DIRECTIVE_AUTO_RELAY_DEFAULT = (
-    'This conversation is attached to a connector account on an external ' +
-    'platform (Discord, Slack, etc.). Auto-relay is ON: your plaintext ' +
-    'replies in this session ARE automatically delivered to platform peers ' +
-    '— treat the conversation as the platform conversation itself. Do NOT ' +
-    'ask the operator for permission to respond on the platform; do NOT ' +
-    'narrate that you\'re \'using send_to_platform_channel\'; just reply ' +
-    'naturally as you would in any chat. Messages tagged ' +
-    '``visibility="platform"`` in the history came from platform peers; ' +
-    'messages tagged ``visibility="operator"`` came from the operator\'s ' +
-    'private local Chat console (operator-only — these are NOT relayed). ' +
-    'If you need to send a message to a different channel or thread on ' +
-    'the platform (not the current channel), use the ' +
-    '``send_to_platform_channel`` tool explicitly with a target ' +
-    'specifying that destination.'
-  );
-
-  // Python twin: ``the_one/agent/config.py:_CONNECTOR_TOOL_ENABLED_DIRECTIVE``.
-  var _DIRECTIVE_TOOL_ENABLED_DEFAULT = (
-    'This conversation is attached to a connector account on an external ' +
-    'platform (Discord, Slack, etc.). Messages tagged ``visibility="platform"`` ' +
-    'in the history came from platform peers; messages tagged ' +
-    '``visibility="operator"`` came from the operator\'s private local Chat ' +
-    'console. When a platform-peer message in this session needs a response, ' +
-    'you MUST call the ``send_to_platform_channel`` tool to deliver your reply ' +
-    'to peers — your plain-text replies in this session reach only the ' +
-    'operator\'s local console, NOT peers. The operator console is for the ' +
-    'operator to direct or observe you; only deliberate ``send_to_platform_channel`` ' +
-    'calls reach the platform. The tool takes a target (account_id, channel_id, ' +
-    'and optional thread_id) plus content. Use the account_id and channel_id ' +
-    'from the platform-inbound message you\'re replying to.'
-  );
-
-  // Python twin: ``the_one/agent/config.py:_CONNECTOR_TOOL_DISABLED_DIRECTIVE``.
-  var _DIRECTIVE_TOOL_DISABLED_DEFAULT = (
-    'This conversation is attached to a connector account on an external ' +
-    'platform, but the platform-send capability is currently DISABLED by ' +
-    'the operator. Your replies in this session reach the operator only ' +
-    '— they do not reach the external platform. The ' +
-    '`send_to_platform_channel` tool is not available right now. Do not ' +
-    'claim to have sent anything to the platform.'
-  );
+  // M11 F5 L6 HAT round-8: the three ``_DIRECTIVE_*_DEFAULT`` JS twins
+  // and the ``renderDirectiveSection`` helper were REMOVED from this
+  // module. The simplified two-default surface now lives in
+  // ``connector-account-editor.js`` (the Session-section codeblock
+  // mounts the relevant default below the Auto-reply toggle).
 
   // ── M11 F1 L5: Invite-URL section ──────────────────────────────────
   //
@@ -144,10 +88,15 @@
 
   // Intent axes, in render order. Labels are operator-facing; the keys are
   // the L2 validator's required dict-key set.
+  //
+  // F5 L6 HAT round-2 #1+#3: copy revised to sentence-case + clarified
+  // "Server info" (the GUILDS intent carries guild metadata events; the
+  // unrelated Allowlist "Servers" axis is a separate concept gated by
+  // ``Scope to servers`` below — see HAT fix #2 for the disambiguation).
   var INTENT_AXES = [
-    { key: 'message_content', label: 'Message Content' },
-    { key: 'members', label: 'Server Members' },
-    { key: 'guilds', label: 'Servers' }
+    { key: 'message_content', label: 'Message content' },
+    { key: 'members', label: 'Server members' },
+    { key: 'guilds', label: 'Server info' }
   ];
 
   function _escapeHtml(s) {
@@ -158,19 +107,78 @@
     return window.App.escapeAttr(s == null ? '' : String(s));
   }
 
-  // ── Render: Connection (intents + guilds + presence + advanced) ────
+  // ── Render: Runtime Config (intents + guilds + presence + advanced) ─
+  //
+  // F5 L3: extracted from the old ``renderConnectionFields`` body so the
+  // SAME markup can be rendered either in the Connection section
+  // (create-mode flat layout, no tabs) OR on the Access-and-Routing tab
+  // between Lifecycle and Allowlist (edit-mode tabbed layout). Single
+  // source-of-truth for the runtime-config markup; ``renderConnectionFields``
+  // (create-mode) and ``renderRuntimeConfigFields`` (edit-mode-hook for
+  // the substrate) both delegate to this helper.
+  //
+  // Verbose ``<small class="form-hint">`` blocks replaced with
+  // ``.field-info-icon`` tooltips per F5 Design Decision; production
+  // pattern matches ``mcp-server-editor.js:790-795`` (browser-native
+  // ``title=`` tooltip + ``aria-describedby`` + ``visually-hidden`` sibling
+  // for screen readers).
+  //
+  // F5 L6 HAT round-2: all four rows (Intents, Scope to servers, Bot
+  // status, Additional Config) use the canonical 2-column
+  // ``field-row admin-pf-row`` layout for typography consistency.
+  // Label copy revised for plain-English clarity (was: jargon-y
+  // "Intents" / "Servers" / "Presence" / "Advanced (kv-table)"). The
+  // GUILDS intent label is "Server info" — disambiguates from the
+  // Allowlist "Servers" axis (Discord's GUILDS intent carries guild
+  // metadata events, not the guild allowlist).
+  //
+  // F5 L6 HAT round-3: info-icons refactored OUT of the ``<label>``
+  // element into sibling position to match the Lifecycle section's
+  // 3-column pattern (label | info-icon | field). Pre-round-3 the icon
+  // sat nested inside the label cell, which read as "label and its
+  // decoration"; the canonical pattern puts the icon between the
+  // label and the field control so the flex row treats label +
+  // info-icon + field as three visible cells. The visually-hidden span
+  // is a sibling of the info-icon (not nested in it) so it does NOT
+  // occupy a visible column. Each info-icon now carries a
+  // ``data-testid`` (``discord-intents-hint`` / ``discord-guilds-hint``
+  // / ``discord-presence-hint``) for parity with the Lifecycle section's
+  // ``connector-account-continuation-hint`` / ``-idle-hint`` sites.
 
-  function renderConnectionFields(account, isCreate) {
+  function _renderRuntimeConfigBody(account) {
     var cfg = (account && account.config) || {};
     var intentsCfg = (typeof cfg.intents === 'object' && cfg.intents) ? cfg.intents : {};
     var guildsCfg = Array.isArray(cfg.guilds) ? cfg.guilds : [];
     var presenceCfg = (typeof cfg.presence === 'object' && cfg.presence) ? cfg.presence : {};
 
     var html = '';
+    var infoIcon = (window.App && window.App.icon) ? window.App.icon('info') : 'ⓘ';
 
-    // ── Intents fieldset ─────────────────────────────────────────────
-    html += '<fieldset class="discord-intents-fieldset" data-testid="discord-intents-fieldset">';
-    html += '<legend>Intents</legend>';
+    // ── Intents row (HAT round-2 fix #1) ────────────────────────────
+    // Pre-round-2: ``<fieldset><legend>Intents</legend>`` + free-floating
+    // info-icon + flat checkbox list. Operator HAT found the fieldset
+    // shape, the bare "Intents" label, and the per-axis copy
+    // ("Message Content" / "Server Members" / "Servers") all confusing.
+    //
+    // Round-2: canonical 2-column ``field-row admin-pf-row`` layout —
+    // label cell ("Receive messages from:") on the left, checkbox list
+    // on the right. Sentence-case copy + "Server info" for the GUILDS
+    // intent disambiguates from the Allowlist "Servers" axis. The
+    // ``discord-intents-fieldset`` testid migrates to the row container
+    // as ``discord-intents-row`` so the "intents block exists" signal
+    // survives for tests that asserted presence/absence by testid.
+    var intentsTipText = 'Discord event types the bot receives. All on is the safe default.';
+    html += '<div class="field-row admin-pf-row discord-intents-row" ' +
+            'data-testid="discord-intents-row">';
+    html += '<label>Receive messages from:</label>';
+    html += '<button type="button" class="field-info-icon" ' +
+            'title="' + _escapeAttr(intentsTipText) + '" ' +
+            'aria-describedby="discord-intents-help-text" ' +
+            'data-testid="discord-intents-hint">' +
+            infoIcon + '</button>';
+    html += '<span id="discord-intents-help-text" class="visually-hidden">' +
+            _escapeHtml(intentsTipText) + '</span>';
+    html += '<div class="discord-intents-checkbox-list">';
     for (var i = 0; i < INTENT_AXES.length; i++) {
       var axis = INTENT_AXES[i];
       // Default-on when the operator has never set intents (M10 F8 hardcoded
@@ -181,51 +189,94 @@
       }
       var checkedAttr = checked ? ' checked' : '';
       html += '<label class="discord-intent-row">';
-      html += '<input type="checkbox" data-field="intent-' + axis.key +
+      html += '<input type="checkbox" class="checkbox-primary" data-field="intent-' + axis.key +
               '" data-testid="discord-intent-' + axis.key + '"' + checkedAttr + ' />';
       html += '<span>' + _escapeHtml(axis.label) + '</span>';
       html += '</label>';
     }
-    html += '<small class="form-hint">Discord gateway intents — controls which ' +
-            'event types the bot receives. All on is the safe default; disable ' +
-            'individual intents only if you understand the consequences.</small>';
-    html += '</fieldset>';
-
-    // ── Guilds list ──────────────────────────────────────────────────
-    var guildsValue = guildsCfg.join(', ');
-    html += '<div class="discord-guilds-row">';
-    html += '<label for="cf-discord-guilds">Guilds</label>';
-    html += '<input type="text" id="cf-discord-guilds" data-field="guilds-list" ' +
-            'data-testid="discord-guilds-list" value="' + _escapeAttr(guildsValue) +
-            '" placeholder="" />';
-    html += '<small class="form-hint">Comma-separated Discord guild IDs (digit-only).</small>';
+    html += '</div>';
     html += '</div>';
 
-    // ── Presence editor ──────────────────────────────────────────────
+    // ── Scope to servers row (HAT round-2 fix #2) ───────────────────
+    // Pre-round-2 label "Servers" collided with the Allowlist "Servers"
+    // axis. Renamed to "Scope to servers" so the Runtime Config field
+    // is unambiguously the Discord guild-scoping setting. Container
+    // bumped to the canonical 2-column ``field-row admin-pf-row``
+    // layout for typography consistency with the other rows.
+    var guildsValue = guildsCfg.join(', ');
+    var guildsTipText = 'Comma-separated server IDs. Leave blank to allow all servers the bot is in.';
+    html += '<div class="field-row admin-pf-row discord-guilds-row">';
+    html += '<label for="cf-discord-guilds">Scope to servers</label>';
+    html += '<button type="button" class="field-info-icon" ' +
+            'title="' + _escapeAttr(guildsTipText) + '" ' +
+            'aria-describedby="discord-guilds-help-text" ' +
+            'data-testid="discord-guilds-hint">' +
+            infoIcon + '</button>';
+    html += '<span id="discord-guilds-help-text" class="visually-hidden">' +
+            _escapeHtml(guildsTipText) + '</span>';
+    html += '<input class="field-input" type="text" id="cf-discord-guilds" data-field="guilds-list" ' +
+            'data-testid="discord-guilds-list" value="' + _escapeAttr(guildsValue) +
+            '" placeholder="" />';
+    html += '</div>';
+
+    // ── Bot status row (HAT round-2 fix #4) ─────────────────────────
+    // Pre-round-2 label "Presence" was Discord-jargon; the order was
+    // [name input, type select], which read backwards. Round-2 renames
+    // to "Bot status" and swaps to [type select, name input] so the two
+    // controls read as a sentence ("Playing chess" / "Listening to
+    // music"). Option labels rewritten as natural-language verbs;
+    // ``value=`` attributes preserved (API contract pinned by L2's
+    // ``_DISCORD_PRESENCE_TYPES`` frozenset).
     var presenceName = (typeof presenceCfg.name === 'string') ? presenceCfg.name : '';
     var presenceType = (typeof presenceCfg.type === 'string') ? presenceCfg.type : '';
+    var presenceTipText = "What people see next to the bot's name in the member list (e.g., 'Playing chess').";
+    var PRESENCE_TYPE_LABELS = {
+      playing: 'Playing',
+      streaming: 'Streaming',
+      listening: 'Listening to',
+      watching: 'Watching',
+      competing: 'Competing in'
+    };
 
-    html += '<div class="discord-presence-row">';
-    html += '<label>Presence</label>';
-    html += '<input type="text" data-field="presence-name" data-testid="discord-presence-name" ' +
-            'value="' + _escapeAttr(presenceName) + '" placeholder="Activity name" />';
-    html += '<select data-field="presence-type" data-testid="discord-presence-type">';
+    html += '<div class="field-row admin-pf-row discord-presence-row">';
+    html += '<label>Bot status</label>';
+    html += '<button type="button" class="field-info-icon" ' +
+            'title="' + _escapeAttr(presenceTipText) + '" ' +
+            'aria-describedby="discord-presence-help-text" ' +
+            'data-testid="discord-presence-hint">' +
+            infoIcon + '</button>';
+    html += '<span id="discord-presence-help-text" class="visually-hidden">' +
+            _escapeHtml(presenceTipText) + '</span>';
+    html += '<div class="discord-presence-fields">';
+    html += '<select class="field-input field-select" data-field="presence-type" data-testid="discord-presence-type">';
     var emptySelected = presenceType === '' ? ' selected' : '';
     html += '<option value=""' + emptySelected + '>(default)</option>';
     for (var p = 0; p < PRESENCE_TYPES.length; p++) {
       var pt = PRESENCE_TYPES[p];
       var sel = (pt === presenceType) ? ' selected' : '';
-      html += '<option value="' + _escapeAttr(pt) + '"' + sel + '>' + _escapeHtml(pt) + '</option>';
+      var ptLabel = PRESENCE_TYPE_LABELS[pt] || pt;
+      html += '<option value="' + _escapeAttr(pt) + '"' + sel + '>' + _escapeHtml(ptLabel) + '</option>';
     }
     html += '</select>';
-    html += '<small class="form-hint">Activity name + type for the bot\'s status. ' +
-            'Leave both blank to use the default presence.</small>';
+    html += '<input class="field-input" type="text" data-field="presence-name" data-testid="discord-presence-name" ' +
+            'value="' + _escapeAttr(presenceName) + '" placeholder="(e.g., chess, music)" />';
+    html += '</div>';
     html += '</div>';
 
-    // ── Advanced kv-table disclosure ─────────────────────────────────
-    html += '<details class="discord-advanced-kv-disclosure" ' +
-            'data-testid="discord-advanced-kv-disclosure">';
-    html += '<summary>Advanced (kv-table)</summary>';
+    // ── Additional Config row (HAT round-2 fix #3) ──────────────────
+    // Pre-round-2: ``<details><summary>Advanced (kv-table)</summary>``
+    // disclosure. Operator HAT found "kv-table" jargon-y and the
+    // disclosure-by-default-collapsed shape an unnecessary hop for
+    // operators who'd just typed BOT_TOKEN/intents/etc. and might want
+    // to add an ad-hoc config key. Round-2 inlines the kv-table under
+    // an "Additional Config" subheading in the same 2-column row
+    // layout. The ``discord-advanced-kv-disclosure`` testid migrates
+    // to the row container as ``discord-additional-config-row`` so the
+    // "additional-config block exists" signal survives.
+    html += '<div class="field-row admin-pf-row discord-additional-config-row" ' +
+            'data-testid="discord-additional-config-row">';
+    html += '<div class="discord-additional-config-label">Additional Config</div>';
+    html += '<div class="discord-additional-config-body">';
     // L4 contract: ``renderConfigKvTable`` is exposed on
     // ``window.App.studio`` for this exact mount point. Triple-guard
     // for early-load (the substrate exposes it at IIFE end, same script).
@@ -233,9 +284,42 @@
     if (typeof renderKv === 'function') {
       html += renderKv(account);
     }
-    html += '</details>';
+    html += '</div>';
+    html += '</div>';
 
     return html;
+  }
+
+  // ── Render: Connection (always empty — runtime config is edit-mode-only) ─
+  //
+  // F5 L3: in edit-mode (tabbed), runtime-config lives on the
+  // Access-and-Routing tab via ``renderRuntimeConfigFields`` so tab
+  // semantics are coherent (General = WHAT the bot is; Access and
+  // Routing = HOW it behaves at runtime).
+  // F5 L6 HAT: create-mode no longer renders runtime config inline.
+  // Operators configure Intents/Servers/Presence/Advanced post-create
+  // on the A&R tab. Discord's typed Connection-section contribution is
+  // now always empty; the shared ``_renderRuntimeConfigBody`` helper
+  // stays as the single source-of-truth that ``renderRuntimeConfigFields``
+  // (edit-mode A&R tab mount) consumes.
+  //
+  // The ``isCreate`` parameter is retained in the signature for
+  // registry-contract compatibility but is unused.
+
+  function renderConnectionFields(account, isCreate) {  // eslint-disable-line no-unused-vars
+    return '';
+  }
+
+  // ── Render: Runtime Config (edit-mode hook) ────────────────────────
+  //
+  // F5 L3: registry-mediated optional hook called by the substrate from
+  // ``connector-account-editor.js`` when building the Access-and-Routing
+  // tab. Substrate wraps the returned content in an ``<div
+  // class="editor-section">`` with ``<div class="section-title">Runtime
+  // Config</div>``; this helper returns the inner content only.
+
+  function renderRuntimeConfigFields(account) {
+    return _renderRuntimeConfigBody(account);
   }
 
   // ── Render: Credentials (typed BOT_TOKEN with masked-edit) ─────────
@@ -243,12 +327,32 @@
   function renderCredentialsFields(account) {
     var secrets = (account && account.secrets) || {};
     var masked = secrets.BOT_TOKEN != null ? String(secrets.BOT_TOKEN) : '';
+    var infoIcon = (window.App && window.App.icon) ? window.App.icon('info') : 'ⓘ';
+    var hintText = 'Stored encrypted at rest; shown masked on read.';
 
+    // F5 L6 HAT: 2-column ``field-row admin-pf-row`` layout (label +
+    // input on one row) to match the other form fields. The verbose
+    // ``<small class="form-hint">`` block is replaced with a
+    // ``.field-info-icon`` tooltip (production pattern: ``title=`` +
+    // ``aria-describedby`` + visually-hidden sibling). The
+    // ``kv-value-secret`` class is preserved (it carries the masked-edit
+    // semantics); ``.field-input`` is added so the input picks up the
+    // dark-theme styling + the substrate's ``attachStaticListeners``
+    // dirty-tracking wiring.
     var html = '';
-    html += '<div class="discord-credentials-row">';
-    html += '<label for="cf-discord-bot-token">Bot Token</label>';
+    html += '<div class="field-row admin-pf-row discord-credentials-row">';
+    html += '<label for="cf-discord-bot-token">';
+    html += 'Bot Token';
+    html += '<button type="button" class="field-info-icon" ' +
+            'title="' + _escapeAttr(hintText) + '" ' +
+            'aria-describedby="discord-bot-token-help-text" ' +
+            'data-testid="connector-account-bot-token-hint">' +
+            infoIcon + '</button>';
+    html += '<span id="discord-bot-token-help-text" class="visually-hidden">' +
+            _escapeHtml(hintText) + '</span>';
+    html += '</label>';
     html += '<div class="api-key-wrap">';
-    html += '<input class="kv-value-secret" type="password" id="cf-discord-bot-token" ' +
+    html += '<input class="field-input kv-value-secret" type="password" id="cf-discord-bot-token" ' +
             'data-field="bot-token" data-testid="discord-bot-token" ' +
             'value="' + _escapeAttr(masked) + '" data-original-masked="' + _escapeAttr(masked) +
             '" placeholder="Bot token" />';
@@ -256,8 +360,6 @@
             'data-testid="discord-bot-token-eye-btn" aria-label="Show value">' +
             window.App.icon('eye') + '</button>';
     html += '</div>';
-    html += '<small class="form-hint">Discord bot token. Stored encrypted at rest; ' +
-            'shown masked on read.</small>';
     html += '</div>';
 
     return html;
@@ -343,17 +445,9 @@
       }
     }
 
-    // ── M11 F2 L4: System Prompt Directive ──────────────────────────
-    // Trim leading/trailing whitespace per UI convention. Empty value
-    // (after trim) → OMIT the key entirely (L3's API validator rejects
-    // empty strings; emit-and-reject would be a UX bug).
-    var directiveEl = container.querySelector('[data-field="system-prompt-directive"]');
-    if (directiveEl) {
-      var directiveValue = (directiveEl.value || '').replace(/^\s+|\s+$/g, '');
-      if (directiveValue) {
-        config.system_prompt_directive = directiveValue;
-      }
-    }
+    // M11 F5 L6 HAT round-8: the System Prompt Directive collect block
+    // was REMOVED (operator-editable per-account directive surface
+    // dropped; substrate defaults are used universally).
 
     return { config: config, secrets: secrets };
   }
@@ -361,11 +455,6 @@
   // ── Snapshot: typed-input state → JSON-serializable view ───────────
 
   function snapshot(container) {
-    // M11 F2 L4: ``systemPromptDirective`` is the raw textarea value
-    // (NOT trimmed) so the dirty-tracker fires on any whitespace-only
-    // edit; symmetric with the secrets-row snapshot pattern.
-    var directiveEl = container.querySelector('[data-field="system-prompt-directive"]');
-    var systemPromptDirective = directiveEl ? (directiveEl.value || '') : '';
     return {
       intents: {
         message_content: _readIntentChecked(container, 'message_content'),
@@ -375,8 +464,7 @@
       guildsList: _readInputValue(container, 'guilds-list'),
       presenceName: _readInputValue(container, 'presence-name'),
       presenceType: _readInputValue(container, 'presence-type'),
-      botTokenValue: _readInputValue(container, 'bot-token'),
-      systemPromptDirective: systemPromptDirective
+      botTokenValue: _readInputValue(container, 'bot-token')
     };
   }
 
@@ -388,132 +476,55 @@
     var hintHidden = appId ? ' hidden' : '';
     var urlHidden = appId ? '' : ' hidden';
     var url = appId ? _computeInviteUrl(appId) : '';
+    var infoIcon = (window.App && window.App.icon) ? window.App.icon('info') : 'ⓘ';
+    var copyIcon = (window.App && window.App.icon) ? window.App.icon('copy') : '⧉';
+    var refreshIcon = (window.App && window.App.icon) ? window.App.icon('refresh-cw') : '↻';
+    var infoText = 'Open this URL on Discord to add the bot to a server.';
 
     var html = '';
-    html += '<section class="editor-section connector-invite-section" ' +
+    // F5 L6 HAT round-7: 3-column field-row pattern
+    // (label | info-icon | field-content). Copy + Refresh are icon-only
+    // buttons matching the existing connector-pairing-copy-btn precedent.
+    // The testid moves from a <section> wrapper (pre-L2) to the
+    // outer field-row div so DOM-by-testid lookups keep resolving.
+    html += '<div class="field-row admin-pf-row connector-invite-row" ' +
             'data-testid="connector-invite-section">';
-    html += '<div class="section-title">Invite</div>';
-    html += '<p class="connector-invite-hint" ' +
+    html += '<label>Invite link</label>';
+    html += '<button type="button" class="field-info-icon" ' +
+            'title="' + _escapeAttr(infoText) + '" ' +
+            'aria-describedby="connector-invite-help-text" ' +
+            'data-testid="connector-invite-info">' + infoIcon + '</button>';
+    html += '<span id="connector-invite-help-text" class="visually-hidden">' +
+            _escapeHtml(infoText) + '</span>';
+    html += '<div class="connector-invite-field">';
+    html += '<span class="connector-invite-hint" ' +
             'data-testid="connector-invite-hint"' + hintHidden + '>' +
-            'Run Test Connection first to fetch your application ID.' +
-            '</p>';
+            'Refresh connection first to fetch your application ID.' +
+            '</span>';
     html += '<div class="connector-invite-url-wrap" ' +
             'data-testid="connector-invite-url-wrap"' + urlHidden + '>';
     html += '<code class="connector-invite-url" ' +
             'data-testid="connector-invite-url">' + _escapeHtml(url) + '</code>';
-    html += '<button type="button" class="btn-outlined-primary connector-invite-copy-btn" ' +
-            'data-testid="connector-invite-copy-btn">Copy</button>';
-    html += '<button type="button" class="btn-outlined-primary connector-invite-recompute-btn" ' +
-            'data-testid="connector-invite-recompute-btn">Recompute</button>';
+    html += '<button type="button" class="connector-invite-icon-btn connector-invite-copy-btn" ' +
+            'data-testid="connector-invite-copy-btn" ' +
+            'title="Copy invite URL" aria-label="Copy invite URL">' +
+            copyIcon + '</button>';
+    html += '<button type="button" class="connector-invite-icon-btn connector-invite-recompute-btn" ' +
+            'data-testid="connector-invite-recompute-btn" ' +
+            'title="Refresh invite URL" aria-label="Refresh invite URL">' +
+            refreshIcon + '</button>';
     html += '</div>';
-    html += '</section>';
+    html += '</div>';
+    html += '</div>';
     return html;
   }
 
-  // ── M11 F2 L4: System Prompt Directive section ────────────────────
-  //
-  // Edit-mode-only section mounted on the General tab between Pairing
-  // and Attached Agents. Renders a textarea for the operator's
-  // per-account directive (APPEND-mode — substrate-enforced by L3) +
-  // three read-only ``<details>`` disclosures showing the verbatim
-  // Python defaults for each ``(connector_attached, send_tool_enabled,
-  // auto_relay)`` state-triple. The disclosure for the account's
-  // currently-active state gets a ``(this account's current)``
-  // annotation that lives in the ``<summary>`` and repaints live on
-  // auto-relay toggles.
-  //
-  // The summary text is rendered EMPTY at initial mount; the SOLE
-  // writer of summary ``textContent`` is ``_updateDirectiveAnnotation``,
-  // which is called once at ``wireEvents`` time AND on every auto-relay
-  // checkbox change. Same code path = byte-stable summary text
-  // (no escapeHtml-vs-textContent asymmetry between initial render and
-  // post-toggle re-render).
-
-  function renderDirectiveSection(account) {
-    var cfg = (account && account.config) || {};
-    var existingDirective = (typeof cfg.system_prompt_directive === 'string')
-      ? cfg.system_prompt_directive
-      : '';
-
-    var html = '';
-    html += '<section class="editor-section connector-directive-section" ' +
-            'data-testid="connector-account-directive-section">';
-    html += '<div class="section-title">System Prompt Directive</div>';
-
-    html += '<textarea data-field="system-prompt-directive" ' +
-            'data-testid="connector-account-system-prompt-directive" ' +
-            'rows="6" placeholder="(leave empty for no override)">' +
-            _escapeHtml(existingDirective) + '</textarea>';
-    html += '<small class="form-hint">Your text is appended to whichever ' +
-            'default fires for this account\'s current state. Empty = no override.</small>';
-
-    // Three disclosures. Summaries are rendered with EMPTY content
-    // here; ``_updateDirectiveAnnotation`` is called once at
-    // ``wireEvents`` time to set the initial textContent, guaranteeing
-    // byte-identical text between initial render and post-auto-relay-
-    // toggle re-render (single code path — no escapeHtml-vs-textContent
-    // asymmetry).
-    html += _renderDirectiveDisclosure('auto-relay-on', _DIRECTIVE_AUTO_RELAY_DEFAULT);
-    html += _renderDirectiveDisclosure('auto-relay-off', _DIRECTIVE_TOOL_ENABLED_DEFAULT);
-    html += _renderDirectiveDisclosure('tool-disabled', _DIRECTIVE_TOOL_DISABLED_DEFAULT);
-
-    html += '</section>';
-    return html;
-  }
-
-  function _renderDirectiveDisclosure(stateKey, defaultText) {
-    var html = '<details class="connector-directive-disclosure" ' +
-               'data-state-key="' + _escapeAttr(stateKey) + '">';
-    // Summary text intentionally empty here — initialized by
-    // ``_updateDirectiveAnnotation`` post-mount via ``textContent``.
-    html += '<summary data-testid="directive-default-' +
-            _escapeAttr(stateKey) + '-summary"></summary>';
-    html += '<pre><code data-testid="directive-default-' +
-            _escapeAttr(stateKey) + '-text">' +
-            _escapeHtml(defaultText) + '</code></pre>';
-    html += '</details>';
-    return html;
-  }
-
-  function _updateDirectiveAnnotation(container) {
-    if (!container) return;
-    var autoRelayEl = container.querySelector('[data-field="auto_relay_platform_replies"]');
-    // Default to autoRelay=true when checkbox isn't found (matches
-    // ``account.config.auto_relay_platform_replies`` absent → True at
-    // dispatcher consume time per M10 F8 L11 HAT Fix #4 semantics).
-    var autoRelay = autoRelayEl ? !!autoRelayEl.checked : true;
-
-    var onSummary = container.querySelector(
-      '[data-testid="directive-default-auto-relay-on-summary"]'
-    );
-    var offSummary = container.querySelector(
-      '[data-testid="directive-default-auto-relay-off-summary"]'
-    );
-    var disabledSummary = container.querySelector(
-      '[data-testid="directive-default-tool-disabled-summary"]'
-    );
-
-    // Guards keep this a no-op in create mode (registry-dispatch-create-
-    // mode-AC) where the directive section is absent → the summaries
-    // don't exist → the auto-relay checkbox change still fires but
-    // querySelector returns null for each.
-    if (onSummary) {
-      onSummary.textContent = autoRelay
-        ? "When auto-relay is ON (this account's current)"
-        : 'When auto-relay is ON';
-    }
-    if (offSummary) {
-      offSummary.textContent = autoRelay
-        ? 'When auto-relay is OFF and platform-send tool is enabled'
-        : "When auto-relay is OFF and platform-send tool is enabled (this account's current)";
-    }
-    // Tool-disabled is an AGENT-level setting; the account editor has
-    // no agent context, so the annotation can NEVER land here from
-    // this surface.
-    if (disabledSummary) {
-      disabledSummary.textContent = 'When the platform-send tool is disabled';
-    }
-  }
+  // M11 F5 L6 HAT round-8: ``renderDirectiveSection``,
+  // ``_renderDirectiveDisclosure``, and ``_updateDirectiveAnnotation``
+  // were REMOVED. The directive surface is now read-only and lives
+  // under the Auto-reply toggle in the Session section (rendered by
+  // ``connector-account-editor.js``), not as an editable General-tab
+  // section.
 
   function _updateInviteUrlDisplay(container, account) {
     if (!container) return;
@@ -603,27 +614,11 @@
       });
     }
 
-    // ── L4: Directive section wiring ───────────────────────────────
-    // (a) initial population of disclosure summaries — one call at
-    //     mount time; same code path as the auto-relay change handler
-    //     guarantees byte-stable summary text.
-    _updateDirectiveAnnotation(container);
-
-    // (b) directive textarea input → dirty tracker. Per-keystroke so
-    //     the dirty-state shape matches the other text-input fields.
-    _wireListener(container, '[data-field="system-prompt-directive"]', 'input', checkDirty);
-
-    // (c) auto-relay change → repaint annotation. The substrate's
-    //     existing change listener on the same element also fires
-    //     ``checkDirty`` (attachStaticListeners); the two listeners
-    //     are independent and additive — no conflict, no double
-    //     dirty-fire (checkDirty is idempotent).
-    var autoRelayEl = container.querySelector('[data-field="auto_relay_platform_replies"]');
-    if (autoRelayEl) {
-      autoRelayEl.addEventListener('change', function () {
-        _updateDirectiveAnnotation(container);
-      });
-    }
+    // M11 F5 L6 HAT round-8: the L4 Directive-section wiring was
+    // REMOVED here (no editable textarea; no per-disclosure summary
+    // repaint). The Session-section codeblock in
+    // ``connector-account-editor.js`` wires its own auto-relay listener
+    // for the reactive codeblock content swap.
 
     // ── L5: Invite-section Copy + Recompute buttons ────────────────
     var copyBtn = container.querySelector('[data-testid="connector-invite-copy-btn"]');
@@ -707,17 +702,19 @@
 
   window.App.studio.connectorFormRegistry.register('discord', {
     type: 'discord',
-    // M11 F2 L4: ``system_prompt_directive`` is rendered through the
-    // entry's typed directive surface; reserve it so the Advanced
-    // kv-table on Discord accounts does NOT also render it as a row.
-    reservedConfigKeys: ['intents', 'guilds', 'presence', 'system_prompt_directive'],
+    // M11 F5 L6 HAT round-8: ``system_prompt_directive`` removed from
+    // ``reservedConfigKeys``. Legacy rows that still carry the key
+    // surface in the Advanced kv-table now (instead of being hidden);
+    // they have no behavioral effect (the factory ignores the key) but
+    // the operator can see / delete the stale entry from the UI.
+    reservedConfigKeys: ['intents', 'guilds', 'presence'],
     renderConnectionFields: renderConnectionFields,
+    renderRuntimeConfigFields: renderRuntimeConfigFields,
     renderCredentialsFields: renderCredentialsFields,
     collect: collect,
     snapshot: snapshot,
     wireEvents: wireEvents,
     renderInviteSection: renderInviteSection,
-    renderDirectiveSection: renderDirectiveSection,
     // M11 F3 L5: positional-to-opts bridge to the shared
     // ``App.studio.discoverableDropdown`` component. The registry
     // calls this hook with a 5-positional signature; the component

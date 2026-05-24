@@ -24,6 +24,18 @@
      directly into .studio-section-content (no tablist wrapper), so we scope
      padding + loading-text rules here that mirror the admin equivalents. */
   .area-studio .editor-section { padding-left: 20px; padding-right: 20px; }
+  /* F5 L6 HAT R4: friendly description sits flush under each section-title
+     in the connector account editor's Access-and-Routing tab. body-sm
+     muted text, modest bottom margin so it doesn't crowd the first
+     field-row. Currently scoped to .area-studio per F5 scope; if other
+     areas adopt the same pattern this rule can be lifted to
+     components.css. */
+  .area-studio .section-description {
+    font-size: var(--font-size-body-sm);
+    color: var(--fg-secondary);
+    margin-top: -4px;
+    margin-bottom: 12px;
+  }
   .area-studio .admin-loading { color: var(--fg-muted); font-size: var(--font-size-body); padding: 20px 0; }
   .area-studio .admin-pf-input:focus-visible, .area-studio .admin-pf-select:focus-visible { border-color: var(--accent); outline: 1px solid var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
 
@@ -123,7 +135,12 @@
   .area-studio .tool-row-overrides .error { font-size: var(--font-size-body-sm); color: var(--status-danger); padding: 4px 8px; }
 
   /* === MCP source-editor: Test connection + Tools section (F6.5 L3+L4) === */
-  .area-studio .mcp-test-row { margin-top: 8px; }
+  /* M11 F5 L2: ``.connector-test-row`` shares MCP's ``.mcp-test-row`` margin
+     so the connector editor's Test Connection footer-row (folded INSIDE
+     the Connection section per the MCP-parity refactor) has the same
+     spacing as MCP's mcp-test-row inside the MCP Connection section. */
+  .area-studio .mcp-test-row,
+  .area-studio .connector-test-row { margin-top: 8px; }
   /* F9 L1 (vibing follow-up): Reset connection button paired next to
      Refresh in the Connection block (moved out of Danger Zone). The
      flex container groups them inline with a small gap so they read as
@@ -1020,6 +1037,70 @@
     height: 16px;
   }
 
+  /* F5 L6 HAT round-7: Invite section uses the 3-column field-row
+     pattern (label | info-icon | field-content). Copy + Refresh are
+     icon-only buttons matching the connector-pairing-copy-btn shape. */
+  .area-studio .connector-invite-field {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .area-studio .connector-invite-url-wrap {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1;
+    min-width: 0;
+  }
+  /* F5 L6 HAT round-8: specificity-override so JS hidden-attr toggle
+     defeats display:flex (same kind of fix L4 applied to .discoverable-
+     dropdown-chips). 0,0,3,0 outranks .area-studio .connector-invite-
+     url-wrap (0,0,2,0). */
+  .area-studio .connector-invite-url-wrap[hidden] {
+    display: none;
+  }
+  .area-studio .connector-invite-url {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-body-sm);
+    color: var(--fg-secondary);
+    background: var(--surface-elevated);
+    padding: 4px 8px;
+    border-radius: var(--panel-radius-sm);
+  }
+  .area-studio .connector-invite-hint {
+    color: var(--fg-secondary);
+    font-size: var(--font-size-body-sm);
+  }
+  .area-studio .connector-invite-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    color: var(--fg-secondary);
+    cursor: pointer;
+    padding: 0;
+    flex-shrink: 0;
+  }
+  .area-studio .connector-invite-icon-btn:hover {
+    background: var(--surface-elevated);
+    color: var(--fg);
+  }
+  .area-studio .connector-invite-icon-btn svg {
+    width: 16px;
+    height: 16px;
+  }
+
   /* Issue #5: iOS-style toggle via the .tool-enable-switch primitive.
      The base rule (admin.css:197) ships `position: absolute` for
      tile-corner placement; unpin here so the toggle flows inline at
@@ -1035,14 +1116,80 @@
     vertical-align: middle;
   }
 
-  /* Issue #6: peers and channels lists are bare — no card chrome.
-     The label + add-button + rows live directly on the section
-     background, separated by simple vertical spacing. */
-  .area-studio .connector-allowlist-lists {
+  /* F5 L6 HAT round-8: read-only effective-directive codeblock that
+     lives below the Auto-reply toggle in the Session section. The
+     codeblock reuses the design-language ``.code-block`` primitive
+     (defined in ``components.css``) for the read-only prompt
+     aesthetic; this rule provides the row's label-gutter +
+     field-content layout. The label sits at the row's top so the
+     multi-line codeblock has a clear caption; ``align-items: start``
+     overrides the ``.field-row``'s default center alignment for this
+     specific row. The hint text sits ABOVE the codeblock (small,
+     muted) so the operator sees the codeblock's purpose at a glance. */
+  .area-studio .cf-effective-directive-row {
+    align-items: start;
+  }
+  .area-studio .cf-effective-directive-label {
+    padding-top: 6px;  /* visual centering against the hint baseline */
+  }
+  .area-studio .cf-effective-directive-field {
+    flex: 1;
+    min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: 16px;
-    margin-top: 12px;
+    gap: 6px;
+  }
+  .area-studio .cf-effective-directive-code {
+    margin: 0;
+    /* The ``.code-block`` primitive handles the rest (bg, color,
+       border, padding, mono font, overflow). */
+  }
+
+  /* F5 L6 HAT R5: section-level discoverable-entities banner. Replaces
+     the per-axis Refresh button + per-axis pre-probe hint that lived
+     inside ``discoverable-dropdown.js`` pre-R5. The banner uses the
+     canonical ``.field-row.admin-pf-row`` 3-column shape (label gutter
+     + content column), with the LED + status text + Refresh button
+     packed in the content column. The status text takes flex: 1 so
+     the Refresh button right-aligns; LED stays a fixed-width pill
+     between label and status. The Refresh button is `[hidden]` in the
+     pre-probe state — admin-pf-row's flex doesn't suppress `[hidden]`
+     by itself (it only fights against children's display: flex), but
+     `<button>` has no flex-display rule so the UA `[hidden] {
+     display: none }` applies cleanly. */
+  .area-studio .connector-allowlist-banner {
+    margin-top: 4px;
+    /* margin-bottom inherits .field-row's 8px so banner-to-Peers spacing
+       matches inter-axis spacing (HAT round-6 operator-reported). */
+  }
+  .area-studio .connector-allowlist-banner-led {
+    flex-shrink: 0;
+  }
+  .area-studio .connector-allowlist-banner-status {
+    flex: 1;
+    font-size: var(--font-size-body-sm);
+    color: var(--fg-secondary);
+    min-width: 0;
+  }
+  .area-studio .connector-allowlist-banner-refresh {
+    flex-shrink: 0;
+  }
+
+  /* Issue #6: peers and channels lists are bare — no card chrome.
+     The label + add-button + rows live directly on the section
+     background, separated by simple vertical spacing.
+     F5 L6 HAT round-6: container is plain block flow so each axis
+     row's natural ``.field-row { margin-bottom: 8px }`` baseline drives
+     inter-row spacing — matches the Discord / Routing / Session
+     sections' inter-row gap. Previously this was a ``display: flex``
+     column with ``gap: 16px`` (which compounded with per-row
+     ``margin-top: 12px`` on each axis fieldrow to produce ~36px gaps
+     vs the 8px baseline elsewhere — operator-reported in HAT round-6). */
+  .area-studio .connector-allowlist-lists {
+    /* margin-top dropped — banner's 8px margin-bottom (from .field-row)
+       drives banner→Peers spacing, matching the 8px inter-axis baseline.
+       HAT round-6 operator-reported gap inconsistency between banner→Peers
+       (was 12px) vs axis-to-axis (8px). */
   }
   .area-studio .connector-allowlist-lists[hidden] {
     display: none;
@@ -1052,15 +1199,33 @@
   }
   /* M10 F6 L7 HAT: account-scope allowlist now uses chip-list-editor
      (slug-style), matching the Agent Editor Connectors tab. The
-     "Peers" / "Channels" labels sit above each chiplist for clarity. */
-  .area-studio .connector-account-acl-fieldrow {
-    margin-top: 12px;
+     "Peers" / "Channels" labels sit above each chiplist for clarity.
+     F5 L6 HAT round-3: rows now use the canonical
+     ``.field-row.admin-pf-row`` 3-column layout (label | info-icon |
+     chiplist). The ``.field-row`` flex defaults (align-items: center,
+     gap: 12px) and ``.field-row label`` (100px width, sentence-case
+     secondary fg) drive layout/typography. The chiplist slot's wrapper
+     (``.connector-allowlist-chiplist``) takes ``flex: 1`` so it
+     occupies the remaining column. (Round-6: per-axis ``margin-top:
+     12px`` removed so inter-row gap matches the 8px baseline used by
+     Discord / Routing / Session.) */
+  /* Per-axis chiplist slot takes the remaining column width, matching
+     the ``.field-input { flex: 1 }`` shape so the row reads as a
+     3-column ``label | info-icon | field`` rhythm. The slot ``<div>``
+     (``data-allowlist-chiplist-slot="…"``) is the actual flex child
+     of the row; ``wireAllowlistEvents`` mounts either a chip-list-editor
+     OR a discoverable-dropdown into it, so styling the slot — not the
+     mounted child — keeps the rule type-agnostic. Without this the
+     slot would shrink to its content width and leave the row
+     trailing whitespace. */
+  .area-studio .connector-account-acl-fieldrow
+    [data-allowlist-chiplist-slot] {
+    flex: 1;
+    min-width: 0;
   }
   .area-studio .connector-account-acl-fieldlabel {
-    display: block;
     font-size: var(--font-size-body-sm);
     color: var(--fg-secondary);
-    margin-bottom: 4px;
   }
 
   /* === Per-axis ACL chevron rows (M10 F6 L7 HAT — MCP-style) ====
@@ -1096,8 +1261,18 @@
     flex: 0 0 auto;
     text-align: left;
   }
+  /* M11 F5 L4 item 6: per-axis body containment — visually scopes the
+     per-axis editor (Peers / Channels) so the expanded body reads as
+     "this is the {axis} editor for this account" rather than as a
+     free-floating dropdown spanning the full tile width. `--surface-elevated`
+     gives a tonal step-up from the parent tile's `--surface`; matches
+     the nested-surface treatment used elsewhere in the area-studio. */
   .area-studio .connector-acl-axis-body {
     margin-top: 8px;
+    border-left: 2px solid var(--border);
+    padding: 8px 0 8px 12px;
+    background: var(--surface-elevated);
+    border-radius: var(--panel-radius-sm);
   }
   .area-studio .connector-allowlist-rows {
     display: flex;
@@ -1236,26 +1411,10 @@
     opacity: 0.6;
     cursor: not-allowed;
   }
-  .discoverable-dropdown-refresh {
-    flex-shrink: 0;
-    padding: 4px 10px;
-    background: var(--accent-translucent);
-    border: 1px solid var(--glass-border);
-    border-radius: var(--panel-radius-sm);
-    color: var(--fg);
-    cursor: pointer;
-    font-size: var(--font-size-body);
-    line-height: 1;
-  }
-  .discoverable-dropdown-refresh:hover {
-    background: var(--accent-translucent-hover, var(--accent-translucent));
-    border-color: var(--accent);
-  }
-  .discoverable-dropdown-refresh:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: 1px;
-    box-shadow: 0 0 0 3px var(--accent-glow);
-  }
+  /* F5 L6 HAT R5: ``.discoverable-dropdown-refresh`` rules removed —
+     the per-axis Refresh button was dropped from ``_buildDOM`` in
+     ``discoverable-dropdown.js`` and replaced by the section-level
+     ``.connector-allowlist-banner-refresh`` button above. */
   .discoverable-dropdown-menu {
     max-height: 260px;
     overflow-y: auto;
@@ -1303,10 +1462,33 @@
        :388-433 (both classes apply). No extra rules needed unless we
        want to constrain min-height differently — leave to inheritance. */
   }
+  /* M11 F5 L4 item 7: hide-when-empty override. The JS toggle in
+     _renderChips (discoverable-dropdown.js) sets/removes the `hidden`
+     attribute based on chip count, but the user-agent `[hidden]` rule
+     (specificity 0,0,1,0) is overridden by `.area-studio .chip-list-editor`'s
+     `display: flex` (admin.css:393-406, specificity 0,0,2,0). This rule
+     at specificity 0,0,3,0 outranks the chip-list-editor display so the
+     `hidden` attribute actually hides the empty container. */
+  .area-studio .discoverable-dropdown-chips[hidden] {
+    display: none;
+  }
   .discoverable-dropdown-status {
     min-height: 1em;
     font-size: var(--font-size-body-sm);
     color: var(--fg-secondary);
+  }
+  /* F5 L6 HAT R5: when the status line is empty (the steady "populated"
+     state on every axis post-R5 — the per-axis pre-probe text moved to
+     the section-level banner), collapse the reserved 1em so the empty
+     element doesn't contribute to the trailing whitespace between the
+     last allowlist axis row and the next ``.editor-section`` (Routing).
+     This tightens the perceived gap to match adjacent section pairs
+     (Discord → Access, etc.) which don't carry a phantom line on their
+     last row. The `:empty` selector matches when the element has no
+     children including text nodes — _setStatus(state, '') reaches this
+     state. */
+  .discoverable-dropdown-status:empty {
+    min-height: 0;
   }
   /* Stale-entry styling — scoped to the dropdown's items and chips so
      the broad ``[data-stale="true"]`` selector stays free for sibling
@@ -1315,5 +1497,84 @@
   .discoverable-dropdown .chip[data-stale="true"] {
     text-decoration: line-through;
     opacity: 0.6;
+  }
+
+  /* === M11 F5 L6 HAT round-2: Discord Runtime Config rows ===========
+     All four rows (Intents, Scope to servers, Bot status, Additional
+     Config) use the canonical 2-column ``.field-row.admin-pf-row``
+     layout (label cell on the left, content on the right). The right-
+     side content wrappers below fill the remaining column width and
+     stack their controls per row's needs. The pre-round-2 ``fieldset``
+     and ``details`` shapes are removed; no orphan CSS rules to clean
+     up (none existed for ``.discord-intents-fieldset`` /
+     ``.discord-advanced-kv-disclosure`` etc. — both shapes relied on
+     UA defaults pre-round-2). */
+
+  /* Intents row: checkbox list stacks vertically in the right column. */
+  .area-studio .discord-intents-checkbox-list {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  /* Per-checkbox label row: checkbox + text inline. */
+  .area-studio .discord-intent-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: var(--font-size-body-sm);
+    /* Override the 100px ``.field-row label`` width — the per-axis
+       label is content, not a row-label, so it must size to its text. */
+    width: auto;
+  }
+
+  /* Bot status row: type select + name input sit side-by-side, select
+     sized to its content, input filling the remaining space so the
+     pair reads as a "[verb] [name]" sentence. */
+  .area-studio .discord-presence-fields {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .area-studio .discord-presence-fields .field-select {
+    flex: 0 0 auto;
+    width: auto;
+  }
+  .area-studio .discord-presence-fields input[data-field="presence-name"] {
+    flex: 1;
+  }
+
+  /* Additional Config row: the "Additional Config" pseudo-label mimics
+     ``.field-row label``'s typography (sentence-case, secondary fg,
+     fixed 100px gutter width) so the row aligns with the other 2-col
+     rows. The body fills the remaining column. */
+  .area-studio .discord-additional-config-label {
+    width: 100px;
+    font-size: var(--font-size-body-sm);
+    color: var(--fg-secondary);
+    flex-shrink: 0;
+    /* Align to the kv-table's first-row top edge — the kv-table is
+       a vertical stack of rows; without this the pseudo-label
+       center-aligns to the middle of the whole table block, which
+       reads oddly. ``.field-row``'s ``align-items: center`` is the
+       default; pull alignment to the top here. */
+    align-self: flex-start;
+    padding-top: 8px;
+  }
+  .area-studio .discord-additional-config-row {
+    /* Override the default ``align-items: center`` so the pseudo-label
+       and the kv-table top-align cleanly (the table is taller than
+       a single input row). */
+    align-items: flex-start;
+  }
+  .area-studio .discord-additional-config-body {
+    flex: 1;
+    /* The kv-table inside has its own ``margin-bottom: 8px``; trim
+       the trailing gap so the row doesn't over-space. */
+  }
+  .area-studio .discord-additional-config-body
+    .connector-account-config-table {
+    margin-bottom: 0;
   }
 }

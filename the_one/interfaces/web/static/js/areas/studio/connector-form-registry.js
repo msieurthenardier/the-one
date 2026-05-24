@@ -50,15 +50,29 @@
 //   the dirty-tracker (F1 L4).
 // - wireEvents(container, checkDirty, account) → void: per-type
 //   listener wiring outside the substrate's delegation (F1 L4).
-// - renderInviteSection(account) → string: per-type detail-page HTML
-//   section mounted between Test Connection and Danger Zone (F1 L5).
-// - renderDirectiveSection(account, params) → HTMLElement: per-type
-//   per-account directive surface mounted between Pairing and
-//   Attached Agents (F2 L4).
+// - renderInviteSection(account) → string: per-type HTML returned as
+//   WRAPPER-LESS content (no ``<section class="editor-section">``, no
+//   section-title) and embedded INSIDE the Connection section of the
+//   connector account editor (F1 L5; M11 F5 L2 MCP-parity refactor
+//   moved the embed inside Connection — the registry contract is
+//   unchanged, only the returned HTML shape).
+// - renderDirectiveSection: REMOVED in M11 F5 L6 HAT round-8.
+//   The per-type per-account directive surface (M11 F2 L4) was retired
+//   when mission criterion #14 was reverted; the read-only effective-
+//   directive surface now lives under the Auto-reply toggle in the
+//   Session section of the substrate (``connector-account-editor.js``)
+//   and is type-agnostic — no registry hook needed.
 // - renderDiscoverableDropdown(account, axis, currentValues, vocab,
 //   onChange) → HTMLElement | null: per-type axis-specific live-data
 //   dropdown for the allowlist + routing-rules editors (F3 L5; absent
 //   → consumers fall back to the chip-list editor).
+// - renderRuntimeConfigFields(account) → string: per-type
+//   runtime-config content (event types received, servers scoped,
+//   presence status, etc.) returned as WRAPPER-LESS HTML. The
+//   substrate (``connector-account-editor.js``) mounts the returned
+//   content inside an ``editor-section`` with section-title "Runtime
+//   Config" on the Access-and-Routing tab, between Lifecycle and
+//   Allowlist (F5 L3). Absent → no Runtime Config section renders.
 
 (function () {
   'use strict';
@@ -106,16 +120,22 @@
     // dispatch per-input-type. The 4 required functions +
     // ``reservedConfigKeys`` array above stay REQUIRED.
     // M11 F1 L5 extends the optional set with ``renderInviteSection``: an
-    // entry-provided hook that returns the HTML for the per-type Invite
-    // section mounted in the General tab between Test Connection and
-    // Danger Zone. Absent → no invite section renders (the ``'stub'``
-    // fallback path and any future-type-with-no-invite-helper).
-    // M11 F2 L4 extends the optional set with ``renderDirectiveSection``:
-    // an entry-provided hook that returns the HTML for the per-type
-    // System Prompt Directive section mounted on the General tab
-    // between Pairing and Attached Agents. Absent → no directive
-    // section renders (the ``'stub'`` fallback path and any
-    // future-type-with-no-directive-surface).
+    // entry-provided hook that returns the per-type Invite block as
+    // WRAPPER-LESS HTML content (no outer ``<section class="editor-section">``,
+    // no section-title). The connector account editor embeds the
+    // returned content INSIDE the Connection section, beneath the
+    // Test Connection footer-row (M11 F5 L2 MCP-parity refactor mirrors
+    // mcp-server-editor.js's mcp-test-row placement; pre-L2 the hook
+    // returned a full ``<section class="editor-section">`` mounted
+    // between Test Connection and Danger Zone). Absent → no invite
+    // block renders (the ``'stub'`` fallback path and any
+    // future-type-with-no-invite-helper).
+    // M11 F2 L4's ``renderDirectiveSection`` hook was REMOVED in
+    // M11 F5 L6 HAT round-8 (mission criterion #14 reverted). The
+    // entry-provided per-account System Prompt Directive surface is
+    // gone; the substrate now renders a read-only effective-directive
+    // codeblock under the Auto-reply toggle in the Session section,
+    // type-agnostic (no per-type override).
     // M11 F3 L5 extends the optional set with ``renderDiscoverableDropdown``:
     // ``renderDiscoverableDropdown(account, axis, currentValues, vocab, onChange)
     // → HTMLElement | null`` is the entry's opt-in for the live-data
@@ -125,12 +145,26 @@
     // in L6) fall back to the existing chip-list editor. The 5th hook
     // preserves the flat-array ``optionalFns`` shape per the F2 debrief
     // operator decision (no object-map restructure at n=5).
+    // M11 F5 L3 extends the optional set with ``renderRuntimeConfigFields``:
+    // ``renderRuntimeConfigFields(account) → string`` is the entry's
+    // hook for per-type runtime-config content (event types received,
+    // servers scoped, presence status, etc.). When present, the
+    // substrate (``connector-account-editor.js``) mounts the returned
+    // HTML inside a ``<div class="editor-section"><div
+    // class="section-title">Runtime Config</div>...</div>`` on the
+    // Access-and-Routing tab, between Lifecycle and Allowlist. The
+    // returned content is WRAPPER-LESS (same shape as
+    // ``renderInviteSection`` post-F5 L2): the substrate owns the
+    // section wrapper + section-title; the entry owns the inner
+    // markup. Absent → no Runtime Config section renders (the
+    // ``'stub'`` fallback path and any future-type-with-no-runtime-config).
     var optionalFns = [
       'snapshot',
       'wireEvents',
       'renderInviteSection',
-      'renderDirectiveSection',
-      'renderDiscoverableDropdown'
+      // ``renderDirectiveSection`` REMOVED in M11 F5 L6 HAT round-8.
+      'renderDiscoverableDropdown',
+      'renderRuntimeConfigFields'
     ];
     for (var oi = 0; oi < optionalFns.length; oi++) {
       var ofn = optionalFns[oi];

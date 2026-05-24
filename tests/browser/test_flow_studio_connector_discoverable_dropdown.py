@@ -240,9 +240,17 @@ class TestDiscoverableDropdown:
         )
         assert match_count == 1, f"Expected exactly 1 stale item, got {match_count}"
 
-    def test_dropdown_refresh_button_posts_refresh_endpoint(
+    def test_dropdown_refresh_event_triggers_refresh_endpoint(
         self, app_clean: str, page: Page
     ) -> None:
+        # F5 L6 HAT R5: per-axis Refresh button removed; refresh now
+        # flows from the section-level banner via the
+        # ``connector-account-discoverable-refresh-requested`` event
+        # (the banner's Refresh button dispatches it on `document` with
+        # ``{ accountId }`` detail; all 4 mounted axis dropdowns listen
+        # and POST /refresh on a match). This test mounts the dropdown
+        # in isolation (no editor scaffold, so no banner button), then
+        # dispatches the event directly to validate the new contract.
         account_id = "fake-account-refresh"
         # Capture every method-URL the route handler sees so we can
         # assert that POST .../refresh was called.
@@ -268,11 +276,8 @@ class TestDiscoverableDropdown:
             '[data-testid="discoverable-dropdown-item-channels"]'
         )).to_have_count(3, timeout=8000)
 
-        refresh = page.locator('[data-testid="discoverable-dropdown-refresh-channels"]')
         # Use ``page.expect_request`` to wait for the POST to fire as a
-        # direct consequence of the click. This is more reliable than
-        # polling the captured list because the Playwright route handler
-        # runs out-of-band relative to the test thread.
+        # direct consequence of the dispatched event.
         with page.expect_request(
             lambda req: (
                 req.method == "POST"
@@ -282,15 +287,29 @@ class TestDiscoverableDropdown:
             ),
             timeout=8000,
         ) as request_info:
-            refresh.click()
+            page.evaluate(
+                """(accountId) => {
+                    document.dispatchEvent(new CustomEvent(
+                        'connector-account-discoverable-refresh-requested',
+                        { detail: { accountId: accountId } }
+                    ));
+                }""",
+                account_id,
+            )
 
         request = request_info.value
         assert request.method == "POST"
         assert "/discoverable-entities/refresh" in request.url
 
-    def test_dropdown_renders_pre_probe_hint_when_api_404(
+    def test_dropdown_hides_menu_on_pre_probe_404(
         self, app_clean: str, page: Page
     ) -> None:
+        # F5 L6 HAT R5: per-axis pre-probe hint removed — the hint now
+        # lives on the section-level banner (see
+        # ``test_flow_studio_connector_account_editor.py`` for the
+        # banner-state coverage). The dropdown's own status line is
+        # cleared on a 404; the menu stays hidden so the operator
+        # can't open an empty dropdown.
         account_id = "fake-account-404"
         hint = "Run Test Connection first — cold account."
 
@@ -310,11 +329,13 @@ class TestDiscoverableDropdown:
 
         _mount(page, account_id)
 
-        status = page.locator('[data-testid="discoverable-dropdown-status-channels"]')
-        expect(status).to_contain_text(hint, timeout=8000)
-
+        # Status line clears on a 404 (banner carries the message now).
+        # Wait for the menu to be hidden as the proxy for "404 handled".
         menu = page.locator('[data-testid="discoverable-dropdown-menu-channels"]')
-        expect(menu).to_be_hidden()
+        expect(menu).to_be_hidden(timeout=8000)
+
+        status = page.locator('[data-testid="discoverable-dropdown-status-channels"]')
+        expect(status).to_have_text("")
 
 
 # ── M11 F4 L4 fold-in: pool-warmed event refreshes mounted dropdowns ──
@@ -455,18 +476,18 @@ def test_test_connection_pool_warmed_event_refreshes_dropdowns(
     # also exercises the operator-realistic mount path.
     page.locator('[data-testid="tab-access-and-routing"]').click()
 
-    # Pre-condition: the channels-axis dropdown rendered its 404 hint —
-    # confirms the listener is registered against an initially-cold state.
-    channels_status = page.locator(
-        '[data-testid="discoverable-dropdown-status-channels"]'
-    )
-    expect(channels_status).to_contain_text(
-        "Run Test Connection first", timeout=8000
-    )
+    # Pre-condition: the section-level banner (F5 L6 HAT R5 — replaces
+    # the per-axis pre-probe hint that lived on each dropdown's status
+    # line pre-R5) reads the pre-probe state. The banner mounts in
+    # the pessimistic ``pre-probe`` pose and the editor-side probe
+    # confirms it after the 404 round-trips.
+    banner = page.locator('[data-testid="connector-allowlist-banner"]')
+    expect(banner).to_have_attribute("data-state", "pre-probe", timeout=8000)
 
     # Sanity: at least one cold-pool GET fired (one per mounted axis
-    # — peers/channels/groups/roles). We only require ≥1 to confirm
-    # the cold-pool state was observed by at least one listener.
+    # — peers/channels/groups/roles — plus one from the banner probe).
+    # We only require ≥1 to confirm the cold-pool state was observed
+    # by at least one listener.
     assert get_calls["cold"] >= 1, (
         f"expected ≥1 cold-pool GET, got {get_calls['cold']}"
     )

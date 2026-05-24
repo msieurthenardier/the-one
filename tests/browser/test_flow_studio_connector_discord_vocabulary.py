@@ -108,13 +108,22 @@ def test_discord_account_hints_drop_discord_flavored_qualifier(
     )
     page.locator('[data-testid="tab-access-and-routing"]').click()
 
+    # F5 L6 HAT round-3: per-axis hint moved from a verbose
+    # ``<small class="form-hint">`` sibling of the chiplist to a
+    # ``<button class="field-info-icon">`` with the hint text in the
+    # ``title`` attribute (browser-native tooltip) plus a visually-
+    # hidden span sibling for screen readers. The
+    # ``connector-allowlist-{axis}-hint`` testid migrated to the
+    # button, so resolving by testid still finds an element — but
+    # the asserted text now lives in ``title``, not in
+    # ``text_content``.
     guilds_hint = page.locator('[data-testid="connector-allowlist-guilds-hint"]')
     roles_hint = page.locator('[data-testid="connector-allowlist-roles-hint"]')
     expect(guilds_hint).to_be_visible()
     expect(roles_hint).to_be_visible()
 
-    guilds_text = guilds_hint.text_content() or ""
-    roles_text = roles_hint.text_content() or ""
+    guilds_text = guilds_hint.get_attribute("title") or ""
+    roles_text = roles_hint.get_attribute("title") or ""
 
     # Substituted leading hint text.
     assert "no server restriction" in guilds_text, (
@@ -296,9 +305,11 @@ def test_stub_account_preserves_baseline_allowlist_labels(
     )
 
     # The "Discord-flavored" qualifier appears in the hints (generic
-    # tone keeps it).
+    # tone keeps it). F5 L6 HAT round-3: hint text moved from a
+    # ``<small>`` text node to the info-icon's ``title`` attribute;
+    # read from there.
     guilds_hint = page.locator('[data-testid="connector-allowlist-guilds-hint"]')
-    guilds_text = guilds_hint.text_content() or ""
+    guilds_text = guilds_hint.get_attribute("title") or ""
     assert "Discord-flavored" in guilds_text, (
         f"generic-tone account should retain the 'Discord-flavored' qualifier; "
         f"got: {guilds_text!r}"

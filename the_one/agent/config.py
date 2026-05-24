@@ -51,20 +51,24 @@ to direct, concise responses.
 """
 
 
-_CONNECTOR_TOOL_ENABLED_DIRECTIVE = (
-    "This conversation is attached to a connector account on an external "
-    "platform (Discord, Slack, etc.). Messages tagged ``visibility=\"platform\"`` "
-    "in the history came from platform peers; messages tagged "
-    "``visibility=\"operator\"`` came from the operator's private local Chat "
-    "console. When a platform-peer message in this session needs a response, "
-    "you MUST call the ``send_to_platform_channel`` tool to deliver your reply "
-    "to peers — your plain-text replies in this session reach only the "
-    "operator's local console, NOT peers. The operator console is for the "
-    "operator to direct or observe you; only deliberate ``send_to_platform_channel`` "
-    "calls reach the platform. The tool takes a target (account_id, channel_id, "
-    "and optional thread_id) plus content. Use the account_id and channel_id "
-    "from the platform-inbound message you're replying to."
-)
+# ── Connector system-prompt directives (M11 F5 L6 HAT round-8) ────────
+#
+# Two directives, dispatched on a single boolean (``auto_relay``):
+# - ``_CONNECTOR_AUTO_RELAY_DIRECTIVE`` — auto-relay ON
+# - ``_CONNECTOR_AUTO_RELAY_OFF_DIRECTIVE`` — auto-relay OFF
+#
+# The pre-round-8 third directive (``_CONNECTOR_TOOL_DISABLED_DIRECTIVE``,
+# for the "tool disabled + auto-relay irrelevant" case) was removed.
+# When the ``send_to_platform_channel`` tool is disabled at the operator
+# level, the LLM cannot call it regardless of any prompt directive — so
+# the OFF directive is sufficient. The OFF wording uses the hedge
+# "if the ``send_to_platform_channel`` tool is available" so it stays
+# true whether the tool is enabled or not.
+#
+# KEEP IN SYNC WITH JS twins in
+# ``the_one/interfaces/web/static/js/areas/studio/connector-account-editor.js``
+# (the Session-section codeblock renders these verbatim). Edits to
+# either set MUST land in the same atomic diff.
 
 _CONNECTOR_AUTO_RELAY_DIRECTIVE = (
     "This conversation is attached to a connector account on an external "
@@ -83,13 +87,23 @@ _CONNECTOR_AUTO_RELAY_DIRECTIVE = (
     "specifying that destination."
 )
 
-_CONNECTOR_TOOL_DISABLED_DIRECTIVE = (
+_CONNECTOR_AUTO_RELAY_OFF_DIRECTIVE = (
     "This conversation is attached to a connector account on an external "
-    "platform, but the platform-send capability is currently DISABLED by "
-    "the operator. Your replies in this session reach the operator only "
-    "— they do not reach the external platform. The "
-    "`send_to_platform_channel` tool is not available right now. Do not "
-    "claim to have sent anything to the platform."
+    "platform (Discord, Slack, etc.). Auto-relay is OFF: your plaintext "
+    "replies in this session reach the operator's private local Chat "
+    "console only — they are NOT delivered to platform peers. Messages "
+    "tagged ``visibility=\"platform\"`` in the history came from platform "
+    "peers; messages tagged ``visibility=\"operator\"`` came from the "
+    "operator's private local Chat console. When a platform-peer message "
+    "needs a response on the platform, you MUST call the "
+    "``send_to_platform_channel`` tool (if the "
+    "``send_to_platform_channel`` tool is available) to deliver your "
+    "reply to peers — the tool takes a target (account_id, channel_id, "
+    "and optional thread_id) plus content; use the account_id and "
+    "channel_id from the platform-inbound message you're replying to. If "
+    "the ``send_to_platform_channel`` tool is not available, your "
+    "replies cannot reach the platform — do not claim to have sent "
+    "anything to it."
 )
 
 
@@ -100,63 +114,56 @@ def compose_system_prompt(
     connector_attached: bool = False,
     send_tool_enabled: bool = False,
     auto_relay: bool = True,
-    operator_directive: str | None = None,
 ) -> str:
     """Compose the agent's system prompt.
 
-    Mission 10 Flight 4 Leg 3. Adds a connector-aware extension point so
-    agents attached to a connector account receive an explicit directive
-    about how their outbound flows.
+    Mission 10 Flight 4 Leg 3 introduced the connector-aware extension
+    point so agents attached to a connector account receive an explicit
+    directive about how their outbound flows.
 
     Non-connector callers (``AgentConfig.get_system_prompt()`` for
     persistence/edit-form use; the WS handler's prompt-equivalence
     checks) pass ``connector_attached=False`` and receive byte-identical
     output to the pre-F4 ``{base}\\n\\n---\\n\\n{persona}`` shape.
 
+    M11 F5 L6 HAT round-8: the directive surface was simplified to two
+    defaults, dispatched on a single boolean. The pre-round-8 surface
+    had THREE defaults (auto-relay ON, auto-relay OFF + tool enabled,
+    tool disabled) AND an operator-editable per-account override; both
+    were removed. The OFF directive now uses an "if available" hedge
+    around the ``send_to_platform_channel`` tool so it stays correct
+    whether the tool is enabled or disabled — when disabled, the LLM
+    cannot call it regardless of the prompt directive, so a dedicated
+    third directive added complexity without behavioral payoff. Mission
+    M11 criterion #14 ("operator-editable system-prompt directive per
+    connector account") was REVERTED in this round; substrate defaults
+    are used universally.
+
     The connector-aware path inserts a directive between ``base`` and
     the persona separator:
-    - ``connector_attached AND send_tool_enabled AND auto_relay`` →
+    - ``connector_attached AND auto_relay`` →
       :data:`_CONNECTOR_AUTO_RELAY_DIRECTIVE` (informs the agent that
       its plaintext replies ARE the platform reply by default; do not
       ask permission to respond on the platform).
-    - ``connector_attached AND send_tool_enabled AND NOT auto_relay`` →
-      :data:`_CONNECTOR_TOOL_ENABLED_DIRECTIVE` (instructs the agent to
-      call the platform-send tool to reach peers; opt-out path from
-      L11 HAT Fix #4).
-    - ``connector_attached AND NOT send_tool_enabled`` →
-      :data:`_CONNECTOR_TOOL_DISABLED_DIRECTIVE` (informs the agent that
-      platform-send is operator-disabled and its replies stay local).
-      The ``auto_relay`` value is moot when send is disabled.
+    - ``connector_attached AND NOT auto_relay`` →
+      :data:`_CONNECTOR_AUTO_RELAY_OFF_DIRECTIVE` (instructs the agent
+      to call ``send_to_platform_channel`` if available; otherwise its
+      replies stay local).
 
-    M10 F8 L11 HAT Fix #5: the auto-relay branch fixes the broken UX
-    where Fix #4's mechanical auto-relay combined with the Fix #1
-    directive ("plaintext reaches only the operator") produced agents
-    that ask for permission to reply on the platform — and then the
-    auto-relay posts THAT question to the platform.
-
-    M11 F2 L3: ``operator_directive`` is an APPEND-mode extension. When
-    truthy, it is appended AFTER the selected connector default
-    directive and BEFORE the persona separator — letting the operator
-    add persona/formatting/peer-engagement guidance without overwriting
-    the substrate's behavioral contract (MUST-call-tool /
-    auto-relay-truth / send-disabled-truth). The factory aggregates
-    per-account ``system_prompt_directive`` values across attached
-    connector accounts in sorted-id order and passes the joined string
-    here. The ``operator_directive=None`` default (and the falsy-check
-    on ``""``) preserves byte-identical legacy output for every
-    pre-L3 caller — verified by the existing test cluster.
+    The ``send_tool_enabled`` parameter is retained in the signature
+    for callers (notably the factory) that compute it for unrelated
+    purposes (e.g. the F10 carve-out for pre-loading the send tool's
+    schema), but it is NO LONGER used in directive selection — the
+    OFF directive's "if available" hedge covers both tool-enabled and
+    tool-disabled cases. Removing the parameter would require touching
+    every caller; keeping it as a no-op kwarg preserves call shape.
     """
     parts = [base]
     if connector_attached:
-        if send_tool_enabled:
-            if auto_relay:
-                parts.append(_CONNECTOR_AUTO_RELAY_DIRECTIVE)
-            else:
-                parts.append(_CONNECTOR_TOOL_ENABLED_DIRECTIVE)
+        if auto_relay:
+            parts.append(_CONNECTOR_AUTO_RELAY_DIRECTIVE)
         else:
-            parts.append(_CONNECTOR_TOOL_DISABLED_DIRECTIVE)
-    if operator_directive:
-        parts.append(operator_directive)
+            parts.append(_CONNECTOR_AUTO_RELAY_OFF_DIRECTIVE)
     if persona:
         parts.append("---")
         parts.append(persona)
