@@ -1,6 +1,6 @@
 # Flight: Connector UX Cleanup
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Discord Connector Depth & Robustness](../../mission.md)
 
 ## Contributing to Criteria

@@ -228,8 +228,12 @@ async def test_e2e_disabled_state_inbound_received_no_outbound(
     agent = await factory.create("agent-inbound")
     schema_names = {s["name"] for s in agent._loaded_schemas}
     assert "send_to_platform_channel" not in schema_names, schema_names
-    # The DISABLED directive contains a stable substring.
-    assert "platform-send capability is currently DISABLED" in agent.system_prompt
+    # F5 L6 R8 collapsed the 3-default directive set to 2; dispatch is
+    # now purely on auto-relay state (tool-disabled no longer selects a
+    # distinct directive). The behavioral check below (no outbound
+    # delivery when the platform-send tool is disabled) is the real
+    # contract; the prompt-substring side check was tied to the deleted
+    # _CONNECTOR_TOOL_DISABLED_DIRECTIVE and is no longer applicable.
 
     envelope = _envelope()
     await dispatch_inbound("acct-test", envelope, factory=factory)
