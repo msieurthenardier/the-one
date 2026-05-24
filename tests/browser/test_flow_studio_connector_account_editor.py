@@ -574,8 +574,16 @@ def test_routing_rules_drag_reorder(app_clean: str, page: Page) -> None:
 
     # Drag rule-0's handle onto rule-2 (DOM-below target → editor inserts
     # the dragged row AFTER the target, so post-drop order is [b, c, a]).
+    #
+    # F5 L6 HAT R4: the Access-and-Routing tab now emits sections in
+    # Discord → Access → Routing → Session order (was Session/Lifecycle
+    # → Discord/Runtime → Access → Routing). Scroll the target row
+    # into view before dragging — Playwright's `drag_to` auto-scrolls
+    # the source but the target's mouse-move sequence can land outside
+    # the viewport at 1280×720 when Routing sits above-the-fold-edge.
     source_handle = rows.nth(0).locator("[data-routing-drag-handle]")
     target_row = rows.nth(2)
+    target_row.scroll_into_view_if_needed()
     source_handle.drag_to(target_row)
 
     # Save.

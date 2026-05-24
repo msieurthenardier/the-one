@@ -4,7 +4,9 @@
 // (no transport-specific config, no OAuth, no tools list, no sandbox).
 //
 // Edit-mode tabbed layout (M10 F7 L9 HAT; F5 L3 moved Runtime Config
-// across tabs):
+// across tabs; F5 L6 HAT round-4 renamed sections + reordered the
+// Access and Routing tab to Discord → Access → Routing → Session and
+// added friendly descriptions under each terse header):
 //
 //   General tab — WHAT the bot is:
 //     Connection — name, type, config kv (with substrate-managed
@@ -14,18 +16,28 @@
 //                  placement)
 //     Credentials — secrets kv with __MASKED__ round-trip
 //     Pairing — operator-generated pairing code
-//     System Prompt Directive — registry-mediated (Discord today)
 //     Attached Agents — read-only summary
 //     Danger Zone — delete button
 //
-//   Access and Routing tab — HOW it behaves at runtime:
-//     Lifecycle — idle_timeout_seconds, session_continuation_seconds,
-//                 Auto-reply toggle
-//     Runtime Config — registry-mediated (Discord today; mounts the
-//                      typed Intents/Servers/Presence/Advanced block
-//                      per F5 L3)
-//     Allowlist — account-scope peer/channel/server/role allowlist
-//     Routing Rules — operator-authored routing rules + default agent
+//   F5 L6 HAT round-8: the editable "System Prompt Directive" section
+//   was REMOVED from the General tab (criterion #14 reverted). The
+//   read-only effective-directive surface now lives under the Auto-reply
+//   toggle in the Session section (Access and Routing tab) — see
+//   ``renderEffectiveDirectiveCodeblock`` below.
+//
+//   Access and Routing tab — HOW it behaves at runtime (F5 L6 HAT R4
+//   ordering: Discord first, then Access → Routing → Session):
+//     Discord — registry-mediated runtime-config block (was
+//               "Runtime Config"; mounts the typed Intents/Servers/
+//               Presence/Advanced block per F5 L3)
+//     Access — account-scope peer/channel/server/role allowlist
+//              (was "Account-scope allowlist")
+//     Routing — operator-authored routing rules + default agent
+//               (was "Routing rules")
+//     Session — idle_timeout_seconds, session_continuation_seconds,
+//               Auto-reply toggle (was "Lifecycle"), and the
+//               read-only effective-directive codeblock that reactively
+//               mirrors the Auto-reply toggle state (F5 L6 HAT round-8).
 //
 // Create mode renders flat (only Connection + Credentials + Lifecycle
 // render there — not enough sections to justify the tab split). The
@@ -60,7 +72,8 @@
 //                              footer-row + Invite block folded in
 //                              per F5 L2 MCP-parity), Credentials,
 //                              Pairing, Attached agents, Danger zone.
-//   Tab "Access and Routing" — Lifecycle, Allowlist, Routing rules.
+//   Tab "Access and Routing" — Discord, Access, Routing, Session
+//                               (F5 L6 HAT R4 reorg + renames).
 // Create mode renders flat (only the Connection + Credentials + Lifecycle
 // sections render there — not enough sections to justify the tab split).
 // All tab panel contents mount SYNCHRONOUSLY at editor-load time so the
@@ -115,6 +128,89 @@
     general: 'connector-tab-panel-general',
     accessAndRouting: 'connector-tab-panel-access-and-routing'
   };
+
+  // ── M11 F5 L6 HAT round-8: Effective system-prompt directive ──────
+  //
+  // The two substrate-default directives that ``compose_system_prompt``
+  // picks between based on the Auto-reply toggle (see
+  // ``the_one/agent/config.py``). Rendered as a read-only styled
+  // ``<pre><code>`` block under the Auto-reply toggle in the Session
+  // section so the operator can see exactly what prompt the agent will
+  // be given for this account's current Auto-reply state. The codeblock
+  // content swaps reactively when the Auto-reply toggle is flipped
+  // (no save required — purely a preview surface).
+  //
+  // The pre-round-8 surface had THREE directives + an editable
+  // per-account override; both were removed in HAT round-8 (mission M11
+  // criterion #14 reverted; substrate defaults are used universally).
+  //
+  // KEEP IN SYNC WITH Python twins in
+  // ``the_one/agent/config.py:_CONNECTOR_AUTO_RELAY_DIRECTIVE`` and
+  // ``the_one/agent/config.py:_CONNECTOR_AUTO_RELAY_OFF_DIRECTIVE``.
+  // Edits to either set MUST land in the same atomic diff.
+
+  var _DIRECTIVE_AUTO_RELAY_ON_DEFAULT = (
+    'This conversation is attached to a connector account on an external ' +
+    'platform (Discord, Slack, etc.). Auto-relay is ON: your plaintext ' +
+    'replies in this session ARE automatically delivered to platform peers ' +
+    '— treat the conversation as the platform conversation itself. Do NOT ' +
+    'ask the operator for permission to respond on the platform; do NOT ' +
+    'narrate that you\'re \'using send_to_platform_channel\'; just reply ' +
+    'naturally as you would in any chat. Messages tagged ' +
+    '``visibility="platform"`` in the history came from platform peers; ' +
+    'messages tagged ``visibility="operator"`` came from the operator\'s ' +
+    'private local Chat console (operator-only — these are NOT relayed). ' +
+    'If you need to send a message to a different channel or thread on ' +
+    'the platform (not the current channel), use the ' +
+    '``send_to_platform_channel`` tool explicitly with a target ' +
+    'specifying that destination.'
+  );
+
+  var _DIRECTIVE_AUTO_RELAY_OFF_DEFAULT = (
+    'This conversation is attached to a connector account on an external ' +
+    'platform (Discord, Slack, etc.). Auto-relay is OFF: your plaintext ' +
+    'replies in this session reach the operator\'s private local Chat ' +
+    'console only — they are NOT delivered to platform peers. Messages ' +
+    'tagged ``visibility="platform"`` in the history came from platform ' +
+    'peers; messages tagged ``visibility="operator"`` came from the ' +
+    'operator\'s private local Chat console. When a platform-peer message ' +
+    'needs a response on the platform, you MUST call the ' +
+    '``send_to_platform_channel`` tool (if the ' +
+    '``send_to_platform_channel`` tool is available) to deliver your ' +
+    'reply to peers — the tool takes a target (account_id, channel_id, ' +
+    'and optional thread_id) plus content; use the account_id and ' +
+    'channel_id from the platform-inbound message you\'re replying to. If ' +
+    'the ``send_to_platform_channel`` tool is not available, your ' +
+    'replies cannot reach the platform — do not claim to have sent ' +
+    'anything to it.'
+  );
+
+  function _selectEffectiveDirective(autoRelayOn) {
+    return autoRelayOn
+      ? _DIRECTIVE_AUTO_RELAY_ON_DEFAULT
+      : _DIRECTIVE_AUTO_RELAY_OFF_DEFAULT;
+  }
+
+  // ``_updateEffectiveDirectiveCodeblock`` is the SOLE writer of the
+  // codeblock's ``textContent``. Called once at mount time (so the
+  // initial render matches whatever the Auto-reply checkbox is set to)
+  // and again on every Auto-reply ``change`` event. Same code path =
+  // byte-stable content (no escapeHtml-vs-textContent asymmetry).
+  function _updateEffectiveDirectiveCodeblock(container) {
+    if (!container) return;
+    var codeEl = container.querySelector(
+      '[data-testid="connector-account-effective-directive-text"]'
+    );
+    if (!codeEl) return;
+    var autoRelayEl = container.querySelector(
+      '[data-field="auto_relay_platform_replies"]'
+    );
+    // Default to autoRelay=true when checkbox isn't found (matches
+    // ``account.config.auto_relay_platform_replies`` absent → True at
+    // dispatcher consume time per M10 F8 L11 HAT Fix #4 semantics).
+    var autoRelayOn = autoRelayEl ? !!autoRelayEl.checked : true;
+    codeEl.textContent = _selectEffectiveDirective(autoRelayOn);
+  }
 
   // ── Lifecycle dropdown ladder (F5 L8 HAT) ──────────────────────────
   // Operator-friendly preset values for idle_timeout_seconds and
@@ -383,7 +479,11 @@
     var contValue = (!isCreate && account.session_continuation_seconds != null) ? account.session_continuation_seconds : '';
     var lifecycleHtml = '';
     lifecycleHtml += '<div class="editor-section">';
-    lifecycleHtml += '<div class="section-title">Lifecycle</div>';
+    // F5 L6 HAT R4: renamed "Lifecycle" → "Session"; the per-section
+    // friendly description sits flush under the terse title (see
+    // ``.section-description`` in studio.css).
+    lifecycleHtml += '<div class="section-title">Session</div>';
+    lifecycleHtml += '<div class="section-description">How sessions continue and connections idle.</div>';
 
     // F5 L3: ``<small class="form-hint">`` blocks replaced with
     // ``.field-info-icon`` tooltips per Design Decision. Production
@@ -401,25 +501,13 @@
     var escAttr = window.App.escapeAttr;
     var escHtml = window.App.escapeHtml;
 
-    // Pool idle timeout (F2)
-    var idleTipText = 'Reap warm connection after inactivity.';
-    lifecycleHtml += '<div class="field-row admin-pf-row">';
-    lifecycleHtml += '<label for="cf-idle-timeout">Pool idle timeout</label>';
-    lifecycleHtml += '<button type="button" class="field-info-icon" ' +
-            'title="' + escAttr(idleTipText) + '" ' +
-            'aria-describedby="connector-account-idle-help-text" ' +
-            'data-testid="connector-account-idle-hint">' + infoIcon + '</button>';
-    lifecycleHtml += '<span id="connector-account-idle-help-text" class="visually-hidden">' +
-            escHtml(idleTipText) + '</span>';
-    lifecycleHtml += renderLifecycleSelect('cf-idle-timeout', 'idle_timeout_seconds',
-            'connector-account-idle-timeout-input', idleValue,
-            { defaultSeconds: 1800, includeNever: false });
-    lifecycleHtml += '</div>';
-
-    // Chat-session continuation window (F3 L5)
+    // Chat-session window (F3 L5) — F5 L6 HAT: rendered FIRST per
+    // operator preference (continuation semantics are the dominant
+    // operator concern); label shortened from "Chat-session continuation
+    // window" to "Chat-session window".
     var contTipText = 'Inbound continues the same chat session within this window.';
     lifecycleHtml += '<div class="field-row admin-pf-row">';
-    lifecycleHtml += '<label for="cf-continuation-window">Chat-session continuation window</label>';
+    lifecycleHtml += '<label for="cf-continuation-window">Chat-session window</label>';
     lifecycleHtml += '<button type="button" class="field-info-icon" ' +
             'title="' + escAttr(contTipText) + '" ' +
             'aria-describedby="connector-account-continuation-help-text" ' +
@@ -429,6 +517,22 @@
     lifecycleHtml += renderLifecycleSelect('cf-continuation-window', 'session_continuation_seconds',
             'connector-account-continuation-input', contValue,
             { defaultSeconds: 86400, includeNever: true });
+    lifecycleHtml += '</div>';
+
+    // Idle timeout (F2) — F5 L6 HAT: rendered SECOND; label shortened
+    // from "Pool idle timeout" to "Idle timeout".
+    var idleTipText = 'Reap warm connection after inactivity.';
+    lifecycleHtml += '<div class="field-row admin-pf-row">';
+    lifecycleHtml += '<label for="cf-idle-timeout">Idle timeout</label>';
+    lifecycleHtml += '<button type="button" class="field-info-icon" ' +
+            'title="' + escAttr(idleTipText) + '" ' +
+            'aria-describedby="connector-account-idle-help-text" ' +
+            'data-testid="connector-account-idle-hint">' + infoIcon + '</button>';
+    lifecycleHtml += '<span id="connector-account-idle-help-text" class="visually-hidden">' +
+            escHtml(idleTipText) + '</span>';
+    lifecycleHtml += renderLifecycleSelect('cf-idle-timeout', 'idle_timeout_seconds',
+            'connector-account-idle-timeout-input', idleValue,
+            { defaultSeconds: 1800, includeNever: false });
     lifecycleHtml += '</div>';
 
     // Auto-reply to platform messages (M10 F8 L11 HAT Fix #4).
@@ -465,6 +569,33 @@
     lifecycleHtml += '</label>';
     lifecycleHtml += '</div>';
 
+    // F5 L6 HAT round-8: effective system-prompt directive codeblock.
+    // Read-only preview of which substrate-default directive the
+    // composer (``the_one/agent/config.py:compose_system_prompt``) will
+    // pick based on the Auto-reply toggle's current state. Initial
+    // ``textContent`` is set by ``_updateEffectiveDirectiveCodeblock``
+    // post-mount (single writer = byte-stable text between initial
+    // render and post-toggle re-render). Reuses the design-language
+    // ``.code-block`` primitive (same vocabulary as the admin Base
+    // Prompt block and the tools-editor description block).
+    if (!isCreate) {
+      lifecycleHtml += '<div class="field-row admin-pf-row cf-effective-directive-row">';
+      lifecycleHtml += '<label class="cf-effective-directive-label" ' +
+              'for="cf-effective-directive">Effective system prompt</label>';
+      lifecycleHtml += '<div class="cf-effective-directive-field">';
+      lifecycleHtml += '<small class="form-hint" ' +
+              'data-testid="connector-account-effective-directive-hint">' +
+              'What the agent sees for this Auto-reply state. ' +
+              'Substrate-managed; updates live as you toggle.</small>';
+      lifecycleHtml += '<pre id="cf-effective-directive" ' +
+              'class="code-block cf-effective-directive-code" ' +
+              'data-testid="connector-account-effective-directive-codeblock">' +
+              '<code data-testid="connector-account-effective-directive-text"></code>' +
+              '</pre>';
+      lifecycleHtml += '</div>';
+      lifecycleHtml += '</div>';
+    }
+
     lifecycleHtml += '</div>';
 
     // Pairing section (edit mode only).
@@ -473,10 +604,12 @@
     var pairingHtml = isCreate ? '' : renderPairingSection(account);
 
     // Runtime Config section (edit mode only) — F5 L3.
+    // F5 L6 HAT R4: section title is now "Discord" and this section
+    // sits FIRST on the Access-and-Routing tab (was between Lifecycle
+    // and Allowlist).
     // Registry-mediated section that mounts per-type runtime-config
-    // content on the Access-and-Routing tab between Lifecycle and
-    // Allowlist. The hook returns wrapper-less content; the substrate
-    // wraps in an ``editor-section`` with section-title "Runtime Config".
+    // content. The hook returns wrapper-less content; the substrate
+    // wraps in an ``editor-section`` with the type-specific title.
     // Discord today; future typed connectors with runtime config blocks
     // plug in via the same hook. Absent → no section renders (Stub
     // type fails the typeof check; runtimeConfigHtml stays ''). The
@@ -492,7 +625,14 @@
         var runtimeInner = runtimeEntry.renderRuntimeConfigFields(account);
         if (runtimeInner) {
           runtimeConfigHtml += '<div class="editor-section" data-testid="connector-account-runtime-config-section">';
-          runtimeConfigHtml += '<div class="section-title">Runtime Config</div>';
+          // F5 L6 HAT R4: renamed "Runtime Config" → "Discord" with a
+          // friendly description. The data-testid still says
+          // "runtime-config" because the substrate hook is type-agnostic
+          // — future non-Discord typed connectors will plug into the
+          // same slot and the section header will adapt per-type
+          // (deferred; today Discord is the sole connector).
+          runtimeConfigHtml += '<div class="section-title">Discord</div>';
+          runtimeConfigHtml += '<div class="section-description">What events the bot subscribes to, where it operates, and how it appears.</div>';
           runtimeConfigHtml += runtimeInner;
           runtimeConfigHtml += '</div>';
         }
@@ -517,23 +657,12 @@
 
     // Invite content lives INSIDE the Connection section above (F5 L2 MCP-parity refactor); the registry hook is called from there.
 
-    // Directive section (edit mode only) — M11 F2 L4.
-    // The System Prompt Directive section is registry-mediated through
-    // the same registry used for the invite section. The active
-    // connector type's entry provides an OPTIONAL
-    // ``renderDirectiveSection(account)`` hook. Unregistered types
-    // (e.g. ``'stub'``) or types without the hook produce no section —
-    // preserves byte-identical DOM for ``'stub'`` tests AND avoids the
-    // F1 L7 create-mode-pick-Discord re-mount crashing (the re-mount
-    // is still ``isCreate=true`` so this block is skipped).
-    var directiveHtml = '';
-    if (!isCreate) {
-      var directiveRegistry = (window.App && window.App.studio && window.App.studio.connectorFormRegistry) || null;
-      var directiveEntry = (directiveRegistry && account && account.type) ? directiveRegistry.get(account.type) : undefined;
-      if (directiveEntry && typeof directiveEntry.renderDirectiveSection === 'function') {
-        directiveHtml = directiveEntry.renderDirectiveSection(account);
-      }
-    }
+    // M11 F5 L6 HAT round-8: the M11 F2 L4 registry-mediated System
+    // Prompt Directive section was REMOVED here (criterion #14
+    // reverted; substrate defaults are used universally). The
+    // read-only effective-directive preview now lives under the
+    // Auto-reply toggle in the Session section (see ``lifecycleHtml``
+    // above).
 
     // Danger Zone (edit only).
     var dangerZoneHtml = '';
@@ -585,23 +714,25 @@
       html += connectionHtml;
       html += credentialsHtml;
       html += pairingHtml;
-      html += directiveHtml;  // M11 F2 L4 — between Pairing and Attached Agents
+      // M11 F5 L6 HAT round-8: directive section removed; nothing
+      // mounts between Pairing and Attached Agents anymore.
       html += attachedAgentsHtml;
       // F5 L2: testConnectionHtml + inviteHtml folded into connectionHtml
       // above to mirror MCP editor's mcp-test-row placement.
       html += dangerZoneHtml;
       html += '</div>';
-      // Access and Routing tab — Lifecycle, Runtime Config (F5 L3),
-      // Allowlist, Routing rules. Lifecycle (session-continuation
-      // window) is policy-shaped enough to belong with the access
-      // controls per operator intent. Runtime Config slots between
-      // Lifecycle and Allowlist per F5 Design Decision.
+      // Access and Routing tab — F5 L6 HAT R4 reorg: emit in
+      // Discord → Access → Routing → Session order. The variable names
+      // (runtimeConfigHtml / allowlistHtml / routingHtml / lifecycleHtml)
+      // are retained from earlier rounds and intentionally NOT renamed
+      // — they're internal identifiers; only the operator-visible
+      // section titles (and now this emission order) changed.
       html += '<div role="tabpanel" class="tabpanel" id="' + PANEL_IDS.accessAndRouting +
               '" data-tab-id="access-and-routing" aria-labelledby="connector-tab-access-and-routing" hidden>';
-      html += lifecycleHtml;
-      html += runtimeConfigHtml;
-      html += allowlistHtml;
-      html += routingHtml;
+      html += runtimeConfigHtml;  // "Discord"
+      html += allowlistHtml;       // "Access"
+      html += routingHtml;         // "Routing"
+      html += lifecycleHtml;       // "Session"
       html += '</div>';
       html += '</div>'; // .tabpanels
     }
@@ -694,8 +825,12 @@
         // operator picks a real type, the placeholder is suppressed
         // from the rendered list and the matching ladder entry below
         // carries ``selected`` so the re-render restores the pick.
+        // F5 L6 HAT: ``hidden`` attribute keeps the placeholder out of
+        // the open list while still displaying its text in the closed
+        // state — operator wants a label-only placeholder, not a
+        // selectable row.
         if (createType === '') {
-          html += '<option value="" disabled selected>Select a connector type</option>';
+          html += '<option value="" disabled selected hidden>Select a connector type</option>';
         }
         for (var i = 0; i < typesList.length; i++) {
           var t = typesList[i];
@@ -1014,6 +1149,32 @@
       }
     }
     attachStaticListeners();
+
+    // ── M11 F5 L6 HAT round-8: effective-directive codeblock wiring ──
+    //
+    // (a) Initial population — single call at mount time so the
+    //     codeblock's textContent matches whatever the Auto-reply
+    //     checkbox is set to right after render. Same code path as the
+    //     change handler below guarantees byte-stable content.
+    //
+    // (b) Auto-reply change → repaint codeblock. The earlier
+    //     ``attachStaticListeners`` loop ALSO fires ``checkDirty`` on
+    //     this same checkbox; the two listeners are independent and
+    //     additive (no conflict, no double dirty-fire — ``checkDirty``
+    //     compares serialized snapshots and is idempotent).
+    //
+    // Both calls are no-ops in create mode (the codeblock isn't
+    // rendered there → ``querySelector`` returns null → the helper
+    // returns early). Safe to call unconditionally.
+    _updateEffectiveDirectiveCodeblock(container);
+    var directiveAutoRelayEl = container.querySelector(
+      '[data-field="auto_relay_platform_replies"]'
+    );
+    if (directiveAutoRelayEl) {
+      directiveAutoRelayEl.addEventListener('change', function () {
+        _updateEffectiveDirectiveCodeblock(container);
+      });
+    }
 
     // M11 F1 L4: per-type registry consult for typed-field event
     // wiring. The entry's optional ``wireEvents(container, checkDirty)``
@@ -1695,10 +1856,10 @@
     if (messageEl) {
       messageEl.textContent = message || statusAriaLabel(status);
     }
-    if (statusEl) {
-      statusEl.hidden = false;
-      statusEl.innerHTML = escapeHtml(message || statusAriaLabel(status));
-    }
+    // F5 L6 HAT round-7: statusEl removed; inline messageEl (next to LED)
+    // is the single source for the status text. The block-level status
+    // div was a duplicate of messageEl — operator-flagged in HAT.
+    void statusEl;
     if (detailsEl && detailsWrap) {
       // Hide the details panel on a clean "ok" status — green LED + message
       // is enough. Surface the details only when the operator needs to
@@ -1814,7 +1975,6 @@
     html += '<span class="connector-test-message" data-testid="connector-test-message">Not tested</span>';
     html += '</div>';
     html += '</div>';
-    html += '<div class="connector-test-status" data-testid="connector-test-status" hidden></div>';
     html += '<div class="connector-test-details-wrap" data-testid="connector-test-details-wrap" hidden>' +
             '<div data-testid="connector-test-details"></div>' +
             '</div>';
@@ -1906,64 +2066,136 @@
     // per-type vocabulary map. The persisted chip-list slot keys
     // (``data-allowlist-chiplist-slot="peers"``/``channels``/``guilds``/
     // ``roles``) stay at the substrate's literal field names; only the
-    // rendered ``<label>`` text + ``<small>`` hint text vary per type.
+    // rendered ``<label>`` text + hint text vary per type.
     // ``hintTone === 'native'`` drops the "Discord-flavored" qualifier
     // on the groups + roles rows (redundant noise when the label
     // already says "Servers / Roles").
+    //
+    // F5 L6 HAT round-3 — each axis row converted to the canonical
+    // ``.field-row.admin-pf-row`` 3-column layout
+    // (label | info-icon | chiplist), matching the Lifecycle section's
+    // pattern (Chat-session window / Idle timeout). Pre-round-3 the row
+    // used ``<label> | <chiplist> | <small.form-hint>`` which read as
+    // a different shape than the Lifecycle rows one section up. The
+    // verbose ``<small class="form-hint">`` block is dropped; its text
+    // moves into the info-icon's ``title=`` (browser-native tooltip on
+    // hover) + a visually-hidden sibling span (screen-reader access via
+    // ``aria-describedby``). The ``data-testid="connector-allowlist-
+    // {axis}-hint"`` migrates from the dropped ``<small>`` to the new
+    // info-icon ``<button>`` so any test resolving by this testid
+    // continues to find an element. The ``connector-account-acl-
+    // fieldlabel`` class is preserved on the ``<label>`` for any
+    // styling/test selectors that key on it.
     var escapeHtml = window.App.escapeHtml;
     var escapeAttr = window.App.escapeAttr;
     var vocab = _vocabForAccount(account);
     var nativeTone = vocab.hintTone === 'native';
+    var infoIcon = (window.App && window.App.icon) ? window.App.icon('info') : 'ⓘ';
 
     var html = '';
     html += '<div class="editor-section connector-allowlist-section">';
-    html += '<div class="section-title">Account-scope allowlist</div>';
+    // F5 L6 HAT R4: renamed "Account-scope allowlist" → "Access" with
+    // a friendly description.
+    html += '<div class="section-title">Access</div>';
+    html += '<div class="section-description">Who can talk to the bot.</div>';
+
+    // F5 L6 HAT R5: section-level discoverable-entities banner.
+    // Per-axis Refresh buttons + per-axis pre-probe hints removed from
+    // ``discoverable-dropdown.js`` in the same round; this banner is
+    // the single surface that communicates pool-warm status AND
+    // exposes the manual Refresh affordance. Two states:
+    //   pre-probe (no cached entities yet): muted hint text + Refresh
+    //     button hidden until the pool warms.
+    //   populated (cached entities present): "Last refreshed: {when}"
+    //     + visible Refresh button.
+    // The Refresh button dispatches the
+    // ``connector-account-discoverable-refresh-requested`` event on
+    // document with {accountId} detail; all 4 mounted dropdowns listen
+    // and re-fetch on a matching event. Initial state is the
+    // pessimistic "pre-probe" pose — ``wireAllowlistBanner`` then
+    // pings the L4 GET endpoint once on mount to flip to the
+    // populated state if the pool was warmed by lifespan startup /
+    // a prior Test Connection.
+    html += '<div class="field-row admin-pf-row connector-allowlist-banner" ' +
+            'data-testid="connector-allowlist-banner" data-state="pre-probe">';
+    html += '<label>Discoverable entities</label>';
+    html += '<span class="indicator-led indicator-led--idle ' +
+            'connector-allowlist-banner-led" ' +
+            'data-testid="connector-allowlist-banner-led" ' +
+            'aria-label="Pool status"></span>';
+    html += '<span class="connector-allowlist-banner-status" ' +
+            'data-testid="connector-allowlist-banner-status" aria-live="polite">' +
+            'Refresh connection to populate the discoverable lists.</span>';
+    html += '<button type="button" class="btn-outlined-primary ' +
+            'connector-allowlist-banner-refresh" ' +
+            'data-testid="connector-allowlist-banner-refresh">Refresh</button>';
+    html += '</div>';
 
     html += '<div class="connector-allowlist-lists" ' +
             'data-testid="connector-allowlist-lists">';
-    html += '<div class="connector-account-acl-fieldrow">';
+
+    // Peers axis.
+    var peersTipText = 'Empty list = no ' + vocab.peer + ' restriction.';
+    html += '<div class="field-row admin-pf-row connector-account-acl-fieldrow">';
     html += '<label class="connector-account-acl-fieldlabel">' +
             escapeHtml(_capitalize(vocab.peers)) + '</label>';
+    html += '<button type="button" class="field-info-icon" ' +
+            'title="' + escapeAttr(peersTipText) + '" ' +
+            'aria-describedby="connector-allowlist-peers-help-text" ' +
+            'data-testid="connector-allowlist-peers-hint">' + infoIcon + '</button>';
+    html += '<span id="connector-allowlist-peers-help-text" class="visually-hidden">' +
+            escapeHtml(peersTipText) + '</span>';
     html += '<div data-allowlist-chiplist-slot="peers"></div>';
-    html += '<small class="form-hint" ' +
-            'data-testid="connector-allowlist-peers-hint">' +
-            'Empty list = no ' + escapeHtml(vocab.peer) + ' restriction.' +
-            '</small>';
     html += '</div>';
-    html += '<div class="connector-account-acl-fieldrow">';
+
+    // Channels axis.
+    var channelsTipText = 'Empty list = no ' + vocab.channel + ' restriction.';
+    html += '<div class="field-row admin-pf-row connector-account-acl-fieldrow">';
     html += '<label class="connector-account-acl-fieldlabel">' +
             escapeHtml(_capitalize(vocab.channels)) + '</label>';
+    html += '<button type="button" class="field-info-icon" ' +
+            'title="' + escapeAttr(channelsTipText) + '" ' +
+            'aria-describedby="connector-allowlist-channels-help-text" ' +
+            'data-testid="connector-allowlist-channels-hint">' + infoIcon + '</button>';
+    html += '<span id="connector-allowlist-channels-help-text" class="visually-hidden">' +
+            escapeHtml(channelsTipText) + '</span>';
     html += '<div data-allowlist-chiplist-slot="channels"></div>';
-    html += '<small class="form-hint" ' +
-            'data-testid="connector-allowlist-channels-hint">' +
-            'Empty list = no ' + escapeHtml(vocab.channel) + ' restriction.' +
-            '</small>';
     html += '</div>';
-    html += '<div class="connector-account-acl-fieldrow">';
+
+    // Groups (guilds) axis.
+    var guildsTipText = 'Empty list = no ' + vocab.group + ' restriction.' +
+            (nativeTone ? '' : ' Discord-flavored; ignored by other platforms.');
+    html += '<div class="field-row admin-pf-row connector-account-acl-fieldrow">';
     html += '<label class="connector-account-acl-fieldlabel">' +
             escapeHtml(_capitalize(vocab.groups)) + '</label>';
+    html += '<button type="button" class="field-info-icon" ' +
+            'title="' + escapeAttr(guildsTipText) + '" ' +
+            'aria-describedby="connector-allowlist-guilds-help-text" ' +
+            'data-testid="connector-allowlist-guilds-hint">' + infoIcon + '</button>';
+    html += '<span id="connector-allowlist-guilds-help-text" class="visually-hidden">' +
+            escapeHtml(guildsTipText) + '</span>';
     html += '<div data-allowlist-chiplist-slot="guilds"></div>';
-    html += '<small class="form-hint" ' +
-            'data-testid="connector-allowlist-guilds-hint">' +
-            'Empty list = no ' + escapeHtml(vocab.group) + ' restriction.' +
-            (nativeTone ? '' : ' Discord-flavored; ignored by other platforms.') +
-            '</small>';
     html += '</div>';
-    html += '<div class="connector-account-acl-fieldrow">';
+
+    // Roles axis.
+    var rolesTipText = 'Empty list = no ' + vocab.role + ' restriction. ' +
+            'Any-of overlap.' +
+            (nativeTone ? '' : ' Discord-flavored.');
+    html += '<div class="field-row admin-pf-row connector-account-acl-fieldrow">';
     html += '<label class="connector-account-acl-fieldlabel">' +
             escapeHtml(_capitalize(vocab.roles)) + '</label>';
+    html += '<button type="button" class="field-info-icon" ' +
+            'title="' + escapeAttr(rolesTipText) + '" ' +
+            'aria-describedby="connector-allowlist-roles-help-text" ' +
+            'data-testid="connector-allowlist-roles-hint">' + infoIcon + '</button>';
+    html += '<span id="connector-allowlist-roles-help-text" class="visually-hidden">' +
+            escapeHtml(rolesTipText) + '</span>';
     html += '<div data-allowlist-chiplist-slot="roles"></div>';
-    html += '<small class="form-hint" ' +
-            'data-testid="connector-allowlist-roles-hint">' +
-            'Empty list = no ' + escapeHtml(vocab.role) + ' restriction. ' +
-            'Any-of overlap.' +
-            (nativeTone ? '' : ' Discord-flavored.') +
-            '</small>';
-    html += '</div>';
     html += '</div>';
 
     html += '</div>';
-    void escapeAttr;
+
+    html += '</div>';
     return html;
   }
 
@@ -2172,15 +2404,39 @@
 
     var html = '';
     html += '<div class="editor-section connector-routing-section">';
-    html += '<div class="section-title">Routing rules</div>';
+    // F5 L6 HAT R4: renamed "Routing rules" → "Routing" with a
+    // friendly description.
+    html += '<div class="section-title">Routing</div>';
+    html += '<div class="section-description">Which agent handles which message.</div>';
 
-    // M10 F7 L9 HAT2: default-agent row moves to the TOP of the section
+    // M10 F7 L9 HAT2: default-agent row at the top of the section
     // (operator visual-hierarchy feedback during HAT). The rules table +
-    // "Add rule" button follow. The form-hint stays directly under the
-    // default-agent dropdown so the "fall back to first-eligible"
-    // micro-copy explains both empty-default AND empty-rules states.
+    // "Add rule" button follow.
+    //
+    // F5 L6 HAT R5: the dangling ``<small class="form-hint">Fall back to
+    // first-eligible-alphabetical agent.</small>`` row read as a
+    // disconnected concern beneath the dropdown. Migrated to the
+    // canonical 3-column ``label | info-icon | field`` shape — the
+    // tooltip text is now Default-agent-specific and answers the
+    // "what happens if I leave this empty?" question directly, in line
+    // with the info-icon pattern established by Lifecycle / Runtime
+    // Config / Access in rounds 3-4. ``data-testid="connector-routing-
+    // default-hint"`` migrates from the dropped ``<small>`` to the new
+    // info-icon ``<button>`` (any test resolving by this testid keeps
+    // finding an element).
+    var escapeHtml = window.App.escapeHtml;
+    var infoIcon = (window.App && window.App.icon) ? window.App.icon('info') : 'ⓘ';
+    var defaultAgentTipText = "Picks up messages that don't match any " +
+            "per-rule override below. Leave empty to fall back to the " +
+            "first eligible agent alphabetically.";
     html += '<div class="field-row admin-pf-row connector-routing-default-row">';
     html += '<label for="connector-routing-default">Default agent</label>';
+    html += '<button type="button" class="field-info-icon" ' +
+            'title="' + escapeAttr(defaultAgentTipText) + '" ' +
+            'aria-describedby="connector-routing-default-help-text" ' +
+            'data-testid="connector-routing-default-hint">' + infoIcon + '</button>';
+    html += '<span id="connector-routing-default-help-text" class="visually-hidden">' +
+            escapeHtml(defaultAgentTipText) + '</span>';
     html += '<select class="field-input field-select admin-pf-input admin-pf-select" ' +
             'id="connector-routing-default" data-routing-default ' +
             'data-testid="connector-routing-default">';
@@ -2190,12 +2446,6 @@
               window.App.escapeHtml(defaultAgent) + '</option>';
     }
     html += '</select>';
-    html += '</div>';
-    html += '<div class="field-row admin-pf-row">';
-    html += '<label></label>';
-    html += '<small class="form-hint" data-testid="connector-routing-default-hint">' +
-            'Fall back to first-eligible-alphabetical agent.' +
-            '</small>';
     html += '</div>';
 
     html += '<table class="connector-routing-table" data-testid="connector-routing-table">';
@@ -2969,6 +3219,190 @@
     _mountAllowlistAxisEditor(channelsSlot, account, 'channels', channelsInit, vocab, checkDirty);
     _mountAllowlistAxisEditor(guildsSlot, account, 'guilds', guildsInit, vocab, checkDirty);
     _mountAllowlistAxisEditor(rolesSlot, account, 'roles', rolesInit, vocab, checkDirty);
+
+    // F5 L6 HAT R5: wire the section-level banner (pre-probe vs
+    // populated state + manual Refresh dispatch). The 4 axes' per-axis
+    // Refresh buttons + pre-probe hints were removed from
+    // ``discoverable-dropdown.js`` in the same round; the banner is the
+    // single source of pool-warm signal + manual-refresh affordance.
+    _wireAllowlistBanner(container, account);
+  }
+
+  // F5 L6 HAT R5: section-level banner wiring.
+  //
+  // The banner has two states:
+  //   pre-probe  — no cached entities yet (404 from L4 GET); shows the
+  //                "Run Test Connection" hint; Refresh button hidden.
+  //   populated  — cached entities present (200 from L4 GET); shows
+  //                "Last refreshed: {when}"; Refresh button visible.
+  //
+  // Initial state is the pessimistic pre-probe pose set by the markup.
+  // On mount, we fire one L4 GET to discover the actual state without
+  // forcing a refresh; the response (200 / 404 / 503) drives the
+  // banner state. We also listen for the
+  // ``connector-account-pool-warmed`` event (dispatched by Test
+  // Connection's onResponse when the pool just warmed) so the banner
+  // transitions in real time without another GET round-trip.
+  //
+  // The Refresh button dispatches
+  // ``connector-account-discoverable-refresh-requested`` with
+  // ``{ accountId }`` detail — all 4 mounted axis dropdowns listen and
+  // re-fetch on a match. We also do a GET ourselves after the dispatch
+  // (with a small delay) to refresh the banner's "Last refreshed"
+  // timestamp; the dropdowns' own POST to /refresh updates the cache
+  // and the subsequent GET reads the new timestamp.
+  function _wireAllowlistBanner(container, account) {
+    if (!container || !account || !account.id) return;
+    var banner = container.querySelector('[data-testid="connector-allowlist-banner"]');
+    if (!banner) return;
+    var refreshBtn = banner.querySelector(
+      '[data-testid="connector-allowlist-banner-refresh"]'
+    );
+    var statusEl = banner.querySelector(
+      '[data-testid="connector-allowlist-banner-status"]'
+    );
+    var ledEl = banner.querySelector(
+      '[data-testid="connector-allowlist-banner-led"]'
+    );
+    if (!refreshBtn || !statusEl || !ledEl) return;
+
+    function _setLed(modifier) {
+      ledEl.classList.remove(
+        'indicator-led--success',
+        'indicator-led--warning',
+        'indicator-led--danger',
+        'indicator-led--idle'
+      );
+      ledEl.classList.add('indicator-led--' + modifier);
+    }
+
+    function _setState(stateName, message) {
+      banner.setAttribute('data-state', stateName);
+      if (stateName === 'populated') {
+        _setLed('success');
+        refreshBtn.removeAttribute('hidden');
+        refreshBtn.removeAttribute('disabled');
+      } else if (stateName === 'refreshing') {
+        // Visual mid-refresh pose — disable the button to avoid
+        // double-clicks; the dropdowns are doing the heavy lifting via
+        // their own _refreshEntities calls.
+        refreshBtn.setAttribute('disabled', '');
+      } else if (stateName === 'unsupported') {
+        _setLed('idle');
+        refreshBtn.setAttribute('hidden', '');
+      } else {
+        // pre-probe / error fall through to the idle pose.
+        // F5 L6 HAT round-6: keep Refresh visible so the operator can
+        // re-trigger a probe attempt without leaving the A&R tab.
+        // Clicking Refresh in pre-probe state re-fetches; still 404
+        // leaves the state in pre-probe (harmless); successful warmup
+        // transitions to populated.
+        _setLed('idle');
+        refreshBtn.removeAttribute('hidden');
+        refreshBtn.removeAttribute('disabled');
+      }
+      if (typeof message === 'string') {
+        statusEl.textContent = message;
+      }
+    }
+
+    function _formatFetchedAt(iso) {
+      if (!iso) return '';
+      // Defensive: any parse failure → fall back to the raw string so
+      // the operator still sees *something*. Mirrors the
+      // ``connectors-tab.js`` defensive-ago pattern.
+      var date;
+      try { date = new Date(iso); }
+      catch (e) { return iso; }
+      if (!date || isNaN(date.getTime())) return iso;
+      var diffMs = Date.now() - date.getTime();
+      if (diffMs < 0 || diffMs < 5000) return 'just now';
+      var diffS = Math.floor(diffMs / 1000);
+      if (diffS < 60) return diffS + 's ago';
+      var diffM = Math.floor(diffS / 60);
+      if (diffM < 60) return diffM + 'm ago';
+      var diffH = Math.floor(diffM / 60);
+      if (diffH < 24) return diffH + 'h ago';
+      return date.toLocaleString();
+    }
+
+    function _probe() {
+      var url = '/api/connector-accounts/' + encodeURIComponent(account.id) +
+                '/discoverable-entities';
+      fetch(url).then(function (response) {
+        if (response.status === 404) {
+          _setState('pre-probe',
+                    'Refresh connection to populate the discoverable lists.');
+          return null;
+        }
+        if (response.status === 503) {
+          _setState('unsupported',
+                    'This connector type does not expose discoverable entities.');
+          return null;
+        }
+        if (!response.ok) {
+          _setState('pre-probe',
+                    "Couldn't load discoverable lists; try Refresh.");
+          // Show the refresh button on error so operator can retry.
+          refreshBtn.removeAttribute('hidden');
+          refreshBtn.removeAttribute('disabled');
+          return null;
+        }
+        return response.json();
+      }).then(function (body) {
+        if (!body) return;
+        var fetchedAt = body.fetched_at || '';
+        var ago = _formatFetchedAt(fetchedAt);
+        _setState('populated',
+                  ago ? 'Last refreshed: ' + ago : 'Loaded.');
+      }).catch(function (err) {
+        _setState('pre-probe',
+                  "Couldn't load discoverable lists; try Refresh.");
+        refreshBtn.removeAttribute('hidden');
+        refreshBtn.removeAttribute('disabled');
+        try { console.error('allowlist banner probe failed:', err); }
+        catch (logErr) { /* console missing */ }
+      });
+    }
+
+    refreshBtn.addEventListener('click', function () {
+      _setState('refreshing', 'Refreshing…');
+      try {
+        document.dispatchEvent(
+          new CustomEvent('connector-account-discoverable-refresh-requested', {
+            detail: { accountId: account.id }
+          })
+        );
+      } catch (e) {
+        try { console.error('refresh-requested dispatch failed:', e); }
+        catch (logErr) { /* console missing */ }
+      }
+      // Give the dropdowns a moment to POST /refresh + cache the new
+      // payload before we GET to read the fresh ``fetched_at``. 600ms
+      // is a heuristic — the L4 POST is synchronous-on-success per the
+      // F4 L4 contract, but we want the cache write to land first.
+      setTimeout(_probe, 600);
+    });
+
+    // React in real time to a Test Connection success that warmed the
+    // pool. The Test Connection POST handler (see connector-account-
+    // editor.js renderTestConnectionResponse) dispatches this event
+    // with ``{ accountId }`` detail when ``details.pool_warmed === true``.
+    var poolWarmedHandler = function (event) {
+      if (!banner.isConnected) {
+        document.removeEventListener('connector-account-pool-warmed', poolWarmedHandler);
+        return;
+      }
+      if (event && event.detail && event.detail.accountId === account.id) {
+        // Small delay to let the dropdowns' own _fetchEntities settle
+        // before we GET for the ``fetched_at`` timestamp.
+        setTimeout(_probe, 600);
+      }
+    };
+    document.addEventListener('connector-account-pool-warmed', poolWarmedHandler);
+
+    // Initial probe — discover the real pool state on editor mount.
+    _probe();
   }
 
   function collectAllowlistFromContainer(container) {

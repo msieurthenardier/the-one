@@ -297,48 +297,22 @@ class TestConnectorAccountConfigValidation:
         )
         assert resp.status_code == 201
 
-    # ── system_prompt_directive rejection cases ───────────────────
-    # M11 F2 L3: per-account operator-authored system-prompt directive.
-    # Optional key on Discord-type config; APPEND-mode at the composer
-    # (L3 substrate; L4 ships the UI). Absent → no override. Present →
-    # must be a non-empty string.
-
-    async def test_discord_system_prompt_directive_non_string_rejected(
-        self, client: AsyncClient
-    ) -> None:
-        """system_prompt_directive as an int → 422."""
-        resp = await client.post(
-            "/api/connector-accounts",
-            json=_discord_payload({"system_prompt_directive": 42}),
-        )
-        assert resp.status_code == 422
-        assert resp.json()["detail"] == (
-            "Discord connector config.system_prompt_directive must be a string "
-            "if present; got int."
-        )
-
-    async def test_discord_system_prompt_directive_empty_string_rejected(
-        self, client: AsyncClient
-    ) -> None:
-        """system_prompt_directive='' → 422 (absence is the canonical
-        'no override' signal; empty string is operator-confusing noise)."""
-        resp = await client.post(
-            "/api/connector-accounts",
-            json=_discord_payload({"system_prompt_directive": ""}),
-        )
-        assert resp.status_code == 422
-        assert resp.json()["detail"] == (
-            "Discord connector config.system_prompt_directive must be a "
-            "non-empty string if present (use absence to mean 'no override')."
-        )
-
-    # ── system_prompt_directive happy-path cases ──────────────────
+    # ── system_prompt_directive: pass-through (round-8) ───────────
+    # M11 F5 L6 HAT round-8: the M11 F2 L3 validation block was
+    # REMOVED (criterion #14 reverted). The validator no longer
+    # rejects malformed ``system_prompt_directive`` values — they pass
+    # through unchanged but are IGNORED at agent-create time. Legacy
+    # rows that still carry the key continue to validate; new writes
+    # carrying the key also validate. The pre-round-8 rejection tests
+    # (``test_discord_system_prompt_directive_non_string_rejected``,
+    # ``test_discord_system_prompt_directive_empty_string_rejected``)
+    # were deleted; the happy-path tests below are kept as pass-through
+    # smoke checks.
 
     async def test_discord_system_prompt_directive_absent_passes(
         self, client: AsyncClient
     ) -> None:
-        """Absent system_prompt_directive → 201 (M10 F8 back-compat: the
-        key is optional; absence is the canonical 'no override' signal)."""
+        """Absent system_prompt_directive → 201."""
         resp = await client.post(
             "/api/connector-accounts",
             json=_discord_payload({}),
@@ -348,7 +322,8 @@ class TestConnectorAccountConfigValidation:
     async def test_discord_system_prompt_directive_short_string_passes(
         self, client: AsyncClient
     ) -> None:
-        """A short, well-formed directive → 201."""
+        """A short string directive → 201 (pass-through; ignored at
+        agent-create time post round-8)."""
         resp = await client.post(
             "/api/connector-accounts",
             json=_discord_payload(
@@ -360,10 +335,33 @@ class TestConnectorAccountConfigValidation:
     async def test_discord_system_prompt_directive_long_string_passes(
         self, client: AsyncClient
     ) -> None:
-        """A 5000-char directive → 201 (no length cap)."""
+        """A 5000-char directive → 201 (pass-through)."""
         resp = await client.post(
             "/api/connector-accounts",
             json=_discord_payload({"system_prompt_directive": "x" * 5000}),
+        )
+        assert resp.status_code == 201
+
+    async def test_discord_system_prompt_directive_non_string_passes_round_8(
+        self, client: AsyncClient
+    ) -> None:
+        """Round-8: malformed values that were 422 pre-round-8 now
+        pass through (validator no longer reads the key). The value is
+        ignored at agent-create time."""
+        resp = await client.post(
+            "/api/connector-accounts",
+            json=_discord_payload({"system_prompt_directive": 42}),
+        )
+        assert resp.status_code == 201
+
+    async def test_discord_system_prompt_directive_empty_string_passes_round_8(
+        self, client: AsyncClient
+    ) -> None:
+        """Round-8: empty-string directive now passes (was 422
+        pre-round-8). The value is ignored at agent-create time."""
+        resp = await client.post(
+            "/api/connector-accounts",
+            json=_discord_payload({"system_prompt_directive": ""}),
         )
         assert resp.status_code == 201
 

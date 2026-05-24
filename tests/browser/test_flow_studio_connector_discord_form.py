@@ -46,7 +46,7 @@ def _activate_access_and_routing_tab(page: Page) -> None:
     """F5 L3: edit-mode renders runtime-config on the Access-and-Routing
     tab (was: Connection section on the General tab). Tests that
     interact with ``discord-intent-*`` / ``discord-guilds-list`` /
-    ``discord-presence-*`` / ``discord-advanced-kv-disclosure`` testids
+    ``discord-presence-*`` / ``discord-additional-config-row`` testids
     must click the tab first so the panel is visible / actionable.
     Mirrors the helper at
     ``test_flow_studio_connector_account_editor.py:89``; inlined here
@@ -263,14 +263,21 @@ def test_presence_name_and_type_save(app_clean: str, page: Page) -> None:
 
 
 @pytest.mark.browser
-def test_advanced_disclosure_hides_reserved_keys(app_clean: str, page: Page) -> None:
-    """The Advanced kv-table disclosure renders with ``intents``,
+def test_additional_config_hides_reserved_keys(app_clean: str, page: Page) -> None:
+    """The Additional Config kv-table renders with ``intents``,
     ``guilds``, ``presence`` keys NOT appearing as kv-table rows (L3's
     effective-reserved-keys composition with the entry's
-    ``reservedConfigKeys``)."""
+    ``reservedConfigKeys``).
+
+    F5 L6 HAT round-2: pre-round-2 this section was an
+    ``<details>``-based "Advanced (kv-table)" disclosure; round-2 made
+    it an always-visible "Additional Config" row. The testid migrated
+    from ``discord-advanced-kv-disclosure`` to
+    ``discord-additional-config-row``.
+    """
     account_id = _seed_discord(
         app_clean,
-        name="Advanced Bot",
+        name="Additional Config Bot",
         config={
             "intents": {"message_content": False, "members": True, "guilds": True},
             "guilds": ["111", "222"],
@@ -283,13 +290,13 @@ def test_advanced_disclosure_hides_reserved_keys(app_clean: str, page: Page) -> 
         timeout=8000
     )
 
-    # F5 L3: Advanced disclosure moved to the Access-and-Routing tab
-    # (inside the Runtime Config section).
+    # F5 L3: Additional Config kv-table lives on the Access-and-Routing
+    # tab (inside the Runtime Config section).
     _activate_access_and_routing_tab(page)
 
-    # The disclosure exists.
+    # The Additional Config row exists.
     expect(
-        page.locator('[data-testid="discord-advanced-kv-disclosure"]')
+        page.locator('[data-testid="discord-additional-config-row"]')
     ).to_be_attached()
 
     # Read the kv-table rows' key inputs. Reserved keys (intents,

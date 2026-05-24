@@ -1,14 +1,15 @@
 # Flight: Connector UX Cleanup
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Discord Connector Depth & Robustness](../../mission.md)
 
 ## Contributing to Criteria
 
-- [ ] Mission criterion #1 (Discord-shaped form): re-styles the typed Discord form (Intents/Guilds/Presence/Advanced) to the sdcon design language and to the MCP-editor reference shape. The substrate's six-layer connector-type contract is unchanged; the visible form surface becomes design-language-compliant.
-- [ ] Mission criterion #2 (Discord-shaped vocabulary across user-facing surfaces): replaces verbose technical labels and help-text with human-friendly copy and info-icon tooltips throughout the connector editor + agent-Connectors-tab.
-- [ ] Mission criterion #18 (fresh operator under fifteen minutes): the cumulative UX polish reduces visual friction (raw-checkbox surprise, type-dropdown placeholder confusion, empty-blank-box mystery, tab-misaligned section order) on the operator-walkthrough path.
-- [ ] Mission criterion #19 (full working-day daily-driver): operational consistency between MCP editor and connector editor reduces mode-switching cognitive cost during daily use.
+- [x] Mission criterion #1 (Discord-shaped form): re-styled to sdcon design language + MCP-editor reference shape. Substrate's six-layer contract unchanged.
+- [x] Mission criterion #2 (Discord-shaped vocabulary): verbose technical labels replaced with human-friendly copy + info-icon tooltips throughout.
+- [x] Mission criterion #18 (fresh operator under fifteen minutes): cumulative UX polish reduces visual friction (HAT-iterated through 8 rounds).
+- [x] Mission criterion #19 (full working-day daily-driver): operational consistency between MCP editor and connector editor reduces mode-switching cognitive cost.
+- [ ] Mission criterion #14 (operator-editable directive) — **PARTIALLY REVERTED in F5 L6 HAT round-8** per operator decision. Defaults visible in styled codeblock; per-account operator override removed. Re-evaluation candidate for F5 debrief or future UX maturity mission.
 
 ## Source artifacts driving this flight
 
@@ -130,7 +131,7 @@ The flight is explicitly framed as the operator-requested cleanup of cumulative 
 - [x] L3 — `renderConnectionFields` in `connector-form-discord.js` is split into two: Connection (Name/Type/Token — actually these are in `connector-account-editor.js`; the typed-form's contribution to Connection becomes empty in the Discord case since Intents/Guilds/Presence move out) + Runtime Config (Intents/Guilds/Presence/Advanced). `connector-account-editor.js` Access-and-Routing tab mounts the Runtime Config block between Lifecycle and Allowlist. Labels rewritten for human-friendliness; verbose `<small class="form-hint">` text replaced with `.field-info-icon` tooltips. Chrome MCP confirms tab semantics + label rendering.
 - [x] L4 — `connectors-tab.js` per-axis body gets a CSS class for visual containment (border-left/padding/background tint); `discoverable-dropdown.js:_renderChips` toggles `hidden` on `.discoverable-dropdown-chips` based on `currentValues.length`. Chrome MCP confirms both visual contracts.
 - [x] L5 — `missions/11-discord-connector-depth/flights/05-connector-ux-cleanup/sweep-coverage.md` exists with element-by-element table covering connector editor (both new and edit modes) + agent-Connectors-tab; deferral list at the bottom enumerates any element whose visual treatment needs a future-UX-mission primitive. Any small inline-style cleanups discovered during the sweep land in this leg's commit.
-- [ ] L6 — operator-driven HAT walks the cumulative result; small-tweak iteration on anything that surfaces; final operator-confirmed pass.
+- [x] L6 — operator-driven HAT iterated through 8 rounds; substantial inline fixes folded (Type-placeholder, Lifecycle relabel/reorder, runtime-config repositioning, intent label rewrites, allowlist 3-column refactor, tab section reorg + descriptions, banner Refresh + copy, invite section 3-column + icon-only buttons, directive simplification with reactive codeblock). Operator-confirmed pass.
 
 ### Adaptation Criteria
 
@@ -162,7 +163,7 @@ The flight is explicitly framed as the operator-requested cleanup of cumulative 
 
 - [x] `connector-ux-sweep` — Element-by-element sweep of the touched surfaces: full connector editor (new + edit modes, both tabs) + agent-Connectors-tab. For every visible element, confirm it maps to a Design Language primitive (`field-input`, `field-select`, `checkbox-primary`, `field-info-icon`, `tool-enable-switch`, `chip`, `indicator-led`, etc.) OR an MCP-editor pattern. Reuse existing primitives where they exist; style-accurately where they don't AND note as future-UX-mission scope in the deferral list. Output: `missions/11-discord-connector-depth/flights/05-connector-ux-cleanup/sweep-coverage.md` with element→primitive table + deferral list. Any small inline-style cleanups discovered during the sweep land in this leg's commit. **NO new UI components built.** Chrome MCP drives the element enumeration. ~30 LOC source + coverage report artifact.
 
-- [ ] `uat-and-alignment` *(required HAT — operator-driven)* — Operator walks the cumulative result manually; agent guides verification steps via conversational prompts (one step at a time, operator clicks through and reports outcomes). Verification steps land at L6 design time. Small-tweak fixes during HAT land as inline commits on this branch. HAT discoveries: fold into F5 OR escalate as Known UX Gap in F5 flight-debrief — NOT deferred. Final operator-confirmed pass closes the leg.
+- [x] `uat-and-alignment` *(required HAT — operator-driven)* — Operator walked the cumulative result manually across 8 HAT rounds; agent guided verification steps. Substantial inline fixes folded across rounds 1-8 (Type-placeholder polish; Lifecycle relabel+reorder; runtime-config repositioning; intent label rewrites; allowlist 3-column refactor; tab section reorg + descriptions; banner Refresh visibility + copy; invite section 3-column + icon-only buttons; directive simplification with reactive codeblock). Mission criterion #14 partially reverted (operator-editable directive override removed per operator decision; defaults still visible in styled codeblock).
 
 ---
 

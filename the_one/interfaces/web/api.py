@@ -986,32 +986,13 @@ def _validate_connector_account_config(account: ConnectorAccount) -> None:
                         ),
                     )
 
-        # ── system_prompt_directive ──────────────────────────────
-        # M11 F2 L3: optional per-account operator-authored directive
-        # appended to the connector system prompt. Absent → no override.
-        # Present → must be a non-empty string. Empty string is rejected
-        # explicitly (absence is the canonical "no override" signal).
-        # No length cap; no content validation. The composer APPENDS
-        # this text after the selected default directive — the operator
-        # cannot overwrite the substrate's behavioral contract.
-        if "system_prompt_directive" in cfg:
-            directive = cfg["system_prompt_directive"]
-            if not isinstance(directive, str):
-                raise HTTPException(
-                    status_code=422,
-                    detail=(
-                        f"Discord connector config.system_prompt_directive must be "
-                        f"a string if present; got {type(directive).__name__}."
-                    ),
-                )
-            if not directive:
-                raise HTTPException(
-                    status_code=422,
-                    detail=(
-                        "Discord connector config.system_prompt_directive must be "
-                        "a non-empty string if present (use absence to mean 'no override')."
-                    ),
-                )
+        # M11 F5 L6 HAT round-8: the M11 F2 L3
+        # ``system_prompt_directive`` validation block was REMOVED here
+        # (criterion #14 reverted; operator-editable directive surface
+        # dropped). Old rows that still carry the key pass through the
+        # validator unchanged but are IGNORED at agent-create time
+        # (see ``the_one/agent/factory.py``). New writes containing the
+        # key are accepted (no rejection) but have no behavioral effect.
 
     elif account.type == "stub":
         # Stub-type carve-out — F1 trust posture accepts arbitrary

@@ -56,9 +56,12 @@
 //   connector account editor (F1 L5; M11 F5 L2 MCP-parity refactor
 //   moved the embed inside Connection — the registry contract is
 //   unchanged, only the returned HTML shape).
-// - renderDirectiveSection(account, params) → HTMLElement: per-type
-//   per-account directive surface mounted between Pairing and
-//   Attached Agents (F2 L4).
+// - renderDirectiveSection: REMOVED in M11 F5 L6 HAT round-8.
+//   The per-type per-account directive surface (M11 F2 L4) was retired
+//   when mission criterion #14 was reverted; the read-only effective-
+//   directive surface now lives under the Auto-reply toggle in the
+//   Session section of the substrate (``connector-account-editor.js``)
+//   and is type-agnostic — no registry hook needed.
 // - renderDiscoverableDropdown(account, axis, currentValues, vocab,
 //   onChange) → HTMLElement | null: per-type axis-specific live-data
 //   dropdown for the allowlist + routing-rules editors (F3 L5; absent
@@ -127,12 +130,12 @@
     // between Test Connection and Danger Zone). Absent → no invite
     // block renders (the ``'stub'`` fallback path and any
     // future-type-with-no-invite-helper).
-    // M11 F2 L4 extends the optional set with ``renderDirectiveSection``:
-    // an entry-provided hook that returns the HTML for the per-type
-    // System Prompt Directive section mounted on the General tab
-    // between Pairing and Attached Agents. Absent → no directive
-    // section renders (the ``'stub'`` fallback path and any
-    // future-type-with-no-directive-surface).
+    // M11 F2 L4's ``renderDirectiveSection`` hook was REMOVED in
+    // M11 F5 L6 HAT round-8 (mission criterion #14 reverted). The
+    // entry-provided per-account System Prompt Directive surface is
+    // gone; the substrate now renders a read-only effective-directive
+    // codeblock under the Auto-reply toggle in the Session section,
+    // type-agnostic (no per-type override).
     // M11 F3 L5 extends the optional set with ``renderDiscoverableDropdown``:
     // ``renderDiscoverableDropdown(account, axis, currentValues, vocab, onChange)
     // → HTMLElement | null`` is the entry's opt-in for the live-data
@@ -159,7 +162,7 @@
       'snapshot',
       'wireEvents',
       'renderInviteSection',
-      'renderDirectiveSection',
+      // ``renderDirectiveSection`` REMOVED in M11 F5 L6 HAT round-8.
       'renderDiscoverableDropdown',
       'renderRuntimeConfigFields'
     ];

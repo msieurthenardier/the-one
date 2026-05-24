@@ -658,7 +658,10 @@
     html += '<div class="field-row admin-pf-row">';
     html += '<label for="mf-type">Type</label>';
     html += '<select class="field-input field-select admin-pf-input admin-pf-select" id="mf-type" data-field="type">';
-    if (isCreate) html += '<option value="" disabled selected>Select a transport…</option>';
+    // F5 L6 HAT: ``hidden`` attribute keeps the placeholder out of the
+    // open list while still displaying its text in the closed state —
+    // matches the connector-account-editor type-select treatment.
+    if (isCreate) html += '<option value="" disabled selected hidden>Select a transport…</option>';
     var types = mcpTypes || [];
     for (var t = 0; t < types.length; t++) {
       var mt = types[t];

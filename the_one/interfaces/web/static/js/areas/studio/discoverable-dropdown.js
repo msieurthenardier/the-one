@@ -3,10 +3,20 @@
 // Shared frontend dropdown used by L6a's allowlist editor and L6b's
 // routing-rules + per-agent-overlay editors. Combobox shape: typeahead
 // ``<input>`` + naive-render results panel + grouped sections +
-// chip-list selected-values strip + Refresh button + stale-entry
-// rendering. Account-scoped (one instance per axis per account);
-// consumes the L4 API at ``GET/POST
-// /api/connector-accounts/{accountId}/discoverable-entities``.
+// chip-list selected-values strip + stale-entry rendering. Account-
+// scoped (one instance per axis per account); consumes the L4 API at
+// ``GET/POST /api/connector-accounts/{accountId}/discoverable-entities``.
+//
+// F5 L6 HAT R5: per-axis Refresh button and per-axis pre-probe hint
+// removed. The Refresh affordance + pre-probe messaging now live on a
+// section-level banner rendered by ``renderAllowlistSection`` in
+// ``connector-account-editor.js``. The banner dispatches a
+// ``connector-account-discoverable-refresh-requested`` event with
+// ``{ accountId }`` detail; this component listens (alongside the
+// existing ``connector-account-pool-warmed`` listener from F4 L4) and
+// re-fetches its axis entities on a matching event. Both event channels
+// coexist — pool-warmed = Test-Connection success; refresh-requested =
+// operator-clicked the section-level Refresh button.
 //
 // Public surface:
 //   App.studio.discoverableDropdown(opts) -> HTMLElement
@@ -83,6 +93,11 @@
     root.setAttribute('data-account-id', accountId);
     root.setAttribute('data-testid', 'discoverable-dropdown-' + axis);
 
+    // F5 L6 HAT R5: per-axis Refresh button removed. The wrapping
+    // ``discoverable-dropdown-input-row`` div is retained (single-child
+    // wrapper now) so any CSS scoped to the row layout keeps applying;
+    // future re-introduction of a row-level affordance would slot in
+    // alongside the input without a structural change.
     root.innerHTML =
       '<div class="discoverable-dropdown-input-row">' +
         '<input type="text" class="discoverable-dropdown-input" ' +
@@ -93,9 +108,6 @@
                'data-testid="discoverable-dropdown-input-' + _escapeAttr(axis) + '" ' +
                'placeholder="' + _escapeAttr(placeholder) + '" ' +
                'autocomplete="off" disabled>' +
-        '<button type="button" class="discoverable-dropdown-refresh" ' +
-                'data-testid="discoverable-dropdown-refresh-' + _escapeAttr(axis) + '" ' +
-                'aria-label="Refresh">↻</button>' +
       '</div>' +
       '<div class="discoverable-dropdown-menu" role="listbox" ' +
            'id="' + _escapeAttr(menuId) + '" ' +
@@ -547,8 +559,14 @@
       return;
     }
     if (result.kind === 'pre-probe-404') {
-      var detail = (result.body && result.body.detail) || 'Run Test Connection first.';
-      _setStatus(state, detail);
+      // F5 L6 HAT R5: pre-probe messaging now lives on the section-level
+      // banner (Access section's Refresh row, owned by
+      // ``renderAllowlistSection``). The dropdown keeps its menu closed
+      // and chip strip rendered — the operator-facing "Run Test
+      // Connection first" guidance is communicated by the banner. The
+      // dropdown's own status line is cleared so it doesn't echo the
+      // banner text per-axis.
+      _setStatus(state, '');
       var menu = state.root.querySelector('.discoverable-dropdown-menu');
       if (menu) menu.setAttribute('hidden', '');
       var input = state.root.querySelector('.discoverable-dropdown-input');
@@ -582,7 +600,6 @@
 
   function _wireEvents(state) {
     var input = state.root.querySelector('.discoverable-dropdown-input');
-    var refresh = state.root.querySelector('.discoverable-dropdown-refresh');
     var menu = state.root.querySelector('.discoverable-dropdown-menu');
 
     if (input) {
@@ -602,9 +619,12 @@
       });
     }
 
-    if (refresh) {
-      refresh.addEventListener('click', function () { _refreshEntities(state); });
-    }
+    // F5 L6 HAT R5: per-axis Refresh button removed — see _buildDOM
+    // comment. The manual-refresh channel now flows through the
+    // ``connector-account-discoverable-refresh-requested`` document
+    // event dispatched by the section-level banner; the listener is
+    // wired inline in ``discoverableDropdown(opts)`` alongside the
+    // pool-warmed listener.
 
     if (menu) {
       // Click delegation fallback (mousedown on items already adds; this
@@ -675,6 +695,31 @@
       }
     };
     document.addEventListener('connector-account-pool-warmed', state.poolWarmHandler);
+
+    // F5 L6 HAT R5: section-level Refresh button channel. The Access
+    // section's banner (renderAllowlistSection in connector-account-
+    // editor.js) dispatches this event with {accountId} detail when the
+    // operator clicks Refresh. All 4 mounted axes for the same account
+    // re-fetch in parallel (each axis instance receives the event,
+    // matches its own accountId, and calls _refreshEntities). Mirrors
+    // the self-detach pattern of poolWarmHandler — when the root is
+    // gone from the DOM, the next event unbinds the listener.
+    state.refreshRequestedHandler = function (event) {
+      if (!state.root || !document.body.contains(state.root)) {
+        document.removeEventListener(
+          'connector-account-discoverable-refresh-requested',
+          state.refreshRequestedHandler
+        );
+        return;
+      }
+      if (event && event.detail && event.detail.accountId === state.accountId) {
+        _refreshEntities(state);
+      }
+    };
+    document.addEventListener(
+      'connector-account-discoverable-refresh-requested',
+      state.refreshRequestedHandler
+    );
 
     return root;
   }
