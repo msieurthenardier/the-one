@@ -45,6 +45,15 @@
     if (isOperatorOnly) {
       fullCls += ' msg-operator-only';
     }
+    // M11 F06 L04: peer-attributed user bubble gets msg-from-peer for the
+    // CSS left-align override (.area-chat .msg.user.msg-from-peer in chat.css,
+    // declared after .area-chat .msg.user — same specificity, last-rule-wins).
+    // Composes cleanly with visibility: peer-inbound users have visibility=None
+    // by construction (connectors/visibility.py skips Role.USER), so
+    // isOperatorOnly above is false for peer bubbles.
+    if (opts.peerName) {
+      fullCls += ' msg-from-peer';
+    }
     el.className = fullCls;
     el.setAttribute('data-testid', 'message');
     // Stash for DOM-shape assertions and future maintenance. Only set when
@@ -59,12 +68,34 @@
       label.textContent = '[operator-only]';
       el.appendChild(label);
     }
+    // M11 F06 L04 a11y follow-up: when the bubble represents a peer-attributed
+    // user message, prepend a visually-hidden span that screen readers will
+    // announce as "From {peerName}: " before the message text. Sighted users
+    // already get the attribution via the left-aligned bubble + the
+    // .msg-attribution.from-peer label below; assistive tech otherwise sees
+    // only `<div class="msg user">{text}</div>`, which is semantically
+    // indistinguishable from the operator's own user bubble (WCAG 1.3.3 /
+    // 1.4.1 — color & position alone cannot convey meaning). Mirrors the
+    // msg-operator-only-label idiom directly above. The .visually-hidden
+    // utility class is defined in chat.css (sr-only pattern) so the span
+    // takes no visual space.
+    if (opts.peerName) {
+      var peerLabel = document.createElement('span');
+      peerLabel.className = 'msg-from-peer-label visually-hidden';
+      peerLabel.textContent = 'From ' + opts.peerName + ': ';
+      el.appendChild(peerLabel);
+    }
     if (shouldRenderAsMarkdown(cls, opts)) {
       el.appendChild(App.markdown.render(text));
-    } else if (isOperatorOnly) {
+    } else if (isOperatorOnly || opts.peerName) {
       // Label was prepended — textContent assignment would wipe it.
       // Use appendChild(createTextNode(...)) which is XSS-equivalent
-      // (DOM API, not innerHTML) but preserves the label.
+      // (DOM API, not innerHTML) but preserves the label. The peer-attributed
+      // branch joins this path for the same reason: the visually-hidden
+      // msg-from-peer-label was just prepended and must survive the body
+      // append. Peer bubbles take the non-markdown branch (renderMessage's
+      // markdown gating fires only for the 'assistant' first-token), so this
+      // branch is the only one that handles peer-attributed text.
       el.appendChild(document.createTextNode(text));
     } else {
       el.textContent = text;

@@ -24,7 +24,7 @@ Living artifact mapping each M11 mission criterion to evidence (specific tests, 
 | 10 | All six slash commands (`/agents`, `/talk_to`, `/whoami`, `/new`, `/reset`, `/help`) HAT-validated | open | — | — |
 | 11 | End-to-end Chrome-driven repeatable HAT script in-repo | open | — | — |
 | 12 | Mentions-aware response policy in inbound dispatcher (per-agent / per-channel modes) | open | — | — |
-| 13 | Peer-name attribution end-to-end (gateway → dispatcher → session → Chat UI) | open | — | — |
+| 13 | Peer-name attribution end-to-end (gateway → dispatcher → session → Chat UI) | closed-by-F6 | F6 L1 `Message.peer_name` + codec emit-when-non-None (`tests/test_db_codec.py::TestMessagePeerNameCodec` 9 tests); F6 L2 `messages_to_ui_events` user-event projection (`TestMessagesToUiEventsPeerName` 7 tests); F6 L3 dispatcher post-step binding co-located with `tag_post_step_visibility` (`test_dispatch_inbound_persists_inbound_with_peer_name_from_envelope` + `test_dispatch_inbound_broadcasts_carry_peer_name`); F6 L4 Chat UI peer-bubble rendering + WCAG 1.3.3 sr-only label (`tests/browser/test_flow_chat_peer_attribution.py`); F6 L5 HAT outcome `looks-good` (1 round; Steps 1-6, 8, 10 pass; Steps 7+9 skipped with wire-shape pinning by browser test) | F6 |
 | 14 | Operator-editable per-account system-prompt directive surface | closed-by-F2 | F2 L1-L4; `tests/browser/test_flow_studio_connector_account_directive_section.py`; F2 debrief | F2 |
 | 15 | Audit-log inspector surface renders `session_metadata["routing"]` | open | — | — |
 | 16 | Lifecycle pool refactored from sentinel-wrapper to account-keyed primitive | closed-by-F2 | F2 L5-L6; `the_one/connectors/_pool.py:account_acquire`; F2 debrief | F2 |

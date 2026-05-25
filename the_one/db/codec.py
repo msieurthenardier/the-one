@@ -65,6 +65,12 @@ def message_to_dict(msg: Message) -> dict[str, Any]:
     # storage efficiency. Mirrors the tool_result.metadata pattern above.
     if msg.visibility is not None:
         d["visibility"] = msg.visibility
+    # M11 F06 L01: emit peer_name only when non-None. Pre-F6 rows had no
+    # peer_name key; preserve that shape for back-compat and storage
+    # efficiency. Mirrors the visibility pattern above and the
+    # tool_result.metadata pattern in _tool_result_to_dict.
+    if msg.peer_name is not None:
+        d["peer_name"] = msg.peer_name
     return d
 
 
@@ -98,6 +104,8 @@ def message_from_dict(d: dict[str, Any]) -> Message:
         usage=usage,
         # M10 F03 L02: visibility — None on legacy rows without the key.
         visibility=d.get("visibility"),
+        # M11 F06 L01: peer_name — None on pre-F6 rows without the key.
+        peer_name=d.get("peer_name"),
     )
 
 
@@ -171,9 +179,15 @@ def messages_to_ui_events(
         # this message. Absent key when source visibility is None — frontends
         # treat absent === platform-visible.
         vis = {"visibility": msg.visibility} if msg.visibility is not None else {}
+        # M11 F06 L02: peer_name flows ONLY into Role.USER events (peer_name
+        # is meaningful only on user-role messages — assistant/tool messages
+        # leave the field at its default None by construction). Absent key
+        # when source peer_name is None — frontends treat absent === no peer
+        # attribution (operator-typed or non-connector session).
+        peer = {"peer_name": msg.peer_name} if msg.peer_name is not None else {}
         if msg.role == Role.USER:
             events.append(
-                {"type": "user", "content": msg.content, "source": "restored", **vis}
+                {"type": "user", "content": msg.content, "source": "restored", **vis, **peer}
             )
         elif msg.role == Role.ASSISTANT:
             if msg.content:

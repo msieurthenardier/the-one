@@ -888,6 +888,12 @@ async def _process_and_broadcast(
     # the key when the value is meaningful. The session_locks[session.id]
     # at L258 serializes against connectors/_inbound.py:155's
     # dispatch_inbound, so there is no race.
+    #
+    # M11 F06 L03: this path does NOT acquire a ``peer_name`` key — the
+    # operator IS the source; there is no peer to attribute. Peer-
+    # attributed user events flow via the dispatcher path
+    # (connectors/_inbound.py) where the codec spreads ``peer_name``
+    # from the ``Message.peer_name`` field at projection time.
     if session.platform is not None:
         user_event["visibility"] = OPERATOR_VISIBILITY
     session.add_event(user_event)

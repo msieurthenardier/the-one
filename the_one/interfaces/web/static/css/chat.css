@@ -128,6 +128,15 @@
   .area-chat .msg { max-width: 85%; padding: 10px 14px; border-radius: var(--panel-radius); font-size: var(--font-size-body-lg); line-height: var(--line-height-normal); white-space: pre-wrap; word-wrap: break-word; }
   .area-chat .msg.user { align-self: flex-end; background: var(--accent); color: var(--fg-on-accent); box-shadow: 0 0 8px var(--accent-glow); }
   .area-chat .msg.user.api { background: var(--accent-api); box-shadow: none; }
+  /* M11 F06 L04: peer-attributed user bubble. Same specificity as
+     .msg.user above; declared AFTER it so last-rule-wins flips alignment
+     and neutralizes the accent background so peer messages read as
+     left-side platform-source (not me/operator). The border distinguishes
+     the peer bubble from the assistant bubble (which uses
+     --surface-translucent) so the two left-aligned bubble families remain
+     visually distinct even when --surface-elevated reads close to
+     --surface-translucent. */
+  .area-chat .msg.user.msg-from-peer { align-self: flex-start; background: var(--surface-elevated); color: var(--fg); box-shadow: none; border: 1px solid var(--border); }
   .area-chat .msg.assistant { align-self: flex-start; background: var(--surface-translucent); border: 1px solid var(--border); border-radius: var(--panel-radius); }
   .area-chat .msg.tool { align-self: flex-start; background: var(--surface-tool); font-family: var(--font-family-mono); font-size: var(--font-size-body-sm); color: var(--fg-tool-msg); border-left: 3px solid var(--accent); }
   .area-chat .msg.tool.error { border-left-color: var(--status-danger); }
@@ -221,9 +230,34 @@
     font-size: var(--font-size-tiny);
     color: var(--fg-tertiary);
   }
+  /* M11 F06 L04 a11y follow-up: visually-hidden utility — content exposed to
+     screen readers but not painted on screen. Used by .msg-from-peer-label
+     inside peer-attributed user bubbles so AT announces "From {peerName}: "
+     before the message body (WCAG 1.3.3 / 1.4.1 — color & position alone
+     cannot convey "who sent this"). Duplicated from admin.css:508 because
+     the SPA bundle currently loads both files, but the bare-class rule
+     belongs alongside the only chat-area consumer that depends on it; a
+     future a11y maintenance pass can lift this to base.css once a second
+     consumer surfaces. Standard sr-only pattern. */
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
   .area-chat .msg-attribution { font-size: var(--font-size-tiny); color: var(--fg-faint); font-family: var(--font-family-mono); letter-spacing: 0.04em; padding: 0 4px; margin-top: -6px; }
   .area-chat .msg-attribution.from-you { align-self: flex-end; }
   .area-chat .msg-attribution.from-agent { align-self: flex-start; }
+  /* M11 F06 L04: peer-attributed attribution label. Mirrors .from-agent
+     (left-aligned) but kept as a distinct class so a future themed peer
+     color (avatar dot, role color) can target it without touching agent
+     attribution rendering. */
+  .area-chat .msg-attribution.from-peer { align-self: flex-start; }
   .area-chat .msg-attribution-ts { color: var(--fg-faint); opacity: 0.75; }
   .area-chat .msg.model-loading .model-loading-dots { display: inline; font-size: var(--font-size-body-lg); }
   .area-chat .msg.assistant.thinking { color: var(--fg-muted); font-style: italic; }

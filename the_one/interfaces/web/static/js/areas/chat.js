@@ -115,10 +115,17 @@ App.registerArea({
 
     function addMsg(cls, text, attribution, opts) {
       App.perf.mark('addMsg:start');
+      opts = opts || {};
       messagesEl.appendChild(App.chat.renderMessage(cls, text, opts));
       if (attribution) {
-        var side = cls.indexOf('user') === 0 ? 'from-you' : 'from-agent';
-        var ts = (opts && Object.prototype.hasOwnProperty.call(opts, 'ts')) ? opts.ts : new Date().toISOString();
+        // M11 F06 L04: side inferred from opts.peerName truthiness.
+        // peer-attributed user bubbles align left ('from-peer'); operator-typed
+        // user bubbles stay right ('from-you'); non-user bubbles ('assistant',
+        // 'tool', 'system') align left ('from-agent') as before.
+        var side = opts.peerName
+          ? 'from-peer'
+          : (cls.indexOf('user') === 0 ? 'from-you' : 'from-agent');
+        var ts = Object.prototype.hasOwnProperty.call(opts, 'ts') ? opts.ts : new Date().toISOString();
         messagesEl.appendChild(App.chat.renderAttribution(side, attribution, ts));
       }
       scrollToBottomIfPinned();
@@ -234,10 +241,16 @@ App.registerArea({
         // gain the visual marker on replay. Codec emits the key only when
         // non-None (the_one/db/codec.py:154); undefined falls through to
         // the byte-identical path inside renderMessage.
-        var histOpts = { ts: ev.ts || null, visibility: ev.visibility };
+        // M11 F06 L04: forward ev.peer_name onto histOpts.peerName so peer-
+        // attributed user bubbles render with msg-from-peer (left-aligned)
+        // and a peer-name attribution label. Codec emits peer_name only when
+        // non-None (L1+L2 contract); undefined here is falsy → defaults to
+        // operator-typed 'You'/'from-you' rendering.
+        var histOpts = { ts: ev.ts || null, visibility: ev.visibility, peerName: ev.peer_name };
         if (ev.type === 'user') {
           var cls = ev.source === 'api' ? 'user api' : 'user';
-          addMsg(cls, (ev.source && ev.source !== 'web' && ev.source !== 'restored' ? '[' + ev.source + '] ' : '') + ev.content, 'You', histOpts);
+          var attribution = ev.peer_name || 'You';
+          addMsg(cls, (ev.source && ev.source !== 'web' && ev.source !== 'restored' ? '[' + ev.source + '] ' : '') + ev.content, attribution, histOpts);
         }
         else if (ev.type === 'assistant') addMsg('assistant', ev.content, agentLabel, histOpts);
         else if (ev.type === 'tool_call') {
@@ -850,7 +863,12 @@ App.registerArea({
           // (known limitation: storage-edge shim runs post-step; live
           // broadcast emits inline within step) — the channel is wired
           // for the follow-on live-broadcast tagging leg.
-          addMsg(cls, (data.source && data.source !== 'web' ? '[' + data.source + '] ' : '') + data.content, 'You', { visibility: data.visibility });
+          // M11 F06 L04: forward peer_name from the live broadcast onto the
+          // attribution + bubble side. Connector-inbound user events carry
+          // data.peer_name (per F6 L3 dispatcher binding + F6 L2 codec
+          // projection). Operator-typed user events have no peer_name.
+          var liveAttribution = data.peer_name || 'You';
+          addMsg(cls, (data.source && data.source !== 'web' ? '[' + data.source + '] ' : '') + data.content, liveAttribution, { visibility: data.visibility, peerName: data.peer_name });
         }
         else if (data.type === 'assistant_chunk') {
           // Streaming chunk path (leg-04, option B minimal rendering).

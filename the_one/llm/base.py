@@ -54,14 +54,38 @@ class Message:
     # (dispatcher in F3 L4; platform-send tool in F4; Chat-UI
     # operator-input path in F5).
     visibility: str | None = None
+    # M11 F06 L01: peer_name attribution for connector-attached sessions.
+    # None = no peer attribution (operator-typed, agent-internal, or
+    # non-connector session — the default for every Message constructed
+    # without an explicit peer_name kwarg). When non-None, this is the
+    # platform's display name for the peer who sent the inbound message
+    # (e.g. a Discord username); the Chat UI renders it as the bubble's
+    # attribution. The codec emits the key only when non-None — pre-F6
+    # rows decode with peer_name=None unchanged. Meaningful only on
+    # Role.USER messages; assistant/tool messages leave it at the default.
+    # Invariant (per dispatcher contract): when populated, the string is
+    # non-empty — the Discord plugin falls back to ``str(user.id)`` when
+    # display_name is blank (`_discord.py:218`).
+    peer_name: str | None = None
 
     @classmethod
     def system(cls, content: str, *, visibility: str | None = None) -> Message:
         return cls(role=Role.SYSTEM, content=content, visibility=visibility)
 
     @classmethod
-    def user(cls, content: str, *, visibility: str | None = None) -> Message:
-        return cls(role=Role.USER, content=content, visibility=visibility)
+    def user(
+        cls,
+        content: str,
+        *,
+        visibility: str | None = None,
+        peer_name: str | None = None,
+    ) -> Message:
+        return cls(
+            role=Role.USER,
+            content=content,
+            visibility=visibility,
+            peer_name=peer_name,
+        )
 
     @classmethod
     def assistant(
