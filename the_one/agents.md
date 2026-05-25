@@ -285,6 +285,59 @@ Citation (n=1 from M11 F3 L6b miss, codified by methodology-promotion): F3 L6b t
 
 Source: M11 F3 flight-debrief "Recommendations §Critical §2" + "What Could Be Improved §Process — touched-surface UX-debt folding."
 
+### `post-step-dispatcher-message-metadata-binding`
+
+When the connector dispatcher must attach metadata to a `Message` that `agent.step` has appended — because the agent loop cannot itself populate the value (mission constraint: agent loop unmodified) or because only the dispatcher knows the value (envelope-scoped fields like `peer_name`, send-result fields, audit-trail metadata) — bind the metadata POST-step by mutating `agent.messages[pre_step_len + N]` inside the existing per-session lock and the existing `try` block that wraps `agent.step`. The pattern composes cleanly with itself: distinct mutators that touch disjoint slices of `messages[pre_step_len:]` (e.g. visibility skipping `Role.USER`, peer_name addressing only `Role.USER`) cannot conflict.
+
+Applies whenever a connector dispatcher needs to attach `Message`-shaped metadata that the agent loop is structurally unaware of. Does NOT apply to metadata derived inside the agent loop itself (tool results, assistant content, usage telemetry — those land via `agent.step`'s normal append flow).
+
+**Composition rules** (n=2):
+- Each mutator iterates `messages[pre_step_len:]` (or addresses `pre_step_len + N` directly) — never touches pre-existing history.
+- Mutators must document which `Role`s they touch and which they skip; readers can verify non-overlap by inspection.
+- The mutation site lives inside the existing `session_locks[session_row.id]` lock (`_inbound.py:590`) and inside the existing `try` block (`_inbound.py:620`) so concurrency + exception-path semantics are inherited from the surrounding scaffolding.
+- A defensive runtime `assert` documents any single-message invariant the mutator relies on (e.g. `assert agent.messages[pre_step_len].role == Role.USER`); pair with a regular unit test that pins the same invariant so it survives `python -O`.
+
+Citations (n=2 — pattern is at codification threshold per `function-local-import-to-break-load-cycle` precedent):
+- `the_one/connectors/visibility.py:tag_post_step_visibility` (M10 F4 L4) — visibility tagging on non-USER messages; skips `Role.USER` (line 60).
+- `the_one/connectors/_inbound.py:663` (M11 F6 L3) — peer_name binding on the appended USER message; addresses `agent.messages[pre_step_len]` directly.
+
+When n=3 is reached (e.g. a future connector adds a third metadata-binding surface), lift the mutators into a shared `connectors/post_step_metadata.py` module that exports each function with a documented composition contract.
+
+Source: M11 F6 flight-debrief "Recommendations §Critical §2" + "Key Learnings §2" + Architect interview "Forward-Looking §1."
+
+### `message-additive-back-compat-via-emit-when-non-none`
+
+When adding an optional field to the `Message` dataclass (or to a nested dataclass it owns), the codec MUST emit the field key only when the value is non-None on encode, AND MUST read `d.get("<field>")` defaulting to None on decode. The pattern preserves byte-identical JSON for legacy rows that predate the field — encoded shape is unchanged when the field is at its default, decoded `Message` instances on pre-addition rows pick up `None`. No DB migration, no backfill script, no storage churn.
+
+Applies to every additive change to a persisted dataclass shape whose history must remain decodable. Does NOT apply to required-field additions (those need a migration) or to non-persisted state (in-memory only).
+
+**Implementation shape** (n=3+):
+```python
+def message_to_dict(msg: Message) -> dict[str, Any]:
+    d: dict[str, Any] = {"role": msg.role.value, "content": msg.content}
+    # ... existing emit-when-non-None blocks ...
+    if msg.<new_field> is not None:
+        d["<new_field>"] = msg.<new_field>
+    return d
+
+def message_from_dict(d: dict[str, Any]) -> Message:
+    return Message(
+        # ... existing required + optional reads ...
+        <new_field>=d.get("<new_field>"),  # None on legacy rows
+    )
+```
+
+Use `is not None` for the emit guard, NOT truthy (`if msg.<new_field>:`). Empty strings, zero counts, and other falsy-but-meaningful values must round-trip; the absence sentinel is `None` and only `None`.
+
+Citations (n=3 — pattern is well past codification threshold):
+- `tool_result.metadata` (M08 F7 L05 / F5 L3) — `the_one/db/codec.py:45` (`if tr.metadata is not None`).
+- `Message.visibility` (M10 F3 L2) — `the_one/db/codec.py:66, 100` (encode + decode).
+- `Message.peer_name` (M11 F6 L1) — `the_one/db/codec.py:72, 108` (encode + decode).
+
+Cross-cutting compose test (`tests/test_db_codec.py::TestMessagePeerNameCodec::test_round_trip_with_peer_name_and_visibility`) confirms multiple emit-when-non-None fields compose without interference — each is independently emitted/decoded against its own None default.
+
+Source: M11 F6 flight-debrief "Recommendations §Critical §3" + "Key Learnings §6" + "What Could Be Improved §Technical."
+
 ### Mission-specific (M10)
 
 Patterns that emerged in Mission 10 (bi-directional comms connectors) whose project-wide generalization has not yet been demonstrated. They live here until a second-mission citation lifts them into `### Project-wide` above. Future missions extending this file add their own `### Mission-specific (M{NN})` subsection per the same pattern.
