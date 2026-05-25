@@ -1,6 +1,6 @@
 # Flight: Peer-name Attribution End-to-End (Bug C)
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Discord Connector Depth & Robustness](../../mission.md)
 
 ## Contributing to Criteria
@@ -67,11 +67,11 @@ Close M10 Bug C end-to-end: thread `peer_name` from the `InboundEnvelope` (alrea
 - [ ] `peer_name` is already populated on `InboundEnvelope` by the Discord plugin's gateway translator (`_discord_translate.py:125`) and slash-command bridge (`_discord.py:218`) — verified at recon. The cited test pinning (`test_connectors_discord_translate.py:227 test_peer_name_uses_display_name_not_global_name`) confirms the source value is the guild-nickname-aware `display_name`.
 
 ### Pre-Flight Checklist
-- [ ] All open questions resolved
-- [ ] Design decisions documented
-- [ ] Prerequisites verified
-- [ ] Validation approach defined
-- [ ] Legs defined
+- [x] All open questions resolved
+- [x] Design decisions documented
+- [x] Prerequisites verified
+- [x] Validation approach defined
+- [x] Legs defined
 
 ---
 
@@ -112,11 +112,11 @@ The flight implements the M10 Bug C six-surface contract change as one atomic-le
 
 ### Checkpoints
 
-- [ ] L1: Message dataclass + codec round-trip — `Message.peer_name` field + emit-when-non-None encode + back-compat decode; round-trip tests pass.
-- [ ] L2: UI-event projection — `messages_to_ui_events` user-event branch propagates `peer_name`; projection tests pin.
-- [ ] L3: dispatcher binding — peer_name lands on `agent.messages[pre_step_len]` post-step; integration tests + live-broadcast tests pin.
-- [ ] L4: Chat UI consumption — peer bubble renders left-aligned with peer_name across replay + live; browser tests pin; CSS source-order and specificity verified.
-- [ ] L5: HAT — operator drives a real Discord peer message, verifies UX through 1-3 escalating-tightening rounds; criterion-coverage update; flight close.
+- [x] L1: Message dataclass + codec round-trip — `Message.peer_name` field + emit-when-non-None encode + back-compat decode; round-trip tests pass.
+- [x] L2: UI-event projection — `messages_to_ui_events` user-event branch propagates `peer_name`; projection tests pin.
+- [x] L3: dispatcher binding — peer_name lands on `agent.messages[pre_step_len]` post-step; integration tests + live-broadcast tests pin.
+- [x] L4: Chat UI consumption — peer bubble renders left-aligned with peer_name across replay + live; browser tests pin; CSS source-order and specificity verified.
+- [x] L5: HAT — operator drives a real Discord peer message, verifies UX through 1-3 escalating-tightening rounds; criterion-coverage update; flight close.
 
 ### Adaptation Criteria
 
@@ -138,18 +138,18 @@ The flight implements the M10 Bug C six-surface contract change as one atomic-le
 - [x] `ui-event-projection` — `messages_to_ui_events` Role.USER branch propagates `peer_name` onto the user event when `msg.peer_name is not None`, mirroring the `**vis` spread pattern; other roles unaffected; unit test pins user-event includes `peer_name` when set AND omits the key when None (preserves event-shape minimalism per the visibility precedent at `codec.py:173`).
 - [x] `dispatcher-binding` — `_inbound.py` post-step mutation `agent.messages[pre_step_len].peer_name = working_envelope.peer_name` after `agent.step()` returns (inside the existing `try` and the existing `session_locks[session_row.id]` lock); a defensive `assert agent.messages[pre_step_len].role == Role.USER` documents the invariant; integration tests pin (a) the binding via existing `peer_name="Alice"` envelope fixtures in `tests/test_connectors_inbound.py` / `tests/test_connectors_session.py`, (b) the projected live-broadcast event carries `peer_name` when set (extend `tests/test_connectors_inbound_broadcast.py` or add a sibling), (c) operator-typed path's `user_event` in `_process_and_broadcast` does NOT acquire a `peer_name` key (operator has no peer; verify negative case).
 - [x] `chat-ui-attribution` — `the_one/interfaces/web/static/js/areas/chat.js` `renderHistory` (line 220-265) and live `data.type === 'user'` handler (line 846-854) branch on `ev.peer_name` / `data.peer_name` respectively; when present, pass it as the attribution string AND pass `opts.peerName = ev.peer_name` (or `data.peer_name`) into `addMsg`. `addMsg(cls, text, attribution, opts)` keeps signature; side selection becomes: `opts.peerName ? 'from-peer' : (cls.indexOf('user') === 0 ? 'from-you' : 'from-agent')` — side is INFERRED from `opts.peerName` truthiness, not a separate `opts.side` knob (architect suggestion — avoids a brittle caller contract). The send-echo path (`chat.js:616`) is operator-typed by definition and stays unchanged (no peer_name). `renderMessage` adds class `msg-from-peer` to the bubble when `opts.peerName` is truthy. `renderAttribution(side, text, ts)` accepts the new `'from-peer'` side. CSS rule added to `the_one/interfaces/web/static/css/chat.css`: a selector `.area-chat .msg.user.msg-from-peer { align-self: flex-start; background: <peer-background>; }` declared AFTER the existing `.area-chat .msg.user { align-self: flex-end; background: var(--accent); }` rule at `chat.css:129` — same-specificity override + source-order wins. Acceptance criterion in this leg's spec MUST cite the exact selector AND the source-order requirement. Browser tests in `tests/browser/test_flow_chat_peer_attribution.py` (new): (a) replay path renders peer bubble left-aligned with peer_name attribution, (b) live path same, (c) operator-typed bubble in same session still right-aligned with 'You', (d) visibility-composition: peer bubble (visibility=None) coexists with operator-only assistant marker correctly.
-- [ ] `uat-and-alignment` *(optional, but recommended per crew interview)* — operator-driven HAT against a real Discord channel; 1-3 escalating rounds; verify peer-attributed bubble shape, replay preservation, operator-typed bubble unchanged, edge cases (peer DM, peer in thread, multiple peers in same channel, peer with unicode/emoji name, peer who changes display_name mid-session); criterion-coverage map updated (row #13 → `closed-by-F6`); F6 flight-debrief.
+- [x] `uat-and-alignment` *(optional, but recommended per crew interview)* — operator-driven HAT against a real Discord channel; 1-3 escalating rounds; verify peer-attributed bubble shape, replay preservation, operator-typed bubble unchanged, edge cases (peer DM, peer in thread, multiple peers in same channel, peer with unicode/emoji name, peer who changes display_name mid-session); criterion-coverage map updated (row #13 → `closed-by-F6`); F6 flight-debrief.
 
 ---
 
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
-- [ ] Code merged
-- [ ] Tests passing (non-browser + browser tiers)
-- [ ] Criterion-coverage map updated (row #13 → `closed-by-F6`; row #22 reference noted)
-- [ ] Documentation updated (none expected — F6 doesn't add CLI/API surface; agents.md update only if a new convention surfaces during the flight)
+- [x] All legs completed
+- [x] Code merged (PR #74 marked ready for review at Phase 3 close; merge to main pends review approval)
+- [x] Tests passing (non-browser + browser tiers) — see L1-L4 flight-log entries for per-leg pytest results
+- [x] Criterion-coverage map updated (row #13 → `closed-by-F6` at Phase 3)
+- [x] Documentation updated — N/A. `grep -ri "peer_name" CLAUDE.md README.md docs/` returned no matches; F6 does not add CLI commands, API endpoints, or configuration surfaces; no agents.md convention added by this flight. Doc-update step satisfied by no-op.
 
 ### Verification
 

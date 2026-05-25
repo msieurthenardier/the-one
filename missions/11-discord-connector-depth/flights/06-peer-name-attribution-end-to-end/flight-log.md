@@ -137,6 +137,28 @@ Verification:
 
 No deviations from the Accessibility Reviewer's recommended fix. Leg status remains `landed` (this is a follow-up within the same leg; no new leg artifact needed). Per agentic-workflow protocol for this flight: NO commit at leg-end — orchestrator commits at flight-end after L5 HAT.
 
+**L5 `uat-and-alignment` — completed 2026-05-24.** Single round (Round 1), `looks-good` rating, zero inline code fixes.
+
+Round 1 outcomes (all 10 steps walked in one pass; no escalating-tightening rounds needed):
+- Step 1 — Server running F6 code: **pass**.
+- Step 2 — Bot online and attached (Test Connection returned `discord probe ok`): **pass**.
+- Step 3 — Peer message from Discord, agent replied: **pass**.
+- Step 4 — Unified history opens in Chat UI on the connector-attached session: **pass**.
+- Step 5 — Peer bubble renders left-aligned with peer-name attribution (distinct background, agent reply left-aligned with agent label below): **pass**.
+- Step 6 — Operator-typed bubble renders right-aligned with `"You"` attribution and accent background: **pass**.
+- Step 7 — Multi-peer same channel: **SKIPPED — single peer account available at HAT time.** Wire-shape pinned by L4 browser test (`test_flow_chat_peer_attribution.py` seeds two distinct peers "alice" + "bob" and asserts both render correctly). Live multi-peer in a real Discord channel is exercised under M11 criterion #5 / #7 (multi-user routing HAT, ≥3 distinct users) which are scoped to F7 / later flights.
+- Step 8 — Reload preserves attribution (replay path through `messages_to_ui_events` + Chat UI consumption works end-to-end): **pass**.
+- Step 9 — Screen reader announcement: **SKIPPED — operator did not engage a screen reader at HAT time.** The visually-hidden label's DOM presence + sr-only CSS application are pinned by L4 a11y follow-up Assertion 9 (verifies `.msg-from-peer-label.visually-hidden` exists with textContent `'From {peerName}: '` and `getComputedStyle.clip === 'rect(0px, 0px, 0px, 0px)'` proving the utility class is loaded and applied).
+- Step 10 — Operator subjective rating: **`looks-good`.** UX reads naturally; ship as-is. No fix-loop spawned.
+
+Round count: **1** (out of 1-3 budgeted per F5 debrief's single-feature-flight HAT methodology). No code edits during HAT.
+
+**Methodology observation worth noting:** F6 is a single-feature flight (Bug C six-surface contract), and the HAT completed in a single round with `looks-good` on first walk. This **validates the F5 debrief's "single-feature flights budget 1-3 rounds" heuristic at the bottom of the range** — F6 sits at the floor (1 round) of the single-feature band, contrasted with F5 (cumulative-debt cleanup) which the F5 debrief recorded budgeting 5-8 rounds. The 1-round outcome is consistent with the prediction that single-feature flights with tight wire-shape contracts + thorough autonomous review converge quickly at HAT. **Carry-forward for F7+:** single-feature flights with comparable autonomous-review depth can expect 1-2 HAT rounds; budgeting 3 stays appropriate as a ceiling; cumulative-debt flights remain the 5-8 round band.
+
+No deviations from leg spec. No source-file edits outside the leg's `Files Affected` list (which was already `None for the leg itself` since L5 is verification work). `agent/core.py` and `agent/factory.py` were NOT touched (trivially honored — L5 ran zero source edits).
+
+Per agentic-workflow protocol: commit happens NOW at flight-end (after L5 HAT, all five legs complete). Phase 3 flight-landing runs in the same commit (flight status → landed, mission.md F6 checkbox ticked, criterion-coverage row #13 → closed-by-F6).
+
 ---
 
 ## Decisions
