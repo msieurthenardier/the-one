@@ -93,6 +93,43 @@ class InboundEnvelope:
 
 
 @dataclass(frozen=True, slots=True)
+class FetchedMessage:
+    """A message fetched from channel/thread/DM history via plugin hook.
+
+    Returned by the substrate-generic ``fetch_history`` and
+    ``fetch_dm_history`` plugin hooks (optional via
+    ``optional-plugin-hook-via-getattr-sentinel`` — M11 F7 L10). The L10
+    fetch tools convert each instance to a dict via
+    ``dataclasses.asdict`` before emitting to the LLM.
+
+    The five-field shape is platform-neutral: Discord's plugin fills
+    these from ``discord.Message`` attributes; future Slack/Matrix
+    plugins emit the same fields from their own SDK objects.
+    ``thread_id`` is ``None`` for top-level channel messages and for
+    every DM (DMs have no thread concept).
+    """
+
+    peer_id: str
+    """Platform-native peer identifier (the sender's Discord user id,
+    Slack user id, etc.)."""
+
+    peer_name: str
+    """The sender's display name on the platform at the moment the
+    message was sent."""
+
+    content: str
+    """The message body as plain text (platform-specific markup
+    stripped)."""
+
+    ts: str
+    """ISO 8601 timestamp of the message's creation on the platform."""
+
+    thread_id: str | None
+    """Platform-native thread identifier when the message lives in a
+    thread; ``None`` for top-level channel messages and for all DMs."""
+
+
+@dataclass(frozen=True, slots=True)
 class OutboundTarget:
     """Where on the platform an agent's reply is being sent."""
 

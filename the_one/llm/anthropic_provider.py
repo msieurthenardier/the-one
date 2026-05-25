@@ -6,7 +6,15 @@ from typing import Any
 
 import anthropic
 
-from the_one.llm.base import LLMProvider, Message, Role, StreamChunk, TokenUsage, ToolCall
+from the_one.llm.base import (
+    LLMProvider,
+    Message,
+    Role,
+    StreamChunk,
+    TokenUsage,
+    ToolCall,
+    build_user_message_content,
+)
 from the_one.llm.registry import register_provider
 
 # F7 L04: bytes-per-token for the mid-stream usage byte-heuristic.
@@ -229,7 +237,16 @@ class AnthropicProvider(LLMProvider):
                     {"type": "tool_use", "id": tc.id, "name": tc.name, "input": tc.arguments}
                 )
             return {"role": "assistant", "content": content}
-        return {"role": msg.role.value, "content": msg.content}
+        # M11 F7 L4: project peer_name + channel_name as an inline prefix.
+        # The helper handles all four absence variants; legacy back-compat
+        # is preserved when both fields are None (byte-identical payload).
+        # F6 DD §2 audit premise refined: the prefix IS the projection.
+        # L4 contract: this branch passes through a string content; future
+        # vision/multimodal would route via a separate content-list branch
+        # and would NOT call build_user_message_content (it would build the
+        # projection per content-block, or fall back to a different shape
+        # per DD §5's divert criterion).
+        return {"role": msg.role.value, "content": build_user_message_content(msg)}
 
 
 register_provider("anthropic", AnthropicProvider)

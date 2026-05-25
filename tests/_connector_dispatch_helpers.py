@@ -140,11 +140,10 @@ async def _seed_stub_account(
     (the column path the F3 admin editor surfaces; distinct from the
     env-var path covered by F3 L3 resolver tests).
 
-    M10 F8 L11 HAT Fix #4: ``config`` override lets tests opt out of
-    auto-relay (``{"auto_relay_platform_replies": False}``) or supply
-    any other reserved-key payload (pairing, allowlist, routing) at
-    seed time without an extra round-trip through ``repo.update``.
-    Empty / missing ``config`` defaults to ``{}`` (same as pre-Fix-#4).
+    ``config`` override lets tests supply a reserved-key payload
+    (pairing, allowlist, routing, always_listen) at seed time without an
+    extra round-trip through ``repo.update``. Empty / missing ``config``
+    defaults to ``{}``.
     """
     conn = await get_connection()
     encryptor = get_encryptor(settings.data_dir)
@@ -180,7 +179,25 @@ def _envelope(
     account_id: str = "acct-test",
     platform: str = "stub",
     text: str = "hello",
+    is_dm: bool = True,
+    raw: dict[str, Any] | None = None,
 ) -> InboundEnvelope:
+    """Build an InboundEnvelope with sensible defaults.
+
+    M11 F7 L8: ``is_dm`` defaults to ``True`` so existing dispatcher
+    tests engage via the F7 policy gate's DM short-circuit (DD §1 step
+    1). Tests that exercise channel-routed (non-DM) engagement override
+    with ``is_dm=False`` AND seed always-listen toggles or mention raw
+    fields to drive the desired gate branch.
+
+    ``raw`` lets a test pass through arbitrary platform-specific fields
+    (e.g. ``guild_id``, ``member_roles``, ``discord_message``). When
+    omitted, the helper builds ``{"is_dm": is_dm}``; when supplied, the
+    helper merges ``is_dm`` into the dict unless the caller's dict
+    already carries an explicit ``"is_dm"`` key.
+    """
+    raw_dict: dict[str, Any] = dict(raw) if raw is not None else {}
+    raw_dict.setdefault("is_dm", is_dm)
     return InboundEnvelope(
         platform=platform,
         account_id=account_id,
@@ -189,7 +206,7 @@ def _envelope(
         peer_id=peer_id,
         peer_name="Alice",
         text=text,
-        raw={},
+        raw=raw_dict,
     )
 
 

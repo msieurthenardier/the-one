@@ -11,7 +11,6 @@ from conftest import FakeLLM, StubTool
 
 from the_one.agent.config import (
     _CONNECTOR_AUTO_RELAY_DIRECTIVE,
-    _CONNECTOR_AUTO_RELAY_OFF_DIRECTIVE,
     BASE_PROMPT,
     AgentConfig,
 )
@@ -118,9 +117,10 @@ def factory(store: InMemoryStore) -> AgentFactory:
     mock_tool_repo = AsyncMock()
     mock_tool_repo.list = AsyncMock(return_value=[])
 
-    # M10 F8 L11 HAT Fix #5: factory now does a per-account lookup to
-    # resolve ``auto_relay`` for the system-prompt directive. Mock the
-    # repository to return a permissive (auto_relay=True default) account
+    # M10 F8 L11 HAT Fix #5 (pre-F7) used per-account lookup to resolve
+    # ``auto_relay`` for the system-prompt directive; M11 F7 L9 deleted
+    # that gating, but the factory still consults the account repo for
+    # other purposes. Mock the repository to return a default account
     # for any account_id the caller's AgentConfig references.
     mock_acc_repo = AsyncMock()
     mock_acc_repo.get = AsyncMock(
@@ -444,11 +444,13 @@ def factory_with_builtin_tool_configs(store: InMemoryStore):
                 mock_tool_repo = AsyncMock()
                 mock_tool_repo.list = AsyncMock(return_value=tool_configs or [])
 
-                # M10 F8 L11 HAT Fix #5: per-account lookup for auto_relay
-                # resolution. ``connector_accounts`` is a {account_id:
+                # Factory consults the account repo (pre-F7 this was the
+                # per-account ``auto_relay`` lookup; M11 F7 L9 deleted the
+                # auto_relay gating but the repo is still consulted for
+                # other purposes). ``connector_accounts`` is a {account_id:
                 # ConnectorAccount} mapping; missing IDs synthesize a
-                # default-on (no opt-out) ConnectorAccount so the
-                # caller's existing tests stay green without rework.
+                # default ConnectorAccount so the caller's existing tests
+                # stay green without rework.
                 accounts_map = dict(connector_accounts or {})
                 mock_acc_repo = AsyncMock()
 
@@ -602,13 +604,16 @@ class TestConnectorSystemPrompt:
             agent = await factory.create("non-connector-agent")
         assert agent.system_prompt == BASE_PROMPT
 
-    async def test_connector_attached_tool_enabled_default_auto_relay_includes_auto_relay_directive(
+    async def test_connector_attached_tool_enabled_includes_auto_relay_directive(
         self,
         factory_with_builtin_tool_configs,
         store: InMemoryStore,
     ) -> None:
-        """M10 F8 L11 HAT Fix #5: default-on auto-relay lands the
-        auto-relay (ON) directive."""
+        """M11 F7 L9: when a connector is attached, the auto-relay
+        directive is unconditionally appended to the agent's system
+        prompt. (Pre-F7 this was gated on a per-account ``auto_relay``
+        flag; F7 made auto-relay an invariant of engaged turns and L9
+        deleted the gating kwarg.)"""
         cfg = AgentConfig(
             name="connector-agent",
             provider_config_id="test-provider",
@@ -619,81 +624,18 @@ class TestConnectorSystemPrompt:
         with factory_with_builtin_tool_configs(tool_configs=[]) as factory:
             agent = await factory.create("connector-agent")
         assert _CONNECTOR_AUTO_RELAY_DIRECTIVE in agent.system_prompt
-        assert _CONNECTOR_AUTO_RELAY_OFF_DIRECTIVE not in agent.system_prompt
 
-    async def test_connector_attached_auto_relay_opt_out_includes_off_directive(
+    async def test_connector_attached_tool_disabled_includes_on_directive(
         self,
         factory_with_builtin_tool_configs,
         store: InMemoryStore,
     ) -> None:
-        """Opt-out (``auto_relay_platform_replies=False`` on the attached
-        account) lands the OFF directive — round-8 simplification: the
-        OFF directive's "if available" hedge covers both tool-enabled
-        and tool-disabled cases, so no separate dispatch is needed."""
-        cfg = AgentConfig(
-            name="connector-agent",
-            provider_config_id="test-provider",
-            llm_model="stub-model",
-            connector_account_ids=["acc-1"],
-        )
-        await store.save(cfg)
-        opt_out_account = ConnectorAccount(
-            id="acc-1",
-            name="acc-1",
-            type="stub",
-            config={"auto_relay_platform_replies": False},
-        )
-        with factory_with_builtin_tool_configs(
-            tool_configs=[],
-            connector_accounts={"acc-1": opt_out_account},
-        ) as factory:
-            agent = await factory.create("connector-agent")
-        assert _CONNECTOR_AUTO_RELAY_OFF_DIRECTIVE in agent.system_prompt
-        assert _CONNECTOR_AUTO_RELAY_DIRECTIVE not in agent.system_prompt
-
-    async def test_connector_attached_multi_account_any_opt_out_wins(
-        self,
-        factory_with_builtin_tool_configs,
-        store: InMemoryStore,
-    ) -> None:
-        """M10 F8 L11 HAT Fix #5: multi-account agents where ANY attached
-        account has auto_relay=False ⇒ treat as opt-out (most-restrictive
-        wins). The remaining accounts' default-on stance does not
-        re-enable the auto-relay directive — the OFF directive lands."""
-        cfg = AgentConfig(
-            name="connector-agent",
-            provider_config_id="test-provider",
-            llm_model="stub-model",
-            connector_account_ids=["acc-1", "acc-2"],
-        )
-        await store.save(cfg)
-        acc1 = ConnectorAccount(id="acc-1", name="acc-1", type="stub")
-        acc2_opt_out = ConnectorAccount(
-            id="acc-2",
-            name="acc-2",
-            type="stub",
-            config={"auto_relay_platform_replies": False},
-        )
-        with factory_with_builtin_tool_configs(
-            tool_configs=[],
-            connector_accounts={"acc-1": acc1, "acc-2": acc2_opt_out},
-        ) as factory:
-            agent = await factory.create("connector-agent")
-        assert _CONNECTOR_AUTO_RELAY_OFF_DIRECTIVE in agent.system_prompt
-        assert _CONNECTOR_AUTO_RELAY_DIRECTIVE not in agent.system_prompt
-
-    async def test_connector_attached_tool_disabled_uses_on_directive_when_relay_on(
-        self,
-        factory_with_builtin_tool_configs,
-        store: InMemoryStore,
-    ) -> None:
-        """Round-8: when the send tool is disabled but auto_relay is
-        ON (default), the ON directive still lands. The dedicated
-        ``_CONNECTOR_TOOL_DISABLED_DIRECTIVE`` was removed in round-8
-        because the LLM cannot call a disabled tool regardless of the
-        prompt directive — the OFF directive's "if available" hedge
-        covers the explicit-opt-out case where the operator both
-        disables the tool AND turns off auto-relay."""
+        """M11 F7 L9: when the send tool is disabled, the auto-relay
+        directive still lands — directive selection no longer
+        consults ``send_tool_enabled`` (the kwarg is retained in the
+        composer signature but is a no-op in directive selection; it
+        is still computed by the factory for the F10 schema-preload
+        carve-out)."""
         cfg = AgentConfig(
             name="connector-agent",
             provider_config_id="test-provider",
@@ -706,9 +648,7 @@ class TestConnectorSystemPrompt:
         ]
         with factory_with_builtin_tool_configs(tool_configs=tool_configs) as factory:
             agent = await factory.create("connector-agent")
-        # Default auto_relay=True (account has no opt-out) ⇒ ON directive.
         assert _CONNECTOR_AUTO_RELAY_DIRECTIVE in agent.system_prompt
-        assert _CONNECTOR_AUTO_RELAY_OFF_DIRECTIVE not in agent.system_prompt
 
 
 # M11 F5 L6 HAT round-8: ``TestConnectorOperatorDirectiveCollection``

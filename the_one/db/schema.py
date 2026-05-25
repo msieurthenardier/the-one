@@ -9,7 +9,7 @@ import aiosqlite
 from the_one.db._connector_types import CONNECTOR_TYPES
 from the_one.db._provider_types import PROVIDER_TYPES
 
-CURRENT_VERSION = 19
+CURRENT_VERSION = 20
 
 # Render the provider-type CHECK constraint as a comma-separated SQL
 # literal list, sourced from PROVIDER_TYPES. Both SCHEMA_V1 (fresh-DB
@@ -766,3 +766,23 @@ PRAGMA foreign_keys=ON;
         )
         await conn.commit()
         version = 19
+
+    if version < 20:
+        # Mission 11 Flight 7 Leg 6: AgentConfig.connector_always_listen
+        # persistence. Per-agent ``always_listen`` toggle keyed by account_id
+        # (``dict[str, bool] | None``); NULL pre-v20 rows AND new agents
+        # without per-agent overrides decode to None. Idempotent ALTER ADD
+        # COLUMN pattern mirrors v18's connector_acls migration (PRAGMA
+        # guard + INSERT OR IGNORE on schema_version LAST).
+        async with conn.execute("PRAGMA table_info(agents)") as cursor:
+            existing_cols = {row[1] for row in await cursor.fetchall()}
+        if "connector_always_listen" not in existing_cols:
+            await conn.execute(
+                "ALTER TABLE agents ADD COLUMN connector_always_listen TEXT"
+            )
+
+        await conn.execute(
+            "INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (20,)
+        )
+        await conn.commit()
+        version = 20

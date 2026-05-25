@@ -56,6 +56,33 @@
   window.App = window.App || {};
   window.App.studio = window.App.studio || {};
 
+  // M11 F7 L11: listen for account-level master changes to grey-out
+  // per-account toggles in real time. Mirrors F4 / F5 listener pattern
+  // for the existing two CustomEvents (``connector-account-pool-warmed`` +
+  // ``connector-account-discoverable-refresh-requested``). Registered
+  // ONCE at module init — registering inside ``_renderAccountTile``
+  // would leak handlers on every re-render of the Connectors tab.
+  // Safe-by-construction: the handler runs a single DOM querySelector
+  // per dispatch and is a no-op when the matching toggle is absent
+  // (e.g. the agent editor's Connectors tab isn't open).
+  //
+  // TODO(routine-maintenance): see the matching TODO above the dispatch
+  // in ``connector-account-editor.js`` — n=3 inline CustomEvent strings
+  // in Studio triggers the F4 R13 studio-event-bus lift candidate;
+  // defer the lift per F7 recon discipline.
+  document.addEventListener('connector-account-always-listen-changed', function (event) {
+    var accountId = event && event.detail && event.detail.accountId;
+    var enabled = !!(event && event.detail && event.detail.enabled);
+    if (!accountId) return;
+    var toggle = document.querySelector(
+      '[data-field="connector_always_listen"][data-account-id="' + CSS.escape(accountId) + '"]'
+    );
+    if (toggle) {
+      toggle.disabled = !enabled;
+      if (!enabled) toggle.checked = false; // master OFF → force per-agent off
+    }
+  });
+
   // ── Main entry point ──────────────────────────────────────────────────────
 
   function renderConnectorsTab(panel, agent, allAccounts, callbacks) {
@@ -65,6 +92,10 @@
 
     var attached = _attachedAccountIds(agent);
     var acls = (agent && agent.connector_acls) || {};
+    // M11 F7 L11: per-account "Always Listen" dict (per-agent capability
+    // switch). Default to {} when the field is absent on the agent so the
+    // per-tile lookup short-circuits to false.
+    var alwaysListen = (agent && agent.connector_always_listen) || {};
 
     // Synthesize "missing — deleted" placeholders for any pinned id
     // that no longer exists in allAccounts. Operator must explicitly
@@ -91,7 +122,7 @@
     listContainer.setAttribute('data-testid', 'connector-accounts-list');
 
     for (var j = 0; j < rendered.length; j++) {
-      _renderAccountTile(listContainer, rendered[j], attached, acls, onChange);
+      _renderAccountTile(listContainer, rendered[j], attached, acls, alwaysListen, onChange);
     }
 
     panel.appendChild(listContainer);
@@ -115,7 +146,7 @@
   // and a collapsible details body that hosts the peers + channels ACL
   // editors.
 
-  function _renderAccountTile(listContainer, account, attachedMap, aclsMap, onChange) {
+  function _renderAccountTile(listContainer, account, attachedMap, aclsMap, alwaysListenMap, onChange) {
     var isAttached = attachedMap[account.id] === true;
     // L7 HAT — tri-state per-axis. Default missing entry to both-null
     // (inherit account-scope on both axes); preserve any per-axis null
@@ -441,6 +472,36 @@
         _summarize();
         return details;
       }
+
+      // M11 F7 L11: per-account "Always Listen" toggle.
+      // Greyed-out when account.config.always_listen is False (no semantic
+      // effect anyway since the master is OFF; UI mirrors the data layer's
+      // structural inertness). The save-path collection lives in
+      // studio.js::collectFormData (mirrors the connector_acls precedent;
+      // see Studio area for the dict assembly into ``connector_always_listen``).
+      var alwaysListenForAccount = !!(alwaysListenMap && alwaysListenMap[account.id]);
+      var accountAlwaysListenMaster = !!(account.config && account.config.always_listen);
+      var alwaysListenRow = document.createElement('div');
+      alwaysListenRow.className = 'field-row admin-pf-row connector-account-always-listen-row';
+      var alwaysListenLabel = document.createElement('label');
+      alwaysListenLabel.htmlFor = 'agent-always-listen-' + account.id;
+      alwaysListenLabel.textContent = 'Always Listen on this connector account';
+      alwaysListenRow.appendChild(alwaysListenLabel);
+      var alwaysListenInput = document.createElement('input');
+      alwaysListenInput.type = 'checkbox';
+      alwaysListenInput.id = 'agent-always-listen-' + account.id;
+      alwaysListenInput.className = 'field-input agent-connector-always-listen-toggle';
+      alwaysListenInput.setAttribute('data-field', 'connector_always_listen');
+      alwaysListenInput.setAttribute('data-account-id', account.id);
+      alwaysListenInput.setAttribute('data-testid', 'agent-connector-always-listen-' + account.id);
+      alwaysListenInput.checked = alwaysListenForAccount;
+      alwaysListenInput.disabled = !accountAlwaysListenMaster;
+      // M11 F7 L11 (cycle-1 review): wire onChange() for dirty-tracking.
+      // Mirrors the attach-toggle wiring at connectors-tab.js:452 — without
+      // this, toggling the per-agent switch leaves the Save button disabled.
+      alwaysListenInput.addEventListener('change', function () { onChange(); });
+      alwaysListenRow.appendChild(alwaysListenInput);
+      section.appendChild(alwaysListenRow);
 
       section.appendChild(_buildAxisRow('peers', scopePeers, accountAcl.peers));
       section.appendChild(_buildAxisRow('channels', scopeChannels, accountAcl.channels));

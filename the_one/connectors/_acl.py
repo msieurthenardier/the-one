@@ -59,7 +59,13 @@ from __future__ import annotations
 from the_one.connectors.base import InboundEnvelope
 from the_one.db.models import ConnectorAccount
 
-__all__ = ["admits_outbound", "admits_inbound", "_default_not_dm"]
+__all__ = [
+    "admits_outbound",
+    "admits_inbound",
+    "admits_dm_peer",
+    "_default_not_dm",
+    "_default_no_mention",
+]
 
 
 def _default_not_dm(envelope: InboundEnvelope) -> bool:
@@ -74,6 +80,25 @@ def _default_not_dm(envelope: InboundEnvelope) -> bool:
     Mirrors F6's :func:`_default_permit` shape (named module-level
     callable returning the default outcome — see ``agents.md`` §
     ``optional-plugin-hook-via-getattr-sentinel``).
+    """
+    return False
+
+
+def _default_no_mention(envelope: InboundEnvelope) -> bool:
+    """Sentinel fallback for the ``is_mention`` plugin hook.
+
+    Returned by ``getattr(plugin, "is_mention", _default_no_mention)``
+    at the F7 policy-gate consult site (L8) for plugins that do not
+    implement the optional ``is_mention`` extension. Returning
+    ``False`` preserves the gate's silent-by-default branch for
+    plugins without a mention concept (webhook-driven future
+    connectors, the test stub).
+
+    Mirrors :func:`_default_not_dm` (named module-level callable
+    returning the default outcome — see ``agents.md`` §
+    ``optional-plugin-hook-via-getattr-sentinel``). Added M11 F7 L1
+    alongside the ``DiscordPlugin.is_mention`` opt-in implementation;
+    the consult site itself lands at F7 L8.
     """
     return False
 
@@ -157,6 +182,68 @@ def admits_outbound(
                 False,
                 f"channel_id {channel_id!r} is not reachable "
                 f"for this agent on account {account_id!r}",
+            )
+    return True, ""
+
+
+def admits_dm_peer(
+    account: ConnectorAccount,
+    agent_acl: dict[str, list[str] | None] | None,
+    peer_id: str,
+) -> tuple[bool, str]:
+    """Check whether reading DM history with ``peer_id`` on ``account`` is permitted.
+
+    Returns ``(True, "")`` on admit; ``(False, reason)`` on deny. The
+    sibling of :func:`admits_outbound` for the peer axis — M11 F7 L10
+    introduces it for the ``fetch_dm_history`` built-in tool, which gates
+    on the per-(account, agent, peer) axis rather than the channel axis.
+
+    Per-axis tri-state per the module docstring, applied to the peers
+    axis at both scopes (mirrors the peers-block in
+    :func:`admits_inbound` at the account-scope at lines 251-259 and the
+    per-agent scope at lines 287-304):
+
+    - Account-scope ``allowlist.peers`` absent → unrestricted; ``[]`` →
+      unrestricted; non-empty list and ``peer_id`` not in it → deny.
+    - Per-agent ``peers`` is ``None`` → inherit account-scope; ``[]`` →
+      deny (explicit-empty narrowing: no peer admitted via this agent
+      on this account — NOT a DMs-only sentinel; the DMs-only sentinel
+      is ``channels=[]`` per the module docstring); non-empty list and
+      ``peer_id`` not in it → deny.
+
+    Reason strings use the verb **"admitted"** (mirrors
+    :func:`admits_inbound`'s vocabulary; not back-compat-constrained by
+    the F6 outbound exact-equality assertions in
+    ``tests/test_connector_send_tool.py``).
+    """
+    account_id = account.id
+    # Account-scope peers axis (mirrors admits_inbound:251-259).
+    allowlist = account.config.get("allowlist")
+    if allowlist is not None:
+        allowed_peers = allowlist.get("peers", [])
+        if allowed_peers and peer_id not in allowed_peers:
+            return (
+                False,
+                f"peer_id {peer_id!r} is not admitted on account "
+                f"{account_id!r}",
+            )
+    # Per-agent peers axis (mirrors admits_inbound:287-304).
+    if agent_acl is not None:
+        agent_peers = agent_acl.get("peers")
+        if agent_peers is None:
+            pass  # inherit account-scope
+        elif agent_peers == []:
+            return (
+                False,
+                f"peer_id {peer_id!r} is not admitted for this agent on "
+                f"account {account_id!r} (per-agent peers axis is "
+                f"explicitly empty)",
+            )
+        elif peer_id not in agent_peers:
+            return (
+                False,
+                f"peer_id {peer_id!r} is not admitted for this agent on "
+                f"account {account_id!r}",
             )
     return True, ""
 

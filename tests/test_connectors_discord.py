@@ -1332,6 +1332,135 @@ def test_is_dm_raw_missing_is_dm_key_returns_false() -> None:
     assert plugin.is_dm(_dm_test_envelope({})) is False
 
 
+# ─────────────────────────────────────────────────────────────────
+# M11 F7 L1 — Mention classification hook (``DiscordPlugin.is_mention``)
+# ─────────────────────────────────────────────────────────────────
+
+
+def _make_discord_message_stub(
+    *,
+    guild_me_id: int | None,
+    mention_ids: list[int] | None,
+) -> MagicMock:
+    """Build a ``discord.Message`` stub for ``is_mention`` tests.
+
+    Shape mirrors how the SDK exposes the fields the hook reads:
+
+    - ``guild_me_id=None`` simulates DM context (``message.guild is
+      None``) when ``mention_ids is None`` AND ``guild_me_id is
+      None``; otherwise a ``guild`` is attached with ``guild.me=None``
+      to exercise the "guild present but bot not synced" branch
+      (caller passes ``guild_me_id=None`` AND a non-None
+      ``mention_ids`` list to reach the guild-me-missing branch).
+    - ``mention_ids=None`` is a sentinel for the "no mentions list at
+      all" envelope shape used by the missing-discord_message test
+      (the test omits the stub entirely; this helper does not
+      produce that shape).
+    """
+    msg = MagicMock()
+    msg.mentions = [
+        MagicMock(id=mid) for mid in (mention_ids or [])
+    ]
+    if guild_me_id is None and mention_ids is None:
+        # DM-shaped: no guild attached.
+        msg.guild = None
+    else:
+        guild = MagicMock()
+        if guild_me_id is None:
+            # Guild present, bot not yet synced (``guild.me is None``).
+            guild.me = None
+        else:
+            guild.me = MagicMock(id=guild_me_id)
+        msg.guild = guild
+    return msg
+
+
+def _mention_test_envelope(raw: dict) -> "InboundEnvelope":  # noqa: F821
+    """Build a minimal :class:`InboundEnvelope` for ``is_mention`` tests.
+
+    Only ``raw["discord_message"]`` is load-bearing; the other fields
+    carry stable placeholder values.
+    """
+    from the_one.connectors.base import InboundEnvelope
+
+    return InboundEnvelope(
+        platform="discord",
+        account_id="acct-1",
+        channel_id="ch-1",
+        thread_id=None,
+        peer_id="peer-1",
+        peer_name="Alice",
+        text="hey",
+        raw=raw,
+    )
+
+
+def test_is_mention_returns_true_when_bot_in_mentions() -> None:
+    """Canonical mention case: ``guild.me.id`` appears in
+    ``message.mentions`` → True. The bot was @mentioned in a guild
+    channel message."""
+    stub = _make_discord_message_stub(guild_me_id=42, mention_ids=[42])
+    plugin = DiscordPlugin()
+    assert plugin.is_mention(_mention_test_envelope({"discord_message": stub})) is True
+
+
+def test_is_mention_returns_false_when_bot_not_in_mentions() -> None:
+    """``guild.me.id`` is NOT in ``message.mentions`` (other users
+    mentioned) → False. The bot was not @mentioned; the policy gate's
+    mention branch must not engage."""
+    stub = _make_discord_message_stub(guild_me_id=42, mention_ids=[7, 8, 9])
+    plugin = DiscordPlugin()
+    assert plugin.is_mention(_mention_test_envelope({"discord_message": stub})) is False
+
+
+def test_is_mention_returns_false_on_empty_mentions() -> None:
+    """``message.mentions`` is an empty list → False. No mention
+    semantics at all on the inbound message."""
+    stub = _make_discord_message_stub(guild_me_id=42, mention_ids=[])
+    plugin = DiscordPlugin()
+    assert plugin.is_mention(_mention_test_envelope({"discord_message": stub})) is False
+
+
+def test_is_mention_returns_false_when_raw_discord_message_missing() -> None:
+    """Defensive: ``raw`` missing the ``"discord_message"`` key →
+    False AND no exception raised.
+
+    Pinning that a future refactor to "raise on malformed envelope"
+    doesn't pass silently — the test asserts BOTH the False return
+    AND the no-exception contract."""
+    plugin = DiscordPlugin()
+    raised: BaseException | None = None
+    result: bool | None = None
+    try:
+        result = plugin.is_mention(_mention_test_envelope({}))
+    except BaseException as exc:  # noqa: BLE001 — pin no-exception
+        raised = exc
+    assert raised is None, f"is_mention raised unexpectedly: {raised!r}"
+    assert result is False
+
+
+def test_is_mention_returns_false_when_guild_missing() -> None:
+    """DM-shaped envelope (``raw_msg.guild is None``) → False.
+
+    The F7 policy gate short-circuits on ``is_dm`` at decision-tree
+    step 1 before consulting ``is_mention``, so this branch fires
+    only for out-of-order callers; the defensive return keeps the
+    hook correctness-safe."""
+    stub = _make_discord_message_stub(guild_me_id=None, mention_ids=None)
+    plugin = DiscordPlugin()
+    assert plugin.is_mention(_mention_test_envelope({"discord_message": stub})) is False
+
+
+def test_is_mention_returns_false_when_guild_me_missing() -> None:
+    """Guild present but ``guild.me is None`` (bot not yet synced in
+    this guild) → False. Defensive against the discord.py race where
+    the bot has joined a guild but the per-guild Member cache has
+    not populated."""
+    stub = _make_discord_message_stub(guild_me_id=None, mention_ids=[42])
+    plugin = DiscordPlugin()
+    assert plugin.is_mention(_mention_test_envelope({"discord_message": stub})) is False
+
+
 async def test_connect_error_cancels_spawned_task(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

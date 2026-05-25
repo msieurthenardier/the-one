@@ -138,6 +138,72 @@ class TestAgentAPI:
         )
         assert resp.status_code == 422
 
+    async def test_create_agent_persists_connector_always_listen(
+        self, client: AsyncClient
+    ) -> None:
+        """POST with ``connector_always_listen`` round-trips through GET.
+
+        M11 F7 L6: confirms the new per-agent toggle field flows through
+        the API layer without any api.py change (Pydantic
+        ``model_validate`` picks up the field automatically and
+        ``cfg.model_dump()`` round-trips it in the response).
+        """
+        payload = {
+            "name": "always-listen-agent",
+            "connector_always_listen": {"acct-a": True, "acct-b": False},
+        }
+        resp = await client.post("/api/agents", json=payload)
+        assert resp.status_code == 201
+        assert resp.json()["connector_always_listen"] == {
+            "acct-a": True,
+            "acct-b": False,
+        }
+
+        # GET round-trips the field unchanged (proves the value persisted
+        # to the DB and decoded back through _row_to_config).
+        resp = await client.get("/api/agents/always-listen-agent")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["connector_always_listen"] == {
+            "acct-a": True,
+            "acct-b": False,
+        }
+
+    async def test_update_agent_clears_connector_always_listen(
+        self, client: AsyncClient
+    ) -> None:
+        """PUT with ``connector_always_listen=None`` clears the field.
+
+        Confirms the upsert path's ``ON CONFLICT(name) DO UPDATE SET ...
+        connector_always_listen=excluded.connector_always_listen`` clause
+        actually overwrites the original value (the cycle-1 review's
+        specific bug shape — a missing SET clause silently retains the
+        original).
+        """
+        # Step 1: create with toggle set.
+        resp = await client.post(
+            "/api/agents",
+            json={
+                "name": "clear-target",
+                "connector_always_listen": {"acct-a": True},
+            },
+        )
+        assert resp.status_code == 201
+        assert resp.json()["connector_always_listen"] == {"acct-a": True}
+
+        # Step 2: PUT with the field explicitly None — should clear it.
+        resp = await client.put(
+            "/api/agents/clear-target",
+            json={"name": "clear-target", "connector_always_listen": None},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["connector_always_listen"] is None
+
+        # Step 3: GET confirms the field is cleared in the DB.
+        resp = await client.get("/api/agents/clear-target")
+        assert resp.status_code == 200
+        assert resp.json()["connector_always_listen"] is None
+
 
 # ── Knowledge base endpoints ─────────────────────────────────────────────
 

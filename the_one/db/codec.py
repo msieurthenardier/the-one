@@ -71,6 +71,17 @@ def message_to_dict(msg: Message) -> dict[str, Any]:
     # tool_result.metadata pattern in _tool_result_to_dict.
     if msg.peer_name is not None:
         d["peer_name"] = msg.peer_name
+    # M11 F07 L02: emit channel_id only when non-None. Pre-F7 rows had
+    # no channel_id key; preserve byte-identical legacy shape. Mirrors
+    # the peer_name pattern above.
+    if msg.channel_id is not None:
+        d["channel_id"] = msg.channel_id
+    # M11 F07 L02: emit channel_name only when non-None. Same back-compat
+    # discipline as channel_id above; the pair travels together but each
+    # independently emits only when set (cold-pool case: id resolved but
+    # name not yet cached).
+    if msg.channel_name is not None:
+        d["channel_name"] = msg.channel_name
     return d
 
 
@@ -106,6 +117,10 @@ def message_from_dict(d: dict[str, Any]) -> Message:
         visibility=d.get("visibility"),
         # M11 F06 L01: peer_name — None on pre-F6 rows without the key.
         peer_name=d.get("peer_name"),
+        # M11 F07 L02: channel_id — None on pre-F7 rows without the key.
+        channel_id=d.get("channel_id"),
+        # M11 F07 L02: channel_name — None on pre-F7 rows without the key.
+        channel_name=d.get("channel_name"),
     )
 
 
@@ -185,9 +200,37 @@ def messages_to_ui_events(
         # when source peer_name is None — frontends treat absent === no peer
         # attribution (operator-typed or non-connector session).
         peer = {"peer_name": msg.peer_name} if msg.peer_name is not None else {}
+        # M11 F07 L03: channel_id + channel_name flow ONLY into Role.USER
+        # events (same Role-gating as peer_name — channel context is meaningful
+        # only on connector-inbound user-role messages; operator-typed turns
+        # and assistant/tool messages leave the fields at their dataclass
+        # default ``None``). Each spread is independently conditional so a
+        # USER message with channel_id but no resolved channel_name still
+        # emits ``channel_id`` (the partial-absence path the L4 provider
+        # projection must handle gracefully). The single projection site
+        # covers BOTH replay (``_restore_session``) AND live broadcast
+        # (``_inbound.py:dispatch_inbound`` → ``broadcast_to_session``) for
+        # the connector-inbound path; ``app.py:_process_and_broadcast``
+        # handles operator-typed input and is NOT touched by this projection.
+        channel_id_spread = (
+            {"channel_id": msg.channel_id} if msg.channel_id is not None else {}
+        )
+        channel_name_spread = (
+            {"channel_name": msg.channel_name}
+            if msg.channel_name is not None
+            else {}
+        )
         if msg.role == Role.USER:
             events.append(
-                {"type": "user", "content": msg.content, "source": "restored", **vis, **peer}
+                {
+                    "type": "user",
+                    "content": msg.content,
+                    "source": "restored",
+                    **vis,
+                    **peer,
+                    **channel_id_spread,
+                    **channel_name_spread,
+                }
             )
         elif msg.role == Role.ASSISTANT:
             if msg.content:

@@ -134,13 +134,17 @@ from dataclasses import replace
 from typing import Any
 
 from the_one.agent._context import current_chat_session_id
+from the_one.agent.config import AgentConfig
 from the_one.agent.factory import AgentFactory
 from the_one.connectors import registry
+from the_one.connectors._acl import _default_no_mention
+from the_one.connectors._inference import run_engagement_inference
 from the_one.connectors._pairing import _validate_pairing_prefix
-from the_one.connectors._pool import account_acquire
-from the_one.connectors._routing import resolve_routing
+from the_one.connectors._pool import _get_account_cache_snapshot, account_acquire
+from the_one.connectors._routing import RoutingDecision, resolve_routing
 from the_one.connectors._session import resolve_session
 from the_one.connectors.base import (
+    ConnectorPlugin,
     Deny,
     InboundEnvelope,
     NeedsPairing,
@@ -148,13 +152,128 @@ from the_one.connectors.base import (
     _default_permit,
 )
 from the_one.connectors.errors import ConnectorRegistrationError
-from the_one.connectors.visibility import tag_post_step_visibility
+from the_one.connectors.post_step_metadata import (
+    bind_channel_context,
+    bind_peer_name,
+    resolve_channel_name,
+    tag_post_step_visibility,
+)
 from the_one.db.codec import decode_messages, encode_messages, messages_to_ui_events
-from the_one.db.models import now_iso
-from the_one.llm.base import Role
+from the_one.db.models import ConnectorAccount, now_iso
+from the_one.llm.base import Message, Role
 from the_one.sessions import broadcast_to_session, session_locks
 
 logger = logging.getLogger(__name__)
+
+
+async def _policy_gate_decision(
+    *,
+    envelope: InboundEnvelope,
+    account: ConnectorAccount,
+    agent_config: AgentConfig,
+    plugin: ConnectorPlugin,
+    decision: RoutingDecision,
+    session_messages: list[Message],
+    conn: Any,
+    encryptor: Any,
+    settings: Any,
+) -> tuple[bool, dict[str, Any]]:
+    """Evaluate the F7 policy gate (Flight DD §1 five-path decision tree).
+
+    Returns ``(should_engage, policy_audit)``:
+
+    - ``should_engage`` — True → proceed to step 12; False → silent
+      terminal-return.
+    - ``policy_audit`` — dict describing the decision path, suitable for
+      embedding in ``session_metadata["routing"]`` under the ``policy``
+      key.
+
+    Decision tree (first match wins):
+
+    1. ``envelope.raw["is_dm"] is True`` → engage; outcome=``"dm"``.
+       DMs ignore the policy gate (DD §1 step 1).
+    2. ``decision.scope == "override"`` → engage; outcome=``"override"``.
+       A peer's explicit ``/talk-to`` bypasses the gate.
+    3. ``plugin.is_mention(envelope)`` returns True → engage;
+       outcome=``"mention"``. The consult uses the
+       ``optional-plugin-hook-via-getattr-sentinel`` convention with
+       :func:`_default_no_mention` as the fallback (plugins without a
+       mention concept stay silent-by-default).
+    4. ``account.config["always_listen"]`` AND
+       ``agent_config.connector_always_listen[account_id]`` both True →
+       run inference; outcome=``"inference-yes"`` (engage) or
+       ``"inference-no"`` (silent).
+    5. Otherwise → silent; outcome=``"always-listen-off"`` (with sub-
+       reason indicating which toggle was False).
+
+    Per Flight DD §8 ("accept-and-document"), a per-agent True with an
+    account-level False is structurally inert — the account check at
+    step 4 short-circuits before the agent toggle is consulted.
+
+    Per Flight DD §9 safe-default discipline, every exceptional outcome
+    inside :func:`run_engagement_inference` collapses to False (silent).
+    The gate does not need additional exception handling.
+    """
+    # 1. DM
+    if envelope.raw.get("is_dm") is True:
+        return True, {"outcome": "dm"}
+    # 2. Override
+    if decision.scope == "override":
+        return True, {"outcome": "override"}
+    # 3. Mention — getattr-sentinel consult (mirrors the F8 L6 ``is_dm``
+    # consult pattern at ``_routing.py:168-171``).
+    is_mention_fn = getattr(plugin, "is_mention", _default_no_mention)
+    if is_mention_fn(envelope):
+        return True, {"outcome": "mention"}
+    # 4. Always-listen composition.
+    account_listen = bool(account.config.get("always_listen", False))
+    agent_listen_dict = agent_config.connector_always_listen
+    agent_listen = (
+        agent_listen_dict.get(account.id, False)
+        if agent_listen_dict is not None
+        else False
+    )
+    if not account_listen:
+        return False, {
+            "outcome": "always-listen-off",
+            "account_always_listen": False,
+            "agent_always_listen": agent_listen,
+        }
+    if not agent_listen:
+        return False, {
+            "outcome": "always-listen-off",
+            "account_always_listen": True,
+            "agent_always_listen": False,
+        }
+    # Both toggles True → run inference. Construct the provider repo
+    # inline; the dispatcher's ``conn`` + ``encryptor`` are in scope from
+    # step 1's ``get_connection()`` + ``get_encryptor()`` calls.
+    from the_one.db.repositories import LLMProviderRepository
+
+    provider_repo = LLMProviderRepository(conn, encryptor)
+    engaged = await run_engagement_inference(
+        account=account,
+        envelope=envelope,
+        session_messages=session_messages,
+        settings=settings,
+        provider_repo=provider_repo,
+        fallback_provider_config_id=agent_config.provider_config_id,
+        fallback_llm_model=agent_config.llm_model,
+    )
+    outcome = "inference-yes" if engaged else "inference-no"
+    return engaged, {
+        "outcome": outcome,
+        "account_always_listen": True,
+        "agent_always_listen": True,
+        "inference_provider_id": (
+            settings.inference_provider_config_id
+            or agent_config.provider_config_id
+        ),
+        "inference_model": (
+            settings.inference_model
+            or agent_config.llm_model
+        ),
+    }
 
 
 async def dispatch_inbound(
@@ -579,6 +698,61 @@ async def dispatch_inbound(
 
     # NOTE: step-10 and step-12 are independent pool acquisitions and do NOT share state — step-10 holds the dispatcher's outbound ``client`` for command/error emit; step-12's ``agent.step`` may acquire its own ``ConnectorClient`` references via the platform-send tool independently.
 
+    # 11.5 (M11 F7 L8). Policy gate — decides engaged-vs-silent per Flight
+    # DD §1 five-path decision tree before the per-session lock acquires.
+    # Silent branches terminal-return with an audit-only side effect: no
+    # lock, no ``update_last_inbound``, no agent build, no ``agent.step``,
+    # no auto-relay, no WS broadcast — mirrors the F6 Deny /
+    # NeedsPairing-failure precedent at step 6.
+    #
+    # The engaged branch flows through to step 12 unchanged; the policy
+    # sub-block is NOT embedded in the engaged-path audit entry (F9's
+    # audit-log inspector reads engaged entries' implicit non-silent
+    # disposition).
+    #
+    # ``agent_config`` resolution: pick the routed agent's config from
+    # the already-loaded ``eligible_attached_agents`` list (no extra DB
+    # round-trip). The ``next(...)`` is guaranteed to succeed because
+    # ``decision.agent`` was selected from this same list by
+    # :func:`resolve_routing` at step 7.
+    agent_config = next(
+        a for a in eligible_attached_agents if a.name == decision.agent
+    )
+    session_messages = decode_messages(db_session_for_routing.messages)
+    should_engage, policy_audit = await _policy_gate_decision(
+        envelope=working_envelope,
+        account=account,
+        agent_config=agent_config,
+        plugin=plugin,
+        decision=decision,
+        session_messages=session_messages,
+        conn=conn,
+        encryptor=encryptor,
+        settings=settings,
+    )
+    if not should_engage:
+        # Silent terminal-return per DD §13.
+        audit_entry["disposition"] = "policy-silent"
+        audit_entry["policy"] = policy_audit
+        await chat_repo.append_to_session_metadata(
+            session_row.id,
+            "routing",
+            audit_entry,
+        )
+        logger.info(
+            "dispatch_inbound: policy gate silent on envelope "
+            "(account=%s, channel=%s, peer=%s, outcome=%s); "
+            "no engagement without mention/override/inference consent",
+            account_id,
+            working_envelope.channel_id,
+            working_envelope.peer_id,
+            policy_audit.get("outcome"),
+        )
+        return
+    # Engaged → flow through to step 12 (lock + agent.step). ``audit_entry``
+    # is NOT appended here; step 12 sets disposition="stepped" and appends.
+    # The silent path above is the only L8 append site.
+
     # 12. Per-session lock + persist + agent.step + persist (existing
     # F3+F4 logic with ``agent_name = decision.agent``).
     audit_entry["disposition"] = "stepped"
@@ -657,10 +831,47 @@ async def dispatch_inbound(
             # composes correctly with concurrent operator-typed turns and is
             # skipped on agent.step exceptions. Closes M10 debrief Bug C
             # (peer_name data-model gap, 6 surfaces) / M11 criterion #13.
-            assert agent.messages[pre_step_len].role == Role.USER, (
-                "agent.step must append a Role.USER message at pre_step_len"
+            # M11 F7 L1: the inline mutation moved to
+            # :func:`the_one.connectors.post_step_metadata.bind_peer_name`
+            # alongside ``tag_post_step_visibility`` (n=3 lift trigger).
+            # The WHY remains documented here at the call site; the WHAT
+            # lives in the function's docstring.
+            bind_peer_name(
+                agent.messages, pre_step_len, working_envelope.peer_name
             )
-            agent.messages[pre_step_len].peer_name = working_envelope.peer_name
+
+            # M11 F07 L03: post-step channel-context binding.
+            # The envelope always carries ``channel_id`` (every connector
+            # plugin's translator sets it — see Discord's
+            # ``_discord_translate.py:122``); ``channel_name`` is resolved
+            # from the F3 L4 discoverable-entities cache (label lookup
+            # matching ``envelope.channel_id`` against
+            # ``cache.channels[i].id``). Cold pool / non-Discord plugin /
+            # stale cache → ``channel_name`` stays ``None``; the L4 provider
+            # projection handles partial-absence gracefully. The cache read
+            # is awaited inside the per-session lock: the pool lock is
+            # independent of ``session_locks[session_row.id]`` and the
+            # snapshot capture holds no callable that could in turn
+            # acquire any session lock, so no ordering violation is
+            # possible. Composition: this is the third mutator in the
+            # ``post_step_metadata`` set (visibility, peer_name,
+            # channel_context — n=3 per agents.md
+            # § post-step-dispatcher-message-metadata-binding).
+            _channel_cache_snapshot = await _get_account_cache_snapshot(
+                working_envelope.account_id
+            )
+            _resolved_channel_name = resolve_channel_name(
+                _channel_cache_snapshot.cache
+                if _channel_cache_snapshot is not None
+                else None,
+                working_envelope.channel_id,
+            )
+            bind_channel_context(
+                agent.messages,
+                pre_step_len,
+                working_envelope.channel_id,
+                _resolved_channel_name,
+            )
 
             # Persist updated history. Mirror of ``_save_session_to_db``
             # at ``interfaces/web/app.py:469-487``. The leg-1 docstring
@@ -699,16 +910,15 @@ async def dispatch_inbound(
                 for event in events:
                     await broadcast_to_session(session_row.id, event)
 
-            # M10 F8 L11 HAT Fix #4 — auto-relay platform replies.
+            # M11 F7 L5 — auto-relay platform replies (invariant on
+            # engaged turns).
             # ===================================================
-            # Default-ON mechanical relay of the agent's plaintext
-            # assistant reply to the platform, opt-out via
-            # ``account.config["auto_relay_platform_replies"] = False``.
-            # Operator-approved at L11 HAT after observing that even a
-            # strengthened system-prompt directive doesn't reliably get
-            # the LLM (Sonnet 4.7) to invoke ``send_to_platform_channel``
-            # — the model asks for permission instead of replying
-            # autonomously to peer messages.
+            # Auto-relay is the invariant outbound path on engaged
+            # turns: when the dispatcher reaches this block, the agent
+            # has produced a plaintext reply and that reply MUST go to
+            # the platform. The engagement decision is now the policy
+            # gate's responsibility (L8), so by the time we get here
+            # the contract is "this reply belongs to peers."
             #
             # F4 invariant is preserved: outbound STILL goes through
             # ``client.send`` (the pool-mediated platform conduit). The
@@ -718,7 +928,6 @@ async def dispatch_inbound(
             # path.
             #
             # Skip conditions (any one ⇒ skip):
-            #   * Setting is False (explicit opt-out).
             #   * Agent already called ``send_to_platform_channel``
             #     during this step (avoid double-send).
             #   * Agent produced no plaintext (e.g. only tool calls).
@@ -727,103 +936,99 @@ async def dispatch_inbound(
             # inbound is considered handled; the auto-relay failure is
             # non-fatal (mirrors the F7 L5 no-eligible peer-error and
             # plugin/builtin command-response emit-swallow precedents).
-            auto_relay = account.config.get(
-                "auto_relay_platform_replies", True
-            )
-            if auto_relay:
-                # Detect agent-deliberate platform-send during this step
-                # — if the agent already called the tool, the auto-relay
-                # path must NOT fire (avoid double-send to peers).
-                already_sent_via_tool = False
-                for msg in new_msgs:
-                    if msg.role == Role.ASSISTANT:
-                        for tc in msg.tool_calls:
-                            if tc.name == "send_to_platform_channel":
-                                already_sent_via_tool = True
-                                break
-                    if already_sent_via_tool:
-                        break
+            # Detect agent-deliberate platform-send during this step
+            # — if the agent already called the tool, the auto-relay
+            # path must NOT fire (avoid double-send to peers).
+            already_sent_via_tool = False
+            for msg in new_msgs:
+                if msg.role == Role.ASSISTANT:
+                    for tc in msg.tool_calls:
+                        if tc.name == "send_to_platform_channel":
+                            already_sent_via_tool = True
+                            break
+                if already_sent_via_tool:
+                    break
 
-                # Find the LAST plaintext assistant reply produced this
-                # step. The agent.step loop emits one or more assistant
-                # messages; the final one (with no tool_calls and
-                # non-empty content) is the user-facing reply.
-                reply_text: str | None = None
-                for msg in reversed(new_msgs):
-                    if (
-                        msg.role == Role.ASSISTANT
-                        and not msg.tool_calls
-                        and msg.content
-                    ):
-                        reply_text = msg.content
-                        break
-
+            # Find the LAST plaintext assistant reply produced this
+            # step. The agent.step loop emits one or more assistant
+            # messages; the final one (with no tool_calls and
+            # non-empty content) is the user-facing reply.
+            reply_text: str | None = None
+            for msg in reversed(new_msgs):
                 if (
-                    not already_sent_via_tool
-                    and reply_text is not None
+                    msg.role == Role.ASSISTANT
+                    and not msg.tool_calls
+                    and msg.content
                 ):
-                    try:
-                        # M10 F8 L11 HAT Fix #6: account-shared pool —
-                        # auto-relay uses the same gateway connection
-                        # the dispatcher already warmed at step 10.
-                        relay_client = await account_acquire(account_id)
-                        send_result = await relay_client.send(
-                            OutboundTarget(
-                                channel_id=working_envelope.channel_id,
-                                thread_id=working_envelope.thread_id,
-                            ),
-                            reply_text,
+                    reply_text = msg.content
+                    break
+
+            if (
+                not already_sent_via_tool
+                and reply_text is not None
+            ):
+                try:
+                    # M10 F8 L11 HAT Fix #6: account-shared pool —
+                    # auto-relay uses the same gateway connection
+                    # the dispatcher already warmed at step 10.
+                    relay_client = await account_acquire(account_id)
+                    send_result = await relay_client.send(
+                        OutboundTarget(
+                            channel_id=working_envelope.channel_id,
+                            thread_id=working_envelope.thread_id,
+                        ),
+                        reply_text,
+                    )
+                    # Flip the agent's plaintext assistant reply
+                    # from OPERATOR_VISIBILITY (tagged by
+                    # ``tag_post_step_visibility`` above) to
+                    # platform-visible (``visibility=None``) — the
+                    # message DID make it to peers via this relay.
+                    # The Chat UI then renders it correctly as a
+                    # platform-bound reply rather than an
+                    # operator-only deliberation.
+                    for msg in reversed(new_msgs):
+                        if (
+                            msg.role == Role.ASSISTANT
+                            and not msg.tool_calls
+                            and msg.content == reply_text
+                        ):
+                            msg.visibility = None
+                            break
+                    # Re-persist to capture the visibility flip on
+                    # the assistant message.
+                    encoded = encode_messages(agent.messages)
+                    db_session_after_relay = await chat_repo.get(
+                        session_row.id
+                    )
+                    await chat_repo.update(
+                        db_session_after_relay.model_copy(
+                            update={"messages": encoded}
                         )
-                        # Flip the agent's plaintext assistant reply
-                        # from OPERATOR_VISIBILITY (tagged by
-                        # ``tag_post_step_visibility`` above) to
-                        # platform-visible (``visibility=None``) — the
-                        # message DID make it to peers via this relay.
-                        # The Chat UI then renders it correctly as a
-                        # platform-bound reply rather than an
-                        # operator-only deliberation.
-                        for msg in reversed(new_msgs):
-                            if (
-                                msg.role == Role.ASSISTANT
-                                and not msg.tool_calls
-                                and msg.content == reply_text
-                            ):
-                                msg.visibility = None
-                                break
-                        # Re-persist to capture the visibility flip on
-                        # the assistant message.
-                        encoded = encode_messages(agent.messages)
-                        db_session_after_relay = await chat_repo.get(
-                            session_row.id
-                        )
-                        await chat_repo.update(
-                            db_session_after_relay.model_copy(
-                                update={"messages": encoded}
-                            )
-                        )
-                        logger.info(
-                            "Auto-relayed agent %s reply to platform "
-                            "via account %s channel %s (message_id=%s)",
-                            decision.agent,
-                            account_id,
-                            working_envelope.channel_id,
-                            send_result.platform_message_id,
-                        )
-                    except Exception:
-                        # Log + swallow. The agent already produced the
-                        # reply; the operator-console view still shows
-                        # it (visibility stays OPERATOR_VISIBILITY since
-                        # the flip block above did not run). The
-                        # operator can manually invoke
-                        # ``send_to_platform_channel`` or retry.
-                        logger.exception(
-                            "dispatch_inbound: auto-relay client.send "
-                            "failed for (agent=%s, account=%s, channel=%s); "
-                            "agent reply preserved as operator-only",
-                            decision.agent,
-                            account_id,
-                            working_envelope.channel_id,
-                        )
+                    )
+                    logger.info(
+                        "Auto-relayed agent %s reply to platform "
+                        "via account %s channel %s (message_id=%s)",
+                        decision.agent,
+                        account_id,
+                        working_envelope.channel_id,
+                        send_result.platform_message_id,
+                    )
+                except Exception:
+                    # Log + swallow. The agent already produced the
+                    # reply; the operator-console view still shows
+                    # it (visibility stays OPERATOR_VISIBILITY since
+                    # the flip block above did not run). The
+                    # operator can manually invoke
+                    # ``send_to_platform_channel`` or retry.
+                    logger.exception(
+                        "dispatch_inbound: auto-relay client.send "
+                        "failed for (agent=%s, account=%s, channel=%s); "
+                        "agent reply preserved as operator-only",
+                        decision.agent,
+                        account_id,
+                        working_envelope.channel_id,
+                    )
         finally:
             # Always reset the ContextVar — even if agent.step raises
             # mid-stream.

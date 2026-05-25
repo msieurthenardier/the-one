@@ -17,7 +17,13 @@ empty-dict-equals-None invariant against silent drift.
 
 from __future__ import annotations
 
-from the_one.connectors._acl import admits_inbound, admits_outbound
+from the_one.connectors._acl import (
+    _default_no_mention,
+    _default_not_dm,
+    admits_inbound,
+    admits_outbound,
+)
+from the_one.connectors.base import InboundEnvelope
 from the_one.db.models import ConnectorAccount
 
 
@@ -677,3 +683,48 @@ class TestAdmitsOutboundAcceptsButIgnoresGuildsRoles:
         )
         assert admits is True
         assert reason == ""
+
+
+# ─────────────────────────────────────────────────────────────────
+# Sentinel fallbacks (M11 F7 L1)
+# ─────────────────────────────────────────────────────────────────
+
+
+def _envelope_for_sentinel() -> InboundEnvelope:
+    """Minimal envelope for sentinel-fallback unit tests.
+
+    The sentinels ignore the envelope entirely (they are constant-
+    returning fallbacks), so the field values are not load-bearing
+    on their return value. The fixture exists to prove the call
+    shape itself does not raise.
+    """
+    return InboundEnvelope(
+        platform="stub",
+        account_id="acct-1",
+        channel_id="ch-1",
+        thread_id=None,
+        peer_id="peer-1",
+        peer_name="Alice",
+        text="hi",
+        raw={},
+    )
+
+
+def test_default_not_dm_returns_false() -> None:
+    """``_default_not_dm`` returns ``False`` for any envelope —
+    preserves the historical fail-closed behavior of the DMs-only ACL
+    branch for plugins (e.g. the test-only stub) without a DM-
+    classification hook.
+    """
+    assert _default_not_dm(_envelope_for_sentinel()) is False
+
+
+def test_default_no_mention_returns_false() -> None:
+    """``_default_no_mention`` returns ``False`` for any envelope —
+    preserves the F7 policy gate's silent-by-default branch for
+    plugins (e.g. the test-only stub) without a mention concept.
+
+    Mirrors :func:`test_default_not_dm_returns_false` — see
+    ``agents.md`` § ``optional-plugin-hook-via-getattr-sentinel``.
+    """
+    assert _default_no_mention(_envelope_for_sentinel()) is False

@@ -446,6 +446,164 @@ class TestSQLiteAgentStore:
         with pytest.raises(ValidationError):
             await agent_store.load("validator-fires-agent")
 
+    # ── M11 F7 L6: connector_always_listen round-trip / back-compat ──────
+
+    async def test_save_round_trips_connector_always_listen(
+        self, agent_store: SQLiteAgentStore
+    ) -> None:
+        """Saving an agent with ``connector_always_listen`` set roundtrips
+        through ``save`` and ``load``. Mirror of
+        ``test_save_round_trips_connector_acls`` for the F7 L6 per-agent
+        always-listen toggle (M11 F7 L6 v20 migration).
+        """
+        config = AgentConfig(
+            name="always-listen-agent",
+            connector_always_listen={"acct-a": True, "acct-b": False},
+        )
+        await agent_store.save(config)
+        loaded = await agent_store.load("always-listen-agent")
+        assert loaded.connector_always_listen == {
+            "acct-a": True,
+            "acct-b": False,
+        }
+
+        # Upsert path: re-save with a different toggle dict. Confirms the
+        # ON CONFLICT(name) DO UPDATE SET branch writes the new value
+        # (a missing connector_always_listen in the update list would
+        # silently retain the original value — the cycle-1 review's
+        # specific bug shape).
+        cfg2 = AgentConfig(
+            name="always-listen-agent",
+            connector_always_listen={"acct-c": True},
+        )
+        await agent_store.save(cfg2)
+        loaded2 = await agent_store.load("always-listen-agent")
+        assert loaded2.connector_always_listen == {"acct-c": True}
+
+    async def test_save_round_trips_connector_always_listen_none(
+        self, agent_store: SQLiteAgentStore
+    ) -> None:
+        """An agent without ``connector_always_listen`` set roundtrips as
+        None (locked-down NULL semantic; default for agents without per-
+        agent overrides). Mirrors the ``connector_acls`` None-default
+        round-trip test.
+        """
+        cfg = AgentConfig(
+            name="no-always-listen-agent", connector_always_listen=None
+        )
+        await agent_store.save(cfg)
+        loaded = await agent_store.load("no-always-listen-agent")
+        assert loaded.connector_always_listen is None
+
+    async def test_save_round_trips_empty_outer_dict_connector_always_listen(
+        self, agent_store: SQLiteAgentStore
+    ) -> None:
+        """Saving an agent with ``connector_always_listen={}`` roundtrips
+        verbatim — NOT collapsed to ``None``.
+
+        Distinguishes the JSON-literal ``"{}"`` truthy-string path from
+        the SQL-NULL falsy path in ``_row_to_config``'s
+        ``if row["connector_always_listen"] else None`` decode: ``"{}"``
+        is a truthy non-empty string, so ``json.loads`` runs and returns
+        ``{}``; SQL NULL deserializes as Python None, which is falsy and
+        triggers the ``else None`` branch.
+        """
+        cfg = AgentConfig(
+            name="empty-always-listen-agent", connector_always_listen={}
+        )
+        await agent_store.save(cfg)
+        loaded = await agent_store.load("empty-always-listen-agent")
+        assert loaded.connector_always_listen == {}
+        # Belt-and-braces: confirm the round-trip preserved {}, not None.
+        assert loaded.connector_always_listen is not None
+
+    async def test_load_pre_v20_agent_has_none_connector_always_listen(
+        self, agent_store: SQLiteAgentStore, conn
+    ) -> None:
+        """A row written with ``connector_always_listen`` explicitly NULL
+        (the pre-v20 row state after the v20 ALTER fires) decodes as
+        ``None`` via the ``if row["connector_always_listen"] else None``
+        decode in ``_row_to_config``.
+
+        Back-compat anchor for production DBs upgraded from v19: the
+        column exists post-migration but holds NULL until the next save.
+        """
+        from the_one.db.models import now_iso
+
+        now = now_iso()
+        await conn.execute(
+            "INSERT INTO agents (name, description, llm_model, system_prompt,"
+            " disabled_tools, max_iterations, kb_ids, mcp_source_ids,"
+            " connector_account_ids, connector_acls,"
+            " connector_always_listen, created_at, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "pre-v20-agent",
+                "",
+                "mock-default",
+                "",
+                "[]",
+                20,
+                "[]",
+                "[]",
+                None,
+                None,
+                None,  # connector_always_listen NULL — simulates pre-v20 row
+                now,
+                now,
+            ),
+        )
+        await conn.commit()
+
+        loaded = await agent_store.load("pre-v20-agent")
+        assert loaded.connector_always_listen is None
+
+    async def test_validator_fires_on_repo_read_path_connector_always_listen(
+        self, agent_store: SQLiteAgentStore, conn
+    ) -> None:
+        """Pydantic's ``dict[str, bool] | None`` annotation fires on the
+        read path when ``_row_to_config`` constructs ``AgentConfig(**kwargs)``
+        from a DB row whose ``connector_always_listen`` column holds JSON
+        whose inner values are not bool-coercible.
+
+        Mirror of ``test_validator_fires_on_repo_read_path_connector_acls``
+        — confirms Pydantic v2's field validation (annotation + custom
+        validator) runs on direct kwargs construction the same as
+        ``model_validate``, so we don't need to widen ``_row_to_config``
+        to ``model_validate``.
+
+        Writes a valid row via the repo's ``save``, then UPDATEs the JSON
+        column with a non-bool-coercible inner value via raw SQL, then
+        calls ``load`` and asserts ``ValidationError``. Uses an integer
+        outside ``{0, 1}`` (Pydantic v2 strict-rejects general ints as
+        bools — only ``0``/``1`` and specific bool-like strings coerce).
+        """
+        # Step 1: write a valid row via the repo.
+        cfg = AgentConfig(
+            name="al-validator-fires-agent",
+            connector_always_listen={"acct-a": True},
+        )
+        await agent_store.save(cfg)
+
+        # Step 2: UPDATE the row's connector_always_listen to a malformed
+        # inner value (integer 42, which Pydantic v2 does NOT coerce to
+        # bool). Bypasses the Pydantic validator on the write path — the
+        # column is raw TEXT at the SQL layer.
+        import json
+
+        malformed = json.dumps({"acct-a": 42})
+        await conn.execute(
+            "UPDATE agents SET connector_always_listen = ? WHERE name = ?",
+            (malformed, "al-validator-fires-agent"),
+        )
+        await conn.commit()
+
+        # Step 3: load — Pydantic field validation MUST fire on
+        # _row_to_config's direct kwargs construction and raise
+        # ValidationError.
+        with pytest.raises(ValidationError):
+            await agent_store.load("al-validator-fires-agent")
+
     # ── M10 F7 L3: list_by_connector_account ─────────────────────────────
 
     async def test_list_by_connector_account_empty_for_unknown_account(
@@ -828,6 +986,124 @@ class TestAgentConfigConnectorAclsValidator:
                     }
                 },
             )
+
+
+class TestAgentConfigConnectorAlwaysListenValidator:
+    """Direct-construction validator tests for
+    ``AgentConfig.connector_always_listen`` (M11 F7 L6).
+
+    Sibling of ``TestAgentConfigConnectorAclsValidator``; tests the
+    ``@field_validator("connector_always_listen", mode="after")``
+    invariants enforced at ``AgentConfig(**kwargs)`` time (no DB
+    involved). The repo read-path validator-firing test is in
+    ``TestSQLiteAgentStore``; these tests focus on the validator's
+    invariants in isolation.
+
+    Pydantic v2's ``dict[str, bool] | None`` annotation enforces outer-
+    key str shape and rejects non-bool inner values at the annotation
+    layer in most cases. The validator's body adds the defensive inner-
+    value bool invariant against any truthy-but-non-bool smuggling
+    through the kv-table or raw-JSON edit paths.
+
+    Per Flight DD §8: the validator does NOT cross-check against the
+    L5 account-level ``ConnectorAccount.config["always_listen"]`` switch
+    or against ``connector_account_ids``; "accept-and-document is the
+    lighter discipline" — orphan or structurally-inert entries are
+    inert at runtime, not at validate time.
+    """
+
+    def test_default_none_is_valid(self) -> None:
+        """``connector_always_listen`` defaults to None (no per-agent
+        override).
+        """
+        cfg = AgentConfig(name="agent")
+        assert cfg.connector_always_listen is None
+
+    def test_empty_outer_dict_is_valid(self) -> None:
+        """``{}`` is valid (semantically same as None at runtime; codec
+        preserves the distinction for round-trip fidelity).
+        """
+        cfg = AgentConfig(name="agent", connector_always_listen={})
+        assert cfg.connector_always_listen == {}
+
+    def test_explicit_true_per_account_is_valid(self) -> None:
+        """``{"acct-a": True}`` is valid — per-agent always-listen toggle
+        flipped on for that account.
+        """
+        cfg = AgentConfig(
+            name="agent", connector_always_listen={"acct-a": True}
+        )
+        assert cfg.connector_always_listen == {"acct-a": True}
+
+    def test_explicit_false_per_account_is_valid(self) -> None:
+        """``{"acct-a": False}`` is valid — explicit False round-trips
+        as-is (equivalent in runtime semantic to absent, but preserved
+        by the codec so the operator's intent is retained).
+        """
+        cfg = AgentConfig(
+            name="agent", connector_always_listen={"acct-a": False}
+        )
+        assert cfg.connector_always_listen == {"acct-a": False}
+
+    def test_mixed_true_false_per_account_is_valid(self) -> None:
+        """``{"acct-a": True, "acct-b": False}`` validates — two accounts
+        with different per-agent toggle states.
+        """
+        cfg = AgentConfig(
+            name="agent",
+            connector_always_listen={"acct-a": True, "acct-b": False},
+        )
+        assert cfg.connector_always_listen == {
+            "acct-a": True,
+            "acct-b": False,
+        }
+
+    def test_validator_rejects_non_bool_inner_value(self) -> None:
+        """Non-bool-coercible inner value raises ValidationError — the
+        ``dict[str, bool]`` annotation rejects values Pydantic v2 cannot
+        coerce to bool (e.g. a list). Pydantic v2 DOES coerce specific
+        bool-like strings (``"true"``, ``"false"``, ``"yes"``, ``"no"``)
+        and ``0``/``1`` to bool; this test pins the rejection path for
+        a value firmly outside that coercion table.
+        """
+        with pytest.raises(ValidationError):
+            AgentConfig(
+                name="agent",
+                connector_always_listen={"acct-a": ["not", "a", "bool"]},
+            )
+
+    def test_validator_accepts_true_per_agent_toggle_without_cross_check_against_account(
+        self,
+    ) -> None:
+        """``{"acct-a": True}`` validates cleanly with no account-level
+        cross-check — locks the DD §8 "accept-and-document" discipline.
+
+        The validator does NOT verify that the account-level
+        ``always_listen`` switch (L5) is True. Composition happens at
+        the L8 policy-gate consult site at runtime; per-agent True with
+        account-level False is structurally inert (the account check
+        short-circuits) but not a validation error.
+        """
+        cfg = AgentConfig(
+            name="agent", connector_always_listen={"acct-a": True}
+        )
+        assert cfg.connector_always_listen == {"acct-a": True}
+
+    def test_orphan_account_id_toggle_validates_cleanly(self) -> None:
+        """``{"acct-not-attached": True}`` validates fine even when
+        ``connector_account_ids`` is empty — mirrors the
+        ``connector_acls`` precedent: the validator does NOT cross-check
+        against ``connector_account_ids``; orphan toggles are inert at
+        runtime (L8 only consults the toggle when actually routing for
+        that account).
+        """
+        cfg = AgentConfig(
+            name="agent",
+            connector_account_ids=[],
+            connector_always_listen={"acct-not-attached": True},
+        )
+        assert cfg.connector_account_ids == []
+        assert cfg.connector_always_listen == {"acct-not-attached": True}
 
 
 # ── Knowledge Base Repository ─────────────────────────────────────────────
@@ -1552,49 +1828,104 @@ class TestConnectorAccountConfigValidator:
         with pytest.raises(ValidationError):
             await connector_repo.get("bad")
 
-    # --- M10 F8 L11 HAT Fix #4 — auto_relay_platform_replies ---
+    # --- M11 F7 L5 — always_listen + legacy auto_relay_platform_replies strip ---
 
-    def test_validate_config_accepts_auto_relay_platform_replies_bool(
+    def test_validate_config_accepts_always_listen_bool(self) -> None:
+        """Explicit True and False both validate cleanly. Absent is
+        equivalent to default-False at consume time (the policy gate
+        applies the ``.get(..., False)`` default) but is also a valid
+        on-disk shape — covered implicitly by every pre-F7 row.
+        """
+        account_true = ConnectorAccount(
+            id="a-true", name="n", type="stub",
+            config={"always_listen": True},
+        )
+        assert account_true.config["always_listen"] is True
+
+        account_false = ConnectorAccount(
+            id="a-false", name="n", type="stub",
+            config={"always_listen": False},
+        )
+        assert account_false.config["always_listen"] is False
+
+        account_absent = ConnectorAccount(
+            id="a-absent", name="n", type="stub",
+            config={},
+        )
+        assert "always_listen" not in account_absent.config
+
+    def test_validate_config_rejects_non_bool_always_listen(self) -> None:
+        """A string "yes" / int 1 / None — none of these are accepted.
+        Operators can't smuggle truthy/falsy non-bools through the
+        kv-table editor path; the validator forces an explicit bool.
+        """
+        with pytest.raises(ValidationError):
+            ConnectorAccount(
+                id="a", name="n", type="stub",
+                config={"always_listen": "yes"},
+            )
+        with pytest.raises(ValidationError):
+            ConnectorAccount(
+                id="a", name="n", type="stub",
+                config={"always_listen": 1},
+            )
+        with pytest.raises(ValidationError):
+            ConnectorAccount(
+                id="a", name="n", type="stub",
+                config={"always_listen": None},
+            )
+
+    def test_validate_config_strips_legacy_auto_relay_platform_replies(
         self,
     ) -> None:
-        """Explicit True and False both validate cleanly. Absent is
-        equivalent to default-True at consume time (the dispatcher
-        applies the ``.get(..., True)`` default) but is also a valid
-        on-disk shape — covered implicitly by every pre-Fix-#4 row.
+        """When the legacy key is in the input dict, the validator returns
+        a dict that no longer contains it (regardless of the bool value).
+        Auto-relay became invariant in F7; the legacy key carries no useful
+        information and is migrated out on every validate cycle.
         """
         account_true = ConnectorAccount(
             id="a-true", name="n", type="stub",
             config={"auto_relay_platform_replies": True},
         )
-        assert account_true.config["auto_relay_platform_replies"] is True
+        assert "auto_relay_platform_replies" not in account_true.config
 
         account_false = ConnectorAccount(
             id="a-false", name="n", type="stub",
             config={"auto_relay_platform_replies": False},
         )
-        assert account_false.config["auto_relay_platform_replies"] is False
+        assert "auto_relay_platform_replies" not in account_false.config
 
-    def test_validate_config_rejects_non_bool_auto_relay(self) -> None:
-        """A string "yes" / int 1 / None / list — none of these are
-        accepted. Operators can't smuggle truthy / falsy non-bools
-        through the kv-table editor path; the validator forces an
-        explicit bool.
+    def test_validate_config_strips_legacy_auto_relay_with_always_listen_present(
+        self,
+    ) -> None:
+        """Both keys in input: legacy stripped, always_listen retained.
+        Mixed-state row migrates cleanly without losing the new key.
         """
-        with pytest.raises(ValidationError):
-            ConnectorAccount(
-                id="a", name="n", type="stub",
-                config={"auto_relay_platform_replies": "yes"},
-            )
-        with pytest.raises(ValidationError):
-            ConnectorAccount(
-                id="a", name="n", type="stub",
-                config={"auto_relay_platform_replies": 1},
-            )
-        with pytest.raises(ValidationError):
-            ConnectorAccount(
-                id="a", name="n", type="stub",
-                config={"auto_relay_platform_replies": None},
-            )
+        account = ConnectorAccount(
+            id="a", name="n", type="stub",
+            config={
+                "auto_relay_platform_replies": True,
+                "always_listen": True,
+            },
+        )
+        assert "auto_relay_platform_replies" not in account.config
+        assert account.config["always_listen"] is True
+
+    def test_validate_config_accepts_legacy_auto_relay_value_in_input_silently(
+        self,
+    ) -> None:
+        """Input has ``auto_relay_platform_replies: "not-a-bool"`` (a
+        corrupt non-bool value). The validator MUST NOT reject — the
+        legacy key is stripped from the dict BEFORE the (now-removed)
+        shape check would have run, so the row migrates cleanly even
+        if the legacy value was somehow corrupt. Edge defense: the
+        strip-then-return order matters.
+        """
+        account = ConnectorAccount(
+            id="a", name="n", type="stub",
+            config={"auto_relay_platform_replies": "not-a-bool"},
+        )
+        assert "auto_relay_platform_replies" not in account.config
 
 
 # ── Chat Session Repository ──────────────────────────────────────────────

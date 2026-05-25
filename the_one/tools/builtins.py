@@ -4,6 +4,12 @@ from typing import Any
 
 from the_one.tools._search_backends import DDGSearchBackend, SearchBackend
 from the_one.tools.base import Tool
+from the_one.tools.connector_history import (
+    FetchChannelHistoryTool,
+    FetchDmHistoryTool,
+    FetchThreadHistoryTool,
+    ListVisibleChannelsTool,
+)
 from the_one.tools.connector_send import SendToPlatformChannelTool
 from the_one.tools.filesystem import (
     DeleteFileTool,
@@ -58,7 +64,24 @@ _TOOL_CLASSES: dict[str, type[Tool]] = {
     "download_file": DownloadFileTool,
     "web_search": WebSearchTool,
     "send_to_platform_channel": SendToPlatformChannelTool,
+    "fetch_channel_history": FetchChannelHistoryTool,
+    "fetch_thread_history": FetchThreadHistoryTool,
+    "fetch_dm_history": FetchDmHistoryTool,
+    "list_visible_channels": ListVisibleChannelsTool,
 }
+
+# M11 F7 L10: connector tools that receive the per-agent connector
+# context kwargs (``connector_account_ids``, ``connector_acls``) in
+# ``BuiltinToolProvider.get_tools``'s factory path. Centralized here so
+# adding a fifth connector tool doesn't require touching the dispatch
+# branch inline.
+_CONNECTOR_CONTEXT_TOOL_CLASSES: tuple[type[Tool], ...] = (
+    SendToPlatformChannelTool,
+    FetchChannelHistoryTool,
+    FetchThreadHistoryTool,
+    FetchDmHistoryTool,
+    ListVisibleChannelsTool,
+)
 
 
 class BuiltinToolProvider:
@@ -156,12 +179,20 @@ class BuiltinToolProvider:
             # connector-account ids at construction. Mirrors the
             # SearchTools special construction at factory.py:290-297, kept
             # inside the provider for _TOOL_CLASSES symmetry.
+            #
+            # M11 F7 L10: the four channel-context tools
+            # (``fetch_channel_history``, ``fetch_thread_history``,
+            # ``fetch_dm_history``, ``list_visible_channels``) take the
+            # same kwargs — they consult ``connector_acls`` to gate
+            # reads on the channel / peer axes. The classes that need
+            # the injection are listed in
+            # :data:`_CONNECTOR_CONTEXT_TOOL_CLASSES`.
             extra_kwargs: dict[str, Any] = (
                 {
                     "connector_account_ids": connector_account_ids or [],
                     "connector_acls": connector_acls,
                 }
-                if cls is SendToPlatformChannelTool
+                if cls in _CONNECTOR_CONTEXT_TOOL_CLASSES
                 else {}
             )
             result.append(

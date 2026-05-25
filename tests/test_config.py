@@ -224,25 +224,26 @@ class TestComposeSystemPrompt:
         out = compose_system_prompt(BASE_PROMPT, "Custom.")
         assert out == BASE_PROMPT + "\n\n---\n\nCustom."
 
-    # ── M11 F5 L6 HAT round-8: two-directive surface ──────────────
+    # ── M11 F7 L9: single-directive surface ───────────────────────
     #
-    # The pre-round-8 surface had THREE directives (auto-relay ON,
-    # auto-relay OFF + tool enabled, tool disabled) dispatched on
-    # ``(auto_relay, send_tool_enabled)``. Round-8 collapsed to TWO
-    # directives dispatched on ``auto_relay`` alone — the OFF directive
-    # now hedges with "if the send_to_platform_channel tool is
-    # available" so it stays correct whether the tool is enabled or
-    # not. The ``send_tool_enabled`` parameter is retained as a no-op
-    # kwarg (callers still pass it for unrelated purposes — e.g. the
-    # factory's F10 carve-out for pre-loading the send tool's schema).
+    # The pre-F7 surface had TWO directives (auto-relay ON / OFF)
+    # dispatched on the ``auto_relay`` kwarg. F7 made auto-relay an
+    # invariant of engaged turns (the L8 policy gate silences
+    # everything else upstream), so the OFF directive became dead
+    # code and was deleted at L9 along with the ``auto_relay`` kwarg
+    # itself. The surviving directive is unconditionally appended
+    # when ``connector_attached=True``. ``send_tool_enabled`` stays
+    # in the signature as a no-op (callers still compute it for the
+    # F10 carve-out that pre-loads the send tool's schema).
 
-    def test_connector_attached_auto_relay_on_includes_auto_relay_directive(self):
-        """Auto-relay ON lands the AUTO_RELAY directive — telling the
-        agent its plaintext IS the platform reply by default, no
-        permission-asking required."""
+    def test_connector_attached_includes_auto_relay_directive(self):
+        """``connector_attached=True`` unconditionally lands the
+        auto-relay directive — telling the agent its plaintext IS the
+        platform reply by default, no permission-asking required.
+        Post-L9: there is no longer an OFF state to select; the
+        directive is invariant when connector_attached is True."""
         from the_one.agent.config import (
             _CONNECTOR_AUTO_RELAY_DIRECTIVE,
-            _CONNECTOR_AUTO_RELAY_OFF_DIRECTIVE,
             compose_system_prompt,
         )
         out = compose_system_prompt(
@@ -250,63 +251,19 @@ class TestComposeSystemPrompt:
             "",
             connector_attached=True,
             send_tool_enabled=True,
-            auto_relay=True,
         )
         assert BASE_PROMPT in out
         assert _CONNECTOR_AUTO_RELAY_DIRECTIVE in out
-        assert _CONNECTOR_AUTO_RELAY_OFF_DIRECTIVE not in out
 
-    def test_connector_attached_auto_relay_off_includes_off_directive(self):
-        """Auto-relay OFF lands the OFF directive regardless of the
-        ``send_tool_enabled`` value (round-8: ``send_tool_enabled`` no
-        longer participates in directive selection). The OFF directive
-        carries the "if available" hedge so it stays correct whether
-        the tool is enabled or not."""
+    def test_connector_attached_tool_disabled_includes_on_directive(self):
+        """``send_tool_enabled=False`` does NOT change directive
+        selection — the directive is unconditional when
+        ``connector_attached=True``. The directive references
+        ``send_to_platform_channel`` regardless of tool enablement;
+        when disabled, the LLM cannot call it regardless of the
+        prompt. This test pins the kwarg's no-op status."""
         from the_one.agent.config import (
             _CONNECTOR_AUTO_RELAY_DIRECTIVE,
-            _CONNECTOR_AUTO_RELAY_OFF_DIRECTIVE,
-            compose_system_prompt,
-        )
-        out_tool_on = compose_system_prompt(
-            BASE_PROMPT,
-            "",
-            connector_attached=True,
-            send_tool_enabled=True,
-            auto_relay=False,
-        )
-        out_tool_off = compose_system_prompt(
-            BASE_PROMPT,
-            "",
-            connector_attached=True,
-            send_tool_enabled=False,
-            auto_relay=False,
-        )
-        # Both branches → same OFF directive.
-        assert out_tool_on == out_tool_off
-        assert BASE_PROMPT in out_tool_on
-        assert _CONNECTOR_AUTO_RELAY_OFF_DIRECTIVE in out_tool_on
-        assert _CONNECTOR_AUTO_RELAY_DIRECTIVE not in out_tool_on
-
-    def test_off_directive_carries_if_available_hedge(self):
-        """Round-8: the OFF directive must mention the tool's
-        availability conditionally so it stays truthful whether the
-        operator has disabled the send tool or not. Pins the wording
-        contract."""
-        from the_one.agent.config import _CONNECTOR_AUTO_RELAY_OFF_DIRECTIVE
-        assert "if the" in _CONNECTOR_AUTO_RELAY_OFF_DIRECTIVE
-        assert "is available" in _CONNECTOR_AUTO_RELAY_OFF_DIRECTIVE
-        assert "send_to_platform_channel" in _CONNECTOR_AUTO_RELAY_OFF_DIRECTIVE
-
-    def test_connector_attached_send_disabled_uses_off_directive_when_relay_on(self):
-        """Round-8 simplification: when ``auto_relay=True`` but the send
-        tool is disabled, the ON directive still lands (the OFF
-        directive's "if available" hedge isn't needed because the ON
-        directive doesn't mandate tool calls — it tells the agent
-        plaintext IS the reply). The runtime tool-list filter prevents
-        the tool from being called regardless."""
-        from the_one.agent.config import (
-            _CONNECTOR_AUTO_RELAY_DIRECTIVE,
-            _CONNECTOR_AUTO_RELAY_OFF_DIRECTIVE,
             compose_system_prompt,
         )
         out = compose_system_prompt(
@@ -314,12 +271,8 @@ class TestComposeSystemPrompt:
             "",
             connector_attached=True,
             send_tool_enabled=False,
-            auto_relay=True,
         )
-        # auto_relay=True is the SOLE input to directive selection now;
-        # send_tool_enabled does not participate.
         assert _CONNECTOR_AUTO_RELAY_DIRECTIVE in out
-        assert _CONNECTOR_AUTO_RELAY_OFF_DIRECTIVE not in out
 
     def test_connector_attached_with_persona_persona_after_directive(self):
         """Persona appears AFTER the directive, separated by '---'."""
@@ -334,12 +287,24 @@ class TestComposeSystemPrompt:
             send_tool_enabled=True,
         )
         # Shape: base + \n\n + directive + \n\n---\n\n + persona.
-        # Default auto_relay=True ⇒ AUTO_RELAY directive lands here.
         assert out.index(BASE_PROMPT) < out.index(
             _CONNECTOR_AUTO_RELAY_DIRECTIVE
         )
         assert out.index(_CONNECTOR_AUTO_RELAY_DIRECTIVE) < out.index("---")
         assert out.endswith("Custom persona.")
+
+    def test_directive_forward_references_l10_history_tools(self):
+        """Pins the L9 design: the directive forward-references L10's
+        history-fetch tools with "if available" hedging so the prompt
+        stays truthful pre-L10 (tools not registered → "tool not
+        available" on call) and post-L10 (tools registered → calls
+        succeed)."""
+        from the_one.agent.config import _CONNECTOR_AUTO_RELAY_DIRECTIVE
+        assert "fetch_channel_history" in _CONNECTOR_AUTO_RELAY_DIRECTIVE
+        assert "fetch_thread_history" in _CONNECTOR_AUTO_RELAY_DIRECTIVE
+        assert "fetch_dm_history" in _CONNECTOR_AUTO_RELAY_DIRECTIVE
+        assert "list_visible_channels" in _CONNECTOR_AUTO_RELAY_DIRECTIVE
+        assert "if available" in _CONNECTOR_AUTO_RELAY_DIRECTIVE
 
     # ── M11 F5 L6 HAT round-8: operator_directive removed ─────────
     # The M11 F2 L3 ``operator_directive`` kwarg and the per-account

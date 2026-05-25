@@ -122,7 +122,9 @@ async def _clear_pool_locks_registry():
 # ─── Test 1 — headline: both-visibility coexistence ──────────────────────
 
 
-async def test_e2e_both_visibility_paths_coexist_in_session(isolated_db) -> None:
+async def test_e2e_both_visibility_paths_coexist_in_session(
+    isolated_db, monkeypatch
+) -> None:
     """Connector inbound creates a peer-visible USER message + an
     operator-tagged assistant reply (F4 L4 dispatcher tagging); a
     direct repo write appends two more operator-tagged Messages to
@@ -148,16 +150,28 @@ async def test_e2e_both_visibility_paths_coexist_in_session(isolated_db) -> None
     send tool_result and not USER). Peer-visible (``visibility=None``)
     is preserved only for the inbound USER message (the USER-skip rule).
 
-    M10 F8 L11 HAT Fix #4: auto-relay is opted OUT here so the F4 L4
-    operator-tagging branch fires unflipped. The auto-relay path
-    (which would flip the assistant reply back to platform-visible)
+    M11 F7 L5: auto-relay is now invariant on engaged turns. To keep
+    the F4 L4 operator-tagging branch fires unflipped here, we
+    monkeypatch ``StubClient.send`` to a no-op that raises so the
+    dispatcher's relay try/except swallows the failure and leaves the
+    assistant message at ``OPERATOR_VISIBILITY``. The auto-relay-fires
+    path (which DOES flip the assistant reply back to platform-visible)
     is covered by dedicated tests in
     ``tests/test_connectors_inbound.py``.
     """
     await _seed_provider_and_agent()
-    await _seed_stub_account(
-        config={"auto_relay_platform_replies": False}
-    )
+    await _seed_stub_account()
+
+    # Test isolation: suppress the platform-send side effect so the F4
+    # L4 operator-tagging assertion survives. Raising forces the
+    # dispatcher's swallow-and-keep-as-operator-only branch.
+    from the_one.connectors._stub import StubClient as _StubClient
+
+    async def _send_noop(self, target, content):
+        raise RuntimeError("test isolation: relay suppressed")
+
+    monkeypatch.setattr(_StubClient, "send", _send_noop)
+
     register_for_test("stub", StubPlugin)
     factory = await _make_factory()
 
