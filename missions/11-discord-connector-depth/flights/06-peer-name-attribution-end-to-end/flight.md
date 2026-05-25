@@ -1,6 +1,6 @@
 # Flight: Peer-name Attribution End-to-End (Bug C)
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Discord Connector Depth & Robustness](../../mission.md)
 
 ## Contributing to Criteria
