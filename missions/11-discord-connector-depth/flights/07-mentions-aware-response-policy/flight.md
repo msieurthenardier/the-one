@@ -1,6 +1,6 @@
 # Flight: Mentions-Aware Response Policy
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Discord Connector Depth & Robustness](../../mission.md)
 
 ## Contributing to Criteria
