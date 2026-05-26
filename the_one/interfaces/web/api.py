@@ -639,6 +639,33 @@ async def delete_kb_item(kb_id: str, item_id: str) -> dict[str, str]:
 # ── MCP Sources ───────────────────────────────────────────────────────────
 
 
+# Mask-shape single source-of-truth. The emit helper, the recognize
+# regex, and any future paired helper read these constants; never
+# hardcode the literals. M11 F8 L3.
+_MASK_PREFIX = "***"
+_MASK_TAIL_SEPARATOR = "..."
+_MASK_TAIL_LEN = 4
+
+
+def _emit_mask(value: str) -> str:
+    """Single source-of-truth for mask shape.
+
+    Assumes a non-empty ``str`` input — callers guard ``None`` / empty
+    / non-str before calling. Returns ``_MASK_PREFIX`` (no tail) for
+    short values where exposing the tail would leak too much; returns
+    ``_MASK_PREFIX + _MASK_TAIL_SEPARATOR + value[-_MASK_TAIL_LEN:]``
+    for longer values.
+
+    Pair: ``_MASK_SHAPE_RE`` (below) recognizes the output of this
+    helper. Both read from the same constants so a future maintainer
+    cannot drift the emit shape from the recognize shape. See
+    ``the_one/agents.md`` → ``single-source-of-truth-for-paired-helpers``.
+    """
+    if len(value) <= _MASK_TAIL_LEN:
+        return _MASK_PREFIX
+    return f"{_MASK_PREFIX}{_MASK_TAIL_SEPARATOR}{value[-_MASK_TAIL_LEN:]}"
+
+
 def _mask_secret_value(value: Any) -> Any:
     """Mask a single secret value mirroring ``_mask_api_key``'s shape.
 
@@ -651,17 +678,20 @@ def _mask_secret_value(value: Any) -> Any:
     as ``***`` (no leakage of nested structure). Same per-decoded-value
     semantic as ``_mask_api_key``, kept separate so future MCP-secret
     shape changes don't drift LLM-provider behavior.
+
+    M11 F8 L3: str inputs route through ``_emit_mask`` (the canonical
+    source-of-truth for the mask shape); non-str defensive wholesale
+    mask draws from the ``_MASK_PREFIX`` constant.
     """
     if not value:
         return value
     if not isinstance(value, str):
         # Non-string secret values (e.g., a nested dict for OAuth tokens
         # in F5) — mask wholesale to avoid leaking nested structure.
-        # F5 will revisit this when access/refresh tokens land.
-        return "***"
-    if len(value) <= 4:
-        return "***"
-    return f"***...{value[-4:]}"
+        # F5 will revisit this when access/refresh tokens land. M11 F8
+        # L3: drawn from _MASK_PREFIX constant.
+        return _MASK_PREFIX
+    return _emit_mask(value)
 
 
 # Canonical "preserve existing stored value" sentinel for PUT payloads.
@@ -677,12 +707,17 @@ def _mask_secret_value(value: Any) -> Any:
 # cosmetic refactor deferred out of this hotfix's scope.
 _MASKED_API_KEY_SENTINEL = "__MASKED__"
 
-# Matches the exact output shape of ``_mask_secret_value`` /
-# ``_mask_api_key`` — either ``***`` (short / non-string secrets) or
-# ``***...{tail1..4}`` (longer secrets). Anchored on both sides so a
-# legitimate user-supplied value that merely starts with ``***`` (e.g.
-# ``***hello``) is NOT mistaken for a mask.
-_MASK_SHAPE_RE = re.compile(r"^\*\*\*(\.\.\..{1,4})?$")
+# Matches the exact output shape of ``_emit_mask`` — either
+# ``_MASK_PREFIX`` alone (short / non-string secrets) or
+# ``_MASK_PREFIX + _MASK_TAIL_SEPARATOR + tail-of-1-to-_MASK_TAIL_LEN-chars``
+# (longer secrets). Anchored on both sides so a legitimate user-supplied
+# value that merely starts with ``***`` (e.g. ``***hello``) is NOT
+# mistaken for a mask. Built from the same constants ``_emit_mask`` uses
+# so the emit and recognize shapes cannot drift. M11 F8 L3.
+_MASK_SHAPE_RE = re.compile(
+    rf"^{re.escape(_MASK_PREFIX)}"
+    rf"({re.escape(_MASK_TAIL_SEPARATOR)}.{{1,{_MASK_TAIL_LEN}}})?$"
+)
 
 
 def _looks_masked(value: Any) -> bool:
@@ -690,10 +725,14 @@ def _looks_masked(value: Any) -> bool:
 
     Recognizes both ``__MASKED__`` (the canonical preserve sentinel the
     Studio UI emits) AND the GET-response mask shapes ``***`` /
-    ``***...{tail4}`` produced by ``_mask_secret_value`` /
-    ``_mask_api_key``. PUT handlers treat both as "preserve existing"
-    — any caller that round-trips a GET-masked payload through a PUT no
-    longer corrupts the stored secret with the literal mask string.
+    ``***...{tail4}`` produced by ``_emit_mask`` (the single
+    source-of-truth for mask shape; ``_mask_secret_value`` and
+    ``_mask_api_key`` both route through it). PUT handlers treat both
+    as "preserve existing" — any caller that round-trips a GET-masked
+    payload through a PUT no longer corrupts the stored secret with
+    the literal mask string. The union-recognition (sentinel OR visual
+    mask) is intentional: both semantics still matter at PUT-handler
+    sites.
 
     Non-string values are never masked (return False) so legitimate
     boolean / dict secret values pass through to overwrite semantics
@@ -3055,9 +3094,7 @@ def _is_safe_provider_url(url: str) -> tuple[bool, str | None]:
 def _mask_api_key(key: str | None) -> str | None:
     if not key:
         return key
-    if len(key) <= 4:
-        return "***"
-    return f"***...{key[-4:]}"
+    return _emit_mask(key)
 
 
 def _provider_response(provider: LLMProviderConfig) -> dict[str, Any]:

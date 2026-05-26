@@ -585,37 +585,16 @@ async def test_run_engagement_inference_returns_false_on_provider_resolution_fai
     assert result is False
 
 
-async def test_run_engagement_inference_returns_false_on_none_content(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Provider returns Message with content=None → function returns False
-    without AttributeError. Defensive against codec corner cases.
-    """
-
-    class _NoneContentProvider(LLMProvider):
-        name = "none-content"
-
-        def __init__(self) -> None:
-            super().__init__()
-
-        async def complete(self, messages, tools=None, temperature=0.0, max_tokens=16384):
-            # Construct directly to bypass Message.assistant's default of "".
-            return Message(role=Role.ASSISTANT, content=None)  # type: ignore[arg-type]
-
-    _patch_snapshot(monkeypatch, None)
-    await _patch_resolver_returning(monkeypatch, _NoneContentProvider())
-
-    result = await run_engagement_inference(
-        _account(),
-        _envelope(),
-        [],
-        _empty_settings(),
-        _StubProviderRepo(),  # type: ignore[arg-type]
-        fallback_provider_config_id=None,
-        fallback_llm_model=None,
-    )
-
-    assert result is False
+# M11 F8 L2: deleted ``test_run_engagement_inference_returns_false_on_none_content``.
+# That test constructed ``Message(role=Role.ASSISTANT, content=None)`` to
+# bypass ``Message.assistant``'s ``content=""`` default and pin the
+# ``run_engagement_inference`` consumer's None-content defensive branch.
+# Under F8 L2's ``Message.__post_init__`` ``isinstance(content, str)``
+# assertion, that construction now crashes at ``__init__`` time — the
+# defended-against corner case is structurally unreachable. The
+# corresponding dead defensive branch in ``run_engagement_inference``
+# remains as out-of-scope cleanup for a future maintenance leg. See
+# ``the_one/agents.md`` → ``provider-shape-portability``.
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 # Flight: Provider-Shape-Portability Hardening
 
-**Status**: ready
+**Status**: landed
 **Mission**: [Discord Connector Depth & Robustness](../../mission.md)
 
 ## Contributing to Criteria
@@ -144,10 +144,10 @@ Codify the `provider-shape-portability` convention in `the_one/agents.md` if it 
 
 > **Note:** These are tentative suggestions, not commitments. Legs are planned and created one at a time as the flight progresses. This list will evolve based on discoveries during implementation.
 
-- [ ] `cross-provider-history-roundtrip` — Add cross-provider tool-call round-trip tests in two tiers: pure-encoder (primary, no network) and live-API supplementary against Anthropic↔Ollama (qwen-family) and Anthropic↔OpenRouter (`google/gemma-4-26b-a4b-it:free`). Test+fix atomic, bounded by ~80 LOC divert threshold. Closes the F7-debrief task-#25 concern by pinning the round-trip behavior.
-- [ ] `dataclass-shape-invariants` — Apply Architect pick (c) to `ToolResult.content`: widen annotation to `str | dict | list[Any]`, add `__post_init__` JSON-stringify normalization. Add parallel `__post_init__` `isinstance` assertion on `Message.content`. Delete 12.l Anthropic coercion (`anthropic_provider.py:219-249`); keep 12.m `truncate_for_event` defensive check with annotation; verify `cli.py:83-85` works unchanged. Update tests at `tests/test_llm_provider_tool_result_serialization.py` and `tests/test_truncate_for_event_non_str_coercion.py` to pin invariants at construction. Codify `provider-shape-portability` in `the_one/agents.md`.
-- [ ] `mask-shape-single-source` — Unify `_mask_secret_value` (api.py:642-664) and `_MASK_SHAPE_RE` (api.py:685) so the mask pattern has one source-of-truth. Codify `single-source-of-truth-for-paired-helpers` in `agents.md`.
-- [ ] `hat-multi-provider-swap` *(conditional — only if L1 surfaced a real fix)* — Discord engagement HAT with mid-session provider swap; observe coherent continuation. Uses `/behavior-test` skill on `skill/wbt` methodology baseline.
+- [x] `cross-provider-history-roundtrip` — Add cross-provider tool-call round-trip tests in two tiers: pure-encoder (primary, no network) and live-API supplementary against Anthropic↔Ollama (qwen-family) and Anthropic↔OpenRouter (`google/gemma-4-26b-a4b-it:free`). Test+fix atomic, bounded by ~80 LOC divert threshold. Closes the F7-debrief task-#25 concern by pinning the round-trip behavior.
+- [x] `dataclass-shape-invariants` — Apply Architect pick (c) to `ToolResult.content`: widen annotation to `str | dict | list[Any]`, add `__post_init__` JSON-stringify normalization. Add parallel `__post_init__` `isinstance` assertion on `Message.content`. Delete 12.l Anthropic coercion (`anthropic_provider.py:219-249`); keep 12.m `truncate_for_event` defensive check with annotation; verify `cli.py:83-85` works unchanged. Update tests at `tests/test_llm_provider_tool_result_serialization.py` and `tests/test_truncate_for_event_non_str_coercion.py` to pin invariants at construction. Codify `provider-shape-portability` in `the_one/agents.md`.
+- [x] `mask-shape-single-source` — Unify `_mask_secret_value` (api.py:642-664) and `_MASK_SHAPE_RE` (api.py:685) so the mask pattern has one source-of-truth. Codify `single-source-of-truth-for-paired-helpers` in `agents.md`.
+- [ ] `hat-multi-provider-swap` *(conditional — RETIRED: L1 surfaced no gap requiring HAT validation)* — Discord engagement HAT with mid-session provider swap; observe coherent continuation. Uses `/behavior-test` skill on `skill/wbt` methodology baseline.
 
 ---
 

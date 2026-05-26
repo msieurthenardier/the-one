@@ -1,30 +1,28 @@
 """Per-provider tests for ``ToolResult.content`` serialization at the
 ``_to_api_message`` boundary.
 
-M11 F7 L12.l: hotfix for a pre-F7 agent serialization bug. When an L10
-connector-context tool (``list_visible_channels``, ``fetch_channel_history``,
-``fetch_thread_history``, ``fetch_dm_history``) returns a Python dict or
-list (its declared return type per ``the_one/tools/connector_history.py``),
-the structured value flows through the agent loop into
-``ToolResult.content`` despite the field's ``str`` type annotation —
-dataclass type hints are not enforced at runtime. The Anthropic Messages
-API strictly requires ``tool_result.content`` to be a string or a list of
-content blocks; passing a dict raises::
+M11 F8 L2: the canonical wire-shape for ``ToolResult.content`` is ``str``.
+``ToolResult.__post_init__`` JSON-normalizes non-str content at
+construction (``the_one/llm/base.py``) so every provider's
+``_to_api_message`` receives ``str`` uniformly — no provider-specific
+coercion at the encoder boundary. This replaces F7 12.l's per-encoder
+Anthropic-only coercion with a single canonical-shape invariant at the
+dataclass boundary.
 
-    400 invalid_request_error
-    messages.N.content.M.tool_result.content:
-      Found an object, but `tool_result` content must either be a string or
-      a list of content blocks.
+Three per-provider classes (preserved from the pre-L2 file layout for
+git-blame continuity) pin the post-L2 boundary: ``_to_api_message`` is
+a pass-through for ``str`` content, with no provider-specific JSON
+encoding. Two additional classes pin the construction-time invariants:
 
-The fix coerces non-string ``ToolResult.content`` to ``json.dumps(content)``
-at the Anthropic provider's ``_to_api_message`` site only. The OpenAI /
-Ollama paths' SDKs accept dicts/objects through to the wire and the
-hotfix preserves their pre-fix pass-through behaviour — this test pins
-both halves of that contract.
+  - ``TestToolResultContentNormalizationAtConstruction`` — non-str
+    ``ToolResult`` content is JSON-stringified at ``__init__`` time;
+    str content round-trips byte-identical.
+  - ``TestMessageContentInvariantAtConstruction`` — non-str
+    ``Message.content`` raises ``AssertionError`` at ``__init__`` time
+    (deliberate asymmetry — see ``the_one/agents.md`` →
+    ``provider-shape-portability``).
 
-The test ALSO pins the legacy string-content path (Anthropic, OpenAI,
-Ollama) so a future "always JSON-encode" refactor would surface a
-behavioural regression on the byte-identical str→str round-trip.
+See ``the_one/agents.md`` → ``provider-shape-portability``.
 """
 
 from __future__ import annotations
@@ -34,7 +32,7 @@ import json
 import pytest
 
 from the_one.llm.anthropic_provider import AnthropicProvider
-from the_one.llm.base import Message, ToolResult
+from the_one.llm.base import Message, Role, ToolResult
 from the_one.llm.ollama_provider import OllamaProvider
 from the_one.llm.openai_provider import OpenAIProvider
 
@@ -83,36 +81,111 @@ DICT_RESULT: dict[str, object] = {
 }
 
 
-def _make_tool_msg(content: object, *, is_error: bool = False) -> Message:
-    """Build a TOOL-role Message whose ``ToolResult.content`` carries
-    the raw (possibly non-str) value the agent would feed in.
+# ---------------------------------------------------------------------------
+# Construction-time normalization — the L2 invariant
+# ---------------------------------------------------------------------------
 
-    Bypasses ``ToolResult(...)``'s str-typed constructor signature via
-    direct field assignment — mirrors the runtime contract: dataclass
-    type hints don't enforce at runtime, and several L10 tools return
-    dict/list values that land here unchanged.
+
+class TestToolResultContentNormalizationAtConstruction:
+    """``ToolResult.__post_init__`` JSON-stringifies non-str content at
+    construction so every downstream consumer reads ``str`` uniformly.
+
+    This is the canonical-shape invariant the L2 leg ships; the
+    provider-encoder pass-through tests below all rely on it.
     """
-    tr = ToolResult(tool_call_id="toolu_test_id", content="")
-    tr.content = content  # type: ignore[assignment]
-    tr.is_error = is_error
-    return Message.tool(tr)
+
+    def test_tool_result_normalizes_list_of_dicts_to_json_string(self) -> None:
+        tr = ToolResult(tool_call_id="t1", content=LIST_OF_DICTS_RESULT)
+        assert isinstance(tr.content, str)
+        assert json.loads(tr.content) == LIST_OF_DICTS_RESULT
+
+    def test_tool_result_normalizes_dict_to_json_string(self) -> None:
+        tr = ToolResult(tool_call_id="t1", content=DICT_RESULT)
+        assert isinstance(tr.content, str)
+        assert json.loads(tr.content) == DICT_RESULT
+
+    def test_tool_result_preserves_string_content_byte_identical(self) -> None:
+        """str content is NOT re-JSON-encoded — byte-identical pass-through."""
+        tr = ToolResult(tool_call_id="t1", content="plain string result")
+        assert tr.content == "plain string result"
+
+    def test_tool_result_normalizes_nested_structure(self) -> None:
+        nested: dict[str, object] = {
+            "channels": [{"id": "ch1", "members": [{"name": "alice"}]}]
+        }
+        tr = ToolResult(tool_call_id="t1", content=nested)
+        assert isinstance(tr.content, str)
+        assert json.loads(tr.content) == nested
+
+    def test_message_tool_factory_with_non_str_tool_result_content_works(
+        self,
+    ) -> None:
+        """``Message.tool(ToolResult(content=non_str))`` succeeds because
+        ``ToolResult.__post_init__`` runs FIRST, so ``result.content`` is
+        already str by the time ``Message.tool`` constructs the Message.
+        """
+        tr = ToolResult(tool_call_id="t1", content=LIST_OF_DICTS_RESULT)
+        msg = Message.tool(tr)
+        assert isinstance(msg.content, str)
+        assert msg.content == tr.content
+        assert json.loads(msg.content) == LIST_OF_DICTS_RESULT
 
 
 # ---------------------------------------------------------------------------
-# Anthropic: the bug site. Coerce dict/list to JSON string.
+# Message.content invariant — the L2 deliberate-asymmetry assert
+# ---------------------------------------------------------------------------
+
+
+class TestMessageContentInvariantAtConstruction:
+    """``Message.__post_init__`` asserts ``isinstance(content, str)`` at
+    construction time. Non-str arrival is a provider-parser defect (the
+    deliberate asymmetry vs ``ToolResult``: structured tool returns are
+    legitimate; non-str on a ``Message`` is not).
+    """
+
+    def test_message_with_non_str_content_raises_assertion_error(self) -> None:
+        with pytest.raises(AssertionError):
+            Message(role=Role.USER, content=42)  # type: ignore[arg-type]
+
+    def test_message_with_none_content_raises_assertion_error(self) -> None:
+        with pytest.raises(AssertionError):
+            Message(role=Role.ASSISTANT, content=None)  # type: ignore[arg-type]
+
+    def test_message_with_dict_content_raises_assertion_error(self) -> None:
+        with pytest.raises(AssertionError):
+            Message(role=Role.USER, content={"k": "v"})  # type: ignore[arg-type]
+
+    def test_factory_methods_build_str_content_messages(self) -> None:
+        """``Message.system``/``user``/``assistant``/``tool`` all build
+        str-content messages — the assertion passes for all four.
+        """
+        assert isinstance(Message.system("sys").content, str)
+        assert isinstance(Message.user("u").content, str)
+        assert isinstance(Message.assistant("a").content, str)
+        # Message.tool sources content from result.content which
+        # ToolResult.__post_init__ guarantees is str.
+        tr = ToolResult(tool_call_id="t1", content=LIST_OF_DICTS_RESULT)
+        assert isinstance(Message.tool(tr).content, str)
+
+
+# ---------------------------------------------------------------------------
+# Anthropic: post-L2, the encoder is a str pass-through (no per-encoder
+# coercion — the F7 12.l hotfix is replaced by the dataclass invariant).
 # ---------------------------------------------------------------------------
 
 
 class TestAnthropicToolResultSerialization:
-    def test_anthropic_coerces_list_of_dicts_to_json_string(
+    """Post-L2 ``_to_api_message`` is a pass-through: it receives
+    str-normalized content from ``ToolResult.__post_init__`` and emits
+    it verbatim in the Anthropic ``tool_result`` content block. No
+    provider-specific coercion remains at this boundary.
+    """
+
+    def test_anthropic_encodes_normalized_list_content_as_str_block(
         self, anthropic_provider: AnthropicProvider
     ) -> None:
-        """L10 ``list_visible_channels`` / ``fetch_channel_history`` etc.
-        return ``list[dict]``. The Anthropic API rejects an object here
-        with 400 ``invalid_request_error``; coercion to a JSON string
-        is the contract.
-        """
-        msg = _make_tool_msg(LIST_OF_DICTS_RESULT)
+        tr = ToolResult(tool_call_id="toolu_test_id", content=LIST_OF_DICTS_RESULT)
+        msg = Message.tool(tr)
         result = anthropic_provider._to_api_message(msg)
         assert result["role"] == "user"
         assert len(result["content"]) == 1
@@ -120,40 +193,44 @@ class TestAnthropicToolResultSerialization:
         assert block["type"] == "tool_result"
         assert block["tool_use_id"] == "toolu_test_id"
         assert block["is_error"] is False
-        # The load-bearing assertion: content is a STRING (not an object).
+        # Post-L2: encoder is a pass-through. The block's content is the
+        # already-normalized str from ToolResult.__post_init__.
+        assert block["content"] == tr.content
         assert isinstance(block["content"], str)
-        # And the string is the JSON-serialized form of the structured value.
         assert json.loads(block["content"]) == LIST_OF_DICTS_RESULT
 
-    def test_anthropic_coerces_dict_to_json_string(
+    def test_anthropic_encodes_normalized_dict_content_as_str_block(
         self, anthropic_provider: AnthropicProvider
     ) -> None:
-        """A tool returning a top-level dict (e.g. ``{"channels": [...]}``)
-        triggers the same Anthropic 400; coercion applies identically.
-        """
-        msg = _make_tool_msg(DICT_RESULT)
+        tr = ToolResult(tool_call_id="toolu_test_id", content=DICT_RESULT)
+        msg = Message.tool(tr)
         result = anthropic_provider._to_api_message(msg)
         block = result["content"][0]
-        assert isinstance(block["content"], str)
+        assert block["content"] == tr.content
         assert json.loads(block["content"]) == DICT_RESULT
 
     def test_anthropic_passes_string_content_through_unchanged(
         self, anthropic_provider: AnthropicProvider
     ) -> None:
-        """Legacy path: when content is already a string (the typed
-        ``ToolResult.content: str`` contract), it round-trips byte-
-        identically. This pins back-compat — a future "always JSON-encode"
-        refactor would surface here as a regression.
+        """Legacy str path: byte-identical round-trip. This pins
+        back-compat — a future "always JSON-encode" refactor would
+        surface here as a regression.
         """
-        msg = _make_tool_msg("plain string result")
+        tr = ToolResult(tool_call_id="toolu_test_id", content="plain string result")
+        msg = Message.tool(tr)
         result = anthropic_provider._to_api_message(msg)
         block = result["content"][0]
         assert block["content"] == "plain string result"
 
-    def test_anthropic_preserves_is_error_flag(
+    def test_anthropic_preserves_is_error_flag_through_encoder(
         self, anthropic_provider: AnthropicProvider
     ) -> None:
-        msg = _make_tool_msg(LIST_OF_DICTS_RESULT, is_error=True)
+        tr = ToolResult(
+            tool_call_id="toolu_test_id",
+            content=LIST_OF_DICTS_RESULT,
+            is_error=True,
+        )
+        msg = Message.tool(tr)
         result = anthropic_provider._to_api_message(msg)
         block = result["content"][0]
         assert block["is_error"] is True
@@ -161,30 +238,37 @@ class TestAnthropicToolResultSerialization:
 
 
 # ---------------------------------------------------------------------------
-# OpenAI: hotfix MUST NOT alter the historic pass-through behaviour.
+# OpenAI: post-L2 the encoder still pass-through; the difference from
+# pre-L2 is that the content reaching it is already str-normalized.
 # ---------------------------------------------------------------------------
 
 
 class TestOpenAIToolResultSerialization:
-    def test_openai_passes_dict_content_through_unchanged(
+    def test_openai_encodes_normalized_content_as_str(
         self, openai_provider: OpenAIProvider
     ) -> None:
-        """The OpenAI SDK tolerates dict/object content on ``tool``-role
-        messages; the historic behaviour is pass-through. The Anthropic
-        hotfix MUST NOT touch this path.
+        """Post-L2 the OpenAI encoder receives str-normalized content
+        (from ToolResult.__post_init__). The emitted shape is identical
+        to the pre-L2 behavior for str content, but the content reaching
+        the encoder is now always str (where pre-L2 it would have been
+        the raw list/dict).
         """
-        msg = _make_tool_msg(LIST_OF_DICTS_RESULT)
+        tr = ToolResult(tool_call_id="toolu_test_id", content=LIST_OF_DICTS_RESULT)
+        msg = Message.tool(tr)
         result = openai_provider._to_api_message(msg)
         assert result == {
             "role": "tool",
             "tool_call_id": "toolu_test_id",
-            "content": LIST_OF_DICTS_RESULT,
+            "content": tr.content,  # already-normalized str
         }
+        assert isinstance(result["content"], str)
+        assert json.loads(result["content"]) == LIST_OF_DICTS_RESULT
 
     def test_openai_passes_string_content_through_unchanged(
         self, openai_provider: OpenAIProvider
     ) -> None:
-        msg = _make_tool_msg("plain string result")
+        tr = ToolResult(tool_call_id="toolu_test_id", content="plain string result")
+        msg = Message.tool(tr)
         result = openai_provider._to_api_message(msg)
         assert result == {
             "role": "tool",
@@ -194,26 +278,30 @@ class TestOpenAIToolResultSerialization:
 
 
 # ---------------------------------------------------------------------------
-# Ollama: also a pass-through; pin the same contract.
+# Ollama: same shape as OpenAI; post-L2 receives str-normalized content.
 # ---------------------------------------------------------------------------
 
 
 class TestOllamaToolResultSerialization:
-    def test_ollama_passes_dict_content_through_unchanged(
+    def test_ollama_encodes_normalized_content_as_str(
         self, ollama_provider: OllamaProvider
     ) -> None:
-        msg = _make_tool_msg(LIST_OF_DICTS_RESULT)
+        tr = ToolResult(tool_call_id="toolu_test_id", content=LIST_OF_DICTS_RESULT)
+        msg = Message.tool(tr)
         result = ollama_provider._to_api_message(msg)
         assert result == {
             "role": "tool",
             "tool_call_id": "toolu_test_id",
-            "content": LIST_OF_DICTS_RESULT,
+            "content": tr.content,  # already-normalized str
         }
+        assert isinstance(result["content"], str)
+        assert json.loads(result["content"]) == LIST_OF_DICTS_RESULT
 
     def test_ollama_passes_string_content_through_unchanged(
         self, ollama_provider: OllamaProvider
     ) -> None:
-        msg = _make_tool_msg("plain string result")
+        tr = ToolResult(tool_call_id="toolu_test_id", content="plain string result")
+        msg = Message.tool(tr)
         result = ollama_provider._to_api_message(msg)
         assert result == {
             "role": "tool",

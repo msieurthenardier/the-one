@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
@@ -27,9 +28,31 @@ class ToolCall:
 @dataclass
 class ToolResult:
     tool_call_id: str
-    content: str
+    # M11 F8 L2: annotation widened from `str` to `str | dict | list[Any]`
+    # to permit structured returns from L10 channel-context tools at the
+    # construction-site boundary; ``__post_init__`` normalizes to ``str``
+    # so every downstream consumer reads ``str`` uniformly. See
+    # ``the_one/agents.md`` → ``provider-shape-portability``.
+    content: str | dict | list[Any]
     is_error: bool = False
     metadata: dict[str, Any] | None = None  # F5 L3: generic cross-provider payload
+
+    def __post_init__(self) -> None:
+        """Normalize non-str content to JSON-str at construction.
+
+        M11 F8 L2: the canonical wire-shape for tool_result content is
+        ``str``. The agent loop at ``the_one/agent/core.py:336`` wraps
+        tool returns as ``ToolResult(content=output)`` where ``output``
+        may be a structured ``dict``/``list`` (e.g. L10 channel-context
+        tools return ``list[dict]``). Normalizing here means every
+        downstream consumer — provider ``_to_api_message``, codec
+        encoding, telemetry projection, CLI rendering — reads ``str``
+        uniformly. Removes the need for F7 12.l's per-encoder coercion.
+
+        See ``the_one/agents.md`` → ``provider-shape-portability``.
+        """
+        if not isinstance(self.content, str):
+            self.content = json.dumps(self.content)
 
 
 @dataclass
@@ -94,6 +117,24 @@ class Message:
     # resolved but name not yet cached). Meaningful only on Role.USER
     # messages; assistant/tool messages leave it at the default.
     channel_name: str | None = None
+
+    def __post_init__(self) -> None:
+        """Assert content is str at construction time.
+
+        M11 F8 L2: ``Message.content`` is constructed at three classes
+        of sites — provider response parsers (build str from API
+        response), codec decoders (decode str from JSON), and factory
+        methods (``Message.system``/``user``/``assistant``/``tool``).
+        A non-str arriving here means a provider-parser defect, NOT
+        a legitimate structured payload (compare ``ToolResult.content``
+        which CAN be structured pre-normalization). Assert rather than
+        normalize so the defect surfaces loudly.
+
+        See ``the_one/agents.md`` → ``provider-shape-portability``.
+        """
+        assert isinstance(self.content, str), (
+            f"Message.content must be str, got {type(self.content).__name__}"
+        )
 
     @classmethod
     def system(cls, content: str, *, visibility: str | None = None) -> Message:

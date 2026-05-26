@@ -17,6 +17,14 @@ truncation. This pins:
   - list input is JSON-stringified then truncated,
   - None input is gracefully coerced via ``json.dumps(None) == "null"``
     (matches 12.l's no-special-branch approach).
+
+M11 F8 L2 update — post-L2 reachability: these tests exercise
+``truncate_for_event``'s defensive non-str coercion branch. Post-L2
+(``ToolResult.__post_init__`` JSON-normalization at construction), normal
+flow never reaches this branch; the tests defend the projection path
+against a future invariant-loosening or direct non-str caller. Mirror
+of the rationale at ``the_one/db/codec.py:truncate_for_event`` docstring.
+See ``the_one/agents.md`` → ``provider-shape-portability``.
 """
 
 from __future__ import annotations
