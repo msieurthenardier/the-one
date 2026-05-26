@@ -774,7 +774,17 @@
   // M10 F7 L7: ``routing`` joins the reserved set — the Routing Rules
   // editor section is the only writer for ``config.routing`` and merges
   // its state back into the PUT payload via ``collectRoutingFromContainer``.
-  var RESERVED_CONFIG_KEYS = { pairing: true, allowlist: true, routing: true };
+  // M11 F7 L12 (HAT-time hotfix): ``always_listen`` joins the reserved set —
+  // the L11 Session-section toggle is the only writer for
+  // ``config.always_listen``. Without this entry the kv-table also renders
+  // ``always_listen`` and the operator sees two conflicting controls. Caught
+  // at L12 Phase 1 walk.
+  var RESERVED_CONFIG_KEYS = {
+    pairing: true,
+    allowlist: true,
+    routing: true,
+    always_listen: true,
+  };
 
   function collectConfigRows(account) {
     var rows = [];

@@ -22,3 +22,6 @@ tests/browser/__snapshots__/
 # downloaded via Windows browsers and the working tree lives on WSL.
 *:Zone.Identifier
 .claude/scheduled_tasks.lock
+
+# F7 L12 HAT evidence (screenshots etc.) — local-only, regenerated per HAT walk.
+missions/11-discord-connector-depth/flights/07-mentions-aware-response-policy/evidence/
