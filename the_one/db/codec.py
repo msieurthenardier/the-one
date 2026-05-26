@@ -33,6 +33,13 @@ def truncate_for_event(content: Any) -> str:
     multi-codepoint sequences (emoji ZWJ joiners, combining marks) may
     slice mid-sequence at the cap boundary. This matches the prior
     per-site slicing behavior; this helper only aligns the cap.
+
+    M11 F8 L2 update — post-L2 reachability: this defensive branch is
+    no longer reached by normal flow because ``ToolResult.__post_init__``
+    JSON-normalizes non-str content at construction. The branch remains
+    as belt-and-suspenders that defends the projection path if the L2
+    invariant ever loosens or a caller passes a non-``ToolResult.content``
+    value directly. See ``the_one/agents.md`` → ``provider-shape-portability``.
     """
     if not isinstance(content, str):
         content = json.dumps(content)

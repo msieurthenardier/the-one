@@ -503,3 +503,65 @@ class TestLooksMaskedHelper:
         from the_one.interfaces.web.api import _looks_masked
 
         assert _looks_masked("") is False
+
+
+class TestMaskShapeSingleSourceOfTruth:
+    """M11 F8 L3: pin the regex-emit pairing. If a maintainer drifts the
+    emit shape from the recognize shape (e.g., by changing the prefix in
+    one but not the other), these tests fail loud.
+
+    See ``the_one/agents.md`` → ``single-source-of-truth-for-paired-helpers``.
+    """
+
+    def test_mask_shape_re_matches_emit_mask_output_for_short_string(self) -> None:
+        from the_one.interfaces.web.api import _MASK_SHAPE_RE, _emit_mask
+
+        masked = _emit_mask("ab")
+        assert _MASK_SHAPE_RE.match(masked), f"Regex must match emit output {masked!r}"
+
+    def test_mask_shape_re_matches_emit_mask_output_for_long_string(self) -> None:
+        from the_one.interfaces.web.api import _MASK_SHAPE_RE, _emit_mask
+
+        masked = _emit_mask("longersecret-token-123")
+        assert _MASK_SHAPE_RE.match(masked), f"Regex must match emit output {masked!r}"
+        # Tail of _MASK_TAIL_LEN (=4) chars: last 4 chars of the input string.
+        assert masked.endswith("-123")
+
+    def test_mask_shape_re_rejects_unrelated_user_input(self) -> None:
+        from the_one.interfaces.web.api import _MASK_SHAPE_RE
+
+        # Values that merely START with the prefix but aren't masks:
+        assert not _MASK_SHAPE_RE.match("***hello")
+        assert not _MASK_SHAPE_RE.match("abc")
+        assert not _MASK_SHAPE_RE.match("")
+        # Trailing content past the tail length:
+        assert not _MASK_SHAPE_RE.match("***...too_long_tail")
+
+    def test_mask_emitters_route_through_emit_mask(self) -> None:
+        """Spot-check both wrapper functions produce identical output to
+        _emit_mask for str inputs. Tightens the routing invariant — if a
+        future refactor accidentally re-introduces a literal in one of
+        the wrappers, this test catches it.
+        """
+        from the_one.interfaces.web.api import (
+            _emit_mask,
+            _mask_api_key,
+            _mask_secret_value,
+        )
+
+        value = "supersecret-token-xyz789"
+        assert _mask_secret_value(value) == _emit_mask(value)
+        assert _mask_api_key(value) == _emit_mask(value)
+
+    def test_rendered_regex_matches_pre_l3_literal(self) -> None:
+        """Regression net: pin the rendered regex pattern byte-for-byte
+        against the pre-L3 literal. Catches a future Python ``re.escape``
+        semantic change for ASCII (very unlikely, but exactly the
+        scenario this leg's "single source-of-truth" defends against).
+        Also catches an accidental edit to ``_MASK_PREFIX`` /
+        ``_MASK_TAIL_SEPARATOR`` / ``_MASK_TAIL_LEN`` that drifts the
+        rendered pattern away from the established round-trip contract.
+        """
+        from the_one.interfaces.web.api import _MASK_SHAPE_RE
+
+        assert _MASK_SHAPE_RE.pattern == r"^\*\*\*(\.\.\..{1,4})?$"

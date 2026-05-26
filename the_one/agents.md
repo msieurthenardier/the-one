@@ -131,6 +131,42 @@ M11 F7 L4: the F6 DD §2 provider audit pinned "no leak" — peer_name (and fort
 
 Source: M10 mission-debrief "Process §2" — codify `cross-subsystem-pattern-premise-revalidation`; also listed in "Action Items → Codify 6 new agents.md Project Conventions."
 
+### `provider-shape-portability`
+
+**Convention**: The canonical `Message` and `ToolResult` dataclasses in `the_one/llm/base.py` ARE the portable shape across LLM providers. Provider-specific encoding lives entirely in each `LLMProvider._to_api_message`; provider-specific decoding lives entirely in the response parser. No provider-specific shape leaks back into the dataclass before persistence.
+
+**Mechanism**:
+- `ToolResult.__post_init__` JSON-stringifies non-str content at construction — so every consumer (4 providers, codec, telemetry, CLI) reads `str` uniformly. Removes the need for per-encoder coercion (the F7 12.l hotfix that this convention replaces).
+- `Message.__post_init__` asserts `isinstance(self.content, str)` — non-str arrival is a provider-parser defect surfaced as `AssertionError`, not silently coerced. The asymmetry vs `ToolResult` is deliberate: structured tool returns are legitimate (channel-context tools return `list[dict]`); non-str on a `Message` is not.
+
+**Source**: M11 F8 L2 (dataclass-shape-invariants). Pinned by `tests/test_llm_provider_cross_provider_history.py` (canonical session round-trip across all 4 providers) and `tests/test_llm_provider_tool_result_serialization.py` (construction-time normalization + per-provider pass-through encoders).
+
+**When this matters**:
+- Adding a new provider — `_to_api_message` is the ONLY site where shape translation happens; consume `str` content uniformly. No per-encoder coercion is needed; the dataclass invariant already guarantees the shape.
+- Adding a new tool — the agent loop wraps tool returns as `ToolResult(content=output)`; `__post_init__` normalizes structured returns automatically. Tool authors return native shapes; the canonical-wire-shape conversion is at the dataclass boundary.
+- Refactoring the codec — both encode and decode paths produce/consume str content via the dataclass invariants. Legacy rows whose stored content is non-str (rare; pre-L2 round-trip corner) surface as `AssertionError` at decode-time — an intentional signal of underlying corruption.
+
+**Anti-pattern**: post-construction direct field assignment (e.g., `tr.content = some_list`). Bypasses `__post_init__` and reintroduces the shape-loss this convention prevents. The annotation is `str | dict | list[Any]` to permit structured constructor callers; `__post_init__` enforces the str invariant once the dataclass exists. Tests that need a non-str field must construct fresh via `ToolResult(content=non_str)` (which normalizes), or use `dataclasses.replace`. Never reach in via attribute assignment. The F7 12.l Anthropic encoder-level coercion site (now deleted at `the_one/llm/anthropic_provider.py`) was the symptom this convention closes by moving the invariant up to the dataclass boundary.
+
+Source: M11 F8 L2 — replaces the surgical F7 12.l hotfix with a structural shape invariant at the canonical-dataclass boundary; cited by the `cross-subsystem-pattern-premise-revalidation` convention's F7 audit-history paragraph above.
+
+### `single-source-of-truth-for-paired-helpers`
+
+**Convention**: When two helpers form a tightly-coupled pair — one EMITS a pattern and the other RECOGNIZES it (or one CONSTRUCTS state and the other PARSES it back, or one ENCODES and the other DECODES) — both helpers must read from the same constant(s) or generator function. Never hardcode the same literal in both places.
+
+**Mechanism**: extract the shape into module-level constants (e.g., `_MASK_PREFIX = "***"`, `_MASK_TAIL_LEN = 4`). The emitter builds output from the constants. The recognizer (regex / parser / matcher) is also built from the same constants — for regexes, use `re.escape(CONST)` so the pattern adapts when the constant changes.
+
+**Source**: M11 F8 L3 (mask-shape-single-source). Pinned by `tests/test_api_secret_mask_roundtrip.py::TestMaskShapeSingleSourceOfTruth` — tests assert `regex.match(emitter(x))` for representative inputs, so if a maintainer drifts one without the other, the tests fail.
+
+**When this matters**:
+- Mask emitters + regex recognizers (the M11 F8 L3 motivating case).
+- Encoders + decoders that share a wire format (the canonical Message dataclass invariant from `provider-shape-portability` is a structural variant of this).
+- Tokenizers + parsers, prefix-stripping helpers, sentinel emitters + matchers, any helper pair where one PRODUCES what the other RECOGNIZES.
+
+**Anti-pattern**: two functions that build/recognize the same literal pattern with copy-pasted hardcoded strings or regexes. If you find yourself writing the same `"***"` (or `\*\*\*` regex escape) in two adjacent functions, extract the constant.
+
+**Pair with**: `mechanical-fallback-prompt-truth-pairing` (the analogous discipline for prompt-vs-code pairings) and `provider-shape-portability` (the same single-source-of-truth principle applied to dataclass shapes across LLM providers).
+
 ### `prompt-discipline-needs-mechanical-fallback`
 
 Any agent behavior the system depends on but the LLM controls requires either empirical HAT validation against the production model OR a mechanical dispatcher-side fallback that enforces the behavior without relying on prompt compliance. Decision-only (prompt-only) paths are not production contracts — LLM directive compliance is not a contract the system can build on.
