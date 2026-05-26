@@ -487,6 +487,17 @@
       alwaysListenLabel.htmlFor = 'agent-always-listen-' + account.id;
       alwaysListenLabel.textContent = 'Always Listen on this connector account';
       alwaysListenRow.appendChild(alwaysListenLabel);
+      // M11 F7 L12 hotfix: wrap the input in a `tool-enable-switch` label +
+      // track span so the toggle renders with the styled iOS-style chrome
+      // (the canonical primitive defined in admin.css:197-264, also consumed
+      // by tools-editor.js / tools-grid.js / mcp-server-editor.js). Without
+      // this wrapper the input rendered as a ~13px raw native checkbox,
+      // perceptually invisible against the dark theme. Uses the `-track`
+      // sibling class (which has real CSS rules) rather than the `-slider`
+      // variant referenced in connector-account-editor.js — only `-track` is
+      // styled.
+      var alwaysListenSwitch = document.createElement('label');
+      alwaysListenSwitch.className = 'tool-enable-switch';
       var alwaysListenInput = document.createElement('input');
       alwaysListenInput.type = 'checkbox';
       alwaysListenInput.id = 'agent-always-listen-' + account.id;
@@ -500,7 +511,12 @@
       // Mirrors the attach-toggle wiring at connectors-tab.js:452 — without
       // this, toggling the per-agent switch leaves the Save button disabled.
       alwaysListenInput.addEventListener('change', function () { onChange(); });
-      alwaysListenRow.appendChild(alwaysListenInput);
+      alwaysListenSwitch.appendChild(alwaysListenInput);
+      var alwaysListenTrack = document.createElement('span');
+      alwaysListenTrack.className = 'tool-enable-switch-track';
+      alwaysListenTrack.setAttribute('aria-hidden', 'true');
+      alwaysListenSwitch.appendChild(alwaysListenTrack);
+      alwaysListenRow.appendChild(alwaysListenSwitch);
       section.appendChild(alwaysListenRow);
 
       section.appendChild(_buildAxisRow('peers', scopePeers, accountAcl.peers));

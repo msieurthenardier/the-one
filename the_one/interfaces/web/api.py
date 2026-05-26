@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import json
 import os
+import re
 import secrets
 import time
 import uuid
@@ -663,6 +664,49 @@ def _mask_secret_value(value: Any) -> Any:
     return f"***...{value[-4:]}"
 
 
+# Canonical "preserve existing stored value" sentinel for PUT payloads.
+# The Studio UI emits this exact string for any secret field the operator
+# did not touch. Hoisted above the MCP PUT handler so all secret-bearing
+# PUT handlers (MCP sources, connector accounts, providers) share one
+# definition; original placement was below the LLM-provider helpers but
+# the MCP handler at line ~1068 needs it first. (See F7 L12 hotfix entry
+# in the flight log for the round-trip mask-shape bug this resolves.)
+#
+# Naming note: the ``_API_KEY`` suffix is historical — the constant is
+# reused for the per-key MCP/connector secrets dicts too. Renaming is a
+# cosmetic refactor deferred out of this hotfix's scope.
+_MASKED_API_KEY_SENTINEL = "__MASKED__"
+
+# Matches the exact output shape of ``_mask_secret_value`` /
+# ``_mask_api_key`` — either ``***`` (short / non-string secrets) or
+# ``***...{tail1..4}`` (longer secrets). Anchored on both sides so a
+# legitimate user-supplied value that merely starts with ``***`` (e.g.
+# ``***hello``) is NOT mistaken for a mask.
+_MASK_SHAPE_RE = re.compile(r"^\*\*\*(\.\.\..{1,4})?$")
+
+
+def _looks_masked(value: Any) -> bool:
+    """Return True if ``value`` is a sentinel or mask-shape string.
+
+    Recognizes both ``__MASKED__`` (the canonical preserve sentinel the
+    Studio UI emits) AND the GET-response mask shapes ``***`` /
+    ``***...{tail4}`` produced by ``_mask_secret_value`` /
+    ``_mask_api_key``. PUT handlers treat both as "preserve existing"
+    — any caller that round-trips a GET-masked payload through a PUT no
+    longer corrupts the stored secret with the literal mask string.
+
+    Non-string values are never masked (return False) so legitimate
+    boolean / dict secret values pass through to overwrite semantics
+    unchanged. F7 L12 hotfix — see flight log for the discovered
+    corruption case (BOT_TOKEN persisted as ``***...SD7U``).
+    """
+    if not isinstance(value, str):
+        return False
+    if value == _MASKED_API_KEY_SENTINEL:
+        return True
+    return bool(_MASK_SHAPE_RE.match(value))
+
+
 # OAuth-managed secret keys (F5 §5). These four keys are written ONLY by
 # the OAuth flow's ``MCPSourceTokenStorage`` (``the_one.mcp.oauth.storage``)
 # and are protected from operator overwrite via the strip-on-GET +
@@ -1093,7 +1137,7 @@ async def update_mcp_source(source_id: str, request: Request) -> dict[str, Any]:
             )
         resolved_secrets: dict[str, Any] = {}
         for key, value in incoming_secrets.items():
-            if value == _MASKED_API_KEY_SENTINEL:
+            if _looks_masked(value):
                 if key in existing.secrets:
                     resolved_secrets[key] = existing.secrets[key]
                 # else: client sent __MASKED__ for a key we don't have;
@@ -2355,7 +2399,7 @@ async def update_connector_account(account_id: str, request: Request) -> dict[st
             raise HTTPException(status_code=422, detail="secrets must be a dict.")
         resolved_secrets = {}
         for key, value in incoming_secrets.items():
-            if value == _MASKED_API_KEY_SENTINEL:
+            if _looks_masked(value):
                 if key in existing.secrets:
                     resolved_secrets[key] = existing.secrets[key]
                 # else: client sent __MASKED__ for a key we don't have;
@@ -2963,7 +3007,10 @@ async def _provider_repo() -> LLMProviderRepository:
     return LLMProviderRepository(conn, encryptor)
 
 
-_MASKED_API_KEY_SENTINEL = "__MASKED__"
+# ``_MASKED_API_KEY_SENTINEL`` is hoisted near ``_mask_secret_value`` so
+# all secret-bearing PUT handlers (MCP, connectors, providers) share one
+# definition above their first use site. See the block above
+# ``_mask_secret_value`` for the constant + ``_looks_masked`` helper.
 
 # Provider types that skip URL safety validation. ``mock`` has no real URL;
 # ``ollama`` is local-by-design and operators frequently point it at
@@ -3129,7 +3176,7 @@ async def update_provider(provider_id: str, request: Request) -> dict[str, Any]:
 
     # Detect masked API key and preserve existing stored key
     incoming_key = data.get("api_key")
-    if incoming_key == _MASKED_API_KEY_SENTINEL:
+    if _looks_masked(incoming_key):
         data["api_key"] = existing.api_key
 
     updated = existing.model_copy(update=data)

@@ -149,3 +149,13 @@ This format caught three bugs during Flight 04 HAT that end-state-only specs mis
 - **`FakeLLM`** (`tests/conftest.py`): An `LLMProvider` subclass that returns pre-scripted `Message` responses in order. Records all calls for assertion. Enables deterministic agent loop testing.
 - **`StubTool`** (`tests/conftest.py`): A `Tool` subclass that records calls and returns a canned string. Used to verify the agent executes tools correctly without side effects.
 - **`make_registry`** fixture: Creates a `ToolRegistry` pre-loaded with StubTools for quick test setup.
+
+## Flight Operations
+
+This project uses [Flight Control](https://github.com/msieurthenardier/mission-control).
+
+**Before any mission/flight/leg work, read these files in order:**
+1. `.flightops/README.md` — What the flightops directory contains
+2. `.flightops/FLIGHT_OPERATIONS.md` — **The workflow you MUST follow**
+3. `.flightops/ARTIFACTS.md` — Where all artifacts are stored
+4. `.flightops/agent-crews/` — Project crew definitions for each phase (read the relevant crew file)

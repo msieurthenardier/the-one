@@ -1,6 +1,6 @@
 # Leg: uat-and-alignment
 
-**Status**: ready
+**Status**: completed
 **Flight**: [Mentions-Aware Response Policy](../flight.md)
 
 ## Objective

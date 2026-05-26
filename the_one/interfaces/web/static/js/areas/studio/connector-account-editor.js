@@ -479,7 +479,7 @@
             'data-testid="connector-account-always-listen-toggle"' +
             ' aria-label="Always Listen"' +
             (alwaysListenConfigValue ? ' checked' : '') + ' />';
-    lifecycleHtml += '<span class="tool-enable-switch-slider"></span>';
+    lifecycleHtml += '<span class="tool-enable-switch-track"></span>';
     lifecycleHtml += '</label>';
     lifecycleHtml += '</div>';
 

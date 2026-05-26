@@ -286,6 +286,19 @@
     bottom: auto;
     right: auto;
   }
+  /* M11 F7 L12 hotfix: "Always Listen" toggles in the Connectors tab.
+     Both the account-level row (.cf-always-listen-row, in the connector
+     account editor) and the per-agent row
+     (.connector-account-always-listen-row, in the agent editor) need the
+     same unpinning — wrapper flows inline next to the descriptive label
+     instead of pinning to the tile corner (the default for
+     .area-studio .tool-enable-switch). */
+  .area-studio .field-row.connector-account-always-listen-row .tool-enable-switch,
+  .area-studio .field-row.cf-always-listen-row .tool-enable-switch {
+    position: relative;
+    bottom: auto;
+    right: auto;
+  }
 
   /* === Editor prompt block (F6 HAT inline fix #1) ============================
      The tool's `description` IS the prompt baked into the LLM tools schema.

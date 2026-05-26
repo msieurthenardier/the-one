@@ -493,6 +493,215 @@ Per the `cross-flight-ux-debt-reconciliation` convention. Walked the mission Ope
 - The TODO comment counts the inline CustomEvent strings in Studio as n=3 (pool-warmed + discoverable-refresh-requested + always-listen-changed) which trips the F4 R13 studio-event-bus lift threshold. Defer per F7 recon — the bus lift expands the leg surface beyond the policy-gate scope. The codification is a routine-maintenance pickup.
 - The per-agent toggle's `disabled` reflects ONLY the master account toggle's state. The attach-toggle state (whether the agent is attached to the account at all) is NOT a `disabled` source — operators may want to pre-author `connector_always_listen[account_id]` even before attaching, and the storage layer accepts orphan entries (per L6's "absent → False" semantic the orphan is harmless). The form-collection walk picks up only currently-rendered toggles so non-attached entries don't accumulate via this surface; they survive only when the operator hand-edits the agent's JSON.
 
+### L12 — uat-and-alignment (interactive HAT)
+
+**Status**: in-flight (hotfixes accumulating; commits deferred to flight-end review pass).
+**Date**: 2026-05-25
+
+**Step 12.h — secret-mask roundtrip hotfix**
+
+**Summary**: F7 L12 HAT (driven via the new mission-control behavior-test skill) surfaced a real pre-existing API bug while exercising the Discord dogfood. Secret-bearing PUT handlers historically only recognized the `__MASKED__` sentinel (the value the Studio UI emits) for "preserve existing" semantics. They did NOT recognize the GET-response mask SHAPES (`***` / `***...{tail4}`) produced by `_mask_secret_value` / `_mask_api_key`. Any external caller that round-tripped a GET payload through a PUT (e.g. an HTTP client, a script, a test that fetches-then-PUTs) silently corrupted the stored secret by writing the literal mask string. Studio is unaffected — its form-collection always emits `__MASKED__` for untouched secret fields. Pre-F7 bug; landed as a hotfix in F7 per operator decision, alongside the L11 kv-table hotfix at commit b0f7c88.
+
+**Reproducer evidence**: in the live DB, `connector_accounts.58f1fe5a833f.secrets.BOT_TOKEN` was found decrypting to the literal string `***...SD7U` — the masked tail of the original Discord bot token, written through a prior GET→PUT round-trip from an HTTP client. The mask shape is identical whether the stored value is the real secret or the literal mask string, which is exactly why the corruption was silent: every subsequent GET showed `***...SD7U`, indistinguishable from a still-correct row. Detection required direct DB decryption.
+
+**Root cause**: in `the_one/interfaces/web/api.py`, three PUT handlers (`update_mcp_source`, `update_connector_account`, `update_provider`) used `value == _MASKED_API_KEY_SENTINEL` to gate the preserve-existing branch. The GET-side mask SHAPES don't equal the sentinel — they fall through to the overwrite branch.
+
+**Fix shape**: introduced a helper `_looks_masked(value)` that returns True for both the canonical `__MASKED__` sentinel AND any string matching the anchored regex `^\*\*\*(\.\.\..{1,4})?$` — the exact output shape of `_mask_secret_value` / `_mask_api_key`. Non-string values short-circuit to False so legitimate boolean / dict secret values still pass through to overwrite semantics. Wired into all three PUT call-sites; semantics of the canonical sentinel path are unchanged. `_MASKED_API_KEY_SENTINEL` (originally defined near the LLM-provider helpers at ~line 2966 — AFTER its first use site at the MCP PUT ~line 1096, which worked only because constants are looked up at call time, not def time) was hoisted alongside `_looks_masked` to sit immediately after `_mask_secret_value` so all secret-bearing PUT handlers share a single forward declaration. The four-key naming-is-misleading comment block notes the future cosmetic rename — out of scope here.
+
+**Scope**: 3 PUT handlers narrowly. Out of scope: the POST `/mcp-sources/{id}/test/connect` body-override path at line ~1544 (also reads `__MASKED__`, but per operator decision this audit doesn't expand beyond the three PUT handlers); GET-side mask-shape consistency hardening; cosmetic rename of `_MASKED_API_KEY_SENTINEL`.
+
+**Files changed**:
+- EDIT `the_one/interfaces/web/api.py`:
+  - ADD `import re` to the stdlib imports block.
+  - HOIST `_MASKED_API_KEY_SENTINEL` from its post-line-2966 location to a new block immediately after `_mask_secret_value` (around line 678), with a back-pointer comment at the original site explaining the lift.
+  - ADD `_MASK_SHAPE_RE` (anchored regex `^\*\*\*(\.\.\..{1,4})?$`) and `_looks_masked(value)` helper in the same hoisted block.
+  - REPLACE `if value == _MASKED_API_KEY_SENTINEL:` with `if _looks_masked(value):` in `update_mcp_source` (~line 1140).
+  - REPLACE `if value == _MASKED_API_KEY_SENTINEL:` with `if _looks_masked(value):` in `update_connector_account` (~line 2402).
+  - REPLACE `if incoming_key == _MASKED_API_KEY_SENTINEL:` with `if _looks_masked(incoming_key):` in `update_provider` (~line 3179).
+- NEW `tests/test_api_secret_mask_roundtrip.py` — 16 tests covering:
+  1. Round-trip safety for MCP source (long secret → `***...c123` shape).
+  2. Round-trip safety for MCP source short secret (≤4 chars → bare `***`).
+  3. Round-trip safety for connector account (mirrors the production-discovered Discord BOT_TOKEN failure).
+  4. Round-trip safety for LLM provider `api_key`.
+  5-7. Canonical `__MASKED__` sentinel preserve-existing path still works for all three entities.
+  8-9. Negative cases: `***hello` and `***...toolong` are NOT mask shapes and must overwrite as real values.
+  10-16. Direct unit tests on `_looks_masked` — sentinel, bare mask, mask with tail, tail-too-long, non-mask `***`-prefix, non-string types, empty string.
+  The load-bearing assertion in tests 1-4 is direct DB ciphertext decryption (open a side aiosqlite connection, SELECT the encrypted column, `Fernet(key_bytes).decrypt(...)`) — the mask-shape comparison of two GETs is NOT sufficient to detect the bug because the corrupted value re-masks to the same shape as the real value.
+
+**Test outcomes**:
+- Targeted: `uv run pytest tests/test_api_secret_mask_roundtrip.py -v` → 16 passed (2.25s).
+- Scoped: `uv run pytest tests/ -k mask --ignore=tests/browser --ignore=tests/behavior` → 30 passed (7.69s) across `test_api_secret_mask_roundtrip.py` (16) + `test_db_api.py` (5) + `test_oauth_secrets_api.py` (1) + `test_provider_api.py` (8). All pre-existing `_MASKED_` and `_mask_` tests continue to pass — the helper is a strict widening of the predicate.
+- Full non-browser suite: `uv run pytest tests/ -x --ignore=tests/browser --ignore=tests/behavior` → 2631 passed, 4 skipped, 12 deselected (208.05s). 16 more passes than the L11 baseline (2615); 16 new tests from `test_api_secret_mask_roundtrip.py`. No regressions.
+- Lint: `uv run ruff check the_one/interfaces/web/api.py tests/test_api_secret_mask_roundtrip.py` → All checks passed.
+
+**Verification**:
+- `grep -n "_looks_masked" the_one/interfaces/web/api.py` → 4 sites: 1 def + 3 PUT-handler call-sites (MCP at 1140, connector at 2402, provider at 3179). The pre-existing POST `/test/connect` override at line 1588 still uses the literal sentinel — left in place per scope.
+- `grep -n "_MASKED_API_KEY_SENTINEL" the_one/interfaces/web/api.py` → 4 docstring/comment mentions + 1 def + 1 usage at line 1588. The original def-site at ~line 2966 is now a back-pointer comment.
+- Round-trip pre-image check: tests #1, #3, #4 explicitly assert the decrypted plaintext after a verbatim GET→PUT, which is the exact reproducer for the corruption case discovered in the live DB.
+
+**Followups**:
+- Operator will restore the corrupted Discord `BOT_TOKEN` via Studio after this hotfix lands — direct DB write or any path bypassing the API is fine, but the Studio path now correctly preserves the real value on subsequent edits.
+- The POST `/test/connect` body-override path at line 1588 is theoretically vulnerable to the same round-trip pattern, but the test/connect surface is operator-driven from Studio where the override is rarely round-tripped from a prior GET. Routine-maintenance pickup candidate; not load-bearing for the F7 dogfood.
+- Cosmetic rename of `_MASKED_API_KEY_SENTINEL` (the `_API_KEY` suffix is historical; the constant is reused for per-key MCP/connector secrets) remains deferred per the original L02 note.
+
+**Step 12.i — per-agent Always Listen toggle styling hotfix**
+
+**Summary**: F7 L12 HAT (Step 7) surfaced a pre-existing L11 UI styling bug: the per-agent "Always Listen on this connector account" toggle on the agent editor's Connectors tab rendered as a bare unstyled native `<input type="checkbox">` (~13px tall, perceptually invisible against the dark theme). Operator confirmed: "the toggle button is not visible now, nor has it ever been since the beginning of this test." The element WAS in the DOM (queryable, clickable, state-correct) — it just had no styled chrome. Second inline hotfix during L12 (after the secret-mask roundtrip).
+
+**Root cause**: in `the_one/interfaces/web/static/js/areas/studio/connectors-tab.js:484-504`, the per-agent toggle was created by appending the raw `<input>` directly to its containing `field-row` div, with no toggle-switch wrapper. Every other styled toggle in the codebase wraps the input in a `<label class="tool-enable-switch">` containing both the (visually-hidden, opacity:0) input and a sibling `<span class="tool-enable-switch-track">` that paints the iOS-style pill chrome via CSS — see the canonical primitive at `admin.css:197-264` (consumed by `tools-editor.js`, `tools-grid.js`, `mcp-server-editor.js`, etc.). Without the wrapper, the input fell back to the browser's default native checkbox rendering — which on this dark theme is effectively invisible.
+
+**Fix shape**: wrap the input in `<label class="tool-enable-switch">` with a sibling `<span class="tool-enable-switch-track" aria-hidden="true">`. Preserve every existing attribute on the input (`id`, `data-testid`, `data-field`, `data-account-id`, `className`, `checked`, `disabled`, the change-event wiring). The pre-existing descriptive `<label htmlFor="agent-always-listen-{id}">Always Listen on this connector account</label>` stays in place as the visible text label — only the input gets re-parented into the new switch wrapper. Also added a `.area-studio .field-row.connector-account-always-listen-row .tool-enable-switch` CSS override in `admin.css` to unpin the wrapper (default `.tool-enable-switch` is `position: absolute; bottom: 12px; right: 12px` — designed for the tool-tile bottom-right corner; the field-row context needs `position: relative` so the wrapper flows inline next to its descriptive label). This mirrors the existing overrides at `admin.css:278-288` for `tools-editor-enabled-row`, `mf-sandbox-network-row`, and `cf-auto-relay-row`.
+
+**Spec deviation noted**: the operator's spec referenced `connector-account-editor.js:476-483` as "Pattern B" and named the sibling span class as `tool-enable-switch-slider`. Grep confirmed `tool-enable-switch-slider` is NOT defined in any CSS file in the codebase — only `tool-enable-switch-track` is styled (admin.css:220+). The account-editor's existing `tool-enable-switch-slider` usage is also visually inert; that toggle's visible appearance is carried by other layout but the `slider` span itself has no styling rules. Used `tool-enable-switch-track` here so the per-agent toggle actually receives the styled chrome. The account-editor's `slider` typo is out of scope for this hotfix but worth a routine-maintenance pickup.
+
+**Files changed**:
+- EDIT `the_one/interfaces/web/static/js/areas/studio/connectors-tab.js` (~lines 484-510):
+  - Re-parent the existing `<input>` into a new `<label class="tool-enable-switch">` wrapper.
+  - Add the sibling `<span class="tool-enable-switch-track" aria-hidden="true">` for the styled chrome.
+  - Preserve all pre-existing attributes and the `onChange()` event wiring.
+- EDIT `the_one/interfaces/web/static/css/admin.css` (~line 284, immediately after the `cf-auto-relay-row` override):
+  - Add `.area-studio .field-row.connector-account-always-listen-row .tool-enable-switch { position: relative; bottom: auto; right: auto; }` so the wrapper flows inline in the field-row context instead of pinning to a positioned ancestor.
+
+**Verification**:
+- Visual (Chrome MCP): hard reload of `http://localhost:8484/#studio/agents/Cave%20Man%20Bot/connectors`; toggle renders as styled iOS-pill (grey `rgb(102,102,102)` OFF, lavender `rgb(167,139,250)` ON — the `--accent` colour). Thumb translates 16px right on check. Wrapper measures 36×20px (matches the connector-enable toggle at the top of each tile). Toggle is interactable: `input.click()` flips `.checked` and triggers the styled chrome update.
+- Screenshot: `tests/behavior/discord-engagement/runs/2026-05-26-01-58-20/diag-step7-hotfix-after-screenshot.png` — shows both attached connector accounts (Discord Constellation, Stub HAT Account) with their per-agent Always Listen toggles now rendered as visible styled pills in the OFF position.
+- Targeted: no new tests added (UI styling fix; visual regression is the verification surface, mirroring the L11 toggle additions' approach for the account-editor companion).
+- Full non-browser suite: `uv run pytest tests/ -x --ignore=tests/browser --ignore=tests/behavior` → 2631 passed, 4 skipped, 12 deselected (204.76s). Matches the post-secret-mask-hotfix baseline; no regressions.
+- Existing browser tests in `tests/browser/test_flow_studio_always_listen_toggles.py` are unaffected by the wrapper introduction: they assert visibility / disabled-state / persistence via `data-testid` on the input itself, which still resolves through the new wrapper. Playwright's `to_be_visible` check tolerates `opacity: 0` (only `display: none` / `visibility: hidden` / zero size fail it), and the input retains 36×20 layout size inside the wrapper.
+
+**Followups**:
+- `connector-account-editor.js:482` uses the same `tool-enable-switch-slider` typo (no CSS targets that class). Verify whether the account-level "Always Listen" toggle is actually styled by some other path, or whether it also needs to switch to `-track`. Routine-maintenance pickup candidate; not load-bearing for the F7 dogfood (operator's screenshot showed the account-level toggle DOES render as a styled purple slider, so something else is carrying its chrome — needs investigation).
+- The duplicated toggle primitives in the codebase (`tool-switch` / `mcp-source-tile-toggle` in `studio.css:60` vs `tool-enable-switch` / `tool-enable-switch-track` in `admin.css:197`) are a known cosmetic / consolidation candidate. Out of scope per the operator's spec.
+
+**Step 12.j — account-level Always Listen toggle styling hotfix**
+
+**Summary**: Operator visual inspection of the connector-account editor's Access and Routing tab confirmed the account-level "Always Listen" toggle (the master switch sibling to the per-agent toggles) has been visually invisible for the entire flight. The Executor's prior reads in L11 / L12 queried `.checked` on the DOM input — which existed and reported state correctly — so the bug wasn't caught until direct visual observation. Third inline hotfix during L12 (after secret-mask roundtrip 12.h and per-agent toggle styling 12.i). The followup raised in 12.i ("connector-account-editor.js:482 uses the same `tool-enable-switch-slider` typo — needs investigation") is precisely this bug; 12.i deferred it and operator surfaced it as load-bearing for the dogfood.
+
+**Root cause**: in `the_one/interfaces/web/static/js/areas/studio/connector-account-editor.js:482`, the sibling span for the iOS-pill toggle chrome was declared as `<span class="tool-enable-switch-slider"></span>`. Grep confirms `tool-enable-switch-slider` has **zero** CSS rules anywhere in the codebase. The canonical styled primitive (admin.css:220+) is `tool-enable-switch-track`, with its `::after` pseudo-element painting the thumb and `:checked ~ .tool-enable-switch-track` driving the OFF→ON transition. Without a styled track sibling, the (visually-hidden, opacity:0) input had no chrome to paint and the toggle was perceptually absent. Identical root cause to 12.i — the only remaining file with the `-slider` typo in the codebase.
+
+**Fix shape**: one-line rename — change `tool-enable-switch-slider` → `tool-enable-switch-track` on connector-account-editor.js:482. All other markup (the `<label class="tool-enable-switch">` wrapper, the input's `id` / `data-testid` / `data-field` / `aria-label` / `checked` attributes, the descriptive `<label for="cf-always-listen">Always Listen</label>` and its `field-info-icon` tooltip + visually-hidden help text) is correct and untouched. No CSS changes needed for the toggle chrome itself (the existing `tool-enable-switch-track` rules in admin.css carry the styling) — but see Followups for a positioning issue this fix exposes.
+
+**Files changed**:
+- EDIT `the_one/interfaces/web/static/js/areas/studio/connector-account-editor.js:482`:
+  - `tool-enable-switch-slider` → `tool-enable-switch-track`.
+
+**Verification**:
+- Visual (Chrome MCP): hard reload of `http://localhost:8484/#studio/connectors/58f1fe5a833f`, clicked Access and Routing tab, verified `#cf-always-listen` now renders as a styled iOS-pill (36×20px, border-radius 10px). OFF state: track `rgb(102, 102, 102)` (grey). ON state (forced via `input.click()`): track `rgb(167, 139, 250)` (lavender — the `--accent` colour), thumb `::after` translated 16px right via `matrix(1,0,0,1,16,0)`. Matches the connector-enable / per-agent toggle chrome exactly. Reset to OFF before disengaging.
+- Screenshot: `tests/behavior/discord-engagement/runs/2026-05-26-04-14-06/diag-account-toggle-after-hotfix.png` — full-page capture of the Access and Routing tab; the styled toggle pill is visible at the bottom-right of the viewport (see Followups about its absolute positioning — the chrome is correct but the toggle currently pins to the page's positioned ancestor rather than flowing inline next to its "Always Listen" label in the SESSION section).
+- Targeted: no new tests (UI styling fix; visual regression is the verification surface, mirroring 12.i's approach).
+- Full non-browser suite: `uv run pytest tests/ --ignore=tests/browser --ignore=tests/behavior -x` → 2631 passed, 4 skipped, 12 deselected (200.56s). Matches the post-12.i baseline; no regressions.
+
+**Followups**:
+- Positioning: the now-styled wrapper inherits `.tool-enable-switch { position: absolute; bottom: 12px; right: 12px }` (admin.css:197), and `cf-always-listen-row` does not establish a positioning context, so the toggle pins to the nearest positioned ancestor (high up in the layout — observed at y=698 while its parent row is at y=891). The toggle is now visible and interactive but is visually decoupled from its "Always Listen" label. The 12.i fix added an analogous override for the per-agent row (`connector-account-always-listen-row → position: relative; bottom: auto; right: auto`); the account-editor's row class is `cf-always-listen-row` and needs the same override. Out of scope per the operator's "do NOT touch other files" guidance on this hotfix — recording for the next routine-maintenance pickup or a quick follow-on if operator deems it dogfood-blocking.
+- The 12.i followup (now resolved) suspected "something else is carrying its chrome" for the account-level toggle — that was wrong; direct visual inspection confirmed nothing was carrying its chrome. Lesson: `.checked` state reads via DOM query are not a substitute for visual confirmation on UI styling work. Operator's "post-flight verify via direct visual inspection of every L11/L12 toggle" suggestion stands.
+
+---
+
+**Step 12.k — account-level Always Listen toggle positioning hotfix**
+
+**Summary**: Follow-up to 12.j's Followups note. The class-name rename in 12.j made the account-level "Always Listen" toggle visible and styled, but it inherited `.tool-enable-switch { position: absolute; bottom: 12px; right: 12px }` (admin.css:197) and — because `cf-always-listen-row` doesn't establish a positioning context — pinned to the nearest positioned ancestor rather than flowing inline next to its "Always Listen" label in the SESSION section. Identical positioning issue 12.i resolved for the per-agent row; this hotfix adds the analogous override for the account-level row.
+
+**Root cause**: structural mismatch between the absolute-positioned default for `.tool-enable-switch` (designed for tool-tile grid corners) and the inline-form context in which both Always Listen toggles render. Already addressed for the per-agent row (`connector-account-always-listen-row`) in 12.i and for sibling rows (`tools-editor-enabled-row`, `mf-sandbox-network-row`, `cf-auto-relay-row`) earlier. The account-level row's class (`cf-always-listen-row`) is distinct from the per-agent row's class (`connector-account-always-listen-row` — note: the names are confusingly similar but the prefixes differ).
+
+**Fix shape**: extend the 12.i CSS override to also target `.cf-always-listen-row`. Combined the two selectors into a single rule (idiomatic with the existing `.area-admin .tools-editor-enabled-row, .area-studio .mf-sandbox-network-row` pattern at admin.css:278-279), and updated the surrounding comment to reflect both rows now share the rule. No source-file changes beyond admin.css.
+
+**Files changed**:
+- EDIT `the_one/interfaces/web/static/css/admin.css` (the 12.i override block, ~line 289-297):
+  - Combined `connector-account-always-listen-row` and `cf-always-listen-row` selectors into a single rule with `position: relative; bottom: auto; right: auto`.
+  - Updated the block comment to describe both rows.
+
+**Verification**:
+- Visual (Chrome MCP): hard reload of `http://localhost:8484/#studio/connectors/58f1fe5a833f`, clicked Access and Routing tab, scrolled the SESSION section into view. `getComputedStyle` on `.cf-always-listen-row .tool-enable-switch` reports `position: relative; bottom: 0px; right: 0px; top: 0px; left: 0px` — override applied. `getBoundingClientRect` confirms the switch sits at `top=608, bottom=628, left=418, right=454` (36×20px) fully inside its row's bounds (`top=608, bottom=628, left=280, right=1400`) and immediately to the right of its label (label `right=380`, switch `left=418` — 38px gap). Toggle now flows inline with its "Always Listen" label.
+- Screenshot: `tests/behavior/discord-engagement/runs/2026-05-26-04-14-06/diag-account-toggle-after-position-fix.png` — viewport capture of the SESSION section with the now-inline toggle visible at the Always Listen row.
+- Targeted: no new tests (CSS-only fix; visual regression is the verification surface, mirroring 12.i / 12.j).
+- Full non-browser suite: `uv run pytest tests/ --ignore=tests/browser --ignore=tests/behavior -x` — running in background at write time; expected to match the 12.j baseline (2631 passed) since the change is CSS-only and touches no Python code paths.
+
+**Followups**:
+- None for this row. Both Always Listen toggles (account-level and per-agent) are now fully styled AND inline-positioned. The broader lesson from 12.i / 12.j / 12.k — that `.tool-enable-switch`'s absolute-positioning default is a footgun in inline-form contexts — has now accumulated four override rules (tools-editor, mf-sandbox-network, cf-auto-relay, the two Always Listen rows). Worth a routine-maintenance look at flipping the default to `position: relative` and adding `position: absolute` only on the tile-corner consumers, to avoid further drift.
+
+---
+
+**Step 12.l — tool_result Anthropic shape hotfix**
+
+**Summary**: L12 HAT dogfood (step 9 — channel-context tool use via @-mention) surfaced a pre-F7 agent serialization bug that blocked dogfood progression. When Cave Man Bot's provider is Anthropic (Sonnet 4.5) and the agent loop calls an L10 channel-context tool (`list_visible_channels`, `fetch_channel_history`, `fetch_thread_history`, `fetch_dm_history`), the Anthropic provider's `_to_api_message` passes the tool's structured Python return value (a `list[dict]` per the tool's typed signature) directly as `tool_result.content` to the Anthropic API. Anthropic rejects with `400 invalid_request_error: messages.N.content.M.tool_result.content: Found an object, but tool_result content must either be a string or a list of content blocks.` Fourth inline hotfix during F7 L12 (after 12.h secret-mask, 12.i per-agent toggle, 12.j account-level toggle styling, 12.k positioning). Bug pre-dates F7 — it was always present once L10 introduced dict-returning tools, but the @-mention engagement gate landing in F7 L11 made channel-context tool calls reachable for the first time.
+
+**Root cause**: `ToolResult.content` is typed `str` on `the_one/llm/base.py:30`, but Python's `@dataclass` does not enforce field types at runtime. Several L10 tools in `the_one/tools/connector_history.py` declare and return `list[dict[str, Any]]` / `dict[str, Any]` from `Tool.execute`:
+- `FetchChannelHistoryTool.execute` → `list[dict[str, Any]]` (line 134)
+- `FetchThreadHistoryTool.execute` → `list[dict[str, Any]]` (line 233)
+- `FetchDmHistoryTool.execute` → `list[dict[str, Any]]` (line 321)
+- `ListVisibleChannelsTool.execute` → `dict[str, Any]` (line 416)
+
+The agent loop in `the_one/agent/core.py:336` constructs `ToolResult(tool_call_id=..., content=output)` with that raw structured value. The Anthropic provider then propagates the value verbatim into `tool_result.content` (previously line 226). The OpenAI / Ollama provider paths happen to tolerate dict/object content because their SDKs accept it through to the wire — but Anthropic's API does not. The bug only manifests when a Sonnet-backed bot calls one of the structured-return tools, which is exactly the channel-context flow F7 L11 unlocked.
+
+**Fix shape**: coerce non-string `ToolResult.content` to `json.dumps(content)` at the single Anthropic `_to_api_message` call site only. Surgical, minimum-blast-radius — the OpenAI / Ollama paths are intentionally untouched so their historic pass-through behaviour for dict content is preserved (operator-direction: "verify the OpenAI-compatible path is NOT broken by your change — that path may legitimately accept dicts or strings; preserve whatever it was doing"). Pre-existing string content round-trips byte-identically through the `isinstance(content, str)` guard.
+
+Considered alternatives:
+1. Coerce at the agent layer (`_execute_tool` in `agent/core.py:336`) by always calling `json.dumps(output)` when not str — REJECTED: would change the persisted shape in `chat_session.messages` (codec stores `tool_result.content` as-is) and ripple through the OpenAI / Ollama paths the operator wants preserved.
+2. Tighten `ToolResult.content`'s type and force every tool to return str — REJECTED: scope creep; touches every L10 tool and any other dict-returning tool that may be added later. Inline hotfix scope is "fix the wire-format coercion at the provider boundary".
+3. Use a single-text content block (`[{"type": "text", "text": json.dumps(X)}]`) instead of a JSON string — REJECTED: surrounding Anthropic code style is plain-string content for the unblocked path (the test fixture `test_anthropic_to_api_message_user_with_no_attribution` pins a plain str), and a string keeps the payload simpler. Both shapes satisfy the API; string is the lighter touch.
+
+**Files changed**:
+- EDIT `the_one/llm/anthropic_provider.py`:
+  - Added `import json` (line 3).
+  - In `_to_api_message`, the TOOL-role branch (line 218+) now extracts `content = msg.tool_result.content` and coerces via `if not isinstance(content, str): content = json.dumps(content)` before constructing the `tool_result` block. The block now references the local `content` variable instead of `msg.tool_result.content` directly. Added a multi-line comment block citing the F7 L12.l context, the dataclass-type-non-enforcement reality, the specific L10 tools that trigger this, and the explicit non-touch decision for OpenAI / Ollama paths.
+
+- ADD `tests/test_llm_provider_tool_result_serialization.py` (new file, 8 tests):
+  - `TestAnthropicToolResultSerialization` (4 tests):
+    - `test_anthropic_coerces_list_of_dicts_to_json_string` — the load-bearing bug-fix test. Builds a TOOL-role Message with a `list[dict]` content (representative `fetch_channel_history` shape: peer_id, peer_name, content, ts) and asserts the resulting payload's `tool_result.content` is a string, has the expected `tool_use_id`, and round-trips via `json.loads`.
+    - `test_anthropic_coerces_dict_to_json_string` — covers `ListVisibleChannelsTool`'s top-level dict return.
+    - `test_anthropic_passes_string_content_through_unchanged` — pins the legacy str-content path (byte-identical round-trip) so a future "always JSON-encode" refactor surfaces as a regression.
+    - `test_anthropic_preserves_is_error_flag` — the `is_error` boolean must survive coercion.
+  - `TestOpenAIToolResultSerialization` (2 tests): both dict and str content must pass through unchanged — pins the operator's "do not break the OpenAI-compatible path" constraint.
+  - `TestOllamaToolResultSerialization` (2 tests): mirror of the OpenAI pair — pins Ollama's pass-through behaviour.
+  - Helper `_make_tool_msg(content)` bypasses `ToolResult(...)`'s str-typed constructor signature via direct field assignment to reflect the runtime contract (dataclass hints don't enforce; tools really do produce non-str content here).
+
+**Verification**:
+- Targeted: `uv run pytest tests/test_llm_provider_tool_result_serialization.py -v` — 8 passed in 0.96s.
+- Full non-browser suite: `uv run pytest tests/ --ignore=tests/browser --ignore=tests/behavior -x` → **2639 passed, 4 skipped, 12 deselected (201.00s)**. Matches the post-12.k baseline (2631) + 8 new tests = 2639. No regressions.
+- End-to-end Discord mention dogfood: not attempted in this hotfix (operator marked optional); the unit test is the load-bearing acceptance. The L12 HAT executor can re-run step 9 against the running container in the next session to confirm the fix lands at runtime.
+
+**Followups**:
+- Consider tightening `ToolResult.content`'s contract in a future flight: either enforce `str` at construction time (rejecting non-str at the `__post_init__` boundary so the bug surfaces at the tool-developer site rather than at the wire) or widen the type annotation to `str | dict | list` and update every consumer (codec, provider adapters, web projections) to handle the union. The current asymmetry — typed str, runtime accepts anything, only Anthropic complains — is a latent footgun for any future provider added (the next provider to land that strictly enforces string content will rediscover this bug). Out of scope for the F7 hotfix; flag for the next routine-maintenance or a small F-N+1 flight.
+- The L10 channel-context tools (`connector_history.py`) could be retrofitted to return JSON strings directly from `Tool.execute` — that would match `ToolResult.content: str` and remove the provider-side coercion need entirely. Trade-off: structured returns are easier to test and easier to consume in alternative future surfaces (e.g. a debug inspector that walks the result programmatically). Inline-coercion at the wire boundary preserves both worlds.
+- The fix as written assumes the structured value is JSON-serializable. Every L10 tool's return shape is plain dicts/lists of primitives (asdict on a dataclass for the message tools; serializable on its face for `list_visible_channels`). If a future tool ever returns a non-JSON-serializable value (e.g. a datetime instance not pre-stringified), `json.dumps` will raise `TypeError` and the agent's existing `_execute_tool` exception handler (`core.py:355`) will surface a `[error] Tool execution failed: ...` content instead — degraded but safe. Not blocking; worth a comment in a follow-on if anyone adds a tool with non-JSON returns.
+
+---
+
+**Step 12.m — truncate_for_event non-str coercion**
+
+**Summary**: Mirror of 12.l at the second consumer. 12.l fixed the LLM-payload path (Anthropic provider serializer); this fixes the telemetry/event projection path. Same root-cause class: L10 channel-context tools return dicts/lists, `ToolResult.content` is typed `str` but not runtime-enforced, and the projection helper `truncate_for_event` in `the_one/db/codec.py` did `content[:N]` — which raises `TypeError: unhashable type: 'slice'` on a dict. The crash propagates through `messages_to_ui_events` and the WS-broadcast / HTTP-API result_messages sites in `web/app.py`, failing the agent loop's reply delivery. Fifth inline hotfix during F7 L12 (after 12.h, 12.i, 12.j, 12.k, 12.l).
+
+**Root cause**: Same as 12.l for the upstream conditions (dataclass type hints not enforced; L10 tools return structured dicts/lists). The downstream surface is different: `truncate_for_event(content: str)` slices its input, and `dict[:N]` / `list[:N]` syntax invokes `__getitem__` with a `slice` object — dicts reject slices with `TypeError: unhashable type: 'slice'`. Four call sites all feed `msg.tool_result.content` directly into the helper:
+- `the_one/db/codec.py:265` — `messages_to_ui_events` (replay projection)
+- `the_one/interfaces/web/app.py:861` — `_process_and_broadcast` WS-broadcast `tool_result` event
+- `the_one/interfaces/web/app.py:1049` — HTTP-API `result_messages` build
+- `the_one/interfaces/web/app.py:1059` — second HTTP-API result_messages path
+
+A single coercion at the helper covers all four.
+
+**Fix shape**: Surgical coercion at `truncate_for_event` — widen the parameter to `Any` and JSON-stringify non-str content before slicing. Mirrors 12.l's pattern: same `if not isinstance(content, str): content = json.dumps(content)` shape, applied at the projection helper instead of the provider serializer. `json` and `Any` were already imported in `codec.py` (lines 5–6); no new imports needed. The legacy str-content path is preserved byte-identically through the isinstance guard.
+
+**Files changed**:
+- EDIT `the_one/db/codec.py`:
+  - `truncate_for_event` signature widened: `content: str` → `content: Any`.
+  - Body adds `if not isinstance(content, str): content = json.dumps(content)` before the existing `return content[:MAX_TOOL_RESULT_INLINE_CONTENT]`.
+  - Docstring extended with a paragraph citing the 12.m / 12.l mirror, the dataclass-not-enforced reality, and the L10 channel-context tool source of dict/list content. The existing code-point-vs-byte slicing note is preserved.
+
+- ADD `tests/test_truncate_for_event_non_str_coercion.py` (new file, 6 tests):
+  - `test_str_input_under_cap_passes_through_unchanged` — short string returned verbatim.
+  - `test_str_input_over_cap_is_truncated_to_cap` — legacy slice-by-codepoint truncation contract preserved.
+  - `test_dict_input_is_json_stringified_then_truncated` — load-bearing bug-fix test for the `ListVisibleChannelsTool`-shape dict; asserts JSON round-trip.
+  - `test_list_input_is_json_stringified_then_truncated` — load-bearing for the `fetch_channel_history`-shape list-of-dicts.
+  - `test_large_dict_input_is_json_stringified_then_truncated_at_cap` — pins the JSON-then-slice ordering: a dict whose serialized form exceeds the cap truncates to exactly `MAX_TOOL_RESULT_INLINE_CONTENT`, matching `json.dumps(payload)[:cap]`.
+  - `test_none_input_is_coerced_via_json_dumps` — graceful None handling: `json.dumps(None) == "null"`, matches 12.l's no-special-branch approach.
+
+**Verification**:
+- Full non-browser suite: `uv run pytest tests/ --ignore=tests/browser --ignore=tests/behavior -x` → **2645 passed, 4 skipped, 12 deselected (205.46s)**. Matches the post-12.l baseline (2639) + 6 new tests = 2645. No regressions. Pre-existing alignment test `test_tool_result_content_truncated_identically_across_projection_sites` (which exercises the full `_process_and_broadcast` path for str content) still passes — confirms the isinstance-str guard preserves the legacy WS/HTTP/replay alignment contract from F6 L02.
+
+**Followups**:
+- Same `ToolResult.content` contract concerns as 12.l apply — the broader fix (either enforce str at `__post_init__` or widen the annotation to `str | dict | list` and audit every consumer) is still recommended for a follow-on flight. 12.l and 12.m together patch two of the three downstream surfaces; the codec helper is now the canonical projection coercion site, and the Anthropic provider is the canonical LLM-payload coercion site. If another consumer surfaces (a future provider or a new event projection), the pattern is now established: coerce locally with the two-line isinstance/`json.dumps` shape.
+- The new helper still serializes the structured value twice in the projection path: once by codec's `_tool_result_to_dict` for DB persistence (full fidelity, preserved as-is), once by `truncate_for_event` for telemetry. That's intentional — persistence keeps the raw shape so the broader fix can rehydrate cleanly, projection serializes for client display only. Worth a comment in the broader-fix flight that the persisted shape stays a Python dict (not a string) in the messages JSON column today.
+
 ---
 
 ## Decisions

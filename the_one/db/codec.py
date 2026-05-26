@@ -15,18 +15,27 @@ from the_one.llm.base import Message, Role, TokenUsage, ToolCall, ToolResult
 MAX_TOOL_RESULT_INLINE_CONTENT = 4000
 
 
-def truncate_for_event(content: str) -> str:
+def truncate_for_event(content: Any) -> str:
     """Cap tool_result.content for projection to clients.
 
     Single source of truth for the projection-time truncation contract.
     DB persistence is unaffected — truncation is a "what we hand to
     clients" concern, not a "what we keep" concern.
 
+    Non-string content (e.g. structured dicts/lists returned by L10
+    channel-context tools) is JSON-stringified before truncation.
+    Mirrors 12.l: the agent serializer normalizes for the LLM, this
+    normalizes for telemetry/event projection. ToolResult.content is
+    annotated `str` but not runtime-enforced, so tools occasionally
+    hand us dicts; coerce here rather than crash the projection path.
+
     Note: slicing is by code-point (str), not byte. A content with
     multi-codepoint sequences (emoji ZWJ joiners, combining marks) may
     slice mid-sequence at the cap boundary. This matches the prior
     per-site slicing behavior; this helper only aligns the cap.
     """
+    if not isinstance(content, str):
+        content = json.dumps(content)
     return content[:MAX_TOOL_RESULT_INLINE_CONTENT]
 
 
