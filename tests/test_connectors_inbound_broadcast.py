@@ -356,6 +356,163 @@ async def test_dispatch_inbound_broadcasts_carry_peer_name(
     assert "peer_name" not in assistant_event
 
 
+# ─── Test: channel_id carried on broadcast events ────────────────────────
+
+
+async def test_dispatch_inbound_broadcasts_carry_channel_id(
+    isolated_db, monkeypatch
+) -> None:
+    """The inbound envelope's ``channel_id`` propagates through the
+    dispatcher's post-step ``bind_channel_context`` (M11 F7 L3) into
+    the persisted USER message, then through the codec's
+    ``messages_to_ui_events`` Role.USER spread (M11 F7 L3) into the
+    live broadcast event — the single projection site covers both
+    replay AND live broadcast for the connector-inbound path.
+
+    Branch coverage:
+    - USER event: carries ``channel_id == "ch-1"`` (the envelope
+      helper's default value, always present on the envelope).
+    - TOOL_CALL, TOOL_RESULT, ASSISTANT events: do NOT carry a
+      ``channel_id`` key — the projection is gated to the USER branch
+      (mirror of peer_name's gating).
+
+    The stub plugin has no ``enumerate_discoverable_entities`` hook
+    so the cache stays None — ``channel_name`` is absent in this
+    test (covered separately by the next test). This test pins the
+    always-bind-id contract independent of the cache state.
+    """
+    await _seed_provider_and_agent(connector_account_ids=["acct-test"])
+    await _seed_stub_account()
+    register_for_test("stub", StubPlugin)
+
+    tc = ToolCall(
+        id="tc-send-1",
+        name="send_to_platform_channel",
+        arguments={
+            "target": {"account_id": "acct-test", "channel_id": "ch-1"},
+            "content": "hello peer",
+        },
+    )
+    responses = [
+        Message.assistant(content="", tool_calls=[tc]),
+        Message.assistant(content="done"),
+    ]
+    factory = await _make_scripted_factory(
+        responses, monkeypatch, connector_account_ids=["acct-test"]
+    )
+
+    _, fake_ws = await _dispatch_and_collect(factory=factory)
+
+    types = [p["type"] for p in fake_ws.payloads]
+    assert types == ["user", "tool_call", "tool_result", "assistant"], (
+        f"unexpected event sequence: {types}"
+    )
+
+    user_event, tool_call_event, tool_result_event, assistant_event = (
+        fake_ws.payloads
+    )
+
+    # USER: channel_id from the envelope (always bound).
+    assert user_event["channel_id"] == "ch-1"
+    # channel_name is absent — stub plugin has no discoverable cache.
+    assert "channel_name" not in user_event
+
+    # Non-USER branches: channel_id absent (projection gated to USER).
+    assert "channel_id" not in tool_call_event
+    assert "channel_id" not in tool_result_event
+    assert "channel_id" not in assistant_event
+    # channel_name also absent across all non-USER branches.
+    assert "channel_name" not in tool_call_event
+    assert "channel_name" not in tool_result_event
+    assert "channel_name" not in assistant_event
+
+
+# ─── Test: channel_name carried on broadcast events ──────────────────────
+
+
+async def test_dispatch_inbound_broadcasts_carry_channel_name(
+    isolated_db, monkeypatch
+) -> None:
+    """When the F3 L4 discoverable-entities cache contains a matching
+    channel entity, the dispatcher resolves ``channel_name`` and binds
+    it onto the appended USER message; the codec projects it into the
+    live broadcast event alongside ``channel_id``.
+
+    Monkeypatches ``_get_account_cache_snapshot`` at the ``_inbound``
+    call site to inject a synthetic cache. The test boundary is
+    "given a cache returns X, the broadcast carries Y" — it does NOT
+    exercise the refresh-sweep machinery (out of L3 scope).
+
+    Branch coverage:
+    - USER event: carries both ``channel_id`` AND ``channel_name``.
+    - Non-USER branches: neither key present.
+
+    M11 F7 L3.
+    """
+    from the_one.connectors._pool import _DiscoverableCacheSnapshot
+    from the_one.connectors.base import (
+        DiscoverableEntities,
+        DiscoverableEntity,
+    )
+
+    await _seed_provider_and_agent(connector_account_ids=["acct-test"])
+    await _seed_stub_account()
+    register_for_test("stub", StubPlugin)
+
+    synthetic_cache = DiscoverableEntities(
+        channels=[DiscoverableEntity(id="ch-1", label="general")]
+    )
+    synthetic_snapshot = _DiscoverableCacheSnapshot(
+        cache=synthetic_cache,
+        stale_carry=None,
+        fetched_at_monotonic=0.0,
+        account_type="stub",
+    )
+
+    async def _fake_snapshot(_account_id: str):
+        return synthetic_snapshot
+
+    monkeypatch.setattr(
+        inbound_mod, "_get_account_cache_snapshot", _fake_snapshot
+    )
+
+    tc = ToolCall(
+        id="tc-send-1",
+        name="send_to_platform_channel",
+        arguments={
+            "target": {"account_id": "acct-test", "channel_id": "ch-1"},
+            "content": "hello peer",
+        },
+    )
+    responses = [
+        Message.assistant(content="", tool_calls=[tc]),
+        Message.assistant(content="done"),
+    ]
+    factory = await _make_scripted_factory(
+        responses, monkeypatch, connector_account_ids=["acct-test"]
+    )
+
+    _, fake_ws = await _dispatch_and_collect(factory=factory)
+
+    types = [p["type"] for p in fake_ws.payloads]
+    assert types == ["user", "tool_call", "tool_result", "assistant"], (
+        f"unexpected event sequence: {types}"
+    )
+
+    user_event, tool_call_event, tool_result_event, assistant_event = (
+        fake_ws.payloads
+    )
+
+    # USER: both channel keys present.
+    assert user_event["channel_id"] == "ch-1"
+    assert user_event["channel_name"] == "general"
+
+    # Non-USER branches: neither key present (projection gated to USER).
+    for event in (tool_call_event, tool_result_event, assistant_event):
+        assert "channel_id" not in event
+        assert "channel_name" not in event
+
+
 # ─── Test: broadcast runs AFTER persistence ──────────────────────────────
 
 
@@ -370,19 +527,30 @@ async def test_dispatch_inbound_broadcasts_after_persistence(
     ``"persist"`` and have every subsequent entry be ``"broadcast"``
     (one per broadcast event).
 
-    M10 F8 L11 HAT Fix #4: auto-relay is opted OUT here because it
-    issues a second ``chat_repo.update`` (re-persisting the assistant
-    reply with flipped visibility) after the broadcast loop —
-    confounding the persist/broadcast ordering count. The
-    persist-then-broadcast ordering contract is verified on the pure
-    inbound path; the auto-relay re-persist's relative ordering is
+    M11 F7 L5: auto-relay is now invariant on engaged turns. The
+    relay path issues a second ``chat_repo.update`` (re-persisting
+    the assistant reply with flipped visibility) AFTER the broadcast
+    loop — that would confound the persist/broadcast ordering count.
+    Monkeypatch ``StubClient.send`` to raise so the dispatcher's
+    swallow-and-continue branch fires; the re-persist block doesn't
+    execute and the ordering contract is preserved on the pure
+    inbound path. The auto-relay re-persist's relative ordering is
     not under test here.
     """
     await _seed_provider_and_agent()
-    await _seed_stub_account(
-        config={"auto_relay_platform_replies": False}
-    )
+    await _seed_stub_account()
     register_for_test("stub", StubPlugin)
+
+    # Test isolation: suppress the platform-send side effect so the
+    # post-broadcast relay re-persist doesn't fire (relay raises →
+    # dispatcher swallows → no re-persist).
+    from the_one.connectors._stub import StubClient as _StubClient
+
+    async def _send_noop(self, target, content):
+        raise RuntimeError("test isolation: relay suppressed")
+
+    monkeypatch.setattr(_StubClient, "send", _send_noop)
+
     factory = await _make_factory()
 
     order: list[str] = []

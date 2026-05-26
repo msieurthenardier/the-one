@@ -1,0 +1,37 @@
+# Behavior Test: Studio Smoke
+
+**Slug**: `studio-smoke`
+**Status**: draft
+**Created**: 2026-05-26
+**Last Run**: never
+
+## Intent
+
+Smoke test for the Studio web UI. Verifies that the application loads, that core navigation works, and that an operator can reach the connector account editor for the Discord connector. Intentionally minimal — used to validate the behavior-test methodology and apparatus discovery before running larger HATs.
+
+## Preconditions
+
+- the-one container is running on `http://localhost:8484` (verified by an active probe: the operator opens the URL in the browser and sees the Studio render).
+- Operator has the Chrome MCP browser session attached to that URL.
+
+## Observables Required
+
+- browser (DOM and rendered text in the Studio UI, measured via chrome-devtools MCP)
+
+## Steps
+
+| # | Actions | Expected Results |
+|---|---------|------------------|
+| 1 | Open the application at `http://localhost:8484/`. | The page renders fully — not blank, no error banner. A top-level navigation is visible containing entries for the major app areas (exact labels and number may vary). |
+| 2 | From the top-level navigation, open the Agent Studio area, then navigate to Connector Accounts. | The list view renders and shows at least one connector account tile labelled "Discord Constellation" with a visible "DISCORD" type indicator. |
+| 3 | Open the Discord Constellation connector account editor. | The editor opens with the account's name visible in a header. Multiple editor tabs are visible (the test does not assert exact tab labels — only that an editor with tabs has loaded). |
+
+## Out of Scope
+
+- Toggle interactions, save behaviour, and routing rules — those are exercised by the discord-engagement spec.
+- Login / authentication — Studio currently has none.
+- Performance, accessibility audits — separate concerns.
+
+## Variants (optional)
+
+None.

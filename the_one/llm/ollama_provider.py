@@ -7,7 +7,15 @@ from typing import Any
 import httpx
 
 from the_one.llm import ollama_api
-from the_one.llm.base import LLMProvider, Message, Role, StreamChunk, TokenUsage, ToolCall
+from the_one.llm.base import (
+    LLMProvider,
+    Message,
+    Role,
+    StreamChunk,
+    TokenUsage,
+    ToolCall,
+    build_user_message_content,
+)
 from the_one.llm.registry import register_provider
 
 # F7 L04: bytes-per-token for the mid-stream usage byte-heuristic.
@@ -264,7 +272,11 @@ class OllamaProvider(LLMProvider):
                     for tc in msg.tool_calls
                 ],
             }
-        return {"role": msg.role.value, "content": msg.content}
+        # M11 F7 L4: project peer_name + channel_name as an inline prefix.
+        # The helper handles all four absence variants; legacy back-compat
+        # is preserved when both fields are None (byte-identical payload).
+        # F6 DD §2 audit premise refined: the prefix IS the projection.
+        return {"role": msg.role.value, "content": build_user_message_content(msg)}
 
 
 register_provider("ollama", OllamaProvider)

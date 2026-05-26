@@ -67,6 +67,33 @@ class Message:
     # non-empty — the Discord plugin falls back to ``str(user.id)`` when
     # display_name is blank (`_discord.py:218`).
     peer_name: str | None = None
+    # M11 F07 L02: channel_id — platform-native channel identifier string
+    # (e.g. a Discord channel snowflake; the convention is plugin-agnostic
+    # and any connector plugin supplies its own platform-native id string).
+    # The canonical key; the channel_name field below is the human-readable
+    # label resolved from this id via the F3 discoverable-entities cache.
+    # The pair travels together because the L4 provider projection uses the
+    # name for the LLM prefix while the dispatcher's routing audit and the
+    # F9 audit-log inspector use the id. The codec emits the key only when
+    # non-None — pre-F7 rows decode with channel_id=None unchanged.
+    # Meaningful only on Role.USER messages; assistant/tool messages leave
+    # it at the default. Either field may be absent independently (cold-pool
+    # case: id resolved but name not yet cached); the codec emits each
+    # independently when non-None.
+    channel_id: str | None = None
+    # M11 F07 L02: channel_name — platform-resolved human-readable channel
+    # label (e.g. a Discord channel name like "general"). Resolved from
+    # channel_id via the F3 discoverable-entities cache by L3's
+    # bind_channel_context; the L4 provider adapters project it as
+    # `[from {peer_name} in #{channel_name}]: ...` on user-role content so
+    # the engaged agent sees multi-user context naturally. Same back-compat
+    # discipline as channel_id above (emit-when-non-None; legacy rows
+    # decode to None). May be present without channel_id only in
+    # corner-case malformed envelopes — the standard flow binds both
+    # together; either may be absent independently (cold-pool case: id
+    # resolved but name not yet cached). Meaningful only on Role.USER
+    # messages; assistant/tool messages leave it at the default.
+    channel_name: str | None = None
 
     @classmethod
     def system(cls, content: str, *, visibility: str | None = None) -> Message:
@@ -79,12 +106,16 @@ class Message:
         *,
         visibility: str | None = None,
         peer_name: str | None = None,
+        channel_id: str | None = None,
+        channel_name: str | None = None,
     ) -> Message:
         return cls(
             role=Role.USER,
             content=content,
             visibility=visibility,
             peer_name=peer_name,
+            channel_id=channel_id,
+            channel_name=channel_name,
         )
 
     @classmethod
@@ -112,6 +143,45 @@ class Message:
             tool_result=result,
             visibility=visibility,
         )
+
+
+def build_user_message_content(msg: Message) -> str:
+    """Build the LLM-payload content string for a user message,
+    projecting peer_name and channel_name as an inline bracket prefix.
+
+    Format depends on which fields are set (all use ``is not None``,
+    NOT truthiness — empty strings round-trip as-is per the
+    ``message-additive-back-compat-via-emit-when-non-none`` convention):
+
+    - peer_name + channel_name both set → ``[from {peer} in #{ch}]: {content}``
+    - peer_name only                    → ``[from {peer}]: {content}``
+    - channel_name only                 → ``[in #{ch}]: {content}``
+    - neither set                       → ``{content}`` (byte-identical
+      to pre-F6 + pre-F7 payload — legacy back-compat)
+
+    Defensive: returns ``msg.content`` unchanged for any non-USER
+    role (the projection is meaningful only on inbound user turns;
+    assistant/tool messages should never reach this helper, but the
+    safety branch prevents accidental leakage if a future caller
+    violates the contract).
+
+    M11 F7 L4: closes F6 Rec #4 / M11 criterion #13 (LLM-side
+    projection of peer_name + channel_name). The prefix IS the
+    projection — the F6 audit's "no leak" guarantee becomes
+    "intentional projection at this single site"; the fields
+    never appear as separate keys on the API payload.
+    """
+    if msg.role != Role.USER:
+        return msg.content
+    peer = msg.peer_name
+    ch = msg.channel_name
+    if peer is not None and ch is not None:
+        return f"[from {peer} in #{ch}]: {msg.content}"
+    if peer is not None:
+        return f"[from {peer}]: {msg.content}"
+    if ch is not None:
+        return f"[in #{ch}]: {msg.content}"
+    return msg.content
 
 
 @dataclass

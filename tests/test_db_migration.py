@@ -235,10 +235,12 @@ class TestSchemaV8:
         # persistence; F4 debrief rec #1 atomic shape);
         # v19 added CHECK (type IN ('discord', 'stub')) on
         # connector_accounts.type via the table-rename ceremony (M10 F08
-        # L02 — first real connector type registered).
-        assert CURRENT_VERSION == 19, (
-            "CURRENT_VERSION must be 19 after the M10 F08 L02 — "
-            "connector_accounts.type CHECK v19 migration "
+        # L02 — first real connector type registered);
+        # v20 added agents.connector_always_listen (M11 F07 L06 —
+        # per-agent always_listen toggle persistence).
+        assert CURRENT_VERSION == 20, (
+            "CURRENT_VERSION must be 20 after the M11 F07 L06 — "
+            "agents.connector_always_listen v20 migration "
             f"(got {CURRENT_VERSION})"
         )
 
@@ -2253,6 +2255,194 @@ class TestSchemaV18:
         ) as cur:
             versions = [r[0] for r in await cur.fetchall()]
         assert 18 in versions, versions
+        assert max(versions) == CURRENT_VERSION, versions
+
+        await conn.close()
+
+
+class TestSchemaV20:
+    """Tests for the v20 migration that adds agents.connector_always_listen.
+
+    Mission 11 Flight 7 Leg 6: per-agent always_listen toggle persistence.
+    Atomic shape per F4 debrief rec #1 — Pydantic field + ALTER TABLE +
+    repository round-trip ship in one leg. The column is a nullable TEXT
+    field storing the JSON-encoded outer dict ``{account_id: bool}`` or
+    NULL when no per-agent override exists. Pre-v20 rows decode
+    NULL → ``None`` via the
+    ``if row["connector_always_listen"] else None`` decode in
+    ``SQLiteAgentStore._row_to_config``.
+
+    Mirrors the v18 ``TestSchemaV18`` shape (connector_acls migration).
+    """
+
+    async def test_v20_fresh_db_includes_agents_connector_always_listen_column(
+        self, tmp_path
+    ) -> None:
+        """Fresh DB → ensure_schema → v20 surfaces exist."""
+        db_path = tmp_path / "v20-fresh.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await ensure_schema(conn)
+
+        assert CURRENT_VERSION >= 20, CURRENT_VERSION
+
+        async with conn.execute("PRAGMA table_info(agents)") as cur:
+            cols = {r["name"]: r for r in await cur.fetchall()}
+
+        assert "connector_always_listen" in cols, (
+            "v20 migration missing: agents.connector_always_listen "
+            "does not exist after ensure_schema on a fresh DB"
+        )
+        col = cols["connector_always_listen"]
+        assert col["type"] == "TEXT", col["type"]
+        # notnull == 0 means the column is nullable (we read NULL → None
+        # in `_row_to_config` via the `if row["X"] else None` decode).
+        assert col["notnull"] == 0, col["notnull"]
+        # No explicit DEFAULT clause; dflt_value is Python None.
+        assert col["dflt_value"] is None, col["dflt_value"]
+
+        async with conn.execute(
+            "SELECT version FROM schema_version ORDER BY version"
+        ) as cur:
+            versions = [r[0] for r in await cur.fetchall()]
+        assert 20 in versions, versions
+        assert max(versions) == CURRENT_VERSION, versions
+
+        await conn.close()
+
+    async def test_v20_migration_idempotent_on_rerun(self, tmp_path) -> None:
+        """Calling ensure_schema twice on a fresh DB is a no-op the second
+        time: no errors, no duplicate schema_version rows for v20, the
+        column is still present."""
+        db_path = tmp_path / "v20-rerun.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await ensure_schema(conn)
+        await ensure_schema(conn)  # second call — must be a no-op
+
+        async with conn.execute(
+            "SELECT version FROM schema_version ORDER BY version"
+        ) as cur:
+            versions = [r[0] for r in await cur.fetchall()]
+        assert versions.count(20) == 1, (
+            f"v20 row should appear exactly once: {versions}"
+        )
+
+        async with conn.execute("PRAGMA table_info(agents)") as cur:
+            cols = {r["name"] for r in await cur.fetchall()}
+        assert "connector_always_listen" in cols
+
+        await conn.close()
+
+    async def test_v20_legacy_v19_row_decodes_with_none_connector_always_listen(
+        self, tmp_path
+    ) -> None:
+        """A row seeded against a hand-built v19 schema (no
+        ``connector_always_listen`` column) survives the v20 ALTER with
+        the column added as NULL; the repository's ``_row_to_config``
+        reads NULL → ``None`` (distinguishing it from ``{}``, which
+        round-trips verbatim).
+
+        Hand-builds a v19-shape ``agents`` table (with ``connector_acls``
+        but no ``connector_always_listen`` column), INSERTs a row, sets
+        ``schema_version`` rows up to 19, then calls ``ensure_schema``.
+        Mirrors
+        ``TestSchemaV18.test_v18_legacy_v17_row_decodes_with_none_connector_acls``.
+        """
+        from the_one.db.repositories import SQLiteAgentStore
+
+        db_path = tmp_path / "v20-from-real-v19.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        # Hand-build a minimal schema_version table and seed v1..v19.
+        await conn.execute(
+            "CREATE TABLE schema_version ("
+            "    version INTEGER PRIMARY KEY,"
+            "    applied_at TEXT NOT NULL DEFAULT (datetime('now'))"
+            ")"
+        )
+        for v in range(1, 20):
+            await conn.execute(
+                "INSERT INTO schema_version (version) VALUES (?)", (v,)
+            )
+        # v19-shape agents (with connector_acls, no connector_always_listen).
+        # We need only the columns the repository's `_row_to_config` reads,
+        # plus the PK.
+        await conn.execute(
+            "CREATE TABLE agents ("
+            "    name TEXT PRIMARY KEY,"
+            "    description TEXT DEFAULT '',"
+            "    provider_config_id TEXT,"
+            "    llm_model TEXT DEFAULT '',"
+            "    system_prompt TEXT DEFAULT '',"
+            "    enabled_tools TEXT,"
+            "    disabled_tools TEXT DEFAULT '[]',"
+            "    max_iterations INTEGER DEFAULT 20,"
+            "    kb_ids TEXT DEFAULT '[]',"
+            "    mcp_source_ids TEXT DEFAULT '[]',"
+            "    tool_overrides TEXT,"
+            "    mcp_overrides TEXT,"
+            "    connector_account_ids TEXT,"
+            "    connector_acls TEXT,"
+            "    created_at TEXT NOT NULL DEFAULT (datetime('now')),"
+            "    updated_at TEXT NOT NULL DEFAULT (datetime('now'))"
+            ")"
+        )
+        await conn.execute(
+            "INSERT INTO agents (name, description, llm_model) VALUES (?, ?, ?)",
+            ("legacy-v19-agent", "Pre-v20 agent", "mock-default"),
+        )
+        # v19-shape connector_accounts (post-v19 CHECK shape — required
+        # so the v19 block does NOT re-run; ensure_schema sees
+        # schema_version already at 19 and skips. No row seeded.
+        await conn.execute(
+            "CREATE TABLE connector_accounts ("
+            "    id TEXT PRIMARY KEY,"
+            "    type TEXT NOT NULL CHECK (type IN ('discord', 'stub')),"
+            "    config TEXT DEFAULT '{}',"
+            "    secrets TEXT DEFAULT '{}',"
+            "    created_at TEXT NOT NULL DEFAULT (datetime('now')),"
+            "    updated_at TEXT NOT NULL DEFAULT (datetime('now')),"
+            "    name TEXT NOT NULL DEFAULT '',"
+            "    idle_timeout_seconds INTEGER NULL,"
+            "    session_continuation_seconds INTEGER NULL"
+            ")"
+        )
+        await conn.commit()
+
+        await ensure_schema(conn)
+
+        # The column now exists.
+        async with conn.execute("PRAGMA table_info(agents)") as cur:
+            cols = {r["name"] for r in await cur.fetchall()}
+        assert "connector_always_listen" in cols
+
+        # The pre-existing row has NULL on the new column.
+        async with conn.execute(
+            "SELECT connector_always_listen FROM agents "
+            "WHERE name = 'legacy-v19-agent'"
+        ) as cur:
+            row = await cur.fetchone()
+        assert row is not None
+        assert row["connector_always_listen"] is None
+
+        # _row_to_config decodes NULL → None.
+        store = SQLiteAgentStore(conn)
+        loaded = await store.load("legacy-v19-agent")
+        assert loaded.connector_always_listen is None
+
+        # Head pointer landed at CURRENT_VERSION (≥20).
+        async with conn.execute(
+            "SELECT version FROM schema_version ORDER BY version"
+        ) as cur:
+            versions = [r[0] for r in await cur.fetchall()]
+        assert 20 in versions, versions
         assert max(versions) == CURRENT_VERSION, versions
 
         await conn.close()

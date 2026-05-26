@@ -22,3 +22,14 @@ tests/browser/__snapshots__/
 # downloaded via Windows browsers and the working tree lives on WSL.
 *:Zone.Identifier
 .claude/scheduled_tasks.lock
+
+# F7 L12 HAT evidence (screenshots etc.) — local-only, regenerated per HAT walk.
+missions/11-discord-connector-depth/flights/07-mentions-aware-response-policy/evidence/
+
+# Behavior-test run evidence is written to an ephemeral path outside the
+# project tree (default: /tmp/behavior-tests/<project>/<slug>/<ts>/), so
+# nothing under tests/behavior/ needs to be gitignored. Only the spec
+# (tests/behavior/<slug>.md) and the run log (.../runs/<ts>.md) live in
+# the tree and are committed. Defensive guard kept below in case a future
+# Executor mis-routes a write back into the source tree.
+tests/behavior/*/runs/*/

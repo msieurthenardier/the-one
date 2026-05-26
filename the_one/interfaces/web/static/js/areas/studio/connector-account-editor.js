@@ -129,89 +129,6 @@
     accessAndRouting: 'connector-tab-panel-access-and-routing'
   };
 
-  // ── M11 F5 L6 HAT round-8: Effective system-prompt directive ──────
-  //
-  // The two substrate-default directives that ``compose_system_prompt``
-  // picks between based on the Auto-reply toggle (see
-  // ``the_one/agent/config.py``). Rendered as a read-only styled
-  // ``<pre><code>`` block under the Auto-reply toggle in the Session
-  // section so the operator can see exactly what prompt the agent will
-  // be given for this account's current Auto-reply state. The codeblock
-  // content swaps reactively when the Auto-reply toggle is flipped
-  // (no save required — purely a preview surface).
-  //
-  // The pre-round-8 surface had THREE directives + an editable
-  // per-account override; both were removed in HAT round-8 (mission M11
-  // criterion #14 reverted; substrate defaults are used universally).
-  //
-  // KEEP IN SYNC WITH Python twins in
-  // ``the_one/agent/config.py:_CONNECTOR_AUTO_RELAY_DIRECTIVE`` and
-  // ``the_one/agent/config.py:_CONNECTOR_AUTO_RELAY_OFF_DIRECTIVE``.
-  // Edits to either set MUST land in the same atomic diff.
-
-  var _DIRECTIVE_AUTO_RELAY_ON_DEFAULT = (
-    'This conversation is attached to a connector account on an external ' +
-    'platform (Discord, Slack, etc.). Auto-relay is ON: your plaintext ' +
-    'replies in this session ARE automatically delivered to platform peers ' +
-    '— treat the conversation as the platform conversation itself. Do NOT ' +
-    'ask the operator for permission to respond on the platform; do NOT ' +
-    'narrate that you\'re \'using send_to_platform_channel\'; just reply ' +
-    'naturally as you would in any chat. Messages tagged ' +
-    '``visibility="platform"`` in the history came from platform peers; ' +
-    'messages tagged ``visibility="operator"`` came from the operator\'s ' +
-    'private local Chat console (operator-only — these are NOT relayed). ' +
-    'If you need to send a message to a different channel or thread on ' +
-    'the platform (not the current channel), use the ' +
-    '``send_to_platform_channel`` tool explicitly with a target ' +
-    'specifying that destination.'
-  );
-
-  var _DIRECTIVE_AUTO_RELAY_OFF_DEFAULT = (
-    'This conversation is attached to a connector account on an external ' +
-    'platform (Discord, Slack, etc.). Auto-relay is OFF: your plaintext ' +
-    'replies in this session reach the operator\'s private local Chat ' +
-    'console only — they are NOT delivered to platform peers. Messages ' +
-    'tagged ``visibility="platform"`` in the history came from platform ' +
-    'peers; messages tagged ``visibility="operator"`` came from the ' +
-    'operator\'s private local Chat console. When a platform-peer message ' +
-    'needs a response on the platform, you MUST call the ' +
-    '``send_to_platform_channel`` tool (if the ' +
-    '``send_to_platform_channel`` tool is available) to deliver your ' +
-    'reply to peers — the tool takes a target (account_id, channel_id, ' +
-    'and optional thread_id) plus content; use the account_id and ' +
-    'channel_id from the platform-inbound message you\'re replying to. If ' +
-    'the ``send_to_platform_channel`` tool is not available, your ' +
-    'replies cannot reach the platform — do not claim to have sent ' +
-    'anything to it.'
-  );
-
-  function _selectEffectiveDirective(autoRelayOn) {
-    return autoRelayOn
-      ? _DIRECTIVE_AUTO_RELAY_ON_DEFAULT
-      : _DIRECTIVE_AUTO_RELAY_OFF_DEFAULT;
-  }
-
-  // ``_updateEffectiveDirectiveCodeblock`` is the SOLE writer of the
-  // codeblock's ``textContent``. Called once at mount time (so the
-  // initial render matches whatever the Auto-reply checkbox is set to)
-  // and again on every Auto-reply ``change`` event. Same code path =
-  // byte-stable content (no escapeHtml-vs-textContent asymmetry).
-  function _updateEffectiveDirectiveCodeblock(container) {
-    if (!container) return;
-    var codeEl = container.querySelector(
-      '[data-testid="connector-account-effective-directive-text"]'
-    );
-    if (!codeEl) return;
-    var autoRelayEl = container.querySelector(
-      '[data-field="auto_relay_platform_replies"]'
-    );
-    // Default to autoRelay=true when checkbox isn't found (matches
-    // ``account.config.auto_relay_platform_replies`` absent → True at
-    // dispatcher consume time per M10 F8 L11 HAT Fix #4 semantics).
-    var autoRelayOn = autoRelayEl ? !!autoRelayEl.checked : true;
-    codeEl.textContent = _selectEffectiveDirective(autoRelayOn);
-  }
-
   // ── Lifecycle dropdown ladder (F5 L8 HAT) ──────────────────────────
   // Operator-friendly preset values for idle_timeout_seconds and
   // session_continuation_seconds. Values are seconds; labels are
@@ -535,66 +452,36 @@
             { defaultSeconds: 1800, includeNever: false });
     lifecycleHtml += '</div>';
 
-    // Auto-reply to platform messages (M10 F8 L11 HAT Fix #4).
-    // Default-on opt-in setting; stored in ``config.auto_relay_platform_replies``.
-    // Absent → treated as True at consume time (dispatcher reads
-    // ``account.config.get("auto_relay_platform_replies", True)``).
-    // The checkbox renders checked (= auto-relay ON) by default for new
-    // accounts AND for existing accounts that lack the key explicitly.
-    // F5 L3: visible label + aria-label rewritten for friendliness
-    // (the prior wording included the "peer" jargon and the technical
-    // term "relay"); the persisted ``config`` key intentionally stays
-    // ``auto_relay_platform_replies`` so the existing backend +
-    // database contract is unchanged.
-    var autoRelayConfigValue = (!isCreate && account.config && Object.prototype.hasOwnProperty.call(account.config, 'auto_relay_platform_replies'))
-        ? !!account.config.auto_relay_platform_replies
-        : true;
-    var autoRelayTipText = "When on, the agent's replies post back to Discord automatically. " +
-            "Off requires the agent to explicitly invoke send_to_platform_channel.";
-    lifecycleHtml += '<div class="field-row admin-pf-row cf-auto-relay-row">';
-    lifecycleHtml += '<label for="cf-auto-relay">Auto-reply to platform messages</label>';
+    // M11 F7 L11: Always Listen toggle (account-level capability switch).
+    // When ON, the F7 policy gate runs inference on non-mentioned channel
+    // messages and may engage the bot. When OFF, only mentions / DMs /
+    // /talk_to overrides engage. Per-agent toggles in the agent's
+    // Connectors tab gate which attached agents participate when this
+    // master is ON (greyed-out when this is OFF).
+    var alwaysListenConfigValue = (!isCreate && account.config && Object.prototype.hasOwnProperty.call(account.config, 'always_listen'))
+        ? !!account.config.always_listen
+        : false;
+    var alwaysListenTipText = 'When on, the bot listens to all channel messages on ' +
+            'this account and uses a lightweight inference call to decide whether ' +
+            'to respond. Per-attached-agent toggles control which agents participate. ' +
+            'When off, only @mentions, DMs, and /talk_to overrides engage the bot.';
+    lifecycleHtml += '<div class="field-row admin-pf-row cf-always-listen-row">';
+    lifecycleHtml += '<label for="cf-always-listen">Always Listen</label>';
     lifecycleHtml += '<button type="button" class="field-info-icon" ' +
-            'title="' + escAttr(autoRelayTipText) + '" ' +
-            'aria-describedby="connector-account-auto-relay-help-text" ' +
-            'data-testid="connector-account-auto-relay-hint">' + infoIcon + '</button>';
-    lifecycleHtml += '<span id="connector-account-auto-relay-help-text" class="visually-hidden">' +
-            escHtml(autoRelayTipText) + '</span>';
+            'title="' + escAttr(alwaysListenTipText) + '" ' +
+            'aria-describedby="connector-account-always-listen-help-text" ' +
+            'data-testid="connector-account-always-listen-hint">' + infoIcon + '</button>';
+    lifecycleHtml += '<span id="connector-account-always-listen-help-text" class="visually-hidden">' +
+            escHtml(alwaysListenTipText) + '</span>';
     lifecycleHtml += '<label class="tool-enable-switch">';
-    lifecycleHtml += '<input type="checkbox" class="field-input" id="cf-auto-relay" ' +
-            'data-field="auto_relay_platform_replies" ' +
-            'data-testid="connector-account-auto-relay-toggle"' +
-            ' aria-label="Auto-reply to platform messages"' +
-            (autoRelayConfigValue ? ' checked' : '') + ' />';
-    lifecycleHtml += '<span class="tool-enable-switch-track" aria-hidden="true"></span>';
+    lifecycleHtml += '<input type="checkbox" class="field-input" id="cf-always-listen" ' +
+            'data-field="always_listen" ' +
+            'data-testid="connector-account-always-listen-toggle"' +
+            ' aria-label="Always Listen"' +
+            (alwaysListenConfigValue ? ' checked' : '') + ' />';
+    lifecycleHtml += '<span class="tool-enable-switch-track"></span>';
     lifecycleHtml += '</label>';
     lifecycleHtml += '</div>';
-
-    // F5 L6 HAT round-8: effective system-prompt directive codeblock.
-    // Read-only preview of which substrate-default directive the
-    // composer (``the_one/agent/config.py:compose_system_prompt``) will
-    // pick based on the Auto-reply toggle's current state. Initial
-    // ``textContent`` is set by ``_updateEffectiveDirectiveCodeblock``
-    // post-mount (single writer = byte-stable text between initial
-    // render and post-toggle re-render). Reuses the design-language
-    // ``.code-block`` primitive (same vocabulary as the admin Base
-    // Prompt block and the tools-editor description block).
-    if (!isCreate) {
-      lifecycleHtml += '<div class="field-row admin-pf-row cf-effective-directive-row">';
-      lifecycleHtml += '<label class="cf-effective-directive-label" ' +
-              'for="cf-effective-directive">Effective system prompt</label>';
-      lifecycleHtml += '<div class="cf-effective-directive-field">';
-      lifecycleHtml += '<small class="form-hint" ' +
-              'data-testid="connector-account-effective-directive-hint">' +
-              'What the agent sees for this Auto-reply state. ' +
-              'Substrate-managed; updates live as you toggle.</small>';
-      lifecycleHtml += '<pre id="cf-effective-directive" ' +
-              'class="code-block cf-effective-directive-code" ' +
-              'data-testid="connector-account-effective-directive-codeblock">' +
-              '<code data-testid="connector-account-effective-directive-text"></code>' +
-              '</pre>';
-      lifecycleHtml += '</div>';
-      lifecycleHtml += '</div>';
-    }
 
     lifecycleHtml += '</div>';
 
@@ -887,7 +774,17 @@
   // M10 F7 L7: ``routing`` joins the reserved set — the Routing Rules
   // editor section is the only writer for ``config.routing`` and merges
   // its state back into the PUT payload via ``collectRoutingFromContainer``.
-  var RESERVED_CONFIG_KEYS = { pairing: true, allowlist: true, routing: true };
+  // M11 F7 L12 (HAT-time hotfix): ``always_listen`` joins the reserved set —
+  // the L11 Session-section toggle is the only writer for
+  // ``config.always_listen``. Without this entry the kv-table also renders
+  // ``always_listen`` and the operator sees two conflicting controls. Caught
+  // at L12 Phase 1 walk.
+  var RESERVED_CONFIG_KEYS = {
+    pairing: true,
+    allowlist: true,
+    routing: true,
+    always_listen: true,
+  };
 
   function collectConfigRows(account) {
     var rows = [];
@@ -1027,13 +924,6 @@
       var el = container.querySelector('[data-field="' + staticFields[i] + '"]');
       staticData[staticFields[i]] = el ? el.value : '';
     }
-    // M10 F8 L11 HAT Fix #4: auto_relay_platform_replies is a
-    // checkbox — captured separately by ``.checked`` so a re-render of
-    // the editor (with the same toggle state) produces a byte-identical
-    // snapshot.
-    var autoRelayEl = container.querySelector('[data-field="auto_relay_platform_replies"]');
-    staticData['auto_relay_platform_replies'] = autoRelayEl ? !!autoRelayEl.checked : true;
-
     var configRows = [];
     var configRowEls = container.querySelectorAll('.connector-account-config-table tbody tr.connector-account-config-row');
     for (var c = 0; c < configRowEls.length; c++) {
@@ -1082,6 +972,20 @@
       allowlist: allowlist,
       routing: routing
     };
+
+    // M11 F7 L11: ``always_listen`` is a substrate-level capability
+    // switch, captured as a SEPARATE top-level key on the snapshot
+    // object. The staticFields loop above reads ``.value`` (which is
+    // ``"on"`` for checkboxes regardless of checked state), so the new
+    // field cannot piggyback on that loop — it must be captured here as
+    // a real boolean. Triple-guard: when the input is absent (older
+    // create-mode renders, or future code that drops the toggle), the
+    // key is OMITTED so the snapshot bytes stay stable for the unchanged
+    // surface.
+    var alwaysListenSnap = container.querySelector('[data-field="always_listen"]');
+    if (alwaysListenSnap) {
+      snapshotObj.always_listen = !!alwaysListenSnap.checked;
+    }
 
     // M11 F1 L4: per-type registry consult for typed-field snapshot.
     // The entry's optional ``snapshot(container)`` returns a
@@ -1150,32 +1054,6 @@
     }
     attachStaticListeners();
 
-    // ── M11 F5 L6 HAT round-8: effective-directive codeblock wiring ──
-    //
-    // (a) Initial population — single call at mount time so the
-    //     codeblock's textContent matches whatever the Auto-reply
-    //     checkbox is set to right after render. Same code path as the
-    //     change handler below guarantees byte-stable content.
-    //
-    // (b) Auto-reply change → repaint codeblock. The earlier
-    //     ``attachStaticListeners`` loop ALSO fires ``checkDirty`` on
-    //     this same checkbox; the two listeners are independent and
-    //     additive (no conflict, no double dirty-fire — ``checkDirty``
-    //     compares serialized snapshots and is idempotent).
-    //
-    // Both calls are no-ops in create mode (the codeblock isn't
-    // rendered there → ``querySelector`` returns null → the helper
-    // returns early). Safe to call unconditionally.
-    _updateEffectiveDirectiveCodeblock(container);
-    var directiveAutoRelayEl = container.querySelector(
-      '[data-field="auto_relay_platform_replies"]'
-    );
-    if (directiveAutoRelayEl) {
-      directiveAutoRelayEl.addEventListener('change', function () {
-        _updateEffectiveDirectiveCodeblock(container);
-      });
-    }
-
     // M11 F1 L4: per-type registry consult for typed-field event
     // wiring. The entry's optional ``wireEvents(container, checkDirty)``
     // attaches the per-input listeners for typed inputs that live
@@ -1196,6 +1074,25 @@
       // ``account.id``. L4's two-arg signature stays backward-compatible
       // (extra args are ignored).
       wireEntry.wireEvents(container, checkDirty, account);
+    }
+
+    // M11 F7 L11: dispatch always-listen changes for the agent's Connectors
+    // tab to grey-out per-agent toggles. Third inline-CustomEvent string in
+    // Studio (n=3 — see TODO below citing F4 R13 lift candidate).
+    //
+    // TODO(routine-maintenance): with n=3 reached
+    // (connector-account-pool-warmed + connector-account-discoverable-
+    // refresh-requested + this one), F4 R13 calls for lifting the inline
+    // CustomEvent strings into a shared studio-event-bus module. Defer
+    // per F7 recon discipline (the bus lift expands the leg surface
+    // beyond the policy-gate scope).
+    var alwaysListenEl = container.querySelector('[data-field="always_listen"]');
+    if (alwaysListenEl && account && account.id) {
+      alwaysListenEl.addEventListener('change', function () {
+        document.dispatchEvent(new CustomEvent('connector-account-always-listen-changed', {
+          detail: { accountId: account.id, enabled: !!alwaysListenEl.checked },
+        }));
+      });
     }
 
     // ── M11 F1 L7 HAT: create-mode type-change re-render ───────────────
@@ -1731,17 +1628,15 @@
       }
     }
 
-    // M10 F8 L11 HAT Fix #4: auto_relay_platform_replies merge.
-    // The toggle is always present (create + edit modes both render
-    // it). We always EMIT the bool so the validator sees an explicit
-    // shape — there's no "absent" UI path: the operator either ticks
-    // (True) or unticks (False) the checkbox. Default rendering is
-    // checked / True for new accounts; existing accounts respect the
-    // persisted value (absent → True at render time per
-    // ``autoRelayConfigValue`` above).
-    var autoRelayEl = container.querySelector('[data-field="auto_relay_platform_replies"]');
-    if (autoRelayEl) {
-      config.auto_relay_platform_replies = !!autoRelayEl.checked;
+    // M11 F7 L11: always_listen is a substrate-level capability switch
+    // (NOT routed through the per-type registry's ``collect`` hook —
+    // registry entries own only type-specific inputs). The toggle lives
+    // in the Session section and is rendered in both create + edit modes;
+    // when the toggle element is present, write its boolean state to
+    // ``config.always_listen`` so the backend's L5 validator persists it.
+    var alwaysListenInputCFD = container.querySelector('[data-field="always_listen"]');
+    if (alwaysListenInputCFD) {
+      config.always_listen = !!alwaysListenInputCFD.checked;
     }
 
     return {

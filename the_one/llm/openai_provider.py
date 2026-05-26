@@ -8,7 +8,15 @@ from typing import Any
 import httpx
 import openai
 
-from the_one.llm.base import LLMProvider, Message, Role, StreamChunk, TokenUsage, ToolCall
+from the_one.llm.base import (
+    LLMProvider,
+    Message,
+    Role,
+    StreamChunk,
+    TokenUsage,
+    ToolCall,
+    build_user_message_content,
+)
 from the_one.llm.registry import register_provider
 
 # Default timeout for openai SDK calls. SDK default is 600s, which means a
@@ -267,7 +275,11 @@ class OpenAIProvider(LLMProvider):
                     for tc in msg.tool_calls
                 ],
             }
-        return {"role": msg.role.value, "content": msg.content}
+        # M11 F7 L4: project peer_name + channel_name as an inline prefix.
+        # The helper handles all four absence variants; legacy back-compat
+        # is preserved when both fields are None (byte-identical payload).
+        # F6 DD §2 audit premise refined: the prefix IS the projection.
+        return {"role": msg.role.value, "content": build_user_message_content(msg)}
 
 
 register_provider("openai", OpenAIProvider)

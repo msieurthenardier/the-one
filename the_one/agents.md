@@ -105,7 +105,7 @@ Pattern is at the 2-occurrence threshold pending a clearer 3rd documented occurr
 
 An optional plugin extension that not every plugin needs to provide is accessed via `getattr(plugin, "<hook_name>", None)` with a sensible fallback at the call site. The Protocol stays at its minimal shape; future plugin authors aren't forced to write no-op stubs. The consumer's exception-catching behavior tolerates plugin-raised exceptions and falls back. Distinct from `protocol-widening-for-required-capability` (see below) which applies when ALL plugins in scope must implement the method. The fallback may be `None` (consult site short-circuits — `display_channel`'s shape) OR a named callable that returns the default outcome (when the default outcome is structured — F6's `_default_permit` returns a `Permit()` instance).
 
-Citations: `the_one/connectors/_session.py:_derive_title` accesses `plugin.display_channel` via `getattr(plugin, "display_channel", None)` with try/except fallback to `envelope.channel_id`; `StubPlugin` implements `display_channel` (`the_one/connectors/_stub.py:display_channel`), other plugins don't need to. F6's `the_one/connectors/_inbound.py:dispatch_inbound` consults `plugin.resolve` via `getattr(plugin, "resolve", _default_permit)` for per-(peer, channel) ACL resolution (`_default_permit` returns a `Permit()` sentinel; `StubPlugin` opts in via `_stub.py:resolve`). F8 L6's `the_one/connectors/_routing.py:_agent_admits` consults `plugin.is_dm` via `getattr(plugin, "is_dm", _default_not_dm)` for the per-agent DMs-only ACL branch in `_acl.py:admits_inbound` / `admits_outbound` (`_default_not_dm` at `the_one/connectors/_acl.py:_default_not_dm` returns False, preserving fail-closed back-compat for plugins without the hook — e.g. the test-only stub; `DiscordPlugin.is_dm` opts in via `the_one/connectors/_discord.py:DiscordPlugin.is_dm`).
+Citations: `the_one/connectors/_session.py:_derive_title` accesses `plugin.display_channel` via `getattr(plugin, "display_channel", None)` with try/except fallback to `envelope.channel_id`; `StubPlugin` implements `display_channel` (`the_one/connectors/_stub.py:display_channel`), other plugins don't need to. F6's `the_one/connectors/_inbound.py:dispatch_inbound` consults `plugin.resolve` via `getattr(plugin, "resolve", _default_permit)` for per-(peer, channel) ACL resolution (`_default_permit` returns a `Permit()` sentinel; `StubPlugin` opts in via `_stub.py:resolve`). F8 L6's `the_one/connectors/_routing.py:_agent_admits` consults `plugin.is_dm` via `getattr(plugin, "is_dm", _default_not_dm)` for the per-agent DMs-only ACL branch in `_acl.py:admits_inbound` / `admits_outbound` (`_default_not_dm` at `the_one/connectors/_acl.py:_default_not_dm` returns False, preserving fail-closed back-compat for plugins without the hook — e.g. the test-only stub; `DiscordPlugin.is_dm` opts in via `the_one/connectors/_discord.py:DiscordPlugin.is_dm`). F7 L1's `the_one/connectors/_inbound.py:dispatch_inbound` policy gate (M11 F7 DD §1 step 3, forthcoming L8 consult site) consults `plugin.is_mention` via `getattr(plugin, "is_mention", _default_no_mention)` for the policy gate's mention short-circuit branch (`_default_no_mention` at `the_one/connectors/_acl.py:_default_no_mention` returns False, preserving the silent-by-default behavior for plugins without a mention concept — e.g. the test-only stub; `DiscordPlugin.is_mention` opts in via `the_one/connectors/_discord.py:DiscordPlugin.is_mention`, reading `envelope.raw["discord_message"]` and checking whether `message.guild.me.id` appears in `message.mentions`).
 
 ### `per-axis-tri-state-override`
 
@@ -126,6 +126,8 @@ Every "mirror X" rationale invoked in a design must include an explicit paragrap
 Applies to any cross-subsystem pattern reuse where the precedent's premise is implicit. Does NOT apply to local refactors within a subsystem — a single-subsystem change can mirror its own siblings without re-deriving the premise.
 
 Citation: `the_one/connectors/_pool.py` — F1 mirrored `mcp/_pool.py`'s per-agent pool keying without re-validating the gateway-protocol-vs-MCP premise mismatch (gateway protocols are one-IDENTIFY-per-token; per-agent keying is incompatible). The mismatch surfaced at F8 L11 HAT seven flights after the original commit; that flight shipped a sentinel-wrapper as a tactical patch. M11 F2 L2 closed the convention's loop by splitting the public API into two semantic primitives: `the_one/connectors/_pool.py:agent_acquire` (MCP-style per-agent keying for the F6 resolver pattern) and `the_one/connectors/_pool.py:account_acquire` (gateway-protocol account-keyed, one entry per account). The proper refactor invoked this convention by name; the citation here documents both the original violation and the eventual resolution.
+
+M11 F7 L4: the F6 DD §2 provider audit pinned "no leak" — peer_name (and forthcoming channel_name) cannot reach LLM payloads because all three adapters explicitly project ``{role, content}``. F7 L4 deliberately refines that premise: peer_name and channel_name DO reach the LLM, but ONLY via an inline-prefix mutation at ``_to_api_message``'s user-role return path; never as separate API-payload keys. The audit-into-design-decision shape from F6 produced the structural guarantee that the new projection now relies on (a single, explicit, code-cited mutation site per adapter); the convention's "premise P holds" check is satisfied by L4's premise-revalidation paragraph in the L4 leg artifact.
 
 Source: M10 mission-debrief "Process §2" — codify `cross-subsystem-pattern-premise-revalidation`; also listed in "Action Items → Codify 6 new agents.md Project Conventions."
 
@@ -287,23 +289,24 @@ Source: M11 F3 flight-debrief "Recommendations §Critical §2" + "What Could Be 
 
 ### `post-step-dispatcher-message-metadata-binding`
 
-When the connector dispatcher must attach metadata to a `Message` that `agent.step` has appended — because the agent loop cannot itself populate the value (mission constraint: agent loop unmodified) or because only the dispatcher knows the value (envelope-scoped fields like `peer_name`, send-result fields, audit-trail metadata) — bind the metadata POST-step by mutating `agent.messages[pre_step_len + N]` inside the existing per-session lock and the existing `try` block that wraps `agent.step`. The pattern composes cleanly with itself: distinct mutators that touch disjoint slices of `messages[pre_step_len:]` (e.g. visibility skipping `Role.USER`, peer_name addressing only `Role.USER`) cannot conflict.
+The connector dispatcher binds metadata to `Message`s that `agent.step` has appended via shared mutators in `the_one/connectors/post_step_metadata.py`. Each mutator handles a value the agent loop cannot itself populate — either because the mission constraint forbids modifying the loop, or because only the dispatcher knows the value (envelope-scoped fields like `peer_name`, channel context, send-result fields, audit-trail metadata). Mutators run inside the existing per-session lock and the existing `try` block that wraps `agent.step`. The pattern composes cleanly with itself: distinct mutators that touch disjoint slices of `messages[pre_step_len:]` (e.g. visibility skipping `Role.USER`, peer_name addressing only `Role.USER`) cannot conflict.
 
 Applies whenever a connector dispatcher needs to attach `Message`-shaped metadata that the agent loop is structurally unaware of. Does NOT apply to metadata derived inside the agent loop itself (tool results, assistant content, usage telemetry — those land via `agent.step`'s normal append flow).
 
-**Composition rules** (n=2):
+**Composition rules** (n=3):
 - Each mutator iterates `messages[pre_step_len:]` (or addresses `pre_step_len + N` directly) — never touches pre-existing history.
 - Mutators must document which `Role`s they touch and which they skip; readers can verify non-overlap by inspection.
-- The mutation site lives inside the existing `session_locks[session_row.id]` lock (`_inbound.py:590`) and inside the existing `try` block (`_inbound.py:620`) so concurrency + exception-path semantics are inherited from the surrounding scaffolding.
+- The mutation site lives inside the existing `session_locks[session_row.id]` lock and inside the existing `try` block in `the_one/connectors/_inbound.py:dispatch_inbound`, so concurrency + exception-path semantics are inherited from the surrounding scaffolding.
 - A defensive runtime `assert` documents any single-message invariant the mutator relies on (e.g. `assert agent.messages[pre_step_len].role == Role.USER`); pair with a regular unit test that pins the same invariant so it survives `python -O`.
 
-Citations (n=2 — pattern is at codification threshold per `function-local-import-to-break-load-cycle` precedent):
-- `the_one/connectors/visibility.py:tag_post_step_visibility` (M10 F4 L4) — visibility tagging on non-USER messages; skips `Role.USER` (line 60).
-- `the_one/connectors/_inbound.py:663` (M11 F6 L3) — peer_name binding on the appended USER message; addresses `agent.messages[pre_step_len]` directly.
+Citations (n=3):
+- `the_one/connectors/post_step_metadata.py:tag_post_step_visibility` (M10 F4 L4; relocated F7 L1) — visibility tagging on non-`Role.USER` messages; skips `Role.USER`.
+- `the_one/connectors/post_step_metadata.py:bind_peer_name` (M11 F6 L3; extracted F7 L1) — peer_name binding on the appended `Role.USER` message at `messages[pre_step_len]`; touches `Role.USER` exclusively.
+- `the_one/connectors/post_step_metadata.py:bind_channel_context` (M11 F7 L3) — channel_name + channel_id binding on the appended `Role.USER` message; addresses `messages[pre_step_len]` directly. `channel_id` always bound from envelope; `channel_name` resolved from the F3 L4 discoverable-entities cache and bound when found (`None` otherwise).
 
-When n=3 is reached (e.g. a future connector adds a third metadata-binding surface), lift the mutators into a shared `connectors/post_step_metadata.py` module that exports each function with a documented composition contract.
+Lifted at F7 L1; the module is the home for all post-step mutators. New mutators land here; the composition contract above governs Role-touch / Role-skip non-overlap.
 
-Source: M11 F6 flight-debrief "Recommendations §Critical §2" + "Key Learnings §2" + Architect interview "Forward-Looking §1."
+Source: M11 F6 flight-debrief "Recommendations §Critical §2" + "Key Learnings §2" + Architect interview "Forward-Looking §1"; F7 L1 lifted the inline mutators per the n=3 trigger codified by this convention.
 
 ### `message-additive-back-compat-via-emit-when-non-none`
 
@@ -329,10 +332,12 @@ def message_from_dict(d: dict[str, Any]) -> Message:
 
 Use `is not None` for the emit guard, NOT truthy (`if msg.<new_field>:`). Empty strings, zero counts, and other falsy-but-meaningful values must round-trip; the absence sentinel is `None` and only `None`.
 
-Citations (n=3 — pattern is well past codification threshold):
+Citations (n=5 — pattern is well past codification threshold):
 - `tool_result.metadata` (M08 F7 L05 / F5 L3) — `the_one/db/codec.py:45` (`if tr.metadata is not None`).
-- `Message.visibility` (M10 F3 L2) — `the_one/db/codec.py:66, 100` (encode + decode).
-- `Message.peer_name` (M11 F6 L1) — `the_one/db/codec.py:72, 108` (encode + decode).
+- `Message.visibility` (M10 F3 L2) — `the_one/db/codec.py:66, 117` (encode + decode).
+- `Message.peer_name` (M11 F6 L1) — `the_one/db/codec.py:72, 119` (encode + decode).
+- `Message.channel_id` (M11 F7 L2) — `the_one/db/codec.py:78, 121` (encode + decode).
+- `Message.channel_name` (M11 F7 L2) — `the_one/db/codec.py:84, 123` (encode + decode).
 
 Cross-cutting compose test (`tests/test_db_codec.py::TestMessagePeerNameCodec::test_round_trip_with_peer_name_and_visibility`) confirms multiple emit-when-non-None fields compose without interference — each is independently emitted/decoded against its own None default.
 

@@ -195,15 +195,14 @@ class ConnectorAccount(BaseModel):
         The reserved keys are ``"pairing"`` (DM-pairing state),
         ``"allowlist"`` (account-scope peer/channel admission),
         ``"routing"`` (M10 F7: account-scope per-channel agent selection),
-        and ``"auto_relay_platform_replies"`` (M10 F8 L11 HAT Fix #4:
-        opt-in default-on mechanical relay of agent plaintext replies to
-        the platform). Each is OPTIONAL — when absent, the consumer
-        applies its own default (permit for ``pairing`` / ``allowlist`` /
-        ``routing`` via ``_default_permit`` at
-        ``the_one/connectors/base.py``; TRUE for
-        ``auto_relay_platform_replies`` at the dispatcher consume site).
-        All other top-level keys in ``config`` pass through unchanged —
-        the F1 promise that ``config`` is schema-loose remains intact.
+        and ``"always_listen"`` (M11 F7 L5: account-level capability
+        switch — master gate for the inference path; default False).
+        Each is OPTIONAL — when absent, the consumer applies its own
+        default (permit for ``pairing`` / ``allowlist`` / ``routing`` via
+        ``_default_permit`` at ``the_one/connectors/base.py``; FALSE for
+        ``always_listen`` at the policy-gate consume site). All other
+        top-level keys in ``config`` pass through unchanged — the F1
+        promise that ``config`` is schema-loose remains intact.
 
         Shape contracts (raise ``ValueError`` on violation):
 
@@ -419,21 +418,30 @@ class ConnectorAccount(BaseModel):
                     "non-empty string"
                 )
 
-        # M10 F8 L11 HAT Fix #4 — ``auto_relay_platform_replies``:
-        # optional bool. Absent → consume-time default-True (the
-        # dispatcher reads ``account.config.get(
-        # "auto_relay_platform_replies", True)``). Present → must be a
-        # bool; anything else (including int 0/1, "yes"/"no") is
-        # rejected so the operator can't accidentally smuggle truthy /
-        # falsy non-bools through the kv-table editor path.
-        if "auto_relay_platform_replies" in value:
-            auto_relay = value["auto_relay_platform_replies"]
-            if not isinstance(auto_relay, bool):
+        # M11 F7 L5 — ``always_listen``: optional bool. Absent →
+        # consume-time default-False (the policy gate at
+        # ``_inbound.py`` reads ``account.config.get("always_listen", False)``).
+        # Present → must be a bool; non-bool values rejected so the
+        # operator can't accidentally smuggle truthy/falsy non-bools
+        # through the kv-table editor path.
+        if "always_listen" in value:
+            always_listen = value["always_listen"]
+            if not isinstance(always_listen, bool):
                 raise ValueError(
-                    "config['auto_relay_platform_replies'] must be a bool "
+                    "config['always_listen'] must be a bool "
                     "(True or False) when present; absent is treated as "
-                    "default-True at consume time"
+                    "default-False at consume time"
                 )
+
+        # M11 F7 L5 — strip the legacy ``auto_relay_platform_replies``
+        # key on every validate cycle. Existing rows with the key
+        # continue to load (the reserved-keys validator above does
+        # not touch it on read), but the first save after L5 lands
+        # cleans the dict so persisted rows converge to the new
+        # shape. Auto-relay became invariant in F7; the key carries
+        # no useful information and is removed from the public
+        # contract.
+        value.pop("auto_relay_platform_replies", None)
 
         return value
 

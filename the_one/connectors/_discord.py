@@ -64,6 +64,7 @@ from the_one.connectors.base import (
     DiscoverableEntities,
     DiscoverableEntity,
     DoctorReport,
+    FetchedMessage,
     InboundEnvelope,
     OutboundTarget,
     SendResult,
@@ -1615,6 +1616,51 @@ class DiscordPlugin:
         """
         return bool(envelope.raw.get("is_dm", False))
 
+    def is_mention(self, envelope: InboundEnvelope) -> bool:
+        """Return True if the bot is @mentioned in the inbound channel message.
+
+        Reads the raw :class:`discord.Message` from
+        ``envelope.raw["discord_message"]`` (populated by L4's
+        :func:`the_one.connectors._discord_translate._translate_discord_message_to_envelope`)
+        and checks whether the bot's user id (resolved via
+        ``message.guild.me.id`` for guild messages — the plugin is
+        stateless, the per-guild Member object carries the bot's id)
+        appears in ``message.mentions``.
+
+        Defensive:
+
+        - Missing ``discord_message`` key → False (malformed envelope;
+          should not occur in practice because the SDK contract is
+          enforced by the translator, not by the type system).
+        - Missing ``guild`` or ``guild.me`` → False (DM channels lack
+          a guild; the F7 policy gate short-circuits ``is_dm`` at
+          decision-tree step 1 before consulting ``is_mention``, so
+          this fallback only fires for malformed DMs or for guild
+          messages where the per-guild Member has not yet synced).
+
+        Consumed at the F7 policy-gate consult site
+        (:func:`the_one.connectors._inbound.dispatch_inbound`,
+        forthcoming at L8) via the
+        ``optional-plugin-hook-via-getattr-sentinel`` convention; the
+        sentinel default
+        (:func:`the_one.connectors._acl._default_no_mention`) returns
+        ``False`` for plugins without this hook (e.g. the test-only
+        stub plugin), preserving the silent-by-default branch.
+        """
+        raw_msg = envelope.raw.get("discord_message")
+        if raw_msg is None:
+            return False
+        guild = getattr(raw_msg, "guild", None)
+        if guild is None:
+            return False
+        me = getattr(guild, "me", None)
+        if me is None:
+            return False
+        bot_id = me.id
+        return any(
+            getattr(user, "id", None) == bot_id for user in raw_msg.mentions
+        )
+
     async def handle_command(
         self,
         envelope: InboundEnvelope,
@@ -1776,6 +1822,115 @@ class DiscordPlugin:
             roles=roles,
             fetched_at=datetime.now(UTC).isoformat(),
         )
+
+    async def fetch_history(
+        self,
+        client: ConnectorClient,
+        channel_id: str,
+        thread_id: str | None,
+        limit: int,
+    ) -> list[FetchedMessage]:
+        """Fetch recent messages from a channel or thread.
+
+        OPTIONAL plugin hook (M11 F7 L10) — discovered by the
+        :class:`the_one.tools.connector_history.FetchChannelHistoryTool`
+        and :class:`the_one.tools.connector_history.FetchThreadHistoryTool`
+        via ``getattr(plugin, "fetch_history", None)`` with ``None`` as
+        the fallback sentinel per ``agents.md``
+        ``optional-plugin-hook-via-getattr-sentinel``. The hook is NOT
+        declared on the :class:`ConnectorPlugin` Protocol; plugins opt
+        in by exposing the method.
+
+        Resolution ladder:
+
+        1. When ``thread_id`` is set, resolve the thread via
+           ``client._client.get_channel(int(thread_id))`` — Discord's
+           SDK exposes threads through the same ``get_channel`` cache
+           as channels.
+        2. Otherwise resolve the channel via
+           ``client._client.get_channel(int(channel_id))``.
+
+        Returns an empty list when the destination cannot be resolved
+        (cache miss; deleted channel; thread cleaned up). The L10
+        tool's try/except envelope catches SDK-raised exceptions
+        propagated from this method.
+        """
+        discord_client = cast(DiscordClient, client)._client
+        target_id = thread_id if thread_id else channel_id
+        try:
+            destination = discord_client.get_channel(int(target_id))
+        except (TypeError, ValueError):
+            return []
+        if destination is None:
+            return []
+
+        history_iter = destination.history(limit=limit)
+        messages: list[FetchedMessage] = []
+        async for msg in history_iter:
+            msg_thread = getattr(msg, "thread", None)
+            messages.append(
+                FetchedMessage(
+                    peer_id=str(msg.author.id),
+                    peer_name=getattr(
+                        msg.author, "display_name", msg.author.name
+                    ),
+                    content=msg.content,
+                    ts=msg.created_at.isoformat(),
+                    thread_id=str(msg_thread.id) if msg_thread else None,
+                )
+            )
+        return messages
+
+    async def fetch_dm_history(
+        self,
+        client: ConnectorClient,
+        peer_id: str,
+        limit: int,
+    ) -> list[FetchedMessage]:
+        """Fetch recent messages from the DM with ``peer_id``.
+
+        OPTIONAL plugin hook (M11 F7 L10) — discovered by
+        :class:`the_one.tools.connector_history.FetchDmHistoryTool`
+        via ``getattr(plugin, "fetch_dm_history", None)`` with ``None``
+        as the fallback sentinel.
+
+        Resolves the :class:`discord.User` via the SDK
+        (``fetch_user`` makes a REST GET if the user isn't cached),
+        opens the DM channel via ``user.create_dm()`` (idempotent; the
+        SDK returns the existing DM if one is open), and iterates
+        ``.history(limit=limit)``. ``thread_id`` on the returned
+        :class:`FetchedMessage` entries is always ``None`` — DMs do
+        not carry the thread concept on Discord.
+
+        Returns an empty list if the user resolution returns ``None``
+        (deleted account; unreachable user). SDK-raised exceptions
+        propagate to the caller — the L10 tool wraps them in an
+        error-envelope dict.
+        """
+        discord_client = cast(DiscordClient, client)._client
+        try:
+            user = await discord_client.fetch_user(int(peer_id))
+        except (TypeError, ValueError):
+            return []
+        if user is None:
+            return []
+
+        dm_channel = await user.create_dm()
+        history_iter = dm_channel.history(limit=limit)
+        messages: list[FetchedMessage] = []
+        async for msg in history_iter:
+            messages.append(
+                FetchedMessage(
+                    peer_id=str(msg.author.id),
+                    peer_name=getattr(
+                        msg.author, "display_name", msg.author.name
+                    ),
+                    content=msg.content,
+                    ts=msg.created_at.isoformat(),
+                    thread_id=None,
+                )
+            )
+        return messages
 
     def normalize_session_key(self, inbound: InboundEnvelope) -> SessionKey:
         """Build the canonical :class:`SessionKey` for ``inbound``.

@@ -533,6 +533,149 @@ class TestMessagePeerNameCodec:
         assert rt[0].visibility == "operator"
 
 
+# ---------------------------------------------------------------------------
+# M11 F07 L02 — Message.channel_id round-trip
+# ---------------------------------------------------------------------------
+
+
+class TestMessageChannelIdCodec:
+    """``Message.channel_id`` round-trips through ``message_to_dict`` ↔
+    ``message_from_dict``: the key is emitted only when non-None,
+    deserialization defaults to None when the key is absent (back-compat
+    with every pre-F7 session row). Mirrors ``TestMessagePeerNameCodec``.
+    """
+
+    def test_full_round_trip_with_channel_id(self) -> None:
+        msgs = [Message.user("hi", channel_id="123456789")]
+        rt = decode_messages(encode_messages(msgs))
+        assert rt[0].channel_id == "123456789"
+
+    def test_message_from_dict_back_compat_no_channel_id_key(self) -> None:
+        """Pre-F7 JSON had no channel_id key — deserialize must default to None."""
+        d = {"role": "user", "content": "hi"}
+        msg = message_from_dict(d)
+        assert msg.channel_id is None
+
+    def test_message_user_default_channel_id_is_none(self) -> None:
+        """``Message.user`` defaults channel_id to None (kwarg-only contract).
+
+        L3's dispatcher binding relies on this default — it constructs the
+        user Message without channel_id then post-step-mutates it via
+        ``bind_channel_context``. Breaking the default to a sentinel would
+        change the codec's emit-when-non-None shape for every user turn.
+        """
+        assert Message.user("hi").channel_id is None
+
+    def test_round_trip_with_channel_id_and_peer_name(self) -> None:
+        """Both optional fields compose: channel_id and peer_name round-trip
+        independently (cross-cutting back-compat check — neither field
+        interferes with the other's encode/decode site).
+        """
+        msgs = [Message.user("hi", channel_id="123456789", peer_name="alice")]
+        rt = decode_messages(encode_messages(msgs))
+        assert rt[0].channel_id == "123456789"
+        assert rt[0].peer_name == "alice"
+
+
+# ---------------------------------------------------------------------------
+# M11 F07 L02 — Message.channel_name round-trip
+# ---------------------------------------------------------------------------
+
+
+class TestMessageChannelNameCodec:
+    """``Message.channel_name`` round-trips through ``message_to_dict`` ↔
+    ``message_from_dict``: the key is emitted only when non-None,
+    deserialization defaults to None when the key is absent (back-compat
+    with every pre-F7 session row). Mirrors ``TestMessagePeerNameCodec``.
+    """
+
+    def test_full_round_trip_with_channel_name(self) -> None:
+        msgs = [Message.user("hi", channel_name="general")]
+        rt = decode_messages(encode_messages(msgs))
+        assert rt[0].channel_name == "general"
+
+    def test_message_from_dict_back_compat_no_channel_name_key(self) -> None:
+        """Pre-F7 JSON had no channel_name key — deserialize must default to None."""
+        d = {"role": "user", "content": "hi"}
+        msg = message_from_dict(d)
+        assert msg.channel_name is None
+
+    def test_message_user_default_channel_name_is_none(self) -> None:
+        """``Message.user`` defaults channel_name to None (kwarg-only contract).
+
+        L3's dispatcher binding relies on this default — it constructs the
+        user Message without channel_name then post-step-mutates it via
+        ``bind_channel_context``. Breaking the default to a sentinel would
+        change the codec's emit-when-non-None shape for every user turn.
+        """
+        assert Message.user("hi").channel_name is None
+
+    def test_round_trip_with_channel_name_and_peer_name(self) -> None:
+        """Both optional fields compose: channel_name and peer_name round-trip
+        independently (cross-cutting back-compat check — neither field
+        interferes with the other's encode/decode site).
+        """
+        msgs = [Message.user("hi", channel_name="general", peer_name="alice")]
+        rt = decode_messages(encode_messages(msgs))
+        assert rt[0].channel_name == "general"
+        assert rt[0].peer_name == "alice"
+
+
+# ---------------------------------------------------------------------------
+# M11 F07 L02 — channel-context composition (channel_id + channel_name
+# alongside peer_name and visibility)
+# ---------------------------------------------------------------------------
+
+
+class TestMessageChannelContextCompositionCodec:
+    """Cross-cutting composition tests: all four optional Message fields
+    (visibility, peer_name, channel_id, channel_name) follow the
+    ``message-additive-back-compat-via-emit-when-non-none`` convention and
+    must each independently emit-when-non-None and decode-with-default
+    without interference from the others.
+    """
+
+    def test_round_trip_with_all_optional_fields(self) -> None:
+        """All four optional fields round-trip independently when set."""
+        msgs = [
+            Message.user(
+                "hi",
+                visibility="operator",
+                peer_name="alice",
+                channel_id="123456789",
+                channel_name="general",
+            )
+        ]
+        rt = decode_messages(encode_messages(msgs))
+        assert rt[0].visibility == "operator"
+        assert rt[0].peer_name == "alice"
+        assert rt[0].channel_id == "123456789"
+        assert rt[0].channel_name == "general"
+
+    def test_encode_emits_no_keys_when_all_optional_fields_default(self) -> None:
+        """A default ``Message.user("hi")`` encodes to ``{"role", "content"}``
+        only — no optional keys (visibility, peer_name, channel_id,
+        channel_name) appear when each is at its None default.
+
+        This pins the back-compat invariant globally for the
+        ``message-additive-back-compat-via-emit-when-non-none`` convention:
+        a Message with no optional fields set encodes byte-identical to
+        pre-M10-F3 (and pre-M11-F6, and pre-M11-F7) rows.
+
+        TRIPWIRE: any new optional Message field added via the
+        ``message-additive-back-compat-via-emit-when-non-none`` convention
+        MUST update this expected-key-list in the same edit that bumps
+        the ``n=N`` citation count in ``the_one/agents.md``. Do NOT
+        "fix" the failing test by adding the new field to the expected
+        list silently — that defeats the back-compat tripwire. The
+        intentional coupling between this test and the convention's
+        citation count is what keeps the tripwire load-bearing.
+        """
+        msg = Message.user("hi")
+        d = message_to_dict(msg)
+        assert sorted(d.keys()) == ["content", "role"]
+
+
 class TestMessagesToUiEventsVisibility:
     """``messages_to_ui_events`` projects ``visibility`` into every event
     derived from a tagged Message — across all four event branches (user,
@@ -707,6 +850,83 @@ class TestMessagesToUiEventsPeerName:
         assert "visibility" not in events[1]
         assert events[2]["peer_name"] == "alice"
         assert events[2]["visibility"] == "operator"
+
+
+# ---------------------------------------------------------------------------
+# M11 F07 L03 — channel_id + channel_name UI-event projection
+# ---------------------------------------------------------------------------
+
+
+class TestMessagesToUiEventsChannelContext:
+    """``messages_to_ui_events`` projects ``channel_id`` and ``channel_name``
+    ONLY onto user-role events. Assistant/tool branches are unaffected —
+    channel context is meaningful only on connector-inbound user-role
+    messages, and the projection's per-branch spread is gated to USER.
+    Composes cleanly with the visibility and peer_name projections — all
+    four keys spread independently from per-message dicts.
+
+    The codec is the single projection site that covers BOTH replay (via
+    ``_restore_session``) AND live broadcast (via the dispatcher's
+    ``broadcast_to_session`` loop after persistence). Pinning the
+    projection behavior here is therefore the load-bearing test for
+    both paths.
+    """
+
+    def test_messages_to_ui_events_projects_channel_id_on_user_event(
+        self,
+    ) -> None:
+        msgs = [Message.user("hi", channel_id="C123")]
+        events = messages_to_ui_events(msgs)
+        assert events[0]["channel_id"] == "C123"
+
+    def test_messages_to_ui_events_projects_channel_name_on_user_event(
+        self,
+    ) -> None:
+        msgs = [Message.user("hi", channel_name="general")]
+        events = messages_to_ui_events(msgs)
+        assert events[0]["channel_name"] == "general"
+
+    def test_messages_to_ui_events_omits_channel_keys_when_none(self) -> None:
+        """No channel context set → no ``channel_id`` / ``channel_name``
+        keys in the event payload (mirror of the visibility / peer_name
+        emit-when-non-None convention).
+        """
+        msgs = [Message.user("hi")]
+        events = messages_to_ui_events(msgs)
+        assert "channel_id" not in events[0]
+        assert "channel_name" not in events[0]
+
+    def test_messages_to_ui_events_does_not_project_channel_on_assistant_or_tool_events(
+        self,
+    ) -> None:
+        """Even if a non-USER message somehow has channel fields populated
+        (the dispatcher never does this — but the projection MUST be
+        gated defensively against drift), the projection MUST NOT emit
+        ``channel_id`` or ``channel_name`` onto assistant/tool events.
+        """
+        # Direct constructor — paranoia: channel fields on non-USER
+        # messages should not propagate through the projection.
+        msgs = [
+            Message(
+                role=Role.ASSISTANT,
+                content="reply",
+                channel_id="C123",
+                channel_name="general",
+            ),
+            Message(
+                role=Role.TOOL,
+                content="done",
+                tool_result=ToolResult(tool_call_id="tc-1", content="done"),
+                channel_id="C123",
+                channel_name="general",
+            ),
+        ]
+        events = messages_to_ui_events(msgs)
+        # Two events: one assistant + one tool_result.
+        for event in events:
+            assert event["type"] in ("assistant", "tool_result")
+            assert "channel_id" not in event
+            assert "channel_name" not in event
 
 
 class TestMessageVisibilityClassmethodKwargs:

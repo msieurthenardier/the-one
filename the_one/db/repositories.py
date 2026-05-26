@@ -124,8 +124,9 @@ class SQLiteAgentStore:
                 name, description, provider_config_id, llm_model,
                 system_prompt, enabled_tools, disabled_tools, max_iterations,
                 kb_ids, mcp_source_ids, tool_overrides, mcp_overrides,
-                connector_account_ids, connector_acls, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                connector_account_ids, connector_acls,
+                connector_always_listen, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(name) DO UPDATE SET
                 description=excluded.description,
                 provider_config_id=excluded.provider_config_id,
@@ -140,6 +141,7 @@ class SQLiteAgentStore:
                 mcp_overrides=excluded.mcp_overrides,
                 connector_account_ids=excluded.connector_account_ids,
                 connector_acls=excluded.connector_acls,
+                connector_always_listen=excluded.connector_always_listen,
                 updated_at=excluded.updated_at
             """,
             (
@@ -157,6 +159,7 @@ class SQLiteAgentStore:
                 json.dumps(config.mcp_overrides) if config.mcp_overrides is not None else None,
                 json.dumps(config.connector_account_ids),
                 json.dumps(config.connector_acls) if config.connector_acls is not None else None,
+                json.dumps(config.connector_always_listen) if config.connector_always_listen is not None else None,
                 now,
                 now,
             ),
@@ -245,6 +248,16 @@ class SQLiteAgentStore:
             # verbatim — see the empty-outer-dict round-trip test). The
             # truthiness mirrors `tool_overrides` / `mcp_overrides` above.
             connector_acls=(json.loads(row["connector_acls"]) if row["connector_acls"] else None),
+            # M11 F7 L6: per-agent always_listen toggle. NULL (pre-v20 rows
+            # AND default for agents without per-agent overrides) decodes
+            # to None, distinguishing it from `{}` (an agent that was
+            # edited then had all toggles removed). Truthiness mirrors
+            # `connector_acls` above.
+            connector_always_listen=(
+                json.loads(row["connector_always_listen"])
+                if row["connector_always_listen"]
+                else None
+            ),
         )
 
 

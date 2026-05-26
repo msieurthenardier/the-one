@@ -51,59 +51,57 @@ to direct, concise responses.
 """
 
 
-# ── Connector system-prompt directives (M11 F5 L6 HAT round-8) ────────
+# ── Connector system-prompt directive (M11 F7 L9) ─────────────────────
 #
-# Two directives, dispatched on a single boolean (``auto_relay``):
-# - ``_CONNECTOR_AUTO_RELAY_DIRECTIVE`` — auto-relay ON
-# - ``_CONNECTOR_AUTO_RELAY_OFF_DIRECTIVE`` — auto-relay OFF
+# A single directive is appended whenever the agent is attached to a
+# connector account. F7 made auto-relay an invariant of engaged turns
+# (mentions, DMs, ``/talk_to`` redirects, or inference-yes turns reach
+# the agent; everything else is silenced upstream by the L8 policy
+# gate). The pre-F7 OFF directive (and the ``auto_relay`` kwarg that
+# selected it) was deleted in this leg — there is no longer an OFF
+# state to describe.
 #
-# The pre-round-8 third directive (``_CONNECTOR_TOOL_DISABLED_DIRECTIVE``,
-# for the "tool disabled + auto-relay irrelevant" case) was removed.
-# When the ``send_to_platform_channel`` tool is disabled at the operator
-# level, the LLM cannot call it regardless of any prompt directive — so
-# the OFF directive is sufficient. The OFF wording uses the hedge
-# "if the ``send_to_platform_channel`` tool is available" so it stays
-# true whether the tool is enabled or not.
+# The directive forward-references L10's history tools
+# (``fetch_channel_history`` / ``fetch_thread_history`` /
+# ``fetch_dm_history`` / ``list_visible_channels``) with "if available"
+# hedging so the prompt stays truthful both pre-L10 (tools not yet
+# registered → "tool not available" on call) and post-L10 (tools
+# registered → calls succeed). This matches the pre-F7 OFF directive's
+# hedging pattern around ``send_to_platform_channel``.
 #
-# KEEP IN SYNC WITH JS twins in
+# KEEP IN SYNC WITH JS twin in
 # ``the_one/interfaces/web/static/js/areas/studio/connector-account-editor.js``
-# (the Session-section codeblock renders these verbatim). Edits to
-# either set MUST land in the same atomic diff.
+# only if a Session-section codeblock surface re-emerges; L5 removed
+# all four JS sites that mirrored the pre-F7 directives. Python is the
+# sole source of truth post-L9.
 
 _CONNECTOR_AUTO_RELAY_DIRECTIVE = (
     "This conversation is attached to a connector account on an external "
-    "platform (Discord, Slack, etc.). Auto-relay is ON: your plaintext "
-    "replies in this session ARE automatically delivered to platform peers "
-    "— treat the conversation as the platform conversation itself. Do NOT "
-    "ask the operator for permission to respond on the platform; do NOT "
-    "narrate that you're 'using send_to_platform_channel'; just reply "
-    "naturally as you would in any chat. Messages tagged "
-    "``visibility=\"platform\"`` in the history came from platform peers; "
-    "messages tagged ``visibility=\"operator\"`` came from the operator's "
-    "private local Chat console (operator-only — these are NOT relayed). "
-    "If you need to send a message to a different channel or thread on "
-    "the platform (not the current channel), use the "
+    "platform (Discord, Slack, etc.). You only see messages the system "
+    "has decided to engage you on — direct messages, mentions of you, "
+    "explicit ``/talk_to`` redirects from peers, or messages a "
+    "lightweight inference pre-step decided are worth your response "
+    "(the operator can configure this per-account). Messages the "
+    "inference step silenced never reach you and are intentionally "
+    "invisible.\n\n"
+    "Auto-relay is on: your plaintext replies in this session ARE "
+    "automatically delivered to platform peers — treat the conversation "
+    "as the platform conversation itself. Do NOT ask the operator for "
+    "permission to respond on the platform; do NOT narrate that you're "
+    "'using send_to_platform_channel'; just reply naturally as you "
+    "would in any chat. Messages tagged ``visibility=\"platform\"`` in "
+    "the history came from platform peers; messages tagged "
+    "``visibility=\"operator\"`` came from the operator's private "
+    "local Chat console (operator-only — these are NOT relayed).\n\n"
+    "If you need recent channel context beyond what's in this session "
+    "(e.g. catching up after a silent stretch), use the "
+    "``fetch_channel_history`` / ``fetch_thread_history`` / "
+    "``fetch_dm_history`` tools if available. Use "
+    "``list_visible_channels`` to discover which channels and peers "
+    "you can read. If you need to send a message to a different "
+    "channel or thread on the platform (not the current one), use the "
     "``send_to_platform_channel`` tool explicitly with a target "
-    "specifying that destination."
-)
-
-_CONNECTOR_AUTO_RELAY_OFF_DIRECTIVE = (
-    "This conversation is attached to a connector account on an external "
-    "platform (Discord, Slack, etc.). Auto-relay is OFF: your plaintext "
-    "replies in this session reach the operator's private local Chat "
-    "console only — they are NOT delivered to platform peers. Messages "
-    "tagged ``visibility=\"platform\"`` in the history came from platform "
-    "peers; messages tagged ``visibility=\"operator\"`` came from the "
-    "operator's private local Chat console. When a platform-peer message "
-    "needs a response on the platform, you MUST call the "
-    "``send_to_platform_channel`` tool (if the "
-    "``send_to_platform_channel`` tool is available) to deliver your "
-    "reply to peers — the tool takes a target (account_id, channel_id, "
-    "and optional thread_id) plus content; use the account_id and "
-    "channel_id from the platform-inbound message you're replying to. If "
-    "the ``send_to_platform_channel`` tool is not available, your "
-    "replies cannot reach the platform — do not claim to have sent "
-    "anything to it."
+    "specifying the destination."
 )
 
 
@@ -113,7 +111,6 @@ def compose_system_prompt(
     *,
     connector_attached: bool = False,
     send_tool_enabled: bool = False,
-    auto_relay: bool = True,
 ) -> str:
     """Compose the agent's system prompt.
 
@@ -126,44 +123,31 @@ def compose_system_prompt(
     checks) pass ``connector_attached=False`` and receive byte-identical
     output to the pre-F4 ``{base}\\n\\n---\\n\\n{persona}`` shape.
 
-    M11 F5 L6 HAT round-8: the directive surface was simplified to two
-    defaults, dispatched on a single boolean. The pre-round-8 surface
-    had THREE defaults (auto-relay ON, auto-relay OFF + tool enabled,
-    tool disabled) AND an operator-editable per-account override; both
-    were removed. The OFF directive now uses an "if available" hedge
-    around the ``send_to_platform_channel`` tool so it stays correct
-    whether the tool is enabled or disabled — when disabled, the LLM
-    cannot call it regardless of the prompt directive, so a dedicated
-    third directive added complexity without behavioral payoff. Mission
-    M11 criterion #14 ("operator-editable system-prompt directive per
-    connector account") was REVERTED in this round; substrate defaults
-    are used universally.
+    M11 F7 L9: the directive surface collapsed to a single directive.
+    F7 made auto-relay an invariant of engaged turns — the L8 policy
+    gate (mentions, DMs, ``/talk_to``, or inference-yes) silences
+    everything else upstream, so the LLM never sees a turn it shouldn't
+    relay on. The pre-F7 OFF directive and the ``auto_relay`` kwarg
+    that selected it were both deleted here; the surviving directive
+    is unconditionally appended whenever ``connector_attached=True``.
+    It forward-references L10's history tools
+    (``fetch_channel_history`` etc.) with "if available" hedging so it
+    stays truthful pre-L10 and post-L10.
 
-    The connector-aware path inserts a directive between ``base`` and
-    the persona separator:
-    - ``connector_attached AND auto_relay`` →
-      :data:`_CONNECTOR_AUTO_RELAY_DIRECTIVE` (informs the agent that
-      its plaintext replies ARE the platform reply by default; do not
-      ask permission to respond on the platform).
-    - ``connector_attached AND NOT auto_relay`` →
-      :data:`_CONNECTOR_AUTO_RELAY_OFF_DIRECTIVE` (instructs the agent
-      to call ``send_to_platform_channel`` if available; otherwise its
-      replies stay local).
-
-    The ``send_tool_enabled`` parameter is retained in the signature
-    for callers (notably the factory) that compute it for unrelated
-    purposes (e.g. the F10 carve-out for pre-loading the send tool's
-    schema), but it is NO LONGER used in directive selection — the
-    OFF directive's "if available" hedge covers both tool-enabled and
-    tool-disabled cases. Removing the parameter would require touching
-    every caller; keeping it as a no-op kwarg preserves call shape.
+    ``send_tool_enabled`` is RETAINED IN THE SIGNATURE BUT NOT
+    CONSULTED in directive selection — the directive is now
+    unconditional when ``connector_attached=True``. The factory still
+    computes ``send_tool_enabled`` for unrelated purposes (the F10
+    carve-out that pre-loads the send tool's schema into the agent's
+    visible-schema set); keeping the kwarg avoids churning the
+    factory call site for a no-op semantic change. The new directive's
+    wording covers both tool-enabled and tool-disabled cases via the
+    explicit ``send_to_platform_channel`` mention — when the tool is
+    disabled, the LLM cannot call it regardless of the prompt.
     """
     parts = [base]
     if connector_attached:
-        if auto_relay:
-            parts.append(_CONNECTOR_AUTO_RELAY_DIRECTIVE)
-        else:
-            parts.append(_CONNECTOR_AUTO_RELAY_OFF_DIRECTIVE)
+        parts.append(_CONNECTOR_AUTO_RELAY_DIRECTIVE)
     if persona:
         parts.append("---")
         parts.append(persona)
@@ -245,6 +229,33 @@ class AgentConfig(BaseModel):
     # rationale as ``tool_overrides`` and ``mcp_overrides`` above.
     connector_acls: dict[str, dict[str, list[str] | None]] | None = None
 
+    # M11 F7 L6: per-agent ``always_listen`` toggle keyed by account_id.
+    # Shape: ``{account_id: bool}``. ``True`` means the agent listens to
+    # all messages on that account (bypassing the F7 default mentions-only
+    # gate); ``False`` (or absent) means the agent stays mentions-only on
+    # that account.
+    #
+    # Precondition (set by M11 F7 L5): the account-level
+    # ``ConnectorAccount.config["always_listen"]`` is the master gate. A
+    # per-agent ``True`` here is structurally inert when the account-level
+    # switch is False — the L8 policy-gate consult site checks account
+    # first and short-circuits. The validator does NOT enforce this
+    # composition; per Flight DD §8, "accept-and-document is the lighter
+    # discipline."
+    #
+    # ``None`` (field default) and ``{}`` are both valid (no per-agent
+    # override). ``None`` decodes from NULL DB rows (pre-v20 agents AND
+    # new agents without per-agent overrides); ``{}`` decodes from
+    # ``"{}"`` JSON (an agent that was edited then had all toggles
+    # removed). Both have the same runtime semantic; the codec preserves
+    # the distinction for round-trip fidelity (mirrors ``connector_acls``).
+    #
+    # L8 consult pattern (per the leg DD): absent account_id → False
+    # (the per-agent default). Read site mirrors the L5 account-level
+    # read: ``config.connector_always_listen.get(account_id, False) if
+    # config.connector_always_listen else False``.
+    connector_always_listen: dict[str, bool] | None = None
+
     # Behavior
     max_iterations: int = 20
 
@@ -310,6 +321,43 @@ class AgentConfig(BaseModel):
                 )
         return value
 
+    @field_validator("connector_always_listen", mode="after")
+    @classmethod
+    def _validate_connector_always_listen(
+        cls, value: dict[str, bool] | None
+    ) -> dict[str, bool] | None:
+        """Enforce inner-value bool invariants on the per-agent toggle dict.
+
+        Shape contract: outer keys are account_id strings (enforced by the
+        ``dict[str, bool]`` annotation; Pydantic v2 coerces or rejects
+        non-str keys before the validator runs). Inner values must be bools
+        — defensively enforced here against truthy-but-non-bool smuggling
+        through the kv-table or raw-JSON edit paths.
+
+        Runtime semantic (NOT validator-enforced — composition happens at
+        the L8 policy-gate consult site):
+        - The account-level ``always_listen`` switch (L5) is the master
+          gate; per-agent True is structurally inert when account-level
+          is False (the account check short-circuits).
+        - Absent account_id in the dict → False (the per-agent default).
+        - Explicit False is equivalent to absent and round-trips as-is so
+          the codec preserves the operator's intent.
+
+        Per Flight DD §8: "accept-and-document is the lighter discipline"
+        — the validator does NOT reject inconsistent (per-agent True +
+        account-level False) configurations; the dispatcher's gate
+        composition handles them correctly at runtime.
+        """
+        if value is None:
+            return value
+        for account_id, toggle in value.items():
+            if not isinstance(toggle, bool):
+                raise ValueError(
+                    f"connector_always_listen[{account_id!r}] must be a bool "
+                    f"(True or False); got {type(toggle).__name__}: {toggle!r}"
+                )
+        return value
+
     def is_tool_enabled(self, tool_name: str) -> bool:
         """Check if a specific tool should be available to this agent."""
         if self.enabled_tools is not None and tool_name not in self.enabled_tools:
@@ -332,5 +380,4 @@ class AgentConfig(BaseModel):
             self.system_prompt,
             connector_attached=False,
             send_tool_enabled=False,
-            auto_relay=True,
         )

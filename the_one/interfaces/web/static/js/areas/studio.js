@@ -2149,6 +2149,29 @@ App.registerArea({
       }
       data.connector_acls = Object.keys(finalAcls).length > 0 ? finalAcls : null;
 
+      // M11 F7 L11: collect per-account always_listen toggles into a
+      // ``{account_id: bool, ...}`` dict for the AgentConfig
+      // ``connector_always_listen`` field (L6 storage). Mirrors the
+      // ``connector_acls`` collection precedent immediately above —
+      // walk every per-agent toggle that carries
+      // ``data-field="connector_always_listen"`` with
+      // ``data-account-id``, group by account id, and emit ``null`` when
+      // no toggles are rendered (no attached accounts, or the agent
+      // editor's Connectors tab never mounted). The L6 validator accepts
+      // null + the dict shape; null is the "field not in use" baseline.
+      var alwaysListenToggles = editorEl.querySelectorAll(
+        '[data-field="connector_always_listen"][data-account-id]'
+      );
+      var alwaysListenDict = {};
+      for (var ali = 0; ali < alwaysListenToggles.length; ali++) {
+        var alInput = alwaysListenToggles[ali];
+        var alAid = alInput.getAttribute('data-account-id');
+        if (alAid) alwaysListenDict[alAid] = !!alInput.checked;
+      }
+      data.connector_always_listen = Object.keys(alwaysListenDict).length > 0
+        ? alwaysListenDict
+        : null;
+
       return data;
     }
 

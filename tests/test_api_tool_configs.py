@@ -48,15 +48,19 @@ async def client(tmp_path):
 
 
 class TestListToolConfigs:
-    async def test_list_configs_returns_all_20_tools(self, client: AsyncClient) -> None:
-        """Fresh DB, no rows → GET returns 20 entries each with
-        `enabled=True`, `config={}`, plus the tool's description."""
+    async def test_list_configs_returns_all_tools(self, client: AsyncClient) -> None:
+        """Fresh DB, no rows → GET returns one entry per built-in tool,
+        each with `enabled=True`, `config={}`, plus the tool's
+        description. Count grows as new tools land (M11 F7 L10 added
+        four channel-context tools, taking the total from 20 → 24);
+        the test asserts against ``len(_TOOL_CLASSES)`` rather than a
+        magic literal."""
         from the_one.tools.builtins import _TOOL_CLASSES
 
         resp = await client.get("/api/tools/configs")
         assert resp.status_code == 200
         rows = resp.json()
-        assert len(rows) == len(_TOOL_CLASSES) == 20
+        assert len(rows) == len(_TOOL_CLASSES)
         # Sorted by name.
         names = [r["name"] for r in rows]
         assert names == sorted(_TOOL_CLASSES)

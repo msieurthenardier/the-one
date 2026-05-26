@@ -193,16 +193,27 @@ async def test_e2e_disabled_state_inbound_received_no_outbound(
     The agent's system prompt carries the DISABLED-tool directive so
     the model is informed that its replies stay local.
 
-    M10 F8 L11 HAT Fix #4: auto-relay is opted OUT here because this
-    test pins the tool-disabled → no-outbound contract specifically.
-    Auto-relay is a SEPARATE per-account switch that can also drive
-    outbound from the dispatcher; the orthogonal coverage of that
-    switch lives in ``tests/test_connectors_inbound.py``.
+    M11 F7 L5: auto-relay is now invariant on engaged turns. To keep
+    this test focused on the tool-disabled → no-outbound contract
+    (the orthogonal auto-relay-fires path lives in
+    ``tests/test_connectors_inbound.py``), monkeypatch
+    ``StubClient.send`` to a no-op that raises so the dispatcher's
+    relay try/except swallows the failure and ``outbound_records``
+    stays empty.
     """
     await _seed_provider_and_agent(connector_account_ids=["acct-test"])
-    await _seed_stub_account(
-        config={"auto_relay_platform_replies": False}
-    )
+    await _seed_stub_account()
+
+    # Test isolation: suppress the platform-send side effect so the
+    # tool-disabled → no-outbound assertion survives the F7 invariant
+    # auto-relay path.
+    from the_one.connectors._stub import StubClient as _StubClient
+
+    async def _send_noop(self, target, content):
+        raise RuntimeError("test isolation: relay suppressed")
+
+    monkeypatch.setattr(_StubClient, "send", _send_noop)
+
     register_for_test("stub", StubPlugin)
 
     # Operator-disable the tool before dispatch.
@@ -277,16 +288,30 @@ async def test_e2e_disabled_to_enabled_re_dispatch_restores_outbound(
        (per F3 L4 dispatcher contract), the carve-out now fires, the
        agent calls the tool, ``outbound_records`` captures the delivery.
 
-    M10 F8 L11 HAT Fix #4: auto-relay is opted OUT here so the first
-    "tool disabled = no outbound" assertion holds. The orthogonal
-    auto-relay switch is covered in
-    ``tests/test_connectors_inbound.py``.
+    M11 F7 L5: auto-relay is now invariant on engaged turns. For
+    this test's first dispatch we suppress ``StubClient.send`` so the
+    "tool disabled = no outbound" assertion holds; the patch is
+    reverted before the second dispatch so the tool-enabled path
+    delivers normally.
     """
     await _seed_provider_and_agent(connector_account_ids=["acct-test"])
-    await _seed_stub_account(
-        config={"auto_relay_platform_replies": False}
-    )
+    await _seed_stub_account()
     register_for_test("stub", StubPlugin)
+
+    # Test isolation for the FIRST dispatch only: suppress the
+    # platform-send side effect so the F7 invariant auto-relay path
+    # doesn't add an outbound when the tool is disabled. We swap the
+    # method out, run the first dispatch, then restore the original
+    # before the second dispatch verifies the re-enabled tool path
+    # actually delivers.
+    from the_one.connectors._stub import StubClient as _StubClient
+
+    _original_send = _StubClient.send
+
+    async def _send_noop(self, target, content):
+        raise RuntimeError("test isolation: relay suppressed")
+
+    monkeypatch.setattr(_StubClient, "send", _send_noop)
 
     conn = await get_connection()
     tool_repo = ToolConfigRepository(conn)
@@ -301,6 +326,10 @@ async def test_e2e_disabled_to_enabled_re_dispatch_restores_outbound(
     envelope = _envelope(channel_id="c1")
     await dispatch_inbound("acct-test", envelope, factory=first_factory)
     assert StubPlugin.outbound_records == []
+
+    # Restore the real ``StubClient.send`` so the second dispatch (with
+    # the tool re-enabled) delivers via the tool path as expected.
+    monkeypatch.setattr(_StubClient, "send", _original_send)
 
     # Operator flips the switch mid-session (NO restart of the
     # StubPlugin, NO re-seeding of the account, NO monkey-patching the

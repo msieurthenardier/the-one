@@ -1,12 +1,21 @@
 from __future__ import annotations
 
+import json
 import os
 from collections.abc import AsyncIterator
 from typing import Any
 
 import anthropic
 
-from the_one.llm.base import LLMProvider, Message, Role, StreamChunk, TokenUsage, ToolCall
+from the_one.llm.base import (
+    LLMProvider,
+    Message,
+    Role,
+    StreamChunk,
+    TokenUsage,
+    ToolCall,
+    build_user_message_content,
+)
 from the_one.llm.registry import register_provider
 
 # F7 L04: bytes-per-token for the mid-stream usage byte-heuristic.
@@ -209,13 +218,31 @@ class AnthropicProvider(LLMProvider):
 
     def _to_api_message(self, msg: Message) -> dict[str, Any]:
         if msg.role == Role.TOOL and msg.tool_result:
+            # M11 F7 L12.l: Anthropic's API strictly requires
+            # ``tool_result.content`` to be either a string or a list of
+            # content blocks — passing a Python dict/list (object) raises
+            # 400 ``invalid_request_error``. ``ToolResult.content`` is typed
+            # ``str`` on ``the_one/llm/base.py``, but Python's dataclass does
+            # not enforce that at runtime and several L10 connector tools
+            # (``list_visible_channels``, ``fetch_channel_history``,
+            # ``fetch_thread_history``, ``fetch_dm_history``) return
+            # ``list[dict[str, Any]]`` / ``dict[str, Any]`` from
+            # ``Tool.execute`` — those structured returns flow through the
+            # agent loop and land here as non-str content. Coerce non-str
+            # content to a JSON string at this single site so the API
+            # payload satisfies the contract. The OpenAI / Ollama paths
+            # tolerate non-str content (their SDKs accept dicts/objects)
+            # and intentionally preserve the legacy pass-through.
+            content = msg.tool_result.content
+            if not isinstance(content, str):
+                content = json.dumps(content)
             return {
                 "role": "user",
                 "content": [
                     {
                         "type": "tool_result",
                         "tool_use_id": msg.tool_result.tool_call_id,
-                        "content": msg.tool_result.content,
+                        "content": content,
                         "is_error": msg.tool_result.is_error,
                     }
                 ],
@@ -229,7 +256,16 @@ class AnthropicProvider(LLMProvider):
                     {"type": "tool_use", "id": tc.id, "name": tc.name, "input": tc.arguments}
                 )
             return {"role": "assistant", "content": content}
-        return {"role": msg.role.value, "content": msg.content}
+        # M11 F7 L4: project peer_name + channel_name as an inline prefix.
+        # The helper handles all four absence variants; legacy back-compat
+        # is preserved when both fields are None (byte-identical payload).
+        # F6 DD §2 audit premise refined: the prefix IS the projection.
+        # L4 contract: this branch passes through a string content; future
+        # vision/multimodal would route via a separate content-list branch
+        # and would NOT call build_user_message_content (it would build the
+        # projection per content-block, or fall back to a different shape
+        # per DD §5's divert criterion).
+        return {"role": msg.role.value, "content": build_user_message_content(msg)}
 
 
 register_provider("anthropic", AnthropicProvider)

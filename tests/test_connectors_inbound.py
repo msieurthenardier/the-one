@@ -618,6 +618,151 @@ async def test_dispatch_inbound_persists_inbound_with_peer_name_from_envelope(
     assert user_msgs[0].peer_name == "Alice"
 
 
+async def test_dispatch_inbound_persists_inbound_with_channel_id_from_envelope(
+    isolated_db,
+) -> None:
+    """The persisted user message's ``channel_id`` equals the inbound
+    envelope's ``channel_id`` — the dispatcher's post-step
+    ``bind_channel_context`` writes the envelope value onto
+    ``agent.messages[pre_step_len]`` unconditionally after
+    ``agent.step`` returns.
+
+    StubPlugin has no ``enumerate_discoverable_entities`` hook so the
+    pool entry's discoverable-entities cache stays ``None`` forever;
+    ``resolve_channel_name`` returns ``None`` and the persisted
+    ``channel_name`` stays ``None`` — but ``channel_id`` is still bound
+    (the envelope always carries one). Mirror of
+    ``test_dispatch_inbound_persists_inbound_with_peer_name_from_envelope``.
+
+    M11 F7 L3.
+    """
+    await _seed_provider_and_agent()
+    await _seed_stub_account()
+    register_for_test("stub", StubPlugin)
+    factory = await _make_factory()
+
+    envelope = _envelope()
+    await dispatch_inbound("acct-test", envelope, factory=factory)
+
+    conn = await get_connection()
+    chat_repo = ChatSessionRepository(conn)
+    sessions = await chat_repo.list()
+    history = decode_messages(sessions[0].messages)
+    user_msgs = [m for m in history if m.role == Role.USER]
+    # Default envelope helper uses channel_id="ch-1".
+    assert user_msgs[0].channel_id == "ch-1"
+    # Stub plugin doesn't implement enumerate_discoverable_entities →
+    # cache stays None → channel_name stays None.
+    assert user_msgs[0].channel_name is None
+
+
+async def test_dispatch_inbound_persists_inbound_with_channel_name_from_cache(
+    isolated_db, monkeypatch
+) -> None:
+    """When the F3 L4 discoverable-entities cache contains a channel
+    entity whose ``id`` matches ``envelope.channel_id``, the
+    dispatcher's post-step ``bind_channel_context`` writes the
+    matching entity's ``label`` onto the persisted USER message as
+    ``channel_name``.
+
+    Monkeypatches ``_get_account_cache_snapshot`` at the ``_inbound``
+    call site (the import shape lifted the symbol into ``_inbound``'s
+    namespace at L3, so the patch path matches the dispatcher's lookup).
+
+    M11 F7 L3.
+    """
+    from the_one.connectors._pool import _DiscoverableCacheSnapshot
+    from the_one.connectors.base import (
+        DiscoverableEntities,
+        DiscoverableEntity,
+    )
+
+    await _seed_provider_and_agent()
+    await _seed_stub_account()
+    register_for_test("stub", StubPlugin)
+
+    synthetic_cache = DiscoverableEntities(
+        channels=[DiscoverableEntity(id="ch-1", label="general")]
+    )
+    synthetic_snapshot = _DiscoverableCacheSnapshot(
+        cache=synthetic_cache,
+        stale_carry=None,
+        fetched_at_monotonic=0.0,
+        account_type="stub",
+    )
+
+    async def _fake_snapshot(_account_id: str):
+        return synthetic_snapshot
+
+    monkeypatch.setattr(
+        inbound_mod, "_get_account_cache_snapshot", _fake_snapshot
+    )
+
+    factory = await _make_factory()
+    envelope = _envelope()  # channel_id="ch-1"
+    await dispatch_inbound("acct-test", envelope, factory=factory)
+
+    conn = await get_connection()
+    chat_repo = ChatSessionRepository(conn)
+    sessions = await chat_repo.list()
+    history = decode_messages(sessions[0].messages)
+    user_msgs = [m for m in history if m.role == Role.USER]
+    assert user_msgs[0].channel_id == "ch-1"
+    assert user_msgs[0].channel_name == "general"
+
+
+async def test_dispatch_inbound_persists_inbound_with_none_channel_name_when_cache_miss(
+    isolated_db, monkeypatch
+) -> None:
+    """When the F3 L4 cache is populated but contains NO entry
+    matching ``envelope.channel_id`` (channel created on the platform
+    since the last refresh, or different account-scope), the
+    dispatcher writes ``channel_name=None`` while still binding
+    ``channel_id`` from the envelope.
+
+    M11 F7 L3 — pins the partial-absence path's persistence behavior.
+    """
+    from the_one.connectors._pool import _DiscoverableCacheSnapshot
+    from the_one.connectors.base import (
+        DiscoverableEntities,
+        DiscoverableEntity,
+    )
+
+    await _seed_provider_and_agent()
+    await _seed_stub_account()
+    register_for_test("stub", StubPlugin)
+
+    # Cache has channels — but none of them match ch-1.
+    synthetic_cache = DiscoverableEntities(
+        channels=[DiscoverableEntity(id="ch-other", label="random")]
+    )
+    synthetic_snapshot = _DiscoverableCacheSnapshot(
+        cache=synthetic_cache,
+        stale_carry=None,
+        fetched_at_monotonic=0.0,
+        account_type="stub",
+    )
+
+    async def _fake_snapshot(_account_id: str):
+        return synthetic_snapshot
+
+    monkeypatch.setattr(
+        inbound_mod, "_get_account_cache_snapshot", _fake_snapshot
+    )
+
+    factory = await _make_factory()
+    envelope = _envelope()  # channel_id="ch-1"
+    await dispatch_inbound("acct-test", envelope, factory=factory)
+
+    conn = await get_connection()
+    chat_repo = ChatSessionRepository(conn)
+    sessions = await chat_repo.list()
+    history = decode_messages(sessions[0].messages)
+    user_msgs = [m for m in history if m.role == Role.USER]
+    assert user_msgs[0].channel_id == "ch-1"
+    assert user_msgs[0].channel_name is None
+
+
 async def test_dispatch_inbound_persists_user_message_role_invariant(
     isolated_db,
 ) -> None:
@@ -651,7 +796,7 @@ async def test_dispatch_inbound_persists_user_message_role_invariant(
 
 
 async def test_dispatch_inbound_persists_agent_reply_with_visibility_operator(
-    isolated_db,
+    isolated_db, monkeypatch
 ) -> None:
     """The persisted assistant reply has ``visibility="operator"`` —
     F4 L4 owns operator-tagging; the dispatcher's post-step pass tags
@@ -660,15 +805,24 @@ async def test_dispatch_inbound_persists_agent_reply_with_visibility_operator(
     carve-out is exercised in
     ``test_dispatch_inbound_tags_successful_send_tool_result_as_platform_visible``.
 
-    M10 F8 L11 HAT Fix #4: auto-relay is opted OUT here so this test
-    continues to exercise the pre-auto-relay operator-tagging branch in
-    isolation. The auto-relay-flips-visibility branch is covered by the
-    new dedicated tests in this file.
+    M11 F7 L5: auto-relay is now invariant on engaged turns. To
+    keep this test focused on the pre-auto-relay operator-tagging
+    branch, monkeypatch ``StubClient.send`` to raise so the
+    dispatcher's swallow-and-keep-as-operator branch fires.
     """
     await _seed_provider_and_agent()
-    await _seed_stub_account(
-        config={"auto_relay_platform_replies": False}
-    )
+    await _seed_stub_account()
+
+    # Test isolation: suppress the platform-send side effect so the
+    # F4 L4 operator-tagging assertion survives the F7 invariant
+    # auto-relay path (which would flip visibility back to None).
+    from the_one.connectors._stub import StubClient as _StubClient
+
+    async def _send_noop(self, target, content):
+        raise RuntimeError("test isolation: relay suppressed")
+
+    monkeypatch.setattr(_StubClient, "send", _send_noop)
+
     register_for_test("stub", StubPlugin)
     factory = await _make_factory()
 
@@ -689,7 +843,7 @@ async def test_dispatch_inbound_persists_agent_reply_with_visibility_operator(
 
 
 async def test_dispatch_inbound_tags_assistant_text_as_operator(
-    isolated_db,
+    isolated_db, monkeypatch
 ) -> None:
     """Plain-text assistant reply (no tool call) → ``visibility="operator"``.
 
@@ -697,15 +851,23 @@ async def test_dispatch_inbound_tags_assistant_text_as_operator(
     message in a connector-attached session is operator-only unless the
     successful-platform-send carve-out fires.
 
-    M10 F8 L11 HAT Fix #4: auto-relay is opted OUT here so this test
-    pins the pre-auto-relay tagging pass in isolation. The
-    auto-relay-flips-plaintext-to-platform-visible branch is covered
-    separately.
+    M11 F7 L5: auto-relay is now invariant on engaged turns. To
+    keep this test pinned on the pre-auto-relay tagging pass,
+    monkeypatch ``StubClient.send`` to raise so the dispatcher's
+    swallow-and-keep-as-operator branch fires.
     """
     await _seed_provider_and_agent()
-    await _seed_stub_account(
-        config={"auto_relay_platform_replies": False}
-    )
+    await _seed_stub_account()
+
+    # Test isolation: suppress the platform-send side effect so the
+    # F4 L4 operator-tagging assertion survives.
+    from the_one.connectors._stub import StubClient as _StubClient
+
+    async def _send_noop(self, target, content):
+        raise RuntimeError("test isolation: relay suppressed")
+
+    monkeypatch.setattr(_StubClient, "send", _send_noop)
+
     register_for_test("stub", StubPlugin)
     factory = await _make_factory()
 
@@ -1091,22 +1253,33 @@ async def test_dispatch_inbound_unknown_connector_type_returns_gracefully(
 # ─── F3 owns NO outbound ─────────────────────────────────────────────────
 
 
-async def test_dispatch_inbound_does_not_call_record_outbound(isolated_db) -> None:
-    """F3 L4 owns ZERO outbound. ``StubPlugin.outbound_records`` is
-    untouched by ``dispatch_inbound``. F4 will own the platform-send
-    tool that populates this buffer.
+async def test_dispatch_inbound_does_not_call_record_outbound(
+    isolated_db, monkeypatch
+) -> None:
+    """F3 L4 owns ZERO outbound via the platform-send TOOL.
+    ``StubPlugin.outbound_records`` is untouched by ``dispatch_inbound``
+    when neither the tool nor the relay-side-effect fires. F4 will own
+    the platform-send tool that populates this buffer.
 
-    M10 F8 L11 HAT Fix #4: auto-relay (default-on) is opted OUT here so
-    the F3-era invariant ("dispatcher itself does not own platform
-    outbound") still holds when explicitly disabled. The
-    auto-relay-default-on path that DOES drive ``client.send`` from the
-    dispatcher is covered by
+    M11 F7 L5: auto-relay is now invariant on engaged turns. To
+    keep this F3-era invariant pinned, monkeypatch ``StubClient.send``
+    to raise so the dispatcher's swallow-and-keep-as-operator-only
+    branch fires. The auto-relay-fires path that DOES drive
+    ``client.send`` from the dispatcher is covered by
     ``test_auto_relay_default_on_platform_inbound_invokes_client_send``.
     """
     await _seed_provider_and_agent()
-    await _seed_stub_account(
-        config={"auto_relay_platform_replies": False}
-    )
+    await _seed_stub_account()
+
+    # Test isolation: suppress the platform-send side effect so the
+    # F3-era invariant holds.
+    from the_one.connectors._stub import StubClient as _StubClient
+
+    async def _send_noop(self, target, content):
+        raise RuntimeError("test isolation: relay suppressed")
+
+    monkeypatch.setattr(_StubClient, "send", _send_noop)
+
     register_for_test("stub", StubPlugin)
     factory = await _make_factory()
 
@@ -1166,43 +1339,6 @@ async def test_auto_relay_default_on_platform_inbound_invokes_client_send(
             "auto-relayed plaintext reply must be platform-visible "
             "(visibility=None)"
         )
-
-
-async def test_auto_relay_off_platform_inbound_does_not_invoke_client_send(
-    isolated_db,
-) -> None:
-    """Opt-out: ``account.config["auto_relay_platform_replies"] = False``
-    disables the auto-relay. The agent's plaintext reply stays
-    operator-only and the dispatcher does NOT call ``client.send``.
-
-    The pre-Fix-#4 invariant (agent must explicitly invoke
-    ``send_to_platform_channel`` to reach peers) is preserved on the
-    opt-out path.
-    """
-    await _seed_provider_and_agent(response_content="silent reply")
-    await _seed_stub_account(
-        config={"auto_relay_platform_replies": False}
-    )
-    register_for_test("stub", StubPlugin)
-    factory = await _make_factory()
-
-    envelope = _envelope()
-    await dispatch_inbound("acct-test", envelope, factory=factory)
-
-    assert StubPlugin.outbound_records == []
-
-    # Reply stays operator-only.
-    conn = await get_connection()
-    chat_repo = ChatSessionRepository(conn)
-    sessions = await chat_repo.list()
-    history = decode_messages(sessions[0].messages)
-    plaintext_replies = [
-        m for m in history
-        if m.role == Role.ASSISTANT and not m.tool_calls and m.content
-    ]
-    assert plaintext_replies
-    for m in plaintext_replies:
-        assert m.visibility == OPERATOR_VISIBILITY
 
 
 async def test_auto_relay_skips_when_agent_already_called_tool(
