@@ -457,6 +457,33 @@ assert set(get_args(ConnectorAccount.model_fields["type"].annotation)) == set(CO
 )
 
 
+class PendingApproval(BaseModel):
+    """A pending Discord-native peer-approval row.
+
+    M11 F9 L2 — Discord-native approval flow primary path. Created by
+    the inbound dispatcher when an unknown DM arrives without a
+    ``PAIR `` prefix; consumed (via ``mark_approved``) by the API
+    endpoint at F9 L3 ``POST /api/connector-accounts/{account_id}/
+    peer-approvals/{approval_id}/approve``; rendered by the Chat UI
+    at F9 L4.
+
+    Dedup: at most ONE row per ``(connector_account_id, peer_id)``
+    with ``status='pending'`` at any time; the dispatcher's emit path
+    upserts. ``approved`` and ``dismissed`` rows are terminal and
+    persist as history; a new ``pending`` may coexist with them after
+    the operator removes a peer from the allowlist.
+    """
+
+    id: str
+    connector_account_id: str
+    peer_id: str
+    peer_name: str
+    preview: str
+    received_at: str = Field(default_factory=now_iso)
+    status: Literal["pending", "approved", "dismissed"] = "pending"
+    resolved_at: str | None = None
+
+
 class ToolConfig(BaseModel):
     """A tool-level config row — operator-set defaults for a built-in tool.
 

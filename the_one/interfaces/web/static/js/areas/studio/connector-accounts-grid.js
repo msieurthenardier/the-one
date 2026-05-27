@@ -85,6 +85,15 @@
       var a = accounts[i];
       var typeSuffix = KNOWN_CONNECTOR_BADGES.indexOf(a.type) >= 0 ? a.type : 'unknown';
       var isActive = selectedId === a.id;
+      // M11 F9 L5 — agent-count badge replaces the `—` placeholder.
+      // Field comes from the GET /api/connector-accounts response
+      // (server-side computed). Defaults to 0 when absent so older
+      // bundled servers continue to render cleanly.
+      var attachedCount = (typeof a.attached_agents_count === 'number')
+        ? a.attached_agents_count : 0;
+      var metaText = attachedCount === 0
+        ? 'No agents'
+        : (attachedCount + ' agent' + (attachedCount === 1 ? '' : 's'));
       html +=
         '<button class="entity-tile connector-account-tile" type="button" role="option" ' +
             'data-testid="connector-account-card" data-id="' + escapeAttr(a.id) + '" ' +
@@ -92,7 +101,7 @@
           '<span class="entity-tile-badge admin-connector-badge admin-connector-badge--' +
             escapeAttr(typeSuffix) + '">' + escapeHtml(a.type) + '</span>' +
           '<span class="entity-tile-name">' + escapeHtml(a.name) + '</span>' +
-          '<span class="entity-tile-meta">—</span>' +
+          '<span class="entity-tile-meta">' + escapeHtml(metaText) + '</span>' +
         '</button>';
     }
     gridEl.innerHTML = html;

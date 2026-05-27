@@ -1,6 +1,6 @@
 # Flight: Pairing Resolution + Connectors-Screen Detach
 
-**Status**: ready
+**Status**: landed
 **Mission**: [Discord Connector Depth & Robustness](../../mission.md)
 
 ## Contributing to Criteria
@@ -183,13 +183,13 @@ Inline-hotfix-during-HAT discipline (F7 L12 precedent). Operator-judged satisfac
 
 ### Checkpoints
 
-- [ ] **L1**: Discord plugin has `def resolve()` returning DM-only NeedsPairing; unit tests pass.
-- [ ] **L2**: `pending_approvals` table exists; dispatcher emits pending-approval event on unknown-DM-without-PAIR-prefix; existing pairing tests pass unchanged.
-- [ ] **L3**: approve + dismiss endpoints exist; allowlist mutation persists; idempotent.
-- [ ] **L4**: Chat UI 6th event type renders banner; approve flow works; dismiss flow works; session-restore merges by timestamp.
-- [ ] **L5**: DELETE endpoint + pool release + detail-page button + grid badge work end-to-end.
-- [ ] **L6**: studio-event-bus shared module; 4+ emit sites + N listener sites refactored; existing browser tests pass; convention codified.
-- [ ] **L7**: CSS default flipped; n=4 overrides consolidated; agents.md runbook paragraph added.
+- [x] **L1**: Discord plugin has `def resolve()` returning DM-only NeedsPairing; unit tests pass.
+- [x] **L2**: `pending_approvals` table exists; dispatcher emits pending-approval event on unknown-DM-without-PAIR-prefix; existing pairing tests pass unchanged.
+- [x] **L3**: approve + dismiss endpoints exist; allowlist mutation persists; idempotent.
+- [x] **L4**: Chat UI 6th event type renders banner; approve flow works; dismiss flow works; session-restore merges by timestamp.
+- [x] **L5**: DELETE endpoint + pool release + detail-page button + grid badge work end-to-end.
+- [x] **L6**: studio-event-bus shared module; 4+ emit sites + N listener sites refactored; existing browser tests pass; convention codified.
+- [x] **L7**: CSS default flipped; n=4 overrides consolidated; agents.md runbook paragraph added.
 - [ ] **(optional) L8**: HAT 8-step walkthrough; any surfaced hotfixes landed inline.
 
 ### Adaptation Criteria
@@ -208,13 +208,13 @@ Inline-hotfix-during-HAT discipline (F7 L12 precedent). Operator-judged satisfac
 
 > **Note:** These are tentative suggestions, not commitments. Legs are planned and created one at a time as the flight progresses.
 
-- [ ] `discord-resolve-hook` — DM-only NeedsPairing in Discord plugin's new `resolve()` method.
-- [ ] `pending-approvals-storage-and-emit` — new table + migration + repo helpers + dispatcher emit.
-- [ ] `approval-api-endpoint` — approve + dismiss endpoints; allowlist mutation; audit.
-- [ ] `chat-ui-pending-approval` — Chat UI 6th event type + interactive banner + click handlers + session-restore merge.
-- [ ] `detach-end-to-end` — DELETE endpoint + pool release + detail-page detach button + grid badge.
-- [ ] `studio-event-bus-codification` — F7 Rec #3(c) carry-forward; extract shared module + refactor sites.
-- [ ] `small-housekeeping` — F7 Rec #3(a) CSS default flip + F8 agents.md runbook extension.
+- [x] `discord-resolve-hook` — DM-only NeedsPairing in Discord plugin's new `resolve()` method.
+- [x] `pending-approvals-storage-and-emit` — new table + migration + repo helpers + dispatcher emit.
+- [x] `approval-api-endpoint` — approve + dismiss endpoints; allowlist mutation; audit.
+- [x] `chat-ui-pending-approval` — Chat UI 6th event type + interactive banner + click handlers + session-restore merge.
+- [x] `detach-end-to-end` — DELETE endpoint + pool release + detail-page detach button + grid badge.
+- [x] `studio-event-bus-codification` — F7 Rec #3(c) carry-forward; extract shared module + refactor sites.
+- [x] `small-housekeeping` — F7 Rec #3(a) CSS default flip + F8 agents.md runbook extension.
 - [ ] `hat-pairing-and-detach` *(optional)* — guided UAT (8-step scenario + fallback).
 
 ---

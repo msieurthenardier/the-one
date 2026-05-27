@@ -694,7 +694,7 @@
         _fetchEntities(state);
       }
     };
-    document.addEventListener('connector-account-pool-warmed', state.poolWarmHandler);
+    App.studio.eventBus.on('connector-account-pool-warmed', state.poolWarmHandler);
 
     // F5 L6 HAT R5: section-level Refresh button channel. The Access
     // section's banner (renderAllowlistSection in connector-account-
@@ -716,7 +716,7 @@
         _refreshEntities(state);
       }
     };
-    document.addEventListener(
+    App.studio.eventBus.on(
       'connector-account-discoverable-refresh-requested',
       state.refreshRequestedHandler
     );

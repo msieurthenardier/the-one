@@ -13,6 +13,7 @@ from the_one.db.repositories import (
     KBItemRepository,
     KnowledgeBaseRepository,
     MCPSourceRepository,
+    PendingApprovalRepository,
     SQLiteAgentStore,
     ToolConfigRepository,
 )
@@ -2597,3 +2598,289 @@ class TestToolConfigRepository:
 
         m = ToolConfig(name="x", enabled=1)
         assert m.enabled is True
+
+
+# ── Pending Approval Repository ──────────────────────────────────────────
+
+
+@pytest.fixture
+def pending_approval_repo(conn):
+    return PendingApprovalRepository(conn)
+
+
+@pytest.fixture
+async def _seed_connector_account(conn, connector_repo_encryptor):
+    """Seed an ``acct-1`` connector account for FK-bound tests."""
+    repo = ConnectorAccountRepository(conn, connector_repo_encryptor)
+    await repo.create(
+        ConnectorAccount(id="acct-1", name="Stub Account", type="stub")
+    )
+    await repo.create(
+        ConnectorAccount(id="acct-2", name="Stub Other", type="stub")
+    )
+
+
+class TestPendingApprovalRepository:
+    """CRUD coverage for the M11 F9 L2 PendingApprovalRepository.
+
+    Storage shape: one row per ``(connector_account_id, peer_id,
+    status='pending')`` enforced by the upsert path; terminal-state
+    transitions raise ``ValueError`` (idempotent on self-target).
+    """
+
+    async def test_upsert_creates_new_row(
+        self,
+        pending_approval_repo: PendingApprovalRepository,
+        _seed_connector_account,
+    ) -> None:
+        appr = await pending_approval_repo.upsert_pending(
+            connector_account_id="acct-1",
+            peer_id="peer-1",
+            peer_name="Alice",
+            preview="hello",
+        )
+        assert appr.connector_account_id == "acct-1"
+        assert appr.peer_id == "peer-1"
+        assert appr.peer_name == "Alice"
+        assert appr.preview == "hello"
+        assert appr.status == "pending"
+        assert appr.resolved_at is None
+        # id is the dispatcher-issued uuid (32 hex chars).
+        assert len(appr.id) == 32
+        # Round-trip via get().
+        fetched = await pending_approval_repo.get(appr.id)
+        assert fetched == appr
+
+    async def test_upsert_dedup_updates_in_place(
+        self,
+        pending_approval_repo: PendingApprovalRepository,
+        _seed_connector_account,
+    ) -> None:
+        """Two upserts for (acct-1, peer-1) while status='pending' →
+        ONE row, second call returns the SAME id with refreshed
+        peer_name / preview / received_at."""
+        first = await pending_approval_repo.upsert_pending(
+            connector_account_id="acct-1",
+            peer_id="peer-1",
+            peer_name="Alice",
+            preview="hello",
+        )
+        import asyncio
+
+        await asyncio.sleep(0.005)
+        second = await pending_approval_repo.upsert_pending(
+            connector_account_id="acct-1",
+            peer_id="peer-1",
+            peer_name="Alice Renamed",
+            preview="hi again",
+        )
+        assert second.id == first.id  # dedup → same row
+        assert second.peer_name == "Alice Renamed"
+        assert second.preview == "hi again"
+        assert second.received_at >= first.received_at
+
+        rows = await pending_approval_repo.list_for_account_peer(
+            "acct-1", "peer-1"
+        )
+        assert len(rows) == 1, rows
+        assert rows[0].id == first.id
+
+    async def test_upsert_after_approve_creates_new_row(
+        self,
+        pending_approval_repo: PendingApprovalRepository,
+        _seed_connector_account,
+    ) -> None:
+        """Upsert + mark_approved consumes the pending row; the next
+        upsert with the same (account, peer) INSERTs a fresh row that
+        coexists with the approved historical row."""
+        first = await pending_approval_repo.upsert_pending(
+            connector_account_id="acct-1",
+            peer_id="peer-1",
+            peer_name="Alice",
+            preview="hello",
+        )
+        await pending_approval_repo.mark_approved(first.id)
+        second = await pending_approval_repo.upsert_pending(
+            connector_account_id="acct-1",
+            peer_id="peer-1",
+            peer_name="Alice",
+            preview="hello again",
+        )
+        assert second.id != first.id
+        assert second.status == "pending"
+        # Two rows now exist for this (account, peer).
+        rows = await pending_approval_repo.list_for_account_peer(
+            "acct-1", "peer-1"
+        )
+        assert {r.id for r in rows} == {first.id, second.id}
+        statuses = {r.status for r in rows}
+        assert statuses == {"approved", "pending"}
+
+    async def test_get_raises_keyerror_for_unknown_id(
+        self,
+        pending_approval_repo: PendingApprovalRepository,
+        _seed_connector_account,
+    ) -> None:
+        with pytest.raises(KeyError):
+            await pending_approval_repo.get("does-not-exist")
+
+    async def test_mark_approved_flips_status_and_sets_resolved_at(
+        self,
+        pending_approval_repo: PendingApprovalRepository,
+        _seed_connector_account,
+    ) -> None:
+        appr = await pending_approval_repo.upsert_pending(
+            connector_account_id="acct-1",
+            peer_id="peer-1",
+            peer_name="Alice",
+            preview="hello",
+        )
+        approved = await pending_approval_repo.mark_approved(appr.id)
+        assert approved.id == appr.id
+        assert approved.status == "approved"
+        assert approved.resolved_at is not None
+        assert isinstance(approved.resolved_at, str)
+        assert len(approved.resolved_at) > 0
+
+    async def test_mark_approved_idempotent_on_already_approved(
+        self,
+        pending_approval_repo: PendingApprovalRepository,
+        _seed_connector_account,
+    ) -> None:
+        appr = await pending_approval_repo.upsert_pending(
+            connector_account_id="acct-1",
+            peer_id="peer-1",
+            peer_name="Alice",
+            preview="hello",
+        )
+        once = await pending_approval_repo.mark_approved(appr.id)
+        twice = await pending_approval_repo.mark_approved(appr.id)
+        assert once == twice  # no further mutation
+
+    async def test_mark_approved_on_dismissed_row_raises_valueerror(
+        self,
+        pending_approval_repo: PendingApprovalRepository,
+        _seed_connector_account,
+    ) -> None:
+        appr = await pending_approval_repo.upsert_pending(
+            connector_account_id="acct-1",
+            peer_id="peer-1",
+            peer_name="Alice",
+            preview="hello",
+        )
+        await pending_approval_repo.mark_dismissed(appr.id)
+        with pytest.raises(ValueError, match="cannot transition to approved"):
+            await pending_approval_repo.mark_approved(appr.id)
+
+    async def test_mark_dismissed_mirrors(
+        self,
+        pending_approval_repo: PendingApprovalRepository,
+        _seed_connector_account,
+    ) -> None:
+        appr = await pending_approval_repo.upsert_pending(
+            connector_account_id="acct-1",
+            peer_id="peer-1",
+            peer_name="Alice",
+            preview="hello",
+        )
+        dismissed = await pending_approval_repo.mark_dismissed(appr.id)
+        assert dismissed.status == "dismissed"
+        assert dismissed.resolved_at is not None
+
+        # Idempotent on self-target.
+        once = dismissed
+        twice = await pending_approval_repo.mark_dismissed(appr.id)
+        assert once == twice
+
+        # ValueError when trying to flip dismissed → approved is covered
+        # by the dedicated test above. Cover the dismissed-on-approved
+        # case here so dismiss is exercised symmetrically.
+        other = await pending_approval_repo.upsert_pending(
+            connector_account_id="acct-1",
+            peer_id="peer-2",
+            peer_name="Bob",
+            preview="hi",
+        )
+        await pending_approval_repo.mark_approved(other.id)
+        with pytest.raises(ValueError, match="cannot transition to dismissed"):
+            await pending_approval_repo.mark_dismissed(other.id)
+
+    async def test_list_for_account_peer_returns_oldest_first(
+        self,
+        pending_approval_repo: PendingApprovalRepository,
+        _seed_connector_account,
+    ) -> None:
+        import asyncio
+
+        first = await pending_approval_repo.upsert_pending(
+            connector_account_id="acct-1",
+            peer_id="peer-1",
+            peer_name="Alice",
+            preview="hello",
+        )
+        await pending_approval_repo.mark_approved(first.id)
+        await asyncio.sleep(0.005)
+        second = await pending_approval_repo.upsert_pending(
+            connector_account_id="acct-1",
+            peer_id="peer-1",
+            peer_name="Alice",
+            preview="again",
+        )
+        rows = await pending_approval_repo.list_for_account_peer(
+            "acct-1", "peer-1"
+        )
+        assert [r.id for r in rows] == [first.id, second.id]
+        # received_at strictly non-decreasing.
+        assert rows[0].received_at <= rows[1].received_at
+
+    async def test_list_by_account_returns_all_for_account(
+        self,
+        pending_approval_repo: PendingApprovalRepository,
+        _seed_connector_account,
+    ) -> None:
+        a1 = await pending_approval_repo.upsert_pending(
+            connector_account_id="acct-1",
+            peer_id="peer-1",
+            peer_name="Alice",
+            preview="hi",
+        )
+        a2 = await pending_approval_repo.upsert_pending(
+            connector_account_id="acct-1",
+            peer_id="peer-2",
+            peer_name="Bob",
+            preview="hi",
+        )
+        # Different account — must NOT appear in acct-1's list.
+        await pending_approval_repo.upsert_pending(
+            connector_account_id="acct-2",
+            peer_id="peer-3",
+            peer_name="Carol",
+            preview="hi",
+        )
+        rows = await pending_approval_repo.list_by_account("acct-1")
+        ids = {r.id for r in rows}
+        assert ids == {a1.id, a2.id}
+
+    async def test_fk_cascade_via_connector_account_delete(
+        self,
+        pending_approval_repo: PendingApprovalRepository,
+        _seed_connector_account,
+        connector_repo: ConnectorAccountRepository,
+    ) -> None:
+        """Deleting the parent connector_account removes the dependent
+        pending_approvals rows via the v21 FK CASCADE."""
+        await pending_approval_repo.upsert_pending(
+            connector_account_id="acct-1",
+            peer_id="peer-1",
+            peer_name="Alice",
+            preview="hello",
+        )
+        # Sanity: row present.
+        assert (
+            len(await pending_approval_repo.list_by_account("acct-1"))
+        ) == 1
+        await connector_repo.delete("acct-1")
+        # Cascade removed the dependent row.
+        assert (
+            len(await pending_approval_repo.list_by_account("acct-1"))
+        ) == 0

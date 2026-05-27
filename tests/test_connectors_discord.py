@@ -41,7 +41,9 @@ from the_one.connectors._stub import StubPlugin
 from the_one.connectors.base import (
     DiscoverableEntities,
     DiscoverableEntity,
+    NeedsPairing,
     OutboundTarget,
+    Permit,
 )
 from the_one.connectors.errors import ConnectorConnectionError
 from the_one.db.models import ConnectorAccount
@@ -1287,11 +1289,14 @@ def test_normalize_session_key_handles_none_thread_id() -> None:
 # ─────────────────────────────────────────────────────────────────
 
 
-def _dm_test_envelope(raw: dict) -> "InboundEnvelope":  # noqa: F821
-    """Build a minimal :class:`InboundEnvelope` for ``is_dm`` tests.
+def _dm_test_envelope(raw: dict, peer_id: str = "peer-1") -> "InboundEnvelope":  # noqa: F821
+    """Build a minimal :class:`InboundEnvelope` for ``is_dm`` / ``resolve`` tests.
 
-    The fields other than ``raw`` are irrelevant to the hook; only
-    ``raw["is_dm"]`` participates in the return value.
+    The ``is_dm`` hook reads only ``raw["is_dm"]``; the ``resolve`` hook
+    (F9 L1) additionally consults ``envelope.peer_id`` against the
+    account allowlist, so callers exercising the resolver pass the
+    ``peer_id`` kwarg (default ``"peer-1"`` preserves the historical
+    ``is_dm``-only callers' behavior).
     """
     from the_one.connectors.base import InboundEnvelope
 
@@ -1300,7 +1305,7 @@ def _dm_test_envelope(raw: dict) -> "InboundEnvelope":  # noqa: F821
         account_id="acct-1",
         channel_id="ch-1",
         thread_id=None,
-        peer_id="peer-1",
+        peer_id=peer_id,
         peer_name="Alice",
         text="hi",
         raw=raw,
@@ -1330,6 +1335,120 @@ def test_is_dm_raw_missing_is_dm_key_returns_false() -> None:
     site."""
     plugin = DiscordPlugin()
     assert plugin.is_dm(_dm_test_envelope({})) is False
+
+
+# ─────────────────────────────────────────────────────────────────
+# M11 F9 L1 — DM-from-stranger resolver hook (``DiscordPlugin.resolve``)
+# ─────────────────────────────────────────────────────────────────
+
+
+def _resolve_test_account(
+    *,
+    allowlist_peers: list[str] | None = None,
+    allowlist_missing: bool = False,
+) -> ConnectorAccount:
+    """Build a minimal :class:`ConnectorAccount` for ``resolve`` tests.
+
+    ``resolve`` reads only ``account.config["allowlist"]["peers"]``;
+    ``secrets`` is not consulted, so we let the Pydantic default apply.
+    The ``ConnectorAccount`` config-shape validator at
+    ``db/models.py:190`` requires ``allowlist`` (when present) to
+    contain both ``peers`` and ``channels`` keys (and lists of strings
+    for each) — ``channels`` is pinned to ``[]`` as an
+    irrelevant-to-resolver axis.
+
+    - ``allowlist_missing=True`` → ``config={}`` (no ``allowlist`` key);
+      drives the AC #5 "older account, never paired" branch.
+    - ``allowlist_peers`` as a list (incl. ``[]``) →
+      ``config={"allowlist": {"peers": <list>, "channels": []}}``.
+    """
+    if allowlist_missing:
+        config: dict[str, Any] = {}
+    else:
+        config = {"allowlist": {"peers": allowlist_peers or [], "channels": []}}
+    return ConnectorAccount(
+        id="acc-1",
+        name="discord-resolve-test",
+        type="discord",
+        config=config,
+    )
+
+
+def test_resolve_dm_from_stranger_returns_needs_pairing() -> None:
+    """DM + peer not in ``allowlist["peers"]`` → ``NeedsPairing`` with
+    the contractual reason literal ``"discord_dm_unknown_peer"``.
+
+    The reason literal is pinned per AC #2 — L2's pending-approval emit
+    path and the dispatcher audit-log entry both grep for this exact
+    value, so a typo here would silently break the downstream wiring.
+    """
+    plugin = DiscordPlugin()
+    account = _resolve_test_account(allowlist_peers=[])
+    envelope = _dm_test_envelope({"is_dm": True}, peer_id="stranger-99")
+
+    outcome = plugin.resolve(account, envelope)
+
+    assert outcome == NeedsPairing(reason="discord_dm_unknown_peer")
+
+
+def test_resolve_dm_from_allowlisted_peer_returns_permit() -> None:
+    """DM + peer in ``allowlist["peers"]`` → ``Permit()``. Canonical
+    "already paired" branch — the dispatcher proceeds to ``agent.step``
+    without the pairing/approval detour."""
+    plugin = DiscordPlugin()
+    account = _resolve_test_account(allowlist_peers=["peer-1"])
+    envelope = _dm_test_envelope({"is_dm": True}, peer_id="peer-1")
+
+    outcome = plugin.resolve(account, envelope)
+
+    assert outcome == Permit()
+
+
+def test_resolve_guild_message_returns_permit_regardless_of_allowlist() -> None:
+    """Guild messages (``raw["is_dm"]=False``) → ``Permit()`` regardless
+    of allowlist contents. F9 §1 design decision pins the pairing gate
+    to DMs only; guild-mention scoping is a separate concern."""
+    plugin = DiscordPlugin()
+    # Empty allowlist would gate a DM, but a guild message is unconditionally permitted.
+    account = _resolve_test_account(allowlist_peers=[])
+    envelope = _dm_test_envelope({"is_dm": False}, peer_id="stranger-99")
+
+    outcome = plugin.resolve(account, envelope)
+
+    assert outcome == Permit()
+
+
+def test_resolve_missing_allowlist_treats_as_empty_returns_needs_pairing_for_dm() -> None:
+    """Missing ``config["allowlist"]`` (older account, never paired) →
+    treated as "no allowlist entries"; the DM-from-stranger branch
+    fires (not a crash, not a Permit-by-default).
+
+    Covers AC #5: defensive handling of the absent allowlist key.
+    """
+    plugin = DiscordPlugin()
+    account = _resolve_test_account(allowlist_missing=True)
+    envelope = _dm_test_envelope({"is_dm": True}, peer_id="stranger-99")
+
+    outcome = plugin.resolve(account, envelope)
+
+    assert outcome == NeedsPairing(reason="discord_dm_unknown_peer")
+
+
+def test_resolve_missing_is_dm_key_defaults_to_permit() -> None:
+    """Defensive: malformed ``envelope.raw`` (missing ``is_dm`` key) →
+    ``Permit()``, matching the existing ``is_dm`` method's defensive
+    contract (``raw.get("is_dm", False)`` at ``_discord.py:1617``).
+
+    Covers AC #6: hand-constructed test envelopes / future translator
+    regressions do not surface a confusing ``KeyError`` here.
+    """
+    plugin = DiscordPlugin()
+    account = _resolve_test_account(allowlist_peers=[])
+    envelope = _dm_test_envelope({}, peer_id="stranger-99")
+
+    outcome = plugin.resolve(account, envelope)
+
+    assert outcome == Permit()
 
 
 # ─────────────────────────────────────────────────────────────────

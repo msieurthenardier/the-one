@@ -146,6 +146,15 @@ Source: M10 mission-debrief "Process §2" — codify `cross-subsystem-pattern-pr
 - Adding a new tool — the agent loop wraps tool returns as `ToolResult(content=output)`; `__post_init__` normalizes structured returns automatically. Tool authors return native shapes; the canonical-wire-shape conversion is at the dataclass boundary.
 - Refactoring the codec — both encode and decode paths produce/consume str content via the dataclass invariants. Legacy rows whose stored content is non-str (rare; pre-L2 round-trip corner) surface as `AssertionError` at decode-time — an intentional signal of underlying corruption.
 
+**Operator runbook for legacy-row AssertionError**: when a session-replay or codec-decode path surfaces `AssertionError` in `Message.__post_init__` with non-str content, the offending row is a pre-L2 storage artifact. Triage:
+
+1. Identify the chat_sessions row via the traceback's session_id (the dispatcher logs it in the surrounding context). Run `sqlite3 var/the_one.db "SELECT id, agent_name, length(messages) FROM chat_sessions WHERE id = '<id>'"` to confirm the row exists.
+2. Decide: delete the row (loses the chat history) OR repair the row (recover the history by manually editing the messages JSON to coerce non-str content to str). For single-user local-tool use, delete is usually fine — the operator can recreate the conversation.
+3. If multiple rows trigger the AssertionError, batch via `UPDATE chat_sessions SET messages = '[]' WHERE ...` (loses history) or write a one-off migration script that walks the JSON and stringifies non-str content keys.
+4. After cleanup, restart the app — the storage layer is now consistent and the AssertionError stops firing.
+
+This is intentionally manual: the rare and structurally-illegal nature of the AssertionError means we DO NOT add a fallback at the dataclass layer (would silently mask future provider-parser defects).
+
 **Anti-pattern**: post-construction direct field assignment (e.g., `tr.content = some_list`). Bypasses `__post_init__` and reintroduces the shape-loss this convention prevents. The annotation is `str | dict | list[Any]` to permit structured constructor callers; `__post_init__` enforces the str invariant once the dataclass exists. Tests that need a non-str field must construct fresh via `ToolResult(content=non_str)` (which normalizes), or use `dataclasses.replace`. Never reach in via attribute assignment. The F7 12.l Anthropic encoder-level coercion site (now deleted at `the_one/llm/anthropic_provider.py`) was the symptom this convention closes by moving the invariant up to the dataclass boundary.
 
 Source: M11 F8 L2 — replaces the surgical F7 12.l hotfix with a structural shape invariant at the canonical-dataclass boundary; cited by the `cross-subsystem-pattern-premise-revalidation` convention's F7 audit-history paragraph above.
@@ -392,6 +401,14 @@ Applies to any plugin where the repository already performs the encryption bound
 Citation: `the_one/connectors/_discord.py:DiscordPlugin.connect` — the docstring at line ~596 explicitly states "`encryptor` parameter is received to satisfy the F1 Protocol but not consumed at this site"; same pattern at `the_one/connectors/_discord.py:DiscordPlugin.doctor` (docstring at line ~1077).
 
 Source: M10 mission-debrief "Documentation §1" — F8 L11 BOT_TOKEN double-decrypt bug (the spec said `encryptor.decrypt(account.secrets["X"])` but the repository had already decrypted; the convention prevents the recurrence). Tagged "Mission-specific (M10)" because M10 debrief Documentation §1 explicitly calls it "M10-specific shape; project-wide principle" — the project-wide form ("repository contract delivery is part of any Protocol's contract") is captured by `cross-subsystem-pattern-premise-revalidation` above.
+
+### Mission-specific (M11)
+
+### `studio-event-bus`
+
+Studio-area cross-module communication uses the shared `App.studio.eventBus` (defined in `the_one/interfaces/web/static/js/areas/studio/studio-event-bus.js`) — `emit(name, detail)` and `on(name, handler)` — rather than inline `document.dispatchEvent(new CustomEvent(...))` and `document.addEventListener(...)` calls. F7 Recommendation #3(c) flagged the inline pattern as the trigger; F9 L6 extracted the bus when L5 added the 4th emit site. The bus is intentionally a thin one-line abstraction — its value is the named seam (a place to add dev-mode logging or event-name validation later), not the layer's logic. Listeners register ONCE at module init and are never torn down (matches the `connectors-tab.js:73` precedent which documents the per-render-leak rationale). The bus uses `document` as the underlying transport, so any module that lacks the bus reference can still listen via the native `document.addEventListener(name, handler)` interface — both interfaces produce/consume the same events. No `off` primitive on the bus: the rare self-detach paths (e.g. `discoverable-dropdown.js`'s DOM-removal cleanup) continue to call `document.removeEventListener` directly against the same `document` transport; future additions of an `off` helper can route those through the bus if it becomes a recurring need.
+
+Source: M11 F9 L6 — extracted the bus when L5 added the 4th emit site (`connector-agent-detached`), past the F7 Rec #3(c) n=3 trigger. Reference: 4 emit sites in `connector-account-editor.js` + 5 listener sites across `studio.js`, `connectors-tab.js`, `discoverable-dropdown.js`, `connector-account-editor.js`.
 
 ---
 

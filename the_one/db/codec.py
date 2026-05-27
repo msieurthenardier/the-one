@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from the_one.db.models import PendingApproval
 from the_one.llm.base import Message, Role, TokenUsage, ToolCall, ToolResult
 
 # M08 F6 L02: shared projection-time truncation for tool_result.content.
@@ -277,3 +278,40 @@ def messages_to_ui_events(
                     }
                 )
     return events
+
+
+def pending_approvals_to_ui_events(
+    rows: list[PendingApproval],
+) -> list[dict[str, Any]]:
+    """Convert PendingApproval rows to UI event dicts.
+
+    M11 F9 L4. Used by ``_restore_session`` and
+    ``_build_session_joined_degraded`` to merge pending-approval banners
+    into the per-session history stream when the session has connector
+    context (``connector_account_id is not None and peer_id is not None``).
+
+    The output event shape is identical to the live-broadcast event the
+    dispatcher emits at ``the_one/connectors/_inbound.py`` (F9 L2). The
+    two emit sites are independent (this projection runs on restore;
+    the dispatcher's hand-built dict runs on inbound); they MUST stay
+    in sync or the frontend will see drift between live and replay.
+    Verified by browser tests covering both paths.
+
+    L4 deliberately does NOT refactor L2's dispatcher emit to consume
+    this projection function — the two emit sites are coupled by their
+    event shape but kept independently inlined to avoid re-running L2's
+    test surface. A future routine-maintenance pass can consolidate.
+    """
+    return [
+        {
+            "type": "pending-approval",
+            "approval_id": row.id,
+            "peer_name": row.peer_name,
+            "peer_id": row.peer_id,
+            "preview": row.preview,
+            "received_at": row.received_at,
+            "connector_account_id": row.connector_account_id,
+            "status": row.status,
+        }
+        for row in rows
+    ]

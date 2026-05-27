@@ -9,7 +9,7 @@ import aiosqlite
 from the_one.db._connector_types import CONNECTOR_TYPES
 from the_one.db._provider_types import PROVIDER_TYPES
 
-CURRENT_VERSION = 20
+CURRENT_VERSION = 21
 
 # Render the provider-type CHECK constraint as a comma-separated SQL
 # literal list, sourced from PROVIDER_TYPES. Both SCHEMA_V1 (fresh-DB
@@ -786,3 +786,37 @@ PRAGMA foreign_keys=ON;
         )
         await conn.commit()
         version = 20
+
+    if version < 21:
+        # Mission 11 Flight 9 Leg 2: pending_approvals table for the
+        # Discord-native peer-approval flow. New table (no ALTER, no
+        # rename ceremony). FK CASCADE on connector_account_id mirrors
+        # the kb_items / chat_sessions precedent (schema lines 69, 88).
+        # CHECK constraint pins the three-state lifecycle to surface
+        # data corruption immediately rather than letting it propagate
+        # silently. Idempotent: ``CREATE TABLE IF NOT EXISTS`` + the
+        # ``if version < 21:`` short-circuit guarantee re-runs are no-ops.
+        # PRAGMA foreign_keys is NOT toggled here — no existing FK
+        # behavior changes, no table-rename ceremony.
+        await conn.executescript("""\
+CREATE TABLE IF NOT EXISTS pending_approvals (
+    id TEXT PRIMARY KEY,
+    connector_account_id TEXT NOT NULL
+        REFERENCES connector_accounts(id) ON DELETE CASCADE,
+    peer_id TEXT NOT NULL,
+    peer_name TEXT NOT NULL,
+    preview TEXT NOT NULL,
+    received_at TEXT NOT NULL,
+    status TEXT NOT NULL
+        CHECK (status IN ('pending', 'approved', 'dismissed')),
+    resolved_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_pending_approvals_account_peer_status
+    ON pending_approvals (connector_account_id, peer_id, status);
+""")
+        await conn.execute(
+            "INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (21,)
+        )
+        await conn.commit()
+        version = 21

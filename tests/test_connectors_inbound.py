@@ -77,6 +77,7 @@ from the_one.db.models import ChatSession, ConnectorAccount
 from the_one.db.repositories import (
     ChatSessionRepository,
     ConnectorAccountRepository,
+    PendingApprovalRepository,
 )
 from the_one.encryption import get_encryptor
 from the_one.llm.base import LLMProvider, Message, Role, StreamChunk, TokenUsage, ToolCall
@@ -1862,11 +1863,21 @@ class TestF6Gating:
         assert audit[0]["reason"] == "unknown_peer"
         assert audit[0]["peer_id"] == "peer-1"
 
-    async def test_needs_pairing_with_no_prefix_denies(
-        self, isolated_db
+    async def test_needs_pairing_with_no_prefix_emits_pending_approval(
+        self, isolated_db, monkeypatch
     ) -> None:
-        """NeedsPairing + ``hello`` (no prefix at all): same silent
-        deny semantics, audit logged."""
+        """M11 F9 L2: NeedsPairing + ``hello`` (no PAIR prefix) is no
+        longer a silent deny — the dispatcher upserts a pending
+        approval row, broadcasts a ``pending-approval`` UI event to
+        the session, and audits ``reason='pending_approval'``. The
+        no-USER/no-ASSISTANT history invariant is preserved (agent.step
+        still does not run on this branch).
+
+        Renamed + inverted from the pre-L2
+        ``test_needs_pairing_with_no_prefix_denies`` — the rename
+        documents the state-machine intent shift in git blame per the
+        leg-design state-machine reachability audit guidance.
+        """
         await _seed_provider_and_agent()
         conn = await get_connection()
         encryptor = get_encryptor(settings.data_dir)
@@ -1887,19 +1898,186 @@ class TestF6Gating:
         StubPluginWithResolver.resolve_outcome = NeedsPairing(reason="")
         register_for_test("stub", StubPluginWithResolver)
 
+        # Capture broadcast_to_session calls by monkeypatching the
+        # symbol the dispatcher imported into its own module namespace.
+        broadcast_calls: list[tuple[str, dict[str, Any]]] = []
+
+        async def _capture(session_id: str, event: dict, **kwargs) -> None:
+            broadcast_calls.append((session_id, event))
+
+        monkeypatch.setattr(inbound_mod, "broadcast_to_session", _capture)
+
         factory = await _make_factory()
         envelope = _envelope(text="hello")
         await dispatch_inbound("acct-test", envelope, factory=factory)
 
         session = await self._list_first_session()
         history = decode_messages(session.messages)
+        # agent.step did NOT run — no USER / ASSISTANT messages.
         assert all(m.role not in (Role.USER, Role.ASSISTANT) for m in history)
 
+        # Audit entry now uses the new ``pending_approval`` reason.
         audit = await self._audit_entries(session.id)
         assert len(audit) == 1
         assert audit[0]["outcome"] == "deny"
-        # Empty NeedsPairing.reason → fallback marker "invalid_pairing".
+        assert audit[0]["reason"] == "pending_approval"
+        assert audit[0]["peer_id"] == "peer-1"
+
+        # ONE pending_approval row exists for (acct-test, peer-1).
+        approval_repo = PendingApprovalRepository(conn)
+        rows = await approval_repo.list_for_account_peer(
+            "acct-test", "peer-1"
+        )
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.connector_account_id == "acct-test"
+        assert row.peer_id == "peer-1"
+        assert row.peer_name == envelope.peer_name
+        assert row.preview == "hello"
+        assert row.status == "pending"
+
+        # The dispatcher broadcast a ``pending-approval`` event to the
+        # session row.
+        pa_events = [
+            (sid, ev) for (sid, ev) in broadcast_calls
+            if ev.get("type") == "pending-approval"
+        ]
+        assert len(pa_events) == 1, broadcast_calls
+        sid, event = pa_events[0]
+        assert sid == session.id
+        assert event["approval_id"] == row.id
+        assert event["peer_id"] == "peer-1"
+        assert event["peer_name"] == envelope.peer_name
+        assert event["preview"] == "hello"
+        assert event["connector_account_id"] == "acct-test"
+        assert event["status"] == "pending"
+        assert event["received_at"] == row.received_at
+
+    async def test_needs_pairing_with_pair_prefix_wrong_code_still_denies(
+        self, isolated_db, monkeypatch
+    ) -> None:
+        """M11 F9 L2: when ``envelope.text`` starts with ``PAIR `` but the
+        code is wrong, the dispatcher keeps the EXISTING deny path —
+        audit ``reason`` comes from ``NeedsPairing.reason`` (or the
+        ``invalid_pairing`` fallback when it's empty), no pending
+        approval is created, and no broadcast event is sent.
+
+        Pins the wrong-code branch explicitly; pre-L2 it was implicit
+        because wrong-code + no-prefix shared a single test.
+        """
+        await _seed_provider_and_agent()
+        conn = await get_connection()
+        encryptor = get_encryptor(settings.data_dir)
+        acc_repo = ConnectorAccountRepository(conn, encryptor)
+        await acc_repo.create(
+            ConnectorAccount(
+                id="acct-test",
+                name="Stub Pairing",
+                type="stub",
+                config={
+                    "pairing": {
+                        "code": "X",
+                        "issued_at": "2026-05-18T00:00:00+00:00",
+                    },
+                },
+            )
+        )
+        StubPluginWithResolver.resolve_outcome = NeedsPairing(reason="")
+        register_for_test("stub", StubPluginWithResolver)
+
+        broadcast_calls: list[tuple[str, dict[str, Any]]] = []
+
+        async def _capture(session_id: str, event: dict, **kwargs) -> None:
+            broadcast_calls.append((session_id, event))
+
+        monkeypatch.setattr(inbound_mod, "broadcast_to_session", _capture)
+
+        factory = await _make_factory()
+        envelope = _envelope(text="PAIR wrongcode hello")
+        await dispatch_inbound("acct-test", envelope, factory=factory)
+
+        # No pending_approvals row was inserted.
+        approval_repo = PendingApprovalRepository(conn)
+        rows = await approval_repo.list_for_account_peer(
+            "acct-test", "peer-1"
+        )
+        assert rows == [], rows
+
+        # Audit follows the pre-L2 wrong-code deny shape.
+        session = await self._list_first_session()
+        audit = await self._audit_entries(session.id)
+        assert len(audit) == 1
+        assert audit[0]["outcome"] == "deny"
+        # Empty NeedsPairing.reason → fallback marker "invalid_pairing"
+        # (pre-L2 contract preserved byte-identically on this branch).
         assert audit[0]["reason"] == "invalid_pairing"
+        assert audit[0]["peer_id"] == "peer-1"
+
+        # No pending-approval broadcast event was emitted.
+        pa_events = [
+            (sid, ev) for (sid, ev) in broadcast_calls
+            if ev.get("type") == "pending-approval"
+        ]
+        assert pa_events == [], pa_events
+
+    async def test_needs_pairing_no_prefix_dedup_consecutive_dms_from_same_peer(
+        self, isolated_db, monkeypatch
+    ) -> None:
+        """M11 F9 L2: two consecutive no-prefix DMs from the same peer
+        produce ONE pending_approvals row (UPDATE-in-place dedup) and
+        TWO broadcast events that share the same ``approval_id``."""
+        await _seed_provider_and_agent()
+        conn = await get_connection()
+        encryptor = get_encryptor(settings.data_dir)
+        acc_repo = ConnectorAccountRepository(conn, encryptor)
+        await acc_repo.create(
+            ConnectorAccount(
+                id="acct-test",
+                name="Stub Pairing",
+                type="stub",
+                config={
+                    "pairing": {
+                        "code": "X",
+                        "issued_at": "2026-05-18T00:00:00+00:00",
+                    },
+                },
+            )
+        )
+        StubPluginWithResolver.resolve_outcome = NeedsPairing(reason="")
+        register_for_test("stub", StubPluginWithResolver)
+
+        broadcast_calls: list[tuple[str, dict[str, Any]]] = []
+
+        async def _capture(session_id: str, event: dict, **kwargs) -> None:
+            broadcast_calls.append((session_id, event))
+
+        monkeypatch.setattr(inbound_mod, "broadcast_to_session", _capture)
+
+        factory = await _make_factory()
+        await dispatch_inbound(
+            "acct-test", _envelope(text="hello"), factory=factory
+        )
+        await dispatch_inbound(
+            "acct-test", _envelope(text="hello again"), factory=factory
+        )
+
+        # ONE row only.
+        approval_repo = PendingApprovalRepository(conn)
+        rows = await approval_repo.list_for_account_peer(
+            "acct-test", "peer-1"
+        )
+        assert len(rows) == 1, rows
+        # Latest preview refreshed in place.
+        assert rows[0].preview == "hello again"
+
+        # TWO broadcast events; same approval_id.
+        pa_events = [
+            ev for (_sid, ev) in broadcast_calls
+            if ev.get("type") == "pending-approval"
+        ]
+        assert len(pa_events) == 2, pa_events
+        assert pa_events[0]["approval_id"] == pa_events[1]["approval_id"]
+        assert pa_events[0]["approval_id"] == rows[0].id
 
     async def test_deny_outcome_logs_and_returns(self, isolated_db) -> None:
         """``Deny`` outcome: audit logged with the deny reason; the

@@ -237,10 +237,12 @@ class TestSchemaV8:
         # connector_accounts.type via the table-rename ceremony (M10 F08
         # L02 — first real connector type registered);
         # v20 added agents.connector_always_listen (M11 F07 L06 —
-        # per-agent always_listen toggle persistence).
-        assert CURRENT_VERSION == 20, (
-            "CURRENT_VERSION must be 20 after the M11 F07 L06 — "
-            "agents.connector_always_listen v20 migration "
+        # per-agent always_listen toggle persistence);
+        # v21 added pending_approvals table (M11 F09 L02 —
+        # Discord-native peer-approval storage).
+        assert CURRENT_VERSION == 21, (
+            "CURRENT_VERSION must be 21 after the M11 F09 L02 — "
+            "pending_approvals table v21 migration "
             f"(got {CURRENT_VERSION})"
         )
 
@@ -2444,5 +2446,223 @@ class TestSchemaV20:
             versions = [r[0] for r in await cur.fetchall()]
         assert 20 in versions, versions
         assert max(versions) == CURRENT_VERSION, versions
+
+        await conn.close()
+
+
+class TestSchemaV21:
+    """Tests for the v21 migration that adds the pending_approvals table.
+
+    Mission 11 Flight 9 Leg 2: Discord-native peer-approval storage.
+    Fresh table (no ALTER, no rename ceremony). FK CASCADE on
+    ``connector_account_id`` mirrors the kb_items / chat_sessions
+    precedent. CHECK constraint pins the three-state lifecycle
+    (``pending``, ``approved``, ``dismissed``).
+
+    Mirrors the v18 / v20 ``TestSchemaVNN`` shapes.
+    """
+
+    async def test_v21_fresh_db_includes_pending_approvals_table(
+        self, tmp_path
+    ) -> None:
+        """Fresh DB → ensure_schema → v21 surfaces exist: table, columns,
+        FK constraint, CHECK constraint, supporting index, schema_version
+        row at 21."""
+        db_path = tmp_path / "v21-fresh.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await ensure_schema(conn)
+
+        assert CURRENT_VERSION >= 21, CURRENT_VERSION
+
+        # Table exists with the expected columns.
+        async with conn.execute(
+            "PRAGMA table_info(pending_approvals)"
+        ) as cur:
+            cols = {r["name"]: r for r in await cur.fetchall()}
+        expected_cols = {
+            "id",
+            "connector_account_id",
+            "peer_id",
+            "peer_name",
+            "preview",
+            "received_at",
+            "status",
+            "resolved_at",
+        }
+        assert expected_cols.issubset(cols.keys()), (
+            f"missing columns: {expected_cols - cols.keys()}"
+        )
+
+        # ``id`` is PRIMARY KEY.
+        assert cols["id"]["pk"] == 1, cols["id"]
+
+        # NOT NULL on every non-PK column except ``resolved_at``.
+        # (SQLite's PRAGMA table_info reports notnull=0 for PRIMARY KEY
+        # columns even when NOT NULL is implied; ``id`` is the PK here
+        # so we don't assert notnull on it.)
+        for nn_col in (
+            "connector_account_id",
+            "peer_id",
+            "peer_name",
+            "preview",
+            "received_at",
+            "status",
+        ):
+            assert cols[nn_col]["notnull"] == 1, (nn_col, cols[nn_col])
+        assert cols["resolved_at"]["notnull"] == 0, cols["resolved_at"]
+
+        # FK ON DELETE CASCADE on connector_account_id.
+        async with conn.execute(
+            "PRAGMA foreign_key_list(pending_approvals)"
+        ) as cur:
+            fks = [dict(r) for r in await cur.fetchall()]
+        assert len(fks) == 1, fks
+        fk = fks[0]
+        assert fk["table"] == "connector_accounts", fk
+        assert fk["from"] == "connector_account_id", fk
+        assert fk["to"] == "id", fk
+        assert fk["on_delete"].upper() == "CASCADE", fk
+
+        # Supporting index for the upsert-dedup query path.
+        async with conn.execute(
+            "SELECT name FROM sqlite_master "
+            "WHERE type='index' AND tbl_name='pending_approvals'"
+        ) as cur:
+            index_names = {r["name"] for r in await cur.fetchall()}
+        assert "idx_pending_approvals_account_peer_status" in index_names, (
+            index_names
+        )
+
+        # schema_version row for v21 exists; head pointer lands at
+        # CURRENT_VERSION.
+        async with conn.execute(
+            "SELECT version FROM schema_version ORDER BY version"
+        ) as cur:
+            versions = [r[0] for r in await cur.fetchall()]
+        assert 21 in versions, versions
+        assert max(versions) == CURRENT_VERSION, versions
+
+        await conn.close()
+
+    async def test_v21_migration_idempotent_on_rerun(self, tmp_path) -> None:
+        """Calling ensure_schema twice on a fresh DB is a no-op the second
+        time: no errors, the v21 row appears exactly once, the table is
+        still well-formed."""
+        db_path = tmp_path / "v21-rerun.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await ensure_schema(conn)
+        await ensure_schema(conn)  # second call — must be a no-op
+
+        async with conn.execute(
+            "SELECT version FROM schema_version ORDER BY version"
+        ) as cur:
+            versions = [r[0] for r in await cur.fetchall()]
+        assert versions.count(21) == 1, (
+            f"v21 row should appear exactly once: {versions}"
+        )
+
+        async with conn.execute(
+            "PRAGMA table_info(pending_approvals)"
+        ) as cur:
+            cols = {r["name"] for r in await cur.fetchall()}
+        assert "id" in cols and "status" in cols, cols
+
+        await conn.close()
+
+    async def test_v21_fk_cascade_deletes_dependent_rows(
+        self, tmp_path
+    ) -> None:
+        """Deleting a row from connector_accounts removes its dependent
+        pending_approvals rows. Verifies FK CASCADE wiring with
+        ``PRAGMA foreign_keys=ON``."""
+        db_path = tmp_path / "v21-cascade.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+        await ensure_schema(conn)
+
+        # Seed a connector account + a dependent pending_approval row.
+        await conn.execute(
+            "INSERT INTO connector_accounts (id, name, type) VALUES (?, ?, ?)",
+            ("acct-1", "Test", "stub"),
+        )
+        await conn.execute(
+            "INSERT INTO pending_approvals "
+            "(id, connector_account_id, peer_id, peer_name, preview, "
+            " received_at, status, resolved_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, 'pending', NULL)",
+            (
+                "appr-1",
+                "acct-1",
+                "peer-1",
+                "Peer One",
+                "hello",
+                "2026-01-01T00:00:00+00:00",
+            ),
+        )
+        await conn.commit()
+
+        # Pre-condition: one row.
+        async with conn.execute(
+            "SELECT COUNT(*) FROM pending_approvals"
+        ) as cur:
+            (count_before,) = await cur.fetchone()
+        assert count_before == 1, count_before
+
+        # Delete the parent.
+        await conn.execute(
+            "DELETE FROM connector_accounts WHERE id = ?", ("acct-1",)
+        )
+        await conn.commit()
+
+        # Cascade removed the dependent row.
+        async with conn.execute(
+            "SELECT COUNT(*) FROM pending_approvals"
+        ) as cur:
+            (count_after,) = await cur.fetchone()
+        assert count_after == 0, count_after
+
+        await conn.close()
+
+    async def test_v21_check_constraint_rejects_bad_status(
+        self, tmp_path
+    ) -> None:
+        """INSERTing a pending_approvals row with ``status='banana'``
+        raises ``aiosqlite.IntegrityError``. We assert on the exception
+        class only — CHECK-constraint failure messages vary across SQLite
+        versions and are not stable."""
+        db_path = tmp_path / "v21-check.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+        await ensure_schema(conn)
+
+        await conn.execute(
+            "INSERT INTO connector_accounts (id, name, type) VALUES (?, ?, ?)",
+            ("acct-1", "Test", "stub"),
+        )
+        await conn.commit()
+
+        with pytest.raises(aiosqlite.IntegrityError):
+            await conn.execute(
+                "INSERT INTO pending_approvals "
+                "(id, connector_account_id, peer_id, peer_name, preview, "
+                " received_at, status, resolved_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, 'banana', NULL)",
+                (
+                    "appr-bad",
+                    "acct-1",
+                    "peer-1",
+                    "Peer One",
+                    "hi",
+                    "2026-01-01T00:00:00+00:00",
+                ),
+            )
 
         await conn.close()

@@ -64,7 +64,7 @@
           escapeAttr(cat) + '">' + escapeHtml(cat) + '</span>' +
         '<span class="entity-tile-name">' + escapeHtml(t.name) + '</span>' +
         '<span class="entity-tile-description">' + escapeHtml(t.description) + '</span>' +
-        '<label class="tool-enable-switch" title="' + escapeAttr(titleText) + '">' +
+        '<label class="tool-enable-switch tool-enable-switch--corner" title="' + escapeAttr(titleText) + '">' +
           '<input type="checkbox" ' + checkedAttr + ' ' + disabledAttr + ' ' +
                  'data-testid="tool-toggle" data-name="' + escapeAttr(t.name) + '" ' +
                  'aria-label="Enable ' + escapeAttr(t.name) + '" />' +
