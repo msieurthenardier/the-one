@@ -318,3 +318,26 @@
 - All 7 leg statuses updated: landed → completed. Flight status: in-flight → landed.
 - Optional L8 HAT remains unchecked; offered to operator separately.
 - Stray `docker-compose.yml` modification (inherited F7→F8→F9) excluded from commit per F9 prereqs.
+- F9 land commit `61e56f6` pushed; draft PR #78 opened.
+
+### 2026-05-27 — L8 HAT (partial)
+
+Operator-driven 8-step walkthrough against the real Discord guild. Steps 1-3 passed; step 4 surfaced a structural design gap that blocks end-to-end usability; steps 5-8 deferred. L8 marked **partial**. See `legs/08-hat-pairing-and-detach.md` for the full per-step record + findings.
+
+**Two gaps surfaced** (escalated to Known Issues below):
+
+1. **ACL semantics — account-scope channels axis lacks `is_dm` short-circuit** (`the_one/connectors/_acl.py:323-329`). When `account.config["allowlist"]["channels"]` is non-empty, DMs from allowlisted peers are denied because the DM channel id is not in the guild-channels list. The per-agent equivalent at `_acl.py:372-378` DOES short-circuit on `is_dm` for the empty-list sentinel; account-scope doesn't have that primitive at all.
+
+2. **UI gap — channels axis conflates two concepts.** The connector account Allowlist editor and the per-agent ACL overlay expose ONE channels axis. There is no UI distinction between "guild channel restriction" (the bot is only allowed in these specific guild channels) and "DM admission" (the bot accepts DMs from approved peers — channel-axis irrelevant for DMs). Operator can pick restriction OR DM-admission, not both.
+
+Result: F9's Discord-native approval substrate is sound (storage, endpoints, banner, allowlist mutation all work) but does NOT close mission criterion #8 end-to-end for an operator with a realistic channel-restricted configuration. Substrate ships; usability gap escalated to follow-on flight.
+
+Mission criterion #8 marked **partially closed** in `mission.md`.
+
+## Known Issues
+
+- **ACL DM-admission gap** (F9 L8 finding 1): account-scope channels axis denies DMs from allowlisted peers when the channels list is non-empty. `the_one/connectors/_acl.py:323-329` lacks the `is_dm` short-circuit that the per-agent equivalent at `:372-378` has. Resolution path TBD by follow-on flight — could be (a) mirror the per-agent short-circuit, (b) add a separate `dm_admission` axis, (c) split the channels axis into `guild_channels` + `admit_dms`.
+
+- **ACL UI axis conflation** (F9 L8 finding 2): Studio's allowlist editor + per-agent overlay use a single `channels` axis that mixes "guild channel restriction" with "DM admission scope." Realistic operator configurations need both controls independent. Substrate ACL semantics + UI editor + per-agent overlay all need to evolve in lockstep. Follow-on flight's primary scope.
+
+- **L8 deferred steps (5-8)** — detach affordance (L5) + PAIR-prefix fallback (M10) not exercised in L8 due to step-4 failure. Both are believed correct from unit/browser tests; the follow-on flight's HAT (or a re-run of L8) should cover them.
