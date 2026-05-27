@@ -2171,11 +2171,59 @@ App.registerArea({
         if (!aclAccounts[aid]) aclAccounts[aid] = { peers: null, channels: null };
         aclAccounts[aid][listKind] = axisValue;
       }
+
+      // M11 F10 L3: collect per-agent admit_dms opt-out toggles. Walks
+      // every input with ``data-field="admit_dms"`` carrying a
+      // ``data-account-id``; emits ``admit_dms: false`` into
+      // ``aclAccounts[aid]`` ONLY when the checkbox is UNCHECKED.
+      //
+      // Semantic contract (mirrors the connector_acls "absent = inherit"
+      // convention for peers/channels):
+      //   - checked → DO NOT emit the key (inherit account-scope)
+      //   - unchecked → emit ``admit_dms: false`` (explicit opt-out)
+      //
+      // ``true`` is structurally equivalent to inherit and never
+      // produced by the UI; it would just clutter the persisted shape.
+      //
+      // Disabled-and-checked inputs are skipped — when account-scope
+      // ``dm_admission === "none"`` the per-agent override is inert,
+      // and dropping it from emission keeps storage clean. This is the
+      // intentional cleanup posture documented in the L3 leg artifact:
+      // flipping account-scope to "none" and saving the agent removes
+      // the per-agent opt-out from storage.
+      //
+      // Walks AFTER the peers/channels collection (which initializes
+      // ``aclAccounts[aid] = { peers: null, channels: null }`` entries
+      // for any account with rendered axis editors) so a merge is
+      // safe — but we still init on miss to handle the
+      // admit-dms-without-peers-or-channels-rendered edge case (e.g.
+      // empty account-scope lists where no axis editor mounts).
+      var admitDmsToggles = editorEl.querySelectorAll(
+        '[data-field="admit_dms"][data-account-id]'
+      );
+      for (var adi = 0; adi < admitDmsToggles.length; adi++) {
+        var adInput = admitDmsToggles[adi];
+        var adAid = adInput.getAttribute('data-account-id');
+        if (!adAid) continue;
+        if (adInput.checked) continue;  // checked = inherit (no key emitted)
+        if (adInput.disabled) continue;  // disabled = structurally inert
+        if (!aclAccounts[adAid]) {
+          aclAccounts[adAid] = { peers: null, channels: null };
+        }
+        aclAccounts[adAid].admit_dms = false;
+      }
+
       var finalAcls = {};
       for (var aid2 in aclAccounts) {
         var entry = aclAccounts[aid2];
-        // Omit accounts where BOTH axes are null (inherit-both).
-        if (entry.peers === null && entry.channels === null) continue;
+        // M11 F10 L3: omit accounts where ALL of peers/channels/admit_dms
+        // are inherit-state. Equivalently: emit the entry only if any
+        // axis has an explicit narrowing. ``admit_dms`` is explicit
+        // when the key is present (collect path only sets it to
+        // ``false``; ``true`` and absent both inherit).
+        if (entry.peers === null
+            && entry.channels === null
+            && !("admit_dms" in entry)) continue;
         finalAcls[aid2] = entry;
       }
       data.connector_acls = Object.keys(finalAcls).length > 0 ? finalAcls : null;

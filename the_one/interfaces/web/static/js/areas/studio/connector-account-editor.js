@@ -1608,7 +1608,8 @@
           peers: allowlistState.peers,
           channels: allowlistState.channels,
           guilds: allowlistState.guilds,
-          roles: allowlistState.roles
+          roles: allowlistState.roles,
+          dm_admission: allowlistState.dm_admission  // M11 F10 L2
         };
       }
     }
@@ -2040,6 +2041,39 @@
     html += '<span id="connector-allowlist-peers-help-text" class="visually-hidden">' +
             escapeHtml(peersTipText) + '</span>';
     html += '<div data-allowlist-chiplist-slot="peers"></div>';
+    html += '</div>';
+
+    // M11 F10 L2: DM admission axis (3-value selector). Semantic
+    // placement: peers defines WHO can DM; dm_admission gates WHETHER
+    // DMs are admitted; channels (post-L1: guild-channel restriction)
+    // follows. Storage at account.config.allowlist.dm_admission;
+    // dispatcher consult at _acl.py:admits_inbound (L1).
+    var dmAdmissionTipText = 'DMs (direct messages to the bot) are ' +
+        'admitted independently of channel restrictions. Approved ' +
+        'peers are those on the Peers allowlist above.';
+    var currentDmAdmission = (account && account.config && account.config.allowlist &&
+        account.config.allowlist.dm_admission) || 'allowlisted-peers-only';
+    html += '<div class="field-row admin-pf-row connector-account-acl-fieldrow" ' +
+            'data-testid="connector-allowlist-dm-admission-row">';
+    html += '<label class="connector-account-acl-fieldlabel" ' +
+            'for="connector-allowlist-dm-admission-select">DM admission</label>';
+    html += '<button type="button" class="field-info-icon" ' +
+            'title="' + escapeAttr(dmAdmissionTipText) + '" ' +
+            'aria-describedby="connector-allowlist-dm-admission-help-text" ' +
+            'data-testid="connector-allowlist-dm-admission-hint">' + infoIcon + '</button>';
+    html += '<span id="connector-allowlist-dm-admission-help-text" class="visually-hidden">' +
+            escapeHtml(dmAdmissionTipText) + '</span>';
+    html += '<select id="connector-allowlist-dm-admission-select" ' +
+            'class="field-input admin-pf-input" ' +
+            'data-testid="connector-allowlist-dm-admission-select">';
+    html += '<option value="none"' +
+            (currentDmAdmission === 'none' ? ' selected' : '') + '>Deny all DMs</option>';
+    html += '<option value="allowlisted-peers-only"' +
+            (currentDmAdmission === 'allowlisted-peers-only' ? ' selected' : '') +
+            '>Admit DMs from approved peers</option>';
+    html += '<option value="all"' +
+            (currentDmAdmission === 'all' ? ' selected' : '') + '>Admit all DMs</option>';
+    html += '</select>';
     html += '</div>';
 
     // Channels axis.
@@ -3428,11 +3462,20 @@
       }
       return out;
     }
+    // M11 F10 L2: dm_admission axis (3-value selector). Reads the
+    // selector value; defaults to 'allowlisted-peers-only' when the
+    // selector is absent (defensive — shouldn't reach this code path
+    // because the early-return above already guards on chiplist
+    // absence, and dm_admission renders in the same section).
+    var dmAdmissionSelect = container.querySelector(
+        '[data-testid="connector-allowlist-dm-admission-select"]');
+    var dmAdmission = dmAdmissionSelect ? dmAdmissionSelect.value : 'allowlisted-peers-only';
     return {
       peers: _readChiplist(peersSlot),
       channels: _readChiplist(channelsSlot),
       guilds: _readChiplist(guildsSlot),
-      roles: _readChiplist(rolesSlot)
+      roles: _readChiplist(rolesSlot),
+      dm_admission: dmAdmission
     };
   }
 

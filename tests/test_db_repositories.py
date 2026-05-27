@@ -345,6 +345,41 @@ class TestSQLiteAgentStore:
         # Belt-and-braces: confirm the round-trip preserved {}, not None.
         assert loaded.connector_acls is not None
 
+    async def test_save_round_trips_connector_acls_with_admit_dms(
+        self, agent_store: SQLiteAgentStore
+    ) -> None:
+        """M11 F10 L1 — an agent with ``connector_acls[acct].admit_dms
+        = False`` survives save → load round-trip. Pins the per-agent
+        DM opt-out persistence.
+        """
+        config = AgentConfig(
+            name="admit-dms-agent",
+            connector_acls={
+                "acct-a": {
+                    "peers": None,
+                    "channels": None,
+                    "admit_dms": False,
+                },
+                "acct-b": {
+                    "peers": None,
+                    "channels": None,
+                    "admit_dms": True,
+                },
+                "acct-c": {
+                    "peers": None,
+                    "channels": None,
+                    "admit_dms": None,
+                },
+            },
+        )
+        await agent_store.save(config)
+        loaded = await agent_store.load("admit-dms-agent")
+        assert loaded.connector_acls == {
+            "acct-a": {"peers": None, "channels": None, "admit_dms": False},
+            "acct-b": {"peers": None, "channels": None, "admit_dms": True},
+            "acct-c": {"peers": None, "channels": None, "admit_dms": None},
+        }
+
     async def test_load_pre_v18_agent_has_none_connector_acls(
         self, agent_store: SQLiteAgentStore, conn
     ) -> None:
@@ -1525,12 +1560,23 @@ class TestConnectorAccountConfigValidator:
         assert account.config["allowlist"] == allowlist
 
     def test_empty_allowlist_is_preserved_verbatim(self) -> None:
-        """Distinct from absent allowlist: empty lists mean lockdown."""
+        """Distinct from absent allowlist: empty lists mean lockdown.
+
+        M11 F10 L1: the validator inserts the ``dm_admission``
+        fresh-account default (``"allowlisted-peers-only"``) when an
+        allowlist is present but the key is absent — the empty
+        ``peers``/``channels`` lists themselves are still preserved
+        verbatim.
+        """
         account = ConnectorAccount(
             id="a", name="n", type="stub",
             config={"allowlist": {"peers": [], "channels": []}},
         )
-        assert account.config["allowlist"] == {"peers": [], "channels": []}
+        assert account.config["allowlist"] == {
+            "peers": [],
+            "channels": [],
+            "dm_admission": "allowlisted-peers-only",
+        }
 
     def test_mixed_reserved_and_non_reserved_round_trips(self) -> None:
         config = {
@@ -1671,13 +1717,22 @@ class TestConnectorAccountConfigValidator:
     def test_allowlist_partial_axes_round_trips(self) -> None:
         """Partial L8 shapes are accepted — ``guilds`` alone (no roles),
         ``roles`` alone (no guilds), and pre-L8 2-key shape all validate.
-        Pins the back-compat invariant: guilds + roles are OPTIONAL."""
+        Pins the back-compat invariant: guilds + roles are OPTIONAL.
+
+        M11 F10 L1: validator now inserts ``dm_admission`` default
+        when absent — the assertion includes the fresh-account default
+        below.
+        """
         # Pre-L8 2-key shape still works.
         acc1 = ConnectorAccount(
             id="a1", name="n", type="stub",
             config={"allowlist": {"peers": [], "channels": []}},
         )
-        assert acc1.config["allowlist"] == {"peers": [], "channels": []}
+        assert acc1.config["allowlist"] == {
+            "peers": [],
+            "channels": [],
+            "dm_admission": "allowlisted-peers-only",
+        }
         # peers + channels + guilds only (no roles).
         acc2 = ConnectorAccount(
             id="a2", name="n", type="stub",
@@ -1770,6 +1825,48 @@ class TestConnectorAccountConfigValidator:
         assert loaded.config["allowlist"] == empty
         assert "allowlist" in loaded.config  # not erased
 
+    async def test_dm_admission_round_trips_through_repo(
+        self, connector_repo: ConnectorAccountRepository
+    ) -> None:
+        """M11 F10 L1 — ``allowlist.dm_admission`` survives create →
+        list → get → update → get verbatim.
+
+        Pins the per-axis tri-state Literal value round-trip through
+        the JSON column. Validates all three values
+        (``"none"``, ``"allowlisted-peers-only"``, ``"all"``).
+        """
+        # Create with dm_admission = "all".
+        account = ConnectorAccount(
+            id="a1", name="n", type="stub",
+            config={"allowlist": {
+                "peers": ["P1"], "channels": [], "dm_admission": "all",
+            }},
+        )
+        await connector_repo.create(account)
+
+        # List sees the dm_admission value.
+        listed = await connector_repo.list()
+        listed_account = next(a for a in listed if a.id == "a1")
+        assert listed_account.config["allowlist"]["dm_admission"] == "all"
+
+        # Get round-trips it.
+        loaded = await connector_repo.get("a1")
+        assert loaded.config["allowlist"]["dm_admission"] == "all"
+
+        # Update to "none".
+        loaded.config["allowlist"]["dm_admission"] = "none"
+        await connector_repo.update(loaded)
+        reloaded = await connector_repo.get("a1")
+        assert reloaded.config["allowlist"]["dm_admission"] == "none"
+
+        # Update to "allowlisted-peers-only".
+        reloaded.config["allowlist"]["dm_admission"] = "allowlisted-peers-only"
+        await connector_repo.update(reloaded)
+        final = await connector_repo.get("a1")
+        assert final.config["allowlist"]["dm_admission"] == (
+            "allowlisted-peers-only"
+        )
+
     async def test_empty_allowlist_stored_as_lists_not_null(
         self, connector_repo: ConnectorAccountRepository
     ) -> None:
@@ -1792,7 +1889,15 @@ class TestConnectorAccountConfigValidator:
         ) as cur:
             row = await cur.fetchone()
         raw = json.loads(row["config"])
-        assert raw == {"allowlist": {"peers": [], "channels": []}}
+        # M11 F10 L1: the validator inserts ``dm_admission`` default on
+        # construction, so the serialized JSON carries it too.
+        assert raw == {
+            "allowlist": {
+                "peers": [],
+                "channels": [],
+                "dm_admission": "allowlisted-peers-only",
+            }
+        }
         # JSON null would deserialize as None; absent key would mean
         # "allowlist" not in raw. Neither is the case.
         assert raw["allowlist"]["peers"] == []
