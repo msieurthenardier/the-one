@@ -81,9 +81,9 @@ Once the app is up, configure each provider in **Administration → LLM Provider
 
 **MCP** (`the_one/mcp/`) — Model Context Protocol client (M07). Talks to external MCP servers over stdio or streamable-HTTP; sandboxed with bubblewrap by default; OAuth pause-and-replay for servers requiring user authorization.
 
-**Connectors** (`the_one/connectors/`) — Bi-directional communication connector framework (M10). Plugin contract + per-(agent, account) lifecycle pool + encrypted-credentials persistence. Flight 2 ships the operator-visible admin surface (`/api/connector-accounts` REST + Studio editor); real platform plugins (Discord, …) land in subsequent flights.
+**Connectors** (`the_one/connectors/`) — Bi-directional communication connector framework (M10). Plugin contract + per-(agent, connector) lifecycle pool + encrypted-credentials persistence. Flight 2 ships the operator-visible admin surface (`/api/connectors` REST + Studio editor); real platform plugins (Discord, …) land in subsequent flights.
 
-**Persistence** (`the_one/db/`) — SQLite via aiosqlite. Agents, providers, MCP sources, connector accounts, chat sessions, and a Knowledge Base index live here. API keys, MCP secrets, and connector-account secrets are encrypted at rest via Fernet symmetric encryption; key rotation is exposed via `POST /api/encryption/rotate` and atomically re-encrypts all three corpora.
+**Persistence** (`the_one/db/`) — SQLite via aiosqlite. Agents, providers, MCP sources, connectors, chat sessions, and a Knowledge Base index live here. API keys, MCP secrets, and connector secrets are encrypted at rest via Fernet symmetric encryption; key rotation is exposed via `POST /api/encryption/rotate` and atomically re-encrypts all three corpora.
 
 ## Security
 
