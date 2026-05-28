@@ -825,3 +825,76 @@ async def test_shutdown_drain_cancels_refresh_task(
     assert pool_mod._discoverable_refresh_task is None
     assert pool_mod._reaper_task is None
     assert pool_mod._shutting_down is True
+
+
+# ─────────────────────────────────────────────────────────────────
+# M11 F9 L5: release_agent_on_account — public per-(agent, account)
+# release primitive (operator-driven detach).
+# ─────────────────────────────────────────────────────────────────
+
+
+async def test_release_agent_on_account_evicts_specific_slot(patch_plugin) -> None:
+    """``release_agent_on_account`` evicts ONLY the targeted (agent,
+    account) entry; sibling entries under different agents or different
+    accounts stay warm.
+    """
+    from the_one.connectors._pool import release_agent_on_account
+
+    await agent_acquire("agent-a", "acct-1")
+    await agent_acquire("agent-b", "acct-1")
+    await agent_acquire("agent-a", "acct-2")
+    assert set(_keys_for_test()) == {
+        ("agent-a", "acct-1"),
+        ("agent-b", "acct-1"),
+        ("agent-a", "acct-2"),
+    }
+
+    await release_agent_on_account("agent-a", "acct-1")
+
+    assert set(_keys_for_test()) == {
+        ("agent-b", "acct-1"),
+        ("agent-a", "acct-2"),
+    }
+    # Disconnect ran exactly once (only one entry evicted).
+    assert _StubPlugin.disconnect_count == 1
+
+
+async def test_release_agent_on_account_idempotent_on_missing_key() -> None:
+    """``release_agent_on_account`` on a never-acquired slot is a clean
+    no-op — inherits ``_evict``'s contract.
+    """
+    from the_one.connectors._pool import release_agent_on_account
+
+    # No acquire — pool is empty.
+    assert _keys_for_test() == []
+    await release_agent_on_account("never-acquired-agent", "never-acquired-account")
+    assert _keys_for_test() == []
+
+
+async def test_release_agent_on_account_does_not_touch_account_slot(
+    patch_plugin,
+) -> None:
+    """When an account is warm under BOTH ``agent_acquire`` (per-agent
+    slot) AND ``account_acquire`` (system-outbound sentinel slot),
+    ``release_agent_on_account`` releases only the per-agent slot — the
+    account-keyed sentinel slot stays warm.
+
+    This is the scope-pin from M11 F9 L5 Design: detach is per-agent;
+    other agents (or the system-outbound dispatcher) may still depend
+    on the account being live.
+    """
+    from the_one.connectors._pool import release_agent_on_account
+
+    await agent_acquire("agent-a", "acct-1")
+    await account_acquire("acct-1")
+    assert set(_keys_for_test()) == {
+        ("agent-a", "acct-1"),
+        (_ACCOUNT_POOL_AGENT_SLOT, "acct-1"),
+    }
+
+    await release_agent_on_account("agent-a", "acct-1")
+
+    # Only the per-agent slot is gone; the account-keyed sentinel slot stays.
+    assert set(_keys_for_test()) == {
+        (_ACCOUNT_POOL_AGENT_SLOT, "acct-1"),
+    }

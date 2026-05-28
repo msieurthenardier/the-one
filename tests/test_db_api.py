@@ -1741,6 +1741,669 @@ class TestConnectorAccountPairingCodeAndAttached:
         assert allowlist == {"peers": [], "channels": []}
 
 
+# ── Connector account peer-approvals (M11 F9 L3) ─────────────────────────
+
+
+class TestConnectorAccountPeerApprovals:
+    """REST surface for the F9 L3 peer-approval action endpoints.
+
+    Covers the two new endpoints:
+
+      * ``POST /api/connector-accounts/{id}/peer-approvals/{approval_id}/approve``
+        — transitions the pending_approvals row to ``status='approved'``
+        and adds the peer to ``account.config['allowlist']['peers']``
+        (idempotent).
+      * ``POST /api/connector-accounts/{id}/peer-approvals/{approval_id}/dismiss``
+        — transitions the row to ``status='dismissed'``; does NOT mutate
+        the allowlist.
+
+    Mirrors :class:`TestConnectorAccountPairingCodeAndAttached`'s autouse
+    ``_isolation`` fixture verbatim (class-scoped autouse fixtures do not
+    propagate across classes; each class that touches the connector
+    subsystem must redeclare).
+    """
+
+    @pytest.fixture(autouse=True)
+    async def _isolation(self, client: AsyncClient, monkeypatch):
+        from the_one.connectors import _pool as pool_mod
+        from the_one.connectors._stub import StubPlugin
+        from the_one.connectors.registry import (
+            clear_for_test,
+            register_for_test,
+            restore_to_baseline_for_test,
+        )
+        from the_one.db.repositories import ConnectorAccountRepository
+        from the_one.interfaces.web.api import get_connection, get_encryptor
+
+        await pool_mod._clear_for_test()
+        restore_to_baseline_for_test()
+        StubPlugin.reset_for_test()
+        register_for_test("stub", StubPlugin)
+
+        async def _patched_load_account(account_id, encryptor):
+            conn = await get_connection()
+            repo = ConnectorAccountRepository(conn, get_encryptor(""))
+            return await repo.get(account_id)
+
+        monkeypatch.setattr(pool_mod, "_load_account", _patched_load_account)
+
+        try:
+            yield
+        finally:
+            await pool_mod._clear_for_test()
+            clear_for_test()
+
+    async def _create_account(
+        self, client: AsyncClient, config: dict | None = None
+    ) -> str:
+        body = {"name": "approval-target", "type": "stub", "secrets": {}}
+        if config is not None:
+            body["config"] = config
+        resp = await client.post("/api/connector-accounts", json=body)
+        assert resp.status_code == 201, resp.text
+        return resp.json()["id"]
+
+    async def _create_pending_approval(
+        self,
+        account_id: str,
+        peer_id: str = "peer-1",
+        peer_name: str = "Test Peer",
+        preview: str = "hello",
+    ) -> str:
+        """Insert a pending_approvals row via the repository directly.
+
+        There is no public endpoint to create one — the dispatcher emit
+        path is the only producer in production. Tests construct rows
+        through the repo and exercise the API consumer endpoints.
+
+        Imports ``get_connection`` from the ``api`` module (not the
+        ``db.connection`` module) because the ``client`` fixture patches
+        the API module's binding to point at the per-test isolated
+        sqlite file; the unpatched module-level binding would open a
+        different connection where the connector account row does not
+        exist (FK violation on insert).
+        """
+        from the_one.db.repositories import PendingApprovalRepository
+        from the_one.interfaces.web.api import get_connection
+
+        conn = await get_connection()
+        repo = PendingApprovalRepository(conn)
+        approval = await repo.upsert_pending(
+            connector_account_id=account_id,
+            peer_id=peer_id,
+            peer_name=peer_name,
+            preview=preview,
+        )
+        return approval.id
+
+    # ── approve endpoint ─────────────────────────────────────────────────
+
+    async def test_approve_pending_returns_approved_row(
+        self, client: AsyncClient
+    ) -> None:
+        """POST approve on a pending row → 200 + ``status='approved'``."""
+        account_id = await self._create_account(client)
+        approval_id = await self._create_pending_approval(account_id)
+
+        resp = await client.post(
+            f"/api/connector-accounts/{account_id}"
+            f"/peer-approvals/{approval_id}/approve"
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["id"] == approval_id
+        assert body["connector_account_id"] == account_id
+        assert body["peer_id"] == "peer-1"
+        assert body["peer_name"] == "Test Peer"
+        assert body["preview"] == "hello"
+        assert body["status"] == "approved"
+        assert body["resolved_at"] is not None
+        assert "T" in body["resolved_at"]
+
+    async def test_approve_pending_adds_peer_to_allowlist(
+        self, client: AsyncClient
+    ) -> None:
+        """Successful approve → peer_id present in ``config.allowlist.peers``."""
+        account_id = await self._create_account(client)
+        approval_id = await self._create_pending_approval(
+            account_id, peer_id="peer-add-me"
+        )
+
+        resp = await client.post(
+            f"/api/connector-accounts/{account_id}"
+            f"/peer-approvals/{approval_id}/approve"
+        )
+        assert resp.status_code == 200, resp.text
+
+        getr = await client.get(f"/api/connector-accounts/{account_id}")
+        assert getr.status_code == 200
+        allowlist = getr.json()["config"]["allowlist"]
+        assert "peer-add-me" in allowlist["peers"]
+
+    async def test_approve_pending_idempotent_does_not_duplicate_peer_id(
+        self, client: AsyncClient
+    ) -> None:
+        """Re-approve does NOT duplicate the peer in the allowlist."""
+        account_id = await self._create_account(client)
+        approval_id = await self._create_pending_approval(
+            account_id, peer_id="peer-dup-check"
+        )
+
+        first = await client.post(
+            f"/api/connector-accounts/{account_id}"
+            f"/peer-approvals/{approval_id}/approve"
+        )
+        assert first.status_code == 200, first.text
+
+        second = await client.post(
+            f"/api/connector-accounts/{account_id}"
+            f"/peer-approvals/{approval_id}/approve"
+        )
+        assert second.status_code == 200, second.text
+
+        getr = await client.get(f"/api/connector-accounts/{account_id}")
+        peers = getr.json()["config"]["allowlist"]["peers"]
+        assert peers.count("peer-dup-check") == 1
+
+    async def test_approve_preserves_other_config_keys(
+        self, client: AsyncClient
+    ) -> None:
+        """Pre-existing config keys (intent, pairing) survive the mutation."""
+        account_id = await self._create_account(
+            client,
+            config={
+                "intent": "guild_messages",
+                "allowlist": {"peers": ["u-keep"], "channels": ["c-keep"]},
+            },
+        )
+        # Stamp a pairing block separately via the pairing-code endpoint
+        # so we have a third reserved key to assert survives.
+        pair = await client.post(
+            f"/api/connector-accounts/{account_id}/pairing-code"
+        )
+        assert pair.status_code == 200
+        pairing_before = pair.json()
+
+        approval_id = await self._create_pending_approval(
+            account_id, peer_id="peer-new"
+        )
+        resp = await client.post(
+            f"/api/connector-accounts/{account_id}"
+            f"/peer-approvals/{approval_id}/approve"
+        )
+        assert resp.status_code == 200, resp.text
+
+        getr = await client.get(f"/api/connector-accounts/{account_id}")
+        cfg = getr.json()["config"]
+        assert cfg["intent"] == "guild_messages"
+        assert cfg["allowlist"]["channels"] == ["c-keep"]
+        assert "u-keep" in cfg["allowlist"]["peers"]
+        assert "peer-new" in cfg["allowlist"]["peers"]
+        assert cfg["pairing"] == {
+            "code": pairing_before["code"],
+            "issued_at": pairing_before["issued_at"],
+        }
+
+    async def test_approve_already_approved_returns_200_idempotent(
+        self, client: AsyncClient
+    ) -> None:
+        """Approve, approve again → both 200, same id, same resolved_at."""
+        account_id = await self._create_account(client)
+        approval_id = await self._create_pending_approval(account_id)
+
+        first = await client.post(
+            f"/api/connector-accounts/{account_id}"
+            f"/peer-approvals/{approval_id}/approve"
+        )
+        assert first.status_code == 200, first.text
+        first_body = first.json()
+
+        second = await client.post(
+            f"/api/connector-accounts/{account_id}"
+            f"/peer-approvals/{approval_id}/approve"
+        )
+        assert second.status_code == 200, second.text
+        second_body = second.json()
+
+        assert first_body["id"] == second_body["id"]
+        assert second_body["status"] == "approved"
+        # resolved_at stable across idempotent calls — operator-observable
+        # contract (re-call does NOT bump the timestamp).
+        assert first_body["resolved_at"] == second_body["resolved_at"]
+
+    async def test_approve_on_dismissed_returns_409(
+        self, client: AsyncClient
+    ) -> None:
+        """Approve on a dismissed row → 409 Conflict (terminal mismatch)."""
+        account_id = await self._create_account(client)
+        approval_id = await self._create_pending_approval(account_id)
+
+        dismiss = await client.post(
+            f"/api/connector-accounts/{account_id}"
+            f"/peer-approvals/{approval_id}/dismiss"
+        )
+        assert dismiss.status_code == 200, dismiss.text
+
+        approve = await client.post(
+            f"/api/connector-accounts/{account_id}"
+            f"/peer-approvals/{approval_id}/approve"
+        )
+        assert approve.status_code == 409, approve.text
+
+    async def test_approve_unknown_account_returns_404(
+        self, client: AsyncClient
+    ) -> None:
+        """POST against a fake account id → 404."""
+        resp = await client.post(
+            "/api/connector-accounts/does-not-exist"
+            "/peer-approvals/anything/approve"
+        )
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == (
+            "Connector account not found: does-not-exist"
+        )
+
+    async def test_approve_unknown_approval_returns_404(
+        self, client: AsyncClient
+    ) -> None:
+        """Real account, fake approval id → 404."""
+        account_id = await self._create_account(client)
+        resp = await client.post(
+            f"/api/connector-accounts/{account_id}"
+            f"/peer-approvals/no-such-approval/approve"
+        )
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == (
+            "Pending approval not found: no-such-approval"
+        )
+
+    async def test_approve_cross_account_approval_returns_404(
+        self, client: AsyncClient
+    ) -> None:
+        """Approval belongs to account-A; POST against account-B → 404."""
+        account_a = await self._create_account(client)
+        # Create a second account using a different name (the helper's
+        # default name would collide on the UNIQUE constraint).
+        resp = await client.post(
+            "/api/connector-accounts",
+            json={"name": "approval-target-b", "type": "stub", "secrets": {}},
+        )
+        assert resp.status_code == 201, resp.text
+        account_b = resp.json()["id"]
+
+        approval_id = await self._create_pending_approval(account_a)
+
+        resp = await client.post(
+            f"/api/connector-accounts/{account_b}"
+            f"/peer-approvals/{approval_id}/approve"
+        )
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == (
+            f"Pending approval not found: {approval_id}"
+        )
+
+    # ── dismiss endpoint ─────────────────────────────────────────────────
+
+    async def test_dismiss_pending_returns_dismissed_row(
+        self, client: AsyncClient
+    ) -> None:
+        """POST dismiss on a pending row → 200 + ``status='dismissed'``."""
+        account_id = await self._create_account(client)
+        approval_id = await self._create_pending_approval(account_id)
+
+        resp = await client.post(
+            f"/api/connector-accounts/{account_id}"
+            f"/peer-approvals/{approval_id}/dismiss"
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["id"] == approval_id
+        assert body["status"] == "dismissed"
+        assert body["resolved_at"] is not None
+
+    async def test_dismiss_does_not_mutate_allowlist(
+        self, client: AsyncClient
+    ) -> None:
+        """Dismiss → allowlist unchanged (peer NOT added)."""
+        account_id = await self._create_account(
+            client,
+            config={"allowlist": {"peers": ["u-keep"], "channels": ["c-keep"]}},
+        )
+        approval_id = await self._create_pending_approval(
+            account_id, peer_id="peer-do-not-add"
+        )
+
+        resp = await client.post(
+            f"/api/connector-accounts/{account_id}"
+            f"/peer-approvals/{approval_id}/dismiss"
+        )
+        assert resp.status_code == 200, resp.text
+
+        getr = await client.get(f"/api/connector-accounts/{account_id}")
+        allowlist = getr.json()["config"]["allowlist"]
+        assert allowlist == {"peers": ["u-keep"], "channels": ["c-keep"]}
+
+    async def test_dismiss_already_dismissed_returns_200_idempotent(
+        self, client: AsyncClient
+    ) -> None:
+        """Dismiss, dismiss again → both 200, same id, stable resolved_at."""
+        account_id = await self._create_account(client)
+        approval_id = await self._create_pending_approval(account_id)
+
+        first = await client.post(
+            f"/api/connector-accounts/{account_id}"
+            f"/peer-approvals/{approval_id}/dismiss"
+        )
+        assert first.status_code == 200, first.text
+        first_body = first.json()
+
+        second = await client.post(
+            f"/api/connector-accounts/{account_id}"
+            f"/peer-approvals/{approval_id}/dismiss"
+        )
+        assert second.status_code == 200, second.text
+        second_body = second.json()
+
+        assert first_body["id"] == second_body["id"]
+        assert second_body["status"] == "dismissed"
+        assert first_body["resolved_at"] == second_body["resolved_at"]
+
+    async def test_dismiss_on_approved_returns_409(
+        self, client: AsyncClient
+    ) -> None:
+        """Dismiss on an approved row → 409 Conflict."""
+        account_id = await self._create_account(client)
+        approval_id = await self._create_pending_approval(account_id)
+
+        approve = await client.post(
+            f"/api/connector-accounts/{account_id}"
+            f"/peer-approvals/{approval_id}/approve"
+        )
+        assert approve.status_code == 200, approve.text
+
+        dismiss = await client.post(
+            f"/api/connector-accounts/{account_id}"
+            f"/peer-approvals/{approval_id}/dismiss"
+        )
+        assert dismiss.status_code == 409, dismiss.text
+
+    async def test_dismiss_unknown_account_returns_404(
+        self, client: AsyncClient
+    ) -> None:
+        resp = await client.post(
+            "/api/connector-accounts/does-not-exist"
+            "/peer-approvals/anything/dismiss"
+        )
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == (
+            "Connector account not found: does-not-exist"
+        )
+
+    async def test_dismiss_unknown_approval_returns_404(
+        self, client: AsyncClient
+    ) -> None:
+        account_id = await self._create_account(client)
+        resp = await client.post(
+            f"/api/connector-accounts/{account_id}"
+            f"/peer-approvals/no-such-approval/dismiss"
+        )
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == (
+            "Pending approval not found: no-such-approval"
+        )
+
+    async def test_dismiss_cross_account_approval_returns_404(
+        self, client: AsyncClient
+    ) -> None:
+        """Approval belongs to account-A; dismiss against account-B → 404."""
+        account_a = await self._create_account(client)
+        resp = await client.post(
+            "/api/connector-accounts",
+            json={"name": "approval-target-b", "type": "stub", "secrets": {}},
+        )
+        assert resp.status_code == 201, resp.text
+        account_b = resp.json()["id"]
+
+        approval_id = await self._create_pending_approval(account_a)
+
+        resp = await client.post(
+            f"/api/connector-accounts/{account_b}"
+            f"/peer-approvals/{approval_id}/dismiss"
+        )
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == (
+            f"Pending approval not found: {approval_id}"
+        )
+
+    # ── allowlist initialization edge case ───────────────────────────────
+
+    async def test_approve_initializes_allowlist_when_missing(
+        self, client: AsyncClient
+    ) -> None:
+        """Account with no ``allowlist`` key in config → allowlist
+        initialized to ``{"peers": [<peer_id>], "channels": []}``."""
+        # _create_account uses an empty config (no allowlist key).
+        account_id = await self._create_account(client)
+        approval_id = await self._create_pending_approval(
+            account_id, peer_id="peer-init"
+        )
+
+        resp = await client.post(
+            f"/api/connector-accounts/{account_id}"
+            f"/peer-approvals/{approval_id}/approve"
+        )
+        assert resp.status_code == 200, resp.text
+
+        getr = await client.get(f"/api/connector-accounts/{account_id}")
+        cfg = getr.json()["config"]
+        assert cfg["allowlist"] == {"peers": ["peer-init"], "channels": []}
+
+
+# ── Agent–connector-account detach (M11 F9 L5) ───────────────────────────
+
+
+class TestAgentConnectorDetach:
+    """REST surface for the F9 L5 operator-driven detach endpoint.
+
+    Covers ``DELETE /api/agents/{agent_name}/connector-accounts/{account_id}``:
+
+      * Happy path — account_id is in the agent's ``connector_account_ids``;
+        gets removed; pool slot released.
+      * Idempotent no-op — account_id is NOT in the list; 200 + no change.
+      * 404 — unknown agent name.
+
+    Plus a regression net for the ``list_connector_accounts`` response
+    extension (per-row ``attached_agents_count`` field).
+
+    Mirrors :class:`TestConnectorAccountPairingCodeAndAttached`'s autouse
+    ``_isolation`` fixture so the pool, registry, and StubPlugin state
+    are reset per test.
+    """
+
+    @pytest.fixture(autouse=True)
+    async def _isolation(self, client: AsyncClient, monkeypatch):
+        from the_one.connectors import _pool as pool_mod
+        from the_one.connectors._stub import StubPlugin
+        from the_one.connectors.registry import (
+            clear_for_test,
+            register_for_test,
+            restore_to_baseline_for_test,
+        )
+        from the_one.db.repositories import ConnectorAccountRepository
+        from the_one.interfaces.web.api import get_connection, get_encryptor
+
+        await pool_mod._clear_for_test()
+        restore_to_baseline_for_test()
+        StubPlugin.reset_for_test()
+        register_for_test("stub", StubPlugin)
+
+        async def _patched_load_account(account_id, encryptor):
+            conn = await get_connection()
+            repo = ConnectorAccountRepository(conn, get_encryptor(""))
+            return await repo.get(account_id)
+
+        monkeypatch.setattr(pool_mod, "_load_account", _patched_load_account)
+
+        try:
+            yield
+        finally:
+            await pool_mod._clear_for_test()
+            clear_for_test()
+
+    async def _create_account(self, client: AsyncClient, name: str = "detach-target") -> str:
+        resp = await client.post(
+            "/api/connector-accounts",
+            json={"name": name, "type": "stub", "secrets": {}},
+        )
+        assert resp.status_code == 201, resp.text
+        return resp.json()["id"]
+
+    async def test_detach_removes_account_from_agent_connector_account_ids(
+        self, client: AsyncClient
+    ) -> None:
+        """Happy path — account is in the agent's list; DELETE removes it
+        and returns the updated agent config (PUT-shape body)."""
+        account_id = await self._create_account(client)
+
+        resp = await client.post(
+            "/api/agents",
+            json={
+                "name": "agent-detach-happy",
+                "connector_account_ids": [account_id],
+            },
+        )
+        assert resp.status_code in (200, 201), resp.text
+
+        resp = await client.delete(
+            f"/api/agents/agent-detach-happy/connector-accounts/{account_id}"
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        # Response is the agent config — same shape as PUT.
+        assert body["name"] == "agent-detach-happy"
+        assert body["connector_account_ids"] == []
+
+        # Verify via GET that the persisted state agrees.
+        getr = await client.get("/api/agents/agent-detach-happy")
+        assert getr.status_code == 200
+        assert getr.json()["connector_account_ids"] == []
+
+    async def test_detach_preserves_other_account_ids(
+        self, client: AsyncClient
+    ) -> None:
+        """Detach removes ONLY the targeted account; sibling accounts stay."""
+        a1 = await self._create_account(client, name="acct-1")
+        a2 = await self._create_account(client, name="acct-2")
+
+        resp = await client.post(
+            "/api/agents",
+            json={
+                "name": "agent-detach-siblings",
+                "connector_account_ids": [a1, a2],
+            },
+        )
+        assert resp.status_code in (200, 201), resp.text
+
+        resp = await client.delete(
+            f"/api/agents/agent-detach-siblings/connector-accounts/{a1}"
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["connector_account_ids"] == [a2]
+
+    async def test_detach_idempotent_on_already_detached(
+        self, client: AsyncClient
+    ) -> None:
+        """Account NOT in the agent's list → 200 + unchanged state.
+
+        The post-state is the same (account_id is not in the list), so
+        the call is a no-op rather than a 404.
+        """
+        account_id = await self._create_account(client)
+
+        # Agent created with NO connector accounts attached.
+        resp = await client.post(
+            "/api/agents",
+            json={"name": "agent-already-detached"},
+        )
+        assert resp.status_code in (200, 201), resp.text
+
+        resp = await client.delete(
+            f"/api/agents/agent-already-detached/connector-accounts/{account_id}"
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["connector_account_ids"] == []
+
+    async def test_detach_unknown_agent_returns_404(
+        self, client: AsyncClient
+    ) -> None:
+        """DELETE on a bogus agent name → 404 with the detail message."""
+        account_id = await self._create_account(client)
+
+        resp = await client.delete(
+            f"/api/agents/no-such-agent/connector-accounts/{account_id}"
+        )
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "Agent not found: no-such-agent"
+
+    async def test_detach_releases_pool_slot(
+        self, client: AsyncClient
+    ) -> None:
+        """After DELETE, the per-(agent, account) pool slot is released
+        (verified via ``_keys_for_test``)."""
+        from the_one.connectors._pool import (
+            _keys_for_test,
+            agent_acquire,
+        )
+
+        account_id = await self._create_account(client)
+        resp = await client.post(
+            "/api/agents",
+            json={
+                "name": "agent-pool-release",
+                "connector_account_ids": [account_id],
+            },
+        )
+        assert resp.status_code in (200, 201), resp.text
+
+        # Warm the per-(agent, account) slot.
+        await agent_acquire("agent-pool-release", account_id)
+        assert ("agent-pool-release", account_id) in _keys_for_test()
+
+        resp = await client.delete(
+            f"/api/agents/agent-pool-release/connector-accounts/{account_id}"
+        )
+        assert resp.status_code == 200, resp.text
+
+        # The per-(agent, account) slot is gone.
+        assert ("agent-pool-release", account_id) not in _keys_for_test()
+
+    async def test_list_connector_accounts_includes_attached_agents_count(
+        self, client: AsyncClient
+    ) -> None:
+        """``GET /api/connector-accounts`` response items carry
+        ``attached_agents_count: int`` reflecting the count of agents
+        whose ``connector_account_ids`` includes the account.
+        """
+        a1 = await self._create_account(client, name="count-acct-1")
+        a2 = await self._create_account(client, name="count-acct-2")
+
+        # Two agents attached to a1; zero to a2.
+        for name in ("agent-count-a", "agent-count-b"):
+            resp = await client.post(
+                "/api/agents",
+                json={"name": name, "connector_account_ids": [a1]},
+            )
+            assert resp.status_code in (200, 201), resp.text
+
+        resp = await client.get("/api/connector-accounts")
+        assert resp.status_code == 200, resp.text
+        by_id = {row["id"]: row for row in resp.json()}
+
+        assert "attached_agents_count" in by_id[a1]
+        assert by_id[a1]["attached_agents_count"] == 2
+        assert by_id[a2]["attached_agents_count"] == 0
+
+
 # ── Chat session endpoints ───────────────────────────────────────────────
 
 

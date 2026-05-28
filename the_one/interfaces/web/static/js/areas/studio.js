@@ -338,6 +338,37 @@ App.registerArea({
       }
     });
 
+    // ── connector-agent-detached listener (M11 F9 L5) ────────────────────
+    //
+    // Listens for the CustomEvent dispatched by the connector account
+    // editor's per-row detach handler. When the Connectors grid is the
+    // active studio section, re-fetch the list so the agent-count badge
+    // refreshes immediately (the badge value comes from the
+    // ``attached_agents_count`` field on the GET /api/connector-accounts
+    // response).
+    //
+    // Registered ONCE at init() time (init runs once per area lifetime,
+    // gated by app.js's initialized[areaId] check) — mirrors the
+    // ``connectors-tab.js:73`` precedent for ``connector-account-
+    // always-listen-changed``. No teardown: handler is a guarded no-op
+    // when the operator is on any section other than the Connectors
+    // grid.
+    //
+    // TODO(routine-maintenance): F4 R13 studio-event-bus lift candidate;
+    // M11 F9 L6 will refactor this inline listener (and the matching
+    // dispatch in ``connector-account-editor.js``) into the shared bus.
+    App.studio.eventBus.on('connector-agent-detached', function () {
+      // Bail when the operator is not on the Connectors grid section —
+      // ``fetchConnectorAccounts_`` itself stale-guards on
+      // ``self._activeSection`` so a late-arriving fetch is safe, but
+      // shortcutting here avoids the network round-trip entirely.
+      if (self._activeSection !== 'connector-accounts') return;
+      // ``fetchConnectorAccounts_`` is a function declaration in this
+      // same closure (hoisted) so this reference is well-defined even
+      // though the function appears later in the file.
+      fetchConnectorAccounts_();
+    });
+
     var TOOL_CATEGORIES = {
       'Filesystem': ['read_file', 'write_file', 'edit_file', 'delete_file', 'move_file', 'mkdir', 'glob', 'grep', 'list_dir'],
       'Execution': ['shell', 'python_exec', 'shell_session_start', 'shell_session_send', 'shell_session_close', 'shell_session_list'],

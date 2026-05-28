@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import logging
 import os
 import re
 import secrets
@@ -38,6 +39,7 @@ from the_one.db.repositories import (
     KnowledgeBaseRepository,
     LLMProviderRepository,
     MCPSourceRepository,
+    PendingApprovalRepository,
     SQLiteAgentStore,
     ToolConfigRepository,
 )
@@ -45,6 +47,17 @@ from the_one.encryption import Encryptor, get_encryptor
 from the_one.llm import ollama_api
 
 router = APIRouter(prefix="/api")
+
+logger = logging.getLogger(__name__)
+"""Module-level logger.
+
+M11 F9 L5 — added as a required side-effect of the leg. ``api.py``
+previously lacked a module-level ``logger``; some functions defined
+their own local ``_log`` (see :func:`delete_mcp_source` at the comment
+block citing the uvicorn-root-logger-threshold precedent). The
+module-level handle is the convention everywhere else in ``the_one/``;
+new endpoints log through it directly.
+"""
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────
@@ -80,6 +93,11 @@ async def _connector_repo() -> ConnectorAccountRepository:
 async def _chat_repo() -> ChatSessionRepository:
     conn = await get_connection()
     return ChatSessionRepository(conn)
+
+
+async def _pending_approval_repo() -> PendingApprovalRepository:
+    conn = await get_connection()
+    return PendingApprovalRepository(conn)
 
 
 # ── Tool config helpers (F6 L1) ───────────────────────────────────────────
@@ -496,6 +514,67 @@ async def delete_agent(name: str) -> dict[str, str]:
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Agent not found: {name}")
     return {"status": "ok"}
+
+
+@router.delete("/agents/{agent_name}/connector-accounts/{account_id}")
+async def detach_agent_from_connector_account(
+    agent_name: str,
+    account_id: str,
+) -> dict[str, Any]:
+    """Detach a connector account from an agent.
+
+    M11 F9 L5 — operator-driven detach. Removes ``account_id`` from
+    ``agents.connector_account_ids`` (idempotent — missing entry is a
+    no-op), then releases the per-(agent, account) pool slot.
+
+    Returns the agent's updated config JSON (same shape as PUT). 404
+    only on unknown agent; missing account_id is a 200 no-op (the
+    post-state is the same: account_id is not in the agent's list).
+
+    URL lives on the agent resource path even though the UI for triggering
+    the detach lives on the connector account detail page — the
+    source-of-truth is the agent-side ``connector_account_ids`` field per
+    Design Decision §3 of M11 F9.
+    """
+    # Function-local import — :func:`release_agent_on_account` lives in
+    # ``the_one.connectors._pool``, which transitively cycles through
+    # ``the_one.db.repositories`` at module load. See
+    # ``function-local-import-to-break-load-cycle`` in agents.md.
+    from the_one.connectors._pool import release_agent_on_account
+
+    store = await _agent_store()
+    try:
+        cfg = await store.load(agent_name)
+    except KeyError:
+        raise HTTPException(
+            status_code=404, detail=f"Agent not found: {agent_name}"
+        )
+
+    if account_id in cfg.connector_account_ids:
+        new_ids = [a for a in cfg.connector_account_ids if a != account_id]
+        # ``model_copy(update=...)`` returns a validated ``AgentConfig`` —
+        # no ``model_validate(model_dump())`` round-trip needed. The PUT
+        # endpoint's ``model_validate`` is for untrusted client JSON;
+        # here the input is already a model.
+        cfg = cfg.model_copy(update={"connector_account_ids": new_ids})
+        await store.save(cfg)
+        # WARNING (not INFO) so the audit-log line surfaces under
+        # uvicorn's default root-logger threshold — mirrors the precedent
+        # block above :func:`delete_mcp_source` (and the F9 L3
+        # peer-approval endpoints).
+        logger.warning(
+            "detach_agent_from_connector_account: removed %s from %s.connector_account_ids",
+            account_id,
+            agent_name,
+        )
+
+    # Always attempt pool release — idempotent on missing key. Releases
+    # ONLY the per-(agent, account) slot; an ``account_acquire`` slot
+    # under the sentinel for the same account_id stays (other agents may
+    # still depend on it).
+    await release_agent_on_account(agent_name, account_id)
+
+    return cfg.model_dump()
 
 
 @router.post("/agents/{name}/rename")
@@ -2352,9 +2431,29 @@ def _connector_account_response(account: ConnectorAccount) -> dict[str, Any]:
 
 @router.get("/connector-accounts")
 async def list_connector_accounts() -> list[dict[str, Any]]:
+    """List all connector accounts (masked) with an ``attached_agents_count``.
+
+    M11 F9 L5 — each row carries ``attached_agents_count: int`` reflecting
+    the count of agents whose ``connector_account_ids`` includes the
+    account. Computed per row via
+    :meth:`SQLiteAgentStore.list_by_connector_account` —
+    O(N accounts × M agents); acceptable for the operator's small
+    inventory.
+
+    The count is NOT mirrored on the single-get / create / update
+    responses — the Connectors grid is the only consumer and adding it
+    everywhere would duplicate the per-row scan.
+    """
     repo = await _connector_repo()
+    store = await _agent_store()
     accounts = await repo.list()
-    return [_connector_account_response(a) for a in accounts]
+    results: list[dict[str, Any]] = []
+    for account in accounts:
+        response = _connector_account_response(account)
+        attached = await store.list_by_connector_account(account.id)
+        response["attached_agents_count"] = len(attached)
+        results.append(response)
+    return results
 
 
 @router.get("/connector-accounts/types")
@@ -2568,6 +2667,119 @@ async def generate_connector_account_pairing_code(
     updated = ConnectorAccount.model_validate(updated.model_dump())
     await repo.update(updated)
     return {"code": code, "issued_at": issued_at}
+
+
+@router.post(
+    "/connector-accounts/{account_id}/peer-approvals/{approval_id}/approve"
+)
+async def approve_peer_approval(
+    account_id: str,
+    approval_id: str,
+) -> dict[str, Any]:
+    """Approve a pending peer-approval; add the peer to the account allowlist.
+
+    M11 F9 L3 — Discord-native peer-approval action endpoint. Flips the
+    pending_approvals row to ``status='approved'`` and adds
+    ``approval.peer_id`` to ``account.config['allowlist']['peers']``
+    (idempotent — duplicates are not appended). On an already-approved
+    row, returns the existing row (the allowlist mutation is re-applied
+    as a no-op, matching the repo's mark_approved idempotency contract).
+    On a dismissed row, raises 409 (terminal-state mismatch).
+
+    404 semantics:
+      * Unknown ``account_id`` → 404.
+      * Unknown ``approval_id`` → 404.
+      * ``approval_id`` exists but its ``connector_account_id`` does not
+        match the URL's ``account_id`` → 404 (defense-in-depth against
+        cross-account ID smuggling).
+
+    Allowlist mutation runs AFTER ``mark_approved`` succeeds; if the
+    subsequent ``conn_repo.update`` raises, the approval row is terminal
+    but the allowlist was not updated. Recovery: next inbound DM from
+    the peer creates a fresh ``pending`` row. The pairing-code endpoint
+    shares the same no-transaction-wrap posture — see leg-3 design.
+    """
+    conn_repo = await _connector_repo()
+    try:
+        account = await conn_repo.get(account_id)
+    except KeyError:
+        raise HTTPException(
+            status_code=404, detail=f"Connector account not found: {account_id}"
+        )
+
+    approval_repo = await _pending_approval_repo()
+    try:
+        approval = await approval_repo.get(approval_id)
+    except KeyError:
+        raise HTTPException(
+            status_code=404, detail=f"Pending approval not found: {approval_id}"
+        )
+    if approval.connector_account_id != account_id:
+        raise HTTPException(
+            status_code=404, detail=f"Pending approval not found: {approval_id}"
+        )
+
+    try:
+        updated_approval = await approval_repo.mark_approved(approval_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+    # Idempotent allowlist mutation. Initialize allowlist if missing /
+    # empty (mirrors the dispatcher pattern at _inbound.py:428-438).
+    new_config = dict(account.config)
+    allowlist = dict(new_config.get("allowlist") or {})
+    peers = list(allowlist.get("peers") or [])
+    if approval.peer_id not in peers:
+        peers.append(approval.peer_id)
+    allowlist["peers"] = peers
+    allowlist.setdefault("channels", [])
+    new_config["allowlist"] = allowlist
+    updated_account = account.model_copy(update={"config": new_config})
+    updated_account = ConnectorAccount.model_validate(updated_account.model_dump())
+    await conn_repo.update(updated_account)
+
+    return updated_approval.model_dump()
+
+
+@router.post(
+    "/connector-accounts/{account_id}/peer-approvals/{approval_id}/dismiss"
+)
+async def dismiss_peer_approval(
+    account_id: str,
+    approval_id: str,
+) -> dict[str, Any]:
+    """Dismiss a pending peer-approval; do not mutate the allowlist.
+
+    M11 F9 L3. Mirrors :func:`approve_peer_approval` sans the allowlist
+    mutation. Same 404 / 409 / 200-idempotent semantics — see that
+    docstring for the contract details.
+    """
+    conn_repo = await _connector_repo()
+    try:
+        await conn_repo.get(account_id)
+    except KeyError:
+        raise HTTPException(
+            status_code=404, detail=f"Connector account not found: {account_id}"
+        )
+
+    approval_repo = await _pending_approval_repo()
+    try:
+        approval = await approval_repo.get(approval_id)
+    except KeyError:
+        raise HTTPException(
+            status_code=404, detail=f"Pending approval not found: {approval_id}"
+        )
+    if approval.connector_account_id != account_id:
+        raise HTTPException(
+            status_code=404, detail=f"Pending approval not found: {approval_id}"
+        )
+
+    try:
+        updated_approval = await approval_repo.mark_dismissed(approval_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+    return updated_approval.model_dump()
 
 
 @router.get("/connector-accounts/{account_id}/attached-agents")

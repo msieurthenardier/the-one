@@ -196,12 +196,20 @@
   }
   .area-admin .tool-enable-switch,
   .area-studio .tool-enable-switch {
-    position: absolute;
-    bottom: 12px;
-    right: 12px;
+    position: relative;
+    display: inline-block;
     width: 36px;
     height: 20px;
     cursor: pointer;
+    /* L7 (F7 Rec #3(a)): default flipped from absolute (tile-corner) to
+       relative (inline). Tile-corner consumers opt in via the
+       .tool-enable-switch--corner modifier below. */
+  }
+  .area-admin .tool-enable-switch--corner,
+  .area-studio .tool-enable-switch--corner {
+    position: absolute;
+    bottom: 12px;
+    right: 12px;
   }
   .area-admin .tool-enable-switch input[type="checkbox"],
   .area-studio .tool-enable-switch input[type="checkbox"] {
@@ -270,35 +278,11 @@
   .area-admin .tools-editor-enabled-row {
     margin-bottom: 12px;
   }
-  /* The .tool-enable-switch above is position:absolute (designed to slot
-     into the grid tile's bottom-right corner — see .tool-tile context).
-     Inside the editor row it must flow inline next to the label, so
-     unpin it. The inner checkbox + track + thumb mechanics stay
-     identical — only the wrapper's positioning differs. */
-  .area-admin .tools-editor-enabled-row .tool-enable-switch,
-  .area-studio .mf-sandbox-network-row .tool-enable-switch {
-    position: relative;
-    bottom: auto;
-    right: auto;
-  }
-  .area-studio .field-row.cf-auto-relay-row .tool-enable-switch {
-    position: relative;
-    bottom: auto;
-    right: auto;
-  }
-  /* M11 F7 L12 hotfix: "Always Listen" toggles in the Connectors tab.
-     Both the account-level row (.cf-always-listen-row, in the connector
-     account editor) and the per-agent row
-     (.connector-account-always-listen-row, in the agent editor) need the
-     same unpinning — wrapper flows inline next to the descriptive label
-     instead of pinning to the tile corner (the default for
-     .area-studio .tool-enable-switch). */
-  .area-studio .field-row.connector-account-always-listen-row .tool-enable-switch,
-  .area-studio .field-row.cf-always-listen-row .tool-enable-switch {
-    position: relative;
-    bottom: auto;
-    right: auto;
-  }
+  /* L7 (F7 Rec #3(a)): default .tool-enable-switch is now position: relative;
+     no override needed for .tools-editor-enabled-row, .mf-sandbox-network-row,
+     .cf-auto-relay-row, .connector-account-always-listen-row, or
+     .cf-always-listen-row. Tile-corner consumers opt in via the
+     .tool-enable-switch--corner modifier. */
 
   /* === Editor prompt block (F6 HAT inline fix #1) ============================
      The tool's `description` IS the prompt baked into the LLM tools schema.

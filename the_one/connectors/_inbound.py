@@ -139,7 +139,7 @@ from the_one.agent.factory import AgentFactory
 from the_one.connectors import registry
 from the_one.connectors._acl import _default_no_mention
 from the_one.connectors._inference import run_engagement_inference
-from the_one.connectors._pairing import _validate_pairing_prefix
+from the_one.connectors._pairing import _PAIR_PREFIX, _validate_pairing_prefix
 from the_one.connectors._pool import _get_account_cache_snapshot, account_acquire
 from the_one.connectors._routing import RoutingDecision, resolve_routing
 from the_one.connectors._session import resolve_session
@@ -320,6 +320,7 @@ async def dispatch_inbound(
     from the_one.db.repositories import (
         ChatSessionRepository,
         ConnectorAccountRepository,
+        PendingApprovalRepository,
         SQLiteAgentStore,
     )
     from the_one.encryption import get_encryptor
@@ -328,6 +329,7 @@ async def dispatch_inbound(
     encryptor = get_encryptor(settings.data_dir)
     acc_repo = ConnectorAccountRepository(conn, encryptor)
     chat_repo = ChatSessionRepository(conn)
+    approval_repo = PendingApprovalRepository(conn)
     agent_store = SQLiteAgentStore(conn)
 
     # 2. Account load.
@@ -413,6 +415,43 @@ async def dispatch_inbound(
             envelope.text, pairing or ""
         )
         if not success:
+            if envelope.text.startswith(_PAIR_PREFIX):
+                # Failed PAIR attempt (wrong code, malformed prefix, or
+                # account-has-no-code). Existing audit-deny path.
+                await chat_repo.append_to_session_metadata(
+                    session_row.id,
+                    "audit",
+                    {
+                        "outcome": "deny",
+                        "peer_id": envelope.peer_id,
+                        "ts": ts,
+                        "reason": outcome.reason or "invalid_pairing",
+                    },
+                )
+                return
+            # No PAIR prefix — Discord-native approval candidate (F9 L2).
+            # Order: upsert FIRST (storage must succeed; raises if broken);
+            # broadcast SECOND (in-process, programmer-error-if-raises);
+            # audit-log THIRD.
+            approval = await approval_repo.upsert_pending(
+                connector_account_id=account.id,
+                peer_id=envelope.peer_id,
+                peer_name=envelope.peer_name,
+                preview=envelope.text[:200],
+            )
+            await broadcast_to_session(
+                session_row.id,
+                {
+                    "type": "pending-approval",
+                    "approval_id": approval.id,
+                    "peer_name": approval.peer_name,
+                    "peer_id": approval.peer_id,
+                    "preview": approval.preview,
+                    "received_at": approval.received_at,
+                    "connector_account_id": approval.connector_account_id,
+                    "status": approval.status,
+                },
+            )
             await chat_repo.append_to_session_metadata(
                 session_row.id,
                 "audit",
@@ -420,7 +459,7 @@ async def dispatch_inbound(
                     "outcome": "deny",
                     "peer_id": envelope.peer_id,
                     "ts": ts,
-                    "reason": outcome.reason or "invalid_pairing",
+                    "reason": "pending_approval",
                 },
             )
             return

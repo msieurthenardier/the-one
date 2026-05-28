@@ -44,12 +44,18 @@ from the_one.db.codec import (
     decode_messages,
     encode_messages,
     messages_to_ui_events,
+    pending_approvals_to_ui_events,
     truncate_for_event,
 )
 from the_one.db.connection import get_connection
 from the_one.db.migration import migrate_json_to_sqlite
 from the_one.db.models import ChatSession as ChatSessionModel
-from the_one.db.repositories import ChatSessionRepository, LLMProviderRepository, SQLiteAgentStore
+from the_one.db.repositories import (
+    ChatSessionRepository,
+    LLMProviderRepository,
+    PendingApprovalRepository,
+    SQLiteAgentStore,
+)
 from the_one.encryption import get_encryptor
 from the_one.interfaces.web.api import router as api_router
 from the_one.interfaces.web.middleware import OriginAllowlistMiddleware, build_default_allowlist
@@ -384,6 +390,54 @@ async def _chat_repo() -> ChatSessionRepository:
     return ChatSessionRepository(conn)
 
 
+async def _pending_approval_repo() -> PendingApprovalRepository:
+    """M11 F9 L4 — app.py-local PendingApproval repository factory.
+
+    Mirrors ``_chat_repo`` (line above). ``api.py:86`` ships its own copy
+    for the L3 approve/dismiss endpoints; both call the same
+    ``PendingApprovalRepository(conn)`` shape and operate against the
+    same singleton ``get_connection()``. The two factories are
+    intentionally independent — app.py and api.py do not share local
+    factory scope. See leg-04 Sub-step B.
+    """
+    conn = await get_connection()
+    return PendingApprovalRepository(conn)
+
+
+async def _merge_pending_approvals_into_history(
+    ui_events: list[dict[str, Any]],
+    db_session: ChatSessionModel,
+) -> list[dict[str, Any]]:
+    """M11 F9 L4 — merge pending-approval rows into the history stream.
+
+    Shared by ``_restore_session`` (healthy path) and
+    ``_build_session_joined_degraded`` (degraded path). Sessions without
+    connector context (``connector_account_id is None or peer_id is None``)
+    short-circuit — no DB query, return ``ui_events`` unchanged.
+
+    Merge ordering is by sort-key
+    ``(e.get("ts") or e.get("received_at") or "")`` ascending. Messages
+    use ``ts`` (live broadcast) or are missing it entirely (replay rows
+    decoded by ``messages_to_ui_events``); pending-approvals use
+    ``received_at``. ISO8601 strings sort lexicographically. Messages
+    without an explicit ts float to the top — acceptable per leg spec.
+    """
+    if db_session.connector_account_id is None or db_session.peer_id is None:
+        return ui_events
+    pending_repo = await _pending_approval_repo()
+    pending_rows = await pending_repo.list_for_account_peer(
+        db_session.connector_account_id, db_session.peer_id
+    )
+    if not pending_rows:
+        return ui_events
+    pending_events = pending_approvals_to_ui_events(pending_rows)
+    combined = ui_events + pending_events
+    combined.sort(
+        key=lambda e: e.get("ts") or e.get("received_at") or ""
+    )
+    return combined
+
+
 async def _create_session(
     agent_name: str | None = None,
     source: str = "web",
@@ -504,6 +558,14 @@ async def _restore_session(session_id: str) -> RestoredSession:
         agent.messages = agent.messages[:1] + non_system
     ui_events = messages_to_ui_events(messages)
 
+    # M11 F9 L4: merge any pending-approval rows for this connector-keyed
+    # session into the history stream so the operator sees pending banners
+    # on rejoin. Sessions without connector context (operator-typed) get
+    # no DB query.
+    ui_events = await _merge_pending_approvals_into_history(
+        ui_events, db_session
+    )
+
     if session_id in _sessions:
         # Update existing Session in place — keeps identity. Subscribers
         # live in the neutral session registry keyed by session id, so
@@ -614,21 +676,29 @@ def _build_session_joined_ok(session: Session) -> dict[str, Any]:
     }
 
 
-def _build_session_joined_degraded(restored: RestoredSession) -> dict[str, Any]:
+async def _build_session_joined_degraded(restored: RestoredSession) -> dict[str, Any]:
     """Build a session_joined payload for a degraded (agent_deleted/provider_missing) session.
 
     History is decoded from the DB row directly — there is no in-memory
     Session for degraded states.
+
+    M11 F9 L4: merges pending-approval banners into the replay history
+    via ``_merge_pending_approvals_into_history`` (same shape as the
+    healthy path in ``_restore_session``). Now ``async`` because the
+    merge does a DB query; degraded path is reached from an async WS
+    handler so the await is structurally safe.
     """
     db = restored.db_session
     assert db is not None, "degraded RestoredSession must carry db_session"
+    ui_events = messages_to_ui_events(decode_messages(db.messages))
+    ui_events = await _merge_pending_approvals_into_history(ui_events, db)
     return {
         "type": "session_joined",
         "session_id": db.id,
         "status": restored.status,
         "title": db.title,
         "agent_name": db.agent_name,
-        "history": messages_to_ui_events(decode_messages(db.messages)),
+        "history": ui_events,
     }
 
 
@@ -1372,7 +1442,7 @@ async def websocket_endpoint(ws: WebSocket) -> None:
                     if restored.is_degraded:
                         # Don't operate on a degraded session in this connection.
                         session = None
-                        await ws.send_json(_build_session_joined_degraded(restored))
+                        await ws.send_json(await _build_session_joined_degraded(restored))
                         continue
                     # status == not_found → fall through to auto-create below.
                 elif session is not None:

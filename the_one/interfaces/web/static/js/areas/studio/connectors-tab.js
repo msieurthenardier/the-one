@@ -70,7 +70,7 @@
   // in ``connector-account-editor.js`` — n=3 inline CustomEvent strings
   // in Studio triggers the F4 R13 studio-event-bus lift candidate;
   // defer the lift per F7 recon discipline.
-  document.addEventListener('connector-account-always-listen-changed', function (event) {
+  App.studio.eventBus.on('connector-account-always-listen-changed', function (event) {
     var accountId = event && event.detail && event.detail.accountId;
     var enabled = !!(event && event.detail && event.detail.enabled);
     if (!accountId) return;

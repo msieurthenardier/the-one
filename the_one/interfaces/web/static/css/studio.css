@@ -747,23 +747,8 @@
   }
   .area-studio .mcp-kv-table tbody td { padding: 4px 8px; vertical-align: middle; }
   .area-studio .mcp-kv-sensitive-cell { width: 1%; white-space: nowrap; }
-  /* Unpin the toggle so it flows inline (default `.tool-enable-switch` is
-     position:absolute, designed for the tile-corner placement). Mirrors the
-     `.mf-sandbox-network-row .tool-enable-switch` override pattern.
-     F9 L1 follow-up: the original selector `.mcp-kv-sensitive-switch`
-     tied with the base `.area-studio .tool-enable-switch` rule on
-     specificity (both 0,2,0). admin.css loads AFTER studio.css and both
-     sit in `@layer areas`, so source order made the base rule win — the
-     toggle was being absolutely positioned out of the cell, leaving the
-     Sensitive column blank. The cell-scoped selector below has 0,3,0
-     specificity (matches the sandbox-row precedent) and wins outright. */
-  .area-studio .mcp-kv-sensitive-cell .tool-enable-switch {
-    position: relative;
-    bottom: auto;
-    right: auto;
-    display: inline-block;
-    vertical-align: middle;
-  }
+  /* L7 (F7 Rec #3(a)): default .tool-enable-switch is now position: relative
+     + display: inline-block; no override needed for .mcp-kv-sensitive-cell. */
   .area-studio .kv-remove-row-btn {
     background: transparent;
     border: 0;
@@ -1101,20 +1086,9 @@
     height: 16px;
   }
 
-  /* Issue #5: iOS-style toggle via the .tool-enable-switch primitive.
-     The base rule (admin.css:197) ships `position: absolute` for
-     tile-corner placement; unpin here so the toggle flows inline at
-     the field-row's right of the Enable label. Same override shape
-     as .mcp-kv-sensitive-cell .tool-enable-switch above. Specificity
-     0,2,0 matches the base — but later rule wins on source order
-     within the same @layer. */
-  .area-studio .tool-enable-switch.connector-allowlist-switch {
-    position: relative;
-    bottom: auto;
-    right: auto;
-    display: inline-block;
-    vertical-align: middle;
-  }
+  /* L7 (F7 Rec #3(a)): the .connector-allowlist-switch override rule was
+     orphaned — the class was never emitted in the codebase. Deleted with
+     the CSS default flip; default .tool-enable-switch is now inline. */
 
   /* F5 L6 HAT round-8: read-only effective-directive codeblock that
      lives below the Auto-reply toggle in the Session section. The
@@ -1350,6 +1324,35 @@
   }
   .area-studio .connector-attached-agents-table .connector-attached-agent-link:hover {
     text-decoration: underline;
+  }
+
+  /* M11 F9 L5 — per-row detach button + inline error styles. The
+     ``.btn-link-danger`` class isn't used elsewhere yet; styles live
+     here (scoped under .area-studio) until/unless a second site needs
+     them, at which point they lift into components.css. */
+  .area-studio .btn-link-danger {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--status-danger);
+    cursor: pointer;
+    padding: 2px 8px;
+    font-size: var(--font-size-body-sm);
+    text-decoration: underline;
+  }
+  .area-studio .btn-link-danger:hover:not(:disabled) {
+    color: var(--status-danger-muted);
+  }
+  .area-studio .btn-link-danger:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .area-studio .connector-attached-agents-table .connector-attached-agent-actions {
+    text-align: right;
+    width: 90px;
+  }
+  .area-studio .connector-attached-agent-detach-error {
+    color: var(--status-danger);
+    margin-top: 8px;
   }
 
   /* Issue #7: Test connection button + LED + label all on the same

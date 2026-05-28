@@ -213,7 +213,7 @@ def test_discord_account_attached_agents_header_renders_substituted_labels(
     header_cells = page.locator(
         '[data-testid="connector-attached-agents-table"] thead th'
     ).evaluate_all("els => els.map(e => e.textContent.trim())")
-    assert header_cells == ["Agent", "Users", "Channels"], (
+    assert header_cells == ["Agent", "Users", "Channels", ""], (
         f"Discord attached-agents headers drifted; got: {header_cells!r}"
     )
 

@@ -388,6 +388,24 @@ async def _evict_all_for_account(account_id: str) -> None:
         await _evict(key)
 
 
+async def release_agent_on_account(agent_name: str, account_id: str) -> None:
+    """Release the per-(agent, account) pool entry, if any.
+
+    M11 F9 L5 — operator-driven detach. Idempotent on missing key
+    (inherits :func:`_evict`'s contract). Releases ONLY the specified
+    slot; if the account is also warm under :func:`account_acquire`
+    (system-outbound, keyed by :data:`_ACCOUNT_POOL_AGENT_SLOT`), that
+    entry stays — other agents may still depend on the account being
+    live.
+
+    Public counterpart to :func:`_evict_all_for_account` (which evicts
+    every slot for the account, e.g. on credentials rotation). The
+    per-slot scope here is appropriate for operator-driven detach where
+    only one agent is being disconnected.
+    """
+    await _evict((agent_name, account_id))
+
+
 async def _ensure_reaper_running_locked() -> None:
     """Spawn the reaper Task if not already running.
 

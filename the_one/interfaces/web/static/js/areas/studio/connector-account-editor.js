@@ -1089,9 +1089,10 @@
     var alwaysListenEl = container.querySelector('[data-field="always_listen"]');
     if (alwaysListenEl && account && account.id) {
       alwaysListenEl.addEventListener('change', function () {
-        document.dispatchEvent(new CustomEvent('connector-account-always-listen-changed', {
-          detail: { accountId: account.id, enabled: !!alwaysListenEl.checked },
-        }));
+        App.studio.eventBus.emit('connector-account-always-listen-changed', {
+          accountId: account.id,
+          enabled: !!alwaysListenEl.checked,
+        });
       });
     }
 
@@ -1738,9 +1739,7 @@
     // (M11 F4 L1): the named entrypoint announces its success, listeners
     // react.
     if (status === 'ok' && details && details.pool_warmed === true && accountId) {
-      document.dispatchEvent(new CustomEvent('connector-account-pool-warmed', {
-        detail: { accountId: accountId }
-      }));
+      App.studio.eventBus.emit('connector-account-pool-warmed', { accountId: accountId });
     }
 
     if (ledEl) {
@@ -2824,12 +2823,18 @@
     return html;
   }
 
-  function renderAttachedAgentsList(container, rows, account) {
+  function renderAttachedAgentsList(container, rows, account, checkDirty, recaptureSnapshot) {
     // M11 F1 L6 — table headers consult the per-type vocabulary so a
     // Discord-type account renders "Users" / "Channels" instead of
     // the substrate's neutral "Peers" / "Channels". The per-row
     // ``_renderAxis`` calls do not vary by type — the empty-list
     // copy ("DMs only" / "none") remains shared across types.
+    //
+    // M11 F9 L5 — signature extended with ``checkDirty`` /
+    // ``recaptureSnapshot`` so the per-row detach click handler can
+    // chain into ``fetchAttachedAgents`` (which itself consumes those
+    // params to re-snapshot the dirty-tracker baseline after re-fetch).
+    // Both are forwarded verbatim from ``fetchAttachedAgents``.
     var escapeHtml = window.App.escapeHtml;
     var escapeAttr = window.App.escapeAttr;
     var vocab = _vocabForAccount(account);
@@ -2872,6 +2877,7 @@
             '<th>Agent</th>' +
             '<th>' + escapeHtml(_capitalize(vocab.peers)) + '</th>' +
             '<th>' + escapeHtml(_capitalize(vocab.channels)) + '</th>' +
+            '<th aria-label="Actions"></th>' +
             '</tr></thead>';
     html += '<tbody>';
     for (var i = 0; i < rows.length; i++) {
@@ -2889,10 +2895,86 @@
               escapeAttr(name) + '">' + _renderAxis(peersVal, 'peers') + '</td>';
       html += '<td data-testid="connector-attached-agent-channels-' +
               escapeAttr(name) + '">' + _renderAxis(channelsVal, 'channels') + '</td>';
+      // M11 F9 L5 — per-row Detach button. The click handler issues
+      // DELETE against the agent-side resource, re-fetches on success,
+      // and dispatches ``connector-agent-detached`` for the grid badge
+      // (handler installed at studio.js init).
+      html += '<td class="connector-attached-agent-actions">' +
+              '<button type="button" class="btn-link-danger connector-attached-agent-detach-btn" ' +
+              'data-testid="connector-attached-agent-detach-' + escapeAttr(name) + '" ' +
+              'data-agent-name="' + escapeAttr(name) + '" ' +
+              'data-account-id="' + escapeAttr(account.id) + '">Detach</button>' +
+              '</td>';
       html += '</tr>';
     }
     html += '</tbody></table>';
     listEl.innerHTML = html;
+
+    // M11 F9 L5 — wire detach buttons. Per-button IIFE captures ``btn``
+    // for each closure (avoids the loop-var pitfall under ``var``).
+    var detachBtns = listEl.querySelectorAll('.connector-attached-agent-detach-btn');
+    for (var b = 0; b < detachBtns.length; b++) {
+      (function (btn) {
+        btn.addEventListener('click', function () {
+          var agentName = btn.dataset.agentName;
+          var accountId = btn.dataset.accountId;
+          if (!agentName || !accountId) return;
+          btn.disabled = true;
+          btn.textContent = 'Detaching…';
+          var url = '/api/agents/' + encodeURIComponent(agentName) +
+                    '/connector-accounts/' + encodeURIComponent(accountId);
+          fetch(url, {method: 'DELETE'})
+            .then(function (resp) {
+              if (!resp.ok) {
+                btn.disabled = false;
+                btn.textContent = 'Detach';
+                // Inline error — append a row-level error message so
+                // the operator can re-click. No toast system in scope
+                // (matches F8-era convention).
+                var errListEl = container.querySelector(
+                  '[data-testid="connector-attached-agents-list"]'
+                );
+                if (errListEl) {
+                  var errEl = document.createElement('div');
+                  errEl.className = 'form-hint connector-attached-agent-detach-error';
+                  errEl.textContent = 'Detach failed (HTTP ' + resp.status +
+                                      '). Click Detach again to retry.';
+                  errListEl.appendChild(errEl);
+                }
+                return;
+              }
+              // Success: re-fetch the section (re-renders with new row
+              // set + re-snapshots the dirty-tracker baseline), then
+              // dispatch the CustomEvent so the Connectors grid (if
+              // mounted) refreshes its agent-count badge.
+              fetchAttachedAgents(container, account, checkDirty, recaptureSnapshot);
+              // TODO(routine-maintenance): see the matching TODO above
+              // — F4 R13 studio-event-bus lift candidate; M11 F9 L6
+              // will refactor this inline dispatch + the matching
+              // connectors-tab.js listener into the shared bus.
+              App.studio.eventBus.emit('connector-agent-detached', {
+                agent_name: agentName,
+                account_id: accountId,
+              });
+            })
+            .catch(function (e) {
+              btn.disabled = false;
+              btn.textContent = 'Detach';
+              var errListEl = container.querySelector(
+                '[data-testid="connector-attached-agents-list"]'
+              );
+              if (errListEl) {
+                var errEl = document.createElement('div');
+                errEl.className = 'form-hint connector-attached-agent-detach-error';
+                errEl.textContent = 'Detach failed (network error: ' +
+                                    escapeHtml(e && e.message ? e.message : String(e)) +
+                                    '). Click Detach again to retry.';
+                errListEl.appendChild(errEl);
+              }
+            });
+        });
+      })(detachBtns[b]);
+    }
   }
 
   function fetchAttachedAgents(container, account, checkDirty, recaptureSnapshot) {
@@ -2918,7 +3000,7 @@
       .then(function (rows) {
         if (rows == null) return;
         if (!Array.isArray(rows)) rows = [];
-        renderAttachedAgentsList(container, rows, account);
+        renderAttachedAgentsList(container, rows, account, checkDirty, recaptureSnapshot);
         // M10 F7 L7: populate routing-section agent dropdowns (rule
         // rows + default-agent) once the attached-agents list is
         // known. Re-snapshot AFTER population so the populated form
@@ -3263,11 +3345,9 @@
     refreshBtn.addEventListener('click', function () {
       _setState('refreshing', 'Refreshing…');
       try {
-        document.dispatchEvent(
-          new CustomEvent('connector-account-discoverable-refresh-requested', {
-            detail: { accountId: account.id }
-          })
-        );
+        App.studio.eventBus.emit('connector-account-discoverable-refresh-requested', {
+          accountId: account.id,
+        });
       } catch (e) {
         try { console.error('refresh-requested dispatch failed:', e); }
         catch (logErr) { /* console missing */ }
@@ -3294,7 +3374,7 @@
         setTimeout(_probe, 600);
       }
     };
-    document.addEventListener('connector-account-pool-warmed', poolWarmedHandler);
+    App.studio.eventBus.on('connector-account-pool-warmed', poolWarmedHandler);
 
     // Initial probe — discover the real pool state on editor mount.
     _probe();

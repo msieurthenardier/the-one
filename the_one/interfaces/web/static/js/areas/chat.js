@@ -218,6 +218,10 @@ App.registerArea({
       if (setupIncomplete) return;
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
       currentSessionId = null;
+      // M11 F9 L4: reset pending-approval dedup on new-chat creation.
+      // renderHistory does NOT run for the new-session path, so the
+      // renderHistory-side reset alone would not cover it.
+      seenApprovalIds = Object.create(null);
       if (window.App && window.App.router) App.router.replaceSub(null);
       var msg = { action: 'new_session' };
       if (agentName) msg.agent_name = agentName;
@@ -231,6 +235,10 @@ App.registerArea({
       // starts fresh; getOrCreateTrace will append shells to the freshly
       // emptied .messages container.
       traceShells = Object.create(null);
+      // M11 F9 L4: reset pending-approval dedup on replay. Each
+      // session_joined event re-emits the historical pending-approval
+      // events; the dedup is scoped to the active session, not lifetime.
+      seenApprovalIds = Object.create(null);
       var agentLabel = agentName || 'agent';
       for (var i = 0; i < history.length; i++) {
         var ev = history[i];
@@ -273,8 +281,61 @@ App.registerArea({
         else if (ev.type === 'system' && ev.content !== 'Loading model...' && ev.content !== 'Model loaded.') {
           addMsg('system', ev.content, null, histOpts);
         }
+        // M11 F9 L4: pending-approval banner on replay path.
+        else if (ev.type === 'pending-approval') {
+          if (!seenApprovalIds[ev.approval_id]) {
+            seenApprovalIds[ev.approval_id] = true;
+            var pendingBanner = App.chat.renderPendingApproval(ev, {
+              onApprove: onApproveClick,
+              onDismiss: onDismissClick,
+            });
+            messagesEl.appendChild(pendingBanner);
+          }
+        }
       }
       messagesEl.removeAttribute('aria-busy');
+    }
+
+    // M11 F9 L4: pending-approval click handlers. Closures over addMsg so
+    // the banner module itself stays scope-clean (per Sub-step D: the
+    // banner IIFE must not reach for chat.js-local symbols). Optimistic
+    // update (apply 'acting' class, hide buttons via CSS) then POST; on
+    // 200 swap to the new status badge; on non-200 revert and surface a
+    // system error.
+    function onApproveClick(approvalId, connectorAccountId, bannerEl) {
+      onApprovalAction('approve', approvalId, connectorAccountId, bannerEl);
+    }
+
+    function onDismissClick(approvalId, connectorAccountId, bannerEl) {
+      onApprovalAction('dismiss', approvalId, connectorAccountId, bannerEl);
+    }
+
+    function onApprovalAction(action, approvalId, connectorAccountId, bannerEl) {
+      // Optimistic: dim the banner and disable click-through while the
+      // request is in flight. CSS rule `.msg-pending-approval-acting`
+      // applies `pointer-events: none` and `opacity: 0.6`.
+      bannerEl.classList.add('msg-pending-approval-acting');
+      var url = '/api/connector-accounts/' + encodeURIComponent(connectorAccountId) +
+        '/peer-approvals/' + encodeURIComponent(approvalId) + '/' + action;
+      var verb = action === 'approve' ? 'Approve' : 'Dismiss';
+      fetch(url, { method: 'POST' })
+        .then(function (resp) {
+          if (resp.ok) {
+            return resp.json().then(function (updated) {
+              App.chat.applyApprovalStatus(bannerEl, updated.status);
+            });
+          }
+          bannerEl.classList.remove('msg-pending-approval-acting');
+          return resp.text().then(function (body) {
+            var msg = verb + ' failed: HTTP ' + resp.status;
+            if (body) msg += ' — ' + body.slice(0, 200);
+            addMsg('system', msg);
+          });
+        })
+        .catch(function (e) {
+          bannerEl.classList.remove('msg-pending-approval-acting');
+          addMsg('system', verb + ' failed: ' + (e && e.message ? e.message : e));
+        });
     }
 
     function joinSession(id) {
@@ -465,6 +526,16 @@ App.registerArea({
     // same shell. Reset on `renderHistory` (replay) and re-seeded from the
     // DOM on WS-reconnect mid-turn via getOrCreateTrace's fallback below.
     var traceShells = Object.create(null);
+
+    // M11 F9 L4: dedup set of pending-approval ids seen this session.
+    // Skips re-render when both the replay path (renderHistory) and the
+    // WS broadcast path (onmessage 'pending-approval' branch) deliver the
+    // same approval_id — handles the restore-then-broadcast race AND the
+    // broadcast-then-restore race symmetrically. Reset at two boundaries:
+    // inside renderHistory (covers session_joined replay) and inside
+    // startSessionWith (covers new-chat creation, which sets currentSessionId
+    // = null without calling renderHistory).
+    var seenApprovalIds = Object.create(null);
 
     function getOrCreateTrace(parentMessageId) {
       if (!parentMessageId) return null;
@@ -944,6 +1015,23 @@ App.registerArea({
         }
         else if (data.type === 'system') handleSystem(data);
         else if (data.type === 'usage') App.chat.updateTelemetry(content, data);
+        else if (data.type === 'pending-approval') {
+          // M11 F9 L4: live pending-approval banner from the dispatcher
+          // (the_one/connectors/_inbound.py emit site). Dedup against the
+          // replay path's seenApprovalIds Set so an in-flight broadcast
+          // that races a session restore doesn't double-render. The
+          // event shape is byte-identical to the codec's projection at
+          // pending_approvals_to_ui_events.
+          if (!seenApprovalIds[data.approval_id]) {
+            seenApprovalIds[data.approval_id] = true;
+            var liveBanner = App.chat.renderPendingApproval(data, {
+              onApprove: onApproveClick,
+              onDismiss: onDismissClick,
+            });
+            messagesEl.appendChild(liveBanner);
+            scrollToBottomIfPinned();
+          }
+        }
         else if (data.type === 'auth_required') {
           // F5 L5: lazy-path → render an inline "Login required for <source>"
           // button in the chat history. First emission has consent_url=null;

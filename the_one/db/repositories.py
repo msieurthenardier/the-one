@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+import uuid
+from typing import Any, Literal
 
 import aiosqlite
 from cryptography.fernet import InvalidToken
@@ -16,6 +17,7 @@ from the_one.db.models import (
     KnowledgeBase,
     LLMProviderConfig,
     MCPSource,
+    PendingApproval,
     ToolConfig,
     now_iso,
 )
@@ -613,6 +615,141 @@ class ConnectorAccountRepository:
             session_continuation_seconds=row["session_continuation_seconds"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
+        )
+
+
+# ── Pending approval repository ──────────────────────────────────────────
+
+
+class PendingApprovalRepository:
+    """Async CRUD for pending Discord-native peer approvals.
+
+    M11 F9 L2. No encryptor (no secrets to encrypt). Mirrors
+    ``ConnectorAccountRepository`` connection-passing shape sans the
+    encryptor argument.
+
+    Dedup contract (cycle-2 architect §2): ``upsert_pending`` enforces
+    ONE row per ``(connector_account_id, peer_id, status='pending')``
+    via an UPDATE-in-place when the index matches, INSERT otherwise.
+    Terminal-state transitions (``mark_approved``, ``mark_dismissed``)
+    raise ``ValueError`` if invoked on an already-terminal row OTHER
+    than the same target (idempotent on self-target — calling
+    ``mark_approved`` on an approved row is a no-op).
+    """
+
+    def __init__(self, conn: aiosqlite.Connection) -> None:
+        self.conn = conn
+
+    async def get(self, approval_id: str) -> PendingApproval:
+        async with self.conn.execute(
+            "SELECT * FROM pending_approvals WHERE id = ?", (approval_id,)
+        ) as cur:
+            row = await cur.fetchone()
+        if row is None:
+            raise KeyError(f"Pending approval not found: {approval_id}")
+        return self._row_to_model(row)
+
+    async def upsert_pending(
+        self,
+        *,
+        connector_account_id: str,
+        peer_id: str,
+        peer_name: str,
+        preview: str,
+    ) -> PendingApproval:
+        """Upsert a pending row keyed by (account, peer, status='pending').
+
+        If a pending row already exists for (account, peer), UPDATE
+        ``peer_name``, ``preview``, ``received_at`` in place and return
+        the updated row. Otherwise INSERT a fresh row with a new uuid
+        and ``status='pending'``.
+        """
+        async with self.conn.execute(
+            "SELECT id FROM pending_approvals "
+            "WHERE connector_account_id = ? AND peer_id = ? AND status = 'pending' "
+            "LIMIT 1",
+            (connector_account_id, peer_id),
+        ) as cur:
+            existing = await cur.fetchone()
+        ts = now_iso()
+        if existing is None:
+            # 32-char full hex (matches connectors/_session.py:184 — same
+            # world: dispatcher-created, web-API-referenced).
+            new_id = uuid.uuid4().hex
+            await self.conn.execute(
+                "INSERT INTO pending_approvals "
+                "(id, connector_account_id, peer_id, peer_name, preview, "
+                " received_at, status, resolved_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, 'pending', NULL)",
+                (new_id, connector_account_id, peer_id, peer_name, preview, ts),
+            )
+            await self.conn.commit()
+            return await self.get(new_id)
+        approval_id = existing["id"]
+        await self.conn.execute(
+            "UPDATE pending_approvals "
+            "SET peer_name = ?, preview = ?, received_at = ? "
+            "WHERE id = ?",
+            (peer_name, preview, ts, approval_id),
+        )
+        await self.conn.commit()
+        return await self.get(approval_id)
+
+    async def list_for_account_peer(
+        self, account_id: str, peer_id: str
+    ) -> list[PendingApproval]:
+        async with self.conn.execute(
+            "SELECT * FROM pending_approvals "
+            "WHERE connector_account_id = ? AND peer_id = ? "
+            "ORDER BY received_at ASC",
+            (account_id, peer_id),
+        ) as cur:
+            return [self._row_to_model(r) for r in await cur.fetchall()]
+
+    async def list_by_account(self, account_id: str) -> list[PendingApproval]:
+        async with self.conn.execute(
+            "SELECT * FROM pending_approvals "
+            "WHERE connector_account_id = ? "
+            "ORDER BY received_at ASC",
+            (account_id,),
+        ) as cur:
+            return [self._row_to_model(r) for r in await cur.fetchall()]
+
+    async def mark_approved(self, approval_id: str) -> PendingApproval:
+        return await self._transition(approval_id, "approved")
+
+    async def mark_dismissed(self, approval_id: str) -> PendingApproval:
+        return await self._transition(approval_id, "dismissed")
+
+    async def _transition(
+        self, approval_id: str, target: Literal["approved", "dismissed"]
+    ) -> PendingApproval:
+        current = await self.get(approval_id)  # raises KeyError
+        if current.status == target:
+            return current  # idempotent on self-target
+        if current.status != "pending":
+            raise ValueError(
+                f"Pending approval {approval_id} is {current.status}; "
+                f"cannot transition to {target}"
+            )
+        await self.conn.execute(
+            "UPDATE pending_approvals SET status = ?, resolved_at = ? "
+            "WHERE id = ?",
+            (target, now_iso(), approval_id),
+        )
+        await self.conn.commit()
+        return await self.get(approval_id)
+
+    def _row_to_model(self, row: aiosqlite.Row) -> PendingApproval:
+        return PendingApproval(
+            id=row["id"],
+            connector_account_id=row["connector_account_id"],
+            peer_id=row["peer_id"],
+            peer_name=row["peer_name"],
+            preview=row["preview"],
+            received_at=row["received_at"],
+            status=row["status"],
+            resolved_at=row["resolved_at"],
         )
 
 

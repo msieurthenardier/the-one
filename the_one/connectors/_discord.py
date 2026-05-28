@@ -66,7 +66,10 @@ from the_one.connectors.base import (
     DoctorReport,
     FetchedMessage,
     InboundEnvelope,
+    NeedsPairing,
     OutboundTarget,
+    Permit,
+    ResolveOutcome,
     SendResult,
     SessionKey,
 )
@@ -1615,6 +1618,40 @@ class DiscordPlugin:
         closed behavior of the DMs-only ACL branch for those plugins.
         """
         return bool(envelope.raw.get("is_dm", False))
+
+    def resolve(
+        self,
+        account: ConnectorAccount,
+        envelope: InboundEnvelope,
+    ) -> ResolveOutcome:
+        """Discord resolver: DM-from-stranger gates on pairing/approval.
+
+        F9 L1 (M11 mission 11). Returns ``NeedsPairing`` ONLY when the
+        envelope is a DM AND the peer is not in
+        ``account.config["allowlist"]["peers"]``. Guild messages and
+        already-allowlisted peers return ``Permit``. Scope is DM-only
+        per F9 §1 design decision; guild-mention scoping is deferred to
+        a future flight.
+
+        The dispatcher (``_inbound.py:392``) discovers this method via
+        ``getattr(plugin, "resolve", _default_permit)`` and consults its
+        outcome at dispatcher step 6, BEFORE routing and the per-session
+        lock. The downstream ``NeedsPairing`` arm handles PAIR-prefix
+        validation; F9 L2 extends that arm with the pending-approval
+        emit path.
+
+        The ``"discord_dm_unknown_peer"`` reason literal is contractual
+        — L2's pending-approval emit path and the existing dispatcher
+        audit-log entry both rely on a stable, greppable value.
+        """
+        is_dm = bool(envelope.raw.get("is_dm", False))
+        if not is_dm:
+            return Permit()
+        allowlist = account.config.get("allowlist") or {}
+        peers = allowlist.get("peers") or []
+        if envelope.peer_id in peers:
+            return Permit()
+        return NeedsPairing(reason="discord_dm_unknown_peer")
 
     def is_mention(self, envelope: InboundEnvelope) -> bool:
         """Return True if the bot is @mentioned in the inbound channel message.
