@@ -583,7 +583,7 @@
               'data-testid="tab-general" aria-selected="false" tabindex="-1">General</button>';
       html += '<button type="button" role="tab" class="tab" id="connector-tab-access-and-routing" ' +
               'aria-controls="' + PANEL_IDS.accessAndRouting + '" data-tab-id="access-and-routing" ' +
-              'data-testid="tab-access-and-routing" aria-selected="false" tabindex="-1">Access and Routing</button>';
+              'data-testid="tab-access-and-routing" aria-selected="false" tabindex="-1">Advanced</button>';
       html += '</div>';
 
       // Tab panels — ALL section content is mounted into the DOM

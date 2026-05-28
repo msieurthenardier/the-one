@@ -213,3 +213,28 @@ Flight design ready for execution. Spec status: planning → ready (next session
 - Optional L5 HAT remains `ready`; offered to operator separately. Mission criterion #8 stays at `[~]` partial until L5 closes.
 - Anachronistic deny-message at `_acl.py:467` accepted as non-blocking; captured in Deviations for follow-up.
 - Stray `docker-compose.yml` modification (inherited F7→F8→F9→F10) excluded from commit per F10 prereqs.
+- F10 land commit `3ee7199` pushed; draft PR #79 opened.
+
+### 2026-05-28 — L5 HAT (completed)
+
+Operator-driven 8-step + substep-5b walkthrough against the real Discord guild. **All 9 step outcomes passed; mission criterion #8 closed.**
+
+Setup: Discord Constellation connector configured with `channels=['1506831630923333722']` (restrictive — the F9 L8 setup that broke step 4) + `dm_admission='allowlisted-peers-only'` (set via L2's selector) + 2 attached agents (Cave Man Bot + Pirate Bot) with default `admit_dms` (inherit).
+
+Key verification: **step 4 — the F9 L8 regression-fix gate — passed**. B1's follow-up DM after Discord-native approval reached the agent; F10's axis split closes the gap end-to-end against a realistic operator configuration. Audit log shows both pairing paths (`pending_approval → permit` for B1's Discord-native; `paired` for B2's PAIR-prefix fallback) with channels list unchanged throughout.
+
+Inline UI polish landed during the HAT (operator-surfaced cosmetic tweaks; not in the original L5 spec):
+1. CSS — `.connector-acl-axis-body:has(.connector-acl-checkboxlist)` drops the double-wrapper styling for checkbox-mode tiles.
+2. CSS — `.connector-acl-checkboxlist` gets `display: flex; flex-direction: column; gap: 6px;` (mirrors `.mcp-tools-checkbox-group`).
+3. Copy — "Always Listen on this connector account" → "Always listen".
+4. Copy — "Admit DMs from this account" → "Allow DMs"; non-disabled hint text removed.
+5. Tab label — connector editor middle tab "Access and Routing" → "Advanced".
+
+Operator-judged satisfaction: **shippable**. Dual-flow + axis-split UX feels right end-to-end.
+
+### Final F10 closure (2026-05-28)
+
+- Mission criterion #8 flipped `[~]` → `[x]` in `mission.md`.
+- L5 leg status: `ready` → `completed`. F10 flight: all 5 legs `completed` (4 autonomous + 1 HAT).
+- Two new Known Issues filed for the next mission/flight: hierarchical allowlist axes; connector terminology rename.
+- F9+F10 combined debrief scheduled separately (operator deferred per F10 planning).

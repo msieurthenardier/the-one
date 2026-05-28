@@ -144,7 +144,7 @@ Inline-hotfix-during-HAT discipline (F7 L12 / F9 L8 precedent). Operator-judged 
 - [x] **L2**: account-scope DM admission row renders; save/load round-trips; existing allowlist tests pass.
 - [x] **L3**: per-agent opt-out checkbox renders + round-trips; the existing per-agent ACL save flow unchanged.
 - [x] **L4**: test drift cleaned; full suite green; pre-L4 baseline matched-or-improved.
-- [ ] **(optional) L5**: HAT 8-step + 1-substep walkthrough; mission criterion #8 fully closed.
+- [x] **(optional) L5**: HAT 8-step + 1-substep walkthrough; mission criterion #8 fully closed.
 
 ### Adaptation Criteria
 
@@ -164,7 +164,7 @@ Inline-hotfix-during-HAT discipline (F7 L12 / F9 L8 precedent). Operator-judged 
 - [x] `account-scope-dm-admission-row` — connector-account-editor.js allowlist row + dirty-tracker + save flow + tests.
 - [x] `per-agent-dm-admission-opt-out` — connectors-tab.js per-agent checkbox + save flow + tests.
 - [x] `hat-redesign-and-test-rerun` — browser-test count drift cleanup + L8-spec re-design for new flow.
-- [ ] `hat-acl-split-verify` *(optional)* — operator-driven HAT against channels-restricted account.
+- [x] `hat-acl-split-verify` *(optional)* — operator-driven HAT against channels-restricted account. Completed 2026-05-28; all 8 steps + substep 5b passed; mission criterion #8 closed.
 
 ---
 

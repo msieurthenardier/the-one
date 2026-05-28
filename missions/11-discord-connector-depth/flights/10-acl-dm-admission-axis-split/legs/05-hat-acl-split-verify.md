@@ -1,7 +1,49 @@
 # Leg: hat-acl-split-verify
 
-**Status**: ready
+**Status**: completed
 **Flight**: [ACL DM-admission + channels-axis UI split](../flight.md)
+
+## Outcome
+
+**Date**: 2026-05-28. Operator-driven HAT against the real Discord guild. All 8 steps + substep 5b passed.
+
+| Step | Status | Notes |
+|------|--------|-------|
+| 1 | PASS | Pending-approval banner appeared on B1's DM. |
+| 2 | PASS | Banner shape correct (name + preview + ts + Approve + Dismiss). |
+| 3 | PASS | Approve added B1 to users; channels list unchanged. |
+| 4 | **PASS — F9 L8 regression-fix gate** | B1's follow-up DM triggered agent engagement. F10's `dm_admission` axis split closes the gap end-to-end. |
+| 5 | PASS | Cave Man Bot detached without page reload; agent-count badge decremented. |
+| 5b | **PASS — new L3 contract** | Per-agent `admit_dms=false` opt-out blocks DMs to opted-out agent; `connector_acls[acct].admit_dms == false` persisted. |
+| 6 | PASS | Detached agent silent in guild channel; still-attached agent responded. |
+| 7 | PASS | B2 paired via PAIR-prefix flow (M10 fallback path unbroken). |
+| 8 | PASS | Audit log shows both pairing paths: `pending_approval → permit` (Discord-native, B1) + `paired` (text-prefix, B2). Channels list still `['1506831630923333722']` end-to-end. |
+
+### Inline UI polish (operator-driven during HAT)
+
+Operator surfaced four cosmetic tweaks during the HAT run; all landed inline before mission-criterion closure:
+
+1. **Checkbox-list double-wrapper** — `.connector-acl-axis-body` had `--surface-elevated` background + left border that visually double-wrapped checkbox-mode tiles. Added `:has(.connector-acl-checkboxlist)` CSS gate that drops the wrapper styling when in checkbox-list mode; chip-list mode retains the containment (chips don't supply their own).
+2. **Checkbox-list row gap** — added `display: flex; flex-direction: column; gap: 6px;` to `.connector-acl-checkboxlist`, mirroring `.mcp-tools-checkbox-group`.
+3. **"Always Listen on this connector account" → "Always listen"** at `connectors-tab.js:580`.
+4. **"Admit DMs from this account" → "Allow DMs"** at `connectors-tab.js:341`; removed the redundant "Uncheck to deny DMs..." hint (kept only the disabled-state hint when `dm_admission='none'`).
+
+Plus a tab rename:
+
+5. **Connector editor middle tab "Access and Routing" → "Advanced"** at `connector-account-editor.js:586`. `data-testid` left unchanged; no test breakage.
+
+### Findings filed to mission Known Issues
+
+- **Hierarchical allowlist axes** — Servers/Channels/Users are flat in storage but conceptually hierarchical in Discord. Future flight should audit name-collision admission paths and consider hierarchy-aware storage vs UI-side disambiguation.
+- **Connector vs connector-account terminology drift** — operator surfaced that "account" is misleading; the UI/code naming should align around "connector". Substrate-touching rename; future flight.
+
+### Mission criterion #8
+
+Updated from `[~]` to `[x]` (full closure) — see `mission.md` commit.
+
+### Operator-judged satisfaction
+
+**Shippable.** Dual-flow + axis-split UX feels right end-to-end against a realistic channels-restricted account configuration.
 
 ## Objective
 

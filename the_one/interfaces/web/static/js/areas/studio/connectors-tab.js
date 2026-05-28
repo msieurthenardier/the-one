@@ -338,20 +338,23 @@
         var label = document.createElement('label');
         label.className = 'connector-account-admit-dms-label';
         label.htmlFor = 'agent-admit-dms-' + account.id;
-        label.textContent = 'Admit DMs from this account';
+        label.textContent = 'Allow DMs';
         row.appendChild(label);
 
         var disabled = (scopeDmAdmission === 'none');
-        var hint = document.createElement('span');
-        hint.className = 'form-hint connector-account-admit-dms-hint';
-        hint.setAttribute('data-testid',
-          'agent-connector-admit-dms-hint-' + account.id);
+        // M11 F10 L5 HAT polish: the only hint we keep is the
+        // disabled-state explanation. Operator dropped the redundant
+        // "uncheck to deny" copy — the toggle's affordance is self-
+        // evident when the account permits DMs.
+        var hint = null;
         if (disabled) {
+          hint = document.createElement('span');
+          hint.className = 'form-hint connector-account-admit-dms-hint';
+          hint.setAttribute('data-testid',
+            'agent-connector-admit-dms-hint-' + account.id);
           hint.textContent = 'Account denies all DMs; per-agent override does not apply.';
-        } else {
-          hint.textContent = 'Uncheck to deny DMs to this agent (account permits otherwise).';
+          row.appendChild(hint);
         }
-        row.appendChild(hint);
 
         // Tri-state initial: absent / null / true → checked;
         // strict false → unchecked.
@@ -577,7 +580,7 @@
       alwaysListenRow.className = 'field-row admin-pf-row connector-account-always-listen-row';
       var alwaysListenLabel = document.createElement('label');
       alwaysListenLabel.htmlFor = 'agent-always-listen-' + account.id;
-      alwaysListenLabel.textContent = 'Always Listen on this connector account';
+      alwaysListenLabel.textContent = 'Always listen';
       alwaysListenRow.appendChild(alwaysListenLabel);
       // M11 F7 L12 hotfix: wrap the input in a `tool-enable-switch` label +
       // track span so the toggle renders with the styled iOS-style chrome
