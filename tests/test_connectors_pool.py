@@ -59,7 +59,7 @@ from the_one.connectors.registry import (
     register_for_test,
     restore_to_baseline_for_test,
 )
-from the_one.db.models import ConnectorAccount
+from the_one.db.models import Connector
 
 
 # Autouse cleanup. Project uses pytest-asyncio in `auto` mode.
@@ -74,8 +74,8 @@ def _make_stub_account(
     account_id: str = "acct-test",
     type_name: str = "stub",
     name: str = "Test Account",
-) -> ConnectorAccount:
-    return ConnectorAccount(
+) -> Connector:
+    return Connector(
         id=account_id,
         name=name,
         type=type_name,
@@ -284,7 +284,7 @@ async def test_clear_for_test_round_trips_across_iterations(patch_plugin) -> Non
 async def test_acquire_unknown_account_type_raises_registration_error(monkeypatch) -> None:
     """Registry returns ConnectorRegistrationError for an unregistered type.
 
-    M10 F8 L2: the Pydantic Literal narrowing on ``ConnectorAccount.type``
+    M10 F8 L2: the Pydantic Literal narrowing on ``Connector.type``
     now rejects bogus type strings at the model edge. The test seeds a
     ``'stub'``-typed account AND clears the registry (so neither
     ``'stub'`` nor the post-F8 ``'discord'`` builtin is registered) to
@@ -399,7 +399,7 @@ async def test_resolve_ttl_seconds_override_beats_env(monkeypatch) -> None:
     """Explicit per-account override wins over the env-var fallback.
 
     Mission 10 flight 02 leg 02: the operator's per-account
-    ``ConnectorAccount.idle_timeout_seconds`` is the authoritative source;
+    ``Connector.idle_timeout_seconds`` is the authoritative source;
     the env var is the fallback for accounts that don't set the field.
     """
     monkeypatch.setenv("THE_ONE_CONNECTOR_POOL_IDLE_TTL_SECONDS", "60")

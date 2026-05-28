@@ -12,7 +12,7 @@ from cryptography.fernet import InvalidToken
 from the_one.agent.config import AgentConfig
 from the_one.db.models import (
     ChatSession,
-    ConnectorAccount,
+    Connector,
     KBItem,
     KnowledgeBase,
     LLMProviderConfig,
@@ -26,7 +26,7 @@ from the_one.encryption import Encryptor
 # ── Shared Fernet envelope for per-row secrets dicts ─────────────────────
 #
 # Used by both :class:`MCPSourceRepository` and
-# :class:`ConnectorAccountRepository`. The per-repository methods
+# :class:`ConnectorRepository`. The per-repository methods
 # ``_secrets_to_ciphertext`` / ``_ciphertext_to_secrets`` retained as
 # one-line delegators to keep the method-on-repository surface stable for
 # any test that mocks them; behaviour is identical to the pre-lift bodies.
@@ -93,7 +93,7 @@ class SQLiteAgentStore:
         dispatcher integration (F7 L5). Returns the list alphabetically
         ordered by ``AgentConfig.name`` (via the SQL ``ORDER BY``).
 
-        ``connector_account_ids`` is a JSON-encoded list column (F4 L5
+        ``connector_ids`` is a JSON-encoded list column (F4 L5
         v17 migration). Filtering is Python-side after a full table
         scan — the agents table is operator-scale (tens, not millions),
         so the linear scan is acceptable. If this becomes a hot path
@@ -107,7 +107,7 @@ class SQLiteAgentStore:
         result: list[AgentConfig] = []
         for row in rows:
             config = self._row_to_config(row)
-            if account_id in config.connector_account_ids:
+            if account_id in config.connector_ids:
                 result.append(config)
         return result
 
@@ -126,7 +126,7 @@ class SQLiteAgentStore:
                 name, description, provider_config_id, llm_model,
                 system_prompt, enabled_tools, disabled_tools, max_iterations,
                 kb_ids, mcp_source_ids, tool_overrides, mcp_overrides,
-                connector_account_ids, connector_acls,
+                connector_ids, connector_acls,
                 connector_always_listen, created_at, updated_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(name) DO UPDATE SET
@@ -141,7 +141,7 @@ class SQLiteAgentStore:
                 mcp_source_ids=excluded.mcp_source_ids,
                 tool_overrides=excluded.tool_overrides,
                 mcp_overrides=excluded.mcp_overrides,
-                connector_account_ids=excluded.connector_account_ids,
+                connector_ids=excluded.connector_ids,
                 connector_acls=excluded.connector_acls,
                 connector_always_listen=excluded.connector_always_listen,
                 updated_at=excluded.updated_at
@@ -159,7 +159,7 @@ class SQLiteAgentStore:
                 json.dumps(config.mcp_source_ids),
                 json.dumps(config.tool_overrides) if config.tool_overrides is not None else None,
                 json.dumps(config.mcp_overrides) if config.mcp_overrides is not None else None,
-                json.dumps(config.connector_account_ids),
+                json.dumps(config.connector_ids),
                 json.dumps(config.connector_acls) if config.connector_acls is not None else None,
                 json.dumps(config.connector_always_listen) if config.connector_always_listen is not None else None,
                 now,
@@ -243,7 +243,7 @@ class SQLiteAgentStore:
             # empty-string edge case. The v17 migration is the gate that
             # guarantees the column exists; this expression handles the
             # NULL value for legacy rows.
-            connector_account_ids=json.loads(row["connector_account_ids"] or "[]"),
+            connector_ids=json.loads(row["connector_ids"] or "[]"),
             # M10 F6 L1c: per-agent ACL override. NULL (pre-v18 rows AND
             # the default for agents without per-agent narrowing) decodes
             # to None, distinguishing it from `{}` (which round-trips
@@ -503,7 +503,7 @@ class MCPSourceRepository:
 # ── Connector account repository ─────────────────────────────────────────
 
 
-class ConnectorAccountRepository:
+class ConnectorRepository:
     """Async CRUD for connector accounts.
 
     Mission 10 flight 01 — sibling of :class:`MCPSourceRepository`.
@@ -535,24 +535,24 @@ class ConnectorAccountRepository:
         """Delegates to :func:`_decrypt_secrets_blob`."""
         return _decrypt_secrets_blob(self.encryptor, ciphertext)
 
-    async def list(self) -> list[ConnectorAccount]:
+    async def list(self) -> list[Connector]:
         async with self.conn.execute(
-            "SELECT * FROM connector_accounts ORDER BY name"
+            "SELECT * FROM connectors ORDER BY name"
         ) as cur:
             return [self._row_to_model(r) for r in await cur.fetchall()]
 
-    async def get(self, account_id: str) -> ConnectorAccount:
+    async def get(self, account_id: str) -> Connector:
         async with self.conn.execute(
-            "SELECT * FROM connector_accounts WHERE id = ?", (account_id,)
+            "SELECT * FROM connectors WHERE id = ?", (account_id,)
         ) as cur:
             row = await cur.fetchone()
         if row is None:
             raise KeyError(f"Connector account not found: {account_id}")
         return self._row_to_model(row)
 
-    async def create(self, account: ConnectorAccount) -> None:
+    async def create(self, account: Connector) -> None:
         await self.conn.execute(
-            "INSERT INTO connector_accounts"
+            "INSERT INTO connectors"
             " (id, name, type, config, secrets, idle_timeout_seconds,"
             "  session_continuation_seconds, created_at, updated_at)"
             " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -570,14 +570,14 @@ class ConnectorAccountRepository:
         )
         await self.conn.commit()
 
-    async def update(self, account: ConnectorAccount) -> None:
+    async def update(self, account: Connector) -> None:
         async with self.conn.execute(
-            "SELECT 1 FROM connector_accounts WHERE id = ?", (account.id,)
+            "SELECT 1 FROM connectors WHERE id = ?", (account.id,)
         ) as cur:
             if await cur.fetchone() is None:
                 raise KeyError(f"Connector account not found: {account.id}")
         await self.conn.execute(
-            "UPDATE connector_accounts"
+            "UPDATE connectors"
             " SET name=?, type=?, config=?, secrets=?, idle_timeout_seconds=?,"
             "     session_continuation_seconds=?, updated_at=? WHERE id=?",
             (
@@ -595,17 +595,17 @@ class ConnectorAccountRepository:
 
     async def delete(self, account_id: str) -> None:
         async with self.conn.execute(
-            "SELECT 1 FROM connector_accounts WHERE id = ?", (account_id,)
+            "SELECT 1 FROM connectors WHERE id = ?", (account_id,)
         ) as cur:
             if await cur.fetchone() is None:
                 raise KeyError(f"Connector account not found: {account_id}")
         await self.conn.execute(
-            "DELETE FROM connector_accounts WHERE id = ?", (account_id,)
+            "DELETE FROM connectors WHERE id = ?", (account_id,)
         )
         await self.conn.commit()
 
-    def _row_to_model(self, row: aiosqlite.Row) -> ConnectorAccount:
-        return ConnectorAccount(
+    def _row_to_model(self, row: aiosqlite.Row) -> Connector:
+        return Connector(
             id=row["id"],
             name=row["name"],
             type=row["type"],
@@ -625,11 +625,11 @@ class PendingApprovalRepository:
     """Async CRUD for pending Discord-native peer approvals.
 
     M11 F9 L2. No encryptor (no secrets to encrypt). Mirrors
-    ``ConnectorAccountRepository`` connection-passing shape sans the
+    ``ConnectorRepository`` connection-passing shape sans the
     encryptor argument.
 
     Dedup contract (cycle-2 architect §2): ``upsert_pending`` enforces
-    ONE row per ``(connector_account_id, peer_id, status='pending')``
+    ONE row per ``(connector_id, peer_id, status='pending')``
     via an UPDATE-in-place when the index matches, INSERT otherwise.
     Terminal-state transitions (``mark_approved``, ``mark_dismissed``)
     raise ``ValueError`` if invoked on an already-terminal row OTHER
@@ -652,7 +652,7 @@ class PendingApprovalRepository:
     async def upsert_pending(
         self,
         *,
-        connector_account_id: str,
+        connector_id: str,
         peer_id: str,
         peer_name: str,
         preview: str,
@@ -666,9 +666,9 @@ class PendingApprovalRepository:
         """
         async with self.conn.execute(
             "SELECT id FROM pending_approvals "
-            "WHERE connector_account_id = ? AND peer_id = ? AND status = 'pending' "
+            "WHERE connector_id = ? AND peer_id = ? AND status = 'pending' "
             "LIMIT 1",
-            (connector_account_id, peer_id),
+            (connector_id, peer_id),
         ) as cur:
             existing = await cur.fetchone()
         ts = now_iso()
@@ -678,10 +678,10 @@ class PendingApprovalRepository:
             new_id = uuid.uuid4().hex
             await self.conn.execute(
                 "INSERT INTO pending_approvals "
-                "(id, connector_account_id, peer_id, peer_name, preview, "
+                "(id, connector_id, peer_id, peer_name, preview, "
                 " received_at, status, resolved_at) "
                 "VALUES (?, ?, ?, ?, ?, ?, 'pending', NULL)",
-                (new_id, connector_account_id, peer_id, peer_name, preview, ts),
+                (new_id, connector_id, peer_id, peer_name, preview, ts),
             )
             await self.conn.commit()
             return await self.get(new_id)
@@ -700,7 +700,7 @@ class PendingApprovalRepository:
     ) -> list[PendingApproval]:
         async with self.conn.execute(
             "SELECT * FROM pending_approvals "
-            "WHERE connector_account_id = ? AND peer_id = ? "
+            "WHERE connector_id = ? AND peer_id = ? "
             "ORDER BY received_at ASC",
             (account_id, peer_id),
         ) as cur:
@@ -709,7 +709,7 @@ class PendingApprovalRepository:
     async def list_by_account(self, account_id: str) -> list[PendingApproval]:
         async with self.conn.execute(
             "SELECT * FROM pending_approvals "
-            "WHERE connector_account_id = ? "
+            "WHERE connector_id = ? "
             "ORDER BY received_at ASC",
             (account_id,),
         ) as cur:
@@ -743,7 +743,7 @@ class PendingApprovalRepository:
     def _row_to_model(self, row: aiosqlite.Row) -> PendingApproval:
         return PendingApproval(
             id=row["id"],
-            connector_account_id=row["connector_account_id"],
+            connector_id=row["connector_id"],
             peer_id=row["peer_id"],
             peer_name=row["peer_name"],
             preview=row["preview"],
@@ -873,7 +873,7 @@ class ChatSessionRepository:
         self,
         *,
         platform: str,
-        connector_account_id: str,
+        connector_id: str,
         channel_id: str,
         thread_id: str | None,
     ) -> ChatSession | None:
@@ -896,10 +896,10 @@ class ChatSessionRepository:
         """
         async with self.conn.execute(
             "SELECT * FROM chat_sessions"
-            " WHERE platform = ? AND connector_account_id = ?"
+            " WHERE platform = ? AND connector_id = ?"
             " AND channel_id = ? AND COALESCE(thread_id, '') = COALESCE(?, '')"
             " ORDER BY updated_at DESC LIMIT 1",
-            (platform, connector_account_id, channel_id, thread_id),
+            (platform, connector_id, channel_id, thread_id),
         ) as cur:
             row = await cur.fetchone()
         if row is None:
@@ -910,7 +910,7 @@ class ChatSessionRepository:
         await self.conn.execute(
             "INSERT INTO chat_sessions ("
             " id, agent_name, title, messages, created_at, updated_at,"
-            " platform, connector_account_id, channel_id, thread_id, peer_id,"
+            " platform, connector_id, channel_id, thread_id, peer_id,"
             " session_metadata, last_inbound_at"
             ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
@@ -921,7 +921,7 @@ class ChatSessionRepository:
                 session.created_at,
                 session.updated_at,
                 session.platform,
-                session.connector_account_id,
+                session.connector_id,
                 session.channel_id,
                 session.thread_id,
                 session.peer_id,
@@ -937,7 +937,7 @@ class ChatSessionRepository:
         """Update the mutable session fields (title, messages, updated_at).
 
         The seven connector-keyed identity columns (platform,
-        connector_account_id, channel_id, thread_id, peer_id,
+        connector_id, channel_id, thread_id, peer_id,
         session_metadata, last_inbound_at) added by M10 F03 L01 are
         intentionally NOT round-tripped by this method — they are
         identity attributes set once at row creation (by the resolver
@@ -1149,7 +1149,7 @@ class ChatSessionRepository:
             created_at=row["created_at"],
             updated_at=row["updated_at"],
             platform=row["platform"],
-            connector_account_id=row["connector_account_id"],
+            connector_id=row["connector_id"],
             channel_id=row["channel_id"],
             thread_id=row["thread_id"],
             peer_id=row["peer_id"],

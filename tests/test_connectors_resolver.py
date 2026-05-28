@@ -24,11 +24,11 @@ from __future__ import annotations
 
 from the_one.connectors import Deny, NeedsPairing, Permit, ResolveOutcome
 from the_one.connectors.base import InboundEnvelope, _default_permit
-from the_one.db.models import ConnectorAccount
+from the_one.db.models import Connector
 
 
-def _account() -> ConnectorAccount:
-    """Minimal ``ConnectorAccount`` fixture.
+def _account() -> Connector:
+    """Minimal ``Connector`` fixture.
 
     Only ``id``/``name``/``type``/``config``/``secrets`` are passed; the
     Pydantic model fills ``created_at``/``updated_at`` via
@@ -37,7 +37,7 @@ def _account() -> ConnectorAccount:
     leg's tests consult any account field — ``_default_permit`` ignores
     both parameters — so a stub-shaped account is sufficient.
     """
-    return ConnectorAccount(
+    return Connector(
         id="acc-1",
         name="test",
         type="stub",

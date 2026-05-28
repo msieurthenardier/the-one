@@ -172,7 +172,7 @@ class TestMCPSourceRoundTrip:
 
 class TestConnectorAccountRoundTrip:
     async def test_get_put_get_does_not_corrupt_secret(self, client_and_key) -> None:
-        """Mirror of the MCP test for connector_accounts.
+        """Mirror of the MCP test for connectors.
 
         Reproduces the exact failure mode discovered in production for the
         Discord ``BOT_TOKEN`` that persisted as ``***...SD7U`` after the
@@ -182,7 +182,7 @@ class TestConnectorAccountRoundTrip:
         real_value = "real-bot-token-abc123"
 
         create = await client.post(
-            "/api/connector-accounts",
+            "/api/connectors",
             json={
                 "name": "Discord Bot",
                 "type": "stub",
@@ -191,22 +191,22 @@ class TestConnectorAccountRoundTrip:
         )
         account_id = create.json()["id"]
 
-        got = await client.get(f"/api/connector-accounts/{account_id}")
+        got = await client.get(f"/api/connectors/{account_id}")
         assert got.status_code == 200
         masked_payload = got.json()
         assert masked_payload["secrets"]["BOT_TOKEN"] == "***...c123"
 
-        put = await client.put(f"/api/connector-accounts/{account_id}", json=masked_payload)
+        put = await client.put(f"/api/connectors/{account_id}", json=masked_payload)
         assert put.status_code == 200
 
-        got_again = await client.get(f"/api/connector-accounts/{account_id}")
+        got_again = await client.get(f"/api/connectors/{account_id}")
         assert got_again.json()["secrets"]["BOT_TOKEN"] == "***...c123"
 
         direct_conn = await aiosqlite.connect(str(db_path))
         direct_conn.row_factory = aiosqlite.Row
         try:
             async with direct_conn.execute(
-                "SELECT secrets FROM connector_accounts WHERE id = ?",
+                "SELECT secrets FROM connectors WHERE id = ?",
                 (account_id,),
             ) as cur:
                 row = await cur.fetchone()
@@ -313,7 +313,7 @@ class TestSentinelPathStillWorks:
     async def test_connector_sentinel_preserves(self, client_and_key) -> None:
         client, key, db_path = client_and_key
         create = await client.post(
-            "/api/connector-accounts",
+            "/api/connectors",
             json={
                 "name": "Bot",
                 "type": "stub",
@@ -322,14 +322,14 @@ class TestSentinelPathStillWorks:
         )
         account_id = create.json()["id"]
         await client.put(
-            f"/api/connector-accounts/{account_id}",
+            f"/api/connectors/{account_id}",
             json={"secrets": {"BOT_TOKEN": "__MASKED__"}},
         )
         direct_conn = await aiosqlite.connect(str(db_path))
         direct_conn.row_factory = aiosqlite.Row
         try:
             async with direct_conn.execute(
-                "SELECT secrets FROM connector_accounts WHERE id = ?",
+                "SELECT secrets FROM connectors WHERE id = ?",
                 (account_id,),
             ) as cur:
                 row = await cur.fetchone()
@@ -425,7 +425,7 @@ class TestNonMaskValuesPassThrough:
     async def test_connector_starlit_prefix_is_real_value(self, client_and_key) -> None:
         client, key, db_path = client_and_key
         create = await client.post(
-            "/api/connector-accounts",
+            "/api/connectors",
             json={
                 "name": "Bot",
                 "type": "stub",
@@ -438,14 +438,14 @@ class TestNonMaskValuesPassThrough:
         # ``{1,4}`` bound — must NOT match the mask shape and must
         # overwrite as a real value.
         await client.put(
-            f"/api/connector-accounts/{account_id}",
+            f"/api/connectors/{account_id}",
             json={"secrets": {"BOT_TOKEN": "***...toolong"}},
         )
         direct_conn = await aiosqlite.connect(str(db_path))
         direct_conn.row_factory = aiosqlite.Row
         try:
             async with direct_conn.execute(
-                "SELECT secrets FROM connector_accounts WHERE id = ?",
+                "SELECT secrets FROM connectors WHERE id = ?",
                 (account_id,),
             ) as cur:
                 row = await cur.fetchone()

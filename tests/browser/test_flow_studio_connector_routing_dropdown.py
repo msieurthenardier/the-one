@@ -2,7 +2,7 @@
 dropdown dispatch (M11 F3 L6b).
 
 These tests pin the L6b refactor of
-``connector-account-editor.js:_wireRoutingMatchChiplist`` / the new
+``connector-editor.js:_wireRoutingMatchChiplist`` / the new
 ``_mountRoutingMatchEditor`` dispatch helper applied per-row to the
 routing-rules table's match-value cell:
 
@@ -35,7 +35,7 @@ import json
 import httpx
 import pytest
 from browser.seeders import (
-    seed_connector_account,
+    seed_connector,
     seed_mock_agent,
     seed_mock_provider,
 )
@@ -105,7 +105,7 @@ _DISCOVERABLE_PAYLOAD = {
 
 def _route_discoverable_ok(page: Page, account_id: str,
                             payload: dict | None = None) -> None:
-    """Stub GET + POST /api/connector-accounts/{id}/discoverable-entities."""
+    """Stub GET + POST /api/connectors/{id}/discoverable-entities."""
     body = payload if payload is not None else _DISCOVERABLE_PAYLOAD
 
     def handle(route):
@@ -116,24 +116,24 @@ def _route_discoverable_ok(page: Page, account_id: str,
         )
 
     page.route(
-        f"**/api/connector-accounts/{account_id}/discoverable-entities*",
+        f"**/api/connectors/{account_id}/discoverable-entities*",
         handle,
     )
 
 
 def _attach_agent_to_account(base_url: str, agent_name: str, account_id: str) -> None:
     """Replicate the helper from
-    ``test_flow_studio_connector_account_editor.py``: PUT-attach the
+    ``test_flow_studio_connector_editor.py``: PUT-attach the
     agent so the routing section's agent dropdown has a selectable
     option once ``fetchAttachedAgents`` resolves.
     """
     cur = httpx.get(f"{base_url}/api/agents/{agent_name}", timeout=5.0)
     assert cur.status_code == 200, f"get agent failed: {cur.status_code} {cur.text}"
     cfg = cur.json()
-    ids = list(cfg.get("connector_account_ids") or [])
+    ids = list(cfg.get("connector_ids") or [])
     if account_id not in ids:
         ids.append(account_id)
-    cfg["connector_account_ids"] = ids
+    cfg["connector_ids"] = ids
     r = httpx.put(f"{base_url}/api/agents/{agent_name}", json=cfg, timeout=5.0)
     assert r.status_code == 200, f"attach agent failed: {r.status_code} {r.text}"
 
@@ -150,7 +150,7 @@ def _seed_discord_with_agent(
     """
     provider_id = seed_mock_provider(base_url, name=f"mock-for-{agent_name}")
     seed_mock_agent(base_url, provider_id, name=agent_name)
-    account_id = seed_connector_account(
+    account_id = seed_connector(
         base_url,
         type="discord",
         name=account_name,
@@ -171,7 +171,7 @@ def _seed_stub_with_agent(
     """Stub-type analogue for the chip-list regression test."""
     provider_id = seed_mock_provider(base_url, name=f"mock-for-{agent_name}")
     seed_mock_agent(base_url, provider_id, name=agent_name)
-    account_id = seed_connector_account(
+    account_id = seed_connector(
         base_url,
         name=account_name,
         config=config,
@@ -181,7 +181,7 @@ def _seed_stub_with_agent(
 
 
 def _get_account(base_url: str, account_id: str) -> dict:
-    r = httpx.get(f"{base_url}/api/connector-accounts/{account_id}", timeout=5.0)
+    r = httpx.get(f"{base_url}/api/connectors/{account_id}", timeout=5.0)
     assert r.status_code == 200, f"get failed: {r.status_code} {r.text}"
     return r.json()
 
@@ -219,7 +219,7 @@ def test_routing_match_renders_dropdown_for_discord_channel_scope(
     )
     _route_discoverable_ok(page, account_id)
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
         timeout=8000
     )
     _activate_access_and_routing_tab(page)
@@ -253,7 +253,7 @@ def test_routing_match_renders_dropdown_for_discord_peer_scope(
     )
     _route_discoverable_ok(page, account_id)
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
         timeout=8000
     )
     _activate_access_and_routing_tab(page)
@@ -283,7 +283,7 @@ def test_routing_match_thread_scope_uses_channels_axis(
     )
     _route_discoverable_ok(page, account_id)
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
         timeout=8000
     )
     _activate_access_and_routing_tab(page)
@@ -315,7 +315,7 @@ def test_routing_match_renders_chiplist_for_stub_account(
         config={"routing": {"rules": seeded_rules, "default": None}},
     )
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
         timeout=8000
     )
     _activate_access_and_routing_tab(page)
@@ -350,7 +350,7 @@ def test_routing_scope_change_re_mounts_dropdown_with_new_axis(
     )
     _route_discoverable_ok(page, account_id)
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
         timeout=8000
     )
     _activate_access_and_routing_tab(page)
@@ -385,7 +385,7 @@ def test_routing_match_onChange_persists_via_save_round_trip(
     )
     _route_discoverable_ok(page, account_id)
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
         timeout=8000
     )
     _activate_access_and_routing_tab(page)
@@ -413,7 +413,7 @@ def test_routing_match_onChange_persists_via_save_round_trip(
 
     row.locator('[data-routing-agent]').select_option(agent_name)
 
-    save_btn = page.locator('[data-testid="save-connector-account-btn"]')
+    save_btn = page.locator('[data-testid="save-connector-btn"]')
     expect(save_btn).not_to_be_disabled(timeout=4000)
     save_btn.click()
     expect(page.locator(".app-flash")).to_be_visible(timeout=8000)

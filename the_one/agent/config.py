@@ -178,7 +178,7 @@ class AgentConfig(BaseModel):
     kb_ids: list[str] = Field(default_factory=list)
     mcp_source_ids: list[str] = Field(default_factory=list)
     # M10 F4: connector accounts attached to this agent. Mirror of mcp_source_ids.
-    connector_account_ids: list[str] = Field(default_factory=list)
+    connector_ids: list[str] = Field(default_factory=list)
 
     # Tool-level constraint overrides (per-agent narrowing or substitution).
     # None means "no overrides set" (uses tool-level defaults — locked-down
@@ -236,7 +236,7 @@ class AgentConfig(BaseModel):
     # that account.
     #
     # Precondition (set by M11 F7 L5): the account-level
-    # ``ConnectorAccount.config["always_listen"]`` is the master gate. A
+    # ``Connector.config["always_listen"]`` is the master gate. A
     # per-agent ``True`` here is structurally inert when the account-level
     # switch is False — the L8 policy-gate consult site checks account
     # first and short-circuits. The validator does NOT enforce this

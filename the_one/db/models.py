@@ -113,13 +113,16 @@ class MCPSource(BaseModel):
 VALID_ROUTING_SCOPES = frozenset({"channel", "thread", "dm", "peer"})
 
 
-class ConnectorAccount(BaseModel):
-    """A connector account — operator-registered third-party-platform identity.
+class Connector(BaseModel):
+    """A connector — operator-registered third-party-platform identity.
 
-    Mirrors :class:`MCPSource` shape. Stored in ``connector_accounts``
-    (v13 table; v14 added the ``name`` column to match MCPSource; v19 added
-    the ``CHECK (type IN ('discord', 'stub'))`` constraint via the F8 L2
-    table-rename ceremony).
+    Mirrors :class:`MCPSource` shape. Stored in ``connectors``
+    (v13 table originally named ``connector_accounts``; v14 added the
+    ``name`` column to match MCPSource; v19 added the
+    ``CHECK (type IN ('discord', 'stub'))`` constraint via the F8 L2
+    table-rename ceremony; v23 renamed the table to ``connectors`` and
+    the ``Connector`` Pydantic class to ``Connector`` via M11
+    F11 L1).
 
     ``type`` is narrowed to ``Literal["discord", "stub"]`` (F8 L2). The
     module-load assertion below pins the Literal arg-set to
@@ -249,8 +252,8 @@ class ConnectorAccount(BaseModel):
         ``config["allowlist"] = None`` and ``config["routing"] = None``.
 
         Pydantic v2 ``@field_validator`` runs on both
-        ``ConnectorAccount(**kwargs)`` direct construction AND
-        ``ConnectorAccount.model_validate(dict)``, so this fires on the
+        ``Connector(**kwargs)`` direct construction AND
+        ``Connector.model_validate(dict)``, so this fires on the
         repository read path AT
         ``the_one/db/repositories.py:_row_to_model`` and on the API write
         path at ``the_one/interfaces/web/api.py:{create,update}_connector_account``.
@@ -478,8 +481,8 @@ class ConnectorAccount(BaseModel):
 # ``LLMProviderConfig``'s assert above (mirrors the M07 ``'mock'``-in-
 # ``PROVIDER_TYPES`` precedent; ``'stub'`` is the test-only carve-out
 # documented in ``_connector_types.py``).
-assert set(get_args(ConnectorAccount.model_fields["type"].annotation)) == set(CONNECTOR_TYPES), (
-    "ConnectorAccount.type Literal drifted from CONNECTOR_TYPES — update both in lockstep."
+assert set(get_args(Connector.model_fields["type"].annotation)) == set(CONNECTOR_TYPES), (
+    "Connector.type Literal drifted from CONNECTOR_TYPES — update both in lockstep."
 )
 
 
@@ -489,11 +492,11 @@ class PendingApproval(BaseModel):
     M11 F9 L2 — Discord-native approval flow primary path. Created by
     the inbound dispatcher when an unknown DM arrives without a
     ``PAIR `` prefix; consumed (via ``mark_approved``) by the API
-    endpoint at F9 L3 ``POST /api/connector-accounts/{account_id}/
+    endpoint at F9 L3 ``POST /api/connectors/{account_id}/
     peer-approvals/{approval_id}/approve``; rendered by the Chat UI
     at F9 L4.
 
-    Dedup: at most ONE row per ``(connector_account_id, peer_id)``
+    Dedup: at most ONE row per ``(connector_id, peer_id)``
     with ``status='pending'`` at any time; the dispatcher's emit path
     upserts. ``approved`` and ``dismissed`` rows are terminal and
     persist as history; a new ``pending`` may coexist with them after
@@ -501,7 +504,7 @@ class PendingApproval(BaseModel):
     """
 
     id: str
-    connector_account_id: str
+    connector_id: str
     peer_id: str
     peer_name: str
     preview: str
@@ -534,13 +537,13 @@ class ChatSession(BaseModel):
     """A chat session with message history.
 
     Mission 10 Flight 3 Leg 1: connector-keyed sessions add the
-    (platform, connector_account_id, channel_id, thread_id, peer_id)
+    (platform, connector_id, channel_id, thread_id, peer_id)
     quintuple plus a JSON metadata column and a last_inbound_at
     timestamp. All seven default to None for non-connector sessions
     (back-compat) and are populated by the inbound dispatcher
     (leg 4) for connector-driven sessions.
 
-    The (platform, connector_account_id, channel_id, COALESCE(thread_id, ''))
+    The (platform, connector_id, channel_id, COALESCE(thread_id, ''))
     4-tuple is the lookup key consumed by leg 3's resolver against the
     partial expression index ``idx_chat_sessions_external_key``.
     ``peer_id`` is stored for audit and future per-peer-scoped sessions
@@ -559,7 +562,7 @@ class ChatSession(BaseModel):
     # on read (parallel to how ``messages`` is a JSON-encoded string in
     # the column but a Python list at the codec layer).
     platform: str | None = None
-    connector_account_id: str | None = None
+    connector_id: str | None = None
     channel_id: str | None = None
     thread_id: str | None = None
     peer_id: str | None = None

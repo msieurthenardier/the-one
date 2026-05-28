@@ -31,7 +31,7 @@ from the_one.connectors.base import (
     DiscoverableEntity,
     InboundEnvelope,
 )
-from the_one.db.models import ConnectorAccount, LLMProviderConfig
+from the_one.db.models import Connector, LLMProviderConfig
 from the_one.llm.base import LLMProvider, Message, Role, ToolCall, ToolResult
 from the_one.llm.mock import MockProvider
 
@@ -41,9 +41,9 @@ from the_one.llm.mock import MockProvider
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def _account() -> ConnectorAccount:
-    """Minimal ``ConnectorAccount`` for the inference function signature."""
-    return ConnectorAccount(
+def _account() -> Connector:
+    """Minimal ``Connector`` for the inference function signature."""
+    return Connector(
         id="acct-1",
         name="test",
         type="stub",

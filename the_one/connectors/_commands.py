@@ -30,7 +30,7 @@ from typing import Any, Awaitable, Callable
 
 from the_one.connectors._acl import admits_inbound
 from the_one.connectors.base import CommandResponse, InboundEnvelope
-from the_one.db.models import ConnectorAccount, now_iso
+from the_one.db.models import Connector, now_iso
 
 _COMMAND_PREFIX = "/"
 
@@ -97,7 +97,7 @@ def _permitted_agents(context: dict[str, Any]) -> list[str]:
     Pure-with-context — no I/O. Mirrors :func:`admits_inbound`'s
     short-circuit shape.
     """
-    account: ConnectorAccount = context["account"]
+    account: Connector = context["account"]
     envelope: InboundEnvelope = context["envelope"]
     eligible = context["eligible_attached_agents"]
     permitted: list[str] = []
@@ -244,7 +244,7 @@ async def _dispatch_builtin_command(
 
     The ``context`` dict is the L5 dispatcher's per-invocation state:
 
-    - ``account`` — the :class:`ConnectorAccount` for the inbound.
+    - ``account`` — the :class:`Connector` for the inbound.
     - ``envelope`` — the (possibly cleaned) :class:`InboundEnvelope`.
     - ``eligible_attached_agents`` — the alphabetically-ordered list
       of :class:`AgentConfig` attached to this account.

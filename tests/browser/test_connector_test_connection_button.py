@@ -1,8 +1,8 @@
-"""Browser tests for the connector-account Test Connection button (M10 F2 L6).
+"""Browser tests for the connector Test Connection button (M10 F2 L6).
 
 Mirrors `test_mcp_test_connection_button.py` for the connector probe.
 Configured doctor responses use Playwright ``page.route()`` to fulfill
-the POST ``/api/connector-accounts/{id}/test/connect`` call because
+the POST ``/api/connectors/{id}/test/connect`` call because
 ``app_clean`` spawns a uvicorn subprocess (`conftest.py:112-178`); the
 test process can't mutate the subprocess's ``StubPlugin.doctor_response``.
 
@@ -16,14 +16,14 @@ from __future__ import annotations
 import json
 
 import pytest
-from browser.seeders import seed_connector_account
+from browser.seeders import seed_connector
 from playwright.sync_api import Page, expect
 
 
 @pytest.mark.browser
 def test_test_connection_button_visible_in_edit_mode(app_clean: str, page: Page) -> None:
     """Test Connection button renders in edit-mode."""
-    account_id = seed_connector_account(app_clean, name="Edit Mode Bot")
+    account_id = seed_connector(app_clean, name="Edit Mode Bot")
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
     expect(page.locator('[data-testid="connector-test-connection-btn"]')).to_be_visible(
         timeout=8000
@@ -34,7 +34,7 @@ def test_test_connection_button_visible_in_edit_mode(app_clean: str, page: Page)
 def test_test_connection_button_absent_in_create_mode(app_clean: str, page: Page) -> None:
     """Test Connection button is NOT rendered in create-mode."""
     page.goto(f"{app_clean}#studio/connectors/new")
-    expect(page.locator('[data-testid="create-and-test-connector-account-btn"]')).to_be_visible(
+    expect(page.locator('[data-testid="create-and-test-connector-btn"]')).to_be_visible(
         timeout=8000
     )
     expect(page.locator('[data-testid="connector-test-connection-btn"]')).to_have_count(0)
@@ -48,7 +48,7 @@ def test_default_stub_probe_renders_success_with_no_details(
     + no details panel surfaced (M07 inspector convention: status +
     one-sentence message at-a-glance; details panel opens only on
     debug-needed states)."""
-    account_id = seed_connector_account(app_clean, name="OK Stub Bot")
+    account_id = seed_connector(app_clean, name="OK Stub Bot")
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
     expect(page.locator('[data-testid="connector-test-connection-btn"]')).to_be_visible(
         timeout=8000
@@ -74,7 +74,7 @@ def test_configured_failure_response_renders_red_led_and_details(
     app_clean: str, page: Page
 ) -> None:
     """page.route()-fulfilled failure → red LED + details k/v block."""
-    account_id = seed_connector_account(app_clean, name="Failure Bot")
+    account_id = seed_connector(app_clean, name="Failure Bot")
 
     stub_payload = {
         "status": "failed",
@@ -90,7 +90,7 @@ def test_configured_failure_response_renders_red_led_and_details(
         )
 
     page.route(
-        f"**/api/connector-accounts/{account_id}/test/connect", handle_test_connect
+        f"**/api/connectors/{account_id}/test/connect", handle_test_connect
     )
 
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
@@ -118,7 +118,7 @@ def test_configured_failure_response_renders_red_led_and_details(
 @pytest.mark.browser
 def test_degraded_response_renders_warning_led(app_clean: str, page: Page) -> None:
     """page.route()-fulfilled degraded → amber LED."""
-    account_id = seed_connector_account(app_clean, name="Degraded Bot")
+    account_id = seed_connector(app_clean, name="Degraded Bot")
 
     stub_payload = {
         "status": "degraded",
@@ -134,7 +134,7 @@ def test_degraded_response_renders_warning_led(app_clean: str, page: Page) -> No
         )
 
     page.route(
-        f"**/api/connector-accounts/{account_id}/test/connect", handle_test_connect
+        f"**/api/connectors/{account_id}/test/connect", handle_test_connect
     )
 
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
@@ -155,7 +155,7 @@ def test_non_string_detail_renders_as_font_mono_json(app_clean: str, page: Page)
     """Non-string detail values do NOT surface on `status:'ok'` — details
     panel stays hidden per M07 inspector convention. (Failure-status path
     covers the structured-details rendering shape.)"""
-    account_id = seed_connector_account(app_clean, name="NonString Bot")
+    account_id = seed_connector(app_clean, name="NonString Bot")
 
     stub_payload = {
         "status": "ok",
@@ -171,7 +171,7 @@ def test_non_string_detail_renders_as_font_mono_json(app_clean: str, page: Page)
         )
 
     page.route(
-        f"**/api/connector-accounts/{account_id}/test/connect", handle_test_connect
+        f"**/api/connectors/{account_id}/test/connect", handle_test_connect
     )
 
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
@@ -195,7 +195,7 @@ def test_secret_shaped_detail_value_passes_through_unmasked(
     `details_wrap` stays hidden per M07 inspector convention. The
     no-leak property is preserved structurally: the wrap never renders
     on the ok path, so the token never reaches the DOM."""
-    account_id = seed_connector_account(app_clean, name="Masked Detail Bot")
+    account_id = seed_connector(app_clean, name="Masked Detail Bot")
 
     masked_value = "***...abc1"
     stub_payload = {
@@ -212,7 +212,7 @@ def test_secret_shaped_detail_value_passes_through_unmasked(
         )
 
     page.route(
-        f"**/api/connector-accounts/{account_id}/test/connect", handle_test_connect
+        f"**/api/connectors/{account_id}/test/connect", handle_test_connect
     )
 
     page.goto(f"{app_clean}#studio/connectors/{account_id}")

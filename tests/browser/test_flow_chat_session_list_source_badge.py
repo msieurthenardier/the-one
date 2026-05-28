@@ -11,7 +11,7 @@ Test strategy:
 - INSERT two ``chat_sessions`` rows via direct sqlite3:
   - Row A: web-native (all seven connector-keying columns NULL).
   - Row B: connector-attached (``platform="stub"``,
-    ``connector_account_id="stub-acct-1"``, ``channel_id="C1"``,
+    ``connector_id="stub-acct-1"``, ``channel_id="C1"``,
     ``thread_id=NULL``, ``peer_id="P1"``, ``session_metadata=NULL``,
     ``last_inbound_at=NULL``).
 - Boot the page, navigate to chat, wait for the session list, and
@@ -138,7 +138,7 @@ def _seed_session(
     agent_name: str,
     title: str,
     platform: str | None,
-    connector_account_id: str | None,
+    connector_id: str | None,
     channel_id: str | None,
     thread_id: str | None,
     peer_id: str | None,
@@ -158,7 +158,7 @@ def _seed_session(
         conn.execute(
             "INSERT INTO chat_sessions ("
             " id, agent_name, title, messages, created_at, updated_at,"
-            " platform, connector_account_id, channel_id, thread_id, peer_id,"
+            " platform, connector_id, channel_id, thread_id, peer_id,"
             " session_metadata, last_inbound_at"
             ") VALUES (?, ?, ?, ?, datetime('now'), datetime('now'),"
             " ?, ?, ?, ?, ?, ?, ?)",
@@ -168,7 +168,7 @@ def _seed_session(
                 title,
                 "[]",
                 platform,
-                connector_account_id,
+                connector_id,
                 channel_id,
                 thread_id,
                 peer_id,
@@ -209,7 +209,7 @@ def test_session_list_renders_source_badge_for_connector_attached_row(
         agent_name=agent_name,
         title="web-native session",
         platform=None,
-        connector_account_id=None,
+        connector_id=None,
         channel_id=None,
         thread_id=None,
         peer_id=None,
@@ -222,7 +222,7 @@ def test_session_list_renders_source_badge_for_connector_attached_row(
         agent_name=agent_name,
         title="connector-attached session",
         platform="stub",
-        connector_account_id="stub-acct-1",
+        connector_id="stub-acct-1",
         channel_id="C1",
         thread_id=None,
         peer_id="P1",

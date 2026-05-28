@@ -1,7 +1,7 @@
 // App.studio.connectorFormRegistry — Discord entry (M11 F1 L4).
 //
 // First consumer of the L3 registry substrate. Registers the
-// ``'discord'`` entry at module load time so the connector-account
+// ``'discord'`` entry at module load time so the connector
 // editor renders typed Discord-shaped fields (intents row, scope-to-
 // servers list, bot-status editor, masked BOT_TOKEN, Additional
 // Config kv-table) instead of falling back to the generic kv-table.
@@ -11,7 +11,7 @@
 //     (script-tag ordering in ``index.html``). If the registry is
 //     missing at module-load time, this script throws — surfaced as a
 //     console error so the operator sees the misorder immediately.
-//   - L2's API validator (``api.py:_validate_connector_account_config``)
+//   - L2's API validator (``api.py:_validate_connector_config``)
 //     accepts the shapes this entry emits — three-key dict for
 //     ``intents``, list-of-digit-strings for ``guilds``, dict with
 //     optional ``name`` / ``type`` for ``presence``. Empty-dict
@@ -38,14 +38,14 @@
   // M11 F5 L6 HAT round-8: the three ``_DIRECTIVE_*_DEFAULT`` JS twins
   // and the ``renderDirectiveSection`` helper were REMOVED from this
   // module. The simplified two-default surface now lives in
-  // ``connector-account-editor.js`` (the Session-section codeblock
+  // ``connector-editor.js`` (the Session-section codeblock
   // mounts the relevant default below the Auto-reply toggle).
 
   // ── M11 F1 L5: Invite-URL section ──────────────────────────────────
   //
   // The doctor probe at ``_discord.py`` populates
   // ``report.details.application_id`` on the ``application`` check
-  // success path. ``connector-account-editor.js:renderTestConnectionBanner``
+  // success path. ``connector-editor.js:renderTestConnectionBanner``
   // forwards this to ``setApplicationId`` below (via the namespace
   // export at the bottom of this IIFE), which caches it per-account-id
   // and re-renders the Invite section's URL display.
@@ -143,7 +143,7 @@
   // occupy a visible column. Each info-icon now carries a
   // ``data-testid`` (``discord-intents-hint`` / ``discord-guilds-hint``
   // / ``discord-presence-hint``) for parity with the Lifecycle section's
-  // ``connector-account-continuation-hint`` / ``-idle-hint`` sites.
+  // ``connector-continuation-hint`` / ``-idle-hint`` sites.
 
   function _renderRuntimeConfigBody(account) {
     var cfg = (account && account.config) || {};
@@ -313,7 +313,7 @@
   // ── Render: Runtime Config (edit-mode hook) ────────────────────────
   //
   // F5 L3: registry-mediated optional hook called by the substrate from
-  // ``connector-account-editor.js`` when building the Access-and-Routing
+  // ``connector-editor.js`` when building the Access-and-Routing
   // tab. Substrate wraps the returned content in an ``<div
   // class="editor-section">`` with ``<div class="section-title">Runtime
   // Config</div>``; this helper returns the inner content only.
@@ -346,7 +346,7 @@
     html += '<button type="button" class="field-info-icon" ' +
             'title="' + _escapeAttr(hintText) + '" ' +
             'aria-describedby="discord-bot-token-help-text" ' +
-            'data-testid="connector-account-bot-token-hint">' +
+            'data-testid="connector-bot-token-hint">' +
             infoIcon + '</button>';
     html += '<span id="discord-bot-token-help-text" class="visually-hidden">' +
             _escapeHtml(hintText) + '</span>';
@@ -523,7 +523,7 @@
   // ``_renderDirectiveDisclosure``, and ``_updateDirectiveAnnotation``
   // were REMOVED. The directive surface is now read-only and lives
   // under the Auto-reply toggle in the Session section (rendered by
-  // ``connector-account-editor.js``), not as an editable General-tab
+  // ``connector-editor.js``), not as an editable General-tab
   // section.
 
   function _updateInviteUrlDisplay(container, account) {
@@ -595,7 +595,7 @@
     // serializes the input value, not its type attribute, but wiring
     // ``checkDirty`` to the eye keeps the dirty-tracking shape uniform
     // with the secrets-row eye pattern at lines 870-887 of
-    // ``connector-account-editor.js``).
+    // ``connector-editor.js``).
     var eyeBtn = container.querySelector('.discord-bot-token-eye-btn');
     if (eyeBtn) {
       eyeBtn.addEventListener('click', function () {
@@ -617,7 +617,7 @@
     // M11 F5 L6 HAT round-8: the L4 Directive-section wiring was
     // REMOVED here (no editable textarea; no per-disclosure summary
     // repaint). The Session-section codeblock in
-    // ``connector-account-editor.js`` wires its own auto-relay listener
+    // ``connector-editor.js`` wires its own auto-relay listener
     // for the reactive codeblock content swap.
 
     // ── L5: Invite-section Copy + Recompute buttons ────────────────
@@ -650,7 +650,7 @@
   // without an explicit account arg, the invite helpers need to know
   // which account.id keys the cache. The editor's mount node now
   // carries a ``data-account-id`` attribute in edit mode (set by
-  // ``connector-account-editor.js:renderConnectorAccountEditor``); we
+  // ``connector-editor.js:renderConnectorEditor``); we
   // read it instead of parsing ``window.location.hash`` so the helper
   // is fully DOM-anchored and survives any future routing changes.
   // Returns ``null`` when no ``data-account-id`` is present (create
@@ -658,13 +658,13 @@
 
   function _resolveAccountFromContainer(container) {
     if (!container) return null;
-    // The editor's root element is ``.connector-account-editor``;
+    // The editor's root element is ``.connector-editor``;
     // ``container.closest`` walks up from any nested section. Fallback
     // to the container itself if it IS the mount node (no ancestor
     // with the class).
     var mountEl = null;
     if (typeof container.closest === 'function') {
-      mountEl = container.closest('.connector-account-editor');
+      mountEl = container.closest('.connector-editor');
     }
     if (!mountEl) mountEl = container;
     var accountId = mountEl.getAttribute && mountEl.getAttribute('data-account-id');
@@ -676,7 +676,7 @@
 
   // ── M11 F1 L5: public namespace for the editor to push application_id
   //
-  // ``connector-account-editor.js:renderTestConnectionBanner`` calls
+  // ``connector-editor.js:renderTestConnectionBanner`` calls
   // ``setApplicationId(accountId, appId)`` after a successful probe whose
   // ``report.details`` carries an ``application_id``. The function
   // caches the id and, if the invite-section is currently mounted in
@@ -689,7 +689,7 @@
       // If the invite-section is mounted, re-render its URL display.
       var inviteSection = document.querySelector('[data-testid="connector-invite-section"]');
       if (!inviteSection) return;
-      var container = inviteSection.closest('.connector-account-editor') ||
+      var container = inviteSection.closest('.connector-editor') ||
                       inviteSection.parentElement || inviteSection;
       _updateInviteUrlDisplay(container, { id: accountId });
     },

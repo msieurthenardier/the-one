@@ -9,7 +9,7 @@ and L7 lands the :meth:`DiscordPlugin.doctor` probe.
 Cross-references:
 
 - ``discord.py>=2.4,<2.5`` pinned in ``pyproject.toml`` (M10 F8 L2).
-- The v19 CHECK constraint on ``connector_accounts.type`` admits
+- The v19 CHECK constraint on ``connectors.type`` admits
   ``'discord'`` rows (see ``db/schema.py``'s v19 migration block).
 - The registry binding ``register("discord", DiscordPlugin)`` lives at
   ``the_one.connectors.registry.register_builtin_connectors`` (function-
@@ -78,7 +78,7 @@ from the_one.connectors.errors import (
     ConnectorConnectionError,
     ConnectorRateLimitError,
 )
-from the_one.db.models import ConnectorAccount
+from the_one.db.models import Connector
 from the_one.encryption import Encryptor
 
 __all__ = ("DiscordPlugin", "DiscordClient")
@@ -232,7 +232,7 @@ def _build_slash_envelope(
 
 
 async def _sync_slash_commands(
-    tree: "discord.app_commands.CommandTree", account: ConnectorAccount
+    tree: "discord.app_commands.CommandTree", account: Connector
 ) -> None:
     """Sync the ``tree`` against each guild in ``account.config["guilds"]``.
 
@@ -593,7 +593,7 @@ class DiscordPlugin:
 
     async def connect(
         self,
-        account: ConnectorAccount,
+        account: Connector,
         encryptor: Encryptor,
     ) -> DiscordClient:
         """Open the Discord gateway connection and return a wrapper.
@@ -725,7 +725,7 @@ class DiscordPlugin:
         intents: discord.Intents,
         activity: discord.Activity,
         ready_timeout: float,
-        account: ConnectorAccount,
+        account: Connector,
     ) -> DiscordClient:
         """Run one connect attempt.
 
@@ -1076,7 +1076,7 @@ class DiscordPlugin:
 
     async def doctor(
         self,
-        account: ConnectorAccount,
+        account: Connector,
         encryptor: Encryptor,
     ) -> DoctorReport:
         """Run five read-only probes against the operator's Discord credentials.
@@ -1107,7 +1107,7 @@ class DiscordPlugin:
         ``encryptor`` parameter is received to satisfy the F1 Protocol
         but not consumed at this site). The encryption-rotation
         invariant is preserved at the repository layer
-        (``ConnectorAccountRepository._ciphertext_to_secrets``
+        (``ConnectorRepository._ciphertext_to_secrets``
         decrypts the whole ``secrets`` blob at row-load time), so the
         plugin does not capture or call the encryptor.
         """
@@ -1621,7 +1621,7 @@ class DiscordPlugin:
 
     def resolve(
         self,
-        account: ConnectorAccount,
+        account: Connector,
         envelope: InboundEnvelope,
     ) -> ResolveOutcome:
         """Discord resolver: DM-from-stranger gates on pairing/approval.

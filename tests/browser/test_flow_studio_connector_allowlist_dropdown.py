@@ -2,7 +2,7 @@
 dispatch (M11 F3 L6a).
 
 These tests pin the L6a refactor of
-``connector-account-editor.js:renderAllowlistSection`` / the
+``connector-editor.js:renderAllowlistSection`` / the
 ``_mountAllowlistAxisEditor`` dispatch helper:
 
 - Discord accounts mount the live-data ``discoverableDropdown``
@@ -19,7 +19,7 @@ These tests pin the L6a refactor of
   collect path).
 - Create-mode does NOT render the allowlist (it is structurally
   edit-mode-only); picking Discord in create-mode must therefore NOT
-  fire any GET to ``/api/connector-accounts/*/discoverable-entities``.
+  fire any GET to ``/api/connectors/*/discoverable-entities``.
 
 The ``discoverable-entities`` API is stubbed via ``page.route()`` so
 the tests do not depend on a warm Discord-connector pool or live
@@ -32,7 +32,7 @@ import json
 
 import httpx
 import pytest
-from browser.seeders import seed_connector_account
+from browser.seeders import seed_connector
 from playwright.sync_api import Page, expect
 
 
@@ -92,7 +92,7 @@ _DISCOVERABLE_PAYLOAD = {
 
 def _route_discoverable_ok(page: Page, account_id: str,
                             payload: dict | None = None) -> None:
-    """Stub GET + POST /api/connector-accounts/{id}/discoverable-entities."""
+    """Stub GET + POST /api/connectors/{id}/discoverable-entities."""
     body = payload if payload is not None else _DISCOVERABLE_PAYLOAD
 
     def handle(route):
@@ -103,7 +103,7 @@ def _route_discoverable_ok(page: Page, account_id: str,
         )
 
     page.route(
-        f"**/api/connector-accounts/{account_id}/discoverable-entities*",
+        f"**/api/connectors/{account_id}/discoverable-entities*",
         handle,
     )
 
@@ -114,10 +114,10 @@ def _seed_discord(base_url: str, **kwargs) -> str:
     Mirrors the helper in ``test_flow_studio_connector_discord_form.py``
     so the Discord registry entry's typed credentials field has a value
     to render. Extra keyword args pass straight through to
-    ``seed_connector_account``.
+    ``seed_connector``.
     """
     secrets = kwargs.pop("secrets", {"BOT_TOKEN": "real_bot_token_abcd"})
-    return seed_connector_account(
+    return seed_connector(
         base_url,
         type="discord",
         secrets=secrets,
@@ -126,7 +126,7 @@ def _seed_discord(base_url: str, **kwargs) -> str:
 
 
 def _get_account(base_url: str, account_id: str) -> dict:
-    r = httpx.get(f"{base_url}/api/connector-accounts/{account_id}", timeout=5.0)
+    r = httpx.get(f"{base_url}/api/connectors/{account_id}", timeout=5.0)
     assert r.status_code == 200, f"get failed: {r.status_code} {r.text}"
     return r.json()
 
@@ -134,7 +134,7 @@ def _get_account(base_url: str, account_id: str) -> dict:
 def _activate_access_and_routing_tab(page: Page) -> None:
     """Edit-mode renders a two-tab layout; the allowlist lives on the
     "Access and Routing" tab. Mirrors the helper in
-    ``test_flow_studio_connector_account_editor.py``."""
+    ``test_flow_studio_connector_editor.py``."""
     page.locator('[data-testid="tab-access-and-routing"]').click()
 
 
@@ -156,7 +156,7 @@ def test_allowlist_axis_renders_dropdown_for_discord_account(
     account_id = _seed_discord(app_clean, name="Discord Allowlist Bot")
     _route_discoverable_ok(page, account_id)
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
         timeout=8000
     )
     _activate_access_and_routing_tab(page)
@@ -182,14 +182,14 @@ def test_allowlist_axis_renders_chiplist_for_stub_account(
     pre-existing chip-list editor (the regression contract for any
     connector type without a ``renderDiscoverableDropdown`` hook).
     """
-    account_id = seed_connector_account(app_clean, name="Stub Allowlist Bot")
+    account_id = seed_connector(app_clean, name="Stub Allowlist Bot")
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
         timeout=8000
     )
     _activate_access_and_routing_tab(page)
 
-    # Existing chip-list testids per ``connector-account-editor.js:1860``
+    # Existing chip-list testids per ``connector-editor.js:1860``
     # — prefix is ``connector-allowlist-``; the axis name is interpolated
     # before the ``-chiplist`` suffix.
     for axis in ("peers", "channels", "guilds", "roles"):
@@ -213,7 +213,7 @@ def test_allowlist_dropdown_onChange_updates_account_config_allowlist(
     account_id = _seed_discord(app_clean, name="Discord Channels Bot")
     _route_discoverable_ok(page, account_id)
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
         timeout=8000
     )
     _activate_access_and_routing_tab(page)
@@ -231,7 +231,7 @@ def test_allowlist_dropdown_onChange_updates_account_config_allowlist(
         page.locator('[data-testid="discoverable-dropdown-chip-channels"]')
     ).to_have_count(1)
 
-    save_btn = page.locator('[data-testid="save-connector-account-btn"]')
+    save_btn = page.locator('[data-testid="save-connector-btn"]')
     expect(save_btn).not_to_be_disabled(timeout=4000)
     save_btn.click()
 
@@ -260,7 +260,7 @@ def test_allowlist_dropdown_chip_remove_updates_account_config_allowlist(
     )
     _route_discoverable_ok(page, account_id)
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
         timeout=8000
     )
     _activate_access_and_routing_tab(page)
@@ -276,7 +276,7 @@ def test_allowlist_dropdown_chip_remove_updates_account_config_allowlist(
     remove.click()
     expect(chip).to_have_count(0)
 
-    save_btn = page.locator('[data-testid="save-connector-account-btn"]')
+    save_btn = page.locator('[data-testid="save-connector-btn"]')
     expect(save_btn).not_to_be_disabled(timeout=4000)
     save_btn.click()
     expect(save_btn).to_be_disabled(timeout=8000)
@@ -301,7 +301,7 @@ def test_allowlist_storage_axis_guilds_maps_to_api_groups(
     account_id = _seed_discord(app_clean, name="Discord Groups Bot")
     _route_discoverable_ok(page, account_id)
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
         timeout=8000
     )
     _activate_access_and_routing_tab(page)
@@ -330,7 +330,7 @@ def test_create_mode_discord_does_not_render_allowlist(
     """Create-mode renders flat (no tabs) and structurally omits the
     allowlist section. Picking Discord in the type dropdown MUST NOT
     render any allowlist UI AND MUST NOT fire a GET to
-    ``/api/connector-accounts/*/discoverable-entities``.
+    ``/api/connectors/*/discoverable-entities``.
 
     Per the F1 L1 ``registry-dispatch-create-mode-AC`` convention's
     "structurally guaranteed" exclusion: the dispatch key (registry
@@ -353,10 +353,10 @@ def test_create_mode_discord_does_not_render_allowlist(
     page.route("**/discoverable-entities*", handle)
 
     page.goto(f"{app_clean}#studio/connectors/new")
-    expect(page.locator('[data-testid="connector-account-type-select"]')).to_be_visible(
+    expect(page.locator('[data-testid="connector-type-select"]')).to_be_visible(
         timeout=8000
     )
-    page.locator('[data-testid="connector-account-type-select"]').select_option("discord")
+    page.locator('[data-testid="connector-type-select"]').select_option("discord")
 
     # No allowlist UI of either flavor renders.
     expect(

@@ -149,7 +149,7 @@ def _seed_session(
     agent_name: str,
     title: str,
     platform: str | None,
-    connector_account_id: str | None,
+    connector_id: str | None,
     channel_id: str | None,
     thread_id: str | None,
     peer_id: str | None,
@@ -168,7 +168,7 @@ def _seed_session(
         conn.execute(
             "INSERT INTO chat_sessions ("
             " id, agent_name, title, messages, created_at, updated_at,"
-            " platform, connector_account_id, channel_id, thread_id, peer_id,"
+            " platform, connector_id, channel_id, thread_id, peer_id,"
             " session_metadata, last_inbound_at"
             ") VALUES (?, ?, ?, ?, datetime('now'), datetime('now'),"
             " ?, ?, ?, ?, ?, ?, ?)",
@@ -178,7 +178,7 @@ def _seed_session(
                 title,
                 "[]",
                 platform,
-                connector_account_id,
+                connector_id,
                 channel_id,
                 thread_id,
                 peer_id,
@@ -259,7 +259,7 @@ def test_operator_input_yields_operator_visibility_on_connector_session(
         agent_name=agent_name,
         title="connector-attached operator-input test",
         platform="stub",
-        connector_account_id="stub-acct-1",
+        connector_id="stub-acct-1",
         channel_id="C1",
         thread_id=None,
         peer_id="P1",
@@ -340,7 +340,7 @@ def test_operator_input_yields_no_operator_visibility_on_web_session(
         agent_name=agent_name,
         title="web-native operator-input negative-control",
         platform=None,
-        connector_account_id=None,
+        connector_id=None,
         channel_id=None,
         thread_id=None,
         peer_id=None,

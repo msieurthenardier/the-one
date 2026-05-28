@@ -742,19 +742,19 @@ class TestEncryptionRotation:
     async def test_rotate_connector_account_secrets(
         self, client: AsyncClient, tmp_path: Path
     ) -> None:
-        """After rotation, connector_accounts.secrets still decrypts under
+        """After rotation, connectors.secrets still decrypts under
         the new key — re-encrypted atomically with llm_providers.api_key
         and mcp_sources.secrets in the same single commit.
 
         Mirrors test_rotate_mcp_source_secrets at line 612. Seeds via raw
-        SQL because Flight 1 ships no REST routes for connector_accounts —
+        SQL because Flight 1 ships no REST routes for the connectors table —
         those land in Flight 2. The seeding pattern mirrors the existing
         migration-residue test's "fresh aiosqlite connection on the test
         DB" idiom for cross-connection commit visibility.
         """
         import json as _json
 
-        # Seed a connector_accounts row directly via SQL. Open a fresh
+        # Seed a connectors row directly via SQL. Open a fresh
         # connection on the same DB the API fixture is using (path is
         # ``tmp_path / "test.db"``) — proven cross-connection commit
         # visibility ordering with the existing MCP rotation tests.
@@ -770,7 +770,7 @@ class TestEncryptionRotation:
                 .decode()
             )
             await seed_conn.execute(
-                "INSERT INTO connector_accounts (id, type, config, secrets) "
+                "INSERT INTO connectors (id, type, config, secrets) "
                 "VALUES (?, ?, ?, ?)",
                 ("acct-rotate", "stub", "{}", ciphertext),
             )
@@ -792,7 +792,7 @@ class TestEncryptionRotation:
         verify_conn.row_factory = aiosqlite.Row
         try:
             async with verify_conn.execute(
-                "SELECT secrets FROM connector_accounts WHERE id = ?", ("acct-rotate",)
+                "SELECT secrets FROM connectors WHERE id = ?", ("acct-rotate",)
             ) as cur:
                 row = await cur.fetchone()
         finally:
@@ -806,7 +806,7 @@ class TestEncryptionRotation:
     ) -> None:
         """A DB commit failure during rotation leaves all three corpora
         byte-identical — llm_providers.api_key, mcp_sources.secrets, AND
-        connector_accounts.secrets roll back together.
+        connectors.secrets roll back together.
 
         Mirrors test_rotate_preserves_mcp_secrets_on_db_failure at line 669
         — ``unittest.mock.patch("aiosqlite.Connection.commit", side_effect=
@@ -819,7 +819,7 @@ class TestEncryptionRotation:
 
         # Seed one row in each of the three encrypted corpora via the
         # public API where possible (llm_providers, mcp_sources) and raw
-        # SQL for connector_accounts (no REST route in Flight 1).
+        # SQL for the connectors table (no REST route in Flight 1).
         prov_resp = await client.post(
             "/api/providers",
             json={
@@ -844,7 +844,7 @@ class TestEncryptionRotation:
         assert mcp_resp.status_code in (200, 201)
         sid = mcp_resp.json()["id"]
 
-        # Seed connector_accounts row with encrypted secrets via a fresh
+        # Seed connectors row with encrypted secrets via a fresh
         # aiosqlite connection (no REST route until Flight 2).
         key_before = (tmp_path / "test.key").read_bytes()
         conn_ct_before = (
@@ -856,7 +856,7 @@ class TestEncryptionRotation:
         seed_conn.row_factory = aiosqlite.Row
         try:
             await seed_conn.execute(
-                "INSERT INTO connector_accounts (id, type, config, secrets) "
+                "INSERT INTO connectors (id, type, config, secrets) "
                 "VALUES (?, ?, ?, ?)",
                 ("conn-preserve", "stub", "{}", conn_ct_before),
             )
@@ -878,7 +878,7 @@ class TestEncryptionRotation:
             ) as cur:
                 mcp_ct_before = (await cur.fetchone())["secrets"]
             async with snapshot_conn.execute(
-                "SELECT secrets FROM connector_accounts WHERE id = ?", ("conn-preserve",)
+                "SELECT secrets FROM connectors WHERE id = ?", ("conn-preserve",)
             ) as cur:
                 conn_ct_actual_before = (await cur.fetchone())["secrets"]
         finally:
@@ -927,7 +927,7 @@ class TestEncryptionRotation:
             ) as cur:
                 assert (await cur.fetchone())["secrets"] == mcp_ct_before
             async with post_conn.execute(
-                "SELECT secrets FROM connector_accounts WHERE id = ?", ("conn-preserve",)
+                "SELECT secrets FROM connectors WHERE id = ?", ("conn-preserve",)
             ) as cur:
                 assert (await cur.fetchone())["secrets"] == conn_ct_before
         finally:

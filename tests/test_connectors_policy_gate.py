@@ -66,10 +66,10 @@ from the_one.connectors.registry import (
 )
 from the_one.db.codec import decode_messages
 from the_one.db.connection import get_connection
-from the_one.db.models import ConnectorAccount
+from the_one.db.models import Connector
 from the_one.db.repositories import (
     ChatSessionRepository,
-    ConnectorAccountRepository,
+    ConnectorRepository,
     SQLiteAgentStore,
 )
 from the_one.encryption import get_encryptor
@@ -153,7 +153,7 @@ async def _enable_always_listen(
     """Set both always-listen toggles to True for the inference path."""
     conn = await get_connection()
     encryptor = get_encryptor(settings.data_dir)
-    acc_repo = ConnectorAccountRepository(conn, encryptor)
+    acc_repo = ConnectorRepository(conn, encryptor)
     account = await acc_repo.get(account_id)
     account.config["always_listen"] = True
     await acc_repo.update(account)
@@ -343,7 +343,7 @@ class TestPolicyGateSilent:
         # Account-level on; agent-level absent (defaults False).
         conn = await get_connection()
         encryptor = get_encryptor(settings.data_dir)
-        acc_repo = ConnectorAccountRepository(conn, encryptor)
+        acc_repo = ConnectorRepository(conn, encryptor)
         account = await acc_repo.get("acct-test")
         account.config["always_listen"] = True
         await acc_repo.update(account)

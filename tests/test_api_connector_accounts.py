@@ -1,7 +1,7 @@
 """Tests for the discoverable-entities REST endpoints (M11 F3 L4).
 
-Covers ``GET /api/connector-accounts/{id}/discoverable-entities`` and
-``POST /api/connector-accounts/{id}/discoverable-entities/refresh``.
+Covers ``GET /api/connectors/{id}/discoverable-entities`` and
+``POST /api/connectors/{id}/discoverable-entities/refresh``.
 
 The fixture pattern is lifted verbatim from
 ``tests/test_api_connector_account_config_validation.py:24-58``
@@ -164,7 +164,7 @@ async def _create_account(
 ) -> dict:
     """Helper: POST a connector account through the API and return it."""
     resp = await client.post(
-        "/api/connector-accounts",
+        "/api/connectors",
         json={
             "id": account_id,
             "name": name,
@@ -186,13 +186,13 @@ async def test_get_discoverable_entities_returns_404_for_unknown_account(
     client: AsyncClient,
 ) -> None:
     """GET against a non-existent account_id → 404 with the
-    'Connector account not found' detail."""
+    'Connector not found' detail."""
     resp = await client.get(
-        "/api/connector-accounts/does-not-exist/discoverable-entities"
+        "/api/connectors/does-not-exist/discoverable-entities"
     )
     assert resp.status_code == 404
     assert resp.json() == {
-        "detail": "Connector account not found: does-not-exist"
+        "detail": "Connector not found: does-not-exist"
     }
 
 
@@ -206,7 +206,7 @@ async def test_get_discoverable_entities_returns_404_for_cold_account(
     await _create_account(client, account_id="acct-cold")
 
     resp = await client.get(
-        "/api/connector-accounts/acct-cold/discoverable-entities"
+        "/api/connectors/acct-cold/discoverable-entities"
     )
     assert resp.status_code == 404
     assert resp.json() == {
@@ -228,7 +228,7 @@ async def test_get_discoverable_entities_returns_200_for_warm_account(
     await account_acquire("acct-warm")
 
     resp = await client.get(
-        "/api/connector-accounts/acct-warm/discoverable-entities"
+        "/api/connectors/acct-warm/discoverable-entities"
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
@@ -251,7 +251,7 @@ async def test_get_discoverable_entities_returns_503_for_account_type_without_ho
     await account_acquire("acct-hookless")
 
     resp = await client.get(
-        "/api/connector-accounts/acct-hookless/discoverable-entities"
+        "/api/connectors/acct-hookless/discoverable-entities"
     )
     assert resp.status_code == 503
     assert resp.json() == {
@@ -279,7 +279,7 @@ async def test_post_refresh_discoverable_entities_returns_200_for_warm_account(
     await account_acquire("acct-refresh")
 
     resp1 = await client.post(
-        "/api/connector-accounts/acct-refresh/discoverable-entities/refresh"
+        "/api/connectors/acct-refresh/discoverable-entities/refresh"
     )
     assert resp1.status_code == 200, resp1.text
     body1 = resp1.json()
@@ -295,7 +295,7 @@ async def test_post_refresh_discoverable_entities_returns_200_for_warm_account(
     await asyncio.sleep(0.001)
 
     resp2 = await client.post(
-        "/api/connector-accounts/acct-refresh/discoverable-entities/refresh"
+        "/api/connectors/acct-refresh/discoverable-entities/refresh"
     )
     assert resp2.status_code == 200, resp2.text
     body2 = resp2.json()
@@ -314,7 +314,7 @@ async def test_post_refresh_discoverable_entities_returns_404_for_cold_account(
     await _create_account(client, account_id="acct-cold-post")
 
     resp = await client.post(
-        "/api/connector-accounts/acct-cold-post/discoverable-entities/refresh"
+        "/api/connectors/acct-cold-post/discoverable-entities/refresh"
     )
     assert resp.status_code == 404
     assert resp.json() == {
@@ -350,7 +350,7 @@ async def test_discoverable_entities_response_projects_stale_flag(
 
     # First refresh: cache = {A, B, C}; stale_carry = {}.
     resp1 = await client.post(
-        "/api/connector-accounts/acct-stale/discoverable-entities/refresh"
+        "/api/connectors/acct-stale/discoverable-entities/refresh"
     )
     assert resp1.status_code == 200, resp1.text
 
@@ -363,12 +363,12 @@ async def test_discoverable_entities_response_projects_stale_flag(
         fetched_at="2026-05-22T00:05:00+00:00",
     )
     resp2 = await client.post(
-        "/api/connector-accounts/acct-stale/discoverable-entities/refresh"
+        "/api/connectors/acct-stale/discoverable-entities/refresh"
     )
     assert resp2.status_code == 200, resp2.text
 
     resp = await client.get(
-        "/api/connector-accounts/acct-stale/discoverable-entities"
+        "/api/connectors/acct-stale/discoverable-entities"
     )
     assert resp.status_code == 200, resp.text
     peers = resp.json()["entities"]["peers"]

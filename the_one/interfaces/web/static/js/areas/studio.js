@@ -34,19 +34,19 @@ App.registerArea({
       }
       return 'mcp-sources';
     }
-    if (this._activeSection === 'connector-accounts') {
-      // F5 L8 HAT-rename: hash route uses 'connectors' (operator-facing slug);
-      // internal _activeSection key still 'connector-accounts' to keep the
-      // F2 entity contract intact (API path, ConnectorAccount entity name,
-      // and serializeState/hydrateState symmetry with mcp-sources).
-      if (this._connectorAccountFormMode === 'add') return 'connectors/new';
-      if (this._connectorAccountFormMode === 'edit' && this._editingConnectorAccount) {
-        return 'connectors/' + encodeURIComponent(this._editingConnectorAccount.id);
+    if (this._activeSection === 'connectors') {
+      // M11 F11 L2: vocabulary unified — both hash route slug and internal
+      // _activeSection key are 'connectors' (the F5 L8 HAT operator-facing
+      // slug + legacy substrate-name fallback retired alongside the v23
+      // table rename). Symmetry with mcp-sources preserved.
+      if (this._connectorFormMode === 'add') return 'connectors/new';
+      if (this._connectorFormMode === 'edit' && this._editingConnector) {
+        return 'connectors/' + encodeURIComponent(this._editingConnector.id);
       }
       // Hydrate-vs-fetch race: pending id known but account not yet loaded.
-      if (this._pendingConnectorAccountFormMode === 'add') return 'connectors/new';
-      if (this._pendingConnectorAccountId) {
-        return 'connectors/' + encodeURIComponent(this._pendingConnectorAccountId);
+      if (this._pendingConnectorFormMode === 'add') return 'connectors/new';
+      if (this._pendingConnectorId) {
+        return 'connectors/' + encodeURIComponent(this._pendingConnectorId);
       }
       return 'connectors';
     }
@@ -93,8 +93,8 @@ App.registerArea({
     var pendingTab = 'general';
     var pendingMcpSourceId_local = null;
     var pendingMcpSourceFormMode_local = null;
-    var pendingConnectorAccountId_local = null;
-    var pendingConnectorAccountFormMode_local = null;
+    var pendingConnectorId_local = null;
+    var pendingConnectorFormMode_local = null;
     if (sub === 'knowledge') {
       section = 'knowledge';
     } else if (sub === 'mcp-sources') {
@@ -114,27 +114,28 @@ App.registerArea({
       var mslashIdx = mrest.indexOf('/');
       if (mslashIdx !== -1) mrest = mrest.slice(0, mslashIdx);
       pendingMcpSourceId_local = mrest ? decodeURIComponent(mrest) : null;
-    } else if (sub === 'connectors' || sub === 'connector-accounts') {
-      // F5 L8 HAT-rename: accept both the new 'connectors' slug and the
-      // legacy 'connector-accounts' slug for backward-compat. The router's
-      // serialize-after-hydrate pass will rewrite the URL to 'connectors'.
-      section = 'connector-accounts';
-    } else if (sub === 'connectors/new' || sub === 'connector-accounts/new') {
-      section = 'connector-accounts';
-      pendingConnectorAccountFormMode_local = 'add';
-    } else if (sub && (sub.indexOf('connectors/') === 0 || sub.indexOf('connector-accounts/') === 0)) {
-      // Direct-load on connectors/{id} (or legacy connector-accounts/{id}):
-      // parse the account id so the editor opens on refresh. Mirrors the
-      // mcp-sources parsing pattern above.
-      section = 'connector-accounts';
-      pendingConnectorAccountFormMode_local = 'edit';
-      var crestPrefix = sub.indexOf('connectors/') === 0 ? 'connectors/' : 'connector-accounts/';
+    } else if (sub === 'connectors') {
+      // M11 F11 L2: vocabulary unified — only the 'connectors' slug is
+      // accepted (the F5 L8 HAT legacy substrate-name slug retired
+      // alongside the URL rename). The router's serialize-after-hydrate
+      // pass will rewrite the URL to 'connectors'.
+      section = 'connectors';
+    } else if (sub === 'connectors/new') {
+      section = 'connectors';
+      pendingConnectorFormMode_local = 'add';
+    } else if (sub && sub.indexOf('connectors/') === 0) {
+      // Direct-load on connectors/{id}: parse the connector id so the
+      // editor opens on refresh. Mirrors the mcp-sources parsing pattern
+      // above.
+      section = 'connectors';
+      pendingConnectorFormMode_local = 'edit';
+      var crestPrefix = 'connectors/';
       var crest = sub.slice(crestPrefix.length);
       if (crest.charAt(crest.length - 1) === '/') crest = crest.slice(0, -1);
       // Defensive: if extra path segments, take only the first.
       var cslashIdx = crest.indexOf('/');
       if (cslashIdx !== -1) crest = crest.slice(0, cslashIdx);
-      pendingConnectorAccountId_local = crest ? decodeURIComponent(crest) : null;
+      pendingConnectorId_local = crest ? decodeURIComponent(crest) : null;
     } else if (sub && sub.indexOf('agents/') === 0) {
       section = 'agents';
       var rest = sub.slice('agents/'.length);
@@ -192,9 +193,9 @@ App.registerArea({
     // not mcp-sources/...) so navigation away clears stale pending.
     this._pendingMcpSourceId = pendingMcpSourceId_local;
     this._pendingMcpSourceFormMode = pendingMcpSourceFormMode_local;
-    // Same for connector-accounts.
-    this._pendingConnectorAccountId = pendingConnectorAccountId_local;
-    this._pendingConnectorAccountFormMode = pendingConnectorAccountFormMode_local;
+    // Same for connectors.
+    this._pendingConnectorId = pendingConnectorId_local;
+    this._pendingConnectorFormMode = pendingConnectorFormMode_local;
     if (this._setActiveSection) {
       this._setActiveSection(section, { writeUrl: false });
     }
@@ -203,7 +204,7 @@ App.registerArea({
     // path won't re-enter the editor branch. Fire consume unconditionally
     // so within-section direct-loads open the editor.
     if (this._tryConsumePendingMcpSource) this._tryConsumePendingMcpSource();
-    if (this._tryConsumePendingConnectorAccount) this._tryConsumePendingConnectorAccount();
+    if (this._tryConsumePendingConnector) this._tryConsumePendingConnector();
   },
 
   init: function (sidebar, content) {
@@ -217,8 +218,8 @@ App.registerArea({
     // M10 F6 L5 — all connector accounts cache for the agent-editor
     // Connectors tab. Mirrors _allMcpSources: lazy initial list from
     // loadAll, refreshed on every agent-edit mount via
-    // refreshConnectorAccountsCache (mirror of refreshMcpSourcesCache).
-    self._allConnectorAccounts = [];
+    // refreshConnectorsCache (mirror of refreshMcpSourcesCache).
+    self._allConnectors = [];
     self._allKnowledgeBases = [];
     self._allProviders = [];
     self._selectedAgent = null;
@@ -283,34 +284,34 @@ App.registerArea({
     // entities, many-to-many identities, per-type config — see flight's
     // "Studio placement, not Admin" design decision). State shape mirrors
     // the MCP pattern: type list cached at init, account list lazily
-    // fetched on section render, formMode + editingConnectorAccount drive
+    // fetched on section render, formMode + editingConnector drive
     // grid-vs-editor dispatch, pending* slots handle the hydrate-vs-fetch
     // race.
     var CONNECTOR_TYPES = [];
     var connectorTypesReady = null;
-    var connectorAccounts = null; // null until first fetch resolves
-    var connectorAccountFormMode = null; // null | 'add' | 'edit'
-    var editingConnectorAccount = null;
-    var pendingConnectorAccountId = self._pendingConnectorAccountId || null;
-    var pendingConnectorAccountFormMode = self._pendingConnectorAccountFormMode || null;
-    Object.defineProperty(self, '_connectorAccountFormMode', {
-      get: function () { return connectorAccountFormMode; },
-      set: function (v) { connectorAccountFormMode = v; },
+    var connectors = null; // null until first fetch resolves
+    var connectorFormMode = null; // null | 'add' | 'edit'
+    var editingConnector = null;
+    var pendingConnectorId = self._pendingConnectorId || null;
+    var pendingConnectorFormMode = self._pendingConnectorFormMode || null;
+    Object.defineProperty(self, '_connectorFormMode', {
+      get: function () { return connectorFormMode; },
+      set: function (v) { connectorFormMode = v; },
       configurable: true
     });
-    Object.defineProperty(self, '_editingConnectorAccount', {
-      get: function () { return editingConnectorAccount; },
-      set: function (v) { editingConnectorAccount = v; },
+    Object.defineProperty(self, '_editingConnector', {
+      get: function () { return editingConnector; },
+      set: function (v) { editingConnector = v; },
       configurable: true
     });
-    Object.defineProperty(self, '_pendingConnectorAccountId', {
-      get: function () { return pendingConnectorAccountId; },
-      set: function (v) { pendingConnectorAccountId = v; },
+    Object.defineProperty(self, '_pendingConnectorId', {
+      get: function () { return pendingConnectorId; },
+      set: function (v) { pendingConnectorId = v; },
       configurable: true
     });
-    Object.defineProperty(self, '_pendingConnectorAccountFormMode', {
-      get: function () { return pendingConnectorAccountFormMode; },
-      set: function (v) { pendingConnectorAccountFormMode = v; },
+    Object.defineProperty(self, '_pendingConnectorFormMode', {
+      get: function () { return pendingConnectorFormMode; },
+      set: function (v) { pendingConnectorFormMode = v; },
       configurable: true
     });
 
@@ -344,29 +345,29 @@ App.registerArea({
     // editor's per-row detach handler. When the Connectors grid is the
     // active studio section, re-fetch the list so the agent-count badge
     // refreshes immediately (the badge value comes from the
-    // ``attached_agents_count`` field on the GET /api/connector-accounts
+    // ``attached_agents_count`` field on the GET /api/connectors
     // response).
     //
     // Registered ONCE at init() time (init runs once per area lifetime,
     // gated by app.js's initialized[areaId] check) — mirrors the
-    // ``connectors-tab.js:73`` precedent for ``connector-account-
+    // ``connectors-tab.js:73`` precedent for ``connector-
     // always-listen-changed``. No teardown: handler is a guarded no-op
     // when the operator is on any section other than the Connectors
     // grid.
     //
     // TODO(routine-maintenance): F4 R13 studio-event-bus lift candidate;
     // M11 F9 L6 will refactor this inline listener (and the matching
-    // dispatch in ``connector-account-editor.js``) into the shared bus.
+    // dispatch in ``connector-editor.js``) into the shared bus.
     App.studio.eventBus.on('connector-agent-detached', function () {
       // Bail when the operator is not on the Connectors grid section —
-      // ``fetchConnectorAccounts_`` itself stale-guards on
+      // ``fetchConnectors_`` itself stale-guards on
       // ``self._activeSection`` so a late-arriving fetch is safe, but
       // shortcutting here avoids the network round-trip entirely.
-      if (self._activeSection !== 'connector-accounts') return;
-      // ``fetchConnectorAccounts_`` is a function declaration in this
+      if (self._activeSection !== 'connectors') return;
+      // ``fetchConnectors_`` is a function declaration in this
       // same closure (hoisted) so this reference is well-defined even
       // though the function appears later in the file.
-      fetchConnectorAccounts_();
+      fetchConnectors_();
     });
 
     var TOOL_CATEGORIES = {
@@ -418,12 +419,12 @@ App.registerArea({
       { id: 'mcp-sources', label: 'MCP Servers' },
       // M10 F2 leg 05: Connector Accounts section. Operator-managed
       // identities (Discord bots, Slack workspace apps, etc.); structural
-      // match to MCP sources. Internal section id is 'connector-accounts'
-      // (matches the F2 entity contract — /api/connector-accounts REST
-      // path, ConnectorAccount entity name). F5 L8 HAT: the operator-facing
+      // match to MCP sources. Internal section id is 'connectors'
+      // (matches the F2 entity contract — /api/connectors REST
+      // path, Connector entity name). F5 L8 HAT: the operator-facing
       // hash slug and label are "Connectors" (shorter, friendlier); the
       // entity-vs-label asymmetry mirrors MCP Servers vs. mcp-sources.
-      { id: 'connector-accounts', label: 'Connectors' }
+      { id: 'connectors', label: 'Connectors' }
     ], self._activeSection, {
       onSelect: function (section) {
         // F4 L5: delegate to _confirmLeaveImpl (single source of truth).
@@ -454,9 +455,9 @@ App.registerArea({
               mcpSourceFormMode = null;
               editingMcpSource = null;
               dirty = false;
-            } else if (prev === 'connector-accounts' && connectorAccountFormMode) {
-              connectorAccountFormMode = null;
-              editingConnectorAccount = null;
+            } else if (prev === 'connectors' && connectorFormMode) {
+              connectorFormMode = null;
+              editingConnector = null;
               dirty = false;
             }
           } else {
@@ -469,9 +470,9 @@ App.registerArea({
               mcpSourceFormMode = null;
               editingMcpSource = null;
               dirty = false;
-            } else if (section === 'connector-accounts' && connectorAccountFormMode) {
-              connectorAccountFormMode = null;
-              editingConnectorAccount = null;
+            } else if (section === 'connectors' && connectorFormMode) {
+              connectorFormMode = null;
+              editingConnector = null;
               dirty = false;
             }
           }
@@ -735,37 +736,37 @@ App.registerArea({
     // is structurally parallel. The placeholder editor lands in this leg;
     // leg 6 replaces it wholesale with the full editor (Connection,
     // Credentials, Lifecycle, Test Connection, Danger Zone).
-    function renderConnectorAccountsSection() {
+    function renderConnectorsSection() {
       sectionContentEl.innerHTML = '';
       // Promote pending-create to formMode='add' BEFORE deciding grid vs
       // editor so the editor mounts on first paint (no transient grid
       // flash). Pending-edit can't promote here because the account needs
-      // to be in the cache; tryConsumePendingConnectorAccount handles
-      // that path after fetchConnectorAccounts_ resolves.
-      if (!connectorAccountFormMode && self._pendingConnectorAccountFormMode === 'add') {
-        connectorAccountFormMode = 'add';
-        editingConnectorAccount = null;
-        self._pendingConnectorAccountFormMode = null;
-        self._pendingConnectorAccountId = null;
+      // to be in the cache; tryConsumePendingConnector handles
+      // that path after fetchConnectors_ resolves.
+      if (!connectorFormMode && self._pendingConnectorFormMode === 'add') {
+        connectorFormMode = 'add';
+        editingConnector = null;
+        self._pendingConnectorFormMode = null;
+        self._pendingConnectorId = null;
       }
-      if (connectorAccountFormMode) {
+      if (connectorFormMode) {
         // Reset orchestrator dirty mirror BEFORE editor mount (mirrors the
         // mcp-source-editor pattern). Editor's onDirtyChange fires on
         // first user input.
         dirty = false;
-        var ready = connectorTypesReady || fetchConnectorAccountTypes();
+        var ready = connectorTypesReady || fetchConnectorTypes();
         ready.then(function () {
           // Re-check formMode at resolution time — operator may have
           // navigated away mid-fetch.
-          if (connectorAccountFormMode == null || self._activeSection !== 'connector-accounts') return;
+          if (connectorFormMode == null || self._activeSection !== 'connectors') return;
           function doHandleBack() {
-            connectorAccountFormMode = null;
-            editingConnectorAccount = null;
+            connectorFormMode = null;
+            editingConnector = null;
             dirty = false;
             if (window.App && window.App.router) App.router.replaceSub('connectors');
-            renderConnectorAccountsSection();
+            renderConnectorsSection();
           }
-          App.studio.renderConnectorAccountEditor(sectionContentEl, editingConnectorAccount, CONNECTOR_TYPES, {
+          App.studio.renderConnectorEditor(sectionContentEl, editingConnector, CONNECTOR_TYPES, {
             onBack: function () {
               if (dirty) {
                 App.confirmDialog({ onConfirm: doHandleBack });
@@ -776,29 +777,29 @@ App.registerArea({
             onCancel: function () {
               // Create-mode Cancel: navigate back to grid. Cancel-when-
               // dirty is intentional discard — no dialog gate.
-              connectorAccountFormMode = null;
-              editingConnectorAccount = null;
+              connectorFormMode = null;
+              editingConnector = null;
               dirty = false;
               if (window.App && window.App.router) App.router.replaceSub('connectors');
-              renderConnectorAccountsSection();
+              renderConnectorsSection();
             },
             onSaveSuccess: function (updated, isCreate) {
-              editingConnectorAccount = updated;
-              connectorAccountFormMode = 'edit';
+              editingConnector = updated;
+              connectorFormMode = 'edit';
               dirty = false;
               if (window.App && window.App.router) {
                 App.router.replaceSub(self.serializeState());
               }
               if (isCreate) {
-                renderConnectorAccountsSection();
+                renderConnectorsSection();
               }
             },
             onDeleteSuccess: function () {
-              connectorAccountFormMode = null;
-              editingConnectorAccount = null;
+              connectorFormMode = null;
+              editingConnector = null;
               dirty = false;
               if (window.App && window.App.router) App.router.replaceSub('connectors');
-              renderConnectorAccountsSection();
+              renderConnectorsSection();
             },
             onDirtyChange: function (d) { dirty = d; }
           });
@@ -806,119 +807,119 @@ App.registerArea({
         return;
       }
       // Grid branch
-      App.studio.renderConnectorAccountsGrid(sectionContentEl, connectorAccounts, {
-        selectedId: editingConnectorAccount ? editingConnectorAccount.id : null,
-        onSelectConnectorAccount: selectConnectorAccount,
-        onCreateConnectorAccount: enterCreateConnectorAccountMode
+      App.studio.renderConnectorsGrid(sectionContentEl, connectors, {
+        selectedId: editingConnector ? editingConnector.id : null,
+        onSelectConnector: selectConnector,
+        onCreateConnector: enterCreateConnectorMode
       });
-      fetchConnectorAccounts_().then(function () {
+      fetchConnectors_().then(function () {
         // Stale-then guard — bail if user navigated away mid-fetch.
-        if (self._activeSection !== 'connector-accounts') return;
+        if (self._activeSection !== 'connectors') return;
         // After fetch resolves, attempt to consume any pending hash-route
-        // selection (e.g. direct-load on #studio/connector-accounts/{id}).
-        tryConsumePendingConnectorAccount();
+        // selection (e.g. direct-load on #studio/connectors/{id}).
+        tryConsumePendingConnector();
       });
     }
 
-    function fetchConnectorAccountTypes() {
-      connectorTypesReady = fetch('/api/connector-accounts/types')
+    function fetchConnectorTypes() {
+      connectorTypesReady = fetch('/api/connectors/types')
         .then(function (r) { return r.json(); })
         .then(function (types) { CONNECTOR_TYPES = types; })
         .catch(function () { CONNECTOR_TYPES = []; });
       return connectorTypesReady;
     }
 
-    function fetchConnectorAccounts_() {
-      return fetch('/api/connector-accounts')
+    function fetchConnectors_() {
+      return fetch('/api/connectors')
         .then(function (r) { return r.json(); })
         .then(function (data) {
           // Stale-then guard: bail if user navigated away mid-fetch.
-          if (self._activeSection !== 'connector-accounts') return;
-          connectorAccounts = data;
-          populateConnectorAccountsGrid();
+          if (self._activeSection !== 'connectors') return;
+          connectors = data;
+          populateConnectorsGrid();
         })
         .catch(function () {
-          if (self._activeSection !== 'connector-accounts') return;
+          if (self._activeSection !== 'connectors') return;
           var gridEl = sectionContentEl.querySelector('.entity-tile-grid');
           if (gridEl) gridEl.innerHTML = '<div class="admin-loading">Failed to load connector accounts.</div>';
         });
     }
 
-    function populateConnectorAccountsGrid() {
-      // Stale-then guard: bail when no longer on connector-accounts OR
+    function populateConnectorsGrid() {
+      // Stale-then guard: bail when no longer on connectors OR
       // when the editor is mounted (no grid in the DOM to populate).
-      if (self._activeSection !== 'connector-accounts') return;
-      if (connectorAccountFormMode) return;
-      App.studio.renderConnectorAccountsGrid(sectionContentEl, connectorAccounts, {
-        selectedId: editingConnectorAccount ? editingConnectorAccount.id : null,
-        onSelectConnectorAccount: selectConnectorAccount,
-        onCreateConnectorAccount: enterCreateConnectorAccountMode
+      if (self._activeSection !== 'connectors') return;
+      if (connectorFormMode) return;
+      App.studio.renderConnectorsGrid(sectionContentEl, connectors, {
+        selectedId: editingConnector ? editingConnector.id : null,
+        onSelectConnector: selectConnector,
+        onCreateConnector: enterCreateConnectorMode
       });
     }
 
-    function selectConnectorAccount(id) {
-      var account = findConnectorAccount(id);
+    function selectConnector(id) {
+      var account = findConnector(id);
       if (!account) return; // pending-id race; will be re-attempted after fetch
-      connectorAccountFormMode = 'edit';
-      editingConnectorAccount = account;
-      pendingConnectorAccountId = null;
-      pendingConnectorAccountFormMode = null;
-      self._pendingConnectorAccountId = null;
-      self._pendingConnectorAccountFormMode = null;
+      connectorFormMode = 'edit';
+      editingConnector = account;
+      pendingConnectorId = null;
+      pendingConnectorFormMode = null;
+      self._pendingConnectorId = null;
+      self._pendingConnectorFormMode = null;
       if (window.App && window.App.router) {
         App.router.replaceSub(self.serializeState());
       }
-      renderConnectorAccountsSection();
+      renderConnectorsSection();
     }
 
-    function enterCreateConnectorAccountMode() {
-      connectorAccountFormMode = 'add';
-      editingConnectorAccount = null;
-      pendingConnectorAccountId = null;
-      pendingConnectorAccountFormMode = null;
-      self._pendingConnectorAccountId = null;
-      self._pendingConnectorAccountFormMode = null;
+    function enterCreateConnectorMode() {
+      connectorFormMode = 'add';
+      editingConnector = null;
+      pendingConnectorId = null;
+      pendingConnectorFormMode = null;
+      self._pendingConnectorId = null;
+      self._pendingConnectorFormMode = null;
       if (window.App && window.App.router) {
         App.router.replaceSub(self.serializeState());
       }
-      renderConnectorAccountsSection();
+      renderConnectorsSection();
     }
 
-    function findConnectorAccount(id) {
-      if (!connectorAccounts) return null;
-      for (var i = 0; i < connectorAccounts.length; i++) {
-        if (connectorAccounts[i].id === id) return connectorAccounts[i];
+    function findConnector(id) {
+      if (!connectors) return null;
+      for (var i = 0; i < connectors.length; i++) {
+        if (connectors[i].id === id) return connectors[i];
       }
       return null;
     }
 
-    function tryConsumePendingConnectorAccount() {
+    function tryConsumePendingConnector() {
       // Pull pending state from instance properties — hydrateState may
       // have set them after init() already captured the closure-locals.
-      var pid = self._pendingConnectorAccountId;
-      var pmode = self._pendingConnectorAccountFormMode;
+      var pid = self._pendingConnectorId;
+      var pmode = self._pendingConnectorFormMode;
       if (!pid && !pmode) return;
       if (pmode === 'add') {
-        connectorAccountFormMode = 'add';
-        editingConnectorAccount = null;
-        self._pendingConnectorAccountId = null;
-        self._pendingConnectorAccountFormMode = null;
-        renderConnectorAccountsSection();
+        connectorFormMode = 'add';
+        editingConnector = null;
+        self._pendingConnectorId = null;
+        self._pendingConnectorFormMode = null;
+        renderConnectorsSection();
         return;
       }
       if (pmode === 'edit' && pid) {
-        var found = findConnectorAccount(pid);
+        var found = findConnector(pid);
         if (found) {
-          connectorAccountFormMode = 'edit';
-          editingConnectorAccount = found;
-          self._pendingConnectorAccountId = null;
-          self._pendingConnectorAccountFormMode = null;
-          renderConnectorAccountsSection();
+          connectorFormMode = 'edit';
+          editingConnector = found;
+          self._pendingConnectorId = null;
+          self._pendingConnectorFormMode = null;
+          renderConnectorsSection();
         }
-        // else: not in cache; will retry after fetchConnectorAccounts_ resolves.
+        // else: not in cache; will retry after fetchConnectors_ resolves.
       }
     }
-    self._tryConsumePendingConnectorAccount = tryConsumePendingConnectorAccount;
+    self._tryConsumePendingConnector = tryConsumePendingConnector;
 
     function setActiveSection(section, options) {
       options = options || {};
@@ -934,18 +935,18 @@ App.registerArea({
         editingMcpSource = null;
         dirty = false;
       }
-      // M10 F2 leg 05: parallel reset for connector-accounts on leave.
-      if (prevSection === 'connector-accounts' && section !== 'connector-accounts') {
-        connectorAccountFormMode = null;
-        editingConnectorAccount = null;
+      // M10 F2 leg 05: parallel reset for connectors on leave.
+      if (prevSection === 'connectors' && section !== 'connectors') {
+        connectorFormMode = null;
+        editingConnector = null;
         dirty = false;
       }
       if (section === 'knowledge') {
         renderKnowledgeSection();
       } else if (section === 'mcp-sources') {
         renderMcpSourcesSection();
-      } else if (section === 'connector-accounts') {
-        renderConnectorAccountsSection();
+      } else if (section === 'connectors') {
+        renderConnectorsSection();
       } else {
         renderAgentsSection();
       }
@@ -981,13 +982,13 @@ App.registerArea({
     function fetchAgents() { return fetch('/api/agents').then(function (r) { return r.json(); }); }
     function fetchTools() { return fetch('/api/tools').then(function (r) { return r.json(); }); }
     function fetchMcpSources() { return fetch('/api/mcp-sources').then(function (r) { return r.json(); }); }
-    function fetchConnectorAccountsList() {
+    function fetchConnectorsList() {
       // M10 F6 L5 — list of all connector accounts for the agent-editor
       // Connectors tab. Parallel to fetchMcpSources above; the REST path
-      // is the same one rendered by the connector-accounts grid (leg 4
+      // is the same one rendered by the connectors grid (leg 4
       // surface) so a fresh fetch picks up deletions / additions made on
-      // the connector-accounts page since the studio area mounted.
-      return fetch('/api/connector-accounts').then(function (r) { return r.json(); });
+      // the connectors page since the studio area mounted.
+      return fetch('/api/connectors').then(function (r) { return r.json(); });
     }
     function fetchKnowledgeBases() { return fetch('/api/knowledge-bases').then(function (r) { return r.json(); }); }
     function fetchProviders() { return fetch('/api/providers').then(function (r) { return r.json(); }); }
@@ -1040,15 +1041,15 @@ App.registerArea({
 
     // M10 F6 L5 — parallel to refreshMcpSourcesCache: re-fetch the
     // connector accounts list on every agent-edit mount so an account
-    // created (or deleted) on the connector-accounts page becomes
+    // created (or deleted) on the connectors page becomes
     // visible (or stops being visible — with a defensive "missing"
     // placeholder if pinned) in the Connectors tab without a manual
     // page reload. On error, keep the prior cache.
-    function refreshConnectorAccountsCache() {
-      return fetchConnectorAccountsList().then(function (accounts) {
-        self._allConnectorAccounts = accounts;
+    function refreshConnectorsCache() {
+      return fetchConnectorsList().then(function (accounts) {
+        self._allConnectors = accounts;
       }).catch(function () {
-        self._allConnectorAccounts = self._allConnectorAccounts || [];
+        self._allConnectors = self._allConnectors || [];
       });
     }
 
@@ -1158,8 +1159,8 @@ App.registerArea({
         // M10 F6 L5 — connector accounts populate the agent-editor
         // Connectors tab. Fetched once at area mount alongside the
         // other entity lists; refreshed per-edit via
-        // refreshConnectorAccountsCache.
-        fetchConnectorAccountsList()
+        // refreshConnectorsCache.
+        fetchConnectorsList()
       ])
         .then(function (results) {
           self._agents = results[0];
@@ -1167,7 +1168,7 @@ App.registerArea({
           self._allMcpSources = results[2];
           self._allKnowledgeBases = results[3];
           self._allProviders = results[4];
-          self._allConnectorAccounts = results[5];
+          self._allConnectors = results[5];
           // Capability fetch chains off providers — separate Promise.all
           // because it depends on results[4]. Failures are non-fatal:
           // tiles render without chips rather than blocking the list.
@@ -1414,7 +1415,7 @@ App.registerArea({
       // F9 L3 (A-L3-1) — also refresh the MCP sources list so a source
       // created on the source-edit page appears in the MCPs tab without
       // a manual page reload. Both refreshes run in parallel.
-      Promise.all([refreshToolConfigsCache(), refreshMcpSourcesCache(), refreshConnectorAccountsCache()]).then(function () {
+      Promise.all([refreshToolConfigsCache(), refreshMcpSourcesCache(), refreshConnectorsCache()]).then(function () {
         renderEditor(agent);
         updateContentVisibility();
         writeUrl_();
@@ -1443,7 +1444,7 @@ App.registerArea({
       // F9 L3 (A-L3-1) — also refresh the MCP sources list so a freshly
       // created source is visible from the new-agent MCPs tab without
       // a manual page reload.
-      Promise.all([refreshToolConfigsCache(), refreshMcpSourcesCache(), refreshConnectorAccountsCache()]).then(function () {
+      Promise.all([refreshToolConfigsCache(), refreshMcpSourcesCache(), refreshConnectorsCache()]).then(function () {
         renderEditor(null);
         updateContentVisibility();
         writeUrl_();
@@ -1499,7 +1500,7 @@ App.registerArea({
         pendingMcpAgentSourceId: self._pendingMcpAgentSourceId || null,
         // M10 F6 L5 — connector accounts list for the Connectors tab.
         // Same mount-time cache pattern as allMcpSources.
-        allConnectorAccounts: self._allConnectorAccounts,
+        allConnectors: self._allConnectors,
         // Callback so renderMcpsTab can notify studio.js when the selected
         // source changes (chip click → per-attachment editor). studio.js
         // updates _selectedMcpAgentSourceId and syncs the URL.
@@ -2058,23 +2059,23 @@ App.registerArea({
 
       data.mcp_overrides = Object.keys(mcpOverrides).length > 0 ? mcpOverrides : null;
 
-      // ── M10 F6 L5 — connector_account_ids + connector_acls ─────────
+      // ── M10 F6 L5 — connector_ids + connector_acls ─────────
       //
-      // `connector_account_ids` from the Connectors-tab attach toggles
-      // (`[data-connector-account-toggle][data-connector-account-id]`).
+      // `connector_ids` from the Connectors-tab attach toggles
+      // (`[data-connector-toggle][data-connector-id]`).
       // Order preserved by DOM walk (mirrors the mcp_source_ids walk
       // above). Stale ids (pinned-but-deleted accounts) are also
       // collected via their "(missing — account deleted)" placeholder
       // row, which renders an enabled toggle — operator must explicitly
       // un-check to prune. Mirrors the MCP-source-deletion behavior.
       var connectorToggles = editorEl.querySelectorAll(
-        '[data-connector-account-toggle][data-connector-account-id]'
+        '[data-connector-toggle][data-connector-id]'
       );
-      data.connector_account_ids = [];
+      data.connector_ids = [];
       for (var ci = 0; ci < connectorToggles.length; ci++) {
         if (connectorToggles[ci].checked) {
-          data.connector_account_ids.push(
-            connectorToggles[ci].dataset.connectorAccountId
+          data.connector_ids.push(
+            connectorToggles[ci].dataset.connectorId
           );
         }
       }

@@ -9,7 +9,7 @@ The tools resolve the current chat session's connector account via the
 :data:`the_one.agent.context.current_chat_session_id` ContextVar
 (set by the WebSocket message handler and inherited into the inbound
 dispatcher's task tree), look up the session row to read its
-``connector_account_id``, resolve the plugin via the registry, and
+``connector_id``, resolve the plugin via the registry, and
 acquire the live :class:`ConnectorClient` via
 :func:`the_one.connectors._pool.account_acquire`.
 
@@ -50,7 +50,7 @@ The four error envelopes the tools emit (per Flight DD §10 / leg
 ``## Edge Cases``):
 
 - Outside-connector (``current_chat_session_id`` is None OR session
-  row has no ``connector_account_id`` OR session lookup raises):
+  row has no ``connector_id`` OR session lookup raises):
   ``[{"error": "this tool is only available in a connector-attached session"}]``.
 - ACL-denied (any axis): ``[{"error": "agent not permitted to read
   <axis> X: <reason>"}]``.
@@ -117,11 +117,11 @@ class FetchChannelHistoryTool(Tool):
         config: Any = None,
         cross_configs: dict[type, object] | None = None,
         agent_name: str | None = None,
-        connector_account_ids: list[str] | None = None,
+        connector_ids: list[str] | None = None,
         connector_acls: dict[str, dict[str, list[str] | None]] | None = None,
     ) -> None:
         super().__init__(config, cross_configs, agent_name)
-        self._connector_account_ids: list[str] = connector_account_ids or []
+        self._connector_ids: list[str] = connector_ids or []
         self._connector_acls: dict[str, dict[str, list[str] | None]] | None = (
             connector_acls
         )
@@ -215,11 +215,11 @@ class FetchThreadHistoryTool(Tool):
         config: Any = None,
         cross_configs: dict[type, object] | None = None,
         agent_name: str | None = None,
-        connector_account_ids: list[str] | None = None,
+        connector_ids: list[str] | None = None,
         connector_acls: dict[str, dict[str, list[str] | None]] | None = None,
     ) -> None:
         super().__init__(config, cross_configs, agent_name)
-        self._connector_account_ids: list[str] = connector_account_ids or []
+        self._connector_ids: list[str] = connector_ids or []
         self._connector_acls: dict[str, dict[str, list[str] | None]] | None = (
             connector_acls
         )
@@ -309,11 +309,11 @@ class FetchDmHistoryTool(Tool):
         config: Any = None,
         cross_configs: dict[type, object] | None = None,
         agent_name: str | None = None,
-        connector_account_ids: list[str] | None = None,
+        connector_ids: list[str] | None = None,
         connector_acls: dict[str, dict[str, list[str] | None]] | None = None,
     ) -> None:
         super().__init__(config, cross_configs, agent_name)
-        self._connector_account_ids: list[str] = connector_account_ids or []
+        self._connector_ids: list[str] = connector_ids or []
         self._connector_acls: dict[str, dict[str, list[str] | None]] | None = (
             connector_acls
         )
@@ -404,11 +404,11 @@ class ListVisibleChannelsTool(Tool):
         config: Any = None,
         cross_configs: dict[type, object] | None = None,
         agent_name: str | None = None,
-        connector_account_ids: list[str] | None = None,
+        connector_ids: list[str] | None = None,
         connector_acls: dict[str, dict[str, list[str] | None]] | None = None,
     ) -> None:
         super().__init__(config, cross_configs, agent_name)
-        self._connector_account_ids: list[str] = connector_account_ids or []
+        self._connector_ids: list[str] = connector_ids or []
         self._connector_acls: dict[str, dict[str, list[str] | None]] | None = (
             connector_acls
         )
@@ -483,7 +483,7 @@ def _outside_connector_error_list() -> list[dict[str, Any]]:
     no connector-attached session in the current async context.
 
     Covers the L10 ``## Edge Cases`` triplet: ``current_chat_session_id``
-    is None; session has no ``connector_account_id``; session lookup
+    is None; session has no ``connector_id``; session lookup
     raised. All three converge to the same operator-facing message —
     the LLM either hallucinated calling the tool in a non-connector
     context or the session row is malformed; in either case the tool
@@ -535,7 +535,7 @@ async def _resolve_connector_account_context() -> (
     - ``ChatSessionRepository.get(session_id)`` raises (session row was
       deleted between dispatch and tool execution — extremely narrow
       race; defended for robustness).
-    - The resolved session row has no ``connector_account_id`` (this
+    - The resolved session row has no ``connector_id`` (this
       session was created via the local Chat UI, not by a connector
       dispatch).
     - The connector account lookup, plugin resolve, or pool acquire
@@ -562,7 +562,7 @@ async def _resolve_connector_account_context() -> (
     from the_one.db.connection import get_connection
     from the_one.db.repositories import (
         ChatSessionRepository,
-        ConnectorAccountRepository,
+        ConnectorRepository,
     )
     from the_one.encryption import get_encryptor
 
@@ -573,12 +573,12 @@ async def _resolve_connector_account_context() -> (
             session = await session_repo.get(session_id)
         except KeyError:
             return None
-        account_id = session.connector_account_id
+        account_id = session.connector_id
         if not account_id:
             return None
 
         encryptor = get_encryptor(settings.data_dir)
-        acc_repo = ConnectorAccountRepository(conn, encryptor)
+        acc_repo = ConnectorRepository(conn, encryptor)
         try:
             account = await acc_repo.get(account_id)
         except KeyError:

@@ -17,11 +17,11 @@ import explicitly.
 
 - :func:`_seed_provider_and_agent` — creates a ``mock``-typed LLM provider
   and an agent config seeded against the per-test DB. Accepts
-  ``connector_account_ids`` (F4 L1 widening); the F4 L5 v17 migration
-  persists this list to the new ``agents.connector_account_ids`` column,
+  ``connector_ids`` (F4 L1 widening); the F4 L5 v17 migration
+  persists this list to the new ``agents.connector_ids`` column,
   so the kwarg flows through to the DB without a monkeypatch.
 - :func:`_seed_stub_account` — persists a stub-typed
-  :class:`ConnectorAccount` via the repository; accepts
+  :class:`Connector` via the repository; accepts
   ``session_continuation_seconds`` override (F3 L6 needs this).
 - :func:`_make_factory` — builds an :class:`AgentFactory` whose
   ``store`` reads from the per-test DB; ``mcp_provider=None`` disables
@@ -34,7 +34,7 @@ import explicitly.
   L5 e2e tests that drive the agent's tool-loop end-to-end.
 - :func:`_make_scripted_factory` — builds an :class:`AgentFactory` wired
   to a :class:`_ScriptedProvider`. After the F4 L5 v17 migration, the
-  ``connector_account_ids`` kwarg flows through real persistence — no
+  ``connector_ids`` kwarg flows through real persistence — no
   ``_row_to_config`` monkeypatch needed.
 
 Autouse cleanup (``_reset_stub_state``, ``_clear_pool_locks_registry``)
@@ -61,9 +61,9 @@ from the_one.connectors.base import (
     ResolveOutcome,
 )
 from the_one.db.connection import get_connection
-from the_one.db.models import ConnectorAccount, LLMProviderConfig
+from the_one.db.models import Connector, LLMProviderConfig
 from the_one.db.repositories import (
-    ConnectorAccountRepository,
+    ConnectorRepository,
     LLMProviderRepository,
     SQLiteAgentStore,
 )
@@ -78,29 +78,29 @@ async def _seed_provider_and_agent(
     agent_name: str = "agent-inbound",
     provider_id: str = "mock-provider",
     response_content: str = "ok",
-    connector_account_ids: list[str] | None = None,
+    connector_ids: list[str] | None = None,
 ) -> None:
     """Seed an LLM provider + agent config so ``AgentFactory.create()``
     has something to build against. Uses ``type='mock'`` so the LLM
     registry resolves to :class:`the_one.llm.mock.MockProvider`.
 
-    ``connector_account_ids`` opts the agent into the F4 L3 connector
+    ``connector_ids`` opts the agent into the F4 L3 connector
     carve-out (loads ``send_to_platform_channel`` into the baseline-
     visible tool set + injects the connector-aware system-prompt
     directive). F4 L5 v17 migration persists this list; ``factory.create``
     now sees it on every invocation without a monkeypatch.
 
-    M10 F7 L3: the default (when ``connector_account_ids`` is ``None``)
+    M10 F7 L3: the default (when ``connector_ids`` is ``None``)
     is ``["acct-test"]`` — matches :func:`_seed_stub_account`'s default
     ``account_id="acct-test"`` and :func:`_envelope`'s default
     ``account_id="acct-test"``. The default attachment is required for
     F7 L3's transitional dispatcher helper to find the agent via
     :meth:`SQLiteAgentStore.list_by_connector_account`. Tests that
-    need an empty attachment list pass ``connector_account_ids=[]``
+    need an empty attachment list pass ``connector_ids=[]``
     explicitly.
     """
-    if connector_account_ids is None:
-        connector_account_ids = ["acct-test"]
+    if connector_ids is None:
+        connector_ids = ["acct-test"]
 
     conn = await get_connection()
     encryptor = get_encryptor(settings.data_dir)
@@ -122,7 +122,7 @@ async def _seed_provider_and_agent(
             name=agent_name,
             provider_config_id=provider_id,
             llm_model="mock-default",
-            connector_account_ids=connector_account_ids,
+            connector_ids=connector_ids,
         )
     )
 
@@ -132,8 +132,8 @@ async def _seed_stub_account(
     *,
     session_continuation_seconds: int | None = None,
     config: dict[str, Any] | None = None,
-) -> ConnectorAccount:
-    """Persist a stub-typed ConnectorAccount via the repository.
+) -> Connector:
+    """Persist a stub-typed Connector via the repository.
 
     Accepts an optional ``session_continuation_seconds`` override so
     tests can drive the per-account continuation-window code path
@@ -147,8 +147,8 @@ async def _seed_stub_account(
     """
     conn = await get_connection()
     encryptor = get_encryptor(settings.data_dir)
-    repo = ConnectorAccountRepository(conn, encryptor)
-    account = ConnectorAccount(
+    repo = ConnectorRepository(conn, encryptor)
+    account = Connector(
         id=account_id,
         name="Stub Account",
         type="stub",
@@ -269,7 +269,7 @@ async def _make_scripted_factory(
     monkeypatch: pytest.MonkeyPatch,
     *,
     extra_tool_providers: list[Any] | None = None,
-    connector_account_ids: list[str] | None = None,
+    connector_ids: list[str] | None = None,
 ) -> AgentFactory:
     """Build an AgentFactory wired to a :class:`_ScriptedProvider`.
 
@@ -279,12 +279,12 @@ async def _make_scripted_factory(
     platform-send tool + any test-only tools coexist in the agent's
     registry.
 
-    ``connector_account_ids`` (optional): passed through the
+    ``connector_ids`` (optional): passed through the
     :func:`_seed_provider_and_agent` path's persisted-row state. After
     the F4 L5 v17 migration this list is in the DB column directly;
     the F4 L4 ``_row_to_config`` monkeypatch workaround is REMOVED.
     Callers that need the F4 L3 connector carve-out to fire should
-    seed the agent with ``connector_account_ids`` in
+    seed the agent with ``connector_ids`` in
     :func:`_seed_provider_and_agent` BEFORE calling this factory.
     """
     conn = await get_connection()
@@ -329,7 +329,7 @@ class StubPluginWithResolver(StubPlugin):
     resolve_calls: ClassVar[list[tuple[str, str]]] = []
 
     def resolve(
-        self, account: ConnectorAccount, envelope: InboundEnvelope
+        self, account: Connector, envelope: InboundEnvelope
     ) -> ResolveOutcome:
         StubPluginWithResolver.resolve_calls.append(
             (account.id, envelope.peer_id)

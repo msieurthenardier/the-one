@@ -20,7 +20,8 @@ NOT import this module.
 
 The ``'stub'`` type name is reserved for tests. Production flights register
 real connector types (``'discord'`` in Flight 8, the second platform in
-Flight 9). Schema v13 has no CHECK constraint on ``connector_accounts.type``,
+Flight 9). Schema v13 has no CHECK constraint on ``connector_accounts.type``
+(the v23 rename to ``connectors`` happens post-v13),
 so persisting a ``'stub'``-typed account in tests works at the DB layer.
 """
 
@@ -36,7 +37,7 @@ from the_one.connectors.base import (
     SendResult,
     SessionKey,
 )
-from the_one.db.models import ConnectorAccount
+from the_one.db.models import Connector
 from the_one.encryption import Encryptor
 
 
@@ -165,7 +166,7 @@ class StubPlugin:
     # ── Protocol surface ──────────────────────────────────────────────
     async def connect(
         self,
-        account: ConnectorAccount,
+        account: Connector,
         encryptor: Encryptor,
     ) -> StubClient:
         type(self).connect_calls.append((account.id, account.type))
@@ -183,7 +184,7 @@ class StubPlugin:
 
     async def doctor(
         self,
-        account: ConnectorAccount,
+        account: Connector,
         encryptor: Encryptor,
     ) -> DoctorReport:
         type(self).doctor_calls.append((account.id, account.type))

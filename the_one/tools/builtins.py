@@ -71,7 +71,7 @@ _TOOL_CLASSES: dict[str, type[Tool]] = {
 }
 
 # M11 F7 L10: connector tools that receive the per-agent connector
-# context kwargs (``connector_account_ids``, ``connector_acls``) in
+# context kwargs (``connector_ids``, ``connector_acls``) in
 # ``BuiltinToolProvider.get_tools``'s factory path. Centralized here so
 # adding a fifth connector tool doesn't require touching the dispatch
 # branch inline.
@@ -125,7 +125,7 @@ class BuiltinToolProvider:
         agent_overrides: dict[str, dict] | None = None,
         agent_name: str | None = None,
         *,
-        connector_account_ids: list[str] | None = None,
+        connector_ids: list[str] | None = None,
         connector_acls: dict[str, dict[str, list[str]]] | None = None,
     ) -> list[Tool]:
         # Both None → introspection path (no resolver invocation).
@@ -189,7 +189,7 @@ class BuiltinToolProvider:
             # :data:`_CONNECTOR_CONTEXT_TOOL_CLASSES`.
             extra_kwargs: dict[str, Any] = (
                 {
-                    "connector_account_ids": connector_account_ids or [],
+                    "connector_ids": connector_ids or [],
                     "connector_acls": connector_acls,
                 }
                 if cls in _CONNECTOR_CONTEXT_TOOL_CLASSES

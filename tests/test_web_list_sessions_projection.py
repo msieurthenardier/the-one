@@ -6,7 +6,7 @@ inline list-comprehension. The helper is the contract surface for what
 
   - The pre-F5 five-field shape (id, title, agent_name, created_at,
     updated_at) is preserved byte-identically for non-connector sessions.
-  - The six new connector-keying fields (platform, connector_account_id,
+  - The six new connector-keying fields (platform, connector_id,
     channel_id, thread_id, peer_id, last_inbound_at) are projected for
     connector-bound sessions.
   - All six new fields are ``None`` for non-connector (web-native) sessions
@@ -28,7 +28,7 @@ from the_one.interfaces.web.app import _session_to_list_payload
 # than silently passing.
 F5_NEW_FIELDS = (
     "platform",
-    "connector_account_id",
+    "connector_id",
     "channel_id",
     "thread_id",
     "peer_id",
@@ -92,7 +92,7 @@ def test_projects_connector_keying_fields_for_connector_bound_session() -> None:
         created_at="2026-05-01T00:00:00Z",
         updated_at="2026-05-03T00:00:00Z",
         platform="stub",
-        connector_account_id="acct-1",
+        connector_id="acct-1",
         channel_id="C1",
         thread_id="T1",
         peer_id="P1",
@@ -101,7 +101,7 @@ def test_projects_connector_keying_fields_for_connector_bound_session() -> None:
     payload = _session_to_list_payload(s)
 
     assert payload["platform"] == "stub"
-    assert payload["connector_account_id"] == "acct-1"
+    assert payload["connector_id"] == "acct-1"
     assert payload["channel_id"] == "C1"
     assert payload["thread_id"] == "T1"
     assert payload["peer_id"] == "P1"
@@ -121,7 +121,7 @@ def test_does_not_project_session_metadata_or_messages() -> None:
         agent_name="connector-agent",
         title="Has metadata",
         platform="stub",
-        connector_account_id="acct-1",
+        connector_id="acct-1",
         channel_id="C1",
         session_metadata={"secret_routing_key": "do-not-leak"},
         messages='[{"role":"user","content":"hi"}]',
@@ -147,7 +147,7 @@ def test_projection_shape_is_exactly_eleven_keys() -> None:
         agent_name="default",
         title="Pin",
         platform="stub",
-        connector_account_id="acct-1",
+        connector_id="acct-1",
         channel_id="C1",
         thread_id="T1",
         peer_id="P1",

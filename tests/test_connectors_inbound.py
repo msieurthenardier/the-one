@@ -73,10 +73,10 @@ from the_one.connectors.registry import (
 )
 from the_one.db.codec import decode_messages
 from the_one.db.connection import get_connection
-from the_one.db.models import ChatSession, ConnectorAccount
+from the_one.db.models import ChatSession, Connector
 from the_one.db.repositories import (
     ChatSessionRepository,
-    ConnectorAccountRepository,
+    ConnectorRepository,
     PendingApprovalRepository,
 )
 from the_one.encryption import get_encryptor
@@ -227,7 +227,7 @@ async def test_dispatch_inbound_creates_session_on_first_contact(isolated_db) ->
     assert len(sessions) == 1
     row = sessions[0]
     assert row.platform == "stub"
-    assert row.connector_account_id == "acct-test"
+    assert row.connector_id == "acct-test"
     assert row.channel_id == "ch-1"
     assert row.thread_id is None
     assert row.peer_id == "peer-1"
@@ -304,9 +304,9 @@ async def test_dispatch_inbound_creates_new_session_after_window(
     # outside the window.
     conn = await get_connection()
     encryptor = get_encryptor(settings.data_dir)
-    acc_repo = ConnectorAccountRepository(conn, encryptor)
+    acc_repo = ConnectorRepository(conn, encryptor)
     await acc_repo.create(
-        ConnectorAccount(
+        Connector(
             id="acct-test",
             name="Stub",
             type="stub",
@@ -898,7 +898,7 @@ async def test_dispatch_inbound_tags_successful_send_tool_result_as_platform_vis
     starts with :data:`PLATFORM_SEND_OK_PREFIX`. The assistant message
     that REQUESTED the tool call stays ``OPERATOR_VISIBILITY``.
     """
-    await _seed_provider_and_agent(connector_account_ids=["acct-test"])
+    await _seed_provider_and_agent(connector_ids=["acct-test"])
     await _seed_stub_account()
     register_for_test("stub", StubPlugin)
 
@@ -917,7 +917,7 @@ async def test_dispatch_inbound_tags_successful_send_tool_result_as_platform_vis
         Message.assistant(content="done"),
     ]
     factory = await _make_scripted_factory(
-        responses, monkeypatch, connector_account_ids=["acct-test"]
+        responses, monkeypatch, connector_ids=["acct-test"]
     )
 
     envelope = _envelope()
@@ -965,7 +965,7 @@ async def test_dispatch_inbound_tags_failed_send_tool_result_as_operator(
     fails → the tool_result drops through to the default
     ``OPERATOR_VISIBILITY`` branch.
     """
-    await _seed_provider_and_agent(connector_account_ids=["acct-test"])
+    await _seed_provider_and_agent(connector_ids=["acct-test"])
     await _seed_stub_account()
     register_for_test("stub", StubPlugin)
     StubPlugin.send_should_raise = ConnectorConnectionError("test failure")
@@ -983,7 +983,7 @@ async def test_dispatch_inbound_tags_failed_send_tool_result_as_operator(
         Message.assistant(content="done"),
     ]
     factory = await _make_scripted_factory(
-        responses, monkeypatch, connector_account_ids=["acct-test"]
+        responses, monkeypatch, connector_ids=["acct-test"]
     )
 
     envelope = _envelope()
@@ -1044,7 +1044,7 @@ async def test_dispatch_inbound_tagging_uses_tool_result_tool_call_id_correlatio
         ) -> list[Tool]:
             return [_FakePrefixTool()]
 
-    await _seed_provider_and_agent(connector_account_ids=["acct-test"])
+    await _seed_provider_and_agent(connector_ids=["acct-test"])
     await _seed_stub_account()
     register_for_test("stub", StubPlugin)
 
@@ -1069,7 +1069,7 @@ async def test_dispatch_inbound_tagging_uses_tool_result_tool_call_id_correlatio
         responses,
         monkeypatch,
         extra_tool_providers=[_FakePrefixProvider()],
-        connector_account_ids=["acct-test"],
+        connector_ids=["acct-test"],
     )
 
     envelope = _envelope()
@@ -1116,7 +1116,7 @@ async def test_dispatch_inbound_continue_tool_call_is_operator_visible(
     refactor that special-cases continue handling doesn't accidentally
     promote it to platform-visible.
     """
-    await _seed_provider_and_agent(connector_account_ids=["acct-test"])
+    await _seed_provider_and_agent(connector_ids=["acct-test"])
     await _seed_stub_account()
     register_for_test("stub", StubPlugin)
 
@@ -1130,7 +1130,7 @@ async def test_dispatch_inbound_continue_tool_call_is_operator_visible(
         Message.assistant(content="done"),
     ]
     factory = await _make_scripted_factory(
-        responses, monkeypatch, connector_account_ids=["acct-test"]
+        responses, monkeypatch, connector_ids=["acct-test"]
     )
 
     envelope = _envelope()
@@ -1226,9 +1226,9 @@ async def test_dispatch_inbound_unknown_connector_type_returns_gracefully(
     await _seed_provider_and_agent()
     conn = await get_connection()
     encryptor = get_encryptor(settings.data_dir)
-    acc_repo = ConnectorAccountRepository(conn, encryptor)
+    acc_repo = ConnectorRepository(conn, encryptor)
     await acc_repo.create(
-        ConnectorAccount(
+        Connector(
             id="acct-mystery",
             name="Mystery",
             type="stub",
@@ -1353,7 +1353,7 @@ async def test_auto_relay_skips_when_agent_already_called_tool(
     by ``StubPlugin.outbound_records``; the dispatcher MUST NOT add a
     second record.
     """
-    await _seed_provider_and_agent(connector_account_ids=["acct-test"])
+    await _seed_provider_and_agent(connector_ids=["acct-test"])
     await _seed_stub_account()
     register_for_test("stub", StubPlugin)
 
@@ -1372,7 +1372,7 @@ async def test_auto_relay_skips_when_agent_already_called_tool(
         Message.assistant(content="done"),
     ]
     factory = await _make_scripted_factory(
-        responses, monkeypatch, connector_account_ids=["acct-test"]
+        responses, monkeypatch, connector_ids=["acct-test"]
     )
 
     envelope = _envelope()
@@ -1392,7 +1392,7 @@ async def test_auto_relay_skips_when_agent_reply_is_empty(
     a final empty assistant message), the auto-relay branch finds no
     candidate reply and skips — no spurious empty-content outbound.
     """
-    await _seed_provider_and_agent(connector_account_ids=["acct-test"])
+    await _seed_provider_and_agent(connector_ids=["acct-test"])
     await _seed_stub_account()
     register_for_test("stub", StubPlugin)
 
@@ -1400,7 +1400,7 @@ async def test_auto_relay_skips_when_agent_reply_is_empty(
     # and no tool calls — the agent ends the turn with nothing to say.
     responses = [Message.assistant(content="")]
     factory = await _make_scripted_factory(
-        responses, monkeypatch, connector_account_ids=["acct-test"]
+        responses, monkeypatch, connector_ids=["acct-test"]
     )
 
     envelope = _envelope()
@@ -1471,7 +1471,7 @@ async def test_auto_relay_does_not_fire_on_operator_console_inbound(
         _spawn_message_processing,
     )
 
-    await _seed_provider_and_agent(connector_account_ids=["acct-test"])
+    await _seed_provider_and_agent(connector_ids=["acct-test"])
     # Auto-relay is default-on — explicit no-config-override below.
     await _seed_stub_account()
     register_for_test("stub", StubPlugin)
@@ -1492,7 +1492,7 @@ async def test_auto_relay_does_not_fire_on_operator_console_inbound(
             agent_name="agent-inbound",
             title="connector session",
             platform="stub",
-            connector_account_id="acct-test",
+            connector_id="acct-test",
             channel_id="ch-1",
             thread_id=None,
             peer_id="peer-1",
@@ -1503,7 +1503,7 @@ async def test_auto_relay_does_not_fire_on_operator_console_inbound(
     factory = await _make_scripted_factory(
         [Message.assistant(content="operator-only reply")],
         monkeypatch,
-        connector_account_ids=["acct-test"],
+        connector_ids=["acct-test"],
     )
     web_app._state["factory"] = factory
 
@@ -1544,7 +1544,7 @@ async def test_multi_agent_auto_relay_shares_one_pool_client(
     await _seed_provider_and_agent(
         agent_name="alpha",
         response_content="alpha reply",
-        connector_account_ids=["acct-test"],
+        connector_ids=["acct-test"],
     )
     from the_one.agent.config import AgentConfig
     from the_one.db.repositories import SQLiteAgentStore
@@ -1556,15 +1556,15 @@ async def test_multi_agent_auto_relay_shares_one_pool_client(
             name="bravo",
             provider_config_id="mock-provider",
             llm_model="mock-default",
-            connector_account_ids=["acct-test"],
+            connector_ids=["acct-test"],
         )
     )
 
     # Routing rule: ch-1 → bravo; ch-2 falls back to alpha (alphabetical).
     encryptor = get_encryptor(settings.data_dir)
-    acc_repo = ConnectorAccountRepository(conn, encryptor)
+    acc_repo = ConnectorRepository(conn, encryptor)
     await acc_repo.create(
-        ConnectorAccount(
+        Connector(
             id="acct-test",
             name="Stub Routing",
             type="stub",
@@ -1770,9 +1770,9 @@ class TestF6Gating:
         # Seed an account with the pairing config configured.
         conn = await get_connection()
         encryptor = get_encryptor(settings.data_dir)
-        acc_repo = ConnectorAccountRepository(conn, encryptor)
+        acc_repo = ConnectorRepository(conn, encryptor)
         await acc_repo.create(
-            ConnectorAccount(
+            Connector(
                 id="acct-test",
                 name="Stub Pairing",
                 type="stub",
@@ -1823,9 +1823,9 @@ class TestF6Gating:
         await _seed_provider_and_agent()
         conn = await get_connection()
         encryptor = get_encryptor(settings.data_dir)
-        acc_repo = ConnectorAccountRepository(conn, encryptor)
+        acc_repo = ConnectorRepository(conn, encryptor)
         await acc_repo.create(
-            ConnectorAccount(
+            Connector(
                 id="acct-test",
                 name="Stub Pairing",
                 type="stub",
@@ -1881,9 +1881,9 @@ class TestF6Gating:
         await _seed_provider_and_agent()
         conn = await get_connection()
         encryptor = get_encryptor(settings.data_dir)
-        acc_repo = ConnectorAccountRepository(conn, encryptor)
+        acc_repo = ConnectorRepository(conn, encryptor)
         await acc_repo.create(
-            ConnectorAccount(
+            Connector(
                 id="acct-test",
                 name="Stub Pairing",
                 type="stub",
@@ -1930,7 +1930,7 @@ class TestF6Gating:
         )
         assert len(rows) == 1
         row = rows[0]
-        assert row.connector_account_id == "acct-test"
+        assert row.connector_id == "acct-test"
         assert row.peer_id == "peer-1"
         assert row.peer_name == envelope.peer_name
         assert row.preview == "hello"
@@ -1949,7 +1949,7 @@ class TestF6Gating:
         assert event["peer_id"] == "peer-1"
         assert event["peer_name"] == envelope.peer_name
         assert event["preview"] == "hello"
-        assert event["connector_account_id"] == "acct-test"
+        assert event["connector_id"] == "acct-test"
         assert event["status"] == "pending"
         assert event["received_at"] == row.received_at
 
@@ -1968,9 +1968,9 @@ class TestF6Gating:
         await _seed_provider_and_agent()
         conn = await get_connection()
         encryptor = get_encryptor(settings.data_dir)
-        acc_repo = ConnectorAccountRepository(conn, encryptor)
+        acc_repo = ConnectorRepository(conn, encryptor)
         await acc_repo.create(
-            ConnectorAccount(
+            Connector(
                 id="acct-test",
                 name="Stub Pairing",
                 type="stub",
@@ -2029,9 +2029,9 @@ class TestF6Gating:
         await _seed_provider_and_agent()
         conn = await get_connection()
         encryptor = get_encryptor(settings.data_dir)
-        acc_repo = ConnectorAccountRepository(conn, encryptor)
+        acc_repo = ConnectorRepository(conn, encryptor)
         await acc_repo.create(
-            ConnectorAccount(
+            Connector(
                 id="acct-test",
                 name="Stub Pairing",
                 type="stub",
@@ -2108,7 +2108,7 @@ class TestF6Gating:
         self, isolated_db
     ) -> None:
         """After successful pairing the peer is persisted: a fresh
-        :class:`ConnectorAccountRepository` instance built off the same
+        :class:`ConnectorRepository` instance built off the same
         DB connection sees ``peer_id`` in ``config['allowlist']['peers']``.
 
         Mirrors the F4 e2e pattern: rebuild the repo from the existing
@@ -2117,9 +2117,9 @@ class TestF6Gating:
         await _seed_provider_and_agent()
         conn = await get_connection()
         encryptor = get_encryptor(settings.data_dir)
-        acc_repo = ConnectorAccountRepository(conn, encryptor)
+        acc_repo = ConnectorRepository(conn, encryptor)
         await acc_repo.create(
-            ConnectorAccount(
+            Connector(
                 id="acct-test",
                 name="Stub Pairing",
                 type="stub",
@@ -2142,7 +2142,7 @@ class TestF6Gating:
 
         # Rebuild the repo from the existing connection — simulates a
         # fresh process boot reading the persisted row.
-        fresh_repo = ConnectorAccountRepository(conn, encryptor)
+        fresh_repo = ConnectorRepository(conn, encryptor)
         refreshed = await fresh_repo.get("acct-test")
         allowlist = refreshed.config.get("allowlist")
         assert allowlist is not None
@@ -2216,7 +2216,7 @@ class TestF7RoutingIntegration:
         await _seed_provider_and_agent(
             agent_name="alpha",
             provider_id="mock-provider",
-            connector_account_ids=["acct-test"],
+            connector_ids=["acct-test"],
         )
         # Second agent reuses the same provider row — direct
         # ``agent_store.save`` avoids the duplicate-provider-row insert
@@ -2231,7 +2231,7 @@ class TestF7RoutingIntegration:
                 name="bravo",
                 provider_config_id="mock-provider",
                 llm_model="mock-default",
-                connector_account_ids=["acct-test"],
+                connector_ids=["acct-test"],
                 connector_acls=(
                     {"acct-test": bravo_acls} if bravo_acls is not None else None
                 ),
@@ -2245,7 +2245,7 @@ class TestF7RoutingIntegration:
                     name="alpha",
                     provider_config_id="mock-provider",
                     llm_model="mock-default",
-                    connector_account_ids=["acct-test"],
+                    connector_ids=["acct-test"],
                     connector_acls={"acct-test": alpha_acls},
                 )
             )
@@ -2297,9 +2297,9 @@ class TestF7RoutingIntegration:
         # Account with routing rules: ch-1 → bravo.
         conn = await get_connection()
         encryptor = get_encryptor(settings.data_dir)
-        acc_repo = ConnectorAccountRepository(conn, encryptor)
+        acc_repo = ConnectorRepository(conn, encryptor)
         await acc_repo.create(
-            ConnectorAccount(
+            Connector(
                 id="acct-test",
                 name="Stub Routing",
                 type="stub",
@@ -2347,9 +2347,9 @@ class TestF7RoutingIntegration:
         await self._seed_two_agents()
         conn = await get_connection()
         encryptor = get_encryptor(settings.data_dir)
-        acc_repo = ConnectorAccountRepository(conn, encryptor)
+        acc_repo = ConnectorRepository(conn, encryptor)
         await acc_repo.create(
-            ConnectorAccount(
+            Connector(
                 id="acct-test",
                 name="Stub Routing",
                 type="stub",
@@ -2407,9 +2407,9 @@ class TestF7RoutingIntegration:
         await self._seed_two_agents()
         conn = await get_connection()
         encryptor = get_encryptor(settings.data_dir)
-        acc_repo = ConnectorAccountRepository(conn, encryptor)
+        acc_repo = ConnectorRepository(conn, encryptor)
         await acc_repo.create(
-            ConnectorAccount(
+            Connector(
                 id="acct-test",
                 name="Stub Routing",
                 type="stub",
@@ -2473,7 +2473,7 @@ class TestF7RoutingIntegration:
         ``agent.step`` does NOT run."""
         # Single agent with peers ACL that denies the peer.
         await _seed_provider_and_agent(
-            agent_name="alpha", connector_account_ids=["acct-test"]
+            agent_name="alpha", connector_ids=["acct-test"]
         )
         # Update alpha with the denying ACL.
         conn = await get_connection()
@@ -2486,7 +2486,7 @@ class TestF7RoutingIntegration:
                 name="alpha",
                 provider_config_id="mock-provider",
                 llm_model="mock-default",
-                connector_account_ids=["acct-test"],
+                connector_ids=["acct-test"],
                 connector_acls={
                     "acct-test": {"peers": [], "channels": None}
                 },
@@ -2528,7 +2528,7 @@ class TestF7RoutingIntegration:
         peer-facing error, no chat_sessions row, no routing audit.
         Preserves L3's silent-ignore semantic."""
         await _seed_provider_and_agent(
-            agent_name="alpha", connector_account_ids=[]
+            agent_name="alpha", connector_ids=[]
         )
         await _seed_stub_account()
         register_for_test("stub", StubPlugin)
@@ -2565,7 +2565,7 @@ class TestF7RoutingIntegration:
         L6's leg rewrites it to the post-L6 semantic (intercept).
         """
         await _seed_provider_and_agent(
-            agent_name="alpha", connector_account_ids=["acct-test"]
+            agent_name="alpha", connector_ids=["acct-test"]
         )
         await _seed_stub_account()
         register_for_test("stub", StubPlugin)
@@ -2624,7 +2624,7 @@ class TestF7RoutingIntegration:
         ``agent_acquire``.
         """
         await _seed_provider_and_agent(
-            agent_name="alpha", connector_account_ids=["acct-test"]
+            agent_name="alpha", connector_ids=["acct-test"]
         )
         await _seed_stub_account()
         register_for_test("stub", StubPlugin)
@@ -2670,7 +2670,7 @@ class TestF7RoutingIntegration:
         and the audit entry still records ``disposition="no-eligible"``.
         Pins the swallow-and-log contract."""
         await _seed_provider_and_agent(
-            agent_name="alpha", connector_account_ids=["acct-test"]
+            agent_name="alpha", connector_ids=["acct-test"]
         )
         # Update alpha to deny the peer so routing returns
         # decision.agent=None.
@@ -2684,7 +2684,7 @@ class TestF7RoutingIntegration:
                 name="alpha",
                 provider_config_id="mock-provider",
                 llm_model="mock-default",
-                connector_account_ids=["acct-test"],
+                connector_ids=["acct-test"],
                 connector_acls={
                     "acct-test": {"peers": [], "channels": None}
                 },
@@ -2768,7 +2768,7 @@ class TestF7RoutingIntegration:
         from the_one.connectors.base import CommandResponse
 
         await _seed_provider_and_agent(
-            agent_name="alpha", connector_account_ids=["acct-test"]
+            agent_name="alpha", connector_ids=["acct-test"]
         )
         await _seed_stub_account()
 
@@ -2854,7 +2854,7 @@ class TestF7RoutingIntegration:
         "builtin"``.
         """
         await _seed_provider_and_agent(
-            agent_name="alpha", connector_account_ids=["acct-test"]
+            agent_name="alpha", connector_ids=["acct-test"]
         )
         await _seed_stub_account()
 
@@ -2933,9 +2933,9 @@ class TestF7RoutingIntegration:
         # to first-eligible-alphabetical (alpha).
         conn = await get_connection()
         encryptor = get_encryptor(settings.data_dir)
-        acc_repo = ConnectorAccountRepository(conn, encryptor)
+        acc_repo = ConnectorRepository(conn, encryptor)
         await acc_repo.create(
-            ConnectorAccount(
+            Connector(
                 id="acct-test",
                 name="Stub Routing",
                 type="stub",
@@ -2993,9 +2993,9 @@ class TestF7RoutingIntegration:
         # ch-1 so both agents are actually exercised.
         conn = await get_connection()
         encryptor = get_encryptor(settings.data_dir)
-        acc_repo = ConnectorAccountRepository(conn, encryptor)
+        acc_repo = ConnectorRepository(conn, encryptor)
         await acc_repo.create(
-            ConnectorAccount(
+            Connector(
                 id="acct-test",
                 name="Stub Routing",
                 type="stub",

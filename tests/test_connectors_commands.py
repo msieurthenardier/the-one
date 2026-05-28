@@ -38,7 +38,7 @@ from the_one.connectors._commands import (
     _permitted_agents,
 )
 from the_one.connectors.base import InboundEnvelope
-from the_one.db.models import ChatSession, ConnectorAccount
+from the_one.db.models import ChatSession, Connector
 from the_one.db.repositories import ChatSessionRepository
 from the_one.db.schema import ensure_schema
 
@@ -265,11 +265,11 @@ def _account(
     *,
     account_id: str = "acct-test",
     allowlist: dict | None = None,
-) -> ConnectorAccount:
+) -> Connector:
     config: dict = {}
     if allowlist is not None:
         config["allowlist"] = allowlist
-    return ConnectorAccount(
+    return Connector(
         id=account_id,
         name="Test Account",
         type="stub",
@@ -284,7 +284,7 @@ def _agent(
 ) -> AgentConfig:
     return AgentConfig(
         name=name,
-        connector_account_ids=["acct-test"],
+        connector_ids=["acct-test"],
         connector_acls=connector_acls,
     )
 
@@ -292,7 +292,7 @@ def _agent(
 def _build_context(
     *,
     envelope: InboundEnvelope | None = None,
-    account: ConnectorAccount | None = None,
+    account: Connector | None = None,
     eligible: list[AgentConfig] | None = None,
     routed_agent_name: str = "alpha",
     chat_repo: ChatSessionRepository | None = None,
@@ -326,7 +326,7 @@ async def _seed_chat_session(
             title="test",
             messages="[]",
             platform="stub",
-            connector_account_id="acct-test",
+            connector_id="acct-test",
             channel_id="ch-1",
             thread_id=None,
             peer_id="peer-1",

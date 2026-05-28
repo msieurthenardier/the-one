@@ -1,17 +1,17 @@
 """Pin the three connector-type representations to one source of truth.
 
 Mirrors :mod:`tests.test_provider_types_consistency` exactly in role. The
-valid ``ConnectorAccount.type`` values live in three layers that must
+valid ``Connector.type`` values live in three layers that must
 agree (per the connector-type 6-layer extension checklist in
 ``agents.md``):
 
 1. The Pydantic ``Literal`` annotation on
-   :attr:`the_one.db.models.ConnectorAccount.type` (layer 1).
+   :attr:`the_one.db.models.Connector.type` (layer 1).
 2. The :data:`the_one.db._connector_types.CONNECTOR_TYPES` tuple (layer 2).
 3. The runtime registry (layer 3) — production registers ``"discord"``
    only; ``"stub"`` is the test-only carve-out per the M07 ``'mock'``-in-
    ``PROVIDER_TYPES`` precedent.
-4. The SQLite CHECK constraint on ``connector_accounts.type`` baked by
+4. The SQLite CHECK constraint on ``connectors.type`` baked by
    the v19 table-rename ceremony (layer 4).
 
 If any of these asserts fail, fix the drift in
@@ -39,7 +39,7 @@ from the_one.connectors.registry import (
     types as _registry_types,
 )
 from the_one.db._connector_types import CONNECTOR_TYPES
-from the_one.db.models import ConnectorAccount
+from the_one.db.models import Connector
 from the_one.db.schema import ensure_schema
 
 
@@ -54,7 +54,7 @@ def test_connector_types_tuple_has_expected_members() -> None:
 
 
 def test_pydantic_literal_matches_connector_types() -> None:
-    """The ``Literal[...]`` arg-set on ``ConnectorAccount.type`` must equal
+    """The ``Literal[...]`` arg-set on ``Connector.type`` must equal
     ``CONNECTOR_TYPES``. (The model's import-time assertion already enforces
     this; the explicit test is for visibility in the suite output.)
 
@@ -62,7 +62,7 @@ def test_pydantic_literal_matches_connector_types() -> None:
     F8 L2 narrowed the annotation from ``str`` to ``Literal["discord",
     "stub"]``.
     """
-    annotation = ConnectorAccount.model_fields["type"].annotation
+    annotation = Connector.model_fields["type"].annotation
     assert set(get_args(annotation)) == set(CONNECTOR_TYPES)
 
 
@@ -93,13 +93,14 @@ def test_registry_baseline_matches_connector_types_minus_stub() -> None:
 
 @pytest.mark.asyncio
 async def test_sqlite_check_constraint_matches_connector_types(tmp_path) -> None:
-    """Open a fresh DB, introspect the live ``connector_accounts`` CHECK
+    """Open a fresh DB, introspect the live ``connectors`` CHECK
     constraint, and assert the literal values in it match
     ``CONNECTOR_TYPES``.
 
     Layer 4 of the connector-type 6-layer checklist (``agents.md``). M10
     F8 L2's v19 migration added the CHECK via the v6/v12 table-rename
-    ceremony. Mirrors
+    ceremony; M11 F11 L1's v23 migration renamed the table to
+    ``connectors`` and carried the CHECK forward verbatim. Mirrors
     :func:`tests.test_provider_types_consistency.test_sqlite_check_constraint_matches_provider_types`.
     """
     db_path = tmp_path / "schema-check.db"
@@ -108,12 +109,12 @@ async def test_sqlite_check_constraint_matches_connector_types(tmp_path) -> None
         conn.row_factory = aiosqlite.Row
         await ensure_schema(conn)
         async with conn.execute(
-            "SELECT sql FROM sqlite_master WHERE type='table' AND name='connector_accounts'"
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='connectors'"
         ) as cursor:
             row = await cursor.fetchone()
-        assert row is not None, "connector_accounts table missing after ensure_schema()"
+        assert row is not None, "connectors table missing after ensure_schema()"
         sql = row["sql"]
-        assert "CHECK" in sql, f"CHECK constraint missing from connector_accounts DDL: {sql}"
+        assert "CHECK" in sql, f"CHECK constraint missing from connectors DDL: {sql}"
 
         # Strip everything outside the ``type IN (...)`` clause and pull the
         # quoted-literal members back out as a set.

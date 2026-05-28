@@ -5,15 +5,15 @@
 // ``<input>`` + naive-render results panel + grouped sections +
 // chip-list selected-values strip + stale-entry rendering. Account-
 // scoped (one instance per axis per account); consumes the L4 API at
-// ``GET/POST /api/connector-accounts/{accountId}/discoverable-entities``.
+// ``GET/POST /api/connectors/{accountId}/discoverable-entities``.
 //
 // F5 L6 HAT R5: per-axis Refresh button and per-axis pre-probe hint
 // removed. The Refresh affordance + pre-probe messaging now live on a
 // section-level banner rendered by ``renderAllowlistSection`` in
-// ``connector-account-editor.js``. The banner dispatches a
-// ``connector-account-discoverable-refresh-requested`` event with
+// ``connector-editor.js``. The banner dispatches a
+// ``connector-discoverable-refresh-requested`` event with
 // ``{ accountId }`` detail; this component listens (alongside the
-// existing ``connector-account-pool-warmed`` listener from F4 L4) and
+// existing ``connector-pool-warmed`` listener from F4 L4) and
 // re-fetches its axis entities on a matching event. Both event channels
 // coexist — pool-warmed = Test-Connection success; refresh-requested =
 // operator-clicked the section-level Refresh button.
@@ -43,7 +43,7 @@
 //     if they want to change ``opts.currentValues`` from outside.
 //
 // Load order: attaches to ``window.App.studio``; loads BETWEEN
-// ``connector-vocabulary.js`` and ``connector-account-editor.js`` in
+// ``connector-vocabulary.js`` and ``connector-editor.js`` in
 // ``index.html``.
 
 (function () {
@@ -516,7 +516,7 @@
     _setStatus(state, loadingLabel);
     _setInputDisabled(state, true);
 
-    var url = '/api/connector-accounts/' + encodeURIComponent(state.accountId) +
+    var url = '/api/connectors/' + encodeURIComponent(state.accountId) +
               '/discoverable-entities' + suffix;
     return fetch(url, fetchOpts).then(function (response) {
       if (response.status === 404) {
@@ -621,7 +621,7 @@
 
     // F5 L6 HAT R5: per-axis Refresh button removed — see _buildDOM
     // comment. The manual-refresh channel now flows through the
-    // ``connector-account-discoverable-refresh-requested`` document
+    // ``connector-discoverable-refresh-requested`` document
     // event dispatched by the section-level banner; the listener is
     // wired inline in ``discoverableDropdown(opts)`` alongside the
     // pool-warmed listener.
@@ -678,7 +678,7 @@
     _fetchEntities(state);
 
     // M11 F4 L4 fold-in (HAT-discovered): subscribe to Test Connection's
-    // ``connector-account-pool-warmed`` event so this dropdown re-fetches
+    // ``connector-pool-warmed`` event so this dropdown re-fetches
     // when the pool transitions cold → warm without the operator having
     // to click Refresh on each axis. Self-detaches when this dropdown's
     // DOM has been removed (next event after removal unbinds the
@@ -687,17 +687,17 @@
     // and-named`` (M11 F4 L1).
     state.poolWarmHandler = function (event) {
       if (!state.root || !document.body.contains(state.root)) {
-        document.removeEventListener('connector-account-pool-warmed', state.poolWarmHandler);
+        document.removeEventListener('connector-pool-warmed', state.poolWarmHandler);
         return;
       }
       if (event && event.detail && event.detail.accountId === state.accountId) {
         _fetchEntities(state);
       }
     };
-    App.studio.eventBus.on('connector-account-pool-warmed', state.poolWarmHandler);
+    App.studio.eventBus.on('connector-pool-warmed', state.poolWarmHandler);
 
     // F5 L6 HAT R5: section-level Refresh button channel. The Access
-    // section's banner (renderAllowlistSection in connector-account-
+    // section's banner (renderAllowlistSection in connector-
     // editor.js) dispatches this event with {accountId} detail when the
     // operator clicks Refresh. All 4 mounted axes for the same account
     // re-fetch in parallel (each axis instance receives the event,
@@ -707,7 +707,7 @@
     state.refreshRequestedHandler = function (event) {
       if (!state.root || !document.body.contains(state.root)) {
         document.removeEventListener(
-          'connector-account-discoverable-refresh-requested',
+          'connector-discoverable-refresh-requested',
           state.refreshRequestedHandler
         );
         return;
@@ -717,7 +717,7 @@
       }
     };
     App.studio.eventBus.on(
-      'connector-account-discoverable-refresh-requested',
+      'connector-discoverable-refresh-requested',
       state.refreshRequestedHandler
     );
 

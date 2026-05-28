@@ -159,7 +159,7 @@ from the_one.connectors.post_step_metadata import (
     tag_post_step_visibility,
 )
 from the_one.db.codec import decode_messages, encode_messages, messages_to_ui_events
-from the_one.db.models import ConnectorAccount, now_iso
+from the_one.db.models import Connector, now_iso
 from the_one.llm.base import Message, Role
 from the_one.sessions import broadcast_to_session, session_locks
 
@@ -169,7 +169,7 @@ logger = logging.getLogger(__name__)
 async def _policy_gate_decision(
     *,
     envelope: InboundEnvelope,
-    account: ConnectorAccount,
+    account: Connector,
     agent_config: AgentConfig,
     plugin: ConnectorPlugin,
     decision: RoutingDecision,
@@ -319,7 +319,7 @@ async def dispatch_inbound(
     from the_one.db.connection import get_connection
     from the_one.db.repositories import (
         ChatSessionRepository,
-        ConnectorAccountRepository,
+        ConnectorRepository,
         PendingApprovalRepository,
         SQLiteAgentStore,
     )
@@ -327,7 +327,7 @@ async def dispatch_inbound(
 
     conn = await get_connection()
     encryptor = get_encryptor(settings.data_dir)
-    acc_repo = ConnectorAccountRepository(conn, encryptor)
+    acc_repo = ConnectorRepository(conn, encryptor)
     chat_repo = ChatSessionRepository(conn)
     approval_repo = PendingApprovalRepository(conn)
     agent_store = SQLiteAgentStore(conn)
@@ -434,7 +434,7 @@ async def dispatch_inbound(
             # broadcast SECOND (in-process, programmer-error-if-raises);
             # audit-log THIRD.
             approval = await approval_repo.upsert_pending(
-                connector_account_id=account.id,
+                connector_id=account.id,
                 peer_id=envelope.peer_id,
                 peer_name=envelope.peer_name,
                 preview=envelope.text[:200],
@@ -448,7 +448,7 @@ async def dispatch_inbound(
                     "peer_id": approval.peer_id,
                     "preview": approval.preview,
                     "received_at": approval.received_at,
-                    "connector_account_id": approval.connector_account_id,
+                    "connector_id": approval.connector_id,
                     "status": approval.status,
                 },
             )

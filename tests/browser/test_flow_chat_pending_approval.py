@@ -37,7 +37,7 @@ from pathlib import Path
 
 import httpx
 import pytest
-from browser.seeders import seed_connector_account, seed_mock_agent, seed_mock_provider
+from browser.seeders import seed_connector, seed_mock_agent, seed_mock_provider
 from playwright.sync_api import Page, expect
 
 
@@ -135,7 +135,7 @@ def _seed_connector_session(
     session_id: str,
     agent_name: str,
     title: str,
-    connector_account_id: str,
+    connector_id: str,
     peer_id: str,
 ) -> None:
     """INSERT a chat_sessions row pinned to a connector account + peer.
@@ -143,7 +143,7 @@ def _seed_connector_session(
     Mirrors the 13-column INSERT in
     ``tests/browser/test_flow_chat_session_list_source_badge.py:158`` —
     fully populated keying tuple so ``_restore_session``'s merge path
-    sees ``connector_account_id`` and ``peer_id`` non-None.
+    sees ``connector_id`` and ``peer_id`` non-None.
     """
     db_path = data_dir / "the-one.db"
     conn = sqlite3.connect(str(db_path))
@@ -151,7 +151,7 @@ def _seed_connector_session(
         conn.execute(
             "INSERT INTO chat_sessions ("
             " id, agent_name, title, messages, created_at, updated_at,"
-            " platform, connector_account_id, channel_id, thread_id, peer_id,"
+            " platform, connector_id, channel_id, thread_id, peer_id,"
             " session_metadata, last_inbound_at"
             ") VALUES (?, ?, ?, ?, datetime('now'), datetime('now'),"
             " ?, ?, ?, ?, ?, ?, ?)",
@@ -161,7 +161,7 @@ def _seed_connector_session(
                 title,
                 "[]",
                 "stub",
-                connector_account_id,
+                connector_id,
                 "channel-1",
                 None,
                 peer_id,
@@ -178,7 +178,7 @@ def _seed_pending_approval(
     data_dir: Path,
     *,
     approval_id: str,
-    connector_account_id: str,
+    connector_id: str,
     peer_id: str,
     peer_name: str,
     preview: str,
@@ -190,12 +190,12 @@ def _seed_pending_approval(
     try:
         conn.execute(
             "INSERT INTO pending_approvals ("
-            " id, connector_account_id, peer_id, peer_name, preview,"
+            " id, connector_id, peer_id, peer_name, preview,"
             " received_at, status, resolved_at"
             ") VALUES (?, ?, ?, ?, ?, datetime('now'), ?, NULL)",
             (
                 approval_id,
-                connector_account_id,
+                connector_id,
                 peer_id,
                 peer_name,
                 preview,
@@ -209,7 +209,7 @@ def _seed_pending_approval(
 
 def _allowlist_peers(base_url: str, account_id: str) -> list[str]:
     """Fetch the connector account and return its peer allowlist."""
-    r = httpx.get(f"{base_url}/api/connector-accounts/{account_id}", timeout=5.0)
+    r = httpx.get(f"{base_url}/api/connectors/{account_id}", timeout=5.0)
     assert r.status_code == 200, r.text
     config = r.json().get("config") or {}
     allowlist = config.get("allowlist") or {}
@@ -228,7 +228,7 @@ def test_pending_approval_banner_renders_on_session_join(
 
     provider_id = seed_mock_provider(base_url)
     agent_name = seed_mock_agent(base_url, provider_id)
-    account_id = seed_connector_account(base_url, name="Test Stub")
+    account_id = seed_connector(base_url, name="Test Stub")
 
     session_id = str(uuid.uuid4())
     approval_id = uuid.uuid4().hex
@@ -238,13 +238,13 @@ def test_pending_approval_banner_renders_on_session_join(
         session_id=session_id,
         agent_name=agent_name,
         title="pending approval test",
-        connector_account_id=account_id,
+        connector_id=account_id,
         peer_id=peer_id,
     )
     _seed_pending_approval(
         data_dir,
         approval_id=approval_id,
-        connector_account_id=account_id,
+        connector_id=account_id,
         peer_id=peer_id,
         peer_name="Alice",
         preview="hello bot please help",
@@ -259,7 +259,7 @@ def test_pending_approval_banner_renders_on_session_join(
     expect(banner).to_have_count(1, timeout=5000)
     # Approval id matches the seeded value.
     expect(banner).to_have_attribute("data-approval-id", approval_id)
-    expect(banner).to_have_attribute("data-connector-account-id", account_id)
+    expect(banner).to_have_attribute("data-connector-id", account_id)
     # Peer name + preview are rendered.
     expect(banner.locator(".msg-pending-approval-peer-name")).to_have_text("Alice")
     expect(banner.locator(".msg-pending-approval-preview")).to_have_text(
@@ -284,7 +284,7 @@ def test_pending_approval_approve_click_updates_status_and_allowlist(
 
     provider_id = seed_mock_provider(base_url)
     agent_name = seed_mock_agent(base_url, provider_id)
-    account_id = seed_connector_account(base_url, name="Approve Test Stub")
+    account_id = seed_connector(base_url, name="Approve Test Stub")
 
     session_id = str(uuid.uuid4())
     approval_id = uuid.uuid4().hex
@@ -294,13 +294,13 @@ def test_pending_approval_approve_click_updates_status_and_allowlist(
         session_id=session_id,
         agent_name=agent_name,
         title="approve flow",
-        connector_account_id=account_id,
+        connector_id=account_id,
         peer_id=peer_id,
     )
     _seed_pending_approval(
         data_dir,
         approval_id=approval_id,
-        connector_account_id=account_id,
+        connector_id=account_id,
         peer_id=peer_id,
         peer_name="Bob",
         preview="please approve me",
@@ -340,7 +340,7 @@ def test_pending_approval_dismiss_click_updates_status(
 
     provider_id = seed_mock_provider(base_url)
     agent_name = seed_mock_agent(base_url, provider_id)
-    account_id = seed_connector_account(base_url, name="Dismiss Test Stub")
+    account_id = seed_connector(base_url, name="Dismiss Test Stub")
 
     session_id = str(uuid.uuid4())
     approval_id = uuid.uuid4().hex
@@ -350,13 +350,13 @@ def test_pending_approval_dismiss_click_updates_status(
         session_id=session_id,
         agent_name=agent_name,
         title="dismiss flow",
-        connector_account_id=account_id,
+        connector_id=account_id,
         peer_id=peer_id,
     )
     _seed_pending_approval(
         data_dir,
         approval_id=approval_id,
-        connector_account_id=account_id,
+        connector_id=account_id,
         peer_id=peer_id,
         peer_name="Carol",
         preview="please dismiss me",
@@ -405,7 +405,7 @@ def test_pending_approval_dedup_replay_then_live_broadcast(
 
     provider_id = seed_mock_provider(base_url)
     agent_name = seed_mock_agent(base_url, provider_id)
-    account_id = seed_connector_account(base_url, name="Dedup Test Stub")
+    account_id = seed_connector(base_url, name="Dedup Test Stub")
 
     session_id = str(uuid.uuid4())
     approval_id = uuid.uuid4().hex
@@ -415,13 +415,13 @@ def test_pending_approval_dedup_replay_then_live_broadcast(
         session_id=session_id,
         agent_name=agent_name,
         title="dedup flow",
-        connector_account_id=account_id,
+        connector_id=account_id,
         peer_id=peer_id,
     )
     _seed_pending_approval(
         data_dir,
         approval_id=approval_id,
-        connector_account_id=account_id,
+        connector_id=account_id,
         peer_id=peer_id,
         peer_name="Dana",
         preview="dedup preview",
@@ -447,7 +447,7 @@ def test_pending_approval_dedup_replay_then_live_broadcast(
         "peer_id": peer_id,
         "preview": "dedup preview",
         "received_at": "2099-01-01T00:00:00Z",
-        "connector_account_id": account_id,
+        "connector_id": account_id,
         "status": "pending",
     }
     page.evaluate(

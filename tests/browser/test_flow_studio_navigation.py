@@ -40,7 +40,7 @@ def test_studio_section_nav_renders_four_buttons(app_clean: str, page: Page) -> 
     """The section-nav has four buttons (Agents / Knowledge / MCP Servers / Connectors).
 
     F5 L8 HAT: fourth label renamed from "Connector Accounts" → "Connectors".
-    The internal section id `connector-accounts` is unchanged (data-section
+    The internal section id `connectors` is unchanged (data-section
     attribute still matches the F2 contract).
     """
     page.goto(f"{app_clean}#studio")
@@ -82,7 +82,7 @@ def test_studio_section_nav_roving_tabindex(app_clean: str, page: Page) -> None:
     agents_btn = page.locator('.section-nav-item[data-section="agents"]')
     knowledge_btn = page.locator('.section-nav-item[data-section="knowledge"]')
     mcp_btn = page.locator('.section-nav-item[data-section="mcp-sources"]')
-    connector_btn = page.locator('.section-nav-item[data-section="connector-accounts"]')
+    connector_btn = page.locator('.section-nav-item[data-section="connectors"]')
 
     expect(agents_btn).to_have_attribute("tabindex", "0")
     expect(knowledge_btn).to_have_attribute("tabindex", "-1")
@@ -160,7 +160,7 @@ def test_studio_keyboard_arrow_navigation(app_clean: str, page: Page) -> None:
     # ArrowDown → Connector Accounts (the new last entry, M10 F2 leg 05).
     page.keyboard.press("ArrowDown")
     focused_section = page.evaluate("() => document.activeElement?.dataset?.section")
-    assert focused_section == "connector-accounts"
+    assert focused_section == "connectors"
 
     # ArrowDown wraps → Agents.
     page.keyboard.press("ArrowDown")
@@ -170,7 +170,7 @@ def test_studio_keyboard_arrow_navigation(app_clean: str, page: Page) -> None:
     # ArrowUp wraps backward → Connector Accounts (new last entry).
     page.keyboard.press("ArrowUp")
     focused_section = page.evaluate("() => document.activeElement?.dataset?.section")
-    assert focused_section == "connector-accounts"
+    assert focused_section == "connectors"
 
     # Home → Agents.
     page.keyboard.press("Home")
@@ -180,7 +180,7 @@ def test_studio_keyboard_arrow_navigation(app_clean: str, page: Page) -> None:
     # End → Connector Accounts (the new last entry).
     page.keyboard.press("End")
     focused_section = page.evaluate("() => document.activeElement?.dataset?.section")
-    assert focused_section == "connector-accounts"
+    assert focused_section == "connectors"
 
     # Focus moved but URL did NOT change (manual activation).
     assert page.evaluate("location.hash") == "#studio/agents"

@@ -6,7 +6,7 @@ allowlist editor — a UI affordance for the dispatcher's
 through the validator + dispatcher (substrate). The selector is
 placed between the peers row and the channels row in
 ``renderAllowlistSection``; its value persists via the existing
-``PUT /api/connector-accounts/{id}`` path.
+``PUT /api/connectors/{id}`` path.
 
 Coverage:
 
@@ -21,12 +21,12 @@ from __future__ import annotations
 
 import httpx
 import pytest
-from browser.seeders import seed_connector_account
+from browser.seeders import seed_connector
 from playwright.sync_api import Page, expect
 
 
 def _get_account(base_url: str, account_id: str) -> dict:
-    r = httpx.get(f"{base_url}/api/connector-accounts/{account_id}", timeout=5.0)
+    r = httpx.get(f"{base_url}/api/connectors/{account_id}", timeout=5.0)
     assert r.status_code == 200, f"get failed: {r.status_code} {r.text}"
     return r.json()
 
@@ -40,7 +40,7 @@ def test_dm_admission_row_renders_with_account_value_preselected(
 ) -> None:
     """Seed an account with ``dm_admission='all'``; navigate to the
     editor; expect the new row's <select> to have ``"all"`` selected."""
-    account_id = seed_connector_account(
+    account_id = seed_connector(
         app_clean,
         name="DM Admission All",
         type="stub",
@@ -53,7 +53,7 @@ def test_dm_admission_row_renders_with_account_value_preselected(
         },
     )
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
         timeout=8000
     )
 
@@ -85,7 +85,7 @@ def test_dm_admission_row_renders_with_account_value_preselected(
 
     # Literal "DM admission" label text (no vocabulary substitution —
     # DM is universal across connector types).
-    label = row.locator("label.connector-account-acl-fieldlabel")
+    label = row.locator("label.connector-acl-fieldlabel")
     assert label.text_content().strip() == "DM admission", (
         f"expected literal 'DM admission' label; got: "
         f"{label.text_content()!r}"
@@ -100,7 +100,7 @@ def test_dm_admission_change_marks_form_dirty(
     the existing dirty-tracker mechanism — no new wiring required;
     ``collectAllowlistFromContainer``'s extended dict shape rides into
     the form snapshot for free."""
-    account_id = seed_connector_account(
+    account_id = seed_connector(
         app_clean,
         name="DM Admission Dirty",
         type="stub",
@@ -113,7 +113,7 @@ def test_dm_admission_change_marks_form_dirty(
         },
     )
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    save_btn = page.locator('[data-testid="save-connector-account-btn"]')
+    save_btn = page.locator('[data-testid="save-connector-btn"]')
     expect(save_btn).to_be_visible(timeout=8000)
     # Pre-change: form is clean → Save is disabled.
     expect(save_btn).to_be_disabled()
@@ -136,7 +136,7 @@ def test_dm_admission_save_persists_value(
 ) -> None:
     """Change the selector, click Save, then GET the account — the
     chosen value persists at ``config.allowlist.dm_admission``."""
-    account_id = seed_connector_account(
+    account_id = seed_connector(
         app_clean,
         name="DM Admission Persist",
         type="stub",
@@ -155,7 +155,7 @@ def test_dm_admission_save_persists_value(
     assert before["config"]["allowlist"]["dm_admission"] == "allowlisted-peers-only"
 
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    save_btn = page.locator('[data-testid="save-connector-account-btn"]')
+    save_btn = page.locator('[data-testid="save-connector-btn"]')
     expect(save_btn).to_be_visible(timeout=8000)
 
     page.locator('[data-testid="tab-access-and-routing"]').click()

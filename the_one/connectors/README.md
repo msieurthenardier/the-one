@@ -132,7 +132,7 @@ from the_one.connectors.base import (
     SendResult,
     SessionKey,
 )
-from the_one.db.models import ConnectorAccount
+from the_one.db.models import Connector
 from the_one.encryption import Encryptor
 
 
@@ -166,7 +166,7 @@ class HypotheticalPlatformPlugin:
     No inheritance per ``structural-Protocol-satisfaction``."""
 
     async def connect(
-        self, account: ConnectorAccount, encryptor: Encryptor
+        self, account: Connector, encryptor: Encryptor
     ) -> ConnectorClient:
         secrets = account.secrets  # already-decrypted dict from the repository
         token = secrets["bot_token"]
@@ -179,7 +179,7 @@ class HypotheticalPlatformPlugin:
         await _close_platform_session(client)
 
     async def doctor(
-        self, account: ConnectorAccount, encryptor: Encryptor
+        self, account: Connector, encryptor: Encryptor
     ) -> DoctorReport:
         try:
             client = await self.connect(account, encryptor)
@@ -237,7 +237,7 @@ implement it return a human-readable channel label
 `envelope.channel_id` at the resolver layer. `StubPlugin.display_channel`
 is the reference implementation — returns `f"stub:{envelope.channel_id}"`.
 
-Second instance: **`resolve(account: ConnectorAccount, envelope: InboundEnvelope) -> ResolveOutcome`**
+Second instance: **`resolve(account: Connector, envelope: InboundEnvelope) -> ResolveOutcome`**
 for per-(peer, channel) gating in `the_one.connectors._inbound.dispatch_inbound`
 and `the_one.tools.connector_send.SendToPlatformChannelTool.execute`
 (M10 F06 L2 + L3). Plugins that implement it return one of three outcomes:
@@ -308,7 +308,8 @@ fixture that Flights 2–10 inherit.
 
 Production code MUST NOT register `'stub'` via
 `register_builtin_connectors`. Schema versions before v19 have no CHECK
-constraint on `connector_accounts.type` (Flight 1 ships without one — see
+constraint on `connectors.type` (M11 F11 L1 v23 renamed the table from
+`connector_accounts`; Flight 1 ships without the CHECK — see
 `agents.md` "Connector type extension checklist" layer 4), so storing
 `'stub'`-typed rows in tests works at the persistence layer without
 polluting the production type registry.
@@ -321,9 +322,9 @@ README and with `tests/test_connectors_e2e.py`.
 
 ## §7. Encryption envelope
 
-`connector_accounts.secrets` is a JSON-encoded dict encrypted via
+`connectors.secrets` is a JSON-encoded dict encrypted via
 Fernet-symmetric using the system-wide encryptor
-(`get_encryptor(settings.data_dir)`). `ConnectorAccountRepository` holds
+(`get_encryptor(settings.data_dir)`). `ConnectorRepository` holds
 the encryptor as a **reference, not copy** — post-rotation `install_key()`
 propagates to live repository instances. The repository's
 `_secrets_to_ciphertext` / `_ciphertext_to_secrets` envelope mirrors
@@ -346,7 +347,7 @@ re-encrypts **three corpora atomically** in a single transaction:
 
 1. `llm_providers.api_key`
 2. `mcp_sources.secrets`
-3. `connector_accounts.secrets`
+3. `connectors.secrets`
 
 A failure in any UPDATE branch rolls back all three; the single
 `await conn.commit()` is the authoritative commit point and the new key
@@ -390,7 +391,7 @@ End-to-end walk of an outbound delivery, from the agent's tool call to the platf
 
 1. **Agent invokes the tool**. The LLM's response includes a tool_call with `name="send_to_platform_channel"` and arguments `{target: {account_id, channel_id, thread_id?}, content}`. Agent core dispatches via `the_one/agent/core.py:Agent._execute_tool` (the existing per-tool dispatch path).
 
-2. **Tool execute() validates target**. `the_one/tools/connector_send.py:SendToPlatformChannelTool.execute()` validates the `target` shape (account_id, channel_id present; thread_id optional), validates `target.account_id ∈ self._connector_account_ids` (account-scope check; rejects with `[error] [constraint]` on mismatch). It then consults the channel + per-agent ACL gates: a per-call `ConnectorAccountRepository.get(account_id)` fetch reads current account state, then delegates to `the_one/connectors/_acl.py:admits_outbound(account, agent_acl, channel_id) -> tuple[bool, str]` (M10 F7 L2 extraction; pure function, no I/O). The pure function intersects `target.channel_id` against (i) account-scope `account.config["allowlist"]["channels"]` (absent → permit) and (ii) per-agent `AgentConfig.connector_acls[account_id]["channels"]` (account_id key absent or empty channels list → inherit). Denials return the standard `[error] [constraint]` envelope. Source of truth: `connector_send.py:execute` + `connectors/_acl.py` + `AgentConfig.connector_acls`.
+2. **Tool execute() validates target**. `the_one/tools/connector_send.py:SendToPlatformChannelTool.execute()` validates the `target` shape (account_id, channel_id present; thread_id optional), validates `target.account_id ∈ self._connector_ids` (account-scope check; rejects with `[error] [constraint]` on mismatch). It then consults the channel + per-agent ACL gates: a per-call `ConnectorRepository.get(account_id)` fetch reads current account state, then delegates to `the_one/connectors/_acl.py:admits_outbound(account, agent_acl, channel_id) -> tuple[bool, str]` (M10 F7 L2 extraction; pure function, no I/O). The pure function intersects `target.channel_id` against (i) account-scope `account.config["allowlist"]["channels"]` (absent → permit) and (ii) per-agent `AgentConfig.connector_acls[account_id]["channels"]` (account_id key absent or empty channels list → inherit). Denials return the standard `[error] [constraint]` envelope. Source of truth: `connector_send.py:execute` + `connectors/_acl.py` + `AgentConfig.connector_acls`.
 
 3. **Tool acquires pool entry**. The tool calls `the_one/connectors/_pool.py:account_acquire(account_id)` to fetch the warm `ConnectorClient`. The pool's worker-task-per-entry pattern ensures `connect` and `disconnect` run on the same task (anyio cross-task `CancelScope` safety). `last_activity` is touched on every successful resolve. Pool errors (`KeyError` for unknown account, `ConnectorRegistrationError` for unregistered plugin type, `ConnectorClientError` subtypes for connect failures, `RuntimeError` during shutdown) surface as `[error] <ExceptionType>: <message>` envelopes.
 
@@ -410,11 +411,11 @@ End-to-end walk of an inbound delivery through `the_one/connectors/_inbound.py:d
 
 1. **Function-local imports** — `db.connection`, `db.repositories`, `encryption`, `config`, and the L1 + L5 surfaces from `connectors/_commands.py` are imported at call time. Mirrors the load-cycle convention `_pool.py` and `_session.py` already use.
 
-2. **Account load** — `ConnectorAccountRepository.get(account_id)`. Missing account ⇒ log + return.
+2. **Account load** — `ConnectorRepository.get(account_id)`. Missing account ⇒ log + return.
 
 3. **Plugin resolve** — `registry.resolve(account.type)`. Unknown type ⇒ log + return. Deliberately redundant with the eventual `account_acquire`'s internal resolution (defensive against a future pool refactor stranding this branch).
 
-4. **Enumerate eligible attached agents** — `SQLiteAgentStore.list_by_connector_account(account_id)` returns the alphabetically-ordered list of `AgentConfig` rows whose `connector_account_ids` includes `account_id`. Empty list ⇒ silent log + return (preserves the L3 no-attached-agents semantic). Replaces the L3 transitional helper `_resolve_single_attached_agent_or_first_alphabetical`, which is REMOVED in L5.
+4. **Enumerate eligible attached agents** — `SQLiteAgentStore.list_by_connector_account(account_id)` returns the alphabetically-ordered list of `AgentConfig` rows whose `connector_ids` includes `account_id`. Empty list ⇒ silent log + return (preserves the L3 no-attached-agents semantic). Replaces the L3 transitional helper `_resolve_single_attached_agent_or_first_alphabetical`, which is REMOVED in L5.
 
 5. **Resolve session** — `the_one/connectors/_session.py:resolve_session(envelope, account, chat_repo, agent_name=eligible_attached_agents[0].name, plugin=plugin)`. The `agent_name` argument is the creation-time anchor for NEW rows (alphabetically-first attached agent); the reuse path ignores it and returns the most-recent matching row verbatim. Per-session row identity is preserved across routing decisions.
 

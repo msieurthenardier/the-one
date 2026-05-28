@@ -1,4 +1,4 @@
-// App.studio.renderConnectorAccountEditor — Connector Account editor (M10 F2 L6).
+// App.studio.renderConnectorEditor — Connector Account editor (M10 F2 L6).
 //
 // Structurally mirrors mcp-server-editor.js minus MCP-specific concerns
 // (no transport-specific config, no OAuth, no tools list, no sandbox).
@@ -55,7 +55,7 @@
 // secret (api.py:2192-2207 honors the sentinel per-key).
 //
 // "Create & Test" combined-action: the create-mode primary button does
-// POST /api/connector-accounts → on 201 POST /test/connect → renders
+// POST /api/connectors → on 201 POST /test/connect → renders
 // the probe report inline while studio.js transitions to edit-mode.
 // The probe report is handed off via a module-level _pendingProbeReport
 // because callbacks.onSaveSuccess(updated, true) unmounts this editor
@@ -282,7 +282,7 @@
 
   // ── Public entry point ──────────────────────────────────────────────
 
-  function renderConnectorAccountEditor(container, account, types, callbacks, forceCreate) {
+  function renderConnectorEditor(container, account, types, callbacks, forceCreate) {
     callbacks = callbacks || {};
     var escapeHtml = window.App.escapeHtml;
     var escapeAttr = window.App.escapeAttr;
@@ -301,7 +301,7 @@
     var type = isCreate ? ((account && account.type) || '') : (account.type || '');
     // M10 F7 L9 HAT: tabbed-layout default. Mirrors agent-editor.js
     // (initialTab callback param, default to 'general'). The studio
-    // shell does not yet route _activeTab into the connector-account
+    // shell does not yet route _activeTab into the connector
     // editor, but the hook is in place for future wiring.
     var initialTab = callbacks.initialTab || 'general';
 
@@ -317,7 +317,7 @@
     if (!isCreate && account && account.id) {
       editorRootAttrs = ' data-account-id="' + escapeAttr(String(account.id)) + '"';
     }
-    html += '<div class="connector-account-editor"' + editorRootAttrs + '>';
+    html += '<div class="connector-editor"' + editorRootAttrs + '>';
     html += '<div class="editor-header">';
     html += '<div class="editor-header-text">';
     html += '<h1 class="editor-title">' + escapeHtml(name) + '</h1>';
@@ -334,13 +334,13 @@
     html += '</div>';
 
     // Action cluster.
-    var saveTestId = isCreate ? 'create-and-test-connector-account-btn' : 'save-connector-account-btn';
+    var saveTestId = isCreate ? 'create-and-test-connector-btn' : 'save-connector-btn';
     var saveLabel = isCreate ? 'Create & Test' : 'Save';
     html += '<div class="form-actions">';
-    html += '<button type="button" class="btn-outlined-primary back-btn" data-testid="back-connector-account-btn" aria-label="Back to connectors list">' + window.App.icon('arrow-left') + ' Back</button>';
-    html += '<button type="button" class="btn-outlined-primary cancel-btn" data-testid="cancel-connector-account-btn" disabled>Cancel</button>';
+    html += '<button type="button" class="btn-outlined-primary back-btn" data-testid="back-connector-btn" aria-label="Back to connectors list">' + window.App.icon('arrow-left') + ' Back</button>';
+    html += '<button type="button" class="btn-outlined-primary cancel-btn" data-testid="cancel-connector-btn" disabled>Cancel</button>';
     html += '<button type="button" class="btn-filled-primary save-btn" data-testid="' + saveTestId + '" disabled>' + escapeHtml(saveLabel) + '</button>';
-    html += '<span class="editor-error" data-testid="connector-account-editor-error"></span>';
+    html += '<span class="editor-error" data-testid="connector-editor-error"></span>';
     html += '</div>';
     html += '</div>'; // .editor-header
 
@@ -409,7 +409,7 @@
     // label provides the browser-native tooltip; an ``aria-describedby``
     // + ``visually-hidden`` sibling carries the screen-reader text. The
     // ``data-testid`` on the info-icon button preserves the
-    // ``connector-account-{idle,continuation,auto-relay}-hint`` testid
+    // ``connector-{idle,continuation,auto-relay}-hint`` testid
     // lineage from the dropped ``<small>`` elements so existing tests
     // resolve against the new affordance (`continuation-hint` test is
     // updated to ``to_have_attribute("title", ...)`` since the tooltip
@@ -427,12 +427,12 @@
     lifecycleHtml += '<label for="cf-continuation-window">Chat-session window</label>';
     lifecycleHtml += '<button type="button" class="field-info-icon" ' +
             'title="' + escAttr(contTipText) + '" ' +
-            'aria-describedby="connector-account-continuation-help-text" ' +
-            'data-testid="connector-account-continuation-hint">' + infoIcon + '</button>';
-    lifecycleHtml += '<span id="connector-account-continuation-help-text" class="visually-hidden">' +
+            'aria-describedby="connector-continuation-help-text" ' +
+            'data-testid="connector-continuation-hint">' + infoIcon + '</button>';
+    lifecycleHtml += '<span id="connector-continuation-help-text" class="visually-hidden">' +
             escHtml(contTipText) + '</span>';
     lifecycleHtml += renderLifecycleSelect('cf-continuation-window', 'session_continuation_seconds',
-            'connector-account-continuation-input', contValue,
+            'connector-continuation-input', contValue,
             { defaultSeconds: 86400, includeNever: true });
     lifecycleHtml += '</div>';
 
@@ -443,12 +443,12 @@
     lifecycleHtml += '<label for="cf-idle-timeout">Idle timeout</label>';
     lifecycleHtml += '<button type="button" class="field-info-icon" ' +
             'title="' + escAttr(idleTipText) + '" ' +
-            'aria-describedby="connector-account-idle-help-text" ' +
-            'data-testid="connector-account-idle-hint">' + infoIcon + '</button>';
-    lifecycleHtml += '<span id="connector-account-idle-help-text" class="visually-hidden">' +
+            'aria-describedby="connector-idle-help-text" ' +
+            'data-testid="connector-idle-hint">' + infoIcon + '</button>';
+    lifecycleHtml += '<span id="connector-idle-help-text" class="visually-hidden">' +
             escHtml(idleTipText) + '</span>';
     lifecycleHtml += renderLifecycleSelect('cf-idle-timeout', 'idle_timeout_seconds',
-            'connector-account-idle-timeout-input', idleValue,
+            'connector-idle-timeout-input', idleValue,
             { defaultSeconds: 1800, includeNever: false });
     lifecycleHtml += '</div>';
 
@@ -469,14 +469,14 @@
     lifecycleHtml += '<label for="cf-always-listen">Always Listen</label>';
     lifecycleHtml += '<button type="button" class="field-info-icon" ' +
             'title="' + escAttr(alwaysListenTipText) + '" ' +
-            'aria-describedby="connector-account-always-listen-help-text" ' +
-            'data-testid="connector-account-always-listen-hint">' + infoIcon + '</button>';
-    lifecycleHtml += '<span id="connector-account-always-listen-help-text" class="visually-hidden">' +
+            'aria-describedby="connector-always-listen-help-text" ' +
+            'data-testid="connector-always-listen-hint">' + infoIcon + '</button>';
+    lifecycleHtml += '<span id="connector-always-listen-help-text" class="visually-hidden">' +
             escHtml(alwaysListenTipText) + '</span>';
     lifecycleHtml += '<label class="tool-enable-switch">';
     lifecycleHtml += '<input type="checkbox" class="field-input" id="cf-always-listen" ' +
             'data-field="always_listen" ' +
-            'data-testid="connector-account-always-listen-toggle"' +
+            'data-testid="connector-always-listen-toggle"' +
             ' aria-label="Always Listen"' +
             (alwaysListenConfigValue ? ' checked' : '') + ' />';
     lifecycleHtml += '<span class="tool-enable-switch-track"></span>';
@@ -511,7 +511,7 @@
       if (runtimeEntry && typeof runtimeEntry.renderRuntimeConfigFields === 'function') {
         var runtimeInner = runtimeEntry.renderRuntimeConfigFields(account);
         if (runtimeInner) {
-          runtimeConfigHtml += '<div class="editor-section" data-testid="connector-account-runtime-config-section">';
+          runtimeConfigHtml += '<div class="editor-section" data-testid="connector-runtime-config-section">';
           // F5 L6 HAT R4: renamed "Runtime Config" → "Discord" with a
           // friendly description. The data-testid still says
           // "runtime-config" because the substrate hook is type-agnostic
@@ -537,7 +537,7 @@
 
     // Attached agents (read-only, edit mode only).
     // M10 F6 L4: read-only summary of agents whose
-    // ``connector_account_ids`` includes this account.
+    // ``connector_ids`` includes this account.
     var attachedAgentsHtml = isCreate ? '' : renderAttachedAgentsSection();
 
     // Test Connection content lives INSIDE the Connection section above (F5 L2 MCP-parity refactor).
@@ -556,7 +556,7 @@
     if (!isCreate) {
       dangerZoneHtml += '<div class="editor-section danger-zone">';
       dangerZoneHtml += '<div class="section-title danger-zone-title">Danger Zone</div>';
-      dangerZoneHtml += '<button type="button" class="btn-muted-destructive delete-btn connector-delete-btn" data-testid="delete-connector-account-btn" data-name="' + escapeAttr(account.name || '') + '">' +
+      dangerZoneHtml += '<button type="button" class="btn-muted-destructive delete-btn connector-delete-btn" data-testid="delete-connector-btn" data-name="' + escapeAttr(account.name || '') + '">' +
               window.App.icon('trash') +
               '<span data-confirm-title>Delete Connector</span>' +
               '</button>';
@@ -624,7 +624,7 @@
       html += '</div>'; // .tabpanels
     }
 
-    html += '</div>'; // .connector-account-editor
+    html += '</div>'; // .connector-editor
 
     container.innerHTML = html;
 
@@ -670,12 +670,12 @@
     // the banner remains a fallback when the registry is empty (e.g.
     // tests, or operator override of `register_builtin_connectors`).
     if (typesEmpty) {
-      html += '<div class="connector-account-empty-types-banner" ' +
-              'data-testid="connector-account-empty-types-banner" role="status">';
+      html += '<div class="connector-empty-types-banner" ' +
+              'data-testid="connector-empty-types-banner" role="status">';
       html += '<strong>No connector types are registered yet.</strong> ';
       html += 'Discord support lands in Flight 8 of Mission 10. ';
       html += 'For HAT or local testing you can seed a <code>stub</code>-type account via ';
-      html += '<code>POST /api/connector-accounts</code> with <code>{"type":"stub", ...}</code>.';
+      html += '<code>POST /api/connectors</code> with <code>{"type":"stub", ...}</code>.';
       html += '</div>';
     }
 
@@ -690,7 +690,7 @@
     // Name
     html += '<div class="field-row admin-pf-row" data-field-row="name">';
     html += '<label for="cf-name">Name</label>';
-    html += '<input class="field-input admin-pf-input" id="cf-name" data-field="name" data-testid="connector-account-name-input" value="' +
+    html += '<input class="field-input admin-pf-input" id="cf-name" data-field="name" data-testid="connector-name-input" value="' +
             escapeAttr(isCreate ? createName : (account.name || '')) +
             '" placeholder="My Discord bot" />';
     html += '<span class="field-error" data-field-error="name" hidden></span>';
@@ -703,7 +703,7 @@
     html += '<label for="cf-type">Type</label>';
     if (isCreate) {
       var typeDisabledAttr = typesEmpty ? ' disabled aria-disabled="true"' : '';
-      html += '<select class="field-input field-select admin-pf-input admin-pf-select" id="cf-type" data-field="type" data-testid="connector-account-type-select"' + typeDisabledAttr + '>';
+      html += '<select class="field-input field-select admin-pf-input admin-pf-select" id="cf-type" data-field="type" data-testid="connector-type-select"' + typeDisabledAttr + '>';
       if (typesEmpty) {
         html += '<option value="" disabled selected>No connector types registered yet</option>';
       } else {
@@ -727,7 +727,7 @@
       }
       html += '</select>';
     } else {
-      html += '<input class="field-input admin-pf-input" id="cf-type" data-field="type" data-testid="connector-account-type-readonly" value="' +
+      html += '<input class="field-input admin-pf-input" id="cf-type" data-field="type" data-testid="connector-type-readonly" value="' +
               escapeAttr(account.type || '') + '" readonly />';
     }
     html += '<span class="field-error" data-field-error="type" hidden></span>';
@@ -737,7 +737,7 @@
     //
     // M11 F1 L3: per-type form registry consult. The substrate emits
     // the outer field-row wrapper unconditionally so the
-    // ``[data-testid="connector-account-config"]`` selector keeps
+    // ``[data-testid="connector-config"]`` selector keeps
     // resolving for tests; only the inner content varies between the
     // typed (entry.renderConnectionFields) and generic
     // (renderConfigKvTable) render paths. Triple-guard against an
@@ -752,9 +752,9 @@
     var connActiveType = (account && account.type) || '';
     var connEntry = (connRegistry && connActiveType) ? connRegistry.get(connActiveType) : undefined;
 
-    html += '<div class="field-row admin-pf-row connector-account-config-wrap">';
+    html += '<div class="field-row admin-pf-row connector-config-wrap">';
     html += '<label>Config</label>';
-    html += '<div class="connector-account-config" data-testid="connector-account-config">';
+    html += '<div class="connector-config" data-testid="connector-config">';
     if (connEntry && typeof connEntry.renderConnectionFields === 'function') {
       html += connEntry.renderConnectionFields(account, isCreate);
     } else {
@@ -840,10 +840,10 @@
   function renderConfigKvTable(account) {
     var existingRows = collectConfigRows(account);
     var headHiddenClass = existingRows.length === 0 ? ' is-hidden' : '';
-    var html = '<table class="connector-account-config-table" data-testid="connector-account-config-table">';
-    html += '<thead class="connector-account-config-thead' + headHiddenClass + '">' +
+    var html = '<table class="connector-config-table" data-testid="connector-config-table">';
+    html += '<thead class="connector-config-thead' + headHiddenClass + '">' +
             '<tr><th>Key</th><th>Value</th><th aria-label="Actions"></th></tr></thead>';
-    html += '<tbody data-testid="connector-account-config-tbody">';
+    html += '<tbody data-testid="connector-config-tbody">';
     for (var i = 0; i < existingRows.length; i++) {
       html += renderConfigRow(existingRows[i], i);
     }
@@ -859,7 +859,7 @@
   function renderConfigRow(row, idx) {
     var escapeAttr = window.App.escapeAttr;
     var html = '';
-    html += '<tr class="connector-account-config-row" data-row-idx="' + idx + '">';
+    html += '<tr class="connector-config-row" data-row-idx="' + idx + '">';
     html += '<td><input class="field-input config-key-input" data-field="config-key" data-row="' + idx + '" value="' + escapeAttr(row.key || '') + '" placeholder="key" /></td>';
     html += '<td><input class="field-input config-value-input" type="text" data-field="config-value" data-row="' + idx + '" value="' + escapeAttr(row.value || '') + '" placeholder="value" /></td>';
     html += '<td><button type="button" class="config-remove-row-btn" data-row="' + idx + '" aria-label="Remove row" title="Remove row">' + window.App.icon('trash') + '</button></td>';
@@ -873,8 +873,8 @@
     // return for the inner secrets table HTML; otherwise fall through
     // to the generic kv-table render. The function's outer return
     // value remains the "inner content" the caller mounts inside the
-    // existing ``.editor-section`` / ``.connector-account-secrets``
-    // wrappers (`renderConnectorAccountEditor:268-273`), so the
+    // existing ``.editor-section`` / ``.connector-secrets``
+    // wrappers (`renderConnectorEditor:268-273`), so the
     // wrapper-contract for byte-identical fallback DOM is preserved at
     // the caller layer. Triple-guard against an early-load race.
     var secRegistry = (window.App && window.App.studio && window.App.studio.connectorFormRegistry) || null;
@@ -886,10 +886,10 @@
 
     var existingRows = collectSecretRows(account);
     var headHiddenClass = existingRows.length === 0 ? ' is-hidden' : '';
-    var html = '<table class="connector-account-secrets-table" data-testid="connector-account-secrets-table">';
-    html += '<thead class="connector-account-secrets-thead' + headHiddenClass + '">' +
+    var html = '<table class="connector-secrets-table" data-testid="connector-secrets-table">';
+    html += '<thead class="connector-secrets-thead' + headHiddenClass + '">' +
             '<tr><th>Key</th><th>Value</th><th aria-label="Actions"></th></tr></thead>';
-    html += '<tbody data-testid="connector-account-secrets-tbody">';
+    html += '<tbody data-testid="connector-secrets-tbody">';
     for (var i = 0; i < existingRows.length; i++) {
       html += renderSecretRow(existingRows[i], i);
     }
@@ -904,7 +904,7 @@
     var escapeAttr = window.App.escapeAttr;
     var origMasked = row._originalMasked || '';
     var html = '';
-    html += '<tr class="connector-account-secret-row" data-row-idx="' + idx + '">';
+    html += '<tr class="connector-secret-row" data-row-idx="' + idx + '">';
     html += '<td><input class="field-input secret-key-input" data-field="secret-key" data-row="' + idx + '" value="' + escapeAttr(row.key || '') + '" placeholder="KEY" /></td>';
     html += '<td><div class="api-key-wrap">';
     html += '<input class="field-input secret-value-input kv-value-secret" type="password" data-field="secret-value" data-row="' + idx + '" value="' + escapeAttr(row.value || '') + '" data-original-masked="' + escapeAttr(origMasked) + '" placeholder="value" />';
@@ -925,7 +925,7 @@
       staticData[staticFields[i]] = el ? el.value : '';
     }
     var configRows = [];
-    var configRowEls = container.querySelectorAll('.connector-account-config-table tbody tr.connector-account-config-row');
+    var configRowEls = container.querySelectorAll('.connector-config-table tbody tr.connector-config-row');
     for (var c = 0; c < configRowEls.length; c++) {
       var crow = configRowEls[c];
       var ckey = crow.querySelector('.config-key-input');
@@ -937,7 +937,7 @@
     }
 
     var secretRows = [];
-    var secretRowEls = container.querySelectorAll('.connector-account-secrets-table tbody tr.connector-account-secret-row');
+    var secretRowEls = container.querySelectorAll('.connector-secrets-table tbody tr.connector-secret-row');
     for (var s = 0; s < secretRowEls.length; s++) {
       var srow = secretRowEls[s];
       var skey = srow.querySelector('.secret-key-input');
@@ -1018,8 +1018,8 @@
     var isEdit = !isCreate;
     var snapshot = getFormSnapshot(container);
     var dirty = false;
-    var nextConfigRowIdx = container.querySelectorAll('.connector-account-config-table tbody tr.connector-account-config-row').length;
-    var nextSecretRowIdx = container.querySelectorAll('.connector-account-secrets-table tbody tr.connector-account-secret-row').length;
+    var nextConfigRowIdx = container.querySelectorAll('.connector-config-table tbody tr.connector-config-row').length;
+    var nextSecretRowIdx = container.querySelectorAll('.connector-secrets-table tbody tr.connector-secret-row').length;
 
     function checkDirty() {
       var current = getFormSnapshot(container);
@@ -1081,7 +1081,7 @@
     // Studio (n=3 — see TODO below citing F4 R13 lift candidate).
     //
     // TODO(routine-maintenance): with n=3 reached
-    // (connector-account-pool-warmed + connector-account-discoverable-
+    // (connector-pool-warmed + connector-discoverable-
     // refresh-requested + this one), F4 R13 calls for lifting the inline
     // CustomEvent strings into a shared studio-event-bus module. Defer
     // per F7 recon discipline (the bus lift expands the leg surface
@@ -1089,7 +1089,7 @@
     var alwaysListenEl = container.querySelector('[data-field="always_listen"]');
     if (alwaysListenEl && account && account.id) {
       alwaysListenEl.addEventListener('change', function () {
-        App.studio.eventBus.emit('connector-account-always-listen-changed', {
+        App.studio.eventBus.emit('connector-always-listen-changed', {
           accountId: account.id,
           enabled: !!alwaysListenEl.checked,
         });
@@ -1107,7 +1107,7 @@
     //
     // Approach (Option A — full re-mount): capture the Name input
     // value, build an account-shaped stub carrying the new type +
-    // captured name, and call ``renderConnectorAccountEditor`` with
+    // captured name, and call ``renderConnectorEditor`` with
     // ``forceCreate=true``. The re-render path re-attaches all
     // listeners (this attachStaticListeners + the registry's
     // wireEvents). The Name value is restored via the stub so the
@@ -1136,7 +1136,7 @@
             config: {},
             secrets: {}
           };
-          renderConnectorAccountEditor(container, stub, types, callbacks, true);
+          renderConnectorEditor(container, stub, types, callbacks, true);
           // Picking a type IS a dirty edit relative to the pre-pick
           // baseline. The fresh editor's snapshot includes ``type=newType``,
           // so its own ``checkDirty`` would read clean — manually flip
@@ -1154,7 +1154,7 @@
     }
 
     // ── Config kv table delegated events ──────────────────────────────
-    var configTable = container.querySelector('.connector-account-config-table');
+    var configTable = container.querySelector('.connector-config-table');
     if (configTable) {
       configTable.addEventListener('input', function (e) {
         var target = e.target;
@@ -1168,7 +1168,7 @@
         if (!target) return;
         var removeBtn = target.closest && target.closest('.config-remove-row-btn');
         if (removeBtn) {
-          var rrow = removeBtn.closest('tr.connector-account-config-row');
+          var rrow = removeBtn.closest('tr.connector-config-row');
           if (rrow) {
             rrow.parentNode.removeChild(rrow);
             updateConfigHeadVisibility(container);
@@ -1180,12 +1180,12 @@
     var configAddBtn = container.querySelector('.connector-config-add-row-btn');
     if (configAddBtn) {
       configAddBtn.addEventListener('click', function () {
-        var tbody = container.querySelector('.connector-account-config-table tbody');
+        var tbody = container.querySelector('.connector-config-table tbody');
         if (!tbody) return;
         var idx = nextConfigRowIdx++;
         var tmp = document.createElement('tbody');
         tmp.innerHTML = renderConfigRow({ key: '', value: '' }, idx);
-        var newTr = tmp.querySelector('tr.connector-account-config-row');
+        var newTr = tmp.querySelector('tr.connector-config-row');
         if (newTr) {
           tbody.appendChild(newTr);
           updateConfigHeadVisibility(container);
@@ -1195,7 +1195,7 @@
     }
 
     // ── Secrets kv table delegated events ─────────────────────────────
-    var secretsTable = container.querySelector('.connector-account-secrets-table');
+    var secretsTable = container.querySelector('.connector-secrets-table');
     if (secretsTable) {
       secretsTable.addEventListener('input', function (e) {
         var target = e.target;
@@ -1209,7 +1209,7 @@
         if (!target) return;
         var eyeBtn = target.closest && target.closest('.secret-eye-btn');
         if (eyeBtn) {
-          var row = eyeBtn.closest('tr.connector-account-secret-row');
+          var row = eyeBtn.closest('tr.connector-secret-row');
           if (row) {
             var valueInput = row.querySelector('.secret-value-input');
             if (valueInput) {
@@ -1228,7 +1228,7 @@
         }
         var removeBtn = target.closest && target.closest('.secret-remove-row-btn');
         if (removeBtn) {
-          var rrow = removeBtn.closest('tr.connector-account-secret-row');
+          var rrow = removeBtn.closest('tr.connector-secret-row');
           if (rrow) {
             rrow.parentNode.removeChild(rrow);
             updateSecretsHeadVisibility(container);
@@ -1240,12 +1240,12 @@
     var secretsAddBtn = container.querySelector('.connector-secrets-add-row-btn');
     if (secretsAddBtn) {
       secretsAddBtn.addEventListener('click', function () {
-        var tbody = container.querySelector('.connector-account-secrets-table tbody');
+        var tbody = container.querySelector('.connector-secrets-table tbody');
         if (!tbody) return;
         var idx = nextSecretRowIdx++;
         var tmp = document.createElement('tbody');
         tmp.innerHTML = renderSecretRow({ key: '', value: '', _originalMasked: '' }, idx);
-        var newTr = tmp.querySelector('tr.connector-account-secret-row');
+        var newTr = tmp.querySelector('tr.connector-secret-row');
         if (newTr) {
           tbody.appendChild(newTr);
           updateSecretsHeadVisibility(container);
@@ -1267,7 +1267,7 @@
         if (isEdit) {
           // Re-render the editor from the source — clobbers all in-flight
           // edits including kv-rows the operator added/removed.
-          renderConnectorAccountEditor(container, account, types, callbacks);
+          renderConnectorEditor(container, account, types, callbacks);
         } else if (callbacks.onCancel) {
           callbacks.onCancel();
         }
@@ -1311,10 +1311,10 @@
     }
 
     // ── Delete (edit only) ────────────────────────────────────────────
-    var deleteBtn = container.querySelector('[data-testid="delete-connector-account-btn"]');
+    var deleteBtn = container.querySelector('[data-testid="delete-connector-btn"]');
     if (deleteBtn && isEdit) {
       function doDelete(btn, revertFn) {
-        fetch('/api/connector-accounts/' + encodeURIComponent(account.id), { method: 'DELETE' })
+        fetch('/api/connectors/' + encodeURIComponent(account.id), { method: 'DELETE' })
           .then(function (r) {
             if (!r.ok) return r.json().then(function (e) { throw new Error((e && e.detail) || 'Delete failed'); });
             window.App.showFlash(container, 'Connector deleted');
@@ -1364,7 +1364,7 @@
     var originalLabel = saveBtn.textContent;
     saveBtn.textContent = 'Saving…';
 
-    fetch('/api/connector-accounts/' + encodeURIComponent(account.id), {
+    fetch('/api/connectors/' + encodeURIComponent(account.id), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
@@ -1411,7 +1411,7 @@
     saveBtn.disabled = true;
     saveBtn.textContent = 'Creating…';
 
-    fetch('/api/connector-accounts', {
+    fetch('/api/connectors', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
@@ -1442,7 +1442,7 @@
       })
       .then(function (newAccount) {
         saveBtn.textContent = 'Testing…';
-        return fetch('/api/connector-accounts/' + encodeURIComponent(newAccount.id) + '/test/connect', {
+        return fetch('/api/connectors/' + encodeURIComponent(newAccount.id) + '/test/connect', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' }
         }).then(function (probeResp) {
@@ -1542,7 +1542,7 @@
         }
       }
     } else {
-      var configRows = container.querySelectorAll('.connector-account-config-table tbody tr.connector-account-config-row');
+      var configRows = container.querySelectorAll('.connector-config-table tbody tr.connector-config-row');
       for (var i = 0; i < configRows.length; i++) {
         var crow = configRows[i];
         var ck = crow.querySelector('.config-key-input');
@@ -1553,7 +1553,7 @@
         config[ckey] = cv.value || '';
       }
 
-      var secretRows = container.querySelectorAll('.connector-account-secrets-table tbody tr.connector-account-secret-row');
+      var secretRows = container.querySelectorAll('.connector-secrets-table tbody tr.connector-secret-row');
       for (var j = 0; j < secretRows.length; j++) {
         var srow = secretRows[j];
         var sk = srow.querySelector('.secret-key-input');
@@ -1674,7 +1674,7 @@
     if (detailsWrap) detailsWrap.hidden = true;
     if (detailsEl) detailsEl.innerHTML = '';
 
-    fetch('/api/connector-accounts/' + encodeURIComponent(accountId) + '/test/connect', {
+    fetch('/api/connectors/' + encodeURIComponent(accountId) + '/test/connect', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' }
     })
@@ -1731,7 +1731,7 @@
 
     // M11 F4 L4 fold-in (HAT-discovered): when Test Connection's response
     // carries ``pool_warmed=true`` (A1 contract), dispatch a
-    // ``connector-account-pool-warmed`` event so any mounted
+    // ``connector-pool-warmed`` event so any mounted
     // ``discoverable-dropdown`` for this account re-fetches its entity
     // list. Without this nudge, dropdowns hold their stale pre-probe-404
     // state until the operator clicks each axis's Refresh manually. This
@@ -1740,7 +1740,7 @@
     // (M11 F4 L1): the named entrypoint announces its success, listeners
     // react.
     if (status === 'ok' && details && details.pool_warmed === true && accountId) {
-      App.studio.eventBus.emit('connector-account-pool-warmed', { accountId: accountId });
+      App.studio.eventBus.emit('connector-pool-warmed', { accountId: accountId });
     }
 
     if (ledEl) {
@@ -1855,7 +1855,7 @@
   //
   // All data-testids preserved byte-identical from the pre-L2
   // standalone-section shape — the click-handler at
-  // connector-account-editor.js:~1177-1182 looks up
+  // connector-editor.js:~1177-1182 looks up
   // ``[data-testid="connector-test-connection-btn"]`` and resolves it
   // regardless of DOM position.
 
@@ -1883,7 +1883,7 @@
   // Danger Zone gate). They operate on the leg-1b reserved
   // ``config["pairing"]`` and ``config["allowlist"]`` keys and on the
   // new reverse-lookup endpoint
-  // ``GET /api/connector-accounts/{id}/attached-agents`` (leg-4 spec).
+  // ``GET /api/connectors/{id}/attached-agents`` (leg-4 spec).
   //
   // The save flow (``collectFormData``) merges pairing + allowlist with
   // the existing arbitrary config kv-table — no key is silently
@@ -1978,7 +1978,7 @@
     // ``aria-describedby``). The ``data-testid="connector-allowlist-
     // {axis}-hint"`` migrates from the dropped ``<small>`` to the new
     // info-icon ``<button>`` so any test resolving by this testid
-    // continues to find an element. The ``connector-account-acl-
+    // continues to find an element. The ``connector-acl-
     // fieldlabel`` class is preserved on the ``<label>`` for any
     // styling/test selectors that key on it.
     var escapeHtml = window.App.escapeHtml;
@@ -2004,7 +2004,7 @@
     //   populated (cached entities present): "Last refreshed: {when}"
     //     + visible Refresh button.
     // The Refresh button dispatches the
-    // ``connector-account-discoverable-refresh-requested`` event on
+    // ``connector-discoverable-refresh-requested`` event on
     // document with {accountId} detail; all 4 mounted dropdowns listen
     // and re-fetch on a matching event. Initial state is the
     // pessimistic "pre-probe" pose — ``wireAllowlistBanner`` then
@@ -2031,8 +2031,8 @@
 
     // Peers axis.
     var peersTipText = 'Empty list = no ' + vocab.peer + ' restriction.';
-    html += '<div class="field-row admin-pf-row connector-account-acl-fieldrow">';
-    html += '<label class="connector-account-acl-fieldlabel">' +
+    html += '<div class="field-row admin-pf-row connector-acl-fieldrow">';
+    html += '<label class="connector-acl-fieldlabel">' +
             escapeHtml(_capitalize(vocab.peers)) + '</label>';
     html += '<button type="button" class="field-info-icon" ' +
             'title="' + escapeAttr(peersTipText) + '" ' +
@@ -2053,9 +2053,9 @@
         'peers are those on the Peers allowlist above.';
     var currentDmAdmission = (account && account.config && account.config.allowlist &&
         account.config.allowlist.dm_admission) || 'allowlisted-peers-only';
-    html += '<div class="field-row admin-pf-row connector-account-acl-fieldrow" ' +
+    html += '<div class="field-row admin-pf-row connector-acl-fieldrow" ' +
             'data-testid="connector-allowlist-dm-admission-row">';
-    html += '<label class="connector-account-acl-fieldlabel" ' +
+    html += '<label class="connector-acl-fieldlabel" ' +
             'for="connector-allowlist-dm-admission-select">DM admission</label>';
     html += '<button type="button" class="field-info-icon" ' +
             'title="' + escapeAttr(dmAdmissionTipText) + '" ' +
@@ -2078,8 +2078,8 @@
 
     // Channels axis.
     var channelsTipText = 'Empty list = no ' + vocab.channel + ' restriction.';
-    html += '<div class="field-row admin-pf-row connector-account-acl-fieldrow">';
-    html += '<label class="connector-account-acl-fieldlabel">' +
+    html += '<div class="field-row admin-pf-row connector-acl-fieldrow">';
+    html += '<label class="connector-acl-fieldlabel">' +
             escapeHtml(_capitalize(vocab.channels)) + '</label>';
     html += '<button type="button" class="field-info-icon" ' +
             'title="' + escapeAttr(channelsTipText) + '" ' +
@@ -2093,8 +2093,8 @@
     // Groups (guilds) axis.
     var guildsTipText = 'Empty list = no ' + vocab.group + ' restriction.' +
             (nativeTone ? '' : ' Discord-flavored; ignored by other platforms.');
-    html += '<div class="field-row admin-pf-row connector-account-acl-fieldrow">';
-    html += '<label class="connector-account-acl-fieldlabel">' +
+    html += '<div class="field-row admin-pf-row connector-acl-fieldrow">';
+    html += '<label class="connector-acl-fieldlabel">' +
             escapeHtml(_capitalize(vocab.groups)) + '</label>';
     html += '<button type="button" class="field-info-icon" ' +
             'title="' + escapeAttr(guildsTipText) + '" ' +
@@ -2109,8 +2109,8 @@
     var rolesTipText = 'Empty list = no ' + vocab.role + ' restriction. ' +
             'Any-of overlap.' +
             (nativeTone ? '' : ' Discord-flavored.');
-    html += '<div class="field-row admin-pf-row connector-account-acl-fieldrow">';
-    html += '<label class="connector-account-acl-fieldlabel">' +
+    html += '<div class="field-row admin-pf-row connector-acl-fieldrow">';
+    html += '<label class="connector-acl-fieldlabel">' +
             escapeHtml(_capitalize(vocab.roles)) + '</label>';
     html += '<button type="button" class="field-info-icon" ' +
             'title="' + escapeAttr(rolesTipText) + '" ' +
@@ -2133,7 +2133,7 @@
   // data attributes are NOT used here (this is the account-scope
   // list, not a per-agent ACL); studio.js's collectFormData reads the
   // wrapper via the studio-side ``.connector-acl-chiplist`` selector,
-  // but the connector-account-editor's own collectFormData reads via
+  // but the connector-editor's own collectFormData reads via
   // the slot dataset (data-allowlist-chiplist-slot).
   function _buildAllowlistChipList(kind, items) {
     var wrapper = document.createElement('div');
@@ -2956,7 +2956,7 @@
           btn.disabled = true;
           btn.textContent = 'Detaching…';
           var url = '/api/agents/' + encodeURIComponent(agentName) +
-                    '/connector-accounts/' + encodeURIComponent(accountId);
+                    '/connectors/' + encodeURIComponent(accountId);
           fetch(url, {method: 'DELETE'})
             .then(function (resp) {
               if (!resp.ok) {
@@ -3017,7 +3017,7 @@
     // vocabulary for the table-header text. ``account.id`` drives the
     // fetch URL; ``account.type`` drives the vocabulary lookup.
     var accountId = account && account.id;
-    fetch('/api/connector-accounts/' + encodeURIComponent(accountId) + '/attached-agents')
+    fetch('/api/connectors/' + encodeURIComponent(accountId) + '/attached-agents')
       .then(function (resp) {
         if (!resp.ok) {
           // 404 or 5xx — render a clear failure message rather than
@@ -3066,7 +3066,7 @@
       var originalHtml = btn.innerHTML;
       btn.disabled = true;
       btn.textContent = 'Generating…';
-      fetch('/api/connector-accounts/' + encodeURIComponent(account.id) + '/pairing-code', {
+      fetch('/api/connectors/' + encodeURIComponent(account.id) + '/pairing-code', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       })
@@ -3251,12 +3251,12 @@
   // On mount, we fire one L4 GET to discover the actual state without
   // forcing a refresh; the response (200 / 404 / 503) drives the
   // banner state. We also listen for the
-  // ``connector-account-pool-warmed`` event (dispatched by Test
+  // ``connector-pool-warmed`` event (dispatched by Test
   // Connection's onResponse when the pool just warmed) so the banner
   // transitions in real time without another GET round-trip.
   //
   // The Refresh button dispatches
-  // ``connector-account-discoverable-refresh-requested`` with
+  // ``connector-discoverable-refresh-requested`` with
   // ``{ accountId }`` detail — all 4 mounted axis dropdowns listen and
   // re-fetch on a match. We also do a GET ourselves after the dispatch
   // (with a small delay) to refresh the banner's "Last refreshed"
@@ -3338,7 +3338,7 @@
     }
 
     function _probe() {
-      var url = '/api/connector-accounts/' + encodeURIComponent(account.id) +
+      var url = '/api/connectors/' + encodeURIComponent(account.id) +
                 '/discoverable-entities';
       fetch(url).then(function (response) {
         if (response.status === 404) {
@@ -3379,7 +3379,7 @@
     refreshBtn.addEventListener('click', function () {
       _setState('refreshing', 'Refreshing…');
       try {
-        App.studio.eventBus.emit('connector-account-discoverable-refresh-requested', {
+        App.studio.eventBus.emit('connector-discoverable-refresh-requested', {
           accountId: account.id,
         });
       } catch (e) {
@@ -3394,12 +3394,12 @@
     });
 
     // React in real time to a Test Connection success that warmed the
-    // pool. The Test Connection POST handler (see connector-account-
+    // pool. The Test Connection POST handler (see connector-
     // editor.js renderTestConnectionResponse) dispatches this event
     // with ``{ accountId }`` detail when ``details.pool_warmed === true``.
     var poolWarmedHandler = function (event) {
       if (!banner.isConnected) {
-        document.removeEventListener('connector-account-pool-warmed', poolWarmedHandler);
+        document.removeEventListener('connector-pool-warmed', poolWarmedHandler);
         return;
       }
       if (event && event.detail && event.detail.accountId === account.id) {
@@ -3408,7 +3408,7 @@
         setTimeout(_probe, 600);
       }
     };
-    App.studio.eventBus.on('connector-account-pool-warmed', poolWarmedHandler);
+    App.studio.eventBus.on('connector-pool-warmed', poolWarmedHandler);
 
     // Initial probe — discover the real pool state on editor mount.
     _probe();
@@ -3510,7 +3510,7 @@
       return;
     }
 
-    fetch('/api/connector-accounts/' + encodeURIComponent(account.id) + '/attached-agents')
+    fetch('/api/connectors/' + encodeURIComponent(account.id) + '/attached-agents')
       .then(function (resp) {
         if (!resp.ok) return null;
         return resp.json();
@@ -3562,20 +3562,20 @@
   // ── KV table head visibility helpers ────────────────────────────────
 
   function updateConfigHeadVisibility(container) {
-    var thead = container.querySelector('.connector-account-config-thead');
+    var thead = container.querySelector('.connector-config-thead');
     if (!thead) return;
-    var rowCount = container.querySelectorAll('.connector-account-config-table tbody tr.connector-account-config-row').length;
+    var rowCount = container.querySelectorAll('.connector-config-table tbody tr.connector-config-row').length;
     thead.classList.toggle('is-hidden', rowCount === 0);
   }
 
   function updateSecretsHeadVisibility(container) {
-    var thead = container.querySelector('.connector-account-secrets-thead');
+    var thead = container.querySelector('.connector-secrets-thead');
     if (!thead) return;
-    var rowCount = container.querySelectorAll('.connector-account-secrets-table tbody tr.connector-account-secret-row').length;
+    var rowCount = container.querySelectorAll('.connector-secrets-table tbody tr.connector-secret-row').length;
     thead.classList.toggle('is-hidden', rowCount === 0);
   }
 
-  window.App.studio.renderConnectorAccountEditor = renderConnectorAccountEditor;
+  window.App.studio.renderConnectorEditor = renderConnectorEditor;
   // M11 F1 L4: expose the generic config kv-table renderer on the
   // studio namespace so per-type registry entries (e.g. the Discord
   // entry's "Advanced (kv-table)" disclosure) can mount it inside

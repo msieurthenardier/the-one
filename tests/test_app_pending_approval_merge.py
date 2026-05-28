@@ -29,10 +29,10 @@ from conftest import FakeLLM
 from the_one.agent.core import Agent
 from the_one.db.codec import encode_messages
 from the_one.db.models import ChatSession as ChatSessionModel
-from the_one.db.models import ConnectorAccount
+from the_one.db.models import Connector
 from the_one.db.repositories import (
     ChatSessionRepository,
-    ConnectorAccountRepository,
+    ConnectorRepository,
     PendingApprovalRepository,
 )
 from the_one.db.schema import ensure_schema
@@ -72,14 +72,14 @@ def connector_repo_encryptor(tmp_path):
 
 @pytest.fixture
 def connector_repo(conn, connector_repo_encryptor):
-    return ConnectorAccountRepository(conn, connector_repo_encryptor)
+    return ConnectorRepository(conn, connector_repo_encryptor)
 
 
 @pytest.fixture
 async def _seed_connector_account(connector_repo):
     """Seed an ``acct-1`` connector account so PendingApproval FK passes."""
     await connector_repo.create(
-        ConnectorAccount(id="acct-1", name="Stub Account", type="stub")
+        Connector(id="acct-1", name="Stub Account", type="stub")
     )
 
 
@@ -130,7 +130,7 @@ async def _seed_connector_session(
     chat_repo: ChatSessionRepository,
     *,
     session_id: str,
-    connector_account_id: str | None,
+    connector_id: str | None,
     peer_id: str | None,
     messages: list[Message] | None = None,
 ) -> ChatSessionModel:
@@ -146,8 +146,8 @@ async def _seed_connector_session(
         agent_name=None,
         title="test session",
         messages=encoded,
-        platform=("stub" if connector_account_id else None),
-        connector_account_id=connector_account_id,
+        platform=("stub" if connector_id else None),
+        connector_id=connector_id,
         peer_id=peer_id,
     )
     await chat_repo.create(row)
@@ -167,12 +167,12 @@ class TestRestoreSessionMergesPendingApproval:
         await _seed_connector_session(
             chat_repo,
             session_id="s-with-approval",
-            connector_account_id="acct-1",
+            connector_id="acct-1",
             peer_id="peer-1",
             messages=[],
         )
         approval = await pending_approval_repo.upsert_pending(
-            connector_account_id="acct-1",
+            connector_id="acct-1",
             peer_id="peer-1",
             peer_name="Alice",
             preview="hello bot",
@@ -194,7 +194,7 @@ class TestRestoreSessionMergesPendingApproval:
             "peer_id": "peer-1",
             "preview": "hello bot",
             "received_at": approval.received_at,
-            "connector_account_id": "acct-1",
+            "connector_id": "acct-1",
             "status": "pending",
         }
 
@@ -211,7 +211,7 @@ class TestRestoreSessionMergesPendingApproval:
         await _seed_connector_session(
             chat_repo,
             session_id="s-no-approvals",
-            connector_account_id="acct-1",
+            connector_id="acct-1",
             peer_id="peer-99",
             messages=[Message.user("hi", peer_name="Bob")],
         )
@@ -231,7 +231,7 @@ class TestRestoreSessionMergesPendingApproval:
         patched_app,
         chat_repo,
     ) -> None:
-        """An operator-typed session (no connector_account_id, no peer_id)
+        """An operator-typed session (no connector_id, no peer_id)
         MUST short-circuit the merge — no DB query against
         ``pending_approvals``. We assert this structurally by replacing
         the patched repo with one whose ``list_for_account_peer`` raises
@@ -239,7 +239,7 @@ class TestRestoreSessionMergesPendingApproval:
         await _seed_connector_session(
             chat_repo,
             session_id="s-operator",
-            connector_account_id=None,
+            connector_id=None,
             peer_id=None,
             messages=[Message.user("typed by operator")],
         )
@@ -283,7 +283,7 @@ class TestRestoreSessionMergesPendingApproval:
         await _seed_connector_session(
             chat_repo,
             session_id="s-ordered",
-            connector_account_id="acct-1",
+            connector_id="acct-1",
             peer_id="peer-1",
             messages=[
                 Message.user("first", peer_name="Alice"),
@@ -291,7 +291,7 @@ class TestRestoreSessionMergesPendingApproval:
             ],
         )
         appr = await pending_approval_repo.upsert_pending(
-            connector_account_id="acct-1",
+            connector_id="acct-1",
             peer_id="peer-1",
             peer_name="Alice",
             preview="dm preview",
@@ -334,14 +334,14 @@ class TestBuildSessionJoinedDegradedMergesPendingApproval:
         db_row = await _seed_connector_session(
             chat_repo,
             session_id="s-degraded",
-            connector_account_id="acct-1",
+            connector_id="acct-1",
             peer_id="peer-1",
             messages=[],
         )
         # Re-fetch via repo to pick up DB-applied defaults.
         db_row = await chat_repo.get("s-degraded")
         approval = await pending_approval_repo.upsert_pending(
-            connector_account_id="acct-1",
+            connector_id="acct-1",
             peer_id="peer-1",
             peer_name="Charlie",
             preview="awaiting approval",
@@ -371,12 +371,12 @@ class TestRestoreNoDuplicates:
         await _seed_connector_session(
             chat_repo,
             session_id="s-dedup",
-            connector_account_id="acct-1",
+            connector_id="acct-1",
             peer_id="peer-1",
             messages=[],
         )
         await pending_approval_repo.upsert_pending(
-            connector_account_id="acct-1",
+            connector_id="acct-1",
             peer_id="peer-1",
             peer_name="Alice",
             preview="hello",

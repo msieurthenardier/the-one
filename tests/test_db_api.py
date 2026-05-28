@@ -576,7 +576,7 @@ class TestConnectorAccountAPI:
             register_for_test,
             restore_to_baseline_for_test,
         )
-        from the_one.db.repositories import ConnectorAccountRepository
+        from the_one.db.repositories import ConnectorRepository
         from the_one.interfaces.web.api import get_connection, get_encryptor
 
         await pool_mod._clear_for_test()
@@ -592,7 +592,7 @@ class TestConnectorAccountAPI:
             # function-scoped SQLite + test encryptor the API just
             # wrote into.
             conn = await get_connection()
-            repo = ConnectorAccountRepository(conn, get_encryptor(""))
+            repo = ConnectorRepository(conn, get_encryptor(""))
             return await repo.get(account_id)
 
         monkeypatch.setattr(pool_mod, "_load_account", _patched_load_account)
@@ -607,7 +607,7 @@ class TestConnectorAccountAPI:
         """POST → GET → PUT → DELETE round-trip with idle_timeout_seconds."""
         # Create
         resp = await client.post(
-            "/api/connector-accounts",
+            "/api/connectors",
             json={
                 "name": "Bot 1",
                 "type": "stub",
@@ -620,7 +620,7 @@ class TestConnectorAccountAPI:
         assert resp.json()["idle_timeout_seconds"] == 600
 
         # Read
-        resp = await client.get(f"/api/connector-accounts/{account_id}")
+        resp = await client.get(f"/api/connectors/{account_id}")
         assert resp.status_code == 200
         assert resp.json()["name"] == "Bot 1"
         assert resp.json()["config"]["workspace"] == "demo"
@@ -630,23 +630,23 @@ class TestConnectorAccountAPI:
 
         # Update
         resp = await client.put(
-            f"/api/connector-accounts/{account_id}",
+            f"/api/connectors/{account_id}",
             json={"name": "Bot 1 renamed"},
         )
         assert resp.status_code == 200
         assert resp.json()["name"] == "Bot 1 renamed"
 
         # Delete
-        resp = await client.delete(f"/api/connector-accounts/{account_id}")
+        resp = await client.delete(f"/api/connectors/{account_id}")
         assert resp.status_code == 200
         assert resp.json() == {"status": "ok"}
-        resp = await client.get(f"/api/connector-accounts/{account_id}")
+        resp = await client.get(f"/api/connectors/{account_id}")
         assert resp.status_code == 404
 
     async def test_list_returns_masked_secrets(self, client: AsyncClient) -> None:
-        """GET /api/connector-accounts masks secret values per-key."""
+        """GET /api/connectors masks secret values per-key."""
         await client.post(
-            "/api/connector-accounts",
+            "/api/connectors",
             json={
                 "name": "Discord Bot",
                 "type": "stub",
@@ -654,7 +654,7 @@ class TestConnectorAccountAPI:
                 "secrets": {"BOT_TOKEN": "secret_real_value"},
             },
         )
-        resp = await client.get("/api/connector-accounts")
+        resp = await client.get("/api/connectors")
         assert resp.status_code == 200
         data = resp.json()
         assert len(data) == 1
@@ -666,7 +666,7 @@ class TestConnectorAccountAPI:
     ) -> None:
         """PUT with secrets[key]='__MASKED__' preserves the stored value."""
         create = await client.post(
-            "/api/connector-accounts",
+            "/api/connectors",
             json={
                 "name": "Bot",
                 "type": "stub",
@@ -675,7 +675,7 @@ class TestConnectorAccountAPI:
         )
         account_id = create.json()["id"]
         await client.put(
-            f"/api/connector-accounts/{account_id}",
+            f"/api/connectors/{account_id}",
             json={
                 "name": "Bot renamed",
                 "type": "stub",
@@ -684,7 +684,7 @@ class TestConnectorAccountAPI:
         )
         # ***...alue confirms the stored ciphertext still decrypts to the
         # original "secret_real_value".
-        resp = await client.get(f"/api/connector-accounts/{account_id}")
+        resp = await client.get(f"/api/connectors/{account_id}")
         assert resp.json()["secrets"]["BOT_TOKEN"] == "***...alue"
         assert resp.json()["name"] == "Bot renamed"
         assert "secret_real_value" not in resp.text
@@ -700,7 +700,7 @@ class TestConnectorAccountAPI:
         from the_one.connectors._pool import agent_acquire
 
         create = await client.post(
-            "/api/connector-accounts",
+            "/api/connectors",
             json={
                 "name": "Bot",
                 "type": "stub",
@@ -713,7 +713,7 @@ class TestConnectorAccountAPI:
         assert ("test-agent", account_id) in pool_mod._pool
 
         resp = await client.put(
-            f"/api/connector-accounts/{account_id}",
+            f"/api/connectors/{account_id}",
             json={"secrets": {"BOT_TOKEN": "__MASKED__"}},
         )
         assert resp.status_code == 200
@@ -739,7 +739,7 @@ class TestConnectorAccountAPI:
         from the_one.connectors._pool import agent_acquire
 
         create = await client.post(
-            "/api/connector-accounts",
+            "/api/connectors",
             json={
                 "name": "Bot",
                 "type": "stub",
@@ -752,7 +752,7 @@ class TestConnectorAccountAPI:
         assert ("test-agent", account_id) in pool_mod._pool
 
         resp = await client.put(
-            f"/api/connector-accounts/{account_id}",
+            f"/api/connectors/{account_id}",
             json={"session_continuation_seconds": 3600},
         )
         assert resp.status_code == 200
@@ -761,7 +761,7 @@ class TestConnectorAccountAPI:
         assert ("test-agent", account_id) in pool_mod._pool
 
         # And the new value round-tripped.
-        getrr = await client.get(f"/api/connector-accounts/{account_id}")
+        getrr = await client.get(f"/api/connectors/{account_id}")
         assert getrr.json()["session_continuation_seconds"] == 3600
 
     async def test_dropping_a_key_evicts(self, client: AsyncClient) -> None:
@@ -770,7 +770,7 @@ class TestConnectorAccountAPI:
         from the_one.connectors._pool import agent_acquire
 
         create = await client.post(
-            "/api/connector-accounts",
+            "/api/connectors",
             json={
                 "name": "Bot",
                 "type": "stub",
@@ -783,7 +783,7 @@ class TestConnectorAccountAPI:
         assert ("test-agent", account_id) in pool_mod._pool
 
         resp = await client.put(
-            f"/api/connector-accounts/{account_id}",
+            f"/api/connectors/{account_id}",
             json={"secrets": {}},
         )
         assert resp.status_code == 200
@@ -796,7 +796,7 @@ class TestConnectorAccountAPI:
         from the_one.connectors._pool import agent_acquire
 
         create = await client.post(
-            "/api/connector-accounts",
+            "/api/connectors",
             json={
                 "name": "Bot",
                 "type": "stub",
@@ -809,7 +809,7 @@ class TestConnectorAccountAPI:
         assert ("test-agent", account_id) in pool_mod._pool
 
         resp = await client.put(
-            f"/api/connector-accounts/{account_id}",
+            f"/api/connectors/{account_id}",
             json={"secrets": {"BOT_TOKEN": "new_value"}},
         )
         assert resp.status_code == 200
@@ -827,7 +827,7 @@ class TestConnectorAccountAPI:
         from the_one.connectors._pool import agent_acquire
 
         create = await client.post(
-            "/api/connector-accounts",
+            "/api/connectors",
             json={
                 "name": "Bot",
                 "type": "stub",
@@ -840,7 +840,7 @@ class TestConnectorAccountAPI:
         assert ("test-agent", account_id) in pool_mod._pool
 
         resp = await client.put(
-            f"/api/connector-accounts/{account_id}",
+            f"/api/connectors/{account_id}",
             json={
                 "secrets": {
                     "BOT_TOKEN": "__MASKED__",
@@ -858,7 +858,7 @@ class TestConnectorAccountAPI:
         from the_one.connectors._pool import agent_acquire
 
         create = await client.post(
-            "/api/connector-accounts",
+            "/api/connectors",
             json={
                 "name": "Bot",
                 "type": "stub",
@@ -870,13 +870,13 @@ class TestConnectorAccountAPI:
         await agent_acquire("test-agent", account_id)
         assert ("test-agent", account_id) in pool_mod._pool
 
-        resp = await client.delete(f"/api/connector-accounts/{account_id}")
+        resp = await client.delete(f"/api/connectors/{account_id}")
         assert resp.status_code == 200
         assert resp.json() == {"status": "ok"}
 
         assert ("test-agent", account_id) not in pool_mod._pool
 
-        resp = await client.get(f"/api/connector-accounts/{account_id}")
+        resp = await client.get(f"/api/connectors/{account_id}")
         assert resp.status_code == 404
 
     async def test_types_returns_empty_in_production(
@@ -886,7 +886,7 @@ class TestConnectorAccountAPI:
         from the_one.connectors.registry import clear_for_test
 
         clear_for_test()
-        resp = await client.get("/api/connector-accounts/types")
+        resp = await client.get("/api/connectors/types")
         assert resp.status_code == 200
         assert resp.json() == []
 
@@ -897,7 +897,7 @@ class TestConnectorAccountAPI:
         (``'discord'`` post-F8 L2) then registers the stub on top, so
         /types returns both entries in sorted order.
         """
-        resp = await client.get("/api/connector-accounts/types")
+        resp = await client.get("/api/connectors/types")
         assert resp.status_code == 200
         # ``registry.types()`` returns a sorted list — the API mirrors that
         # order verbatim.
@@ -911,7 +911,7 @@ class TestConnectorAccountAPI:
     ) -> None:
         """POST missing the required ``type`` field returns 422."""
         resp = await client.post(
-            "/api/connector-accounts",
+            "/api/connectors",
             json={"name": "Bot"},  # missing `type`
         )
         assert resp.status_code == 422
@@ -935,7 +935,7 @@ class TestConnectorAccountAPI:
         """
         # Seed an account.
         create = await client.post(
-            "/api/connector-accounts",
+            "/api/connectors",
             json={"name": "Bot", "type": "stub"},
         )
         assert create.status_code == 201
@@ -949,32 +949,32 @@ class TestConnectorAccountAPI:
             "default": "bravo",
         }
         resp = await client.put(
-            f"/api/connector-accounts/{account_id}",
+            f"/api/connectors/{account_id}",
             json={"config": {"routing": routing_payload}},
         )
         assert resp.status_code == 200, resp.text
 
         # GET round-trip parity.
-        getrr = await client.get(f"/api/connector-accounts/{account_id}")
+        getrr = await client.get(f"/api/connectors/{account_id}")
         assert getrr.status_code == 200
         assert getrr.json()["config"]["routing"] == routing_payload
 
     async def test_unknown_account_returns_404(self, client: AsyncClient) -> None:
         """GET / PUT / DELETE on an unknown id return 404."""
-        resp = await client.get("/api/connector-accounts/nope")
+        resp = await client.get("/api/connectors/nope")
         assert resp.status_code == 404
-        assert "Connector account not found" in resp.json()["detail"]
+        assert "Connector not found" in resp.json()["detail"]
 
         resp = await client.put(
-            "/api/connector-accounts/nope",
+            "/api/connectors/nope",
             json={"name": "x"},
         )
         assert resp.status_code == 404
-        assert "Connector account not found" in resp.json()["detail"]
+        assert "Connector not found" in resp.json()["detail"]
 
-        resp = await client.delete("/api/connector-accounts/nope")
+        resp = await client.delete("/api/connectors/nope")
         assert resp.status_code == 404
-        assert "Connector account not found" in resp.json()["detail"]
+        assert "Connector not found" in resp.json()["detail"]
 
     # ── Rotation eviction (F2 L4) ──────────────────────────────────────
     async def test_rotation_evicts_warm_pool_entries(
@@ -998,7 +998,7 @@ class TestConnectorAccountAPI:
 
         # Setup: stub-typed account with non-empty secrets.
         resp = await client.post(
-            "/api/connector-accounts",
+            "/api/connectors",
             json={
                 "name": "rotation-target",
                 "type": "stub",
@@ -1062,7 +1062,7 @@ class TestConnectorAccountDoctor:
             register_for_test,
             restore_to_baseline_for_test,
         )
-        from the_one.db.repositories import ConnectorAccountRepository
+        from the_one.db.repositories import ConnectorRepository
         from the_one.interfaces.web.api import get_connection, get_encryptor
 
         await pool_mod._clear_for_test()
@@ -1072,7 +1072,7 @@ class TestConnectorAccountDoctor:
 
         async def _patched_load_account(account_id, encryptor):
             conn = await get_connection()
-            repo = ConnectorAccountRepository(conn, get_encryptor(""))
+            repo = ConnectorRepository(conn, get_encryptor(""))
             return await repo.get(account_id)
 
         monkeypatch.setattr(pool_mod, "_load_account", _patched_load_account)
@@ -1086,7 +1086,7 @@ class TestConnectorAccountDoctor:
     async def _create_stub_account(self, client: AsyncClient) -> str:
         """Helper — create a stub-typed account, return its id."""
         resp = await client.post(
-            "/api/connector-accounts",
+            "/api/connectors",
             json={
                 "name": "doctor-target",
                 "type": "stub",
@@ -1101,7 +1101,7 @@ class TestConnectorAccountDoctor:
         account_id = await self._create_stub_account(client)
 
         resp = await client.post(
-            f"/api/connector-accounts/{account_id}/test/connect"
+            f"/api/connectors/{account_id}/test/connect"
         )
         assert resp.status_code == 200
         assert resp.json() == {
@@ -1125,7 +1125,7 @@ class TestConnectorAccountDoctor:
 
         account_id = await self._create_stub_account(client)
         resp = await client.post(
-            f"/api/connector-accounts/{account_id}/test/connect"
+            f"/api/connectors/{account_id}/test/connect"
         )
         assert resp.status_code == 200
         assert resp.json() == {
@@ -1153,7 +1153,7 @@ class TestConnectorAccountDoctor:
 
         account_id = await self._create_stub_account(client)
         resp = await client.post(
-            f"/api/connector-accounts/{account_id}/test/connect"
+            f"/api/connectors/{account_id}/test/connect"
         )
         assert resp.status_code == 200
         body = resp.json()
@@ -1171,7 +1171,7 @@ class TestConnectorAccountDoctor:
         Mirrors the MCP "unknown transport" pattern so the UI banner
         renders inline rather than triggering a global error handler.
 
-        M10 F8 L2: ``ConnectorAccount.type`` was tightened to
+        M10 F8 L2: ``Connector.type`` was tightened to
         ``Literal["discord", "stub"]``, so the POST path can no longer
         accept an arbitrary type string. The test now seeds a
         ``'discord'``-typed account via the API (the production registry
@@ -1186,7 +1186,7 @@ class TestConnectorAccountDoctor:
         from the_one.connectors.registry import clear_for_test
 
         resp = await client.post(
-            "/api/connector-accounts",
+            "/api/connectors",
             json={
                 "name": "alien",
                 "type": "discord",
@@ -1201,7 +1201,7 @@ class TestConnectorAccountDoctor:
         clear_for_test()
 
         resp = await client.post(
-            f"/api/connector-accounts/{account_id}/test/connect"
+            f"/api/connectors/{account_id}/test/connect"
         )
         assert resp.status_code == 200
         assert resp.json() == {
@@ -1226,7 +1226,7 @@ class TestConnectorAccountDoctor:
 
         account_id = await self._create_stub_account(client)
         resp = await client.post(
-            f"/api/connector-accounts/{account_id}/test/connect"
+            f"/api/connectors/{account_id}/test/connect"
         )
         assert resp.status_code == 200
         assert resp.json() == {
@@ -1243,11 +1243,11 @@ class TestConnectorAccountDoctor:
     ) -> None:
         """POST to a made-up id returns 404 with the canonical detail string."""
         resp = await client.post(
-            "/api/connector-accounts/does-not-exist/test/connect"
+            "/api/connectors/does-not-exist/test/connect"
         )
         assert resp.status_code == 404
         assert resp.json()["detail"] == (
-            "Connector account not found: does-not-exist"
+            "Connector not found: does-not-exist"
         )
 
     async def test_doctor_probe_records_the_call(
@@ -1258,7 +1258,7 @@ class TestConnectorAccountDoctor:
 
         account_id = await self._create_stub_account(client)
         resp = await client.post(
-            f"/api/connector-accounts/{account_id}/test/connect"
+            f"/api/connectors/{account_id}/test/connect"
         )
         assert resp.status_code == 200
         assert StubPlugin.doctor_calls == [(account_id, "stub")]
@@ -1279,7 +1279,7 @@ class TestConnectorAccountDoctor:
 
         account_id = await self._create_stub_account(client)
         resp = await client.post(
-            f"/api/connector-accounts/{account_id}/test/connect"
+            f"/api/connectors/{account_id}/test/connect"
         )
         assert resp.status_code == 200
         body = resp.json()
@@ -1306,7 +1306,7 @@ class TestConnectorAccountDoctor:
 
         account_id = await self._create_stub_account(client)
         resp = await client.post(
-            f"/api/connector-accounts/{account_id}/test/connect"
+            f"/api/connectors/{account_id}/test/connect"
         )
         assert resp.status_code == 200
         body = resp.json()
@@ -1341,7 +1341,7 @@ class TestConnectorAccountDoctor:
 
         account_id = await self._create_stub_account(client)
         resp = await client.post(
-            f"/api/connector-accounts/{account_id}/test/connect"
+            f"/api/connectors/{account_id}/test/connect"
         )
         assert resp.status_code == 200
         body = resp.json()
@@ -1360,11 +1360,11 @@ class TestConnectorAccountPairingCodeAndAttached:
 
     Covers the two new endpoints:
 
-      * ``POST /api/connector-accounts/{id}/pairing-code`` — generates
+      * ``POST /api/connectors/{id}/pairing-code`` — generates
         an 8-hex pairing code and writes ``config["pairing"]`` via the
         repository.
-      * ``GET  /api/connector-accounts/{id}/attached-agents`` — lists
-        agents whose ``connector_account_ids`` includes the account,
+      * ``GET  /api/connectors/{id}/attached-agents`` — lists
+        agents whose ``connector_ids`` includes the account,
         with per-row peer/channel counts from ``connector_acls``.
 
     Plus a regression net at the API edge for leg-1b's empty-allowlist
@@ -1390,7 +1390,7 @@ class TestConnectorAccountPairingCodeAndAttached:
             register_for_test,
             restore_to_baseline_for_test,
         )
-        from the_one.db.repositories import ConnectorAccountRepository
+        from the_one.db.repositories import ConnectorRepository
         from the_one.interfaces.web.api import get_connection, get_encryptor
 
         await pool_mod._clear_for_test()
@@ -1400,7 +1400,7 @@ class TestConnectorAccountPairingCodeAndAttached:
 
         async def _patched_load_account(account_id, encryptor):
             conn = await get_connection()
-            repo = ConnectorAccountRepository(conn, get_encryptor(""))
+            repo = ConnectorRepository(conn, get_encryptor(""))
             return await repo.get(account_id)
 
         monkeypatch.setattr(pool_mod, "_load_account", _patched_load_account)
@@ -1417,7 +1417,7 @@ class TestConnectorAccountPairingCodeAndAttached:
         body = {"name": "pairing-target", "type": "stub", "secrets": {}}
         if config is not None:
             body["config"] = config
-        resp = await client.post("/api/connector-accounts", json=body)
+        resp = await client.post("/api/connectors", json=body)
         assert resp.status_code == 201, resp.text
         return resp.json()["id"]
 
@@ -1429,7 +1429,7 @@ class TestConnectorAccountPairingCodeAndAttached:
         """POST returns ``{code: 8-hex, issued_at: iso}``."""
         account_id = await self._create_account(client)
         resp = await client.post(
-            f"/api/connector-accounts/{account_id}/pairing-code"
+            f"/api/connectors/{account_id}/pairing-code"
         )
         assert resp.status_code == 200, resp.text
         body = resp.json()
@@ -1448,12 +1448,12 @@ class TestConnectorAccountPairingCodeAndAttached:
         """Generated code + timestamp are persisted to ``config["pairing"]``."""
         account_id = await self._create_account(client)
         gen = await client.post(
-            f"/api/connector-accounts/{account_id}/pairing-code"
+            f"/api/connectors/{account_id}/pairing-code"
         )
         assert gen.status_code == 200
         expected = gen.json()
 
-        getr = await client.get(f"/api/connector-accounts/{account_id}")
+        getr = await client.get(f"/api/connectors/{account_id}")
         assert getr.status_code == 200
         pairing = getr.json()["config"]["pairing"]
         assert pairing == {
@@ -1468,13 +1468,13 @@ class TestConnectorAccountPairingCodeAndAttached:
         account_id = await self._create_account(client)
 
         first = await client.post(
-            f"/api/connector-accounts/{account_id}/pairing-code"
+            f"/api/connectors/{account_id}/pairing-code"
         )
         assert first.status_code == 200
         first_body = first.json()
 
         second = await client.post(
-            f"/api/connector-accounts/{account_id}/pairing-code"
+            f"/api/connectors/{account_id}/pairing-code"
         )
         assert second.status_code == 200
         second_body = second.json()
@@ -1483,7 +1483,7 @@ class TestConnectorAccountPairingCodeAndAttached:
         # rare, but we assert inequality on the persisted copy to pin
         # the "regenerate replaces" semantic without relying on the
         # response codes being distinct.
-        getr = await client.get(f"/api/connector-accounts/{account_id}")
+        getr = await client.get(f"/api/connectors/{account_id}")
         stored = getr.json()["config"]["pairing"]
         assert stored == {
             "code": second_body["code"],
@@ -1508,11 +1508,11 @@ class TestConnectorAccountPairingCodeAndAttached:
             },
         )
         gen = await client.post(
-            f"/api/connector-accounts/{account_id}/pairing-code"
+            f"/api/connectors/{account_id}/pairing-code"
         )
         assert gen.status_code == 200
 
-        getr = await client.get(f"/api/connector-accounts/{account_id}")
+        getr = await client.get(f"/api/connectors/{account_id}")
         cfg = getr.json()["config"]
         assert cfg["intent"] == "guild_messages"
         # M11 F10 L1: validator inserts ``dm_admission`` fresh-account
@@ -1529,11 +1529,11 @@ class TestConnectorAccountPairingCodeAndAttached:
         self, client: AsyncClient
     ) -> None:
         resp = await client.post(
-            "/api/connector-accounts/does-not-exist/pairing-code"
+            "/api/connectors/does-not-exist/pairing-code"
         )
         assert resp.status_code == 404
         assert resp.json()["detail"] == (
-            "Connector account not found: does-not-exist"
+            "Connector not found: does-not-exist"
         )
 
     # ── attached-agents endpoint ──────────────────────────────────────────
@@ -1544,7 +1544,7 @@ class TestConnectorAccountPairingCodeAndAttached:
         """Account with no agent references → ``[]``."""
         account_id = await self._create_account(client)
         resp = await client.get(
-            f"/api/connector-accounts/{account_id}/attached-agents"
+            f"/api/connectors/{account_id}/attached-agents"
         )
         assert resp.status_code == 200
         assert resp.json() == []
@@ -1567,13 +1567,13 @@ class TestConnectorAccountPairingCodeAndAttached:
             "/api/agents",
             json={
                 "name": "agent-attached",
-                "connector_account_ids": [account_id],
+                "connector_ids": [account_id],
             },
         )
         assert resp.status_code in (200, 201), resp.text
 
         resp = await client.get(
-            f"/api/connector-accounts/{account_id}/attached-agents"
+            f"/api/connectors/{account_id}/attached-agents"
         )
         assert resp.status_code == 200
         assert resp.json() == [
@@ -1597,7 +1597,7 @@ class TestConnectorAccountPairingCodeAndAttached:
             "/api/agents",
             json={
                 "name": "agent-with-acl",
-                "connector_account_ids": [account_id],
+                "connector_ids": [account_id],
                 "connector_acls": {
                     account_id: {
                         "peers": ["u1", "u2", "u3"],
@@ -1615,7 +1615,7 @@ class TestConnectorAccountPairingCodeAndAttached:
             "/api/agents",
             json={
                 "name": "agent-no-acl",
-                "connector_account_ids": [account_id],
+                "connector_ids": [account_id],
             },
         )
         assert resp.status_code in (200, 201), resp.text
@@ -1624,12 +1624,12 @@ class TestConnectorAccountPairingCodeAndAttached:
         # excluded from the response entirely.
         resp = await client.post(
             "/api/agents",
-            json={"name": "agent-unrelated", "connector_account_ids": []},
+            json={"name": "agent-unrelated", "connector_ids": []},
         )
         assert resp.status_code in (200, 201), resp.text
 
         resp = await client.get(
-            f"/api/connector-accounts/{account_id}/attached-agents"
+            f"/api/connectors/{account_id}/attached-agents"
         )
         assert resp.status_code == 200
         rows = sorted(resp.json(), key=lambda r: r["name"])
@@ -1663,7 +1663,7 @@ class TestConnectorAccountPairingCodeAndAttached:
             "/api/agents",
             json={
                 "name": "agent-a",
-                "connector_account_ids": [account_id],
+                "connector_ids": [account_id],
                 "connector_acls": {
                     account_id: {"peers": [], "channels": None},
                 },
@@ -1676,7 +1676,7 @@ class TestConnectorAccountPairingCodeAndAttached:
             "/api/agents",
             json={
                 "name": "agent-b",
-                "connector_account_ids": [account_id],
+                "connector_ids": [account_id],
                 "connector_acls": {
                     account_id: {"peers": ["u1"], "channels": []},
                 },
@@ -1685,7 +1685,7 @@ class TestConnectorAccountPairingCodeAndAttached:
         assert resp.status_code in (200, 201), resp.text
 
         resp = await client.get(
-            f"/api/connector-accounts/{account_id}/attached-agents"
+            f"/api/connectors/{account_id}/attached-agents"
         )
         assert resp.status_code == 200
         rows = sorted(resp.json(), key=lambda r: r["name"])
@@ -1710,11 +1710,11 @@ class TestConnectorAccountPairingCodeAndAttached:
         self, client: AsyncClient
     ) -> None:
         resp = await client.get(
-            "/api/connector-accounts/does-not-exist/attached-agents"
+            "/api/connectors/does-not-exist/attached-agents"
         )
         assert resp.status_code == 404
         assert resp.json()["detail"] == (
-            "Connector account not found: does-not-exist"
+            "Connector not found: does-not-exist"
         )
 
     # ── Empty-allowlist API-edge round-trip (leg-1b invariant) ────────────
@@ -1732,7 +1732,7 @@ class TestConnectorAccountPairingCodeAndAttached:
         """
         account_id = await self._create_account(client)
         put = await client.put(
-            f"/api/connector-accounts/{account_id}",
+            f"/api/connectors/{account_id}",
             json={
                 "name": "pairing-target",
                 "type": "stub",
@@ -1741,7 +1741,7 @@ class TestConnectorAccountPairingCodeAndAttached:
         )
         assert put.status_code == 200, put.text
 
-        getr = await client.get(f"/api/connector-accounts/{account_id}")
+        getr = await client.get(f"/api/connectors/{account_id}")
         assert getr.status_code == 200
         allowlist = getr.json()["config"]["allowlist"]
         # Verbatim — NOT absent, NOT coerced to null/None. M11 F10 L1
@@ -1763,7 +1763,7 @@ class TestConnectorAccountPairingCodeAndAttached:
         """
         account_id = await self._create_account(client)
         put = await client.put(
-            f"/api/connector-accounts/{account_id}",
+            f"/api/connectors/{account_id}",
             json={
                 "name": "dm-admission-target",
                 "type": "stub",
@@ -1774,7 +1774,7 @@ class TestConnectorAccountPairingCodeAndAttached:
         )
         assert put.status_code == 200, put.text
 
-        getr = await client.get(f"/api/connector-accounts/{account_id}")
+        getr = await client.get(f"/api/connectors/{account_id}")
         assert getr.status_code == 200
         allowlist = getr.json()["config"]["allowlist"]
         assert allowlist == {
@@ -1792,7 +1792,7 @@ class TestConnectorAccountPairingCodeAndAttached:
         """
         account_id = await self._create_account(client)
         put = await client.put(
-            f"/api/connector-accounts/{account_id}",
+            f"/api/connectors/{account_id}",
             json={
                 "name": "dm-admission-bad",
                 "type": "stub",
@@ -1813,7 +1813,7 @@ class TestConnectorAccountPairingCodeAndAttached:
         """
         account_id = await self._create_account(client)
         put = await client.put(
-            f"/api/connector-accounts/{account_id}",
+            f"/api/connectors/{account_id}",
             json={
                 "name": "dm-admission-non-string",
                 "type": "stub",
@@ -1834,11 +1834,11 @@ class TestConnectorAccountPeerApprovals:
 
     Covers the two new endpoints:
 
-      * ``POST /api/connector-accounts/{id}/peer-approvals/{approval_id}/approve``
+      * ``POST /api/connectors/{id}/peer-approvals/{approval_id}/approve``
         — transitions the pending_approvals row to ``status='approved'``
         and adds the peer to ``account.config['allowlist']['peers']``
         (idempotent).
-      * ``POST /api/connector-accounts/{id}/peer-approvals/{approval_id}/dismiss``
+      * ``POST /api/connectors/{id}/peer-approvals/{approval_id}/dismiss``
         — transitions the row to ``status='dismissed'``; does NOT mutate
         the allowlist.
 
@@ -1857,7 +1857,7 @@ class TestConnectorAccountPeerApprovals:
             register_for_test,
             restore_to_baseline_for_test,
         )
-        from the_one.db.repositories import ConnectorAccountRepository
+        from the_one.db.repositories import ConnectorRepository
         from the_one.interfaces.web.api import get_connection, get_encryptor
 
         await pool_mod._clear_for_test()
@@ -1867,7 +1867,7 @@ class TestConnectorAccountPeerApprovals:
 
         async def _patched_load_account(account_id, encryptor):
             conn = await get_connection()
-            repo = ConnectorAccountRepository(conn, get_encryptor(""))
+            repo = ConnectorRepository(conn, get_encryptor(""))
             return await repo.get(account_id)
 
         monkeypatch.setattr(pool_mod, "_load_account", _patched_load_account)
@@ -1884,7 +1884,7 @@ class TestConnectorAccountPeerApprovals:
         body = {"name": "approval-target", "type": "stub", "secrets": {}}
         if config is not None:
             body["config"] = config
-        resp = await client.post("/api/connector-accounts", json=body)
+        resp = await client.post("/api/connectors", json=body)
         assert resp.status_code == 201, resp.text
         return resp.json()["id"]
 
@@ -1914,7 +1914,7 @@ class TestConnectorAccountPeerApprovals:
         conn = await get_connection()
         repo = PendingApprovalRepository(conn)
         approval = await repo.upsert_pending(
-            connector_account_id=account_id,
+            connector_id=account_id,
             peer_id=peer_id,
             peer_name=peer_name,
             preview=preview,
@@ -1931,13 +1931,13 @@ class TestConnectorAccountPeerApprovals:
         approval_id = await self._create_pending_approval(account_id)
 
         resp = await client.post(
-            f"/api/connector-accounts/{account_id}"
+            f"/api/connectors/{account_id}"
             f"/peer-approvals/{approval_id}/approve"
         )
         assert resp.status_code == 200, resp.text
         body = resp.json()
         assert body["id"] == approval_id
-        assert body["connector_account_id"] == account_id
+        assert body["connector_id"] == account_id
         assert body["peer_id"] == "peer-1"
         assert body["peer_name"] == "Test Peer"
         assert body["preview"] == "hello"
@@ -1955,12 +1955,12 @@ class TestConnectorAccountPeerApprovals:
         )
 
         resp = await client.post(
-            f"/api/connector-accounts/{account_id}"
+            f"/api/connectors/{account_id}"
             f"/peer-approvals/{approval_id}/approve"
         )
         assert resp.status_code == 200, resp.text
 
-        getr = await client.get(f"/api/connector-accounts/{account_id}")
+        getr = await client.get(f"/api/connectors/{account_id}")
         assert getr.status_code == 200
         allowlist = getr.json()["config"]["allowlist"]
         assert "peer-add-me" in allowlist["peers"]
@@ -1975,18 +1975,18 @@ class TestConnectorAccountPeerApprovals:
         )
 
         first = await client.post(
-            f"/api/connector-accounts/{account_id}"
+            f"/api/connectors/{account_id}"
             f"/peer-approvals/{approval_id}/approve"
         )
         assert first.status_code == 200, first.text
 
         second = await client.post(
-            f"/api/connector-accounts/{account_id}"
+            f"/api/connectors/{account_id}"
             f"/peer-approvals/{approval_id}/approve"
         )
         assert second.status_code == 200, second.text
 
-        getr = await client.get(f"/api/connector-accounts/{account_id}")
+        getr = await client.get(f"/api/connectors/{account_id}")
         peers = getr.json()["config"]["allowlist"]["peers"]
         assert peers.count("peer-dup-check") == 1
 
@@ -2004,7 +2004,7 @@ class TestConnectorAccountPeerApprovals:
         # Stamp a pairing block separately via the pairing-code endpoint
         # so we have a third reserved key to assert survives.
         pair = await client.post(
-            f"/api/connector-accounts/{account_id}/pairing-code"
+            f"/api/connectors/{account_id}/pairing-code"
         )
         assert pair.status_code == 200
         pairing_before = pair.json()
@@ -2013,12 +2013,12 @@ class TestConnectorAccountPeerApprovals:
             account_id, peer_id="peer-new"
         )
         resp = await client.post(
-            f"/api/connector-accounts/{account_id}"
+            f"/api/connectors/{account_id}"
             f"/peer-approvals/{approval_id}/approve"
         )
         assert resp.status_code == 200, resp.text
 
-        getr = await client.get(f"/api/connector-accounts/{account_id}")
+        getr = await client.get(f"/api/connectors/{account_id}")
         cfg = getr.json()["config"]
         assert cfg["intent"] == "guild_messages"
         assert cfg["allowlist"]["channels"] == ["c-keep"]
@@ -2037,14 +2037,14 @@ class TestConnectorAccountPeerApprovals:
         approval_id = await self._create_pending_approval(account_id)
 
         first = await client.post(
-            f"/api/connector-accounts/{account_id}"
+            f"/api/connectors/{account_id}"
             f"/peer-approvals/{approval_id}/approve"
         )
         assert first.status_code == 200, first.text
         first_body = first.json()
 
         second = await client.post(
-            f"/api/connector-accounts/{account_id}"
+            f"/api/connectors/{account_id}"
             f"/peer-approvals/{approval_id}/approve"
         )
         assert second.status_code == 200, second.text
@@ -2064,13 +2064,13 @@ class TestConnectorAccountPeerApprovals:
         approval_id = await self._create_pending_approval(account_id)
 
         dismiss = await client.post(
-            f"/api/connector-accounts/{account_id}"
+            f"/api/connectors/{account_id}"
             f"/peer-approvals/{approval_id}/dismiss"
         )
         assert dismiss.status_code == 200, dismiss.text
 
         approve = await client.post(
-            f"/api/connector-accounts/{account_id}"
+            f"/api/connectors/{account_id}"
             f"/peer-approvals/{approval_id}/approve"
         )
         assert approve.status_code == 409, approve.text
@@ -2080,12 +2080,12 @@ class TestConnectorAccountPeerApprovals:
     ) -> None:
         """POST against a fake account id → 404."""
         resp = await client.post(
-            "/api/connector-accounts/does-not-exist"
+            "/api/connectors/does-not-exist"
             "/peer-approvals/anything/approve"
         )
         assert resp.status_code == 404
         assert resp.json()["detail"] == (
-            "Connector account not found: does-not-exist"
+            "Connector not found: does-not-exist"
         )
 
     async def test_approve_unknown_approval_returns_404(
@@ -2094,7 +2094,7 @@ class TestConnectorAccountPeerApprovals:
         """Real account, fake approval id → 404."""
         account_id = await self._create_account(client)
         resp = await client.post(
-            f"/api/connector-accounts/{account_id}"
+            f"/api/connectors/{account_id}"
             f"/peer-approvals/no-such-approval/approve"
         )
         assert resp.status_code == 404
@@ -2110,7 +2110,7 @@ class TestConnectorAccountPeerApprovals:
         # Create a second account using a different name (the helper's
         # default name would collide on the UNIQUE constraint).
         resp = await client.post(
-            "/api/connector-accounts",
+            "/api/connectors",
             json={"name": "approval-target-b", "type": "stub", "secrets": {}},
         )
         assert resp.status_code == 201, resp.text
@@ -2119,7 +2119,7 @@ class TestConnectorAccountPeerApprovals:
         approval_id = await self._create_pending_approval(account_a)
 
         resp = await client.post(
-            f"/api/connector-accounts/{account_b}"
+            f"/api/connectors/{account_b}"
             f"/peer-approvals/{approval_id}/approve"
         )
         assert resp.status_code == 404
@@ -2137,7 +2137,7 @@ class TestConnectorAccountPeerApprovals:
         approval_id = await self._create_pending_approval(account_id)
 
         resp = await client.post(
-            f"/api/connector-accounts/{account_id}"
+            f"/api/connectors/{account_id}"
             f"/peer-approvals/{approval_id}/dismiss"
         )
         assert resp.status_code == 200, resp.text
@@ -2159,12 +2159,12 @@ class TestConnectorAccountPeerApprovals:
         )
 
         resp = await client.post(
-            f"/api/connector-accounts/{account_id}"
+            f"/api/connectors/{account_id}"
             f"/peer-approvals/{approval_id}/dismiss"
         )
         assert resp.status_code == 200, resp.text
 
-        getr = await client.get(f"/api/connector-accounts/{account_id}")
+        getr = await client.get(f"/api/connectors/{account_id}")
         allowlist = getr.json()["config"]["allowlist"]
         # M11 F10 L1: validator inserts ``dm_admission`` fresh-account
         # default; non-allowlist fields stay verbatim.
@@ -2182,14 +2182,14 @@ class TestConnectorAccountPeerApprovals:
         approval_id = await self._create_pending_approval(account_id)
 
         first = await client.post(
-            f"/api/connector-accounts/{account_id}"
+            f"/api/connectors/{account_id}"
             f"/peer-approvals/{approval_id}/dismiss"
         )
         assert first.status_code == 200, first.text
         first_body = first.json()
 
         second = await client.post(
-            f"/api/connector-accounts/{account_id}"
+            f"/api/connectors/{account_id}"
             f"/peer-approvals/{approval_id}/dismiss"
         )
         assert second.status_code == 200, second.text
@@ -2207,13 +2207,13 @@ class TestConnectorAccountPeerApprovals:
         approval_id = await self._create_pending_approval(account_id)
 
         approve = await client.post(
-            f"/api/connector-accounts/{account_id}"
+            f"/api/connectors/{account_id}"
             f"/peer-approvals/{approval_id}/approve"
         )
         assert approve.status_code == 200, approve.text
 
         dismiss = await client.post(
-            f"/api/connector-accounts/{account_id}"
+            f"/api/connectors/{account_id}"
             f"/peer-approvals/{approval_id}/dismiss"
         )
         assert dismiss.status_code == 409, dismiss.text
@@ -2222,12 +2222,12 @@ class TestConnectorAccountPeerApprovals:
         self, client: AsyncClient
     ) -> None:
         resp = await client.post(
-            "/api/connector-accounts/does-not-exist"
+            "/api/connectors/does-not-exist"
             "/peer-approvals/anything/dismiss"
         )
         assert resp.status_code == 404
         assert resp.json()["detail"] == (
-            "Connector account not found: does-not-exist"
+            "Connector not found: does-not-exist"
         )
 
     async def test_dismiss_unknown_approval_returns_404(
@@ -2235,7 +2235,7 @@ class TestConnectorAccountPeerApprovals:
     ) -> None:
         account_id = await self._create_account(client)
         resp = await client.post(
-            f"/api/connector-accounts/{account_id}"
+            f"/api/connectors/{account_id}"
             f"/peer-approvals/no-such-approval/dismiss"
         )
         assert resp.status_code == 404
@@ -2249,7 +2249,7 @@ class TestConnectorAccountPeerApprovals:
         """Approval belongs to account-A; dismiss against account-B → 404."""
         account_a = await self._create_account(client)
         resp = await client.post(
-            "/api/connector-accounts",
+            "/api/connectors",
             json={"name": "approval-target-b", "type": "stub", "secrets": {}},
         )
         assert resp.status_code == 201, resp.text
@@ -2258,7 +2258,7 @@ class TestConnectorAccountPeerApprovals:
         approval_id = await self._create_pending_approval(account_a)
 
         resp = await client.post(
-            f"/api/connector-accounts/{account_b}"
+            f"/api/connectors/{account_b}"
             f"/peer-approvals/{approval_id}/dismiss"
         )
         assert resp.status_code == 404
@@ -2280,12 +2280,12 @@ class TestConnectorAccountPeerApprovals:
         )
 
         resp = await client.post(
-            f"/api/connector-accounts/{account_id}"
+            f"/api/connectors/{account_id}"
             f"/peer-approvals/{approval_id}/approve"
         )
         assert resp.status_code == 200, resp.text
 
-        getr = await client.get(f"/api/connector-accounts/{account_id}")
+        getr = await client.get(f"/api/connectors/{account_id}")
         cfg = getr.json()["config"]
         # M11 F10 L1: validator inserts the ``dm_admission`` fresh-
         # account default when an allowlist is constructed but the key
@@ -2304,9 +2304,9 @@ class TestConnectorAccountPeerApprovals:
 class TestAgentConnectorDetach:
     """REST surface for the F9 L5 operator-driven detach endpoint.
 
-    Covers ``DELETE /api/agents/{agent_name}/connector-accounts/{account_id}``:
+    Covers ``DELETE /api/agents/{agent_name}/connectors/{account_id}``:
 
-      * Happy path — account_id is in the agent's ``connector_account_ids``;
+      * Happy path — account_id is in the agent's ``connector_ids``;
         gets removed; pool slot released.
       * Idempotent no-op — account_id is NOT in the list; 200 + no change.
       * 404 — unknown agent name.
@@ -2328,7 +2328,7 @@ class TestAgentConnectorDetach:
             register_for_test,
             restore_to_baseline_for_test,
         )
-        from the_one.db.repositories import ConnectorAccountRepository
+        from the_one.db.repositories import ConnectorRepository
         from the_one.interfaces.web.api import get_connection, get_encryptor
 
         await pool_mod._clear_for_test()
@@ -2338,7 +2338,7 @@ class TestAgentConnectorDetach:
 
         async def _patched_load_account(account_id, encryptor):
             conn = await get_connection()
-            repo = ConnectorAccountRepository(conn, get_encryptor(""))
+            repo = ConnectorRepository(conn, get_encryptor(""))
             return await repo.get(account_id)
 
         monkeypatch.setattr(pool_mod, "_load_account", _patched_load_account)
@@ -2351,13 +2351,13 @@ class TestAgentConnectorDetach:
 
     async def _create_account(self, client: AsyncClient, name: str = "detach-target") -> str:
         resp = await client.post(
-            "/api/connector-accounts",
+            "/api/connectors",
             json={"name": name, "type": "stub", "secrets": {}},
         )
         assert resp.status_code == 201, resp.text
         return resp.json()["id"]
 
-    async def test_detach_removes_account_from_agent_connector_account_ids(
+    async def test_detach_removes_account_from_agent_connector_ids(
         self, client: AsyncClient
     ) -> None:
         """Happy path — account is in the agent's list; DELETE removes it
@@ -2368,24 +2368,24 @@ class TestAgentConnectorDetach:
             "/api/agents",
             json={
                 "name": "agent-detach-happy",
-                "connector_account_ids": [account_id],
+                "connector_ids": [account_id],
             },
         )
         assert resp.status_code in (200, 201), resp.text
 
         resp = await client.delete(
-            f"/api/agents/agent-detach-happy/connector-accounts/{account_id}"
+            f"/api/agents/agent-detach-happy/connectors/{account_id}"
         )
         assert resp.status_code == 200, resp.text
         body = resp.json()
         # Response is the agent config — same shape as PUT.
         assert body["name"] == "agent-detach-happy"
-        assert body["connector_account_ids"] == []
+        assert body["connector_ids"] == []
 
         # Verify via GET that the persisted state agrees.
         getr = await client.get("/api/agents/agent-detach-happy")
         assert getr.status_code == 200
-        assert getr.json()["connector_account_ids"] == []
+        assert getr.json()["connector_ids"] == []
 
     async def test_detach_preserves_other_account_ids(
         self, client: AsyncClient
@@ -2398,16 +2398,16 @@ class TestAgentConnectorDetach:
             "/api/agents",
             json={
                 "name": "agent-detach-siblings",
-                "connector_account_ids": [a1, a2],
+                "connector_ids": [a1, a2],
             },
         )
         assert resp.status_code in (200, 201), resp.text
 
         resp = await client.delete(
-            f"/api/agents/agent-detach-siblings/connector-accounts/{a1}"
+            f"/api/agents/agent-detach-siblings/connectors/{a1}"
         )
         assert resp.status_code == 200, resp.text
-        assert resp.json()["connector_account_ids"] == [a2]
+        assert resp.json()["connector_ids"] == [a2]
 
     async def test_detach_idempotent_on_already_detached(
         self, client: AsyncClient
@@ -2427,10 +2427,10 @@ class TestAgentConnectorDetach:
         assert resp.status_code in (200, 201), resp.text
 
         resp = await client.delete(
-            f"/api/agents/agent-already-detached/connector-accounts/{account_id}"
+            f"/api/agents/agent-already-detached/connectors/{account_id}"
         )
         assert resp.status_code == 200, resp.text
-        assert resp.json()["connector_account_ids"] == []
+        assert resp.json()["connector_ids"] == []
 
     async def test_detach_unknown_agent_returns_404(
         self, client: AsyncClient
@@ -2439,7 +2439,7 @@ class TestAgentConnectorDetach:
         account_id = await self._create_account(client)
 
         resp = await client.delete(
-            f"/api/agents/no-such-agent/connector-accounts/{account_id}"
+            f"/api/agents/no-such-agent/connectors/{account_id}"
         )
         assert resp.status_code == 404
         assert resp.json()["detail"] == "Agent not found: no-such-agent"
@@ -2459,7 +2459,7 @@ class TestAgentConnectorDetach:
             "/api/agents",
             json={
                 "name": "agent-pool-release",
-                "connector_account_ids": [account_id],
+                "connector_ids": [account_id],
             },
         )
         assert resp.status_code in (200, 201), resp.text
@@ -2469,7 +2469,7 @@ class TestAgentConnectorDetach:
         assert ("agent-pool-release", account_id) in _keys_for_test()
 
         resp = await client.delete(
-            f"/api/agents/agent-pool-release/connector-accounts/{account_id}"
+            f"/api/agents/agent-pool-release/connectors/{account_id}"
         )
         assert resp.status_code == 200, resp.text
 
@@ -2479,9 +2479,9 @@ class TestAgentConnectorDetach:
     async def test_list_connector_accounts_includes_attached_agents_count(
         self, client: AsyncClient
     ) -> None:
-        """``GET /api/connector-accounts`` response items carry
+        """``GET /api/connectors`` response items carry
         ``attached_agents_count: int`` reflecting the count of agents
-        whose ``connector_account_ids`` includes the account.
+        whose ``connector_ids`` includes the account.
         """
         a1 = await self._create_account(client, name="count-acct-1")
         a2 = await self._create_account(client, name="count-acct-2")
@@ -2490,11 +2490,11 @@ class TestAgentConnectorDetach:
         for name in ("agent-count-a", "agent-count-b"):
             resp = await client.post(
                 "/api/agents",
-                json={"name": name, "connector_account_ids": [a1]},
+                json={"name": name, "connector_ids": [a1]},
             )
             assert resp.status_code in (200, 201), resp.text
 
-        resp = await client.get("/api/connector-accounts")
+        resp = await client.get("/api/connectors")
         assert resp.status_code == 200, resp.text
         by_id = {row["id"]: row for row in resp.json()}
 

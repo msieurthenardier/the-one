@@ -4,24 +4,25 @@ Mirrors the_one/db/_provider_types.py exactly in role: three layers must
 agree on the valid values, and the tuple below is the canonical list each
 re-derives its representation from.
 
-- The Pydantic ``Literal`` annotation on ``ConnectorAccount.type`` (compile-time
+- The Pydantic ``Literal`` annotation on ``Connector.type`` (compile-time
   type checking, JSON-schema generation, request validation at the API edge)
   — landed in the models-and-repository leg of flight 1; narrowed to
   ``Literal["discord", "stub"]`` by M10 F8 L2 once ``CONNECTOR_TYPES`` was
   populated.
-- The SQLite CHECK constraint string baked into the ``connector_accounts``
+- The SQLite CHECK constraint string baked into the ``connectors``
   table (runtime DB-level rejection of bogus rows) — added in **v19 → F8 L2
   (Discord)** via the table-rename ceremony established by v6/v12. The
   ``_CONNECTOR_TYPES_SQL`` projection at ``db/schema.py`` (immediately below
   ``_PROVIDER_TYPES_SQL``) re-derives the SQL literal list from the tuple
   below so a future connector type added here flows automatically into the
   next CHECK-changing migration. v14 → ``name`` column on
-  ``connector_accounts`` (F1 L2); v15 → ``idle_timeout_seconds`` (F2 L2);
+  ``connectors`` (F1 L2); v15 → ``idle_timeout_seconds`` (F2 L2);
   v16 → chat_sessions external-key columns + ``session_continuation_seconds``
-  on ``connector_accounts`` (F3 L1); v17 → ``agents.connector_account_ids``
+  on ``connectors`` (F3 L1); v17 → ``agents.connector_ids``
   persistence (F4 L5); v18 → ``agents.connector_acls`` persistence (F6 L1c);
-  v19 → ``CHECK (type IN ('discord', 'stub'))`` on ``connector_accounts.type``
-  (F8 L2).
+  v19 → ``CHECK (type IN ('discord', 'stub'))`` on ``connectors.type``
+  (F8 L2); v23 → table + FK column rename ``connector_accounts`` →
+  ``connectors`` (M11 F11 L1).
 - The connector-type → registry-class map in ``the_one/connectors/registry.py``
   (runtime dispatch from a stored account config to a ConnectorPlugin) —
   landed in the registry leg of flight 1. The production registry registers
@@ -30,7 +31,7 @@ re-derives its representation from.
 
 ``'stub'`` belongs in ``CONNECTOR_TYPES`` per the M07 ``'mock'``-in-
 ``PROVIDER_TYPES`` precedent. 69+ test sites construct
-``ConnectorAccount(type="stub")`` and persist it; the v19 CHECK accepting
+``Connector(type="stub")`` and persist it; the v19 CHECK accepting
 ``'stub'`` keeps those round-trips green at the DB layer. The production-
 purity invariant — "no production code path ever inserts a stub-typed
 row" — is enforced by two separate guards:

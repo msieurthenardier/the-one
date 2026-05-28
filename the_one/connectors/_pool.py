@@ -68,7 +68,7 @@ from dataclasses import dataclass, field
 from the_one.config import settings
 from the_one.connectors.base import ConnectorClient, ConnectorPlugin, DiscoverableEntities, DiscoverableEntity
 from the_one.connectors.registry import resolve as _resolve_plugin
-from the_one.db.models import ConnectorAccount
+from the_one.db.models import Connector
 from the_one.encryption import Encryptor, get_encryptor
 
 logger = logging.getLogger(__name__)
@@ -237,7 +237,7 @@ def _resolve_ttl_seconds(override: int | None = None) -> int:
     ``_DEFAULT_TTL_SECONDS`` (1800). Env var is read at call time so test
     monkeypatching works; mirrors :func:`the_one.mcp._pool._resolve_ttl_seconds`.
 
-    The override is the per-account ``ConnectorAccount.idle_timeout_seconds``
+    The override is the per-account ``Connector.idle_timeout_seconds``
     value, passed through by :func:`agent_acquire`. The pool stays ignorant of
     which model field drives the override; the model owns the field name,
     the resolver owns the precedence. The ``override is not None`` guard
@@ -264,8 +264,8 @@ def _resolve_ttl_seconds(override: int | None = None) -> int:
         return _DEFAULT_TTL_SECONDS
 
 
-async def _load_account(account_id: str, encryptor: Encryptor) -> ConnectorAccount:
-    """Load a :class:`ConnectorAccount` by id from the leg-2 repository.
+async def _load_account(account_id: str, encryptor: Encryptor) -> Connector:
+    """Load a :class:`Connector` by id from the leg-2 repository.
 
     Called OUTSIDE ``_lock`` so different-key acquires don't serialize on
     the DB read. Raises ``KeyError`` on miss (propagates the repository's
@@ -275,7 +275,7 @@ async def _load_account(account_id: str, encryptor: Encryptor) -> ConnectorAccou
     avoids double-call drift if test fixtures swap ``settings.data_dir`` or
     wipe ``_encryptor_cache``. The single resolution point is :func:`agent_acquire`.
 
-    ``get_connection`` and ``ConnectorAccountRepository`` are imported
+    ``get_connection`` and ``ConnectorRepository`` are imported
     function-locally to break a module-import cycle: ``repositories.py``
     transitively imports ``the_one.mcp.__init__`` (via
     ``agent/__init__.py`` → ``agent.core`` → ``mcp.errors`` → ``mcp/__init__.py``),
@@ -287,16 +287,16 @@ async def _load_account(account_id: str, encryptor: Encryptor) -> ConnectorAccou
     import order.
     """
     from the_one.db.connection import get_connection
-    from the_one.db.repositories import ConnectorAccountRepository
+    from the_one.db.repositories import ConnectorRepository
 
     conn = await get_connection()
-    repo = ConnectorAccountRepository(conn, encryptor)
+    repo = ConnectorRepository(conn, encryptor)
     return await repo.get(account_id)
 
 
 async def _entry_worker(
     plugin: ConnectorPlugin,
-    account: ConnectorAccount,
+    account: Connector,
     encryptor: Encryptor,
     entry: _RegistryEntry,
 ) -> None:

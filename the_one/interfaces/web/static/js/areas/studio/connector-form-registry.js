@@ -1,10 +1,10 @@
 // App.studio.connectorFormRegistry — per-type form-field registry (M11 F1 L3).
 //
-// A substrate-level abstraction so connector-account-editor.js can
+// A substrate-level abstraction so connector-editor.js can
 // dispatch typed form rendering and form-data collection per connector
 // type without hardcoded `if (type === 'discord')` branches. Each
 // connector type that wants a typed form registers an entry here at
-// module load time. The connector-account editor consults the registry
+// module load time. The connector editor consults the registry
 // at render and collect time; unregistered types fall back to the
 // generic kv-table render path (the `'stub'` test-only carve-out and
 // any future-type-with-no-UI path remain on the fallback).
@@ -60,7 +60,7 @@
 //   The per-type per-account directive surface (M11 F2 L4) was retired
 //   when mission criterion #14 was reverted; the read-only effective-
 //   directive surface now lives under the Auto-reply toggle in the
-//   Session section of the substrate (``connector-account-editor.js``)
+//   Session section of the substrate (``connector-editor.js``)
 //   and is type-agnostic — no registry hook needed.
 // - renderDiscoverableDropdown(account, axis, currentValues, vocab,
 //   onChange) → HTMLElement | null: per-type axis-specific live-data
@@ -69,7 +69,7 @@
 // - renderRuntimeConfigFields(account) → string: per-type
 //   runtime-config content (event types received, servers scoped,
 //   presence status, etc.) returned as WRAPPER-LESS HTML. The
-//   substrate (``connector-account-editor.js``) mounts the returned
+//   substrate (``connector-editor.js``) mounts the returned
 //   content inside an ``editor-section`` with section-title "Runtime
 //   Config" on the Access-and-Routing tab, between Lifecycle and
 //   Allowlist (F5 L3). Absent → no Runtime Config section renders.
@@ -112,7 +112,7 @@
     }
     // M11 F1 L4: ``snapshot`` and ``wireEvents`` are OPTIONAL — if
     // present they MUST be functions. The dirty-tracker (in
-    // ``connector-account-editor.js:getFormSnapshot`` /
+    // ``connector-editor.js:getFormSnapshot`` /
     // ``wireEditorEvents``) consults the registered entry for these
     // hooks so a per-type form with bare typed inputs (raw checkboxes,
     // ``<select>`` outside ``.editor-section .field-select``, etc.) can
@@ -140,7 +140,7 @@
     // ``renderDiscoverableDropdown(account, axis, currentValues, vocab, onChange)
     // → HTMLElement | null`` is the entry's opt-in for the live-data
     // discoverable-dropdown component shipped by F3 (combobox shape
-    // backed by the ``GET /api/connector-accounts/{id}/discoverable-entities``
+    // backed by the ``GET /api/connectors/{id}/discoverable-entities``
     // endpoint). Absent → consumers (allowlist + routing-rules editors
     // in L6) fall back to the existing chip-list editor. The 5th hook
     // preserves the flat-array ``optionalFns`` shape per the F2 debrief
@@ -149,7 +149,7 @@
     // ``renderRuntimeConfigFields(account) → string`` is the entry's
     // hook for per-type runtime-config content (event types received,
     // servers scoped, presence status, etc.). When present, the
-    // substrate (``connector-account-editor.js``) mounts the returned
+    // substrate (``connector-editor.js``) mounts the returned
     // HTML inside a ``<div class="editor-section"><div
     // class="section-title">Runtime Config</div>...</div>`` on the
     // Access-and-Routing tab, between Lifecycle and Allowlist. The
@@ -201,7 +201,7 @@
   };
 
   // M11 F2 L4: shared masked-edit sentinel hoisted from per-module
-  // duplicates in ``connector-account-editor.js`` and
+  // duplicates in ``connector-editor.js`` and
   // ``connector-form-discord.js``. The studio's earliest-loading module
   // is the registry IIFE, so setting the constant here makes it
   // available to both editor + form-discord modules at their own

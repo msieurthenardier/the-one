@@ -166,11 +166,11 @@
       pendingSourceId: callbacks.pendingMcpAgentSourceId
     });
     // M10 F6 L5 — Connectors tab: attach toggles + per-account ACL editor.
-    // Mirrors the renderMcpsTab call site shape. `allConnectorAccounts`
-    // is refreshed on every agent-edit mount via refreshConnectorAccountsCache
+    // Mirrors the renderMcpsTab call site shape. `allConnectors`
+    // is refreshed on every agent-edit mount via refreshConnectorsCache
     // (mirror of refreshMcpSourcesCache).
     window.App.studio.renderConnectorsTab(connectorsPanel, agent,
-      callbacks.allConnectorAccounts, {
+      callbacks.allConnectors, {
         onChange: callbacks.onChange
       });
     window.App.studio.renderToolsTab(toolsPanel, agent, {
