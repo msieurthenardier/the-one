@@ -9,7 +9,7 @@ import aiosqlite
 from the_one.db._connector_types import CONNECTOR_TYPES
 from the_one.db._provider_types import PROVIDER_TYPES
 
-CURRENT_VERSION = 21
+CURRENT_VERSION = 22
 
 # Render the provider-type CHECK constraint as a comma-separated SQL
 # literal list, sourced from PROVIDER_TYPES. Both SCHEMA_V1 (fresh-DB
@@ -820,3 +820,40 @@ CREATE INDEX IF NOT EXISTS idx_pending_approvals_account_peer_status
         )
         await conn.commit()
         version = 21
+
+    if version < 22:
+        # Mission 11 Flight 10 Leg 1: dm_admission axis on
+        # connector_accounts.config.allowlist. Row-rewrite migration
+        # (NOT ALTER ADD COLUMN — the column is JSON-encoded TEXT, so
+        # the schema change is shape-only and lives inside the JSON).
+        # Legacy-preservation rule:
+        #   - allowlist.channels empty/absent → dm_admission="all"
+        #     (existing behavior admitted all DMs)
+        #   - allowlist.channels non-empty → dm_admission="none"
+        #     (existing behavior denied all DMs against channels mismatch)
+        # Rows without an allowlist key are untouched; the Pydantic
+        # validator default handles them at read time.
+        # Mirrors the v7 row-rewrite precedent at schema.py:286-303.
+        async with conn.execute(
+            "SELECT id, config FROM connector_accounts"
+        ) as cursor:
+            rows = await cursor.fetchall()
+        for row in rows:
+            account_id = row[0]
+            config_json = row[1] or "{}"
+            config = json.loads(config_json)
+            allowlist = config.get("allowlist")
+            if allowlist is None or "dm_admission" in allowlist:
+                continue  # skip rows without allowlist or already migrated
+            channels = allowlist.get("channels") or []
+            allowlist["dm_admission"] = "all" if not channels else "none"
+            config["allowlist"] = allowlist
+            await conn.execute(
+                "UPDATE connector_accounts SET config = ? WHERE id = ?",
+                (json.dumps(config), account_id),
+            )
+        await conn.execute(
+            "INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (22,)
+        )
+        await conn.commit()
+        version = 22

@@ -239,10 +239,12 @@ class TestSchemaV8:
         # v20 added agents.connector_always_listen (M11 F07 L06 —
         # per-agent always_listen toggle persistence);
         # v21 added pending_approvals table (M11 F09 L02 —
-        # Discord-native peer-approval storage).
-        assert CURRENT_VERSION == 21, (
-            "CURRENT_VERSION must be 21 after the M11 F09 L02 — "
-            "pending_approvals table v21 migration "
+        # Discord-native peer-approval storage);
+        # v22 added dm_admission to connector_accounts.config.allowlist
+        # via row-rewrite (M11 F10 L01 — DM admission axis split).
+        assert CURRENT_VERSION == 22, (
+            "CURRENT_VERSION must be 22 after the M11 F10 L01 — "
+            "DM admission axis split v22 migration "
             f"(got {CURRENT_VERSION})"
         )
 
@@ -2664,5 +2666,265 @@ class TestSchemaV21:
                     "2026-01-01T00:00:00+00:00",
                 ),
             )
+
+        await conn.close()
+
+
+class TestSchemaV22:
+    """Tests for the v22 migration that adds the ``dm_admission`` axis
+    on ``connector_accounts.config.allowlist`` via row-rewrite.
+
+    Mission 11 Flight 10 Leg 1: DM-admission axis split. Row-rewrite
+    migration (NOT ALTER ADD COLUMN — the column is JSON-encoded TEXT,
+    so the schema change lives inside the JSON). Legacy-preservation
+    rule:
+
+      - ``allowlist.channels`` empty/absent → ``dm_admission="all"``
+      - ``allowlist.channels`` non-empty → ``dm_admission="none"``
+
+    Rows without an ``allowlist`` key are untouched; the Pydantic
+    validator default handles them at read time.
+
+    Mirrors the v7 row-rewrite precedent at ``schema.py:286-303``.
+    """
+
+    async def test_v22_fresh_db_has_no_legacy_rewrite(self, tmp_path) -> None:
+        """Fresh DB → ensure_schema → v22 surfaces exist; no rows in
+        ``connector_accounts``, so the row-rewrite loop is a no-op and
+        only the schema_version row appears.
+        """
+        db_path = tmp_path / "v22-fresh.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await ensure_schema(conn)
+
+        assert CURRENT_VERSION >= 22, CURRENT_VERSION
+
+        async with conn.execute(
+            "SELECT version FROM schema_version ORDER BY version"
+        ) as cur:
+            versions = [r[0] for r in await cur.fetchall()]
+        assert 22 in versions, versions
+        assert max(versions) == CURRENT_VERSION, versions
+
+        # No connector_accounts rows on a fresh DB; the loop is a no-op.
+        async with conn.execute(
+            "SELECT COUNT(*) FROM connector_accounts"
+        ) as cur:
+            (count,) = await cur.fetchone()
+        assert count == 0, count
+
+        await conn.close()
+
+    async def test_v22_migration_idempotent_on_rerun(self, tmp_path) -> None:
+        """Calling ensure_schema twice on a fresh DB is a no-op the
+        second time: no errors, the v22 row appears exactly once, the
+        idempotency guard (``if "dm_admission" in allowlist: continue``)
+        prevents double-rewrites of legacy rows.
+        """
+        db_path = tmp_path / "v22-rerun.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await ensure_schema(conn)
+        await ensure_schema(conn)  # second call — must be a no-op
+
+        async with conn.execute(
+            "SELECT version FROM schema_version ORDER BY version"
+        ) as cur:
+            versions = [r[0] for r in await cur.fetchall()]
+        assert versions.count(22) == 1, (
+            f"v22 row should appear exactly once: {versions}"
+        )
+
+        await conn.close()
+
+    async def test_v22_legacy_row_with_empty_channels_gets_dm_admission_all(
+        self, tmp_path
+    ) -> None:
+        """A legacy v21 row whose ``allowlist.channels`` is empty/absent
+        gets ``dm_admission="all"`` inserted by the v22 row-rewrite
+        (pre-L1 behavior admitted all DMs against an empty channels
+        list).
+        """
+        db_path = tmp_path / "v22-legacy-empty-channels.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        # Hand-build schema_version + minimal connector_accounts shape
+        # up to v21 (post-v19 rename ceremony, no dm_admission yet).
+        await conn.execute(
+            "CREATE TABLE schema_version ("
+            "    version INTEGER PRIMARY KEY,"
+            "    applied_at TEXT NOT NULL DEFAULT (datetime('now'))"
+            ")"
+        )
+        for v in range(1, 22):
+            await conn.execute(
+                "INSERT INTO schema_version (version) VALUES (?)", (v,)
+            )
+        await conn.execute(
+            "CREATE TABLE connector_accounts ("
+            "    id TEXT PRIMARY KEY,"
+            "    type TEXT NOT NULL CHECK (type IN ('discord', 'stub')),"
+            "    config TEXT DEFAULT '{}',"
+            "    secrets TEXT DEFAULT '{}',"
+            "    created_at TEXT NOT NULL DEFAULT (datetime('now')),"
+            "    updated_at TEXT NOT NULL DEFAULT (datetime('now')),"
+            "    name TEXT NOT NULL DEFAULT '',"
+            "    idle_timeout_seconds INTEGER NULL,"
+            "    session_continuation_seconds INTEGER NULL"
+            ")"
+        )
+        # Seed a row with allowlist.peers populated, channels empty.
+        legacy_config = json.dumps({
+            "allowlist": {"peers": ["P1"], "channels": []},
+        })
+        await conn.execute(
+            "INSERT INTO connector_accounts (id, name, type, config) "
+            "VALUES (?, ?, ?, ?)",
+            ("legacy-acct-1", "Legacy", "stub", legacy_config),
+        )
+        await conn.commit()
+
+        await ensure_schema(conn)
+
+        async with conn.execute(
+            "SELECT config FROM connector_accounts WHERE id = ?",
+            ("legacy-acct-1",),
+        ) as cur:
+            row = await cur.fetchone()
+        cfg = json.loads(row["config"])
+        assert cfg["allowlist"]["peers"] == ["P1"]
+        assert cfg["allowlist"]["channels"] == []
+        assert cfg["allowlist"]["dm_admission"] == "all"
+
+        # Head pointer landed at CURRENT_VERSION.
+        async with conn.execute(
+            "SELECT version FROM schema_version ORDER BY version"
+        ) as cur:
+            versions = [r[0] for r in await cur.fetchall()]
+        assert 22 in versions, versions
+        assert max(versions) == CURRENT_VERSION, versions
+
+        await conn.close()
+
+    async def test_v22_legacy_row_with_non_empty_channels_gets_dm_admission_none(
+        self, tmp_path
+    ) -> None:
+        """A legacy v21 row whose ``allowlist.channels`` is non-empty
+        gets ``dm_admission="none"`` inserted by the v22 row-rewrite
+        (pre-L1 behavior denied all DMs against a channels mismatch).
+        """
+        db_path = tmp_path / "v22-legacy-nonempty-channels.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await conn.execute(
+            "CREATE TABLE schema_version ("
+            "    version INTEGER PRIMARY KEY,"
+            "    applied_at TEXT NOT NULL DEFAULT (datetime('now'))"
+            ")"
+        )
+        for v in range(1, 22):
+            await conn.execute(
+                "INSERT INTO schema_version (version) VALUES (?)", (v,)
+            )
+        await conn.execute(
+            "CREATE TABLE connector_accounts ("
+            "    id TEXT PRIMARY KEY,"
+            "    type TEXT NOT NULL CHECK (type IN ('discord', 'stub')),"
+            "    config TEXT DEFAULT '{}',"
+            "    secrets TEXT DEFAULT '{}',"
+            "    created_at TEXT NOT NULL DEFAULT (datetime('now')),"
+            "    updated_at TEXT NOT NULL DEFAULT (datetime('now')),"
+            "    name TEXT NOT NULL DEFAULT '',"
+            "    idle_timeout_seconds INTEGER NULL,"
+            "    session_continuation_seconds INTEGER NULL"
+            ")"
+        )
+        legacy_config = json.dumps({
+            "allowlist": {"peers": ["P1"], "channels": ["C1"]},
+        })
+        await conn.execute(
+            "INSERT INTO connector_accounts (id, name, type, config) "
+            "VALUES (?, ?, ?, ?)",
+            ("legacy-acct-2", "Legacy", "stub", legacy_config),
+        )
+        await conn.commit()
+
+        await ensure_schema(conn)
+
+        async with conn.execute(
+            "SELECT config FROM connector_accounts WHERE id = ?",
+            ("legacy-acct-2",),
+        ) as cur:
+            row = await cur.fetchone()
+        cfg = json.loads(row["config"])
+        assert cfg["allowlist"]["peers"] == ["P1"]
+        assert cfg["allowlist"]["channels"] == ["C1"]
+        assert cfg["allowlist"]["dm_admission"] == "none"
+
+        await conn.close()
+
+    async def test_v22_legacy_row_without_allowlist_untouched(
+        self, tmp_path
+    ) -> None:
+        """A legacy v21 row whose config has NO ``allowlist`` key is
+        left untouched by the v22 row-rewrite. The Pydantic validator
+        default handles it at read time.
+        """
+        db_path = tmp_path / "v22-legacy-no-allowlist.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await conn.execute(
+            "CREATE TABLE schema_version ("
+            "    version INTEGER PRIMARY KEY,"
+            "    applied_at TEXT NOT NULL DEFAULT (datetime('now'))"
+            ")"
+        )
+        for v in range(1, 22):
+            await conn.execute(
+                "INSERT INTO schema_version (version) VALUES (?)", (v,)
+            )
+        await conn.execute(
+            "CREATE TABLE connector_accounts ("
+            "    id TEXT PRIMARY KEY,"
+            "    type TEXT NOT NULL CHECK (type IN ('discord', 'stub')),"
+            "    config TEXT DEFAULT '{}',"
+            "    secrets TEXT DEFAULT '{}',"
+            "    created_at TEXT NOT NULL DEFAULT (datetime('now')),"
+            "    updated_at TEXT NOT NULL DEFAULT (datetime('now')),"
+            "    name TEXT NOT NULL DEFAULT '',"
+            "    idle_timeout_seconds INTEGER NULL,"
+            "    session_continuation_seconds INTEGER NULL"
+            ")"
+        )
+        legacy_config = json.dumps({"intent": "guild_messages"})
+        await conn.execute(
+            "INSERT INTO connector_accounts (id, name, type, config) "
+            "VALUES (?, ?, ?, ?)",
+            ("legacy-acct-3", "Legacy", "stub", legacy_config),
+        )
+        await conn.commit()
+
+        await ensure_schema(conn)
+
+        async with conn.execute(
+            "SELECT config FROM connector_accounts WHERE id = ?",
+            ("legacy-acct-3",),
+        ) as cur:
+            row = await cur.fetchone()
+        cfg = json.loads(row["config"])
+        # No allowlist key was added (untouched legacy row).
+        assert "allowlist" not in cfg
+        assert cfg == {"intent": "guild_messages"}
 
         await conn.close()

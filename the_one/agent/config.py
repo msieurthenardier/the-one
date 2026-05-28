@@ -227,7 +227,7 @@ class AgentConfig(BaseModel):
     # Inner type ``dict[str, list[str] | None]`` (NOT bare ``dict``) so
     # Pydantic v2 validates each inner value — mirrors the same
     # rationale as ``tool_overrides`` and ``mcp_overrides`` above.
-    connector_acls: dict[str, dict[str, list[str] | None]] | None = None
+    connector_acls: dict[str, dict[str, list[str] | bool | None]] | None = None
 
     # M11 F7 L6: per-agent ``always_listen`` toggle keyed by account_id.
     # Shape: ``{account_id: bool}``. ``True`` means the agent listens to
@@ -262,8 +262,8 @@ class AgentConfig(BaseModel):
     @field_validator("connector_acls", mode="after")
     @classmethod
     def _validate_connector_acls(
-        cls, value: dict[str, dict[str, list[str] | None]] | None
-    ) -> dict[str, dict[str, list[str] | None]] | None:
+        cls, value: dict[str, dict[str, list[str] | bool | None]] | None
+    ) -> dict[str, dict[str, list[str] | bool | None]] | None:
         """Enforce exact-keys shape on per-account ACL inner dicts.
 
         Pydantic v2's ``dict[str, dict[str, list[str] | None]]``
@@ -302,12 +302,15 @@ class AgentConfig(BaseModel):
             return value
         for account_id, acl in value.items():
             # Pydantic already enforced ``acl`` is a dict with str keys
-            # and inner values are ``list[str] | None``.
+            # and inner values are ``list[str] | bool | None``.
             # The only invariant left is the exact-keys check.
             # M10 F8 L8 — accept ``guilds`` + ``roles`` as OPTIONAL
             # axes alongside the required ``peers`` + ``channels``.
+            # M11 F10 L1 — accept ``admit_dms`` as OPTIONAL per-agent
+            # DM-admission opt-out (``bool | None``; ``None`` and absent
+            # both mean inherit account-scope ``dm_admission``).
             keys = set(acl.keys())
-            extra = keys - {"peers", "channels", "guilds", "roles"}
+            extra = keys - {"peers", "channels", "guilds", "roles", "admit_dms"}
             if extra:
                 raise ValueError(
                     f"connector_acls[{account_id!r}] has unexpected keys: "
@@ -319,6 +322,40 @@ class AgentConfig(BaseModel):
                     f"connector_acls[{account_id!r}] is missing required "
                     f"keys: {sorted(missing)}"
                 )
+
+            # M11 F10 L1: per-key value-type validation. The widened
+            # annotation ``dict[str, list[str] | bool | None]`` accepts
+            # either type for any key; this branch enforces the intended
+            # type per key — ``admit_dms`` is ``bool | None``;
+            # ``peers``/``channels``/``guilds``/``roles`` are
+            # ``list[str] | None`` (per-item string check restored).
+            for key, value_at_key in acl.items():
+                if key == "admit_dms":
+                    if value_at_key is not None and not isinstance(
+                        value_at_key, bool
+                    ):
+                        raise ValueError(
+                            f"connector_acls[{account_id!r}]['admit_dms'] "
+                            f"must be bool or None; got "
+                            f"{type(value_at_key).__name__}"
+                        )
+                else:
+                    # peers, channels, guilds, roles — list[str] | None
+                    if value_at_key is not None and not isinstance(
+                        value_at_key, list
+                    ):
+                        raise ValueError(
+                            f"connector_acls[{account_id!r}][{key!r}] must "
+                            f"be list[str] or None; got "
+                            f"{type(value_at_key).__name__}"
+                        )
+                    if isinstance(value_at_key, list):
+                        for i, item in enumerate(value_at_key):
+                            if not isinstance(item, str):
+                                raise ValueError(
+                                    f"connector_acls[{account_id!r}]"
+                                    f"[{key!r}][{i}] must be a string"
+                                )
         return value
 
     @field_validator("connector_always_listen", mode="after")

@@ -155,11 +155,20 @@
     var rawAcl = aclsMap[account.id];
     var accountAcl;
     if (rawAcl == null) {
-      accountAcl = { peers: null, channels: null };
+      // M11 F10 L3: include admit_dms in the canonical shape so the
+      // _buildAdmitDmsRow helper can read it (undefined ⇒ inherit).
+      accountAcl = { peers: null, channels: null, admit_dms: undefined };
     } else {
       accountAcl = {
         peers: (rawAcl.peers === undefined) ? null : rawAcl.peers,
-        channels: (rawAcl.channels === undefined) ? null : rawAcl.channels
+        channels: (rawAcl.channels === undefined) ? null : rawAcl.channels,
+        // M11 F10 L3: preserve admit_dms through normalization.
+        // Without this, a persisted opt-out (admit_dms: false) is
+        // dropped here and the per-agent toggle re-renders as CHECKED
+        // (inherit) on page reload, silently losing the operator's
+        // opt-out. Pinned by test #4 in
+        // test_flow_studio_per_agent_admit_dms.py.
+        admit_dms: rawAcl.admit_dms
       };
     }
     // Account-scope reference (per-axis lists). Drive the
@@ -167,6 +176,13 @@
     var accountScope = (account && account.config && account.config.allowlist) || null;
     var scopePeers = (accountScope && Array.isArray(accountScope.peers)) ? accountScope.peers : [];
     var scopeChannels = (accountScope && Array.isArray(accountScope.channels)) ? accountScope.channels : [];
+    // M11 F10 L3: account-scope dm_admission gates whether the
+    // per-agent admit_dms toggle is interactive. "none" disables the
+    // toggle (structurally inert — no DMs reach the dispatcher anyway);
+    // "allowlisted-peers-only" / "all" leave it interactive. Defensive
+    // default mirrors L1's validator behavior when accountScope is
+    // null or the key is absent.
+    var scopeDmAdmission = (accountScope && accountScope.dm_admission) || 'allowlisted-peers-only';
 
     // A2 (M11 F4 L3) — lazy per-tile label cache for checkbox-mode rows.
     // Discord and similar live-data connector accounts expose
@@ -289,6 +305,85 @@
       section.className = 'connector-account-acl-section';
 
       var helpers = window.App.adminFormHelpers;
+
+      // M11 F10 L3: per-agent admit_dms opt-out row.
+      //
+      // Boolean field with tri-state inheritance over the persisted
+      // value at ``agent.connector_acls[account.id].admit_dms``:
+      //   - admit_dms absent / null / true → inherit account-scope
+      //     (rendered as CHECKED — the operator-friendly "DMs are
+      //     admitted as the account configures" default)
+      //   - admit_dms === false → explicit opt-out (UNCHECKED)
+      //
+      // True is structurally redundant with absent (both inherit) and
+      // the UI never emits it — the collect path at studio.js emits
+      // ONLY ``admit_dms: false`` for unchecked, and emits nothing for
+      // checked. Keeps the persisted shape clean.
+      //
+      // Disabled state: when account-scope ``dm_admission === "none"``
+      // the toggle is structurally inert (no DMs reach the dispatcher
+      // anyway). Render disabled + visually-checked so the operator
+      // sees the field exists; collect path skips disabled inputs (the
+      // intentional cleanup posture documented in the leg artifact).
+      //
+      // Row classes mirror the always-listen row at lines 484-520 for
+      // visual parity; the row sits BETWEEN always-listen and the
+      // peers/channels axis rows.
+      function _buildAdmitDmsRow() {
+        var row = document.createElement('div');
+        row.className = 'field-row admin-pf-row connector-account-admit-dms-row';
+        row.setAttribute('data-testid',
+          'agent-connector-admit-dms-row-' + account.id);
+
+        var label = document.createElement('label');
+        label.className = 'connector-account-admit-dms-label';
+        label.htmlFor = 'agent-admit-dms-' + account.id;
+        label.textContent = 'Allow DMs';
+        row.appendChild(label);
+
+        var disabled = (scopeDmAdmission === 'none');
+        // M11 F10 L5 HAT polish: the only hint we keep is the
+        // disabled-state explanation. Operator dropped the redundant
+        // "uncheck to deny" copy — the toggle's affordance is self-
+        // evident when the account permits DMs.
+        var hint = null;
+        if (disabled) {
+          hint = document.createElement('span');
+          hint.className = 'form-hint connector-account-admit-dms-hint';
+          hint.setAttribute('data-testid',
+            'agent-connector-admit-dms-hint-' + account.id);
+          hint.textContent = 'Account denies all DMs; per-agent override does not apply.';
+          row.appendChild(hint);
+        }
+
+        // Tri-state initial: absent / null / true → checked;
+        // strict false → unchecked.
+        var currentAdmitDms = accountAcl ? accountAcl.admit_dms : undefined;
+        var initiallyChecked = (currentAdmitDms !== false);
+
+        var sw = document.createElement('label');
+        sw.className = 'tool-enable-switch';
+        var input = document.createElement('input');
+        input.type = 'checkbox';
+        input.id = 'agent-admit-dms-' + account.id;
+        input.className = 'field-input agent-connector-admit-dms-toggle';
+        input.setAttribute('data-field', 'admit_dms');
+        input.setAttribute('data-account-id', account.id);
+        input.setAttribute('data-testid', 'agent-connector-admit-dms-' + account.id);
+        // Disabled-and-visually-checked when account scope is "none";
+        // otherwise reflect the tri-state inheritance above.
+        input.checked = disabled ? true : initiallyChecked;
+        input.disabled = disabled;
+        input.addEventListener('change', function () { onChange(); });
+        sw.appendChild(input);
+        var track = document.createElement('span');
+        track.className = 'tool-enable-switch-track';
+        track.setAttribute('aria-hidden', 'true');
+        sw.appendChild(track);
+        row.appendChild(sw);
+
+        return row;
+      }
 
       function _buildAxisRow(axis, scopeList, agentAxisValue) {
         // axis === 'peers' | 'channels'
@@ -485,7 +580,7 @@
       alwaysListenRow.className = 'field-row admin-pf-row connector-account-always-listen-row';
       var alwaysListenLabel = document.createElement('label');
       alwaysListenLabel.htmlFor = 'agent-always-listen-' + account.id;
-      alwaysListenLabel.textContent = 'Always Listen on this connector account';
+      alwaysListenLabel.textContent = 'Always listen';
       alwaysListenRow.appendChild(alwaysListenLabel);
       // M11 F7 L12 hotfix: wrap the input in a `tool-enable-switch` label +
       // track span so the toggle renders with the styled iOS-style chrome
@@ -518,6 +613,13 @@
       alwaysListenSwitch.appendChild(alwaysListenTrack);
       alwaysListenRow.appendChild(alwaysListenSwitch);
       section.appendChild(alwaysListenRow);
+
+      // M11 F10 L3: per-agent admit_dms opt-out row, slotted between
+      // always-listen and the peers/channels axis rows. Both
+      // always-listen and admit_dms are per-agent boolean overrides
+      // keyed by account_id — they belong together visually, ahead of
+      // the per-axis ACL editors.
+      section.appendChild(_buildAdmitDmsRow());
 
       section.appendChild(_buildAxisRow('peers', scopePeers, accountAcl.peers));
       section.appendChild(_buildAxisRow('channels', scopeChannels, accountAcl.channels));

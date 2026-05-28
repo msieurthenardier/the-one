@@ -1,6 +1,6 @@
 # Flight: Pairing Resolution + Connectors-Screen Detach
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Discord Connector Depth & Robustness](../../mission.md)
 
 ## Contributing to Criteria

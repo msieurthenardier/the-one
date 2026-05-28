@@ -1515,7 +1515,14 @@ class TestConnectorAccountPairingCodeAndAttached:
         getr = await client.get(f"/api/connector-accounts/{account_id}")
         cfg = getr.json()["config"]
         assert cfg["intent"] == "guild_messages"
-        assert cfg["allowlist"] == {"peers": ["u-keep"], "channels": ["c-keep"]}
+        # M11 F10 L1: validator inserts ``dm_admission`` fresh-account
+        # default; the pre-existing ``peers``/``channels`` lists stay
+        # verbatim.
+        assert cfg["allowlist"] == {
+            "peers": ["u-keep"],
+            "channels": ["c-keep"],
+            "dm_admission": "allowlisted-peers-only",
+        }
         assert cfg["pairing"]["code"] == gen.json()["code"]
 
     async def test_generate_pairing_code_404_on_unknown_account(
@@ -1737,8 +1744,86 @@ class TestConnectorAccountPairingCodeAndAttached:
         getr = await client.get(f"/api/connector-accounts/{account_id}")
         assert getr.status_code == 200
         allowlist = getr.json()["config"]["allowlist"]
-        # Verbatim — NOT absent, NOT coerced to null/None.
-        assert allowlist == {"peers": [], "channels": []}
+        # Verbatim — NOT absent, NOT coerced to null/None. M11 F10 L1
+        # adds the ``dm_admission`` fresh-account default at validator
+        # time; the empty ``peers``/``channels`` lists remain verbatim.
+        assert allowlist == {
+            "peers": [],
+            "channels": [],
+            "dm_admission": "allowlisted-peers-only",
+        }
+
+    # ── M11 F10 L1 dm_admission axis ──────────────────────────────────
+
+    async def test_put_account_with_dm_admission_all_survives_get(
+        self, client: AsyncClient
+    ) -> None:
+        """``allowlist.dm_admission="all"`` round-trips through PUT →
+        GET verbatim. Pins the new Literal-string axis at the API edge.
+        """
+        account_id = await self._create_account(client)
+        put = await client.put(
+            f"/api/connector-accounts/{account_id}",
+            json={
+                "name": "dm-admission-target",
+                "type": "stub",
+                "config": {"allowlist": {
+                    "peers": [], "channels": [], "dm_admission": "all",
+                }},
+            },
+        )
+        assert put.status_code == 200, put.text
+
+        getr = await client.get(f"/api/connector-accounts/{account_id}")
+        assert getr.status_code == 200
+        allowlist = getr.json()["config"]["allowlist"]
+        assert allowlist == {
+            "peers": [],
+            "channels": [],
+            "dm_admission": "all",
+        }
+
+    async def test_put_account_with_invalid_dm_admission_rejected(
+        self, client: AsyncClient
+    ) -> None:
+        """A non-Literal ``dm_admission`` string is rejected with HTTP
+        422 by the model validator (propagated through FastAPI's
+        Pydantic exception handler).
+        """
+        account_id = await self._create_account(client)
+        put = await client.put(
+            f"/api/connector-accounts/{account_id}",
+            json={
+                "name": "dm-admission-bad",
+                "type": "stub",
+                "config": {"allowlist": {
+                    "peers": [], "channels": [],
+                    "dm_admission": "everybody",
+                }},
+            },
+        )
+        assert put.status_code == 422, put.text
+
+    async def test_put_account_with_non_string_dm_admission_rejected(
+        self, client: AsyncClient
+    ) -> None:
+        """A non-string ``dm_admission`` value (e.g. ``True``) is
+        rejected with HTTP 422. Pins that the validator does not
+        coerce booleans into Literal-string acceptance.
+        """
+        account_id = await self._create_account(client)
+        put = await client.put(
+            f"/api/connector-accounts/{account_id}",
+            json={
+                "name": "dm-admission-non-string",
+                "type": "stub",
+                "config": {"allowlist": {
+                    "peers": [], "channels": [],
+                    "dm_admission": True,
+                }},
+            },
+        )
+        assert put.status_code == 422, put.text
 
 
 # ── Connector account peer-approvals (M11 F9 L3) ─────────────────────────
@@ -2081,7 +2166,13 @@ class TestConnectorAccountPeerApprovals:
 
         getr = await client.get(f"/api/connector-accounts/{account_id}")
         allowlist = getr.json()["config"]["allowlist"]
-        assert allowlist == {"peers": ["u-keep"], "channels": ["c-keep"]}
+        # M11 F10 L1: validator inserts ``dm_admission`` fresh-account
+        # default; non-allowlist fields stay verbatim.
+        assert allowlist == {
+            "peers": ["u-keep"],
+            "channels": ["c-keep"],
+            "dm_admission": "allowlisted-peers-only",
+        }
 
     async def test_dismiss_already_dismissed_returns_200_idempotent(
         self, client: AsyncClient
@@ -2196,7 +2287,15 @@ class TestConnectorAccountPeerApprovals:
 
         getr = await client.get(f"/api/connector-accounts/{account_id}")
         cfg = getr.json()["config"]
-        assert cfg["allowlist"] == {"peers": ["peer-init"], "channels": []}
+        # M11 F10 L1: validator inserts the ``dm_admission`` fresh-
+        # account default when an allowlist is constructed but the key
+        # is absent (the approve endpoint initializes peers + channels;
+        # dm_admission falls in via the validator).
+        assert cfg["allowlist"] == {
+            "peers": ["peer-init"],
+            "channels": [],
+            "dm_admission": "allowlisted-peers-only",
+        }
 
 
 # ── Agent–connector-account detach (M11 F9 L5) ───────────────────────────

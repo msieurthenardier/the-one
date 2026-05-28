@@ -1248,6 +1248,25 @@
     background: var(--surface-elevated);
     border-radius: var(--panel-radius-sm);
   }
+  /* M11 F10 L5 HAT polish — drop the surface-elevated wrapper when in
+     checkbox-list mode. Each `.mcp-tool-toggle-label` row already
+     provides its own bordered tile styling, so the outer wrapper
+     double-wraps visually. Chip-list mode keeps the wrapper (chips
+     don't supply their own containment). */
+  .area-studio .connector-acl-axis-body:has(.connector-acl-checkboxlist) {
+    border-left: 0;
+    padding: 8px 0;
+    background: transparent;
+    border-radius: 0;
+  }
+  /* M11 F10 L5 HAT polish — row gap mirroring `.mcp-tools-checkbox-group`
+     (studio.css:661). Without this, per-row tiles touch each other; the
+     MCPs precedent uses 6px gap which matches the operator's expectation. */
+  .area-studio .connector-acl-checkboxlist {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
   .area-studio .connector-allowlist-rows {
     display: flex;
     flex-direction: column;

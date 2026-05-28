@@ -315,7 +315,15 @@ class ConnectorAccount(BaseModel):
             # semantic (see ``per-axis-tri-state-override`` in agents.md)
             # applies uniformly to all 4 axes downstream — absent axis =
             # unrestricted on this axis.
-            extra = set(allowlist.keys()) - {"peers", "channels", "guilds", "roles"}
+            # M11 F10 L1 — ``dm_admission`` axis (Literal-string) joins
+            # the inner-dict surface as an OPTIONAL key. Default
+            # ``"allowlisted-peers-only"`` is inserted in-place during
+            # validation when ``allowlist`` is present but the key is
+            # absent (fresh-account default — see the M11 F10 L1 leg
+            # artifact for the full rationale).
+            extra = set(allowlist.keys()) - {
+                "peers", "channels", "guilds", "roles", "dm_admission",
+            }
             if extra:
                 raise ValueError(
                     f"config['allowlist'] has unexpected keys: {sorted(extra)}"
@@ -339,6 +347,24 @@ class ConnectorAccount(BaseModel):
                         raise ValueError(
                             f"config['allowlist'][{key!r}][{i}] must be a string"
                         )
+
+            # M11 F10 L1: dm_admission axis validation + default insertion.
+            # Literal["none", "allowlisted-peers-only", "all"]. Default for
+            # absent-key on a present allowlist: "allowlisted-peers-only"
+            # (fresh-account default — F9 flow's intended state). The v22
+            # migration walks legacy rows and inserts "all" or "none" per
+            # the legacy-preservation rule, so legacy rows reaching this
+            # validator after migration ALREADY carry dm_admission and
+            # skip the default.
+            dm_admission = allowlist.get("dm_admission")
+            if dm_admission is None:
+                allowlist["dm_admission"] = "allowlisted-peers-only"
+            elif dm_admission not in ("none", "allowlisted-peers-only", "all"):
+                raise ValueError(
+                    f"config['allowlist']['dm_admission'] must be one of "
+                    f"{{'none', 'allowlisted-peers-only', 'all'}}; "
+                    f"got {dm_admission!r}"
+                )
 
         routing = value.get("routing")
         if routing is not None:

@@ -10,7 +10,7 @@ Pin two new UI surfaces against regression:
    toggles in real time.
 
 2. **Per-account toggle** inside each tile of the agent editor's
-   Connectors tab (`Always Listen on this connector account`). Writes
+   Connectors tab (`Always listen`). Writes
    ``agent.connector_always_listen[<account_id>]`` (bool) per the L6
    storage layer. The ``disabled`` attribute mirrors the account-level
    master state at render time and updates in real time when the
@@ -205,7 +205,7 @@ def test_agent_connectors_tab_per_account_toggle_renders(
     app_clean: str, page: Page
 ) -> None:
     """Agent editor's Connectors tab renders the per-account
-    "Always Listen on this connector account" toggle for each attached
+    "Always listen" toggle for each attached
     account."""
     account_id, agent_name = _seed_account_with_agent(
         app_clean,

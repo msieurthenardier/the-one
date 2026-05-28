@@ -83,9 +83,18 @@ def test_discord_account_renders_substituted_allowlist_labels(
     allowlist_labels = page.locator(
         '.connector-allowlist-section .connector-account-acl-fieldlabel'
     ).evaluate_all("els => els.map(e => e.textContent.trim())")
-    assert allowlist_labels == ["Users", "Channels", "Servers", "Roles"], (
-        f"Discord allowlist labels drifted; got: {allowlist_labels!r}"
-    )
+    # M11 F10 L2: the DM-admission row sits between peers and channels
+    # and reuses the ``connector-account-acl-fieldlabel`` class, so it
+    # joins this label list with the literal "DM admission" text
+    # (no vocabulary substitution — DM is universal across connector
+    # types).
+    assert allowlist_labels == [
+        "Users",
+        "DM admission",
+        "Channels",
+        "Servers",
+        "Roles",
+    ], f"Discord allowlist labels drifted; got: {allowlist_labels!r}"
 
 
 @pytest.mark.browser
@@ -300,9 +309,15 @@ def test_stub_account_preserves_baseline_allowlist_labels(
     allowlist_labels = page.locator(
         '.connector-allowlist-section .connector-account-acl-fieldlabel'
     ).evaluate_all("els => els.map(e => e.textContent.trim())")
-    assert allowlist_labels == ["Peers", "Channels", "Guilds", "Roles"], (
-        f"stub-account allowlist baseline drifted; got: {allowlist_labels!r}"
-    )
+    # M11 F10 L2: DM-admission row joins the label list between peers
+    # and channels (literal label; no vocabulary substitution).
+    assert allowlist_labels == [
+        "Peers",
+        "DM admission",
+        "Channels",
+        "Guilds",
+        "Roles",
+    ], f"stub-account allowlist baseline drifted; got: {allowlist_labels!r}"
 
     # The "Discord-flavored" qualifier appears in the hints (generic
     # tone keeps it). F5 L6 HAT round-3: hint text moved from a
