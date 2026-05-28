@@ -1,6 +1,6 @@
 # Flight: ACL DM-admission + channels-axis UI split
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Discord Connector Depth & Robustness](../../mission.md)
 
 ## Contributing to Criteria
