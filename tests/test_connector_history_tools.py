@@ -331,7 +331,13 @@ class TestFetchChannelHistory:
         register_for_test("stub", _StubPluginWithFetch)
         sid = await _seed_connector_session()
 
-        acls = {"acct-hist": {"channels": ["ch-other"], "peers": None}}
+        # M11 F12 L3 — channels use structured tuples.
+        acls = {
+            "acct-hist": {
+                "channels": [{"guild_id": None, "channel_id": "ch-other"}],
+                "peers": None,
+            }
+        }
         tool = FetchChannelHistoryTool(
             connector_ids=["acct-hist"],
             connector_acls=acls,
@@ -438,7 +444,13 @@ class TestFetchThreadHistory:
         register_for_test("stub", _StubPluginWithFetch)
         sid = await _seed_connector_session()
 
-        acls = {"acct-hist": {"channels": ["ch-other"], "peers": None}}
+        # M11 F12 L3 — channels use structured tuples.
+        acls = {
+            "acct-hist": {
+                "channels": [{"guild_id": None, "channel_id": "ch-other"}],
+                "peers": None,
+            }
+        }
         tool = FetchThreadHistoryTool(
             connector_ids=["acct-hist"], connector_acls=acls
         )
@@ -551,8 +563,12 @@ class TestFetchDmHistory:
     ) -> None:
         # Account-scope allowlist.peers narrows to "user-1" only; the
         # tool asks for "user-9" → deny.
+        # M11 F12 L3 — peers use structured tuples.
         await _seed_stub_account(
-            config={"allowlist": {"peers": ["user-1"], "channels": []}}
+            config={"allowlist": {
+                "peers": [{"id": "user-1", "dm_allowed": True}],
+                "channels": [],
+            }}
         )
         register_for_test("stub", _StubPluginWithFetch)
         sid = await _seed_connector_session()

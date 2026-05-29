@@ -1302,6 +1302,52 @@
     height: 14px;
   }
 
+  /* M11 F12 L4 — per-peer DM toggle + legacy-entry indicator.
+     The per-peer toggle lives inside each peer chip (rendered by
+     discoverable-dropdown.js when ``valueShape === 'peer'``); the
+     dm_admission select's change handler on the peers row toggles
+     ``dm-admission-admin-approved``, and these rules drive visibility
+     accordingly. Path (b) per the leg artifact: CSS-toggle preserves
+     checkbox state across operator-driven mode flips. */
+  .area-studio .connector-allowlist-peer-dm-toggle {
+    display: none;
+    align-items: center;
+    margin: 0 6px 0 4px;
+    cursor: pointer;
+  }
+  .area-studio .connector-allowlist-peers-row.dm-admission-admin-approved
+      .connector-allowlist-peer-dm-toggle {
+    display: inline-flex;
+  }
+  .area-studio .connector-allowlist-peer-dm-toggle-input {
+    margin: 0;
+    /* Native checkbox visual; the chip frame supplies surrounding
+       chrome. Bigger affordance keeps the click target operator-friendly
+       even at the small chip scale. */
+    width: 14px;
+    height: 14px;
+    accent-color: var(--accent, currentColor);
+    cursor: pointer;
+  }
+
+  /* Legacy-entry indicator for null-guild_id channel/role chips —
+     rendered as a small info glyph inside the chip, with a tooltip
+     explaining the v24 backfill. Visually distinguished from regular
+     chips via a dashed border on the chip itself; the indicator is the
+     accessible-name anchor for screen readers. */
+  .area-studio .chip[data-legacy="true"] {
+    border-style: dashed;
+  }
+  .area-studio .connector-allowlist-legacy-indicator {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: 4px;
+    font-size: 0.85em;
+    color: var(--fg-secondary, currentColor);
+    cursor: help;
+  }
+
   /* Attached-agents table (M10 F6 L7 HAT — table format replaces
      the prior <ul> "name peers: N · channels: M" inline text). */
   .area-studio .connector-attached-agents-table {

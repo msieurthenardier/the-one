@@ -76,7 +76,7 @@ def connector_repo(conn, connector_repo_encryptor):
 
 
 @pytest.fixture
-async def _seed_connector_account(connector_repo):
+async def _seed_connector(connector_repo):
     """Seed an ``acct-1`` connector account so PendingApproval FK passes."""
     await connector_repo.create(
         Connector(id="acct-1", name="Stub Account", type="stub")
@@ -160,7 +160,7 @@ class TestRestoreSessionMergesPendingApproval:
         patched_app,
         chat_repo,
         pending_approval_repo,
-        _seed_connector_account,
+        _seed_connector,
     ) -> None:
         """A connector-context session with a pending approval row in
         the DB has the pending-approval event appended to its history."""
@@ -202,7 +202,7 @@ class TestRestoreSessionMergesPendingApproval:
         self,
         patched_app,
         chat_repo,
-        _seed_connector_account,
+        _seed_connector,
     ) -> None:
         """A connector-context session with NO pending approvals →
         history contains no pending-approval events; the projection
@@ -265,7 +265,7 @@ class TestRestoreSessionMergesPendingApproval:
         patched_app,
         chat_repo,
         pending_approval_repo,
-        _seed_connector_account,
+        _seed_connector,
     ) -> None:
         """Pending approval whose ``received_at`` lands between two
         message events appears in the merge between them.
@@ -320,7 +320,7 @@ class TestBuildSessionJoinedDegradedMergesPendingApproval:
         patched_app,
         chat_repo,
         pending_approval_repo,
-        _seed_connector_account,
+        _seed_connector,
     ) -> None:
         """``_build_session_joined_degraded`` must run the same merge as
         the healthy path. Construct a RestoredSession with a degraded
@@ -363,7 +363,7 @@ class TestRestoreNoDuplicates:
         patched_app,
         chat_repo,
         pending_approval_repo,
-        _seed_connector_account,
+        _seed_connector,
     ) -> None:
         """A single DB row must produce exactly ONE pending-approval
         event in the merge output. Guards against a codec quirk emitting

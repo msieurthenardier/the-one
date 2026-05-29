@@ -23,9 +23,20 @@
 //     opts = {
 //       axis: 'peers' | 'channels' | 'groups' | 'roles',
 //       accountId: string,
-//       currentValues: string[],            // ids currently selected
-//       onChange: function(newValues: string[]) -> void,
-//       vocab: object                       // App.studio.connectorVocabulary entry
+//       currentValues: string[] | object[], // structured-tuple shape per
+//                                           // ``valueShape`` (M11 F12 L4)
+//       onChange: function(newValues: array) -> void,
+//       vocab: object,                      // App.studio.connectorVocabulary entry
+//       valueShape: 'flat' | 'peer' | 'channel' | 'role'
+//         // M11 F12 L4 — controls the per-entry shape carried in
+//         // ``currentValues`` and emitted via onChange:
+//         //   'flat'    — array of bare id strings (legacy; default)
+//         //   'peer'    — array of ``{id, dm_allowed}`` dicts
+//         //   'channel' — array of ``{guild_id, channel_id}`` dicts
+//         //   'role'    — array of ``{guild_id, role_id}`` dicts
+//         // For the structured shapes the dropdown extracts the id at
+//         // chip-render time (label lookup) and synthesizes the dict on
+//         // selection (reading ``entity.group`` for the guild_id field).
 //     }
 //
 // Behaviour:
@@ -64,6 +75,70 @@
 
   var _LARGE_AXIS_THRESHOLD = 1000;
   var _LARGE_AXIS_MIN_FILTER_CHARS = 2;
+
+  // ── M11 F12 L4 — structured-tuple shape helpers ─────────────────────────
+  //
+  // ``valueShape`` decides per-entry shape: 'flat' (string ids), 'peer'
+  // (``{id, dm_allowed}``), 'channel' (``{guild_id, channel_id}``), or
+  // 'role' (``{guild_id, role_id}``). The dropdown menu and label lookup
+  // work in flat-id terms; structured shape is wrapped/unwrapped at the
+  // chip + selection boundaries so existing menu logic stays unchanged.
+
+  function _entryId(entry, valueShape) {
+    if (entry == null) return '';
+    if (valueShape === 'peer') {
+      return (entry && typeof entry === 'object') ? String(entry.id || '') : String(entry);
+    }
+    if (valueShape === 'channel') {
+      return (entry && typeof entry === 'object')
+        ? String(entry.channel_id || '')
+        : String(entry);
+    }
+    if (valueShape === 'role') {
+      return (entry && typeof entry === 'object')
+        ? String(entry.role_id || '')
+        : String(entry);
+    }
+    return String(entry);
+  }
+
+  function _entryGuildId(entry, valueShape) {
+    if (entry == null) return null;
+    if (valueShape === 'channel' || valueShape === 'role') {
+      if (entry && typeof entry === 'object') {
+        var g = entry.guild_id;
+        return (g === undefined) ? null : g;
+      }
+    }
+    return null;
+  }
+
+  function _wrapId(id, entity, valueShape) {
+    // Synthesize the structured-tuple entry for a freshly-selected id.
+    // ``entity`` is the menu item the operator clicked (or null when the
+    // id is unknown to the cached entities — Discord's ``entity.group``
+    // is the guild_id for channel/role axes).
+    if (valueShape === 'peer') {
+      return { id: String(id), dm_allowed: false };
+    }
+    if (valueShape === 'channel') {
+      var gC = (entity && entity.group != null) ? String(entity.group) : null;
+      return { guild_id: gC, channel_id: String(id) };
+    }
+    if (valueShape === 'role') {
+      var gR = (entity && entity.group != null) ? String(entity.group) : null;
+      return { guild_id: gR, role_id: String(id) };
+    }
+    return String(id);
+  }
+
+  function _currentIds(state) {
+    var ids = [];
+    for (var i = 0; i < state.currentValues.length; i++) {
+      ids.push(_entryId(state.currentValues[i], state.valueShape));
+    }
+    return ids;
+  }
 
   function _escapeAttr(value) {
     if (value === null || value === undefined) return '';
@@ -153,7 +228,8 @@
     chipsEl.removeAttribute('hidden');
 
     for (var i = 0; i < state.currentValues.length; i++) {
-      var id = state.currentValues[i];
+      var entry = state.currentValues[i];
+      var id = _entryId(entry, state.valueShape);
       var entity = _findEntityById(state.entities, state.axis, id);
       var chip = document.createElement('span');
       chip.className = 'chip';
@@ -175,10 +251,73 @@
         chip.setAttribute('title', 'label unknown — try Refresh');
       }
 
+      // M11 F12 L4 — legacy-entry indicator for null-guild_id structured
+      // channel/role entries. The chip carries ``data-legacy="true"`` so
+      // CSS (studio.css) can apply a distinctive visual; a tooltip
+      // explains why (pre-v24 migration left guild_id unknown). Browser
+      // tests assert via ``data-testid="connector-allowlist-{axis}-legacy-indicator-{id}"``.
+      var guildId = _entryGuildId(entry, state.valueShape);
+      var isLegacy = (
+        (state.valueShape === 'channel' || state.valueShape === 'role')
+        && guildId === null
+      );
+      if (isLegacy) {
+        chip.setAttribute('data-legacy', 'true');
+        var legacyTip = 'Pre-v24 entry — guild context not stored. ' +
+          'Re-scope by removing + re-adding via the dropdown.';
+        // Don't clobber a stale-entity tooltip if one is already set.
+        if (!chip.hasAttribute('title')) {
+          chip.setAttribute('title', legacyTip);
+        }
+        var indicator = document.createElement('span');
+        indicator.className = 'connector-allowlist-legacy-indicator';
+        var legacyTestidAxis = (state.valueShape === 'channel') ? 'channel' : 'role';
+        indicator.setAttribute(
+          'data-testid',
+          'connector-allowlist-' + legacyTestidAxis + '-legacy-indicator-' + id
+        );
+        indicator.setAttribute('title', legacyTip);
+        indicator.setAttribute('aria-label', legacyTip);
+        // Use a unicode info glyph; CSS may swap this for an icon.
+        indicator.textContent = 'ℹ';
+        chip.appendChild(indicator);
+      }
+
       var labelSpan = document.createElement('span');
       labelSpan.className = 'discoverable-dropdown-chip-label';
       labelSpan.textContent = label;
       chip.appendChild(labelSpan);
+
+      // M11 F12 L4 — per-peer DM toggle. Lives inside the peer chip
+      // when ``valueShape === 'peer'``. Visibility is controlled by the
+      // parent peers-section class (``.dm-admission-admin-approved``) so
+      // the toggle state survives operator-driven dm_admission flips —
+      // see ``connector-editor.js`` wiring at the dm_admission select
+      // change handler. The toggle mutates the chip's structured-tuple
+      // entry's ``dm_allowed`` field; persists with the rest of the
+      // allowlist on save.
+      if (state.valueShape === 'peer') {
+        var dmLabel = document.createElement('label');
+        dmLabel.className = 'connector-allowlist-peer-dm-toggle';
+        dmLabel.setAttribute('title', 'Allow this peer to DM the bot.');
+        var dmInput = document.createElement('input');
+        dmInput.type = 'checkbox';
+        dmInput.className = 'connector-allowlist-peer-dm-toggle-input';
+        dmInput.setAttribute(
+          'data-testid',
+          'connector-allowlist-peer-dm-toggle-' + id
+        );
+        dmInput.setAttribute('aria-label', 'Allow DMs from ' + label);
+        dmInput.checked = !!(entry && entry.dm_allowed === true);
+        dmInput.addEventListener('change', (function (boundEntry) {
+          return function (ev) {
+            boundEntry.dm_allowed = !!ev.target.checked;
+            _fireOnChange(state);
+          };
+        })(entry));
+        dmLabel.appendChild(dmInput);
+        chip.appendChild(dmLabel);
+      }
 
       var removeBtn = document.createElement('button');
       removeBtn.type = 'button';
@@ -276,7 +415,7 @@
     item.setAttribute('data-testid', 'discoverable-dropdown-item-' + state.axis);
     item.setAttribute('tabindex', '-1');
 
-    var selected = state.currentValues.indexOf(entity.id) >= 0;
+    var selected = _currentIds(state).indexOf(entity.id) >= 0;
     item.setAttribute('aria-selected', selected ? 'true' : 'false');
 
     if (entity.stale === true) {
@@ -435,8 +574,15 @@
 
   function _addValue(state, id) {
     if (!id) return;
-    if (state.currentValues.indexOf(id) >= 0) return;
-    state.currentValues = state.currentValues.concat([id]);
+    var existingIds = _currentIds(state);
+    if (existingIds.indexOf(id) >= 0) return;
+    // M11 F12 L4 — wrap the freshly-selected id into the structured-
+    // tuple shape (peer/channel/role) when the consumer opted into it.
+    // ``entity.group`` carries the guild_id for channel/role axes; flat
+    // shape passes the bare id through unchanged.
+    var entity = _findEntityById(state.entities, state.axis, id);
+    var wrapped = _wrapId(id, entity, state.valueShape);
+    state.currentValues = state.currentValues.concat([wrapped]);
     _refreshSelectionUI(state);
     _fireOnChange(state);
   }
@@ -444,7 +590,9 @@
   function _removeValue(state, id) {
     var next = [];
     for (var i = 0; i < state.currentValues.length; i++) {
-      if (state.currentValues[i] !== id) next.push(state.currentValues[i]);
+      if (_entryId(state.currentValues[i], state.valueShape) !== id) {
+        next.push(state.currentValues[i]);
+      }
     }
     state.currentValues = next;
     _refreshSelectionUI(state);
@@ -455,11 +603,12 @@
     _renderChips(state);
     var menu = state.root.querySelector('.discoverable-dropdown-menu');
     if (!menu) return;
+    var ids = _currentIds(state);
     var items = menu.querySelectorAll('.discoverable-dropdown-item');
     for (var i = 0; i < items.length; i++) {
       var item = items[i];
       var id = item.getAttribute('data-id');
-      item.setAttribute('aria-selected', state.currentValues.indexOf(id) >= 0 ? 'true' : 'false');
+      item.setAttribute('aria-selected', ids.indexOf(id) >= 0 ? 'true' : 'false');
     }
   }
 
@@ -655,11 +804,21 @@
     }
 
     var root = _buildDOM(opts);
+    var valueShape = (opts.valueShape && typeof opts.valueShape === 'string')
+      ? opts.valueShape
+      : 'flat';
+    if (valueShape !== 'flat' && valueShape !== 'peer'
+        && valueShape !== 'channel' && valueShape !== 'role') {
+      valueShape = 'flat';
+    }
     var state = {
       root: root,
       axis: opts.axis,
       accountId: opts.accountId,
+      // M11 F12 L4 — currentValues per ``valueShape``: flat string-ids
+      // by default; structured-tuple shapes when the consumer opted in.
       currentValues: Array.isArray(opts.currentValues) ? opts.currentValues.slice() : [],
+      valueShape: valueShape,
       onChange: typeof opts.onChange === 'function' ? opts.onChange : function () {},
       vocab: opts.vocab || {},
       entities: { peers: [], channels: [], groups: [], roles: [] },

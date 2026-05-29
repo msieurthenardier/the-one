@@ -2113,6 +2113,36 @@ App.registerArea({
         var mode = wrapper.dataset.connectorAclMode;
         if (!aid || (listKind !== 'peers' && listKind !== 'channels')) continue;
 
+        // M11 F12 L4 — per-agent peers/channels persist in the
+        // structured-tuple shape mirroring account-scope storage:
+        //   peers    → ``[{id, dm_allowed: true}]`` (per-agent
+        //               dm_allowed is structurally uniform but NOT
+        //               consulted by ACL per the F12 L3 Truth Table;
+        //               defaults to ``true`` so it never spuriously
+        //               denies a DM the account-scope already admitted)
+        //   channels → ``[{guild_id, channel_id}]`` (guild_id sourced
+        //               from the per-channel-id lookup map on the
+        //               checkbox wrapper, ``data-channel-guild-id-map``
+        //               attribute; the dropdown emits structured tuples
+        //               directly so the chips-mode path passes them
+        //               through).
+        function _wrapPerAgentEntry(id, axisListKind, channelGuildIdMap) {
+          var s = (id == null) ? '' : String(id);
+          if (!s) return null;
+          if (axisListKind === 'peers') {
+            return { id: s, dm_allowed: true };
+          }
+          if (axisListKind === 'channels') {
+            var g = null;
+            if (channelGuildIdMap && Object.prototype.hasOwnProperty.call(channelGuildIdMap, s)) {
+              var mapped = channelGuildIdMap[s];
+              g = mapped ? String(mapped) : null;
+            }
+            return { guild_id: g, channel_id: s };
+          }
+          return s;
+        }
+
         var axisValue; // null | [] | [items]
         if (mode === 'checkboxes') {
           var boxes = wrapper.querySelectorAll('input[type="checkbox"]');
@@ -2120,6 +2150,18 @@ App.registerArea({
           var checkedVals = [];
           for (var bi = 0; bi < total; bi++) {
             if (boxes[bi].checked) checkedVals.push(boxes[bi].value);
+          }
+          // M11 F12 L4 — channels checkbox wrapper carries a per-id
+          // guild_id lookup as a JSON-encoded data attribute (populated
+          // by connectors-tab.js from the account-scope structured
+          // shape). Decode once per wrapper; pass into the wrapper.
+          var channelGuildIdMap = null;
+          if (listKind === 'channels') {
+            var rawMap = wrapper.getAttribute('data-channel-guild-id-map');
+            if (rawMap) {
+              try { channelGuildIdMap = JSON.parse(rawMap); }
+              catch (e) { channelGuildIdMap = null; }
+            }
           }
           if (total === 0) {
             // No account-scope chips to choose from — treat as inherit.
@@ -2129,7 +2171,12 @@ App.registerArea({
           } else if (checkedVals.length === 0) {
             axisValue = []; // none checked = explicit empty
           } else {
-            axisValue = checkedVals; // subset
+            var wrappedSubset = [];
+            for (var wi = 0; wi < checkedVals.length; wi++) {
+              var wrapped = _wrapPerAgentEntry(checkedVals[wi], listKind, channelGuildIdMap);
+              if (wrapped) wrappedSubset.push(wrapped);
+            }
+            axisValue = wrappedSubset;
           }
         } else {
           // chips mode
@@ -2143,12 +2190,29 @@ App.registerArea({
           // mis-read dropdown chips. Stub-type / no-entry accounts
           // continue rendering the chip-list and the text-node walk
           // reads them identically to the pre-L6b shape.
+          //
+          // M11 F12 L4 — dropdown path returns the structured-tuple
+          // shape directly (its valueShape was 'peer' / 'channel'); pass
+          // those entries through unchanged. The text-node-walk fallback
+          // produces bare id strings, which get wrapped via
+          // ``_wrapPerAgentEntry`` (guild_id defaults to null for
+          // chip-list-mode channels — these flows have no account-scope
+          // chips to source guild context from).
           var chipVals = [];
           if (typeof wrapper._overlayChipValues === 'function') {
             var overlayVals = wrapper._overlayChipValues() || [];
             for (var ov = 0; ov < overlayVals.length; ov++) {
-              var ovStr = (overlayVals[ov] == null) ? '' : String(overlayVals[ov]);
-              if (ovStr) chipVals.push(ovStr);
+              var ovEntry = overlayVals[ov];
+              if (ovEntry == null) continue;
+              if (typeof ovEntry === 'object') {
+                chipVals.push(ovEntry);  // already structured per L4
+              } else {
+                var ovStr = String(ovEntry);
+                if (ovStr) {
+                  var ovWrapped = _wrapPerAgentEntry(ovStr, listKind, null);
+                  if (ovWrapped) chipVals.push(ovWrapped);
+                }
+              }
             }
           } else {
             var chips = wrapper.querySelectorAll('.chip');
@@ -2159,7 +2223,8 @@ App.registerArea({
               }
               text = text.trim();
               if (!text) continue;
-              chipVals.push(text);
+              var chipWrapped = _wrapPerAgentEntry(text, listKind, null);
+              if (chipWrapped) chipVals.push(chipWrapped);
             }
           }
           if (chipVals.length === 0) {

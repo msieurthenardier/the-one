@@ -284,17 +284,35 @@ class TestSQLiteAgentStore:
         ``test_save_round_trips_connector_ids`` for the F6 L1c
         per-agent ACL field (M10 F6 L1c v18 migration).
         """
+        # M11 F12 L3 — per-agent peers/channels use the structured-
+        # tuple shape mirroring account-scope.
         config = AgentConfig(
             name="acl-agent",
             connector_acls={
-                "acct-a": {"peers": ["u1", "u2"], "channels": ["c1"]},
+                "acct-a": {
+                    "peers": [
+                        {"id": "u1", "dm_allowed": True},
+                        {"id": "u2", "dm_allowed": True},
+                    ],
+                    "channels": [
+                        {"guild_id": None, "channel_id": "c1"}
+                    ],
+                },
                 "acct-b": {"peers": [], "channels": []},
             },
         )
         await agent_store.save(config)
         loaded = await agent_store.load("acl-agent")
         assert loaded.connector_acls == {
-            "acct-a": {"peers": ["u1", "u2"], "channels": ["c1"]},
+            "acct-a": {
+                "peers": [
+                    {"id": "u1", "dm_allowed": True},
+                    {"id": "u2", "dm_allowed": True},
+                ],
+                "channels": [
+                    {"guild_id": None, "channel_id": "c1"}
+                ],
+            },
             "acct-b": {"peers": [], "channels": []},
         }
 
@@ -304,12 +322,20 @@ class TestSQLiteAgentStore:
         # retain the original value).
         cfg2 = AgentConfig(
             name="acl-agent",
-            connector_acls={"acct-c": {"peers": ["u9"], "channels": []}},
+            connector_acls={
+                "acct-c": {
+                    "peers": [{"id": "u9", "dm_allowed": True}],
+                    "channels": [],
+                }
+            },
         )
         await agent_store.save(cfg2)
         loaded2 = await agent_store.load("acl-agent")
         assert loaded2.connector_acls == {
-            "acct-c": {"peers": ["u9"], "channels": []},
+            "acct-c": {
+                "peers": [{"id": "u9", "dm_allowed": True}],
+                "channels": [],
+            },
         }
 
     async def test_save_round_trips_connector_acls_none(
@@ -459,9 +485,15 @@ class TestSQLiteAgentStore:
         SQL, then calls ``load`` and asserts ``ValidationError``.
         """
         # Step 1: write a valid row via the repo.
+        # M11 F12 L3 — per-agent peers use structured tuples.
         cfg = AgentConfig(
             name="validator-fires-agent",
-            connector_acls={"acct-a": {"peers": ["u1"], "channels": []}},
+            connector_acls={
+                "acct-a": {
+                    "peers": [{"id": "u1", "dm_allowed": True}],
+                    "channels": [],
+                }
+            },
         )
         await agent_store.save(cfg)
 
@@ -640,16 +672,16 @@ class TestSQLiteAgentStore:
         with pytest.raises(ValidationError):
             await agent_store.load("al-validator-fires-agent")
 
-    # ── M10 F7 L3: list_by_connector_account ─────────────────────────────
+    # ── M10 F7 L3: list_by_connector ─────────────────────────────
 
-    async def test_list_by_connector_account_empty_for_unknown_account(
+    async def test_list_by_connector_empty_for_unknown_account(
         self, agent_store: SQLiteAgentStore
     ) -> None:
-        """``list_by_connector_account`` returns ``[]`` for an unknown
+        """``list_by_connector`` returns ``[]`` for an unknown
         account id — no rows match, no error raised (M10 F7 L3).
         """
         # No agents seeded at all — empty table.
-        assert await agent_store.list_by_connector_account("nonexistent") == []
+        assert await agent_store.list_by_connector("nonexistent") == []
 
         # Seed an agent attached to a different account — confirms
         # the filter excludes non-matching rows (rather than returning
@@ -657,9 +689,9 @@ class TestSQLiteAgentStore:
         await agent_store.save(
             AgentConfig(name="other", connector_ids=["acct-other"])
         )
-        assert await agent_store.list_by_connector_account("nonexistent") == []
+        assert await agent_store.list_by_connector("nonexistent") == []
 
-    async def test_list_by_connector_account_single_attached(
+    async def test_list_by_connector_single_attached(
         self, agent_store: SQLiteAgentStore
     ) -> None:
         """Seeding one agent attached to ``acct-1`` produces a single-
@@ -668,10 +700,10 @@ class TestSQLiteAgentStore:
         await agent_store.save(
             AgentConfig(name="solo", connector_ids=["acct-1"])
         )
-        result = await agent_store.list_by_connector_account("acct-1")
+        result = await agent_store.list_by_connector("acct-1")
         assert [cfg.name for cfg in result] == ["solo"]
 
-    async def test_list_by_connector_account_multi_attached_alphabetical_order(
+    async def test_list_by_connector_multi_attached_alphabetical_order(
         self, agent_store: SQLiteAgentStore
     ) -> None:
         """Three agents attached to the same account return in
@@ -682,13 +714,13 @@ class TestSQLiteAgentStore:
             await agent_store.save(
                 AgentConfig(name=name, connector_ids=["acct-1"])
             )
-        result = await agent_store.list_by_connector_account("acct-1")
+        result = await agent_store.list_by_connector("acct-1")
         assert [cfg.name for cfg in result] == ["alpha", "marlin", "zebra"]
 
-    async def test_list_by_connector_account_filters_by_account(
+    async def test_list_by_connector_filters_by_account(
         self, agent_store: SQLiteAgentStore
     ) -> None:
-        """``list_by_connector_account`` filters rows by the requested
+        """``list_by_connector`` filters rows by the requested
         account id; agents attached only to other accounts are excluded
         (M10 F7 L3).
         """
@@ -698,10 +730,10 @@ class TestSQLiteAgentStore:
         await agent_store.save(
             AgentConfig(name="bob", connector_ids=["acct-2"])
         )
-        result = await agent_store.list_by_connector_account("acct-1")
+        result = await agent_store.list_by_connector("acct-1")
         assert [cfg.name for cfg in result] == ["alice"]
 
-    async def test_list_by_connector_account_round_trips_full_config(
+    async def test_list_by_connector_round_trips_full_config(
         self, agent_store: SQLiteAgentStore
     ) -> None:
         """The returned ``AgentConfig`` carries every non-default field
@@ -720,10 +752,16 @@ class TestSQLiteAgentStore:
             mcp_source_ids=["mcp1"],
             tool_overrides={"shell": {"timeout": 30}},
             connector_ids=["acct-1"],
-            connector_acls={"acct-1": {"peers": ["u1"], "channels": ["c1"]}},
+            # M11 F12 L3 — per-agent peers/channels use structured tuples.
+            connector_acls={
+                "acct-1": {
+                    "peers": [{"id": "u1", "dm_allowed": True}],
+                    "channels": [{"guild_id": None, "channel_id": "c1"}],
+                }
+            },
         )
         await agent_store.save(cfg)
-        result = await agent_store.list_by_connector_account("acct-1")
+        result = await agent_store.list_by_connector("acct-1")
         assert len(result) == 1
         loaded = result[0]
         assert loaded.name == "full-config-agent"
@@ -737,14 +775,17 @@ class TestSQLiteAgentStore:
         assert loaded.tool_overrides == {"shell": {"timeout": 30}}
         assert loaded.connector_ids == ["acct-1"]
         assert loaded.connector_acls == {
-            "acct-1": {"peers": ["u1"], "channels": ["c1"]}
+            "acct-1": {
+                "peers": [{"id": "u1", "dm_allowed": True}],
+                "channels": [{"guild_id": None, "channel_id": "c1"}],
+            }
         }
 
-    async def test_list_by_connector_account_single_agent_multi_attached(
+    async def test_list_by_connector_single_agent_multi_attached(
         self, agent_store: SQLiteAgentStore
     ) -> None:
         """One agent attached to multiple accounts appears in
-        ``list_by_connector_account`` results for EACH attached account
+        ``list_by_connector`` results for EACH attached account
         (M10 F7 L3 Edge Cases).
         """
         await agent_store.save(
@@ -753,8 +794,8 @@ class TestSQLiteAgentStore:
                 connector_ids=["acct-1", "acct-2"],
             )
         )
-        result_1 = await agent_store.list_by_connector_account("acct-1")
-        result_2 = await agent_store.list_by_connector_account("acct-2")
+        result_1 = await agent_store.list_by_connector("acct-1")
+        result_2 = await agent_store.list_by_connector("acct-2")
         assert [cfg.name for cfg in result_1] == ["multi-attached"]
         assert [cfg.name for cfg in result_2] == ["multi-attached"]
 
@@ -849,17 +890,36 @@ class TestAgentConfigConnectorAclsValidator:
         assert cfg.connector_acls == {"acct-a": {"peers": [], "channels": []}}
 
     def test_populated_per_account_acl_is_valid(self) -> None:
-        """A populated per-account ACL with strings in both inner lists
-        is valid (subset on both axes).
+        """A populated per-account ACL with structured-tuple entries in
+        both axes is valid (subset on both axes).
+
+        M11 F12 L3 — per-agent peers/channels use the structured-tuple
+        shape mirroring account-scope.
         """
         cfg = AgentConfig(
             name="agent",
             connector_acls={
-                "acct-a": {"peers": ["u1", "u2"], "channels": ["c1"]},
+                "acct-a": {
+                    "peers": [
+                        {"id": "u1", "dm_allowed": True},
+                        {"id": "u2", "dm_allowed": True},
+                    ],
+                    "channels": [
+                        {"guild_id": None, "channel_id": "c1"}
+                    ],
+                },
             },
         )
         assert cfg.connector_acls == {
-            "acct-a": {"peers": ["u1", "u2"], "channels": ["c1"]},
+            "acct-a": {
+                "peers": [
+                    {"id": "u1", "dm_allowed": True},
+                    {"id": "u2", "dm_allowed": True},
+                ],
+                "channels": [
+                    {"guild_id": None, "channel_id": "c1"}
+                ],
+            },
         }
 
     def test_peers_none_channels_empty_is_valid(self) -> None:
@@ -873,23 +933,45 @@ class TestAgentConfigConnectorAclsValidator:
         }
 
     def test_peers_none_channels_subset_is_valid(self) -> None:
-        """Tri-state matrix: peers inherits, channels narrows."""
+        """Tri-state matrix: peers inherits, channels narrows.
+
+        M11 F12 L3 — channels uses the structured-tuple shape.
+        """
         cfg = AgentConfig(
             name="agent",
-            connector_acls={"acct-a": {"peers": None, "channels": ["c1"]}},
+            connector_acls={
+                "acct-a": {
+                    "peers": None,
+                    "channels": [{"guild_id": None, "channel_id": "c1"}],
+                }
+            },
         )
         assert cfg.connector_acls == {
-            "acct-a": {"peers": None, "channels": ["c1"]},
+            "acct-a": {
+                "peers": None,
+                "channels": [{"guild_id": None, "channel_id": "c1"}],
+            },
         }
 
     def test_peers_subset_channels_none_is_valid(self) -> None:
-        """Tri-state matrix: peers narrows, channels inherits."""
+        """Tri-state matrix: peers narrows, channels inherits.
+
+        M11 F12 L3 — peers uses the structured-tuple shape.
+        """
         cfg = AgentConfig(
             name="agent",
-            connector_acls={"acct-a": {"peers": ["u1"], "channels": None}},
+            connector_acls={
+                "acct-a": {
+                    "peers": [{"id": "u1", "dm_allowed": True}],
+                    "channels": None,
+                }
+            },
         )
         assert cfg.connector_acls == {
-            "acct-a": {"peers": ["u1"], "channels": None},
+            "acct-a": {
+                "peers": [{"id": "u1", "dm_allowed": True}],
+                "channels": None,
+            },
         }
 
     def test_peers_empty_channels_none_is_valid(self) -> None:
@@ -978,22 +1060,28 @@ class TestAgentConfigConnectorAclsValidator:
     def test_per_agent_acl_4_axis_shape_validates(self) -> None:
         """All 4 axes (peers, channels, guilds, roles) on the per-agent
         inner dict round-trip verbatim — pins the L8 extension on the
-        per-agent ACL surface."""
+        per-agent ACL surface.
+
+        M11 F12 L3 — peers/channels/roles use the structured-tuple
+        shape mirroring account-scope; guilds stays as list[str].
+        """
         cfg = AgentConfig(
             name="agent",
             connector_acls={
                 "acct-a": {
-                    "peers": ["u1"],
-                    "channels": ["c1"],
+                    "peers": [{"id": "u1", "dm_allowed": True}],
+                    "channels": [{"guild_id": None, "channel_id": "c1"}],
                     "guilds": ["g1"],
-                    "roles": ["r1"],
+                    "roles": [{"guild_id": None, "role_id": "r1"}],
                 }
             },
         )
         assert cfg.connector_acls == {
             "acct-a": {
-                "peers": ["u1"], "channels": ["c1"],
-                "guilds": ["g1"], "roles": ["r1"],
+                "peers": [{"id": "u1", "dm_allowed": True}],
+                "channels": [{"guild_id": None, "channel_id": "c1"}],
+                "guilds": ["g1"],
+                "roles": [{"guild_id": None, "role_id": "r1"}],
             }
         }
 
@@ -1326,7 +1414,7 @@ class TestMCPSourceRepository:
 # ── Connector Account Repository ─────────────────────────────────────────
 
 
-class TestConnectorAccountRepository:
+class TestConnectorRepository:
     """CRUD coverage for ConnectorRepository.
 
     Mission 10 flight 01 leg 02 — sibling to ``TestMCPSourceRepository``,
@@ -1529,7 +1617,7 @@ class TestConnectorAccountRepository:
 # ── Connector Account Config Validator (F6 L1b) ──────────────────────────
 
 
-class TestConnectorAccountConfigValidator:
+class TestConnectorConfigValidator:
     """F6 L1b — config["pairing"] + config["allowlist"] schema."""
 
     # --- Direct-construction (model-only) tests ---
@@ -1553,20 +1641,31 @@ class TestConnectorAccountConfigValidator:
         assert account.config["pairing"] == pairing
 
     def test_valid_allowlist_round_trips(self) -> None:
-        allowlist = {"peers": ["u1", "u2"], "channels": ["c1"]}
+        # M11 F12 L3 — structured-tuple shape for peers/channels.
+        allowlist = {
+            "peers": [
+                {"id": "u1", "dm_allowed": True},
+                {"id": "u2", "dm_allowed": False},
+            ],
+            "channels": [{"guild_id": None, "channel_id": "c1"}],
+        }
         account = Connector(
             id="a", name="n", type="stub", config={"allowlist": allowlist}
         )
-        assert account.config["allowlist"] == allowlist
+        # The validator also inserts ``dm_admission`` default.
+        assert account.config["allowlist"]["peers"] == allowlist["peers"]
+        assert account.config["allowlist"]["channels"] == allowlist["channels"]
 
     def test_empty_allowlist_is_preserved_verbatim(self) -> None:
         """Distinct from absent allowlist: empty lists mean lockdown.
 
         M11 F10 L1: the validator inserts the ``dm_admission``
-        fresh-account default (``"allowlisted-peers-only"``) when an
-        allowlist is present but the key is absent — the empty
-        ``peers``/``channels`` lists themselves are still preserved
-        verbatim.
+        fresh-account default when an allowlist is present but the
+        key is absent — the empty ``peers``/``channels`` lists
+        themselves are still preserved verbatim.
+
+        M11 F12 L3: the default Literal value was renamed from
+        ``"allowlisted-peers-only"`` to ``"admin-approved"``.
         """
         account = Connector(
             id="a", name="n", type="stub",
@@ -1575,7 +1674,7 @@ class TestConnectorAccountConfigValidator:
         assert account.config["allowlist"] == {
             "peers": [],
             "channels": [],
-            "dm_admission": "allowlisted-peers-only",
+            "dm_admission": "admin-approved",
         }
 
     def test_mixed_reserved_and_non_reserved_round_trips(self) -> None:
@@ -1702,17 +1801,25 @@ class TestConnectorAccountConfigValidator:
     def test_allowlist_full_4_axis_shape_round_trips(self) -> None:
         """All 4 axes (peers, channels, guilds, roles) populate and
         round-trip verbatim — pins the L8 shape contract. Verifies the
-        validator accepts ``guilds`` + ``roles`` as legal keys."""
+        validator accepts ``guilds`` + ``roles`` as legal keys.
+
+        M11 F12 L3 — peers/channels/roles use the structured-tuple
+        shape; guilds stays as list[str].
+        """
         allowlist = {
-            "peers": ["u1", "u2"],
-            "channels": ["c1"],
+            "peers": [
+                {"id": "u1", "dm_allowed": True},
+                {"id": "u2", "dm_allowed": True},
+            ],
+            "channels": [{"guild_id": None, "channel_id": "c1"}],
             "guilds": ["g1", "g2"],
-            "roles": ["r1"],
+            "roles": [{"guild_id": None, "role_id": "r1"}],
         }
         account = Connector(
             id="a", name="n", type="stub", config={"allowlist": allowlist}
         )
-        assert account.config["allowlist"] == allowlist
+        for key in ("peers", "channels", "guilds", "roles"):
+            assert account.config["allowlist"][key] == allowlist[key]
 
     def test_allowlist_partial_axes_round_trips(self) -> None:
         """Partial L8 shapes are accepted — ``guilds`` alone (no roles),
@@ -1722,8 +1829,11 @@ class TestConnectorAccountConfigValidator:
         M11 F10 L1: validator now inserts ``dm_admission`` default
         when absent — the assertion includes the fresh-account default
         below.
+
+        M11 F12 L3: default value renamed to ``"admin-approved"``;
+        peers/channels/roles use the structured-tuple shape.
         """
-        # Pre-L8 2-key shape still works.
+        # 2-key shape still works.
         acc1 = Connector(
             id="a1", name="n", type="stub",
             config={"allowlist": {"peers": [], "channels": []}},
@@ -1731,7 +1841,7 @@ class TestConnectorAccountConfigValidator:
         assert acc1.config["allowlist"] == {
             "peers": [],
             "channels": [],
-            "dm_admission": "allowlisted-peers-only",
+            "dm_admission": "admin-approved",
         }
         # peers + channels + guilds only (no roles).
         acc2 = Connector(
@@ -1746,10 +1856,13 @@ class TestConnectorAccountConfigValidator:
         acc3 = Connector(
             id="a3", name="n", type="stub",
             config={"allowlist": {
-                "peers": [], "channels": [], "roles": ["R1"],
+                "peers": [], "channels": [],
+                "roles": [{"guild_id": None, "role_id": "R1"}],
             }},
         )
-        assert acc3.config["allowlist"]["roles"] == ["R1"]
+        assert acc3.config["allowlist"]["roles"] == [
+            {"guild_id": None, "role_id": "R1"}
+        ]
         assert "guilds" not in acc3.config["allowlist"]
 
     def test_allowlist_extra_key_still_rejected_after_l8(self) -> None:
@@ -1802,13 +1915,18 @@ class TestConnectorAccountConfigValidator:
     async def test_allowlist_round_trips_through_repo(
         self, connector_repo: ConnectorRepository
     ) -> None:
-        allowlist = {"peers": ["u1"], "channels": ["c1"]}
+        # M11 F12 L3 — structured-tuple shape for peers/channels.
+        allowlist = {
+            "peers": [{"id": "u1", "dm_allowed": True}],
+            "channels": [{"guild_id": None, "channel_id": "c1"}],
+        }
         account = Connector(
             id="a1", name="n", type="stub", config={"allowlist": allowlist}
         )
         await connector_repo.create(account)
         loaded = await connector_repo.get("a1")
-        assert loaded.config["allowlist"] == allowlist
+        assert loaded.config["allowlist"]["peers"] == allowlist["peers"]
+        assert loaded.config["allowlist"]["channels"] == allowlist["channels"]
 
     async def test_empty_allowlist_round_trips_through_repo(
         self, connector_repo: ConnectorRepository
@@ -1825,6 +1943,59 @@ class TestConnectorAccountConfigValidator:
         assert loaded.config["allowlist"] == empty
         assert "allowlist" in loaded.config  # not erased
 
+    async def test_v24_structured_shape_full_round_trip_through_sqlite(
+        self, connector_repo: ConnectorRepository
+    ) -> None:
+        """M11 F12 L3 cycle-1 finding #4 — SQLite JSON-column round-trip
+        of the full v24 structured-tuple shape (peers / channels / roles)
+        preserves every field verbatim.
+
+        Pydantic validates shape at the Python boundary; SQLite stores
+        arbitrary JSON. This test catches accidental shape mutations
+        inside the repository serialize/deserialize path that the
+        validator would not otherwise notice (e.g. dict key reordering,
+        type coercion of dm_allowed bool to int).
+        """
+        allowlist = {
+            "peers": [
+                {"id": "u1", "dm_allowed": True},
+                {"id": "u2", "dm_allowed": False},
+                {"id": "u3", "dm_allowed": True},
+            ],
+            "channels": [
+                {"guild_id": None, "channel_id": "c-no-guild"},
+                {"guild_id": "g-1", "channel_id": "c-bound"},
+            ],
+            "guilds": ["g-1", "g-2"],
+            "roles": [
+                {"guild_id": None, "role_id": "r-global"},
+                {"guild_id": "g-1", "role_id": "r-bound"},
+            ],
+            "dm_admission": "admin-approved",
+        }
+        original = Connector(
+            id="a-v24-rt",
+            name="v24-round-trip",
+            type="stub",
+            config={"allowlist": allowlist},
+        )
+        await connector_repo.create(original)
+        loaded = await connector_repo.get("a-v24-rt")
+
+        # Exact-equality check on every axis — no field reordering,
+        # type coercion, or value drift.
+        loaded_allowlist = loaded.config["allowlist"]
+        assert loaded_allowlist["peers"] == allowlist["peers"]
+        assert loaded_allowlist["channels"] == allowlist["channels"]
+        assert loaded_allowlist["guilds"] == allowlist["guilds"]
+        assert loaded_allowlist["roles"] == allowlist["roles"]
+        assert loaded_allowlist["dm_admission"] == "admin-approved"
+        # Belt-and-braces: dm_allowed types are bool, not int (JSON
+        # round-trip can flip these silently if the writer/reader
+        # disagree on bool encoding).
+        for peer_entry in loaded_allowlist["peers"]:
+            assert isinstance(peer_entry["dm_allowed"], bool), peer_entry
+
     async def test_dm_admission_round_trips_through_repo(
         self, connector_repo: ConnectorRepository
     ) -> None:
@@ -1833,13 +2004,19 @@ class TestConnectorAccountConfigValidator:
 
         Pins the per-axis tri-state Literal value round-trip through
         the JSON column. Validates all three values
-        (``"none"``, ``"allowlisted-peers-only"``, ``"all"``).
+        (``"none"``, ``"admin-approved"``, ``"all"``).
+
+        M11 F12 L3 — Literal value renamed from
+        ``"allowlisted-peers-only"`` to ``"admin-approved"``; peers
+        use the structured-tuple shape.
         """
         # Create with dm_admission = "all".
         account = Connector(
             id="a1", name="n", type="stub",
             config={"allowlist": {
-                "peers": ["P1"], "channels": [], "dm_admission": "all",
+                "peers": [{"id": "P1", "dm_allowed": True}],
+                "channels": [],
+                "dm_admission": "all",
             }},
         )
         await connector_repo.create(account)
@@ -1859,12 +2036,12 @@ class TestConnectorAccountConfigValidator:
         reloaded = await connector_repo.get("a1")
         assert reloaded.config["allowlist"]["dm_admission"] == "none"
 
-        # Update to "allowlisted-peers-only".
-        reloaded.config["allowlist"]["dm_admission"] = "allowlisted-peers-only"
+        # Update to "admin-approved".
+        reloaded.config["allowlist"]["dm_admission"] = "admin-approved"
         await connector_repo.update(reloaded)
         final = await connector_repo.get("a1")
         assert final.config["allowlist"]["dm_admission"] == (
-            "allowlisted-peers-only"
+            "admin-approved"
         )
 
     async def test_empty_allowlist_stored_as_lists_not_null(
@@ -1889,13 +2066,15 @@ class TestConnectorAccountConfigValidator:
         ) as cur:
             row = await cur.fetchone()
         raw = json.loads(row["config"])
-        # M11 F10 L1: the validator inserts ``dm_admission`` default on
-        # construction, so the serialized JSON carries it too.
+        # M11 F10 L1 + M11 F12 L3: the validator inserts
+        # ``dm_admission`` default ``"admin-approved"`` on construction
+        # (renamed from ``"allowlisted-peers-only"`` in F12 L3), so
+        # the serialized JSON carries it too.
         assert raw == {
             "allowlist": {
                 "peers": [],
                 "channels": [],
-                "dm_admission": "allowlisted-peers-only",
+                "dm_admission": "admin-approved",
             }
         }
         # JSON null would deserialize as None; absent key would mean
@@ -2499,11 +2678,11 @@ class TestChatSessionRepository:
 # ── M10 F03 L01: Connector session_continuation_seconds ───────────
 
 
-class TestConnectorAccountSessionContinuation:
+class TestConnectorSessionContinuation:
     """Round-trip + validator coverage for the M10 F03 L01 field
     ``session_continuation_seconds`` on ``Connector``.
 
-    Sibling to ``TestConnectorAccountRepository`` 's
+    Sibling to ``TestConnectorRepository`` 's
     ``idle_timeout_seconds`` tests; same shape, distinct concern (chat-
     session continuation window vs. pool warm-entry TTL).
     """
@@ -2714,7 +2893,7 @@ def pending_approval_repo(conn):
 
 
 @pytest.fixture
-async def _seed_connector_account(conn, connector_repo_encryptor):
+async def _seed_connector(conn, connector_repo_encryptor):
     """Seed an ``acct-1`` connector account for FK-bound tests."""
     repo = ConnectorRepository(conn, connector_repo_encryptor)
     await repo.create(
@@ -2736,7 +2915,7 @@ class TestPendingApprovalRepository:
     async def test_upsert_creates_new_row(
         self,
         pending_approval_repo: PendingApprovalRepository,
-        _seed_connector_account,
+        _seed_connector,
     ) -> None:
         appr = await pending_approval_repo.upsert_pending(
             connector_id="acct-1",
@@ -2759,7 +2938,7 @@ class TestPendingApprovalRepository:
     async def test_upsert_dedup_updates_in_place(
         self,
         pending_approval_repo: PendingApprovalRepository,
-        _seed_connector_account,
+        _seed_connector,
     ) -> None:
         """Two upserts for (acct-1, peer-1) while status='pending' →
         ONE row, second call returns the SAME id with refreshed
@@ -2793,7 +2972,7 @@ class TestPendingApprovalRepository:
     async def test_upsert_after_approve_creates_new_row(
         self,
         pending_approval_repo: PendingApprovalRepository,
-        _seed_connector_account,
+        _seed_connector,
     ) -> None:
         """Upsert + mark_approved consumes the pending row; the next
         upsert with the same (account, peer) INSERTs a fresh row that
@@ -2824,7 +3003,7 @@ class TestPendingApprovalRepository:
     async def test_get_raises_keyerror_for_unknown_id(
         self,
         pending_approval_repo: PendingApprovalRepository,
-        _seed_connector_account,
+        _seed_connector,
     ) -> None:
         with pytest.raises(KeyError):
             await pending_approval_repo.get("does-not-exist")
@@ -2832,7 +3011,7 @@ class TestPendingApprovalRepository:
     async def test_mark_approved_flips_status_and_sets_resolved_at(
         self,
         pending_approval_repo: PendingApprovalRepository,
-        _seed_connector_account,
+        _seed_connector,
     ) -> None:
         appr = await pending_approval_repo.upsert_pending(
             connector_id="acct-1",
@@ -2850,7 +3029,7 @@ class TestPendingApprovalRepository:
     async def test_mark_approved_idempotent_on_already_approved(
         self,
         pending_approval_repo: PendingApprovalRepository,
-        _seed_connector_account,
+        _seed_connector,
     ) -> None:
         appr = await pending_approval_repo.upsert_pending(
             connector_id="acct-1",
@@ -2865,7 +3044,7 @@ class TestPendingApprovalRepository:
     async def test_mark_approved_on_dismissed_row_raises_valueerror(
         self,
         pending_approval_repo: PendingApprovalRepository,
-        _seed_connector_account,
+        _seed_connector,
     ) -> None:
         appr = await pending_approval_repo.upsert_pending(
             connector_id="acct-1",
@@ -2880,7 +3059,7 @@ class TestPendingApprovalRepository:
     async def test_mark_dismissed_mirrors(
         self,
         pending_approval_repo: PendingApprovalRepository,
-        _seed_connector_account,
+        _seed_connector,
     ) -> None:
         appr = await pending_approval_repo.upsert_pending(
             connector_id="acct-1",
@@ -2913,7 +3092,7 @@ class TestPendingApprovalRepository:
     async def test_list_for_account_peer_returns_oldest_first(
         self,
         pending_approval_repo: PendingApprovalRepository,
-        _seed_connector_account,
+        _seed_connector,
     ) -> None:
         import asyncio
 
@@ -2941,7 +3120,7 @@ class TestPendingApprovalRepository:
     async def test_list_by_account_returns_all_for_account(
         self,
         pending_approval_repo: PendingApprovalRepository,
-        _seed_connector_account,
+        _seed_connector,
     ) -> None:
         a1 = await pending_approval_repo.upsert_pending(
             connector_id="acct-1",
@@ -2966,13 +3145,13 @@ class TestPendingApprovalRepository:
         ids = {r.id for r in rows}
         assert ids == {a1.id, a2.id}
 
-    async def test_fk_cascade_via_connector_account_delete(
+    async def test_fk_cascade_via_connector_delete(
         self,
         pending_approval_repo: PendingApprovalRepository,
-        _seed_connector_account,
+        _seed_connector,
         connector_repo: ConnectorRepository,
     ) -> None:
-        """Deleting the parent connector_account removes the dependent
+        """Deleting the parent connector removes the dependent
         pending_approvals rows via the v21 FK CASCADE."""
         await pending_approval_repo.upsert_pending(
             connector_id="acct-1",

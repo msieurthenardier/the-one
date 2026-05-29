@@ -28,6 +28,39 @@ from the_one.connectors.base import InboundEnvelope
 from the_one.db.models import Connector
 
 
+def _to_v24_shape(allowlist: dict) -> dict:
+    """Translate flat-shape allowlist to the v24 structured-tuple shape.
+
+    M11 F12 L3 — fixtures continue using the readable flat shape
+    (``peers: list[str]``, ``channels: list[str]``, ``roles: list[str]``)
+    for terseness; this helper applies the mechanical translation at
+    build time. Mirrors the helper of the same name in
+    ``test_connectors_acl.py``.
+    """
+    result = dict(allowlist)
+    if "peers" in result and isinstance(result["peers"], list):
+        result["peers"] = [
+            entry if isinstance(entry, dict)
+            else {"id": entry, "dm_allowed": True}
+            for entry in result["peers"]
+        ]
+    if "channels" in result and isinstance(result["channels"], list):
+        result["channels"] = [
+            entry if isinstance(entry, dict)
+            else {"guild_id": None, "channel_id": entry}
+            for entry in result["channels"]
+        ]
+    if "roles" in result and isinstance(result["roles"], list):
+        result["roles"] = [
+            entry if isinstance(entry, dict)
+            else {"guild_id": None, "role_id": entry}
+            for entry in result["roles"]
+        ]
+    if result.get("dm_admission") == "allowlisted-peers-only":
+        result["dm_admission"] = "admin-approved"
+    return result
+
+
 def _account(
     *,
     account_id: str = "acct-test",
@@ -37,7 +70,7 @@ def _account(
     """Build a minimal Connector with optional allowlist/routing."""
     config: dict = {}
     if allowlist is not None:
-        config["allowlist"] = allowlist
+        config["allowlist"] = _to_v24_shape(allowlist)
     if routing is not None:
         config["routing"] = routing
     return Connector(

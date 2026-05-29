@@ -354,13 +354,20 @@ def test_discord_account_save_roundtrip_preserves_substrate_field_names(
         secrets={"BOT_TOKEN": "plaintext"},
     )
 
-    # Direct GET to confirm the seeded shape persisted unchanged.
+    # Direct GET to confirm the seeded shape persisted. M11 F12 L4 —
+    # peers / channels / roles are structured-tuple dicts post-v24; the
+    # seeder auto-translates the flat ids the fixture authors. Guilds
+    # remain ``list[str]`` (no per-entry scoping — a guild IS the scope).
     before = _get_account(app_clean, account_id)
     assert "peers" in before["config"]["allowlist"]
     assert "channels" in before["config"]["allowlist"]
     assert "guilds" in before["config"]["allowlist"]
     assert "roles" in before["config"]["allowlist"]
-    assert before["config"]["allowlist"]["peers"] == ["alice", "bob"]
+    before_peer_ids = [
+        (p.get("id") if isinstance(p, dict) else p)
+        for p in before["config"]["allowlist"]["peers"]
+    ]
+    assert before_peer_ids == ["alice", "bob"]
     assert before["config"]["allowlist"]["guilds"] == ["111"]
     # Substituted display vocabulary keys MUST NOT appear at the wire
     # layer.
@@ -381,12 +388,24 @@ def test_discord_account_save_roundtrip_preserves_substrate_field_names(
 
     after = _get_account(app_clean, account_id)
     assert after["name"] == "Wire Discord Renamed"
-    assert after["config"]["allowlist"]["peers"] == ["alice", "bob"], (
+    after_peer_ids = [
+        (p.get("id") if isinstance(p, dict) else p)
+        for p in after["config"]["allowlist"]["peers"]
+    ]
+    after_channel_ids = [
+        (c.get("channel_id") if isinstance(c, dict) else c)
+        for c in after["config"]["allowlist"]["channels"]
+    ]
+    after_role_ids = [
+        (r.get("role_id") if isinstance(r, dict) else r)
+        for r in after["config"]["allowlist"]["roles"]
+    ]
+    assert after_peer_ids == ["alice", "bob"], (
         f"peers field-name drifted at save round-trip; got: "
         f"{after['config']['allowlist']!r}"
     )
-    assert after["config"]["allowlist"]["channels"] == ["general"]
+    assert after_channel_ids == ["general"]
     assert after["config"]["allowlist"]["guilds"] == ["111"]
-    assert after["config"]["allowlist"]["roles"] == ["mod"]
+    assert after_role_ids == ["mod"]
     assert "users" not in after["config"]["allowlist"]
     assert "servers" not in after["config"]["allowlist"]

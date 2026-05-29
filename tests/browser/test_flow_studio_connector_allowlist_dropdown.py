@@ -240,7 +240,16 @@ def test_allowlist_dropdown_onChange_updates_account_config_allowlist(
 
     persisted = _get_account(app_clean, account_id)
     allowlist = (persisted.get("config") or {}).get("allowlist") or {}
-    assert "111" in (allowlist.get("channels") or []), (
+    # M11 F12 L4 — channels storage is structured-tuple
+    # ``[{guild_id, channel_id}]`` post-v24. Project to channel_ids for
+    # the membership check. The selected ``#general`` item carries
+    # ``group: 'guild-1'`` in the discoverable payload; the dropdown
+    # synthesizes the tuple as ``{guild_id: 'guild-1', channel_id: '111'}``.
+    channel_ids = [
+        e.get("channel_id") if isinstance(e, dict) else e
+        for e in (allowlist.get("channels") or [])
+    ]
+    assert "111" in channel_ids, (
         f"expected channel id '111' persisted; allowlist={allowlist!r}"
     )
 
@@ -283,8 +292,14 @@ def test_allowlist_dropdown_chip_remove_updates_account_config_allowlist(
 
     persisted = _get_account(app_clean, account_id)
     allowlist = (persisted.get("config") or {}).get("allowlist") or {}
-    channels = allowlist.get("channels") or []
-    assert "111" not in channels, (
+    # M11 F12 L4 — channels storage is structured-tuple
+    # ``[{guild_id, channel_id}]`` post-v24. Project to channel_ids for
+    # the absence check.
+    channel_ids = [
+        e.get("channel_id") if isinstance(e, dict) else e
+        for e in (allowlist.get("channels") or [])
+    ]
+    assert "111" not in channel_ids, (
         f"expected '111' removed from channels; allowlist={allowlist!r}"
     )
 

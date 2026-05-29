@@ -2031,7 +2031,14 @@
 
     // Peers axis.
     var peersTipText = 'Empty list = no ' + vocab.peer + ' restriction.';
-    html += '<div class="field-row admin-pf-row connector-acl-fieldrow">';
+    // M11 F12 L4 — peers row carries a state-class for the per-peer
+    // DM toggle visibility. The class is initialized from
+    // ``currentDmAdmission`` (read below) and toggled live by the
+    // dm_admission select's change handler wired in
+    // ``wireAllowlistEvents``.
+    var peersDmClass = ' connector-allowlist-peers-row';
+    html += '<div class="field-row admin-pf-row connector-acl-fieldrow' + peersDmClass +
+            '" data-testid="connector-allowlist-peers-row">';
     html += '<label class="connector-acl-fieldlabel">' +
             escapeHtml(_capitalize(vocab.peers)) + '</label>';
     html += '<button type="button" class="field-info-icon" ' +
@@ -2051,8 +2058,10 @@
     var dmAdmissionTipText = 'DMs (direct messages to the bot) are ' +
         'admitted independently of channel restrictions. Approved ' +
         'peers are those on the Peers allowlist above.';
+    // M11 F12 L4 — Literal value rename ``allowlisted-peers-only`` →
+    // ``admin-approved`` (operator-vocabulary alignment per F12 L3).
     var currentDmAdmission = (account && account.config && account.config.allowlist &&
-        account.config.allowlist.dm_admission) || 'allowlisted-peers-only';
+        account.config.allowlist.dm_admission) || 'admin-approved';
     html += '<div class="field-row admin-pf-row connector-acl-fieldrow" ' +
             'data-testid="connector-allowlist-dm-admission-row">';
     html += '<label class="connector-acl-fieldlabel" ' +
@@ -2068,9 +2077,9 @@
             'data-testid="connector-allowlist-dm-admission-select">';
     html += '<option value="none"' +
             (currentDmAdmission === 'none' ? ' selected' : '') + '>Deny all DMs</option>';
-    html += '<option value="allowlisted-peers-only"' +
-            (currentDmAdmission === 'allowlisted-peers-only' ? ' selected' : '') +
-            '>Admit DMs from approved peers</option>';
+    html += '<option value="admin-approved"' +
+            (currentDmAdmission === 'admin-approved' ? ' selected' : '') +
+            '>Admin-approved (per-peer)</option>';
     html += '<option value="all"' +
             (currentDmAdmission === 'all' ? ' selected' : '') + '>Admit all DMs</option>';
     html += '</select>';
@@ -3165,8 +3174,51 @@
   // read via the text-node walk). The chip-list fallback does NOT
   // install the getter; the collect path falls through to the
   // existing text-node walk.
+  // M11 F12 L4 — per-storage-axis structured-tuple shape:
+  //   peers    → {id, dm_allowed}        (valueShape: 'peer')
+  //   channels → {guild_id, channel_id}  (valueShape: 'channel')
+  //   roles    → {guild_id, role_id}     (valueShape: 'role')
+  //   guilds   → str                     (valueShape: 'flat')
+  // The dropdown component understands ``valueShape`` directly; the
+  // stub fallback chip-list editor speaks flat-string ids, so the
+  // _mountAllowlistAxisEditor wraps/unwraps at the fallback boundary.
+  var _AXIS_VALUE_SHAPE = {
+    peers: 'peer',
+    channels: 'channel',
+    roles: 'role',
+    guilds: 'flat'
+  };
+
+  function _entryIdForAxis(entry, storageAxis) {
+    if (entry == null) return '';
+    if (storageAxis === 'peers') {
+      return (entry && typeof entry === 'object') ? String(entry.id || '') : String(entry);
+    }
+    if (storageAxis === 'channels') {
+      return (entry && typeof entry === 'object') ? String(entry.channel_id || '') : String(entry);
+    }
+    if (storageAxis === 'roles') {
+      return (entry && typeof entry === 'object') ? String(entry.role_id || '') : String(entry);
+    }
+    return String(entry);
+  }
+
+  function _wrapFlatForAxis(id, storageAxis) {
+    // Wrap a bare id string from the stub chip-list editor into the
+    // structured-tuple shape. The stub path has no entity context so
+    // guild_id falls back to null (legacy-permissive — surfaces the
+    // legacy indicator on the chip post-mount).
+    var s = (id == null) ? '' : String(id);
+    if (!s) return null;
+    if (storageAxis === 'peers') return { id: s, dm_allowed: false };
+    if (storageAxis === 'channels') return { guild_id: null, channel_id: s };
+    if (storageAxis === 'roles') return { guild_id: null, role_id: s };
+    return s;
+  }
+
   function _mountAllowlistAxisEditor(slotEl, account, storageAxis, currentValues, vocab, checkDirty) {
     if (!slotEl) return;
+    var valueShape = _AXIS_VALUE_SHAPE[storageAxis] || 'flat';
     var state = { values: (currentValues || []).slice() };
     var registry = (window.App && window.App.studio && window.App.studio.connectorFormRegistry) || null;
     var entry = (registry && account && account.type) ? registry.get(account.type) : null;
@@ -3180,7 +3232,9 @@
         function onChange(newValues) {
           state.values = (newValues || []).slice();
           if (typeof checkDirty === 'function') checkDirty();
-        }
+        },
+        // M11 F12 L4 — opt into structured-tuple shape per axis.
+        { valueShape: valueShape }
       );
       if (dropdownEl) {
         slotEl.innerHTML = '';
@@ -3190,15 +3244,49 @@
       }
     }
     // Fallback: chip-list (preserves stub-type / no-entry behavior).
+    // M11 F12 L4 — the stub chip-list editor speaks flat-string ids;
+    // unwrap structured tuples for display, then install a getter that
+    // re-wraps on collect. Chip-list edits are observed via the
+    // _allowlistValues getter so the collect path reads the wrapped
+    // shape without round-tripping through the chip DOM.
     var helpers = window.App.adminFormHelpers;
     slotEl.innerHTML = '';
-    var chiplist = _buildAllowlistChipList(storageAxis, state.values);
+    var flatIds = [];
+    for (var fi = 0; fi < state.values.length; fi++) {
+      flatIds.push(_entryIdForAxis(state.values[fi], storageAxis));
+    }
+    var chiplist = _buildAllowlistChipList(storageAxis, flatIds);
     slotEl.appendChild(chiplist);
     if (helpers && helpers.wireChipListEditor) {
       helpers.wireChipListEditor(chiplist, { onChange: checkDirty });
     }
-    // No _allowlistValues getter installed — chip-list path falls
-    // through to the text-node walk in collectAllowlistFromContainer.
+    // M11 F12 L4 — install the bridge getter for chip-list mode too so
+    // the structured-tuple wrapping happens at read time (the chip DOM
+    // still stores plain ids; the wrap synthesizes guild_id=null /
+    // dm_allowed=false defaults at collect time).
+    if (valueShape !== 'flat') {
+      slotEl._allowlistValues = function () {
+        var out = [];
+        var chips = chiplist.querySelectorAll('.chip');
+        for (var i = 0; i < chips.length; i++) {
+          var label = '';
+          for (var j = 0; j < chips[i].childNodes.length; j++) {
+            var n = chips[i].childNodes[j];
+            if (n.nodeType === 3) label += n.nodeValue;
+          }
+          label = (label || '').trim();
+          if (label) {
+            var wrapped = _wrapFlatForAxis(label, storageAxis);
+            if (wrapped) out.push(wrapped);
+          }
+        }
+        return out;
+      };
+    }
+    // Guilds (valueShape === 'flat') leaves no getter; collect path
+    // falls through to the text-node walk in
+    // collectAllowlistFromContainer (returns bare strings — matches the
+    // storage shape).
   }
 
   function wireAllowlistEvents(container, account, checkDirty) {
@@ -3230,6 +3318,34 @@
     _mountAllowlistAxisEditor(channelsSlot, account, 'channels', channelsInit, vocab, checkDirty);
     _mountAllowlistAxisEditor(guildsSlot, account, 'guilds', guildsInit, vocab, checkDirty);
     _mountAllowlistAxisEditor(rolesSlot, account, 'roles', rolesInit, vocab, checkDirty);
+
+    // M11 F12 L4 — per-peer DM toggle visibility wiring (recommended
+    // path (b): CSS-toggle via parent class change). The dm_admission
+    // <select> change handler toggles ``dm-admission-admin-approved``
+    // on the peers section. CSS controls visibility — see studio.css.
+    // Path (b) preserves checkbox state across mode flips: switching to
+    // ``none`` / ``all`` HIDES the toggles without erasing dm_allowed
+    // values, so flipping back to ``admin-approved`` restores them.
+    var dmAdmissionSelect = container.querySelector(
+        '[data-testid="connector-allowlist-dm-admission-select"]');
+    var peersRow = container.querySelector(
+        '[data-testid="connector-allowlist-peers-row"]');
+    function _applyPeersDmClass(value) {
+      if (!peersRow) return;
+      var on = (value === 'admin-approved');
+      peersRow.classList.toggle('dm-admission-admin-approved', on);
+    }
+    if (dmAdmissionSelect) {
+      _applyPeersDmClass(dmAdmissionSelect.value);
+      dmAdmissionSelect.addEventListener('change', function () {
+        _applyPeersDmClass(dmAdmissionSelect.value);
+        if (typeof checkDirty === 'function') checkDirty();
+      });
+    } else {
+      // Defensive: defaults to admin-approved when select is absent
+      // (matches collectAllowlistFromContainer's fallback at :3567).
+      _applyPeersDmClass('admin-approved');
+    }
 
     // F5 L6 HAT R5: wire the section-level banner (pre-probe vs
     // populated state + manual Refresh dispatch). The 4 axes' per-axis
@@ -3437,13 +3553,25 @@
     var rolesSlot = container.querySelector('[data-allowlist-chiplist-slot="roles"]');
     if (!peersSlot && !channelsSlot && !guildsSlot && !rolesSlot) return null;
     function _readChiplist(slot) {
+      // M11 F12 L4 — the ``_allowlistValues`` getter now returns the
+      // structured-tuple shape directly for peers/channels/roles (and
+      // bare strings for guilds). Pass non-string entries through
+      // unchanged so the structured shape reaches the save payload; for
+      // bare-string fallbacks (text-node walk path) preserve the
+      // pre-L4 behavior.
       var out = [];
       if (!slot) return out;
       if (typeof slot._allowlistValues === 'function') {
         var vals = slot._allowlistValues() || [];
         for (var k = 0; k < vals.length; k++) {
-          var v = (vals[k] == null) ? '' : String(vals[k]);
-          if (v) out.push(v);
+          var v = vals[k];
+          if (v == null) continue;
+          if (typeof v === 'object') {
+            out.push(v);
+          } else {
+            var s = String(v);
+            if (s) out.push(s);
+          }
         }
         return out;
       }
@@ -3463,13 +3591,15 @@
       return out;
     }
     // M11 F10 L2: dm_admission axis (3-value selector). Reads the
-    // selector value; defaults to 'allowlisted-peers-only' when the
-    // selector is absent (defensive — shouldn't reach this code path
-    // because the early-return above already guards on chiplist
-    // absence, and dm_admission renders in the same section).
+    // selector value; defaults to 'admin-approved' when the selector is
+    // absent (defensive — shouldn't reach this code path because the
+    // early-return above already guards on chiplist absence, and
+    // dm_admission renders in the same section).
+    // M11 F12 L4: Literal value rename ``allowlisted-peers-only`` →
+    // ``admin-approved`` (operator-vocabulary alignment).
     var dmAdmissionSelect = container.querySelector(
         '[data-testid="connector-allowlist-dm-admission-select"]');
-    var dmAdmission = dmAdmissionSelect ? dmAdmissionSelect.value : 'allowlisted-peers-only';
+    var dmAdmission = dmAdmissionSelect ? dmAdmissionSelect.value : 'admin-approved';
     return {
       peers: _readChiplist(peersSlot),
       channels: _readChiplist(channelsSlot),
@@ -3489,12 +3619,42 @@
   // longer matches an account-scope entry — effectively dead).
 
   function _confirmStaleChipsThen(account, payload, container, proceed) {
+    // M11 F12 L4 — peers / channels now carry structured-tuple shape:
+    //   peers:    [{id, dm_allowed}]
+    //   channels: [{guild_id, channel_id}]
+    // Extract the id field for set-difference + the agent-side lookup
+    // (per-agent ACL stores the same structured shape post-L4).
+    function _peerIds(arr) {
+      var ids = [];
+      for (var i = 0; i < (arr || []).length; i++) {
+        var p = arr[i];
+        if (p && typeof p === 'object') {
+          if (p.id) ids.push(String(p.id));
+        } else if (p != null) {
+          ids.push(String(p));
+        }
+      }
+      return ids;
+    }
+    function _channelIds(arr) {
+      var ids = [];
+      for (var i = 0; i < (arr || []).length; i++) {
+        var c = arr[i];
+        if (c && typeof c === 'object') {
+          if (c.channel_id) ids.push(String(c.channel_id));
+        } else if (c != null) {
+          ids.push(String(c));
+        }
+      }
+      return ids;
+    }
+
     var origAllowlist = (account && account.config && account.config.allowlist) || null;
-    var origPeers = (origAllowlist && Array.isArray(origAllowlist.peers)) ? origAllowlist.peers : [];
-    var origChannels = (origAllowlist && Array.isArray(origAllowlist.channels)) ? origAllowlist.channels : [];
+    var origPeers = _peerIds(origAllowlist && origAllowlist.peers);
+    var origChannels = _channelIds(origAllowlist && origAllowlist.channels);
     var newAllowlist = (payload && payload.config && payload.config.allowlist) || null;
-    var newPeers = (newAllowlist && Array.isArray(newAllowlist.peers)) ? newAllowlist.peers : [];
-    var newChannels = (newAllowlist && Array.isArray(newAllowlist.channels)) ? newAllowlist.channels : [];
+    var newPeers = _peerIds(newAllowlist && newAllowlist.peers);
+    var newChannels = _channelIds(newAllowlist && newAllowlist.channels);
 
     var removedPeers = [];
     for (var i = 0; i < origPeers.length; i++) {
@@ -3524,8 +3684,11 @@
         for (var k = 0; k < rows.length; k++) {
           var row = rows[k] || {};
           var aname = String(row.name || '');
-          var rowPeers = Array.isArray(row.peers) ? row.peers : [];
-          var rowChannels = Array.isArray(row.channels) ? row.channels : [];
+          // M11 F12 L4 — per-agent peers/channels arrive in the same
+          // structured-tuple shape as account-scope (storage
+          // pass-through). Project to ids for set-membership.
+          var rowPeers = _peerIds(row.peers);
+          var rowChannels = _channelIds(row.channels);
           for (var p = 0; p < removedPeers.length; p++) {
             if (rowPeers.indexOf(removedPeers[p]) !== -1) {
               affected.push({ agent: aname, kind: 'peer', chip: removedPeers[p] });

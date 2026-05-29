@@ -167,10 +167,10 @@ class TestMCPSourceRoundTrip:
         assert json.loads(decrypted) == {"K": real_value}
 
 
-# ── Connector account round-trip ─────────────────────────────────────────
+# ── Connector round-trip ─────────────────────────────────────────────────
 
 
-class TestConnectorAccountRoundTrip:
+class TestConnectorRoundTrip:
     async def test_get_put_get_does_not_corrupt_secret(self, client_and_key) -> None:
         """Mirror of the MCP test for connectors.
 

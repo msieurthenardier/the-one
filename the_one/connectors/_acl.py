@@ -5,6 +5,16 @@ platform-send tool's outbound execute path (F6 L3) had inlined, and
 adds the symmetric inbound counterpart that the F7 dispatcher
 consumes after picking an agent.
 
+M11 F12 L3: structured-tuple storage for peers / channels / roles
+landed (v24 migration). All helpers consume structured dicts:
+
+  - ``peers``: ``list[{id: str, dm_allowed: bool}]``
+  - ``channels``: ``list[{guild_id: str | None, channel_id: str}]``
+  - ``roles``: ``list[{guild_id: str | None, role_id: str}]``
+
+Plus the ``dm_admission`` Literal value rename
+``"allowlisted-peers-only"`` → ``"admin-approved"``.
+
 Two functions, both pure (no I/O, no repository access):
 
 - :func:`admits_outbound` — account-scope channels intersected with
@@ -56,6 +66,8 @@ short operator-readable string suitable for embedding into the
 
 from __future__ import annotations
 
+from typing import Any
+
 from the_one.connectors.base import InboundEnvelope
 from the_one.db.models import Connector
 
@@ -105,7 +117,7 @@ def _default_no_mention(envelope: InboundEnvelope) -> bool:
 
 def admits_outbound(
     account: Connector,
-    agent_acl: dict[str, list[str] | None] | None,
+    agent_acl: dict[str, Any] | None,
     channel_id: str,
     *,
     is_dm: bool = False,
@@ -144,22 +156,37 @@ def admits_outbound(
     axes that have target-side meaning. F10 hardening can revisit if
     HAT surfaces concrete needs (e.g. a plugin-resolved
     ``send_target_guild_id``).
+
+    **Outbound channel-tuple match semantic — LOCKED (M11 F12 L3)**:
+    outbound matches by ``channel_id`` ALONE, ignoring the per-entry
+    ``guild_id``. The F4 platform-send tool has no envelope ``guild_id``
+    context at outbound time, so we cannot validate a guild_id
+    constraint. This is symmetric to inbound's null-``guild_id``-is-
+    permissive rule for legacy channel entries — both branches honor
+    backward-compat with operator-curated allowlists where ``guild_id``
+    was not previously a stored axis. If a future flight needs strict
+    outbound guild-binding, it should add a plugin-resolved
+    ``send_target_guild_id`` (cycle-1 finding #5; locked decision per
+    F12 L3 spec).
     """
     # M10 F8 L8 — guilds/roles deliberately not consulted on outbound;
     # the kwargs are accepted for signature uniformity. See docstring.
     del guild_id, member_roles
     account_id = account.id
-    # Account-scope channels axis.
+    # Account-scope channels axis (M11 F12 L3 structured tuples; match
+    # by channel_id ALONE per the locked outbound semantic above).
     allowlist = account.config.get("allowlist")
     if allowlist is not None:
         allowed_channels = allowlist.get("channels", [])
-        if allowed_channels and channel_id not in allowed_channels:
+        if allowed_channels and not any(
+            c["channel_id"] == channel_id for c in allowed_channels
+        ):
             return (
                 False,
                 f"channel_id {channel_id!r} "
                 f"is not reachable on account {account_id!r}",
             )
-    # Per-agent channels axis.
+    # Per-agent channels axis (same structured-tuple shape).
     if agent_acl is not None:
         agent_channels = agent_acl.get("channels")
         if agent_channels is None:
@@ -174,7 +201,9 @@ def admits_outbound(
                 f"for this agent on account {account_id!r} (per-agent "
                 f"channels axis is explicitly empty)",
             )
-        elif channel_id not in agent_channels:
+        elif not any(
+            c["channel_id"] == channel_id for c in agent_channels
+        ):
             return (
                 False,
                 f"channel_id {channel_id!r} is not reachable "
@@ -185,7 +214,7 @@ def admits_outbound(
 
 def admits_dm_peer(
     account: Connector,
-    agent_acl: dict[str, list[str] | None] | None,
+    agent_acl: dict[str, Any] | None,
     peer_id: str,
 ) -> tuple[bool, str]:
     """Check whether reading DM history with ``peer_id`` on ``account`` is permitted.
@@ -195,10 +224,13 @@ def admits_dm_peer(
     introduces it for the ``fetch_dm_history`` built-in tool, which gates
     on the per-(account, agent, peer) axis rather than the channel axis.
 
+    M11 F12 L3 — peers entries are structured ``{id, dm_allowed}`` dicts;
+    this helper consults only the ``id`` field (DM-history reads are not
+    gated by the per-peer ``dm_allowed`` toggle — that toggle gates
+    inbound DM admission, not outbound history reads).
+
     Per-axis tri-state per the module docstring, applied to the peers
-    axis at both scopes (mirrors the peers-block in
-    :func:`admits_inbound` at the account-scope at lines 251-259 and the
-    per-agent scope at lines 287-304):
+    axis at both scopes:
 
     - Account-scope ``allowlist.peers`` absent → unrestricted; ``[]`` →
       unrestricted; non-empty list and ``peer_id`` not in it → deny.
@@ -214,17 +246,19 @@ def admits_dm_peer(
     ``tests/test_connector_send_tool.py``).
     """
     account_id = account.id
-    # Account-scope peers axis (mirrors admits_inbound:251-259).
+    # Account-scope peers axis (M11 F12 L3 structured-dict consumption).
     allowlist = account.config.get("allowlist")
     if allowlist is not None:
         allowed_peers = allowlist.get("peers", [])
-        if allowed_peers and peer_id not in allowed_peers:
+        if allowed_peers and not any(
+            p["id"] == peer_id for p in allowed_peers
+        ):
             return (
                 False,
                 f"peer_id {peer_id!r} is not admitted on account "
                 f"{account_id!r}",
             )
-    # Per-agent peers axis (mirrors admits_inbound:287-304).
+    # Per-agent peers axis (same structured-dict shape).
     if agent_acl is not None:
         agent_peers = agent_acl.get("peers")
         if agent_peers is None:
@@ -236,7 +270,7 @@ def admits_dm_peer(
                 f"account {account_id!r} (per-agent peers axis is "
                 f"explicitly empty)",
             )
-        elif peer_id not in agent_peers:
+        elif not any(p["id"] == peer_id for p in agent_peers):
             return (
                 False,
                 f"peer_id {peer_id!r} is not admitted for this agent on "
@@ -247,7 +281,7 @@ def admits_dm_peer(
 
 def admits_inbound(
     account: Connector,
-    agent_acl: dict[str, list[str] | bool | None] | None,
+    agent_acl: dict[str, Any] | None,
     peer_id: str,
     channel_id: str,
     *,
@@ -265,11 +299,14 @@ def admits_inbound(
     gates which axes get consulted:
 
       - ``is_dm=True`` consults only the **peers** axis (account-scope
-        + per-agent), the new account-scope **``dm_admission``** axis
-        (``Literal["none", "allowlisted-peers-only", "all"]``), and the
-        new per-agent **``admit_dms``** axis (``bool | None``, opt-out
-        sentinel — ``False`` denies; ``True``/``None`` defer to the
-        account-scope ``dm_admission`` decision).
+        + per-agent), the account-scope **``dm_admission``** axis
+        (``Literal["none", "admin-approved", "all"]`` — renamed in
+        M11 F12 L3 from ``"allowlisted-peers-only"``), the per-peer
+        ``dm_allowed`` field (account-scope; consulted only under the
+        ``"admin-approved"`` policy mode per the F12 L3 Truth Table),
+        and the per-agent **``admit_dms``** axis (``bool | None``,
+        opt-out sentinel — ``False`` denies; ``True``/``None`` defer
+        to the account-scope ``dm_admission`` + per-peer composition).
       - ``is_dm=False`` consults the **peers / channels / guilds /
         roles** axes per the established 4-axis ACL semantics.
 
@@ -310,86 +347,151 @@ def admits_inbound(
     non-empty ``roles`` axis denies (peer has no roles, role-
     restricted account denies — consistent with the per-axis subset
     semantic).
+
+    **Internal structure (F12 L2)** — this function is a thin
+    dispatcher consulting ``is_dm`` and delegating to one of two
+    private helpers (:func:`_admits_inbound_dm` for the DM-context
+    branches, :func:`_admits_inbound_guild` for the guild-context
+    branches). The extraction is structurally a no-op; the helpers
+    own their own input prep (``account_id`` derivation, ``allowlist``
+    lookup, ``member_roles_set`` computation). See the
+    ``two-symmetric-paths-in-acl`` convention in ``agents.md`` for
+    the cross-path discipline.
     """
+    if is_dm:
+        return _admits_inbound_dm(
+            account, agent_acl, peer_id, channel_id
+        )
+    return _admits_inbound_guild(
+        account,
+        agent_acl,
+        peer_id,
+        channel_id,
+        guild_id=guild_id,
+        member_roles=member_roles,
+    )
+
+
+def _admits_inbound_dm(
+    account: Connector,
+    agent_acl: dict[str, Any] | None,
+    peer_id: str,
+    channel_id: str,
+) -> tuple[bool, str]:
+    """Handles the DM-context branches of :func:`admits_inbound` (``is_dm=True``).
+
+    Per the ``dms-orthogonal-to-guild-restriction`` convention
+    (``agents.md``), DMs consult only the peers axis (account-scope +
+    per-agent), the account-scope ``dm_admission`` axis, and the
+    per-agent ``admit_dms`` axis. Channels / guilds / roles axes are
+    intentionally skipped.
+
+    **M11 F12 L3 — DM Composition Truth Table (operator-confirmed)**:
+
+    ``admit_dm = (admit_dms is not False)
+              AND (peer in allowlist)
+              AND (dm_admission == "all" OR
+                   (dm_admission == "admin-approved" AND
+                    peer.dm_allowed == true))``
+
+    Where:
+
+      - ``admit_dms`` is the per-agent opt-out (``bool | None``;
+        ``False`` short-circuits to deny; ``True`` / ``None`` defer
+        to the account-scope composition).
+      - ``peer in allowlist`` is the peers-axis membership check
+        (account-scope; structured-dict id match per F12 L3).
+      - ``dm_admission`` is the account-scope DM-admission policy
+        Literal (``"none"`` / ``"admin-approved"`` / ``"all"``).
+      - ``peer.dm_allowed`` is the per-peer (account-scope) DM
+        toggle introduced by F12 L3; ONLY consulted under the
+        ``"admin-approved"`` policy mode. Under ``"all"`` it is
+        ignored; under ``"none"`` admission is denied regardless.
+
+    **Per-agent peers entries' ``dm_allowed`` field is NOT consulted
+    by this Truth Table** (F12 L3 cycle-1 callout). Per-agent ``peers``
+    carries the field for structural-uniformity with the account-scope
+    shape (same v24 storage tuple), but DM admission is decided at the
+    account-scope per-peer ``dm_allowed`` only. If a future flight
+    wants per-agent DM granularity (e.g. "this peer can DM agent A
+    but not agent B"), that requires a substrate change.
+
+    Private helper — callers outside ``_acl.py`` should consult
+    :func:`admits_inbound` (the public dispatcher) directly.
+    """
+    del channel_id  # DM path does not consult the channels axis.
     account_id = account.id
-    member_roles_set = set(member_roles or [])
+
+    # Per-agent admit_dms — deny short-circuit (composition rule
+    # factor 1: admit_dms is not False).
+    if agent_acl is not None:
+        admit_dms = agent_acl.get("admit_dms")
+        if admit_dms is False:
+            return (
+                False,
+                f"DM denied: agent admit_dms is False on account "
+                f"{account_id!r}",
+            )
+
     # Account-scope.
     allowlist = account.config.get("allowlist")
+    peer_entry: dict[str, Any] | None = None
     if allowlist is not None:
-        # 1. Peers axis (always consulted — both DMs and guild messages
-        #    need allowlist membership when peers is non-empty).
         allowed_peers = allowlist.get("peers", [])
-        if allowed_peers and peer_id not in allowed_peers:
+        # Locate the structured peer entry (composition rule factor 2:
+        # peer in allowlist; structured-dict id match per F12 L3).
+        peer_entry = next(
+            (p for p in allowed_peers if p["id"] == peer_id), None
+        )
+        # Peers-axis membership: if peers is non-empty AND the peer is
+        # not in it, deny BEFORE consulting dm_admission (precedence
+        # per F12 L3 cycle-1 cell-#3 clarification).
+        if allowed_peers and peer_entry is None:
             return (
                 False,
                 f"peer_id {peer_id!r} is not admitted on account "
                 f"{account_id!r}",
             )
 
-        # M11 F10 L1 — DM-context branch.
-        # When ``is_dm=True``, channels/guilds/roles axes are skipped
-        # (they restrict guild-context messages, not DMs).
-        # ``dm_admission`` gates DM admission orthogonally.
-        if is_dm:
-            dm_admission = allowlist.get(
-                "dm_admission", "allowlisted-peers-only"
+        # M11 F10 L1 + M11 F12 L3 — DM-context branch.
+        # ``dm_admission`` gates DM admission orthogonally to
+        # channels/guilds/roles (which restrict guild-context messages).
+        dm_admission = allowlist.get("dm_admission", "admin-approved")
+        if dm_admission == "none":
+            # Composition rule factor 3a: dm_admission == "all" OR
+            # "admin-approved" — "none" fails this regardless.
+            return (
+                False,
+                f"DM denied: account {account_id!r} dm_admission is "
+                f"'none'",
             )
-            if dm_admission == "none":
+        if dm_admission == "admin-approved":
+            # Composition rule factor 3b: admin-approved requires
+            # peer in allowlist AND peer.dm_allowed == true.
+            if peer_entry is None:
+                # admin-approved + no peers (or peer not in non-empty
+                # peers — but that branch already returned above) →
+                # deny (no one approved yet under this policy).
                 return (
                     False,
-                    f"DM denied: account {account_id!r} dm_admission is "
-                    f"'none'",
+                    f"DM denied: account {account_id!r} dm_admission "
+                    f"is 'admin-approved' and peer not in allowlist",
                 )
-            if dm_admission == "allowlisted-peers-only":
-                # peers axis above already enforced this when allowed_peers
-                # was non-empty. If allowed_peers is empty AND
-                # dm_admission is allowlisted-peers-only, no peer has
-                # been approved yet: deny.
-                if not allowed_peers:
-                    return (
-                        False,
-                        f"DM denied: account {account_id!r} dm_admission "
-                        f"is 'allowlisted-peers-only' and no peers are "
-                        f"on the allowlist",
-                    )
-            # dm_admission == "all", OR "allowlisted-peers-only" with
-            # the peer on the allowlist: fall through to per-agent check.
-        else:
-            # Guild-context branch: channels / guilds / roles consulted
-            # exactly as pre-L1.
-            allowed_channels = allowlist.get("channels", [])
-            if allowed_channels and channel_id not in allowed_channels:
+            if not peer_entry.get("dm_allowed", False):
                 return (
                     False,
-                    f"channel_id {channel_id!r} is not admitted on account "
+                    f"DM denied: peer {peer_id!r} has dm_allowed=false "
+                    f"under admin-approved policy on account "
                     f"{account_id!r}",
                 )
-            # M10 F8 L8 — account-scope guilds axis. Non-empty list
-            # narrows to those guilds; ``guild_id=None`` (DM context)
-            # against a non-empty list denies. (DMs now take the
-            # ``if is_dm:`` branch above; this path is for guild
-            # messages.)
-            allowed_guilds = allowlist.get("guilds", [])
-            if allowed_guilds and guild_id not in allowed_guilds:
-                return (
-                    False,
-                    f"guild_id {guild_id!r} is not admitted on account "
-                    f"{account_id!r}",
-                )
-            # M10 F8 L8 — account-scope roles axis. Any-of overlap;
-            # empty ``member_roles`` against a non-empty axis denies.
-            allowed_roles = allowlist.get("roles", [])
-            if allowed_roles and not (
-                member_roles_set & set(allowed_roles)
-            ):
-                return (
-                    False,
-                    f"peer roles do not overlap with admitted roles on "
-                    f"account {account_id!r}",
-                )
+        # dm_admission == "all": ignore per-peer dm_allowed; admit
+        # (peers-axis check above already enforced the allowlist
+        # membership when peers is non-empty).
+
     # Per-agent.
     if agent_acl is not None:
         # Peers axis (always consulted — tri-state semantic preserved).
+        # Structured-dict id match per F12 L3.
         agent_peers = agent_acl.get("peers")
         if agent_peers is None:
             pass  # inherit account-scope
@@ -400,82 +502,189 @@ def admits_inbound(
                 f"account {account_id!r} (per-agent peers axis is "
                 f"explicitly empty)",
             )
-        elif peer_id not in agent_peers:
+        elif not any(p["id"] == peer_id for p in agent_peers):
+            return (
+                False,
+                f"peer_id {peer_id!r} is not admitted for this agent on "
+                f"account {account_id!r}",
+            )
+        # admit_dms already deny-short-circuited above. admit_dms is
+        # None (inherit) or True (explicit-affirm — same effect as
+        # inherit when account-scope permits): fall through. The
+        # account-scope ``dm_admission`` gate above already validated
+        # DM admissibility; per-agent channels/guilds/roles axes are
+        # intentionally skipped for DMs under the orthogonal posture.
+    return True, ""
+
+
+def _admits_inbound_guild(
+    account: Connector,
+    agent_acl: dict[str, Any] | None,
+    peer_id: str,
+    channel_id: str,
+    *,
+    guild_id: str | None,
+    member_roles: list[str] | None,
+) -> tuple[bool, str]:
+    """Handles the guild-context branches of :func:`admits_inbound` (``is_dm=False``).
+
+    Consults the 4-axis ACL semantics (peers / channels / guilds /
+    roles) per M10 F8 L8 at both account-scope and per-agent scope.
+
+    **M11 F12 L3 — structured-tuple consumption**. The peers axis
+    uses structured ``{id, dm_allowed}`` dicts (the ``dm_allowed``
+    field is consulted only by :func:`_admits_inbound_dm`; the guild
+    path ignores it). The channels axis uses structured ``{guild_id,
+    channel_id}`` dicts — a channel admits when its ``channel_id``
+    matches AND its ``guild_id`` is NULL (legacy-permissive backward-
+    compat for entries from before the v24 migration) OR matches the
+    envelope ``guild_id``. Roles follow the same null-``guild_id``-is-
+    permissive rule for the per-role guild scoping.
+
+    Private helper — callers outside ``_acl.py`` should consult
+    :func:`admits_inbound` (the public dispatcher) directly.
+    """
+    account_id = account.id
+    member_roles_set = set(member_roles or [])
+    # Account-scope.
+    allowlist = account.config.get("allowlist")
+    if allowlist is not None:
+        # 1. Peers axis (M11 F12 L3 — structured-dict id match).
+        allowed_peers = allowlist.get("peers", [])
+        if allowed_peers and not any(
+            p["id"] == peer_id for p in allowed_peers
+        ):
+            return (
+                False,
+                f"peer_id {peer_id!r} is not admitted on account "
+                f"{account_id!r}",
+            )
+
+        # 2. Channels axis (M11 F12 L3 — structured tuples; NULL
+        # guild_id is permissive backward-compat per the per-entry
+        # rule above).
+        allowed_channels = allowlist.get("channels", [])
+        if allowed_channels and not any(
+            c["channel_id"] == channel_id
+            and (c["guild_id"] is None or c["guild_id"] == guild_id)
+            for c in allowed_channels
+        ):
+            return (
+                False,
+                f"channel_id {channel_id!r} is not admitted on account "
+                f"{account_id!r}",
+            )
+        # M10 F8 L8 — account-scope guilds axis. Non-empty list
+        # narrows to those guilds; ``guild_id=None`` (DM context)
+        # against a non-empty list denies. (DMs take the dedicated
+        # :func:`_admits_inbound_dm` helper; this path is for guild
+        # messages.)
+        allowed_guilds = allowlist.get("guilds", [])
+        if allowed_guilds and guild_id not in allowed_guilds:
+            return (
+                False,
+                f"guild_id {guild_id!r} is not admitted on account "
+                f"{account_id!r}",
+            )
+        # M10 F8 L8 + M11 F12 L3 — account-scope roles axis. Each entry
+        # is a structured ``{guild_id, role_id}`` dict; NULL guild_id is
+        # permissive backward-compat. Admit iff
+        # ``member_roles_set & {r.role_id for r in allowed_roles where
+        # r.guild_id is None or r.guild_id == guild_id}`` is non-empty.
+        allowed_roles = allowlist.get("roles", [])
+        if allowed_roles:
+            admitted_role_ids = {
+                r["role_id"]
+                for r in allowed_roles
+                if r["guild_id"] is None or r["guild_id"] == guild_id
+            }
+            if not (member_roles_set & admitted_role_ids):
+                return (
+                    False,
+                    f"peer roles do not overlap with admitted roles on "
+                    f"account {account_id!r}",
+                )
+    # Per-agent.
+    if agent_acl is not None:
+        # Peers axis (M11 F12 L3 — structured-dict id match).
+        agent_peers = agent_acl.get("peers")
+        if agent_peers is None:
+            pass  # inherit account-scope
+        elif agent_peers == []:
+            return (
+                False,
+                f"peer_id {peer_id!r} is not admitted for this agent on "
+                f"account {account_id!r} (per-agent peers axis is "
+                f"explicitly empty)",
+            )
+        elif not any(p["id"] == peer_id for p in agent_peers):
             return (
                 False,
                 f"peer_id {peer_id!r} is not admitted for this agent on "
                 f"account {account_id!r}",
             )
 
-        # M11 F10 L1 — per-agent DM-context branch.
-        if is_dm:
-            admit_dms = agent_acl.get("admit_dms")
-            if admit_dms is False:
-                return (
-                    False,
-                    f"DM denied: agent admit_dms is False on account "
-                    f"{account_id!r}",
-                )
-            # admit_dms is None (inherit) or True (explicit-affirm —
-            # same effect as inherit when account-scope permits): fall
-            # through. The account-scope ``dm_admission`` gate above
-            # already validated DM admissibility; per-agent
-            # channels/guilds/roles axes are intentionally skipped for
-            # DMs under the new orthogonal posture.
+        # Per-agent channels axis (M11 F12 L3 — structured tuples;
+        # NULL guild_id permissive per the rule above).
+        agent_channels = agent_acl.get("channels")
+        if agent_channels is None:
+            pass  # inherit account-scope
+        elif agent_channels == []:
+            # Per-agent channels axis is explicitly empty: deny all guild-context messages on this account for this agent.
+            return (
+                False,
+                f"channel_id {channel_id!r} is not admitted for this "
+                f"agent on account {account_id!r} (per-agent channels "
+                f"axis is explicitly empty)",
+            )
+        elif not any(
+            c["channel_id"] == channel_id
+            and (c["guild_id"] is None or c["guild_id"] == guild_id)
+            for c in agent_channels
+        ):
+            return (
+                False,
+                f"channel_id {channel_id!r} is not admitted for this "
+                f"agent on account {account_id!r}",
+            )
+
+        # M10 F8 L8 — per-agent guilds axis (unchanged from pre-L1).
+        agent_guilds = agent_acl.get("guilds")
+        if agent_guilds is None:
+            pass  # inherit account-scope
+        elif agent_guilds == []:
+            return (
+                False,
+                f"guild_id {guild_id!r} is not admitted for this agent "
+                f"on account {account_id!r} (per-agent guilds axis is "
+                f"explicitly empty)",
+            )
+        elif guild_id not in agent_guilds:
+            return (
+                False,
+                f"guild_id {guild_id!r} is not admitted for this agent "
+                f"on account {account_id!r}",
+            )
+
+        # M10 F8 L8 + M11 F12 L3 — per-agent roles axis (structured
+        # tuples; NULL guild_id permissive per the rule above).
+        agent_roles = agent_acl.get("roles")
+        if agent_roles is None:
+            pass  # inherit account-scope
+        elif agent_roles == []:
+            return (
+                False,
+                f"peer roles do not overlap with admitted roles for "
+                f"this agent on account {account_id!r} (per-agent "
+                f"roles axis is explicitly empty)",
+            )
         else:
-            # Guild-context branch — channels / guilds / roles axes
-            # consulted exactly as pre-L1. Each axis retains its
-            # tri-state shape.
-
-            # Per-agent channels axis (same shape as outbound).
-            agent_channels = agent_acl.get("channels")
-            if agent_channels is None:
-                pass  # inherit account-scope
-            elif agent_channels == []:
-                # Per-agent channels axis is explicitly empty: deny all guild-context messages on this account for this agent.
-                return (
-                    False,
-                    f"channel_id {channel_id!r} is not admitted for this "
-                    f"agent on account {account_id!r} (per-agent channels "
-                    f"axis is explicitly empty)",
-                )
-            elif channel_id not in agent_channels:
-                return (
-                    False,
-                    f"channel_id {channel_id!r} is not admitted for this "
-                    f"agent on account {account_id!r}",
-                )
-
-            # M10 F8 L8 — per-agent guilds axis (unchanged from pre-L1).
-            agent_guilds = agent_acl.get("guilds")
-            if agent_guilds is None:
-                pass  # inherit account-scope
-            elif agent_guilds == []:
-                return (
-                    False,
-                    f"guild_id {guild_id!r} is not admitted for this agent "
-                    f"on account {account_id!r} (per-agent guilds axis is "
-                    f"explicitly empty)",
-                )
-            elif guild_id not in agent_guilds:
-                return (
-                    False,
-                    f"guild_id {guild_id!r} is not admitted for this agent "
-                    f"on account {account_id!r}",
-                )
-
-            # M10 F8 L8 — per-agent roles axis (unchanged from pre-L1).
-            agent_roles = agent_acl.get("roles")
-            if agent_roles is None:
-                pass  # inherit account-scope
-            elif agent_roles == []:
-                return (
-                    False,
-                    f"peer roles do not overlap with admitted roles for "
-                    f"this agent on account {account_id!r} (per-agent "
-                    f"roles axis is explicitly empty)",
-                )
-            elif not (member_roles_set & set(agent_roles)):
+            admitted_role_ids = {
+                r["role_id"]
+                for r in agent_roles
+                if r["guild_id"] is None or r["guild_id"] == guild_id
+            }
+            if not (member_roles_set & admitted_role_ids):
                 return (
                     False,
                     f"peer roles do not overlap with admitted roles for "

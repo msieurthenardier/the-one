@@ -145,7 +145,7 @@ async def test_lifespan_drain_with_no_sessions_is_clean(
     assert reg._reaper_task is None
 
 
-async def test_lifespan_warm_acquires_connector_accounts_per_account(
+async def test_lifespan_warm_acquires_connectors_per_account(
     _isolated_data_dir,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

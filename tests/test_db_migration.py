@@ -243,10 +243,15 @@ class TestSchemaV8:
         # v22 added dm_admission to connector_accounts.config.allowlist
         # via row-rewrite (M11 F10 L01 — DM admission axis split);
         # v23 renamed connector_accounts → connectors + dependent FK
-        # column renames (M11 F11 L01 — connector terminology rename).
-        assert CURRENT_VERSION == 23, (
-            "CURRENT_VERSION must be 23 after the M11 F11 L01 — "
-            "connector terminology rename v23 migration "
+        # column renames (M11 F11 L01 — connector terminology rename);
+        # v24 introduced structured-tuple storage for allowlist
+        # channels + roles + per-peer dm_allowed + renamed the
+        # dm_admission Literal value "allowlisted-peers-only" →
+        # "admin-approved" + renamed the pending_approvals index
+        # (M11 F12 L03 — hierarchical allowlist axes).
+        assert CURRENT_VERSION == 24, (
+            "CURRENT_VERSION must be 24 after the M11 F12 L03 — "
+            "hierarchical allowlist axes v24 migration "
             f"(got {CURRENT_VERSION})"
         )
 
@@ -2498,8 +2503,11 @@ class TestSchemaV21:
     Post-v23 (M11 F11 L1): the FK column was renamed
     ``connector_account_id`` → ``connector_id`` and the FK target
     re-pointed from ``connector_accounts`` to ``connectors`` via the
-    v23 row-rewrite ceremony. The fresh-DB tests below assert
-    against the post-v23 final-shape names.
+    v23 row-rewrite ceremony. Post-v24 (M11 F12 L3): the supporting
+    index was renamed ``idx_pending_approvals_account_peer_status`` →
+    ``idx_pending_approvals_connector_peer_status`` (cosmetic-rename
+    deferred from v23 per the F12 housekeeping decision). The fresh-DB
+    tests below assert against the post-v24 final-shape names.
 
     Mirrors the v18 / v20 ``TestSchemaVNN`` shapes.
     """
@@ -2573,14 +2581,18 @@ class TestSchemaV21:
         assert fk["on_delete"].upper() == "CASCADE", fk
 
         # Supporting index for the upsert-dedup query path.
+        # M11 F12 L3 — v24 renamed the index from
+        # ``idx_pending_approvals_account_peer_status`` to
+        # ``idx_pending_approvals_connector_peer_status``. Under full
+        # ``ensure_schema`` the v24 name is what we observe.
         async with conn.execute(
             "SELECT name FROM sqlite_master "
             "WHERE type='index' AND tbl_name='pending_approvals'"
         ) as cur:
             index_names = {r["name"] for r in await cur.fetchall()}
-        assert "idx_pending_approvals_account_peer_status" in index_names, (
-            index_names
-        )
+        assert (
+            "idx_pending_approvals_connector_peer_status" in index_names
+        ), index_names
 
         # schema_version row for v21 exists; head pointer lands at
         # CURRENT_VERSION.
@@ -2852,7 +2864,13 @@ class TestSchemaV22:
         ) as cur:
             row = await cur.fetchone()
         cfg = json.loads(row["config"])
-        assert cfg["allowlist"]["peers"] == ["P1"]
+        # M11 F12 L3 — v24 row-rewrote peers and channels into the
+        # structured-tuple shape. dm_admission "all" stays "all"; the
+        # per-peer dm_allowed default under "all" is True (the v24
+        # collapse rule).
+        assert cfg["allowlist"]["peers"] == [
+            {"id": "P1", "dm_allowed": True}
+        ]
         assert cfg["allowlist"]["channels"] == []
         assert cfg["allowlist"]["dm_admission"] == "all"
 
@@ -2922,8 +2940,18 @@ class TestSchemaV22:
         ) as cur:
             row = await cur.fetchone()
         cfg = json.loads(row["config"])
-        assert cfg["allowlist"]["peers"] == ["P1"]
-        assert cfg["allowlist"]["channels"] == ["C1"]
+        # M11 F12 L3 — v24 row-rewrote peers + channels into the
+        # structured-tuple shape. dm_admission "none" stays "none"; the
+        # per-peer dm_allowed default under "none" is False (the v24
+        # collapse rule). Channels get the {guild_id=None, channel_id}
+        # tuple shape with NULL guild_id (legacy-permissive backward-
+        # compat).
+        assert cfg["allowlist"]["peers"] == [
+            {"id": "P1", "dm_allowed": False}
+        ]
+        assert cfg["allowlist"]["channels"] == [
+            {"guild_id": None, "channel_id": "C1"}
+        ]
         assert cfg["allowlist"]["dm_admission"] == "none"
 
         await conn.close()
@@ -3094,14 +3122,24 @@ class TestSchemaV23:
         assert fk["on_delete"].upper() == "CASCADE", fk
 
         # Both partial indexes exist and reference the renamed columns.
+        # M11 F12 L3 — v24 renamed the pending_approvals index name
+        # from ``idx_pending_approvals_account_peer_status`` to
+        # ``idx_pending_approvals_connector_peer_status`` (v23 deferred
+        # the cosmetic-rename to the v24 housekeeping sweep). Under
+        # full ``ensure_schema`` the v24 index name is what we observe;
+        # this assertion is updated to match. The COLUMN expression
+        # the index covers (``connector_id``) was set in v23 and is
+        # unchanged.
         async with conn.execute(
             "SELECT name, sql FROM sqlite_master WHERE type='index' "
             "AND name IN ('idx_chat_sessions_external_key', "
-            "'idx_pending_approvals_account_peer_status')"
+            "'idx_pending_approvals_connector_peer_status')"
         ) as cur:
             indexes = {r["name"]: r["sql"] for r in await cur.fetchall()}
         assert "idx_chat_sessions_external_key" in indexes, indexes
-        assert "idx_pending_approvals_account_peer_status" in indexes, indexes
+        assert (
+            "idx_pending_approvals_connector_peer_status" in indexes
+        ), indexes
         # The chat_sessions index references the renamed ``connector_id``.
         assert "connector_id" in indexes["idx_chat_sessions_external_key"], (
             indexes["idx_chat_sessions_external_key"]
@@ -3109,8 +3147,8 @@ class TestSchemaV23:
         # The pending_approvals index references the renamed column.
         assert (
             "connector_id"
-            in indexes["idx_pending_approvals_account_peer_status"]
-        ), indexes["idx_pending_approvals_account_peer_status"]
+            in indexes["idx_pending_approvals_connector_peer_status"]
+        ), indexes["idx_pending_approvals_connector_peer_status"]
 
         # Head pointer landed at CURRENT_VERSION.
         async with conn.execute(
@@ -3398,5 +3436,547 @@ class TestSchemaV23:
         ) as cur:
             (count,) = await cur.fetchone()
         assert count == 0, count
+
+        await conn.close()
+
+
+class TestSchemaV24:
+    """Tests for the v24 migration that introduces structured-tuple
+    storage for allowlist channels + roles, per-peer ``dm_allowed`` for
+    DM-admission gating, and renames the ``dm_admission`` Literal value
+    ``"allowlisted-peers-only"`` → ``"admin-approved"`` (operator-
+    vocabulary alignment).
+
+    Mission 11 Flight 12 Leg 3. The migration:
+
+    - Row-rewrites ``connectors.config.allowlist`` JSON for every row:
+      ``peers: list[str]`` → ``peers: list[{id, dm_allowed}]``;
+      ``channels: list[str]`` → ``channels: list[{guild_id=None, channel_id}]``;
+      ``roles: list[str]`` → ``roles: list[{guild_id=None, role_id}]``;
+      ``dm_admission`` Literal-value rename ``"allowlisted-peers-only"``
+      → ``"admin-approved"``.
+    - Row-rewrites ``agents.connector_acls`` JSON the same way in
+      lockstep (per-agent shape mirrors account-scope).
+    - DROP + CREATE the ``pending_approvals`` index:
+      ``idx_pending_approvals_account_peer_status`` →
+      ``idx_pending_approvals_connector_peer_status``.
+
+    DM Admission collapse rule per the F12 L3 leg spec:
+
+    - ``dm_admission == "all"`` → all peers get ``dm_allowed=True``
+    - ``dm_admission == "none"`` → all peers get ``dm_allowed=False``
+    - ``dm_admission`` set to ``"allowlisted-peers-only"`` OR absent-
+      but-allowlist-present → all peers get ``dm_allowed=True`` AND
+      ``dm_admission`` rewritten to ``"admin-approved"``
+    - ``allowlist`` absent entirely → no peers to migrate
+
+    Mirrors the v22 / v23 ``TestSchemaVNN`` shapes (fresh-DB final-
+    shape assertions + legacy-row preservation + idempotency).
+    """
+
+    async def test_v24_fresh_db_shape(self, tmp_path) -> None:
+        """Fresh DB → ensure_schema → v24 final shape:
+
+        - A connector created through the Pydantic validator with
+          structured-tuple allowlist round-trips through SQLite.
+        - The pre-v24 flat shape is REJECTED by the validator.
+        - The renamed index ``idx_pending_approvals_connector_peer_status``
+          exists; the old name does not.
+        - Head pointer at ``CURRENT_VERSION``.
+        """
+        db_path = tmp_path / "v24-fresh.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await ensure_schema(conn)
+
+        assert CURRENT_VERSION >= 24, CURRENT_VERSION
+
+        # Renamed index exists; old name does not.
+        async with conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='index' "
+            "AND name LIKE 'idx_pending_approvals_%_peer_status'"
+        ) as cur:
+            indexes = {r["name"] for r in await cur.fetchall()}
+        assert (
+            "idx_pending_approvals_connector_peer_status" in indexes
+        ), indexes
+        assert (
+            "idx_pending_approvals_account_peer_status" not in indexes
+        ), indexes
+
+        # Validator accepts structured shape.
+        from the_one.db.models import Connector
+        accepted = Connector.model_validate({
+            "id": "acct-x",
+            "name": "x",
+            "type": "stub",
+            "config": {
+                "allowlist": {
+                    "peers": [{"id": "U1", "dm_allowed": True}],
+                    "channels": [
+                        {"guild_id": None, "channel_id": "C1"}
+                    ],
+                    "roles": [
+                        {"guild_id": None, "role_id": "R1"}
+                    ],
+                    "dm_admission": "admin-approved",
+                }
+            },
+        })
+        assert accepted.config["allowlist"]["peers"] == [
+            {"id": "U1", "dm_allowed": True}
+        ]
+
+        # Validator REJECTS the pre-v24 flat shape.
+        with pytest.raises(Exception):  # pydantic ValidationError
+            Connector.model_validate({
+                "id": "acct-y",
+                "name": "y",
+                "type": "stub",
+                "config": {
+                    "allowlist": {
+                        "peers": ["U1"],
+                        "channels": [],
+                    }
+                },
+            })
+
+        # Validator REJECTS the pre-rename Literal value.
+        with pytest.raises(Exception):
+            Connector.model_validate({
+                "id": "acct-z",
+                "name": "z",
+                "type": "stub",
+                "config": {
+                    "allowlist": {
+                        "peers": [],
+                        "channels": [],
+                        "dm_admission": "allowlisted-peers-only",
+                    }
+                },
+            })
+
+        # Head pointer landed at CURRENT_VERSION.
+        async with conn.execute(
+            "SELECT version FROM schema_version ORDER BY version"
+        ) as cur:
+            versions = [r[0] for r in await cur.fetchall()]
+        assert 24 in versions, versions
+        assert max(versions) == CURRENT_VERSION, versions
+
+        await conn.close()
+
+    async def test_v24_idempotent_on_rerun(self, tmp_path) -> None:
+        """Calling ``ensure_schema`` twice on a fresh DB is a no-op the
+        second time: the v24 ``if version < 24:`` guard short-circuits,
+        and ``schema_version`` has v24 exactly once."""
+        db_path = tmp_path / "v24-rerun.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await ensure_schema(conn)
+        await ensure_schema(conn)  # second call — must be a no-op
+
+        async with conn.execute(
+            "SELECT version FROM schema_version ORDER BY version"
+        ) as cur:
+            versions = [r[0] for r in await cur.fetchall()]
+        assert versions.count(24) == 1, (
+            f"v24 row should appear exactly once: {versions}"
+        )
+
+        # Renamed index still present after the second call.
+        async with conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='index' "
+            "AND name = 'idx_pending_approvals_connector_peer_status'"
+        ) as cur:
+            assert await cur.fetchone() is not None
+
+        await conn.close()
+
+    async def test_v24_legacy_v23_row_migration_preserves_data(
+        self, tmp_path
+    ) -> None:
+        """v23-shape connector rows with the flat 5-axis allowlist
+        migrate to v24 with all data preserved per the collapse rules.
+
+        Sub-cases (one row each):
+          (a) ``dm_admission="all"`` → peers get ``dm_allowed=True``;
+              dm_admission stays ``"all"``.
+          (b) ``dm_admission="none"`` → peers get ``dm_allowed=False``;
+              dm_admission stays ``"none"``.
+          (c) ``dm_admission="allowlisted-peers-only"`` → peers get
+              ``dm_allowed=True``; dm_admission rewritten to
+              ``"admin-approved"``.
+          (d) ``dm_admission`` ABSENT but allowlist present → defaulted
+              to ``"allowlisted-peers-only"`` then rewritten to
+              ``"admin-approved"``; peers get ``dm_allowed=True``.
+        """
+        db_path = tmp_path / "v24-from-v23.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        # Hand-build schema_version table and seed v1..v23.
+        await conn.execute(
+            "CREATE TABLE schema_version ("
+            "    version INTEGER PRIMARY KEY,"
+            "    applied_at TEXT NOT NULL DEFAULT (datetime('now'))"
+            ")"
+        )
+        for v in range(1, 24):
+            await conn.execute(
+                "INSERT INTO schema_version (version) VALUES (?)", (v,)
+            )
+
+        # v23-shape connectors table (post-v23 rename + post-v19 CHECK).
+        await conn.execute(
+            "CREATE TABLE connectors ("
+            "    id TEXT PRIMARY KEY,"
+            "    type TEXT NOT NULL CHECK (type IN ('discord', 'stub')),"
+            "    config TEXT DEFAULT '{}',"
+            "    secrets TEXT DEFAULT '{}',"
+            "    created_at TEXT NOT NULL DEFAULT (datetime('now')),"
+            "    updated_at TEXT NOT NULL DEFAULT (datetime('now')),"
+            "    name TEXT NOT NULL DEFAULT '',"
+            "    idle_timeout_seconds INTEGER NULL,"
+            "    session_continuation_seconds INTEGER NULL"
+            ")"
+        )
+        # v23-shape pending_approvals (FK to connectors(id), index with
+        # the pre-v24 name).
+        await conn.execute(
+            "CREATE TABLE pending_approvals ("
+            "    id TEXT PRIMARY KEY,"
+            "    connector_id TEXT NOT NULL"
+            "        REFERENCES connectors(id) ON DELETE CASCADE,"
+            "    peer_id TEXT NOT NULL,"
+            "    peer_name TEXT NOT NULL,"
+            "    preview TEXT NOT NULL,"
+            "    received_at TEXT NOT NULL,"
+            "    status TEXT NOT NULL"
+            "        CHECK (status IN ('pending', 'approved', 'dismissed')),"
+            "    resolved_at TEXT"
+            ")"
+        )
+        await conn.execute(
+            "CREATE INDEX idx_pending_approvals_account_peer_status "
+            "ON pending_approvals (connector_id, peer_id, status)"
+        )
+        # v23-shape agents table for the parallel rewrite.
+        await conn.execute(
+            "CREATE TABLE agents ("
+            "    name TEXT PRIMARY KEY,"
+            "    description TEXT DEFAULT '',"
+            "    provider_config_id TEXT,"
+            "    llm_model TEXT DEFAULT '',"
+            "    system_prompt TEXT DEFAULT '',"
+            "    enabled_tools TEXT,"
+            "    disabled_tools TEXT DEFAULT '[]',"
+            "    max_iterations INTEGER DEFAULT 20,"
+            "    kb_ids TEXT DEFAULT '[]',"
+            "    mcp_source_ids TEXT DEFAULT '[]',"
+            "    tool_overrides TEXT,"
+            "    mcp_overrides TEXT,"
+            "    connector_ids TEXT,"
+            "    connector_acls TEXT,"
+            "    connector_always_listen TEXT,"
+            "    created_at TEXT NOT NULL DEFAULT (datetime('now')),"
+            "    updated_at TEXT NOT NULL DEFAULT (datetime('now'))"
+            ")"
+        )
+
+        # Seed four connector rows covering the dm_admission sub-cases.
+        await conn.execute(
+            "INSERT INTO connectors "
+            "(id, name, type, config) VALUES (?, ?, ?, ?)",
+            (
+                "acct-all",
+                "All",
+                "stub",
+                json.dumps({
+                    "allowlist": {
+                        "peers": ["U1", "U2"],
+                        "channels": ["C1"],
+                        "roles": ["R1"],
+                        "dm_admission": "all",
+                    }
+                }),
+            ),
+        )
+        await conn.execute(
+            "INSERT INTO connectors "
+            "(id, name, type, config) VALUES (?, ?, ?, ?)",
+            (
+                "acct-none",
+                "None",
+                "stub",
+                json.dumps({
+                    "allowlist": {
+                        "peers": ["U3"],
+                        "channels": [],
+                        "dm_admission": "none",
+                    }
+                }),
+            ),
+        )
+        await conn.execute(
+            "INSERT INTO connectors "
+            "(id, name, type, config) VALUES (?, ?, ?, ?)",
+            (
+                "acct-apo",
+                "APO",
+                "stub",
+                json.dumps({
+                    "allowlist": {
+                        "peers": ["U4"],
+                        "channels": ["C2"],
+                        "dm_admission": "allowlisted-peers-only",
+                    }
+                }),
+            ),
+        )
+        await conn.execute(
+            "INSERT INTO connectors "
+            "(id, name, type, config) VALUES (?, ?, ?, ?)",
+            (
+                "acct-absent",
+                "Absent",
+                "stub",
+                json.dumps({
+                    "allowlist": {
+                        "peers": ["U5"],
+                        "channels": [],
+                    }
+                }),
+            ),
+        )
+        await conn.commit()
+
+        # Apply v24.
+        await ensure_schema(conn)
+
+        # Sub-case (a): dm_admission == "all" → dm_allowed=True per peer.
+        async with conn.execute(
+            "SELECT config FROM connectors WHERE id = 'acct-all'"
+        ) as cur:
+            row = await cur.fetchone()
+        config = json.loads(row["config"])
+        allowlist = config["allowlist"]
+        assert allowlist["dm_admission"] == "all", allowlist
+        assert allowlist["peers"] == [
+            {"id": "U1", "dm_allowed": True},
+            {"id": "U2", "dm_allowed": True},
+        ], allowlist
+        assert allowlist["channels"] == [
+            {"guild_id": None, "channel_id": "C1"}
+        ], allowlist
+        assert allowlist["roles"] == [
+            {"guild_id": None, "role_id": "R1"}
+        ], allowlist
+
+        # Sub-case (b): dm_admission == "none" → dm_allowed=False per peer.
+        async with conn.execute(
+            "SELECT config FROM connectors WHERE id = 'acct-none'"
+        ) as cur:
+            row = await cur.fetchone()
+        config = json.loads(row["config"])
+        allowlist = config["allowlist"]
+        assert allowlist["dm_admission"] == "none", allowlist
+        assert allowlist["peers"] == [
+            {"id": "U3", "dm_allowed": False}
+        ], allowlist
+
+        # Sub-case (c): "allowlisted-peers-only" → rewritten to
+        # "admin-approved"; peers get dm_allowed=True.
+        async with conn.execute(
+            "SELECT config FROM connectors WHERE id = 'acct-apo'"
+        ) as cur:
+            row = await cur.fetchone()
+        config = json.loads(row["config"])
+        allowlist = config["allowlist"]
+        assert allowlist["dm_admission"] == "admin-approved", allowlist
+        assert allowlist["peers"] == [
+            {"id": "U4", "dm_allowed": True}
+        ], allowlist
+        assert allowlist["channels"] == [
+            {"guild_id": None, "channel_id": "C2"}
+        ], allowlist
+
+        # Sub-case (d): dm_admission absent → defaulted then rewritten
+        # to "admin-approved"; peers get dm_allowed=True.
+        async with conn.execute(
+            "SELECT config FROM connectors WHERE id = 'acct-absent'"
+        ) as cur:
+            row = await cur.fetchone()
+        config = json.loads(row["config"])
+        allowlist = config["allowlist"]
+        assert allowlist["dm_admission"] == "admin-approved", allowlist
+        assert allowlist["peers"] == [
+            {"id": "U5", "dm_allowed": True}
+        ], allowlist
+
+        # Head pointer landed at CURRENT_VERSION.
+        async with conn.execute(
+            "SELECT version FROM schema_version ORDER BY version"
+        ) as cur:
+            versions = [r[0] for r in await cur.fetchall()]
+        assert 24 in versions, versions
+        assert max(versions) == CURRENT_VERSION, versions
+
+        await conn.close()
+
+    async def test_v24_agents_connector_acls_rewrite(
+        self, tmp_path
+    ) -> None:
+        """``agents.connector_acls`` JSON column row-rewrite works in
+        lockstep with the connectors rewrite. Per-agent ``peers`` get
+        ``dm_allowed=True`` by default (structural uniformity);
+        ``admit_dms`` stays as-is."""
+        db_path = tmp_path / "v24-agents-acls.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await conn.execute(
+            "CREATE TABLE schema_version ("
+            "    version INTEGER PRIMARY KEY,"
+            "    applied_at TEXT NOT NULL DEFAULT (datetime('now'))"
+            ")"
+        )
+        for v in range(1, 24):
+            await conn.execute(
+                "INSERT INTO schema_version (version) VALUES (?)", (v,)
+            )
+        await conn.execute(
+            "CREATE TABLE connectors ("
+            "    id TEXT PRIMARY KEY,"
+            "    type TEXT NOT NULL CHECK (type IN ('discord', 'stub')),"
+            "    config TEXT DEFAULT '{}',"
+            "    secrets TEXT DEFAULT '{}',"
+            "    created_at TEXT NOT NULL DEFAULT (datetime('now')),"
+            "    updated_at TEXT NOT NULL DEFAULT (datetime('now')),"
+            "    name TEXT NOT NULL DEFAULT '',"
+            "    idle_timeout_seconds INTEGER NULL,"
+            "    session_continuation_seconds INTEGER NULL"
+            ")"
+        )
+        await conn.execute(
+            "CREATE TABLE pending_approvals ("
+            "    id TEXT PRIMARY KEY,"
+            "    connector_id TEXT NOT NULL"
+            "        REFERENCES connectors(id) ON DELETE CASCADE,"
+            "    peer_id TEXT NOT NULL,"
+            "    peer_name TEXT NOT NULL,"
+            "    preview TEXT NOT NULL,"
+            "    received_at TEXT NOT NULL,"
+            "    status TEXT NOT NULL"
+            "        CHECK (status IN ('pending', 'approved', 'dismissed')),"
+            "    resolved_at TEXT"
+            ")"
+        )
+        await conn.execute(
+            "CREATE INDEX idx_pending_approvals_account_peer_status "
+            "ON pending_approvals (connector_id, peer_id, status)"
+        )
+        await conn.execute(
+            "CREATE TABLE agents ("
+            "    name TEXT PRIMARY KEY,"
+            "    description TEXT DEFAULT '',"
+            "    provider_config_id TEXT,"
+            "    llm_model TEXT DEFAULT '',"
+            "    system_prompt TEXT DEFAULT '',"
+            "    enabled_tools TEXT,"
+            "    disabled_tools TEXT DEFAULT '[]',"
+            "    max_iterations INTEGER DEFAULT 20,"
+            "    kb_ids TEXT DEFAULT '[]',"
+            "    mcp_source_ids TEXT DEFAULT '[]',"
+            "    tool_overrides TEXT,"
+            "    mcp_overrides TEXT,"
+            "    connector_ids TEXT,"
+            "    connector_acls TEXT,"
+            "    connector_always_listen TEXT,"
+            "    created_at TEXT NOT NULL DEFAULT (datetime('now')),"
+            "    updated_at TEXT NOT NULL DEFAULT (datetime('now'))"
+            ")"
+        )
+        # Seed a single agent row carrying a v23-shape connector_acls
+        # JSON keyed by 2 accounts, with mixed axes populated.
+        await conn.execute(
+            "INSERT INTO agents (name, connector_acls) VALUES (?, ?)",
+            (
+                "agent-1",
+                json.dumps({
+                    "acct-1": {
+                        "peers": ["U1", "U2"],
+                        "channels": ["C1"],
+                        "roles": ["R1"],
+                        "admit_dms": False,
+                    },
+                    "acct-2": {
+                        "peers": None,
+                        "channels": [],
+                    },
+                }),
+            ),
+        )
+        await conn.commit()
+
+        await ensure_schema(conn)
+
+        async with conn.execute(
+            "SELECT connector_acls FROM agents WHERE name = 'agent-1'"
+        ) as cur:
+            row = await cur.fetchone()
+        acls = json.loads(row["connector_acls"])
+        # acct-1 — populated axes get structured shape; per-agent
+        # peers carry dm_allowed=True default; admit_dms stays False.
+        assert acls["acct-1"]["peers"] == [
+            {"id": "U1", "dm_allowed": True},
+            {"id": "U2", "dm_allowed": True},
+        ]
+        assert acls["acct-1"]["channels"] == [
+            {"guild_id": None, "channel_id": "C1"}
+        ]
+        assert acls["acct-1"]["roles"] == [
+            {"guild_id": None, "role_id": "R1"}
+        ]
+        assert acls["acct-1"]["admit_dms"] is False
+        # acct-2 — None peers stay None; empty channels list stays
+        # empty (but is now a list of dicts — i.e. empty list).
+        assert acls["acct-2"]["peers"] is None
+        assert acls["acct-2"]["channels"] == []
+
+        await conn.close()
+
+    async def test_v24_index_rename(self, tmp_path) -> None:
+        """After v24, the old index name is gone and the new one
+        exists with the correct column expression."""
+        db_path = tmp_path / "v24-index-rename.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await ensure_schema(conn)
+
+        async with conn.execute(
+            "SELECT name, sql FROM sqlite_master WHERE type='index' "
+            "AND name LIKE 'idx_pending_approvals_%_peer_status'"
+        ) as cur:
+            indexes = {r["name"]: r["sql"] for r in await cur.fetchall()}
+        assert (
+            "idx_pending_approvals_account_peer_status" not in indexes
+        ), indexes
+        assert (
+            "idx_pending_approvals_connector_peer_status" in indexes
+        ), indexes
+        sql = indexes["idx_pending_approvals_connector_peer_status"]
+        # The new index references connector_id, peer_id, status.
+        assert "connector_id" in sql, sql
+        assert "peer_id" in sql, sql
+        assert "status" in sql, sql
 
         await conn.close()

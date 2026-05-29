@@ -75,11 +75,13 @@ def test_dm_admission_row_renders_with_account_value_preselected(
         f"expected preselected value 'all'; got {select.input_value()!r}"
     )
 
-    # Sanity: all three options are present with the L1-Literal values.
+    # Sanity: all three options are present with the L1-Literal values
+    # (M11 F12 L4 — ``"allowlisted-peers-only"`` renamed to
+    # ``"admin-approved"`` per operator-vocabulary alignment).
     option_values = select.locator("option").evaluate_all(
         "els => els.map(e => e.value)"
     )
-    assert option_values == ["none", "allowlisted-peers-only", "all"], (
+    assert option_values == ["none", "admin-approved", "all"], (
         f"DM admission options drifted; got: {option_values!r}"
     )
 
@@ -108,7 +110,7 @@ def test_dm_admission_change_marks_form_dirty(
             "allowlist": {
                 "peers": [],
                 "channels": [],
-                "dm_admission": "allowlisted-peers-only",
+                "dm_admission": "admin-approved",
             }
         },
     )
@@ -144,15 +146,16 @@ def test_dm_admission_save_persists_value(
             "allowlist": {
                 "peers": [],
                 "channels": [],
-                "dm_admission": "allowlisted-peers-only",
+                "dm_admission": "admin-approved",
             }
         },
     )
 
     # Pre-state sanity: L1's validator already inserted the default for
-    # the seeded shape (no migration race).
+    # the seeded shape (no migration race). M11 F12 L4 renamed the
+    # Literal value ``allowlisted-peers-only`` → ``admin-approved``.
     before = _get_account(app_clean, account_id)
-    assert before["config"]["allowlist"]["dm_admission"] == "allowlisted-peers-only"
+    assert before["config"]["allowlist"]["dm_admission"] == "admin-approved"
 
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
     save_btn = page.locator('[data-testid="save-connector-btn"]')

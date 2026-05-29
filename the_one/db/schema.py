@@ -9,7 +9,7 @@ import aiosqlite
 from the_one.db._connector_types import CONNECTOR_TYPES
 from the_one.db._provider_types import PROVIDER_TYPES
 
-CURRENT_VERSION = 23
+CURRENT_VERSION = 24
 
 # Render the provider-type CHECK constraint as a comma-separated SQL
 # literal list, sourced from PROVIDER_TYPES. Both SCHEMA_V1 (fresh-DB
@@ -864,6 +864,14 @@ PRAGMA foreign_keys=ON;
         # and re-pointed at ``connectors(id)`` by v23. The v21 body
         # below documents the original v21 shape — the v23 row-rewrite
         # supplants the column and FK reference at migration time.)
+        # (M11 F12 L3: v24 renamed the index
+        # ``idx_pending_approvals_account_peer_status`` →
+        # ``idx_pending_approvals_connector_peer_status``. The CREATE
+        # INDEX statement below was split into two segments and gated
+        # against the actual ``pending_approvals`` column shape so the
+        # v7-strip rewind+rerun scenario doesn't fire a CREATE INDEX
+        # against the post-v23 column name with the pre-v23 column
+        # reference.)
         # CHECK constraint pins the three-state lifecycle to surface
         # data corruption immediately rather than letting it propagate
         # silently. Idempotent: ``CREATE TABLE IF NOT EXISTS`` + the
@@ -883,10 +891,41 @@ CREATE TABLE IF NOT EXISTS pending_approvals (
         CHECK (status IN ('pending', 'approved', 'dismissed')),
     resolved_at TEXT
 );
-
-CREATE INDEX IF NOT EXISTS idx_pending_approvals_account_peer_status
-    ON pending_approvals (connector_account_id, peer_id, status);
 """)
+        # Defensive CREATE INDEX — gate on the actual column shape of
+        # ``pending_approvals`` so the rewind+rerun scenario (where v23
+        # already renamed ``connector_account_id`` → ``connector_id``
+        # AND v24 already renamed the index) doesn't fire a CREATE
+        # against the old column name with the old index name. The
+        # ``CREATE INDEX IF NOT EXISTS`` is otherwise a no-op when the
+        # index already exists.
+        async with conn.execute(
+            "PRAGMA table_info(pending_approvals)"
+        ) as cursor:
+            pa_cols = {r[1] for r in await cursor.fetchall()}
+        if "connector_account_id" in pa_cols:
+            # Pre-v23 column shape (fresh-migration path or hand-built
+            # legacy fixture).
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS "
+                "idx_pending_approvals_account_peer_status "
+                "ON pending_approvals "
+                "(connector_account_id, peer_id, status)"
+            )
+        elif "connector_id" in pa_cols:
+            # Post-v23 column shape (rewind+rerun path — v23 already
+            # ran in a prior ensure_schema call and renamed the column).
+            # The index may or may not exist depending on whether v24
+            # ran in the prior call too; ``IF NOT EXISTS`` handles both.
+            # M11 F12 L3 — use the v24 index name (the v24 block below
+            # will DROP the old name + CREATE the new name idempotently,
+            # but if we're in a rewind state where v24 already ran,
+            # ``IF NOT EXISTS`` short-circuits both branches).
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS "
+                "idx_pending_approvals_connector_peer_status "
+                "ON pending_approvals (connector_id, peer_id, status)"
+            )
         await conn.execute(
             "INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (21,)
         )
@@ -1153,3 +1192,226 @@ CREATE INDEX idx_chat_sessions_external_key
         )
         await conn.commit()
         version = 23
+
+    if version < 24:
+        # Mission 11 Flight 12 Leg 3: structured-tuple storage for
+        # channels + roles, per-peer ``dm_allowed`` for DM admission
+        # gating under the ``admin-approved`` policy mode, and the
+        # ``dm_admission`` Literal-value rename
+        # ``"allowlisted-peers-only"`` → ``"admin-approved"``
+        # (operator-vocabulary alignment).
+        #
+        # Row-rewrites BOTH ``connectors.config.allowlist`` AND
+        # ``agents.connector_acls`` JSON column contents in a single
+        # transaction. The transformation is offline-safe (no network);
+        # ``guild_id`` is backfilled to NULL for legacy channel/role
+        # entries (ACL treats NULL as "any guild" = legacy-permissive
+        # backward-compat).
+        #
+        # Also renames the index
+        # ``idx_pending_approvals_account_peer_status`` →
+        # ``idx_pending_approvals_connector_peer_status`` (bundled per
+        # F12 operator decision; F12 L1 explicitly deferred the index
+        # rename to this leg).
+        #
+        # Idempotency: ``if version < 24:`` short-circuit + segment-
+        # level re-entry guards (skip the per-row transformation if the
+        # row is already in the post-v24 shape). The v7-strip-test
+        # scenario (tests rewinding ``schema_version`` and re-running
+        # ``ensure_schema``) is handled by the segment guards.
+        #
+        # DM Admission collapse rule (per the F12 L3 leg spec):
+        #   - ``dm_admission == "none"`` → per-peer ``dm_allowed=False``
+        #   - ``dm_admission == "all"`` → per-peer ``dm_allowed=True``
+        #   - ``dm_admission == "allowlisted-peers-only"`` (explicit OR
+        #     absent-but-allowlist-present) → per-peer
+        #     ``dm_allowed=True`` AND the ``dm_admission`` Literal value
+        #     rewritten to ``"admin-approved"``
+        #   - ``dm_admission == "admin-approved"`` (pre-existing —
+        #     defensive net for manual edits) → keep value; per-peer
+        #     ``dm_allowed=True`` default
+
+        # ---- Transform connectors.config.allowlist ----
+        async with conn.execute(
+            "SELECT id, config FROM connectors"
+        ) as cursor:
+            connector_rows = await cursor.fetchall()
+        for row in connector_rows:
+            connector_id = row[0]
+            config_json = row[1] or "{}"
+            config = json.loads(config_json)
+            allowlist = config.get("allowlist")
+            if allowlist is None:
+                continue
+            # Segment guard: skip if already in v24 shape (any peer is
+            # already a structured dict).
+            peers = allowlist.get("peers", [])
+            if peers and isinstance(peers[0], dict):
+                continue
+            # Determine the dm_allowed default from the old dm_admission
+            # value. Bare ``.get("dm_admission")`` (no default) — we
+            # must distinguish ABSENT (treat as F10 default
+            # ``"allowlisted-peers-only"``) from explicit
+            # ``"admin-approved"`` (pre-existing migrated value or
+            # manual operator edit; defensive net).
+            dm_admission_raw = allowlist.get("dm_admission")
+            dm_admission_old = (
+                dm_admission_raw
+                if dm_admission_raw is not None
+                else "allowlisted-peers-only"
+            )
+            if dm_admission_old == "none":
+                dm_allowed_default = False
+            else:
+                # "all", "allowlisted-peers-only", "admin-approved", or
+                # absent (→ defaulted to allowlisted-peers-only above).
+                dm_allowed_default = True
+            # Rewrite peers: list[str] → list[{id, dm_allowed}].
+            allowlist["peers"] = [
+                {"id": peer_id, "dm_allowed": dm_allowed_default}
+                for peer_id in peers
+            ]
+            # Rewrite channels: list[str] → list[{guild_id, channel_id}]
+            # with NULL guild_id (legacy-permissive backward-compat).
+            allowlist["channels"] = [
+                {"guild_id": None, "channel_id": ch_id}
+                for ch_id in allowlist.get("channels", [])
+            ]
+            # Rewrite roles: list[str] → list[{guild_id, role_id}] with
+            # NULL guild_id (only when the axis is present — roles is
+            # optional in the pre-v24 shape).
+            if "roles" in allowlist:
+                allowlist["roles"] = [
+                    {"guild_id": None, "role_id": role_id}
+                    for role_id in allowlist["roles"]
+                ]
+            # Rename / normalize dm_admission Literal value.
+            # dm_admission_old already collapsed ABSENT →
+            # ``"allowlisted-peers-only"`` at the default above, so one
+            # branch suffices:
+            #   (a) was ``"allowlisted-peers-only"`` (explicit or
+            #       absent-defaulted) → rewrite to ``"admin-approved"``
+            #   (b) was ``"all"`` / ``"none"`` / pre-existing
+            #       ``"admin-approved"`` → unchanged
+            if dm_admission_old == "allowlisted-peers-only":
+                allowlist["dm_admission"] = "admin-approved"
+            config["allowlist"] = allowlist
+            await conn.execute(
+                "UPDATE connectors SET config = ? WHERE id = ?",
+                (json.dumps(config), connector_id),
+            )
+
+        # ---- Transform agents.connector_acls ----
+        # ``connector_acls`` is a JSON column whose value is
+        # ``dict[str, dict]`` keyed by account_id. Each account's
+        # payload mirrors the account-scope shape for peers/channels/
+        # roles; ``admit_dms`` stays as-is per per-agent overlay design.
+        #
+        # Defensive: skip the agents block entirely when the table
+        # doesn't exist (hand-built partial-schema test fixtures —
+        # mirrors the v23 ``v23_present`` pattern). The connector_acls
+        # column itself was added by v18; pre-v18 hand-built fixtures
+        # also need this guard.
+        async with conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='agents'"
+        ) as cursor:
+            agents_table_present = (await cursor.fetchone()) is not None
+        if not agents_table_present:
+            agent_rows = []
+        else:
+            async with conn.execute(
+                "PRAGMA table_info(agents)"
+            ) as cursor:
+                agents_cols = {r[1] for r in await cursor.fetchall()}
+            if "connector_acls" not in agents_cols:
+                agent_rows = []
+            else:
+                async with conn.execute(
+                    "SELECT name, connector_acls FROM agents"
+                ) as cursor:
+                    agent_rows = await cursor.fetchall()
+        for row in agent_rows:
+            agent_name = row[0]
+            acls_str = row[1]
+            if not acls_str:
+                continue
+            acls = json.loads(acls_str)
+            if not isinstance(acls, dict) or not acls:
+                continue
+            # Segment guard: skip the ENTIRE row only if ANY account's
+            # peers list is already structured-dict shape (a partial
+            # state would indicate corruption — we treat any-already-
+            # migrated as whole-row-migrated). Detect by scanning for
+            # the first non-empty peers list whose head is a dict.
+            any_v24_shape = False
+            for payload in acls.values():
+                if not isinstance(payload, dict):
+                    continue
+                payload_peers = payload.get("peers")
+                if (
+                    isinstance(payload_peers, list)
+                    and payload_peers
+                    and isinstance(payload_peers[0], dict)
+                ):
+                    any_v24_shape = True
+                    break
+            if any_v24_shape:
+                continue
+            for acct_id, payload in acls.items():
+                if not isinstance(payload, dict):
+                    continue
+                # Transform peers (per-agent dm_allowed defaults True;
+                # the per-agent overlay is a narrowing layer and does
+                # not own DM-admission semantics — ACL helpers consult
+                # ONLY account-scope per-peer dm_allowed per the F12 L3
+                # DM Composition Truth Table).
+                if isinstance(payload.get("peers"), list):
+                    payload["peers"] = [
+                        {"id": peer_id, "dm_allowed": True}
+                        for peer_id in payload["peers"]
+                    ]
+                # Transform channels (NULL guild_id backfill).
+                if isinstance(payload.get("channels"), list):
+                    payload["channels"] = [
+                        {"guild_id": None, "channel_id": ch_id}
+                        for ch_id in payload["channels"]
+                    ]
+                # Transform roles (NULL guild_id backfill; if present).
+                if isinstance(payload.get("roles"), list):
+                    payload["roles"] = [
+                        {"guild_id": None, "role_id": role_id}
+                        for role_id in payload["roles"]
+                    ]
+                # ``admit_dms`` stays as-is (per-agent overlay design).
+            await conn.execute(
+                "UPDATE agents SET connector_acls = ? WHERE name = ?",
+                (json.dumps(acls), agent_name),
+            )
+
+        # ---- Rename pending_approvals index ----
+        # SQLite ``DROP INDEX`` + ``CREATE INDEX`` is atomic from the
+        # app's perspective (single connection during migration).
+        # Defensive: skip when the pending_approvals table is missing
+        # (hand-built partial-schema test fixtures — mirrors the
+        # agents-table guard above and the v23 ``v23_present`` pattern).
+        async with conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name='pending_approvals'"
+        ) as cursor:
+            pa_table_present = (await cursor.fetchone()) is not None
+        if pa_table_present:
+            await conn.execute(
+                "DROP INDEX IF EXISTS "
+                "idx_pending_approvals_account_peer_status"
+            )
+            await conn.execute(
+                "CREATE INDEX IF NOT EXISTS "
+                "idx_pending_approvals_connector_peer_status "
+                "ON pending_approvals (connector_id, peer_id, status)"
+            )
+
+        await conn.execute(
+            "INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (24,)
+        )
+        await conn.commit()
+        version = 24

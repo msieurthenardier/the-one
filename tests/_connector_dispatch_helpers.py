@@ -95,7 +95,7 @@ async def _seed_provider_and_agent(
     ``account_id="acct-test"`` and :func:`_envelope`'s default
     ``account_id="acct-test"``. The default attachment is required for
     F7 L3's transitional dispatcher helper to find the agent via
-    :meth:`SQLiteAgentStore.list_by_connector_account`. Tests that
+    :meth:`SQLiteAgentStore.list_by_connector`. Tests that
     need an empty attachment list pass ``connector_ids=[]``
     explicitly.
     """

@@ -536,7 +536,7 @@ class TestMCPSourceAPI:
 # ── Connector account endpoints ──────────────────────────────────────────
 
 
-class TestConnectorAccountAPI:
+class TestConnectorAPI:
     """REST surface for connector accounts (F2 L3).
 
     Mirrors :class:`TestMCPSourceAPI` shape; the eviction tests register
@@ -920,7 +920,7 @@ class TestConnectorAccountAPI:
         assert isinstance(detail, list)
         assert any("type" in err.get("loc", []) for err in detail)
 
-    async def test_update_connector_account_routing_round_trips(
+    async def test_update_connector_routing_round_trips(
         self, client: AsyncClient
     ) -> None:
         """PUT ``config.routing`` round-trips verbatim through GET.
@@ -1034,10 +1034,10 @@ class TestConnectorAccountAPI:
 # ── Connector account doctor probe (F2 L4) ────────────────────────────────
 
 
-class TestConnectorAccountDoctor:
+class TestConnectorDoctor:
     """Doctor-probe REST endpoint for connector accounts (F2 L4).
 
-    Mirrors :class:`TestConnectorAccountAPI`'s autouse ``_isolation``
+    Mirrors :class:`TestConnectorAPI`'s autouse ``_isolation``
     pattern: per-test reset of the pool, registry, and StubPlugin
     class-state, plus the ``_load_account`` monkeypatch that routes the
     pool through the test-isolated DB + encryptor. The probe itself does
@@ -1050,7 +1050,7 @@ class TestConnectorAccountDoctor:
     async def _isolation(self, client: AsyncClient, monkeypatch):
         """Reset connector pool + registry + StubPlugin class-state per test.
 
-        Verbatim copy of :meth:`TestConnectorAccountAPI._isolation` per
+        Verbatim copy of :meth:`TestConnectorAPI._isolation` per
         the F2 L4 leg artifact: class-scoped autouse fixtures don't
         propagate across classes, so each class that touches the
         connector subsystem redeclares it.
@@ -1355,7 +1355,7 @@ class TestConnectorAccountDoctor:
 # ── Connector account pairing-code + attached-agents (F6 L4) ─────────────
 
 
-class TestConnectorAccountPairingCodeAndAttached:
+class TestConnectorPairingCodeAndAttached:
     """REST surface for the F6 L4 Studio Connector account additions.
 
     Covers the two new endpoints:
@@ -1372,7 +1372,7 @@ class TestConnectorAccountPairingCodeAndAttached:
     ``config.allowlist = {"peers": [], "channels": []}`` must round-trip
     verbatim through GET (NOT collapse to absent).
 
-    Mirrors :class:`TestConnectorAccountAPI`'s autouse ``_isolation``
+    Mirrors :class:`TestConnectorAPI`'s autouse ``_isolation``
     fixture so the pool, registry, and StubPlugin class-state are reset
     per test (class-scoped autouse fixtures do not propagate across
     classes; each class that touches the connector subsystem must
@@ -1499,12 +1499,21 @@ class TestConnectorAccountPairingCodeAndAttached:
     async def test_generate_pairing_code_preserves_other_config_keys(
         self, client: AsyncClient
     ) -> None:
-        """Non-reserved keys (intent) AND ``allowlist`` survive the mutation."""
+        """Non-reserved keys (intent) AND ``allowlist`` survive the mutation.
+
+        M11 F12 L3 — peers/channels use structured-tuple shape;
+        dm_admission default renamed to "admin-approved".
+        """
         account_id = await self._create_account(
             client,
             config={
                 "intent": "guild_messages",
-                "allowlist": {"peers": ["u-keep"], "channels": ["c-keep"]},
+                "allowlist": {
+                    "peers": [{"id": "u-keep", "dm_allowed": True}],
+                    "channels": [
+                        {"guild_id": None, "channel_id": "c-keep"}
+                    ],
+                },
             },
         )
         gen = await client.post(
@@ -1515,13 +1524,13 @@ class TestConnectorAccountPairingCodeAndAttached:
         getr = await client.get(f"/api/connectors/{account_id}")
         cfg = getr.json()["config"]
         assert cfg["intent"] == "guild_messages"
-        # M11 F10 L1: validator inserts ``dm_admission`` fresh-account
-        # default; the pre-existing ``peers``/``channels`` lists stay
-        # verbatim.
+        # M11 F10 L1 + M11 F12 L3: validator inserts ``dm_admission``
+        # fresh-account default ``"admin-approved"`` (renamed from
+        # ``"allowlisted-peers-only"``).
         assert cfg["allowlist"] == {
-            "peers": ["u-keep"],
-            "channels": ["c-keep"],
-            "dm_admission": "allowlisted-peers-only",
+            "peers": [{"id": "u-keep", "dm_allowed": True}],
+            "channels": [{"guild_id": None, "channel_id": "c-keep"}],
+            "dm_admission": "admin-approved",
         }
         assert cfg["pairing"]["code"] == gen.json()["code"]
 
@@ -1590,7 +1599,10 @@ class TestConnectorAccountPairingCodeAndAttached:
         self, client: AsyncClient
     ) -> None:
         """Agent with a non-empty ACL → response carries the actual
-        ``peers`` and ``channels`` lists (L7 HAT shape extension)."""
+        ``peers`` and ``channels`` lists (L7 HAT shape extension).
+
+        M11 F12 L3 — peers/channels use the structured-tuple shape.
+        """
         account_id = await self._create_account(client)
 
         resp = await client.post(
@@ -1600,8 +1612,15 @@ class TestConnectorAccountPairingCodeAndAttached:
                 "connector_ids": [account_id],
                 "connector_acls": {
                     account_id: {
-                        "peers": ["u1", "u2", "u3"],
-                        "channels": ["c1", "c2"],
+                        "peers": [
+                            {"id": "u1", "dm_allowed": True},
+                            {"id": "u2", "dm_allowed": True},
+                            {"id": "u3", "dm_allowed": True},
+                        ],
+                        "channels": [
+                            {"guild_id": None, "channel_id": "c1"},
+                            {"guild_id": None, "channel_id": "c2"},
+                        ],
                     }
                 },
             },
@@ -1643,8 +1662,15 @@ class TestConnectorAccountPairingCodeAndAttached:
             },
             {
                 "name": "agent-with-acl",
-                "peers": ["u1", "u2", "u3"],
-                "channels": ["c1", "c2"],
+                "peers": [
+                    {"id": "u1", "dm_allowed": True},
+                    {"id": "u2", "dm_allowed": True},
+                    {"id": "u3", "dm_allowed": True},
+                ],
+                "channels": [
+                    {"guild_id": None, "channel_id": "c1"},
+                    {"guild_id": None, "channel_id": "c2"},
+                ],
                 "peers_count": 3,
                 "channels_count": 2,
             },
@@ -1672,13 +1698,17 @@ class TestConnectorAccountPairingCodeAndAttached:
         assert resp.status_code in (200, 201), resp.text
 
         # Agent B: peers subset, channels explicit-empty (DMs-only).
+        # M11 F12 L3 — peers use the structured-tuple shape.
         resp = await client.post(
             "/api/agents",
             json={
                 "name": "agent-b",
                 "connector_ids": [account_id],
                 "connector_acls": {
-                    account_id: {"peers": ["u1"], "channels": []},
+                    account_id: {
+                        "peers": [{"id": "u1", "dm_allowed": True}],
+                        "channels": [],
+                    },
                 },
             },
         )
@@ -1699,7 +1729,7 @@ class TestConnectorAccountPairingCodeAndAttached:
             },
             {
                 "name": "agent-b",
-                "peers": ["u1"],
+                "peers": [{"id": "u1", "dm_allowed": True}],
                 "channels": [],
                 "peers_count": 1,
                 "channels_count": 0,
@@ -1747,10 +1777,12 @@ class TestConnectorAccountPairingCodeAndAttached:
         # Verbatim — NOT absent, NOT coerced to null/None. M11 F10 L1
         # adds the ``dm_admission`` fresh-account default at validator
         # time; the empty ``peers``/``channels`` lists remain verbatim.
+        # M11 F12 L3 — default renamed from "allowlisted-peers-only"
+        # to "admin-approved".
         assert allowlist == {
             "peers": [],
             "channels": [],
-            "dm_admission": "allowlisted-peers-only",
+            "dm_admission": "admin-approved",
         }
 
     # ── M11 F10 L1 dm_admission axis ──────────────────────────────────
@@ -1829,7 +1861,7 @@ class TestConnectorAccountPairingCodeAndAttached:
 # ── Connector account peer-approvals (M11 F9 L3) ─────────────────────────
 
 
-class TestConnectorAccountPeerApprovals:
+class TestConnectorPeerApprovals:
     """REST surface for the F9 L3 peer-approval action endpoints.
 
     Covers the two new endpoints:
@@ -1842,7 +1874,7 @@ class TestConnectorAccountPeerApprovals:
         — transitions the row to ``status='dismissed'``; does NOT mutate
         the allowlist.
 
-    Mirrors :class:`TestConnectorAccountPairingCodeAndAttached`'s autouse
+    Mirrors :class:`TestConnectorPairingCodeAndAttached`'s autouse
     ``_isolation`` fixture verbatim (class-scoped autouse fixtures do not
     propagate across classes; each class that touches the connector
     subsystem must redeclare).
@@ -1963,7 +1995,10 @@ class TestConnectorAccountPeerApprovals:
         getr = await client.get(f"/api/connectors/{account_id}")
         assert getr.status_code == 200
         allowlist = getr.json()["config"]["allowlist"]
-        assert "peer-add-me" in allowlist["peers"]
+        # M11 F12 L3 — peers are structured dicts; check membership by id.
+        assert any(
+            p["id"] == "peer-add-me" for p in allowlist["peers"]
+        ), allowlist["peers"]
 
     async def test_approve_pending_idempotent_does_not_duplicate_peer_id(
         self, client: AsyncClient
@@ -1988,17 +2023,28 @@ class TestConnectorAccountPeerApprovals:
 
         getr = await client.get(f"/api/connectors/{account_id}")
         peers = getr.json()["config"]["allowlist"]["peers"]
-        assert peers.count("peer-dup-check") == 1
+        # M11 F12 L3 — peers are structured dicts; count by id.
+        matching = [p for p in peers if p["id"] == "peer-dup-check"]
+        assert len(matching) == 1, peers
 
     async def test_approve_preserves_other_config_keys(
         self, client: AsyncClient
     ) -> None:
-        """Pre-existing config keys (intent, pairing) survive the mutation."""
+        """Pre-existing config keys (intent, pairing) survive the
+        mutation.
+
+        M11 F12 L3 — peers/channels use the structured-tuple shape.
+        """
         account_id = await self._create_account(
             client,
             config={
                 "intent": "guild_messages",
-                "allowlist": {"peers": ["u-keep"], "channels": ["c-keep"]},
+                "allowlist": {
+                    "peers": [{"id": "u-keep", "dm_allowed": True}],
+                    "channels": [
+                        {"guild_id": None, "channel_id": "c-keep"}
+                    ],
+                },
             },
         )
         # Stamp a pairing block separately via the pairing-code endpoint
@@ -2021,9 +2067,12 @@ class TestConnectorAccountPeerApprovals:
         getr = await client.get(f"/api/connectors/{account_id}")
         cfg = getr.json()["config"]
         assert cfg["intent"] == "guild_messages"
-        assert cfg["allowlist"]["channels"] == ["c-keep"]
-        assert "u-keep" in cfg["allowlist"]["peers"]
-        assert "peer-new" in cfg["allowlist"]["peers"]
+        assert cfg["allowlist"]["channels"] == [
+            {"guild_id": None, "channel_id": "c-keep"}
+        ]
+        peer_ids = {p["id"] for p in cfg["allowlist"]["peers"]}
+        assert "u-keep" in peer_ids
+        assert "peer-new" in peer_ids
         assert cfg["pairing"] == {
             "code": pairing_before["code"],
             "issued_at": pairing_before["issued_at"],
@@ -2149,10 +2198,17 @@ class TestConnectorAccountPeerApprovals:
     async def test_dismiss_does_not_mutate_allowlist(
         self, client: AsyncClient
     ) -> None:
-        """Dismiss → allowlist unchanged (peer NOT added)."""
+        """Dismiss → allowlist unchanged (peer NOT added).
+
+        M11 F12 L3 — peers/channels use the structured-tuple shape;
+        dm_admission default renamed to "admin-approved".
+        """
         account_id = await self._create_account(
             client,
-            config={"allowlist": {"peers": ["u-keep"], "channels": ["c-keep"]}},
+            config={"allowlist": {
+                "peers": [{"id": "u-keep", "dm_allowed": True}],
+                "channels": [{"guild_id": None, "channel_id": "c-keep"}],
+            }},
         )
         approval_id = await self._create_pending_approval(
             account_id, peer_id="peer-do-not-add"
@@ -2166,12 +2222,13 @@ class TestConnectorAccountPeerApprovals:
 
         getr = await client.get(f"/api/connectors/{account_id}")
         allowlist = getr.json()["config"]["allowlist"]
-        # M11 F10 L1: validator inserts ``dm_admission`` fresh-account
-        # default; non-allowlist fields stay verbatim.
+        # M11 F10 L1 + M11 F12 L3: validator inserts ``dm_admission``
+        # fresh-account default ``"admin-approved"``; non-allowlist
+        # fields stay verbatim.
         assert allowlist == {
-            "peers": ["u-keep"],
-            "channels": ["c-keep"],
-            "dm_admission": "allowlisted-peers-only",
+            "peers": [{"id": "u-keep", "dm_allowed": True}],
+            "channels": [{"guild_id": None, "channel_id": "c-keep"}],
+            "dm_admission": "admin-approved",
         }
 
     async def test_dismiss_already_dismissed_returns_200_idempotent(
@@ -2287,14 +2344,17 @@ class TestConnectorAccountPeerApprovals:
 
         getr = await client.get(f"/api/connectors/{account_id}")
         cfg = getr.json()["config"]
-        # M11 F10 L1: validator inserts the ``dm_admission`` fresh-
-        # account default when an allowlist is constructed but the key
-        # is absent (the approve endpoint initializes peers + channels;
-        # dm_admission falls in via the validator).
+        # M11 F10 L1 + M11 F12 L3: validator inserts the
+        # ``dm_admission`` fresh-account default ``"admin-approved"``
+        # (renamed in F12 L3) when an allowlist is constructed but
+        # the key is absent. The approve endpoint constructs the new
+        # peer as a structured ``{id, dm_allowed=False}`` dict
+        # (operator must flip the per-peer toggle via the UI under
+        # the ``"admin-approved"`` policy before the peer can DM).
         assert cfg["allowlist"] == {
-            "peers": ["peer-init"],
+            "peers": [{"id": "peer-init", "dm_allowed": False}],
             "channels": [],
-            "dm_admission": "allowlisted-peers-only",
+            "dm_admission": "admin-approved",
         }
 
 
@@ -2311,10 +2371,10 @@ class TestAgentConnectorDetach:
       * Idempotent no-op — account_id is NOT in the list; 200 + no change.
       * 404 — unknown agent name.
 
-    Plus a regression net for the ``list_connector_accounts`` response
+    Plus a regression net for the ``list_connectors`` response
     extension (per-row ``attached_agents_count`` field).
 
-    Mirrors :class:`TestConnectorAccountPairingCodeAndAttached`'s autouse
+    Mirrors :class:`TestConnectorPairingCodeAndAttached`'s autouse
     ``_isolation`` fixture so the pool, registry, and StubPlugin state
     are reset per test.
     """
@@ -2476,7 +2536,7 @@ class TestAgentConnectorDetach:
         # The per-(agent, account) slot is gone.
         assert ("agent-pool-release", account_id) not in _keys_for_test()
 
-    async def test_list_connector_accounts_includes_attached_agents_count(
+    async def test_list_connectors_includes_attached_agents_count(
         self, client: AsyncClient
     ) -> None:
         """``GET /api/connectors`` response items carry
