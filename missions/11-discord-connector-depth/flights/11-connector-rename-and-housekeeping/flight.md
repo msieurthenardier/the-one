@@ -1,6 +1,6 @@
 # Flight: Connector Terminology Rename + Small-Housekeeping Fold-Ins
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Discord Connector Depth & Robustness](../../mission.md)
 
 ## Contributing to Criteria
