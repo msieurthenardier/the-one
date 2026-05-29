@@ -10,7 +10,7 @@ row when within the window.
 The continuation window resolver mirrors
 :func:`the_one.connectors._pool._resolve_ttl_seconds`'s shape: explicit
 override → env var (read at call time) → default constant. The override
-is the per-account ``ConnectorAccount.session_continuation_seconds``
+is the per-account ``Connector.session_continuation_seconds``
 (leg 1 added the column + Pydantic field); the env var is
 ``THE_ONE_SESSION_CONTINUATION_SECONDS``; the default is 86400 (24h).
 
@@ -28,7 +28,7 @@ import uuid
 from datetime import datetime, timezone
 
 from the_one.connectors.base import ConnectorPlugin, InboundEnvelope
-from the_one.db.models import ChatSession, ConnectorAccount, now_iso
+from the_one.db.models import ChatSession, Connector, now_iso
 from the_one.db.repositories import ChatSessionRepository
 
 logger = logging.getLogger(__name__)
@@ -47,7 +47,7 @@ def _resolve_continuation_seconds(override: int | None = None) -> int:
     :func:`the_one.connectors._pool._resolve_ttl_seconds`.
 
     The override is the per-account
-    ``ConnectorAccount.session_continuation_seconds`` value, passed
+    ``Connector.session_continuation_seconds`` value, passed
     through by :func:`resolve_session`. The resolver stays ignorant of
     which model field drives the override; the model owns the field
     name, the resolver owns the precedence. The ``override is not None``
@@ -105,7 +105,7 @@ def _derive_title(envelope: InboundEnvelope, plugin: ConnectorPlugin) -> str:
 
 async def resolve_session(
     envelope: InboundEnvelope,
-    account: ConnectorAccount,
+    account: Connector,
     repo: ChatSessionRepository,
     *,
     agent_name: str,
@@ -145,7 +145,7 @@ async def resolve_session(
 
     existing = await repo.find_most_recent_by_external_key(
         platform=key.platform,
-        connector_account_id=key.account_id,
+        connector_id=key.account_id,
         channel_id=key.channel_id,
         thread_id=key.thread_id,
     )
@@ -188,7 +188,7 @@ async def resolve_session(
         created_at=current_iso,
         updated_at=current_iso,
         platform=key.platform,
-        connector_account_id=key.account_id,
+        connector_id=key.account_id,
         channel_id=key.channel_id,
         thread_id=key.thread_id,
         peer_id=key.peer_id,

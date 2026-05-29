@@ -1,9 +1,9 @@
-"""Tests for the API-layer per-type ConnectorAccount.config validator.
+"""Tests for the API-layer per-type Connector.config validator.
 
 M11 F1 L2 — :func:`_validate_connector_account_config` in
 :mod:`the_one.interfaces.web.api` gates the shape of
 ``account.config`` at the API write boundary (POST and PUT on
-``/api/connector-accounts``). Discord branch validates
+``/api/connectors``). Discord branch validates
 ``intents``, ``guilds``, and ``presence``; stub branch passes any
 shape; the trailing ``else`` defensive-exhaustiveness raise is
 unreachable for properly-validated input.
@@ -80,7 +80,7 @@ class TestConnectorAccountConfigValidation:
     ) -> None:
         """intents missing one of {message_content, members, guilds} → 422."""
         resp = await client.post(
-            "/api/connector-accounts",
+            "/api/connectors",
             json=_discord_payload(
                 {"intents": {"message_content": True, "members": True}}
             ),
@@ -95,7 +95,7 @@ class TestConnectorAccountConfigValidation:
     async def test_intents_extra_keys_rejected(self, client: AsyncClient) -> None:
         """intents with an extra key beyond the canonical three → 422."""
         resp = await client.post(
-            "/api/connector-accounts",
+            "/api/connectors",
             json=_discord_payload(
                 {
                     "intents": {
@@ -117,7 +117,7 @@ class TestConnectorAccountConfigValidation:
     async def test_intents_non_bool_value_rejected(self, client: AsyncClient) -> None:
         """intents with a JSON ``1`` (int, not bool) → 422 (bool-is-int trap)."""
         resp = await client.post(
-            "/api/connector-accounts",
+            "/api/connectors",
             json=_discord_payload(
                 {
                     "intents": {
@@ -143,7 +143,7 @@ class TestConnectorAccountConfigValidation:
         treat as a malformed shape.
         """
         resp = await client.post(
-            "/api/connector-accounts",
+            "/api/connectors",
             json=_discord_payload({"intents": {}}),
         )
         assert resp.status_code == 422
@@ -155,7 +155,7 @@ class TestConnectorAccountConfigValidation:
     async def test_intents_not_a_dict_rejected(self, client: AsyncClient) -> None:
         """intents as a list (non-dict) → 422."""
         resp = await client.post(
-            "/api/connector-accounts",
+            "/api/connectors",
             json=_discord_payload({"intents": ["message_content", "members"]}),
         )
         assert resp.status_code == 422
@@ -168,7 +168,7 @@ class TestConnectorAccountConfigValidation:
     async def test_guilds_non_digit_entry_rejected(self, client: AsyncClient) -> None:
         """guilds with a non-digit string entry → 422."""
         resp = await client.post(
-            "/api/connector-accounts",
+            "/api/connectors",
             json=_discord_payload({"guilds": ["123456", "abc123"]}),
         )
         assert resp.status_code == 422
@@ -180,7 +180,7 @@ class TestConnectorAccountConfigValidation:
     async def test_guilds_non_string_entry_rejected(self, client: AsyncClient) -> None:
         """guilds with an integer entry (not a string) → 422."""
         resp = await client.post(
-            "/api/connector-accounts",
+            "/api/connectors",
             json=_discord_payload({"guilds": ["123456", 789]}),
         )
         assert resp.status_code == 422
@@ -191,7 +191,7 @@ class TestConnectorAccountConfigValidation:
     async def test_guilds_not_a_list_rejected(self, client: AsyncClient) -> None:
         """guilds as a string (non-list) → 422."""
         resp = await client.post(
-            "/api/connector-accounts",
+            "/api/connectors",
             json=_discord_payload({"guilds": "123456"}),
         )
         assert resp.status_code == 422
@@ -205,7 +205,7 @@ class TestConnectorAccountConfigValidation:
     async def test_presence_non_dict_rejected(self, client: AsyncClient) -> None:
         """presence as a string (non-dict) → 422."""
         resp = await client.post(
-            "/api/connector-accounts",
+            "/api/connectors",
             json=_discord_payload({"presence": "watching agents"}),
         )
         assert resp.status_code == 422
@@ -216,7 +216,7 @@ class TestConnectorAccountConfigValidation:
     async def test_presence_empty_name_rejected(self, client: AsyncClient) -> None:
         """presence with name='' (empty string) → 422."""
         resp = await client.post(
-            "/api/connector-accounts",
+            "/api/connectors",
             json=_discord_payload({"presence": {"name": "", "type": "watching"}}),
         )
         assert resp.status_code == 422
@@ -227,7 +227,7 @@ class TestConnectorAccountConfigValidation:
     async def test_presence_unknown_type_rejected(self, client: AsyncClient) -> None:
         """presence with type='dancing' (outside the pinned set) → 422."""
         resp = await client.post(
-            "/api/connector-accounts",
+            "/api/connectors",
             json=_discord_payload(
                 {"presence": {"name": "agents", "type": "dancing"}}
             ),
@@ -246,7 +246,7 @@ class TestConnectorAccountConfigValidation:
     ) -> None:
         """All three optional config keys present and well-formed → 201."""
         resp = await client.post(
-            "/api/connector-accounts",
+            "/api/connectors",
             json=_discord_payload(
                 {
                     "intents": {
@@ -264,7 +264,7 @@ class TestConnectorAccountConfigValidation:
     async def test_happy_path_all_three_keys_absent(self, client: AsyncClient) -> None:
         """Empty config → 201 (M10 F8 backward-compat: no intents key)."""
         resp = await client.post(
-            "/api/connector-accounts",
+            "/api/connectors",
             json=_discord_payload({}),
         )
         assert resp.status_code == 201
@@ -272,7 +272,7 @@ class TestConnectorAccountConfigValidation:
     async def test_happy_path_empty_guilds_list(self, client: AsyncClient) -> None:
         """guilds=[] (empty list) → 201; the plugin's sync handles empty/absent."""
         resp = await client.post(
-            "/api/connector-accounts",
+            "/api/connectors",
             json=_discord_payload({"guilds": []}),
         )
         assert resp.status_code == 201
@@ -284,7 +284,7 @@ class TestConnectorAccountConfigValidation:
     ) -> None:
         """Stub-type account with arbitrary config bypasses Discord validation."""
         resp = await client.post(
-            "/api/connector-accounts",
+            "/api/connectors",
             json={
                 "name": "Stub Bot",
                 "type": "stub",
@@ -314,7 +314,7 @@ class TestConnectorAccountConfigValidation:
     ) -> None:
         """Absent system_prompt_directive → 201."""
         resp = await client.post(
-            "/api/connector-accounts",
+            "/api/connectors",
             json=_discord_payload({}),
         )
         assert resp.status_code == 201
@@ -325,7 +325,7 @@ class TestConnectorAccountConfigValidation:
         """A short string directive → 201 (pass-through; ignored at
         agent-create time post round-8)."""
         resp = await client.post(
-            "/api/connector-accounts",
+            "/api/connectors",
             json=_discord_payload(
                 {"system_prompt_directive": "Sign replies with a coffee emoji."}
             ),
@@ -337,7 +337,7 @@ class TestConnectorAccountConfigValidation:
     ) -> None:
         """A 5000-char directive → 201 (pass-through)."""
         resp = await client.post(
-            "/api/connector-accounts",
+            "/api/connectors",
             json=_discord_payload({"system_prompt_directive": "x" * 5000}),
         )
         assert resp.status_code == 201
@@ -349,7 +349,7 @@ class TestConnectorAccountConfigValidation:
         pass through (validator no longer reads the key). The value is
         ignored at agent-create time."""
         resp = await client.post(
-            "/api/connector-accounts",
+            "/api/connectors",
             json=_discord_payload({"system_prompt_directive": 42}),
         )
         assert resp.status_code == 201
@@ -360,7 +360,7 @@ class TestConnectorAccountConfigValidation:
         """Round-8: empty-string directive now passes (was 422
         pre-round-8). The value is ignored at agent-create time."""
         resp = await client.post(
-            "/api/connector-accounts",
+            "/api/connectors",
             json=_discord_payload({"system_prompt_directive": ""}),
         )
         assert resp.status_code == 201
@@ -372,7 +372,7 @@ class TestConnectorAccountConfigValidation:
         (stubs don't validate per-type config; this pins the carve-out
         behavior for the new key alongside the existing keys)."""
         resp = await client.post(
-            "/api/connector-accounts",
+            "/api/connectors",
             json={
                 "name": "Stub Bot",
                 "type": "stub",
@@ -389,14 +389,14 @@ class TestConnectorAccountConfigValidation:
     ) -> None:
         """PUT with malformed intents config → 422 (covers the second call site)."""
         create = await client.post(
-            "/api/connector-accounts",
+            "/api/connectors",
             json=_discord_payload({}),
         )
         assert create.status_code == 201
         account_id = create.json()["id"]
 
         resp = await client.put(
-            f"/api/connector-accounts/{account_id}",
+            f"/api/connectors/{account_id}",
             json={
                 "config": {
                     "intents": {

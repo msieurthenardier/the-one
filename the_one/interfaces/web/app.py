@@ -140,9 +140,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # a misbehaving connector must not take the rest of the system down.
     try:
         from the_one.connectors._pool import account_acquire
-        from the_one.db.repositories import ConnectorAccountRepository
+        from the_one.db.repositories import ConnectorRepository
 
-        connector_repo = ConnectorAccountRepository(conn, get_encryptor(settings.data_dir))
+        connector_repo = ConnectorRepository(conn, get_encryptor(settings.data_dir))
         accounts = await connector_repo.list()
         for account in accounts:
             try:
@@ -412,7 +412,7 @@ async def _merge_pending_approvals_into_history(
 
     Shared by ``_restore_session`` (healthy path) and
     ``_build_session_joined_degraded`` (degraded path). Sessions without
-    connector context (``connector_account_id is None or peer_id is None``)
+    connector context (``connector_id is None or peer_id is None``)
     short-circuit — no DB query, return ``ui_events`` unchanged.
 
     Merge ordering is by sort-key
@@ -422,11 +422,11 @@ async def _merge_pending_approvals_into_history(
     ``received_at``. ISO8601 strings sort lexicographically. Messages
     without an explicit ts float to the top — acceptable per leg spec.
     """
-    if db_session.connector_account_id is None or db_session.peer_id is None:
+    if db_session.connector_id is None or db_session.peer_id is None:
         return ui_events
     pending_repo = await _pending_approval_repo()
     pending_rows = await pending_repo.list_for_account_peer(
-        db_session.connector_account_id, db_session.peer_id
+        db_session.connector_id, db_session.peer_id
     )
     if not pending_rows:
         return ui_events
@@ -647,7 +647,7 @@ def _session_to_list_payload(s: ChatSessionModel) -> dict[str, Any]:
         "created_at": s.created_at,
         "updated_at": s.updated_at,
         "platform": s.platform,
-        "connector_account_id": s.connector_account_id,
+        "connector_id": s.connector_id,
         "channel_id": s.channel_id,
         "thread_id": s.thread_id,
         "peer_id": s.peer_id,

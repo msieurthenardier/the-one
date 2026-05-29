@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 
 import pytest
-from browser.seeders import seed_connector_account
+from browser.seeders import seed_connector
 from playwright.sync_api import Page, expect
 
 
@@ -103,7 +103,7 @@ def _route_get_ok(page: Page, account_id: str, payload: dict | None = None) -> N
             )
 
     page.route(
-        f"**/api/connector-accounts/{account_id}/discoverable-entities*",
+        f"**/api/connectors/{account_id}/discoverable-entities*",
         handle,
     )
 
@@ -245,7 +245,7 @@ class TestDiscoverableDropdown:
     ) -> None:
         # F5 L6 HAT R5: per-axis Refresh button removed; refresh now
         # flows from the section-level banner via the
-        # ``connector-account-discoverable-refresh-requested`` event
+        # ``connector-discoverable-refresh-requested`` event
         # (the banner's Refresh button dispatches it on `document` with
         # ``{ accountId }`` detail; all 4 mounted axis dropdowns listen
         # and POST /refresh on a match). This test mounts the dropdown
@@ -265,7 +265,7 @@ class TestDiscoverableDropdown:
             )
 
         page.route(
-            f"**/api/connector-accounts/{account_id}/discoverable-entities*",
+            f"**/api/connectors/{account_id}/discoverable-entities*",
             handle,
         )
         page.goto(app_clean)
@@ -290,7 +290,7 @@ class TestDiscoverableDropdown:
             page.evaluate(
                 """(accountId) => {
                     document.dispatchEvent(new CustomEvent(
-                        'connector-account-discoverable-refresh-requested',
+                        'connector-discoverable-refresh-requested',
                         { detail: { accountId: accountId } }
                     ));
                 }""",
@@ -306,7 +306,7 @@ class TestDiscoverableDropdown:
     ) -> None:
         # F5 L6 HAT R5: per-axis pre-probe hint removed — the hint now
         # lives on the section-level banner (see
-        # ``test_flow_studio_connector_account_editor.py`` for the
+        # ``test_flow_studio_connector_editor.py`` for the
         # banner-state coverage). The dropdown's own status line is
         # cleared on a 404; the menu stays hidden so the operator
         # can't open an empty dropdown.
@@ -321,7 +321,7 @@ class TestDiscoverableDropdown:
             )
 
         page.route(
-            f"**/api/connector-accounts/{account_id}/discoverable-entities*",
+            f"**/api/connectors/{account_id}/discoverable-entities*",
             handle,
         )
         page.goto(app_clean)
@@ -392,7 +392,7 @@ def test_test_connection_pool_warmed_event_refreshes_dropdowns(
     the second GET response (``#general`` becomes visible) WITHOUT
     a page reload.
     """
-    account_id = seed_connector_account(
+    account_id = seed_connector(
         app_clean,
         name="F4 L4 Warm Bot",
         type="discord",
@@ -433,7 +433,7 @@ def test_test_connection_pool_warmed_event_refreshes_dropdowns(
         )
 
     page.route(
-        f"**/api/connector-accounts/{account_id}/discoverable-entities*",
+        f"**/api/connectors/{account_id}/discoverable-entities*",
         handle_discoverable,
     )
 
@@ -459,13 +459,13 @@ def test_test_connection_pool_warmed_event_refreshes_dropdowns(
         )
 
     page.route(
-        f"**/api/connector-accounts/{account_id}/test/connect",
+        f"**/api/connectors/{account_id}/test/connect",
         handle_test_connect,
     )
 
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
     expect(
-        page.locator('[data-testid="save-connector-account-btn"]')
+        page.locator('[data-testid="save-connector-btn"]')
     ).to_be_visible(timeout=8000)
 
     # Open the Access and Routing tab so the discoverable-dropdown
@@ -503,7 +503,7 @@ def test_test_connection_pool_warmed_event_refreshes_dropdowns(
 
     # Click Test Connection. The mocked POST returns
     # ``details.pool_warmed=true``, which should dispatch
-    # ``connector-account-pool-warmed`` and re-fetch the dropdowns
+    # ``connector-pool-warmed`` and re-fetch the dropdowns
     # even though their tab panel is hidden.
     page.locator('[data-testid="connector-test-connection-btn"]').click()
 

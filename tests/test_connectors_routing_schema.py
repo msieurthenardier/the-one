@@ -1,5 +1,5 @@
 """Routing-schema validator tests for F7 L2's extension of
-``ConnectorAccount._validate_config_reserved_keys`` to recognize the
+``Connector._validate_config_reserved_keys`` to recognize the
 third reserved top-level config key ``"routing"``.
 
 Pins the shape contract:
@@ -22,17 +22,17 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from the_one.db.models import ConnectorAccount
+from the_one.db.models import Connector
 
 
-def _account(config: dict | None = None) -> ConnectorAccount:
-    """Minimal ``ConnectorAccount`` fixture builder.
+def _account(config: dict | None = None) -> Connector:
+    """Minimal ``Connector`` fixture builder.
 
     Constructs a stub-shaped account with the given ``config``; all
     other fields (``name``/``type``/``secrets``) default sensibly. The
     Pydantic model fills timestamps via ``Field(default_factory=now_iso)``.
     """
-    return ConnectorAccount(
+    return Connector(
         id="acc-1",
         name="test",
         type="stub",

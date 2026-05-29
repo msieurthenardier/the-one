@@ -17,7 +17,7 @@ import json
 import httpx
 import pytest
 from browser.seeders import (
-    seed_connector_account,
+    seed_connector,
     seed_mock_agent,
     seed_mock_provider,
 )
@@ -60,7 +60,7 @@ def _route_discoverable_ok(page: Page, account_id: str) -> None:
         )
 
     page.route(
-        f"**/api/connector-accounts/{account_id}/discoverable-entities*",
+        f"**/api/connectors/{account_id}/discoverable-entities*",
         handle,
     )
 
@@ -70,7 +70,7 @@ def _route_discoverable_503(page: Page, account_id: str) -> None:
         route.fulfill(status=503, body="{}")
 
     page.route(
-        f"**/api/connector-accounts/{account_id}/discoverable-entities*",
+        f"**/api/connectors/{account_id}/discoverable-entities*",
         handle,
     )
 
@@ -80,7 +80,7 @@ def _route_discoverable_network_error(page: Page, account_id: str) -> None:
         route.abort("failed")
 
     page.route(
-        f"**/api/connector-accounts/{account_id}/discoverable-entities*",
+        f"**/api/connectors/{account_id}/discoverable-entities*",
         handle,
     )
 
@@ -91,10 +91,10 @@ def _attach_agent_to_account(
     cur = httpx.get(f"{base_url}/api/agents/{agent_name}", timeout=5.0)
     assert cur.status_code == 200, f"get agent failed: {cur.status_code} {cur.text}"
     cfg = cur.json()
-    ids = list(cfg.get("connector_account_ids") or [])
+    ids = list(cfg.get("connector_ids") or [])
     if account_id not in ids:
         ids.append(account_id)
-    cfg["connector_account_ids"] = ids
+    cfg["connector_ids"] = ids
     r = httpx.put(
         f"{base_url}/api/agents/{agent_name}", json=cfg, timeout=5.0
     )
@@ -125,7 +125,7 @@ def test_per_agent_overlay_checkbox_mode_resolves_discord_labels(
     agent_name = seed_mock_agent(
         app_clean, provider_id, name="label-resolver-agent"
     )
-    account_id = seed_connector_account(
+    account_id = seed_connector(
         app_clean,
         type="discord",
         name="Label Resolver Bot",
@@ -143,7 +143,7 @@ def test_per_agent_overlay_checkbox_mode_resolves_discord_labels(
     _route_discoverable_ok(page, account_id)
     _open_agent_connectors_tab(page, app_clean, agent_name)
 
-    tile = page.locator(f'[data-testid="connector-account-row-{account_id}"]')
+    tile = page.locator(f'[data-testid="connector-row-{account_id}"]')
     expect(tile).to_be_visible(timeout=8000)
 
     toggle = tile.locator(
@@ -175,7 +175,7 @@ def test_per_agent_overlay_checkbox_mode_stub_shows_raw_ids(
     agent_name = seed_mock_agent(
         app_clean, provider_id, name="stub-fallback-agent"
     )
-    account_id = seed_connector_account(
+    account_id = seed_connector(
         app_clean,
         type="stub",
         name="Stub Fallback Bot",
@@ -193,7 +193,7 @@ def test_per_agent_overlay_checkbox_mode_stub_shows_raw_ids(
     _route_discoverable_503(page, account_id)
     _open_agent_connectors_tab(page, app_clean, agent_name)
 
-    tile = page.locator(f'[data-testid="connector-account-row-{account_id}"]')
+    tile = page.locator(f'[data-testid="connector-row-{account_id}"]')
     expect(tile).to_be_visible(timeout=8000)
 
     toggle = tile.locator(
@@ -225,7 +225,7 @@ def test_per_agent_overlay_checkbox_mode_network_error_shows_raw_ids(
     agent_name = seed_mock_agent(
         app_clean, provider_id, name="net-error-agent"
     )
-    account_id = seed_connector_account(
+    account_id = seed_connector(
         app_clean,
         type="discord",
         name="Net Error Bot",
@@ -243,7 +243,7 @@ def test_per_agent_overlay_checkbox_mode_network_error_shows_raw_ids(
     _route_discoverable_network_error(page, account_id)
     _open_agent_connectors_tab(page, app_clean, agent_name)
 
-    tile = page.locator(f'[data-testid="connector-account-row-{account_id}"]')
+    tile = page.locator(f'[data-testid="connector-row-{account_id}"]')
     expect(tile).to_be_visible(timeout=8000)
 
     toggle = tile.locator(

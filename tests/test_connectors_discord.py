@@ -46,7 +46,7 @@ from the_one.connectors.base import (
     Permit,
 )
 from the_one.connectors.errors import ConnectorConnectionError
-from the_one.db.models import ConnectorAccount
+from the_one.db.models import Connector
 from the_one.encryption import Encryptor
 
 
@@ -368,7 +368,7 @@ def _make_encryptor() -> Encryptor:
     The plugin receives :class:`Encryptor` to satisfy the F1
     :class:`ConnectorPlugin` Protocol but does not consume it for
     per-value decryption — the repository
-    (``ConnectorAccountRepository._ciphertext_to_secrets``) decrypts
+    (``ConnectorRepository._ciphertext_to_secrets``) decrypts
     the whole ``secrets`` blob at row-load time, so
     ``account.secrets["BOT_TOKEN"]`` already arrives as plaintext. We
     still construct a real Encryptor here so any test that passes it
@@ -386,7 +386,7 @@ def _make_account(
     presence: dict[str, str] | None = None,
     ready_timeout_seconds: float | None = None,
     intents: dict[str, bool] | None = None,
-) -> ConnectorAccount:
+) -> Connector:
     config: dict[str, Any] = {}
     if presence is not None:
         config["presence"] = presence
@@ -394,7 +394,7 @@ def _make_account(
         config["ready_timeout_seconds"] = ready_timeout_seconds
     if intents is not None:
         config["intents"] = intents
-    return ConnectorAccount(
+    return Connector(
         id="acct-discord-test",
         name="Discord Test",
         type="discord",
@@ -986,7 +986,7 @@ async def _connect_and_get_handler(
     config: dict[str, Any] = {}
     if ingest_bots:
         config["ingest_bots"] = True
-    account = ConnectorAccount(
+    account = Connector(
         id="acct-ingest-test",
         name="Discord Ingest Test",
         type="discord",
@@ -1346,12 +1346,12 @@ def _resolve_test_account(
     *,
     allowlist_peers: list[str] | None = None,
     allowlist_missing: bool = False,
-) -> ConnectorAccount:
-    """Build a minimal :class:`ConnectorAccount` for ``resolve`` tests.
+) -> Connector:
+    """Build a minimal :class:`Connector` for ``resolve`` tests.
 
     ``resolve`` reads only ``account.config["allowlist"]["peers"]``;
     ``secrets`` is not consulted, so we let the Pydantic default apply.
-    The ``ConnectorAccount`` config-shape validator at
+    The ``Connector`` config-shape validator at
     ``db/models.py:190`` requires ``allowlist`` (when present) to
     contain both ``peers`` and ``channels`` keys (and lists of strings
     for each) — ``channels`` is pinned to ``[]`` as an
@@ -1366,7 +1366,7 @@ def _resolve_test_account(
         config: dict[str, Any] = {}
     else:
         config = {"allowlist": {"peers": allowlist_peers or [], "channels": []}}
-    return ConnectorAccount(
+    return Connector(
         id="acc-1",
         name="discord-resolve-test",
         type="discord",
@@ -2473,7 +2473,7 @@ async def test_doctor_allowlist_unreachable_guild_degrades(
     plugin = DiscordPlugin()
     # Use SimpleNamespace because the L7 leg probes defensively against
     # an allowlist["guilds"] key that the L8 axis extension has not yet
-    # added to the ConnectorAccount pydantic validator. SimpleNamespace
+    # added to the Connector pydantic validator. SimpleNamespace
     # bypasses validation and gives us the duck-typed surface the doctor
     # consumes (.config / .secrets / .id).
     from types import SimpleNamespace
@@ -2536,7 +2536,7 @@ async def test_doctor_receives_encryptor_per_call_without_caching(
     plugin does NOT capture or cache the encryptor across calls.
 
     The encryption-rotation invariant is preserved at the REPOSITORY
-    layer (``ConnectorAccountRepository._ciphertext_to_secrets``
+    layer (``ConnectorRepository._ciphertext_to_secrets``
     decrypts the whole ``secrets`` blob at row-load time), so by the
     time the plugin sees ``account.secrets["BOT_TOKEN"]`` it is
     already plaintext and the plugin does not consume ``encryptor``.
@@ -2558,7 +2558,7 @@ async def test_doctor_receives_encryptor_per_call_without_caching(
     # First call: encryptor A. Secrets arrive plaintext (the repository
     # decrypts the blob at load time).
     enc_a = Encryptor(Fernet.generate_key())
-    account_a = ConnectorAccount(
+    account_a = Connector(
         id="acct-doctor-live-a",
         name="Discord Doctor A",
         type="discord",
@@ -2579,7 +2579,7 @@ async def test_doctor_receives_encryptor_per_call_without_caching(
     )
     enc_b = Encryptor(Fernet.generate_key())
     assert enc_b is not enc_a
-    account_b = ConnectorAccount(
+    account_b = Connector(
         id="acct-doctor-live-b",
         name="Discord Doctor B",
         type="discord",
@@ -2819,7 +2819,7 @@ async def test_connect_syncs_once_per_configured_guild(
 
     encryptor = _make_encryptor()
     plugin = DiscordPlugin()
-    account = ConnectorAccount(
+    account = Connector(
         id="acct-l9-guilds",
         name="Discord L9 Guilds",
         type="discord",
@@ -2892,7 +2892,7 @@ async def test_connect_proceeds_when_tree_sync_raises(
 
     encryptor = _make_encryptor()
     plugin = DiscordPlugin()
-    account = ConnectorAccount(
+    account = Connector(
         id="acct-l9-sync-fail",
         name="Discord L9 Sync Fail",
         type="discord",
@@ -2934,7 +2934,7 @@ async def test_connect_with_int_guild_ids_in_config(
 
     encryptor = _make_encryptor()
     plugin = DiscordPlugin()
-    account = ConnectorAccount(
+    account = Connector(
         id="acct-l9-int-guilds",
         name="Discord L9 Int Guilds",
         type="discord",
@@ -2966,7 +2966,7 @@ async def test_slash_command_body_dispatches_envelope(
 
     encryptor = _make_encryptor()
     plugin = DiscordPlugin()
-    account = ConnectorAccount(
+    account = Connector(
         id="acct-l9-dispatch",
         name="Discord L9 Dispatch",
         type="discord",

@@ -280,7 +280,7 @@ async def test_e2e_session_metadata_column_round_trips_at_create_time(
         agent_name="agent-meta",
         title="meta-test",
         platform="stub",
-        connector_account_id="acc-1",
+        connector_id="acc-1",
         channel_id="ch-1",
         thread_id=None,
         peer_id="peer-1",
@@ -357,7 +357,7 @@ async def test_e2e_continuation_window_real_time_supersede(isolated_db) -> None:
     # + thread) — the most-recent-within-window query is what
     # distinguishes them, not a key change.
     external_keys = {
-        (s.platform, s.connector_account_id, s.channel_id, s.thread_id)
+        (s.platform, s.connector_id, s.channel_id, s.thread_id)
         for s in sessions
     }
     assert len(external_keys) == 1

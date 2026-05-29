@@ -239,7 +239,7 @@ async def test_dispatch_inbound_broadcasts_carry_visibility(
     ``event.get("visibility") is None``) to pin the contract that the
     codec omits the key, rather than emitting an explicit-null value.
     """
-    await _seed_provider_and_agent(connector_account_ids=["acct-test"])
+    await _seed_provider_and_agent(connector_ids=["acct-test"])
     await _seed_stub_account()
     register_for_test("stub", StubPlugin)
 
@@ -256,7 +256,7 @@ async def test_dispatch_inbound_broadcasts_carry_visibility(
         Message.assistant(content="done"),
     ]
     factory = await _make_scripted_factory(
-        responses, monkeypatch, connector_account_ids=["acct-test"]
+        responses, monkeypatch, connector_ids=["acct-test"]
     )
 
     _, fake_ws = await _dispatch_and_collect(factory=factory)
@@ -316,7 +316,7 @@ async def test_dispatch_inbound_broadcasts_carry_peer_name(
     response chain (assistant-with-tool_call + final assistant)
     drives all four event types.
     """
-    await _seed_provider_and_agent(connector_account_ids=["acct-test"])
+    await _seed_provider_and_agent(connector_ids=["acct-test"])
     await _seed_stub_account()
     register_for_test("stub", StubPlugin)
 
@@ -333,7 +333,7 @@ async def test_dispatch_inbound_broadcasts_carry_peer_name(
         Message.assistant(content="done"),
     ]
     factory = await _make_scripted_factory(
-        responses, monkeypatch, connector_account_ids=["acct-test"]
+        responses, monkeypatch, connector_ids=["acct-test"]
     )
 
     _, fake_ws = await _dispatch_and_collect(factory=factory)
@@ -381,7 +381,7 @@ async def test_dispatch_inbound_broadcasts_carry_channel_id(
     test (covered separately by the next test). This test pins the
     always-bind-id contract independent of the cache state.
     """
-    await _seed_provider_and_agent(connector_account_ids=["acct-test"])
+    await _seed_provider_and_agent(connector_ids=["acct-test"])
     await _seed_stub_account()
     register_for_test("stub", StubPlugin)
 
@@ -398,7 +398,7 @@ async def test_dispatch_inbound_broadcasts_carry_channel_id(
         Message.assistant(content="done"),
     ]
     factory = await _make_scripted_factory(
-        responses, monkeypatch, connector_account_ids=["acct-test"]
+        responses, monkeypatch, connector_ids=["acct-test"]
     )
 
     _, fake_ws = await _dispatch_and_collect(factory=factory)
@@ -455,7 +455,7 @@ async def test_dispatch_inbound_broadcasts_carry_channel_name(
         DiscoverableEntity,
     )
 
-    await _seed_provider_and_agent(connector_account_ids=["acct-test"])
+    await _seed_provider_and_agent(connector_ids=["acct-test"])
     await _seed_stub_account()
     register_for_test("stub", StubPlugin)
 
@@ -489,7 +489,7 @@ async def test_dispatch_inbound_broadcasts_carry_channel_name(
         Message.assistant(content="done"),
     ]
     factory = await _make_scripted_factory(
-        responses, monkeypatch, connector_account_ids=["acct-test"]
+        responses, monkeypatch, connector_ids=["acct-test"]
     )
 
     _, fake_ws = await _dispatch_and_collect(factory=factory)
@@ -660,7 +660,7 @@ async def test_dispatch_inbound_multi_turn_parent_message_ids_do_not_collide(
     parameter shifts the index to the message's absolute position in
     the session's history.
     """
-    await _seed_provider_and_agent(connector_account_ids=["acct-test"])
+    await _seed_provider_and_agent(connector_ids=["acct-test"])
     await _seed_stub_account()
     register_for_test("stub", StubPlugin)
 
@@ -691,7 +691,7 @@ async def test_dispatch_inbound_multi_turn_parent_message_ids_do_not_collide(
         Message.assistant(content="end2"),
     ]
     factory = await _make_scripted_factory(
-        responses, monkeypatch, connector_account_ids=["acct-test"]
+        responses, monkeypatch, connector_ids=["acct-test"]
     )
 
     # Warmup so the session row exists; register subscriber against it.

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
-
 import aiosqlite
 import pytest
 from cryptography.fernet import Fernet
@@ -21,18 +19,13 @@ def encryptor(tmp_path):
 
 
 @pytest.fixture()
-def repo(encryptor):
+async def repo(encryptor):
     """Yield a LLMProviderRepository backed by an in-memory DB."""
-
-    async def _setup():
-        conn = await aiosqlite.connect(":memory:")
-        conn.row_factory = aiosqlite.Row
-        await ensure_schema(conn)
-        return conn
-
-    conn = asyncio.get_event_loop().run_until_complete(_setup())
+    conn = await aiosqlite.connect(":memory:")
+    conn.row_factory = aiosqlite.Row
+    await ensure_schema(conn)
     yield LLMProviderRepository(conn, encryptor)
-    asyncio.get_event_loop().run_until_complete(conn.close())
+    await conn.close()
 
 
 def _make_provider(**overrides) -> LLMProviderConfig:

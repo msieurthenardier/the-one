@@ -32,12 +32,12 @@ from __future__ import annotations
 
 import httpx
 import pytest
-from browser.seeders import seed_connector_account
+from browser.seeders import seed_connector
 from playwright.sync_api import Page, expect
 
 
 def _get_account(base_url: str, account_id: str) -> dict:
-    r = httpx.get(f"{base_url}/api/connector-accounts/{account_id}", timeout=5.0)
+    r = httpx.get(f"{base_url}/api/connectors/{account_id}", timeout=5.0)
     assert r.status_code == 200, f"get failed: {r.status_code} {r.text}"
     return r.json()
 
@@ -49,12 +49,12 @@ def _activate_access_and_routing_tab(page: Page) -> None:
     ``discord-presence-*`` / ``discord-additional-config-row`` testids
     must click the tab first so the panel is visible / actionable.
     Mirrors the helper at
-    ``test_flow_studio_connector_account_editor.py:89``; inlined here
+    ``test_flow_studio_connector_editor.py:89``; inlined here
     for minimum cross-file coupling.
     """
     page.locator('[data-testid="tab-access-and-routing"]').click()
     expect(
-        page.locator('[data-testid="connector-account-runtime-config-section"]')
+        page.locator('[data-testid="connector-runtime-config-section"]')
     ).to_be_visible(timeout=4000)
 
 
@@ -66,7 +66,7 @@ def _seed_discord(base_url: str, **kwargs) -> str:
     to render and exercise masked-edit round-trips.
     """
     secrets = kwargs.pop("secrets", {"BOT_TOKEN": "real_bot_token_abcd"})
-    return seed_connector_account(
+    return seed_connector(
         base_url,
         type="discord",
         secrets=secrets,
@@ -91,7 +91,7 @@ def test_edit_mode_renders_typed_fields_with_persisted_intents(
         },
     )
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
         timeout=8000
     )
 
@@ -121,7 +121,7 @@ def test_intent_toggle_re_enables_save(app_clean: str, page: Page) -> None:
     """Toggling an intent checkbox flips the dirty-tracker → Save enables."""
     account_id = _seed_discord(app_clean, name="Toggle Bot")
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    save_btn = page.locator('[data-testid="save-connector-account-btn"]')
+    save_btn = page.locator('[data-testid="save-connector-btn"]')
     expect(save_btn).to_be_visible(timeout=8000)
     # Baseline: Save disabled on load.
     expect(save_btn).to_be_disabled()
@@ -146,15 +146,15 @@ def test_no_change_save_roundtrip_omits_intents_when_absent(
     assert "presence" not in before["config"]
 
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
         timeout=8000
     )
     # Mark dirty by touching name then reverting — to enable Save while
     # leaving the typed fields untouched. The save will still emit the
     # typed-section state (which should not introduce new keys).
-    name_input = page.locator('[data-testid="connector-account-name-input"]')
+    name_input = page.locator('[data-testid="connector-name-input"]')
     name_input.fill("Pristine Bot Renamed")
-    page.locator('[data-testid="save-connector-account-btn"]').click()
+    page.locator('[data-testid="save-connector-btn"]').click()
     expect(page.locator(".app-flash")).to_be_visible(timeout=8000)
 
     after = _get_account(app_clean, account_id)
@@ -181,12 +181,12 @@ def test_no_change_save_preserves_pre_existing_all_true_intents(
         },
     )
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
         timeout=8000
     )
 
-    page.locator('[data-testid="connector-account-name-input"]').fill("All-True Renamed")
-    page.locator('[data-testid="save-connector-account-btn"]').click()
+    page.locator('[data-testid="connector-name-input"]').fill("All-True Renamed")
+    page.locator('[data-testid="save-connector-btn"]').click()
     expect(page.locator(".app-flash")).to_be_visible(timeout=8000)
 
     after = _get_account(app_clean, account_id)
@@ -203,14 +203,14 @@ def test_intent_toggle_save_emits_typed_payload(app_clean: str, page: Page) -> N
     three-key intents dict with the toggled axis False."""
     account_id = _seed_discord(app_clean, name="Toggle-Save Bot", config={})
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
         timeout=8000
     )
 
     # F5 L3: intents moved to the Access-and-Routing tab.
     _activate_access_and_routing_tab(page)
     page.locator('[data-testid="discord-intent-message_content"]').click()
-    page.locator('[data-testid="save-connector-account-btn"]').click()
+    page.locator('[data-testid="save-connector-btn"]').click()
     expect(page.locator(".app-flash")).to_be_visible(timeout=8000)
 
     after = _get_account(app_clean, account_id)
@@ -227,14 +227,14 @@ def test_guilds_add_saves(app_clean: str, page: Page) -> None:
     round-trip with the list persisted."""
     account_id = _seed_discord(app_clean, name="Guilds Bot", config={})
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
         timeout=8000
     )
 
     # F5 L3: guilds input moved to the Access-and-Routing tab.
     _activate_access_and_routing_tab(page)
     page.locator('[data-testid="discord-guilds-list"]').fill("12345, 67890")
-    page.locator('[data-testid="save-connector-account-btn"]').click()
+    page.locator('[data-testid="save-connector-btn"]').click()
     expect(page.locator(".app-flash")).to_be_visible(timeout=8000)
 
     after = _get_account(app_clean, account_id)
@@ -247,7 +247,7 @@ def test_presence_name_and_type_save(app_clean: str, page: Page) -> None:
     {name, type} dict."""
     account_id = _seed_discord(app_clean, name="Presence Bot", config={})
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
         timeout=8000
     )
 
@@ -255,7 +255,7 @@ def test_presence_name_and_type_save(app_clean: str, page: Page) -> None:
     _activate_access_and_routing_tab(page)
     page.locator('[data-testid="discord-presence-name"]').fill("with friends")
     page.locator('[data-testid="discord-presence-type"]').select_option("playing")
-    page.locator('[data-testid="save-connector-account-btn"]').click()
+    page.locator('[data-testid="save-connector-btn"]').click()
     expect(page.locator(".app-flash")).to_be_visible(timeout=8000)
 
     after = _get_account(app_clean, account_id)
@@ -286,7 +286,7 @@ def test_additional_config_hides_reserved_keys(app_clean: str, page: Page) -> No
         },
     )
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
         timeout=8000
     )
 
@@ -302,7 +302,7 @@ def test_additional_config_hides_reserved_keys(app_clean: str, page: Page) -> No
     # Read the kv-table rows' key inputs. Reserved keys (intents,
     # guilds, presence) must NOT appear; the non-reserved extra_key
     # MUST appear.
-    key_inputs = page.locator(".connector-account-config-row .config-key-input")
+    key_inputs = page.locator(".connector-config-row .config-key-input")
     keys = key_inputs.evaluate_all("els => els.map(e => e.value)")
     assert "intents" not in keys, f"intents leaked into kv-table; keys={keys!r}"
     assert "guilds" not in keys, f"guilds leaked into kv-table; keys={keys!r}"
@@ -320,14 +320,14 @@ def test_bot_token_masked_no_change_roundtrip(app_clean: str, page: Page) -> Non
         secrets={"BOT_TOKEN": "secret_value_wxyz"},
     )
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
         timeout=8000
     )
     token_input = page.locator('[data-testid="discord-bot-token"]')
     expect(token_input).to_have_value("***...wxyz")
 
-    page.locator('[data-testid="connector-account-name-input"]').fill("Masked Renamed")
-    page.locator('[data-testid="save-connector-account-btn"]').click()
+    page.locator('[data-testid="connector-name-input"]').fill("Masked Renamed")
+    page.locator('[data-testid="save-connector-btn"]').click()
     expect(page.locator(".app-flash")).to_be_visible(timeout=8000)
 
     after = _get_account(app_clean, account_id)
@@ -346,12 +346,12 @@ def test_bot_token_value_edit_saves_new_plaintext(app_clean: str, page: Page) ->
         secrets={"BOT_TOKEN": "old_value_oldd"},
     )
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
         timeout=8000
     )
 
     page.locator('[data-testid="discord-bot-token"]').fill("rotated_token_neww")
-    page.locator('[data-testid="save-connector-account-btn"]').click()
+    page.locator('[data-testid="save-connector-btn"]').click()
     expect(page.locator(".app-flash")).to_be_visible(timeout=8000)
 
     after = _get_account(app_clean, account_id)
@@ -364,9 +364,9 @@ def test_stub_snapshot_byte_identical_to_baseline(app_clean: str, page: Page) ->
     key — no entry registered for ``'stub'`` → byte-identical to the L3
     baseline. Asserts the substrate's ``getFormSnapshot`` byte-stability
     contract under the new typedFields extension."""
-    account_id = seed_connector_account(app_clean, name="Stub Bot", type="stub")
+    account_id = seed_connector(app_clean, name="Stub Bot", type="stub")
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
         timeout=8000
     )
 
@@ -388,7 +388,7 @@ def test_stub_snapshot_byte_identical_to_baseline(app_clean: str, page: Page) ->
             // typed inputs render, and Save stays disabled (proxy for
             // dirty=false → snapshot stable across this re-mount).
             const containers = document.querySelectorAll(
-                '[data-testid="connector-account-config"]'
+                '[data-testid="connector-config"]'
             );
             const intent = document.querySelector(
                 '[data-testid="discord-intent-message_content"]'
@@ -406,4 +406,4 @@ def test_stub_snapshot_byte_identical_to_baseline(app_clean: str, page: Page) ->
     )
     # Save stays disabled — dirty=false → snapshot equality holds → no
     # spurious ``typedFields`` key was injected for the unregistered type.
-    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_disabled()
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_disabled()

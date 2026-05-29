@@ -42,7 +42,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol, runtime_checkable
 
-from the_one.db.models import ConnectorAccount
+from the_one.db.models import Connector
 from the_one.encryption import Encryptor
 
 
@@ -58,7 +58,7 @@ class InboundEnvelope:
     """The connector's ``type`` value (e.g. ``"discord"``, ``"slack"``)."""
 
     account_id: str
-    """The :class:`ConnectorAccount.id` whose gateway delivered this message."""
+    """The :class:`Connector.id` whose gateway delivered this message."""
 
     channel_id: str
     """Platform-native channel identifier (Discord channel snowflake, Slack
@@ -262,7 +262,7 @@ against a sentinel without identity reliance.
 
 
 def _default_permit(
-    account: ConnectorAccount,
+    account: Connector,
     envelope: InboundEnvelope,
 ) -> Permit:
     """Default resolver fallback when a plugin does not implement ``resolve``.
@@ -347,7 +347,7 @@ class ConnectorPlugin(Protocol):
 
     async def connect(
         self,
-        account: ConnectorAccount,
+        account: Connector,
         encryptor: Encryptor,
     ) -> ConnectorClient:
         """Open a live platform connection for ``account`` and return the client.
@@ -377,7 +377,7 @@ class ConnectorPlugin(Protocol):
 
     async def doctor(
         self,
-        account: ConnectorAccount,
+        account: Connector,
         encryptor: Encryptor,
     ) -> DoctorReport:
         """Probe ``account`` without dispatching messages to peers.

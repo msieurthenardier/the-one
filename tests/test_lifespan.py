@@ -169,9 +169,9 @@ async def test_lifespan_warm_acquires_connector_accounts_per_account(
     from the_one.connectors._stub import StubPlugin
     from the_one.connectors.registry import register_for_test
     from the_one.db.connection import get_connection
-    from the_one.db.models import ConnectorAccount, LLMProviderConfig
+    from the_one.db.models import Connector, LLMProviderConfig
     from the_one.db.repositories import (
-        ConnectorAccountRepository,
+        ConnectorRepository,
         LLMProviderRepository,
         SQLiteAgentStore,
     )
@@ -192,9 +192,9 @@ async def test_lifespan_warm_acquires_connector_accounts_per_account(
     encryptor = get_encryptor(_settings.data_dir)
 
     # Seed account.
-    acc_repo = ConnectorAccountRepository(conn, encryptor)
+    acc_repo = ConnectorRepository(conn, encryptor)
     await acc_repo.create(
-        ConnectorAccount(
+        Connector(
             id="acct-warm",
             name="Warm Account",
             type="stub",
@@ -220,7 +220,7 @@ async def test_lifespan_warm_acquires_connector_accounts_per_account(
                 name=name,
                 provider_config_id="mock-provider",
                 llm_model="mock-default",
-                connector_account_ids=["acct-warm"],
+                connector_ids=["acct-warm"],
             )
         )
 
@@ -271,8 +271,8 @@ async def test_lifespan_warm_acquire_skips_accounts_with_no_attached_agents(
     from the_one.connectors._stub import StubPlugin
     from the_one.connectors.registry import register_for_test
     from the_one.db.connection import get_connection
-    from the_one.db.models import ConnectorAccount
-    from the_one.db.repositories import ConnectorAccountRepository
+    from the_one.db.models import Connector
+    from the_one.db.repositories import ConnectorRepository
     from the_one.db.schema import ensure_schema
     from the_one.encryption import get_encryptor
 
@@ -284,9 +284,9 @@ async def test_lifespan_warm_acquire_skips_accounts_with_no_attached_agents(
     await ensure_schema(conn)
     encryptor = get_encryptor(_settings.data_dir)
 
-    acc_repo = ConnectorAccountRepository(conn, encryptor)
+    acc_repo = ConnectorRepository(conn, encryptor)
     await acc_repo.create(
-        ConnectorAccount(
+        Connector(
             id="acct-orphan",
             name="Orphan Account",
             type="stub",

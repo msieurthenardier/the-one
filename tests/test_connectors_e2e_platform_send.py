@@ -112,7 +112,7 @@ async def test_e2e_enabled_state_platform_send_delivers(
       ``send_to_platform_channel`` (F4 L3 carve-out fired).
     - The agent's system prompt contains the enabled-tool directive.
     """
-    await _seed_provider_and_agent(connector_account_ids=["acct-test"])
+    await _seed_provider_and_agent(connector_ids=["acct-test"])
     await _seed_stub_account()
     register_for_test("stub", StubPlugin)
 
@@ -201,7 +201,7 @@ async def test_e2e_disabled_state_inbound_received_no_outbound(
     relay try/except swallows the failure and ``outbound_records``
     stays empty.
     """
-    await _seed_provider_and_agent(connector_account_ids=["acct-test"])
+    await _seed_provider_and_agent(connector_ids=["acct-test"])
     await _seed_stub_account()
 
     # Test isolation: suppress the platform-send side effect so the
@@ -294,7 +294,7 @@ async def test_e2e_disabled_to_enabled_re_dispatch_restores_outbound(
     reverted before the second dispatch so the tool-enabled path
     delivers normally.
     """
-    await _seed_provider_and_agent(connector_account_ids=["acct-test"])
+    await _seed_provider_and_agent(connector_ids=["acct-test"])
     await _seed_stub_account()
     register_for_test("stub", StubPlugin)
 
@@ -384,7 +384,7 @@ async def test_e2e_target_validation_rejects_unattached_account(
       delivery.
     """
     # Agent attached to acct-A only.
-    await _seed_provider_and_agent(connector_account_ids=["acct-A"])
+    await _seed_provider_and_agent(connector_ids=["acct-A"])
     await _seed_stub_account("acct-A")
     await _seed_stub_account("acct-B")
     register_for_test("stub", StubPlugin)
@@ -469,7 +469,7 @@ async def test_e2e_account_acquire_touches_last_activity_on_outbound(
     snapshotted around the second dispatch (the first dispatch warms
     the pool so the entry exists).
     """
-    await _seed_provider_and_agent(connector_account_ids=["acct-test"])
+    await _seed_provider_and_agent(connector_ids=["acct-test"])
     await _seed_stub_account()
     register_for_test("stub", StubPlugin)
 
@@ -544,7 +544,7 @@ async def test_e2e_plugin_resolve_failure_dispatcher_logs_and_returns(
     - NO new ``chat_sessions`` row was created — the dispatcher returned
       before reaching session resolution.
     """
-    await _seed_provider_and_agent(connector_account_ids=["acct-test"])
+    await _seed_provider_and_agent(connector_ids=["acct-test"])
     await _seed_stub_account()
     register_for_test("stub", StubPlugin)
     factory = await _make_factory()

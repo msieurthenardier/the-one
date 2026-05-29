@@ -15,7 +15,7 @@ from the_one.agent.config import (
     AgentConfig,
 )
 from the_one.agent.factory import AgentFactory
-from the_one.db.models import ConnectorAccount, LLMProviderConfig, ToolConfig
+from the_one.db.models import Connector, LLMProviderConfig, ToolConfig
 from the_one.tools.base import Tool
 from the_one.tools.builtins import BuiltinToolProvider
 
@@ -124,7 +124,7 @@ def factory(store: InMemoryStore) -> AgentFactory:
     # for any account_id the caller's AgentConfig references.
     mock_acc_repo = AsyncMock()
     mock_acc_repo.get = AsyncMock(
-        side_effect=lambda aid: ConnectorAccount(id=aid, name=aid, type="stub")
+        side_effect=lambda aid: Connector(id=aid, name=aid, type="stub")
     )
 
     with (
@@ -135,7 +135,7 @@ def factory(store: InMemoryStore) -> AgentFactory:
         patch("the_one.db.repositories.LLMProviderRepository", return_value=mock_repo),
         patch("the_one.db.repositories.ToolConfigRepository", return_value=mock_tool_repo),
         patch(
-            "the_one.db.repositories.ConnectorAccountRepository",
+            "the_one.db.repositories.ConnectorRepository",
             return_value=mock_acc_repo,
         ),
     ):
@@ -437,7 +437,7 @@ def factory_with_builtin_tool_configs(store: InMemoryStore):
     def _make_with_tool_configs(
         tool_configs: list[ToolConfig] | None = None,
         extra_tool_providers: list | None = None,
-        connector_accounts: dict[str, ConnectorAccount] | None = None,
+        connectors: dict[str, Connector] | None = None,
     ):
         class _Ctx:
             def __enter__(self):
@@ -447,17 +447,17 @@ def factory_with_builtin_tool_configs(store: InMemoryStore):
                 # Factory consults the account repo (pre-F7 this was the
                 # per-account ``auto_relay`` lookup; M11 F7 L9 deleted the
                 # auto_relay gating but the repo is still consulted for
-                # other purposes). ``connector_accounts`` is a {account_id:
-                # ConnectorAccount} mapping; missing IDs synthesize a
-                # default ConnectorAccount so the caller's existing tests
+                # other purposes). ``connectors`` is a {account_id:
+                # Connector} mapping; missing IDs synthesize a
+                # default Connector so the caller's existing tests
                 # stay green without rework.
-                accounts_map = dict(connector_accounts or {})
+                accounts_map = dict(connectors or {})
                 mock_acc_repo = AsyncMock()
 
-                async def _acc_get(aid: str) -> ConnectorAccount:
+                async def _acc_get(aid: str) -> Connector:
                     if aid in accounts_map:
                         return accounts_map[aid]
-                    return ConnectorAccount(id=aid, name=aid, type="stub")
+                    return Connector(id=aid, name=aid, type="stub")
 
                 mock_acc_repo.get = AsyncMock(side_effect=_acc_get)
 
@@ -475,7 +475,7 @@ def factory_with_builtin_tool_configs(store: InMemoryStore):
                         return_value=mock_tool_repo,
                     ),
                     patch(
-                        "the_one.db.repositories.ConnectorAccountRepository",
+                        "the_one.db.repositories.ConnectorRepository",
                         return_value=mock_acc_repo,
                     ),
                 ]
@@ -516,7 +516,7 @@ class TestConnectorBaselineCarveOut:
             name="connector-agent",
             provider_config_id="test-provider",
             llm_model="stub-model",
-            connector_account_ids=["acc-1"],
+            connector_ids=["acc-1"],
         )
         await store.save(cfg)
         # No ToolConfig row for send_to_platform_channel → not in
@@ -527,7 +527,7 @@ class TestConnectorBaselineCarveOut:
         schema_names = [s["name"] for s in agent._loaded_schemas]
         assert schema_names == ["send_to_platform_channel"]
 
-    async def test_no_carveout_when_no_connector_accounts(
+    async def test_no_carveout_when_no_connectors(
         self,
         factory_with_builtin_tool_configs,
         store: InMemoryStore,
@@ -536,7 +536,7 @@ class TestConnectorBaselineCarveOut:
             name="non-connector-agent",
             provider_config_id="test-provider",
             llm_model="stub-model",
-            connector_account_ids=[],
+            connector_ids=[],
         )
         await store.save(cfg)
         with factory_with_builtin_tool_configs(tool_configs=[]) as factory:
@@ -553,7 +553,7 @@ class TestConnectorBaselineCarveOut:
             name="connector-agent",
             provider_config_id="test-provider",
             llm_model="stub-model",
-            connector_account_ids=["acc-1"],
+            connector_ids=["acc-1"],
         )
         await store.save(cfg)
         tool_configs = [
@@ -573,7 +573,7 @@ class TestConnectorBaselineCarveOut:
             name="connector-agent",
             provider_config_id="test-provider",
             llm_model="stub-model",
-            connector_account_ids=["acc-1"],
+            connector_ids=["acc-1"],
             disabled_tools=["send_to_platform_channel"],
         )
         await store.save(cfg)
@@ -597,7 +597,7 @@ class TestConnectorSystemPrompt:
             name="non-connector-agent",
             provider_config_id="test-provider",
             llm_model="stub-model",
-            connector_account_ids=[],
+            connector_ids=[],
         )
         await store.save(cfg)
         with factory_with_builtin_tool_configs(tool_configs=[]) as factory:
@@ -618,7 +618,7 @@ class TestConnectorSystemPrompt:
             name="connector-agent",
             provider_config_id="test-provider",
             llm_model="stub-model",
-            connector_account_ids=["acc-1"],
+            connector_ids=["acc-1"],
         )
         await store.save(cfg)
         with factory_with_builtin_tool_configs(tool_configs=[]) as factory:
@@ -640,7 +640,7 @@ class TestConnectorSystemPrompt:
             name="connector-agent",
             provider_config_id="test-provider",
             llm_model="stub-model",
-            connector_account_ids=["acc-1"],
+            connector_ids=["acc-1"],
         )
         await store.save(cfg)
         tool_configs = [
@@ -659,11 +659,11 @@ class TestConnectorSystemPrompt:
 
 
 class TestFactoryToolProviderWiring:
-    """The factory passes connector_account_ids to BuiltinToolProvider only;
+    """The factory passes connector_ids to BuiltinToolProvider only;
     other providers in the list (test stubs, future provider types) get the
     unwidened 3-arg call."""
 
-    async def test_builtin_provider_receives_connector_account_ids(
+    async def test_builtin_provider_receives_connector_ids(
         self,
         factory_with_builtin_tool_configs,
         store: InMemoryStore,
@@ -701,7 +701,7 @@ class TestFactoryToolProviderWiring:
             name="connector-agent",
             provider_config_id="test-provider",
             llm_model="stub-model",
-            connector_account_ids=["acc-1"],
+            connector_ids=["acc-1"],
         )
         await store.save(cfg)
 
@@ -715,8 +715,8 @@ class TestFactoryToolProviderWiring:
             with ctx as factory:
                 await factory.create("connector-agent")
 
-        # BuiltinToolProvider receives connector_account_ids kwarg.
-        assert captured_builtin["kwargs"].get("connector_account_ids") == ["acc-1"]
+        # BuiltinToolProvider receives connector_ids kwarg.
+        assert captured_builtin["kwargs"].get("connector_ids") == ["acc-1"]
         # Stub provider does NOT receive the kwarg (no isinstance branch hit).
         assert captured_stub["agent_name"] == "connector-agent"
 

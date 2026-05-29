@@ -57,7 +57,7 @@ short operator-readable string suitable for embedding into the
 from __future__ import annotations
 
 from the_one.connectors.base import InboundEnvelope
-from the_one.db.models import ConnectorAccount
+from the_one.db.models import Connector
 
 __all__ = [
     "admits_outbound",
@@ -104,7 +104,7 @@ def _default_no_mention(envelope: InboundEnvelope) -> bool:
 
 
 def admits_outbound(
-    account: ConnectorAccount,
+    account: Connector,
     agent_acl: dict[str, list[str] | None] | None,
     channel_id: str,
     *,
@@ -165,17 +165,14 @@ def admits_outbound(
         if agent_channels is None:
             pass  # inherit account-scope
         elif agent_channels == []:
-            # Per-agent DMs-only sentinel: ``[]`` means "no non-DM
-            # channels admitted; DMs only." The plugin-resolved
-            # ``is_dm`` bool decides the branch — permit if the target
-            # is a DM, else deny.
+            # Per-agent channels axis is explicitly empty: permit DMs, deny everything else.
             if is_dm:
                 return True, ""
             return (
                 False,
                 f"channel_id {channel_id!r} is not reachable "
-                f"for this agent on account {account_id!r} (DMs-only override; "
-                f"target is not a DM)",
+                f"for this agent on account {account_id!r} (per-agent "
+                f"channels axis is explicitly empty)",
             )
         elif channel_id not in agent_channels:
             return (
@@ -187,7 +184,7 @@ def admits_outbound(
 
 
 def admits_dm_peer(
-    account: ConnectorAccount,
+    account: Connector,
     agent_acl: dict[str, list[str] | None] | None,
     peer_id: str,
 ) -> tuple[bool, str]:
@@ -249,7 +246,7 @@ def admits_dm_peer(
 
 
 def admits_inbound(
-    account: ConnectorAccount,
+    account: Connector,
     agent_acl: dict[str, list[str] | bool | None] | None,
     peer_id: str,
     channel_id: str,
@@ -435,22 +432,12 @@ def admits_inbound(
             if agent_channels is None:
                 pass  # inherit account-scope
             elif agent_channels == []:
-                # Pre-L1 this branch was the "DMs-only override"; DMs
-                # now take the ``if is_dm:`` branch above, so this
-                # branch only fires for guild-context messages. The
-                # message text is preserved verbatim for back-compat
-                # with the existing test pins (test_connectors_acl.py
-                # ``test_per_agent_channels_empty_is_dms_only_sentinel``
-                # and ``test_per_agent_channels_empty_with_is_dm_false_denies``)
-                # which assert this exact byte-string. Operators who
-                # want DMs-only-on-this-agent now express it via the
-                # orthogonal account-scope ``dm_admission`` + per-agent
-                # ``admit_dms`` mechanism.
+                # Per-agent channels axis is explicitly empty: deny all guild-context messages on this account for this agent.
                 return (
                     False,
                     f"channel_id {channel_id!r} is not admitted for this "
-                    f"agent on account {account_id!r} (DMs-only override; "
-                    f"envelope is not a DM)",
+                    f"agent on account {account_id!r} (per-agent channels "
+                    f"axis is explicitly empty)",
                 )
             elif channel_id not in agent_channels:
                 return (

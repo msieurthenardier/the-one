@@ -25,7 +25,7 @@ from the_one.connectors._session import (
 )
 from the_one.connectors._stub import StubPlugin
 from the_one.connectors.base import InboundEnvelope, SessionKey
-from the_one.db.models import ChatSession, ConnectorAccount
+from the_one.db.models import ChatSession, Connector
 from the_one.db.repositories import (
     ChatSessionRepository,
     SQLiteAgentStore,
@@ -99,8 +99,8 @@ def _account(
     *,
     session_continuation_seconds: int | None = None,
     account_id: str = "acc-1",
-) -> ConnectorAccount:
-    return ConnectorAccount(
+) -> Connector:
+    return Connector(
         id=account_id,
         name="Test Account",
         type="stub",
@@ -170,7 +170,7 @@ async def test_resolve_session_creates_new_row_on_first_contact(
 
     assert session.agent_name == "agent1"
     assert session.platform == "stub"
-    assert session.connector_account_id == "acc-1"
+    assert session.connector_id == "acc-1"
     assert session.channel_id == "ch-1"
     assert session.thread_id is None
     assert session.peer_id == "peer-1"
@@ -226,7 +226,7 @@ async def test_resolve_session_creates_new_row_outside_window(
         agent_name=seeded_agent,
         title="stale-title",
         platform="stub",
-        connector_account_id="acc-1",
+        connector_id="acc-1",
         channel_id="ch-1",
         thread_id=None,
         peer_id="peer-1",
@@ -454,7 +454,7 @@ async def test_resolve_session_skips_reuse_when_ended_at_is_set(
         agent_name=seeded_agent,
         title="prior",
         platform="stub",
-        connector_account_id="acc-1",
+        connector_id="acc-1",
         channel_id="ch-1",
         thread_id=None,
         peer_id="peer-1",

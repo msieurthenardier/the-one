@@ -102,7 +102,7 @@ async def test_e2e_ws_typed_message_into_connector_session_tags_visibility(
     Also stubs the broadcast sink + Ollama auto-load so the test does
     not require a live WS subscriber.
     """
-    await _seed_provider_and_agent(connector_account_ids=["acct-test"])
+    await _seed_provider_and_agent(connector_ids=["acct-test"])
     await _seed_stub_account()
     register_for_test("stub", StubPlugin)
 
@@ -124,7 +124,7 @@ async def test_e2e_ws_typed_message_into_connector_session_tags_visibility(
         agent_name="agent-inbound",
         title="connector session",
         platform="stub",
-        connector_account_id="acct-test",
+        connector_id="acct-test",
         channel_id="ch-1",
         thread_id=None,
         peer_id="peer-1",

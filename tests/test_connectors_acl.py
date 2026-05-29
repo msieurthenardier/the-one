@@ -24,11 +24,11 @@ from the_one.connectors._acl import (
     admits_outbound,
 )
 from the_one.connectors.base import InboundEnvelope
-from the_one.db.models import ConnectorAccount
+from the_one.db.models import Connector
 
 
-def _account(allowlist: dict | None = None) -> ConnectorAccount:
-    """Minimal ``ConnectorAccount`` fixture builder.
+def _account(allowlist: dict | None = None) -> Connector:
+    """Minimal ``Connector`` fixture builder.
 
     Builds a stub-shaped account with an optional ``allowlist`` under
     ``config``. ``allowlist=None`` produces ``config = {}`` (the
@@ -37,7 +37,7 @@ def _account(allowlist: dict | None = None) -> ConnectorAccount:
     config: dict = {}
     if allowlist is not None:
         config["allowlist"] = allowlist
-    return ConnectorAccount(
+    return Connector(
         id="acc-1",
         name="test",
         type="stub",
@@ -104,7 +104,7 @@ class TestAdmitsOutbound:
         assert admits is False
         assert reason == (
             "channel_id 'C1' is not reachable for this agent on account "
-            "'acc-1' (DMs-only override; target is not a DM)"
+            "'acc-1' (per-agent channels axis is explicitly empty)"
         )
 
     def test_per_agent_channels_empty_with_is_dm_true_permits(self) -> None:
@@ -134,7 +134,7 @@ class TestAdmitsOutbound:
         assert admits is False
         assert reason == (
             "channel_id 'C1' is not reachable for this agent on account "
-            "'acc-1' (DMs-only override; target is not a DM)"
+            "'acc-1' (per-agent channels axis is explicitly empty)"
         )
 
     def test_per_agent_channels_subset_admits_member(self) -> None:
@@ -319,7 +319,7 @@ class TestAdmitsInbound:
         assert admits is False
         assert reason == (
             "channel_id 'C1' is not admitted for this agent on account "
-            "'acc-1' (DMs-only override; envelope is not a DM)"
+            "'acc-1' (per-agent channels axis is explicitly empty)"
         )
 
     def test_per_agent_channels_empty_with_is_dm_true_permits(self) -> None:
@@ -351,7 +351,7 @@ class TestAdmitsInbound:
         assert admits is False
         assert reason == (
             "channel_id 'C1' is not admitted for this agent on account "
-            "'acc-1' (DMs-only override; envelope is not a DM)"
+            "'acc-1' (per-agent channels axis is explicitly empty)"
         )
 
     def test_per_agent_channels_subset_admits_member(self) -> None:

@@ -24,7 +24,7 @@
 //   }
 //
 // Lower-case strings — call sites do their own capitalization via a
-// local helper (``_capitalize`` in connector-account-editor.js). The
+// local helper (``_capitalize`` in connector-editor.js). The
 // ``hintTone`` flag controls whether the Allowlist hints emit the
 // "Discord-flavored; ignored by other platforms" qualifier on the
 // Guilds / Roles rows: drop it on a native-tone connector where the
@@ -34,7 +34,7 @@
 //
 // Load order: this module attaches to ``window.App.studio`` and has no
 // dependencies. ``index.html`` loads it BEFORE
-// ``connector-account-editor.js``; ordering relative to the editor is
+// ``connector-editor.js``; ordering relative to the editor is
 // the contract.
 
 (function () {

@@ -25,7 +25,7 @@ from the_one.config import settings
 from the_one.db.connection import get_connection
 from the_one.db.models import (
     ChatSession,
-    ConnectorAccount,
+    Connector,
     KBItem,
     KnowledgeBase,
     LLMProviderConfig,
@@ -34,7 +34,7 @@ from the_one.db.models import (
 )
 from the_one.db.repositories import (
     ChatSessionRepository,
-    ConnectorAccountRepository,
+    ConnectorRepository,
     KBItemRepository,
     KnowledgeBaseRepository,
     LLMProviderRepository,
@@ -84,10 +84,10 @@ async def _mcp_repo() -> MCPSourceRepository:
     return MCPSourceRepository(conn, encryptor)
 
 
-async def _connector_repo() -> ConnectorAccountRepository:
+async def _connector_repo() -> ConnectorRepository:
     conn = await get_connection()
     encryptor = get_encryptor(settings.data_dir)
-    return ConnectorAccountRepository(conn, encryptor)
+    return ConnectorRepository(conn, encryptor)
 
 
 async def _chat_repo() -> ChatSessionRepository:
@@ -516,7 +516,7 @@ async def delete_agent(name: str) -> dict[str, str]:
     return {"status": "ok"}
 
 
-@router.delete("/agents/{agent_name}/connector-accounts/{account_id}")
+@router.delete("/agents/{agent_name}/connectors/{account_id}")
 async def detach_agent_from_connector_account(
     agent_name: str,
     account_id: str,
@@ -524,7 +524,7 @@ async def detach_agent_from_connector_account(
     """Detach a connector account from an agent.
 
     M11 F9 L5 — operator-driven detach. Removes ``account_id`` from
-    ``agents.connector_account_ids`` (idempotent — missing entry is a
+    ``agents.connector_ids`` (idempotent — missing entry is a
     no-op), then releases the per-(agent, account) pool slot.
 
     Returns the agent's updated config JSON (same shape as PUT). 404
@@ -533,7 +533,7 @@ async def detach_agent_from_connector_account(
 
     URL lives on the agent resource path even though the UI for triggering
     the detach lives on the connector account detail page — the
-    source-of-truth is the agent-side ``connector_account_ids`` field per
+    source-of-truth is the agent-side ``connector_ids`` field per
     Design Decision §3 of M11 F9.
     """
     # Function-local import — :func:`release_agent_on_account` lives in
@@ -550,20 +550,20 @@ async def detach_agent_from_connector_account(
             status_code=404, detail=f"Agent not found: {agent_name}"
         )
 
-    if account_id in cfg.connector_account_ids:
-        new_ids = [a for a in cfg.connector_account_ids if a != account_id]
+    if account_id in cfg.connector_ids:
+        new_ids = [a for a in cfg.connector_ids if a != account_id]
         # ``model_copy(update=...)`` returns a validated ``AgentConfig`` —
         # no ``model_validate(model_dump())`` round-trip needed. The PUT
         # endpoint's ``model_validate`` is for untrusted client JSON;
         # here the input is already a model.
-        cfg = cfg.model_copy(update={"connector_account_ids": new_ids})
+        cfg = cfg.model_copy(update={"connector_ids": new_ids})
         await store.save(cfg)
         # WARNING (not INFO) so the audit-log line surfaces under
         # uvicorn's default root-logger threshold — mirrors the precedent
         # block above :func:`delete_mcp_source` (and the F9 L3
         # peer-approval endpoints).
         logger.warning(
-            "detach_agent_from_connector_account: removed %s from %s.connector_account_ids",
+            "detach_agent_from_connector_account: removed %s from %s.connector_ids",
             account_id,
             agent_name,
         )
@@ -1031,8 +1031,8 @@ _DISCORD_PRESENCE_TYPES = frozenset(
 )
 
 
-def _validate_connector_account_config(account: ConnectorAccount) -> None:
-    """Per-type shape validation for ConnectorAccount.config.
+def _validate_connector_account_config(account: Connector) -> None:
+    """Per-type shape validation for Connector.config.
 
     Raises HTTPException(422, detail=...) on shape mismatch. Mirrors
     the :func:`_validate_mcp_source_config` precedent — validator
@@ -1165,7 +1165,7 @@ def _validate_connector_account_config(account: ConnectorAccount) -> None:
     else:
         # Defensive exhaustiveness — Pydantic's Literal validator
         # already rejects unknown ``type`` values at
-        # ConnectorAccount.model_validate time, so this branch is
+        # Connector.model_validate time, so this branch is
         # unreachable for properly-validated input. A future
         # contributor who adds a new connector type literal to the
         # model and forgets to extend this helper trips the raise.
@@ -2409,8 +2409,8 @@ async def oauth_start(request: Request) -> dict[str, Any]:
 # ── Connector Accounts ────────────────────────────────────────────────────
 
 
-def _connector_account_response(account: ConnectorAccount) -> dict[str, Any]:
-    """Render a ConnectorAccount into the masked HTTP response shape.
+def _connector_account_response(account: Connector) -> dict[str, Any]:
+    """Render a Connector into the masked HTTP response shape.
 
     Mirrors ``_mcp_source_response`` minus the OAuth-managed-keys strip
     (connectors have no OAuth-managed keys this flight) and minus the
@@ -2429,12 +2429,12 @@ def _connector_account_response(account: ConnectorAccount) -> dict[str, Any]:
     return data
 
 
-@router.get("/connector-accounts")
+@router.get("/connectors")
 async def list_connector_accounts() -> list[dict[str, Any]]:
     """List all connector accounts (masked) with an ``attached_agents_count``.
 
     M11 F9 L5 — each row carries ``attached_agents_count: int`` reflecting
-    the count of agents whose ``connector_account_ids`` includes the
+    the count of agents whose ``connector_ids`` includes the
     account. Computed per row via
     :meth:`SQLiteAgentStore.list_by_connector_account` —
     O(N accounts × M agents); acceptable for the operator's small
@@ -2456,14 +2456,14 @@ async def list_connector_accounts() -> list[dict[str, Any]]:
     return results
 
 
-@router.get("/connector-accounts/types")
+@router.get("/connectors/types")
 async def list_connector_account_types() -> list[dict[str, str]]:
     """Return the list of connector account types selectable in the UI.
 
     NOTE: This route MUST be registered BEFORE
-    ``/connector-accounts/{account_id}`` because FastAPI matches routes
+    ``/connectors/{account_id}`` because FastAPI matches routes
     in registration order. If reordered, a GET to
-    ``/connector-accounts/types`` would resolve to
+    ``/connectors/types`` would resolve to
     ``get_connector_account`` with ``account_id="types"`` and 404.
     Mirrors the MCP precedent at ``list_mcp_source_types``.
 
@@ -2477,25 +2477,25 @@ async def list_connector_account_types() -> list[dict[str, str]]:
     return [{"value": t, "label": t.capitalize()} for t in _connector_types()]
 
 
-@router.get("/connector-accounts/{account_id}")
+@router.get("/connectors/{account_id}")
 async def get_connector_account(account_id: str) -> dict[str, Any]:
     repo = await _connector_repo()
     try:
         account = await repo.get(account_id)
     except KeyError:
         raise HTTPException(
-            status_code=404, detail=f"Connector account not found: {account_id}"
+            status_code=404, detail=f"Connector not found: {account_id}"
         )
     return _connector_account_response(account)
 
 
-@router.post("/connector-accounts", status_code=201)
+@router.post("/connectors", status_code=201)
 async def create_connector_account(request: Request) -> dict[str, Any]:
     data = await request.json()
     if "id" not in data:
         data["id"] = uuid.uuid4().hex[:12]
     try:
-        account = ConnectorAccount.model_validate(data)
+        account = Connector.model_validate(data)
     except ValidationError as e:
         # ``include_context=False`` so the response stays JSON-encodable
         # — ``model_validator`` paths populate ``ctx['error']`` with raw
@@ -2507,7 +2507,7 @@ async def create_connector_account(request: Request) -> dict[str, Any]:
     return _connector_account_response(account)
 
 
-@router.put("/connector-accounts/{account_id}")
+@router.put("/connectors/{account_id}")
 async def update_connector_account(account_id: str, request: Request) -> dict[str, Any]:
     data = await request.json()
     data["id"] = account_id
@@ -2516,7 +2516,7 @@ async def update_connector_account(account_id: str, request: Request) -> dict[st
         existing = await repo.get(account_id)
     except KeyError:
         raise HTTPException(
-            status_code=404, detail=f"Connector account not found: {account_id}"
+            status_code=404, detail=f"Connector not found: {account_id}"
         )
 
     # Per-key __MASKED__ resolution: verbatim mirror of the MCP block
@@ -2556,7 +2556,7 @@ async def update_connector_account(account_id: str, request: Request) -> dict[st
     try:
         merged = existing.model_dump()
         merged.update(data)
-        updated = ConnectorAccount.model_validate(merged)
+        updated = Connector.model_validate(merged)
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=e.errors(include_context=False))
     _validate_connector_account_config(updated)
@@ -2582,7 +2582,7 @@ async def update_connector_account(account_id: str, request: Request) -> dict[st
     return _connector_account_response(updated)
 
 
-@router.delete("/connector-accounts/{account_id}")
+@router.delete("/connectors/{account_id}")
 async def delete_connector_account(account_id: str) -> dict[str, str]:
     """Delete a connector account and evict warm pool entries.
 
@@ -2590,7 +2590,7 @@ async def delete_connector_account(account_id: str) -> dict[str, str]:
     baseline. Mirror of MCP delete shape minus the runtime-cache cleanup
     (connectors don't have a lazy-install cache to refcount).
 
-    Future Flight 4 (mission 10) adds ``connector_account_ids`` to
+    Future Flight 4 (mission 10) adds ``connector_ids`` to
     ``AgentConfig``; at that point this handler will gain a "no agent
     references this account" guard before the eviction step. Until then,
     delete is unconditional.
@@ -2604,7 +2604,7 @@ async def delete_connector_account(account_id: str) -> dict[str, str]:
         await repo.get(account_id)
     except KeyError:
         raise HTTPException(
-            status_code=404, detail=f"Connector account not found: {account_id}"
+            status_code=404, detail=f"Connector not found: {account_id}"
         )
 
     # Evict warm pool entries BEFORE the row delete so any concurrent
@@ -2617,17 +2617,17 @@ async def delete_connector_account(account_id: str) -> dict[str, str]:
     except KeyError:
         # Race: another caller deleted between our get and delete.
         raise HTTPException(
-            status_code=404, detail=f"Connector account not found: {account_id}"
+            status_code=404, detail=f"Connector not found: {account_id}"
         )
 
     return {"status": "ok"}
 
 
-@router.post("/connector-accounts/{account_id}/pairing-code")
+@router.post("/connectors/{account_id}/pairing-code")
 async def generate_connector_account_pairing_code(
     account_id: str,
 ) -> dict[str, str]:
-    """Generate (or regenerate) the pairing code for a connector account.
+    """Generate (or regenerate) the pairing code for a connector.
 
     M10 F6 L4: writes ``account.config["pairing"] = {"code": <8-hex>,
     "issued_at": <iso>}`` and returns the new code + timestamp. The
@@ -2638,7 +2638,7 @@ async def generate_connector_account_pairing_code(
     Pre-existing reserved + non-reserved ``config`` keys (e.g.
     ``allowlist``, ``intent``) are preserved — we mutate ONLY the
     ``pairing`` sub-key and round-trip the rest of ``config`` verbatim
-    through ``ConnectorAccountRepository.update``.
+    through ``ConnectorRepository.update``.
 
     Does NOT trigger warm-pool eviction. Eviction at PUT-time fires only
     on a ``secrets`` change (see ``update_connector_account`` above);
@@ -2650,7 +2650,7 @@ async def generate_connector_account_pairing_code(
         account = await repo.get(account_id)
     except KeyError:
         raise HTTPException(
-            status_code=404, detail=f"Connector account not found: {account_id}"
+            status_code=404, detail=f"Connector not found: {account_id}"
         )
     code = secrets.token_hex(4)  # 8 hex chars
     issued_at = now_iso()
@@ -2664,13 +2664,13 @@ async def generate_connector_account_pairing_code(
     updated = account.model_copy(update={"config": new_config})
     # Round-trip through model_validate so leg-1b's @field_validator
     # runs on the merged config (mirror of the PUT handler's pattern).
-    updated = ConnectorAccount.model_validate(updated.model_dump())
+    updated = Connector.model_validate(updated.model_dump())
     await repo.update(updated)
     return {"code": code, "issued_at": issued_at}
 
 
 @router.post(
-    "/connector-accounts/{account_id}/peer-approvals/{approval_id}/approve"
+    "/connectors/{account_id}/peer-approvals/{approval_id}/approve"
 )
 async def approve_peer_approval(
     account_id: str,
@@ -2689,7 +2689,7 @@ async def approve_peer_approval(
     404 semantics:
       * Unknown ``account_id`` → 404.
       * Unknown ``approval_id`` → 404.
-      * ``approval_id`` exists but its ``connector_account_id`` does not
+      * ``approval_id`` exists but its ``connector_id`` does not
         match the URL's ``account_id`` → 404 (defense-in-depth against
         cross-account ID smuggling).
 
@@ -2704,7 +2704,7 @@ async def approve_peer_approval(
         account = await conn_repo.get(account_id)
     except KeyError:
         raise HTTPException(
-            status_code=404, detail=f"Connector account not found: {account_id}"
+            status_code=404, detail=f"Connector not found: {account_id}"
         )
 
     approval_repo = await _pending_approval_repo()
@@ -2714,7 +2714,7 @@ async def approve_peer_approval(
         raise HTTPException(
             status_code=404, detail=f"Pending approval not found: {approval_id}"
         )
-    if approval.connector_account_id != account_id:
+    if approval.connector_id != account_id:
         raise HTTPException(
             status_code=404, detail=f"Pending approval not found: {approval_id}"
         )
@@ -2735,14 +2735,14 @@ async def approve_peer_approval(
     allowlist.setdefault("channels", [])
     new_config["allowlist"] = allowlist
     updated_account = account.model_copy(update={"config": new_config})
-    updated_account = ConnectorAccount.model_validate(updated_account.model_dump())
+    updated_account = Connector.model_validate(updated_account.model_dump())
     await conn_repo.update(updated_account)
 
     return updated_approval.model_dump()
 
 
 @router.post(
-    "/connector-accounts/{account_id}/peer-approvals/{approval_id}/dismiss"
+    "/connectors/{account_id}/peer-approvals/{approval_id}/dismiss"
 )
 async def dismiss_peer_approval(
     account_id: str,
@@ -2759,7 +2759,7 @@ async def dismiss_peer_approval(
         await conn_repo.get(account_id)
     except KeyError:
         raise HTTPException(
-            status_code=404, detail=f"Connector account not found: {account_id}"
+            status_code=404, detail=f"Connector not found: {account_id}"
         )
 
     approval_repo = await _pending_approval_repo()
@@ -2769,7 +2769,7 @@ async def dismiss_peer_approval(
         raise HTTPException(
             status_code=404, detail=f"Pending approval not found: {approval_id}"
         )
-    if approval.connector_account_id != account_id:
+    if approval.connector_id != account_id:
         raise HTTPException(
             status_code=404, detail=f"Pending approval not found: {approval_id}"
         )
@@ -2782,14 +2782,14 @@ async def dismiss_peer_approval(
     return updated_approval.model_dump()
 
 
-@router.get("/connector-accounts/{account_id}/attached-agents")
+@router.get("/connectors/{account_id}/attached-agents")
 async def list_attached_agents_for_connector_account(
     account_id: str,
 ) -> list[dict[str, Any]]:
-    """Return agents whose ``connector_account_ids`` includes this account.
+    """Return agents whose ``connector_ids`` includes this account.
 
     M10 F6 L4 (extended at L7 HAT): powers the read-only "Attached
-    agents" section of the Studio Connector account editor.
+    agents" section of the Studio Connector editor.
 
     Response shape per agent — M10 F6 L7 HAT semantic redesign:
       * ``name``: agent slug.
@@ -2805,7 +2805,7 @@ async def list_attached_agents_for_connector_account(
 
     Performance: O(N agents). Acceptable for the operator's small agent
     count (typically <50). If the count climbs, a JSON-extract query
-    against the ``connector_account_ids`` column would scale better
+    against the ``connector_ids`` column would scale better
     (F10 territory).
 
     M10 F7 L3: the inline ``list_agents() → load each → filter`` pattern
@@ -2819,7 +2819,7 @@ async def list_attached_agents_for_connector_account(
         await repo.get(account_id)
     except KeyError:
         raise HTTPException(
-            status_code=404, detail=f"Connector account not found: {account_id}"
+            status_code=404, detail=f"Connector not found: {account_id}"
         )
 
     store = await _agent_store()
@@ -2846,7 +2846,7 @@ async def list_attached_agents_for_connector_account(
     return result
 
 
-@router.post("/connector-accounts/{account_id}/test/connect")
+@router.post("/connectors/{account_id}/test/connect")
 async def test_connector_connection(account_id: str) -> dict[str, Any]:
     """Run the connector plugin's doctor probe against the account.
 
@@ -2879,7 +2879,7 @@ async def test_connector_connection(account_id: str) -> dict[str, Any]:
     except KeyError:
         raise HTTPException(
             status_code=404,
-            detail=f"Connector account not found: {account_id}",
+            detail=f"Connector not found: {account_id}",
         )
 
     try:
@@ -3036,14 +3036,14 @@ def _build_discoverable_response(snapshot: Any) -> _DiscoverableEntitiesResponse
 
 
 @router.get(
-    "/connector-accounts/{account_id}/discoverable-entities",
+    "/connectors/{account_id}/discoverable-entities",
     response_model=_DiscoverableEntitiesResponse,
 )
 async def get_discoverable_entities(account_id: str) -> _DiscoverableEntitiesResponse:
-    """Return the cached discoverable-entities view for a connector account.
+    """Return the cached discoverable-entities view for a connector.
 
     Contracts:
-      - 404 (Connector account not found): the repo lookup raises
+      - 404 (Connector not found): the repo lookup raises
         ``KeyError`` (no such account in the DB).
       - 404 (Run Test Connection first): the account exists but the
         pool has no warm entry — operator must populate the pool first
@@ -3077,7 +3077,7 @@ async def get_discoverable_entities(account_id: str) -> _DiscoverableEntitiesRes
     except KeyError:
         raise HTTPException(
             status_code=404,
-            detail=f"Connector account not found: {account_id}",
+            detail=f"Connector not found: {account_id}",
         )
 
     snapshot = await _get_account_cache_snapshot(account_id)
@@ -3112,7 +3112,7 @@ async def get_discoverable_entities(account_id: str) -> _DiscoverableEntitiesRes
 
 
 @router.post(
-    "/connector-accounts/{account_id}/discoverable-entities/refresh",
+    "/connectors/{account_id}/discoverable-entities/refresh",
     response_model=_DiscoverableEntitiesResponse,
 )
 async def refresh_discoverable_entities(
@@ -3139,7 +3139,7 @@ async def refresh_discoverable_entities(
     except KeyError:
         raise HTTPException(
             status_code=404,
-            detail=f"Connector account not found: {account_id}",
+            detail=f"Connector not found: {account_id}",
         )
 
     snapshot = await _get_account_cache_snapshot(account_id)
@@ -3905,11 +3905,11 @@ async def rotate_encryption_key() -> dict[str, str]:
                 secrets_dict = {}
         decrypted_mcps.append((row["id"], secrets_dict))
 
-    async with conn.execute("SELECT id, secrets FROM connector_accounts") as cur:
+    async with conn.execute("SELECT id, secrets FROM connectors") as cur:
         connector_rows = await cur.fetchall()
 
     # Tolerant decrypt mirrors the MCP path above. Pre-rotation connector
-    # rows created through ConnectorAccountRepository will already be
+    # rows created through ConnectorRepository will already be
     # encrypted; tolerant decrypt only matters if a future migration adds
     # the column to pre-existing rows with the plaintext '{}' default.
     # JSON decode errors are NOT swallowed — they indicate real corruption.
@@ -3961,7 +3961,7 @@ async def rotate_encryption_key() -> dict[str, str]:
             )
         for aid, ct in reencrypted_connectors:
             await conn.execute(
-                "UPDATE connector_accounts SET secrets = ? WHERE id = ?",
+                "UPDATE connectors SET secrets = ? WHERE id = ?",
                 (ct, aid),
             )
         await conn.commit()

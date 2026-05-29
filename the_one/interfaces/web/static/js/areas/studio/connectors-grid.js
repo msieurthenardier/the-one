@@ -11,8 +11,8 @@
   // flight's "Studio placement, not Admin" design decision.
   //
   // Tile DOM:
-  //   <button class="entity-tile connector-account-tile"
-  //           data-testid="connector-account-card"
+  //   <button class="entity-tile connector-tile"
+  //           data-testid="connector-card"
   //           data-id="{account.id}"
   //           aria-selected="{true|false}">
   //     <span class="entity-tile-badge admin-connector-badge admin-connector-badge--{type}">{type}</span>
@@ -27,15 +27,15 @@
   // type wants a distinct color.
 
   // KEEP IN SYNC with the type literals exposed by
-  // `/api/connector-accounts/types`. The list starts empty in production
+  // `/api/connectors/types`. The list starts empty in production
   // (no plugins register a real type yet — Flight 8 will add Discord).
   // Mirrors KNOWN_TRANSPORT_BADGES in mcp-servers-grid.js.
   var KNOWN_CONNECTOR_BADGES = [];
 
-  function renderConnectorAccountsGrid(container, accounts, callbacks) {
+  function renderConnectorsGrid(container, accounts, callbacks) {
     callbacks = callbacks || {};
-    var onSelectConnectorAccount = callbacks.onSelectConnectorAccount || function () {};
-    var onCreateConnectorAccount = callbacks.onCreateConnectorAccount || function () {};
+    var onSelectConnector = callbacks.onSelectConnector || function () {};
+    var onCreateConnector = callbacks.onCreateConnector || function () {};
     var selectedId = callbacks.selectedId || null;
 
     var escapeHtml = window.App.escapeHtml;
@@ -47,7 +47,7 @@
         // Header CTA renders icon-only at rest; expands on hover. CSS hides
         // it entirely when the grid below is empty, deferring the affordance
         // to the empty-canvas's centered CTA.
-        '<button class="new-entity-btn" type="button" data-testid="new-connector-account-btn" aria-label="New connector">' +
+        '<button class="new-entity-btn" type="button" data-testid="new-connector-btn" aria-label="New connector">' +
           window.App.icon('square-pen') + '<span>New Connector</span>' +
         '</button>' +
       '</div>' +
@@ -56,7 +56,7 @@
       '</div>';
 
     var newBtn = container.querySelector('.new-entity-btn');
-    newBtn.addEventListener('click', function () { onCreateConnectorAccount(); });
+    newBtn.addEventListener('click', function () { onCreateConnector(); });
 
     var gridEl = container.querySelector('.entity-tile-grid');
     if (accounts === null || accounts === undefined) {
@@ -70,13 +70,13 @@
           '<div class="empty-canvas-inner admin-provider-empty">' +
             '<div>No connectors configured.</div>' +
             '<div class="empty-canvas-secondary">No connector types registered yet — Flight 8 will add Discord.</div>' +
-            '<button class="new-entity-btn is-expanded" type="button" data-testid="new-connector-account-btn-empty">' +
+            '<button class="new-entity-btn is-expanded" type="button" data-testid="new-connector-btn-empty">' +
               window.App.icon('square-pen') + '<span>New Connector</span>' +
             '</button>' +
           '</div>' +
         '</div>';
-      var emptyBtn = gridEl.querySelector('[data-testid="new-connector-account-btn-empty"]');
-      emptyBtn.addEventListener('click', function () { onCreateConnectorAccount(); });
+      var emptyBtn = gridEl.querySelector('[data-testid="new-connector-btn-empty"]');
+      emptyBtn.addEventListener('click', function () { onCreateConnector(); });
       return;
     }
 
@@ -86,7 +86,7 @@
       var typeSuffix = KNOWN_CONNECTOR_BADGES.indexOf(a.type) >= 0 ? a.type : 'unknown';
       var isActive = selectedId === a.id;
       // M11 F9 L5 — agent-count badge replaces the `—` placeholder.
-      // Field comes from the GET /api/connector-accounts response
+      // Field comes from the GET /api/connectors response
       // (server-side computed). Defaults to 0 when absent so older
       // bundled servers continue to render cleanly.
       var attachedCount = (typeof a.attached_agents_count === 'number')
@@ -95,8 +95,8 @@
         ? 'No agents'
         : (attachedCount + ' agent' + (attachedCount === 1 ? '' : 's'));
       html +=
-        '<button class="entity-tile connector-account-tile" type="button" role="option" ' +
-            'data-testid="connector-account-card" data-id="' + escapeAttr(a.id) + '" ' +
+        '<button class="entity-tile connector-tile" type="button" role="option" ' +
+            'data-testid="connector-card" data-id="' + escapeAttr(a.id) + '" ' +
             'aria-selected="' + (isActive ? 'true' : 'false') + '">' +
           '<span class="entity-tile-badge admin-connector-badge admin-connector-badge--' +
             escapeAttr(typeSuffix) + '">' + escapeHtml(a.type) + '</span>' +
@@ -106,16 +106,16 @@
     }
     gridEl.innerHTML = html;
 
-    var tiles = gridEl.querySelectorAll('.connector-account-tile');
+    var tiles = gridEl.querySelectorAll('.connector-tile');
     for (var t = 0; t < tiles.length; t++) {
       (function (tileEl) {
         tileEl.addEventListener('click', function () {
           var id = tileEl.dataset.id;
-          if (id) onSelectConnectorAccount(id);
+          if (id) onSelectConnector(id);
         });
       })(tiles[t]);
     }
   }
 
-  window.App.studio.renderConnectorAccountsGrid = renderConnectorAccountsGrid;
+  window.App.studio.renderConnectorsGrid = renderConnectorsGrid;
 })();

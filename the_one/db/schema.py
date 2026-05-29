@@ -9,7 +9,7 @@ import aiosqlite
 from the_one.db._connector_types import CONNECTOR_TYPES
 from the_one.db._provider_types import PROVIDER_TYPES
 
-CURRENT_VERSION = 22
+CURRENT_VERSION = 23
 
 # Render the provider-type CHECK constraint as a comma-separated SQL
 # literal list, sourced from PROVIDER_TYPES. Both SCHEMA_V1 (fresh-DB
@@ -512,7 +512,21 @@ PRAGMA foreign_keys=ON;
         # IF NOT EXISTS makes the table creation a no-op on rerun, and the
         # `INSERT OR IGNORE INTO schema_version` is LAST so a partial-apply
         # leaves version=12 and the next call retries cleanly.
-        await conn.execute("""\
+        #
+        # M11 F11 L1 v23 renamed ``connector_accounts`` → ``connectors``.
+        # On a schema_version-rewind re-run after v23 has landed
+        # (cf. ``TestSchemaV7::test_v7_strips_removed_tool_names``)
+        # ``connector_accounts`` doesn't exist (it's been renamed); the
+        # CREATE TABLE IF NOT EXISTS below would otherwise create an
+        # empty ghost. Skip v13's CREATE when ``connectors`` already
+        # exists — the post-v23 table is authoritative.
+        async with conn.execute(
+            "SELECT name FROM sqlite_master "
+            "WHERE type='table' AND name='connectors'"
+        ) as cursor:
+            connectors_table_exists = await cursor.fetchone() is not None
+        if not connectors_table_exists:
+            await conn.execute("""\
 CREATE TABLE IF NOT EXISTS connector_accounts (
     id TEXT PRIMARY KEY,
     type TEXT NOT NULL,
@@ -536,14 +550,20 @@ CREATE TABLE IF NOT EXISTS connector_accounts (
         #
         # NOT NULL DEFAULT '' lets the ALTER succeed against any v13-seeded
         # row (in practice zero — the table was empty at v13). New rows
-        # created through ConnectorAccountRepository will always carry a real
+        # created through ConnectorRepository will always carry a real
         # `name` because the Pydantic model requires it (no default).
         #
         # Idempotency follows the v11 ALTER ADD COLUMN pattern (PRAGMA guard
         # + INSERT OR IGNORE on schema_version LAST).
+        #
+        # M11 F11 L1 v23 renamed ``connector_accounts`` → ``connectors``;
+        # in a schema_version-rewind re-run after v23 has landed, the
+        # source table doesn't exist. Skip the ALTER in that case —
+        # the renamed table already has the ``name`` column from the
+        # first ensure_schema's v14 run.
         async with conn.execute("PRAGMA table_info(connector_accounts)") as cursor:
             existing_cols = {row[1] for row in await cursor.fetchall()}
-        if "name" not in existing_cols:
+        if existing_cols and "name" not in existing_cols:
             await conn.execute(
                 "ALTER TABLE connector_accounts ADD COLUMN name TEXT NOT NULL DEFAULT ''"
             )
@@ -567,9 +587,14 @@ CREATE TABLE IF NOT EXISTS connector_accounts (
         #
         # Idempotency follows the v11/v14 ALTER ADD COLUMN pattern (PRAGMA
         # guard + INSERT OR IGNORE on schema_version LAST).
+        #
+        # M11 F11 L1 v23 renamed ``connector_accounts`` → ``connectors``;
+        # in a schema_version-rewind re-run after v23 has landed, the
+        # source table doesn't exist. The ``existing_cols and ...``
+        # guard below short-circuits to skip the ALTER in that case.
         async with conn.execute("PRAGMA table_info(connector_accounts)") as cursor:
             existing_cols = {row[1] for row in await cursor.fetchall()}
-        if "idle_timeout_seconds" not in existing_cols:
+        if existing_cols and "idle_timeout_seconds" not in existing_cols:
             await conn.execute(
                 "ALTER TABLE connector_accounts ADD COLUMN idle_timeout_seconds INTEGER NULL"
             )
@@ -612,6 +637,14 @@ CREATE TABLE IF NOT EXISTS connector_accounts (
         # IGNORE on schema_version LAST).
         async with conn.execute("PRAGMA table_info(chat_sessions)") as cursor:
             existing_chat_cols = {row[1] for row in await cursor.fetchall()}
+        # M11 F11 L1 v23 renamed ``chat_sessions.connector_account_id`` →
+        # ``connector_id``. On a schema_version-rewind re-run after
+        # v23 has landed (cf. ``TestSchemaV7::test_v7_strips_removed_tool_names``)
+        # this v16 block re-fires against a table that already has the
+        # renamed ``connector_id`` column. Skip the v23-renamed columns
+        # in that case — re-adding them as new columns under the historical
+        # name would leave a ghost duplicate.
+        v23_renamed_present = "connector_id" in existing_chat_cols
         for col, ddl_type in (
             ("platform", "TEXT"),
             ("connector_account_id", "TEXT"),
@@ -621,14 +654,22 @@ CREATE TABLE IF NOT EXISTS connector_accounts (
             ("session_metadata", "TEXT"),
             ("last_inbound_at", "TEXT"),
         ):
+            if col == "connector_account_id" and v23_renamed_present:
+                continue
             if col not in existing_chat_cols:
                 await conn.execute(
                     f"ALTER TABLE chat_sessions ADD COLUMN {col} {ddl_type} NULL"
                 )
 
+        # v23 may have renamed ``connector_accounts`` → ``connectors``
+        # before this v16 re-fires; the guard below short-circuits in
+        # that case (the renamed table already has the column).
         async with conn.execute("PRAGMA table_info(connector_accounts)") as cursor:
             existing_acc_cols = {row[1] for row in await cursor.fetchall()}
-        if "session_continuation_seconds" not in existing_acc_cols:
+        if (
+            existing_acc_cols
+            and "session_continuation_seconds" not in existing_acc_cols
+        ):
             await conn.execute(
                 "ALTER TABLE connector_accounts"
                 " ADD COLUMN session_continuation_seconds INTEGER NULL"
@@ -661,9 +702,17 @@ CREATE TABLE IF NOT EXISTS connector_accounts (
         #
         # Idempotency follows the v8/v9/v10/v11/v14/v15 ALTER ADD COLUMN
         # pattern (PRAGMA guard + INSERT OR IGNORE on schema_version LAST).
+        # M11 F11 L1 v23 renamed ``agents.connector_account_ids`` →
+        # ``connector_ids``. On a schema_version-rewind re-run after
+        # v23 has landed (cf. ``TestSchemaV7::test_v7_strips_removed_tool_names``)
+        # the renamed column already exists. Skip the ADD COLUMN in
+        # that case so we don't leave a ghost duplicate.
         async with conn.execute("PRAGMA table_info(agents)") as cursor:
             existing_cols = {row[1] for row in await cursor.fetchall()}
-        if "connector_account_ids" not in existing_cols:
+        if (
+            "connector_account_ids" not in existing_cols
+            and "connector_ids" not in existing_cols
+        ):
             await conn.execute(
                 "ALTER TABLE agents ADD COLUMN connector_account_ids TEXT"
             )
@@ -719,7 +768,9 @@ CREATE TABLE IF NOT EXISTS connector_accounts (
         # into the next CHECK-changing migration without editing this
         # block. ``'stub'`` is in the CHECK per the M07 ``'mock'``-in-
         # PROVIDER_TYPES precedent — 69+ test sites construct
-        # ``ConnectorAccount(type='stub')``; the production-purity
+        # ``Connector(type='stub')`` (the Pydantic class was renamed
+        # from its historical *Account* form by M11 F11 L1 v23); the
+        # production-purity
         # invariant ("no production code path inserts a stub-typed row")
         # is enforced by ``_stub.py:18-19``'s import-time guard +
         # ``register_builtin_connectors`` registering ``'discord'`` only,
@@ -737,7 +788,24 @@ CREATE TABLE IF NOT EXISTS connector_accounts (
         # matches the v6 pattern. ``INSERT OR IGNORE INTO schema_version``
         # is LAST so a partial-apply leaves version=18 and the next
         # ``ensure_schema`` call retries cleanly.
-        await conn.executescript(f"""\
+        #
+        # M11 F11 L1 v23 renamed ``connector_accounts`` → ``connectors``;
+        # on a schema-version-rewind re-run after v23 has landed
+        # (cf. ``tests/test_db_migration.py::TestSchemaV7::
+        # test_v7_strips_removed_tool_names`` which deletes
+        # ``schema_version`` rows ≥ 7 and re-runs ``ensure_schema``),
+        # the v19 source table no longer exists. Skip the row-rewrite
+        # body in that case — the renamed table is already in its
+        # post-v19 (CHECK-on-type) + post-v23 (renamed) shape via the
+        # v23 migration's prior pass.
+        async with conn.execute(
+            "SELECT name FROM sqlite_master "
+            "WHERE type='table' AND name='connector_accounts'"
+        ) as cursor:
+            pre_v23_source_exists = await cursor.fetchone() is not None
+
+        if pre_v23_source_exists:
+            await conn.executescript(f"""\
 PRAGMA foreign_keys=OFF;
 
 CREATE TABLE connector_accounts_new (
@@ -792,6 +860,10 @@ PRAGMA foreign_keys=ON;
         # Discord-native peer-approval flow. New table (no ALTER, no
         # rename ceremony). FK CASCADE on connector_account_id mirrors
         # the kb_items / chat_sessions precedent (schema lines 69, 88).
+        # (M11 F11 L1: the FK column was later renamed to ``connector_id``
+        # and re-pointed at ``connectors(id)`` by v23. The v21 body
+        # below documents the original v21 shape — the v23 row-rewrite
+        # supplants the column and FK reference at migration time.)
         # CHECK constraint pins the three-state lifecycle to surface
         # data corruption immediately rather than letting it propagate
         # silently. Idempotent: ``CREATE TABLE IF NOT EXISTS`` + the
@@ -834,8 +906,25 @@ CREATE INDEX IF NOT EXISTS idx_pending_approvals_account_peer_status
         # Rows without an allowlist key are untouched; the Pydantic
         # validator default handles them at read time.
         # Mirrors the v7 row-rewrite precedent at schema.py:286-303.
+        #
+        # M11 F11 L1 v23 renamed ``connector_accounts`` → ``connectors``;
+        # the original v22 source-table reference becomes a "no such
+        # table" error on a schema-version-rewind re-run after v23 has
+        # landed (cf. ``tests/test_db_migration.py::TestSchemaV7::
+        # test_v7_strips_removed_tool_names`` which deletes
+        # ``schema_version`` rows ≥ 7 and re-runs ``ensure_schema``).
+        # The defensive guard below selects the source table name at
+        # runtime so the loop targets whichever name is current.
         async with conn.execute(
-            "SELECT id, config FROM connector_accounts"
+            "SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name IN ('connector_accounts', 'connectors')"
+        ) as cursor:
+            tables = {r[0] for r in await cursor.fetchall()}
+        source_table = (
+            "connector_accounts" if "connector_accounts" in tables else "connectors"
+        )
+        async with conn.execute(
+            f"SELECT id, config FROM {source_table}"
         ) as cursor:
             rows = await cursor.fetchall()
         for row in rows:
@@ -849,7 +938,7 @@ CREATE INDEX IF NOT EXISTS idx_pending_approvals_account_peer_status
             allowlist["dm_admission"] = "all" if not channels else "none"
             config["allowlist"] = allowlist
             await conn.execute(
-                "UPDATE connector_accounts SET config = ? WHERE id = ?",
+                f"UPDATE {source_table} SET config = ? WHERE id = ?",
                 (json.dumps(config), account_id),
             )
         await conn.execute(
@@ -857,3 +946,210 @@ CREATE INDEX IF NOT EXISTS idx_pending_approvals_account_peer_status
         )
         await conn.commit()
         version = 22
+
+    if version < 23:
+        # Mission 11 Flight 11 Leg 1: connector-terminology rename.
+        # The Pydantic class historically named after the "connector
+        # account" concept is now ``Connector`` (the historical class
+        # name is documented in the F11 flight log for posterity); this
+        # migration brings the schema into line with the renamed class.
+        # F11 chose "full consistency" over
+        # "table-only with historical column-name residue", so this
+        # migration renames the parent table AND the FK columns + JSON
+        # column on dependent tables:
+        #
+        #   - ``connector_accounts`` table → ``connectors``
+        #   - ``pending_approvals.connector_account_id`` column →
+        #     ``connector_id`` (FK target re-pointed to ``connectors``)
+        #   - ``chat_sessions.connector_account_id`` column →
+        #     ``connector_id``
+        #   - ``agents.connector_account_ids`` column → ``connector_ids``
+        #
+        # Two ceremonies in one migration:
+        #
+        # 1. Parent + FK-target row-rewrite (``connector_accounts`` and
+        #    ``pending_approvals``): SQLite cannot rewrite an FK target
+        #    in place, so the v6/v12/v19 ``executescript`` row-rewrite
+        #    precedent applies — CREATE NEW with the renamed FK
+        #    reference, INSERT FROM OLD, DROP OLD, ALTER RENAME. The
+        #    ``CHECK (type IN ({_CONNECTOR_TYPES_SQL}))`` constraint
+        #    on the parent ``type`` column is preserved verbatim from
+        #    v19; the 9-column shape is otherwise unchanged.
+        # 2. Column-rename on ``chat_sessions`` + ``agents`` (no FK on
+        #    those columns): ``ALTER TABLE ... RENAME COLUMN ...``
+        #    (SQLite ≥3.25, 2018-09; host + container both modern).
+        #    The partial indexes
+        #    ``idx_chat_sessions_external_key`` (on
+        #    ``chat_sessions(connector_account_id, ...)`` per v15) and
+        #    ``idx_pending_approvals_account_peer_status`` (on
+        #    ``pending_approvals(connector_account_id, ...)`` per v21)
+        #    are dropped + recreated against the renamed column
+        #    expressions. The pending_approvals index dies implicitly
+        #    when the parent table is dropped; the chat_sessions index
+        #    is dropped explicitly before recreation.
+        #
+        # PRAGMA foreign_keys=OFF / =ON envelopes the whole block —
+        # required by the FK-target row-rewrite (per v6/v12/v19
+        # precedent). ``INSERT OR IGNORE INTO schema_version`` lands
+        # LAST so a partial-apply leaves version=22 and the next
+        # ``ensure_schema`` call retries cleanly. ``executescript`` is
+        # transactional in SQLite — either the whole block lands or
+        # none of it does.
+        #
+        # Index name ``idx_pending_approvals_account_peer_status`` is
+        # retained even though it says "account" — renaming an index
+        # name is a separate concern from renaming the column it
+        # indexes; index naming is internal SQLite metadata and not
+        # required for correctness here. L3 housekeeping is the
+        # appropriate venue if a cosmetic-rename pass is desired.
+        #
+        # F11 L1 lands the rename; F11 L2 follows with the API URL
+        # path swap + frontend DOM string swap.
+        #
+        # Defensive guard for "schema_version rewound past v23 without
+        # also dropping the post-v23 tables" — the v7 strip-test
+        # pattern (``tests/test_db_migration.py::TestSchemaV7::
+        # test_v7_strips_removed_tool_names``) deletes
+        # ``schema_version`` rows ≥ 7 and re-runs ``ensure_schema`` so
+        # that v7's row-rewrite runs against the originally-seeded
+        # rows. By the time the loop reaches v23 in the re-run, the
+        # post-v23 tables (``connectors`` etc.) already exist from the
+        # initial fresh-DB call. Also: v13's
+        # ``CREATE TABLE IF NOT EXISTS connector_accounts`` recreates
+        # an empty ``connector_accounts`` during the re-run because
+        # the original v13 source table is gone (renamed to
+        # ``connectors`` by v23). v14-v19 then ALTER + row-rewrite the
+        # empty shell. So the v23 re-entry sees BOTH ``connector_accounts``
+        # (empty, recreated) AND ``connectors`` (the real data from
+        # the first pass).
+        #
+        # Strategy on re-entry: if ``connectors`` already exists, the
+        # post-v23 final shape is in place. DROP the empty ``connector_accounts``
+        # (and matching ``pending_approvals`` no-op — that table is
+        # idempotent via v21's ``CREATE TABLE IF NOT EXISTS``) and
+        # skip the row-rewrite. Otherwise, run the row-rewrite from
+        # the original ``connector_accounts``.
+        async with conn.execute(
+            "SELECT name FROM sqlite_master "
+            "WHERE type='table' AND name IN ('connectors', 'connector_accounts')"
+        ) as cursor:
+            tables_present = {r[0] for r in await cursor.fetchall()}
+
+        post_v23_target_exists = "connectors" in tables_present
+        pre_v23_source_exists = "connector_accounts" in tables_present
+
+        if post_v23_target_exists:
+            # Already past v23 (likely a schema_version-rewind re-run).
+            # If a ghost ``connector_accounts`` exists from v13's
+            # ``CREATE TABLE IF NOT EXISTS`` re-firing, drop it so the
+            # post-v23 shape is the single source of truth.
+            if pre_v23_source_exists:
+                await conn.execute("DROP TABLE connector_accounts")
+                await conn.commit()
+        elif pre_v23_source_exists:
+            # Per-segment Python-level guards (NOT a single
+            # executescript) because the hand-built ``TestSchemaVNN_*_
+            # legacy_v(N-1)_row_decodes_*`` tests build a partial
+            # schema — they create ``agents`` + ``connector_accounts``
+            # but skip ``chat_sessions`` and ``pending_approvals``
+            # (those tables are only created by ensure_schema's
+            # SCHEMA_V1 path and v21, neither of which fires when the
+            # test starts at version >= 13). Each rename below needs
+            # to noop on a missing source table.
+            async with conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' "
+                "AND name IN ('pending_approvals', 'chat_sessions', 'agents')"
+            ) as cursor:
+                v23_present = {r[0] for r in await cursor.fetchall()}
+
+            # Segment 1: connector_accounts → connectors row-rewrite
+            # (always runs in this branch — pre_v23_source_exists is True).
+            await conn.executescript(f"""\
+PRAGMA foreign_keys=OFF;
+
+CREATE TABLE connectors_new (
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL CHECK (type IN ({_CONNECTOR_TYPES_SQL})),
+    config TEXT DEFAULT '{{}}',
+    secrets TEXT DEFAULT '{{}}',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    name TEXT NOT NULL DEFAULT '',
+    idle_timeout_seconds INTEGER NULL,
+    session_continuation_seconds INTEGER NULL
+);
+
+INSERT INTO connectors_new (id, type, config, secrets, created_at, updated_at, name, idle_timeout_seconds, session_continuation_seconds)
+    SELECT id, type, config, secrets, created_at, updated_at, name, idle_timeout_seconds, session_continuation_seconds FROM connector_accounts;
+
+DROP TABLE connector_accounts;
+
+ALTER TABLE connectors_new RENAME TO connectors;
+""")
+
+            # Segment 2: pending_approvals row-rewrite (FK target
+            # repoint + FK column rename). Skip if the table doesn't
+            # exist (partial-shape test scenario).
+            if "pending_approvals" in v23_present:
+                await conn.executescript("""\
+CREATE TABLE pending_approvals_new (
+    id TEXT PRIMARY KEY,
+    connector_id TEXT NOT NULL
+        REFERENCES connectors(id) ON DELETE CASCADE,
+    peer_id TEXT NOT NULL,
+    peer_name TEXT NOT NULL,
+    preview TEXT NOT NULL,
+    received_at TEXT NOT NULL,
+    status TEXT NOT NULL
+        CHECK (status IN ('pending', 'approved', 'dismissed')),
+    resolved_at TEXT
+);
+
+INSERT INTO pending_approvals_new (id, connector_id, peer_id, peer_name, preview, received_at, status, resolved_at)
+    SELECT id, connector_account_id, peer_id, peer_name, preview, received_at, status, resolved_at FROM pending_approvals;
+
+DROP TABLE pending_approvals;
+
+ALTER TABLE pending_approvals_new RENAME TO pending_approvals;
+
+CREATE INDEX IF NOT EXISTS idx_pending_approvals_account_peer_status
+    ON pending_approvals (connector_id, peer_id, status);
+""")
+
+            # Segment 3: chat_sessions column rename + index recreate.
+            # Skip if table missing OR if column already renamed.
+            if "chat_sessions" in v23_present:
+                async with conn.execute(
+                    "PRAGMA table_info(chat_sessions)"
+                ) as cursor:
+                    cs_cols = {r[1] for r in await cursor.fetchall()}
+                if "connector_account_id" in cs_cols:
+                    await conn.executescript("""\
+ALTER TABLE chat_sessions RENAME COLUMN connector_account_id TO connector_id;
+
+DROP INDEX IF EXISTS idx_chat_sessions_external_key;
+
+CREATE INDEX idx_chat_sessions_external_key
+    ON chat_sessions(platform, connector_id, channel_id, COALESCE(thread_id, ''))
+    WHERE platform IS NOT NULL;
+""")
+
+            # Segment 4: agents column rename. Skip if table missing
+            # OR if column already renamed.
+            if "agents" in v23_present:
+                async with conn.execute(
+                    "PRAGMA table_info(agents)"
+                ) as cursor:
+                    ag_cols = {r[1] for r in await cursor.fetchall()}
+                if "connector_account_ids" in ag_cols:
+                    await conn.execute(
+                        "ALTER TABLE agents RENAME COLUMN "
+                        "connector_account_ids TO connector_ids"
+                    )
+
+            await conn.execute("PRAGMA foreign_keys=ON")
+        await conn.execute(
+            "INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (23,)
+        )
+        await conn.commit()
+        version = 23

@@ -1,8 +1,8 @@
-"""Browser tests for the connector-account 'Create & Test' combined-action flow (M10 F2 L6).
+"""Browser tests for the connector 'Create & Test' combined-action flow (M10 F2 L6).
 
 The Create & Test button on the create form fires:
-  1. POST /api/connector-accounts
-  2. on 201, POST /api/connector-accounts/{new_id}/test/connect
+  1. POST /api/connectors
+  2. on 201, POST /api/connectors/{new_id}/test/connect
   3. transitions to edit-mode with the probe banner rendered inline.
 
 Three coverage permutations:
@@ -27,7 +27,7 @@ from playwright.sync_api import Page, expect
 
 
 def _list_accounts(base_url: str) -> list[dict]:
-    r = httpx.get(f"{base_url}/api/connector-accounts", timeout=5.0)
+    r = httpx.get(f"{base_url}/api/connectors", timeout=5.0)
     assert r.status_code == 200
     return r.json()
 
@@ -39,17 +39,17 @@ def test_create_succeeds_probe_succeeds_lands_in_edit_mode_with_green_banner(
     """Create + probe ok → operator lands in edit-mode with green LED banner."""
     # Use real stub doctor — default response is status=ok.
     page.goto(f"{app_clean}#studio/connectors/new")
-    expect(page.locator('[data-testid="create-and-test-connector-account-btn"]')).to_be_visible(
+    expect(page.locator('[data-testid="create-and-test-connector-btn"]')).to_be_visible(
         timeout=8000
     )
 
-    page.locator('[data-testid="connector-account-name-input"]').fill("Happy Path Bot")
-    page.locator('[data-testid="connector-account-type-select"]').select_option("stub")
+    page.locator('[data-testid="connector-name-input"]').fill("Happy Path Bot")
+    page.locator('[data-testid="connector-type-select"]').select_option("stub")
 
-    page.locator('[data-testid="create-and-test-connector-account-btn"]').click()
+    page.locator('[data-testid="create-and-test-connector-btn"]').click()
 
     # Editor transitions to edit-mode — Save button (not Create & Test) visible.
-    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(timeout=8000)
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
     # LED is green (ok).
     led = page.locator('[data-testid="connector-test-led"]')
     expect(led).to_have_attribute("data-state", "ok", timeout=8000)
@@ -81,20 +81,20 @@ def test_create_succeeds_probe_fails_persists_account_with_red_banner(
             body=json.dumps(failure_payload),
         )
 
-    page.route("**/api/connector-accounts/*/test/connect", handle_probe)
+    page.route("**/api/connectors/*/test/connect", handle_probe)
 
     page.goto(f"{app_clean}#studio/connectors/new")
-    expect(page.locator('[data-testid="create-and-test-connector-account-btn"]')).to_be_visible(
+    expect(page.locator('[data-testid="create-and-test-connector-btn"]')).to_be_visible(
         timeout=8000
     )
 
-    page.locator('[data-testid="connector-account-name-input"]').fill("Failure Bot")
-    page.locator('[data-testid="connector-account-type-select"]').select_option("stub")
+    page.locator('[data-testid="connector-name-input"]').fill("Failure Bot")
+    page.locator('[data-testid="connector-type-select"]').select_option("stub")
 
-    page.locator('[data-testid="create-and-test-connector-account-btn"]').click()
+    page.locator('[data-testid="create-and-test-connector-btn"]').click()
 
     # Editor transitions to edit-mode.
-    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(timeout=8000)
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
     # Red LED, failure message, details rendered.
     led = page.locator('[data-testid="connector-test-led"]')
     expect(led).to_have_attribute("data-state", "failed", timeout=8000)
@@ -119,7 +119,7 @@ def test_create_422_blocks_probe_and_surfaces_error_inline(
 
     F5 L8 HAT: the idle-timeout dropdown no longer allows out-of-range
     values (the previous path to force a backend 422 from the UI). We
-    instead intercept POST /api/connector-accounts via Playwright route
+    instead intercept POST /api/connectors via Playwright route
     to synthesize a 422 response, then verify the error surfaces inline
     and the probe call is NEVER fired.
     """
@@ -133,8 +133,8 @@ def test_create_422_blocks_probe_and_surfaces_error_inline(
     page.on("request", on_request)
 
     # Intercept the POST so the test owns the 422 response. The handler
-    # MUST only fulfill on POST; GET /api/connector-accounts and GET
-    # /api/connector-accounts/types must pass through (the editor mount
+    # MUST only fulfill on POST; GET /api/connectors and GET
+    # /api/connectors/types must pass through (the editor mount
     # depends on the types fetch resolving).
     def handle_create(route):
         if route.request.method == "POST":
@@ -149,24 +149,24 @@ def test_create_422_blocks_probe_and_surfaces_error_inline(
         else:
             route.continue_()
 
-    page.route("**/api/connector-accounts", handle_create)
+    page.route("**/api/connectors", handle_create)
 
     page.goto(f"{app_clean}#studio/connectors/new")
-    expect(page.locator('[data-testid="create-and-test-connector-account-btn"]')).to_be_visible(
+    expect(page.locator('[data-testid="create-and-test-connector-btn"]')).to_be_visible(
         timeout=8000
     )
 
-    page.locator('[data-testid="connector-account-name-input"]').fill("Will-422 Bot")
-    page.locator('[data-testid="connector-account-type-select"]').select_option("stub")
+    page.locator('[data-testid="connector-name-input"]').fill("Will-422 Bot")
+    page.locator('[data-testid="connector-type-select"]').select_option("stub")
 
-    page.locator('[data-testid="create-and-test-connector-account-btn"]').click()
+    page.locator('[data-testid="create-and-test-connector-btn"]').click()
 
     # Error span surfaces the 422.
-    error_el = page.locator('[data-testid="connector-account-editor-error"]')
+    error_el = page.locator('[data-testid="connector-editor-error"]')
     expect(error_el).not_to_be_empty(timeout=8000)
 
     # Operator stays on the create form — Create & Test button still visible.
-    expect(page.locator('[data-testid="create-and-test-connector-account-btn"]')).to_be_visible()
+    expect(page.locator('[data-testid="create-and-test-connector-btn"]')).to_be_visible()
     # URL still on /new.
     assert page.evaluate("location.hash") == "#studio/connectors/new"
 
@@ -197,13 +197,13 @@ def test_create_mode_pick_discord_does_not_render_runtime_config_inline(
     typed fields anymore.
     """
     page.goto(f"{app_clean}#studio/connectors/new")
-    expect(page.locator('[data-testid="create-and-test-connector-account-btn"]')).to_be_visible(
+    expect(page.locator('[data-testid="create-and-test-connector-btn"]')).to_be_visible(
         timeout=8000
     )
 
     # Pre-pick baseline: the generic kv-table is in the DOM (pre-stub
     # render path) and the Discord typed-form fields are not yet mounted.
-    expect(page.locator('[data-testid="connector-account-config-table"]')).to_have_count(
+    expect(page.locator('[data-testid="connector-config-table"]')).to_have_count(
         1, timeout=4000
     )
     # F5 L6 HAT round-2: testid migrated from ``discord-intents-fieldset``
@@ -213,10 +213,10 @@ def test_create_mode_pick_discord_does_not_render_runtime_config_inline(
     expect(page.locator('[data-testid="discord-bot-token"]')).to_have_count(0)
 
     # Operator types a name BEFORE picking type — must be preserved on re-render.
-    page.locator('[data-testid="connector-account-name-input"]').fill("My Discord Bot")
+    page.locator('[data-testid="connector-name-input"]').fill("My Discord Bot")
 
     # Pick Discord — triggers the create-mode type-change re-render.
-    page.locator('[data-testid="connector-account-type-select"]').select_option("discord")
+    page.locator('[data-testid="connector-type-select"]').select_option("discord")
 
     # F5 L6 HAT inversion: the Discord typed-form runtime-config fields
     # (intents fieldset, guilds list, presence editor, Advanced
@@ -243,19 +243,19 @@ def test_create_mode_pick_discord_does_not_render_runtime_config_inline(
 
     # The Type select retains the picked value (post-pick re-render
     # correctness — the registry-dispatch-create-mode-AC convention).
-    type_select = page.locator('[data-testid="connector-account-type-select"]')
+    type_select = page.locator('[data-testid="connector-type-select"]')
     expect(type_select).to_have_value("discord")
 
     # Operator's Name input is preserved across the re-render.
-    name_input = page.locator('[data-testid="connector-account-name-input"]')
+    name_input = page.locator('[data-testid="connector-name-input"]')
     expect(name_input).to_have_value("My Discord Bot")
 
     # Type select retains the picked value.
-    type_select = page.locator('[data-testid="connector-account-type-select"]')
+    type_select = page.locator('[data-testid="connector-type-select"]')
     expect(type_select).to_have_value("discord")
 
     # Save button is enabled (picking a type IS a dirty edit relative
     # to the pre-pick baseline).
     expect(
-        page.locator('[data-testid="create-and-test-connector-account-btn"]')
+        page.locator('[data-testid="create-and-test-connector-btn"]')
     ).to_be_enabled()

@@ -791,14 +791,14 @@
      padding as the MCP kv-table so the two surfaces read as a single
      family. Without these rules the connector tables stretched to fill
      the parent and the header lost its mono-caps treatment. */
-  .area-studio .connector-account-config-table,
-  .area-studio .connector-account-secrets-table,
+  .area-studio .connector-config-table,
+  .area-studio .connector-secrets-table,
   .area-studio .connector-routing-table { width: auto; border-collapse: collapse; margin-bottom: 8px; }
-  .area-studio .connector-account-config-thead.is-hidden,
-  .area-studio .connector-account-secrets-thead.is-hidden,
+  .area-studio .connector-config-thead.is-hidden,
+  .area-studio .connector-secrets-thead.is-hidden,
   .area-studio .connector-routing-thead.is-hidden { display: none; }
-  .area-studio .connector-account-config-thead th,
-  .area-studio .connector-account-secrets-thead th,
+  .area-studio .connector-config-thead th,
+  .area-studio .connector-secrets-thead th,
   .area-studio .connector-routing-thead th {
     text-align: left;
     padding: 4px 8px;
@@ -810,8 +810,8 @@
     color: var(--fg-secondary);
     border-bottom: 1px solid var(--border);
   }
-  .area-studio .connector-account-config-table tbody td,
-  .area-studio .connector-account-secrets-table tbody td,
+  .area-studio .connector-config-table tbody td,
+  .area-studio .connector-secrets-table tbody td,
   .area-studio .connector-routing-table tbody td { padding: 4px 8px; vertical-align: middle; }
   /* F5 L8 HAT — Connector kv-table trash glyph for remove-row buttons:
      mirrors `.kv-remove-row-btn` posture so the per-row remove affordance
@@ -923,7 +923,7 @@
      is mounted against a registry with zero types (e.g. operator overrode
      the builtin registration); (b) the empty-state styling remains useful
      for future test seams that exercise the empty-types path. */
-  .area-studio .connector-account-empty-types-banner {
+  .area-studio .connector-empty-types-banner {
     margin: 0 0 12px 0;
     padding: 10px 14px;
     background: var(--status-warning-bg-soft, rgba(255, 193, 7, 0.08));
@@ -933,10 +933,10 @@
     font-size: var(--font-size-body-sm);
     line-height: 1.4;
   }
-  .area-studio .connector-account-empty-types-banner strong {
+  .area-studio .connector-empty-types-banner strong {
     color: var(--status-warning, #ffc107);
   }
-  .area-studio .connector-account-empty-types-banner code {
+  .area-studio .connector-empty-types-banner code {
     font-family: monospace;
     font-size: 0.9em;
     background: var(--surface-elevated));
@@ -947,9 +947,9 @@
   /* === Connector account editor polish (M10 F6 L7 HAT) ===========
      Issue #1: drop the inter-section divider that components.css
      applies globally to adjacent .editor-section pairs. The
-     connector-account-editor uses section-titles + whitespace
+     connector-editor uses section-titles + whitespace
      instead. */
-  .area-studio .connector-account-editor .editor-section + .editor-section {
+  .area-studio .connector-editor .editor-section + .editor-section {
     border-top: none;
     padding-top: 12px;
   }
@@ -1192,12 +1192,12 @@
      mounted child — keeps the rule type-agnostic. Without this the
      slot would shrink to its content width and leave the row
      trailing whitespace. */
-  .area-studio .connector-account-acl-fieldrow
+  .area-studio .connector-acl-fieldrow
     [data-allowlist-chiplist-slot] {
     flex: 1;
     min-width: 0;
   }
-  .area-studio .connector-account-acl-fieldlabel {
+  .area-studio .connector-acl-fieldlabel {
     font-size: var(--font-size-body-sm);
     color: var(--fg-secondary);
   }
@@ -1596,7 +1596,7 @@
        the trailing gap so the row doesn't over-space. */
   }
   .area-studio .discord-additional-config-body
-    .connector-account-config-table {
+    .connector-config-table {
     margin-bottom: 0;
   }
 }

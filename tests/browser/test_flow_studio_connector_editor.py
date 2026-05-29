@@ -1,6 +1,6 @@
 """Studio Connector editor flow tests (M10 F2 L6; F5 L8 HAT-rename).
 
-Mirrors `test_flow_studio_mcp_editor.py` for the connector-account
+Mirrors `test_flow_studio_mcp_editor.py` for the connector
 editor. Covers create-form rendering, edit-form rendering, type-select
 population, masked-secret round-trip, idle_timeout_seconds round-trip,
 and the Danger-Zone delete affordance.
@@ -29,24 +29,24 @@ from __future__ import annotations
 
 import httpx
 import pytest
-from browser.seeders import seed_connector_account, seed_mock_agent, seed_mock_provider
+from browser.seeders import seed_connector, seed_mock_agent, seed_mock_provider
 from playwright.sync_api import Page, expect
 
 
 def _get_account(base_url: str, account_id: str) -> dict:
-    r = httpx.get(f"{base_url}/api/connector-accounts/{account_id}", timeout=5.0)
+    r = httpx.get(f"{base_url}/api/connectors/{account_id}", timeout=5.0)
     assert r.status_code == 200, f"get failed: {r.status_code} {r.text}"
     return r.json()
 
 
 def _list_accounts(base_url: str) -> list[dict]:
-    r = httpx.get(f"{base_url}/api/connector-accounts", timeout=5.0)
+    r = httpx.get(f"{base_url}/api/connectors", timeout=5.0)
     assert r.status_code == 200
     return r.json()
 
 
 def _attach_agent_to_account(base_url: str, agent_name: str, account_id: str) -> None:
-    """Mutate an existing agent so its ``connector_account_ids`` includes
+    """Mutate an existing agent so its ``connector_ids`` includes
     ``account_id``. PUT /api/agents is REPLACE semantic — we GET the
     current config first and re-PUT with the connector id appended.
 
@@ -59,10 +59,10 @@ def _attach_agent_to_account(base_url: str, agent_name: str, account_id: str) ->
     cur = httpx.get(f"{base_url}/api/agents/{agent_name}", timeout=5.0)
     assert cur.status_code == 200, f"get agent failed: {cur.status_code} {cur.text}"
     cfg = cur.json()
-    ids = list(cfg.get("connector_account_ids") or [])
+    ids = list(cfg.get("connector_ids") or [])
     if account_id not in ids:
         ids.append(account_id)
-    cfg["connector_account_ids"] = ids
+    cfg["connector_ids"] = ids
     r = httpx.put(f"{base_url}/api/agents/{agent_name}", json=cfg, timeout=5.0)
     assert r.status_code == 200, f"attach agent failed: {r.status_code} {r.text}"
 
@@ -81,7 +81,7 @@ def _seed_account_with_agent(
     """
     provider_id = seed_mock_provider(base_url, name=f"mock-for-{agent_name}")
     seed_mock_agent(base_url, provider_id, name=agent_name)
-    account_id = seed_connector_account(base_url, name=account_name, config=config)
+    account_id = seed_connector(base_url, name=account_name, config=config)
     _attach_agent_to_account(base_url, agent_name, account_id)
     return account_id, agent_name
 
@@ -105,53 +105,53 @@ def test_create_form_renders_all_sections(app_clean: str, page: Page) -> None:
     """Create-mode: header, Connection, Credentials, Lifecycle present;
     Test Connection + Danger Zone absent."""
     page.goto(f"{app_clean}#studio/connectors/new")
-    expect(page.locator('[data-testid="create-and-test-connector-account-btn"]')).to_be_visible(
+    expect(page.locator('[data-testid="create-and-test-connector-btn"]')).to_be_visible(
         timeout=8000
     )
 
     # Connection section.
-    expect(page.locator('[data-testid="connector-account-name-input"]')).to_be_visible()
-    expect(page.locator('[data-testid="connector-account-type-select"]')).to_be_visible()
+    expect(page.locator('[data-testid="connector-name-input"]')).to_be_visible()
+    expect(page.locator('[data-testid="connector-type-select"]')).to_be_visible()
     # Credentials section table.
-    expect(page.locator('[data-testid="connector-account-secrets-table"]')).to_be_attached()
+    expect(page.locator('[data-testid="connector-secrets-table"]')).to_be_attached()
     # Lifecycle section idle-timeout input.
-    expect(page.locator('[data-testid="connector-account-idle-timeout-input"]')).to_be_visible()
+    expect(page.locator('[data-testid="connector-idle-timeout-input"]')).to_be_visible()
     # Test Connection section is edit-mode only — absent in create-mode.
     expect(page.locator('[data-testid="connector-test-connection-btn"]')).to_have_count(0)
     # Danger Zone is edit-mode only.
-    expect(page.locator('[data-testid="delete-connector-account-btn"]')).to_have_count(0)
+    expect(page.locator('[data-testid="delete-connector-btn"]')).to_have_count(0)
 
 
 @pytest.mark.browser
 def test_edit_form_renders_all_sections(app_clean: str, page: Page) -> None:
     """Edit-mode: every section including Test Connection + Danger Zone."""
-    account_id = seed_connector_account(app_clean, name="Stub Bot")
+    account_id = seed_connector(app_clean, name="Stub Bot")
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(timeout=8000)
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
 
-    expect(page.locator('[data-testid="connector-account-name-input"]')).to_be_visible()
+    expect(page.locator('[data-testid="connector-name-input"]')).to_be_visible()
     # In edit-mode the type field renders as a read-only input.
-    expect(page.locator('[data-testid="connector-account-type-readonly"]')).to_be_visible()
-    expect(page.locator('[data-testid="connector-account-secrets-table"]')).to_be_attached()
+    expect(page.locator('[data-testid="connector-type-readonly"]')).to_be_visible()
+    expect(page.locator('[data-testid="connector-secrets-table"]')).to_be_attached()
     expect(page.locator('[data-testid="connector-test-connection-btn"]')).to_be_visible()
-    expect(page.locator('[data-testid="delete-connector-account-btn"]')).to_be_visible()
+    expect(page.locator('[data-testid="delete-connector-btn"]')).to_be_visible()
     # M10 F7 L9 HAT: Lifecycle lives in the "Access and Routing" tab.
     # Attached check (it's in the DOM regardless of which tab is
     # active); visibility requires activating the tab.
-    expect(page.locator('[data-testid="connector-account-idle-timeout-input"]')).to_be_attached()
+    expect(page.locator('[data-testid="connector-idle-timeout-input"]')).to_be_attached()
     _activate_access_and_routing_tab(page)
-    expect(page.locator('[data-testid="connector-account-idle-timeout-input"]')).to_be_visible()
+    expect(page.locator('[data-testid="connector-idle-timeout-input"]')).to_be_visible()
 
 
 @pytest.mark.browser
 def test_type_select_populates_from_types_endpoint(app_clean: str, page: Page) -> None:
     """The type <select> shows the 'stub' option fetched from /types."""
     page.goto(f"{app_clean}#studio/connectors/new")
-    expect(page.locator('[data-testid="connector-account-type-select"]')).to_be_visible(
+    expect(page.locator('[data-testid="connector-type-select"]')).to_be_visible(
         timeout=8000
     )
 
-    options = page.locator('[data-testid="connector-account-type-select"] option')
+    options = page.locator('[data-testid="connector-type-select"] option')
     # First option is the disabled "Select a connector type" placeholder
     # (stub IS registered via conftest's env-var seam), then 'stub'.
     values = options.evaluate_all("els => els.map(e => e.value)")
@@ -165,33 +165,33 @@ def test_create_and_test_creates_account_and_transitions_to_edit_mode(
     """Fill the create form → Create & Test → both calls fire → URL is
     in edit-mode → the new tile is visible after Back to grid."""
     page.goto(f"{app_clean}#studio/connectors/new")
-    expect(page.locator('[data-testid="connector-account-type-select"]')).to_be_visible(
+    expect(page.locator('[data-testid="connector-type-select"]')).to_be_visible(
         timeout=8000
     )
 
-    page.locator('[data-testid="connector-account-name-input"]').fill("Created Bot")
-    page.locator('[data-testid="connector-account-type-select"]').select_option("stub")
+    page.locator('[data-testid="connector-name-input"]').fill("Created Bot")
+    page.locator('[data-testid="connector-type-select"]').select_option("stub")
     # Idle timeout dropdown — pick the 5-minute (300s) preset from the
     # F5 L8 HAT ladder. The previous free-form input accepted arbitrary
     # values; the dropdown's value attribute holds the seconds-int.
-    page.locator('[data-testid="connector-account-idle-timeout-input"]').select_option("300")
+    page.locator('[data-testid="connector-idle-timeout-input"]').select_option("300")
 
     # Click "Create & Test" — fires POST then POST /test/connect.
-    create_btn = page.locator('[data-testid="create-and-test-connector-account-btn"]')
+    create_btn = page.locator('[data-testid="create-and-test-connector-btn"]')
     expect(create_btn).not_to_be_disabled()
     create_btn.click()
 
     # After create+probe completes, the editor remounts in edit-mode.
-    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(timeout=8000)
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
     # URL transitioned to edit-mode (carries the new id).
     new_hash = page.evaluate("location.hash")
     assert new_hash.startswith("#studio/connectors/"), f"unexpected hash {new_hash!r}"
     assert new_hash != "#studio/connectors/new"
 
     # Back to grid → the new tile is visible.
-    page.locator('[data-testid="back-connector-account-btn"]').click()
+    page.locator('[data-testid="back-connector-btn"]').click()
     expect(
-        page.locator('[data-testid="connector-account-card"]', has_text="Created Bot")
+        page.locator('[data-testid="connector-card"]', has_text="Created Bot")
     ).to_be_visible(timeout=5000)
 
 
@@ -200,21 +200,21 @@ def test_edit_with_unchanged_secret_preserves_stored_value(
     app_clean: str, page: Page
 ) -> None:
     """Save without touching a secret → backend keeps the stored value."""
-    account_id = seed_connector_account(
+    account_id = seed_connector(
         app_clean,
         name="Token Bot",
         secrets={"BOT_TOKEN": "real_secret_value_xyz"},
     )
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(timeout=8000)
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
 
     # Secret pre-fills with the masked tail (last-4 of the plaintext).
     secret_input = page.locator(".secret-value-input").first
     expect(secret_input).to_have_value("***..._xyz")
 
     # Touch the name to mark dirty (cancel/save are disabled until dirty).
-    page.locator('[data-testid="connector-account-name-input"]').fill("Token Bot Renamed")
-    save_btn = page.locator('[data-testid="save-connector-account-btn"]')
+    page.locator('[data-testid="connector-name-input"]').fill("Token Bot Renamed")
+    save_btn = page.locator('[data-testid="save-connector-btn"]')
     expect(save_btn).not_to_be_disabled()
     save_btn.click()
     expect(page.locator(".app-flash")).to_be_visible(timeout=8000)
@@ -229,16 +229,16 @@ def test_edit_with_unchanged_secret_preserves_stored_value(
 @pytest.mark.browser
 def test_edit_name_only_save_preserves_secrets(app_clean: str, page: Page) -> None:
     """Change name only → list reflects new name → secret untouched."""
-    account_id = seed_connector_account(
+    account_id = seed_connector(
         app_clean,
         name="Original Name",
         secrets={"API_KEY": "preserved_value_abcd"},
     )
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(timeout=8000)
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
 
-    page.locator('[data-testid="connector-account-name-input"]').fill("Renamed")
-    page.locator('[data-testid="save-connector-account-btn"]').click()
+    page.locator('[data-testid="connector-name-input"]').fill("Renamed")
+    page.locator('[data-testid="save-connector-btn"]').click()
     expect(page.locator(".app-flash")).to_be_visible(timeout=8000)
 
     accounts = _list_accounts(app_clean)
@@ -250,18 +250,18 @@ def test_edit_name_only_save_preserves_secrets(app_clean: str, page: Page) -> No
 @pytest.mark.browser
 def test_edit_change_a_secret_updates_backend(app_clean: str, page: Page) -> None:
     """Replace a secret value → backend stores the new value."""
-    account_id = seed_connector_account(
+    account_id = seed_connector(
         app_clean,
         name="Secret Bot",
         secrets={"BOT_TOKEN": "old_value_xxxx"},
     )
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(timeout=8000)
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
 
     new_token = "fresh_token_zzzz"
     secret_input = page.locator(".secret-value-input").first
     secret_input.fill(new_token)
-    page.locator('[data-testid="save-connector-account-btn"]').click()
+    page.locator('[data-testid="save-connector-btn"]').click()
     expect(page.locator(".app-flash")).to_be_visible(timeout=8000)
 
     after = _get_account(app_clean, account_id)
@@ -277,14 +277,14 @@ def test_edit_idle_timeout_set_to_value(app_clean: str, page: Page) -> None:
     offering a fixed value ladder. We select the smallest preset (300s)
     to round-trip through PUT and verify backend storage.
     """
-    account_id = seed_connector_account(app_clean, name="TTL Bot")
+    account_id = seed_connector(app_clean, name="TTL Bot")
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(timeout=8000)
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
 
     # M10 F7 L9 HAT: Lifecycle is behind the Access and Routing tab.
     _activate_access_and_routing_tab(page)
-    page.locator('[data-testid="connector-account-idle-timeout-input"]').select_option("300")
-    page.locator('[data-testid="save-connector-account-btn"]').click()
+    page.locator('[data-testid="connector-idle-timeout-input"]').select_option("300")
+    page.locator('[data-testid="save-connector-btn"]').click()
     expect(page.locator(".app-flash")).to_be_visible(timeout=8000)
 
     after = _get_account(app_clean, account_id)
@@ -302,17 +302,17 @@ def test_edit_idle_timeout_custom_value_renders_as_disabled_option(
     F5 L8 HAT: the ladder offers 300/900/1800/3600/14400/86400/604800.
     A seeded 120-second value is off-ladder and round-trips as Custom.
     """
-    account_id = seed_connector_account(
+    account_id = seed_connector(
         app_clean,
         name="Custom TTL",
         idle_timeout_seconds=120,
     )
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(timeout=8000)
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
 
     # M10 F7 L9 HAT: Lifecycle lives in the Access and Routing tab.
     _activate_access_and_routing_tab(page)
-    idle_input = page.locator('[data-testid="connector-account-idle-timeout-input"]')
+    idle_input = page.locator('[data-testid="connector-idle-timeout-input"]')
     # The currently-selected option value is the persisted "120" carried by
     # the synthesized custom option (selected attribute is set in the HTML).
     expect(idle_input).to_have_value("120")
@@ -321,21 +321,21 @@ def test_edit_idle_timeout_custom_value_renders_as_disabled_option(
 @pytest.mark.browser
 def test_edit_idle_timeout_default_persists_null(app_clean: str, page: Page) -> None:
     """Selecting the "Use default" option (empty value) → backend persists null."""
-    account_id = seed_connector_account(
+    account_id = seed_connector(
         app_clean,
         name="Clearable TTL",
         idle_timeout_seconds=86400,  # ladder value so the dropdown selects it
     )
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(timeout=8000)
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
 
     # M10 F7 L9 HAT: Lifecycle lives in the Access and Routing tab.
     _activate_access_and_routing_tab(page)
-    idle_input = page.locator('[data-testid="connector-account-idle-timeout-input"]')
+    idle_input = page.locator('[data-testid="connector-idle-timeout-input"]')
     expect(idle_input).to_have_value("86400")
     # Select the "Use default" sentinel (empty value → null payload).
     idle_input.select_option("")
-    page.locator('[data-testid="save-connector-account-btn"]').click()
+    page.locator('[data-testid="save-connector-btn"]').click()
     expect(page.locator(".app-flash")).to_be_visible(timeout=8000)
 
     after = _get_account(app_clean, account_id)
@@ -350,20 +350,20 @@ def test_edit_continuation_never_persists_null(app_clean: str, page: Page) -> No
 
     F5 L8 HAT: ensures the __NEVER__ sentinel collapses to null on the wire.
     """
-    account_id = seed_connector_account(
+    account_id = seed_connector(
         app_clean,
         name="Always-On Bot",
         session_continuation_seconds=3600,
     )
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(timeout=8000)
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
 
     # M10 F7 L9 HAT: Lifecycle lives in the Access and Routing tab.
     _activate_access_and_routing_tab(page)
-    cont_input = page.locator('[data-testid="connector-account-continuation-input"]')
+    cont_input = page.locator('[data-testid="connector-continuation-input"]')
     expect(cont_input).to_have_value("3600")
     cont_input.select_option("__NEVER__")
-    page.locator('[data-testid="save-connector-account-btn"]').click()
+    page.locator('[data-testid="save-connector-btn"]').click()
     expect(page.locator(".app-flash")).to_be_visible(timeout=8000)
 
     after = _get_account(app_clean, account_id)
@@ -373,13 +373,13 @@ def test_edit_continuation_never_persists_null(app_clean: str, page: Page) -> No
 @pytest.mark.browser
 def test_delete_from_danger_zone_removes_tile(app_clean: str, page: Page) -> None:
     """Two-click Delete fires DELETE → tile gone from grid."""
-    account_id = seed_connector_account(app_clean, name="Deletable Bot")
+    account_id = seed_connector(app_clean, name="Deletable Bot")
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="delete-connector-account-btn"]')).to_be_visible(
+    expect(page.locator('[data-testid="delete-connector-btn"]')).to_be_visible(
         timeout=8000
     )
 
-    delete_btn = page.locator('[data-testid="delete-connector-account-btn"]')
+    delete_btn = page.locator('[data-testid="delete-connector-btn"]')
     # First click — arms the confirm-delete state.
     delete_btn.click()
     # Second click — fires DELETE.
@@ -399,16 +399,16 @@ def test_edit_session_continuation_round_trip(app_clean: str, page: Page) -> Non
     language that distinguishes the continuation window from the pool idle
     timeout (M10 F03 L05 acceptance criterion).
     """
-    account_id = seed_connector_account(app_clean, name="Continuation Bot")
+    account_id = seed_connector(app_clean, name="Continuation Bot")
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(timeout=8000)
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
 
     # M10 F7 L9 HAT: Lifecycle lives in the Access and Routing tab.
     _activate_access_and_routing_tab(page)
 
     # Both Lifecycle inputs present and visually adjacent.
-    expect(page.locator('[data-testid="connector-account-idle-timeout-input"]')).to_be_visible()
-    cont_input = page.locator('[data-testid="connector-account-continuation-input"]')
+    expect(page.locator('[data-testid="connector-idle-timeout-input"]')).to_be_visible()
+    cont_input = page.locator('[data-testid="connector-continuation-input"]')
     expect(cont_input).to_be_visible()
 
     # Helper text describes the session-continuation behavior. F5 L3
@@ -416,7 +416,7 @@ def test_edit_session_continuation_round_trip(app_clean: str, page: Page) -> Non
     # tooltip (browser-native title= + visually-hidden sibling for
     # screen readers); the testid migrated to the info-icon so the
     # check resolves against the new affordance.
-    cont_hint = page.locator('[data-testid="connector-account-continuation-hint"]')
+    cont_hint = page.locator('[data-testid="connector-continuation-hint"]')
     expect(cont_hint).to_be_visible()
     expect(cont_hint).to_have_attribute(
         "title", "Inbound continues the same chat session within this window."
@@ -425,7 +425,7 @@ def test_edit_session_continuation_round_trip(app_clean: str, page: Page) -> Non
     # Select the 1-hour (3600s) ladder option and save.
     # F5 L8 HAT: dropdown replaces the free-form numeric input.
     cont_input.select_option("3600")
-    page.locator('[data-testid="save-connector-account-btn"]').click()
+    page.locator('[data-testid="save-connector-btn"]').click()
     expect(page.locator(".app-flash")).to_be_visible(timeout=8000)
 
     # Backend persisted the value.
@@ -434,28 +434,28 @@ def test_edit_session_continuation_round_trip(app_clean: str, page: Page) -> Non
 
     # Reopen the editor — go back to grid first, then click the card so the
     # router fully re-mounts the editor (a same-URL navigate is a no-op).
-    page.locator('[data-testid="back-connector-account-btn"]').click()
+    page.locator('[data-testid="back-connector-btn"]').click()
     card = page.locator(
-        '[data-testid="connector-account-card"]', has_text="Continuation Bot"
+        '[data-testid="connector-card"]', has_text="Continuation Bot"
     )
     expect(card).to_be_visible(timeout=5000)
     card.click()
-    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(timeout=8000)
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
     expect(
-        page.locator('[data-testid="connector-account-continuation-input"]')
+        page.locator('[data-testid="connector-continuation-input"]')
     ).to_have_value("3600")
 
 
 @pytest.mark.browser
 def test_back_when_dirty_prompts_confirm_dialog(app_clean: str, page: Page) -> None:
     """Back button while dirty → confirm dialog appears; Stay keeps the editor."""
-    account_id = seed_connector_account(app_clean, name="Dirty Bot")
+    account_id = seed_connector(app_clean, name="Dirty Bot")
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(timeout=8000)
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
 
-    page.locator('[data-testid="connector-account-name-input"]').fill("Dirty Bot Edited")
+    page.locator('[data-testid="connector-name-input"]').fill("Dirty Bot Edited")
     # Click Back — should surface the unsaved-changes confirm dialog.
-    page.locator('[data-testid="back-connector-account-btn"]').click()
+    page.locator('[data-testid="back-connector-btn"]').click()
     overlay = page.locator('[data-testid="confirm-dialog-overlay"]')
     expect(overlay).to_be_visible(timeout=4000)
 
@@ -470,7 +470,7 @@ def test_back_when_dirty_prompts_confirm_dialog(app_clean: str, page: Page) -> N
 # "+ Add rule" button (data-testid="connector-routing-add-row-btn") and,
 # at the top of the section, the default-agent dropdown
 # (data-testid="connector-routing-default"). The agent dropdowns are
-# async-populated from /api/connector-accounts/{id}/attached-agents — so
+# async-populated from /api/connectors/{id}/attached-agents — so
 # tests must attach an agent to the account before interacting (see
 # ``_seed_account_with_agent``).
 
@@ -502,7 +502,7 @@ def test_routing_rules_add_rule_with_chip_list(app_clean: str, page: Page) -> No
         agent_name="router-add",
     )
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(timeout=8000)
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
     _activate_access_and_routing_tab(page)
     _wait_for_routing_agent_dropdown_populated(page, agent_name)
 
@@ -523,7 +523,7 @@ def test_routing_rules_add_rule_with_chip_list(app_clean: str, page: Page) -> No
     row.locator("[data-routing-agent]").select_option(agent_name)
 
     # Save — dirty-tracker should have enabled the save button.
-    save_btn = page.locator('[data-testid="save-connector-account-btn"]')
+    save_btn = page.locator('[data-testid="save-connector-btn"]')
     expect(save_btn).not_to_be_disabled()
     save_btn.click()
     expect(page.locator(".app-flash")).to_be_visible(timeout=8000)
@@ -559,7 +559,7 @@ def test_routing_rules_drag_reorder(app_clean: str, page: Page) -> None:
         config={"routing": {"rules": seeded_rules, "default": None}},
     )
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(timeout=8000)
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
     _activate_access_and_routing_tab(page)
     _wait_for_routing_agent_dropdown_populated(page, "router-drag")
 
@@ -587,7 +587,7 @@ def test_routing_rules_drag_reorder(app_clean: str, page: Page) -> None:
     source_handle.drag_to(target_row)
 
     # Save.
-    save_btn = page.locator('[data-testid="save-connector-account-btn"]')
+    save_btn = page.locator('[data-testid="save-connector-btn"]')
     expect(save_btn).not_to_be_disabled(timeout=4000)
     save_btn.click()
     expect(page.locator(".app-flash")).to_be_visible(timeout=8000)
@@ -617,7 +617,7 @@ def test_routing_rules_default_agent_persists(app_clean: str, page: Page) -> Non
         agent_name="router-default",
     )
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(timeout=8000)
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
     _activate_access_and_routing_tab(page)
     _wait_for_routing_agent_dropdown_populated(page, agent_name)
 
@@ -625,7 +625,7 @@ def test_routing_rules_default_agent_persists(app_clean: str, page: Page) -> Non
     expect(default_sel).to_have_value("")  # baseline: None
     default_sel.select_option(agent_name)
 
-    save_btn = page.locator('[data-testid="save-connector-account-btn"]')
+    save_btn = page.locator('[data-testid="save-connector-btn"]')
     expect(save_btn).not_to_be_disabled()
     save_btn.click()
     expect(page.locator(".app-flash")).to_be_visible(timeout=8000)
@@ -670,7 +670,7 @@ def test_routing_rules_baseline_not_dirty(app_clean: str, page: Page) -> None:
         },
     )
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(timeout=8000)
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
     _activate_access_and_routing_tab(page)
     _wait_for_routing_agent_dropdown_populated(page, "router-baseline")
 
@@ -686,7 +686,7 @@ def test_routing_rules_baseline_not_dirty(app_clean: str, page: Page) -> None:
         "router-baseline"
     )
 
-    save_btn = page.locator('[data-testid="save-connector-account-btn"]')
-    cancel_btn = page.locator('[data-testid="cancel-connector-account-btn"]')
+    save_btn = page.locator('[data-testid="save-connector-btn"]')
+    cancel_btn = page.locator('[data-testid="cancel-connector-btn"]')
     expect(save_btn).to_be_disabled()
     expect(cancel_btn).to_be_disabled()

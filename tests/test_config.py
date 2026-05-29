@@ -57,26 +57,26 @@ class TestAgentConfigConstruction:
         assert not hasattr(cfg, "llm_provider")
         assert not hasattr(cfg, "llm_base_url")
 
-    def test_connector_account_ids_defaults_to_empty_list(self):
-        """M10 F4: ``connector_account_ids`` mirrors ``mcp_source_ids`` —
+    def test_connector_ids_defaults_to_empty_list(self):
+        """M10 F4: ``connector_ids`` mirrors ``mcp_source_ids`` —
         empty list is the no-attached state, not None."""
         cfg = AgentConfig(name="t")
-        assert cfg.connector_account_ids == []
+        assert cfg.connector_ids == []
 
-    def test_connector_account_ids_round_trip(self):
-        """Non-empty ``connector_account_ids`` survives model_dump →
+    def test_connector_ids_round_trip(self):
+        """Non-empty ``connector_ids`` survives model_dump →
         model_validate."""
-        cfg = AgentConfig(name="t", connector_account_ids=["acc-a", "acc-b"])
+        cfg = AgentConfig(name="t", connector_ids=["acc-a", "acc-b"])
         dumped = cfg.model_dump()
-        assert dumped["connector_account_ids"] == ["acc-a", "acc-b"]
+        assert dumped["connector_ids"] == ["acc-a", "acc-b"]
         revived = AgentConfig.model_validate(dumped)
-        assert revived.connector_account_ids == ["acc-a", "acc-b"]
+        assert revived.connector_ids == ["acc-a", "acc-b"]
 
-    def test_pre_f4_row_deserializes_with_empty_connector_account_ids(self):
+    def test_pre_f4_row_deserializes_with_empty_connector_ids(self):
         """Back-compat: pre-F4 stored agent rows have no
-        ``connector_account_ids`` key; field defaults to []."""
+        ``connector_ids`` key; field defaults to []."""
         cfg = AgentConfig.model_validate({"name": "t"})
-        assert cfg.connector_account_ids == []
+        assert cfg.connector_ids == []
 
 
 # ===================================================================

@@ -30,19 +30,19 @@ from __future__ import annotations
 
 import httpx
 import pytest
-from browser.seeders import seed_connector_account
+from browser.seeders import seed_connector
 from playwright.sync_api import Page, expect
 
 
 def _get_account(base_url: str, account_id: str) -> dict:
-    r = httpx.get(f"{base_url}/api/connector-accounts/{account_id}", timeout=5.0)
+    r = httpx.get(f"{base_url}/api/connectors/{account_id}", timeout=5.0)
     assert r.status_code == 200, f"get failed: {r.status_code} {r.text}"
     return r.json()
 
 
 def _put_account(base_url: str, account_id: str, payload: dict) -> dict:
     r = httpx.put(
-        f"{base_url}/api/connector-accounts/{account_id}", json=payload, timeout=5.0
+        f"{base_url}/api/connectors/{account_id}", json=payload, timeout=5.0
     )
     assert r.status_code == 200, f"put failed: {r.status_code} {r.text}"
     return r.json()
@@ -58,14 +58,14 @@ def test_discord_account_renders_substituted_allowlist_labels(
     """Discord-type account: Allowlist <label> text reads "Users" and
     "Servers" (substituted via ``connectorVocabulary``). The pre-L6
     "Peers" / "Guilds" labels MUST NOT appear on the page."""
-    account_id = seed_connector_account(
+    account_id = seed_connector(
         app_clean,
         name="Vocab Discord",
         type="discord",
         secrets={"BOT_TOKEN": "plaintext"},
     )
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
         timeout=8000
     )
 
@@ -81,10 +81,10 @@ def test_discord_account_renders_substituted_allowlist_labels(
     # (Discord-intent typed input) doesn't pollute the assertion. L6
     # owns the allowlist surface; L4 owns the typed connection fields.
     allowlist_labels = page.locator(
-        '.connector-allowlist-section .connector-account-acl-fieldlabel'
+        '.connector-allowlist-section .connector-acl-fieldlabel'
     ).evaluate_all("els => els.map(e => e.textContent.trim())")
     # M11 F10 L2: the DM-admission row sits between peers and channels
-    # and reuses the ``connector-account-acl-fieldlabel`` class, so it
+    # and reuses the ``connector-acl-fieldlabel`` class, so it
     # joins this label list with the literal "DM admission" text
     # (no vocabulary substitution — DM is universal across connector
     # types).
@@ -105,14 +105,14 @@ def test_discord_account_hints_drop_discord_flavored_qualifier(
     "Discord-flavored; ignored by other platforms." qualifier
     (``hintTone === 'native'``). The substituted singular ("server" /
     "role") still appears in the leading hint text."""
-    account_id = seed_connector_account(
+    account_id = seed_connector(
         app_clean,
         name="Hint Discord",
         type="discord",
         secrets={"BOT_TOKEN": "plaintext"},
     )
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
         timeout=8000
     )
     page.locator('[data-testid="tab-access-and-routing"]').click()
@@ -175,7 +175,7 @@ def test_discord_account_attached_agents_header_renders_substituted_labels(
     function is IIFE-local, but the rendered table is what we assert
     against — so we mount the table by injecting a stub row through
     the live function reference, which is reachable because the
-    editor's IIFE attaches ``renderConnectorAccountEditor`` to the
+    editor's IIFE attaches ``renderConnectorEditor`` to the
     global namespace (other functions are local). The pragmatic
     fallback: navigate to the editor and check the DOM after the
     real fetchAttachedAgents resolves — but the fixture has no
@@ -184,7 +184,7 @@ def test_discord_account_attached_agents_header_renders_substituted_labels(
     # Pragmatic approach: inject a mock fetch response so the
     # attached-agents fetch resolves with non-empty rows, then read
     # the rendered <th> cells.
-    account_id = seed_connector_account(
+    account_id = seed_connector(
         app_clean,
         name="Attached Discord",
         type="discord",
@@ -196,7 +196,7 @@ def test_discord_account_attached_agents_header_renders_substituted_labels(
     # only fires for the page's own requests; httpx seeders use the
     # outer process and don't go through this route.
     page.route(
-        f"**/api/connector-accounts/{account_id}/attached-agents",
+        f"**/api/connectors/{account_id}/attached-agents",
         lambda r: r.fulfill(
             status=200,
             content_type="application/json",
@@ -205,7 +205,7 @@ def test_discord_account_attached_agents_header_renders_substituted_labels(
     )
 
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
         timeout=8000
     )
 
@@ -239,7 +239,7 @@ def test_discord_routing_scope_dropdown_substitutes_peer_textcontent(
     # scope dropdown renders an <option> for each valid scope. The
     # L2 validator requires both ``rules`` and ``default`` keys when
     # ``routing`` is present.
-    account_id = seed_connector_account(
+    account_id = seed_connector(
         app_clean,
         name="Routing Discord",
         type="discord",
@@ -254,7 +254,7 @@ def test_discord_routing_scope_dropdown_substitutes_peer_textcontent(
         secrets={"BOT_TOKEN": "plaintext"},
     )
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
         timeout=8000
     )
     page.locator('[data-testid="tab-access-and-routing"]').click()
@@ -298,16 +298,16 @@ def test_stub_account_preserves_baseline_allowlist_labels(
     baseline labels "Peers" / "Channels" / "Guilds" / "Roles" — the
     generic-fallback path of ``connectorVocabulary.get('stub')`` (no
     entry registered → default vocab)."""
-    account_id = seed_connector_account(app_clean, name="Vocab Stub", type="stub")
+    account_id = seed_connector(app_clean, name="Vocab Stub", type="stub")
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
         timeout=8000
     )
     page.locator('[data-testid="tab-access-and-routing"]').click()
 
     # The pre-L6 baseline labels remain on a generic-tone account.
     allowlist_labels = page.locator(
-        '.connector-allowlist-section .connector-account-acl-fieldlabel'
+        '.connector-allowlist-section .connector-acl-fieldlabel'
     ).evaluate_all("els => els.map(e => e.textContent.trim())")
     # M11 F10 L2: DM-admission row joins the label list between peers
     # and channels (literal label; no vocabulary substitution).
@@ -339,7 +339,7 @@ def test_discord_account_save_roundtrip_preserves_substrate_field_names(
     keeps the substrate's literal field names ``peers`` / ``channels``
     / ``guilds`` / ``roles`` (NOT ``users`` / ``servers``). The
     display-text substitution does not leak into the wire layer."""
-    account_id = seed_connector_account(
+    account_id = seed_connector(
         app_clean,
         name="Wire Discord",
         type="discord",
@@ -370,13 +370,13 @@ def test_discord_account_save_roundtrip_preserves_substrate_field_names(
     # Round-trip via the UI: open the editor, mark dirty (rename), and
     # save. The substrate field names must survive.
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-account-btn"]')).to_be_visible(
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
         timeout=8000
     )
-    page.locator('[data-testid="connector-account-name-input"]').fill(
+    page.locator('[data-testid="connector-name-input"]').fill(
         "Wire Discord Renamed"
     )
-    page.locator('[data-testid="save-connector-account-btn"]').click()
+    page.locator('[data-testid="save-connector-btn"]').click()
     expect(page.locator(".app-flash")).to_be_visible(timeout=8000)
 
     after = _get_account(app_clean, account_id)

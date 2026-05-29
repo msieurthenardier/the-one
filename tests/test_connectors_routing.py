@@ -25,7 +25,7 @@ import pytest
 from the_one.agent.config import AgentConfig
 from the_one.connectors._routing import RoutingDecision, resolve_routing
 from the_one.connectors.base import InboundEnvelope
-from the_one.db.models import ConnectorAccount
+from the_one.db.models import Connector
 
 
 def _account(
@@ -33,14 +33,14 @@ def _account(
     account_id: str = "acct-test",
     allowlist: dict | None = None,
     routing: dict | None = None,
-) -> ConnectorAccount:
-    """Build a minimal ConnectorAccount with optional allowlist/routing."""
+) -> Connector:
+    """Build a minimal Connector with optional allowlist/routing."""
     config: dict = {}
     if allowlist is not None:
         config["allowlist"] = allowlist
     if routing is not None:
         config["routing"] = routing
-    return ConnectorAccount(
+    return Connector(
         id=account_id,
         name="Test Account",
         type="stub",
@@ -71,16 +71,16 @@ def _envelope(
 def _agent(
     name: str,
     *,
-    connector_account_ids: list[str] | None = None,
+    connector_ids: list[str] | None = None,
     connector_acls: dict | None = None,
 ) -> AgentConfig:
     return AgentConfig(
         name=name,
         provider_config_id="mock-provider",
         llm_model="mock",
-        connector_account_ids=(
-            connector_account_ids
-            if connector_account_ids is not None
+        connector_ids=(
+            connector_ids
+            if connector_ids is not None
             else ["acct-test"]
         ),
         connector_acls=connector_acls,
@@ -489,7 +489,7 @@ class TestResolveRouting:
         through. Pins the unknown-scope branch."""
         alice = _agent("alice")
         # Bypass the L2 validator with model_construct.
-        account = ConnectorAccount.model_construct(
+        account = Connector.model_construct(
             id="acct-test",
             name="Test Account",
             type="stub",

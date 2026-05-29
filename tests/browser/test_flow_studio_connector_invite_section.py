@@ -29,7 +29,7 @@ import json
 from collections.abc import Iterator
 
 import pytest
-from browser.seeders import seed_connector_account
+from browser.seeders import seed_connector
 from playwright.sync_api import Browser, Page, expect
 
 
@@ -62,7 +62,7 @@ def _seed_discord(base_url: str, *, name: str = "Invite Bot", **kwargs) -> str:
     """Seed a ``type='discord'`` account with a default BOT_TOKEN."""
     secrets = kwargs.pop("secrets", {"BOT_TOKEN": "plaintext"})
     config = kwargs.pop("config", {})
-    return seed_connector_account(
+    return seed_connector(
         base_url,
         type="discord",
         name=name,
@@ -82,7 +82,7 @@ def _activate_access_and_routing_tab(page: Page) -> None:
     """
     page.locator('[data-testid="tab-access-and-routing"]').click()
     expect(
-        page.locator('[data-testid="connector-account-runtime-config-section"]')
+        page.locator('[data-testid="connector-runtime-config-section"]')
     ).to_be_visible(timeout=4000)
 
 
@@ -104,7 +104,7 @@ def _fulfill_probe(page: Page, account_id: str, application_id: str) -> None:
         )
 
     page.route(
-        f"**/api/connector-accounts/{account_id}/test/connect", handler
+        f"**/api/connectors/{account_id}/test/connect", handler
     )
 
 
@@ -209,7 +209,7 @@ def test_stub_type_renders_no_invite_section(app_clean: str, page: Page) -> None
     """``'stub'``-type accounts have no registry entry providing
     ``renderInviteSection`` → the substrate renders no HTML for that
     section → the section node is absent entirely."""
-    account_id = seed_connector_account(app_clean, name="Stub Bot")
+    account_id = seed_connector(app_clean, name="Stub Bot")
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
     expect(page.locator('[data-testid="connector-test-connection-btn"]')).to_be_visible(
         timeout=8000

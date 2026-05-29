@@ -18,13 +18,13 @@
 //   App.studio.renderConnectorsTab(panel, agent, allAccounts, callbacks)
 //     panel       — DOM element (the Connectors tabpanel)
 //     agent       — AgentConfig object (may be null for create-mode)
-//     allAccounts — array of ConnectorAccount objects from
-//                   /api/connector-accounts
+//     allAccounts — array of Connector objects from
+//                   /api/connectors
 //     callbacks   — { onChange }
 //
 // Save-flow selectors (collected by studio.js::collectFormData):
-//   [data-connector-account-toggle][data-connector-account-id]:checked
-//     → connector_account_ids
+//   [data-connector-toggle][data-connector-id]:checked
+//     → connector_ids
 //   For per-agent ACL each axis carries one of two markup shapes:
 //     .connector-acl-chiplist[data-connector-acl-account]
 //                            [data-connector-acl-list]
@@ -46,8 +46,8 @@
 //   - axis [items]: narrow to those items (intersected with
 //     account-scope).
 //
-// Stale connector_account_ids (operator deleted the account on the
-// connector-accounts surface, but it remains pinned on the agent) are
+// Stale connector_ids (operator deleted the account on the
+// connectors surface, but it remains pinned on the agent) are
 // surfaced as a row with a "(missing — account deleted)" badge; the
 // operator must explicitly uncheck to prune. Mirrors the
 // MCP-source-deletion defensive pattern.
@@ -58,8 +58,8 @@
 
   // M11 F7 L11: listen for account-level master changes to grey-out
   // per-account toggles in real time. Mirrors F4 / F5 listener pattern
-  // for the existing two CustomEvents (``connector-account-pool-warmed`` +
-  // ``connector-account-discoverable-refresh-requested``). Registered
+  // for the existing two CustomEvents (``connector-pool-warmed`` +
+  // ``connector-discoverable-refresh-requested``). Registered
   // ONCE at module init — registering inside ``_renderAccountTile``
   // would leak handlers on every re-render of the Connectors tab.
   // Safe-by-construction: the handler runs a single DOM querySelector
@@ -67,10 +67,10 @@
   // (e.g. the agent editor's Connectors tab isn't open).
   //
   // TODO(routine-maintenance): see the matching TODO above the dispatch
-  // in ``connector-account-editor.js`` — n=3 inline CustomEvent strings
+  // in ``connector-editor.js`` — n=3 inline CustomEvent strings
   // in Studio triggers the F4 R13 studio-event-bus lift candidate;
   // defer the lift per F7 recon discipline.
-  App.studio.eventBus.on('connector-account-always-listen-changed', function (event) {
+  App.studio.eventBus.on('connector-always-listen-changed', function (event) {
     var accountId = event && event.detail && event.detail.accountId;
     var enabled = !!(event && event.detail && event.detail.enabled);
     if (!accountId) return;
@@ -118,8 +118,8 @@
     }
 
     var listContainer = document.createElement('div');
-    listContainer.className = 'mcp-sources-list connector-accounts-list';
-    listContainer.setAttribute('data-testid', 'connector-accounts-list');
+    listContainer.className = 'mcp-sources-list connectors-list';
+    listContainer.setAttribute('data-testid', 'connectors-list');
 
     for (var j = 0; j < rendered.length; j++) {
       _renderAccountTile(listContainer, rendered[j], attached, acls, alwaysListen, onChange);
@@ -132,8 +132,8 @@
 
   function _renderEmptyState(panel) {
     var div = document.createElement('div');
-    div.className = 'mcp-empty-state connector-accounts-empty-state';
-    div.setAttribute('data-testid', 'connector-accounts-empty-state');
+    div.className = 'mcp-empty-state connectors-empty-state';
+    div.setAttribute('data-testid', 'connectors-empty-state');
     div.innerHTML = 'No connector accounts registered yet. ' +
       '<a href="#studio/connectors">Add one in Connectors.</a>';
     panel.appendChild(div);
@@ -196,7 +196,7 @@
 
     function _ensureLabelCache() {
       if (_labelCachePromise) return _labelCachePromise;
-      var url = '/api/connector-accounts/' +
+      var url = '/api/connectors/' +
         encodeURIComponent(account.id) +
         '/discoverable-entities';
       _labelCachePromise = fetch(url).then(function (response) {
@@ -241,9 +241,9 @@
     }
 
     var tile = document.createElement('div');
-    tile.className = 'mcp-source-tile connector-account-tile';
-    tile.setAttribute('data-connector-account-id', account.id);
-    tile.setAttribute('data-testid', 'connector-account-row-' + account.id);
+    tile.className = 'mcp-source-tile connector-tile';
+    tile.setAttribute('data-connector-id', account.id);
+    tile.setAttribute('data-testid', 'connector-row-' + account.id);
     tile.setAttribute('aria-expanded', 'false');
 
     // ── Row 1: toggle + name + type badge (+ missing badge if stale) ──
@@ -255,10 +255,10 @@
 
     var checkbox = document.createElement('input');
     checkbox.type = 'checkbox';
-    checkbox.className = 'tool-toggle connector-account-toggle';
-    checkbox.setAttribute('data-connector-account-toggle', '');
-    checkbox.setAttribute('data-connector-account-id', account.id);
-    checkbox.setAttribute('data-testid', 'connector-account-toggle-' + account.id);
+    checkbox.className = 'tool-toggle connector-toggle';
+    checkbox.setAttribute('data-connector-toggle', '');
+    checkbox.setAttribute('data-connector-id', account.id);
+    checkbox.setAttribute('data-testid', 'connector-toggle-' + account.id);
     checkbox.checked = isAttached;
     toggleLabel.appendChild(checkbox);
 
@@ -275,13 +275,13 @@
 
     if (account._missing) {
       var missingBadge = document.createElement('span');
-      missingBadge.className = 'mcp-source-tile-protocol connector-account-missing-badge';
-      missingBadge.setAttribute('data-testid', 'connector-account-missing-' + account.id);
+      missingBadge.className = 'mcp-source-tile-protocol connector-missing-badge';
+      missingBadge.setAttribute('data-testid', 'connector-missing-' + account.id);
       missingBadge.textContent = 'missing — account deleted';
       row1.appendChild(missingBadge);
     } else if (account.type) {
       var typeBadge = document.createElement('span');
-      typeBadge.className = 'mcp-source-tile-protocol connector-account-type-badge';
+      typeBadge.className = 'mcp-source-tile-protocol connector-type-badge';
       typeBadge.textContent = account.type;
       row1.appendChild(typeBadge);
     }
@@ -294,15 +294,15 @@
     //    attach toggle row so the operator sees the per-agent state
     //    at a glance.
     var detailsBody = document.createElement('div');
-    detailsBody.className = 'mcp-source-tile-tools connector-account-details-body';
-    detailsBody.setAttribute('data-testid', 'connector-account-details-body-' + account.id);
+    detailsBody.className = 'mcp-source-tile-tools connector-details-body';
+    detailsBody.setAttribute('data-testid', 'connector-details-body-' + account.id);
     tile.appendChild(detailsBody);
 
     function _populateAclEditor() {
       detailsBody.innerHTML = '';
 
       var section = document.createElement('div');
-      section.className = 'connector-account-acl-section';
+      section.className = 'connector-acl-section';
 
       var helpers = window.App.adminFormHelpers;
 
@@ -331,12 +331,12 @@
       // peers/channels axis rows.
       function _buildAdmitDmsRow() {
         var row = document.createElement('div');
-        row.className = 'field-row admin-pf-row connector-account-admit-dms-row';
+        row.className = 'field-row admin-pf-row connector-admit-dms-row';
         row.setAttribute('data-testid',
           'agent-connector-admit-dms-row-' + account.id);
 
         var label = document.createElement('label');
-        label.className = 'connector-account-admit-dms-label';
+        label.className = 'connector-admit-dms-label';
         label.htmlFor = 'agent-admit-dms-' + account.id;
         label.textContent = 'Allow DMs';
         row.appendChild(label);
@@ -349,7 +349,7 @@
         var hint = null;
         if (disabled) {
           hint = document.createElement('span');
-          hint.className = 'form-hint connector-account-admit-dms-hint';
+          hint.className = 'form-hint connector-admit-dms-hint';
           hint.setAttribute('data-testid',
             'agent-connector-admit-dms-hint-' + account.id);
           hint.textContent = 'Account denies all DMs; per-agent override does not apply.';
@@ -577,7 +577,7 @@
       var alwaysListenForAccount = !!(alwaysListenMap && alwaysListenMap[account.id]);
       var accountAlwaysListenMaster = !!(account.config && account.config.always_listen);
       var alwaysListenRow = document.createElement('div');
-      alwaysListenRow.className = 'field-row admin-pf-row connector-account-always-listen-row';
+      alwaysListenRow.className = 'field-row admin-pf-row connector-always-listen-row';
       var alwaysListenLabel = document.createElement('label');
       alwaysListenLabel.htmlFor = 'agent-always-listen-' + account.id;
       alwaysListenLabel.textContent = 'Always listen';
@@ -589,7 +589,7 @@
       // this wrapper the input rendered as a ~13px raw native checkbox,
       // perceptually invisible against the dark theme. Uses the `-track`
       // sibling class (which has real CSS rules) rather than the `-slider`
-      // variant referenced in connector-account-editor.js — only `-track` is
+      // variant referenced in connector-editor.js — only `-track` is
       // styled.
       var alwaysListenSwitch = document.createElement('label');
       alwaysListenSwitch.className = 'tool-enable-switch';
@@ -762,7 +762,7 @@
   function _attachedAccountIds(agent) {
     var ids = {};
     if (!agent) return ids;
-    var pinned = agent.connector_account_ids || [];
+    var pinned = agent.connector_ids || [];
     for (var i = 0; i < pinned.length; i++) ids[pinned[i]] = true;
     return ids;
   }

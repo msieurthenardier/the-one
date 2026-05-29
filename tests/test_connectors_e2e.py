@@ -32,8 +32,8 @@ from the_one.connectors.registry import (
     restore_to_baseline_for_test,
 )
 from the_one.db.connection import get_connection
-from the_one.db.models import ConnectorAccount
-from the_one.db.repositories import ConnectorAccountRepository
+from the_one.db.models import Connector
+from the_one.db.repositories import ConnectorRepository
 from the_one.db.schema import ensure_schema
 from the_one.encryption import get_encryptor
 
@@ -102,12 +102,12 @@ async def isolated_db(tmp_path, monkeypatch):
         await db_connection.close_connection()
 
 
-async def _seed_stub_account(account_id: str = "acct-e2e") -> ConnectorAccount:
-    """Helper: persist a stub-typed ConnectorAccount via the repository."""
+async def _seed_stub_account(account_id: str = "acct-e2e") -> Connector:
+    """Helper: persist a stub-typed Connector via the repository."""
     conn = await get_connection()
     encryptor = get_encryptor(settings.data_dir)
-    repo = ConnectorAccountRepository(conn, encryptor)
-    account = ConnectorAccount(
+    repo = ConnectorRepository(conn, encryptor)
+    account = Connector(
         id=account_id,
         name="E2E Test Bot",
         type="stub",

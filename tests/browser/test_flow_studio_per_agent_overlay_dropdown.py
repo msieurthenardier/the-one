@@ -25,7 +25,7 @@ import json
 import httpx
 import pytest
 from browser.seeders import (
-    seed_connector_account,
+    seed_connector,
     seed_mock_agent,
     seed_mock_provider,
 )
@@ -69,7 +69,7 @@ def _route_discoverable_ok(page: Page, account_id: str) -> None:
         )
 
     page.route(
-        f"**/api/connector-accounts/{account_id}/discoverable-entities*",
+        f"**/api/connectors/{account_id}/discoverable-entities*",
         handle,
     )
 
@@ -78,10 +78,10 @@ def _attach_agent_to_account(base_url: str, agent_name: str, account_id: str) ->
     cur = httpx.get(f"{base_url}/api/agents/{agent_name}", timeout=5.0)
     assert cur.status_code == 200, f"get agent failed: {cur.status_code} {cur.text}"
     cfg = cur.json()
-    ids = list(cfg.get("connector_account_ids") or [])
+    ids = list(cfg.get("connector_ids") or [])
     if account_id not in ids:
         ids.append(account_id)
-    cfg["connector_account_ids"] = ids
+    cfg["connector_ids"] = ids
     r = httpx.put(f"{base_url}/api/agents/{agent_name}", json=cfg, timeout=5.0)
     assert r.status_code == 200, f"attach agent failed: {r.status_code} {r.text}"
 
@@ -106,7 +106,7 @@ def test_per_agent_overlay_chip_mode_renders_dropdown_for_discord(
     """
     provider_id = seed_mock_provider(app_clean, name="mock-overlay-discord")
     agent_name = seed_mock_agent(app_clean, provider_id, name="overlay-disco-agent")
-    account_id = seed_connector_account(
+    account_id = seed_connector(
         app_clean,
         type="discord",
         name="Overlay Discord Bot",
@@ -120,7 +120,7 @@ def test_per_agent_overlay_chip_mode_renders_dropdown_for_discord(
     _open_agent_connectors_tab(page, app_clean, agent_name)
 
     # The per-agent overlay tile mounts for the attached account.
-    tile = page.locator(f'[data-testid="connector-account-row-{account_id}"]')
+    tile = page.locator(f'[data-testid="connector-row-{account_id}"]')
     expect(tile).to_be_visible(timeout=8000)
 
     # Expand each axis (peers + channels) and verify the dropdown
@@ -158,7 +158,7 @@ def test_per_agent_overlay_checkbox_mode_unchanged(
     """
     provider_id = seed_mock_provider(app_clean, name="mock-overlay-checkbox")
     agent_name = seed_mock_agent(app_clean, provider_id, name="overlay-checkbox-agent")
-    account_id = seed_connector_account(
+    account_id = seed_connector(
         app_clean,
         type="discord",
         name="Overlay Checkbox Bot",
@@ -180,7 +180,7 @@ def test_per_agent_overlay_checkbox_mode_unchanged(
 
     _open_agent_connectors_tab(page, app_clean, agent_name)
 
-    tile = page.locator(f'[data-testid="connector-account-row-{account_id}"]')
+    tile = page.locator(f'[data-testid="connector-row-{account_id}"]')
     expect(tile).to_be_visible(timeout=8000)
 
     toggle = tile.locator(

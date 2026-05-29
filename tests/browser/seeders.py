@@ -83,7 +83,7 @@ def seed_mock_agent(
     return r.json()["name"]
 
 
-def seed_connector_account(
+def seed_connector(
     base_url: str,
     name: str = "Test Account",
     type: str = "stub",
@@ -92,7 +92,7 @@ def seed_connector_account(
     idle_timeout_seconds: int | None = None,
     session_continuation_seconds: int | None = None,
 ) -> str:
-    """POST a connector account via /api/connector-accounts and return its id.
+    """POST a connector account via /api/connectors and return its id.
 
     M10 F2 L6: mirrors ``seed_mock_provider``'s shape. Requires the
     target app subprocess to have registered the StubPlugin under the
@@ -116,8 +116,8 @@ def seed_connector_account(
         payload["idle_timeout_seconds"] = idle_timeout_seconds
     if session_continuation_seconds is not None:
         payload["session_continuation_seconds"] = session_continuation_seconds
-    r = httpx.post(f"{base_url}/api/connector-accounts", json=payload, timeout=5.0)
-    assert r.status_code == 201, f"seed_connector_account failed: {r.status_code} {r.text}"
+    r = httpx.post(f"{base_url}/api/connectors", json=payload, timeout=5.0)
+    assert r.status_code == 201, f"seed_connector failed: {r.status_code} {r.text}"
     return r.json()["id"]
 
 

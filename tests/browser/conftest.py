@@ -127,8 +127,8 @@ def app_clean(tmp_path: Path) -> Iterator[str]:
     env["THE_ONE_DATA_DIR"] = str(data_dir)
     env["THE_ONE_DEV_MODE"] = "true"
     # M10 F2 L6: opt the spawned subprocess into the StubPlugin test-seam
-    # so connector-account browser tests can exercise the 'stub' type via
-    # /api/connector-accounts/types and POST /test/connect. Gated server-
+    # so connector browser tests can exercise the 'stub' type via
+    # /api/connectors/types and POST /test/connect. Gated server-
     # side on `settings.dev_mode AND env-var == "1"`; production never
     # sets the env var.
     env["THE_ONE_REGISTER_STUB_CONNECTOR"] = "1"

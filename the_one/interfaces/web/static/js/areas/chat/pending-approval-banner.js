@@ -10,11 +10,11 @@
 //
 // Event shape (canonical, F9 §5):
 //   { type, approval_id, peer_name, peer_id, preview, received_at,
-//     connector_account_id, status }
+//     connector_id, status }
 //
 // Callbacks shape:
-//   { onApprove(approval_id, connector_account_id, bannerEl),
-//     onDismiss(approval_id, connector_account_id, bannerEl) }
+//   { onApprove(approval_id, connector_id, bannerEl),
+//     onDismiss(approval_id, connector_id, bannerEl) }
 //
 // Terminal-status events (approved/dismissed) render with a status
 // badge and NO action buttons. ``applyApprovalStatus`` is used post-
@@ -29,7 +29,7 @@
     el.className = 'msg msg-pending-approval';
     el.setAttribute('data-testid', 'pending-approval-banner');
     el.setAttribute('data-approval-id', event.approval_id);
-    el.setAttribute('data-connector-account-id', event.connector_account_id);
+    el.setAttribute('data-connector-id', event.connector_id);
 
     // Header: peer name + received_at timestamp.
     var header = document.createElement('div');
@@ -62,7 +62,7 @@
       approveBtn.textContent = 'Approve';
       approveBtn.addEventListener('click', function () {
         if (callbacks && typeof callbacks.onApprove === 'function') {
-          callbacks.onApprove(event.approval_id, event.connector_account_id, el);
+          callbacks.onApprove(event.approval_id, event.connector_id, el);
         }
       });
       footer.appendChild(approveBtn);
@@ -74,7 +74,7 @@
       dismissBtn.textContent = 'Dismiss';
       dismissBtn.addEventListener('click', function () {
         if (callbacks && typeof callbacks.onDismiss === 'function') {
-          callbacks.onDismiss(event.approval_id, event.connector_account_id, el);
+          callbacks.onDismiss(event.approval_id, event.connector_id, el);
         }
       });
       footer.appendChild(dismissBtn);

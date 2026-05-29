@@ -288,7 +288,7 @@ def pending_approvals_to_ui_events(
     M11 F9 L4. Used by ``_restore_session`` and
     ``_build_session_joined_degraded`` to merge pending-approval banners
     into the per-session history stream when the session has connector
-    context (``connector_account_id is not None and peer_id is not None``).
+    context (``connector_id is not None and peer_id is not None``).
 
     The output event shape is identical to the live-broadcast event the
     dispatcher emits at ``the_one/connectors/_inbound.py`` (F9 L2). The
@@ -310,7 +310,7 @@ def pending_approvals_to_ui_events(
             "peer_id": row.peer_id,
             "preview": row.preview,
             "received_at": row.received_at,
-            "connector_account_id": row.connector_account_id,
+            "connector_id": row.connector_id,
             "status": row.status,
         }
         for row in rows

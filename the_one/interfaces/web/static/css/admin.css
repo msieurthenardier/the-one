@@ -280,7 +280,7 @@
   }
   /* L7 (F7 Rec #3(a)): default .tool-enable-switch is now position: relative;
      no override needed for .tools-editor-enabled-row, .mf-sandbox-network-row,
-     .cf-auto-relay-row, .connector-account-always-listen-row, or
+     .cf-auto-relay-row, .connector-always-listen-row, or
      .cf-always-listen-row. Tile-corner consumers opt in via the
      .tool-enable-switch--corner modifier. */
 

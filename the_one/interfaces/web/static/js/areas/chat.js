@@ -302,20 +302,20 @@ App.registerArea({
     // update (apply 'acting' class, hide buttons via CSS) then POST; on
     // 200 swap to the new status badge; on non-200 revert and surface a
     // system error.
-    function onApproveClick(approvalId, connectorAccountId, bannerEl) {
-      onApprovalAction('approve', approvalId, connectorAccountId, bannerEl);
+    function onApproveClick(approvalId, connectorId, bannerEl) {
+      onApprovalAction('approve', approvalId, connectorId, bannerEl);
     }
 
-    function onDismissClick(approvalId, connectorAccountId, bannerEl) {
-      onApprovalAction('dismiss', approvalId, connectorAccountId, bannerEl);
+    function onDismissClick(approvalId, connectorId, bannerEl) {
+      onApprovalAction('dismiss', approvalId, connectorId, bannerEl);
     }
 
-    function onApprovalAction(action, approvalId, connectorAccountId, bannerEl) {
+    function onApprovalAction(action, approvalId, connectorId, bannerEl) {
       // Optimistic: dim the banner and disable click-through while the
       // request is in flight. CSS rule `.msg-pending-approval-acting`
       // applies `pointer-events: none` and `opacity: 0.6`.
       bannerEl.classList.add('msg-pending-approval-acting');
-      var url = '/api/connector-accounts/' + encodeURIComponent(connectorAccountId) +
+      var url = '/api/connectors/' + encodeURIComponent(connectorId) +
         '/peer-approvals/' + encodeURIComponent(approvalId) + '/' + action;
       var verb = action === 'approve' ? 'Approve' : 'Dismiss';
       fetch(url, { method: 'POST' })

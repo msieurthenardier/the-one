@@ -41,7 +41,7 @@ from the_one.connectors import OPERATOR_VISIBILITY
 from the_one.connectors._pool import _get_account_cache_snapshot
 from the_one.connectors.base import InboundEnvelope
 from the_one.connectors.post_step_metadata import resolve_channel_name
-from the_one.db.models import ConnectorAccount
+from the_one.db.models import Connector
 from the_one.db.repositories import LLMProviderRepository
 from the_one.llm import get_provider
 from the_one.llm.base import LLMProvider, Message, Role
@@ -234,7 +234,7 @@ async def _resolve_inference_provider(
 
 
 async def run_engagement_inference(
-    account: ConnectorAccount,
+    account: Connector,
     envelope: InboundEnvelope,
     session_messages: list[Message],
     settings: Settings,
@@ -254,7 +254,7 @@ async def run_engagement_inference(
 
     Parameters mirror the dispatcher's available data at the gate point:
 
-    - ``account`` — the full ConnectorAccount row (the dispatcher has it
+    - ``account`` — the full Connector row (the dispatcher has it
       already; passing the row leaves room for future inference signals to
       read ``account.config`` without changing the signature).
     - ``envelope`` — the inbound envelope.

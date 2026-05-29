@@ -101,7 +101,7 @@ from typing import Any
 from the_one.agent.config import AgentConfig
 from the_one.connectors._acl import _default_not_dm, admits_inbound
 from the_one.connectors.base import InboundEnvelope
-from the_one.db.models import ConnectorAccount
+from the_one.db.models import Connector
 
 __all__ = ["RoutingDecision", "resolve_routing"]
 
@@ -139,7 +139,7 @@ class RoutingDecision:
 
 
 def _agent_admits(
-    account: ConnectorAccount,
+    account: Connector,
     agent_config: AgentConfig,
     envelope: InboundEnvelope,
     plugin: Any | None = None,
@@ -239,7 +239,7 @@ def _scope_matches(
 
 
 def resolve_routing(
-    account: ConnectorAccount,
+    account: Connector,
     envelope: InboundEnvelope,
     eligible_attached_agents: list[AgentConfig],
     session_metadata: dict[str, Any] | None,

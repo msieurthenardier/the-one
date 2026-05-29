@@ -102,14 +102,14 @@ class SendToPlatformChannelTool(Tool):
         config: Any = None,
         cross_configs: dict[type, object] | None = None,
         agent_name: str | None = None,
-        connector_account_ids: list[str] | None = None,
+        connector_ids: list[str] | None = None,
         connector_acls: dict[str, dict[str, list[str] | None]] | None = None,
     ) -> None:
         # All kwargs default to None so `cls()` works on the
         # `/api/tools` introspection path (BuiltinToolProvider.get_tools
         # at builtins.py:104-105 constructs every tool zero-arg there).
         super().__init__(config, cross_configs, agent_name)
-        self._connector_account_ids: list[str] = connector_account_ids or []
+        self._connector_ids: list[str] = connector_ids or []
         self._connector_acls: dict[str, dict[str, list[str] | None]] | None = (
             connector_acls
         )
@@ -137,7 +137,7 @@ class SendToPlatformChannelTool(Tool):
             return "[error] content must be a string"
 
         # ── Account-scope validation ───────────────────────────────
-        if account_id not in self._connector_account_ids:
+        if account_id not in self._connector_ids:
             return (
                 f"[error] [constraint] account_id {account_id!r} is "
                 f"not attached to this agent"
@@ -152,12 +152,12 @@ class SendToPlatformChannelTool(Tool):
         # multiply this module's coupling to db.repositories over time.
         from the_one.config import settings
         from the_one.db.connection import get_connection
-        from the_one.db.repositories import ConnectorAccountRepository
+        from the_one.db.repositories import ConnectorRepository
         from the_one.encryption import get_encryptor
 
         conn = await get_connection()
         encryptor = get_encryptor(settings.data_dir)
-        acc_repo = ConnectorAccountRepository(conn, encryptor)
+        acc_repo = ConnectorRepository(conn, encryptor)
         try:
             account = await acc_repo.get(account_id)
         except KeyError:

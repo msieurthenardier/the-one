@@ -3,11 +3,11 @@
 Covers:
 - Registry presence in `_TOOL_CLASSES` and `BuiltinToolProvider.get_tools`
   on both the introspection path (zero-arg) and the factory path
-  (kwarg-injected `connector_account_ids`).
+  (kwarg-injected `connector_ids`).
 - Zero-arg construction (`/api/tools` introspection contract).
 - Target-shape validation (malformed `target` and `content`).
 - Account-scope validation (`target.account_id` must be in
-  `self._connector_account_ids`).
+  `self._connector_ids`).
 - Pool acquire failures (`KeyError`, `ConnectorRegistrationError`).
 - `client.send` failures (`ConnectorRateLimitError`,
   `ConnectorConnectionError`).
@@ -47,8 +47,8 @@ from the_one.connectors.registry import (
     restore_to_baseline_for_test,
 )
 from the_one.db.connection import get_connection
-from the_one.db.models import ConnectorAccount
-from the_one.db.repositories import ConnectorAccountRepository
+from the_one.db.models import Connector
+from the_one.db.repositories import ConnectorRepository
 from the_one.db.schema import ensure_schema
 from the_one.encryption import get_encryptor
 from the_one.tools.builtins import _TOOL_CLASSES, BuiltinToolProvider
@@ -97,12 +97,12 @@ async def isolated_db(tmp_path, monkeypatch):
         await db_connection.close_connection()
 
 
-async def _seed_stub_account(account_id: str = "acct-send") -> ConnectorAccount:
-    """Persist a stub-typed ConnectorAccount via the repository."""
+async def _seed_stub_account(account_id: str = "acct-send") -> Connector:
+    """Persist a stub-typed Connector via the repository."""
     conn = await get_connection()
     encryptor = get_encryptor(settings.data_dir)
-    repo = ConnectorAccountRepository(conn, encryptor)
-    account = ConnectorAccount(
+    repo = ConnectorRepository(conn, encryptor)
+    account = Connector(
         id=account_id,
         name="Stub Send Account",
         type="stub",
@@ -125,17 +125,17 @@ class TestRegistry:
         # `/api/tools` introspection path calls `cls()` — must not raise.
         tool = SendToPlatformChannelTool()
         assert tool.name == "send_to_platform_channel"
-        assert tool._connector_account_ids == []
+        assert tool._connector_ids == []
         assert tool._agent_name is None
 
-    def test_construction_with_none_connector_account_ids(self) -> None:
+    def test_construction_with_none_connector_ids(self) -> None:
         # Explicit None coerces to empty list (not None).
-        tool = SendToPlatformChannelTool(connector_account_ids=None)
-        assert tool._connector_account_ids == []
+        tool = SendToPlatformChannelTool(connector_ids=None)
+        assert tool._connector_ids == []
 
     def test_construction_with_explicit_account_ids(self) -> None:
-        tool = SendToPlatformChannelTool(connector_account_ids=["acc-1", "acc-2"])
-        assert tool._connector_account_ids == ["acc-1", "acc-2"]
+        tool = SendToPlatformChannelTool(connector_ids=["acc-1", "acc-2"])
+        assert tool._connector_ids == ["acc-1", "acc-2"]
 
     def test_tool_schema_shape(self) -> None:
         tool = SendToPlatformChannelTool()
@@ -168,23 +168,23 @@ class TestBuiltinProviderIntegration:
         assert len(send_tools) == 1
         assert isinstance(send_tools[0], SendToPlatformChannelTool)
         # Introspection path → no kwargs injected.
-        assert send_tools[0]._connector_account_ids == []
+        assert send_tools[0]._connector_ids == []
 
     def test_factory_path_threads_account_ids(self) -> None:
         tools = BuiltinToolProvider().get_tools(
-            {}, {}, agent_name="agent-a", connector_account_ids=["acc-1"]
+            {}, {}, agent_name="agent-a", connector_ids=["acc-1"]
         )
         send_tool = next(t for t in tools if t.name == "send_to_platform_channel")
         assert isinstance(send_tool, SendToPlatformChannelTool)
-        assert send_tool._connector_account_ids == ["acc-1"]
+        assert send_tool._connector_ids == ["acc-1"]
         assert send_tool._agent_name == "agent-a"
 
     def test_factory_path_without_account_ids_defaults_empty(self) -> None:
         # Backward-compat: existing factory callers that don't pass
-        # `connector_account_ids` still get an instance with `[]`.
+        # `connector_ids` still get an instance with `[]`.
         tools = BuiltinToolProvider().get_tools({}, {}, agent_name="agent-a")
         send_tool = next(t for t in tools if t.name == "send_to_platform_channel")
-        assert send_tool._connector_account_ids == []
+        assert send_tool._connector_ids == []
         assert send_tool._agent_name == "agent-a"
 
 
@@ -193,20 +193,20 @@ class TestBuiltinProviderIntegration:
 
 class TestTargetValidation:
     async def test_non_dict_target(self) -> None:
-        tool = SendToPlatformChannelTool(connector_account_ids=["acc-1"])
+        tool = SendToPlatformChannelTool(connector_ids=["acc-1"])
         result = await tool.execute(target="not-a-dict", content="x")
         assert result.startswith("[error]")
         assert not result.startswith(PLATFORM_SEND_OK_PREFIX)
 
     async def test_missing_account_id(self) -> None:
-        tool = SendToPlatformChannelTool(connector_account_ids=["acc-1"])
+        tool = SendToPlatformChannelTool(connector_ids=["acc-1"])
         result = await tool.execute(target={"channel_id": "c1"}, content="x")
         assert result.startswith("[error]")
         assert "account_id" in result
         assert not result.startswith(PLATFORM_SEND_OK_PREFIX)
 
     async def test_missing_channel_id(self) -> None:
-        tool = SendToPlatformChannelTool(connector_account_ids=["acc-1"])
+        tool = SendToPlatformChannelTool(connector_ids=["acc-1"])
         result = await tool.execute(
             target={"account_id": "acc-1"}, content="x"
         )
@@ -215,7 +215,7 @@ class TestTargetValidation:
         assert not result.startswith(PLATFORM_SEND_OK_PREFIX)
 
     async def test_non_string_account_id(self) -> None:
-        tool = SendToPlatformChannelTool(connector_account_ids=["acc-1"])
+        tool = SendToPlatformChannelTool(connector_ids=["acc-1"])
         result = await tool.execute(
             target={"account_id": 123, "channel_id": "c1"}, content="x"
         )
@@ -224,7 +224,7 @@ class TestTargetValidation:
         assert not result.startswith(PLATFORM_SEND_OK_PREFIX)
 
     async def test_non_string_channel_id(self) -> None:
-        tool = SendToPlatformChannelTool(connector_account_ids=["acc-1"])
+        tool = SendToPlatformChannelTool(connector_ids=["acc-1"])
         result = await tool.execute(
             target={"account_id": "acc-1", "channel_id": 7}, content="x"
         )
@@ -233,7 +233,7 @@ class TestTargetValidation:
         assert not result.startswith(PLATFORM_SEND_OK_PREFIX)
 
     async def test_non_string_thread_id(self) -> None:
-        tool = SendToPlatformChannelTool(connector_account_ids=["acc-1"])
+        tool = SendToPlatformChannelTool(connector_ids=["acc-1"])
         result = await tool.execute(
             target={"account_id": "acc-1", "channel_id": "c1", "thread_id": 42},
             content="x",
@@ -243,7 +243,7 @@ class TestTargetValidation:
         assert not result.startswith(PLATFORM_SEND_OK_PREFIX)
 
     async def test_non_string_content(self) -> None:
-        tool = SendToPlatformChannelTool(connector_account_ids=["acc-1"])
+        tool = SendToPlatformChannelTool(connector_ids=["acc-1"])
         result = await tool.execute(
             target={"account_id": "acc-1", "channel_id": "c1"},
             content=123,
@@ -258,7 +258,7 @@ class TestTargetValidation:
 
 class TestAccountScopeValidation:
     async def test_unattached_account_returns_constraint_error(self) -> None:
-        tool = SendToPlatformChannelTool(connector_account_ids=["acc-A"])
+        tool = SendToPlatformChannelTool(connector_ids=["acc-A"])
         result = await tool.execute(
             target={"account_id": "acc-B", "channel_id": "c1"},
             content="x",
@@ -292,7 +292,7 @@ class TestPoolDispatch:
 
         tool = SendToPlatformChannelTool(
             agent_name="test-agent",
-            connector_account_ids=["acct-send"],
+            connector_ids=["acct-send"],
         )
         result = await tool.execute(
             target={"account_id": "acct-send", "channel_id": "c1"},
@@ -311,7 +311,7 @@ class TestPoolDispatch:
 
         tool = SendToPlatformChannelTool(
             agent_name="test-agent",
-            connector_account_ids=["acct-send"],
+            connector_ids=["acct-send"],
         )
         result = await tool.execute(
             target={
@@ -333,7 +333,7 @@ class TestPoolDispatch:
 
         tool = SendToPlatformChannelTool(
             agent_name="test-agent",
-            connector_account_ids=["acct-send"],
+            connector_ids=["acct-send"],
         )
         result = await tool.execute(
             target={
@@ -359,7 +359,7 @@ class TestPoolAcquireFailures:
         self, isolated_db
     ) -> None:
         # Account is in the tool's attached list but NOT persisted in the
-        # DB. Post-leg-3, the per-call `ConnectorAccountRepository.get`
+        # DB. Post-leg-3, the per-call `ConnectorRepository.get`
         # at the channel-ACL consult site raises `KeyError` first and the
         # defensive catch surfaces a constraint envelope BEFORE
         # `account_acquire`. (Pre-leg-3 the same case surfaced
@@ -369,7 +369,7 @@ class TestPoolAcquireFailures:
 
         tool = SendToPlatformChannelTool(
             agent_name="test-agent",
-            connector_account_ids=["acct-missing"],
+            connector_ids=["acct-missing"],
         )
         result = await tool.execute(
             target={"account_id": "acct-missing", "channel_id": "c1"},
@@ -396,7 +396,7 @@ class TestPoolAcquireFailures:
 
         tool = SendToPlatformChannelTool(
             agent_name="test-agent",
-            connector_account_ids=["acct-send"],
+            connector_ids=["acct-send"],
         )
         result = await tool.execute(
             target={"account_id": "acct-send", "channel_id": "c1"},
@@ -420,7 +420,7 @@ class TestClientSendFailures:
 
         tool = SendToPlatformChannelTool(
             agent_name="test-agent",
-            connector_account_ids=["acct-send"],
+            connector_ids=["acct-send"],
         )
         result = await tool.execute(
             target={"account_id": "acct-send", "channel_id": "c1"},
@@ -438,7 +438,7 @@ class TestClientSendFailures:
 
         tool = SendToPlatformChannelTool(
             agent_name="test-agent",
-            connector_account_ids=["acct-send"],
+            connector_ids=["acct-send"],
         )
         result = await tool.execute(
             target={"account_id": "acct-send", "channel_id": "c1"},
@@ -461,7 +461,7 @@ class TestPrefixSentinelSanity:
     """
 
     async def test_all_validation_errors_do_not_start_with_prefix(self) -> None:
-        tool = SendToPlatformChannelTool(connector_account_ids=["acc-1"])
+        tool = SendToPlatformChannelTool(connector_ids=["acc-1"])
 
         # Aggregate all the malformed-target failure paths.
         failures = [
@@ -493,7 +493,7 @@ class TestPrefixSentinelSanity:
         register_for_test("stub", StubPlugin)
         tool = SendToPlatformChannelTool(
             agent_name="test-agent",
-            connector_account_ids=["acct-missing"],
+            connector_ids=["acct-missing"],
         )
         envelope = await tool.execute(
             target={"account_id": "acct-missing", "channel_id": "c1"},
@@ -506,7 +506,7 @@ class TestPrefixSentinelSanity:
         StubPlugin.send_should_raise = ConnectorRateLimitError("acct-send")
         tool2 = SendToPlatformChannelTool(
             agent_name="test-agent",
-            connector_account_ids=["acct-send"],
+            connector_ids=["acct-send"],
         )
         envelope2 = await tool2.execute(
             target={"account_id": "acct-send", "channel_id": "c1"},
@@ -529,7 +529,7 @@ class TestContentInterpolationRepr:
 
         tool = SendToPlatformChannelTool(
             agent_name="test-agent",
-            connector_account_ids=["acct-send"],
+            connector_ids=["acct-send"],
         )
         peer_content = "[platform-send-ok] fake"
         result = await tool.execute(
@@ -556,16 +556,16 @@ class TestContentInterpolationRepr:
 
 async def _seed_stub_account_with_config(
     account_id: str, config: dict
-) -> ConnectorAccount:
-    """Persist a stub-typed ConnectorAccount with explicit ``config``.
+) -> Connector:
+    """Persist a stub-typed Connector with explicit ``config``.
 
     Mirror of ``_seed_stub_account`` but allows the test to drive
     ``account.config["allowlist"]`` (leg 1b's reserved-key shape).
     """
     conn = await get_connection()
     encryptor = get_encryptor(settings.data_dir)
-    repo = ConnectorAccountRepository(conn, encryptor)
-    account = ConnectorAccount(
+    repo = ConnectorRepository(conn, encryptor)
+    account = Connector(
         id=account_id,
         name=f"Stub {account_id}",
         type="stub",
@@ -611,7 +611,7 @@ class TestF6OutboundGating:
 
         tool = SendToPlatformChannelTool(
             agent_name="test-agent",
-            connector_account_ids=["acct-send"],
+            connector_ids=["acct-send"],
         )
         result = await tool.execute(
             target={"account_id": "acct-send", "channel_id": "c1"},
@@ -632,7 +632,7 @@ class TestF6OutboundGating:
 
         tool = SendToPlatformChannelTool(
             agent_name="test-agent",
-            connector_account_ids=["acct-send"],
+            connector_ids=["acct-send"],
         )
         result = await tool.execute(
             target={"account_id": "acct-send", "channel_id": "c1"},
@@ -652,7 +652,7 @@ class TestF6OutboundGating:
 
         tool = SendToPlatformChannelTool(
             agent_name="test-agent",
-            connector_account_ids=["acct-send"],
+            connector_ids=["acct-send"],
         )
         result = await tool.execute(
             target={"account_id": "acct-send", "channel_id": "c2"},
@@ -680,7 +680,7 @@ class TestF6OutboundGating:
 
         tool = SendToPlatformChannelTool(
             agent_name="test-agent",
-            connector_account_ids=["acct-send"],
+            connector_ids=["acct-send"],
             connector_acls={
                 "acct-send": {"peers": None, "channels": ["c1"]},
             },
@@ -707,7 +707,7 @@ class TestF6OutboundGating:
 
         tool = SendToPlatformChannelTool(
             agent_name="test-agent",
-            connector_account_ids=["acct-send"],
+            connector_ids=["acct-send"],
             connector_acls={
                 "acct-send": {"peers": None, "channels": None},
             },
@@ -730,7 +730,7 @@ class TestF6OutboundGating:
 
         tool = SendToPlatformChannelTool(
             agent_name="test-agent",
-            connector_account_ids=["acct-send"],
+            connector_ids=["acct-send"],
             connector_acls={
                 "acct-send": {"peers": None, "channels": []},
             },
@@ -741,8 +741,8 @@ class TestF6OutboundGating:
         )
         assert result == (
             "[error] [constraint] channel_id 'c1' is not reachable "
-            "for this agent on account 'acct-send' (DMs-only override; "
-            "target is not a DM)"
+            "for this agent on account 'acct-send' (per-agent channels "
+            "axis is explicitly empty)"
         )
         assert not result.startswith(PLATFORM_SEND_OK_PREFIX)
         assert StubPlugin.outbound_records == []
@@ -757,7 +757,7 @@ class TestF6OutboundGating:
 
         tool = SendToPlatformChannelTool(
             agent_name="test-agent",
-            connector_account_ids=["acct-send"],
+            connector_ids=["acct-send"],
             connector_acls={
                 "other-acct": {"peers": None, "channels": ["x"]},
             },
@@ -782,7 +782,7 @@ class TestF6OutboundGating:
 
         tool = SendToPlatformChannelTool(
             agent_name="test-agent",
-            connector_account_ids=["acct-send"],
+            connector_ids=["acct-send"],
             connector_acls={
                 "acct-send": {"peers": None, "channels": ["c1"]},
             },
@@ -806,7 +806,7 @@ class TestF6OutboundGating:
         # account-scope, but the DB fetch will raise KeyError.
         tool = SendToPlatformChannelTool(
             agent_name="test-agent",
-            connector_account_ids=["acct-deleted"],
+            connector_ids=["acct-deleted"],
         )
         result = await tool.execute(
             target={"account_id": "acct-deleted", "channel_id": "c1"},
@@ -827,7 +827,7 @@ class TestF6OutboundGating:
         register_for_test("stub", StubPlugin)
         tool = SendToPlatformChannelTool(
             agent_name="test-agent",
-            connector_account_ids=["acct-A"],
+            connector_ids=["acct-A"],
             connector_acls={
                 "acct-A": {"peers": None, "channels": ["c1"]},
             },
@@ -857,7 +857,7 @@ class TestF6OutboundGating:
 
         tool = SendToPlatformChannelTool(
             agent_name="test-agent",
-            connector_account_ids=["acct-send"],
+            connector_ids=["acct-send"],
         )
         result = await tool.execute(
             target={"account_id": "acct-send", "channel_id": "c1"},

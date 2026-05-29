@@ -43,10 +43,10 @@ from the_one.connectors.registry import (
     restore_to_baseline_for_test,
 )
 from the_one.db.connection import get_connection
-from the_one.db.models import ChatSession, ConnectorAccount
+from the_one.db.models import ChatSession, Connector
 from the_one.db.repositories import (
     ChatSessionRepository,
-    ConnectorAccountRepository,
+    ConnectorRepository,
 )
 from the_one.db.schema import ensure_schema
 from the_one.encryption import get_encryptor
@@ -111,11 +111,11 @@ async def isolated_db(tmp_path, monkeypatch):
 
 async def _seed_stub_account(
     account_id: str = "acct-hist", config: dict | None = None
-) -> ConnectorAccount:
+) -> Connector:
     conn = await get_connection()
     encryptor = get_encryptor(settings.data_dir)
-    repo = ConnectorAccountRepository(conn, encryptor)
-    account = ConnectorAccount(
+    repo = ConnectorRepository(conn, encryptor)
+    account = Connector(
         id=account_id,
         name=f"Stub {account_id}",
         type="stub",
@@ -137,7 +137,7 @@ async def _seed_connector_session(
 
     The tools resolve the connector account via
     ``ChatSessionRepository.get(current_chat_session_id.get())`` then
-    read ``session.connector_account_id``. This helper sets up that
+    read ``session.connector_id``. This helper sets up that
     chain end-to-end.
     """
     conn = await get_connection()
@@ -148,7 +148,7 @@ async def _seed_connector_session(
             agent_name="agent-hist",
             title="connector session",
             platform="stub",
-            connector_account_id=account_id,
+            connector_id=account_id,
             channel_id=channel_id,
             thread_id=thread_id,
             peer_id=peer_id,
@@ -283,7 +283,7 @@ class TestRegistry:
     def test_factory_path_threads_connector_kwargs_to_history_tools(
         self,
     ) -> None:
-        # The factory path must inject ``connector_account_ids`` and
+        # The factory path must inject ``connector_ids`` and
         # ``connector_acls`` into the four new tools (same as
         # SendToPlatformChannelTool).
         acls = {"acct-hist": {"channels": ["ch-1"], "peers": None}}
@@ -291,7 +291,7 @@ class TestRegistry:
             {},
             {},
             agent_name="agent-a",
-            connector_account_ids=["acct-hist"],
+            connector_ids=["acct-hist"],
             connector_acls=acls,
         )
         for tool_name in (
@@ -301,7 +301,7 @@ class TestRegistry:
             "list_visible_channels",
         ):
             tool = next(t for t in tools if t.name == tool_name)
-            assert tool._connector_account_ids == ["acct-hist"]
+            assert tool._connector_ids == ["acct-hist"]
             assert tool._connector_acls == acls
             assert tool._agent_name == "agent-a"
 
@@ -333,7 +333,7 @@ class TestFetchChannelHistory:
 
         acls = {"acct-hist": {"channels": ["ch-other"], "peers": None}}
         tool = FetchChannelHistoryTool(
-            connector_account_ids=["acct-hist"],
+            connector_ids=["acct-hist"],
             connector_acls=acls,
         )
 
@@ -355,7 +355,7 @@ class TestFetchChannelHistory:
         register_for_test("stub", StubPlugin)
         sid = await _seed_connector_session()
 
-        tool = FetchChannelHistoryTool(connector_account_ids=["acct-hist"])
+        tool = FetchChannelHistoryTool(connector_ids=["acct-hist"])
         token = _bind_csid(sid)
         try:
             result = await tool.execute(channel_id="ch-1")
@@ -372,7 +372,7 @@ class TestFetchChannelHistory:
         register_for_test("stub", _StubPluginWithFetch)
         sid = await _seed_connector_session()
 
-        tool = FetchChannelHistoryTool(connector_account_ids=["acct-hist"])
+        tool = FetchChannelHistoryTool(connector_ids=["acct-hist"])
         token = _bind_csid(sid)
         try:
             result = await tool.execute(channel_id="ch-1", limit=5)
@@ -401,7 +401,7 @@ class TestFetchChannelHistory:
         sid = await _seed_connector_session()
         _StubPluginWithFetch.fetch_should_raise = RuntimeError("boom")
 
-        tool = FetchChannelHistoryTool(connector_account_ids=["acct-hist"])
+        tool = FetchChannelHistoryTool(connector_ids=["acct-hist"])
         token = _bind_csid(sid)
         try:
             result = await tool.execute(channel_id="ch-1")
@@ -440,7 +440,7 @@ class TestFetchThreadHistory:
 
         acls = {"acct-hist": {"channels": ["ch-other"], "peers": None}}
         tool = FetchThreadHistoryTool(
-            connector_account_ids=["acct-hist"], connector_acls=acls
+            connector_ids=["acct-hist"], connector_acls=acls
         )
         token = _bind_csid(sid)
         try:
@@ -457,7 +457,7 @@ class TestFetchThreadHistory:
         register_for_test("stub", StubPlugin)
         sid = await _seed_connector_session()
 
-        tool = FetchThreadHistoryTool(connector_account_ids=["acct-hist"])
+        tool = FetchThreadHistoryTool(connector_ids=["acct-hist"])
         token = _bind_csid(sid)
         try:
             result = await tool.execute(channel_id="ch-1", thread_id="t-1")
@@ -474,7 +474,7 @@ class TestFetchThreadHistory:
         register_for_test("stub", _StubPluginWithFetch)
         sid = await _seed_connector_session()
 
-        tool = FetchThreadHistoryTool(connector_account_ids=["acct-hist"])
+        tool = FetchThreadHistoryTool(connector_ids=["acct-hist"])
         token = _bind_csid(sid)
         try:
             result = await tool.execute(
@@ -498,7 +498,7 @@ class TestFetchThreadHistory:
         sid = await _seed_connector_session()
         _StubPluginWithFetch.fetch_should_raise = ValueError("bad thread")
 
-        tool = FetchThreadHistoryTool(connector_account_ids=["acct-hist"])
+        tool = FetchThreadHistoryTool(connector_ids=["acct-hist"])
         token = _bind_csid(sid)
         try:
             result = await tool.execute(channel_id="ch-1", thread_id="t-1")
@@ -536,7 +536,7 @@ class TestFetchDmHistory:
 
         acls = {"acct-hist": {"channels": None, "peers": []}}
         tool = FetchDmHistoryTool(
-            connector_account_ids=["acct-hist"], connector_acls=acls
+            connector_ids=["acct-hist"], connector_acls=acls
         )
         token = _bind_csid(sid)
         try:
@@ -557,7 +557,7 @@ class TestFetchDmHistory:
         register_for_test("stub", _StubPluginWithFetch)
         sid = await _seed_connector_session()
 
-        tool = FetchDmHistoryTool(connector_account_ids=["acct-hist"])
+        tool = FetchDmHistoryTool(connector_ids=["acct-hist"])
         token = _bind_csid(sid)
         try:
             result = await tool.execute(peer_id="user-9")
@@ -572,7 +572,7 @@ class TestFetchDmHistory:
         register_for_test("stub", StubPlugin)
         sid = await _seed_connector_session()
 
-        tool = FetchDmHistoryTool(connector_account_ids=["acct-hist"])
+        tool = FetchDmHistoryTool(connector_ids=["acct-hist"])
         token = _bind_csid(sid)
         try:
             result = await tool.execute(peer_id="user-1")
@@ -587,7 +587,7 @@ class TestFetchDmHistory:
         register_for_test("stub", _StubPluginWithFetch)
         sid = await _seed_connector_session()
 
-        tool = FetchDmHistoryTool(connector_account_ids=["acct-hist"])
+        tool = FetchDmHistoryTool(connector_ids=["acct-hist"])
         token = _bind_csid(sid)
         try:
             result = await tool.execute(peer_id="user-1", limit=2)
@@ -608,7 +608,7 @@ class TestFetchDmHistory:
         sid = await _seed_connector_session()
         _StubPluginWithFetch.fetch_dm_should_raise = RuntimeError("dm boom")
 
-        tool = FetchDmHistoryTool(connector_account_ids=["acct-hist"])
+        tool = FetchDmHistoryTool(connector_ids=["acct-hist"])
         token = _bind_csid(sid)
         try:
             result = await tool.execute(peer_id="user-1")
@@ -670,7 +670,7 @@ class TestListVisibleChannels:
             pool_mod, "_get_account_cache_snapshot", _fake_snapshot
         )
 
-        tool = ListVisibleChannelsTool(connector_account_ids=["acct-hist"])
+        tool = ListVisibleChannelsTool(connector_ids=["acct-hist"])
         token = _bind_csid(sid)
         try:
             result = await tool.execute()
@@ -712,7 +712,7 @@ class TestListVisibleChannels:
             fetched_at="2026-01-01T00:00:00+00:00",
         )
 
-        tool = ListVisibleChannelsTool(connector_account_ids=["acct-hist"])
+        tool = ListVisibleChannelsTool(connector_ids=["acct-hist"])
         token = _bind_csid(sid)
         try:
             result = await tool.execute()
@@ -738,7 +738,7 @@ class TestListVisibleChannels:
             pool_mod, "_get_account_cache_snapshot", _fake_snapshot
         )
 
-        tool = ListVisibleChannelsTool(connector_account_ids=["acct-hist"])
+        tool = ListVisibleChannelsTool(connector_ids=["acct-hist"])
         token = _bind_csid(sid)
         try:
             result = await tool.execute()
@@ -766,7 +766,7 @@ class TestCycle1Additions:
         await _seed_stub_account()
         register_for_test("stub", _StubPluginWithFetch)
 
-        tool = FetchChannelHistoryTool(connector_account_ids=["acct-hist"])
+        tool = FetchChannelHistoryTool(connector_ids=["acct-hist"])
         token = _bind_csid("cs-does-not-exist")
         try:
             result = await tool.execute(channel_id="ch-1")
@@ -808,7 +808,7 @@ class TestCycle1Additions:
             pool_mod, "_get_account_cache_snapshot", _fake_snapshot
         )
 
-        tool = ListVisibleChannelsTool(connector_account_ids=["acct-hist"])
+        tool = ListVisibleChannelsTool(connector_ids=["acct-hist"])
         token = _bind_csid(sid)
         try:
             result = await tool.execute()

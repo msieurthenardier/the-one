@@ -27,7 +27,7 @@ from __future__ import annotations
 import httpx
 import pytest
 from browser.seeders import (
-    seed_connector_account,
+    seed_connector,
     seed_mock_agent,
     seed_mock_provider,
 )
@@ -49,17 +49,17 @@ def _put_agent(base_url: str, agent_name: str, cfg: dict) -> None:
 
 
 def _attach_agent_to_account(base_url: str, agent_name: str, account_id: str) -> None:
-    """Mutate an existing agent so its ``connector_account_ids`` includes
+    """Mutate an existing agent so its ``connector_ids`` includes
     ``account_id``. PUT /api/agents is REPLACE semantic — GET the
     current config first and re-PUT with the connector id appended.
 
     Mirrors the helper in ``test_flow_studio_always_listen_toggles.py``.
     """
     cfg = _get_agent(base_url, agent_name)
-    ids = list(cfg.get("connector_account_ids") or [])
+    ids = list(cfg.get("connector_ids") or [])
     if account_id not in ids:
         ids.append(account_id)
-    cfg["connector_account_ids"] = ids
+    cfg["connector_ids"] = ids
     _put_agent(base_url, agent_name, cfg)
 
 
@@ -78,7 +78,7 @@ def _seed_account_with_agent(
     """
     provider_id = seed_mock_provider(base_url, name=f"mock-for-{agent_name}")
     seed_mock_agent(base_url, provider_id, name=agent_name)
-    account_id = seed_connector_account(
+    account_id = seed_connector(
         base_url,
         name=account_name,
         config={

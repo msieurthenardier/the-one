@@ -304,7 +304,7 @@ class AgentFactory:
         # The carve-out (loading the tool's schema into the F10 baseline-
         # visible set) and the system-prompt directive both consult these
         # flags. Computed once here so the post-loop carve-out site reuses.
-        connector_attached = bool(config.connector_account_ids)
+        connector_attached = bool(config.connector_ids)
         send_tool_enabled = (
             "send_to_platform_channel" not in disabled_names
             and config.is_tool_enabled("send_to_platform_channel")
@@ -317,7 +317,7 @@ class AgentFactory:
         # substrate defaults are used universally. The ``operator_directive``
         # kwarg on ``compose_system_prompt`` was likewise removed.
         # The ``system_prompt_directive`` key on persisted
-        # ``ConnectorAccount.config`` is now IGNORED at agent-create time
+        # ``Connector.config`` is now IGNORED at agent-create time
         # (the API validator no longer accepts it on new writes; old rows
         # that still carry it have no effect on prompt composition).
 
@@ -382,12 +382,12 @@ class AgentFactory:
                     tool_configs_by_name,
                     agent_overrides,
                     agent_name=name,
-                    connector_account_ids=config.connector_account_ids,
+                    connector_ids=config.connector_ids,
                     connector_acls=config.connector_acls,
                 )
             else:
                 # Non-builtin providers (test stubs, future provider types)
-                # use the unwidened signature. Adding `connector_account_ids`
+                # use the unwidened signature. Adding `connector_ids`
                 # to the ToolProvider Protocol would force every test stub
                 # to accept it; the branch keeps the change scoped.
                 tools = provider.get_tools(
