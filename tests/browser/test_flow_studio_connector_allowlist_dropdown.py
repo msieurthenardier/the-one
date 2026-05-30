@@ -269,9 +269,13 @@ def test_allowlist_dropdown_onChange_updates_account_config_allowlist(
     items.filter(has_text="#general").click()
 
     # An explicit channel chip should now render for the selected id
-    # under the guild-1 row.
-    explicit_chip = page.locator(
-        '[data-testid="connector-allowlist-channel-chip-guild-1-111"]'
+    # under the guild-1 row. M11 F12 L5 post-fix: the discoverable-
+    # dropdown owns explicit chip rendering (testid
+    # ``discoverable-dropdown-chip-channels`` + ``data-id`` carrying the
+    # channel id). The L5 ``connector-allowlist-channel-chip-*`` testids
+    # were retired with the duplicate-chip fix.
+    explicit_chip = server_row.locator(
+        '[data-testid="discoverable-dropdown-chip-channels"][data-id="111"]'
     )
     expect(explicit_chip).to_have_count(1)
 
@@ -331,18 +335,24 @@ def test_allowlist_dropdown_chip_remove_updates_account_config_allowlist(
     )
     _activate_access_and_routing_tab(page)
 
-    # Wait for the server row + nested chip to render.
+    # Wait for the server row + nested chip to render. M11 F12 L5
+    # post-fix: explicit chips are rendered by the discoverable-dropdown
+    # under each server-scoped channels dropdown; the chip carries
+    # ``data-id`` with the channel id and ``data-testid``
+    # ``discoverable-dropdown-chip-channels``.
     server_row = page.locator(
         '[data-testid="connector-allowlist-server-row-guild-1"]'
     )
     expect(server_row).to_have_count(1, timeout=8000)
-    chip = page.locator(
-        '[data-testid="connector-allowlist-channel-chip-guild-1-111"]'
+    chip = server_row.locator(
+        '[data-testid="discoverable-dropdown-chip-channels"][data-id="111"]'
     )
     expect(chip).to_have_count(1)
 
-    # The × button is inside the chip (server-scoped).
-    chip.locator('button.chip-remove').click()
+    # The × button is inside the chip (dropdown-owned remove affordance).
+    chip.locator(
+        '[data-testid="discoverable-dropdown-chip-remove-channels"]'
+    ).click()
     expect(chip).to_have_count(0)
 
     save_btn = page.locator('[data-testid="save-connector-btn"]')

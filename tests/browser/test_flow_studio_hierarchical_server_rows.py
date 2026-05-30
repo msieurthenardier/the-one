@@ -154,15 +154,19 @@ def test_server_row_renders_with_nested_channels_and_roles(
     )
     expect(server_row).to_have_count(1, timeout=8000)
 
-    # Nested explicit-channel chip renders inside the row.
-    channel_chip = page.locator(
-        '[data-testid="connector-allowlist-channel-chip-guild-A-chan-A-1"]'
+    # Nested explicit-channel chip renders inside the row. M11 F12 L5
+    # post-fix: explicit chips are owned by the discoverable-dropdown
+    # (one chip per id, with friendly label); the L5 raw-id
+    # ``connector-allowlist-channel-chip-*`` testids were retired to
+    # eliminate the duplicate-chip bug.
+    channel_chip = server_row.locator(
+        '[data-testid="discoverable-dropdown-chip-channels"][data-id="chan-A-1"]'
     )
     expect(channel_chip).to_have_count(1)
 
     # Nested explicit-role chip renders inside the row.
-    role_chip = page.locator(
-        '[data-testid="connector-allowlist-role-chip-guild-A-role-A-mod"]'
+    role_chip = server_row.locator(
+        '[data-testid="discoverable-dropdown-chip-roles"][data-id="role-A-mod"]'
     )
     expect(role_chip).to_have_count(1)
 
@@ -264,10 +268,15 @@ def test_explicit_channel_chip_renders_without_wildcard_sentinel(
     ).to_be_visible(timeout=8000)
     _activate_access_and_routing_tab(page)
 
-    # Explicit chip present.
+    # Explicit chip present. M11 F12 L5 post-fix: rendered by the
+    # discoverable-dropdown inside the server-scoped channels dropdown.
+    server_row = page.locator(
+        '[data-testid="connector-allowlist-server-row-guild-A"]'
+    )
+    expect(server_row).to_have_count(1, timeout=8000)
     expect(
-        page.locator(
-            '[data-testid="connector-allowlist-channel-chip-guild-A-chan-A-1"]'
+        server_row.locator(
+            '[data-testid="discoverable-dropdown-chip-channels"][data-id="chan-A-1"]'
         )
     ).to_have_count(1, timeout=8000)
     # Wildcard channels sentinel NOT present (explicit narrowing).

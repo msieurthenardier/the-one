@@ -3326,6 +3326,63 @@
       if (typeof checkDirty === 'function') checkDirty();
     }
 
+    // Per-editor label cache. Mirrors the ``_labelCache`` pattern in
+    // ``connectors-tab.js`` (lines ~271-304) so guild_id → friendly
+    // server name resolution works on render without depending on the
+    // sibling discoverable-dropdown's internal entity cache. The cache
+    // is populated lazily on first ``_rerender`` and triggers a
+    // single re-render once it resolves so server-row headers swap
+    // raw ids for friendly labels without flicker on subsequent
+    // re-renders.
+    var _labelCache = null;
+    var _labelCachePromise = null;
+
+    function _ensureLabelCache() {
+      if (_labelCachePromise) return _labelCachePromise;
+      if (!account || !account.id) {
+        _labelCache = {};
+        _labelCachePromise = Promise.resolve(_labelCache);
+        return _labelCachePromise;
+      }
+      var url = '/api/connectors/' +
+        encodeURIComponent(account.id) +
+        '/discoverable-entities';
+      _labelCachePromise = fetch(url).then(function (response) {
+        if (!response.ok) {
+          _labelCache = {};
+          return _labelCache;
+        }
+        return response.json().then(function (body) {
+          var map = {};
+          var ents = (body && body.entities) || {};
+          var axes = ['peers', 'channels', 'groups', 'roles'];
+          for (var a = 0; a < axes.length; a++) {
+            var list = ents[axes[a]] || [];
+            for (var i = 0; i < list.length; i++) {
+              var e = list[i];
+              if (e && e.id && e.label) map[String(e.id)] = e.label;
+            }
+          }
+          _labelCache = map;
+          return _labelCache;
+        });
+      }).catch(function (err) {
+        _labelCache = {};
+        try { console.error('connector-editor label-cache fetch failed:', err); }
+        catch (logErr) { /* console missing */ }
+        return _labelCache;
+      });
+      return _labelCachePromise;
+    }
+
+    function _labelFor(id) {
+      if (_labelCache && id != null) {
+        var hit = _labelCache[String(id)];
+        if (hit) return hit;
+      }
+      return String(id);
+    }
+
     function _channelsForGuild(guildId) {
       var out = [];
       for (var i = 0; i < state.channels.length; i++) {
@@ -3480,12 +3537,15 @@
         'data-testid', 'connector-allowlist-server-row-' + guildId
       );
 
-      // Header: server name + remove button.
+      // Header: server name + remove button. Resolve guild_id → friendly
+      // label via ``_labelCache`` (mirrors connectors-tab.js pattern); the
+      // cache may not be populated yet on first render — ``_rerender``
+      // kicks ``_ensureLabelCache`` and re-renders once it resolves.
       var header = document.createElement('div');
       header.className = 'connector-allowlist-server-row-header';
       var nameSpan = document.createElement('span');
       nameSpan.className = 'connector-allowlist-server-row-name';
-      nameSpan.textContent = guildId;
+      nameSpan.textContent = _labelFor(guildId);
       header.appendChild(nameSpan);
       var removeBtn = document.createElement('button');
       removeBtn.type = 'button';
@@ -3494,7 +3554,7 @@
         'data-testid',
         'connector-allowlist-server-row-remove-' + guildId
       );
-      removeBtn.setAttribute('aria-label', 'Remove server ' + guildId);
+      removeBtn.setAttribute('aria-label', 'Remove server ' + _labelFor(guildId));
       removeBtn.textContent = '×';
       removeBtn.addEventListener('click', function () {
         _cascadeDeleteServer(guildId);
@@ -3513,42 +3573,36 @@
       channelsLabel.textContent = _capitalize(vocab.channels) + ':';
       channelsSubRow.appendChild(channelsLabel);
 
+      // Wildcard sentinel chip ("(all channels)") renders when the
+      // server row has no explicit channel narrowing. Explicit channel
+      // chips are NOT rendered here — the mounted discoverable-dropdown
+      // owns explicit chip rendering (with friendly labels + working
+      // remove buttons) when it receives the entries as initial values.
+      // Rendering them here too caused the L5 double-chip bug (one with
+      // raw ID, one from the dropdown with friendly label).
       var channelsEntries = _channelsForGuild(guildId);
       for (var ci = 0; ci < channelsEntries.length; ci++) {
         var ce = channelsEntries[ci];
-        var chip = document.createElement('span');
-        chip.className = 'chip connector-allowlist-channel-chip';
         if (ce.channel_id === '*') {
-          chip.className += ' connector-allowlist-wildcard-sentinel';
-          chip.setAttribute(
+          var sentinelChip = document.createElement('span');
+          sentinelChip.className =
+            'chip connector-allowlist-channel-chip connector-allowlist-wildcard-sentinel';
+          sentinelChip.setAttribute(
             'data-testid',
             'connector-allowlist-channels-wildcard-' + guildId
           );
-          chip.textContent = '(all ' + vocab.channels + ')';
+          sentinelChip.textContent = '(all ' + vocab.channels + ')';
           // Sentinel chip is not directly removable — it disappears
           // when the operator adds an explicit channel.
-        } else {
-          chip.setAttribute(
-            'data-testid',
-            'connector-allowlist-channel-chip-' + guildId + '-' + ce.channel_id
-          );
-          chip.appendChild(document.createTextNode(ce.channel_id));
-          (function (cid) {
-            var btn = document.createElement('button');
-            btn.type = 'button';
-            btn.className = 'chip-remove';
-            btn.setAttribute('aria-label', 'Remove channel ' + cid);
-            btn.textContent = '×';
-            btn.addEventListener('click', function () {
-              _onChannelRemoved(guildId, cid);
-            });
-            chip.appendChild(btn);
-          })(ce.channel_id);
+          channelsSubRow.appendChild(sentinelChip);
         }
-        channelsSubRow.appendChild(chip);
       }
 
       // Add-channel dropdown (server-scoped — pass guildId context).
+      // The dropdown is also responsible for rendering explicit chips
+      // (via its internal _renderChips) and for emitting removals when
+      // the operator clicks a chip's × button — so the editor must
+      // handle both additions AND removals from the onChange payload.
       var registry = (window.App && window.App.studio
           && window.App.studio.connectorFormRegistry) || null;
       var typeEntry = (registry && account && account.type)
@@ -3559,21 +3613,28 @@
           channelsEntries.filter(function (c) { return c.channel_id !== '*'; }),
           vocab,
           function (newValues) {
-            // Diff new vs old (excluding sentinel). Any net-additions
-            // become explicit channel adds.
-            var existingIds = {};
+            // Diff new vs old (excluding sentinel). Net-additions
+            // become explicit channel adds; net-removals fire
+            // ``_onChannelRemoved`` (the dropdown's chip × button is
+            // the sole remove affordance post fix-cycle).
             var oldEntries = channelsEntries
               .filter(function (c) { return c.channel_id !== '*'; });
+            var existingIds = {};
             for (var oi = 0; oi < oldEntries.length; oi++) {
               existingIds[oldEntries[oi].channel_id] = true;
             }
+            var newSet = {};
             for (var ni = 0; ni < newValues.length; ni++) {
               var nv = newValues[ni];
               var nid = (nv && typeof nv === 'object')
                   ? nv.channel_id : String(nv);
-              if (nid && !existingIds[nid]) {
-                _onChannelAdded(guildId, nid);
-              }
+              if (!nid) continue;
+              newSet[nid] = true;
+              if (!existingIds[nid]) _onChannelAdded(guildId, nid);
+            }
+            for (var ri = oldEntries.length - 1; ri >= 0; ri--) {
+              var rid = oldEntries[ri].channel_id;
+              if (!newSet[rid]) _onChannelRemoved(guildId, rid);
             }
           },
           { valueShape: 'channel', guildId: guildId }
@@ -3596,37 +3657,23 @@
       rolesLabel.textContent = _capitalize(vocab.roles) + ':';
       rolesSubRow.appendChild(rolesLabel);
 
+      // Wildcard sentinel chip ("(all roles)") renders when the server
+      // row has no explicit role narrowing. Explicit role chips are
+      // owned by the dropdown (see channels comment above).
       var rolesEntries = _rolesForGuild(guildId);
       for (var ri = 0; ri < rolesEntries.length; ri++) {
         var re = rolesEntries[ri];
-        var rchip = document.createElement('span');
-        rchip.className = 'chip connector-allowlist-role-chip';
         if (re.role_id === '*') {
-          rchip.className += ' connector-allowlist-wildcard-sentinel';
-          rchip.setAttribute(
+          var roleSentinelChip = document.createElement('span');
+          roleSentinelChip.className =
+            'chip connector-allowlist-role-chip connector-allowlist-wildcard-sentinel';
+          roleSentinelChip.setAttribute(
             'data-testid',
             'connector-allowlist-roles-wildcard-' + guildId
           );
-          rchip.textContent = '(all ' + vocab.roles + ')';
-        } else {
-          rchip.setAttribute(
-            'data-testid',
-            'connector-allowlist-role-chip-' + guildId + '-' + re.role_id
-          );
-          rchip.appendChild(document.createTextNode(re.role_id));
-          (function (rid) {
-            var rbtn = document.createElement('button');
-            rbtn.type = 'button';
-            rbtn.className = 'chip-remove';
-            rbtn.setAttribute('aria-label', 'Remove role ' + rid);
-            rbtn.textContent = '×';
-            rbtn.addEventListener('click', function () {
-              _onRoleRemoved(guildId, rid);
-            });
-            rchip.appendChild(rbtn);
-          })(re.role_id);
+          roleSentinelChip.textContent = '(all ' + vocab.roles + ')';
+          rolesSubRow.appendChild(roleSentinelChip);
         }
-        rolesSubRow.appendChild(rchip);
       }
 
       if (typeEntry && typeof typeEntry.renderDiscoverableDropdown === 'function') {
@@ -3635,19 +3682,28 @@
           rolesEntries.filter(function (r) { return r.role_id !== '*'; }),
           vocab,
           function (newValues) {
-            var existingIds = {};
+            // Diff new vs old (excluding sentinel). Net-additions →
+            // ``_onRoleAdded``; net-removals → ``_onRoleRemoved`` (the
+            // dropdown's chip × is the sole remove affordance post
+            // fix-cycle, mirroring the channels handler above).
             var oldEntries = rolesEntries
               .filter(function (r) { return r.role_id !== '*'; });
+            var existingIds = {};
             for (var oi = 0; oi < oldEntries.length; oi++) {
               existingIds[oldEntries[oi].role_id] = true;
             }
+            var newSet = {};
             for (var ni = 0; ni < newValues.length; ni++) {
               var nv = newValues[ni];
               var nid = (nv && typeof nv === 'object')
                   ? nv.role_id : String(nv);
-              if (nid && !existingIds[nid]) {
-                _onRoleAdded(guildId, nid);
-              }
+              if (!nid) continue;
+              newSet[nid] = true;
+              if (!existingIds[nid]) _onRoleAdded(guildId, nid);
+            }
+            for (var rri = oldEntries.length - 1; rri >= 0; rri--) {
+              var rrid = oldEntries[rri].role_id;
+              if (!newSet[rrid]) _onRoleRemoved(guildId, rrid);
             }
           },
           { valueShape: 'role', guildId: guildId }
@@ -3665,6 +3721,15 @@
     }
 
     function _rerender() {
+      // Kick the label cache on first render so guild_id → friendly
+      // server name resolution swaps in once the
+      // ``/discoverable-entities`` fetch resolves. The cache populates
+      // once per editor mount; the ``.then`` re-render only fires once
+      // (the promise is memoized, so subsequent ``_rerender`` calls
+      // reuse the resolved cache directly).
+      if (_labelCache === null && _labelCachePromise === null) {
+        _ensureLabelCache().then(function () { _rerender(); });
+      }
       slotEl.innerHTML = '';
 
       // Add-server dropdown lives at the top of the slot.
