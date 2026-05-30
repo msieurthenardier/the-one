@@ -23,6 +23,19 @@ Flight in-flight. F12 began execution on 2026-05-29 immediately after F11 merged
 - **Pulled-forward F11 debrief methodology lessons** (see flight-log Reconnaissance Report section "Pulled-Forward F11 Debrief Methodology Lessons" — applied across all 4 legs).
 - **Acceptance verification approach**: regression tests + 12-cell cross-product matrix (L3) + browser tests (L4). No standalone behavior-test spec authored.
 
+### 2026-05-30 — Post-land L5 extension (mid-execution pivot)
+
+- **Trigger**: F12 was committed locally as `eb7f04d` (50 files / 5707 ins / 522 del) with L1-L4 all completed, flight status flipped to `landed`, F12 marked `[x]` in mission. Branch NOT pushed yet. Operator subsequently requested a hierarchical-UI alignment around the new structured-tuple substrate: channels and roles should be SUB-PROPERTIES of server rows in the allowlist editor, not flat sections at the same level.
+- **Operator decisions at L5 planning**:
+  - Server-required-for-channel/role: ENFORCED (no orphaned entries; server must be added first)
+  - Legacy entries (null guild_id from v24): AUTO-DELETED in migration v25. Operator framing: "app is not live, just enforce going forward."
+  - Empty server row: server added to `guilds` list AND explicit `(all channels)` / `(all roles)` sentinel markers — new `"*"` wildcard for `channel_id` / `role_id` in the structured-tuple shape
+  - Flight scope: L5 on F12 (cleaner than F13 since F12 isn't merged yet)
+- **Procedural pivot per `/agentic-workflow` mid-execution-pivot guidance**: preserved L1-L4 framing as completed; flipped flight status `landed` → `in-flight`; added L5 entry to flight.md Legs section + Completion Checklist; this FD note records the decision; L5 leg artifact in `legs/05-hierarchical-server-parent-ui.md` is the live spec.
+- **Substrate implications**: schema v25 row-rewrite to delete orphaned null-guild_id entries from `connectors.config.allowlist` + `agents.connector_acls`; Pydantic validator tightened to reject null guild_id post-v25; new wildcard `"*"` semantic in ACL helpers; cross-product matrix extended for wildcard cells.
+- **UI implications**: connector-editor.js allowlist section restructured (Servers as parent organizer with nested Channels + Roles chiplists); connectors-tab.js per-agent overlay mirrors; L4's legacy-entry indicator removed (no more legacy entries post-v25); browser tests updated/added.
+- **Phase 2d-redux**: after L5 implementation, new commit on top of `eb7f04d` (NOT amend), then push branch + open draft PR with both commits.
+
 ---
 
 ## Reconnaissance Report
@@ -292,6 +305,65 @@ Per operator instruction ("pull forward those recommendations"):
 - agent-editor.js itself (the file enumerated in the boundary) was untouched — the per-agent overlay surface is connectors-tab.js. agent-editor.js's `renderAgentEditor` just delegates to `renderConnectorsTab` for the Connectors tab panel.
 
 **No commits made.** Stage held back per Phase 2d batching protocol.
+
+
+### L5 — hierarchical-server-parent-ui (2026-05-30)
+
+**Resumed from partial state**: a prior implementation spawn had already landed the bulk of the production code + tests but was interrupted before reconciling the L4 browser-test surface against the new hierarchical layout. Inspection at resume-start confirmed schema.py v25, models.py + agent/config.py validator tightening, _acl.py wildcard handling, connector-editor.js hierarchical editor mount, discoverable-dropdown.js legacy-indicator deletion, connectors-tab.js per-agent overlay wrap fix, studio.css nested-layout + sentinel-chip styling, TestSchemaV25 (3 tests), TestHierarchicalAxisWildcardMatrix (8 cells), TestAllowlistGuildIdRequired (4 cases), test_flow_studio_hierarchical_server_rows.py (7 tests), and 7 test files updated for default guild_id were all in place. The 2 L4 legacy-indicator browser tests were already retired. This resume session completed verification + reconciled 10 pre-existing L4 browser tests that contradicted the new server-as-parent layout.
+
+**Production substrate**:
+
+- `the_one/db/schema.py` — v25 migration block added after the v24 block (lines ~1418-1564). Row-rewrites `connectors.config.allowlist` AND `agents.connector_acls` per-account payloads, deleting entries from `channels`/`roles` lists where `guild_id is None`. Idempotent (per-row UPDATE only fires when filtered list differs). Defensive: skips when tables/columns absent for hand-built partial-schema test fixtures. Positional-index row access mirrors v24. `CURRENT_VERSION` bumped to 25.
+- `the_one/db/models.py` — `Connector.config` allowlist validator tightened: channel + role entries now REQUIRE non-null `guild_id: str` (was `str | None`); the `missing_keys` set was extended to include `guild_id`. Error message references the L5 hierarchical Server-as-parent rationale.
+- `the_one/agent/config.py` — `_validate_connector_acls` parallel tightening for the per-agent overlay's channels + roles entries.
+- `the_one/connectors/_acl.py` — `_admits_inbound_guild` updated for wildcard semantic: channels admit iff `c["guild_id"] == guild_id AND (c["channel_id"] == "*" OR c["channel_id"] == channel_id)`; roles admit iff entry's `guild_id` matches + `role_id == "*"` OR `member_roles_set & admitted_role_ids` overlap. Same pattern for per-agent overlay's channels + roles. `admits_outbound` mirror: `channel_id == "*"` admits unconditionally for any channel in the list (locked outbound-by-channel-id-alone semantic from L3). Helper docstrings document the wildcard.
+
+**Production UI**:
+
+- `connector-editor.js` — added `_mountAllowlistHierarchicalEditor()` (~270 LOC) replacing the L4 flat 3-section layout. State shape mirrors storage (`{guilds, channels, roles}`). Wildcard sentinel auto-inserted at storage-write time on server-add; removed when explicit channel/role added; re-inserted when last explicit removed. Cascade-delete on server-row removal. Server-scoped dropdowns wired via `valueShape: 'channel'/'role'` + `guildId` context to `discoverableDropdown`. The Servers slot installs a `_hierarchicalAllowlistValues` getter that `collectAllowlistFromContainer` reads to project the full triple back into the save payload. Markup at `renderAllowlistSection` collapsed from 4 sibling slots (peers/channels/guilds/roles) to 2 (peers + servers).
+- `discoverable-dropdown.js` — L4 legacy-entry indicator block deleted (lines ~258-285 in the L4 file: `_entryGuildId()` helper + the `isLegacy` branch + the `connector-allowlist-legacy-indicator` span). Replaced with an L5 comment explaining why (post-v25 there are no null-`guild_id` entries; the wildcard sentinel is rendered by `connector-editor` as a distinct chip class).
+- `connectors-tab.js` — per-agent overlay's flat-string fallback wrap updated for post-v25 non-null `guild_id`: when `axisValueShape === 'channel'`, the previous `{guild_id: null, channel_id: _val}` is now scope-aware (`{guild_id: _scopeChannelGuildIds[_val], channel_id: _val}`); defensive skip when guild_id can't be resolved (the L5 validator would reject the entry anyway). This is a transient code path; the per-agent overlay normally receives structured-shape channels from the API.
+- `studio.css` — nested-layout styles + sentinel-chip styling. `.connector-allowlist-server-rows` (column flex), `.connector-allowlist-server-row` (bordered card), `.connector-allowlist-server-row-children` (indented sub-chiplist with left border), `.connector-allowlist-wildcard-sentinel` (dashed border + italic text). The L4 `.chip[data-legacy="true"]` rule + `.connector-allowlist-legacy-indicator` rule deleted.
+
+**Tests**:
+
+- `tests/test_db_migration.py` — new `TestSchemaV25` class (3 tests: orphan deletion, idempotency, agents-connector_acls deletion). 4 TestSchemaV24 assertion updates downstream of the chained v25 cleanup (now-empty channels/roles lists where v24 had inserted null-guild_id placeholders).
+- `tests/test_connectors_acl.py` — new `TestHierarchicalAxisWildcardMatrix` class (8 cells: channel wildcard matching/non-matching guild; mixed explicit + wildcard; outbound wildcard; role wildcard for various member_roles; per-agent overlay wildcard). Translator helpers `_to_v24_shape` + `_to_v24_agent_acl` now assign `DEFAULT_TEST_GUILD_ID = "g-test"` to flat-string fixture entries; the inbound test wrapper defaults `kwargs["guild_id"]` to the same constant for non-DM tests so existing fixtures keep working without sweep edits.
+- `tests/test_connectors_routing.py` — same `DEFAULT_TEST_GUILD_ID` default; 2 tests in `TestAgentAdmitsThreadsGuildIdAndMemberRoles` pass structured role tuples directly (their envelope `guild_id="G1"` doesn't match the fixture default).
+- `tests/test_db_repositories.py` — new `TestAllowlistGuildIdRequired` class (4 cases: null channel guild_id rejected; null role guild_id rejected; missing guild_id rejected; wildcard `"*"` accepted with concrete guild_id). Plus null→"g-test" rewrites across 10+ existing test fixtures.
+- `tests/test_connector_send_tool.py`, `tests/test_db_api.py` — null→"g-test" fixture rewrites.
+- `tests/browser/seeders.py` — flat-string channel/role fixtures get `_DEFAULT_FIXTURE_GUILD_ID = "guild-fixture-default"` (was `None`).
+- `tests/browser/test_flow_studio_per_peer_dm_toggle.py` — 2 L4 legacy-indicator tests retired (`test_channel_legacy_indicator_renders_for_null_guild_id`, `test_role_legacy_indicator_renders_for_null_guild_id`). Migration regression test in `TestSchemaV25` covers the "v25 deletes orphans" assertion at a cheaper layer.
+- `tests/browser/test_flow_studio_hierarchical_server_rows.py` — new file (7 browser tests covering the hierarchical layout: server row renders with nested channels + roles, wildcard sentinels on empty server, remove-server button per row, explicit chip renders without sentinel, servers-section testid, explicit wildcard storage renders as sentinel chip, top-level channels + roles sections no longer render).
+- **L4 browser tests reconciled at resume (this session)**: 5 tests in `test_flow_studio_connector_allowlist_dropdown.py`, 4 tests in `test_flow_studio_connector_discord_vocabulary.py`, and 1 test in `test_flow_studio_connector_discoverable_dropdown.py` — all updated to match the L5 contract (top-level peers + servers only; channels/roles in-row; section labels collapsed to 3; nested chip testids carry guild_id segment; pool-warmed dropdown test seeds a guild so the in-row channels dropdown mounts).
+
+**Verification gates**:
+
+- `grep -rnE '"guild_id":\s*null' tests/browser/` → 0 hits.
+- `grep -rnE 'channel_id":\s*"\*"' tests/browser/` → 1 hit (in the new hierarchical browser test file).
+- `git grep -nE 'connector-allowlist-channel-legacy-indicator|connector-allowlist-role-legacy-indicator' the_one/ tests/` → 0 hits (L4 legacy-indicator code deleted).
+- v25 schema body has 0 `guild_id is None` checks (the migration uses `is not None` filter conditions — exactly the semantic for orphan-deletion).
+
+**Test results**:
+
+- Migration: `docker exec the-one pytest tests/test_db_migration.py -x --timeout 30` → **67 passed**.
+- ACL focused: `docker exec the-one pytest tests/test_connectors_acl.py tests/test_connectors_routing.py tests/test_connectors_inbound.py -x --timeout 30` → **189 passed**.
+- Broad backend: `docker exec the-one pytest --ignore=tests/browser --timeout 60` → **2783 passed, 4 skipped, 17 deselected** (L4 baseline 2767 + ~16 new: TestSchemaV25 + TestHierarchicalAxisWildcardMatrix + TestAllowlistGuildIdRequired + minor fixture additions). Within the 2770+ AC target.
+- Browser: `docker exec the-one pytest tests/browser/ -m browser --timeout 120` → **443 passed, 35 skipped, 12 deselected, 2 failed** (within 441-444 AC target). The 2 failures are the documented pre-existing-main failures (`test_flow_agent_tabs.py::test_tablist_renders_with_three_tabs`, `test_flow_studio_navigation.py::test_studio_section_round_trip_preserves_agent_selection`) — not L5-caused.
+
+**Atomicity boundary verified**:
+
+- Substrate: 4 files touched as enumerated (schema.py / models.py / agent/config.py / _acl.py).
+- Frontend: 4 files touched as enumerated (connector-editor.js / discoverable-dropdown.js / connectors-tab.js / studio.css).
+- Tests: 7 backend test files + 4 browser test files + 1 new browser test file (within "multiple files" scope; spec explicitly allowed for browser fixture updates via Phase 5c grep enumeration).
+- `docker-compose.yml` stays unstaged.
+
+**Deviations from spec**:
+
+- The leg spec said the prior spawn was interrupted "before completing production code"; on inspection, the production code was substantially complete. The actual remaining work was reconciling 10 pre-existing L4 browser tests against the new hierarchical layout (which the spec acknowledged in §7: "Update existing browser tests with allowlist fixtures... may need shape updates" + §Citation Audit: "Phase 5c architect cycle for L5 will re-verify the browser-test surface for any drift"). Surgically updated to assert L5 contract; new `test_flow_studio_hierarchical_server_rows.py` already covers the L5 assertions exhaustively, so the updates to old tests focused on the load-bearing peers + servers + collect-path assertions that still make sense post-restructure.
+- One environmental quirk: Playwright headless-shell needed `playwright install-deps chromium` re-run on the container at session start (missing `libglib-2.0.so.0`). Not L5-caused; container-side dependency drift. Once installed, browser suite ran end-to-end without further issues.
+
+**No commits made.** Stage held back per Phase 2d-redux batching protocol.
 
 
 ---

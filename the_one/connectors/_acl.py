@@ -157,17 +157,23 @@ def admits_outbound(
     HAT surfaces concrete needs (e.g. a plugin-resolved
     ``send_target_guild_id``).
 
-    **Outbound channel-tuple match semantic — LOCKED (M11 F12 L3)**:
+    **Outbound channel-tuple match semantic — LOCKED (M11 F12 L3, extended L5)**:
     outbound matches by ``channel_id`` ALONE, ignoring the per-entry
     ``guild_id``. The F4 platform-send tool has no envelope ``guild_id``
     context at outbound time, so we cannot validate a guild_id
-    constraint. This is symmetric to inbound's null-``guild_id``-is-
-    permissive rule for legacy channel entries — both branches honor
-    backward-compat with operator-curated allowlists where ``guild_id``
-    was not previously a stored axis. If a future flight needs strict
-    outbound guild-binding, it should add a plugin-resolved
-    ``send_target_guild_id`` (cycle-1 finding #5; locked decision per
-    F12 L3 spec).
+    constraint. This is symmetric to inbound's wildcard-``channel_id``-
+    handling — both branches honor backward-compat with operator-curated
+    allowlists. If a future flight needs strict outbound guild-binding,
+    it should add a plugin-resolved ``send_target_guild_id`` (cycle-1
+    finding #5; locked decision per F12 L3 spec).
+
+    **Wildcard sentinel (M11 F12 L5)** — a channel entry with
+    ``channel_id == "*"`` means "any channel of this guild" at the
+    storage level. Because outbound matches by ``channel_id`` alone
+    (ignoring ``guild_id``), the wildcard simply admits ANY ``channel_id``
+    whenever a wildcard entry exists in the list. The hierarchical
+    Server-as-parent UI emits this sentinel when a server row is added
+    without explicit channel narrowing.
     """
     # M10 F8 L8 — guilds/roles deliberately not consulted on outbound;
     # the kwargs are accepted for signature uniformity. See docstring.
@@ -175,18 +181,22 @@ def admits_outbound(
     account_id = account.id
     # Account-scope channels axis (M11 F12 L3 structured tuples; match
     # by channel_id ALONE per the locked outbound semantic above).
+    # M11 F12 L5 — ``channel_id == "*"`` is the wildcard sentinel that
+    # admits any channel_id.
     allowlist = account.config.get("allowlist")
     if allowlist is not None:
         allowed_channels = allowlist.get("channels", [])
         if allowed_channels and not any(
-            c["channel_id"] == channel_id for c in allowed_channels
+            c["channel_id"] == "*" or c["channel_id"] == channel_id
+            for c in allowed_channels
         ):
             return (
                 False,
                 f"channel_id {channel_id!r} "
                 f"is not reachable on account {account_id!r}",
             )
-    # Per-agent channels axis (same structured-tuple shape).
+    # Per-agent channels axis (same structured-tuple shape; same
+    # wildcard handling).
     if agent_acl is not None:
         agent_channels = agent_acl.get("channels")
         if agent_channels is None:
@@ -202,7 +212,8 @@ def admits_outbound(
                 f"channels axis is explicitly empty)",
             )
         elif not any(
-            c["channel_id"] == channel_id for c in agent_channels
+            c["channel_id"] == "*" or c["channel_id"] == channel_id
+            for c in agent_channels
         ):
             return (
                 False,
@@ -535,11 +546,23 @@ def _admits_inbound_guild(
     uses structured ``{id, dm_allowed}`` dicts (the ``dm_allowed``
     field is consulted only by :func:`_admits_inbound_dm`; the guild
     path ignores it). The channels axis uses structured ``{guild_id,
-    channel_id}`` dicts — a channel admits when its ``channel_id``
-    matches AND its ``guild_id`` is NULL (legacy-permissive backward-
-    compat for entries from before the v24 migration) OR matches the
-    envelope ``guild_id``. Roles follow the same null-``guild_id``-is-
-    permissive rule for the per-role guild scoping.
+    channel_id}`` dicts — a channel admits when its ``guild_id``
+    matches the envelope ``guild_id`` AND (``channel_id`` matches OR
+    ``channel_id == "*"``; see wildcard semantic below). Roles follow
+    the same guild-scoped rule.
+
+    **M11 F12 L5 — wildcard sentinel + post-v25 non-null guild_id**.
+    After the v25 migration + Pydantic-validator tightening, every
+    channel/role entry has a non-null ``guild_id`` (the legacy
+    null-``guild_id``-is-permissive rule is GONE). A channel entry
+    with ``channel_id == "*"`` admits any channel whose envelope
+    ``guild_id`` matches the entry's ``guild_id``. A role entry with
+    ``role_id == "*"`` admits any peer with any role membership in
+    that guild (in fact admits regardless of ``member_roles``
+    membership — the wildcard short-circuits the overlap check at
+    the per-guild scope). The hierarchical Server-as-parent UI
+    emits these sentinels when a server row is added without
+    explicit channel/role narrowing.
 
     Private helper — callers outside ``_acl.py`` should consult
     :func:`admits_inbound` (the public dispatcher) directly.
@@ -560,13 +583,13 @@ def _admits_inbound_guild(
                 f"{account_id!r}",
             )
 
-        # 2. Channels axis (M11 F12 L3 — structured tuples; NULL
-        # guild_id is permissive backward-compat per the per-entry
-        # rule above).
+        # 2. Channels axis (M11 F12 L3 — structured tuples; M11 F12 L5
+        # — wildcard ``channel_id == "*"`` admits any channel matching
+        # the entry's ``guild_id`` against the envelope ``guild_id``).
         allowed_channels = allowlist.get("channels", [])
         if allowed_channels and not any(
-            c["channel_id"] == channel_id
-            and (c["guild_id"] is None or c["guild_id"] == guild_id)
+            c["guild_id"] == guild_id
+            and (c["channel_id"] == "*" or c["channel_id"] == channel_id)
             for c in allowed_channels
         ):
             return (
@@ -586,19 +609,30 @@ def _admits_inbound_guild(
                 f"guild_id {guild_id!r} is not admitted on account "
                 f"{account_id!r}",
             )
-        # M10 F8 L8 + M11 F12 L3 — account-scope roles axis. Each entry
-        # is a structured ``{guild_id, role_id}`` dict; NULL guild_id is
-        # permissive backward-compat. Admit iff
-        # ``member_roles_set & {r.role_id for r in allowed_roles where
-        # r.guild_id is None or r.guild_id == guild_id}`` is non-empty.
+        # M10 F8 L8 + M11 F12 L3 + M11 F12 L5 — account-scope roles
+        # axis. Each entry is a structured ``{guild_id, role_id}`` dict.
+        # Wildcard ``role_id == "*"`` admits unconditionally for any
+        # ``member_roles`` (including the empty list) as long as the
+        # entry's ``guild_id`` matches the envelope ``guild_id``.
+        # Otherwise admit iff ``member_roles_set & {r.role_id for r in
+        # allowed_roles where r.guild_id == guild_id}`` is non-empty.
         allowed_roles = allowlist.get("roles", [])
         if allowed_roles:
             admitted_role_ids = {
                 r["role_id"]
                 for r in allowed_roles
-                if r["guild_id"] is None or r["guild_id"] == guild_id
+                if r["guild_id"] == guild_id
             }
-            if not (member_roles_set & admitted_role_ids):
+            if not admitted_role_ids:
+                # No role allowance for this guild → deny.
+                return (
+                    False,
+                    f"peer roles do not overlap with admitted roles on "
+                    f"account {account_id!r}",
+                )
+            if "*" not in admitted_role_ids and not (
+                member_roles_set & admitted_role_ids
+            ):
                 return (
                     False,
                     f"peer roles do not overlap with admitted roles on "
@@ -625,7 +659,8 @@ def _admits_inbound_guild(
             )
 
         # Per-agent channels axis (M11 F12 L3 — structured tuples;
-        # NULL guild_id permissive per the rule above).
+        # M11 F12 L5 — wildcard ``channel_id == "*"`` admits any
+        # channel matching the entry's ``guild_id``).
         agent_channels = agent_acl.get("channels")
         if agent_channels is None:
             pass  # inherit account-scope
@@ -638,8 +673,8 @@ def _admits_inbound_guild(
                 f"axis is explicitly empty)",
             )
         elif not any(
-            c["channel_id"] == channel_id
-            and (c["guild_id"] is None or c["guild_id"] == guild_id)
+            c["guild_id"] == guild_id
+            and (c["channel_id"] == "*" or c["channel_id"] == channel_id)
             for c in agent_channels
         ):
             return (
@@ -679,12 +714,24 @@ def _admits_inbound_guild(
                 f"roles axis is explicitly empty)",
             )
         else:
+            # M11 F12 L5 — wildcard ``role_id == "*"`` admits
+            # unconditionally for any ``member_roles`` (including the
+            # empty list) when the entry's ``guild_id`` matches the
+            # envelope ``guild_id``. Otherwise overlap-required.
             admitted_role_ids = {
                 r["role_id"]
                 for r in agent_roles
-                if r["guild_id"] is None or r["guild_id"] == guild_id
+                if r["guild_id"] == guild_id
             }
-            if not (member_roles_set & admitted_role_ids):
+            if not admitted_role_ids:
+                return (
+                    False,
+                    f"peer roles do not overlap with admitted roles for "
+                    f"this agent on account {account_id!r}",
+                )
+            if "*" not in admitted_role_ids and not (
+                member_roles_set & admitted_role_ids
+            ):
                 return (
                     False,
                     f"peer roles do not overlap with admitted roles for "

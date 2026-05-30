@@ -629,7 +629,7 @@ class TestF6OutboundGating:
             "acct-send",
             config={"allowlist": {
                 "peers": [],
-                "channels": [{"guild_id": None, "channel_id": "c1"}],
+                "channels": [{"guild_id": "g-test", "channel_id": "c1"}],
             }},
         )
         register_for_test("stub", StubPlugin)
@@ -653,7 +653,7 @@ class TestF6OutboundGating:
             "acct-send",
             config={"allowlist": {
                 "peers": [],
-                "channels": [{"guild_id": None, "channel_id": "c1"}],
+                "channels": [{"guild_id": "g-test", "channel_id": "c1"}],
             }},
         )
         register_for_test("stub", StubPlugin)
@@ -686,8 +686,8 @@ class TestF6OutboundGating:
             config={"allowlist": {
                 "peers": [],
                 "channels": [
-                    {"guild_id": None, "channel_id": "c1"},
-                    {"guild_id": None, "channel_id": "c2"},
+                    {"guild_id": "g-test", "channel_id": "c1"},
+                    {"guild_id": "g-test", "channel_id": "c2"},
                 ],
             }},
         )
@@ -699,7 +699,7 @@ class TestF6OutboundGating:
             connector_acls={
                 "acct-send": {
                     "peers": None,
-                    "channels": [{"guild_id": None, "channel_id": "c1"}],
+                    "channels": [{"guild_id": "g-test", "channel_id": "c1"}],
                 },
             },
         )
@@ -798,8 +798,8 @@ class TestF6OutboundGating:
             config={"allowlist": {
                 "peers": [],
                 "channels": [
-                    {"guild_id": None, "channel_id": "c1"},
-                    {"guild_id": None, "channel_id": "c2"},
+                    {"guild_id": "g-test", "channel_id": "c1"},
+                    {"guild_id": "g-test", "channel_id": "c2"},
                 ],
             }},
         )
@@ -811,7 +811,7 @@ class TestF6OutboundGating:
             connector_acls={
                 "acct-send": {
                     "peers": None,
-                    "channels": [{"guild_id": None, "channel_id": "c1"}],
+                    "channels": [{"guild_id": "g-test", "channel_id": "c1"}],
                 },
             },
         )

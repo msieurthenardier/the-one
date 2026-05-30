@@ -28,6 +28,12 @@ from the_one.connectors.base import InboundEnvelope
 from the_one.db.models import Connector
 
 
+# M11 F12 L5 — every channel/role entry must have a non-null guild_id
+# (the L3 ``str | None`` permissive semantic is removed). The flat-string
+# fixture convention falls back to this default.
+DEFAULT_TEST_GUILD_ID = "g-test"
+
+
 def _to_v24_shape(allowlist: dict) -> dict:
     """Translate flat-shape allowlist to the v24 structured-tuple shape.
 
@@ -36,6 +42,11 @@ def _to_v24_shape(allowlist: dict) -> dict:
     for terseness; this helper applies the mechanical translation at
     build time. Mirrors the helper of the same name in
     ``test_connectors_acl.py``.
+
+    M11 F12 L5 — flat-string channel/role entries get
+    ``guild_id=DEFAULT_TEST_GUILD_ID`` (was ``None`` in L3); routing
+    tests that exercise guild_id matching pass the same constant in
+    their envelope guild_id field.
     """
     result = dict(allowlist)
     if "peers" in result and isinstance(result["peers"], list):
@@ -47,13 +58,13 @@ def _to_v24_shape(allowlist: dict) -> dict:
     if "channels" in result and isinstance(result["channels"], list):
         result["channels"] = [
             entry if isinstance(entry, dict)
-            else {"guild_id": None, "channel_id": entry}
+            else {"guild_id": DEFAULT_TEST_GUILD_ID, "channel_id": entry}
             for entry in result["channels"]
         ]
     if "roles" in result and isinstance(result["roles"], list):
         result["roles"] = [
             entry if isinstance(entry, dict)
-            else {"guild_id": None, "role_id": entry}
+            else {"guild_id": DEFAULT_TEST_GUILD_ID, "role_id": entry}
             for entry in result["roles"]
         ]
     if result.get("dm_admission") == "allowlisted-peers-only":
@@ -949,12 +960,17 @@ class TestAgentAdmitsThreadsGuildIdAndMemberRoles:
         assert decision.reason == "no-eligible-agent"
 
     def test_routing_consults_member_roles_from_envelope_raw(self) -> None:
-        """Account-scope ``roles=["R1"]`` + envelope ``member_roles=[]``
-        → ACL denies → no eligible. Pins the L8 threading on the roles
-        axis."""
+        """Account-scope ``roles=[{guild_id="G1", role_id="R1"}]`` +
+        envelope ``member_roles=[]`` → ACL denies → no eligible. Pins
+        the L8 threading on the roles axis.
+
+        M11 F12 L5 — the role entry must carry a non-null guild_id
+        matching the envelope's guild_id; pass the structured tuple
+        directly to bypass the flat-string fixture default."""
         alpha = _agent("alpha")
         account = _account(allowlist={
-            "peers": [], "channels": [], "roles": ["R1"],
+            "peers": [], "channels": [],
+            "roles": [{"guild_id": "G1", "role_id": "R1"}],
         })
         envelope = _envelope_with_guild(
             guild_id="G1", member_roles=[],
@@ -965,11 +981,15 @@ class TestAgentAdmitsThreadsGuildIdAndMemberRoles:
 
     def test_routing_admits_when_guild_and_roles_match(self) -> None:
         """Sanity pin — account-scope guilds + roles both restrict but
-        envelope matches both → admit (first-eligible-alphabetical)."""
+        envelope matches both → admit (first-eligible-alphabetical).
+
+        M11 F12 L5 — pass the structured-tuple role entry directly so
+        the entry's guild_id matches the envelope's "G1"."""
         alpha = _agent("alpha")
         account = _account(allowlist={
             "peers": [], "channels": [],
-            "guilds": ["G1"], "roles": ["R1"],
+            "guilds": ["G1"],
+            "roles": [{"guild_id": "G1", "role_id": "R1"}],
         })
         envelope = _envelope_with_guild(
             guild_id="G1", member_roles=["R1"],

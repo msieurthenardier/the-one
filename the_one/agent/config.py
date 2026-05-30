@@ -297,8 +297,12 @@ class AgentConfig(BaseModel):
             ``dm_allowed`` is structurally uniform with account-scope
             but NOT consulted by the ACL helpers — DM admission is
             decided at account scope per the F12 L3 Truth Table)
-          - ``channels``: ``list[{guild_id: str | None, channel_id: str}]``
-          - ``roles``: ``list[{guild_id: str | None, role_id: str}]``
+          - ``channels``: ``list[{guild_id: str, channel_id: str}]``
+            — ``channel_id`` may be the wildcard sentinel ``"*"`` meaning
+            "any channel of this guild" (M11 F12 L5)
+          - ``roles``: ``list[{guild_id: str, role_id: str}]`` —
+            ``role_id`` may be the wildcard sentinel ``"*"`` meaning
+            "any role of this guild" (M11 F12 L5)
 
         ``admit_dms`` stays as the ``bool | None`` opt-out sentinel.
 
@@ -407,7 +411,14 @@ class AgentConfig(BaseModel):
                                 f"{type(item['dm_allowed']).__name__}"
                             )
                 elif key == "channels":
-                    # channels: list[{guild_id: str | None, channel_id: str}].
+                    # M11 F12 L5 — channels:
+                    # list[{guild_id: str, channel_id: str}]. Post-v25
+                    # the guild_id field is REQUIRED and non-null (was
+                    # str | None in L3); channel_id accepts the wildcard
+                    # sentinel ``"*"`` meaning "any channel of this
+                    # guild" — emitted by the hierarchical
+                    # Server-as-parent per-agent overlay when a server
+                    # row has no explicit channel narrowing.
                     for i, item in enumerate(value_at_key):
                         if not isinstance(item, dict):
                             raise ValueError(
@@ -424,7 +435,10 @@ class AgentConfig(BaseModel):
                                 f"['channels'][{i}] has unexpected "
                                 f"keys: {sorted(extra_keys)}"
                             )
-                        missing_keys = {"channel_id"} - item_keys
+                        missing_keys = {
+                            "channel_id",
+                            "guild_id",
+                        } - item_keys
                         if missing_keys:
                             raise ValueError(
                                 f"connector_acls[{account_id!r}]"
@@ -438,18 +452,26 @@ class AgentConfig(BaseModel):
                                 f"be a string; got "
                                 f"{type(item['channel_id']).__name__}"
                             )
-                        guild_id = item.get("guild_id")
-                        if guild_id is not None and not isinstance(
-                            guild_id, str
-                        ):
+                        guild_id = item["guild_id"]
+                        if not isinstance(guild_id, str):
                             raise ValueError(
                                 f"connector_acls[{account_id!r}]"
                                 f"['channels'][{i}]['guild_id'] must "
-                                f"be a string or None; got "
+                                f"be a non-null string (post-v25 the "
+                                f"hierarchical Server-as-parent UI "
+                                f"requires every channel entry to be "
+                                f"guild-scoped); got "
                                 f"{type(guild_id).__name__}"
                             )
                 elif key == "roles":
-                    # roles: list[{guild_id: str | None, role_id: str}].
+                    # M11 F12 L5 — roles:
+                    # list[{guild_id: str, role_id: str}]. Post-v25
+                    # the guild_id field is REQUIRED and non-null (was
+                    # str | None in L3); role_id accepts the wildcard
+                    # sentinel ``"*"`` meaning "any role of this guild" —
+                    # emitted by the hierarchical Server-as-parent
+                    # per-agent overlay when a server row has no
+                    # explicit role narrowing.
                     for i, item in enumerate(value_at_key):
                         if not isinstance(item, dict):
                             raise ValueError(
@@ -466,7 +488,7 @@ class AgentConfig(BaseModel):
                                 f"['roles'][{i}] has unexpected keys: "
                                 f"{sorted(extra_keys)}"
                             )
-                        missing_keys = {"role_id"} - item_keys
+                        missing_keys = {"role_id", "guild_id"} - item_keys
                         if missing_keys:
                             raise ValueError(
                                 f"connector_acls[{account_id!r}]"
@@ -480,14 +502,15 @@ class AgentConfig(BaseModel):
                                 f"string; got "
                                 f"{type(item['role_id']).__name__}"
                             )
-                        guild_id = item.get("guild_id")
-                        if guild_id is not None and not isinstance(
-                            guild_id, str
-                        ):
+                        guild_id = item["guild_id"]
+                        if not isinstance(guild_id, str):
                             raise ValueError(
                                 f"connector_acls[{account_id!r}]"
                                 f"['roles'][{i}]['guild_id'] must be a "
-                                f"string or None; got "
+                                f"non-null string (post-v25 the "
+                                f"hierarchical Server-as-parent UI "
+                                f"requires every role entry to be "
+                                f"guild-scoped); got "
                                 f"{type(guild_id).__name__}"
                             )
         return value

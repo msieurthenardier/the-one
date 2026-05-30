@@ -397,6 +397,18 @@ def test_test_connection_pool_warmed_event_refreshes_dropdowns(
         name="F4 L4 Warm Bot",
         type="discord",
         secrets={"BOT_TOKEN": "real_bot_token_xyzw"},
+        # M11 F12 L5 — channels dropdown is server-scoped post-
+        # restructure (rendered inside the server row). Seed a guild
+        # so the in-row channels dropdown mounts and the pool-warmed
+        # refresh has a target to repopulate.
+        config={
+            "allowlist": {
+                "peers": [],
+                "channels": [],
+                "guilds": ["guild-1"],
+                "roles": [],
+            }
+        },
     )
 
     # Pool-state-driven L4 GET router: while the pool is cold, every

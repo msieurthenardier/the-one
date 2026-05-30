@@ -102,17 +102,6 @@
     return String(entry);
   }
 
-  function _entryGuildId(entry, valueShape) {
-    if (entry == null) return null;
-    if (valueShape === 'channel' || valueShape === 'role') {
-      if (entry && typeof entry === 'object') {
-        var g = entry.guild_id;
-        return (g === undefined) ? null : g;
-      }
-    }
-    return null;
-  }
-
   function _wrapId(id, entity, valueShape) {
     // Synthesize the structured-tuple entry for a freshly-selected id.
     // ``entity`` is the menu item the operator clicked (or null when the
@@ -251,37 +240,15 @@
         chip.setAttribute('title', 'label unknown — try Refresh');
       }
 
-      // M11 F12 L4 — legacy-entry indicator for null-guild_id structured
-      // channel/role entries. The chip carries ``data-legacy="true"`` so
-      // CSS (studio.css) can apply a distinctive visual; a tooltip
-      // explains why (pre-v24 migration left guild_id unknown). Browser
-      // tests assert via ``data-testid="connector-allowlist-{axis}-legacy-indicator-{id}"``.
-      var guildId = _entryGuildId(entry, state.valueShape);
-      var isLegacy = (
-        (state.valueShape === 'channel' || state.valueShape === 'role')
-        && guildId === null
-      );
-      if (isLegacy) {
-        chip.setAttribute('data-legacy', 'true');
-        var legacyTip = 'Pre-v24 entry — guild context not stored. ' +
-          'Re-scope by removing + re-adding via the dropdown.';
-        // Don't clobber a stale-entity tooltip if one is already set.
-        if (!chip.hasAttribute('title')) {
-          chip.setAttribute('title', legacyTip);
-        }
-        var indicator = document.createElement('span');
-        indicator.className = 'connector-allowlist-legacy-indicator';
-        var legacyTestidAxis = (state.valueShape === 'channel') ? 'channel' : 'role';
-        indicator.setAttribute(
-          'data-testid',
-          'connector-allowlist-' + legacyTestidAxis + '-legacy-indicator-' + id
-        );
-        indicator.setAttribute('title', legacyTip);
-        indicator.setAttribute('aria-label', legacyTip);
-        // Use a unicode info glyph; CSS may swap this for an icon.
-        indicator.textContent = 'ℹ';
-        chip.appendChild(indicator);
-      }
+      // M11 F12 L5 — the L4 legacy-entry indicator block was DELETED
+      // here. Post-v25 migration there are no null-``guild_id``
+      // channel/role entries to indicate (the v25 cleanup deletes
+      // them, and the Pydantic validator rejects new ones). The
+      // hierarchical Server-as-parent UI emits guild-scoped tuples
+      // exclusively, with the ``"*"`` wildcard sentinel representing
+      // "any channel/role of this guild" — rendered as a distinct
+      // sentinel chip by the connector-editor, not as a per-entry
+      // indicator here.
 
       var labelSpan = document.createElement('span');
       labelSpan.className = 'discoverable-dropdown-chip-label';

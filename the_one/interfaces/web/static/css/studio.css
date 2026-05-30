@@ -1330,22 +1330,73 @@
     cursor: pointer;
   }
 
-  /* Legacy-entry indicator for null-guild_id channel/role chips —
-     rendered as a small info glyph inside the chip, with a tooltip
-     explaining the v24 backfill. Visually distinguished from regular
-     chips via a dashed border on the chip itself; the indicator is the
-     accessible-name anchor for screen readers. */
-  .area-studio .chip[data-legacy="true"] {
-    border-style: dashed;
+  /* M11 F12 L5 — hierarchical Server-as-parent allowlist layout. The
+     Servers slot is a parent organizer; each server row carries a
+     header (server name + remove button) and two nested
+     sub-chiplists (channels / roles), each with its own
+     server-scoped dropdown. The wildcard sentinel chip ("(all
+     channels)" / "(all roles)") rendered inside a server row whose
+     respective sub-chiplist is empty is visually distinct (dashed
+     border + italic label).
+
+     The pre-L5 legacy-indicator block (dashed-border chip for
+     null-``guild_id`` entries + the info-glyph indicator span) is
+     gone — post-v25 there are no null-``guild_id`` entries. */
+  .area-studio .connector-allowlist-server-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 8px;
   }
-  .area-studio .connector-allowlist-legacy-indicator {
-    display: inline-flex;
+  .area-studio .connector-allowlist-server-row {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    background: var(--surface);
+  }
+  .area-studio .connector-allowlist-server-row-header {
+    display: flex;
     align-items: center;
-    justify-content: center;
-    margin-left: 4px;
-    font-size: 0.85em;
+    justify-content: space-between;
+    margin-bottom: 6px;
+    font-weight: 500;
+  }
+  .area-studio .connector-allowlist-server-row-remove {
+    background: transparent;
+    border: none;
     color: var(--fg-secondary, currentColor);
-    cursor: help;
+    cursor: pointer;
+    font-size: 1.1em;
+    line-height: 1;
+    padding: 2px 6px;
+  }
+  .area-studio .connector-allowlist-server-row-remove:hover {
+    color: var(--accent, currentColor);
+  }
+  .area-studio .connector-allowlist-server-row-children {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 0 4px 16px;
+    border-left: 2px solid var(--surface-elevated);
+    margin-left: 4px;
+  }
+  .area-studio .connector-allowlist-sub-label {
+    font-size: var(--font-size-caption);
+    color: var(--fg-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-right: 4px;
+  }
+  .area-studio .chip.connector-allowlist-wildcard-sentinel {
+    border-style: dashed;
+    font-style: italic;
+    color: var(--fg-secondary, currentColor);
+  }
+  .area-studio .connector-allowlist-server-scoped-dropdown {
+    flex: 1;
+    min-width: 120px;
   }
 
   /* Attached-agents table (M10 F6 L7 HAT — table format replaces

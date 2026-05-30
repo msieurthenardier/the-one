@@ -382,8 +382,13 @@ class Connector(BaseModel):
                         f"{type(item['dm_allowed']).__name__}"
                     )
 
-            # M11 F12 L3 — channels axis:
-            # list[{guild_id: str | None, channel_id: str}].
+            # M11 F12 L5 — channels axis:
+            # list[{guild_id: str, channel_id: str}]. Post-v25 the
+            # guild_id field is REQUIRED and non-null (was str | None in
+            # L3); channel_id accepts the wildcard sentinel ``"*"``
+            # meaning "any channel of this guild" — emitted by the
+            # hierarchical Server-as-parent UI when a server row has no
+            # explicit channel narrowing.
             channel_entries = allowlist["channels"]
             if not isinstance(channel_entries, list):
                 raise ValueError(
@@ -404,7 +409,7 @@ class Connector(BaseModel):
                         f"config['allowlist']['channels'][{i}] has "
                         f"unexpected keys: {sorted(extra_keys)}"
                     )
-                missing_keys = {"channel_id"} - item_keys
+                missing_keys = {"channel_id", "guild_id"} - item_keys
                 if missing_keys:
                     raise ValueError(
                         f"config['allowlist']['channels'][{i}] is "
@@ -416,12 +421,14 @@ class Connector(BaseModel):
                         f"['channel_id'] must be a string; got "
                         f"{type(item['channel_id']).__name__}"
                     )
-                guild_id = item.get("guild_id")
-                if guild_id is not None and not isinstance(guild_id, str):
+                guild_id = item["guild_id"]
+                if not isinstance(guild_id, str):
                     raise ValueError(
                         f"config['allowlist']['channels'][{i}]"
-                        f"['guild_id'] must be a string or None; got "
-                        f"{type(guild_id).__name__}"
+                        f"['guild_id'] must be a non-null string "
+                        f"(post-v25 the hierarchical Server-as-parent UI "
+                        f"requires every channel entry to be guild-"
+                        f"scoped); got {type(guild_id).__name__}"
                     )
 
             # M10 F8 L8 — guilds axis (OPTIONAL): list[str].
@@ -439,8 +446,13 @@ class Connector(BaseModel):
                             f"be a string"
                         )
 
-            # M11 F12 L3 — roles axis (OPTIONAL):
-            # list[{guild_id: str | None, role_id: str}].
+            # M11 F12 L5 — roles axis (OPTIONAL):
+            # list[{guild_id: str, role_id: str}]. Post-v25 the
+            # guild_id field is REQUIRED and non-null (was str | None in
+            # L3); role_id accepts the wildcard sentinel ``"*"`` meaning
+            # "any role of this guild" — emitted by the hierarchical
+            # Server-as-parent UI when a server row has no explicit role
+            # narrowing.
             if "roles" in allowlist:
                 role_entries = allowlist["roles"]
                 if not isinstance(role_entries, list):
@@ -462,7 +474,7 @@ class Connector(BaseModel):
                             f"config['allowlist']['roles'][{i}] has "
                             f"unexpected keys: {sorted(extra_keys)}"
                         )
-                    missing_keys = {"role_id"} - item_keys
+                    missing_keys = {"role_id", "guild_id"} - item_keys
                     if missing_keys:
                         raise ValueError(
                             f"config['allowlist']['roles'][{i}] is "
@@ -475,14 +487,15 @@ class Connector(BaseModel):
                             f"['role_id'] must be a string; got "
                             f"{type(item['role_id']).__name__}"
                         )
-                    guild_id = item.get("guild_id")
-                    if guild_id is not None and not isinstance(
-                        guild_id, str
-                    ):
+                    guild_id = item["guild_id"]
+                    if not isinstance(guild_id, str):
                         raise ValueError(
                             f"config['allowlist']['roles'][{i}]"
-                            f"['guild_id'] must be a string or None; "
-                            f"got {type(guild_id).__name__}"
+                            f"['guild_id'] must be a non-null string "
+                            f"(post-v25 the hierarchical Server-as-"
+                            f"parent UI requires every role entry to be "
+                            f"guild-scoped); got "
+                            f"{type(guild_id).__name__}"
                         )
 
             # M11 F10 L1 + M11 F12 L3: dm_admission axis validation +

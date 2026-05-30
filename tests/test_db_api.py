@@ -1511,7 +1511,7 @@ class TestConnectorPairingCodeAndAttached:
                 "allowlist": {
                     "peers": [{"id": "u-keep", "dm_allowed": True}],
                     "channels": [
-                        {"guild_id": None, "channel_id": "c-keep"}
+                        {"guild_id": "g-test", "channel_id": "c-keep"}
                     ],
                 },
             },
@@ -1529,7 +1529,7 @@ class TestConnectorPairingCodeAndAttached:
         # ``"allowlisted-peers-only"``).
         assert cfg["allowlist"] == {
             "peers": [{"id": "u-keep", "dm_allowed": True}],
-            "channels": [{"guild_id": None, "channel_id": "c-keep"}],
+            "channels": [{"guild_id": "g-test", "channel_id": "c-keep"}],
             "dm_admission": "admin-approved",
         }
         assert cfg["pairing"]["code"] == gen.json()["code"]
@@ -1618,8 +1618,8 @@ class TestConnectorPairingCodeAndAttached:
                             {"id": "u3", "dm_allowed": True},
                         ],
                         "channels": [
-                            {"guild_id": None, "channel_id": "c1"},
-                            {"guild_id": None, "channel_id": "c2"},
+                            {"guild_id": "g-test", "channel_id": "c1"},
+                            {"guild_id": "g-test", "channel_id": "c2"},
                         ],
                     }
                 },
@@ -1668,8 +1668,8 @@ class TestConnectorPairingCodeAndAttached:
                     {"id": "u3", "dm_allowed": True},
                 ],
                 "channels": [
-                    {"guild_id": None, "channel_id": "c1"},
-                    {"guild_id": None, "channel_id": "c2"},
+                    {"guild_id": "g-test", "channel_id": "c1"},
+                    {"guild_id": "g-test", "channel_id": "c2"},
                 ],
                 "peers_count": 3,
                 "channels_count": 2,
@@ -2042,7 +2042,7 @@ class TestConnectorPeerApprovals:
                 "allowlist": {
                     "peers": [{"id": "u-keep", "dm_allowed": True}],
                     "channels": [
-                        {"guild_id": None, "channel_id": "c-keep"}
+                        {"guild_id": "g-test", "channel_id": "c-keep"}
                     ],
                 },
             },
@@ -2068,7 +2068,7 @@ class TestConnectorPeerApprovals:
         cfg = getr.json()["config"]
         assert cfg["intent"] == "guild_messages"
         assert cfg["allowlist"]["channels"] == [
-            {"guild_id": None, "channel_id": "c-keep"}
+            {"guild_id": "g-test", "channel_id": "c-keep"}
         ]
         peer_ids = {p["id"] for p in cfg["allowlist"]["peers"]}
         assert "u-keep" in peer_ids
@@ -2207,7 +2207,7 @@ class TestConnectorPeerApprovals:
             client,
             config={"allowlist": {
                 "peers": [{"id": "u-keep", "dm_allowed": True}],
-                "channels": [{"guild_id": None, "channel_id": "c-keep"}],
+                "channels": [{"guild_id": "g-test", "channel_id": "c-keep"}],
             }},
         )
         approval_id = await self._create_pending_approval(
@@ -2227,7 +2227,7 @@ class TestConnectorPeerApprovals:
         # fields stay verbatim.
         assert allowlist == {
             "peers": [{"id": "u-keep", "dm_allowed": True}],
-            "channels": [{"guild_id": None, "channel_id": "c-keep"}],
+            "channels": [{"guild_id": "g-test", "channel_id": "c-keep"}],
             "dm_admission": "admin-approved",
         }
 

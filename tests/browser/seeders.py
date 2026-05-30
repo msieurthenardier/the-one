@@ -83,6 +83,14 @@ def seed_mock_agent(
     return r.json()["name"]
 
 
+# M11 F12 L5 — flat-string fixture entries get this default guild_id
+# (was ``None`` in L4); post-v25 the Pydantic validator rejects null
+# guild_id. Browser tests that exercise guild_id matching pass the
+# same constant in their envelope payloads so the entry's guild_id
+# matches.
+_DEFAULT_FIXTURE_GUILD_ID = "guild-fixture-default"
+
+
 def _to_v24_allowlist(allowlist: dict) -> dict:
     """Translate a flat-shape allowlist (test-author convenience) to the
     structured-tuple shape required post-v24.
@@ -98,9 +106,16 @@ def _to_v24_allowlist(allowlist: dict) -> dict:
 
     Renamings:
       - peers entry ``"alice"`` → ``{"id": "alice", "dm_allowed": True}``
-      - channels entry ``"111"`` → ``{"guild_id": None, "channel_id": "111"}``
-      - roles entry ``"admin"`` → ``{"guild_id": None, "role_id": "admin"}``
+      - channels entry ``"111"`` →
+        ``{"guild_id": _DEFAULT_FIXTURE_GUILD_ID, "channel_id": "111"}``
+      - roles entry ``"admin"`` →
+        ``{"guild_id": _DEFAULT_FIXTURE_GUILD_ID, "role_id": "admin"}``
       - dm_admission ``"allowlisted-peers-only"`` → ``"admin-approved"``
+
+    M11 F12 L5 — flat-string channel/role entries get a default
+    guild_id (was ``None`` in L4); post-v25 the Pydantic validator
+    rejects null guild_id. Browser tests that exercise guild_id
+    matching pass the same constant in their envelope payloads.
     """
     result = dict(allowlist)
     if "peers" in result and isinstance(result["peers"], list):
@@ -117,7 +132,12 @@ def _to_v24_allowlist(allowlist: dict) -> dict:
             if isinstance(entry, dict):
                 channels_new.append(entry)
             else:
-                channels_new.append({"guild_id": None, "channel_id": str(entry)})
+                channels_new.append(
+                    {
+                        "guild_id": _DEFAULT_FIXTURE_GUILD_ID,
+                        "channel_id": str(entry),
+                    }
+                )
         result["channels"] = channels_new
     if "roles" in result and isinstance(result["roles"], list):
         roles_new = []
@@ -125,7 +145,12 @@ def _to_v24_allowlist(allowlist: dict) -> dict:
             if isinstance(entry, dict):
                 roles_new.append(entry)
             else:
-                roles_new.append({"guild_id": None, "role_id": str(entry)})
+                roles_new.append(
+                    {
+                        "guild_id": _DEFAULT_FIXTURE_GUILD_ID,
+                        "role_id": str(entry),
+                    }
+                )
         result["roles"] = roles_new
     if result.get("dm_admission") == "allowlisted-peers-only":
         result["dm_admission"] = "admin-approved"
@@ -137,7 +162,10 @@ def _to_v24_agent_acl(agent_acl: dict | None) -> dict | None:
 
     M11 F12 L4 — per-agent peers/channels/roles mirror the account-scope
     structured-tuple shape; ``admit_dms`` is passed through unchanged.
-    ``None`` short-circuits."""
+    ``None`` short-circuits.
+
+    M11 F12 L5 — channels/roles entries from flat strings get
+    ``_DEFAULT_FIXTURE_GUILD_ID`` (was ``None`` in L4)."""
     if agent_acl is None:
         return None
     result = dict(agent_acl)
@@ -155,7 +183,12 @@ def _to_v24_agent_acl(agent_acl: dict | None) -> dict | None:
             if isinstance(entry, dict):
                 channels_new.append(entry)
             else:
-                channels_new.append({"guild_id": None, "channel_id": str(entry)})
+                channels_new.append(
+                    {
+                        "guild_id": _DEFAULT_FIXTURE_GUILD_ID,
+                        "channel_id": str(entry),
+                    }
+                )
         result["channels"] = channels_new
     if isinstance(result.get("roles"), list):
         roles_new = []
@@ -163,7 +196,12 @@ def _to_v24_agent_acl(agent_acl: dict | None) -> dict | None:
             if isinstance(entry, dict):
                 roles_new.append(entry)
             else:
-                roles_new.append({"guild_id": None, "role_id": str(entry)})
+                roles_new.append(
+                    {
+                        "guild_id": _DEFAULT_FIXTURE_GUILD_ID,
+                        "role_id": str(entry),
+                    }
+                )
         result["roles"] = roles_new
     return result
 

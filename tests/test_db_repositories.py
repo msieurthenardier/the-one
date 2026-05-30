@@ -295,7 +295,7 @@ class TestSQLiteAgentStore:
                         {"id": "u2", "dm_allowed": True},
                     ],
                     "channels": [
-                        {"guild_id": None, "channel_id": "c1"}
+                        {"guild_id": "g-test", "channel_id": "c1"}
                     ],
                 },
                 "acct-b": {"peers": [], "channels": []},
@@ -310,7 +310,7 @@ class TestSQLiteAgentStore:
                     {"id": "u2", "dm_allowed": True},
                 ],
                 "channels": [
-                    {"guild_id": None, "channel_id": "c1"}
+                    {"guild_id": "g-test", "channel_id": "c1"}
                 ],
             },
             "acct-b": {"peers": [], "channels": []},
@@ -756,7 +756,7 @@ class TestSQLiteAgentStore:
             connector_acls={
                 "acct-1": {
                     "peers": [{"id": "u1", "dm_allowed": True}],
-                    "channels": [{"guild_id": None, "channel_id": "c1"}],
+                    "channels": [{"guild_id": "g-test", "channel_id": "c1"}],
                 }
             },
         )
@@ -777,7 +777,7 @@ class TestSQLiteAgentStore:
         assert loaded.connector_acls == {
             "acct-1": {
                 "peers": [{"id": "u1", "dm_allowed": True}],
-                "channels": [{"guild_id": None, "channel_id": "c1"}],
+                "channels": [{"guild_id": "g-test", "channel_id": "c1"}],
             }
         }
 
@@ -905,7 +905,7 @@ class TestAgentConfigConnectorAclsValidator:
                         {"id": "u2", "dm_allowed": True},
                     ],
                     "channels": [
-                        {"guild_id": None, "channel_id": "c1"}
+                        {"guild_id": "g-test", "channel_id": "c1"}
                     ],
                 },
             },
@@ -917,7 +917,7 @@ class TestAgentConfigConnectorAclsValidator:
                     {"id": "u2", "dm_allowed": True},
                 ],
                 "channels": [
-                    {"guild_id": None, "channel_id": "c1"}
+                    {"guild_id": "g-test", "channel_id": "c1"}
                 ],
             },
         }
@@ -942,14 +942,14 @@ class TestAgentConfigConnectorAclsValidator:
             connector_acls={
                 "acct-a": {
                     "peers": None,
-                    "channels": [{"guild_id": None, "channel_id": "c1"}],
+                    "channels": [{"guild_id": "g-test", "channel_id": "c1"}],
                 }
             },
         )
         assert cfg.connector_acls == {
             "acct-a": {
                 "peers": None,
-                "channels": [{"guild_id": None, "channel_id": "c1"}],
+                "channels": [{"guild_id": "g-test", "channel_id": "c1"}],
             },
         }
 
@@ -1070,18 +1070,18 @@ class TestAgentConfigConnectorAclsValidator:
             connector_acls={
                 "acct-a": {
                     "peers": [{"id": "u1", "dm_allowed": True}],
-                    "channels": [{"guild_id": None, "channel_id": "c1"}],
+                    "channels": [{"guild_id": "g-test", "channel_id": "c1"}],
                     "guilds": ["g1"],
-                    "roles": [{"guild_id": None, "role_id": "r1"}],
+                    "roles": [{"guild_id": "g-test", "role_id": "r1"}],
                 }
             },
         )
         assert cfg.connector_acls == {
             "acct-a": {
                 "peers": [{"id": "u1", "dm_allowed": True}],
-                "channels": [{"guild_id": None, "channel_id": "c1"}],
+                "channels": [{"guild_id": "g-test", "channel_id": "c1"}],
                 "guilds": ["g1"],
-                "roles": [{"guild_id": None, "role_id": "r1"}],
+                "roles": [{"guild_id": "g-test", "role_id": "r1"}],
             }
         }
 
@@ -1647,7 +1647,7 @@ class TestConnectorConfigValidator:
                 {"id": "u1", "dm_allowed": True},
                 {"id": "u2", "dm_allowed": False},
             ],
-            "channels": [{"guild_id": None, "channel_id": "c1"}],
+            "channels": [{"guild_id": "g-test", "channel_id": "c1"}],
         }
         account = Connector(
             id="a", name="n", type="stub", config={"allowlist": allowlist}
@@ -1811,9 +1811,9 @@ class TestConnectorConfigValidator:
                 {"id": "u1", "dm_allowed": True},
                 {"id": "u2", "dm_allowed": True},
             ],
-            "channels": [{"guild_id": None, "channel_id": "c1"}],
+            "channels": [{"guild_id": "g-test", "channel_id": "c1"}],
             "guilds": ["g1", "g2"],
-            "roles": [{"guild_id": None, "role_id": "r1"}],
+            "roles": [{"guild_id": "g-test", "role_id": "r1"}],
         }
         account = Connector(
             id="a", name="n", type="stub", config={"allowlist": allowlist}
@@ -1857,11 +1857,11 @@ class TestConnectorConfigValidator:
             id="a3", name="n", type="stub",
             config={"allowlist": {
                 "peers": [], "channels": [],
-                "roles": [{"guild_id": None, "role_id": "R1"}],
+                "roles": [{"guild_id": "g-test", "role_id": "R1"}],
             }},
         )
         assert acc3.config["allowlist"]["roles"] == [
-            {"guild_id": None, "role_id": "R1"}
+            {"guild_id": "g-test", "role_id": "R1"}
         ]
         assert "guilds" not in acc3.config["allowlist"]
 
@@ -1918,7 +1918,7 @@ class TestConnectorConfigValidator:
         # M11 F12 L3 — structured-tuple shape for peers/channels.
         allowlist = {
             "peers": [{"id": "u1", "dm_allowed": True}],
-            "channels": [{"guild_id": None, "channel_id": "c1"}],
+            "channels": [{"guild_id": "g-test", "channel_id": "c1"}],
         }
         account = Connector(
             id="a1", name="n", type="stub", config={"allowlist": allowlist}
@@ -1963,12 +1963,12 @@ class TestConnectorConfigValidator:
                 {"id": "u3", "dm_allowed": True},
             ],
             "channels": [
-                {"guild_id": None, "channel_id": "c-no-guild"},
+                {"guild_id": "g-test", "channel_id": "c-no-guild"},
                 {"guild_id": "g-1", "channel_id": "c-bound"},
             ],
             "guilds": ["g-1", "g-2"],
             "roles": [
-                {"guild_id": None, "role_id": "r-global"},
+                {"guild_id": "g-test", "role_id": "r-global"},
                 {"guild_id": "g-1", "role_id": "r-bound"},
             ],
             "dm_admission": "admin-approved",
@@ -2211,6 +2211,108 @@ class TestConnectorConfigValidator:
             config={"auto_relay_platform_replies": "not-a-bool"},
         )
         assert "auto_relay_platform_replies" not in account.config
+
+
+class TestAllowlistGuildIdRequired:
+    """M11 F12 L5 — post-v25 the Pydantic validator rejects channel and
+    role entries with null ``guild_id``. The hierarchical Server-as-
+    parent UI emits guild-scoped tuples exclusively; null-``guild_id``
+    is no longer a valid storage value.
+
+    Companion tests at the migration level in
+    ``test_db_migration.py::TestSchemaV25`` cover the v25 cleanup that
+    deletes legacy orphan entries; these tests pin the validator
+    boundary that prevents new ones from being written.
+    """
+
+    def test_null_guild_id_on_channel_rejected_with_clear_error(
+        self,
+    ) -> None:
+        """Channel entry with ``guild_id=None`` raises
+        ``ValidationError`` with an error message mentioning ``guild_id``
+        and the L5 rationale (hierarchical Server-as-parent UI)."""
+        with pytest.raises(Exception) as exc_info:
+            Connector(
+                id="a", name="n", type="stub",
+                config={
+                    "allowlist": {
+                        "peers": [],
+                        "channels": [
+                            {"guild_id": None, "channel_id": "c1"},
+                        ],
+                    }
+                },
+            )
+        msg = str(exc_info.value)
+        assert "guild_id" in msg
+        assert "non-null" in msg or "non null" in msg.lower() or "string" in msg
+
+    def test_null_guild_id_on_role_rejected_with_clear_error(
+        self,
+    ) -> None:
+        """Role entry with ``guild_id=None`` raises ``ValidationError``
+        with an error message mentioning ``guild_id`` and the L5
+        rationale."""
+        with pytest.raises(Exception) as exc_info:
+            Connector(
+                id="a", name="n", type="stub",
+                config={
+                    "allowlist": {
+                        "peers": [],
+                        "channels": [],
+                        "roles": [
+                            {"guild_id": None, "role_id": "r1"},
+                        ],
+                    }
+                },
+            )
+        msg = str(exc_info.value)
+        assert "guild_id" in msg
+
+    def test_missing_guild_id_on_channel_rejected(self) -> None:
+        """Channel entry with no ``guild_id`` key (vs explicit None)
+        also fails — guild_id is now a required field, not an optional
+        one defaulted to None."""
+        with pytest.raises(Exception) as exc_info:
+            Connector(
+                id="a", name="n", type="stub",
+                config={
+                    "allowlist": {
+                        "peers": [],
+                        "channels": [
+                            {"channel_id": "c1"},
+                        ],
+                    }
+                },
+            )
+        assert "guild_id" in str(exc_info.value)
+
+    def test_wildcard_channel_id_accepted_with_concrete_guild_id(
+        self,
+    ) -> None:
+        """The L5 wildcard sentinel ``"*"`` is a valid ``channel_id``
+        string; the validator accepts it as long as ``guild_id`` is a
+        concrete string."""
+        account = Connector(
+            id="a", name="n", type="stub",
+            config={
+                "allowlist": {
+                    "peers": [],
+                    "channels": [
+                        {"guild_id": "g-1", "channel_id": "*"},
+                    ],
+                    "roles": [
+                        {"guild_id": "g-1", "role_id": "*"},
+                    ],
+                }
+            },
+        )
+        assert account.config["allowlist"]["channels"] == [
+            {"guild_id": "g-1", "channel_id": "*"}
+        ]
+        assert account.config["allowlist"]["roles"] == [
+            {"guild_id": "g-1", "role_id": "*"}
+        ]
 
 
 # ── Chat Session Repository ──────────────────────────────────────────────

@@ -3,6 +3,8 @@
 **Status**: landed
 **Mission**: [Discord Connector Depth & Robustness](../../mission.md)
 
+> **Post-land extension (2026-05-30)**: F12 was committed as `eb7f04d` with 4 legs landed. Operator subsequently requested a hierarchical-UI alignment around the new substrate — channels/roles become sub-properties of server rows, with auto-cleanup of orphaned legacy entries. Treated as L5 on this flight per `/agentic-workflow` mid-execution-pivot guidance (preserve original framing, add new leg). Flight status flipped `landed` → `in-flight` to accommodate L5. F12 will land again with all 5 legs before push + PR.
+
 ## Contributing to Criteria
 
 This flight does not close a mission criterion directly. It is a substrate-stabilization + UX-correctness flight that supports criterion #19 (daily-driver robustness) indirectly: hierarchical allowlist axes close the operator-mental-model gap filed at F10 L5 HAT (operators reviewing the allowlist can't tell which server a `#general` belongs to under the current flat storage), and the snake_case identifier rename closes the F11-debrief carry-forward debt before the substrate gains further surface area. The F10-filed "Hierarchical allowlist axes" Known Issue and the F11-filed "snake_case identifier rename residue" Known Issue both close at this flight's land.
@@ -233,6 +235,7 @@ Also in L2: add `### two-symmetric-paths-in-acl` to `the_one/agents.md` Mission-
 - [x] `acl-extraction-and-symmetric-paths-convention` — extract `admits_inbound` into `_admits_inbound_dm` + `_admits_inbound_guild` dispatcher; codify `two-symmetric-paths-in-acl` M11 convention in agents.md; semantically a no-op
 - [x] `storage-shape-v24-migration-and-acl-semantics` — Pydantic shape change + schema v24 row-rewrite for 3 axes in `account.config.allowlist` + parallel updates to `agents.connector_acls` + index rename + ACL helper updates (`_admits_inbound_dm` / `_admits_inbound_guild` / `admits_outbound` / `admits_dm_peer` for structured tuples + per-peer DM check) + peer-list consumer site updates in `_inbound.py` / `api.py` / `_discord.py` + `TestSchemaV24` with 5+ tests + cross-product matrix tests. **One large atomic leg** — operator-confirmed merge of original L3+L5 to avoid transient ACL-vs-storage-shape state.
 - [x] `ui-discoverable-dropdown-and-per-peer-dm-toggle` — frontend updates atomic to L3 storage; allowlist editor + agent-editor Connectors tab; legacy-entry indicator; per-peer DM toggle UI (conditional on `dm_admission=admin-approved` mode); dm_admission row STAYS with revised label; ~10-15 browser test fixture updates + 4-8 new tests including conditional-render verification; Phase 5c architect cycle enumerates exact test surface pre-implementation
+- [x] `hierarchical-server-parent-ui` *(post-land extension)* — restructure allowlist editor so channels/roles are sub-controls of server rows; enforce server-first (no orphaned channels/roles); migration v25 deletes orphaned null-guild_id entries + tightens Pydantic validator to reject null guild_id; new `"*"` sentinel value for `channel_id` / `role_id` meaning "all channels/roles of this guild" added when server is allowlisted without explicit narrowing; ACL helpers updated with wildcard handling + cross-product matrix extension; per-agent overlay in connectors-tab.js mirrors the hierarchical layout; L4's legacy-entry indicator removed (no more legacy entries post-v25).
 
 ---
 
@@ -240,10 +243,11 @@ Also in L2: add `### two-symmetric-paths-in-acl` to `the_one/agents.md` Mission-
 
 ### Completion Checklist
 
-- [x] All 4 legs completed
+- [x] L1-L4 legs completed (per `eb7f04d`)
+- [x] L5 leg completed *(post-land extension; completed)*
 - [ ] Code merged
-- [x] Backend test suite: 2754+ passed / 4 skipped / 0 errors / 0 failures (allowing for `TestSchemaV24` + cross-product matrix tests in L3) — final: 2767 passed / 4 skipped / 0 errors
-- [x] Browser test suite: green except 2 pre-existing-main failures (not F12-caused) — final: 438 passed / 2 pre-existing-main failures
+- [x] Backend test suite: 2754+ passed / 4 skipped / 0 errors / 0 failures (allowing for `TestSchemaV24` + cross-product matrix tests in L3) — final: 2783 passed / 4 skipped / 0 errors
+- [x] Browser test suite: green except 2 pre-existing-main failures (not F12-caused) — final: 443 passed / 2 pre-existing-main failures
 - [x] Migration test suite green including `TestSchemaV24`
 - [x] Repo-wide grep for snake_case identifier rename returns 0 hits in source files (per L1's explicitly-enumerated gate)
 - [x] `the_one/agents.md` M11 section has `two-symmetric-paths-in-acl` convention block; F10 Known Issues "Hierarchical allowlist axes (F10 L5 HAT finding)" marked `[x]`; F11 Known Issues "snake_case identifier rename residue" marked `[x]`

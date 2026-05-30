@@ -249,9 +249,13 @@ class TestSchemaV8:
         # dm_admission Literal value "allowlisted-peers-only" →
         # "admin-approved" + renamed the pending_approvals index
         # (M11 F12 L03 — hierarchical allowlist axes).
-        assert CURRENT_VERSION == 24, (
-            "CURRENT_VERSION must be 24 after the M11 F12 L03 — "
-            "hierarchical allowlist axes v24 migration "
+        # v25 deletes orphan null-``guild_id`` channel/role entries
+        # and tightens the Pydantic validator to reject null guild_id
+        # going forward (M11 F12 L05 — hierarchical Server-as-parent
+        # UI alignment).
+        assert CURRENT_VERSION == 25, (
+            "CURRENT_VERSION must be 25 after the M11 F12 L05 — "
+            "hierarchical Server-as-parent UI v25 migration "
             f"(got {CURRENT_VERSION})"
         )
 
@@ -2943,15 +2947,14 @@ class TestSchemaV22:
         # M11 F12 L3 — v24 row-rewrote peers + channels into the
         # structured-tuple shape. dm_admission "none" stays "none"; the
         # per-peer dm_allowed default under "none" is False (the v24
-        # collapse rule). Channels get the {guild_id=None, channel_id}
-        # tuple shape with NULL guild_id (legacy-permissive backward-
-        # compat).
+        # collapse rule). M11 F12 L5: the v25 cleanup that runs IN THE
+        # SAME ``ensure_schema`` pipeline deletes the orphan-null-
+        # guild_id channel entry (legacy-permissive backfill from v24);
+        # post-pipeline channels is empty.
         assert cfg["allowlist"]["peers"] == [
             {"id": "P1", "dm_allowed": False}
         ]
-        assert cfg["allowlist"]["channels"] == [
-            {"guild_id": None, "channel_id": "C1"}
-        ]
+        assert cfg["allowlist"]["channels"] == []
         assert cfg["allowlist"]["dm_admission"] == "none"
 
         await conn.close()
@@ -3507,6 +3510,13 @@ class TestSchemaV24:
         ), indexes
 
         # Validator accepts structured shape.
+        # M11 F12 L5: post-v25 the validator REQUIRES non-null
+        # ``guild_id`` on channel/role entries (the L3 ``str | None``
+        # field is tightened to ``str``); the wildcard sentinel ``"*"``
+        # is the storage representation of "any channel/role of this
+        # guild". The structured-shape acceptance test now uses a
+        # concrete guild_id; the L5 ``TestSchemaV25`` class covers the
+        # null-rejection path directly.
         from the_one.db.models import Connector
         accepted = Connector.model_validate({
             "id": "acct-x",
@@ -3516,10 +3526,10 @@ class TestSchemaV24:
                 "allowlist": {
                     "peers": [{"id": "U1", "dm_allowed": True}],
                     "channels": [
-                        {"guild_id": None, "channel_id": "C1"}
+                        {"guild_id": "G1", "channel_id": "C1"}
                     ],
                     "roles": [
-                        {"guild_id": None, "role_id": "R1"}
+                        {"guild_id": "G1", "role_id": "R1"}
                     ],
                     "dm_admission": "admin-approved",
                 }
@@ -3760,6 +3770,13 @@ class TestSchemaV24:
         await ensure_schema(conn)
 
         # Sub-case (a): dm_admission == "all" → dm_allowed=True per peer.
+        # M11 F12 L5: the v24 migration emits channel/role entries with
+        # ``guild_id=None`` (legacy-permissive backfill); the chained v25
+        # cleanup that runs IN THE SAME ``ensure_schema`` call then
+        # deletes those orphan-null entries. Post-pipeline the channels
+        # and roles lists are empty for these v23-shape rows. This is
+        # the intended L5 outcome (operator framing: app not live;
+        # enforce guild-scoped going forward).
         async with conn.execute(
             "SELECT config FROM connectors WHERE id = 'acct-all'"
         ) as cur:
@@ -3771,12 +3788,8 @@ class TestSchemaV24:
             {"id": "U1", "dm_allowed": True},
             {"id": "U2", "dm_allowed": True},
         ], allowlist
-        assert allowlist["channels"] == [
-            {"guild_id": None, "channel_id": "C1"}
-        ], allowlist
-        assert allowlist["roles"] == [
-            {"guild_id": None, "role_id": "R1"}
-        ], allowlist
+        assert allowlist["channels"] == [], allowlist
+        assert allowlist["roles"] == [], allowlist
 
         # Sub-case (b): dm_admission == "none" → dm_allowed=False per peer.
         async with conn.execute(
@@ -3802,9 +3815,9 @@ class TestSchemaV24:
         assert allowlist["peers"] == [
             {"id": "U4", "dm_allowed": True}
         ], allowlist
-        assert allowlist["channels"] == [
-            {"guild_id": None, "channel_id": "C2"}
-        ], allowlist
+        # M11 F12 L5: v25 cleanup deletes the orphan-null-guild_id
+        # channel entry emitted by v24's legacy-permissive backfill.
+        assert allowlist["channels"] == [], allowlist
 
         # Sub-case (d): dm_admission absent → defaulted then rewritten
         # to "admin-approved"; peers get dm_allowed=True.
@@ -3934,16 +3947,17 @@ class TestSchemaV24:
         acls = json.loads(row["connector_acls"])
         # acct-1 — populated axes get structured shape; per-agent
         # peers carry dm_allowed=True default; admit_dms stays False.
+        # M11 F12 L5: the v25 cleanup that runs IN THE SAME
+        # ``ensure_schema`` call deletes the orphan-null-guild_id
+        # channel/role entries emitted by v24's legacy-permissive
+        # backfill. Post-pipeline these per-agent-acl lists are empty
+        # for v23-shape seeded rows.
         assert acls["acct-1"]["peers"] == [
             {"id": "U1", "dm_allowed": True},
             {"id": "U2", "dm_allowed": True},
         ]
-        assert acls["acct-1"]["channels"] == [
-            {"guild_id": None, "channel_id": "C1"}
-        ]
-        assert acls["acct-1"]["roles"] == [
-            {"guild_id": None, "role_id": "R1"}
-        ]
+        assert acls["acct-1"]["channels"] == []
+        assert acls["acct-1"]["roles"] == []
         assert acls["acct-1"]["admit_dms"] is False
         # acct-2 — None peers stay None; empty channels list stays
         # empty (but is now a list of dicts — i.e. empty list).
@@ -3980,3 +3994,401 @@ class TestSchemaV24:
         assert "status" in sql, sql
 
         await conn.close()
+
+
+class TestSchemaV25:
+    """Tests for the v25 migration that deletes orphan null-``guild_id``
+    channel/role entries from ``connectors.config.allowlist`` AND
+    ``agents.connector_acls``.
+
+    Mission 11 Flight 12 Leg 5 — hierarchical Server-as-parent UI
+    alignment. The migration backs the L5 substrate tightening: post-
+    v25 the Pydantic validators on both ``Connector.config`` and
+    ``AgentConfig.connector_acls`` REJECT null-``guild_id`` channel and
+    role entries. The hierarchical UI emits guild-scoped tuples
+    exclusively (Server-as-parent layout); the v24 legacy-permissive
+    backfill (``guild_id=None`` for entries from pre-v24 flat shape)
+    is no longer accepted.
+
+    Operator framing at L5 planning (recorded in flight log): "app is
+    not live, just enforce going forward" — no data preservation for
+    the orphan-null entries.
+
+    Migration semantics:
+
+    - Row-rewrite ``connectors.config.allowlist``: delete entries from
+      the ``channels`` and ``roles`` lists where ``guild_id is None``.
+      All other entries (including the new ``"*"`` wildcard sentinel
+      for ``channel_id`` / ``role_id``) are preserved.
+    - Row-rewrite ``agents.connector_acls``: same deletion across each
+      per-account payload.
+    - Idempotent: the per-row UPDATE only fires when the list shape
+      changes; re-running ``ensure_schema`` is a no-op (no separate
+      segment marker needed — unlike v21's CREATE INDEX pattern).
+    """
+
+    async def test_v25_deletes_orphan_null_guild_id_channels_and_roles(
+        self, tmp_path
+    ) -> None:
+        """Seed a v24-shape DB with mixed null + structured channel/role
+        entries; verify v25 deletes the null-``guild_id`` orphans and
+        preserves everything else (including the new ``"*"`` wildcard
+        sentinel and concrete-guild entries).
+        """
+        db_path = tmp_path / "v25-orphan-deletion.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        # Hand-build a v24-shape DB (schema_version v1..v24 seeded;
+        # connectors + pending_approvals + agents tables present).
+        await conn.execute(
+            "CREATE TABLE schema_version ("
+            "    version INTEGER PRIMARY KEY,"
+            "    applied_at TEXT NOT NULL DEFAULT (datetime('now'))"
+            ")"
+        )
+        for v in range(1, 25):
+            await conn.execute(
+                "INSERT INTO schema_version (version) VALUES (?)", (v,)
+            )
+        await conn.execute(
+            "CREATE TABLE connectors ("
+            "    id TEXT PRIMARY KEY,"
+            "    type TEXT NOT NULL CHECK (type IN ('discord', 'stub')),"
+            "    config TEXT DEFAULT '{}',"
+            "    secrets TEXT DEFAULT '{}',"
+            "    created_at TEXT NOT NULL DEFAULT (datetime('now')),"
+            "    updated_at TEXT NOT NULL DEFAULT (datetime('now')),"
+            "    name TEXT NOT NULL DEFAULT '',"
+            "    idle_timeout_seconds INTEGER NULL,"
+            "    session_continuation_seconds INTEGER NULL"
+            ")"
+        )
+        await conn.execute(
+            "CREATE TABLE pending_approvals ("
+            "    id TEXT PRIMARY KEY,"
+            "    connector_id TEXT NOT NULL"
+            "        REFERENCES connectors(id) ON DELETE CASCADE,"
+            "    peer_id TEXT NOT NULL,"
+            "    peer_name TEXT NOT NULL,"
+            "    preview TEXT NOT NULL,"
+            "    received_at TEXT NOT NULL,"
+            "    status TEXT NOT NULL"
+            "        CHECK (status IN ('pending', 'approved', 'dismissed')),"
+            "    resolved_at TEXT"
+            ")"
+        )
+        await conn.execute(
+            "CREATE INDEX idx_pending_approvals_connector_peer_status "
+            "ON pending_approvals (connector_id, peer_id, status)"
+        )
+
+        # Seed a connector with a mix of null + structured + wildcard
+        # entries across channels and roles.
+        await conn.execute(
+            "INSERT INTO connectors "
+            "(id, name, type, config) VALUES (?, ?, ?, ?)",
+            (
+                "acct-mixed",
+                "Mixed",
+                "stub",
+                json.dumps({
+                    "allowlist": {
+                        "peers": [
+                            {"id": "U1", "dm_allowed": True}
+                        ],
+                        "channels": [
+                            # Orphan — should be deleted.
+                            {"guild_id": None, "channel_id": "C-legacy"},
+                            # Concrete — preserved.
+                            {"guild_id": "G1", "channel_id": "C-keep"},
+                            # Wildcard sentinel — preserved.
+                            {"guild_id": "G2", "channel_id": "*"},
+                        ],
+                        "roles": [
+                            # Orphan — deleted.
+                            {"guild_id": None, "role_id": "R-legacy"},
+                            # Concrete — preserved.
+                            {"guild_id": "G1", "role_id": "R-keep"},
+                            # Wildcard sentinel — preserved.
+                            {"guild_id": "G2", "role_id": "*"},
+                        ],
+                        "guilds": ["G1", "G2"],
+                        "dm_admission": "admin-approved",
+                    }
+                }),
+            ),
+        )
+        await conn.commit()
+
+        await ensure_schema(conn)
+
+        async with conn.execute(
+            "SELECT config FROM connectors WHERE id = 'acct-mixed'"
+        ) as cur:
+            row = await cur.fetchone()
+        cfg = json.loads(row["config"])
+        allowlist = cfg["allowlist"]
+
+        # Channels: orphan deleted, concrete + wildcard preserved.
+        assert allowlist["channels"] == [
+            {"guild_id": "G1", "channel_id": "C-keep"},
+            {"guild_id": "G2", "channel_id": "*"},
+        ], allowlist["channels"]
+
+        # Roles: orphan deleted, concrete + wildcard preserved.
+        assert allowlist["roles"] == [
+            {"guild_id": "G1", "role_id": "R-keep"},
+            {"guild_id": "G2", "role_id": "*"},
+        ], allowlist["roles"]
+
+        # Other axes untouched.
+        assert allowlist["peers"] == [
+            {"id": "U1", "dm_allowed": True}
+        ]
+        assert allowlist["guilds"] == ["G1", "G2"]
+        assert allowlist["dm_admission"] == "admin-approved"
+
+        # Head pointer landed at CURRENT_VERSION.
+        async with conn.execute(
+            "SELECT version FROM schema_version ORDER BY version"
+        ) as cur:
+            versions = [r[0] for r in await cur.fetchall()]
+        assert 25 in versions, versions
+        assert max(versions) == CURRENT_VERSION, versions
+
+        await conn.close()
+
+    async def test_v25_idempotent_on_rerun(self, tmp_path) -> None:
+        """Calling ``ensure_schema`` twice on a fresh DB is a no-op the
+        second time: the v25 ``if version < 25:`` guard short-circuits,
+        and ``schema_version`` has v25 exactly once. Also covers the
+        case where a row already has only guild-scoped entries: the
+        per-row UPDATE only fires when the filtered list differs from
+        the original (natural idempotency without a separate segment
+        marker)."""
+        db_path = tmp_path / "v25-rerun.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await ensure_schema(conn)
+        await ensure_schema(conn)  # second call — must be a no-op
+
+        async with conn.execute(
+            "SELECT version FROM schema_version ORDER BY version"
+        ) as cur:
+            versions = [r[0] for r in await cur.fetchall()]
+        assert versions.count(25) == 1, (
+            f"v25 row should appear exactly once: {versions}"
+        )
+
+        await conn.close()
+
+    async def test_v25_agents_connector_acls_orphan_deletion(
+        self, tmp_path
+    ) -> None:
+        """``agents.connector_acls`` JSON column row-rewrite deletes the
+        same orphan-null-``guild_id`` entries across each per-account
+        payload, in lockstep with the connectors rewrite. Wildcard and
+        concrete entries are preserved.
+        """
+        db_path = tmp_path / "v25-agents-orphan-deletion.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await conn.execute(
+            "CREATE TABLE schema_version ("
+            "    version INTEGER PRIMARY KEY,"
+            "    applied_at TEXT NOT NULL DEFAULT (datetime('now'))"
+            ")"
+        )
+        for v in range(1, 25):
+            await conn.execute(
+                "INSERT INTO schema_version (version) VALUES (?)", (v,)
+            )
+        await conn.execute(
+            "CREATE TABLE connectors ("
+            "    id TEXT PRIMARY KEY,"
+            "    type TEXT NOT NULL CHECK (type IN ('discord', 'stub')),"
+            "    config TEXT DEFAULT '{}',"
+            "    secrets TEXT DEFAULT '{}',"
+            "    created_at TEXT NOT NULL DEFAULT (datetime('now')),"
+            "    updated_at TEXT NOT NULL DEFAULT (datetime('now')),"
+            "    name TEXT NOT NULL DEFAULT '',"
+            "    idle_timeout_seconds INTEGER NULL,"
+            "    session_continuation_seconds INTEGER NULL"
+            ")"
+        )
+        await conn.execute(
+            "CREATE TABLE pending_approvals ("
+            "    id TEXT PRIMARY KEY,"
+            "    connector_id TEXT NOT NULL"
+            "        REFERENCES connectors(id) ON DELETE CASCADE,"
+            "    peer_id TEXT NOT NULL,"
+            "    peer_name TEXT NOT NULL,"
+            "    preview TEXT NOT NULL,"
+            "    received_at TEXT NOT NULL,"
+            "    status TEXT NOT NULL"
+            "        CHECK (status IN ('pending', 'approved', 'dismissed')),"
+            "    resolved_at TEXT"
+            ")"
+        )
+        await conn.execute(
+            "CREATE INDEX idx_pending_approvals_connector_peer_status "
+            "ON pending_approvals (connector_id, peer_id, status)"
+        )
+        await conn.execute(
+            "CREATE TABLE agents ("
+            "    name TEXT PRIMARY KEY,"
+            "    description TEXT DEFAULT '',"
+            "    provider_config_id TEXT,"
+            "    llm_model TEXT DEFAULT '',"
+            "    system_prompt TEXT DEFAULT '',"
+            "    enabled_tools TEXT,"
+            "    disabled_tools TEXT DEFAULT '[]',"
+            "    max_iterations INTEGER DEFAULT 20,"
+            "    kb_ids TEXT DEFAULT '[]',"
+            "    mcp_source_ids TEXT DEFAULT '[]',"
+            "    tool_overrides TEXT,"
+            "    mcp_overrides TEXT,"
+            "    connector_ids TEXT,"
+            "    connector_acls TEXT,"
+            "    connector_always_listen TEXT,"
+            "    created_at TEXT NOT NULL DEFAULT (datetime('now')),"
+            "    updated_at TEXT NOT NULL DEFAULT (datetime('now'))"
+            ")"
+        )
+        await conn.execute(
+            "INSERT INTO agents (name, connector_acls) VALUES (?, ?)",
+            (
+                "agent-1",
+                json.dumps({
+                    "acct-A": {
+                        "peers": [{"id": "U1", "dm_allowed": True}],
+                        "channels": [
+                            # Orphan — deleted.
+                            {"guild_id": None, "channel_id": "C-old"},
+                            # Concrete — preserved.
+                            {"guild_id": "G1", "channel_id": "C-keep"},
+                        ],
+                        "roles": [
+                            # Wildcard — preserved.
+                            {"guild_id": "G1", "role_id": "*"},
+                            # Orphan — deleted.
+                            {"guild_id": None, "role_id": "R-old"},
+                        ],
+                    },
+                    "acct-B": {
+                        # Already clean — no UPDATE fires for this
+                        # payload (idempotency at the per-payload level).
+                        "peers": None,
+                        "channels": [
+                            {"guild_id": "G2", "channel_id": "*"},
+                        ],
+                    },
+                }),
+            ),
+        )
+        await conn.commit()
+
+        await ensure_schema(conn)
+
+        async with conn.execute(
+            "SELECT connector_acls FROM agents WHERE name = 'agent-1'"
+        ) as cur:
+            row = await cur.fetchone()
+        acls = json.loads(row["connector_acls"])
+
+        # acct-A: orphans deleted, concrete + wildcard preserved.
+        assert acls["acct-A"]["channels"] == [
+            {"guild_id": "G1", "channel_id": "C-keep"},
+        ]
+        assert acls["acct-A"]["roles"] == [
+            {"guild_id": "G1", "role_id": "*"},
+        ]
+        assert acls["acct-A"]["peers"] == [
+            {"id": "U1", "dm_allowed": True}
+        ]
+
+        # acct-B: untouched (already clean).
+        assert acls["acct-B"]["peers"] is None
+        assert acls["acct-B"]["channels"] == [
+            {"guild_id": "G2", "channel_id": "*"},
+        ]
+
+        await conn.close()
+
+    async def test_v25_validator_rejects_null_guild_id_channel(
+        self, tmp_path
+    ) -> None:
+        """Post-v25 the Pydantic validator on ``Connector.config``
+        REJECTS channel/role entries with null ``guild_id`` (the L3
+        ``str | None`` annotation is tightened to ``str``). This
+        complements the migration: any subsequent write attempting to
+        re-introduce orphan-null entries fails fast at the Pydantic
+        boundary. The wildcard sentinel ``"*"`` is the storage shape
+        for "any channel of this guild" — the null is no longer a
+        valid storage value.
+        """
+        from the_one.db.models import Connector
+
+        # Null guild_id on a channel entry → rejected.
+        with pytest.raises(Exception):  # pydantic ValidationError
+            Connector.model_validate({
+                "id": "acct-bad-channel",
+                "name": "bad",
+                "type": "stub",
+                "config": {
+                    "allowlist": {
+                        "peers": [],
+                        "channels": [
+                            {"guild_id": None, "channel_id": "C1"}
+                        ],
+                    }
+                },
+            })
+
+        # Null guild_id on a role entry → rejected.
+        with pytest.raises(Exception):
+            Connector.model_validate({
+                "id": "acct-bad-role",
+                "name": "bad",
+                "type": "stub",
+                "config": {
+                    "allowlist": {
+                        "peers": [],
+                        "channels": [],
+                        "roles": [
+                            {"guild_id": None, "role_id": "R1"}
+                        ],
+                    }
+                },
+            })
+
+        # Wildcard ``channel_id="*"`` with concrete guild_id is
+        # accepted (the L5 "any channel of this guild" semantic).
+        accepted = Connector.model_validate({
+            "id": "acct-wildcard",
+            "name": "ok",
+            "type": "stub",
+            "config": {
+                "allowlist": {
+                    "peers": [],
+                    "channels": [
+                        {"guild_id": "G1", "channel_id": "*"}
+                    ],
+                    "roles": [
+                        {"guild_id": "G1", "role_id": "*"}
+                    ],
+                }
+            },
+        })
+        assert accepted.config["allowlist"]["channels"] == [
+            {"guild_id": "G1", "channel_id": "*"}
+        ]
+        assert accepted.config["allowlist"]["roles"] == [
+            {"guild_id": "G1", "role_id": "*"}
+        ]

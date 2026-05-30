@@ -323,76 +323,14 @@ def test_per_peer_dm_toggle_hidden_under_none_mode(
     )
 
 
-@pytest.mark.browser
-def test_channel_legacy_indicator_renders_for_null_guild_id(
-    app_clean: str, page: Page
-) -> None:
-    """A connector with a legacy channel entry (``guild_id: None``) shows
-    the legacy indicator inside the chip; the testid is keyed by
-    channel_id. Channels with a non-null guild_id do NOT show the
-    indicator.
-    """
-    account_id = _seed_discord_with_allowlist(
-        app_clean,
-        name="Legacy Channel Bot",
-        dm_admission="admin-approved",
-        channels=[
-            {"guild_id": None, "channel_id": "legacy-111"},
-            {"guild_id": "guild-1", "channel_id": "111"},
-        ],
-    )
-    _route_discoverable_ok(page, account_id)
-    page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
-        timeout=8000
-    )
-    _activate_access_and_routing_tab(page)
-
-    # Legacy channel chip carries the indicator.
-    legacy_indicator = page.locator(
-        '[data-testid="connector-allowlist-channel-legacy-indicator-legacy-111"]'
-    )
-    expect(legacy_indicator).to_have_count(1, timeout=8000)
-    # Non-legacy channel chip does NOT carry the indicator.
-    expect(
-        page.locator(
-            '[data-testid="connector-allowlist-channel-legacy-indicator-111"]'
-        )
-    ).to_have_count(0)
-
-
-@pytest.mark.browser
-def test_role_legacy_indicator_renders_for_null_guild_id(
-    app_clean: str, page: Page
-) -> None:
-    """Same as channels but for roles — null guild_id roles render the
-    legacy indicator.
-    """
-    account_id = _seed_discord_with_allowlist(
-        app_clean,
-        name="Legacy Role Bot",
-        dm_admission="admin-approved",
-        roles=[
-            {"guild_id": None, "role_id": "legacy-role"},
-            {"guild_id": "guild-1", "role_id": "role-1"},
-        ],
-    )
-    _route_discoverable_ok(page, account_id)
-    page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
-        timeout=8000
-    )
-    _activate_access_and_routing_tab(page)
-
-    legacy_indicator = page.locator(
-        '[data-testid="connector-allowlist-role-legacy-indicator-legacy-role"]'
-    )
-    expect(legacy_indicator).to_have_count(1, timeout=8000)
-    expect(
-        page.locator(
-            '[data-testid="connector-allowlist-role-legacy-indicator-role-1"]'
-        )
-    ).to_have_count(0)
+# M11 F12 L5 — The L4 legacy-indicator browser tests were retired here:
+#   - ``test_channel_legacy_indicator_renders_for_null_guild_id``
+#   - ``test_role_legacy_indicator_renders_for_null_guild_id``
+# Post-v25 there are no null-``guild_id`` channel/role entries to
+# indicate (the migration deletes them; the Pydantic validator rejects
+# new ones). The migration regression test
+# ``TestSchemaV25::test_v25_deletes_orphan_null_guild_id_channels_and_roles``
+# covers the "v25 deletes orphans" assertion at a cheaper layer.
 
 
 @pytest.mark.browser

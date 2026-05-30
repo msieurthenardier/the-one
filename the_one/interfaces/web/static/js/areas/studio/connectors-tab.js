@@ -642,7 +642,21 @@
               } else if (axisValueShape === 'peer') {
                 initItems.push({ id: String(_val), dm_allowed: true });
               } else if (axisValueShape === 'channel') {
-                initItems.push({ guild_id: null, channel_id: String(_val) });
+                // M11 F12 L5 — wrap flat-string back into the structured
+                // tuple using the scope-channel guild_id map. The L4
+                // emission (``guild_id: null``) is no longer accepted
+                // by the post-v25 Pydantic validator; this surface is
+                // a transient code path that should not normally fire
+                // post-L4 because per-agent ``channels`` arrives in
+                // structured shape from the API. Defensive fallback
+                // when guild_id is unknown: skip the entry (the L5
+                // validator would reject it anyway).
+                var _gid = _scopeChannelGuildIds[String(_val)] || '';
+                if (_gid) {
+                  initItems.push({
+                    guild_id: _gid, channel_id: String(_val)
+                  });
+                }
               } else {
                 initItems.push(String(_val));
               }

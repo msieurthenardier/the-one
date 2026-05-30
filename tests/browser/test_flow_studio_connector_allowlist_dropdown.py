@@ -145,13 +145,16 @@ def _activate_access_and_routing_tab(page: Page) -> None:
 def test_allowlist_axis_renders_dropdown_for_discord_account(
     app_clean: str, page: Page
 ) -> None:
-    """Edit an existing Discord account → each of the 4 allowlist axes
-    renders the ``discoverable-dropdown`` component (NOT the chip-list).
+    """Edit an existing Discord account → the top-level allowlist
+    surface renders the ``discoverable-dropdown`` component for peers
+    AND for the new hierarchical Servers (guilds) parent organizer.
 
-    The mapped API axis names are peers / channels / groups / roles —
-    the dropdown's ``data-testid`` carries the API axis name, NOT the
-    storage axis name. So the ``guilds`` storage row exposes a
-    ``discoverable-dropdown-groups`` element.
+    M11 F12 L5 — the L4 flat 4-dropdown layout (Peers / Channels /
+    Groups / Roles as siblings) was replaced by a hierarchical layout:
+    only Peers + Servers dropdowns render at the top of the allowlist
+    section. Channels + Roles dropdowns are server-scoped and render
+    INSIDE each server row (covered by the dedicated suite in
+    ``test_flow_studio_hierarchical_server_rows.py``).
     """
     account_id = _seed_discord(app_clean, name="Discord Allowlist Bot")
     _route_discoverable_ok(page, account_id)
@@ -164,11 +167,10 @@ def test_allowlist_axis_renders_dropdown_for_discord_account(
     expect(page.locator('[data-testid="discoverable-dropdown-peers"]')).to_have_count(
         1, timeout=8000
     )
-    expect(page.locator('[data-testid="discoverable-dropdown-channels"]')).to_have_count(1)
-    # Storage axis "guilds" → API axis "groups".
+    # Storage axis "guilds" → API axis "groups"; this is the parent
+    # organizer for the hierarchical layout.
     expect(page.locator('[data-testid="discoverable-dropdown-groups"]')).to_have_count(1)
-    expect(page.locator('[data-testid="discoverable-dropdown-roles"]')).to_have_count(1)
-    # And the chip-list editors must NOT be present for any of the 4 axes.
+    # No top-level chip-list editors for any axis.
     expect(
         page.locator('[data-testid^="connector-allowlist-"][data-testid$="-chiplist"]')
     ).to_have_count(0)
@@ -178,9 +180,16 @@ def test_allowlist_axis_renders_dropdown_for_discord_account(
 def test_allowlist_axis_renders_chiplist_for_stub_account(
     app_clean: str, page: Page
 ) -> None:
-    """Edit an existing stub account → each axis still renders the
-    pre-existing chip-list editor (the regression contract for any
-    connector type without a ``renderDiscoverableDropdown`` hook).
+    """Edit an existing stub account → the top-level peers axis still
+    renders the pre-existing chip-list editor (the regression contract
+    for any connector type without a ``renderDiscoverableDropdown``
+    hook).
+
+    M11 F12 L5 — the L4 flat 4-section layout (Peers / Channels /
+    Guilds / Roles as siblings) was replaced by a hierarchical layout
+    rooted at Servers. Only peers + guilds chip-lists render at the
+    top level for stub connectors; channels + roles render INSIDE
+    server rows (no top-level chip-list).
     """
     account_id = seed_connector(app_clean, name="Stub Allowlist Bot")
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
@@ -189,13 +198,18 @@ def test_allowlist_axis_renders_chiplist_for_stub_account(
     )
     _activate_access_and_routing_tab(page)
 
-    # Existing chip-list testids per ``connector-editor.js:1860``
-    # — prefix is ``connector-allowlist-``; the axis name is interpolated
-    # before the ``-chiplist`` suffix.
-    for axis in ("peers", "channels", "guilds", "roles"):
+    # Top-level chip-lists: peers + guilds (the Servers parent
+    # organizer); channels + roles no longer render at the top level.
+    for axis in ("peers", "guilds"):
         expect(
             page.locator(f'[data-testid="connector-allowlist-{axis}-chiplist"]')
         ).to_have_count(1)
+    for retired_axis in ("channels", "roles"):
+        expect(
+            page.locator(
+                f'[data-testid="connector-allowlist-{retired_axis}-chiplist"]'
+            )
+        ).to_have_count(0)
     # And no dropdown components rendered for any axis.
     expect(page.locator('[data-testid^="discoverable-dropdown-"]')).to_have_count(0)
 
@@ -204,13 +218,30 @@ def test_allowlist_axis_renders_chiplist_for_stub_account(
 def test_allowlist_dropdown_onChange_updates_account_config_allowlist(
     app_clean: str, page: Page
 ) -> None:
-    """Open a Discord account → pick a channels-axis item → save → the
-    selected id round-trips into ``account.config.allowlist.channels``.
+    """Open a Discord account → pre-seed a server (so the nested
+    channels dropdown is mounted inside the server row) → pick a
+    channel item from the server-scoped dropdown → save → the
+    selected id round-trips into ``account.config.allowlist.channels``
+    as a guild-scoped structured tuple.
 
-    Pins the full collect-path through the per-slot
-    ``_allowlistValues`` getter installed by ``_mountAllowlistAxisEditor``.
+    M11 F12 L5 — channels are server-scoped post-restructure; this
+    test exercises the in-row dropdown wired by
+    ``_mountAllowlistHierarchicalEditor``. The hierarchical-getter
+    contract drives the collect path; ``collectAllowlistFromContainer``
+    reads the {guilds, channels, roles} triple from the Servers slot.
     """
-    account_id = _seed_discord(app_clean, name="Discord Channels Bot")
+    account_id = _seed_discord(
+        app_clean,
+        name="Discord Channels Bot",
+        config={
+            "allowlist": {
+                "peers": [],
+                "channels": [],
+                "guilds": ["guild-1"],
+                "roles": [],
+            }
+        },
+    )
     _route_discoverable_ok(page, account_id)
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
     expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
@@ -218,18 +249,31 @@ def test_allowlist_dropdown_onChange_updates_account_config_allowlist(
     )
     _activate_access_and_routing_tab(page)
 
-    items = page.locator('[data-testid="discoverable-dropdown-item-channels"]')
+    # The server row for guild-1 mounts.
+    server_row = page.locator(
+        '[data-testid="connector-allowlist-server-row-guild-1"]'
+    )
+    expect(server_row).to_have_count(1, timeout=8000)
+
+    # The server-scoped channels dropdown is inside the row.
+    items = server_row.locator(
+        '[data-testid="discoverable-dropdown-item-channels"]'
+    )
     expect(items).to_have_count(2, timeout=8000)
 
-    input_el = page.locator('[data-testid="discoverable-dropdown-input-channels"]')
+    input_el = server_row.locator(
+        '[data-testid="discoverable-dropdown-input-channels"]'
+    )
     expect(input_el).to_be_enabled(timeout=4000)
     input_el.focus()
     items.filter(has_text="#general").click()
 
-    # A chip should now render for the selected id.
-    expect(
-        page.locator('[data-testid="discoverable-dropdown-chip-channels"]')
-    ).to_have_count(1)
+    # An explicit channel chip should now render for the selected id
+    # under the guild-1 row.
+    explicit_chip = page.locator(
+        '[data-testid="connector-allowlist-channel-chip-guild-1-111"]'
+    )
+    expect(explicit_chip).to_have_count(1)
 
     save_btn = page.locator('[data-testid="save-connector-btn"]')
     expect(save_btn).not_to_be_disabled(timeout=4000)
@@ -240,11 +284,10 @@ def test_allowlist_dropdown_onChange_updates_account_config_allowlist(
 
     persisted = _get_account(app_clean, account_id)
     allowlist = (persisted.get("config") or {}).get("allowlist") or {}
-    # M11 F12 L4 — channels storage is structured-tuple
-    # ``[{guild_id, channel_id}]`` post-v24. Project to channel_ids for
-    # the membership check. The selected ``#general`` item carries
-    # ``group: 'guild-1'`` in the discoverable payload; the dropdown
-    # synthesizes the tuple as ``{guild_id: 'guild-1', channel_id: '111'}``.
+    # M11 F12 L5 — channels storage is the guild-scoped structured
+    # tuple. Project to channel_ids for the membership check; the
+    # selected ``#general`` item synthesizes
+    # ``{guild_id: 'guild-1', channel_id: '111'}``.
     channel_ids = [
         e.get("channel_id") if isinstance(e, dict) else e
         for e in (allowlist.get("channels") or [])
@@ -258,14 +301,28 @@ def test_allowlist_dropdown_onChange_updates_account_config_allowlist(
 def test_allowlist_dropdown_chip_remove_updates_account_config_allowlist(
     app_clean: str, page: Page
 ) -> None:
-    """Discord account pre-seeded with an allowlisted channel → operator
-    clicks the chip's × button → save → the id is gone from
-    ``account.config.allowlist.channels`` on reload.
+    """Discord account pre-seeded with a guild + an allowlisted channel
+    under that guild → operator clicks the in-row chip's × button →
+    save → the id is gone from ``account.config.allowlist.channels``
+    on reload.
+
+    M11 F12 L5 — channel chips are server-scoped post-restructure;
+    the testid carries the guild_id segment per the hierarchical
+    chip-rendering rule in ``_renderServerRow``.
     """
     account_id = _seed_discord(
         app_clean,
         name="Discord Remove Bot",
-        config={"allowlist": {"peers": [], "channels": ["111"], "guilds": [], "roles": []}},
+        config={
+            "allowlist": {
+                "peers": [],
+                "channels": [
+                    {"guild_id": "guild-1", "channel_id": "111"},
+                ],
+                "guilds": ["guild-1"],
+                "roles": [],
+            }
+        },
     )
     _route_discoverable_ok(page, account_id)
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
@@ -274,15 +331,18 @@ def test_allowlist_dropdown_chip_remove_updates_account_config_allowlist(
     )
     _activate_access_and_routing_tab(page)
 
-    # Wait for the GET to settle so the pre-selected chip's label resolves.
-    expect(page.locator('[data-testid="discoverable-dropdown-item-channels"]')).to_have_count(
-        2, timeout=8000
+    # Wait for the server row + nested chip to render.
+    server_row = page.locator(
+        '[data-testid="connector-allowlist-server-row-guild-1"]'
     )
-    chip = page.locator('[data-testid="discoverable-dropdown-chip-channels"]')
+    expect(server_row).to_have_count(1, timeout=8000)
+    chip = page.locator(
+        '[data-testid="connector-allowlist-channel-chip-guild-1-111"]'
+    )
     expect(chip).to_have_count(1)
 
-    remove = page.locator('[data-testid="discoverable-dropdown-chip-remove-channels"]')
-    remove.click()
+    # The × button is inside the chip (server-scoped).
+    chip.locator('button.chip-remove').click()
     expect(chip).to_have_count(0)
 
     save_btn = page.locator('[data-testid="save-connector-btn"]')
@@ -292,9 +352,12 @@ def test_allowlist_dropdown_chip_remove_updates_account_config_allowlist(
 
     persisted = _get_account(app_clean, account_id)
     allowlist = (persisted.get("config") or {}).get("allowlist") or {}
-    # M11 F12 L4 — channels storage is structured-tuple
-    # ``[{guild_id, channel_id}]`` post-v24. Project to channel_ids for
-    # the absence check.
+    # M11 F12 L5 — channels storage is the guild-scoped structured
+    # tuple. After explicit-chip removal, the sentinel ``"*"`` is
+    # re-inserted automatically (preserving "(all channels)" intent
+    # for the still-allowlisted server). Assert the explicit '111'
+    # is gone; the wildcard may or may not be present depending on
+    # collect-path projection.
     channel_ids = [
         e.get("channel_id") if isinstance(e, dict) else e
         for e in (allowlist.get("channels") or [])
@@ -311,9 +374,28 @@ def test_allowlist_storage_axis_guilds_maps_to_api_groups(
     """The storage-axis ``'guilds'`` slot mounts a dropdown whose
     component-internal axis is ``'groups'``. Pins the bidirectional
     storage↔API axis translation centralized in
-    ``_mountAllowlistAxisEditor``.
+    ``_mountAllowlistHierarchicalEditor``.
+
+    M11 F12 L5 — channels + roles no longer have top-level slots; the
+    bidirectional translation only applies to the Servers (guilds →
+    groups) parent organizer at the top level. Channels + roles are
+    server-scoped (each server row hosts its own discoverable-
+    dropdown invocation with the natural storage axis name; no
+    translation needed since "channels" and "roles" already match the
+    API axis).
     """
-    account_id = _seed_discord(app_clean, name="Discord Groups Bot")
+    account_id = _seed_discord(
+        app_clean,
+        name="Discord Groups Bot",
+        config={
+            "allowlist": {
+                "peers": [],
+                "channels": [],
+                "guilds": ["guild-1"],
+                "roles": [],
+            }
+        },
+    )
     _route_discoverable_ok(page, account_id)
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
     expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
@@ -331,11 +413,30 @@ def test_allowlist_storage_axis_guilds_maps_to_api_groups(
         "data-testid", "discoverable-dropdown-groups"
     )
 
-    # And the other three slots host dropdowns whose data-axis matches
-    # their storage axis (no translation).
-    for storage_axis in ("peers", "channels", "roles"):
-        slot = page.locator(f'[data-allowlist-chiplist-slot="{storage_axis}"]')
-        expect(slot.locator(f'[data-axis="{storage_axis}"]')).to_have_count(1)
+    # Top-level peers slot still hosts a peers dropdown (no translation).
+    peers_slot = page.locator('[data-allowlist-chiplist-slot="peers"]')
+    expect(peers_slot.locator('[data-axis="peers"]')).to_have_count(1)
+
+    # Channels + roles no longer have top-level slots (no translation
+    # needed; they render server-scoped inside the server row).
+    expect(
+        page.locator('[data-allowlist-chiplist-slot="channels"]')
+    ).to_have_count(0)
+    expect(
+        page.locator('[data-allowlist-chiplist-slot="roles"]')
+    ).to_have_count(0)
+    # The server row hosts an in-row channels dropdown with its
+    # natural data-axis="channels".
+    server_row = page.locator(
+        '[data-testid="connector-allowlist-server-row-guild-1"]'
+    )
+    expect(server_row).to_have_count(1, timeout=8000)
+    expect(
+        server_row.locator('[data-axis="channels"]')
+    ).to_have_count(1)
+    expect(
+        server_row.locator('[data-axis="roles"]')
+    ).to_have_count(1)
 
 
 @pytest.mark.browser

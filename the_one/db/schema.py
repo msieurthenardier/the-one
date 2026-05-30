@@ -9,7 +9,7 @@ import aiosqlite
 from the_one.db._connector_types import CONNECTOR_TYPES
 from the_one.db._provider_types import PROVIDER_TYPES
 
-CURRENT_VERSION = 24
+CURRENT_VERSION = 25
 
 # Render the provider-type CHECK constraint as a comma-separated SQL
 # literal list, sourced from PROVIDER_TYPES. Both SCHEMA_V1 (fresh-DB
@@ -1415,3 +1415,151 @@ CREATE INDEX idx_chat_sessions_external_key
         )
         await conn.commit()
         version = 24
+
+    if version < 25:
+        # M11 F12 L5 — hierarchical server-parent UI alignment.
+        # Delete orphaned null-``guild_id`` channel/role entries from
+        # ``connectors.config.allowlist`` AND ``agents.connector_acls``.
+        # These legacy entries are leftovers from v24's permissive backfill
+        # (channel/role tuples with ``guild_id=None``); post-L5 the UI
+        # always emits guild-scoped tuples (Server-as-parent layout) and
+        # the Pydantic validator tightens to reject null ``guild_id``.
+        # Operator framing at L5 planning: app is not live, just enforce
+        # going forward; no data preservation needed.
+        #
+        # Idempotent: the per-row UPDATE only fires when a row actually
+        # changes (``len(filtered) != len(original)``); re-running this
+        # block against an already-cleaned DB is a no-op without needing
+        # a separate segment marker (cf. v21's CREATE INDEX pattern).
+        #
+        # Row access uses POSITIONAL indexing (mirrors v24) so the
+        # migration works against hand-built test fixtures that don't
+        # configure ``conn.row_factory = aiosqlite.Row``.
+        import json as _json
+
+        # ---- Delete orphan null-guild_id from connectors.config.allowlist
+        # Defensive: skip when the connectors table is missing
+        # (hand-built partial-schema test fixtures — pre-v9 fixtures may
+        # not have this table; pre-v23 fixtures have ``connector_accounts``
+        # which is renamed to ``connectors`` by v23, so by the time
+        # v25 runs the rename has been applied).
+        async with conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name='connectors'"
+        ) as cursor:
+            connectors_table_present = (await cursor.fetchone()) is not None
+        if connectors_table_present:
+            async with conn.execute(
+                "SELECT id, config FROM connectors"
+            ) as cursor:
+                connector_rows = await cursor.fetchall()
+            for row in connector_rows:
+                connector_id = row[0]
+                config_str = row[1] or "{}"
+                config = _json.loads(config_str)
+                allowlist = config.get("allowlist")
+                if allowlist is None:
+                    continue
+                changed = False
+                if "channels" in allowlist and isinstance(
+                    allowlist["channels"], list
+                ):
+                    original = allowlist["channels"]
+                    filtered = [
+                        c
+                        for c in original
+                        if isinstance(c, dict) and c.get("guild_id") is not None
+                    ]
+                    if len(filtered) != len(original):
+                        allowlist["channels"] = filtered
+                        changed = True
+                if "roles" in allowlist and isinstance(
+                    allowlist["roles"], list
+                ):
+                    original = allowlist["roles"]
+                    filtered = [
+                        r
+                        for r in original
+                        if isinstance(r, dict) and r.get("guild_id") is not None
+                    ]
+                    if len(filtered) != len(original):
+                        allowlist["roles"] = filtered
+                        changed = True
+                if changed:
+                    config["allowlist"] = allowlist
+                    await conn.execute(
+                        "UPDATE connectors SET config = ? WHERE id = ?",
+                        (_json.dumps(config), connector_id),
+                    )
+
+        # ---- Same for agents.connector_acls per-account payloads ----
+        # Defensive: skip when the agents table is missing OR when the
+        # ``connector_acls`` column is absent (hand-built partial-schema
+        # test fixtures — mirrors the v24 connector_acls-column guard).
+        async with conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name='agents'"
+        ) as cursor:
+            agents_table_present = (await cursor.fetchone()) is not None
+        if agents_table_present:
+            async with conn.execute(
+                "PRAGMA table_info(agents)"
+            ) as cursor:
+                agents_cols = {r[1] for r in await cursor.fetchall()}
+        else:
+            agents_cols = set()
+        if agents_table_present and "connector_acls" in agents_cols:
+            async with conn.execute(
+                "SELECT name, connector_acls FROM agents"
+            ) as cursor:
+                agent_rows = await cursor.fetchall()
+            for row in agent_rows:
+                agent_name = row[0]
+                acls_str = row[1]
+                if not acls_str:
+                    continue
+                acls = _json.loads(acls_str)
+                if not isinstance(acls, dict):
+                    continue
+                changed = False
+                for _acct_id, payload in acls.items():
+                    if not isinstance(payload, dict):
+                        continue
+                    if "channels" in payload and isinstance(
+                        payload["channels"], list
+                    ):
+                        original = payload["channels"]
+                        filtered = [
+                            c
+                            for c in original
+                            if isinstance(c, dict)
+                            and c.get("guild_id") is not None
+                        ]
+                        if len(filtered) != len(original):
+                            payload["channels"] = filtered
+                            changed = True
+                    if "roles" in payload and isinstance(
+                        payload["roles"], list
+                    ):
+                        original = payload["roles"]
+                        filtered = [
+                            r
+                            for r in original
+                            if isinstance(r, dict)
+                            and r.get("guild_id") is not None
+                        ]
+                        if len(filtered) != len(original):
+                            payload["roles"] = filtered
+                            changed = True
+                if changed:
+                    await conn.execute(
+                        "UPDATE agents SET connector_acls = ? "
+                        "WHERE name = ?",
+                        (_json.dumps(acls), agent_name),
+                    )
+
+        await conn.execute(
+            "INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (25,)
+        )
+        await conn.commit()
+        version = 25
