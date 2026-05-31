@@ -1500,31 +1500,25 @@
     gap: 6px;
     width: 100%;
   }
-  .discoverable-dropdown-input-row {
-    display: flex;
-    align-items: stretch;
-    gap: 6px;
-  }
+  /* M11 F12 L5 fix cycle 4: chip-list-editor + input unified into a
+     single container; the standalone ``.discoverable-dropdown-input-row``
+     wrapper no longer exists in the DOM. The canonical
+     ``chip-list-editor`` styling (admin.css :390-448) owns the
+     container's bezel + inline-flex layout, and ``.chip-list-input``
+     (admin.css :437-448) owns the borderless typeahead input. The
+     legacy ``.discoverable-dropdown-input`` class is preserved on the
+     input element for compatibility but its visual treatment now flows
+     from ``.chip-list-input`` (higher specificity 0,0,2,0). Below we
+     keep only behavior rules that don't overlap with the canonical
+     pattern: placeholder color + disabled affordance + font sizing. */
   .discoverable-dropdown-input {
-    flex: 1;
-    padding: 6px 8px;
-    background: var(--surface);
     color: var(--fg);
-    border: 1px solid var(--glass-border);
-    border-radius: var(--panel-radius-sm);
-    box-shadow: var(--bezel-shadow-inset);
     font-size: var(--font-size-body-sm);
     font-family: inherit;
     line-height: var(--line-height-normal);
   }
   .discoverable-dropdown-input::placeholder {
     color: var(--fg-muted);
-  }
-  .discoverable-dropdown-input:focus,
-  .discoverable-dropdown-input:focus-visible {
-    outline: none;
-    border-color: var(--accent);
-    box-shadow: var(--bezel-shadow-inset), 0 0 0 3px var(--accent-glow);
   }
   .discoverable-dropdown-input[disabled] {
     opacity: 0.6;
@@ -1576,21 +1570,14 @@
   .discoverable-dropdown-item[aria-selected="true"] {
     color: var(--accent);
   }
-  .discoverable-dropdown-chips {
-    /* Inherits the canonical .chip-list-editor styling from admin.css
-       :388-433 (both classes apply). No extra rules needed unless we
-       want to constrain min-height differently — leave to inheritance. */
-  }
-  /* M11 F5 L4 item 7: hide-when-empty override. The JS toggle in
-     _renderChips (discoverable-dropdown.js) sets/removes the `hidden`
-     attribute based on chip count, but the user-agent `[hidden]` rule
-     (specificity 0,0,1,0) is overridden by `.area-studio .chip-list-editor`'s
-     `display: flex` (admin.css:393-406, specificity 0,0,2,0). This rule
-     at specificity 0,0,3,0 outranks the chip-list-editor display so the
-     `hidden` attribute actually hides the empty container. */
-  .area-studio .discoverable-dropdown-chips[hidden] {
-    display: none;
-  }
+  /* M11 F12 L5 fix cycle 4: the standalone ``.discoverable-dropdown-chips``
+     element no longer exists — the chips render inline inside the
+     unified ``.chip-list-editor`` (same DOM node that carries the
+     ``discoverable-dropdown-chips`` class so existing tests keep
+     resolving via testid). The hide-when-empty branch was also dropped:
+     the container always renders because it carries the typeahead
+     input as a child, so the empty-state is the input alone — not a
+     stray blank box. */
   .discoverable-dropdown-status {
     min-height: 1em;
     font-size: var(--font-size-body-sm);

@@ -157,14 +157,25 @@
     root.setAttribute('data-account-id', accountId);
     root.setAttribute('data-testid', 'discoverable-dropdown-' + axis);
 
-    // F5 L6 HAT R5: per-axis Refresh button removed. The wrapping
-    // ``discoverable-dropdown-input-row`` div is retained (single-child
-    // wrapper now) so any CSS scoped to the row layout keeps applying;
-    // future re-introduction of a row-level affordance would slot in
-    // alongside the input without a structural change.
+    // M11 F12 L5 fix cycle 4: unified chip+input field matching the
+    // canonical ``chip-list-editor`` pattern (tools-form-helpers.js
+    // :285-303) used by built-in tool Path Allowlist / Path Denylist.
+    // The wrapping element carries BOTH the ``chip-list-editor``
+    // class (so admin.css's inline-flex layout + bezel styling apply)
+    // AND the legacy ``discoverable-dropdown-input-row`` class (kept
+    // for any consumer-side CSS that still scopes to it). The input
+    // carries BOTH the ``discoverable-dropdown-input`` class (existing
+    // CSS) AND the ``chip-list-input`` class (canonical pattern); chips
+    // render INSIDE this container BEFORE the input element so the
+    // visual order is chips-then-input, matching the canonical
+    // chip-list-editor. The container is also the operator-visible
+    // "chips" element — testid ``discoverable-dropdown-chips-{axis}``
+    // stays on it so existing tests keep resolving.
     root.innerHTML =
-      '<div class="discoverable-dropdown-input-row">' +
-        '<input type="text" class="discoverable-dropdown-input" ' +
+      '<div class="chip-list-editor discoverable-dropdown-input-row discoverable-dropdown-chips" ' +
+           'role="group" aria-label="Selected entries" ' +
+           'data-testid="discoverable-dropdown-chips-' + _escapeAttr(axis) + '">' +
+        '<input type="text" class="discoverable-dropdown-input chip-list-input" ' +
                'role="combobox" aria-autocomplete="list" aria-expanded="false" ' +
                'aria-haspopup="listbox" aria-controls="' + _escapeAttr(menuId) + '" ' +
                'aria-activedescendant="" ' +
@@ -176,9 +187,6 @@
       '<div class="discoverable-dropdown-menu" role="listbox" ' +
            'id="' + _escapeAttr(menuId) + '" ' +
            'data-testid="discoverable-dropdown-menu-' + _escapeAttr(axis) + '" hidden></div>' +
-      '<div class="chip-list-editor discoverable-dropdown-chips" ' +
-           'role="group" aria-label="Selected entries" ' +
-           'data-testid="discoverable-dropdown-chips-' + _escapeAttr(axis) + '"></div>' +
       '<div class="discoverable-dropdown-status" ' +
            'data-testid="discoverable-dropdown-status-' + _escapeAttr(axis) + '" ' +
            'aria-live="polite"></div>';
@@ -196,25 +204,28 @@
   }
 
   function _renderChips(state) {
-    var chipsEl = state.root.querySelector('.discoverable-dropdown-chips');
+    // M11 F12 L5 fix cycle 4: the chips container IS the input-row —
+    // the unified ``chip-list-editor`` div carries both the chips
+    // (rendered as ``<span class="chip">`` children) and the typeahead
+    // ``<input>`` as the final child. Remove existing chip spans only
+    // (preserve the input), then insert each new chip BEFORE the input
+    // so the canonical chip-list-editor visual order (chips first, input
+    // last) is matched. The container is NEVER hidden when empty —
+    // the input is always visible as the typeahead affordance.
+    var chipsEl = state.root.querySelector('.chip-list-editor');
     if (!chipsEl) return;
-    chipsEl.innerHTML = '';
+    var inputEl = chipsEl.querySelector('.discoverable-dropdown-input');
 
-    // M11 F5 L4 item 7: hide the chip container when empty so it doesn't
-    // render as a confusing blank box. The chip-list-editor CSS gives it
-    // a min-height + flex layout (admin.css:393-406); hiding via the
-    // `hidden` attribute prevents the empty-state from looking like a
-    // stray empty rectangle. NOTE: the `hidden` attribute alone is
-    // insufficient because `.area-studio .chip-list-editor`'s
-    // `display: flex` (specificity 0,0,2,0) overrides the user-agent
-    // `[hidden] { display: none }` rule. A companion CSS override
-    // `.area-studio .discoverable-dropdown-chips[hidden] { display: none; }`
-    // (specificity 0,0,3,0) lands in studio.css to make this take effect.
+    // Remove existing chip spans (leave the input + any non-chip
+    // children intact).
+    var existingChips = chipsEl.querySelectorAll(':scope > .chip');
+    for (var c = 0; c < existingChips.length; c++) {
+      chipsEl.removeChild(existingChips[c]);
+    }
+
     if (!state.currentValues || state.currentValues.length === 0) {
-      chipsEl.setAttribute('hidden', '');
       return;
     }
-    chipsEl.removeAttribute('hidden');
 
     for (var i = 0; i < state.currentValues.length; i++) {
       var entry = state.currentValues[i];
@@ -297,7 +308,13 @@
       }(id));
       chip.appendChild(removeBtn);
 
-      chipsEl.appendChild(chip);
+      // Insert BEFORE the input so chips render first, input last —
+      // matching the canonical chip-list-editor pattern.
+      if (inputEl) {
+        chipsEl.insertBefore(chip, inputEl);
+      } else {
+        chipsEl.appendChild(chip);
+      }
     }
   }
 
