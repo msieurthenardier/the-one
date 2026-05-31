@@ -1988,10 +1988,20 @@
     var infoIcon = (window.App && window.App.icon) ? window.App.icon('info') : 'ⓘ';
 
     var html = '';
-    html += '<div class="editor-section connector-allowlist-section">';
+    // M11 F12 L5 cycle 5 — split the prior single "Access" section into
+    // two sections: USERS (peers + DM admission) and SERVERS (the
+    // hierarchical server-as-parent organizer). Both wrappers retain
+    // the ``connector-allowlist-section`` class so existing selectors
+    // (e.g. the Discord-vocabulary label-list assertion) collect labels
+    // across both sections without modification. The DM admission row
+    // moves above the Users (peers) row per operator UX request — the
+    // gating decision ("admit any DMs at all?") naturally precedes the
+    // per-peer chip list.
+    html += '<div class="editor-section connector-allowlist-section ' +
+            'connector-allowlist-section--users">';
     // F5 L6 HAT R4: renamed "Account-scope allowlist" → "Access" with
-    // a friendly description.
-    html += '<div class="section-title">Access</div>';
+    // a friendly description. L5 cycle 5: "Access" → "Users".
+    html += '<div class="section-title">Users</div>';
     html += '<div class="section-description">Who can talk to the bot.</div>';
 
     // F5 L6 HAT R5: section-level discoverable-entities banner.
@@ -2011,6 +2021,12 @@
     // pings the L4 GET endpoint once on mount to flip to the
     // populated state if the pool was warmed by lifespan startup /
     // a prior Test Connection.
+    //
+    // L5 cycle 5 placement: the banner stays in the USERS section
+    // because pool-warm status feeds BOTH axes (users + servers) and
+    // duplicating it would dilute the operator's mental model. The
+    // cheapest move is to leave it at the top of the first allowlist
+    // section.
     html += '<div class="field-row admin-pf-row connector-allowlist-banner" ' +
             'data-testid="connector-allowlist-banner" data-state="pre-probe">';
     html += '<label>Discoverable entities</label>';
@@ -2029,35 +2045,22 @@
     html += '<div class="connector-allowlist-lists" ' +
             'data-testid="connector-allowlist-lists">';
 
-    // Peers axis.
-    var peersTipText = 'Empty list = no ' + vocab.peer + ' restriction.';
-    // M11 F12 L4 — peers row carries a state-class for the per-peer
-    // DM toggle visibility. The class is initialized from
-    // ``currentDmAdmission`` (read below) and toggled live by the
-    // dm_admission select's change handler wired in
-    // ``wireAllowlistEvents``.
-    var peersDmClass = ' connector-allowlist-peers-row';
-    html += '<div class="field-row admin-pf-row connector-acl-fieldrow' + peersDmClass +
-            '" data-testid="connector-allowlist-peers-row">';
-    html += '<label class="connector-acl-fieldlabel">' +
-            escapeHtml(_capitalize(vocab.peers)) + '</label>';
-    html += '<button type="button" class="field-info-icon" ' +
-            'title="' + escapeAttr(peersTipText) + '" ' +
-            'aria-describedby="connector-allowlist-peers-help-text" ' +
-            'data-testid="connector-allowlist-peers-hint">' + infoIcon + '</button>';
-    html += '<span id="connector-allowlist-peers-help-text" class="visually-hidden">' +
-            escapeHtml(peersTipText) + '</span>';
-    html += '<div data-allowlist-chiplist-slot="peers"></div>';
-    html += '</div>';
-
     // M11 F10 L2: DM admission axis (3-value selector). Semantic
-    // placement: peers defines WHO can DM; dm_admission gates WHETHER
-    // DMs are admitted; channels (post-L1: guild-channel restriction)
-    // follows. Storage at account.config.allowlist.dm_admission;
-    // dispatcher consult at _acl.py:admits_inbound (L1).
+    // placement: dm_admission gates WHETHER any DMs are admitted; the
+    // Users (peers) chip-list below then defines WHO. Storage at
+    // account.config.allowlist.dm_admission; dispatcher consult at
+    // _acl.py:admits_inbound (L1).
+    //
+    // L5 cycle 5: moved ABOVE the Users chip-list per operator UX
+    // request. The "Approved peers are those on the Users allowlist
+    // below" tooltip phrasing tracks the new ordering. The peers row
+    // still owns the ``connector-allowlist-peers-row`` testid + the
+    // ``dm-admission-admin-approved`` state class that gates the
+    // per-peer DM toggles; that wiring is order-agnostic (queries by
+    // testid) so the swap is purely visual.
     var dmAdmissionTipText = 'DMs (direct messages to the bot) are ' +
         'admitted independently of channel restrictions. Approved ' +
-        'peers are those on the Peers allowlist above.';
+        'peers are those on the Users allowlist below.';
     // M11 F12 L4 — Literal value rename ``allowlisted-peers-only`` →
     // ``admin-approved`` (operator-vocabulary alignment per F12 L3).
     var currentDmAdmission = (account && account.config && account.config.allowlist &&
@@ -2085,10 +2088,39 @@
     html += '</select>';
     html += '</div>';
 
-    // M11 F12 L5 — hierarchical Server-as-parent layout. The Guilds
-    // (Servers) section is the PARENT organizer; channels + roles
-    // render as NESTED sub-controls inside each server row at mount
-    // time (see ``_mountAllowlistHierarchicalEditor`` below).
+    // Peers (Users) axis. Sits below the DM admission row (L5 cycle 5
+    // reorder) so the gating decision precedes the per-peer chip list.
+    var peersTipText = 'Empty list = no ' + vocab.peer + ' restriction.';
+    // M11 F12 L4 — peers row carries a state-class for the per-peer
+    // DM toggle visibility. The class is initialized from
+    // ``currentDmAdmission`` (read above) and toggled live by the
+    // dm_admission select's change handler wired in
+    // ``wireAllowlistEvents``.
+    var peersDmClass = ' connector-allowlist-peers-row';
+    html += '<div class="field-row admin-pf-row connector-acl-fieldrow' + peersDmClass +
+            '" data-testid="connector-allowlist-peers-row">';
+    html += '<label class="connector-acl-fieldlabel">' +
+            escapeHtml(_capitalize(vocab.peers)) + '</label>';
+    html += '<button type="button" class="field-info-icon" ' +
+            'title="' + escapeAttr(peersTipText) + '" ' +
+            'aria-describedby="connector-allowlist-peers-help-text" ' +
+            'data-testid="connector-allowlist-peers-hint">' + infoIcon + '</button>';
+    html += '<span id="connector-allowlist-peers-help-text" class="visually-hidden">' +
+            escapeHtml(peersTipText) + '</span>';
+    html += '<div data-allowlist-chiplist-slot="peers"></div>';
+    html += '</div>';
+
+    html += '</div>'; // .connector-allowlist-lists
+    html += '</div>'; // .editor-section USERS
+
+    // SERVERS section (L5 cycle 5 split from the prior single ACCESS
+    // section). The hierarchical Server-as-parent organizer renders
+    // here. The section header is self-evident; no intro line.
+    //
+    // M11 F12 L5 — hierarchical Server-as-parent layout. The Servers
+    // section is the PARENT organizer; channels + roles render as
+    // NESTED sub-controls inside each server row at mount time (see
+    // ``_mountAllowlistHierarchicalEditor`` below).
     //
     // The L4 flat 3-section layout (Channels / Guilds / Roles as
     // siblings) is gone. Markup carries a single Servers slot; the
@@ -2100,6 +2132,9 @@
     // ``roles`` are NOT in this markup any more; the collect path
     // reads the hierarchical state via the slot getter installed on
     // the Servers slot itself.
+    html += '<div class="editor-section connector-allowlist-section ' +
+            'connector-allowlist-section--servers">';
+    html += '<div class="section-title">Servers</div>';
     var guildsTipText = 'Add a ' + vocab.group +
             '. Narrow which channels and roles inside it the bot ' +
             'answers from.' +
@@ -2118,10 +2153,7 @@
     html += '<div data-allowlist-chiplist-slot="guilds" ' +
             'data-testid="connector-allowlist-servers-slot"></div>';
     html += '</div>';
-
-    html += '</div>';
-
-    html += '</div>';
+    html += '</div>'; // .editor-section SERVERS
     return html;
   }
 

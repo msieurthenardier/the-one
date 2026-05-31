@@ -88,17 +88,25 @@ def test_discord_account_renders_substituted_allowlist_labels(
     # nested sub-labels ("Channels:" / "Roles:") under each server row
     # live in ``.connector-allowlist-sub-label`` and are not part of
     # this section-label assertion.
+    #
+    # L5 cycle 5: the prior single "Access" section was split into two
+    # sibling sections — USERS (peers + DM admission) and SERVERS (the
+    # hierarchical organizer). Both sections retain the
+    # ``connector-allowlist-section`` class so this selector collects
+    # labels across both. The DM admission row was also reordered
+    # ABOVE the Users (peers) row, so the gating decision precedes the
+    # per-peer chip list.
     allowlist_labels = page.locator(
         '.connector-allowlist-section .connector-acl-fieldlabel'
     ).evaluate_all("els => els.map(e => e.textContent.trim())")
-    # M11 F10 L2: the DM-admission row sits between peers and servers
-    # and reuses the ``connector-acl-fieldlabel`` class, so it
-    # joins this label list with the literal "DM admission" text
-    # (no vocabulary substitution — DM is universal across connector
-    # types).
+    # M11 F10 L2: the DM-admission row reuses the
+    # ``connector-acl-fieldlabel`` class, so it joins this label list
+    # with the literal "DM admission" text (no vocabulary substitution
+    # — DM is universal across connector types). L5 cycle 5: now
+    # FIRST in the USERS section, ahead of the peers row.
     assert allowlist_labels == [
-        "Users",
         "DM admission",
+        "Users",
         "Servers",
     ], f"Discord allowlist labels drifted; got: {allowlist_labels!r}"
 
@@ -311,15 +319,20 @@ def test_stub_account_preserves_baseline_allowlist_labels(
 
     # The pre-L6 baseline labels remain on a generic-tone account; M11
     # F12 L5 collapses the L4 4-axis labels to 2 top-level labels once
-    # channels + roles became server-scoped sub-controls.
+    # channels + roles became server-scoped sub-controls. L5 cycle 5:
+    # the prior single "Access" section was split into USERS (peers +
+    # DM admission) and SERVERS (guilds) — both retain the
+    # ``connector-allowlist-section`` class so this selector still
+    # collects labels across both.
     allowlist_labels = page.locator(
         '.connector-allowlist-section .connector-acl-fieldlabel'
     ).evaluate_all("els => els.map(e => e.textContent.trim())")
-    # M11 F10 L2: DM-admission row joins the label list between peers
-    # and guilds (literal label; no vocabulary substitution).
+    # M11 F10 L2: DM-admission row joins the label list (literal label;
+    # no vocabulary substitution). L5 cycle 5: DM admission now leads
+    # the USERS section, ahead of the peers row.
     assert allowlist_labels == [
-        "Peers",
         "DM admission",
+        "Peers",
         "Guilds",
     ], f"stub-account allowlist baseline drifted; got: {allowlist_labels!r}"
 
