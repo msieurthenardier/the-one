@@ -277,6 +277,81 @@
     var _labelCache = null;
     var _labelCachePromise = null;
 
+    // Cycle-3 fix (Bug 7): the lazy ``_labelCache`` populates on first
+    // axis expand — but if Test Connection hasn't been run yet the
+    // ``/discoverable-entities`` GET returns 404 and the cache fills
+    // with empty buckets. Without invalidation, every subsequent
+    // ``_ensureLabelCache`` call short-circuits to that empty-resolved
+    // promise and checkbox-mode rows stay raw snowflake IDs forever
+    // even after the operator clicks Test Connection.
+    //
+    // Mirror the discoverable-dropdown self-detach pattern (see
+    // ``discoverable-dropdown.js`` lines 814-848): listen for
+    // ``connector-pool-warmed`` (fires when Test Connection warms the
+    // pool) and ``connector-discoverable-refresh-requested`` (fires
+    // when the operator clicks the section-level Refresh banner button).
+    // On each event matching this tile's accountId, reset the cache
+    // and re-fetch; once the promise resolves, re-apply labels to any
+    // currently-expanded checkbox-mode axis bodies for this tile. Self-
+    // detaches on the next event after the tile has been removed from
+    // the DOM (small leak surface, accepted — same posture as the
+    // dropdown's handlers).
+    function _reapplyLabelsToExpandedAxes() {
+      if (!tile || !document.body.contains(tile)) return;
+      var axes = ['peers', 'channels'];
+      for (var ai = 0; ai < axes.length; ai++) {
+        var axis = axes[ai];
+        var btn = tile.querySelector(
+          '[data-testid="connector-acl-axis-toggle-' + axis + '-' + account.id + '"]'
+        );
+        if (!btn || btn.getAttribute('aria-expanded') !== 'true') continue;
+        var axisRoot = tile.querySelector(
+          '[data-testid="connector-acl-axis-' + axis + '-' + account.id + '"]'
+        );
+        if (!axisRoot) continue;
+        var bodyEl = axisRoot.querySelector('.connector-acl-axis-body');
+        if (!bodyEl) continue;
+        _applyLabelsToCheckboxes(bodyEl, axis);
+      }
+    }
+    function _invalidateAndRefresh() {
+      _labelCache = null;
+      _labelCachePromise = null;
+      _ensureLabelCache().then(function () {
+        _reapplyLabelsToExpandedAxes();
+      });
+    }
+    var _poolWarmedHandler = function (event) {
+      if (!tile || !document.body.contains(tile)) {
+        document.removeEventListener('connector-pool-warmed', _poolWarmedHandler);
+        document.removeEventListener(
+          'connector-discoverable-refresh-requested', _refreshRequestedHandler
+        );
+        return;
+      }
+      if (event && event.detail && account
+          && event.detail.accountId === account.id) {
+        _invalidateAndRefresh();
+      }
+    };
+    var _refreshRequestedHandler = function (event) {
+      if (!tile || !document.body.contains(tile)) {
+        document.removeEventListener('connector-pool-warmed', _poolWarmedHandler);
+        document.removeEventListener(
+          'connector-discoverable-refresh-requested', _refreshRequestedHandler
+        );
+        return;
+      }
+      if (event && event.detail && account
+          && event.detail.accountId === account.id) {
+        _invalidateAndRefresh();
+      }
+    };
+    App.studio.eventBus.on('connector-pool-warmed', _poolWarmedHandler);
+    App.studio.eventBus.on(
+      'connector-discoverable-refresh-requested', _refreshRequestedHandler
+    );
+
     function _ensureLabelCache() {
       if (_labelCachePromise) return _labelCachePromise;
       var url = '/api/connectors/' +

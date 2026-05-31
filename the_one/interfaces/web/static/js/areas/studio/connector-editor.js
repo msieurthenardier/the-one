@@ -3365,6 +3365,64 @@
     var _labelCache = null;
     var _labelCachePromise = null;
 
+    // Cycle-3 fix (Bug 7): the lazy ``_labelCache`` populates on first
+    // ``_rerender`` — but if Test Connection hasn't been run yet the
+    // ``/discoverable-entities`` GET returns 404 and the cache fills
+    // with empty buckets. Without invalidation, every subsequent
+    // ``_ensureLabelCache`` call short-circuits to that empty-resolved
+    // promise and server-row headers stay raw guild IDs forever even
+    // after the operator clicks Test Connection.
+    //
+    // Mirror the discoverable-dropdown self-detach pattern (see
+    // ``discoverable-dropdown.js`` lines 814-848): listen for
+    // ``connector-pool-warmed`` (fires when Test Connection warms the
+    // pool) and ``connector-discoverable-refresh-requested`` (fires
+    // when the operator clicks the section-level Refresh banner button).
+    // On each event matching this editor's accountId, reset the cache
+    // and re-fetch; once the promise resolves, trigger ``_rerender``
+    // so server-row headers swap raw IDs for friendly labels. Self-
+    // detaches on the next event after the editor's slot has been
+    // removed from the DOM (small leak surface, accepted — same
+    // posture as the dropdown's handlers).
+    function _invalidateAndRefresh() {
+      _labelCache = null;
+      _labelCachePromise = null;
+      _ensureLabelCache().then(function () {
+        if (!slotEl || !document.body.contains(slotEl)) return;
+        _rerender();
+      });
+    }
+    var _poolWarmedHandler = function (event) {
+      if (!slotEl || !document.body.contains(slotEl)) {
+        document.removeEventListener('connector-pool-warmed', _poolWarmedHandler);
+        document.removeEventListener(
+          'connector-discoverable-refresh-requested', _refreshRequestedHandler
+        );
+        return;
+      }
+      if (event && event.detail && account
+          && event.detail.accountId === account.id) {
+        _invalidateAndRefresh();
+      }
+    };
+    var _refreshRequestedHandler = function (event) {
+      if (!slotEl || !document.body.contains(slotEl)) {
+        document.removeEventListener('connector-pool-warmed', _poolWarmedHandler);
+        document.removeEventListener(
+          'connector-discoverable-refresh-requested', _refreshRequestedHandler
+        );
+        return;
+      }
+      if (event && event.detail && account
+          && event.detail.accountId === account.id) {
+        _invalidateAndRefresh();
+      }
+    };
+    App.studio.eventBus.on('connector-pool-warmed', _poolWarmedHandler);
+    App.studio.eventBus.on(
+      'connector-discoverable-refresh-requested', _refreshRequestedHandler
+    );
+
     function _ensureLabelCache() {
       if (_labelCachePromise) return _labelCachePromise;
       if (!account || !account.id) {
