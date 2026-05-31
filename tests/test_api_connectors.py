@@ -4,7 +4,7 @@ Covers ``GET /api/connectors/{id}/discoverable-entities`` and
 ``POST /api/connectors/{id}/discoverable-entities/refresh``.
 
 The fixture pattern is lifted verbatim from
-``tests/test_api_connector_account_config_validation.py:24-58``
+``tests/test_api_connector_config_validation.py:24-58``
 (``AsyncClient(ASGITransport(app=FastAPI))`` over an in-memory schema
 with a test encryptor). Pool-warming uses
 :func:`the_one.connectors._pool.account_acquire` directly (option (a)
@@ -49,7 +49,7 @@ from the_one.interfaces.web.api import router
 async def client(tmp_path):
     """Test client with an isolated DB and test encryptor.
 
-    Mirrors ``tests/test_api_connector_account_config_validation.py``'s
+    Mirrors ``tests/test_api_connector_config_validation.py``'s
     fixture verbatim.
     """
     db_path = tmp_path / "test.db"

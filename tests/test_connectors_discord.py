@@ -1365,7 +1365,17 @@ def _resolve_test_account(
     if allowlist_missing:
         config: dict[str, Any] = {}
     else:
-        config = {"allowlist": {"peers": allowlist_peers or [], "channels": []}}
+        # M11 F12 L3 — peers stored as structured ``{id, dm_allowed}``
+        # dicts; the resolver hook reads only the ``id`` field.
+        config = {
+            "allowlist": {
+                "peers": [
+                    {"id": peer_id, "dm_allowed": True}
+                    for peer_id in (allowlist_peers or [])
+                ],
+                "channels": [],
+            }
+        }
     return Connector(
         id="acc-1",
         name="discord-resolve-test",

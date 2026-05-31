@@ -739,7 +739,7 @@ class TestEncryptionRotation:
         decrypted = Fernet(key_before).decrypt(row["secrets"].encode()).decode()
         assert _json.loads(decrypted) == {"K": "preservedmcpsecretvalue"}
 
-    async def test_rotate_connector_account_secrets(
+    async def test_rotate_connector_secrets(
         self, client: AsyncClient, tmp_path: Path
     ) -> None:
         """After rotation, connectors.secrets still decrypts under

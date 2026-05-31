@@ -60,7 +60,7 @@ The dispatcher's body composes 12 steps in a fixed canonical order
 2. Account load.
 3. Plugin resolve.
 4. Enumerate eligible attached agents via
-   :meth:`SQLiteAgentStore.list_by_connector_account` — REPLACES the
+   :meth:`SQLiteAgentStore.list_by_connector` — REPLACES the
    L3 transitional helper. Empty list ⇒ silent return (preserves L3's
    no-attached-agents semantic).
 5. ``resolve_session`` — uses ``eligible_attached_agents[0].name`` as
@@ -289,7 +289,7 @@ async def dispatch_inbound(
     ``account_id`` and an ``envelope``, dispatch correctly." The caller
     (the plugin's inbound adapter; today only tests) does not need to
     know agent topology — the dispatcher enumerates eligible attached
-    agents via :meth:`SQLiteAgentStore.list_by_connector_account` and
+    agents via :meth:`SQLiteAgentStore.list_by_connector` and
     picks the routed agent via :func:`resolve_routing`'s 5-step engine.
 
     Errors at the account-load / plugin-resolve / pool-acquire stages
@@ -356,12 +356,12 @@ async def dispatch_inbound(
 
     # 4. Enumerate eligible attached agents (alphabetically ordered by
     # ``AgentConfig.name`` per the ``ORDER BY`` in
-    # :meth:`SQLiteAgentStore.list_by_connector_account`). Empty list ⇒
+    # :meth:`SQLiteAgentStore.list_by_connector`). Empty list ⇒
     # silent return (preserves the L3 no-attached-agents semantic). The
     # routing engine's first-eligible-alphabetical step depends on this
     # ordering; do NOT sort here or pass a reordered list to
     # :func:`resolve_routing`.
-    eligible_attached_agents = await agent_store.list_by_connector_account(account_id)
+    eligible_attached_agents = await agent_store.list_by_connector(account_id)
     if not eligible_attached_agents:
         logger.info(
             "dispatch_inbound: no agents attached to account_id=%s; "
@@ -464,13 +464,17 @@ async def dispatch_inbound(
             )
             return
         # Success: persist the paired peer + clean the envelope.
+        # M11 F12 L3 — peers axis stores structured ``{id, dm_allowed}``
+        # dicts; new peers default to ``dm_allowed=False`` (operator
+        # must flip via the UI under the ``"admin-approved"`` policy
+        # before this peer can DM the bot).
         allowlist = account.config.get("allowlist") or {
             "peers": [],
             "channels": [],
         }
         peers = list(allowlist.get("peers", []))
-        if envelope.peer_id not in peers:
-            peers.append(envelope.peer_id)
+        if not any(p["id"] == envelope.peer_id for p in peers):
+            peers.append({"id": envelope.peer_id, "dm_allowed": False})
         allowlist["peers"] = peers
         allowlist.setdefault("channels", [])
         account.config["allowlist"] = allowlist

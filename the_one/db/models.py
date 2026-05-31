@@ -256,7 +256,7 @@ class Connector(BaseModel):
         ``Connector.model_validate(dict)``, so this fires on the
         repository read path AT
         ``the_one/db/repositories.py:_row_to_model`` and on the API write
-        path at ``the_one/interfaces/web/api.py:{create,update}_connector_account``.
+        path at ``the_one/interfaces/web/api.py:{create,update}_connector``.
         """
         pairing = value.get("pairing")
         if pairing is not None:
@@ -320,10 +320,16 @@ class Connector(BaseModel):
             # unrestricted on this axis.
             # M11 F10 L1 — ``dm_admission`` axis (Literal-string) joins
             # the inner-dict surface as an OPTIONAL key. Default
-            # ``"allowlisted-peers-only"`` is inserted in-place during
-            # validation when ``allowlist`` is present but the key is
-            # absent (fresh-account default — see the M11 F10 L1 leg
-            # artifact for the full rationale).
+            # ``"admin-approved"`` is inserted in-place during validation
+            # when ``allowlist`` is present but the key is absent
+            # (fresh-account default — see M11 F10 L1 + M11 F12 L3 leg
+            # artifacts for the full rationale).
+            # M11 F12 L3 — structured-tuple shape for ``peers`` (per-peer
+            # ``dm_allowed`` bool) + ``channels`` and ``roles`` (per-
+            # entry guild_id scoping). The pre-v24 flat ``list[str]``
+            # shape is REJECTED post-v24; the v24 migration handles row
+            # rewrites. ``dm_admission`` Literal value rename
+            # ``"allowlisted-peers-only"`` → ``"admin-approved"``.
             extra = set(allowlist.keys()) - {
                 "peers", "channels", "guilds", "roles", "dm_admission",
             }
@@ -336,36 +342,178 @@ class Connector(BaseModel):
                 raise ValueError(
                     f"config['allowlist'] is missing required keys: {sorted(missing)}"
                 )
-            for key in ("peers", "channels", "guilds", "roles"):
-                if key not in allowlist:
-                    # guilds + roles are optional; only validate when present.
-                    continue
-                entries = allowlist[key]
-                if not isinstance(entries, list):
+
+            # M11 F12 L3 — peers axis: list[{id: str, dm_allowed: bool}].
+            peers_entries = allowlist["peers"]
+            if not isinstance(peers_entries, list):
+                raise ValueError(
+                    "config['allowlist']['peers'] must be a list of "
+                    "{id, dm_allowed} dicts"
+                )
+            for i, item in enumerate(peers_entries):
+                if not isinstance(item, dict):
                     raise ValueError(
-                        f"config['allowlist'][{key!r}] must be a list of strings"
+                        f"config['allowlist']['peers'][{i}] must be a "
+                        f"dict with keys {{'id', 'dm_allowed'}}; got "
+                        f"{type(item).__name__}"
                     )
-                for i, item in enumerate(entries):
+                item_keys = set(item.keys())
+                extra_keys = item_keys - {"id", "dm_allowed"}
+                if extra_keys:
+                    raise ValueError(
+                        f"config['allowlist']['peers'][{i}] has "
+                        f"unexpected keys: {sorted(extra_keys)}"
+                    )
+                missing_keys = {"id", "dm_allowed"} - item_keys
+                if missing_keys:
+                    raise ValueError(
+                        f"config['allowlist']['peers'][{i}] is missing "
+                        f"required keys: {sorted(missing_keys)}"
+                    )
+                if not isinstance(item["id"], str):
+                    raise ValueError(
+                        f"config['allowlist']['peers'][{i}]['id'] must "
+                        f"be a string; got {type(item['id']).__name__}"
+                    )
+                if not isinstance(item["dm_allowed"], bool):
+                    raise ValueError(
+                        f"config['allowlist']['peers'][{i}]"
+                        f"['dm_allowed'] must be a bool; got "
+                        f"{type(item['dm_allowed']).__name__}"
+                    )
+
+            # M11 F12 L5 — channels axis:
+            # list[{guild_id: str, channel_id: str}]. Post-v25 the
+            # guild_id field is REQUIRED and non-null (was str | None in
+            # L3); channel_id accepts the wildcard sentinel ``"*"``
+            # meaning "any channel of this guild" — emitted by the
+            # hierarchical Server-as-parent UI when a server row has no
+            # explicit channel narrowing.
+            channel_entries = allowlist["channels"]
+            if not isinstance(channel_entries, list):
+                raise ValueError(
+                    "config['allowlist']['channels'] must be a list of "
+                    "{guild_id, channel_id} dicts"
+                )
+            for i, item in enumerate(channel_entries):
+                if not isinstance(item, dict):
+                    raise ValueError(
+                        f"config['allowlist']['channels'][{i}] must be "
+                        f"a dict with keys {{'guild_id', 'channel_id'}}"
+                        f"; got {type(item).__name__}"
+                    )
+                item_keys = set(item.keys())
+                extra_keys = item_keys - {"guild_id", "channel_id"}
+                if extra_keys:
+                    raise ValueError(
+                        f"config['allowlist']['channels'][{i}] has "
+                        f"unexpected keys: {sorted(extra_keys)}"
+                    )
+                missing_keys = {"channel_id", "guild_id"} - item_keys
+                if missing_keys:
+                    raise ValueError(
+                        f"config['allowlist']['channels'][{i}] is "
+                        f"missing required keys: {sorted(missing_keys)}"
+                    )
+                if not isinstance(item["channel_id"], str):
+                    raise ValueError(
+                        f"config['allowlist']['channels'][{i}]"
+                        f"['channel_id'] must be a string; got "
+                        f"{type(item['channel_id']).__name__}"
+                    )
+                guild_id = item["guild_id"]
+                if not isinstance(guild_id, str):
+                    raise ValueError(
+                        f"config['allowlist']['channels'][{i}]"
+                        f"['guild_id'] must be a non-null string "
+                        f"(post-v25 the hierarchical Server-as-parent UI "
+                        f"requires every channel entry to be guild-"
+                        f"scoped); got {type(guild_id).__name__}"
+                    )
+
+            # M10 F8 L8 — guilds axis (OPTIONAL): list[str].
+            if "guilds" in allowlist:
+                guild_entries = allowlist["guilds"]
+                if not isinstance(guild_entries, list):
+                    raise ValueError(
+                        "config['allowlist']['guilds'] must be a list of "
+                        "strings"
+                    )
+                for i, item in enumerate(guild_entries):
                     if not isinstance(item, str):
                         raise ValueError(
-                            f"config['allowlist'][{key!r}][{i}] must be a string"
+                            f"config['allowlist']['guilds'][{i}] must "
+                            f"be a string"
                         )
 
-            # M11 F10 L1: dm_admission axis validation + default insertion.
-            # Literal["none", "allowlisted-peers-only", "all"]. Default for
-            # absent-key on a present allowlist: "allowlisted-peers-only"
-            # (fresh-account default — F9 flow's intended state). The v22
-            # migration walks legacy rows and inserts "all" or "none" per
-            # the legacy-preservation rule, so legacy rows reaching this
-            # validator after migration ALREADY carry dm_admission and
-            # skip the default.
+            # M11 F12 L5 — roles axis (OPTIONAL):
+            # list[{guild_id: str, role_id: str}]. Post-v25 the
+            # guild_id field is REQUIRED and non-null (was str | None in
+            # L3); role_id accepts the wildcard sentinel ``"*"`` meaning
+            # "any role of this guild" — emitted by the hierarchical
+            # Server-as-parent UI when a server row has no explicit role
+            # narrowing.
+            if "roles" in allowlist:
+                role_entries = allowlist["roles"]
+                if not isinstance(role_entries, list):
+                    raise ValueError(
+                        "config['allowlist']['roles'] must be a list of "
+                        "{guild_id, role_id} dicts"
+                    )
+                for i, item in enumerate(role_entries):
+                    if not isinstance(item, dict):
+                        raise ValueError(
+                            f"config['allowlist']['roles'][{i}] must be "
+                            f"a dict with keys {{'guild_id', 'role_id'}}"
+                            f"; got {type(item).__name__}"
+                        )
+                    item_keys = set(item.keys())
+                    extra_keys = item_keys - {"guild_id", "role_id"}
+                    if extra_keys:
+                        raise ValueError(
+                            f"config['allowlist']['roles'][{i}] has "
+                            f"unexpected keys: {sorted(extra_keys)}"
+                        )
+                    missing_keys = {"role_id", "guild_id"} - item_keys
+                    if missing_keys:
+                        raise ValueError(
+                            f"config['allowlist']['roles'][{i}] is "
+                            f"missing required keys: "
+                            f"{sorted(missing_keys)}"
+                        )
+                    if not isinstance(item["role_id"], str):
+                        raise ValueError(
+                            f"config['allowlist']['roles'][{i}]"
+                            f"['role_id'] must be a string; got "
+                            f"{type(item['role_id']).__name__}"
+                        )
+                    guild_id = item["guild_id"]
+                    if not isinstance(guild_id, str):
+                        raise ValueError(
+                            f"config['allowlist']['roles'][{i}]"
+                            f"['guild_id'] must be a non-null string "
+                            f"(post-v25 the hierarchical Server-as-"
+                            f"parent UI requires every role entry to be "
+                            f"guild-scoped); got "
+                            f"{type(guild_id).__name__}"
+                        )
+
+            # M11 F10 L1 + M11 F12 L3: dm_admission axis validation +
+            # default insertion. Literal["none", "admin-approved", "all"].
+            # Default for absent-key on a present allowlist:
+            # "admin-approved" (fresh-account default — F9 flow's intended
+            # state, renamed from "allowlisted-peers-only" per F12 L3
+            # operator-vocabulary alignment). The v24 migration walks
+            # legacy rows and rewrites "allowlisted-peers-only" →
+            # "admin-approved", so post-v24 rows reaching this validator
+            # ALREADY carry the new Literal value and skip the default.
             dm_admission = allowlist.get("dm_admission")
             if dm_admission is None:
-                allowlist["dm_admission"] = "allowlisted-peers-only"
-            elif dm_admission not in ("none", "allowlisted-peers-only", "all"):
+                allowlist["dm_admission"] = "admin-approved"
+            elif dm_admission not in ("none", "admin-approved", "all"):
                 raise ValueError(
                     f"config['allowlist']['dm_admission'] must be one of "
-                    f"{{'none', 'allowlisted-peers-only', 'all'}}; "
+                    f"{{'none', 'admin-approved', 'all'}}; "
                     f"got {dm_admission!r}"
                 )
 

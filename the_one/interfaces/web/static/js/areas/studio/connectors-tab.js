@@ -154,14 +154,42 @@
     // matches.
     var rawAcl = aclsMap[account.id];
     var accountAcl;
+    // M11 F12 L4 — per-agent peers/channels now arrive in structured-
+    // tuple shape (``{id, dm_allowed}`` / ``{guild_id, channel_id}``)
+    // matching the account-scope storage. Project to id-arrays so the
+    // checkbox-list-mode initial-state matcher + the chip-mode initial-
+    // chip render keep operating in id terms. The save path
+    // (studio.js::collectFormData) re-wraps ids back into structured
+    // tuples by reading the per-axis wrapper's dataset attributes.
+    function _projectAclAxisToIds(value, axisKind) {
+      if (value === undefined) return undefined;
+      if (value === null) return null;
+      if (!Array.isArray(value)) return value;
+      var out = [];
+      for (var i = 0; i < value.length; i++) {
+        var v = value[i];
+        if (v && typeof v === 'object') {
+          if (axisKind === 'peers' && v.id) out.push(String(v.id));
+          else if (axisKind === 'channels' && v.channel_id) out.push(String(v.channel_id));
+          else if (axisKind === 'roles' && v.role_id) out.push(String(v.role_id));
+        } else if (v != null) {
+          out.push(String(v));
+        }
+      }
+      return out;
+    }
     if (rawAcl == null) {
       // M11 F10 L3: include admit_dms in the canonical shape so the
       // _buildAdmitDmsRow helper can read it (undefined ⇒ inherit).
       accountAcl = { peers: null, channels: null, admit_dms: undefined };
     } else {
       accountAcl = {
-        peers: (rawAcl.peers === undefined) ? null : rawAcl.peers,
-        channels: (rawAcl.channels === undefined) ? null : rawAcl.channels,
+        peers: _projectAclAxisToIds(
+          (rawAcl.peers === undefined) ? null : rawAcl.peers, 'peers'
+        ),
+        channels: _projectAclAxisToIds(
+          (rawAcl.channels === undefined) ? null : rawAcl.channels, 'channels'
+        ),
         // M11 F10 L3: preserve admit_dms through normalization.
         // Without this, a persisted opt-out (admit_dms: false) is
         // dropped here and the per-agent toggle re-renders as CHECKED
@@ -173,16 +201,65 @@
     }
     // Account-scope reference (per-axis lists). Drive the
     // checkbox-vs-chip mode decision per axis.
+    //
+    // M11 F12 L4 — account-scope ``peers``/``channels`` now carry the
+    // structured-tuple shape (``{id, dm_allowed}`` / ``{guild_id,
+    // channel_id}``). Project to id-arrays so the checkbox-list mode
+    // and the chip-mode initial selection both keep operating in id
+    // terms. Per-agent ``peers``/``channels`` initial values follow
+    // the same projection (see ``accountAcl`` projection below).
     var accountScope = (account && account.config && account.config.allowlist) || null;
-    var scopePeers = (accountScope && Array.isArray(accountScope.peers)) ? accountScope.peers : [];
-    var scopeChannels = (accountScope && Array.isArray(accountScope.channels)) ? accountScope.channels : [];
+    function _projectPeerIds(arr) {
+      var ids = [];
+      for (var i = 0; i < (arr || []).length; i++) {
+        var p = arr[i];
+        if (p && typeof p === 'object') {
+          if (p.id) ids.push(String(p.id));
+        } else if (p != null) {
+          ids.push(String(p));
+        }
+      }
+      return ids;
+    }
+    function _projectChannelIds(arr) {
+      var ids = [];
+      for (var i = 0; i < (arr || []).length; i++) {
+        var c = arr[i];
+        if (c && typeof c === 'object') {
+          if (c.channel_id) ids.push(String(c.channel_id));
+        } else if (c != null) {
+          ids.push(String(c));
+        }
+      }
+      return ids;
+    }
+    var scopePeers = _projectPeerIds(accountScope && accountScope.peers);
+    var scopeChannels = _projectChannelIds(accountScope && accountScope.channels);
+    // M11 F12 L4 — per-axis guild_id lookup map (channel_id → guild_id)
+    // so the per-agent save path can re-attach the guild_id when wrapping
+    // checked-checkbox ids back into the structured-tuple shape. Only
+    // populated for channels (peers carry no guild_id; roles aren't
+    // overlay-axes today). The dataset attribute lives on the wrapper
+    // and is consulted by studio.js::collectFormData.
+    var _scopeChannelGuildIds = {};
+    var _scopeChannelEntries = (accountScope && Array.isArray(accountScope.channels))
+      ? accountScope.channels : [];
+    for (var _gci = 0; _gci < _scopeChannelEntries.length; _gci++) {
+      var _gc = _scopeChannelEntries[_gci];
+      if (_gc && typeof _gc === 'object' && _gc.channel_id) {
+        _scopeChannelGuildIds[String(_gc.channel_id)] =
+          (_gc.guild_id == null) ? '' : String(_gc.guild_id);
+      }
+    }
     // M11 F10 L3: account-scope dm_admission gates whether the
     // per-agent admit_dms toggle is interactive. "none" disables the
     // toggle (structurally inert — no DMs reach the dispatcher anyway);
-    // "allowlisted-peers-only" / "all" leave it interactive. Defensive
-    // default mirrors L1's validator behavior when accountScope is
-    // null or the key is absent.
-    var scopeDmAdmission = (accountScope && accountScope.dm_admission) || 'allowlisted-peers-only';
+    // "admin-approved" / "all" leave it interactive. Defensive default
+    // mirrors L1's validator behavior when accountScope is null or the
+    // key is absent. M11 F12 L4 renamed ``allowlisted-peers-only`` →
+    // ``admin-approved`` so the default now matches the post-rename
+    // canonical value.
+    var scopeDmAdmission = (accountScope && accountScope.dm_admission) || 'admin-approved';
 
     // A2 (M11 F4 L3) — lazy per-tile label cache for checkbox-mode rows.
     // Discord and similar live-data connector accounts expose
@@ -191,8 +268,89 @@
     // etc.) so the per-agent overlay's checkbox-mode does not surface
     // raw IDs. Stub-type / cold-pool / network-error all fall back to
     // the raw-id render preserved by the initial DOM mount.
+    //
+    // Cycle-2 fix: cache is axis-nested (``{axis: {id: label}}``)
+    // because Discord assigns identical snowflake IDs to a guild and
+    // its ``@everyone`` role — a flat ``{id: label}`` would silently
+    // collide. ``_applyLabelsToCheckboxes`` receives the row's axis
+    // so only the matching bucket is consulted.
     var _labelCache = null;
     var _labelCachePromise = null;
+
+    // Cycle-3 fix (Bug 7): the lazy ``_labelCache`` populates on first
+    // axis expand — but if Test Connection hasn't been run yet the
+    // ``/discoverable-entities`` GET returns 404 and the cache fills
+    // with empty buckets. Without invalidation, every subsequent
+    // ``_ensureLabelCache`` call short-circuits to that empty-resolved
+    // promise and checkbox-mode rows stay raw snowflake IDs forever
+    // even after the operator clicks Test Connection.
+    //
+    // Mirror the discoverable-dropdown self-detach pattern (see
+    // ``discoverable-dropdown.js`` lines 814-848): listen for
+    // ``connector-pool-warmed`` (fires when Test Connection warms the
+    // pool) and ``connector-discoverable-refresh-requested`` (fires
+    // when the operator clicks the section-level Refresh banner button).
+    // On each event matching this tile's accountId, reset the cache
+    // and re-fetch; once the promise resolves, re-apply labels to any
+    // currently-expanded checkbox-mode axis bodies for this tile. Self-
+    // detaches on the next event after the tile has been removed from
+    // the DOM (small leak surface, accepted — same posture as the
+    // dropdown's handlers).
+    function _reapplyLabelsToExpandedAxes() {
+      if (!tile || !document.body.contains(tile)) return;
+      var axes = ['peers', 'channels'];
+      for (var ai = 0; ai < axes.length; ai++) {
+        var axis = axes[ai];
+        var btn = tile.querySelector(
+          '[data-testid="connector-acl-axis-toggle-' + axis + '-' + account.id + '"]'
+        );
+        if (!btn || btn.getAttribute('aria-expanded') !== 'true') continue;
+        var axisRoot = tile.querySelector(
+          '[data-testid="connector-acl-axis-' + axis + '-' + account.id + '"]'
+        );
+        if (!axisRoot) continue;
+        var bodyEl = axisRoot.querySelector('.connector-acl-axis-body');
+        if (!bodyEl) continue;
+        _applyLabelsToCheckboxes(bodyEl, axis);
+      }
+    }
+    function _invalidateAndRefresh() {
+      _labelCache = null;
+      _labelCachePromise = null;
+      _ensureLabelCache().then(function () {
+        _reapplyLabelsToExpandedAxes();
+      });
+    }
+    var _poolWarmedHandler = function (event) {
+      if (!tile || !document.body.contains(tile)) {
+        document.removeEventListener('connector-pool-warmed', _poolWarmedHandler);
+        document.removeEventListener(
+          'connector-discoverable-refresh-requested', _refreshRequestedHandler
+        );
+        return;
+      }
+      if (event && event.detail && account
+          && event.detail.accountId === account.id) {
+        _invalidateAndRefresh();
+      }
+    };
+    var _refreshRequestedHandler = function (event) {
+      if (!tile || !document.body.contains(tile)) {
+        document.removeEventListener('connector-pool-warmed', _poolWarmedHandler);
+        document.removeEventListener(
+          'connector-discoverable-refresh-requested', _refreshRequestedHandler
+        );
+        return;
+      }
+      if (event && event.detail && account
+          && event.detail.accountId === account.id) {
+        _invalidateAndRefresh();
+      }
+    };
+    App.studio.eventBus.on('connector-pool-warmed', _poolWarmedHandler);
+    App.studio.eventBus.on(
+      'connector-discoverable-refresh-requested', _refreshRequestedHandler
+    );
 
     function _ensureLabelCache() {
       if (_labelCachePromise) return _labelCachePromise;
@@ -201,25 +359,26 @@
         '/discoverable-entities';
       _labelCachePromise = fetch(url).then(function (response) {
         if (!response.ok) {
-          _labelCache = {};
+          _labelCache = { peers: {}, channels: {}, groups: {}, roles: {} };
           return _labelCache;
         }
         return response.json().then(function (body) {
-          var map = {};
+          var map = { peers: {}, channels: {}, groups: {}, roles: {} };
           var ents = (body && body.entities) || {};
           var axes = ['peers', 'channels', 'groups', 'roles'];
           for (var a = 0; a < axes.length; a++) {
-            var list = ents[axes[a]] || [];
+            var axisKey = axes[a];
+            var list = ents[axisKey] || [];
             for (var i = 0; i < list.length; i++) {
               var e = list[i];
-              if (e && e.id && e.label) map[String(e.id)] = e.label;
+              if (e && e.id && e.label) map[axisKey][String(e.id)] = e.label;
             }
           }
           _labelCache = map;
           return _labelCache;
         });
       }).catch(function (err) {
-        _labelCache = {};
+        _labelCache = { peers: {}, channels: {}, groups: {}, roles: {} };
         try { console.error('connectors-tab label-cache fetch failed:', err); }
         catch (logErr) { /* console missing */ }
         return _labelCache;
@@ -227,13 +386,15 @@
       return _labelCachePromise;
     }
 
-    function _applyLabelsToCheckboxes(bodyEl) {
-      if (!_labelCache) return;
+    function _applyLabelsToCheckboxes(bodyEl, axis) {
+      if (!_labelCache || !axis) return;
+      var bucket = _labelCache[axis];
+      if (!bucket) return;
       var rows = bodyEl.querySelectorAll('.connector-acl-checkboxlist-row');
       for (var i = 0; i < rows.length; i++) {
         var cb = rows[i].querySelector('input[type="checkbox"]');
         if (!cb) continue;
-        var label = _labelCache[String(cb.value)];
+        var label = bucket[String(cb.value)];
         if (!label) continue;
         var nameSpan = rows[i].querySelector('.mcp-tool-toggle-name');
         if (nameSpan) nameSpan.textContent = label;
@@ -393,6 +554,15 @@
         // body — the same `.mcp-source-tile-expand-btn` shape used by
         // the MCPs tab's "N tools" expand. The count span shows the
         // live ACL summary ("3 peers", "DMs only", etc.).
+        //
+        // M11 F12 L4 — per-axis structured-tuple shape (peers:
+        // ``{id, dm_allowed}``; channels: ``{guild_id, channel_id}``).
+        // The per-agent ``dm_allowed`` is NOT consulted by ACL (DM
+        // admission is account-scope only per the F12 L3 Truth Table),
+        // so the per-agent overlay OMITS the per-peer DM toggle and
+        // renders a one-line note near the peers section header instead
+        // — prevents operator confusion (the toggle exists only on the
+        // account-scope editor in connector-editor.js).
         var axisLabel = axis === 'peers' ? 'Peers' : 'Channels';
         var details = document.createElement('div');
         details.className = 'connector-acl-axis';
@@ -422,6 +592,21 @@
         body.hidden = true;
         details.appendChild(body);
 
+        // M11 F12 L4 — per-agent peers section gets a one-line note
+        // explaining that DM admission is account-scope only. Browser
+        // test ``test_per_agent_overlay_omits_dm_toggle`` asserts the
+        // note exists + the per-peer DM toggle does NOT render here.
+        if (axis === 'peers') {
+          var dmNote = document.createElement('p');
+          dmNote.className = 'form-hint connector-acl-peers-dm-note';
+          dmNote.setAttribute(
+            'data-testid',
+            'agent-connector-peers-dm-note-' + account.id
+          );
+          dmNote.textContent = 'DM admission is account-scope only.';
+          body.appendChild(dmNote);
+        }
+
         expandBtn.addEventListener('click', function () {
           var nextExpanded = expandBtn.getAttribute('aria-expanded') !== 'true';
           expandBtn.setAttribute('aria-expanded', nextExpanded ? 'true' : 'false');
@@ -431,7 +616,7 @@
           // reuses the cache.
           if (nextExpanded && scopeList && scopeList.length > 0) {
             _ensureLabelCache().then(function () {
-              _applyLabelsToCheckboxes(body);
+              _applyLabelsToCheckboxes(body, axis);
             });
           }
         });
@@ -469,7 +654,17 @@
 
         if (scopeList && scopeList.length > 0) {
           // Account-scope axis has chips → checkbox mode.
+          // M11 F12 L4 — wrap with the per-channel guild_id map so the
+          // collect path can re-attach guild_id on checked ids.
           var checkboxWrap = _buildCheckboxList(account.id, axis, scopeList, agentAxisValue);
+          if (axis === 'channels') {
+            try {
+              checkboxWrap.setAttribute(
+                'data-channel-guild-id-map',
+                JSON.stringify(_scopeChannelGuildIds)
+              );
+            } catch (e) { /* JSON stringify shouldn't throw on flat map */ }
+          }
           body.appendChild(checkboxWrap);
 
           var warn = document.createElement('p');
@@ -509,9 +704,47 @@
           // collect path consults it before falling back to the
           // text-node walk. Stub-type / no-entry accounts fall back
           // to the existing chip-list editor.
+          //
+          // M11 F12 L4 — per-agent overlay opts into the structured-
+          // tuple shape via ``valueShape`` ('peer' / 'channel'). The
+          // dropdown's internal state holds dicts; ``_overlayChipValues``
+          // returns the structured array directly for the collect path.
+          // Initial items: ``agentAxisValue`` was projected to id-strings
+          // upstream (``_projectAclAxisToIds``); re-wrap to structured
+          // tuples here so the dropdown's render path sees consistent
+          // shape on mount.
+          var axisValueShape = (axis === 'peers') ? 'peer'
+            : (axis === 'channels') ? 'channel' : 'flat';
           var initItems;
           if (Array.isArray(agentAxisValue)) {
-            initItems = agentAxisValue;
+            initItems = [];
+            for (var _ii = 0; _ii < agentAxisValue.length; _ii++) {
+              var _val = agentAxisValue[_ii];
+              if (_val == null) continue;
+              if (typeof _val === 'object') {
+                initItems.push(_val);  // already structured (defensive)
+              } else if (axisValueShape === 'peer') {
+                initItems.push({ id: String(_val), dm_allowed: true });
+              } else if (axisValueShape === 'channel') {
+                // M11 F12 L5 — wrap flat-string back into the structured
+                // tuple using the scope-channel guild_id map. The L4
+                // emission (``guild_id: null``) is no longer accepted
+                // by the post-v25 Pydantic validator; this surface is
+                // a transient code path that should not normally fire
+                // post-L4 because per-agent ``channels`` arrives in
+                // structured shape from the API. Defensive fallback
+                // when guild_id is unknown: skip the entry (the L5
+                // validator would reject it anyway).
+                var _gid = _scopeChannelGuildIds[String(_val)] || '';
+                if (_gid) {
+                  initItems.push({
+                    guild_id: _gid, channel_id: String(_val)
+                  });
+                }
+              } else {
+                initItems.push(String(_val));
+              }
+            }
           } else {
             initItems = [];
           }
@@ -539,7 +772,9 @@
                 overlayState.values = (newValues || []).slice();
                 _summarize();
                 onChange();
-              }
+              },
+              // M11 F12 L4 — structured-tuple shape opt-in.
+              { valueShape: axisValueShape }
             );
             if (dropdownEl) {
               // Wholesale replace the chip-list shell's children with
@@ -663,8 +898,20 @@
     wrapper.setAttribute('data-testid',
       'connector-acl-' + listKind + '-' + accountId);
 
+    // M11 F12 L4 — per-agent overlay chip-list shows ids; structured-
+    // tuple entries (post-L3) project to their id field for display.
     for (var i = 0; i < (items || []).length; i++) {
-      var v = String(items[i]);
+      var entry = items[i];
+      var v;
+      if (entry && typeof entry === 'object') {
+        if (listKind === 'peers') v = String(entry.id || '');
+        else if (listKind === 'channels') v = String(entry.channel_id || '');
+        else if (listKind === 'roles') v = String(entry.role_id || '');
+        else v = String(entry);
+      } else {
+        v = String(entry == null ? '' : entry);
+      }
+      if (!v) continue;
       var chip = document.createElement('span');
       chip.className = 'chip';
       chip.appendChild(document.createTextNode(v));

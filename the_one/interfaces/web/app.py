@@ -146,7 +146,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         accounts = await connector_repo.list()
         for account in accounts:
             try:
-                attached = await store.list_by_connector_account(account.id)
+                attached = await store.list_by_connector(account.id)
                 if not attached:
                     logger.info(
                         "Connector account %r (type=%r) has no attached agents; "

@@ -139,7 +139,7 @@ class FetchChannelHistoryTool(Tool):
         if not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0:
             limit = 20
 
-        ctx = await _resolve_connector_account_context()
+        ctx = await _resolve_connector_context()
         if ctx is None:
             return _outside_connector_error_list()
         account, plugin, client = ctx
@@ -238,7 +238,7 @@ class FetchThreadHistoryTool(Tool):
         if not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0:
             limit = 20
 
-        ctx = await _resolve_connector_account_context()
+        ctx = await _resolve_connector_context()
         if ctx is None:
             return _outside_connector_error_list()
         account, plugin, client = ctx
@@ -329,7 +329,7 @@ class FetchDmHistoryTool(Tool):
         if not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0:
             limit = 20
 
-        ctx = await _resolve_connector_account_context()
+        ctx = await _resolve_connector_context()
         if ctx is None:
             return _outside_connector_error_list()
         account, plugin, client = ctx
@@ -414,7 +414,7 @@ class ListVisibleChannelsTool(Tool):
         )
 
     async def execute(self, **_extra: Any) -> dict[str, Any]:  # type: ignore[override]
-        ctx = await _resolve_connector_account_context()
+        ctx = await _resolve_connector_context()
         if ctx is None:
             return _outside_connector_error_dict()
         account, plugin, client = ctx
@@ -523,7 +523,7 @@ def _no_enumerate_hook_error_dict() -> dict[str, Any]:
     }
 
 
-async def _resolve_connector_account_context() -> (
+async def _resolve_connector_context() -> (
     tuple[Any, Any, Any] | None
 ):
     """Resolve ``(account, plugin, client)`` for the current chat session.

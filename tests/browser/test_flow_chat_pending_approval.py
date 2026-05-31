@@ -208,12 +208,19 @@ def _seed_pending_approval(
 
 
 def _allowlist_peers(base_url: str, account_id: str) -> list[str]:
-    """Fetch the connector account and return its peer allowlist."""
+    """Fetch the connector account and return its peer-id allowlist.
+
+    M11 F12 L4 — peers are stored as structured-tuple
+    ``[{id, dm_allowed}]`` dicts post-v24; project to the id field for
+    membership assertions."""
     r = httpx.get(f"{base_url}/api/connectors/{account_id}", timeout=5.0)
     assert r.status_code == 200, r.text
     config = r.json().get("config") or {}
     allowlist = config.get("allowlist") or {}
-    return list(allowlist.get("peers") or [])
+    return [
+        (p.get("id") if isinstance(p, dict) else p)
+        for p in (allowlist.get("peers") or [])
+    ]
 
 
 @pytest.mark.browser

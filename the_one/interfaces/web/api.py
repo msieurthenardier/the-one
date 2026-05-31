@@ -517,7 +517,7 @@ async def delete_agent(name: str) -> dict[str, str]:
 
 
 @router.delete("/agents/{agent_name}/connectors/{account_id}")
-async def detach_agent_from_connector_account(
+async def detach_agent_from_connector(
     agent_name: str,
     account_id: str,
 ) -> dict[str, Any]:
@@ -563,7 +563,7 @@ async def detach_agent_from_connector_account(
         # block above :func:`delete_mcp_source` (and the F9 L3
         # peer-approval endpoints).
         logger.warning(
-            "detach_agent_from_connector_account: removed %s from %s.connector_ids",
+            "detach_agent_from_connector: removed %s from %s.connector_ids",
             account_id,
             agent_name,
         )
@@ -1031,7 +1031,7 @@ _DISCORD_PRESENCE_TYPES = frozenset(
 )
 
 
-def _validate_connector_account_config(account: Connector) -> None:
+def _validate_connector_config(account: Connector) -> None:
     """Per-type shape validation for Connector.config.
 
     Raises HTTPException(422, detail=...) on shape mismatch. Mirrors
@@ -2409,7 +2409,7 @@ async def oauth_start(request: Request) -> dict[str, Any]:
 # ── Connector Accounts ────────────────────────────────────────────────────
 
 
-def _connector_account_response(account: Connector) -> dict[str, Any]:
+def _connector_response(account: Connector) -> dict[str, Any]:
     """Render a Connector into the masked HTTP response shape.
 
     Mirrors ``_mcp_source_response`` minus the OAuth-managed-keys strip
@@ -2430,13 +2430,13 @@ def _connector_account_response(account: Connector) -> dict[str, Any]:
 
 
 @router.get("/connectors")
-async def list_connector_accounts() -> list[dict[str, Any]]:
+async def list_connectors() -> list[dict[str, Any]]:
     """List all connector accounts (masked) with an ``attached_agents_count``.
 
     M11 F9 L5 — each row carries ``attached_agents_count: int`` reflecting
     the count of agents whose ``connector_ids`` includes the
     account. Computed per row via
-    :meth:`SQLiteAgentStore.list_by_connector_account` —
+    :meth:`SQLiteAgentStore.list_by_connector` —
     O(N accounts × M agents); acceptable for the operator's small
     inventory.
 
@@ -2449,22 +2449,22 @@ async def list_connector_accounts() -> list[dict[str, Any]]:
     accounts = await repo.list()
     results: list[dict[str, Any]] = []
     for account in accounts:
-        response = _connector_account_response(account)
-        attached = await store.list_by_connector_account(account.id)
+        response = _connector_response(account)
+        attached = await store.list_by_connector(account.id)
         response["attached_agents_count"] = len(attached)
         results.append(response)
     return results
 
 
 @router.get("/connectors/types")
-async def list_connector_account_types() -> list[dict[str, str]]:
+async def list_connector_types() -> list[dict[str, str]]:
     """Return the list of connector account types selectable in the UI.
 
     NOTE: This route MUST be registered BEFORE
     ``/connectors/{account_id}`` because FastAPI matches routes
     in registration order. If reordered, a GET to
     ``/connectors/types`` would resolve to
-    ``get_connector_account`` with ``account_id="types"`` and 404.
+    ``get_connector`` with ``account_id="types"`` and 404.
     Mirrors the MCP precedent at ``list_mcp_source_types``.
 
     Returns the registered types from
@@ -2478,7 +2478,7 @@ async def list_connector_account_types() -> list[dict[str, str]]:
 
 
 @router.get("/connectors/{account_id}")
-async def get_connector_account(account_id: str) -> dict[str, Any]:
+async def get_connector(account_id: str) -> dict[str, Any]:
     repo = await _connector_repo()
     try:
         account = await repo.get(account_id)
@@ -2486,11 +2486,11 @@ async def get_connector_account(account_id: str) -> dict[str, Any]:
         raise HTTPException(
             status_code=404, detail=f"Connector not found: {account_id}"
         )
-    return _connector_account_response(account)
+    return _connector_response(account)
 
 
 @router.post("/connectors", status_code=201)
-async def create_connector_account(request: Request) -> dict[str, Any]:
+async def create_connector(request: Request) -> dict[str, Any]:
     data = await request.json()
     if "id" not in data:
         data["id"] = uuid.uuid4().hex[:12]
@@ -2501,14 +2501,14 @@ async def create_connector_account(request: Request) -> dict[str, Any]:
         # — ``model_validator`` paths populate ``ctx['error']`` with raw
         # exceptions that aren't JSON-serializable.
         raise HTTPException(status_code=422, detail=e.errors(include_context=False))
-    _validate_connector_account_config(account)
+    _validate_connector_config(account)
     repo = await _connector_repo()
     await repo.create(account)
-    return _connector_account_response(account)
+    return _connector_response(account)
 
 
 @router.put("/connectors/{account_id}")
-async def update_connector_account(account_id: str, request: Request) -> dict[str, Any]:
+async def update_connector(account_id: str, request: Request) -> dict[str, Any]:
     data = await request.json()
     data["id"] = account_id
     repo = await _connector_repo()
@@ -2559,7 +2559,7 @@ async def update_connector_account(account_id: str, request: Request) -> dict[st
         updated = Connector.model_validate(merged)
     except ValidationError as e:
         raise HTTPException(status_code=422, detail=e.errors(include_context=False))
-    _validate_connector_account_config(updated)
+    _validate_connector_config(updated)
     await repo.update(updated)
 
     if existing.secrets != resolved_secrets:
@@ -2579,11 +2579,11 @@ async def update_connector_account(account_id: str, request: Request) -> dict[st
 
         await _evict_all_for_account(account_id)
 
-    return _connector_account_response(updated)
+    return _connector_response(updated)
 
 
 @router.delete("/connectors/{account_id}")
-async def delete_connector_account(account_id: str) -> dict[str, str]:
+async def delete_connector(account_id: str) -> dict[str, str]:
     """Delete a connector account and evict warm pool entries.
 
     Flight 2 leg 3: ships the delete handler against the F1 stub plugin
@@ -2624,7 +2624,7 @@ async def delete_connector_account(account_id: str) -> dict[str, str]:
 
 
 @router.post("/connectors/{account_id}/pairing-code")
-async def generate_connector_account_pairing_code(
+async def generate_connector_pairing_code(
     account_id: str,
 ) -> dict[str, str]:
     """Generate (or regenerate) the pairing code for a connector.
@@ -2641,7 +2641,7 @@ async def generate_connector_account_pairing_code(
     through ``ConnectorRepository.update``.
 
     Does NOT trigger warm-pool eviction. Eviction at PUT-time fires only
-    on a ``secrets`` change (see ``update_connector_account`` above);
+    on a ``secrets`` change (see ``update_connector`` above);
     ``config["pairing"]`` is consulted at inbound-dispatch time per leg 2
     and does not live inside any cached ``ConnectorClient`` instance.
     """
@@ -2726,11 +2726,15 @@ async def approve_peer_approval(
 
     # Idempotent allowlist mutation. Initialize allowlist if missing /
     # empty (mirrors the dispatcher pattern at _inbound.py:428-438).
+    # M11 F12 L3 — peers axis stores structured ``{id, dm_allowed}``
+    # dicts; approved peers default to ``dm_allowed=False`` (operator
+    # must flip via the UI per-peer toggle under the ``"admin-approved"``
+    # policy mode before this peer can DM the bot).
     new_config = dict(account.config)
     allowlist = dict(new_config.get("allowlist") or {})
     peers = list(allowlist.get("peers") or [])
-    if approval.peer_id not in peers:
-        peers.append(approval.peer_id)
+    if not any(p["id"] == approval.peer_id for p in peers):
+        peers.append({"id": approval.peer_id, "dm_allowed": False})
     allowlist["peers"] = peers
     allowlist.setdefault("channels", [])
     new_config["allowlist"] = allowlist
@@ -2783,7 +2787,7 @@ async def dismiss_peer_approval(
 
 
 @router.get("/connectors/{account_id}/attached-agents")
-async def list_attached_agents_for_connector_account(
+async def list_attached_agents_for_connector(
     account_id: str,
 ) -> list[dict[str, Any]]:
     """Return agents whose ``connector_ids`` includes this account.
@@ -2809,7 +2813,7 @@ async def list_attached_agents_for_connector_account(
     (F10 territory).
 
     M10 F7 L3: the inline ``list_agents() → load each → filter`` pattern
-    was lifted into :meth:`SQLiteAgentStore.list_by_connector_account`,
+    was lifted into :meth:`SQLiteAgentStore.list_by_connector`,
     the inverse-query helper introduced for the routing engine (F7 L4)
     and dispatcher integration (F7 L5). This endpoint now consumes the
     same helper; response shape is unchanged.
@@ -2823,7 +2827,7 @@ async def list_attached_agents_for_connector_account(
         )
 
     store = await _agent_store()
-    attached = await store.list_by_connector_account(account_id)
+    attached = await store.list_by_connector(account_id)
     result: list[dict[str, Any]] = []
     for cfg in attached:
         acls = cfg.connector_acls or {}

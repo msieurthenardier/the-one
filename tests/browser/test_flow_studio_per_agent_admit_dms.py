@@ -74,7 +74,9 @@ def _seed_account_with_agent(
 
     ``dm_admission`` is forwarded into ``account.config.allowlist`` so
     tests can exercise the disabled-state path (``"none"``) and the
-    interactive path (``"all"`` / ``"allowlisted-peers-only"``).
+    interactive path (``"all"`` / ``"admin-approved"``). M11 F12 L4
+    renamed the Literal value ``"allowlisted-peers-only"`` →
+    ``"admin-approved"`` per operator-vocabulary alignment.
     """
     provider_id = seed_mock_provider(base_url, name=f"mock-for-{agent_name}")
     seed_mock_agent(base_url, provider_id, name=agent_name)

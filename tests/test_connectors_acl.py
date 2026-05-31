@@ -17,14 +17,184 @@ empty-dict-equals-None invariant against silent drift.
 
 from __future__ import annotations
 
+import pytest
+
 from the_one.connectors._acl import (
     _default_no_mention,
     _default_not_dm,
-    admits_inbound,
-    admits_outbound,
 )
+from the_one.connectors._acl import admits_inbound as _admits_inbound_real
+from the_one.connectors._acl import admits_outbound as _admits_outbound_real
 from the_one.connectors.base import InboundEnvelope
 from the_one.db.models import Connector
+
+# M11 F12 L5 — every channel/role entry must have a non-null guild_id
+# (the v24 ``str | None`` permissive semantic is removed). The flat-
+# string fixture convention falls back to this default; inbound-context
+# tests that exercise guild_id matching pass the same constant in their
+# envelope kwargs so the entry's guild_id matches.
+DEFAULT_TEST_GUILD_ID = "g-test"
+
+
+def admits_inbound(account, agent_acl, peer_id, channel_id, **kwargs):
+    """Test wrapper — translates flat-shape ``agent_acl`` to the v24
+    structured-tuple shape before invoking the real helper.
+
+    Lets the existing test fixtures keep using the readable flat shape
+    (``peers: list[str]``) post-F12; the production helper consumes
+    structured dicts post-v24. The translator is a no-op when the input
+    is already structured.
+
+    M11 F12 L5 — when ``guild_id`` is not explicitly passed AND the
+    test isn't a DM-context test (``is_dm`` either absent or False),
+    default to ``DEFAULT_TEST_GUILD_ID`` to match the fixture-default
+    guild_id assigned by ``_to_v24_shape`` for bare-string channel/role
+    entries. This keeps existing inbound fixtures readable without
+    sweeping every test body to add a ``guild_id=`` kwarg."""
+    is_dm = kwargs.get("is_dm", False)
+    if not is_dm and "guild_id" not in kwargs:
+        kwargs["guild_id"] = DEFAULT_TEST_GUILD_ID
+    return _admits_inbound_real(
+        account, _to_v24_agent_acl(agent_acl), peer_id, channel_id, **kwargs
+    )
+
+
+def admits_outbound(account, agent_acl, channel_id, **kwargs):
+    """Test wrapper — same flat-shape translation as
+    :func:`admits_inbound` (see its docstring)."""
+    return _admits_outbound_real(
+        account, _to_v24_agent_acl(agent_acl), channel_id, **kwargs
+    )
+
+
+def _to_v24_shape(allowlist: dict) -> dict:
+    """Translate a flat-shape allowlist (pre-v24 author convenience) to
+    the structured-tuple shape required post-v24 (and post-v25).
+
+    Test authors continue writing fixtures in the flat shape
+    (``peers: list[str]``, ``channels: list[str]``, ``roles: list[str]``)
+    for readability; this helper does the mechanical translation to the
+    post-v24 structured-tuple shape (``peers: list[{id, dm_allowed}]``,
+    ``channels: list[{guild_id, channel_id}]``, ``roles: list[{guild_id,
+    role_id}]``) at fixture-build time.
+
+    For the per-peer ``dm_allowed`` default: tests can pass ``dm_allowed``
+    as an integer override after the peer id (M11 F12 L3 — DM
+    composition matrix tests need this); otherwise defaults to ``True``
+    (matches the historical "allowlisted-peers-only had implicit DM
+    permission" semantic that pre-F12 fixtures rely on).
+
+    M11 F12 L5 — flat-string channel/role entries get
+    ``guild_id=DEFAULT_TEST_GUILD_ID`` (was ``None`` in L3); inbound
+    tests that exercise guild_id matching pass the same constant in
+    their envelope kwargs.
+
+    Tuple form for fine control:
+      - ``"P1"`` → ``{"id": "P1", "dm_allowed": True}``
+      - ``("P1", True)`` → ``{"id": "P1", "dm_allowed": True}``
+      - ``("P1", False)`` → ``{"id": "P1", "dm_allowed": False}``
+      - Already-dict shape: pass through.
+    """
+    result = dict(allowlist)
+    if "peers" in result and isinstance(result["peers"], list):
+        peers_new = []
+        for entry in result["peers"]:
+            if isinstance(entry, dict):
+                peers_new.append(entry)
+            elif isinstance(entry, tuple):
+                peers_new.append({"id": entry[0], "dm_allowed": entry[1]})
+            else:
+                peers_new.append({"id": entry, "dm_allowed": True})
+        result["peers"] = peers_new
+    if "channels" in result and isinstance(result["channels"], list):
+        channels_new = []
+        for entry in result["channels"]:
+            if isinstance(entry, dict):
+                channels_new.append(entry)
+            elif isinstance(entry, tuple):
+                channels_new.append(
+                    {"guild_id": entry[0], "channel_id": entry[1]}
+                )
+            else:
+                channels_new.append(
+                    {
+                        "guild_id": DEFAULT_TEST_GUILD_ID,
+                        "channel_id": entry,
+                    }
+                )
+        result["channels"] = channels_new
+    if "roles" in result and isinstance(result["roles"], list):
+        roles_new = []
+        for entry in result["roles"]:
+            if isinstance(entry, dict):
+                roles_new.append(entry)
+            elif isinstance(entry, tuple):
+                roles_new.append(
+                    {"guild_id": entry[0], "role_id": entry[1]}
+                )
+            else:
+                roles_new.append(
+                    {"guild_id": DEFAULT_TEST_GUILD_ID, "role_id": entry}
+                )
+        result["roles"] = roles_new
+    # M11 F12 L3 — dm_admission Literal-value rename.
+    if result.get("dm_admission") == "allowlisted-peers-only":
+        result["dm_admission"] = "admin-approved"
+    return result
+
+
+def _to_v24_agent_acl(agent_acl: dict | None) -> dict | None:
+    """Same translator for the per-agent ACL inner dict.
+
+    The per-agent shape mirrors account-scope for peers/channels/roles
+    (structural uniformity per M11 F12 L3); ``admit_dms`` is passed
+    through unchanged. ``None`` short-circuits.
+    """
+    if agent_acl is None:
+        return None
+    result = dict(agent_acl)
+    if isinstance(result.get("peers"), list):
+        peers_new = []
+        for entry in result["peers"]:
+            if isinstance(entry, dict):
+                peers_new.append(entry)
+            elif isinstance(entry, tuple):
+                peers_new.append({"id": entry[0], "dm_allowed": entry[1]})
+            else:
+                peers_new.append({"id": entry, "dm_allowed": True})
+        result["peers"] = peers_new
+    if isinstance(result.get("channels"), list):
+        channels_new = []
+        for entry in result["channels"]:
+            if isinstance(entry, dict):
+                channels_new.append(entry)
+            elif isinstance(entry, tuple):
+                channels_new.append(
+                    {"guild_id": entry[0], "channel_id": entry[1]}
+                )
+            else:
+                channels_new.append(
+                    {
+                        "guild_id": DEFAULT_TEST_GUILD_ID,
+                        "channel_id": entry,
+                    }
+                )
+        result["channels"] = channels_new
+    if isinstance(result.get("roles"), list):
+        roles_new = []
+        for entry in result["roles"]:
+            if isinstance(entry, dict):
+                roles_new.append(entry)
+            elif isinstance(entry, tuple):
+                roles_new.append(
+                    {"guild_id": entry[0], "role_id": entry[1]}
+                )
+            else:
+                roles_new.append(
+                    {"guild_id": DEFAULT_TEST_GUILD_ID, "role_id": entry}
+                )
+        result["roles"] = roles_new
+    return result
 
 
 def _account(allowlist: dict | None = None) -> Connector:
@@ -33,10 +203,15 @@ def _account(allowlist: dict | None = None) -> Connector:
     Builds a stub-shaped account with an optional ``allowlist`` under
     ``config``. ``allowlist=None`` produces ``config = {}`` (the
     operator-cleared / never-set case).
+
+    M11 F12 L3 — fixtures continue using the flat shape (``peers``,
+    ``channels``, ``roles`` as ``list[str]``) for readability; the
+    helper translates to the structured-tuple shape at build time so
+    the Pydantic validator accepts the result.
     """
     config: dict = {}
     if allowlist is not None:
-        config["allowlist"] = allowlist
+        config["allowlist"] = _to_v24_shape(allowlist)
     return Connector(
         id="acc-1",
         name="test",
@@ -833,9 +1008,15 @@ class TestAdmitsInboundDmAdmissionAxis:
             guild_id=None, member_roles=None,
         )
         assert admits is False
+        # M11 F12 L3 — Literal value rename "allowlisted-peers-only"
+        # → "admin-approved" (and the reason string was rephrased per
+        # the F12 L3 helper rewrite — empty peers list under
+        # admin-approved now reads "peer not in allowlist" because the
+        # composition rule treats the missing peer-entry identically
+        # to a peer not in a non-empty peers list).
         assert reason == (
             "DM denied: account 'acc-1' dm_admission is "
-            "'allowlisted-peers-only' and no peers are on the allowlist"
+            "'admin-approved' and peer not in allowlist"
         )
 
     # ── dm_admission = "all" ─────────────────────────────────────
@@ -1025,3 +1206,277 @@ def test_default_no_mention_returns_false() -> None:
     ``agents.md`` § ``optional-plugin-hook-via-getattr-sentinel``.
     """
     assert _default_no_mention(_envelope_for_sentinel()) is False
+
+
+# ─────────────────────────────────────────────────────────────────
+# M11 F12 L3 — DM Composition Cross-Product Matrix
+# ─────────────────────────────────────────────────────────────────
+
+
+class TestDmAdmissionCompositionMatrix:
+    """12-cell cross-product matrix pinning the DM Composition Truth
+    Table at ``_admits_inbound_dm`` per M11 F12 L3.
+
+    Axes:
+      - ``admit_dms`` ∈ {None, False, True} — per-agent opt-out
+      - ``dm_admission`` ∈ {"all", "none", "admin-approved"} —
+        account-scope policy
+      - ``dm_allowed`` ∈ {True, False} — per-peer toggle
+        (account-scope; only consulted under "admin-approved")
+      - ``in_allowlist`` ∈ {True, False} — whether the inbound peer is
+        in the account-scope peers list
+
+    The operator-confirmed composition (F12 L3 leg spec, option (b) —
+    preserve current semantics):
+
+      ``admit_dm = (admit_dms is not False)
+                AND (peer in allowlist)
+                AND (dm_admission == "all" OR
+                     (dm_admission == "admin-approved"
+                      AND peer.dm_allowed == True))``
+
+    Cell #3's "in_allowlist=false" means the peer is NOT in a NON-EMPTY
+    peers list. Under ``dm_admission="all"`` the peers-axis check
+    precedence per the F12 L3 leg spec is: PEERS axis denies FIRST when
+    peers is non-empty + peer not in it (BEFORE the dm_admission gate
+    is consulted). So cell #3's expected is DENY (per the cycle-1
+    cell-#3 revision documented in the leg spec).
+    """
+
+    # Cells per the F12 L3 leg spec's 12-cell table:
+    # (admit_dms, dm_admission, dm_allowed, in_allowlist, expected,
+    #  test_id, rationale)
+    _MATRIX_CELLS = [
+        (None, "all", True, True, True,
+         "cell_01_None_all_True_in", "baseline: everyone DMs"),
+        (None, "all", False, True, True,
+         "cell_02_None_all_False_in",
+         "dm_admission=all ignores per-peer toggle"),
+        (None, "all", True, False, False,
+         "cell_03_None_all_True_out",
+         "all + not in allowlist → peers-axis denies FIRST"),
+        (None, "none", True, True, False,
+         "cell_04_None_none_True_in", "dm_admission=none always denies"),
+        (None, "none", False, True, False,
+         "cell_05_None_none_False_in", "(same)"),
+        (None, "admin-approved", True, True, True,
+         "cell_06_None_apv_True_in",
+         "happy path: explicit approval"),
+        (None, "admin-approved", False, True, False,
+         "cell_07_None_apv_False_in",
+         "per-peer toggle off → deny"),
+        (None, "admin-approved", True, False, False,
+         "cell_08_None_apv_True_out",
+         "not in allowlist → deny under admin-approved"),
+        (False, "all", True, True, False,
+         "cell_09_False_all_True_in",
+         "admit_dms=False short-circuits"),
+        (False, "admin-approved", True, True, False,
+         "cell_10_False_apv_True_in",
+         "(same — overrides admit)"),
+        (True, "all", True, True, True,
+         "cell_11_True_all_True_in",
+         "admit_dms=True behaves as None (no elevation)"),
+        (True, "admin-approved", False, True, False,
+         "cell_12_True_apv_False_in",
+         "admit_dms=True does NOT override per-peer toggle"),
+    ]
+
+    @pytest.mark.parametrize(
+        ("admit_dms", "dm_admission", "dm_allowed", "in_allowlist",
+         "expected"),
+        [
+            pytest.param(*cell[:5], id=cell[5])
+            for cell in _MATRIX_CELLS
+        ],
+    )
+    def test_dm_composition_matrix_cell(
+        self,
+        admit_dms: bool | None,
+        dm_admission: str,
+        dm_allowed: bool,
+        in_allowlist: bool,
+        expected: bool,
+    ) -> None:
+        """One cell of the 12-cell cross-product matrix.
+
+        Constructs an account with a single peer ``P1`` whose
+        ``dm_allowed`` is per the cell. If ``in_allowlist=True`` the
+        inbound peer is ``P1``; otherwise it's ``P-other`` (peers list
+        non-empty but inbound peer not in it).
+        """
+        peer_entry = ("P1", dm_allowed)
+        allowlist = {
+            "peers": [peer_entry],
+            "channels": [],
+            "dm_admission": dm_admission,
+        }
+        account = _account(allowlist=allowlist)
+        inbound_peer = "P1" if in_allowlist else "P-other"
+
+        agent_acl: dict | None = None
+        if admit_dms is not None:
+            agent_acl = {
+                "peers": None,
+                "channels": None,
+                "admit_dms": admit_dms,
+            }
+
+        admits, _ = admits_inbound(
+            account, agent_acl, inbound_peer, "C-dm", is_dm=True
+        )
+        assert admits is expected, (
+            f"cell admit_dms={admit_dms} dm_admission={dm_admission!r} "
+            f"dm_allowed={dm_allowed} in_allowlist={in_allowlist}: "
+            f"expected={expected} got={admits}"
+        )
+
+
+class TestHierarchicalAxisWildcardMatrix:
+    """M11 F12 L5 — wildcard sentinel cells on the channels + roles
+    axes. Extends the cross-product matrix with ``channel_id="*"`` and
+    ``role_id="*"`` cases that the hierarchical Server-as-parent UI
+    emits when a server row is added without explicit narrowing.
+
+    Per the L5 wildcard semantic locked in the leg spec:
+
+    - ``channel_id == "*"`` admits ANY ``envelope.channel_id`` whose
+      envelope ``guild_id`` matches the entry's ``guild_id``. Outbound
+      ignores ``guild_id`` (locked L3 semantic), so the wildcard
+      admits unconditionally for channels.
+    - ``role_id == "*"`` admits ANY peer with ANY ``member_roles``
+      (including the empty list) whose envelope ``guild_id`` matches
+      the entry's ``guild_id``. The wildcard short-circuits the
+      overlap check at the per-guild scope.
+    """
+
+    # ── Channels-axis wildcard cells ───────────────────────────────
+
+    def test_channel_wildcard_matching_guild_admits_any_channel(
+        self,
+    ) -> None:
+        """channels=[{guild_id="A", channel_id="*"}],
+        envelope.guild_id="A", envelope.channel_id="X" → admit."""
+        acc = _account(allowlist={
+            "peers": [],
+            "channels": [{"guild_id": "A", "channel_id": "*"}],
+        })
+        admits, _ = admits_inbound(
+            acc, None, "P1", "X", guild_id="A",
+        )
+        assert admits is True
+
+    def test_channel_wildcard_non_matching_guild_denies(self) -> None:
+        """channels=[{guild_id="A", channel_id="*"}],
+        envelope.guild_id="B", envelope.channel_id="X" → deny (still
+        guild-scoped — the wildcard is per-guild, not global)."""
+        acc = _account(allowlist={
+            "peers": [],
+            "channels": [{"guild_id": "A", "channel_id": "*"}],
+        })
+        admits, _ = admits_inbound(
+            acc, None, "P1", "X", guild_id="B",
+        )
+        assert admits is False
+
+    def test_channel_wildcard_mixed_explicit_and_wildcard_other_guild(
+        self,
+    ) -> None:
+        """channels=[{guild_id="A", channel_id="X"},
+                   {guild_id="B", channel_id="*"}],
+        envelope.guild_id="A", envelope.channel_id="Y" → deny (X is
+        the only A-scoped explicit; wildcard only admits B-scoped)."""
+        acc = _account(allowlist={
+            "peers": [],
+            "channels": [
+                {"guild_id": "A", "channel_id": "X"},
+                {"guild_id": "B", "channel_id": "*"},
+            ],
+        })
+        admits, _ = admits_inbound(
+            acc, None, "P1", "Y", guild_id="A",
+        )
+        assert admits is False
+
+    def test_channel_wildcard_outbound_admits_unconditionally(
+        self,
+    ) -> None:
+        """Outbound matches by channel_id alone (locked L3 semantic);
+        the ``"*"`` wildcard simply admits any channel_id when present
+        in the list."""
+        acc = _account(allowlist={
+            "peers": [],
+            "channels": [{"guild_id": "A", "channel_id": "*"}],
+        })
+        admits, _ = admits_outbound(acc, None, "C-any-channel")
+        assert admits is True
+
+    # ── Roles-axis wildcard cells ──────────────────────────────────
+
+    def test_role_wildcard_matching_guild_admits_empty_member_roles(
+        self,
+    ) -> None:
+        """roles=[{guild_id="A", role_id="*"}],
+        envelope.guild_id="A", member_roles=[] → admit (wildcard
+        short-circuits overlap)."""
+        acc = _account(allowlist={
+            "peers": [],
+            "channels": [],
+            "roles": [{"guild_id": "A", "role_id": "*"}],
+        })
+        admits, _ = admits_inbound(
+            acc, None, "P1", "C1",
+            guild_id="A", member_roles=[],
+        )
+        assert admits is True
+
+    def test_role_wildcard_non_matching_guild_denies(self) -> None:
+        """roles=[{guild_id="A", role_id="*"}],
+        envelope.guild_id="B", member_roles=["R1"] → deny (the wildcard
+        is per-guild scoped)."""
+        acc = _account(allowlist={
+            "peers": [],
+            "channels": [],
+            "roles": [{"guild_id": "A", "role_id": "*"}],
+        })
+        admits, _ = admits_inbound(
+            acc, None, "P1", "C1",
+            guild_id="B", member_roles=["R1"],
+        )
+        assert admits is False
+
+    def test_role_wildcard_admits_any_member_roles(self) -> None:
+        """roles=[{guild_id="A", role_id="*"}],
+        envelope.guild_id="A", member_roles=["R-arbitrary"] → admit."""
+        acc = _account(allowlist={
+            "peers": [],
+            "channels": [],
+            "roles": [{"guild_id": "A", "role_id": "*"}],
+        })
+        admits, _ = admits_inbound(
+            acc, None, "P1", "C1",
+            guild_id="A", member_roles=["R-arbitrary"],
+        )
+        assert admits is True
+
+    # ── Per-agent overlay wildcard ─────────────────────────────────
+
+    def test_per_agent_channel_wildcard_admits_in_guild(self) -> None:
+        """Per-agent overlay: channels=[{guild_id="A", channel_id="*"}]
+        admits any envelope.channel_id when envelope.guild_id="A".
+        Account-scope is left unrestricted on channels so the per-agent
+        wildcard is the decisive gate."""
+        acc = _account(allowlist={
+            "peers": [],
+            "channels": [],
+        })
+        admits, _ = admits_inbound(
+            acc,
+            {
+                "peers": None,
+                "channels": [{"guild_id": "A", "channel_id": "*"}],
+            },
+            "P1", "Z",
+            guild_id="A",
+        )
+        assert admits is True

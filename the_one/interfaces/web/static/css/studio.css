@@ -1302,6 +1302,103 @@
     height: 14px;
   }
 
+  /* M11 F12 L4 — per-peer DM toggle + legacy-entry indicator.
+     The per-peer toggle lives inside each peer chip (rendered by
+     discoverable-dropdown.js when ``valueShape === 'peer'``); the
+     dm_admission select's change handler on the peers row toggles
+     ``dm-admission-admin-approved``, and these rules drive visibility
+     accordingly. Path (b) per the leg artifact: CSS-toggle preserves
+     checkbox state across operator-driven mode flips. */
+  .area-studio .connector-allowlist-peer-dm-toggle {
+    display: none;
+    align-items: center;
+    margin: 0 6px 0 4px;
+    cursor: pointer;
+  }
+  .area-studio .connector-allowlist-peers-row.dm-admission-admin-approved
+      .connector-allowlist-peer-dm-toggle {
+    display: inline-flex;
+  }
+  .area-studio .connector-allowlist-peer-dm-toggle-input {
+    margin: 0;
+    /* Native checkbox visual; the chip frame supplies surrounding
+       chrome. Bigger affordance keeps the click target operator-friendly
+       even at the small chip scale. */
+    width: 14px;
+    height: 14px;
+    accent-color: var(--accent, currentColor);
+    cursor: pointer;
+  }
+
+  /* M11 F12 L5 — hierarchical Server-as-parent allowlist layout. The
+     Servers slot is a parent organizer; each server row carries a
+     header (server name + remove button) and two nested
+     sub-chiplists (channels / roles), each with its own
+     server-scoped dropdown. The wildcard sentinel chip ("(all
+     channels)" / "(all roles)") rendered inside a server row whose
+     respective sub-chiplist is empty is visually distinct (dashed
+     border + italic label).
+
+     The pre-L5 legacy-indicator block (dashed-border chip for
+     null-``guild_id`` entries + the info-glyph indicator span) is
+     gone — post-v25 there are no null-``guild_id`` entries. */
+  .area-studio .connector-allowlist-server-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 8px;
+  }
+  .area-studio .connector-allowlist-server-row {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+    background: var(--surface);
+  }
+  .area-studio .connector-allowlist-server-row-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+    font-weight: 500;
+  }
+  .area-studio .connector-allowlist-server-row-remove {
+    background: transparent;
+    border: none;
+    color: var(--fg-secondary, currentColor);
+    cursor: pointer;
+    font-size: 1.1em;
+    line-height: 1;
+    padding: 2px 6px;
+  }
+  .area-studio .connector-allowlist-server-row-remove:hover {
+    color: var(--accent, currentColor);
+  }
+  .area-studio .connector-allowlist-server-row-children {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 0 4px 16px;
+    border-left: 2px solid var(--surface-elevated);
+    margin-left: 4px;
+  }
+  .area-studio .connector-allowlist-sub-label {
+    font-size: var(--font-size-caption);
+    color: var(--fg-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-right: 4px;
+  }
+  .area-studio .chip.connector-allowlist-wildcard-sentinel {
+    border-style: dashed;
+    font-style: italic;
+    color: var(--fg-secondary, currentColor);
+  }
+  .area-studio .connector-allowlist-server-scoped-dropdown {
+    flex: 1;
+    min-width: 120px;
+  }
+
   /* Attached-agents table (M10 F6 L7 HAT — table format replaces
      the prior <ul> "name peers: N · channels: M" inline text). */
   .area-studio .connector-attached-agents-table {
@@ -1403,31 +1500,25 @@
     gap: 6px;
     width: 100%;
   }
-  .discoverable-dropdown-input-row {
-    display: flex;
-    align-items: stretch;
-    gap: 6px;
-  }
+  /* M11 F12 L5 fix cycle 4: chip-list-editor + input unified into a
+     single container; the standalone ``.discoverable-dropdown-input-row``
+     wrapper no longer exists in the DOM. The canonical
+     ``chip-list-editor`` styling (admin.css :390-448) owns the
+     container's bezel + inline-flex layout, and ``.chip-list-input``
+     (admin.css :437-448) owns the borderless typeahead input. The
+     legacy ``.discoverable-dropdown-input`` class is preserved on the
+     input element for compatibility but its visual treatment now flows
+     from ``.chip-list-input`` (higher specificity 0,0,2,0). Below we
+     keep only behavior rules that don't overlap with the canonical
+     pattern: placeholder color + disabled affordance + font sizing. */
   .discoverable-dropdown-input {
-    flex: 1;
-    padding: 6px 8px;
-    background: var(--surface);
     color: var(--fg);
-    border: 1px solid var(--glass-border);
-    border-radius: var(--panel-radius-sm);
-    box-shadow: var(--bezel-shadow-inset);
     font-size: var(--font-size-body-sm);
     font-family: inherit;
     line-height: var(--line-height-normal);
   }
   .discoverable-dropdown-input::placeholder {
     color: var(--fg-muted);
-  }
-  .discoverable-dropdown-input:focus,
-  .discoverable-dropdown-input:focus-visible {
-    outline: none;
-    border-color: var(--accent);
-    box-shadow: var(--bezel-shadow-inset), 0 0 0 3px var(--accent-glow);
   }
   .discoverable-dropdown-input[disabled] {
     opacity: 0.6;
@@ -1479,21 +1570,14 @@
   .discoverable-dropdown-item[aria-selected="true"] {
     color: var(--accent);
   }
-  .discoverable-dropdown-chips {
-    /* Inherits the canonical .chip-list-editor styling from admin.css
-       :388-433 (both classes apply). No extra rules needed unless we
-       want to constrain min-height differently — leave to inheritance. */
-  }
-  /* M11 F5 L4 item 7: hide-when-empty override. The JS toggle in
-     _renderChips (discoverable-dropdown.js) sets/removes the `hidden`
-     attribute based on chip count, but the user-agent `[hidden]` rule
-     (specificity 0,0,1,0) is overridden by `.area-studio .chip-list-editor`'s
-     `display: flex` (admin.css:393-406, specificity 0,0,2,0). This rule
-     at specificity 0,0,3,0 outranks the chip-list-editor display so the
-     `hidden` attribute actually hides the empty container. */
-  .area-studio .discoverable-dropdown-chips[hidden] {
-    display: none;
-  }
+  /* M11 F12 L5 fix cycle 4: the standalone ``.discoverable-dropdown-chips``
+     element no longer exists — the chips render inline inside the
+     unified ``.chip-list-editor`` (same DOM node that carries the
+     ``discoverable-dropdown-chips`` class so existing tests keep
+     resolving via testid). The hide-when-empty branch was also dropped:
+     the container always renders because it carries the typeahead
+     input as a child, so the empty-state is the input alone — not a
+     stray blank box. */
   .discoverable-dropdown-status {
     min-height: 1em;
     font-size: var(--font-size-body-sm);

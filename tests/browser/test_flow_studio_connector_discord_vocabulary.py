@@ -75,25 +75,39 @@ def test_discord_account_renders_substituted_allowlist_labels(
     # the active tab's content is visually present for text queries).
     page.locator('[data-testid="tab-access-and-routing"]').click()
 
-    # Read the four allowlist <label> elements directly off the section
+    # Read the allowlist <label> elements directly off the section
     # — we anchor to the section selector instead of a page-wide text
     # match so the L4-form's own connection-side "Guilds" label
     # (Discord-intent typed input) doesn't pollute the assertion. L6
     # owns the allowlist surface; L4 owns the typed connection fields.
+    #
+    # M11 F12 L5 — the L4 flat 4-axis section labels (Peers / Channels
+    # / Guilds / Roles) collapsed to 2 top-level section labels (Users
+    # / Servers for Discord-tone accounts) once channels + roles
+    # became server-scoped sub-controls inside each server row. The
+    # nested sub-labels ("Channels:" / "Roles:") under each server row
+    # live in ``.connector-allowlist-sub-label`` and are not part of
+    # this section-label assertion.
+    #
+    # L5 cycle 5: the prior single "Access" section was split into two
+    # sibling sections — USERS (peers + DM admission) and SERVERS (the
+    # hierarchical organizer). Both sections retain the
+    # ``connector-allowlist-section`` class so this selector collects
+    # labels across both. The DM admission row was also reordered
+    # ABOVE the Users (peers) row, so the gating decision precedes the
+    # per-peer chip list.
     allowlist_labels = page.locator(
         '.connector-allowlist-section .connector-acl-fieldlabel'
     ).evaluate_all("els => els.map(e => e.textContent.trim())")
-    # M11 F10 L2: the DM-admission row sits between peers and channels
-    # and reuses the ``connector-acl-fieldlabel`` class, so it
-    # joins this label list with the literal "DM admission" text
-    # (no vocabulary substitution — DM is universal across connector
-    # types).
+    # M11 F10 L2: the DM-admission row reuses the
+    # ``connector-acl-fieldlabel`` class, so it joins this label list
+    # with the literal "DM admission" text (no vocabulary substitution
+    # — DM is universal across connector types). L5 cycle 5: now
+    # FIRST in the USERS section, ahead of the peers row.
     assert allowlist_labels == [
-        "Users",
         "DM admission",
-        "Channels",
+        "Users",
         "Servers",
-        "Roles",
     ], f"Discord allowlist labels drifted; got: {allowlist_labels!r}"
 
 
@@ -101,10 +115,17 @@ def test_discord_account_renders_substituted_allowlist_labels(
 def test_discord_account_hints_drop_discord_flavored_qualifier(
     app_clean: str, page: Page
 ) -> None:
-    """Discord-type account: the Guilds + Roles hints drop the
-    "Discord-flavored; ignored by other platforms." qualifier
-    (``hintTone === 'native'``). The substituted singular ("server" /
-    "role") still appears in the leading hint text."""
+    """Discord-type account: the Servers (guilds) section hint drops
+    the "Discord-flavored; ignored by other platforms." qualifier
+    (``hintTone === 'native'``). The substituted singular ("server")
+    still appears in the leading hint text.
+
+    M11 F12 L5 — the L4 separate Roles section hint is gone (roles
+    are now server-scoped sub-controls inside each server row; no
+    top-level Roles hint). The Servers (guilds) section is the only
+    section-level hint left after the hierarchical restructure;
+    Discord-tone qualifier suppression still applies to it.
+    """
     account_id = seed_connector(
         app_clean,
         name="Hint Discord",
@@ -127,29 +148,20 @@ def test_discord_account_hints_drop_discord_flavored_qualifier(
     # the asserted text now lives in ``title``, not in
     # ``text_content``.
     guilds_hint = page.locator('[data-testid="connector-allowlist-guilds-hint"]')
-    roles_hint = page.locator('[data-testid="connector-allowlist-roles-hint"]')
     expect(guilds_hint).to_be_visible()
-    expect(roles_hint).to_be_visible()
 
     guilds_text = guilds_hint.get_attribute("title") or ""
-    roles_text = roles_hint.get_attribute("title") or ""
 
-    # Substituted leading hint text.
-    assert "no server restriction" in guilds_text, (
+    # Substituted leading hint text — the L5 hint mentions both
+    # "server" and the operator narrowing channels/roles inside it.
+    assert "server" in guilds_text, (
         f"expected substituted 'server' singular in guilds hint; got: {guilds_text!r}"
-    )
-    assert "no role restriction" in roles_text, (
-        f"expected 'role' singular in roles hint; got: {roles_text!r}"
     )
 
     # Drop the "Discord-flavored" qualifier on a Discord-type account.
     assert "Discord-flavored" not in guilds_text, (
         f"native-tone account should not show 'Discord-flavored' in guilds hint; "
         f"got: {guilds_text!r}"
-    )
-    assert "Discord-flavored" not in roles_text, (
-        f"native-tone account should not show 'Discord-flavored' in roles hint; "
-        f"got: {roles_text!r}"
     )
 
     # Page-wide: the full disclaimer string must not appear anywhere on
@@ -305,18 +317,23 @@ def test_stub_account_preserves_baseline_allowlist_labels(
     )
     page.locator('[data-testid="tab-access-and-routing"]').click()
 
-    # The pre-L6 baseline labels remain on a generic-tone account.
+    # The pre-L6 baseline labels remain on a generic-tone account; M11
+    # F12 L5 collapses the L4 4-axis labels to 2 top-level labels once
+    # channels + roles became server-scoped sub-controls. L5 cycle 5:
+    # the prior single "Access" section was split into USERS (peers +
+    # DM admission) and SERVERS (guilds) — both retain the
+    # ``connector-allowlist-section`` class so this selector still
+    # collects labels across both.
     allowlist_labels = page.locator(
         '.connector-allowlist-section .connector-acl-fieldlabel'
     ).evaluate_all("els => els.map(e => e.textContent.trim())")
-    # M11 F10 L2: DM-admission row joins the label list between peers
-    # and channels (literal label; no vocabulary substitution).
+    # M11 F10 L2: DM-admission row joins the label list (literal label;
+    # no vocabulary substitution). L5 cycle 5: DM admission now leads
+    # the USERS section, ahead of the peers row.
     assert allowlist_labels == [
-        "Peers",
         "DM admission",
-        "Channels",
+        "Peers",
         "Guilds",
-        "Roles",
     ], f"stub-account allowlist baseline drifted; got: {allowlist_labels!r}"
 
     # The "Discord-flavored" qualifier appears in the hints (generic
@@ -338,7 +355,18 @@ def test_discord_account_save_roundtrip_preserves_substrate_field_names(
     """Save round-trip on a Discord account: the persisted config
     keeps the substrate's literal field names ``peers`` / ``channels``
     / ``guilds`` / ``roles`` (NOT ``users`` / ``servers``). The
-    display-text substitution does not leak into the wire layer."""
+    display-text substitution does not leak into the wire layer.
+
+    M11 F12 L5 — channel/role entries are guild-scoped structured
+    tuples post-v25; the seeder also assigns a default guild_id to
+    flat-string fixture entries. The hierarchical UI may also emit
+    wildcard sentinels ``{guild_id, channel_id: "*"}`` for any
+    server row whose channels/roles list is empty for that guild_id
+    (locked rendering rule per the leg AC). This test pins the
+    wire-layer field-NAMES (peers / channels / guilds / roles, NOT
+    users / servers); the exact storage projection is exercised
+    elsewhere.
+    """
     account_id = seed_connector(
         app_clean,
         name="Wire Discord",
@@ -346,21 +374,31 @@ def test_discord_account_save_roundtrip_preserves_substrate_field_names(
         config={
             "allowlist": {
                 "peers": ["alice", "bob"],
-                "channels": ["general"],
+                "channels": [
+                    {"guild_id": "111", "channel_id": "general"},
+                ],
                 "guilds": ["111"],
-                "roles": ["mod"],
+                "roles": [
+                    {"guild_id": "111", "role_id": "mod"},
+                ],
             }
         },
         secrets={"BOT_TOKEN": "plaintext"},
     )
 
-    # Direct GET to confirm the seeded shape persisted unchanged.
+    # Direct GET to confirm the seeded shape persisted. M11 F12 L5 —
+    # peers / channels / roles are guild-scoped structured-tuple dicts;
+    # guilds stays ``list[str]`` (a guild IS the scope).
     before = _get_account(app_clean, account_id)
     assert "peers" in before["config"]["allowlist"]
     assert "channels" in before["config"]["allowlist"]
     assert "guilds" in before["config"]["allowlist"]
     assert "roles" in before["config"]["allowlist"]
-    assert before["config"]["allowlist"]["peers"] == ["alice", "bob"]
+    before_peer_ids = [
+        (p.get("id") if isinstance(p, dict) else p)
+        for p in before["config"]["allowlist"]["peers"]
+    ]
+    assert before_peer_ids == ["alice", "bob"]
     assert before["config"]["allowlist"]["guilds"] == ["111"]
     # Substituted display vocabulary keys MUST NOT appear at the wire
     # layer.
@@ -381,12 +419,32 @@ def test_discord_account_save_roundtrip_preserves_substrate_field_names(
 
     after = _get_account(app_clean, account_id)
     assert after["name"] == "Wire Discord Renamed"
-    assert after["config"]["allowlist"]["peers"] == ["alice", "bob"], (
+    after_peer_ids = [
+        (p.get("id") if isinstance(p, dict) else p)
+        for p in after["config"]["allowlist"]["peers"]
+    ]
+    after_channel_ids = [
+        (c.get("channel_id") if isinstance(c, dict) else c)
+        for c in after["config"]["allowlist"]["channels"]
+    ]
+    after_role_ids = [
+        (r.get("role_id") if isinstance(r, dict) else r)
+        for r in after["config"]["allowlist"]["roles"]
+    ]
+    assert after_peer_ids == ["alice", "bob"], (
         f"peers field-name drifted at save round-trip; got: "
         f"{after['config']['allowlist']!r}"
     )
-    assert after["config"]["allowlist"]["channels"] == ["general"]
+    # Explicit ids are preserved (post-L5 the hierarchical editor may
+    # also include the sentinel ``"*"`` if a server row's children are
+    # empty — but we seeded explicit entries so the sentinel is
+    # suppressed).
+    assert "general" in after_channel_ids, (
+        f"channels round-trip lost 'general'; got: {after_channel_ids!r}"
+    )
     assert after["config"]["allowlist"]["guilds"] == ["111"]
-    assert after["config"]["allowlist"]["roles"] == ["mod"]
+    assert "mod" in after_role_ids, (
+        f"roles round-trip lost 'mod'; got: {after_role_ids!r}"
+    )
     assert "users" not in after["config"]["allowlist"]
     assert "servers" not in after["config"]["allowlist"]

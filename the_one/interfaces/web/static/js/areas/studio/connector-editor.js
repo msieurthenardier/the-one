@@ -1988,10 +1988,20 @@
     var infoIcon = (window.App && window.App.icon) ? window.App.icon('info') : 'ⓘ';
 
     var html = '';
-    html += '<div class="editor-section connector-allowlist-section">';
+    // M11 F12 L5 cycle 5 — split the prior single "Access" section into
+    // two sections: USERS (peers + DM admission) and SERVERS (the
+    // hierarchical server-as-parent organizer). Both wrappers retain
+    // the ``connector-allowlist-section`` class so existing selectors
+    // (e.g. the Discord-vocabulary label-list assertion) collect labels
+    // across both sections without modification. The DM admission row
+    // moves above the Users (peers) row per operator UX request — the
+    // gating decision ("admit any DMs at all?") naturally precedes the
+    // per-peer chip list.
+    html += '<div class="editor-section connector-allowlist-section ' +
+            'connector-allowlist-section--users">';
     // F5 L6 HAT R4: renamed "Account-scope allowlist" → "Access" with
-    // a friendly description.
-    html += '<div class="section-title">Access</div>';
+    // a friendly description. L5 cycle 5: "Access" → "Users".
+    html += '<div class="section-title">Users</div>';
     html += '<div class="section-description">Who can talk to the bot.</div>';
 
     // F5 L6 HAT R5: section-level discoverable-entities banner.
@@ -2011,6 +2021,12 @@
     // pings the L4 GET endpoint once on mount to flip to the
     // populated state if the pool was warmed by lifespan startup /
     // a prior Test Connection.
+    //
+    // L5 cycle 5 placement: the banner stays in the USERS section
+    // because pool-warm status feeds BOTH axes (users + servers) and
+    // duplicating it would dilute the operator's mental model. The
+    // cheapest move is to leave it at the top of the first allowlist
+    // section.
     html += '<div class="field-row admin-pf-row connector-allowlist-banner" ' +
             'data-testid="connector-allowlist-banner" data-state="pre-probe">';
     html += '<label>Discoverable entities</label>';
@@ -2029,30 +2045,26 @@
     html += '<div class="connector-allowlist-lists" ' +
             'data-testid="connector-allowlist-lists">';
 
-    // Peers axis.
-    var peersTipText = 'Empty list = no ' + vocab.peer + ' restriction.';
-    html += '<div class="field-row admin-pf-row connector-acl-fieldrow">';
-    html += '<label class="connector-acl-fieldlabel">' +
-            escapeHtml(_capitalize(vocab.peers)) + '</label>';
-    html += '<button type="button" class="field-info-icon" ' +
-            'title="' + escapeAttr(peersTipText) + '" ' +
-            'aria-describedby="connector-allowlist-peers-help-text" ' +
-            'data-testid="connector-allowlist-peers-hint">' + infoIcon + '</button>';
-    html += '<span id="connector-allowlist-peers-help-text" class="visually-hidden">' +
-            escapeHtml(peersTipText) + '</span>';
-    html += '<div data-allowlist-chiplist-slot="peers"></div>';
-    html += '</div>';
-
     // M11 F10 L2: DM admission axis (3-value selector). Semantic
-    // placement: peers defines WHO can DM; dm_admission gates WHETHER
-    // DMs are admitted; channels (post-L1: guild-channel restriction)
-    // follows. Storage at account.config.allowlist.dm_admission;
-    // dispatcher consult at _acl.py:admits_inbound (L1).
+    // placement: dm_admission gates WHETHER any DMs are admitted; the
+    // Users (peers) chip-list below then defines WHO. Storage at
+    // account.config.allowlist.dm_admission; dispatcher consult at
+    // _acl.py:admits_inbound (L1).
+    //
+    // L5 cycle 5: moved ABOVE the Users chip-list per operator UX
+    // request. The "Approved peers are those on the Users allowlist
+    // below" tooltip phrasing tracks the new ordering. The peers row
+    // still owns the ``connector-allowlist-peers-row`` testid + the
+    // ``dm-admission-admin-approved`` state class that gates the
+    // per-peer DM toggles; that wiring is order-agnostic (queries by
+    // testid) so the swap is purely visual.
     var dmAdmissionTipText = 'DMs (direct messages to the bot) are ' +
         'admitted independently of channel restrictions. Approved ' +
-        'peers are those on the Peers allowlist above.';
+        'peers are those on the Users allowlist below.';
+    // M11 F12 L4 — Literal value rename ``allowlisted-peers-only`` →
+    // ``admin-approved`` (operator-vocabulary alignment per F12 L3).
     var currentDmAdmission = (account && account.config && account.config.allowlist &&
-        account.config.allowlist.dm_admission) || 'allowlisted-peers-only';
+        account.config.allowlist.dm_admission) || 'admin-approved';
     html += '<div class="field-row admin-pf-row connector-acl-fieldrow" ' +
             'data-testid="connector-allowlist-dm-admission-row">';
     html += '<label class="connector-acl-fieldlabel" ' +
@@ -2068,32 +2080,68 @@
             'data-testid="connector-allowlist-dm-admission-select">';
     html += '<option value="none"' +
             (currentDmAdmission === 'none' ? ' selected' : '') + '>Deny all DMs</option>';
-    html += '<option value="allowlisted-peers-only"' +
-            (currentDmAdmission === 'allowlisted-peers-only' ? ' selected' : '') +
-            '>Admit DMs from approved peers</option>';
+    html += '<option value="admin-approved"' +
+            (currentDmAdmission === 'admin-approved' ? ' selected' : '') +
+            '>Admin-approved (per-peer)</option>';
     html += '<option value="all"' +
             (currentDmAdmission === 'all' ? ' selected' : '') + '>Admit all DMs</option>';
     html += '</select>';
     html += '</div>';
 
-    // Channels axis.
-    var channelsTipText = 'Empty list = no ' + vocab.channel + ' restriction.';
-    html += '<div class="field-row admin-pf-row connector-acl-fieldrow">';
+    // Peers (Users) axis. Sits below the DM admission row (L5 cycle 5
+    // reorder) so the gating decision precedes the per-peer chip list.
+    var peersTipText = 'Empty list = no ' + vocab.peer + ' restriction.';
+    // M11 F12 L4 — peers row carries a state-class for the per-peer
+    // DM toggle visibility. The class is initialized from
+    // ``currentDmAdmission`` (read above) and toggled live by the
+    // dm_admission select's change handler wired in
+    // ``wireAllowlistEvents``.
+    var peersDmClass = ' connector-allowlist-peers-row';
+    html += '<div class="field-row admin-pf-row connector-acl-fieldrow' + peersDmClass +
+            '" data-testid="connector-allowlist-peers-row">';
     html += '<label class="connector-acl-fieldlabel">' +
-            escapeHtml(_capitalize(vocab.channels)) + '</label>';
+            escapeHtml(_capitalize(vocab.peers)) + '</label>';
     html += '<button type="button" class="field-info-icon" ' +
-            'title="' + escapeAttr(channelsTipText) + '" ' +
-            'aria-describedby="connector-allowlist-channels-help-text" ' +
-            'data-testid="connector-allowlist-channels-hint">' + infoIcon + '</button>';
-    html += '<span id="connector-allowlist-channels-help-text" class="visually-hidden">' +
-            escapeHtml(channelsTipText) + '</span>';
-    html += '<div data-allowlist-chiplist-slot="channels"></div>';
+            'title="' + escapeAttr(peersTipText) + '" ' +
+            'aria-describedby="connector-allowlist-peers-help-text" ' +
+            'data-testid="connector-allowlist-peers-hint">' + infoIcon + '</button>';
+    html += '<span id="connector-allowlist-peers-help-text" class="visually-hidden">' +
+            escapeHtml(peersTipText) + '</span>';
+    html += '<div data-allowlist-chiplist-slot="peers"></div>';
     html += '</div>';
 
-    // Groups (guilds) axis.
-    var guildsTipText = 'Empty list = no ' + vocab.group + ' restriction.' +
-            (nativeTone ? '' : ' Discord-flavored; ignored by other platforms.');
-    html += '<div class="field-row admin-pf-row connector-acl-fieldrow">';
+    html += '</div>'; // .connector-allowlist-lists
+    html += '</div>'; // .editor-section USERS
+
+    // SERVERS section (L5 cycle 5 split from the prior single ACCESS
+    // section). The hierarchical Server-as-parent organizer renders
+    // here. The section header is self-evident; no intro line.
+    //
+    // M11 F12 L5 — hierarchical Server-as-parent layout. The Servers
+    // section is the PARENT organizer; channels + roles render as
+    // NESTED sub-controls inside each server row at mount time (see
+    // ``_mountAllowlistHierarchicalEditor`` below).
+    //
+    // The L4 flat 3-section layout (Channels / Guilds / Roles as
+    // siblings) is gone. Markup carries a single Servers slot; the
+    // mount-time render reads ``account.config.allowlist.guilds`` and
+    // for each guild_id builds a server row with two sub-chiplists
+    // (channels filtered by guild_id; roles filtered by guild_id).
+    //
+    // Slot-id retention: the slot keys ``channels`` / ``guilds`` /
+    // ``roles`` are NOT in this markup any more; the collect path
+    // reads the hierarchical state via the slot getter installed on
+    // the Servers slot itself.
+    html += '<div class="editor-section connector-allowlist-section ' +
+            'connector-allowlist-section--servers">';
+    html += '<div class="section-title">Servers</div>';
+    var guildsTipText = 'Add a ' + vocab.group +
+            '. Narrow which channels and roles inside it the bot ' +
+            'answers from.' +
+            (nativeTone ? '' : ' Discord-flavored.');
+    html += '<div class="field-row admin-pf-row connector-acl-fieldrow ' +
+            'connector-allowlist-servers-section" ' +
+            'data-testid="connector-allowlist-servers-section">';
     html += '<label class="connector-acl-fieldlabel">' +
             escapeHtml(_capitalize(vocab.groups)) + '</label>';
     html += '<button type="button" class="field-info-icon" ' +
@@ -2102,28 +2150,10 @@
             'data-testid="connector-allowlist-guilds-hint">' + infoIcon + '</button>';
     html += '<span id="connector-allowlist-guilds-help-text" class="visually-hidden">' +
             escapeHtml(guildsTipText) + '</span>';
-    html += '<div data-allowlist-chiplist-slot="guilds"></div>';
+    html += '<div data-allowlist-chiplist-slot="guilds" ' +
+            'data-testid="connector-allowlist-servers-slot"></div>';
     html += '</div>';
-
-    // Roles axis.
-    var rolesTipText = 'Empty list = no ' + vocab.role + ' restriction. ' +
-            'Any-of overlap.' +
-            (nativeTone ? '' : ' Discord-flavored.');
-    html += '<div class="field-row admin-pf-row connector-acl-fieldrow">';
-    html += '<label class="connector-acl-fieldlabel">' +
-            escapeHtml(_capitalize(vocab.roles)) + '</label>';
-    html += '<button type="button" class="field-info-icon" ' +
-            'title="' + escapeAttr(rolesTipText) + '" ' +
-            'aria-describedby="connector-allowlist-roles-help-text" ' +
-            'data-testid="connector-allowlist-roles-hint">' + infoIcon + '</button>';
-    html += '<span id="connector-allowlist-roles-help-text" class="visually-hidden">' +
-            escapeHtml(rolesTipText) + '</span>';
-    html += '<div data-allowlist-chiplist-slot="roles"></div>';
-    html += '</div>';
-
-    html += '</div>';
-
-    html += '</div>';
+    html += '</div>'; // .editor-section SERVERS
     return html;
   }
 
@@ -2898,9 +2928,30 @@
         return '<em class="form-hint" data-testid="' +
                'connector-attached-axis-none">none</em>';
       }
+      // Cycle-2 fix (Bug 5): post-L3 each entry is a structured-tuple
+      // dict (peers: ``{id, dm_allowed}``; channels:
+      // ``{guild_id, channel_id}``; roles: ``{guild_id, role_id}``).
+      // ``String({})`` returns ``"[object Object]"`` — unwrap to the
+      // id field per axis, falling back to bare-string for legacy
+      // flat-id payloads. Label resolution lives in the hierarchical
+      // editor's per-mount cache (``_labelFor``) which is out of scope
+      // here; the compact attached-agents table renders raw ids by
+      // design (operator can click through to the agent to see full
+      // chips with labels).
       var parts = '';
       for (var ci = 0; ci < value.length; ci++) {
-        parts += '<span class="chip">' + escapeHtml(String(value[ci])) + '</span>';
+        var entry = value[ci];
+        var id = '';
+        if (entry && typeof entry === 'object') {
+          if (axis === 'peers') id = entry.id;
+          else if (axis === 'channels') id = entry.channel_id;
+          else if (axis === 'roles') id = entry.role_id;
+          else id = entry.id || '';
+          id = String(id == null ? '' : id);
+        } else {
+          id = String(entry);
+        }
+        parts += '<span class="chip">' + escapeHtml(id) + '</span>';
       }
       return parts;
     }
@@ -3165,8 +3216,51 @@
   // read via the text-node walk). The chip-list fallback does NOT
   // install the getter; the collect path falls through to the
   // existing text-node walk.
+  // M11 F12 L4 — per-storage-axis structured-tuple shape:
+  //   peers    → {id, dm_allowed}        (valueShape: 'peer')
+  //   channels → {guild_id, channel_id}  (valueShape: 'channel')
+  //   roles    → {guild_id, role_id}     (valueShape: 'role')
+  //   guilds   → str                     (valueShape: 'flat')
+  // The dropdown component understands ``valueShape`` directly; the
+  // stub fallback chip-list editor speaks flat-string ids, so the
+  // _mountAllowlistAxisEditor wraps/unwraps at the fallback boundary.
+  var _AXIS_VALUE_SHAPE = {
+    peers: 'peer',
+    channels: 'channel',
+    roles: 'role',
+    guilds: 'flat'
+  };
+
+  function _entryIdForAxis(entry, storageAxis) {
+    if (entry == null) return '';
+    if (storageAxis === 'peers') {
+      return (entry && typeof entry === 'object') ? String(entry.id || '') : String(entry);
+    }
+    if (storageAxis === 'channels') {
+      return (entry && typeof entry === 'object') ? String(entry.channel_id || '') : String(entry);
+    }
+    if (storageAxis === 'roles') {
+      return (entry && typeof entry === 'object') ? String(entry.role_id || '') : String(entry);
+    }
+    return String(entry);
+  }
+
+  function _wrapFlatForAxis(id, storageAxis) {
+    // Wrap a bare id string from the stub chip-list editor into the
+    // structured-tuple shape. The stub path has no entity context so
+    // guild_id falls back to null (legacy-permissive — surfaces the
+    // legacy indicator on the chip post-mount).
+    var s = (id == null) ? '' : String(id);
+    if (!s) return null;
+    if (storageAxis === 'peers') return { id: s, dm_allowed: false };
+    if (storageAxis === 'channels') return { guild_id: null, channel_id: s };
+    if (storageAxis === 'roles') return { guild_id: null, role_id: s };
+    return s;
+  }
+
   function _mountAllowlistAxisEditor(slotEl, account, storageAxis, currentValues, vocab, checkDirty) {
     if (!slotEl) return;
+    var valueShape = _AXIS_VALUE_SHAPE[storageAxis] || 'flat';
     var state = { values: (currentValues || []).slice() };
     var registry = (window.App && window.App.studio && window.App.studio.connectorFormRegistry) || null;
     var entry = (registry && account && account.type) ? registry.get(account.type) : null;
@@ -3180,7 +3274,9 @@
         function onChange(newValues) {
           state.values = (newValues || []).slice();
           if (typeof checkDirty === 'function') checkDirty();
-        }
+        },
+        // M11 F12 L4 — opt into structured-tuple shape per axis.
+        { valueShape: valueShape }
       );
       if (dropdownEl) {
         slotEl.innerHTML = '';
@@ -3190,46 +3286,751 @@
       }
     }
     // Fallback: chip-list (preserves stub-type / no-entry behavior).
+    // M11 F12 L4 — the stub chip-list editor speaks flat-string ids;
+    // unwrap structured tuples for display, then install a getter that
+    // re-wraps on collect. Chip-list edits are observed via the
+    // _allowlistValues getter so the collect path reads the wrapped
+    // shape without round-tripping through the chip DOM.
     var helpers = window.App.adminFormHelpers;
     slotEl.innerHTML = '';
-    var chiplist = _buildAllowlistChipList(storageAxis, state.values);
+    var flatIds = [];
+    for (var fi = 0; fi < state.values.length; fi++) {
+      flatIds.push(_entryIdForAxis(state.values[fi], storageAxis));
+    }
+    var chiplist = _buildAllowlistChipList(storageAxis, flatIds);
     slotEl.appendChild(chiplist);
     if (helpers && helpers.wireChipListEditor) {
       helpers.wireChipListEditor(chiplist, { onChange: checkDirty });
     }
-    // No _allowlistValues getter installed — chip-list path falls
-    // through to the text-node walk in collectAllowlistFromContainer.
+    // M11 F12 L4 — install the bridge getter for chip-list mode too so
+    // the structured-tuple wrapping happens at read time (the chip DOM
+    // still stores plain ids; the wrap synthesizes guild_id=null /
+    // dm_allowed=false defaults at collect time).
+    if (valueShape !== 'flat') {
+      slotEl._allowlistValues = function () {
+        var out = [];
+        var chips = chiplist.querySelectorAll('.chip');
+        for (var i = 0; i < chips.length; i++) {
+          var label = '';
+          for (var j = 0; j < chips[i].childNodes.length; j++) {
+            var n = chips[i].childNodes[j];
+            if (n.nodeType === 3) label += n.nodeValue;
+          }
+          label = (label || '').trim();
+          if (label) {
+            var wrapped = _wrapFlatForAxis(label, storageAxis);
+            if (wrapped) out.push(wrapped);
+          }
+        }
+        return out;
+      };
+    }
+    // Guilds (valueShape === 'flat') leaves no getter; collect path
+    // falls through to the text-node walk in
+    // collectAllowlistFromContainer (returns bare strings — matches the
+    // storage shape).
+  }
+
+  // M11 F12 L5 — hierarchical Server-as-parent allowlist editor mount.
+  //
+  // Renders the Servers (guilds) chip-list using the discoverable
+  // dropdown as a server-row generator; below each server row,
+  // renders 2 nested sub-chiplists (channels filtered to the row's
+  // guild_id; roles filtered to the row's guild_id).
+  //
+  // Wildcard ``"*"`` sentinel rendering: when a server row has no
+  // explicit channel narrowing (the channel sub-list is empty for
+  // this guild_id), the UI renders a single "(all channels)" sentinel
+  // chip. Same for roles. Per the AC: the sentinel is rendered on
+  // ANY empty server row regardless of pre-/post-L5 origin (operator
+  // sees a consistent UI state).
+  //
+  // Storage-write-time sentinel insertion: when a server is added via
+  // the add-server dropdown, the corresponding ``{guild_id, channel_id:
+  // "*"}`` and ``{guild_id, role_id: "*"}`` entries are inserted into
+  // the in-memory state immediately, so the save payload carries the
+  // sentinel explicitly. When the operator adds an explicit channel
+  // under a server, the sentinel is removed (replaced by the explicit
+  // chip); when the operator removes the last explicit channel, the
+  // sentinel is re-inserted.
+  //
+  // The Servers slot installs a single ``_allowlistValues`` getter at
+  // mount time that returns the FULL hierarchical state as a flat
+  // ``{guilds, channels, roles}`` triple; ``collectAllowlistFromContainer``
+  // reads it via a hierarchical-getter contract (separate field).
+  function _mountAllowlistHierarchicalEditor(
+    slotEl, account, guildsInit, channelsInit, rolesInit, vocab, checkDirty
+  ) {
+    if (!slotEl) return;
+
+    // In-memory state. The state shape mirrors the storage shape so
+    // collect-path emit is a direct projection.
+    var state = {
+      guilds: (guildsInit || []).slice(),
+      channels: (channelsInit || []).map(function (c) {
+        return (c && typeof c === 'object') ? Object.assign({}, c) : c;
+      }),
+      roles: (rolesInit || []).map(function (r) {
+        return (r && typeof r === 'object') ? Object.assign({}, r) : r;
+      })
+    };
+
+    function _emitDirty() {
+      if (typeof checkDirty === 'function') checkDirty();
+    }
+
+    // Per-editor label cache. Mirrors the ``_labelCache`` pattern in
+    // ``connectors-tab.js`` (lines ~271-304) so guild_id → friendly
+    // server name resolution works on render without depending on the
+    // sibling discoverable-dropdown's internal entity cache. The cache
+    // is populated lazily on first ``_rerender`` and triggers a
+    // single re-render once it resolves so server-row headers swap
+    // raw ids for friendly labels without flicker on subsequent
+    // re-renders.
+    //
+    // Cycle-2 fix: cache is axis-nested (``{axis: {id: label}}``)
+    // because Discord assigns identical snowflake IDs to a guild and
+    // its ``@everyone`` role — a flat ``{id: label}`` dict silently
+    // overwrites one with the other (server-row header would show
+    // ``"@everyone"`` instead of the guild name). ``_labelFor`` now
+    // requires an explicit axis so callers can't trip the collision.
+    var _labelCache = null;
+    var _labelCachePromise = null;
+
+    // Cycle-3 fix (Bug 7): the lazy ``_labelCache`` populates on first
+    // ``_rerender`` — but if Test Connection hasn't been run yet the
+    // ``/discoverable-entities`` GET returns 404 and the cache fills
+    // with empty buckets. Without invalidation, every subsequent
+    // ``_ensureLabelCache`` call short-circuits to that empty-resolved
+    // promise and server-row headers stay raw guild IDs forever even
+    // after the operator clicks Test Connection.
+    //
+    // Mirror the discoverable-dropdown self-detach pattern (see
+    // ``discoverable-dropdown.js`` lines 814-848): listen for
+    // ``connector-pool-warmed`` (fires when Test Connection warms the
+    // pool) and ``connector-discoverable-refresh-requested`` (fires
+    // when the operator clicks the section-level Refresh banner button).
+    // On each event matching this editor's accountId, reset the cache
+    // and re-fetch; once the promise resolves, trigger ``_rerender``
+    // so server-row headers swap raw IDs for friendly labels. Self-
+    // detaches on the next event after the editor's slot has been
+    // removed from the DOM (small leak surface, accepted — same
+    // posture as the dropdown's handlers).
+    function _invalidateAndRefresh() {
+      _labelCache = null;
+      _labelCachePromise = null;
+      _ensureLabelCache().then(function () {
+        if (!slotEl || !document.body.contains(slotEl)) return;
+        _rerender();
+      });
+    }
+    var _poolWarmedHandler = function (event) {
+      if (!slotEl || !document.body.contains(slotEl)) {
+        document.removeEventListener('connector-pool-warmed', _poolWarmedHandler);
+        document.removeEventListener(
+          'connector-discoverable-refresh-requested', _refreshRequestedHandler
+        );
+        return;
+      }
+      if (event && event.detail && account
+          && event.detail.accountId === account.id) {
+        _invalidateAndRefresh();
+      }
+    };
+    var _refreshRequestedHandler = function (event) {
+      if (!slotEl || !document.body.contains(slotEl)) {
+        document.removeEventListener('connector-pool-warmed', _poolWarmedHandler);
+        document.removeEventListener(
+          'connector-discoverable-refresh-requested', _refreshRequestedHandler
+        );
+        return;
+      }
+      if (event && event.detail && account
+          && event.detail.accountId === account.id) {
+        _invalidateAndRefresh();
+      }
+    };
+    App.studio.eventBus.on('connector-pool-warmed', _poolWarmedHandler);
+    App.studio.eventBus.on(
+      'connector-discoverable-refresh-requested', _refreshRequestedHandler
+    );
+
+    function _ensureLabelCache() {
+      if (_labelCachePromise) return _labelCachePromise;
+      if (!account || !account.id) {
+        _labelCache = { peers: {}, channels: {}, groups: {}, roles: {} };
+        _labelCachePromise = Promise.resolve(_labelCache);
+        return _labelCachePromise;
+      }
+      var url = '/api/connectors/' +
+        encodeURIComponent(account.id) +
+        '/discoverable-entities';
+      _labelCachePromise = fetch(url).then(function (response) {
+        if (!response.ok) {
+          _labelCache = { peers: {}, channels: {}, groups: {}, roles: {} };
+          return _labelCache;
+        }
+        return response.json().then(function (body) {
+          var map = { peers: {}, channels: {}, groups: {}, roles: {} };
+          var ents = (body && body.entities) || {};
+          var axes = ['peers', 'channels', 'groups', 'roles'];
+          for (var a = 0; a < axes.length; a++) {
+            var axisKey = axes[a];
+            var list = ents[axisKey] || [];
+            for (var i = 0; i < list.length; i++) {
+              var e = list[i];
+              if (e && e.id && e.label) map[axisKey][String(e.id)] = e.label;
+            }
+          }
+          _labelCache = map;
+          return _labelCache;
+        });
+      }).catch(function (err) {
+        _labelCache = { peers: {}, channels: {}, groups: {}, roles: {} };
+        try { console.error('connector-editor label-cache fetch failed:', err); }
+        catch (logErr) { /* console missing */ }
+        return _labelCache;
+      });
+      return _labelCachePromise;
+    }
+
+    function _labelFor(id, axis) {
+      if (_labelCache && id != null && axis) {
+        var bucket = _labelCache[axis];
+        if (bucket) {
+          var hit = bucket[String(id)];
+          if (hit) return hit;
+        }
+      }
+      return String(id);
+    }
+
+    function _channelsForGuild(guildId) {
+      var out = [];
+      for (var i = 0; i < state.channels.length; i++) {
+        var c = state.channels[i];
+        if (c && c.guild_id === guildId) out.push(c);
+      }
+      return out;
+    }
+
+    function _rolesForGuild(guildId) {
+      var out = [];
+      for (var i = 0; i < state.roles.length; i++) {
+        var r = state.roles[i];
+        if (r && r.guild_id === guildId) out.push(r);
+      }
+      return out;
+    }
+
+    function _hasExplicitChannel(guildId) {
+      var entries = _channelsForGuild(guildId);
+      for (var i = 0; i < entries.length; i++) {
+        if (entries[i].channel_id !== '*') return true;
+      }
+      return false;
+    }
+
+    function _hasExplicitRole(guildId) {
+      var entries = _rolesForGuild(guildId);
+      for (var i = 0; i < entries.length; i++) {
+        if (entries[i].role_id !== '*') return true;
+      }
+      return false;
+    }
+
+    function _ensureChannelSentinel(guildId) {
+      if (!_hasExplicitChannel(guildId)) {
+        var hasSentinel = false;
+        for (var i = 0; i < state.channels.length; i++) {
+          if (state.channels[i].guild_id === guildId
+              && state.channels[i].channel_id === '*') {
+            hasSentinel = true; break;
+          }
+        }
+        if (!hasSentinel) {
+          state.channels.push({ guild_id: guildId, channel_id: '*' });
+        }
+      }
+    }
+
+    function _ensureRoleSentinel(guildId) {
+      if (!_hasExplicitRole(guildId)) {
+        var hasSentinel = false;
+        for (var i = 0; i < state.roles.length; i++) {
+          if (state.roles[i].guild_id === guildId
+              && state.roles[i].role_id === '*') {
+            hasSentinel = true; break;
+          }
+        }
+        if (!hasSentinel) {
+          state.roles.push({ guild_id: guildId, role_id: '*' });
+        }
+      }
+    }
+
+    function _removeChannelSentinel(guildId) {
+      state.channels = state.channels.filter(function (c) {
+        return !(c.guild_id === guildId && c.channel_id === '*');
+      });
+    }
+
+    function _removeRoleSentinel(guildId) {
+      state.roles = state.roles.filter(function (r) {
+        return !(r.guild_id === guildId && r.role_id === '*');
+      });
+    }
+
+    function _cascadeDeleteServer(guildId) {
+      state.guilds = state.guilds.filter(function (g) { return g !== guildId; });
+      state.channels = state.channels.filter(function (c) {
+        return c.guild_id !== guildId;
+      });
+      state.roles = state.roles.filter(function (r) {
+        return r.guild_id !== guildId;
+      });
+    }
+
+    function _onServerAdded(guildId) {
+      if (state.guilds.indexOf(guildId) === -1) {
+        state.guilds.push(guildId);
+      }
+      _ensureChannelSentinel(guildId);
+      _ensureRoleSentinel(guildId);
+      _emitDirty();
+      _rerender();
+    }
+
+    function _onChannelAdded(guildId, channelId) {
+      _removeChannelSentinel(guildId);
+      var exists = false;
+      for (var i = 0; i < state.channels.length; i++) {
+        if (state.channels[i].guild_id === guildId
+            && state.channels[i].channel_id === channelId) {
+          exists = true; break;
+        }
+      }
+      if (!exists) {
+        state.channels.push({ guild_id: guildId, channel_id: channelId });
+      }
+      _emitDirty();
+      _rerender();
+    }
+
+    function _onChannelRemoved(guildId, channelId) {
+      state.channels = state.channels.filter(function (c) {
+        return !(c.guild_id === guildId && c.channel_id === channelId);
+      });
+      _ensureChannelSentinel(guildId);
+      _emitDirty();
+      _rerender();
+    }
+
+    function _onRoleAdded(guildId, roleId) {
+      _removeRoleSentinel(guildId);
+      var exists = false;
+      for (var i = 0; i < state.roles.length; i++) {
+        if (state.roles[i].guild_id === guildId
+            && state.roles[i].role_id === roleId) {
+          exists = true; break;
+        }
+      }
+      if (!exists) {
+        state.roles.push({ guild_id: guildId, role_id: roleId });
+      }
+      _emitDirty();
+      _rerender();
+    }
+
+    function _onRoleRemoved(guildId, roleId) {
+      state.roles = state.roles.filter(function (r) {
+        return !(r.guild_id === guildId && r.role_id === roleId);
+      });
+      _ensureRoleSentinel(guildId);
+      _emitDirty();
+      _rerender();
+    }
+
+    function _renderServerRow(guildId) {
+      var row = document.createElement('div');
+      row.className = 'connector-allowlist-server-row';
+      row.setAttribute('data-guild-id', guildId);
+      row.setAttribute(
+        'data-testid', 'connector-allowlist-server-row-' + guildId
+      );
+
+      // Header: server name + remove button. Resolve guild_id → friendly
+      // label via ``_labelCache`` (mirrors connectors-tab.js pattern); the
+      // cache may not be populated yet on first render — ``_rerender``
+      // kicks ``_ensureLabelCache`` and re-renders once it resolves.
+      var header = document.createElement('div');
+      header.className = 'connector-allowlist-server-row-header';
+      var nameSpan = document.createElement('span');
+      nameSpan.className = 'connector-allowlist-server-row-name';
+      nameSpan.textContent = _labelFor(guildId, 'groups');
+      header.appendChild(nameSpan);
+      var removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'connector-allowlist-server-row-remove';
+      removeBtn.setAttribute(
+        'data-testid',
+        'connector-allowlist-server-row-remove-' + guildId
+      );
+      removeBtn.setAttribute('aria-label', 'Remove server ' + _labelFor(guildId, 'groups'));
+      removeBtn.textContent = '×';
+      removeBtn.addEventListener('click', function () {
+        _cascadeDeleteServer(guildId);
+        _emitDirty();
+        _rerender();
+      });
+      header.appendChild(removeBtn);
+      row.appendChild(header);
+
+      // Nested channels sub-chiplist for this guild_id.
+      var channelsSubRow = document.createElement('div');
+      channelsSubRow.className =
+        'connector-allowlist-server-row-children connector-allowlist-channels-sub';
+      var channelsLabel = document.createElement('span');
+      channelsLabel.className = 'connector-allowlist-sub-label';
+      channelsLabel.textContent = _capitalize(vocab.channels) + ':';
+      channelsSubRow.appendChild(channelsLabel);
+
+      // Wildcard sentinel chip ("(all channels)") renders when the
+      // server row has no explicit channel narrowing. Explicit channel
+      // chips are NOT rendered here — the mounted discoverable-dropdown
+      // owns explicit chip rendering (with friendly labels + working
+      // remove buttons) when it receives the entries as initial values.
+      // Rendering them here too caused the L5 double-chip bug (one with
+      // raw ID, one from the dropdown with friendly label).
+      var channelsEntries = _channelsForGuild(guildId);
+      for (var ci = 0; ci < channelsEntries.length; ci++) {
+        var ce = channelsEntries[ci];
+        if (ce.channel_id === '*') {
+          var sentinelChip = document.createElement('span');
+          sentinelChip.className =
+            'chip connector-allowlist-channel-chip connector-allowlist-wildcard-sentinel';
+          sentinelChip.setAttribute(
+            'data-testid',
+            'connector-allowlist-channels-wildcard-' + guildId
+          );
+          sentinelChip.textContent = '(all ' + vocab.channels + ')';
+          // Sentinel chip is not directly removable — it disappears
+          // when the operator adds an explicit channel.
+          channelsSubRow.appendChild(sentinelChip);
+        }
+      }
+
+      // Add-channel dropdown (server-scoped — pass guildId context).
+      // The dropdown is also responsible for rendering explicit chips
+      // (via its internal _renderChips) and for emitting removals when
+      // the operator clicks a chip's × button — so the editor must
+      // handle both additions AND removals from the onChange payload.
+      var registry = (window.App && window.App.studio
+          && window.App.studio.connectorFormRegistry) || null;
+      var typeEntry = (registry && account && account.type)
+          ? registry.get(account.type) : null;
+      if (typeEntry && typeof typeEntry.renderDiscoverableDropdown === 'function') {
+        var channelDropdown = typeEntry.renderDiscoverableDropdown(
+          account, 'channels',
+          channelsEntries.filter(function (c) { return c.channel_id !== '*'; }),
+          vocab,
+          function (newValues) {
+            // Diff new vs old (excluding sentinel). Net-additions
+            // become explicit channel adds; net-removals fire
+            // ``_onChannelRemoved`` (the dropdown's chip × button is
+            // the sole remove affordance post fix-cycle).
+            var oldEntries = channelsEntries
+              .filter(function (c) { return c.channel_id !== '*'; });
+            var existingIds = {};
+            for (var oi = 0; oi < oldEntries.length; oi++) {
+              existingIds[oldEntries[oi].channel_id] = true;
+            }
+            var newSet = {};
+            for (var ni = 0; ni < newValues.length; ni++) {
+              var nv = newValues[ni];
+              var nid = (nv && typeof nv === 'object')
+                  ? nv.channel_id : String(nv);
+              if (!nid) continue;
+              newSet[nid] = true;
+              if (!existingIds[nid]) _onChannelAdded(guildId, nid);
+            }
+            for (var ri = oldEntries.length - 1; ri >= 0; ri--) {
+              var rid = oldEntries[ri].channel_id;
+              if (!newSet[rid]) _onChannelRemoved(guildId, rid);
+            }
+          },
+          { valueShape: 'channel', guildId: guildId }
+        );
+        if (channelDropdown) {
+          channelDropdown.classList.add(
+            'connector-allowlist-server-scoped-dropdown'
+          );
+          channelsSubRow.appendChild(channelDropdown);
+        }
+      }
+      row.appendChild(channelsSubRow);
+
+      // Nested roles sub-chiplist for this guild_id.
+      var rolesSubRow = document.createElement('div');
+      rolesSubRow.className =
+        'connector-allowlist-server-row-children connector-allowlist-roles-sub';
+      var rolesLabel = document.createElement('span');
+      rolesLabel.className = 'connector-allowlist-sub-label';
+      rolesLabel.textContent = _capitalize(vocab.roles) + ':';
+      rolesSubRow.appendChild(rolesLabel);
+
+      // Wildcard sentinel chip ("(all roles)") renders when the server
+      // row has no explicit role narrowing. Explicit role chips are
+      // owned by the dropdown (see channels comment above).
+      var rolesEntries = _rolesForGuild(guildId);
+      for (var ri = 0; ri < rolesEntries.length; ri++) {
+        var re = rolesEntries[ri];
+        if (re.role_id === '*') {
+          var roleSentinelChip = document.createElement('span');
+          roleSentinelChip.className =
+            'chip connector-allowlist-role-chip connector-allowlist-wildcard-sentinel';
+          roleSentinelChip.setAttribute(
+            'data-testid',
+            'connector-allowlist-roles-wildcard-' + guildId
+          );
+          roleSentinelChip.textContent = '(all ' + vocab.roles + ')';
+          rolesSubRow.appendChild(roleSentinelChip);
+        }
+      }
+
+      if (typeEntry && typeof typeEntry.renderDiscoverableDropdown === 'function') {
+        var roleDropdown = typeEntry.renderDiscoverableDropdown(
+          account, 'roles',
+          rolesEntries.filter(function (r) { return r.role_id !== '*'; }),
+          vocab,
+          function (newValues) {
+            // Diff new vs old (excluding sentinel). Net-additions →
+            // ``_onRoleAdded``; net-removals → ``_onRoleRemoved`` (the
+            // dropdown's chip × is the sole remove affordance post
+            // fix-cycle, mirroring the channels handler above).
+            var oldEntries = rolesEntries
+              .filter(function (r) { return r.role_id !== '*'; });
+            var existingIds = {};
+            for (var oi = 0; oi < oldEntries.length; oi++) {
+              existingIds[oldEntries[oi].role_id] = true;
+            }
+            var newSet = {};
+            for (var ni = 0; ni < newValues.length; ni++) {
+              var nv = newValues[ni];
+              var nid = (nv && typeof nv === 'object')
+                  ? nv.role_id : String(nv);
+              if (!nid) continue;
+              newSet[nid] = true;
+              if (!existingIds[nid]) _onRoleAdded(guildId, nid);
+            }
+            for (var rri = oldEntries.length - 1; rri >= 0; rri--) {
+              var rrid = oldEntries[rri].role_id;
+              if (!newSet[rrid]) _onRoleRemoved(guildId, rrid);
+            }
+          },
+          { valueShape: 'role', guildId: guildId }
+        );
+        if (roleDropdown) {
+          roleDropdown.classList.add(
+            'connector-allowlist-server-scoped-dropdown'
+          );
+          rolesSubRow.appendChild(roleDropdown);
+        }
+      }
+      row.appendChild(rolesSubRow);
+
+      return row;
+    }
+
+    function _rerender() {
+      // Kick the label cache on first render so guild_id → friendly
+      // server name resolution swaps in once the
+      // ``/discoverable-entities`` fetch resolves. The cache populates
+      // once per editor mount; the ``.then`` re-render only fires once
+      // (the promise is memoized, so subsequent ``_rerender`` calls
+      // reuse the resolved cache directly).
+      if (_labelCache === null && _labelCachePromise === null) {
+        _ensureLabelCache().then(function () { _rerender(); });
+      }
+      slotEl.innerHTML = '';
+
+      // Add-server dropdown lives at the top of the slot.
+      var addServerWrap = document.createElement('div');
+      addServerWrap.className = 'connector-allowlist-add-server';
+      var registry = (window.App && window.App.studio
+          && window.App.studio.connectorFormRegistry) || null;
+      var typeEntry = (registry && account && account.type)
+          ? registry.get(account.type) : null;
+      if (typeEntry && typeof typeEntry.renderDiscoverableDropdown === 'function') {
+        // Cycle-2 fix (Bug 4): pass an empty currentValues array so
+        // the dropdown's internal chiplist stays empty. Server-rows
+        // below are the canonical representation of selected guilds;
+        // letting the dropdown render its own chips on top produced
+        // two visual representations per guild ("Constellation" chip
+        // floating above the full server card). The onChange handler
+        // still fires when the operator picks a server — we only
+        // care about net-additions here (removals are handled by the
+        // per-row × button on each server card, which calls
+        // _cascadeDeleteServer directly).
+        var serverDropdown = typeEntry.renderDiscoverableDropdown(
+          account, 'groups',
+          [],
+          vocab,
+          function (newValues) {
+            var existing = {};
+            for (var ei = 0; ei < state.guilds.length; ei++) {
+              existing[state.guilds[ei]] = true;
+            }
+            // Net-additions become _onServerAdded(). Removals via
+            // the dropdown's own × are not possible here because its
+            // chiplist is empty — per-row × is the sole remove path.
+            for (var ni = 0; ni < newValues.length; ni++) {
+              var nv = newValues[ni];
+              var nid = (typeof nv === 'object' && nv) ? String(nv) : String(nv);
+              if (!existing[nid]) _onServerAdded(nid);
+            }
+          },
+          { valueShape: 'flat' }
+        );
+        if (serverDropdown) {
+          addServerWrap.appendChild(serverDropdown);
+        }
+      } else {
+        // Fallback chip-list for stub types (no discoverable
+        // dropdown). The chip-list mirrors the L4 behavior for the
+        // guilds slot — operator types a guild_id; on commit, we
+        // synthesize a server-added event.
+        var fallbackChiplist = _buildAllowlistChipList('guilds', state.guilds);
+        addServerWrap.appendChild(fallbackChiplist);
+        var helpers = window.App.adminFormHelpers;
+        if (helpers && helpers.wireChipListEditor) {
+          helpers.wireChipListEditor(fallbackChiplist, {
+            onChange: function () {
+              // Re-read the chiplist, diff guilds, fire add/remove.
+              var newGuilds = [];
+              var chips = fallbackChiplist.querySelectorAll('.chip');
+              for (var i = 0; i < chips.length; i++) {
+                var label = '';
+                for (var j = 0; j < chips[i].childNodes.length; j++) {
+                  var n = chips[i].childNodes[j];
+                  if (n.nodeType === 3) label += n.nodeValue;
+                }
+                label = (label || '').trim();
+                if (label) newGuilds.push(label);
+              }
+              var oldSet = {};
+              for (var oi = 0; oi < state.guilds.length; oi++) {
+                oldSet[state.guilds[oi]] = true;
+              }
+              var newSet = {};
+              for (var ni = 0; ni < newGuilds.length; ni++) {
+                newSet[newGuilds[ni]] = true;
+                if (!oldSet[newGuilds[ni]]) _onServerAdded(newGuilds[ni]);
+              }
+              for (var gi = state.guilds.length - 1; gi >= 0; gi--) {
+                var gid = state.guilds[gi];
+                if (!newSet[gid]) {
+                  _cascadeDeleteServer(gid);
+                  _emitDirty();
+                }
+              }
+              _rerender();
+            }
+          });
+        }
+      }
+      slotEl.appendChild(addServerWrap);
+
+      // Per-server rows.
+      var rowsWrap = document.createElement('div');
+      rowsWrap.className = 'connector-allowlist-server-rows';
+      rowsWrap.setAttribute(
+        'data-testid', 'connector-allowlist-server-rows'
+      );
+      for (var gi = 0; gi < state.guilds.length; gi++) {
+        // Pre-L5 empty-server-row rendering rule: render the sentinel
+        // chip for ANY server row whose channels/roles list is empty
+        // for that guild_id, regardless of pre-/post-L5 origin
+        // (architect cycle-1 low-1 lock).
+        _ensureChannelSentinel(state.guilds[gi]);
+        _ensureRoleSentinel(state.guilds[gi]);
+        rowsWrap.appendChild(_renderServerRow(state.guilds[gi]));
+      }
+      slotEl.appendChild(rowsWrap);
+    }
+
+    // Hierarchical getter contract: the Servers slot exposes a
+    // ``_hierarchicalAllowlistValues`` getter that returns the full
+    // {guilds, channels, roles} triple. ``collectAllowlistFromContainer``
+    // reads this directly (separate path from the per-axis getter).
+    slotEl._hierarchicalAllowlistValues = function () {
+      return {
+        guilds: state.guilds.slice(),
+        channels: state.channels.slice(),
+        roles: state.roles.slice()
+      };
+    };
+
+    _rerender();
   }
 
   function wireAllowlistEvents(container, account, checkDirty) {
     // M10 F6 L7 HAT — chip-lists are always mounted. Empty lists are
-    // valid and mean "unrestricted on this axis." M10 F8 L8 extends
-    // the mount to the 4 axes (peers, channels, guilds, roles).
+    // valid and mean "unrestricted on this axis."
     //
-    // M11 F3 L6a — per-axis mount now dispatches through
-    // ``_mountAllowlistAxisEditor``: for connector types whose
-    // registry entry exposes ``renderDiscoverableDropdown``, the
-    // dropdown component renders; otherwise the chip-list editor
-    // mounts unchanged.
+    // M11 F12 L5 — the L4 flat 3-section layout (Channels / Guilds /
+    // Roles as siblings) is replaced by a hierarchical Server-as-
+    // parent layout: the Guilds (Servers) slot is the parent
+    // organizer; channels + roles render as nested sub-chiplists
+    // inside each server row. The mount-time function
+    // ``_mountAllowlistHierarchicalEditor`` reads
+    // ``account.config.allowlist.{guilds, channels, roles}`` and
+    // builds the nested view; on save, the collect path reads
+    // hierarchical state back via the slot getter.
     //
-    // Pre-existing entries come from account.config.allowlist; if
-    // absent, the editor mounts with no current values so the
-    // operator can start typing immediately.
+    // The peers slot still mounts as a flat chip-list (peers are not
+    // server-scoped); the dm_admission select is unchanged.
     var allowlist = (account && account.config && account.config.allowlist) || null;
     var peersInit = (allowlist && Array.isArray(allowlist.peers)) ? allowlist.peers : [];
-    var channelsInit = (allowlist && Array.isArray(allowlist.channels)) ? allowlist.channels : [];
     var guildsInit = (allowlist && Array.isArray(allowlist.guilds)) ? allowlist.guilds : [];
+    var channelsInit = (allowlist && Array.isArray(allowlist.channels)) ? allowlist.channels : [];
     var rolesInit = (allowlist && Array.isArray(allowlist.roles)) ? allowlist.roles : [];
     var peersSlot = container.querySelector('[data-allowlist-chiplist-slot="peers"]');
-    var channelsSlot = container.querySelector('[data-allowlist-chiplist-slot="channels"]');
-    var guildsSlot = container.querySelector('[data-allowlist-chiplist-slot="guilds"]');
-    var rolesSlot = container.querySelector('[data-allowlist-chiplist-slot="roles"]');
+    var serversSlot = container.querySelector('[data-allowlist-chiplist-slot="guilds"]');
     var vocab = _vocabForAccount(account);
 
     _mountAllowlistAxisEditor(peersSlot, account, 'peers', peersInit, vocab, checkDirty);
-    _mountAllowlistAxisEditor(channelsSlot, account, 'channels', channelsInit, vocab, checkDirty);
-    _mountAllowlistAxisEditor(guildsSlot, account, 'guilds', guildsInit, vocab, checkDirty);
-    _mountAllowlistAxisEditor(rolesSlot, account, 'roles', rolesInit, vocab, checkDirty);
+    _mountAllowlistHierarchicalEditor(
+      serversSlot, account, guildsInit, channelsInit, rolesInit, vocab, checkDirty
+    );
+
+    // M11 F12 L4 — per-peer DM toggle visibility wiring (recommended
+    // path (b): CSS-toggle via parent class change). The dm_admission
+    // <select> change handler toggles ``dm-admission-admin-approved``
+    // on the peers section. CSS controls visibility — see studio.css.
+    // Path (b) preserves checkbox state across mode flips: switching to
+    // ``none`` / ``all`` HIDES the toggles without erasing dm_allowed
+    // values, so flipping back to ``admin-approved`` restores them.
+    var dmAdmissionSelect = container.querySelector(
+        '[data-testid="connector-allowlist-dm-admission-select"]');
+    var peersRow = container.querySelector(
+        '[data-testid="connector-allowlist-peers-row"]');
+    function _applyPeersDmClass(value) {
+      if (!peersRow) return;
+      var on = (value === 'admin-approved');
+      peersRow.classList.toggle('dm-admission-admin-approved', on);
+    }
+    if (dmAdmissionSelect) {
+      _applyPeersDmClass(dmAdmissionSelect.value);
+      dmAdmissionSelect.addEventListener('change', function () {
+        _applyPeersDmClass(dmAdmissionSelect.value);
+        if (typeof checkDirty === 'function') checkDirty();
+      });
+    } else {
+      // Defensive: defaults to admin-approved when select is absent
+      // (matches collectAllowlistFromContainer's fallback at :3567).
+      _applyPeersDmClass('admin-approved');
+    }
 
     // F5 L6 HAT R5: wire the section-level banner (pre-probe vs
     // populated state + manual Refresh dispatch). The 4 axes' per-axis
@@ -3432,18 +4233,32 @@
     // dropdown's own state. Chip-list path does NOT install the
     // getter; we fall back to the text-node walk.
     var peersSlot = container.querySelector('[data-allowlist-chiplist-slot="peers"]');
-    var channelsSlot = container.querySelector('[data-allowlist-chiplist-slot="channels"]');
-    var guildsSlot = container.querySelector('[data-allowlist-chiplist-slot="guilds"]');
-    var rolesSlot = container.querySelector('[data-allowlist-chiplist-slot="roles"]');
-    if (!peersSlot && !channelsSlot && !guildsSlot && !rolesSlot) return null;
+    var serversSlot = container.querySelector('[data-allowlist-chiplist-slot="guilds"]');
+    if (!peersSlot && !serversSlot) return null;
+    // M11 F12 L5 — channels + roles are read from the Servers slot's
+    // hierarchical getter; the L4 flat per-axis slots no longer
+    // exist (the markup at ``renderAllowlistSection`` only renders
+    // peers + servers slots).
     function _readChiplist(slot) {
+      // M11 F12 L4 — the ``_allowlistValues`` getter now returns the
+      // structured-tuple shape directly for peers/channels/roles (and
+      // bare strings for guilds). Pass non-string entries through
+      // unchanged so the structured shape reaches the save payload; for
+      // bare-string fallbacks (text-node walk path) preserve the
+      // pre-L4 behavior.
       var out = [];
       if (!slot) return out;
       if (typeof slot._allowlistValues === 'function') {
         var vals = slot._allowlistValues() || [];
         for (var k = 0; k < vals.length; k++) {
-          var v = (vals[k] == null) ? '' : String(vals[k]);
-          if (v) out.push(v);
+          var v = vals[k];
+          if (v == null) continue;
+          if (typeof v === 'object') {
+            out.push(v);
+          } else {
+            var s = String(v);
+            if (s) out.push(s);
+          }
         }
         return out;
       }
@@ -3463,18 +4278,30 @@
       return out;
     }
     // M11 F10 L2: dm_admission axis (3-value selector). Reads the
-    // selector value; defaults to 'allowlisted-peers-only' when the
-    // selector is absent (defensive — shouldn't reach this code path
-    // because the early-return above already guards on chiplist
-    // absence, and dm_admission renders in the same section).
+    // selector value; defaults to 'admin-approved' when the selector is
+    // absent (defensive — shouldn't reach this code path because the
+    // early-return above already guards on chiplist absence, and
+    // dm_admission renders in the same section).
+    // M11 F12 L4: Literal value rename ``allowlisted-peers-only`` →
+    // ``admin-approved`` (operator-vocabulary alignment).
     var dmAdmissionSelect = container.querySelector(
         '[data-testid="connector-allowlist-dm-admission-select"]');
-    var dmAdmission = dmAdmissionSelect ? dmAdmissionSelect.value : 'allowlisted-peers-only';
+    var dmAdmission = dmAdmissionSelect ? dmAdmissionSelect.value : 'admin-approved';
+
+    // M11 F12 L5 — hierarchical channels + roles + guilds read from
+    // the Servers slot's hierarchical getter; falls back to empty
+    // lists if the slot hasn't installed the getter (e.g. early
+    // probe before mount).
+    var hierarchical = (serversSlot
+        && typeof serversSlot._hierarchicalAllowlistValues === 'function')
+        ? serversSlot._hierarchicalAllowlistValues()
+        : { guilds: [], channels: [], roles: [] };
+
     return {
       peers: _readChiplist(peersSlot),
-      channels: _readChiplist(channelsSlot),
-      guilds: _readChiplist(guildsSlot),
-      roles: _readChiplist(rolesSlot),
+      channels: hierarchical.channels,
+      guilds: hierarchical.guilds,
+      roles: hierarchical.roles,
       dm_admission: dmAdmission
     };
   }
@@ -3489,12 +4316,42 @@
   // longer matches an account-scope entry — effectively dead).
 
   function _confirmStaleChipsThen(account, payload, container, proceed) {
+    // M11 F12 L4 — peers / channels now carry structured-tuple shape:
+    //   peers:    [{id, dm_allowed}]
+    //   channels: [{guild_id, channel_id}]
+    // Extract the id field for set-difference + the agent-side lookup
+    // (per-agent ACL stores the same structured shape post-L4).
+    function _peerIds(arr) {
+      var ids = [];
+      for (var i = 0; i < (arr || []).length; i++) {
+        var p = arr[i];
+        if (p && typeof p === 'object') {
+          if (p.id) ids.push(String(p.id));
+        } else if (p != null) {
+          ids.push(String(p));
+        }
+      }
+      return ids;
+    }
+    function _channelIds(arr) {
+      var ids = [];
+      for (var i = 0; i < (arr || []).length; i++) {
+        var c = arr[i];
+        if (c && typeof c === 'object') {
+          if (c.channel_id) ids.push(String(c.channel_id));
+        } else if (c != null) {
+          ids.push(String(c));
+        }
+      }
+      return ids;
+    }
+
     var origAllowlist = (account && account.config && account.config.allowlist) || null;
-    var origPeers = (origAllowlist && Array.isArray(origAllowlist.peers)) ? origAllowlist.peers : [];
-    var origChannels = (origAllowlist && Array.isArray(origAllowlist.channels)) ? origAllowlist.channels : [];
+    var origPeers = _peerIds(origAllowlist && origAllowlist.peers);
+    var origChannels = _channelIds(origAllowlist && origAllowlist.channels);
     var newAllowlist = (payload && payload.config && payload.config.allowlist) || null;
-    var newPeers = (newAllowlist && Array.isArray(newAllowlist.peers)) ? newAllowlist.peers : [];
-    var newChannels = (newAllowlist && Array.isArray(newAllowlist.channels)) ? newAllowlist.channels : [];
+    var newPeers = _peerIds(newAllowlist && newAllowlist.peers);
+    var newChannels = _channelIds(newAllowlist && newAllowlist.channels);
 
     var removedPeers = [];
     for (var i = 0; i < origPeers.length; i++) {
@@ -3524,8 +4381,11 @@
         for (var k = 0; k < rows.length; k++) {
           var row = rows[k] || {};
           var aname = String(row.name || '');
-          var rowPeers = Array.isArray(row.peers) ? row.peers : [];
-          var rowChannels = Array.isArray(row.channels) ? row.channels : [];
+          // M11 F12 L4 — per-agent peers/channels arrive in the same
+          // structured-tuple shape as account-scope (storage
+          // pass-through). Project to ids for set-membership.
+          var rowPeers = _peerIds(row.peers);
+          var rowChannels = _channelIds(row.channels);
           for (var p = 0; p < removedPeers.length; p++) {
             if (rowPeers.indexOf(removedPeers[p]) !== -1) {
               affected.push({ agent: aname, kind: 'peer', chip: removedPeers[p] });

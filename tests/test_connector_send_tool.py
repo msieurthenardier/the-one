@@ -624,9 +624,13 @@ class TestF6OutboundGating:
         self, isolated_db
     ) -> None:
         # Account allowlist includes c1; per-agent ACL absent → inherit.
+        # M11 F12 L3 — channels use structured tuples.
         await _seed_stub_account_with_config(
             "acct-send",
-            config={"allowlist": {"peers": [], "channels": ["c1"]}},
+            config={"allowlist": {
+                "peers": [],
+                "channels": [{"guild_id": "g-test", "channel_id": "c1"}],
+            }},
         )
         register_for_test("stub", StubPlugin)
 
@@ -644,9 +648,13 @@ class TestF6OutboundGating:
         self, isolated_db
     ) -> None:
         # Account allowlist includes c1 only; tool tries c2 → denial.
+        # M11 F12 L3 — channels use structured tuples.
         await _seed_stub_account_with_config(
             "acct-send",
-            config={"allowlist": {"peers": [], "channels": ["c1"]}},
+            config={"allowlist": {
+                "peers": [],
+                "channels": [{"guild_id": "g-test", "channel_id": "c1"}],
+            }},
         )
         register_for_test("stub", StubPlugin)
 
@@ -672,9 +680,16 @@ class TestF6OutboundGating:
         # Account allows c1 + c2; per-agent ACL narrows to c1 only;
         # tool tries c2 → per-agent denial. L7 HAT: peers axis is None
         # (inherit) so it does not collide with the channels narrow.
+        # M11 F12 L3 — channels use structured tuples.
         await _seed_stub_account_with_config(
             "acct-send",
-            config={"allowlist": {"peers": [], "channels": ["c1", "c2"]}},
+            config={"allowlist": {
+                "peers": [],
+                "channels": [
+                    {"guild_id": "g-test", "channel_id": "c1"},
+                    {"guild_id": "g-test", "channel_id": "c2"},
+                ],
+            }},
         )
         register_for_test("stub", StubPlugin)
 
@@ -682,7 +697,10 @@ class TestF6OutboundGating:
             agent_name="test-agent",
             connector_ids=["acct-send"],
             connector_acls={
-                "acct-send": {"peers": None, "channels": ["c1"]},
+                "acct-send": {
+                    "peers": None,
+                    "channels": [{"guild_id": "g-test", "channel_id": "c1"}],
+                },
             },
         )
         result = await tool.execute(
@@ -774,9 +792,16 @@ class TestF6OutboundGating:
         # Intersection-positive: both axes permit c1 → success.
         # Mirror of the deny-by-intersection test but on the success path.
         # L7 HAT: peers axis is None (inherit).
+        # M11 F12 L3 — channels use structured tuples.
         await _seed_stub_account_with_config(
             "acct-send",
-            config={"allowlist": {"peers": [], "channels": ["c1", "c2"]}},
+            config={"allowlist": {
+                "peers": [],
+                "channels": [
+                    {"guild_id": "g-test", "channel_id": "c1"},
+                    {"guild_id": "g-test", "channel_id": "c2"},
+                ],
+            }},
         )
         register_for_test("stub", StubPlugin)
 
@@ -784,7 +809,10 @@ class TestF6OutboundGating:
             agent_name="test-agent",
             connector_ids=["acct-send"],
             connector_acls={
-                "acct-send": {"peers": None, "channels": ["c1"]},
+                "acct-send": {
+                    "peers": None,
+                    "channels": [{"guild_id": "g-test", "channel_id": "c1"}],
+                },
             },
         )
         result = await tool.execute(

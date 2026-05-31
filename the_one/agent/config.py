@@ -224,10 +224,15 @@ class AgentConfig(BaseModel):
     # An entry being ABSENT from a non-empty outer dict ALSO means
     # "inherit account-scope" for that specific account.
     #
-    # Inner type ``dict[str, list[str] | None]`` (NOT bare ``dict``) so
-    # Pydantic v2 validates each inner value — mirrors the same
-    # rationale as ``tool_overrides`` and ``mcp_overrides`` above.
-    connector_acls: dict[str, dict[str, list[str] | bool | None]] | None = None
+    # Inner type ``dict[str, Any]`` (widened in M11 F12 L3 from
+    # ``list[str] | bool | None``) so the structured-tuple shape (per-
+    # peer {id, dm_allowed}; per-channel {guild_id, channel_id}; per-
+    # role {guild_id, role_id}) is accepted at the Pydantic boundary.
+    # The :meth:`_validate_connector_acls` validator enforces the exact
+    # per-key shape — mirrors how the account-scope allowlist validator
+    # in :mod:`the_one.db.models` accepts ``dict[str, Any]`` for
+    # ``config['allowlist']`` and runs its own per-key checks.
+    connector_acls: dict[str, dict[str, Any]] | None = None
 
     # M11 F7 L6: per-agent ``always_listen`` toggle keyed by account_id.
     # Shape: ``{account_id: bool}``. ``True`` means the agent listens to
@@ -262,20 +267,20 @@ class AgentConfig(BaseModel):
     @field_validator("connector_acls", mode="after")
     @classmethod
     def _validate_connector_acls(
-        cls, value: dict[str, dict[str, list[str] | bool | None]] | None
-    ) -> dict[str, dict[str, list[str] | bool | None]] | None:
+        cls, value: dict[str, dict[str, Any]] | None
+    ) -> dict[str, dict[str, Any]] | None:
         """Enforce exact-keys shape on per-account ACL inner dicts.
 
-        Pydantic v2's ``dict[str, dict[str, list[str] | None]]``
-        annotation already enforces:
-          - non-string outer keys → rejected (``string_type`` error)
-          - non-dict outer values → rejected (``dict_type`` error)
-          - inner values that aren't ``list[str] | None`` → rejected
-        This validator's job is the ONE invariant Pydantic cannot
-        express from the annotation alone: each inner dict MUST have
-        the required keys ``{"peers", "channels"}`` and MAY optionally
-        carry the M10 F8 L8 axes ``{"guilds", "roles"}`` — no other
-        keys, no missing required keys.
+        The widened annotation ``dict[str, dict[str, Any]]`` (M11 F12
+        L3) accepts the structured-tuple shape for peers / channels /
+        roles introduced by the v24 migration; this validator enforces
+        the exact per-key shape that Pydantic cannot derive from the
+        type hint alone.
+
+        Each inner dict MUST have the required keys ``{"peers",
+        "channels"}`` and MAY optionally carry the M10 F8 L8 axes
+        ``{"guilds", "roles"}`` plus the M11 F10 L1 axis
+        ``{"admit_dms"}`` — no other keys, no missing required keys.
 
         M10 F6 L7 HAT semantic — each axis is tri-state:
           - ``None`` → inherit account-scope
@@ -284,11 +289,22 @@ class AgentConfig(BaseModel):
             then outbound fails closed)
           - ``[items]`` → subset (intersected with account-scope)
 
-        M10 F8 L8 — ``guilds`` and ``roles`` axes (Discord-flavored)
-        join the inner-dict surface as OPTIONAL keys. Existing 2-key
-        ACL rows still validate (back-compat). Same tri-state semantic
-        applies; the per-agent narrowing convention is uniform across
-        all 4 axes.
+        M11 F12 L3 — peers / channels / roles entries use the
+        structured-tuple shape mirroring the account-scope allowlist
+        validator in :mod:`the_one.db.models`:
+
+          - ``peers``: ``list[{id: str, dm_allowed: bool}]`` (per-agent
+            ``dm_allowed`` is structurally uniform with account-scope
+            but NOT consulted by the ACL helpers — DM admission is
+            decided at account scope per the F12 L3 Truth Table)
+          - ``channels``: ``list[{guild_id: str, channel_id: str}]``
+            — ``channel_id`` may be the wildcard sentinel ``"*"`` meaning
+            "any channel of this guild" (M11 F12 L5)
+          - ``roles``: ``list[{guild_id: str, role_id: str}]`` —
+            ``role_id`` may be the wildcard sentinel ``"*"`` meaning
+            "any role of this guild" (M11 F12 L5)
+
+        ``admit_dms`` stays as the ``bool | None`` opt-out sentinel.
 
         ``None`` and ``{}`` outer values are both valid (semantically:
         no per-agent narrowing).
@@ -301,16 +317,15 @@ class AgentConfig(BaseModel):
         if value is None:
             return value
         for account_id, acl in value.items():
-            # Pydantic already enforced ``acl`` is a dict with str keys
-            # and inner values are ``list[str] | bool | None``.
-            # The only invariant left is the exact-keys check.
-            # M10 F8 L8 — accept ``guilds`` + ``roles`` as OPTIONAL
-            # axes alongside the required ``peers`` + ``channels``.
-            # M11 F10 L1 — accept ``admit_dms`` as OPTIONAL per-agent
-            # DM-admission opt-out (``bool | None``; ``None`` and absent
-            # both mean inherit account-scope ``dm_admission``).
+            if not isinstance(acl, dict):
+                raise ValueError(
+                    f"connector_acls[{account_id!r}] must be a dict; got "
+                    f"{type(acl).__name__}"
+                )
             keys = set(acl.keys())
-            extra = keys - {"peers", "channels", "guilds", "roles", "admit_dms"}
+            extra = keys - {
+                "peers", "channels", "guilds", "roles", "admit_dms"
+            }
             if extra:
                 raise ValueError(
                     f"connector_acls[{account_id!r}] has unexpected keys: "
@@ -323,12 +338,6 @@ class AgentConfig(BaseModel):
                     f"keys: {sorted(missing)}"
                 )
 
-            # M11 F10 L1: per-key value-type validation. The widened
-            # annotation ``dict[str, list[str] | bool | None]`` accepts
-            # either type for any key; this branch enforces the intended
-            # type per key — ``admit_dms`` is ``bool | None``;
-            # ``peers``/``channels``/``guilds``/``roles`` are
-            # ``list[str] | None`` (per-item string check restored).
             for key, value_at_key in acl.items():
                 if key == "admit_dms":
                     if value_at_key is not None and not isinstance(
@@ -339,23 +348,171 @@ class AgentConfig(BaseModel):
                             f"must be bool or None; got "
                             f"{type(value_at_key).__name__}"
                         )
-                else:
-                    # peers, channels, guilds, roles — list[str] | None
-                    if value_at_key is not None and not isinstance(
-                        value_at_key, list
-                    ):
-                        raise ValueError(
-                            f"connector_acls[{account_id!r}][{key!r}] must "
-                            f"be list[str] or None; got "
-                            f"{type(value_at_key).__name__}"
-                        )
-                    if isinstance(value_at_key, list):
-                        for i, item in enumerate(value_at_key):
-                            if not isinstance(item, str):
-                                raise ValueError(
-                                    f"connector_acls[{account_id!r}]"
-                                    f"[{key!r}][{i}] must be a string"
-                                )
+                    continue
+
+                # peers / channels / guilds / roles — tri-state:
+                # None (inherit), [] (explicit empty), or [items].
+                if value_at_key is None:
+                    continue
+                if not isinstance(value_at_key, list):
+                    raise ValueError(
+                        f"connector_acls[{account_id!r}][{key!r}] must "
+                        f"be a list or None; got "
+                        f"{type(value_at_key).__name__}"
+                    )
+
+                if key == "guilds":
+                    # Guilds axis stays as list[str] (no per-entry
+                    # scoping — a guild IS the scope).
+                    for i, item in enumerate(value_at_key):
+                        if not isinstance(item, str):
+                            raise ValueError(
+                                f"connector_acls[{account_id!r}]"
+                                f"['guilds'][{i}] must be a string; got "
+                                f"{type(item).__name__}"
+                            )
+                elif key == "peers":
+                    # peers: list[{id: str, dm_allowed: bool}].
+                    for i, item in enumerate(value_at_key):
+                        if not isinstance(item, dict):
+                            raise ValueError(
+                                f"connector_acls[{account_id!r}]"
+                                f"['peers'][{i}] must be a dict with "
+                                f"keys {{'id', 'dm_allowed'}}; got "
+                                f"{type(item).__name__}"
+                            )
+                        item_keys = set(item.keys())
+                        extra_keys = item_keys - {"id", "dm_allowed"}
+                        if extra_keys:
+                            raise ValueError(
+                                f"connector_acls[{account_id!r}]"
+                                f"['peers'][{i}] has unexpected keys: "
+                                f"{sorted(extra_keys)}"
+                            )
+                        missing_keys = {"id", "dm_allowed"} - item_keys
+                        if missing_keys:
+                            raise ValueError(
+                                f"connector_acls[{account_id!r}]"
+                                f"['peers'][{i}] is missing required "
+                                f"keys: {sorted(missing_keys)}"
+                            )
+                        if not isinstance(item["id"], str):
+                            raise ValueError(
+                                f"connector_acls[{account_id!r}]"
+                                f"['peers'][{i}]['id'] must be a "
+                                f"string; got "
+                                f"{type(item['id']).__name__}"
+                            )
+                        if not isinstance(item["dm_allowed"], bool):
+                            raise ValueError(
+                                f"connector_acls[{account_id!r}]"
+                                f"['peers'][{i}]['dm_allowed'] must be "
+                                f"a bool; got "
+                                f"{type(item['dm_allowed']).__name__}"
+                            )
+                elif key == "channels":
+                    # M11 F12 L5 — channels:
+                    # list[{guild_id: str, channel_id: str}]. Post-v25
+                    # the guild_id field is REQUIRED and non-null (was
+                    # str | None in L3); channel_id accepts the wildcard
+                    # sentinel ``"*"`` meaning "any channel of this
+                    # guild" — emitted by the hierarchical
+                    # Server-as-parent per-agent overlay when a server
+                    # row has no explicit channel narrowing.
+                    for i, item in enumerate(value_at_key):
+                        if not isinstance(item, dict):
+                            raise ValueError(
+                                f"connector_acls[{account_id!r}]"
+                                f"['channels'][{i}] must be a dict "
+                                f"with keys {{'guild_id', 'channel_id'}}"
+                                f"; got {type(item).__name__}"
+                            )
+                        item_keys = set(item.keys())
+                        extra_keys = item_keys - {"guild_id", "channel_id"}
+                        if extra_keys:
+                            raise ValueError(
+                                f"connector_acls[{account_id!r}]"
+                                f"['channels'][{i}] has unexpected "
+                                f"keys: {sorted(extra_keys)}"
+                            )
+                        missing_keys = {
+                            "channel_id",
+                            "guild_id",
+                        } - item_keys
+                        if missing_keys:
+                            raise ValueError(
+                                f"connector_acls[{account_id!r}]"
+                                f"['channels'][{i}] is missing "
+                                f"required keys: {sorted(missing_keys)}"
+                            )
+                        if not isinstance(item["channel_id"], str):
+                            raise ValueError(
+                                f"connector_acls[{account_id!r}]"
+                                f"['channels'][{i}]['channel_id'] must "
+                                f"be a string; got "
+                                f"{type(item['channel_id']).__name__}"
+                            )
+                        guild_id = item["guild_id"]
+                        if not isinstance(guild_id, str):
+                            raise ValueError(
+                                f"connector_acls[{account_id!r}]"
+                                f"['channels'][{i}]['guild_id'] must "
+                                f"be a non-null string (post-v25 the "
+                                f"hierarchical Server-as-parent UI "
+                                f"requires every channel entry to be "
+                                f"guild-scoped); got "
+                                f"{type(guild_id).__name__}"
+                            )
+                elif key == "roles":
+                    # M11 F12 L5 — roles:
+                    # list[{guild_id: str, role_id: str}]. Post-v25
+                    # the guild_id field is REQUIRED and non-null (was
+                    # str | None in L3); role_id accepts the wildcard
+                    # sentinel ``"*"`` meaning "any role of this guild" —
+                    # emitted by the hierarchical Server-as-parent
+                    # per-agent overlay when a server row has no
+                    # explicit role narrowing.
+                    for i, item in enumerate(value_at_key):
+                        if not isinstance(item, dict):
+                            raise ValueError(
+                                f"connector_acls[{account_id!r}]"
+                                f"['roles'][{i}] must be a dict with "
+                                f"keys {{'guild_id', 'role_id'}}; got "
+                                f"{type(item).__name__}"
+                            )
+                        item_keys = set(item.keys())
+                        extra_keys = item_keys - {"guild_id", "role_id"}
+                        if extra_keys:
+                            raise ValueError(
+                                f"connector_acls[{account_id!r}]"
+                                f"['roles'][{i}] has unexpected keys: "
+                                f"{sorted(extra_keys)}"
+                            )
+                        missing_keys = {"role_id", "guild_id"} - item_keys
+                        if missing_keys:
+                            raise ValueError(
+                                f"connector_acls[{account_id!r}]"
+                                f"['roles'][{i}] is missing required "
+                                f"keys: {sorted(missing_keys)}"
+                            )
+                        if not isinstance(item["role_id"], str):
+                            raise ValueError(
+                                f"connector_acls[{account_id!r}]"
+                                f"['roles'][{i}]['role_id'] must be a "
+                                f"string; got "
+                                f"{type(item['role_id']).__name__}"
+                            )
+                        guild_id = item["guild_id"]
+                        if not isinstance(guild_id, str):
+                            raise ValueError(
+                                f"connector_acls[{account_id!r}]"
+                                f"['roles'][{i}]['guild_id'] must be a "
+                                f"non-null string (post-v25 the "
+                                f"hierarchical Server-as-parent UI "
+                                f"requires every role entry to be "
+                                f"guild-scoped); got "
+                                f"{type(guild_id).__name__}"
+                            )
         return value
 
     @field_validator("connector_always_listen", mode="after")

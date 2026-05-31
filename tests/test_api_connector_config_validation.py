@@ -1,6 +1,6 @@
 """Tests for the API-layer per-type Connector.config validator.
 
-M11 F1 L2 — :func:`_validate_connector_account_config` in
+M11 F1 L2 — :func:`_validate_connector_config` in
 :mod:`the_one.interfaces.web.api` gates the shape of
 ``account.config`` at the API write boundary (POST and PUT on
 ``/api/connectors``). Discord branch validates
@@ -72,7 +72,7 @@ def _discord_payload(config: dict) -> dict:
     }
 
 
-class TestConnectorAccountConfigValidation:
+class TestConnectorConfigValidation:
     # ── intents rejection cases ───────────────────────────────────
 
     async def test_intents_missing_required_key_rejected(

@@ -10,7 +10,7 @@ it?"
 Pure — no I/O. The caller (F7 L5 dispatcher) is responsible for:
 
 - resolving ``eligible_attached_agents`` via
-  :meth:`SQLiteAgentStore.list_by_connector_account` (F7 L3),
+  :meth:`SQLiteAgentStore.list_by_connector` (F7 L3),
 - passing ``account`` and ``envelope`` from the dispatch context,
 - passing ``session_metadata`` (the chat session's full metadata
   dict; the engine reads ``session_metadata.get("routing_override")``
@@ -251,7 +251,7 @@ def resolve_routing(
 
     **Precondition** — ``eligible_attached_agents`` MUST be alphabetically
     ordered by ``name``. Pass the output of
-    :meth:`SQLiteAgentStore.list_by_connector_account` unmodified (F7 L3
+    :meth:`SQLiteAgentStore.list_by_connector` unmodified (F7 L3
     landed that helper with the ``ORDER BY name`` already enforced).
     Step 4 returns the FIRST element by input order whose ACL admits —
     passing a non-alphabetized list breaks the

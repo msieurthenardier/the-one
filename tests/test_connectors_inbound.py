@@ -1794,10 +1794,14 @@ class TestF6Gating:
         await dispatch_inbound("acct-test", envelope, factory=factory)
 
         # Account row reflects the persisted allowlist mutation.
+        # M11 F12 L3 — peers are stored as ``{id, dm_allowed}`` dicts;
+        # check membership by id.
         refreshed = await acc_repo.get("acct-test")
         allowlist = refreshed.config.get("allowlist")
         assert allowlist is not None
-        assert "peer-1" in allowlist["peers"]
+        assert any(
+            p["id"] == "peer-1" for p in allowlist["peers"]
+        ), allowlist["peers"]
         assert allowlist["channels"] == []
 
         # The user message persisted is the CLEANED text (prefix stripped).
@@ -2142,11 +2146,15 @@ class TestF6Gating:
 
         # Rebuild the repo from the existing connection — simulates a
         # fresh process boot reading the persisted row.
+        # M11 F12 L3 — peers are stored as ``{id, dm_allowed}`` dicts;
+        # check membership by id.
         fresh_repo = ConnectorRepository(conn, encryptor)
         refreshed = await fresh_repo.get("acct-test")
         allowlist = refreshed.config.get("allowlist")
         assert allowlist is not None
-        assert "peer-1" in allowlist["peers"]
+        assert any(
+            p["id"] == "peer-1" for p in allowlist["peers"]
+        ), allowlist["peers"]
 
     async def test_audit_entries_accrue_across_sequential_inbounds(
         self, isolated_db

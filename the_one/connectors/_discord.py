@@ -629,7 +629,7 @@ class DiscordPlugin:
         # backward compatibility byte-identically — accounts without
         # ``config["intents"]`` get all three intents True, matching the
         # pre-L2 hardcoded behavior. The API-layer validator
-        # (:func:`_validate_connector_account_config`) gates the shape at
+        # (:func:`_validate_connector_config`) gates the shape at
         # write time, so any malformed ``config["intents"]`` reaching the
         # plugin originated from a direct DB edit outside the API write
         # path (the F1 single-user local-tool trust posture treats that
@@ -1648,8 +1648,10 @@ class DiscordPlugin:
         if not is_dm:
             return Permit()
         allowlist = account.config.get("allowlist") or {}
+        # M11 F12 L3 — peers stored as structured ``{id, dm_allowed}``
+        # dicts; consume the ``id`` field for membership check.
         peers = allowlist.get("peers") or []
-        if envelope.peer_id in peers:
+        if any(p["id"] == envelope.peer_id for p in peers):
             return Permit()
         return NeedsPairing(reason="discord_dm_unknown_peer")
 

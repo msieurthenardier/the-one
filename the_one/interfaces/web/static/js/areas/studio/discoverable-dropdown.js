@@ -23,9 +23,20 @@
 //     opts = {
 //       axis: 'peers' | 'channels' | 'groups' | 'roles',
 //       accountId: string,
-//       currentValues: string[],            // ids currently selected
-//       onChange: function(newValues: string[]) -> void,
-//       vocab: object                       // App.studio.connectorVocabulary entry
+//       currentValues: string[] | object[], // structured-tuple shape per
+//                                           // ``valueShape`` (M11 F12 L4)
+//       onChange: function(newValues: array) -> void,
+//       vocab: object,                      // App.studio.connectorVocabulary entry
+//       valueShape: 'flat' | 'peer' | 'channel' | 'role'
+//         // M11 F12 L4 — controls the per-entry shape carried in
+//         // ``currentValues`` and emitted via onChange:
+//         //   'flat'    — array of bare id strings (legacy; default)
+//         //   'peer'    — array of ``{id, dm_allowed}`` dicts
+//         //   'channel' — array of ``{guild_id, channel_id}`` dicts
+//         //   'role'    — array of ``{guild_id, role_id}`` dicts
+//         // For the structured shapes the dropdown extracts the id at
+//         // chip-render time (label lookup) and synthesizes the dict on
+//         // selection (reading ``entity.group`` for the guild_id field).
 //     }
 //
 // Behaviour:
@@ -65,6 +76,59 @@
   var _LARGE_AXIS_THRESHOLD = 1000;
   var _LARGE_AXIS_MIN_FILTER_CHARS = 2;
 
+  // ── M11 F12 L4 — structured-tuple shape helpers ─────────────────────────
+  //
+  // ``valueShape`` decides per-entry shape: 'flat' (string ids), 'peer'
+  // (``{id, dm_allowed}``), 'channel' (``{guild_id, channel_id}``), or
+  // 'role' (``{guild_id, role_id}``). The dropdown menu and label lookup
+  // work in flat-id terms; structured shape is wrapped/unwrapped at the
+  // chip + selection boundaries so existing menu logic stays unchanged.
+
+  function _entryId(entry, valueShape) {
+    if (entry == null) return '';
+    if (valueShape === 'peer') {
+      return (entry && typeof entry === 'object') ? String(entry.id || '') : String(entry);
+    }
+    if (valueShape === 'channel') {
+      return (entry && typeof entry === 'object')
+        ? String(entry.channel_id || '')
+        : String(entry);
+    }
+    if (valueShape === 'role') {
+      return (entry && typeof entry === 'object')
+        ? String(entry.role_id || '')
+        : String(entry);
+    }
+    return String(entry);
+  }
+
+  function _wrapId(id, entity, valueShape) {
+    // Synthesize the structured-tuple entry for a freshly-selected id.
+    // ``entity`` is the menu item the operator clicked (or null when the
+    // id is unknown to the cached entities — Discord's ``entity.group``
+    // is the guild_id for channel/role axes).
+    if (valueShape === 'peer') {
+      return { id: String(id), dm_allowed: false };
+    }
+    if (valueShape === 'channel') {
+      var gC = (entity && entity.group != null) ? String(entity.group) : null;
+      return { guild_id: gC, channel_id: String(id) };
+    }
+    if (valueShape === 'role') {
+      var gR = (entity && entity.group != null) ? String(entity.group) : null;
+      return { guild_id: gR, role_id: String(id) };
+    }
+    return String(id);
+  }
+
+  function _currentIds(state) {
+    var ids = [];
+    for (var i = 0; i < state.currentValues.length; i++) {
+      ids.push(_entryId(state.currentValues[i], state.valueShape));
+    }
+    return ids;
+  }
+
   function _escapeAttr(value) {
     if (value === null || value === undefined) return '';
     return String(value)
@@ -93,14 +157,25 @@
     root.setAttribute('data-account-id', accountId);
     root.setAttribute('data-testid', 'discoverable-dropdown-' + axis);
 
-    // F5 L6 HAT R5: per-axis Refresh button removed. The wrapping
-    // ``discoverable-dropdown-input-row`` div is retained (single-child
-    // wrapper now) so any CSS scoped to the row layout keeps applying;
-    // future re-introduction of a row-level affordance would slot in
-    // alongside the input without a structural change.
+    // M11 F12 L5 fix cycle 4: unified chip+input field matching the
+    // canonical ``chip-list-editor`` pattern (tools-form-helpers.js
+    // :285-303) used by built-in tool Path Allowlist / Path Denylist.
+    // The wrapping element carries BOTH the ``chip-list-editor``
+    // class (so admin.css's inline-flex layout + bezel styling apply)
+    // AND the legacy ``discoverable-dropdown-input-row`` class (kept
+    // for any consumer-side CSS that still scopes to it). The input
+    // carries BOTH the ``discoverable-dropdown-input`` class (existing
+    // CSS) AND the ``chip-list-input`` class (canonical pattern); chips
+    // render INSIDE this container BEFORE the input element so the
+    // visual order is chips-then-input, matching the canonical
+    // chip-list-editor. The container is also the operator-visible
+    // "chips" element — testid ``discoverable-dropdown-chips-{axis}``
+    // stays on it so existing tests keep resolving.
     root.innerHTML =
-      '<div class="discoverable-dropdown-input-row">' +
-        '<input type="text" class="discoverable-dropdown-input" ' +
+      '<div class="chip-list-editor discoverable-dropdown-input-row discoverable-dropdown-chips" ' +
+           'role="group" aria-label="Selected entries" ' +
+           'data-testid="discoverable-dropdown-chips-' + _escapeAttr(axis) + '">' +
+        '<input type="text" class="discoverable-dropdown-input chip-list-input" ' +
                'role="combobox" aria-autocomplete="list" aria-expanded="false" ' +
                'aria-haspopup="listbox" aria-controls="' + _escapeAttr(menuId) + '" ' +
                'aria-activedescendant="" ' +
@@ -112,9 +187,6 @@
       '<div class="discoverable-dropdown-menu" role="listbox" ' +
            'id="' + _escapeAttr(menuId) + '" ' +
            'data-testid="discoverable-dropdown-menu-' + _escapeAttr(axis) + '" hidden></div>' +
-      '<div class="chip-list-editor discoverable-dropdown-chips" ' +
-           'role="group" aria-label="Selected entries" ' +
-           'data-testid="discoverable-dropdown-chips-' + _escapeAttr(axis) + '"></div>' +
       '<div class="discoverable-dropdown-status" ' +
            'data-testid="discoverable-dropdown-status-' + _escapeAttr(axis) + '" ' +
            'aria-live="polite"></div>';
@@ -132,28 +204,32 @@
   }
 
   function _renderChips(state) {
-    var chipsEl = state.root.querySelector('.discoverable-dropdown-chips');
+    // M11 F12 L5 fix cycle 4: the chips container IS the input-row —
+    // the unified ``chip-list-editor`` div carries both the chips
+    // (rendered as ``<span class="chip">`` children) and the typeahead
+    // ``<input>`` as the final child. Remove existing chip spans only
+    // (preserve the input), then insert each new chip BEFORE the input
+    // so the canonical chip-list-editor visual order (chips first, input
+    // last) is matched. The container is NEVER hidden when empty —
+    // the input is always visible as the typeahead affordance.
+    var chipsEl = state.root.querySelector('.chip-list-editor');
     if (!chipsEl) return;
-    chipsEl.innerHTML = '';
+    var inputEl = chipsEl.querySelector('.discoverable-dropdown-input');
 
-    // M11 F5 L4 item 7: hide the chip container when empty so it doesn't
-    // render as a confusing blank box. The chip-list-editor CSS gives it
-    // a min-height + flex layout (admin.css:393-406); hiding via the
-    // `hidden` attribute prevents the empty-state from looking like a
-    // stray empty rectangle. NOTE: the `hidden` attribute alone is
-    // insufficient because `.area-studio .chip-list-editor`'s
-    // `display: flex` (specificity 0,0,2,0) overrides the user-agent
-    // `[hidden] { display: none }` rule. A companion CSS override
-    // `.area-studio .discoverable-dropdown-chips[hidden] { display: none; }`
-    // (specificity 0,0,3,0) lands in studio.css to make this take effect.
+    // Remove existing chip spans (leave the input + any non-chip
+    // children intact).
+    var existingChips = chipsEl.querySelectorAll(':scope > .chip');
+    for (var c = 0; c < existingChips.length; c++) {
+      chipsEl.removeChild(existingChips[c]);
+    }
+
     if (!state.currentValues || state.currentValues.length === 0) {
-      chipsEl.setAttribute('hidden', '');
       return;
     }
-    chipsEl.removeAttribute('hidden');
 
     for (var i = 0; i < state.currentValues.length; i++) {
-      var id = state.currentValues[i];
+      var entry = state.currentValues[i];
+      var id = _entryId(entry, state.valueShape);
       var entity = _findEntityById(state.entities, state.axis, id);
       var chip = document.createElement('span');
       chip.className = 'chip';
@@ -175,10 +251,51 @@
         chip.setAttribute('title', 'label unknown — try Refresh');
       }
 
+      // M11 F12 L5 — the L4 legacy-entry indicator block was DELETED
+      // here. Post-v25 migration there are no null-``guild_id``
+      // channel/role entries to indicate (the v25 cleanup deletes
+      // them, and the Pydantic validator rejects new ones). The
+      // hierarchical Server-as-parent UI emits guild-scoped tuples
+      // exclusively, with the ``"*"`` wildcard sentinel representing
+      // "any channel/role of this guild" — rendered as a distinct
+      // sentinel chip by the connector-editor, not as a per-entry
+      // indicator here.
+
       var labelSpan = document.createElement('span');
       labelSpan.className = 'discoverable-dropdown-chip-label';
       labelSpan.textContent = label;
       chip.appendChild(labelSpan);
+
+      // M11 F12 L4 — per-peer DM toggle. Lives inside the peer chip
+      // when ``valueShape === 'peer'``. Visibility is controlled by the
+      // parent peers-section class (``.dm-admission-admin-approved``) so
+      // the toggle state survives operator-driven dm_admission flips —
+      // see ``connector-editor.js`` wiring at the dm_admission select
+      // change handler. The toggle mutates the chip's structured-tuple
+      // entry's ``dm_allowed`` field; persists with the rest of the
+      // allowlist on save.
+      if (state.valueShape === 'peer') {
+        var dmLabel = document.createElement('label');
+        dmLabel.className = 'connector-allowlist-peer-dm-toggle';
+        dmLabel.setAttribute('title', 'Allow this peer to DM the bot.');
+        var dmInput = document.createElement('input');
+        dmInput.type = 'checkbox';
+        dmInput.className = 'connector-allowlist-peer-dm-toggle-input';
+        dmInput.setAttribute(
+          'data-testid',
+          'connector-allowlist-peer-dm-toggle-' + id
+        );
+        dmInput.setAttribute('aria-label', 'Allow DMs from ' + label);
+        dmInput.checked = !!(entry && entry.dm_allowed === true);
+        dmInput.addEventListener('change', (function (boundEntry) {
+          return function (ev) {
+            boundEntry.dm_allowed = !!ev.target.checked;
+            _fireOnChange(state);
+          };
+        })(entry));
+        dmLabel.appendChild(dmInput);
+        chip.appendChild(dmLabel);
+      }
 
       var removeBtn = document.createElement('button');
       removeBtn.type = 'button';
@@ -191,7 +308,13 @@
       }(id));
       chip.appendChild(removeBtn);
 
-      chipsEl.appendChild(chip);
+      // Insert BEFORE the input so chips render first, input last —
+      // matching the canonical chip-list-editor pattern.
+      if (inputEl) {
+        chipsEl.insertBefore(chip, inputEl);
+      } else {
+        chipsEl.appendChild(chip);
+      }
     }
   }
 
@@ -276,7 +399,7 @@
     item.setAttribute('data-testid', 'discoverable-dropdown-item-' + state.axis);
     item.setAttribute('tabindex', '-1');
 
-    var selected = state.currentValues.indexOf(entity.id) >= 0;
+    var selected = _currentIds(state).indexOf(entity.id) >= 0;
     item.setAttribute('aria-selected', selected ? 'true' : 'false');
 
     if (entity.stale === true) {
@@ -435,8 +558,15 @@
 
   function _addValue(state, id) {
     if (!id) return;
-    if (state.currentValues.indexOf(id) >= 0) return;
-    state.currentValues = state.currentValues.concat([id]);
+    var existingIds = _currentIds(state);
+    if (existingIds.indexOf(id) >= 0) return;
+    // M11 F12 L4 — wrap the freshly-selected id into the structured-
+    // tuple shape (peer/channel/role) when the consumer opted into it.
+    // ``entity.group`` carries the guild_id for channel/role axes; flat
+    // shape passes the bare id through unchanged.
+    var entity = _findEntityById(state.entities, state.axis, id);
+    var wrapped = _wrapId(id, entity, state.valueShape);
+    state.currentValues = state.currentValues.concat([wrapped]);
     _refreshSelectionUI(state);
     _fireOnChange(state);
   }
@@ -444,7 +574,9 @@
   function _removeValue(state, id) {
     var next = [];
     for (var i = 0; i < state.currentValues.length; i++) {
-      if (state.currentValues[i] !== id) next.push(state.currentValues[i]);
+      if (_entryId(state.currentValues[i], state.valueShape) !== id) {
+        next.push(state.currentValues[i]);
+      }
     }
     state.currentValues = next;
     _refreshSelectionUI(state);
@@ -455,11 +587,12 @@
     _renderChips(state);
     var menu = state.root.querySelector('.discoverable-dropdown-menu');
     if (!menu) return;
+    var ids = _currentIds(state);
     var items = menu.querySelectorAll('.discoverable-dropdown-item');
     for (var i = 0; i < items.length; i++) {
       var item = items[i];
       var id = item.getAttribute('data-id');
-      item.setAttribute('aria-selected', state.currentValues.indexOf(id) >= 0 ? 'true' : 'false');
+      item.setAttribute('aria-selected', ids.indexOf(id) >= 0 ? 'true' : 'false');
     }
   }
 
@@ -655,11 +788,21 @@
     }
 
     var root = _buildDOM(opts);
+    var valueShape = (opts.valueShape && typeof opts.valueShape === 'string')
+      ? opts.valueShape
+      : 'flat';
+    if (valueShape !== 'flat' && valueShape !== 'peer'
+        && valueShape !== 'channel' && valueShape !== 'role') {
+      valueShape = 'flat';
+    }
     var state = {
       root: root,
       axis: opts.axis,
       accountId: opts.accountId,
+      // M11 F12 L4 — currentValues per ``valueShape``: flat string-ids
+      // by default; structured-tuple shapes when the consumer opted in.
       currentValues: Array.isArray(opts.currentValues) ? opts.currentValues.slice() : [],
+      valueShape: valueShape,
       onChange: typeof opts.onChange === 'function' ? opts.onChange : function () {},
       vocab: opts.vocab || {},
       entities: { peers: [], channels: [], groups: [], roles: [] },

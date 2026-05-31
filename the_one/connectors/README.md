@@ -415,7 +415,7 @@ End-to-end walk of an inbound delivery through `the_one/connectors/_inbound.py:d
 
 3. **Plugin resolve** — `registry.resolve(account.type)`. Unknown type ⇒ log + return. Deliberately redundant with the eventual `account_acquire`'s internal resolution (defensive against a future pool refactor stranding this branch).
 
-4. **Enumerate eligible attached agents** — `SQLiteAgentStore.list_by_connector_account(account_id)` returns the alphabetically-ordered list of `AgentConfig` rows whose `connector_ids` includes `account_id`. Empty list ⇒ silent log + return (preserves the L3 no-attached-agents semantic). Replaces the L3 transitional helper `_resolve_single_attached_agent_or_first_alphabetical`, which is REMOVED in L5.
+4. **Enumerate eligible attached agents** — `SQLiteAgentStore.list_by_connector(account_id)` returns the alphabetically-ordered list of `AgentConfig` rows whose `connector_ids` includes `account_id`. Empty list ⇒ silent log + return (preserves the L3 no-attached-agents semantic). Replaces the L3 transitional helper `_resolve_single_attached_agent_or_first_alphabetical`, which is REMOVED in L5.
 
 5. **Resolve session** — `the_one/connectors/_session.py:resolve_session(envelope, account, chat_repo, agent_name=eligible_attached_agents[0].name, plugin=plugin)`. The `agent_name` argument is the creation-time anchor for NEW rows (alphabetically-first attached agent); the reuse path ignores it and returns the most-recent matching row verbatim. Per-session row identity is preserved across routing decisions.
 

@@ -86,7 +86,7 @@ class SQLiteAgentStore:
         ) as cur:
             return [row[0] for row in await cur.fetchall()]
 
-    async def list_by_connector_account(self, account_id: str) -> list[AgentConfig]:
+    async def list_by_connector(self, account_id: str) -> list[AgentConfig]:
         """Return agent configs attached to ``account_id``.
 
         M10 F7 L3: inverse-query for the routing engine (F7 L4) and the
