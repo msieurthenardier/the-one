@@ -268,6 +268,12 @@
     // etc.) so the per-agent overlay's checkbox-mode does not surface
     // raw IDs. Stub-type / cold-pool / network-error all fall back to
     // the raw-id render preserved by the initial DOM mount.
+    //
+    // Cycle-2 fix: cache is axis-nested (``{axis: {id: label}}``)
+    // because Discord assigns identical snowflake IDs to a guild and
+    // its ``@everyone`` role — a flat ``{id: label}`` would silently
+    // collide. ``_applyLabelsToCheckboxes`` receives the row's axis
+    // so only the matching bucket is consulted.
     var _labelCache = null;
     var _labelCachePromise = null;
 
@@ -278,25 +284,26 @@
         '/discoverable-entities';
       _labelCachePromise = fetch(url).then(function (response) {
         if (!response.ok) {
-          _labelCache = {};
+          _labelCache = { peers: {}, channels: {}, groups: {}, roles: {} };
           return _labelCache;
         }
         return response.json().then(function (body) {
-          var map = {};
+          var map = { peers: {}, channels: {}, groups: {}, roles: {} };
           var ents = (body && body.entities) || {};
           var axes = ['peers', 'channels', 'groups', 'roles'];
           for (var a = 0; a < axes.length; a++) {
-            var list = ents[axes[a]] || [];
+            var axisKey = axes[a];
+            var list = ents[axisKey] || [];
             for (var i = 0; i < list.length; i++) {
               var e = list[i];
-              if (e && e.id && e.label) map[String(e.id)] = e.label;
+              if (e && e.id && e.label) map[axisKey][String(e.id)] = e.label;
             }
           }
           _labelCache = map;
           return _labelCache;
         });
       }).catch(function (err) {
-        _labelCache = {};
+        _labelCache = { peers: {}, channels: {}, groups: {}, roles: {} };
         try { console.error('connectors-tab label-cache fetch failed:', err); }
         catch (logErr) { /* console missing */ }
         return _labelCache;
@@ -304,13 +311,15 @@
       return _labelCachePromise;
     }
 
-    function _applyLabelsToCheckboxes(bodyEl) {
-      if (!_labelCache) return;
+    function _applyLabelsToCheckboxes(bodyEl, axis) {
+      if (!_labelCache || !axis) return;
+      var bucket = _labelCache[axis];
+      if (!bucket) return;
       var rows = bodyEl.querySelectorAll('.connector-acl-checkboxlist-row');
       for (var i = 0; i < rows.length; i++) {
         var cb = rows[i].querySelector('input[type="checkbox"]');
         if (!cb) continue;
-        var label = _labelCache[String(cb.value)];
+        var label = bucket[String(cb.value)];
         if (!label) continue;
         var nameSpan = rows[i].querySelector('.mcp-tool-toggle-name');
         if (nameSpan) nameSpan.textContent = label;
@@ -532,7 +541,7 @@
           // reuses the cache.
           if (nextExpanded && scopeList && scopeList.length > 0) {
             _ensureLabelCache().then(function () {
-              _applyLabelsToCheckboxes(body);
+              _applyLabelsToCheckboxes(body, axis);
             });
           }
         });

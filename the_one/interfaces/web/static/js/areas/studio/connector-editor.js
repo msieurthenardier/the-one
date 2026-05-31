@@ -2896,9 +2896,30 @@
         return '<em class="form-hint" data-testid="' +
                'connector-attached-axis-none">none</em>';
       }
+      // Cycle-2 fix (Bug 5): post-L3 each entry is a structured-tuple
+      // dict (peers: ``{id, dm_allowed}``; channels:
+      // ``{guild_id, channel_id}``; roles: ``{guild_id, role_id}``).
+      // ``String({})`` returns ``"[object Object]"`` — unwrap to the
+      // id field per axis, falling back to bare-string for legacy
+      // flat-id payloads. Label resolution lives in the hierarchical
+      // editor's per-mount cache (``_labelFor``) which is out of scope
+      // here; the compact attached-agents table renders raw ids by
+      // design (operator can click through to the agent to see full
+      // chips with labels).
       var parts = '';
       for (var ci = 0; ci < value.length; ci++) {
-        parts += '<span class="chip">' + escapeHtml(String(value[ci])) + '</span>';
+        var entry = value[ci];
+        var id = '';
+        if (entry && typeof entry === 'object') {
+          if (axis === 'peers') id = entry.id;
+          else if (axis === 'channels') id = entry.channel_id;
+          else if (axis === 'roles') id = entry.role_id;
+          else id = entry.id || '';
+          id = String(id == null ? '' : id);
+        } else {
+          id = String(entry);
+        }
+        parts += '<span class="chip">' + escapeHtml(id) + '</span>';
       }
       return parts;
     }
@@ -3334,13 +3355,20 @@
     // single re-render once it resolves so server-row headers swap
     // raw ids for friendly labels without flicker on subsequent
     // re-renders.
+    //
+    // Cycle-2 fix: cache is axis-nested (``{axis: {id: label}}``)
+    // because Discord assigns identical snowflake IDs to a guild and
+    // its ``@everyone`` role — a flat ``{id: label}`` dict silently
+    // overwrites one with the other (server-row header would show
+    // ``"@everyone"`` instead of the guild name). ``_labelFor`` now
+    // requires an explicit axis so callers can't trip the collision.
     var _labelCache = null;
     var _labelCachePromise = null;
 
     function _ensureLabelCache() {
       if (_labelCachePromise) return _labelCachePromise;
       if (!account || !account.id) {
-        _labelCache = {};
+        _labelCache = { peers: {}, channels: {}, groups: {}, roles: {} };
         _labelCachePromise = Promise.resolve(_labelCache);
         return _labelCachePromise;
       }
@@ -3349,25 +3377,26 @@
         '/discoverable-entities';
       _labelCachePromise = fetch(url).then(function (response) {
         if (!response.ok) {
-          _labelCache = {};
+          _labelCache = { peers: {}, channels: {}, groups: {}, roles: {} };
           return _labelCache;
         }
         return response.json().then(function (body) {
-          var map = {};
+          var map = { peers: {}, channels: {}, groups: {}, roles: {} };
           var ents = (body && body.entities) || {};
           var axes = ['peers', 'channels', 'groups', 'roles'];
           for (var a = 0; a < axes.length; a++) {
-            var list = ents[axes[a]] || [];
+            var axisKey = axes[a];
+            var list = ents[axisKey] || [];
             for (var i = 0; i < list.length; i++) {
               var e = list[i];
-              if (e && e.id && e.label) map[String(e.id)] = e.label;
+              if (e && e.id && e.label) map[axisKey][String(e.id)] = e.label;
             }
           }
           _labelCache = map;
           return _labelCache;
         });
       }).catch(function (err) {
-        _labelCache = {};
+        _labelCache = { peers: {}, channels: {}, groups: {}, roles: {} };
         try { console.error('connector-editor label-cache fetch failed:', err); }
         catch (logErr) { /* console missing */ }
         return _labelCache;
@@ -3375,10 +3404,13 @@
       return _labelCachePromise;
     }
 
-    function _labelFor(id) {
-      if (_labelCache && id != null) {
-        var hit = _labelCache[String(id)];
-        if (hit) return hit;
+    function _labelFor(id, axis) {
+      if (_labelCache && id != null && axis) {
+        var bucket = _labelCache[axis];
+        if (bucket) {
+          var hit = bucket[String(id)];
+          if (hit) return hit;
+        }
       }
       return String(id);
     }
@@ -3545,7 +3577,7 @@
       header.className = 'connector-allowlist-server-row-header';
       var nameSpan = document.createElement('span');
       nameSpan.className = 'connector-allowlist-server-row-name';
-      nameSpan.textContent = _labelFor(guildId);
+      nameSpan.textContent = _labelFor(guildId, 'groups');
       header.appendChild(nameSpan);
       var removeBtn = document.createElement('button');
       removeBtn.type = 'button';
@@ -3554,7 +3586,7 @@
         'data-testid',
         'connector-allowlist-server-row-remove-' + guildId
       );
-      removeBtn.setAttribute('aria-label', 'Remove server ' + _labelFor(guildId));
+      removeBtn.setAttribute('aria-label', 'Remove server ' + _labelFor(guildId, 'groups'));
       removeBtn.textContent = '×';
       removeBtn.addEventListener('click', function () {
         _cascadeDeleteServer(guildId);
@@ -3740,33 +3772,32 @@
       var typeEntry = (registry && account && account.type)
           ? registry.get(account.type) : null;
       if (typeEntry && typeof typeEntry.renderDiscoverableDropdown === 'function') {
+        // Cycle-2 fix (Bug 4): pass an empty currentValues array so
+        // the dropdown's internal chiplist stays empty. Server-rows
+        // below are the canonical representation of selected guilds;
+        // letting the dropdown render its own chips on top produced
+        // two visual representations per guild ("Constellation" chip
+        // floating above the full server card). The onChange handler
+        // still fires when the operator picks a server — we only
+        // care about net-additions here (removals are handled by the
+        // per-row × button on each server card, which calls
+        // _cascadeDeleteServer directly).
         var serverDropdown = typeEntry.renderDiscoverableDropdown(
           account, 'groups',
-          state.guilds.slice(),
+          [],
           vocab,
           function (newValues) {
             var existing = {};
             for (var ei = 0; ei < state.guilds.length; ei++) {
               existing[state.guilds[ei]] = true;
             }
-            // Net-additions become _onServerAdded(); net-removals
-            // become _cascadeDeleteServer (the dropdown's own remove
-            // chip path also fires this hook).
-            var newSet = {};
+            // Net-additions become _onServerAdded(). Removals via
+            // the dropdown's own × are not possible here because its
+            // chiplist is empty — per-row × is the sole remove path.
             for (var ni = 0; ni < newValues.length; ni++) {
               var nv = newValues[ni];
               var nid = (typeof nv === 'object' && nv) ? String(nv) : String(nv);
-              newSet[nid] = true;
               if (!existing[nid]) _onServerAdded(nid);
-            }
-            for (var gi = state.guilds.length - 1; gi >= 0; gi--) {
-              var gid = state.guilds[gi];
-              if (!newSet[gid]) {
-                _cascadeDeleteServer(gid);
-                _emitDirty();
-                _rerender();
-                return;
-              }
             }
           },
           { valueShape: 'flat' }

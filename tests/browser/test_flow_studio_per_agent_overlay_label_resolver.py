@@ -219,8 +219,8 @@ def test_per_agent_overlay_checkbox_mode_network_error_shows_raw_ids(
     """Discord account; the L4 GET fails (route.abort) →
     checkbox-row name span displays the raw ID (the .catch()
     branch in _ensureLabelCache swallows the error and resolves
-    _labelCache to {}). Regression contract for transport-error
-    fallback."""
+    _labelCache to an empty axis-bucketed dict). Regression
+    contract for transport-error fallback."""
     provider_id = seed_mock_provider(app_clean, name="mock-net-error")
     agent_name = seed_mock_agent(
         app_clean, provider_id, name="net-error-agent"
@@ -258,6 +258,6 @@ def test_per_agent_overlay_checkbox_mode_network_error_shows_raw_ids(
 
     name_spans = checkbox_wrap.locator(".mcp-tool-toggle-name")
     expect(name_spans).to_have_count(1)
-    # Raw-id fallback held; the .catch() branch set _labelCache = {}
-    # so no span was rewritten.
+    # Raw-id fallback held; the .catch() branch set _labelCache to
+    # an empty axis-bucketed dict so no span was rewritten.
     expect(name_spans.nth(0)).to_have_text("111")
