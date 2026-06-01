@@ -452,6 +452,72 @@ Citation: F12 L3 introduced the per-file pattern with `_to_v24_shape` / `_to_v24
 
 Source: F12 debrief Recommendation #3 (extract shared module) + Recommendation #5 (codify the pattern); codified at F13 L1.
 
+### `detail-endpoint-attaches-rich-payload`
+
+When a REST endpoint serves both a list-style summary (`list_*`) and a single-resource detail fetch (`get_*`), heavy/rich fields (audit logs, message bodies, routing decisions, embedded blobs) attach ONLY at the detail-endpoint composition site — NOT inside the shared summary helper that the list endpoint also consumes. Adding a rich field to the shared helper bloats every list response with potentially hundreds of nested entries; attaching only at the detail-endpoint composition keeps the list shape cheap while making the rich field available where it's actually consumed (typically a per-resource detail view).
+
+Precedents:
+- M11 F13 L5: `_session_summary()` at `the_one/interfaces/web/api.py:3253-3260` stays untouched (5-key summary shape: `id`, `agent_name`, `title`, `created_at`, `updated_at`); `session_metadata` (a dict that can grow to hundreds of routing entries) attaches only on the `get_chat_session` detail-endpoint return at `:3204`. List endpoints (`list_chat_sessions`, `create_chat_session`, `update_chat_session`) keep their existing summary-only response shape.
+- M10 F05 L04: `Session.platform` field added to the in-memory dataclass + populated at restore time — only the operator-attached-session detail consumers read it; the list-of-sessions API didn't take on the field.
+
+Anti-pattern: extending the shared summary helper to include the rich field — every list-row response carries the bloat even when no consumer needs it. F13 architect cycle-1 explicitly corrected the original leg spec from "extend `_session_summary`" to "attach only at the detail-endpoint composition."
+
+Source: F13 L5; codified at F13 debrief.
+
+### `provider-aware-model-dropdown-with-custom-fallback`
+
+LLM model fields in the UI should be **provider-aware dropdowns** populated from `GET /api/providers/{providerId}/models` on provider-change, NOT free-text inputs. The dropdown's empty state is `"— No model —"` when a provider is selected, or `"Select a provider first"` (disabled) when no provider is selected. **Persisted values that aren't in the current API response** (e.g. an Ollama model the operator pulled locally but the provider isn't currently enumerating, or an OpenAI/Anthropic model the provider doesn't enumerate at all) surface as a synthesized `{value} (custom)` option that stays selected — preserving the operator's intent without silently wiping the value.
+
+Race-guard for rapid provider-switching: an `AbortController` cancels in-flight fetches AND an `_activeProviderId` equality check on resolution drops any response that no longer matches the live selection. Without both layers, a slow earlier-provider response can clobber a fresh later-provider response. On fetch error, surface a clear `"Failed to load models"` placeholder while preserving the persisted value as a disabled `{value} (saved)` option so the operator's saved choice stays visible.
+
+The async populate is a side effect — do NOT call `recaptureSnapshot()` from inside the populate (would re-baseline the dirty-tracker against the post-populate state and silently absorb user edits); do NOT call `checkDirty()` either (the general change listener already fires on user-driven provider changes; calling from inside the populate races against concurrent async populates on mount). Clearing the provider via GUI should dispatch a synthetic `change` event so the general change listener picks up the dirty state against the persisted baseline.
+
+Precedents:
+- Chat agent-editor: `the_one/interfaces/web/static/js/areas/studio.js:1720+` `fetchModelsForProvider` — the canonical pattern (race-guard via `_modelsFetchController` + `_activeProviderId`; `(custom)` fallback at `:1794+`).
+- M11 F13 L4-enhancement: Studio connector-editor's inference Model field — `populateInferenceModelDropdown` + `wireInferenceModelRepopulate` at `the_one/interfaces/web/static/js/areas/studio/connector-editor.js`.
+
+Source: M11 F13 L4-enhancement; codified at F13 debrief.
+
+### `in-memory-snapshot-from-db-restore`
+
+When an in-memory dataclass (e.g. `Session` in `the_one/interfaces/web/app.py:285+`) needs to surface a DB-stored field to consumers (WS payload builders, REST detail-endpoint composers, in-process handlers) WITHOUT re-fetching from the DB on every access, add the field to the dataclass + populate it in `_restore_session` from the loaded DB row. The cached attribute is a snapshot at restore time; the documented staleness escape hatch is a REST "Refresh" button on the consumer surface (operator triggers re-fetch on demand) OR a re-mount of the in-memory entry on lifecycle events that the DB write path emits.
+
+NOT the right shape when:
+- The field changes in real-time and the consumer needs push-not-pull semantics (use WS event broadcasts instead).
+- The field is large enough that snapshotting in memory is wasteful relative to re-fetching on the rare access (re-fetch with caching is preferable).
+
+When in doubt, the snapshot shape's defensibility comes from a clearly-documented staleness contract: source-of-truth (DB row), rebuild trigger (re-mount on session restore + manual Refresh button), maximum staleness acceptable to the operator (until next Refresh click or session re-mount), and user-action invalidation map (no DB write paths invalidate the in-memory snapshot in the MVP shape — the Refresh button is the only consumer-visible escape).
+
+Precedents:
+- M10 F05 L04: `Session.platform` field, populated in `_restore_session` from `ChatSession.platform`, read by the operator-visibility tagging path in `_process_and_broadcast`.
+- M11 F13 L5: `Session.session_metadata` field, populated in `_restore_session` from `ChatSession.session_metadata`, read by both `_build_session_joined_ok` + `_build_session_joined_degraded` WS payload builders and surfaced via the Chat UI routing-audit panel with a Refresh button.
+
+Source: M10 F05 L04 + M11 F13 L5; codified at F13 debrief.
+
+### `diagnostic-surface-co-ships-with-decision-path`
+
+When a flight introduces a new dispatcher path, policy gate, routing decision, or any other automated decision the operator may later need to debug, ship the **inspector / diagnostic surface in the same flight**, not in a follow-up. The diagnostic surface earns its keep the moment a real bug surfaces; without it, the operator has to fall back to DB introspection or log digging.
+
+Concretely: a new policy gate that writes audit entries should ship with a UI surface that renders those entries; a new routing-engine path that distinguishes dispositions should ship with disposition badges and per-entry expansion; a new inference pre-step that consults an external LLM should expose the inference's `outcome` + `inference_provider_id` + `inference_model` in the audit surface so the operator can verify-and-debug per-decision.
+
+The discipline is operational, not aesthetic: the next time the operator asks "why didn't the bot respond?" the answer should be one click in the UI away, not a DB query. The diagnostic surface is part of the dispatcher's deliverable, not a follow-up nice-to-have.
+
+Citation: F13 L5's `session_metadata["routing"]` inspector panel earned its keep at F13 L6 HAT within hours of landing — when `/agents` returned "No agents available", the routing-audit panel's `disposition: command-intercepted` + `agent: Sonos Agent` entry told the operator in one look that the dispatcher path was healthy and the bug was in the command handler's secondary admission re-check. Without the panel, isolating Bug D to `_commands.py:_permitted_agents` would have required DB introspection or log digging. The L5 leg was scoped specifically for this use case, and it delivered on its first real bug.
+
+Source: M11 F13 L5 + F13 L6 HAT operational validation; codified at F13 debrief.
+
+### `consumer-callsite-audit-on-public-api-signature-widening`
+
+When a flight widens a public-API function's signature (new required kwargs, new positional args, new structured-tuple shape expectation), the **architect-cycle review must grep every call site** of that function and either (a) update each call site in lockstep, or (b) add a regression test that exercises each consumer against the new shape. Without one of these, latent bugs accumulate at the un-migrated call sites: the substrate looks correct, the substrate's own tests pass, but a consumer that wasn't audited at widening time silently breaks against the new shape.
+
+The latency-to-discovery for these bugs scales with how often the un-audited consumer gets exercised. If the consumer is hit only by a HAT walk or production traffic, the bug can sit for weeks.
+
+Citation: F12 widened `the_one/connectors/_acl.py:admits_inbound`'s kwargs to require `guild_id` for the new structured-tuple channel allowlist entries. `_acl.py`'s 8+ call sites weren't grepped at F12 architect-cycle. Bug D — `the_one/connectors/_commands.py:_permitted_agents` at `:108` calling `admits_inbound(account, agent_acl, envelope.peer_id, envelope.channel_id)` WITHOUT the new kwargs — stayed latent for ~10 days (F12 land → F13 L6 HAT) because F12's tests didn't exercise `_handle_agents` against a structured-tuple allowlist. The bug surfaced only at F13 L6 HAT against a real Discord guild.
+
+Refactor candidate: `admits_inbound` should take a single envelope/context object rather than positional + kwargs, so the type system surfaces missing-context call sites at static-analysis time. The envelope already carries all the fields; the function should just take it.
+
+Source: F13 L6 HAT findings + F13 debrief.
+
 ---
 
 ## Subsystem contracts
