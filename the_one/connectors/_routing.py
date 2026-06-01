@@ -99,7 +99,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from the_one.agent.config import AgentConfig
-from the_one.connectors._acl import _default_not_dm, admits_inbound
+from the_one.connectors._acl import AdmissionContext, admits_inbound
 from the_one.connectors.base import InboundEnvelope
 from the_one.db.models import Connector
 
@@ -165,26 +165,15 @@ def _agent_admits(
     agent_acl: dict[str, list[str] | None] | None = None
     if agent_config.connector_acls is not None:
         agent_acl = agent_config.connector_acls.get(account.id)
-    if plugin is None:
-        is_dm_value = _default_not_dm(envelope)
-    else:
-        is_dm_value = getattr(plugin, "is_dm", _default_not_dm)(envelope)
-    # M10 F8 L8 — thread the F8 L4 envelope-populated guild_id +
-    # member_roles into the ACL admission check so the per-axis
-    # guilds/roles tri-state can evaluate. L4 ensures
-    # ``envelope.raw["guild_id"]`` is a str-or-None and
-    # ``envelope.raw["member_roles"]`` is a list[str] (defaulting to
-    # an empty list for DMs and pre-L4 plugins).
-    guild_id = envelope.raw.get("guild_id")
-    member_roles = envelope.raw.get("member_roles", [])
+    # M11 F14 L8 — the envelope-derived admission facts (is_dm via the
+    # plugin hook, guild_id + member_roles from envelope.raw) are now
+    # bundled into a frozen AdmissionContext by from_envelope, which
+    # owns the derivation formerly inlined here (and shared verbatim
+    # with the command-handler's secondary admission).
     admits, _reason = admits_inbound(
         account,
         agent_acl,
-        envelope.peer_id,
-        envelope.channel_id,
-        is_dm=is_dm_value,
-        guild_id=guild_id,
-        member_roles=member_roles,
+        AdmissionContext.from_envelope(envelope, plugin),
     )
     return admits
 

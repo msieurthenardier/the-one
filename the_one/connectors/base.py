@@ -139,6 +139,18 @@ class OutboundTarget:
     thread_id: str | None = None
     """Optional thread to post into; ``None`` posts in the channel itself."""
 
+    interaction_followup_token: str | None = None
+    """Discord interaction-followup token (a plain string) threaded from the
+    inbound slash envelope. When set together with ``ephemeral``, the Discord
+    adapter reconstructs an application webhook and delivers the reply as an
+    ephemeral interaction followup instead of a channel send. ``None`` for all
+    non-slash callers (agent replies, the platform-send tool, etc.)."""
+
+    ephemeral: bool = False
+    """When ``True`` (and an interaction-followup token is present), the reply
+    is delivered ephemerally (only the invoker sees it). Defaults to ``False``
+    so every existing caller is unaffected."""
+
 
 @dataclass(frozen=True, slots=True)
 class SessionKey:
@@ -421,6 +433,16 @@ class CommandResponse:
     """
 
     text: str
+
+    ephemeral: bool = False
+    """When ``True``, the dispatcher requests an ephemeral delivery (only the
+    invoker sees the reply) for command responses that arrived via an
+    interaction (e.g. a Discord slash command). Opt-in: existing and future
+    handlers default to ``False`` (channel-visible), so there is no behavior
+    change unless a handler explicitly sets it. Ephemeral delivery is
+    best-effort — it requires an interaction-followup token to be present on
+    the inbound envelope; a text-prefix invocation with no interaction falls
+    back to a channel send."""
 
 
 @dataclass(frozen=True, slots=True)

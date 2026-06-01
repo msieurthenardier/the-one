@@ -227,10 +227,13 @@ def test_create_mode_pick_discord_does_not_render_runtime_config_inline(
     # F5 L6 HAT round-2: testids migrated for the restructured rows —
     # ``discord-intents-fieldset`` → ``discord-intents-row`` and
     # ``discord-advanced-kv-disclosure`` → ``discord-additional-config-row``.
-    # The per-input testids (guilds-list / presence-name / presence-type)
-    # were preserved.
+    # The per-input testids (presence-name / presence-type) were
+    # preserved. M11 F14 L02: the ``discord-guilds-list`` ("Scope to
+    # servers") field was retired entirely — guild scoping unified onto
+    # the allowlist "Servers" axis — so it no longer renders in either
+    # create or edit mode and its create-mode-absence assertion is
+    # dropped.
     expect(page.locator('[data-testid="discord-intents-row"]')).to_have_count(0)
-    expect(page.locator('[data-testid="discord-guilds-list"]')).to_have_count(0)
     expect(page.locator('[data-testid="discord-presence-name"]')).to_have_count(0)
     expect(page.locator('[data-testid="discord-presence-type"]')).to_have_count(0)
     expect(page.locator('[data-testid="discord-additional-config-row"]')).to_have_count(0)

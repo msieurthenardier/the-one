@@ -34,7 +34,7 @@ ruff format the_one/ tests/
 
 ## Local dev with Docker
 
-The container at `localhost:8484` serves from image-baked code (`Dockerfile COPY the_one/`) — **editing source on the host does NOT update the running app**. The test suite spawns its own uvicorn subprocess; that path is independent of the served daemon at port 8484. Browser tests can therefore go green while the user-facing app serves stale JS — `make rebuild` is the cure.
+There are two ways the container runs. The **image-baked default** (`Dockerfile CMD ["the-one","serve"]` → `uvicorn.run(...)`, no `--reload`) serves from code `COPY`'d at build time — **editing source on the host does NOT update that running app**. The **committed compose dev path** (`docker compose up`, `docker-compose.yml:18-23`) instead bind-mounts host `./the_one` over `/app/the_one` and runs `uvicorn ... --reload --reload-dir /app/the_one` — so host edits DO propagate and most hot-reload live. The test suite spawns its own uvicorn subprocess; that path is independent of the served daemon at port 8484. On the image-baked path, browser tests can therefore go green while the user-facing app serves stale JS — `make rebuild` is the cure.
 
 Use the Makefile rather than raw `docker compose` calls so the rebuild + verify step is consistent:
 
@@ -55,9 +55,11 @@ make verify-serving         # curl-check that admin sub-modules return 200 (catc
 make help                   # list all targets
 ```
 
-**When `make rebuild` is required**: any change under `the_one/` — JS, CSS, HTML, Python. The Dockerfile copies these at build time; live-reload is intentionally NOT enabled so dev exercises the same image-build path as a real deploy.
+**When `make rebuild` is required**: any change under `the_one/` when running the **image-baked path** — JS, CSS, HTML, Python. The Dockerfile `COPY`s these at build time and that path has no live-reload, so a rebuild exercises the same image-build path as a real deploy. (On the committed `docker compose up` dev path the bind-mount + `--reload` makes most edits take effect without a rebuild — but see the gotcha below.)
 
 **When `make rebuild` is NOT required**: editing files under `tests/` (the test suite spawns its own uvicorn subprocess, independent of the served daemon) or running ad-hoc one-off pytest invocations.
+
+**Gotcha — Pydantic model edits under `--reload` may not take effect (intermittent).** Most host edits hot-reload fine under the compose dev path, but editing a Pydantic **class definition** (`AgentConfig`, `Connector`, `ChatSession`, provider config models) is a known exception: each model has a compiled core schema bound to the class object at import, and if a surviving reference to the *pre-reload* class object (a registry, cached import, or already-instantiated dependency) lingers, the worker keeps validating against the stale schema. Symptom: a `ValidationError` on a field you just added, or a new validator not firing. Remedy: `docker compose restart the-one` (targeted — restarts the worker with fresh class objects); `make rebuild` is the always-works hammer.
 
 ## Architecture (orientation)
 

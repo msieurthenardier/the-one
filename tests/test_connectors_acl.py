@@ -20,6 +20,7 @@ from __future__ import annotations
 import pytest
 
 from the_one.connectors._acl import (
+    AdmissionContext,
     _default_no_mention,
     _default_not_dm,
 )
@@ -48,12 +49,33 @@ def admits_inbound(account, agent_acl, peer_id, channel_id, **kwargs):
     default to ``DEFAULT_TEST_GUILD_ID`` to match the fixture-default
     guild_id assigned by ``_to_v24_shape`` for bare-string channel/role
     entries. This keeps existing inbound fixtures readable without
-    sweeping every test body to add a ``guild_id=`` kwarg."""
+    sweeping every test body to add a ``guild_id=`` kwarg.
+
+    M11 F14 L8 — the real ``admits_inbound`` now takes a frozen
+    ``AdmissionContext`` instead of loose positional/kwarg facts
+    (option-b: this flat-shape wrapper stays as the flat→context
+    adapter so the ~30+ existing flat call sites need no change). The
+    wrapper CONSUMES ``is_dm`` / ``guild_id`` / ``member_roles`` from
+    ``kwargs`` into the context and forwards ONLY ``(account, v24_acl,
+    ctx)`` — it must NOT pass the now-consumed kwargs onward (the new
+    signature has no such parameters and would ``TypeError``). The
+    ``DEFAULT_TEST_GUILD_ID`` default still applies here at the wrapper
+    layer (NOT in ``from_envelope``); under ``is_dm=True`` it is
+    suppressed so ``guild_id`` stays ``None`` for the DM-context
+    fixtures."""
     is_dm = kwargs.get("is_dm", False)
+    guild_id = kwargs.get("guild_id")
     if not is_dm and "guild_id" not in kwargs:
-        kwargs["guild_id"] = DEFAULT_TEST_GUILD_ID
+        guild_id = DEFAULT_TEST_GUILD_ID
+    ctx = AdmissionContext(
+        peer_id=peer_id,
+        channel_id=channel_id,
+        is_dm=is_dm,
+        guild_id=guild_id,
+        member_roles=kwargs.get("member_roles", []),
+    )
     return _admits_inbound_real(
-        account, _to_v24_agent_acl(agent_acl), peer_id, channel_id, **kwargs
+        account, _to_v24_agent_acl(agent_acl), ctx
     )
 
 
@@ -1348,3 +1370,77 @@ class TestHierarchicalAxisWildcardMatrix:
             guild_id="A",
         )
         assert admits is True
+
+
+# ─────────────────────────────────────────────────────────────────
+# AdmissionContext.from_envelope construction (M11 F14 L8)
+# ─────────────────────────────────────────────────────────────────
+
+
+class _IsDmPlugin:
+    """Test-only plugin stub exposing only the ``is_dm`` hook.
+
+    Mirrors the F8 L6 ``DiscordPlugin.is_dm`` shape (sync callable on
+    ``InboundEnvelope``); the ``getattr`` sentinel consult only reaches
+    for ``is_dm``."""
+
+    def __init__(self, result: bool) -> None:
+        self._result = result
+
+    def is_dm(self, envelope: InboundEnvelope) -> bool:
+        return self._result
+
+
+def _envelope(raw: dict) -> InboundEnvelope:
+    """Minimal ``InboundEnvelope`` builder for construction tests.
+
+    Populates only what the dataclass requires plus the ``raw`` payload
+    under test (``guild_id`` / ``member_roles`` presence drives the
+    assertions)."""
+    return InboundEnvelope(
+        platform="stub",
+        account_id="acc-1",
+        channel_id="C1",
+        thread_id=None,
+        peer_id="P1",
+        peer_name="peer",
+        text="hi",
+        raw=raw,
+    )
+
+
+class TestAdmissionContextConstruction:
+    """Pins ``AdmissionContext.from_envelope`` field derivation (L8)."""
+
+    def test_is_dm_from_plugin_hook(self) -> None:
+        """``is_dm`` is resolved via the plugin's ``is_dm`` hook, not a
+        raw envelope read — a plugin reporting True yields is_dm=True
+        even when ``raw`` carries no ``is_dm`` key."""
+        env = _envelope({"guild_id": "G1", "member_roles": ["R1"]})
+        ctx = AdmissionContext.from_envelope(env, _IsDmPlugin(True))
+        assert ctx.is_dm is True
+        # And the peer/channel identity flows straight through.
+        assert ctx.peer_id == "P1"
+        assert ctx.channel_id == "C1"
+
+    def test_is_dm_plugin_none_falls_back_to_default_false(self) -> None:
+        """``plugin=None`` falls back to ``_default_not_dm`` → False
+        (pre-F8 fail-closed posture); a raw ``is_dm=True`` is ignored
+        because derivation goes through the hook, not the raw dict."""
+        env = _envelope({"is_dm": True})
+        ctx = AdmissionContext.from_envelope(env, None)
+        assert ctx.is_dm is False
+
+    def test_guild_id_and_member_roles_from_raw(self) -> None:
+        """``guild_id`` and ``member_roles`` are read from
+        ``envelope.raw``; ``member_roles`` defaults to ``[]`` when the
+        key is absent (pre-F8-L4 envelope), and ``guild_id`` to None."""
+        env_full = _envelope({"guild_id": "G7", "member_roles": ["R1", "R2"]})
+        ctx_full = AdmissionContext.from_envelope(env_full, None)
+        assert ctx_full.guild_id == "G7"
+        assert ctx_full.member_roles == ["R1", "R2"]
+
+        env_bare = _envelope({})
+        ctx_bare = AdmissionContext.from_envelope(env_bare, None)
+        assert ctx_bare.guild_id is None
+        assert ctx_bare.member_roles == []

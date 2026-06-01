@@ -68,18 +68,73 @@ short operator-readable string suitable for embedding into the
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from the_one.connectors.base import InboundEnvelope
 from the_one.db.models import Connector
 
 __all__ = [
+    "AdmissionContext",
     "admits_outbound",
     "admits_inbound",
     "admits_dm_peer",
+    "envelope_is_dm",
     "_default_not_dm",
     "_default_no_mention",
 ]
+
+
+@dataclass(frozen=True)
+class AdmissionContext:
+    """The envelope-derived facts :func:`admits_inbound` evaluates.
+
+    A narrow, frozen value object bundling the five inbound facts the
+    per-agent admission check consults — the peer / channel identity,
+    the resolved DM-truth, and the guild-context (``guild_id`` +
+    ``member_roles``) axes. Replaces the former loose
+    ``(peer_id, channel_id, *, is_dm, guild_id, member_roles)`` argument
+    list (M11 F14 L8, Bug-D structural prevention).
+
+    Why a dataclass instead of kwargs: a new ACL axis becomes a new
+    REQUIRED field here, which the type checker then forces every
+    :func:`admits_inbound` call site to supply — structurally
+    preventing the Bug-D failure mode where a call site silently relied
+    on a kwarg default (the L1 ``_permitted_agents`` regression). Build
+    it via :meth:`from_envelope` so the ``is_dm`` / ``guild_id`` /
+    ``member_roles`` derivation lives in ONE place shared by both
+    production call sites (routing's primary admission and the
+    command-handler's secondary admission).
+    """
+
+    peer_id: str
+    channel_id: str
+    is_dm: bool
+    guild_id: str | None
+    member_roles: list[str]
+
+    @classmethod
+    def from_envelope(
+        cls, envelope: InboundEnvelope, plugin: Any | None
+    ) -> AdmissionContext:
+        """Build an :class:`AdmissionContext` from an inbound envelope.
+
+        Resolves ``is_dm`` via :func:`envelope_is_dm` (consulting the
+        plugin's optional ``is_dm`` hook through the
+        ``optional-plugin-hook-via-getattr-sentinel`` convention;
+        ``plugin=None`` falls back to :func:`_default_not_dm` → ``False``
+        — NOT a raw ``envelope.raw["is_dm"]`` read). ``guild_id`` and
+        ``member_roles`` are read from ``envelope.raw`` (F8 L4 populates
+        them: ``guild_id`` is str-or-``None``; ``member_roles`` defaults
+        to ``[]`` for DMs and pre-F8-L4 envelopes that lack the key).
+        """
+        return cls(
+            peer_id=envelope.peer_id,
+            channel_id=envelope.channel_id,
+            is_dm=envelope_is_dm(envelope, plugin),
+            guild_id=envelope.raw.get("guild_id"),
+            member_roles=envelope.raw.get("member_roles", []),
+        )
 
 
 def _default_not_dm(envelope: InboundEnvelope) -> bool:
@@ -96,6 +151,25 @@ def _default_not_dm(envelope: InboundEnvelope) -> bool:
     ``optional-plugin-hook-via-getattr-sentinel``).
     """
     return False
+
+
+def envelope_is_dm(envelope: InboundEnvelope, plugin: Any | None) -> bool:
+    """Resolve DM-truth for ``envelope`` via the plugin's optional
+    ``is_dm`` hook.
+
+    Single source of truth for the ``is_dm`` derivation shared by the
+    inbound-routing primary admission (:func:`_routing._agent_admits`)
+    and the command-handler secondary admission
+    (:func:`_commands._permitted_agents`). Consults ``plugin.is_dm`` via
+    the ``optional-plugin-hook-via-getattr-sentinel`` convention
+    (``getattr(plugin, "is_dm", _default_not_dm)``); ``plugin is None``
+    (defensive fallback — the dispatcher always resolves a plugin in
+    practice) short-circuits to :func:`_default_not_dm`, preserving
+    pre-F8 fail-closed behavior.
+    """
+    if plugin is None:
+        return _default_not_dm(envelope)
+    return getattr(plugin, "is_dm", _default_not_dm)(envelope)
 
 
 def _default_no_mention(envelope: InboundEnvelope) -> bool:
@@ -297,15 +371,18 @@ def admits_dm_peer(
 def admits_inbound(
     account: Connector,
     agent_acl: dict[str, Any] | None,
-    peer_id: str,
-    channel_id: str,
-    *,
-    is_dm: bool = False,
-    guild_id: str | None = None,
-    member_roles: list[str] | None = None,
+    ctx: AdmissionContext,
 ) -> tuple[bool, str]:
-    """Check whether inbound from ``peer_id`` in ``channel_id`` on
-    ``account`` is permitted to invoke this agent.
+    """Check whether the inbound described by ``ctx`` on ``account`` is
+    permitted to invoke this agent.
+
+    ``ctx`` is a frozen :class:`AdmissionContext` carrying the five
+    envelope-derived admission facts (``peer_id``, ``channel_id``,
+    ``is_dm``, ``guild_id``, ``member_roles``) — built at the call site
+    via :meth:`AdmissionContext.from_envelope` (M11 F14 L8). The
+    dataclass replaces the former loose positional/kwarg argument list
+    so that a new ACL axis = a new required field = a type error at
+    every unmigrated call site (Bug-D structural prevention).
 
     Returns ``(True, "")`` on admit; ``(False, reason)`` on deny.
 
@@ -373,6 +450,13 @@ def admits_inbound(
     ``two-symmetric-paths-in-acl`` convention in ``agents.md`` for
     the cross-path discipline.
     """
+    peer_id, channel_id, is_dm, guild_id, member_roles = (
+        ctx.peer_id,
+        ctx.channel_id,
+        ctx.is_dm,
+        ctx.guild_id,
+        ctx.member_roles,
+    )
     if is_dm:
         return _admits_inbound_dm(
             account, agent_acl, peer_id, channel_id

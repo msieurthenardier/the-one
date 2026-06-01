@@ -298,6 +298,12 @@ class _StubCommandTree:
         self.commands: list[dict[str, Any]] = []
         # Each entry: ``discord.Object`` wrapper instance.
         self.sync_calls: list[Any] = []
+        # Ordered log of ALL calls (copy_global_to + sync) for ordering
+        # assertions.  Each entry is a tuple: ("copy", guild_obj) or
+        # ("sync", guild_obj).
+        self.call_log: list[tuple[str, Any]] = []
+        # Per-guild buckets populated by copy_global_to; keyed by guild id.
+        self.guild_buckets: dict[int, list[dict[str, Any]]] = {}
         type(self).instances.append(self)
 
     def command(self, *, name: str, description: str) -> Any:
@@ -309,9 +315,20 @@ class _StubCommandTree:
             return coro
         return _decorator
 
+    def copy_global_to(self, *, guild: Any) -> None:
+        """Copy the global command list into the per-guild bucket.
+
+        Mirrors ``discord.app_commands.CommandTree.copy_global_to`` — copies
+        the current global commands into the guild-scoped registry so that a
+        subsequent ``tree.sync(guild=guild)`` includes them.
+        """
+        self.call_log.append(("copy", guild))
+        self.guild_buckets[guild.id] = list(self.commands)
+
     async def sync(self, *, guild: Any = None) -> list[Any]:
         cls = type(self)
         self.sync_calls.append(guild)
+        self.call_log.append(("sync", guild))
         if cls.sync_should_raise:
             raise cls.sync_should_raise.pop(0)
         return []
@@ -2669,12 +2686,14 @@ def _make_interaction(
     channel_id: int = 1001,
     guild_id: int | None = 7777,
     roles: list[Any] | None = None,
+    token: str = "interaction-token-stub",
 ) -> Any:
     """Synthetic ``discord.Interaction`` stand-in for the slash-command body.
 
     Mirrors the surface ``_build_slash_envelope`` consults:
     ``user.{id, display_name, roles}``, ``channel_id``, ``guild_id``,
-    ``channel.{type, parent}``, ``response.defer(ephemeral=...)``.
+    ``channel.{type, parent}``, ``token`` (M11 F14 L7 followup token),
+    ``response.defer(ephemeral=...)``.
     """
     import discord
     from types import SimpleNamespace
@@ -2694,6 +2713,7 @@ def _make_interaction(
         channel=channel,
         channel_id=channel_id,
         guild_id=guild_id,
+        token=token,
         response=response,
     )
     return interaction
@@ -2822,8 +2842,12 @@ async def test_connect_syncs_once_per_configured_guild(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``tree.sync(guild=...)`` is called exactly once per guild in
-    ``account.config["guilds"]``. Each sync receives a ``discord.Object``
-    wrapping the int-coerced guild id.
+    ``account.config["allowlist"]["guilds"]``. Each sync receives a
+    ``discord.Object`` wrapping the int-coerced guild id.
+
+    M11 F14 L02: guild scoping unified onto the allowlist "Servers"
+    axis; slash-sync reads ``config.allowlist.guilds``, not the retired
+    top-level ``config.guilds``.
     """
     _patch_discord(monkeypatch)
 
@@ -2835,7 +2859,13 @@ async def test_connect_syncs_once_per_configured_guild(
         type="discord",
         # int-coercible guild ids (strings on the wire; the plugin
         # casts to int when wrapping in discord.Object).
-        config={"guilds": ["111222333", "444555666"]},
+        config={
+            "allowlist": {
+                "guilds": ["111222333", "444555666"],
+                "peers": [],
+                "channels": [],
+            }
+        },
         secrets={"BOT_TOKEN": "token"},
     )
 
@@ -2854,14 +2884,15 @@ async def test_connect_with_empty_guilds_skips_sync(
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Empty / absent ``account.config["guilds"]`` → no sync calls; INFO log."""
+    """Empty / absent ``account.config["allowlist"]["guilds"]`` → no sync
+    calls; INFO log."""
     import logging
 
     _patch_discord(monkeypatch)
 
     encryptor = _make_encryptor()
     plugin = DiscordPlugin()
-    # No "guilds" key at all (absent === empty list).
+    # No allowlist.guilds at all (absent === empty list).
     account = _make_account(encryptor)
 
     with caplog.at_level(logging.INFO, logger="the_one.connectors._discord"):
@@ -2906,7 +2937,13 @@ async def test_connect_proceeds_when_tree_sync_raises(
         id="acct-l9-sync-fail",
         name="Discord L9 Sync Fail",
         type="discord",
-        config={"guilds": ["1111", "2222"]},
+        config={
+            "allowlist": {
+                "guilds": ["1111", "2222"],
+                "peers": [],
+                "channels": [],
+            }
+        },
         secrets={"BOT_TOKEN": "token"},
     )
 
@@ -2932,23 +2969,34 @@ async def test_connect_proceeds_when_tree_sync_raises(
         await plugin.disconnect(client)
 
 
-async def test_connect_with_int_guild_ids_in_config(
+async def test_connect_int_coerces_string_guild_id_for_sync(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``account.config["guilds"]`` accepting raw ``int`` ids works too.
+    """A single string guild id in ``config.allowlist.guilds`` is
+    int-coerced for ``discord.Object(id=int(g))`` during sync.
 
-    The plugin int-coerces each id; passing an already-int value should
-    round-trip unchanged through ``discord.Object(id=int(g))``.
+    M11 F14 L02: int-id support is intentionally dropped under guild
+    unification — the ``allowlist.guilds`` model validator
+    (``db/models.py``) enforces ``list[str]`` at ``Connector(...)``
+    construction (matches the ``agent/config.py`` + doctor convention).
+    The plugin still ``int()``-coerces each string id when wrapping it
+    in a ``discord.Object``.
     """
     _patch_discord(monkeypatch)
 
     encryptor = _make_encryptor()
     plugin = DiscordPlugin()
     account = Connector(
-        id="acct-l9-int-guilds",
-        name="Discord L9 Int Guilds",
+        id="acct-l9-str-guild",
+        name="Discord L9 Str Guild",
         type="discord",
-        config={"guilds": [987654321]},
+        config={
+            "allowlist": {
+                "guilds": ["987654321"],
+                "peers": [],
+                "channels": [],
+            }
+        },
         secrets={"BOT_TOKEN": "token"},
     )
 
@@ -2957,6 +3005,94 @@ async def test_connect_with_int_guild_ids_in_config(
         tree = _StubCommandTree.instances[0]
         assert len(tree.sync_calls) == 1
         assert tree.sync_calls[0].id == 987654321
+    finally:
+        await plugin.disconnect(client)
+
+
+async def test_sync_copies_global_commands_into_each_guild_before_sync(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression for Bug F (M11 F14 L11): ``tree.copy_global_to(guild=g)``
+    must be called before ``tree.sync(guild=g)`` for every configured guild.
+
+    Root cause: commands are registered globally via ``tree.command(...)``
+    (no ``guild=``).  ``tree.sync(guild=g)`` PUTs only the per-guild bucket
+    for ``g``, which starts empty — so without the copy, Discord receives 0
+    commands ("This application has no commands").
+
+    This test would FAIL against the pre-fix code:
+    - Pre-fix: ``copy_global_to`` is never called → guild buckets remain empty
+      → assertion on ``guild_buckets[id]`` fails (KeyError) or contains [].
+    - Post-fix: ``copy_global_to`` populates each bucket with the 6 global
+      commands before ``tree.sync`` is called → assertion passes.
+
+    Also asserts call ORDER: copy must precede sync per guild.
+    """
+    _patch_discord(monkeypatch)
+
+    encryptor = _make_encryptor()
+    plugin = DiscordPlugin()
+    guild_ids = ["111000111", "222000222"]
+    account = Connector(
+        id="acct-l11-bug-f",
+        name="Discord L11 Bug F",
+        type="discord",
+        config={
+            "allowlist": {
+                "guilds": guild_ids,
+                "peers": [],
+                "channels": [],
+            }
+        },
+        secrets={"BOT_TOKEN": "token"},
+    )
+
+    client = await plugin.connect(account, encryptor)
+    try:
+        tree = _StubCommandTree.instances[0]
+
+        # 6 global commands were registered (mirrors :1064-1067).
+        assert len(tree.commands) == 6, (
+            f"expected 6 globally registered commands, got {len(tree.commands)}"
+        )
+
+        # Every configured guild must have had its bucket populated BEFORE sync.
+        for gid_str in guild_ids:
+            gid = int(gid_str)
+            assert gid in tree.guild_buckets, (
+                f"guild {gid}: copy_global_to was never called "
+                "(guild bucket missing — pre-fix behaviour)"
+            )
+            assert len(tree.guild_buckets[gid]) == 6, (
+                f"guild {gid}: expected 6 commands in guild bucket after "
+                f"copy_global_to, got {len(tree.guild_buckets[gid])}"
+            )
+
+        # Call ordering: for each guild, copy must appear before sync in the
+        # call_log.  Both must appear exactly once per guild.
+        for gid_str in guild_ids:
+            gid = int(gid_str)
+            copy_indices = [
+                i for i, (op, g) in enumerate(tree.call_log)
+                if op == "copy" and g.id == gid
+            ]
+            sync_indices = [
+                i for i, (op, g) in enumerate(tree.call_log)
+                if op == "sync" and g.id == gid
+            ]
+            assert len(copy_indices) == 1, (
+                f"guild {gid}: expected exactly 1 copy_global_to call, "
+                f"got {len(copy_indices)}"
+            )
+            assert len(sync_indices) == 1, (
+                f"guild {gid}: expected exactly 1 sync call, "
+                f"got {len(sync_indices)}"
+            )
+            assert copy_indices[0] < sync_indices[0], (
+                f"guild {gid}: copy_global_to must be called BEFORE sync "
+                f"(copy at log index {copy_indices[0]}, "
+                f"sync at log index {sync_indices[0]})"
+            )
     finally:
         await plugin.disconnect(client)
 
@@ -3011,12 +3147,18 @@ async def test_slash_command_body_dispatches_envelope(
         callback = talk_to_entry["callback"]
 
         interaction = _make_interaction(
-            user_id=555, display_name="Alice", channel_id=8888, guild_id=4242
+            user_id=555,
+            display_name="Alice",
+            channel_id=8888,
+            guild_id=4242,
+            token="tok-talk-to",
         )
         await callback(interaction, "my-agent")
 
-        # The defer ack fired (3-second timeout discipline).
-        interaction.response.defer.assert_awaited_once_with(ephemeral=True)
+        # The defer ack fired (3-second timeout discipline). M11 F14 L7:
+        # ``talk_to`` is a channel-affecting command → PUBLIC ack
+        # (``ephemeral=False``), so there's no ephemeral-then-channel flip.
+        interaction.response.defer.assert_awaited_once_with(ephemeral=False)
 
         # Exactly one dispatcher call with the synthesized envelope.
         assert len(dispatch_calls) == 1
@@ -3031,13 +3173,97 @@ async def test_slash_command_body_dispatches_envelope(
         assert envelope.peer_name == "Alice"
         # Synthesized F7 text-prefix form — args appended after a single
         # space; the dispatcher's ``_parse_command`` whitespace-splits.
-        assert envelope.text == "/talk_to my-agent"
+        # Bug H fix: the envelope text uses the HYPHENATED form (``/talk-to``,
+        # not ``/talk_to``) so ``_parse_command`` can parse it — underscore
+        # is outside ``_NAME_TAIL_CHARS`` and would cause parse → None.
+        assert envelope.text == "/talk-to my-agent"
         # raw carries the F8 L6 + L8 keys.
         assert envelope.raw["is_dm"] is False
         assert envelope.raw["guild_id"] == "4242"
         assert envelope.raw["member_roles"] == []
+        # M11 F14 L7: the interaction-followup token is threaded onto raw
+        # as a plain string for the dispatcher to copy onto OutboundTarget.
+        assert envelope.raw["interaction_followup_token"] == "tok-talk-to"
     finally:
         await plugin.disconnect(client)
+
+
+def test_build_slash_envelope_talk_to_hyphenates_command_name() -> None:
+    """``_build_slash_envelope`` with ``command_name="talk_to"`` produces
+    envelope text ``/talk-to ...`` (hyphen, not underscore).
+
+    Bug H root cause: ``_parse_command`` accepts only ``[a-z0-9-]`` in the
+    command name tail — underscore is outside that set and causes
+    ``_parse_command`` to return ``None``, so the envelope never reaches the
+    built-in handler.  The fix is in ``_build_slash_envelope``: hyphenate the
+    ``command_name`` before synthesising the text.
+
+    This test exercises the REAL parse path (G.1's blind spot): it calls
+    ``_build_slash_envelope`` and then feeds the resulting text through
+    ``_parse_command``, asserting the round-trip succeeds.
+
+    Would FAIL pre-fix (text ``/talk_to Sonos Agent`` → _parse_command → None).
+    PASSes post-fix (text ``/talk-to Sonos Agent`` → _parse_command → ok).
+    """
+    from the_one.connectors._commands import _parse_command
+    from the_one.connectors._discord import _build_slash_envelope
+
+    interaction = _make_interaction(
+        user_id=999,
+        display_name="Tester",
+        channel_id=1234,
+        guild_id=5678,
+        token="tok-regression",
+    )
+
+    envelope = _build_slash_envelope(
+        interaction=interaction,
+        account_id="acct-regression",
+        command_name="talk_to",
+        args="Sonos Agent",
+    )
+
+    # 1. The envelope text must be hyphenated so _parse_command can parse it.
+    assert envelope.text == "/talk-to Sonos Agent", (
+        f"Expected '/talk-to Sonos Agent' but got {envelope.text!r}; "
+        "Bug H: underscore in command_name breaks _parse_command"
+    )
+
+    # 2. Feed the text through _parse_command — must parse cleanly (not None).
+    parsed = _parse_command(envelope.text)
+    assert parsed is not None, (
+        f"_parse_command({envelope.text!r}) returned None; "
+        "the envelope text must survive the parse layer to reach the handler"
+    )
+    cmd_name, cmd_args = parsed
+    assert cmd_name == "talk-to"
+    assert cmd_args == ["Sonos", "Agent"]
+
+
+def test_build_slash_envelope_non_underscore_commands_unchanged() -> None:
+    """Commands without underscores (``agents``, ``whoami``, etc.) are
+    unaffected by the Bug H hyphenation — ``replace("_", "-")`` is a no-op
+    when there are no underscores.
+    """
+    from the_one.connectors._commands import _parse_command
+    from the_one.connectors._discord import _build_slash_envelope
+
+    for cmd in ("agents", "whoami", "new", "reset", "help"):
+        interaction = _make_interaction()
+        envelope = _build_slash_envelope(
+            interaction=interaction,
+            account_id="acct-test",
+            command_name=cmd,
+            args="",
+        )
+        # text must be ``/agents``, ``/whoami``, etc. — no transformation.
+        assert envelope.text == f"/{cmd}", (
+            f"Expected '/{cmd}' but got {envelope.text!r}"
+        )
+        # And it must still parse cleanly.
+        parsed = _parse_command(envelope.text)
+        assert parsed is not None
+        assert parsed[0] == cmd
 
 
 async def test_slash_command_body_handles_empty_args(
@@ -3480,6 +3706,66 @@ async def test_discord_plugin_enumerate_returns_populated_axes(
         await plugin.disconnect(client)
 
 
+async def test_discord_plugin_enumerate_excludes_category_channels(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bug E (F14 L3): categories are dropped, every other type is kept.
+
+    ``CategoryChannel`` is a container, never a message's channel — the
+    ACL channel-match can never accept its id, so offering it in any
+    picker silently denies all inbound. The substrate excludes
+    ``str(channel.type) == "category"`` at the enumerate site. This test
+    pins BOTH directions: a mixed-type guild yields no category id AND
+    retains its text/voice/forum/announcement ids — the inclusion half
+    guards against a future over-broad positive allowlist that would
+    wrongly drop message-bearing types.
+    """
+    _patch_discord(monkeypatch)
+    encryptor = _make_encryptor()
+    plugin = DiscordPlugin()
+    account = _make_account(encryptor)
+
+    client = await plugin.connect(account, encryptor)
+    try:
+        stub_sdk = _StubDiscordClient.instances[-1]
+        stub_sdk.users = []
+        stub_sdk.guilds = [
+            _StubDiscoverableGuild(
+                id=6001,
+                name="Mixed-Type Guild",
+                member_count=10,
+                channels=[
+                    _StubDiscoverableChannel(
+                        id=7001, name="Section", type="category"
+                    ),
+                    _StubDiscoverableChannel(
+                        id=7002, name="general", type="text"
+                    ),
+                    _StubDiscoverableChannel(
+                        id=7003, name="voice-lobby", type="voice"
+                    ),
+                    _StubDiscoverableChannel(
+                        id=7004, name="ideas", type="forum"
+                    ),
+                    _StubDiscoverableChannel(
+                        id=7005, name="news", type="news"
+                    ),
+                ],
+            ),
+        ]
+
+        result = plugin.enumerate_discoverable_entities(client)
+
+        channel_ids = {c.id for c in result.channels}
+        # Exclusion half: the category id is gone.
+        assert "7001" not in channel_ids
+        # Inclusion half: every message-bearing type survives.
+        assert {"7002", "7003", "7004", "7005"} <= channel_ids
+        assert channel_ids == {"7002", "7003", "7004", "7005"}
+    finally:
+        await plugin.disconnect(client)
+
+
 def test_stub_plugin_does_not_implement_enumerate_discoverable_entities() -> None:
     """The stub plugin pins the fallback contract — hook is absent.
 
@@ -3629,3 +3915,219 @@ async def test_discord_plugin_enumerate_dedupes_users_defensively(
         assert len(result.peers) == 2
     finally:
         await plugin.disconnect(client)
+
+
+# --- M11 F14 L7: ephemeral interaction-followup routing ----------------------
+
+
+def _make_followup_sdk(*, application_id: int | None = 5550001) -> Any:
+    """A ``discord.Client``-spec SDK mock wired for the followup branch.
+
+    ``application_id`` is the bot's app id (real ``discord.Client`` attr,
+    populated at READY); ``None`` simulates the pre-READY window.
+    ``_connection`` is the private ConnectionState the webhook needs — a
+    sentinel here, since we patch ``Webhook.from_state`` and never touch it.
+    """
+    import discord
+
+    sdk = MagicMock(spec=discord.Client)
+    sdk.user = None
+    sdk.is_closed = MagicMock(return_value=False)
+    sdk.application_id = application_id
+    sdk._connection = MagicMock(name="connection-state-sentinel")
+    return sdk
+
+
+def _patch_from_state(
+    monkeypatch: pytest.MonkeyPatch, *, sent_message_id: int = 808080
+) -> tuple[Any, dict[str, Any]]:
+    """Patch ``discord.Webhook.from_state`` with a recorder.
+
+    Returns ``(webhook_mock, captured)`` where ``captured`` records the
+    ``data``/``state`` kwargs ``from_state`` was called with, and the
+    webhook's ``send`` is an AsyncMock returning a Message-shaped object.
+    NO real network.
+    """
+    import discord
+
+    sent = MagicMock()
+    sent.id = sent_message_id
+    webhook = MagicMock(name="application-webhook")
+    webhook.send = AsyncMock(return_value=sent)
+
+    captured: dict[str, Any] = {}
+
+    def _fake_from_state(*, data: Any, state: Any) -> Any:
+        captured["data"] = data
+        captured["state"] = state
+        return webhook
+
+    monkeypatch.setattr(discord.Webhook, "from_state", _fake_from_state)
+    return webhook, captured
+
+
+async def test_send_ephemeral_with_token_fires_followup_not_channel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ephemeral=True + token present + application_id set → followup path
+    fires (channel send NOT)."""
+    sdk = _make_followup_sdk(application_id=5550001)
+    channel = _make_text_channel_mock(channel_id=11111)
+    sdk.get_channel = MagicMock(return_value=channel)
+    webhook, captured = _patch_from_state(monkeypatch, sent_message_id=808080)
+
+    client = _make_discord_client_with_sdk(sdk)
+    target = OutboundTarget(
+        channel_id="11111",
+        thread_id=None,
+        ephemeral=True,
+        interaction_followup_token="tok-abc",
+    )
+
+    result = await client.send(target, "only you can see this")
+
+    # Followup fired with the reconstructed application (type=3) webhook.
+    webhook.send.assert_awaited_once_with("only you can see this", ephemeral=True)
+    assert captured["data"] == {"id": 5550001, "type": 3, "token": "tok-abc"}
+    assert captured["state"] is sdk._connection
+    # Channel send NOT used.
+    channel.send.assert_not_called()
+    # Result marks the ephemeral path.
+    assert result.platform_message_id == "808080"
+    assert result.details == {"channel_type": "ephemeral_followup"}
+
+
+async def test_send_ephemeral_without_token_fires_channel_not_followup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ephemeral=True but NO token → channel path fires (followup NOT)."""
+    sdk = _make_followup_sdk()
+    channel = _make_text_channel_mock(channel_id=11111, sent_message_id=22222)
+    sdk.get_channel = MagicMock(return_value=channel)
+    webhook, _ = _patch_from_state(monkeypatch)
+
+    client = _make_discord_client_with_sdk(sdk)
+    target = OutboundTarget(
+        channel_id="11111",
+        thread_id=None,
+        ephemeral=True,
+        interaction_followup_token=None,
+    )
+
+    result = await client.send(target, "channel visible")
+
+    channel.send.assert_awaited_once_with("channel visible")
+    webhook.send.assert_not_called()
+    assert result.platform_message_id == "22222"
+    assert result.details == {"channel_id": "11111", "channel_type": "text"}
+
+
+async def test_send_non_ephemeral_with_token_fires_channel_not_followup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ephemeral=False but token present → channel path fires (followup NOT).
+
+    A channel-affecting command (talk_to/new/reset) carries a token but
+    keeps the default ephemeral=False → must go to the channel.
+    """
+    sdk = _make_followup_sdk()
+    channel = _make_text_channel_mock(channel_id=11111, sent_message_id=33333)
+    sdk.get_channel = MagicMock(return_value=channel)
+    webhook, _ = _patch_from_state(monkeypatch)
+
+    client = _make_discord_client_with_sdk(sdk)
+    target = OutboundTarget(
+        channel_id="11111",
+        thread_id=None,
+        ephemeral=False,
+        interaction_followup_token="tok-abc",
+    )
+
+    result = await client.send(target, "channel visible")
+
+    channel.send.assert_awaited_once_with("channel visible")
+    webhook.send.assert_not_called()
+    assert result.platform_message_id == "33333"
+    assert result.details == {"channel_id": "11111", "channel_type": "text"}
+
+
+async def test_send_non_ephemeral_without_token_fires_channel_not_followup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ephemeral=False + NO token (the ordinary agent-reply path) → channel
+    path fires (followup NOT)."""
+    sdk = _make_followup_sdk()
+    channel = _make_text_channel_mock(channel_id=11111, sent_message_id=44444)
+    sdk.get_channel = MagicMock(return_value=channel)
+    webhook, _ = _patch_from_state(monkeypatch)
+
+    client = _make_discord_client_with_sdk(sdk)
+    target = OutboundTarget(channel_id="11111", thread_id=None)
+
+    result = await client.send(target, "agent reply")
+
+    channel.send.assert_awaited_once_with("agent reply")
+    webhook.send.assert_not_called()
+    assert result.platform_message_id == "44444"
+    assert result.details == {"channel_id": "11111", "channel_type": "text"}
+
+
+async def test_send_ephemeral_token_expired_falls_back_to_channel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ephemeral followup raises NotFound (expired token) → fall back to the
+    channel path with a ``[ephemeral fallback]`` prefix; no exception."""
+    import discord
+
+    sdk = _make_followup_sdk(application_id=5550001)
+    channel = _make_text_channel_mock(channel_id=11111, sent_message_id=55555)
+    sdk.get_channel = MagicMock(return_value=channel)
+
+    # Webhook reconstructs fine, but .send raises NotFound (404).
+    not_found = _make_http_exception(discord.errors.NotFound, status=404)
+    webhook = MagicMock(name="application-webhook")
+    webhook.send = AsyncMock(side_effect=not_found)
+    monkeypatch.setattr(
+        discord.Webhook, "from_state", lambda *, data, state: webhook
+    )
+
+    client = _make_discord_client_with_sdk(sdk)
+    target = OutboundTarget(
+        channel_id="11111",
+        thread_id=None,
+        ephemeral=True,
+        interaction_followup_token="tok-expired",
+    )
+
+    result = await client.send(target, "self only")
+
+    # Followup attempted, then channel fallback with the marker prefix.
+    webhook.send.assert_awaited_once()
+    channel.send.assert_awaited_once_with("[ephemeral fallback] self only")
+    assert result.platform_message_id == "55555"
+    assert result.details == {"channel_id": "11111", "channel_type": "text"}
+
+
+async def test_send_ephemeral_pre_ready_no_application_id_uses_channel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """application_id is None (pre-READY) → channel send (the accepted
+    channel-leak edge), followup NOT attempted."""
+    sdk = _make_followup_sdk(application_id=None)
+    channel = _make_text_channel_mock(channel_id=11111, sent_message_id=66666)
+    sdk.get_channel = MagicMock(return_value=channel)
+    webhook, _ = _patch_from_state(monkeypatch)
+
+    client = _make_discord_client_with_sdk(sdk)
+    target = OutboundTarget(
+        channel_id="11111",
+        thread_id=None,
+        ephemeral=True,
+        interaction_followup_token="tok-abc",
+    )
+
+    result = await client.send(target, "self only")
+
+    webhook.send.assert_not_called()
+    channel.send.assert_awaited_once_with("self only")
+    assert result.platform_message_id == "66666"

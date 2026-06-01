@@ -221,24 +221,13 @@ def test_intent_toggle_save_emits_typed_payload(app_clean: str, page: Page) -> N
     }
 
 
-@pytest.mark.browser
-def test_guilds_add_saves(app_clean: str, page: Page) -> None:
-    """Adding a guild ID via the comma-separated input → save → 201
-    round-trip with the list persisted."""
-    account_id = _seed_discord(app_clean, name="Guilds Bot", config={})
-    page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
-        timeout=8000
-    )
-
-    # F5 L3: guilds input moved to the Access-and-Routing tab.
-    _activate_access_and_routing_tab(page)
-    page.locator('[data-testid="discord-guilds-list"]').fill("12345, 67890")
-    page.locator('[data-testid="save-connector-btn"]').click()
-    expect(page.locator(".app-flash")).to_be_visible(timeout=8000)
-
-    after = _get_account(app_clean, account_id)
-    assert after["config"]["guilds"] == ["12345", "67890"]
+# M11 F14 L02: ``test_guilds_add_saves`` removed. The standalone
+# "Scope to servers" text field (``data-testid="discord-guilds-list"``)
+# was retired — guild scoping is now unified onto the allowlist
+# "Servers" axis (``config.allowlist.guilds``), which is edited via the
+# connector allowlist editor, not this Runtime Config form. No
+# replacement test here; the allowlist Servers axis is exercised by the
+# connector-editor flow tests.
 
 
 @pytest.mark.browser
@@ -280,7 +269,11 @@ def test_additional_config_hides_reserved_keys(app_clean: str, page: Page) -> No
         name="Additional Config Bot",
         config={
             "intents": {"message_content": False, "members": True, "guilds": True},
-            "guilds": ["111", "222"],
+            # M11 F14 L02: top-level ``guilds`` fixture dropped — the key
+            # is no longer reserved (the "Scope to servers" field was
+            # retired); a seeded top-level ``guilds`` would now
+            # legitimately surface in the kv-table, so the old
+            # "guilds not in keys" assertion no longer holds.
             "presence": {"name": "stuff", "type": "watching"},
             "extra_key": "extra_value",  # a non-reserved key — must appear
         },
@@ -300,12 +293,13 @@ def test_additional_config_hides_reserved_keys(app_clean: str, page: Page) -> No
     ).to_be_attached()
 
     # Read the kv-table rows' key inputs. Reserved keys (intents,
-    # guilds, presence) must NOT appear; the non-reserved extra_key
-    # MUST appear.
+    # presence) must NOT appear; the non-reserved extra_key MUST appear.
+    # M11 F14 L02: ``guilds`` is no longer reserved (the "Scope to
+    # servers" field was retired), so the old "guilds not in keys"
+    # assertion is dropped.
     key_inputs = page.locator(".connector-config-row .config-key-input")
     keys = key_inputs.evaluate_all("els => els.map(e => e.value)")
     assert "intents" not in keys, f"intents leaked into kv-table; keys={keys!r}"
-    assert "guilds" not in keys, f"guilds leaked into kv-table; keys={keys!r}"
     assert "presence" not in keys, f"presence leaked into kv-table; keys={keys!r}"
     assert "extra_key" in keys, f"extra_key missing from kv-table; keys={keys!r}"
 

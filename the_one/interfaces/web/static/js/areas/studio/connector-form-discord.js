@@ -148,7 +148,6 @@
   function _renderRuntimeConfigBody(account) {
     var cfg = (account && account.config) || {};
     var intentsCfg = (typeof cfg.intents === 'object' && cfg.intents) ? cfg.intents : {};
-    var guildsCfg = Array.isArray(cfg.guilds) ? cfg.guilds : [];
     var presenceCfg = (typeof cfg.presence === 'object' && cfg.presence) ? cfg.presence : {};
 
     var html = '';
@@ -197,27 +196,15 @@
     html += '</div>';
     html += '</div>';
 
-    // ── Scope to servers row (HAT round-2 fix #2) ───────────────────
-    // Pre-round-2 label "Servers" collided with the Allowlist "Servers"
-    // axis. Renamed to "Scope to servers" so the Runtime Config field
-    // is unambiguously the Discord guild-scoping setting. Container
-    // bumped to the canonical 2-column ``field-row admin-pf-row``
-    // layout for typography consistency with the other rows.
-    var guildsValue = guildsCfg.join(', ');
-    var guildsTipText = 'Comma-separated server IDs. Leave blank to allow all servers the bot is in.';
-    html += '<div class="field-row admin-pf-row discord-guilds-row">';
-    html += '<label for="cf-discord-guilds">Scope to servers</label>';
-    html += '<button type="button" class="field-info-icon" ' +
-            'title="' + _escapeAttr(guildsTipText) + '" ' +
-            'aria-describedby="discord-guilds-help-text" ' +
-            'data-testid="discord-guilds-hint">' +
-            infoIcon + '</button>';
-    html += '<span id="discord-guilds-help-text" class="visually-hidden">' +
-            _escapeHtml(guildsTipText) + '</span>';
-    html += '<input class="field-input" type="text" id="cf-discord-guilds" data-field="guilds-list" ' +
-            'data-testid="discord-guilds-list" value="' + _escapeAttr(guildsValue) +
-            '" placeholder="" />';
-    html += '</div>';
+    // ── "Scope to servers" field retired (M11 F14 L02) ──────────────
+    // The standalone top-level "Scope to servers" guilds text field was
+    // unified onto the allowlist "Servers" axis (``config.allowlist.guilds``),
+    // which is the single source of truth for both inbound-admission ACL
+    // AND slash-command registration. Guilds are now set via the
+    // connector allowlist editor's "Servers" section. The ``guilds``
+    // gateway-intent checkbox ("Server info") in the Intents row above
+    // is a separate concept (a Discord gateway intent, not a scoping
+    // list) and is intentionally retained.
 
     // ── Bot status row (HAT round-2 fix #4) ─────────────────────────
     // Pre-round-2 label "Presence" was Discord-jargon; the order was
@@ -378,17 +365,6 @@
     return el ? (el.value || '') : '';
   }
 
-  function _splitGuildsList(raw) {
-    if (!raw) return [];
-    var parts = raw.split(',');
-    var out = [];
-    for (var i = 0; i < parts.length; i++) {
-      var trimmed = parts[i].replace(/^\s+|\s+$/g, '');
-      if (trimmed) out.push(trimmed);
-    }
-    return out;
-  }
-
   function collect(container, account, isEdit) {
     var existingCfg = (account && account.config) || {};
     var config = {};
@@ -408,14 +384,11 @@
       config.intents = intents;
     }
 
-    // ── Guilds ───────────────────────────────────────────────────────
-    var guildsRaw = _readInputValue(container, 'guilds-list');
-    var guildsList = _splitGuildsList(guildsRaw);
-    var hadGuildsBefore = Object.prototype.hasOwnProperty.call(existingCfg, 'guilds');
-    // Emit non-empty list OR honor operator clearing a pre-existing list.
-    if (guildsList.length > 0 || hadGuildsBefore) {
-      config.guilds = guildsList;
-    }
+    // ── Guilds: retired (M11 F14 L02) ────────────────────────────────
+    // The standalone "Scope to servers" (top-level guilds) form
+    // field was unified onto the allowlist "Servers" axis
+    // (``config.allowlist.guilds``). Guilds are set via the connector
+    // allowlist editor, not this Runtime Config form. No write-back here.
 
     // ── Presence ─────────────────────────────────────────────────────
     var presenceName = _readInputValue(container, 'presence-name').replace(/^\s+|\s+$/g, '');
@@ -461,7 +434,6 @@
         members: _readIntentChecked(container, 'members'),
         guilds: _readIntentChecked(container, 'guilds')
       },
-      guildsList: _readInputValue(container, 'guilds-list'),
       presenceName: _readInputValue(container, 'presence-name'),
       presenceType: _readInputValue(container, 'presence-type'),
       botTokenValue: _readInputValue(container, 'bot-token')
@@ -575,9 +547,6 @@
     _wireListener(container, '[data-field="intent-message_content"]', 'change', _onIntentChange);
     _wireListener(container, '[data-field="intent-members"]', 'change', _onIntentChange);
     _wireListener(container, '[data-field="intent-guilds"]', 'change', _onIntentChange);
-
-    // Guilds list (text) — ``input`` for per-keystroke dirty detection.
-    _wireListener(container, '[data-field="guilds-list"]', 'input', checkDirty);
 
     // Presence name (text) — same per-keystroke pattern.
     _wireListener(container, '[data-field="presence-name"]', 'input', checkDirty);
@@ -707,7 +676,12 @@
     // surface in the Advanced kv-table now (instead of being hidden);
     // they have no behavioral effect (the factory ignores the key) but
     // the operator can see / delete the stale entry from the UI.
-    reservedConfigKeys: ['intents', 'guilds', 'presence'],
+    //
+    // M11 F14 L02: ``guilds`` removed — the top-level "Scope to servers"
+    // field was unified onto ``config.allowlist.guilds`` and the v27
+    // migration folds + drops any legacy top-level ``guilds``. No
+    // dedicated form input remains, so it is no longer reserved.
+    reservedConfigKeys: ['intents', 'presence'],
     renderConnectionFields: renderConnectionFields,
     renderRuntimeConfigFields: renderRuntimeConfigFields,
     renderCredentialsFields: renderCredentialsFields,

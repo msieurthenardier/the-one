@@ -41,7 +41,7 @@ from the_one.connectors.base import InboundEnvelope
 from the_one.db.models import ChatSession, Connector
 from the_one.db.repositories import ChatSessionRepository
 from the_one.db.schema import ensure_schema
-from tests._acl_shape_helpers import _to_v24_shape
+from tests._acl_shape_helpers import DEFAULT_TEST_GUILD_ID, _to_v24_shape
 
 
 class TestParseCommand:
@@ -299,6 +299,7 @@ def _build_context(
     chat_repo: ChatSessionRepository | None = None,
     session_id: str = "session-1",
     args: list[str] | None = None,
+    plugin: object | None = None,
 ) -> dict:
     ctx: dict = {
         "account": account if account is not None else _account(),
@@ -307,6 +308,14 @@ def _build_context(
         "routed_agent_name": routed_agent_name,
         "session_id": session_id,
         "chat_repo": chat_repo,
+        # F14 L1 (Bug D): the production command context always carries a
+        # resolved ``plugin``; _permitted_agents reads it as
+        # context["plugin"] to derive is_dm. plugin=None flows through
+        # the shared envelope_is_dm helper to _default_not_dm → is_dm
+        # False, correct for these non-DM channel-scoped tests. Tests
+        # that exercise the hook (TestPermittedAgentsAgainstStructured-
+        # Allowlist) pass a stub plugin implementing ``is_dm``.
+        "plugin": plugin,
     }
     if args is not None:
         ctx["args"] = args
@@ -372,6 +381,87 @@ class TestPermittedAgents:
         assert _permitted_agents(ctx) == ["alpha"]
 
 
+class _StubPluginWithIsDm:
+    """Test stub that *implements* the optional ``is_dm`` hook.
+
+    The file's other stub patterns test hook *absence* (the
+    fall-through path). F14 L1's regression needs a plugin that
+    resolves DM-truth from ``envelope.raw["is_dm"]`` — mirroring
+    ``DiscordPlugin.is_dm`` (``_discord.py:1598``) — so the shared
+    ``envelope_is_dm`` helper threads a real bool into the channels-
+    axis admission rather than the ``_default_not_dm`` sentinel.
+    """
+
+    def is_dm(self, envelope: InboundEnvelope) -> bool:
+        return bool(envelope.raw.get("is_dm", False))
+
+
+class TestPermittedAgentsAgainstStructuredAllowlist:
+    """F14 L1 (Bug D) regression — the command-handler secondary
+    admission must thread ``guild_id`` so the post-F12 structured-tuple
+    ``allowlist.channels`` entry (``{guild_id, channel_id}``) matches.
+
+    Before the fix, ``_permitted_agents`` called ``admits_inbound``
+    without ``guild_id``/``is_dm``/``member_roles``; the channels-axis
+    match then failed on every guild-scoped slash command. These tests
+    drive ``_handle_agents`` end-to-end against a real structured-tuple
+    channel allowlist with a guild-context (non-DM) envelope.
+    """
+
+    def _guild_envelope(self, *, guild_id: str | None) -> InboundEnvelope:
+        """Guild-context envelope whose ``raw`` carries ``guild_id``
+        (and ``is_dm=False``) so the channels axis is consulted."""
+        raw: dict = {"is_dm": False, "member_roles": []}
+        if guild_id is not None:
+            raw["guild_id"] = guild_id
+        return InboundEnvelope(
+            platform="stub",
+            account_id="acct-test",
+            channel_id="ch-1",
+            thread_id=None,
+            peer_id="peer-1",
+            peer_name="Alice",
+            text="/agents",
+            raw=raw,
+        )
+
+    async def test_lists_agent_when_guild_and_channel_match(self) -> None:
+        """Structured-tuple ``channels=[(g-test, ch-1)]`` + envelope
+        ``guild_id=g-test`` / ``channel_id=ch-1`` → the agent is
+        listed (the threaded ``guild_id`` makes the channel match)."""
+        account = _account(
+            allowlist={"peers": [], "channels": [(DEFAULT_TEST_GUILD_ID, "ch-1")]},
+        )
+        ctx = _build_context(
+            account=account,
+            envelope=self._guild_envelope(guild_id=DEFAULT_TEST_GUILD_ID),
+            eligible=[_agent("alpha")],
+            plugin=_StubPluginWithIsDm(),
+            args=[],
+        )
+        response = await _handle_agents(ctx)
+        assert response.text == (
+            "Agents available to you on this account:\n- alpha"
+        )
+
+    async def test_denies_when_guild_id_absent(self) -> None:
+        """Same structured-tuple allowlist, but the envelope carries no
+        ``guild_id`` → the channels-axis match fails and the handler
+        returns the no-agents string."""
+        account = _account(
+            allowlist={"peers": [], "channels": [(DEFAULT_TEST_GUILD_ID, "ch-1")]},
+        )
+        ctx = _build_context(
+            account=account,
+            envelope=self._guild_envelope(guild_id=None),
+            eligible=[_agent("alpha")],
+            plugin=_StubPluginWithIsDm(),
+            args=[],
+        )
+        response = await _handle_agents(ctx)
+        assert response.text == "No agents available for this conversation."
+
+
 class TestHandleAgents:
     """Pin ``/agents`` handler's text and ACL filtering."""
 
@@ -384,6 +474,8 @@ class TestHandleAgents:
         assert response.text == (
             "Agents available to you on this account:\n- alpha\n- bravo"
         )
+        # M11 F14 L7: /agents is self-only → ephemeral.
+        assert response.ephemeral is True
 
     async def test_empty_when_no_eligible(self) -> None:
         """No eligible agents → the byte-identical no-eligible string
@@ -391,6 +483,8 @@ class TestHandleAgents:
         ctx = _build_context(eligible=[], args=[])
         response = await _handle_agents(ctx)
         assert response.text == "No agents available for this conversation."
+        # The no-eligible return path is also ephemeral.
+        assert response.ephemeral is True
 
     async def test_acl_denied_agents_filtered(self) -> None:
         """``bravo`` denied via empty per-agent peers list → only
@@ -506,22 +600,33 @@ class TestHandleTalkTo:
         )
         response = await _handle_talk_to(ctx)
         assert response.text == "Now routing your messages to bravo."
+        # M11 F14 L7: /talk-to is channel-affecting → NOT ephemeral.
+        assert response.ephemeral is False
 
         session = await chat_repo.get("session-1")
         assert session.session_metadata == {"routing_override": "bravo"}
 
-    async def test_multiple_args_only_first_consumed(self, chat_repo) -> None:
-        """``/talk-to alice extra`` → handler reads ``args[0]`` only."""
+    async def test_multiple_args_joined_as_agent_name(self, chat_repo) -> None:
+        """``/talk-to alice extra`` → handler joins ALL tokens.
+
+        Pre-fix, ``args[0]`` truncated to the first token.  Bug G.2
+        changes the target to ``" ".join(args)`` so a multi-word agent
+        name (e.g. "Sonos Agent") is matched whole.  This test drives a
+        two-token agent name ("alice extra" as a single registered agent)
+        to pin the full-join contract; see also
+        ``TestBugGMultiWordAgentFix`` below for the canonical regression.
+        """
         await _seed_chat_session(chat_repo)
+        # Register the full two-word name so the ACL check passes.
         ctx = _build_context(
-            eligible=[_agent("alice")],
+            eligible=[_agent("alice extra")],
             chat_repo=chat_repo,
             args=["alice", "extra"],
         )
         response = await _handle_talk_to(ctx)
-        assert response.text == "Now routing your messages to alice."
+        assert response.text == "Now routing your messages to alice extra."
         session = await chat_repo.get("session-1")
-        assert session.session_metadata == {"routing_override": "alice"}
+        assert session.session_metadata == {"routing_override": "alice extra"}
 
     async def test_second_talk_to_overwrites_first(self, chat_repo) -> None:
         """Pins ``set_session_metadata_key``'s last-writer-wins
@@ -553,6 +658,8 @@ class TestHandleWhoami:
         ctx = _build_context(routed_agent_name="alpha")
         response = await _handle_whoami(ctx)
         assert response.text == "Currently responding: alpha."
+        # M11 F14 L7: /whoami is self-only → ephemeral.
+        assert response.ephemeral is True
 
     async def test_returns_routed_agent_name_alt(self) -> None:
         ctx = _build_context(routed_agent_name="bravo")
@@ -571,6 +678,8 @@ class TestHandleNew:
             "Started a new conversation. Your next message will begin a "
             "fresh session."
         )
+        # M11 F14 L7: /new is channel-affecting → NOT ephemeral.
+        assert response.ephemeral is False
         session = await chat_repo.get("session-1")
         assert session.session_metadata is not None
         assert "ended_at" in session.session_metadata
@@ -591,6 +700,9 @@ class TestHandleReset:
             "Started a new conversation. Your next message will begin a "
             "fresh session."
         )
+        # M11 F14 L7: /reset (alias for /new) is channel-affecting → NOT
+        # ephemeral.
+        assert response.ephemeral is False
         session = await chat_repo.get("reset-session")
         assert session.session_metadata is not None
         assert "ended_at" in session.session_metadata
@@ -618,6 +730,8 @@ class TestHandleHelp:
         response = await _handle_help(ctx)
         text = response.text
         assert text.startswith("Available commands:")
+        # M11 F14 L7: /help is self-only → ephemeral.
+        assert response.ephemeral is True
         # All six commands listed.
         assert "/agents" in text
         assert "/talk-to" in text
@@ -704,3 +818,126 @@ class TestDispatchBuiltinCommand:
         assert response.text == "Now routing your messages to alice."
         # After dispatch, the handler observed args via context.
         assert ctx["args"] == ["alice"]
+
+
+# ─────────────────────────────────────────────────────────────────
+# M11 F14 L12: Bug G regression tests
+# ─────────────────────────────────────────────────────────────────
+
+
+class TestBugGHandlerKeyMismatch:
+    """Regression for Bug G.1 — ``talk_to`` (underscore, Discord slash
+    form) must reach the ``talk-to`` (hyphen) handler.
+
+    Pre-fix (G.1): ``_HANDLERS.get("talk_to")`` → ``None`` → fall-through to
+    ``agent.step``.  Post-fix (G.1): the underscore→hyphen normalisation in
+    ``_dispatch_builtin_command`` routes the underscore form to
+    ``_handle_talk_to``.
+
+    NOTE (Bug H, M11 F14 L13): the G.1 normalisation is now a
+    belt-and-suspenders backstop.  The PRIMARY fix is in
+    ``_build_slash_envelope`` (_discord.py): the synthesized envelope text
+    is already hyphenated (``/talk-to …``) before ``_parse_command`` runs, so
+    the underscore form NEVER reaches ``_dispatch_builtin_command`` via the
+    real Discord slash path.  The normalisation here guards against any future
+    direct-call site that bypasses the envelope layer.  Coverage is retained;
+    do NOT remove these tests.
+    """
+
+    async def test_talk_to_underscore_routes_to_handler(self, chat_repo) -> None:
+        """``_dispatch_builtin_command("talk_to", ...)`` must NOT return
+        ``None`` — it must route to ``_handle_talk_to`` and produce a
+        valid ``CommandResponse``.
+
+        Tests the belt-and-suspenders normalisation layer directly (bypasses
+        ``_parse_command``).  In the real Discord slash path the envelope text
+        is already hyphenated by ``_build_slash_envelope``, so this path is
+        exercised only by direct callers, not by the live dispatch chain.
+        """
+        await _seed_chat_session(chat_repo)
+        ctx = _build_context(
+            eligible=[_agent("alpha")],
+            chat_repo=chat_repo,
+        )
+        result = await _dispatch_builtin_command("talk_to", ["alpha"], ctx)
+        # Pre-fix: result is None (fall-through).
+        # Post-fix: result is a CommandResponse from _handle_talk_to.
+        assert result is not None
+        assert isinstance(result, CommandResponse)
+        assert result.text == "Now routing your messages to alpha."
+
+    async def test_talk_hyphen_still_resolves(self, chat_repo) -> None:
+        """The hyphen form (``talk-to``) continues to route correctly —
+        the exact-match path in ``_HANDLERS.get`` is not disrupted."""
+        await _seed_chat_session(chat_repo)
+        ctx = _build_context(
+            eligible=[_agent("alpha")],
+            chat_repo=chat_repo,
+        )
+        result = await _dispatch_builtin_command("talk-to", ["alpha"], ctx)
+        assert result is not None
+        assert result.text == "Now routing your messages to alpha."
+
+    async def test_unknown_underscore_command_still_falls_through(self) -> None:
+        """An unknown command that happens to contain an underscore (e.g.
+        ``foo_bar``) must still return ``None`` after both the exact and
+        normalised lookups miss."""
+        ctx = _build_context(eligible=[_agent("alpha")])
+        result = await _dispatch_builtin_command("foo_bar", [], ctx)
+        assert result is None
+
+
+class TestBugGMultiWordAgentFix:
+    """Regression for Bug G.2 — ``_handle_talk_to`` joins all ``args``
+    tokens so a multi-word agent name (e.g. "Sonos Agent") is passed
+    whole to the ACL check and ``set_session_metadata_key``.
+
+    Pre-fix: ``target = args[0]`` → "Sonos" → "No such agent…".
+    Post-fix: ``target = " ".join(args)`` → "Sonos Agent" → routed.
+    """
+
+    async def test_multiword_agent_name_routes_correctly(self, chat_repo) -> None:
+        """``args=["Sonos", "Agent"]`` with a permitted agent named
+        ``"Sonos Agent"`` must return the routing confirmation and write
+        ``routing_override="Sonos Agent"``."""
+        await _seed_chat_session(chat_repo)
+        ctx = _build_context(
+            eligible=[_agent("Sonos Agent")],
+            chat_repo=chat_repo,
+            args=["Sonos", "Agent"],
+        )
+        response = await _handle_talk_to(ctx)
+        # Pre-fix: "No such agent or you don't have permission: Sonos"
+        # Post-fix: the confirmation echoing the full name.
+        assert response.text == "Now routing your messages to Sonos Agent."
+        assert response.ephemeral is False
+        session = await chat_repo.get("session-1")
+        assert session.session_metadata == {"routing_override": "Sonos Agent"}
+
+    async def test_single_word_agent_still_works(self, chat_repo) -> None:
+        """``" ".join(["alice"]) == "alice"`` — single-word names are
+        unaffected by the join."""
+        await _seed_chat_session(chat_repo)
+        ctx = _build_context(
+            eligible=[_agent("alice")],
+            chat_repo=chat_repo,
+            args=["alice"],
+        )
+        response = await _handle_talk_to(ctx)
+        assert response.text == "Now routing your messages to alice."
+        session = await chat_repo.get("session-1")
+        assert session.session_metadata == {"routing_override": "alice"}
+
+    async def test_multiword_agent_truncated_name_denied(self, chat_repo) -> None:
+        """Confirm the pre-fix failure mode is gone: "Sonos" alone is NOT
+        a permitted agent when only "Sonos Agent" is eligible."""
+        await _seed_chat_session(chat_repo)
+        ctx = _build_context(
+            eligible=[_agent("Sonos Agent")],
+            chat_repo=chat_repo,
+            args=["Sonos"],  # single token — truncated form
+        )
+        response = await _handle_talk_to(ctx)
+        # "Sonos" is not in permitted agents → error (not a routing confirmation).
+        assert "No such agent" in response.text
+        assert "Sonos" in response.text

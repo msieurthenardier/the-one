@@ -4,7 +4,10 @@ M11 F1 L2 — :func:`_validate_connector_config` in
 :mod:`the_one.interfaces.web.api` gates the shape of
 ``account.config`` at the API write boundary (POST and PUT on
 ``/api/connectors``). Discord branch validates
-``intents``, ``guilds``, and ``presence``; stub branch passes any
+``intents`` and ``presence`` (M11 F14 L02 retired the top-level
+``guilds`` validator — guild scoping unified onto
+``config.allowlist.guilds``, guarded by the allowlist validator in
+``db/models.py``); stub branch passes any
 shape; the trailing ``else`` defensive-exhaustiveness raise is
 unreachable for properly-validated input.
 
@@ -163,42 +166,16 @@ class TestConnectorConfigValidation:
             "Discord connector config.intents must be a dict."
         )
 
-    # ── guilds rejection cases ────────────────────────────────────
-
-    async def test_guilds_non_digit_entry_rejected(self, client: AsyncClient) -> None:
-        """guilds with a non-digit string entry → 422."""
-        resp = await client.post(
-            "/api/connectors",
-            json=_discord_payload({"guilds": ["123456", "abc123"]}),
-        )
-        assert resp.status_code == 422
-        assert resp.json()["detail"] == (
-            "Discord connector config.guilds entries must be non-empty "
-            "decimal-digit strings; got 'abc123'."
-        )
-
-    async def test_guilds_non_string_entry_rejected(self, client: AsyncClient) -> None:
-        """guilds with an integer entry (not a string) → 422."""
-        resp = await client.post(
-            "/api/connectors",
-            json=_discord_payload({"guilds": ["123456", 789]}),
-        )
-        assert resp.status_code == 422
-        assert resp.json()["detail"] == (
-            "Discord connector config.guilds entries must be strings; got int."
-        )
-
-    async def test_guilds_not_a_list_rejected(self, client: AsyncClient) -> None:
-        """guilds as a string (non-list) → 422."""
-        resp = await client.post(
-            "/api/connectors",
-            json=_discord_payload({"guilds": "123456"}),
-        )
-        assert resp.status_code == 422
-        assert resp.json()["detail"] == (
-            "Discord connector config.guilds must be a list of digit-only "
-            "strings if present."
-        )
+    # ── guilds rejection cases: retired (M11 F14 L02) ─────────────
+    # The top-level ``config.guilds`` ("Scope to servers") validator was
+    # removed when guild scoping was unified onto ``config.allowlist.guilds``
+    # (the single source of truth for both inbound-admission ACL and
+    # slash-command registration). The guild-list shape is now guarded by
+    # the ``allowlist.guilds`` validator in ``db/models.py`` (list[str]),
+    # exercised by the allowlist-axis tests. A top-level ``guilds`` key is
+    # no longer special-cased at the API layer; the v27 migration folds +
+    # drops any legacy occurrence. The three former rejection cases
+    # (non-digit entry / non-string entry / non-list) are dropped here.
 
     # ── presence rejection cases ──────────────────────────────────
 
@@ -241,10 +218,15 @@ class TestConnectorConfigValidation:
 
     # ── happy-path cases ──────────────────────────────────────────
 
-    async def test_happy_path_all_three_keys_well_formed(
+    async def test_happy_path_well_formed_intents_and_presence(
         self, client: AsyncClient
     ) -> None:
-        """All three optional config keys present and well-formed → 201."""
+        """Optional config keys present and well-formed → 201.
+
+        M11 F14 L02: the top-level ``guilds`` key was retired (unified
+        onto ``config.allowlist.guilds``); this happy-path now covers the
+        remaining optional Runtime Config keys (``intents`` + ``presence``).
+        """
         resp = await client.post(
             "/api/connectors",
             json=_discord_payload(
@@ -254,7 +236,6 @@ class TestConnectorConfigValidation:
                         "members": False,
                         "guilds": True,
                     },
-                    "guilds": ["123456789012345678", "987654321098765432"],
                     "presence": {"name": "agent traffic", "type": "watching"},
                 }
             ),
@@ -266,14 +247,6 @@ class TestConnectorConfigValidation:
         resp = await client.post(
             "/api/connectors",
             json=_discord_payload({}),
-        )
-        assert resp.status_code == 201
-
-    async def test_happy_path_empty_guilds_list(self, client: AsyncClient) -> None:
-        """guilds=[] (empty list) → 201; the plugin's sync handles empty/absent."""
-        resp = await client.post(
-            "/api/connectors",
-            json=_discord_payload({"guilds": []}),
         )
         assert resp.status_code == 201
 

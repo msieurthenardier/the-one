@@ -112,9 +112,11 @@ _CLOSE_TASK_TIMEOUT_SECONDS: float = 5.0
 # commands. Discord application command names CANNOT contain hyphens
 # (regex ``^[-_\p{L}\p{N}\p{Devanagari}\p{Thai}]{1,32}$`` per the API
 # rejects the literal hyphen for ASCII names) — ``talk-to`` is therefore
-# registered as ``talk_to``. The F7 ``_parse_command`` text parser
-# whitespace-splits the envelope text we synthesize (``/talk_to my-agent``)
-# so the registered name and the dispatcher-side ``command_name`` agree.
+# registered as ``talk_to``. ``_build_slash_envelope`` hyphenates the
+# ``command_name`` before synthesizing the envelope text (see Bug H fix,
+# M11 F14 L13) so the text passed to the F7 ``_parse_command`` is
+# ``/talk-to my-agent`` (hyphen) — matching the ``_HANDLERS`` key — even
+# though the Discord-registered name uses an underscore.
 # ``handle_command`` itself returns ``None`` for all six in L9 — the
 # dispatcher falls through to the F7 built-in handler; native ephemeral
 # customization (e.g. ephemeral ``/help``) is deferred to F10 hardening.
@@ -157,11 +159,18 @@ def _build_slash_envelope(
     11 sees the same fields it does for text-prefix commands:
 
     - ``text`` synthesizes the F7 text-prefix form (``/<name>`` plus the
-      whitespace-prefixed ``args`` payload when non-empty). The F7
-      ``_parse_command`` is whitespace-split, so a registered name of
-      ``talk_to`` with ``args="my-agent"`` produces the envelope text
-      ``/talk_to my-agent`` and the dispatcher pulls ``command_name=
-      "talk_to"``, ``args=["my-agent"]``.
+      whitespace-prefixed ``args`` payload when non-empty). Discord slash
+      command names cannot contain hyphens, so ``talk_to`` is the
+      registered Discord name — but ``_parse_command`` only accepts
+      ``[a-z0-9-]`` in the name tail (underscore is excluded and causes
+      ``_parse_command`` to return ``None``, so the envelope would never
+      reach the built-in handler). To bridge the gap, the synthesized
+      ``text`` hyphenates the command name via
+      ``command_name.replace("_", "-")``, so ``talk_to`` with
+      ``args="my-agent"`` produces envelope text ``/talk-to my-agent``
+      and the dispatcher pulls ``command_name="talk-to"``,
+      ``args=["my-agent"]``. The other five v1 commands have no
+      underscore so the replacement is a no-op for them.
     - ``peer_id`` / ``peer_name`` from ``interaction.user``.
     - ``channel_id`` from ``interaction.channel_id`` (the channel /
       thread / DM channel the interaction was invoked in). When the
@@ -210,8 +219,17 @@ def _build_slash_envelope(
     # ``/help`` with no argument becomes ``/help`` (not ``/help ``); the
     # dispatcher's parser tolerates trailing whitespace either way but
     # the canonical form avoids audit-log noise.
+    #
+    # Hyphenate the command name: Discord slash-command names cannot contain
+    # hyphens so ``talk_to`` is the registered Discord name, but
+    # ``_parse_command`` rejects underscore (``_NAME_TAIL_CHARS`` is
+    # ``[a-z0-9-]`` only) and returns None — routing falls through to
+    # agent.step instead of the built-in handler.  Replacing ``_`` with
+    # ``-`` bridges the Discord vocab to the F7 parser vocab.  The other
+    # five v1 commands have no underscore so the replacement is a no-op.
+    cmd_text = command_name.replace("_", "-")
     args_str = (args or "").strip()
-    text = f"/{command_name}" if not args_str else f"/{command_name} {args_str}"
+    text = f"/{cmd_text}" if not args_str else f"/{cmd_text} {args_str}"
 
     return InboundEnvelope(
         platform="discord",
@@ -227,6 +245,14 @@ def _build_slash_envelope(
             "attachments": [],
             "member_roles": member_roles,
             "discord_interaction": interaction,
+            # The interaction-followup token as a plain STRING (not the live
+            # interaction object). The dispatcher copies this onto
+            # OutboundTarget so DiscordClient.send can reconstruct an
+            # application webhook and deliver an ephemeral followup. We carry
+            # a string (rather than reuse the live ``discord_interaction``
+            # above) so the value crossing the connector-agnostic
+            # OutboundTarget boundary stays a plain string.
+            "interaction_followup_token": interaction.token,
         },
     )
 
@@ -234,17 +260,21 @@ def _build_slash_envelope(
 async def _sync_slash_commands(
     tree: "discord.app_commands.CommandTree", account: Connector
 ) -> None:
-    """Sync the ``tree`` against each guild in ``account.config["guilds"]``.
+    """Sync ``tree`` against each guild in ``account.config["allowlist"]["guilds"]``.
 
-    PUT-style replace per call. Empty or absent ``guilds`` skips with an
-    INFO log; per-guild sync failures (``discord.errors.Forbidden`` when
-    the bot lacks the ``applications.commands`` scope, network blip,
-    guild not found) log at WARNING and continue — the gateway
-    connection MUST still go live. Global registration is deferred to
-    F10 (per-guild registers in ≤5 minutes vs ≤1 hour for global; F8
-    HAT iteration is faster on per-guild).
+    PUT-style replace per call. As of M11 F14 L02 the allowlist "Servers"
+    axis (``allowlist.guilds`` — the inbound-admission ACL) is the single
+    source of truth for slash-command scoping too; the standalone
+    top-level "Scope to servers" config field was retired.
+    Empty or absent ``allowlist.guilds`` skips with an INFO log; per-guild
+    sync failures (``discord.errors.Forbidden`` when the bot lacks the
+    ``applications.commands`` scope, network blip, guild not found) log at
+    WARNING and continue — the gateway connection MUST still go live.
+    Global registration is deferred to F10 (per-guild registers in ≤5
+    minutes vs ≤1 hour for global; F8 HAT iteration is faster on
+    per-guild).
     """
-    guild_ids_raw = account.config.get("guilds") or []
+    guild_ids_raw = account.config.get("allowlist", {}).get("guilds") or []
     if not guild_ids_raw:
         logger.info(
             "Discord: no guilds configured for slash command sync on "
@@ -254,8 +284,17 @@ async def _sync_slash_commands(
         return
 
     for guild_id in guild_ids_raw:
+        # Commands are registered globally via ``tree.command(...)`` with no
+        # ``guild=`` argument (see :1064-1067).  ``tree.sync(guild=g)`` PUTs
+        # only the *per-guild* bucket for ``g``, which starts empty.
+        # ``tree.copy_global_to(guild=g)`` copies the global registry into
+        # ``g``'s bucket so the subsequent per-guild sync includes all six
+        # commands.  Must be called per-iteration because each guild has its
+        # own bucket.
+        guild_obj = discord.Object(id=int(guild_id))
         try:
-            await tree.sync(guild=discord.Object(id=int(guild_id)))
+            tree.copy_global_to(guild=guild_obj)
+            await tree.sync(guild=guild_obj)
         except Exception as exc:
             # Forbidden (missing applications.commands scope), HTTP
             # errors, guild not found — none of these should crash the
@@ -416,7 +455,68 @@ class DiscordClient:
         Returns a :class:`SendResult` with ``platform_message_id`` set
         to the Discord message snowflake (as a string) and ``details``
         carrying the destination channel id + channel-type name.
+
+        Ephemeral interaction-followup path (M11 F14 L7): when
+        ``target.ephemeral`` AND ``target.interaction_followup_token`` are
+        set AND the bot's ``application_id`` is populated (post-READY), the
+        reply is delivered as an ephemeral interaction followup — only the
+        invoking peer sees it — instead of a channel send. On token-expiry
+        (``NotFound`` / ``HTTPException`` 401) the path falls back to the
+        channel ladder with a ``[ephemeral fallback]`` prefix (logged INFO,
+        no exception surfaces). If ``application_id`` is ``None`` (pre-READY,
+        a near-impossible window since slash commands aren't invokable until
+        the gateway is READY) the channel ladder runs with a WARNING.
         """
+        # Ephemeral interaction-followup branch (M11 F14 L7). Only when the
+        # caller threaded both the ephemeral intent and a followup token AND
+        # the bot is post-READY (application_id populated).
+        if target.ephemeral and target.interaction_followup_token:
+            application_id = self._client.application_id
+            if application_id is None:
+                # Pre-READY edge: no application_id yet. Slash commands
+                # aren't invokable until the gateway is READY (which is when
+                # application_id populates), so this is a near-impossible
+                # window. Accept the channel-leak trade-off (a self-only
+                # command would post to the channel) over crashing/queuing.
+                logger.warning(
+                    "Discord send: ephemeral followup requested for account "
+                    "%s but application_id is None (pre-READY); falling back "
+                    "to channel send",
+                    self._account_id,
+                )
+            else:
+                try:
+                    return await self._send_ephemeral_followup(
+                        application_id=int(application_id),
+                        token=target.interaction_followup_token,
+                        content=content,
+                    )
+                except (
+                    discord.errors.NotFound,
+                    discord.errors.HTTPException,
+                ) as exc:
+                    # Token expired/invalid: NotFound (404) or an
+                    # Unauthorized (401) on the followup webhook. Interaction
+                    # tokens are valid ~15 min from defer; the dispatcher
+                    # outbound is typically sub-second, so this is defensive.
+                    # Fall through to the channel ladder with a marker prefix.
+                    if isinstance(
+                        exc, discord.errors.NotFound
+                    ) or getattr(exc, "status", None) == 401:
+                        logger.info(
+                            "Discord send: ephemeral followup token "
+                            "expired/invalid for account %s (%s); falling "
+                            "back to channel send",
+                            self._account_id,
+                            type(exc).__name__,
+                        )
+                        content = "[ephemeral fallback] " + content
+                    else:
+                        # A non-401 HTTPException is a real send failure, not
+                        # a token-expiry — surface it via the channel ladder's
+                        # mapping rather than silently masking it.
+                        raise
+
         destination = await self._resolve_destination(target)
 
         try:
@@ -466,6 +566,49 @@ class DiscordClient:
                 "channel_id": str(destination.id),
                 "channel_type": destination.type.name,
             },
+        )
+
+    async def _send_ephemeral_followup(
+        self,
+        *,
+        application_id: int,
+        token: str,
+        content: str,
+    ) -> SendResult:
+        """Send ``content`` as an ephemeral interaction followup.
+
+        Reconstructs an APPLICATION webhook (``type=3``) from the bot's
+        application id + the interaction-followup token, then sends with
+        ``ephemeral=True``. An application webhook is required — a type=1
+        (incoming) webhook raises ``ValueError`` on ``ephemeral=True`` — so
+        we MUST NOT use :meth:`discord.Webhook.partial` (which builds a
+        type=1 webhook). ``from_state`` with an explicit ``"type": 3`` is the
+        verified-against-discord.py-2.4.0 mechanism.
+
+        ``ephemeral=True`` forces ``wait=True`` internally, so ``wh.send``
+        returns a :class:`discord.Message` (not ``None``) — we read its id.
+
+        COUPLING: this reaches into ``self._client._connection`` (a private
+        discord.py attribute — the ``ConnectionState`` the webhook needs to
+        route through the live gateway connection). Acceptable inside the
+        Discord adapter, which already reaches into ``self._client``
+        internals; isolated here so it doesn't leak past the adapter
+        boundary. Raises propagate to :meth:`send`'s followup try/except
+        (NotFound / 401 → channel fallback).
+        """
+        webhook = discord.Webhook.from_state(
+            data={
+                "id": application_id,
+                "type": 3,  # application webhook — honors ephemeral=True
+                "token": token,
+            },
+            state=self._client._connection,
+        )
+        sent = await webhook.send(content, ephemeral=True)
+        # ephemeral=True forces wait=True → a Message is returned.
+        return SendResult(
+            platform_message_id=str(sent.id),
+            details={"channel_type": "ephemeral_followup"},
         )
 
     async def _resolve_destination(self, target: OutboundTarget) -> Any:
@@ -865,6 +1008,22 @@ class DiscordPlugin:
         # only the invoking peer sees the placeholder.
         tree = discord.app_commands.CommandTree(client)
 
+        # Self-only slash commands whose replies are delivered ephemerally
+        # (only the invoker sees them). The ack (``defer``) ephemerality MUST
+        # agree with the handler-set CommandResponse.ephemeral so the operator
+        # never sees a brief ephemeral "thinking…" placeholder followed by a
+        # channel-visible reply (or vice-versa). DELIBERATE COUPLING, two
+        # independently name-keyed sites:
+        #   - the defer set below is keyed on the SLASH command ``name``
+        #     (Discord vocab spelling, e.g. ``talk_to`` with an underscore);
+        #   - the handler-set ephemeral lives on CommandResponse, keyed on the
+        #     PARSED command name (``COMMAND_HANDLERS`` uses ``talk-to`` with a
+        #     hyphen — the F7 parser normalizes the slash form).
+        # The three ephemeral commands (whoami/agents/help) spell identically
+        # in both vocabularies, so the two name-keyed sets agree today; keep
+        # them in lockstep if either set changes.
+        _ephemeral_slash_names = {"whoami", "agents", "help"}
+
         def _make_slash_body(name: str) -> Any:
             async def _slash_command(
                 interaction: discord.Interaction,
@@ -872,9 +1031,15 @@ class DiscordPlugin:
             ) -> None:
                 try:
                     # Ack first so Discord doesn't fail the interaction
-                    # while we run dispatch (which may make REST calls).
+                    # while we run dispatch (which may make REST calls). The
+                    # ack ephemerality is keyed on the slash ``name`` (see the
+                    # _ephemeral_slash_names comment): an ephemeral public
+                    # placeholder for the self-only set, a public ("thinking…")
+                    # ack for the channel-affecting set — so there is no
+                    # ephemeral-then-channel flip.
+                    _ack_ephemeral = name in _ephemeral_slash_names
                     try:
-                        await interaction.response.defer(ephemeral=True)
+                        await interaction.response.defer(ephemeral=_ack_ephemeral)
                     except Exception:
                         # If the interaction was already responded to
                         # (defensive — should not happen in our flow),
@@ -996,9 +1161,11 @@ class DiscordPlugin:
             # ── M10 F8 L9: per-guild slash-command sync ──────────────
             #
             # PUT-style replace of the guild-scoped command list against
-            # the current ``tree`` contents. Operator-configured guild
-            # list (``account.config["guilds"]``); absent or empty list
-            # → no guilds get the slash commands registered. Sync
+            # the current ``tree`` contents. As of M11 F14 L02 the guild
+            # list is read from the unified allowlist "Servers" axis
+            # (``account.config["allowlist"]["guilds"]``); absent or
+            # empty list → no guilds get the slash commands registered.
+            # Sync
             # failures (network blip, missing ``applications.commands``
             # scope → :class:`discord.errors.Forbidden`, guild not
             # found) are logged at WARNING and DO NOT propagate — the
@@ -1770,13 +1937,19 @@ class DiscordPlugin:
           ``return list(self._connection._users.values())`` already
           guarantees uniqueness, but the dict-keyed-by-id loop guards
           against scaffold-only duplication and future SDK churn.
-        - ``channels``: every ``GuildChannel`` subclass yielded by
-          ``Client.get_all_channels()`` — TextChannel, VoiceChannel,
-          CategoryChannel, ForumChannel, StageChannel. ``metadata["type"]``
-          carries the channel-type token so L5/L6 can filter to
-          text-postable channels at the render layer. Thread channels
-          are NOT included (``Thread`` is not a ``GuildChannel``); F3
-          defers thread-target discoverability to a future leg.
+        - ``channels``: the message-bearing ``GuildChannel`` subclasses
+          yielded by ``Client.get_all_channels()`` — TextChannel,
+          VoiceChannel, ForumChannel, StageChannel, AnnouncementChannel.
+          ``CategoryChannel`` is EXCLUDED at this enumerate site (Bug E,
+          F14 L3): a category is a container, never a message's channel,
+          so the ACL channel-match can never accept a category id —
+          offering one in any picker silently denies all inbound. The
+          exclusion lives here (substrate-side) so every UI consumer is
+          automatically correct without per-render defensive logic.
+          ``metadata["type"]`` carries the channel-type token for each
+          returned channel. Thread channels are NOT included (``Thread``
+          is not a ``GuildChannel``); F3 defers thread-target
+          discoverability to a future leg.
         - ``groups``: every guild in ``Client.guilds``.
           ``metadata["member_count"]`` falls back to ``0`` when the
           intent-gated ``Guild.member_count`` is ``None``.
@@ -1816,6 +1989,15 @@ class DiscordPlugin:
 
         channels: list[DiscoverableEntity] = []
         for channel in discord_client.get_all_channels():
+            # Bug E (F14 L3): skip CategoryChannel. A category is a
+            # container, never a message's channel, so the ACL
+            # channel-match can never accept its id — offering it in a
+            # picker silently denies all inbound. Use the string form
+            # (matches the ``metadata={"type": str(channel.type)}``
+            # tagging below; the unit-test fakes carry a plain string
+            # ``.type``, so isinstance would not exercise this path).
+            if str(channel.type) == "category":
+                continue
             # Every channel from ``get_all_channels()`` has a guild
             # (the SDK iterates ``for g in self.guilds: yield from
             # g.channels``); no defensive ``getattr`` needed.
