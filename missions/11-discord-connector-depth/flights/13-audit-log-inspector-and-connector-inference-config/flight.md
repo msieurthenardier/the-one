@@ -1,6 +1,6 @@
 # Flight: Audit-log inspector + per-connector inference config + slash-command HAT
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Discord Connector Depth & Robustness](../../mission.md)
 
 ## Contributing to Criteria
