@@ -1,6 +1,6 @@
 # Flight: Slash HAT closure + ACL/slash-sync cluster fix + L4-enhancement test debt
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Discord Connector Depth & Robustness](../../mission.md)
 
 ## Contributing to Criteria
