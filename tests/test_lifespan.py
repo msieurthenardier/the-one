@@ -309,3 +309,78 @@ async def test_lifespan_warm_acquire_skips_accounts_with_no_attached_agents(
     async with lifespan(app):
         # The unattached account was skipped — no warm-acquire fired.
         assert acquire_calls == [], acquire_calls
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# M11 F13 L3 — deprecated inference env-var warning
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+import logging as _logging
+
+
+async def test_lifespan_warns_on_deprecated_inference_env_vars(
+    _isolated_data_dir,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """M11 F13 L3 — when either of the legacy ``THE_ONE_INFERENCE_*``
+    env vars is set in the environment at startup, the lifespan emits
+    exactly one ``WARNING``-level log line directing the operator to
+    the Studio connector editor. The env vars are no longer consumed
+    (Settings.inference_* was removed at F13 L3); the warning is a
+    one-time-at-startup deprecation surface.
+    """
+    from the_one.interfaces.web.app import app, lifespan
+
+    monkeypatch.setenv("THE_ONE_INFERENCE_PROVIDER_CONFIG_ID", "p1")
+    monkeypatch.delenv("THE_ONE_INFERENCE_MODEL", raising=False)
+
+    with caplog.at_level(_logging.WARNING, logger="the_one.interfaces.web.app"):
+        async with lifespan(app):
+            pass
+
+    matching = [
+        r for r in caplog.records
+        if r.levelno == _logging.WARNING
+        and "THE_ONE_INFERENCE_PROVIDER_CONFIG_ID" in r.getMessage()
+    ]
+    assert len(matching) == 1, (
+        "expected exactly one F13 L3 deprecation warning when "
+        "THE_ONE_INFERENCE_PROVIDER_CONFIG_ID is set in the "
+        f"environment; saw {len(matching)} matches in "
+        f"{[r.getMessage() for r in caplog.records]}"
+    )
+
+
+async def test_lifespan_does_not_warn_when_inference_env_vars_unset(
+    _isolated_data_dir,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """M11 F13 L3 — when neither legacy env var is set, the lifespan
+    does NOT emit the deprecation warning. Verifies the warning is
+    silent in the common (post-cleanup) case.
+    """
+    from the_one.interfaces.web.app import app, lifespan
+
+    monkeypatch.delenv("THE_ONE_INFERENCE_PROVIDER_CONFIG_ID", raising=False)
+    monkeypatch.delenv("THE_ONE_INFERENCE_MODEL", raising=False)
+
+    with caplog.at_level(_logging.WARNING, logger="the_one.interfaces.web.app"):
+        async with lifespan(app):
+            pass
+
+    matching = [
+        r for r in caplog.records
+        if r.levelno == _logging.WARNING
+        and (
+            "THE_ONE_INFERENCE_PROVIDER_CONFIG_ID" in r.getMessage()
+            or "THE_ONE_INFERENCE_MODEL" in r.getMessage()
+        )
+    ]
+    assert len(matching) == 0, (
+        "expected zero F13 L3 deprecation warnings when both legacy "
+        "env vars are unset; saw "
+        f"{[r.getMessage() for r in matching]}"
+    )

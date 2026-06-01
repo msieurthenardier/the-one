@@ -210,6 +210,146 @@
     flex-direction: column;
     gap: 4px;
   }
+  /* M11 F13 L5: Routing audit panel — per-session inspector for
+     session_metadata["routing"]. Native <details>/<summary> for
+     keyboard support. Sits between .messages and .input-area inside
+     .chat-chrome. */
+  .area-chat .routing-audit-panel {
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+    font-size: var(--font-size-body-sm);
+    max-height: 280px;
+    overflow-y: auto;
+  }
+  .area-chat .routing-audit-panel details > summary.routing-audit-toggle {
+    cursor: pointer;
+    color: var(--fg-muted);
+    font-family: var(--font-family-mono);
+    letter-spacing: 0.02em;
+    padding: 8px 16px;
+    user-select: none;
+    list-style: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .area-chat .routing-audit-panel details > summary.routing-audit-toggle::-webkit-details-marker { display: none; }
+  .area-chat .routing-audit-panel details > summary.routing-audit-toggle::before {
+    content: '▸';
+    transition: transform 0.15s ease;
+    color: var(--accent);
+    font-size: 0.85em;
+  }
+  .area-chat .routing-audit-panel details[open] > summary.routing-audit-toggle::before {
+    transform: rotate(90deg);
+  }
+  .area-chat .routing-audit-panel details > summary.routing-audit-toggle:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+  .area-chat .routing-audit-header {
+    padding: 0 16px 8px 16px;
+    display: flex;
+    justify-content: flex-end;
+  }
+  .area-chat .routing-audit-refresh:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .area-chat .routing-audit-body {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 0 16px 12px 16px;
+  }
+  .area-chat .routing-audit-empty {
+    color: var(--fg-muted);
+    font-style: italic;
+    padding: 12px 0;
+  }
+  .area-chat .routing-audit-row {
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 6px 10px;
+  }
+  .area-chat .routing-audit-row-summary {
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    list-style: none;
+  }
+  .area-chat .routing-audit-row-summary::-webkit-details-marker { display: none; }
+  .area-chat .routing-audit-ts {
+    color: var(--fg-tertiary);
+    font-family: var(--font-family-mono);
+    font-variant-numeric: tabular-nums;
+  }
+  .area-chat .routing-audit-agent { color: var(--fg); }
+  .area-chat .routing-audit-scope {
+    color: var(--fg-muted);
+    font-family: var(--font-family-mono);
+    text-transform: uppercase;
+    font-size: var(--font-size-tiny);
+    letter-spacing: 0.05em;
+  }
+  .area-chat .routing-audit-reason {
+    color: var(--fg-muted);
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .area-chat .routing-audit-badge {
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-tiny);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--fg-on-accent);
+  }
+  .area-chat .routing-audit-badge--stepped {
+    background: var(--status-success);
+  }
+  .area-chat .routing-audit-badge--command-intercepted {
+    background: var(--accent);
+  }
+  .area-chat .routing-audit-badge--no-eligible {
+    background: var(--status-warning);
+  }
+  .area-chat .routing-audit-badge--policy-silent {
+    background: var(--fg-muted);
+  }
+  .area-chat .routing-audit-expansion {
+    margin: 8px 0 0 0;
+    padding: 8px 12px;
+    background: var(--surface-translucent);
+    border-radius: 4px;
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 4px 12px;
+    font-family: var(--font-family-mono);
+    font-size: var(--font-size-tiny);
+  }
+  .area-chat .routing-audit-expansion dt {
+    color: var(--fg-muted);
+  }
+  .area-chat .routing-audit-expansion dd {
+    margin: 0;
+    color: var(--fg);
+    overflow-wrap: anywhere;
+  }
+  .area-chat .routing-audit-policy {
+    margin: 0;
+    padding-left: 12px;
+    border-left: 2px solid var(--border);
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 4px 12px;
+  }
   .area-chat .msg.system { align-self: center; color: var(--fg-tertiary); font-size: var(--font-size-body-sm); }
   /* M10 F05 L05: visibility distinction for operator-only bubbles. Persisted
      ``Message.visibility == "operator"`` reaches the render layer via the

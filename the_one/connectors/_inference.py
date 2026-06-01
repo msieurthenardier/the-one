@@ -8,16 +8,17 @@ no prompt that projects a filtered slice of session history + the inbound
 text + light contextual scaffolding (channel name, peer name) and parses a
 single-word ``"yes"`` / ``"no"`` answer.
 
-Provider resolution (Flight DD §9 + L7 model-source extension): the inference
-provider is configured via two paired Settings fields —
-``inference_provider_config_id`` (auth + base_url scope, the
+Provider resolution (M11 F13 L3 — connector-scope inference): the inference
+provider is configured per-connector via two paired ``connector.config``
+keys — ``inference_provider_config_id`` (auth + base_url scope, the
 ``LLMProviderConfig`` row id) AND ``inference_model`` (per-call model name).
-Both must be set, or both unset. When both are set, the helper uses them.
-When both are unset, the helper falls back to the routed agent's LLM (the
-L8 dispatcher passes the agent's ``provider_config_id`` AND ``llm_model``
-to :func:`run_engagement_inference` so this module never reaches into the
-agent factory). Partial pairs on either path → log + None (operator
-misconfiguration surfaced as silence per the safe-default discipline).
+Both must be set, or both unset. When both are set on the connector, the
+helper uses them. When both are unset, the helper falls back to the routed
+agent's LLM (the L8 dispatcher passes the agent's ``provider_config_id``
+AND ``llm_model`` to :func:`run_engagement_inference` so this module never
+reaches into the agent factory). Partial pairs on either path → log + None
+(operator misconfiguration surfaced as silence per the safe-default
+discipline).
 
 Safe-default discipline (Flight DD §9): every exceptional outcome —
 provider resolution failure, provider-construction failure, exception during
@@ -36,7 +37,6 @@ from __future__ import annotations
 import logging
 
 from the_one.agent.factory import _PROVIDER_TYPE_MAP
-from the_one.config import Settings
 from the_one.connectors import OPERATOR_VISIBILITY
 from the_one.connectors._pool import _get_account_cache_snapshot
 from the_one.connectors.base import InboundEnvelope
@@ -139,8 +139,10 @@ def _render_history_for_prompt(filtered: list[Message]) -> str:
 
 
 async def _resolve_inference_provider(
-    settings: Settings,
     provider_repo: LLMProviderRepository,
+    *,
+    connector_inference_provider_config_id: str | None,
+    connector_inference_model: str | None,
     fallback_provider_config_id: str | None,
     fallback_llm_model: str | None,
 ) -> LLMProvider | None:
@@ -148,12 +150,13 @@ async def _resolve_inference_provider(
 
     Two paired-fields paths:
 
-    - **Settings path** — both ``settings.inference_provider_config_id`` AND
-      ``settings.inference_model`` must be set. On resolution OR construction
-      failure → return None (does NOT fall back to the fallback path;
-      operator misconfiguration is surfaced via silence + log).
-    - **Settings partial** — one set, one not → log + None.
-    - **Fallback path** — only used when BOTH settings fields are unset.
+    - **Connector path** — both ``connector_inference_provider_config_id``
+      AND ``connector_inference_model`` must be set. On resolution OR
+      construction failure → return None (does NOT fall back to the
+      fallback path; operator misconfiguration is surfaced via silence
+      + log).
+    - **Connector partial** — one set, one not → log + None.
+    - **Fallback path** — only used when BOTH connector kwargs are unset.
       Requires BOTH ``fallback_provider_config_id`` AND
       ``fallback_llm_model``. Partial pair OR either None → None.
 
@@ -164,32 +167,34 @@ async def _resolve_inference_provider(
     ``_PROVIDER_TYPE_MAP`` to ``the_one/llm/registry.py`` if a third caller
     emerges (YAGNI bias from agents.md).
     """
-    settings_id = settings.inference_provider_config_id
-    settings_model = settings.inference_model
-    # Pairing invariant for the settings path.
-    if (settings_id is None) != (settings_model is None):
+    conn_id = connector_inference_provider_config_id
+    conn_model = connector_inference_model
+    # Pairing invariant for the connector path.
+    if (conn_id is None) != (conn_model is None):
         logger.warning(
-            "inference: settings partial pair — "
-            "inference_provider_config_id=%r inference_model=%r "
+            "inference: connector partial pair — "
+            "connector_inference_provider_config_id=%r "
+            "connector_inference_model=%r "
             "(both must be set or both unset)",
-            settings_id,
-            settings_model,
+            conn_id,
+            conn_model,
         )
         return None
 
-    if settings_id is not None:
-        # Settings path wins (and shadows the fallback). Failures here do
-        # NOT escalate to the fallback per DD §9 — operator misconfiguration
-        # surfaces as silence, not as a silent fallback.
-        target_id, target_model = settings_id, settings_model
+    if conn_id is not None:
+        # Connector path wins (and shadows the fallback). Failures here
+        # do NOT escalate to the fallback per DD §9 — operator
+        # misconfiguration surfaces as silence, not as a silent fallback.
+        target_id, target_model = conn_id, conn_model
     elif (
         fallback_provider_config_id is not None
         and fallback_llm_model is not None
     ):
         target_id, target_model = fallback_provider_config_id, fallback_llm_model
     else:
-        # Either both settings unset AND fallback partial / unset, or
-        # both settings unset with no fallback. No inference provider.
+        # Either both connector kwargs unset AND fallback partial /
+        # unset, or both connector kwargs unset with no fallback. No
+        # inference provider.
         return None
 
     try:
@@ -237,8 +242,10 @@ async def run_engagement_inference(
     account: Connector,
     envelope: InboundEnvelope,
     session_messages: list[Message],
-    settings: Settings,
     provider_repo: LLMProviderRepository,
+    *,
+    connector_inference_provider_config_id: str | None,
+    connector_inference_model: str | None,
     fallback_provider_config_id: str | None,
     fallback_llm_model: str | None,
 ) -> bool:
@@ -260,12 +267,16 @@ async def run_engagement_inference(
     - ``envelope`` — the inbound envelope.
     - ``session_messages`` — the session's full message history (filtered
       internally to USER + ASSISTANT-plaintext, last 20).
-    - ``settings`` — :class:`the_one.config.Settings` (provides the
-      inference provider+model pairing).
     - ``provider_repo`` — :class:`the_one.db.repositories.LLMProviderRepository`
       (already constructed by the dispatcher).
+    - ``connector_inference_provider_config_id`` — the per-connector
+      inference provider config id (sourced from ``account.config`` at
+      the dispatcher call site; both None falls through to the fallback).
+    - ``connector_inference_model`` — the per-connector inference model
+      name (sourced from ``account.config`` at the dispatcher call site;
+      both None falls through to the fallback).
     - ``fallback_provider_config_id`` — the routed agent's
-      ``provider_config_id`` (dispatcher passes this when the settings
+      ``provider_config_id`` (dispatcher passes this when the connector
       pair is unset).
     - ``fallback_llm_model`` — the routed agent's ``llm_model``
       (dispatcher passes this alongside the fallback id; both must be
@@ -298,14 +309,15 @@ async def run_engagement_inference(
 
     # 4. Resolve the inference provider per DD §9's paired-fields semantic.
     provider = await _resolve_inference_provider(
-        settings,
         provider_repo,
-        fallback_provider_config_id,
-        fallback_llm_model,
+        connector_inference_provider_config_id=connector_inference_provider_config_id,
+        connector_inference_model=connector_inference_model,
+        fallback_provider_config_id=fallback_provider_config_id,
+        fallback_llm_model=fallback_llm_model,
     )
     if provider is None:
         logger.warning(
-            "inference: no provider available (settings + fallback both "
+            "inference: no provider available (connector + fallback both "
             "unresolved or unconfigured); returning False (silent default)"
         )
         return False

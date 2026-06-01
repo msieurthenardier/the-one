@@ -1,6 +1,6 @@
 # Flight: Hierarchical Allowlist Axes + Snake_Case Identifier Rename (F11 prereq)
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Discord Connector Depth & Robustness](../../mission.md)
 
 > **Post-land extension (2026-05-30)**: F12 was committed as `eb7f04d` with 4 legs landed. Operator subsequently requested a hierarchical-UI alignment around the new substrate — channels/roles become sub-properties of server rows, with auto-cleanup of orphaned legacy entries. Treated as L5 on this flight per `/agentic-workflow` mid-execution-pivot guidance (preserve original framing, add new leg). Flight status flipped `landed` → `in-flight` to accommodate L5. F12 will land again with all 5 legs before push + PR.
@@ -245,7 +245,7 @@ Also in L2: add `### two-symmetric-paths-in-acl` to `the_one/agents.md` Mission-
 
 - [x] L1-L4 legs completed (per `eb7f04d`)
 - [x] L5 leg completed *(post-land extension; completed)*
-- [ ] Code merged
+- [x] Code merged (PR #81 merged as `9f4df4a` on main)
 - [x] Backend test suite: 2754+ passed / 4 skipped / 0 errors / 0 failures (allowing for `TestSchemaV24` + cross-product matrix tests in L3) — final: 2783 passed / 4 skipped / 0 errors
 - [x] Browser test suite: green except 2 pre-existing-main failures (not F12-caused) — final: 443 passed / 2 pre-existing-main failures
 - [x] Migration test suite green including `TestSchemaV24`

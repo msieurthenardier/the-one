@@ -291,8 +291,8 @@ class TestSQLiteAgentStore:
             connector_acls={
                 "acct-a": {
                     "peers": [
-                        {"id": "u1", "dm_allowed": True},
-                        {"id": "u2", "dm_allowed": True},
+                        {"id": "u1"},
+                        {"id": "u2"},
                     ],
                     "channels": [
                         {"guild_id": "g-test", "channel_id": "c1"}
@@ -306,8 +306,8 @@ class TestSQLiteAgentStore:
         assert loaded.connector_acls == {
             "acct-a": {
                 "peers": [
-                    {"id": "u1", "dm_allowed": True},
-                    {"id": "u2", "dm_allowed": True},
+                    {"id": "u1"},
+                    {"id": "u2"},
                 ],
                 "channels": [
                     {"guild_id": "g-test", "channel_id": "c1"}
@@ -324,7 +324,7 @@ class TestSQLiteAgentStore:
             name="acl-agent",
             connector_acls={
                 "acct-c": {
-                    "peers": [{"id": "u9", "dm_allowed": True}],
+                    "peers": [{"id": "u9"}],
                     "channels": [],
                 }
             },
@@ -333,7 +333,7 @@ class TestSQLiteAgentStore:
         loaded2 = await agent_store.load("acl-agent")
         assert loaded2.connector_acls == {
             "acct-c": {
-                "peers": [{"id": "u9", "dm_allowed": True}],
+                "peers": [{"id": "u9"}],
                 "channels": [],
             },
         }
@@ -490,7 +490,7 @@ class TestSQLiteAgentStore:
             name="validator-fires-agent",
             connector_acls={
                 "acct-a": {
-                    "peers": [{"id": "u1", "dm_allowed": True}],
+                    "peers": [{"id": "u1"}],
                     "channels": [],
                 }
             },
@@ -752,10 +752,12 @@ class TestSQLiteAgentStore:
             mcp_source_ids=["mcp1"],
             tool_overrides={"shell": {"timeout": 30}},
             connector_ids=["acct-1"],
-            # M11 F12 L3 — per-agent peers/channels use structured tuples.
+            # M11 F13 L2 — per-agent peers are bare {"id": ...} dicts
+            # (dm_allowed REJECTED at per-agent scope; channels keep
+            # the structured-tuple shape).
             connector_acls={
                 "acct-1": {
-                    "peers": [{"id": "u1", "dm_allowed": True}],
+                    "peers": [{"id": "u1"}],
                     "channels": [{"guild_id": "g-test", "channel_id": "c1"}],
                 }
             },
@@ -776,7 +778,7 @@ class TestSQLiteAgentStore:
         assert loaded.connector_ids == ["acct-1"]
         assert loaded.connector_acls == {
             "acct-1": {
-                "peers": [{"id": "u1", "dm_allowed": True}],
+                "peers": [{"id": "u1"}],
                 "channels": [{"guild_id": "g-test", "channel_id": "c1"}],
             }
         }
@@ -890,19 +892,20 @@ class TestAgentConfigConnectorAclsValidator:
         assert cfg.connector_acls == {"acct-a": {"peers": [], "channels": []}}
 
     def test_populated_per_account_acl_is_valid(self) -> None:
-        """A populated per-account ACL with structured-tuple entries in
-        both axes is valid (subset on both axes).
+        """A populated per-account ACL with structured entries in both
+        axes is valid (subset on both axes).
 
-        M11 F12 L3 — per-agent peers/channels use the structured-tuple
-        shape mirroring account-scope.
+        M11 F13 L2 — per-agent peers are bare ``{"id": ...}`` dicts
+        (``dm_allowed`` REJECTED at per-agent scope); channels keep
+        the structured-tuple shape mirroring account-scope.
         """
         cfg = AgentConfig(
             name="agent",
             connector_acls={
                 "acct-a": {
                     "peers": [
-                        {"id": "u1", "dm_allowed": True},
-                        {"id": "u2", "dm_allowed": True},
+                        {"id": "u1"},
+                        {"id": "u2"},
                     ],
                     "channels": [
                         {"guild_id": "g-test", "channel_id": "c1"}
@@ -913,8 +916,8 @@ class TestAgentConfigConnectorAclsValidator:
         assert cfg.connector_acls == {
             "acct-a": {
                 "peers": [
-                    {"id": "u1", "dm_allowed": True},
-                    {"id": "u2", "dm_allowed": True},
+                    {"id": "u1"},
+                    {"id": "u2"},
                 ],
                 "channels": [
                     {"guild_id": "g-test", "channel_id": "c1"}
@@ -956,20 +959,20 @@ class TestAgentConfigConnectorAclsValidator:
     def test_peers_subset_channels_none_is_valid(self) -> None:
         """Tri-state matrix: peers narrows, channels inherits.
 
-        M11 F12 L3 — peers uses the structured-tuple shape.
+        M11 F13 L2 — per-agent peers are bare ``{"id": ...}`` dicts.
         """
         cfg = AgentConfig(
             name="agent",
             connector_acls={
                 "acct-a": {
-                    "peers": [{"id": "u1", "dm_allowed": True}],
+                    "peers": [{"id": "u1"}],
                     "channels": None,
                 }
             },
         )
         assert cfg.connector_acls == {
             "acct-a": {
-                "peers": [{"id": "u1", "dm_allowed": True}],
+                "peers": [{"id": "u1"}],
                 "channels": None,
             },
         }
@@ -1062,14 +1065,16 @@ class TestAgentConfigConnectorAclsValidator:
         inner dict round-trip verbatim — pins the L8 extension on the
         per-agent ACL surface.
 
-        M11 F12 L3 — peers/channels/roles use the structured-tuple
-        shape mirroring account-scope; guilds stays as list[str].
+        M11 F13 L2 — per-agent peers are bare ``{"id": ...}`` dicts
+        (``dm_allowed`` REJECTED at per-agent scope); channels/roles
+        use the structured-tuple shape mirroring account-scope; guilds
+        stays as list[str].
         """
         cfg = AgentConfig(
             name="agent",
             connector_acls={
                 "acct-a": {
-                    "peers": [{"id": "u1", "dm_allowed": True}],
+                    "peers": [{"id": "u1"}],
                     "channels": [{"guild_id": "g-test", "channel_id": "c1"}],
                     "guilds": ["g1"],
                     "roles": [{"guild_id": "g-test", "role_id": "r1"}],
@@ -1078,7 +1083,7 @@ class TestAgentConfigConnectorAclsValidator:
         )
         assert cfg.connector_acls == {
             "acct-a": {
-                "peers": [{"id": "u1", "dm_allowed": True}],
+                "peers": [{"id": "u1"}],
                 "channels": [{"guild_id": "g-test", "channel_id": "c1"}],
                 "guilds": ["g1"],
                 "roles": [{"guild_id": "g-test", "role_id": "r1"}],
@@ -1110,6 +1115,54 @@ class TestAgentConfigConnectorAclsValidator:
                     }
                 },
             )
+
+
+class TestPerAgentDmAllowedStrictRejection:
+    """M11 F13 L2 — per-agent ``connector_acls[*].peers[*]`` entries
+    REJECT ``dm_allowed`` post-v26 (F12 footgun retirement). The
+    per-peer DM toggle is account-scope only per the F12 L3 DM
+    Composition Truth Table.
+    """
+
+    def test_per_agent_peers_with_dm_allowed_key_rejected(self) -> None:
+        """``AgentConfig(connector_acls={…peers carrying
+        dm_allowed…})`` raises ValidationError citing the F12 footgun
+        retirement.
+        """
+        with pytest.raises(ValidationError) as exc_info:
+            AgentConfig(
+                name="agent",
+                connector_acls={
+                    "acct-a": {
+                        "peers": [{"id": "u1", "dm_allowed": True}],
+                        "channels": [],
+                    },
+                },
+            )
+        msg = str(exc_info.value)
+        assert "dm_allowed" in msg, msg
+        assert (
+            "F12 footgun retirement" in msg or "F13 L2" in msg
+        ), msg
+
+    def test_per_agent_peers_without_dm_allowed_key_accepted(
+        self,
+    ) -> None:
+        """``AgentConfig(connector_acls={…peers as {id}…})``
+        constructs cleanly and round-trips.
+        """
+        cfg = AgentConfig(
+            name="agent",
+            connector_acls={
+                "acct-a": {
+                    "peers": [{"id": "u1"}],
+                    "channels": [],
+                },
+            },
+        )
+        assert cfg.connector_acls == {
+            "acct-a": {"peers": [{"id": "u1"}], "channels": []},
+        }
 
 
 class TestAgentConfigConnectorAlwaysListenValidator:

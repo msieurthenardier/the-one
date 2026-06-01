@@ -2,12 +2,14 @@
 ``run_engagement_inference`` and its three private helpers
 (``_filter_session_history``, ``_render_history_for_prompt``,
 ``_resolve_inference_provider``) per Flight DD §9 + L7 model-source
-extension.
+extension + M11 F13 L3 connector-scope inference relocation.
 
-M11 F7 L7. Stubs the LLM via :class:`the_one.llm.mock.MockProvider`
-(yes/no/garbage/raise paths) and monkeypatches the cache-snapshot
-helper at the ``_inference`` namespace to drive channel-name
-resolution branches without standing up the pool.
+M11 F7 L7 originally; M11 F13 L3 rewrote ``_resolve_inference_provider``
++ ``run_engagement_inference`` signatures (Settings parameter → per-
+connector kwargs sourced from ``account.config``). Stubs the LLM via
+:class:`the_one.llm.mock.MockProvider` (yes/no/garbage/raise paths) and
+monkeypatches the cache-snapshot helper at the ``_inference`` namespace
+to drive channel-name resolution branches without standing up the pool.
 """
 
 from __future__ import annotations
@@ -16,7 +18,6 @@ from typing import Any
 
 import pytest
 
-from the_one.config import Settings
 from the_one.connectors import OPERATOR_VISIBILITY
 from the_one.connectors import _inference as inference_mod
 from the_one.connectors._inference import (
@@ -122,18 +123,6 @@ def _patch_snapshot(
     )
 
 
-def _empty_settings() -> Settings:
-    """Construct a ``Settings`` with the inference pair explicitly unset.
-
-    Bypasses any env var bleed via the explicit kwargs (Pydantic v2 honors
-    them over env-resolved defaults for the call site).
-    """
-    return Settings(
-        inference_provider_config_id=None,
-        inference_model=None,
-    )
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # _filter_session_history
 # ─────────────────────────────────────────────────────────────────────────────
@@ -222,15 +211,11 @@ def test_render_history_for_prompt_ordering() -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-async def test_resolve_inference_provider_uses_settings_when_both_id_and_model_set() -> None:
-    """Both settings fields set → settings path wins; the constructed
-    provider uses settings.inference_model; fallback id/model is ignored
+async def test_resolve_inference_provider_uses_connector_kwargs_when_both_set() -> None:
+    """Both connector kwargs set → connector path wins; the constructed
+    provider uses connector_inference_model; fallback id/model is ignored
     even when also provided.
     """
-    settings = Settings(
-        inference_provider_config_id="prov-a",
-        inference_model="model-a",
-    )
     repo = _StubProviderRepo(
         {
             "prov-a": _mock_provider_config(provider_id="prov-a"),
@@ -239,8 +224,9 @@ async def test_resolve_inference_provider_uses_settings_when_both_id_and_model_s
     )
 
     provider = await _resolve_inference_provider(
-        settings,
         repo,  # type: ignore[arg-type]
+        connector_inference_provider_config_id="prov-a",
+        connector_inference_model="model-a",
         fallback_provider_config_id="prov-b",
         fallback_llm_model="model-b",
     )
@@ -249,58 +235,18 @@ async def test_resolve_inference_provider_uses_settings_when_both_id_and_model_s
     assert provider.model == "model-a"
 
 
-async def test_resolve_inference_provider_returns_none_when_settings_id_set_but_model_unset() -> None:
-    """Partial settings pair (id set, model unset) → log + None. Does NOT
-    silently fall back to the fallback even when the fallback is working.
+async def test_resolve_inference_provider_falls_back_when_connector_kwargs_both_unset() -> None:
+    """Both connector kwargs unset, fallback id + model set → fallback
+    path fires. The constructed provider uses the fallback model.
     """
-    settings = Settings(
-        inference_provider_config_id="prov-a",
-        inference_model=None,
-    )
-    repo = _StubProviderRepo({"prov-b": _mock_provider_config(provider_id="prov-b")})
-
-    provider = await _resolve_inference_provider(
-        settings,
-        repo,  # type: ignore[arg-type]
-        fallback_provider_config_id="prov-b",
-        fallback_llm_model="model-b",
-    )
-
-    assert provider is None
-
-
-async def test_resolve_inference_provider_returns_none_when_settings_model_set_but_id_unset() -> None:
-    """Partial settings pair (model set, id unset) → log + None. Symmetric
-    to the id-set-only case.
-    """
-    settings = Settings(
-        inference_provider_config_id=None,
-        inference_model="model-a",
-    )
-    repo = _StubProviderRepo({"prov-b": _mock_provider_config(provider_id="prov-b")})
-
-    provider = await _resolve_inference_provider(
-        settings,
-        repo,  # type: ignore[arg-type]
-        fallback_provider_config_id="prov-b",
-        fallback_llm_model="model-b",
-    )
-
-    assert provider is None
-
-
-async def test_resolve_inference_provider_falls_back_when_settings_both_unset() -> None:
-    """Both settings unset, fallback id + model set → fallback path fires.
-    The constructed provider uses the fallback model.
-    """
-    settings = _empty_settings()
     repo = _StubProviderRepo(
         {"prov-b": _mock_provider_config(provider_id="prov-b")}
     )
 
     provider = await _resolve_inference_provider(
-        settings,
         repo,  # type: ignore[arg-type]
+        connector_inference_provider_config_id=None,
+        connector_inference_model=None,
         fallback_provider_config_id="prov-b",
         fallback_llm_model="model-b",
     )
@@ -309,15 +255,11 @@ async def test_resolve_inference_provider_falls_back_when_settings_both_unset() 
     assert provider.model == "model-b"
 
 
-async def test_resolve_inference_provider_returns_none_on_settings_resolution_failure_no_fallback() -> None:
-    """Settings path with a missing-in-repo id raises KeyError → helper
+async def test_resolve_inference_provider_returns_none_on_connector_resolution_failure_no_fallback() -> None:
+    """Connector path with a missing-in-repo id raises KeyError → helper
     returns None and does NOT fall back to the working fallback. Operator
     misconfiguration is surfaced as silence per DD §9.
     """
-    settings = Settings(
-        inference_provider_config_id="missing-prov",
-        inference_model="model-a",
-    )
     # Working fallback that WOULD resolve if the helper escalated — but it
     # MUST NOT per DD §9.
     repo = _StubProviderRepo(
@@ -325,8 +267,9 @@ async def test_resolve_inference_provider_returns_none_on_settings_resolution_fa
     )
 
     provider = await _resolve_inference_provider(
-        settings,
         repo,  # type: ignore[arg-type]
+        connector_inference_provider_config_id="missing-prov",
+        connector_inference_model="model-a",
         fallback_provider_config_id="working-prov",
         fallback_llm_model="model-b",
     )
@@ -335,13 +278,15 @@ async def test_resolve_inference_provider_returns_none_on_settings_resolution_fa
 
 
 async def test_resolve_inference_provider_returns_none_when_fallback_id_missing() -> None:
-    """Settings fully unset; fallback id None → None (no provider available)."""
-    settings = _empty_settings()
+    """Connector kwargs fully unset; fallback id None → None (no provider
+    available).
+    """
     repo = _StubProviderRepo({})
 
     provider = await _resolve_inference_provider(
-        settings,
         repo,  # type: ignore[arg-type]
+        connector_inference_provider_config_id=None,
+        connector_inference_model=None,
         fallback_provider_config_id=None,
         fallback_llm_model="model-b",
     )
@@ -350,16 +295,97 @@ async def test_resolve_inference_provider_returns_none_when_fallback_id_missing(
 
 
 async def test_resolve_inference_provider_returns_none_when_fallback_model_missing() -> None:
-    """Settings fully unset; fallback id set but fallback_llm_model None →
-    None. The pairing invariant applies to the fallback path too.
+    """Connector kwargs fully unset; fallback id set but fallback_llm_model
+    None → None. The pairing invariant applies to the fallback path too.
     """
-    settings = _empty_settings()
     repo = _StubProviderRepo({"prov-b": _mock_provider_config(provider_id="prov-b")})
 
     provider = await _resolve_inference_provider(
-        settings,
         repo,  # type: ignore[arg-type]
+        connector_inference_provider_config_id=None,
+        connector_inference_model=None,
         fallback_provider_config_id="prov-b",
+        fallback_llm_model=None,
+    )
+
+    assert provider is None
+
+
+async def test_resolve_inference_provider_returns_none_when_connector_id_set_but_model_unset() -> None:
+    """Partial connector pair (id set, model unset) → log + None.
+
+    Mirrors the F7-era settings-partial-pair test, at the new layer.
+    Pairing invariant applies to the connector path.
+    """
+    repo = _StubProviderRepo({"prov-b": _mock_provider_config(provider_id="prov-b")})
+
+    provider = await _resolve_inference_provider(
+        repo,  # type: ignore[arg-type]
+        connector_inference_provider_config_id="prov-a",
+        connector_inference_model=None,
+        fallback_provider_config_id="prov-b",
+        fallback_llm_model="model-b",
+    )
+
+    assert provider is None
+
+
+async def test_resolve_inference_provider_returns_none_when_connector_model_set_but_id_unset() -> None:
+    """Partial connector pair (model set, id unset) → log + None.
+
+    Symmetric to the id-set-only case.
+    """
+    repo = _StubProviderRepo({"prov-b": _mock_provider_config(provider_id="prov-b")})
+
+    provider = await _resolve_inference_provider(
+        repo,  # type: ignore[arg-type]
+        connector_inference_provider_config_id=None,
+        connector_inference_model="model-a",
+        fallback_provider_config_id="prov-b",
+        fallback_llm_model="model-b",
+    )
+
+    assert provider is None
+
+
+async def test_resolve_inference_provider_uses_connector_kwargs_over_working_fallback() -> None:
+    """Connector kwargs fully set AND fallback fully set → connector path
+    wins; the fallback is ignored even when both would resolve cleanly.
+
+    This is the "connector-wins-shadows-fallback" semantic (renamed from
+    F7's settings-wins shape; same precedence semantic at the new layer).
+    """
+    repo = _StubProviderRepo(
+        {
+            "prov-a": _mock_provider_config(provider_id="prov-a"),
+            "prov-b": _mock_provider_config(provider_id="prov-b"),
+        }
+    )
+
+    provider = await _resolve_inference_provider(
+        repo,  # type: ignore[arg-type]
+        connector_inference_provider_config_id="prov-a",
+        connector_inference_model="model-a",
+        fallback_provider_config_id="prov-b",
+        fallback_llm_model="model-b",
+    )
+
+    assert isinstance(provider, MockProvider)
+    assert provider.model == "model-a"
+
+
+async def test_resolve_inference_provider_returns_none_when_both_paths_unconfigured() -> None:
+    """Connector kwargs None AND fallback None → None. Full both-paths-
+    silence coverage (bridges what's currently scattered across the per-
+    path partial tests).
+    """
+    repo = _StubProviderRepo({})
+
+    provider = await _resolve_inference_provider(
+        repo,  # type: ignore[arg-type]
+        connector_inference_provider_config_id=None,
+        connector_inference_model=None,
+        fallback_provider_config_id=None,
         fallback_llm_model=None,
     )
 
@@ -380,11 +406,13 @@ async def _patch_resolver_returning(
     """
 
     async def _fake_resolver(
-        _settings: Settings,
         _repo: Any,
-        _fb_id: str | None,
-        _fb_model: str | None,
+        **_kwargs: Any,
     ) -> LLMProvider | None:
+        # **_kwargs absorbs all four keyword-only params
+        # (connector_inference_*, fallback_*) without pinning their
+        # names — keeps the fake forward-compatible with future kwarg
+        # additions and avoids drift if the signature evolves.
         return provider
 
     monkeypatch.setattr(
@@ -406,8 +434,9 @@ async def test_run_engagement_inference_returns_true_on_yes(
         _account(),
         _envelope(),
         [],
-        _empty_settings(),
         _StubProviderRepo(),  # type: ignore[arg-type]
+        connector_inference_provider_config_id=None,
+        connector_inference_model=None,
         fallback_provider_config_id=None,
         fallback_llm_model=None,
     )
@@ -429,8 +458,9 @@ async def test_run_engagement_inference_returns_false_on_no(
         _account(),
         _envelope(),
         [],
-        _empty_settings(),
         _StubProviderRepo(),  # type: ignore[arg-type]
+        connector_inference_provider_config_id=None,
+        connector_inference_model=None,
         fallback_provider_config_id=None,
         fallback_llm_model=None,
     )
@@ -452,8 +482,9 @@ async def test_run_engagement_inference_returns_false_on_garbage(
         _account(),
         _envelope(),
         [],
-        _empty_settings(),
         _StubProviderRepo(),  # type: ignore[arg-type]
+        connector_inference_provider_config_id=None,
+        connector_inference_model=None,
         fallback_provider_config_id=None,
         fallback_llm_model=None,
     )
@@ -480,8 +511,9 @@ async def test_run_engagement_inference_returns_false_on_multiword_response(
         _account(),
         _envelope(),
         [],
-        _empty_settings(),
         _StubProviderRepo(),  # type: ignore[arg-type]
+        connector_inference_provider_config_id=None,
+        connector_inference_model=None,
         fallback_provider_config_id=None,
         fallback_llm_model=None,
     )
@@ -505,8 +537,9 @@ async def test_run_engagement_inference_returns_true_on_yes_with_surrounding_whi
         _account(),
         _envelope(),
         [],
-        _empty_settings(),
         _StubProviderRepo(),  # type: ignore[arg-type]
+        connector_inference_provider_config_id=None,
+        connector_inference_model=None,
         fallback_provider_config_id=None,
         fallback_llm_model=None,
     )
@@ -547,8 +580,9 @@ async def test_run_engagement_inference_returns_false_on_provider_exception(
         _account(),
         _envelope(),
         [],
-        _empty_settings(),
         _StubProviderRepo(),  # type: ignore[arg-type]
+        connector_inference_provider_config_id=None,
+        connector_inference_model=None,
         fallback_provider_config_id=None,
         fallback_llm_model=None,
     )
@@ -562,22 +596,19 @@ async def test_run_engagement_inference_returns_false_on_provider_resolution_fai
     """provider_repo.get raises during resolution → function returns False.
 
     Exercises the real ``_resolve_inference_provider`` path (no resolver
-    monkeypatch) with a settings-path provider id that the repo doesn't
+    monkeypatch) with a connector-path provider id that the repo doesn't
     know about.
     """
     _patch_snapshot(monkeypatch, None)
-    settings = Settings(
-        inference_provider_config_id="missing",
-        inference_model="model-a",
-    )
     repo = _StubProviderRepo({})  # empty — every lookup raises
 
     result = await run_engagement_inference(
         _account(),
         _envelope(),
         [],
-        settings,
         repo,  # type: ignore[arg-type]
+        connector_inference_provider_config_id="missing",
+        connector_inference_model="model-a",
         fallback_provider_config_id=None,
         fallback_llm_model=None,
     )
@@ -613,10 +644,6 @@ async def test_run_engagement_inference_end_to_end_happy_path(
     """
     _patch_snapshot(monkeypatch, None)
 
-    settings = Settings(
-        inference_provider_config_id="prov-a",
-        inference_model="model-a",
-    )
     repo = _StubProviderRepo(
         {
             "prov-a": _mock_provider_config(
@@ -636,8 +663,9 @@ async def test_run_engagement_inference_end_to_end_happy_path(
         _account(),
         _envelope(),
         messages,
-        settings,
         repo,  # type: ignore[arg-type]
+        connector_inference_provider_config_id="prov-a",
+        connector_inference_model="model-a",
         fallback_provider_config_id=None,
         fallback_llm_model=None,
     )
@@ -672,8 +700,9 @@ async def test_run_engagement_inference_uses_channel_id_when_cache_miss(
         _account(),
         _envelope(channel_id="ch-raw-id"),
         [],
-        _empty_settings(),
         _StubProviderRepo(),  # type: ignore[arg-type]
+        connector_inference_provider_config_id=None,
+        connector_inference_model=None,
         fallback_provider_config_id=None,
         fallback_llm_model=None,
     )
@@ -715,8 +744,9 @@ async def test_run_engagement_inference_uses_cache_label_when_present(
         _account(),
         _envelope(channel_id="ch-1"),
         [],
-        _empty_settings(),
         _StubProviderRepo(),  # type: ignore[arg-type]
+        connector_inference_provider_config_id=None,
+        connector_inference_model=None,
         fallback_provider_config_id=None,
         fallback_llm_model=None,
     )
@@ -763,8 +793,9 @@ async def test_run_engagement_inference_filters_history_before_prompt(
         _account(),
         _envelope(),
         messages,
-        _empty_settings(),
         _StubProviderRepo(),  # type: ignore[arg-type]
+        connector_inference_provider_config_id=None,
+        connector_inference_model=None,
         fallback_provider_config_id=None,
         fallback_llm_model=None,
     )

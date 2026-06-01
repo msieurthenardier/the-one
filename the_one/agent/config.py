@@ -293,10 +293,10 @@ class AgentConfig(BaseModel):
         structured-tuple shape mirroring the account-scope allowlist
         validator in :mod:`the_one.db.models`:
 
-          - ``peers``: ``list[{id: str, dm_allowed: bool}]`` (per-agent
-            ``dm_allowed`` is structurally uniform with account-scope
-            but NOT consulted by the ACL helpers — DM admission is
-            decided at account scope per the F12 L3 Truth Table)
+          - ``peers``: ``list[{id: str}]`` (post-F13 L2: ``dm_allowed``
+            is REJECTED on per-agent peer entries — the F12 footgun is
+            retired; DM admission is decided exclusively at account-
+            scope per-peer)
           - ``channels``: ``list[{guild_id: str, channel_id: str}]``
             — ``channel_id`` may be the wildcard sentinel ``"*"`` meaning
             "any channel of this guild" (M11 F12 L5)
@@ -372,24 +372,32 @@ class AgentConfig(BaseModel):
                                 f"{type(item).__name__}"
                             )
                 elif key == "peers":
-                    # peers: list[{id: str, dm_allowed: bool}].
+                    # M11 F13 L2 — per-agent peers entries are bare
+                    # ``{id: str}`` dicts. The ``dm_allowed`` field is
+                    # REJECTED (F12 footgun retirement; the per-peer
+                    # DM toggle is account-scope only per the F12 L3
+                    # DM Composition Truth Table).
                     for i, item in enumerate(value_at_key):
                         if not isinstance(item, dict):
                             raise ValueError(
                                 f"connector_acls[{account_id!r}]"
                                 f"['peers'][{i}] must be a dict with "
-                                f"keys {{'id', 'dm_allowed'}}; got "
+                                f"key {{'id'}}; got "
                                 f"{type(item).__name__}"
                             )
                         item_keys = set(item.keys())
-                        extra_keys = item_keys - {"id", "dm_allowed"}
+                        extra_keys = item_keys - {"id"}
                         if extra_keys:
                             raise ValueError(
                                 f"connector_acls[{account_id!r}]"
                                 f"['peers'][{i}] has unexpected keys: "
-                                f"{sorted(extra_keys)}"
+                                f"{sorted(extra_keys)} — per-agent "
+                                f"peer entries must not carry "
+                                f"'dm_allowed' (the per-peer DM "
+                                f"toggle is account-scope only; F12 "
+                                f"footgun retirement, F13 L2)"
                             )
-                        missing_keys = {"id", "dm_allowed"} - item_keys
+                        missing_keys = {"id"} - item_keys
                         if missing_keys:
                             raise ValueError(
                                 f"connector_acls[{account_id!r}]"
@@ -402,13 +410,6 @@ class AgentConfig(BaseModel):
                                 f"['peers'][{i}]['id'] must be a "
                                 f"string; got "
                                 f"{type(item['id']).__name__}"
-                            )
-                        if not isinstance(item["dm_allowed"], bool):
-                            raise ValueError(
-                                f"connector_acls[{account_id!r}]"
-                                f"['peers'][{i}]['dm_allowed'] must be "
-                                f"a bool; got "
-                                f"{type(item['dm_allowed']).__name__}"
                             )
                 elif key == "channels":
                     # M11 F12 L5 — channels:

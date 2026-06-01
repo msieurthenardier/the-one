@@ -97,6 +97,14 @@ App.registerArea({
     // Insert telemetry overlay between .messages and .input-area.
     chromeEl.insertBefore(App.chat.renderTelemetry(), chromeEl.querySelector('.input-area'));
 
+    // M11 F13 L5: routing-audit panel — collapsible inspector for
+    // session_metadata["routing"] entries. Mounts between .messages and
+    // .input-area so it shares the chat-chrome flexbox column without
+    // overlapping the message list scroll region. Populated in the
+    // session_joined handler below from data.session_metadata.
+    var routingAuditPanelEl = App.chat.routingAuditPanel.create();
+    chromeEl.insertBefore(routingAuditPanelEl, chromeEl.querySelector('.input-area'));
+
     function updateAgentBadge(name) { agentBadgeEl.textContent = name || 'default'; }
 
     // M08 F6 L06 HAT fix: smart-scroll. Only auto-scroll to the bottom when
@@ -857,6 +865,12 @@ App.registerArea({
           hideThinking();
           App.chat.resetTelemetry(content);
           renderHistory(data.history, data.agent_name);
+          // M11 F13 L5: render the routing audit panel from the join
+          // payload's session_metadata and wire the Refresh button to
+          // re-fetch via REST.
+          var routing = (data.session_metadata && data.session_metadata.routing) || [];
+          App.chat.routingAuditPanel.render(routingAuditPanelEl, routing);
+          App.chat.routingAuditPanel.wireRefresh(routingAuditPanelEl, data.session_id);
           setSessionHealth(data.status || 'ok');
           // Sync per-session busy state to server ground truth
           // (`is_session_processing(session.id)`). Without this,
@@ -921,6 +935,9 @@ App.registerArea({
             messagesEl.innerHTML = '';
             setSessionHealth('ok');
             syncDropdownToCurrent();
+            // M11 F13 L5: clear the routing audit panel back to empty
+            // state when the current session is deleted.
+            App.chat.routingAuditPanel.render(routingAuditPanelEl, []);
             // Don't auto-create — session_list refresh below picks the fallback.
           }
           refreshSessionList();

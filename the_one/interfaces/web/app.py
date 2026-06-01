@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import os
 import uuid
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -110,8 +111,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # the test-seam contract documented in `_stub.py` (production code
     # MUST NOT import that module — but the test seam is the explicit
     # opt-in path).
-    import os
-
     if settings.dev_mode and os.environ.get("THE_ONE_REGISTER_STUB_CONNECTOR") == "1":
         from the_one.connectors._stub import StubPlugin
         from the_one.connectors.registry import register_for_test
@@ -170,6 +169,27 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.exception(
             "Connector-account warm-acquire pass at startup failed entirely; "
             "individual accounts may stay offline until first outbound triggers acquire"
+        )
+
+    # M11 F13 L3 — Settings.inference_provider_config_id +
+    # Settings.inference_model were removed; per-connector inference
+    # configuration now lives on the connector.config row (added by the
+    # v26 migration; edited per-connector via the Studio connector
+    # editor at F13 L4). If the operator's environment still sets either
+    # legacy env var (e.g. carried over in docker-compose.yml from the
+    # F7 L12 HAT), surface a one-time deprecation warning so the dead
+    # env var is visible without breaking startup.
+    _legacy_pid = os.environ.get("THE_ONE_INFERENCE_PROVIDER_CONFIG_ID")
+    _legacy_model = os.environ.get("THE_ONE_INFERENCE_MODEL")
+    if _legacy_pid or _legacy_model:
+        logger.warning(
+            "THE_ONE_INFERENCE_PROVIDER_CONFIG_ID and/or "
+            "THE_ONE_INFERENCE_MODEL is set in the environment, "
+            "but those env vars are no longer consulted (F13 L3 "
+            "removed Settings.inference_*). Per-connector "
+            "inference LLM configuration now lives on the "
+            "connector.config row; edit per-connector via the "
+            "Studio connector editor."
         )
 
     yield
@@ -277,6 +297,12 @@ class Session:
     # carry None. The storage-edge shim in _process_and_broadcast
     # reads this field to gate operator-visibility tagging.
     platform: str | None = None
+    # M11 F13 L5: routing-audit-inspector hydration. The dispatcher's
+    # session_metadata["routing"] writes go to the DB via
+    # ChatSessionRepository.append_to_session_metadata. The Chat UI
+    # routing-audit panel reads from this in-memory snapshot via the
+    # session_joined WS payload; Refresh button re-fetches from REST.
+    session_metadata: dict[str, Any] | None = None
 
     def add_event(self, event: dict[str, Any]) -> None:
         self.history.append(event)
@@ -580,6 +606,10 @@ async def _restore_session(session_id: str) -> RestoredSession:
         # truth across rejoins. Drives the WS storage-edge shim gate in
         # ``_process_and_broadcast`` + ``_resume_paused_session``.
         existing.platform = db_session.platform
+        # M11 F13 L5: refresh the routing-audit snapshot from the DB row
+        # so the next session_joined payload carries the latest entries
+        # the dispatcher has written via append_to_session_metadata.
+        existing.session_metadata = db_session.session_metadata
         return RestoredSession(existing, SESSION_STATUS_OK, db_session)
 
     session = Session(
@@ -592,6 +622,10 @@ async def _restore_session(session_id: str) -> RestoredSession:
         # M10 F05 L04: surface the persisted connector-attachment state to
         # the in-memory Session so the WS storage-edge shim can gate on it.
         platform=db_session.platform,
+        # M11 F13 L5: surface session_metadata so _build_session_joined_ok
+        # can ship the routing-audit entries in the join payload without a
+        # separate REST round-trip.
+        session_metadata=db_session.session_metadata,
     )
     _sessions[session_id] = session
     return RestoredSession(session, SESSION_STATUS_OK, db_session)
@@ -673,6 +707,9 @@ def _build_session_joined_ok(session: Session) -> dict[str, Any]:
         "agent_name": session.agent_name,
         "history": session.history,
         "is_processing": is_processing,
+        # M11 F13 L5: ship the routing-audit snapshot so the Chat UI
+        # panel renders on join without a separate REST round-trip.
+        "session_metadata": session.session_metadata,
     }
 
 
@@ -699,6 +736,9 @@ async def _build_session_joined_degraded(restored: RestoredSession) -> dict[str,
         "title": db.title,
         "agent_name": db.agent_name,
         "history": ui_events,
+        # M11 F13 L5: ship the routing-audit snapshot on the degraded
+        # path too — db: ChatSessionModel already carries the field.
+        "session_metadata": db.session_metadata,
     }
 
 

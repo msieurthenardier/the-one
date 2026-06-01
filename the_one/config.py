@@ -18,19 +18,6 @@ class Settings(BaseSettings):
     # Paths
     data_dir: Path = Path.home() / ".the-one"
 
-    # M11 F7 L7: inference provider + model for the engagement-policy gate.
-    # When BOTH are set, the L8 dispatcher gate at decision-tree step 4 uses
-    # this provider+model for the inference call ("does this message warrant
-    # an agent response?"). When BOTH are unset, falls back to the routed
-    # agent's configured LLM (the dispatcher passes the agent's llm_model
-    # alongside the provider id). Partial pairs (only id OR only model set)
-    # are operator misconfiguration — surfaced as silence per Flight DD §9's
-    # safe-default discipline (the inference helper logs + returns None).
-    # Backed by env vars ``THE_ONE_INFERENCE_PROVIDER_CONFIG_ID`` and
-    # ``THE_ONE_INFERENCE_MODEL``.
-    inference_provider_config_id: str | None = None
-    inference_model: str | None = None
-
     @property
     def agents_dir(self) -> Path:
         return self.data_dir / "agents"

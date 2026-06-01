@@ -1613,9 +1613,9 @@ class TestConnectorPairingCodeAndAttached:
                 "connector_acls": {
                     account_id: {
                         "peers": [
-                            {"id": "u1", "dm_allowed": True},
-                            {"id": "u2", "dm_allowed": True},
-                            {"id": "u3", "dm_allowed": True},
+                            {"id": "u1"},
+                            {"id": "u2"},
+                            {"id": "u3"},
                         ],
                         "channels": [
                             {"guild_id": "g-test", "channel_id": "c1"},
@@ -1663,9 +1663,9 @@ class TestConnectorPairingCodeAndAttached:
             {
                 "name": "agent-with-acl",
                 "peers": [
-                    {"id": "u1", "dm_allowed": True},
-                    {"id": "u2", "dm_allowed": True},
-                    {"id": "u3", "dm_allowed": True},
+                    {"id": "u1"},
+                    {"id": "u2"},
+                    {"id": "u3"},
                 ],
                 "channels": [
                     {"guild_id": "g-test", "channel_id": "c1"},
@@ -1706,7 +1706,7 @@ class TestConnectorPairingCodeAndAttached:
                 "connector_ids": [account_id],
                 "connector_acls": {
                     account_id: {
-                        "peers": [{"id": "u1", "dm_allowed": True}],
+                        "peers": [{"id": "u1"}],
                         "channels": [],
                     },
                 },
@@ -1729,7 +1729,7 @@ class TestConnectorPairingCodeAndAttached:
             },
             {
                 "name": "agent-b",
-                "peers": [{"id": "u1", "dm_allowed": True}],
+                "peers": [{"id": "u1"}],
                 "channels": [],
                 "peers_count": 1,
                 "channels_count": 0,
@@ -2607,3 +2607,114 @@ class TestChatSessionAPI:
         await client.post("/api/chat/sessions", json={"agent_name": "a2"})
         resp = await client.get("/api/chat/sessions?agent_name=a1")
         assert len(resp.json()) == 1
+
+    async def test_get_session_includes_session_metadata(
+        self, client: AsyncClient, tmp_path
+    ) -> None:
+        """The detail endpoint composition exposes session_metadata; the
+        shared _session_summary helper continues NOT to leak it (covered
+        by the sibling list test). M11 F13 L5.
+
+        The PUT path round-trips session_metadata through Pydantic's
+        ``model_copy(update=data)`` but the repository's ``update``
+        emits a column-list INSERT-OR-REPLACE that does NOT include
+        ``session_metadata`` (PUT was scoped to title/message-stream
+        edits at design time). Cycle-1 medium follow-up: seed via the
+        repository's ``set_session_metadata_key`` primitive, which is
+        the production write path that the routing dispatcher uses
+        through its sibling ``append_to_session_metadata``.
+        """
+        from the_one.db.repositories import ChatSessionRepository
+        from the_one.interfaces.web import api as api_module
+
+        await client.post("/api/agents", json={"name": "agent-meta"})
+        resp = await client.post(
+            "/api/chat/sessions",
+            json={"agent_name": "agent-meta", "title": "Meta Test"},
+        )
+        assert resp.status_code == 201
+        session_id = resp.json()["id"]
+
+        # Newly-created session has no session_metadata yet → detail returns null.
+        resp = await client.get(f"/api/chat/sessions/{session_id}")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "session_metadata" in body, (
+            "detail-endpoint composition must surface the key even when value is null"
+        )
+        assert body["session_metadata"] is None
+
+        # Seed a routing entry via the repository primitive used by the
+        # production dispatcher (the WS path uses
+        # ``append_to_session_metadata``; this set_session_metadata_key
+        # path overwrites the whole "routing" key — equivalent for the
+        # read-back assertion).
+        conn = api_module.get_connection.return_value  # patched fixture
+        await ChatSessionRepository(conn).set_session_metadata_key(
+            session_id,
+            "routing",
+            [
+                {
+                    "ts": "2026-05-31T00:00:00",
+                    "agent": "agent-meta",
+                    "rule_index": 0,
+                    "scope": "channel",
+                    "match": None,
+                    "reason": "test seed",
+                    "disposition": "stepped",
+                }
+            ],
+        )
+
+        resp = await client.get(f"/api/chat/sessions/{session_id}")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["session_metadata"] is not None
+        assert "routing" in body["session_metadata"]
+        assert len(body["session_metadata"]["routing"]) == 1
+        assert body["session_metadata"]["routing"][0]["disposition"] == "stepped"
+
+    async def test_list_sessions_excludes_session_metadata(
+        self, client: AsyncClient
+    ) -> None:
+        """The list endpoint's shared _session_summary helper does NOT
+        leak session_metadata — preserves the architect cycle-1 correction
+        (composition-only-on-detail). M11 F13 L5."""
+        from the_one.db.repositories import ChatSessionRepository
+        from the_one.interfaces.web import api as api_module
+
+        await client.post("/api/agents", json={"name": "agent-list-meta"})
+        resp = await client.post(
+            "/api/chat/sessions",
+            json={"agent_name": "agent-list-meta", "title": "List-Meta Test"},
+        )
+        assert resp.status_code == 201
+        session_id = resp.json()["id"]
+
+        # Seed a session_metadata via the repository primitive so a
+        # hypothetical leaky helper would have non-null data to expose.
+        conn = api_module.get_connection.return_value  # patched fixture
+        await ChatSessionRepository(conn).set_session_metadata_key(
+            session_id,
+            "routing",
+            [
+                {
+                    "ts": "2026-05-31T00:00:00",
+                    "agent": "agent-list-meta",
+                    "rule_index": 0,
+                    "scope": "channel",
+                    "match": None,
+                    "reason": "list seed",
+                    "disposition": "stepped",
+                }
+            ],
+        )
+
+        resp = await client.get("/api/chat/sessions")
+        assert resp.status_code == 200
+        items = resp.json()
+        assert any(item["id"] == session_id for item in items), "seeded session missing from list"
+        for item in items:
+            assert "session_metadata" not in item, (
+                f"list endpoint must not expose session_metadata; got {sorted(item.keys())}"
+            )

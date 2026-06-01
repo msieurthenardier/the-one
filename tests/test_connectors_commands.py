@@ -41,6 +41,7 @@ from the_one.connectors.base import InboundEnvelope
 from the_one.db.models import ChatSession, Connector
 from the_one.db.repositories import ChatSessionRepository
 from the_one.db.schema import ensure_schema
+from tests._acl_shape_helpers import _to_v24_shape
 
 
 class TestParseCommand:
@@ -259,33 +260,6 @@ def _envelope(
         text=text,
         raw={},
     )
-
-
-def _to_v24_shape(allowlist: dict) -> dict:
-    """Translate flat-shape allowlist to the v24 structured-tuple shape
-    (M11 F12 L3). Mirrors the helper in ``test_connectors_acl.py``."""
-    result = dict(allowlist)
-    if "peers" in result and isinstance(result["peers"], list):
-        result["peers"] = [
-            entry if isinstance(entry, dict)
-            else {"id": entry, "dm_allowed": True}
-            for entry in result["peers"]
-        ]
-    if "channels" in result and isinstance(result["channels"], list):
-        result["channels"] = [
-            entry if isinstance(entry, dict)
-            else {"guild_id": None, "channel_id": entry}
-            for entry in result["channels"]
-        ]
-    if "roles" in result and isinstance(result["roles"], list):
-        result["roles"] = [
-            entry if isinstance(entry, dict)
-            else {"guild_id": None, "role_id": entry}
-            for entry in result["roles"]
-        ]
-    if result.get("dm_admission") == "allowlisted-peers-only":
-        result["dm_admission"] = "admin-approved"
-    return result
 
 
 def _account(
