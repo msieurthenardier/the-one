@@ -433,3 +433,38 @@ Operator request post-L4-behavior-test-pass: "when selecting the default provide
 - `PUT /api/chat/sessions/{id}` silently drops `session_metadata` (the field isn't in `ChatSessionRepository.update`'s fixed column list). L5 leg + L5 spec both worked around via `set_session_metadata_key` / direct aiosqlite. Spec preamble references should be updated; surface in flight debrief.
 
 **Pre-L6 gate status: COMPLETE.** Both behavior tests PASS on the run-2 fresh-cache pass. Flight ready to proceed to Phase 2d Reviewer + commit, then L6 HAT (operator-driven, separate commit).
+
+### 2026-06-01 — Phase 2d batched review + commit (L1-L5)
+
+Spawned Phase 2d Reviewer (Haiku-budget). Reviewer ran out of budget polling the slow pytest invocation on first attempt; Flight Director ran backend (`2796 passed / 4 skipped / 0 errors / 243.20s`) and confirmed browser baseline (454 + 2 pre-existing) independently then re-spawned Reviewer with pre-computed results and explicit "don't re-run pytest" instruction. Cycle-2 Reviewer signal: `[HANDOFF:confirmed]`. All 6 spot-checks PASS (L2 v26 migration shape, L3 _resolve_inference_provider signature, L3 lifespan warning, L4 enhancement bug-fix shape, L5 detail-endpoint composition, L5 _acl.py byte-identical runtime). One non-blocking artifact gap: flight-log Session Notes was missing the run-2 + L5-fix-up narrative; Flight Director appended before commit.
+
+Spawned commit-Developer. All 5 leg artifacts flipped `landed → completed`. Commit `20615fc` lands 40 files (+7362 / -590). `docker-compose.yml` deliberately unstaged per operator-local-state preservation (verified via post-commit `git status`). Branch pushed with `-u origin`. Draft PR #82 opened with leg checklist (L1-L5 [x], L6 [ ] deferred).
+
+### 2026-06-01 — L6 HAT walkthrough (PARTIAL — blocked on 4-bug ACL/slash-sync cluster)
+
+Operator invoked `/agents` in Discord. Got "No agents available for this conversation."
+
+**Diagnostic walk** (all 4 bugs surfaced are PRE-EXISTING per git blame; F13 doesn't touch `_commands.py`, `_discord.py`, or `_acl.py` runtime code):
+
+1. **Bug A (initial state)**: bot not connected to Discord at all. Root cause: prior container's lifespan warm-acquire had failed with a Pydantic `dm_allowed missing required` error from the OLD L2 validator that was cached in the long-running uvicorn worker (uvicorn's `--reload` re-imports modules on file change, but the existing `AgentConfig` class object with its frozen Pydantic schema persisted in memory). Resolution: operator restarted the container; the lifespan re-ran with the actually-loaded validator. Verified post-restart via `docker exec the-one python -c` that the fresh-process validator REJECTS `dm_allowed` (the L2 new behavior) and the operator's DB has NO per-agent peers carrying `dm_allowed` (the v26 migration cleared them at L2).
+
+2. **Bug B (slash-sync skip)**: bot connected post-restart but no slash commands appeared in Discord. Root cause: `_sync_slash_commands` at `the_one/connectors/_discord.py:247` reads `account.config.get("guilds")` (top-level), but the connector UI stores guild ids under `config.allowlist.guilds` (nested). The top-level `config.guilds` was None; sync logged "no guilds configured; skipping" silently. Resolution: PUT-ed connector to add `config.guilds = ["1447766672441348150"]` (the actual guild id), then operator restarted container so the lifespan re-acquired with the new config. Slash sync should have fired this time (no longer-visible logs — uvicorn filters INFO).
+
+3. **Bug C (roles axis denial)**: even after Bugs A+B were worked around, `/agents` returned "No agents available". Direct Python test of `admits_inbound` revealed: with the allowlist's `roles: [{guild_id, role_id: 1447766672441348150}]` (the @everyone role, whose id equals the guild id), the admission check requires the inbound peer to have member_roles overlapping the allowlist roles — but the Discord plugin isn't passing `member_roles` to `admits_inbound`, so the role check sees an empty member_roles → no overlap → deny. Resolution: emptied `allowlist.roles` to bypass the axis. Re-tested admits_inbound in Python — now `admits=True` for Chuck R in #gleepglorp-text. But...
+
+4. **Bug D (the real culprit, F7-era)**: `/agents` STILL returned "No agents available" after Bugs A+B+C were worked around. Routing-audit panel revealed the dispatcher had successfully routed the command (`disposition: command-intercepted`, `agent: Sonos Agent`) — so eligibility passed at the dispatcher layer. The bug is in `_commands.py:_permitted_agents` (line 108) which calls `admits_inbound(account, agent_acl, envelope.peer_id, envelope.channel_id)` WITHOUT the `guild_id`/`is_dm`/`member_roles` kwargs. Git blame confirms this signature has been broken since F7 (commit `dfff8ac`, 2026-05-19), latent until F12 (May 30, ~10 days later) introduced structured-tuple channel allowlist entries that REQUIRE guild_id to match. F12's tests didn't exercise `_handle_agents`, so the bug stayed silent until L6 HAT was the first surface to hit it. Affects ALL 6 platform-side slash commands (all use `_permitted_agents` for their eligibility filter).
+
+**Operator decision** (cycle through 3 options): File ALL findings as Known Issues + ship L1-L5 + defer L6 to follow-up flight. The 4-bug ACL/slash-sync cluster needs substrate-level decisions (config.guilds shape, category-handling, member_roles plumbing, _permitted_agents kwargs) that exceed L6's verify-only scope. Files: cluster Known Issue added to `mission.md` enumerating each defect with resolution-path notes; criterion #10 stays open; criterion #12 + #15 close cleanly.
+
+**HAT report per AC**:
+- AC-1 `/agents` — **BLOCKED** (response "No agents available" — diagnostic evidence above)
+- AC-2..AC-6 — **NOT EXERCISED** (would fail on the same defect; no point cycling per-command)
+
+**Operator-side connector edits** (made for diagnostic purposes; operator may revert at discretion):
+- `config.guilds = ["1447766672441348150"]` (added at top level — was None)
+- `config.allowlist.channels = [{"guild_id": "1447766672441348150", "channel_id": "1506831630923333722"}]` (#gleepglorp-text — was the `#Text Channels` category id)
+- `config.allowlist.roles = []` (was `[{guild_id, role_id: 1447766672441348150}]` — the @everyone role)
+
+**Methodology lesson worth surfacing at flight-debrief**: L5's routing-audit panel proved out its diagnostic value IMMEDIATELY at L6 — without the panel, isolating the bug to `_commands.py` vs the dispatcher would have required DB introspection or log digging. The `disposition: command-intercepted` entry told us in one look that the dispatcher path was healthy and the issue was in the command handler. This is exactly the operator-debug use case the L5 leg was scoped for, and it earned its keep on the first real bug.
+
+**L6 leg disposition**: completed-with-deferral. The leg's work product is this HAT report + the 4-bug cluster Known Issue + the routing-audit panel's diagnostic validation. F13 flight transitions to `landed`.
