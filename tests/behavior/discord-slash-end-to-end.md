@@ -1,9 +1,9 @@
 # Behavior Test: Discord Slash Commands End-to-End (F14)
 
 **Slug**: `discord-slash-end-to-end`
-**Status**: draft
+**Status**: active
 **Created**: 2026-06-01
-**Last Run**: never
+**Last Run**: 2026-06-01-18-39-11 (PASS 7/7 — after L11/L12/L13 inline-HAT fixes)
 
 ## Intent
 

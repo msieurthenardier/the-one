@@ -606,18 +606,27 @@ class TestHandleTalkTo:
         session = await chat_repo.get("session-1")
         assert session.session_metadata == {"routing_override": "bravo"}
 
-    async def test_multiple_args_only_first_consumed(self, chat_repo) -> None:
-        """``/talk-to alice extra`` → handler reads ``args[0]`` only."""
+    async def test_multiple_args_joined_as_agent_name(self, chat_repo) -> None:
+        """``/talk-to alice extra`` → handler joins ALL tokens.
+
+        Pre-fix, ``args[0]`` truncated to the first token.  Bug G.2
+        changes the target to ``" ".join(args)`` so a multi-word agent
+        name (e.g. "Sonos Agent") is matched whole.  This test drives a
+        two-token agent name ("alice extra" as a single registered agent)
+        to pin the full-join contract; see also
+        ``TestBugGMultiWordAgentFix`` below for the canonical regression.
+        """
         await _seed_chat_session(chat_repo)
+        # Register the full two-word name so the ACL check passes.
         ctx = _build_context(
-            eligible=[_agent("alice")],
+            eligible=[_agent("alice extra")],
             chat_repo=chat_repo,
             args=["alice", "extra"],
         )
         response = await _handle_talk_to(ctx)
-        assert response.text == "Now routing your messages to alice."
+        assert response.text == "Now routing your messages to alice extra."
         session = await chat_repo.get("session-1")
-        assert session.session_metadata == {"routing_override": "alice"}
+        assert session.session_metadata == {"routing_override": "alice extra"}
 
     async def test_second_talk_to_overwrites_first(self, chat_repo) -> None:
         """Pins ``set_session_metadata_key``'s last-writer-wins
@@ -809,3 +818,126 @@ class TestDispatchBuiltinCommand:
         assert response.text == "Now routing your messages to alice."
         # After dispatch, the handler observed args via context.
         assert ctx["args"] == ["alice"]
+
+
+# ─────────────────────────────────────────────────────────────────
+# M11 F14 L12: Bug G regression tests
+# ─────────────────────────────────────────────────────────────────
+
+
+class TestBugGHandlerKeyMismatch:
+    """Regression for Bug G.1 — ``talk_to`` (underscore, Discord slash
+    form) must reach the ``talk-to`` (hyphen) handler.
+
+    Pre-fix (G.1): ``_HANDLERS.get("talk_to")`` → ``None`` → fall-through to
+    ``agent.step``.  Post-fix (G.1): the underscore→hyphen normalisation in
+    ``_dispatch_builtin_command`` routes the underscore form to
+    ``_handle_talk_to``.
+
+    NOTE (Bug H, M11 F14 L13): the G.1 normalisation is now a
+    belt-and-suspenders backstop.  The PRIMARY fix is in
+    ``_build_slash_envelope`` (_discord.py): the synthesized envelope text
+    is already hyphenated (``/talk-to …``) before ``_parse_command`` runs, so
+    the underscore form NEVER reaches ``_dispatch_builtin_command`` via the
+    real Discord slash path.  The normalisation here guards against any future
+    direct-call site that bypasses the envelope layer.  Coverage is retained;
+    do NOT remove these tests.
+    """
+
+    async def test_talk_to_underscore_routes_to_handler(self, chat_repo) -> None:
+        """``_dispatch_builtin_command("talk_to", ...)`` must NOT return
+        ``None`` — it must route to ``_handle_talk_to`` and produce a
+        valid ``CommandResponse``.
+
+        Tests the belt-and-suspenders normalisation layer directly (bypasses
+        ``_parse_command``).  In the real Discord slash path the envelope text
+        is already hyphenated by ``_build_slash_envelope``, so this path is
+        exercised only by direct callers, not by the live dispatch chain.
+        """
+        await _seed_chat_session(chat_repo)
+        ctx = _build_context(
+            eligible=[_agent("alpha")],
+            chat_repo=chat_repo,
+        )
+        result = await _dispatch_builtin_command("talk_to", ["alpha"], ctx)
+        # Pre-fix: result is None (fall-through).
+        # Post-fix: result is a CommandResponse from _handle_talk_to.
+        assert result is not None
+        assert isinstance(result, CommandResponse)
+        assert result.text == "Now routing your messages to alpha."
+
+    async def test_talk_hyphen_still_resolves(self, chat_repo) -> None:
+        """The hyphen form (``talk-to``) continues to route correctly —
+        the exact-match path in ``_HANDLERS.get`` is not disrupted."""
+        await _seed_chat_session(chat_repo)
+        ctx = _build_context(
+            eligible=[_agent("alpha")],
+            chat_repo=chat_repo,
+        )
+        result = await _dispatch_builtin_command("talk-to", ["alpha"], ctx)
+        assert result is not None
+        assert result.text == "Now routing your messages to alpha."
+
+    async def test_unknown_underscore_command_still_falls_through(self) -> None:
+        """An unknown command that happens to contain an underscore (e.g.
+        ``foo_bar``) must still return ``None`` after both the exact and
+        normalised lookups miss."""
+        ctx = _build_context(eligible=[_agent("alpha")])
+        result = await _dispatch_builtin_command("foo_bar", [], ctx)
+        assert result is None
+
+
+class TestBugGMultiWordAgentFix:
+    """Regression for Bug G.2 — ``_handle_talk_to`` joins all ``args``
+    tokens so a multi-word agent name (e.g. "Sonos Agent") is passed
+    whole to the ACL check and ``set_session_metadata_key``.
+
+    Pre-fix: ``target = args[0]`` → "Sonos" → "No such agent…".
+    Post-fix: ``target = " ".join(args)`` → "Sonos Agent" → routed.
+    """
+
+    async def test_multiword_agent_name_routes_correctly(self, chat_repo) -> None:
+        """``args=["Sonos", "Agent"]`` with a permitted agent named
+        ``"Sonos Agent"`` must return the routing confirmation and write
+        ``routing_override="Sonos Agent"``."""
+        await _seed_chat_session(chat_repo)
+        ctx = _build_context(
+            eligible=[_agent("Sonos Agent")],
+            chat_repo=chat_repo,
+            args=["Sonos", "Agent"],
+        )
+        response = await _handle_talk_to(ctx)
+        # Pre-fix: "No such agent or you don't have permission: Sonos"
+        # Post-fix: the confirmation echoing the full name.
+        assert response.text == "Now routing your messages to Sonos Agent."
+        assert response.ephemeral is False
+        session = await chat_repo.get("session-1")
+        assert session.session_metadata == {"routing_override": "Sonos Agent"}
+
+    async def test_single_word_agent_still_works(self, chat_repo) -> None:
+        """``" ".join(["alice"]) == "alice"`` — single-word names are
+        unaffected by the join."""
+        await _seed_chat_session(chat_repo)
+        ctx = _build_context(
+            eligible=[_agent("alice")],
+            chat_repo=chat_repo,
+            args=["alice"],
+        )
+        response = await _handle_talk_to(ctx)
+        assert response.text == "Now routing your messages to alice."
+        session = await chat_repo.get("session-1")
+        assert session.session_metadata == {"routing_override": "alice"}
+
+    async def test_multiword_agent_truncated_name_denied(self, chat_repo) -> None:
+        """Confirm the pre-fix failure mode is gone: "Sonos" alone is NOT
+        a permitted agent when only "Sonos Agent" is eligible."""
+        await _seed_chat_session(chat_repo)
+        ctx = _build_context(
+            eligible=[_agent("Sonos Agent")],
+            chat_repo=chat_repo,
+            args=["Sonos"],  # single token — truncated form
+        )
+        response = await _handle_talk_to(ctx)
+        # "Sonos" is not in permitted agents → error (not a routing confirmation).
+        assert "No such agent" in response.text
+        assert "Sonos" in response.text

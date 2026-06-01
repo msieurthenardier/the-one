@@ -112,9 +112,11 @@ _CLOSE_TASK_TIMEOUT_SECONDS: float = 5.0
 # commands. Discord application command names CANNOT contain hyphens
 # (regex ``^[-_\p{L}\p{N}\p{Devanagari}\p{Thai}]{1,32}$`` per the API
 # rejects the literal hyphen for ASCII names) — ``talk-to`` is therefore
-# registered as ``talk_to``. The F7 ``_parse_command`` text parser
-# whitespace-splits the envelope text we synthesize (``/talk_to my-agent``)
-# so the registered name and the dispatcher-side ``command_name`` agree.
+# registered as ``talk_to``. ``_build_slash_envelope`` hyphenates the
+# ``command_name`` before synthesizing the envelope text (see Bug H fix,
+# M11 F14 L13) so the text passed to the F7 ``_parse_command`` is
+# ``/talk-to my-agent`` (hyphen) — matching the ``_HANDLERS`` key — even
+# though the Discord-registered name uses an underscore.
 # ``handle_command`` itself returns ``None`` for all six in L9 — the
 # dispatcher falls through to the F7 built-in handler; native ephemeral
 # customization (e.g. ephemeral ``/help``) is deferred to F10 hardening.
@@ -157,11 +159,18 @@ def _build_slash_envelope(
     11 sees the same fields it does for text-prefix commands:
 
     - ``text`` synthesizes the F7 text-prefix form (``/<name>`` plus the
-      whitespace-prefixed ``args`` payload when non-empty). The F7
-      ``_parse_command`` is whitespace-split, so a registered name of
-      ``talk_to`` with ``args="my-agent"`` produces the envelope text
-      ``/talk_to my-agent`` and the dispatcher pulls ``command_name=
-      "talk_to"``, ``args=["my-agent"]``.
+      whitespace-prefixed ``args`` payload when non-empty). Discord slash
+      command names cannot contain hyphens, so ``talk_to`` is the
+      registered Discord name — but ``_parse_command`` only accepts
+      ``[a-z0-9-]`` in the name tail (underscore is excluded and causes
+      ``_parse_command`` to return ``None``, so the envelope would never
+      reach the built-in handler). To bridge the gap, the synthesized
+      ``text`` hyphenates the command name via
+      ``command_name.replace("_", "-")``, so ``talk_to`` with
+      ``args="my-agent"`` produces envelope text ``/talk-to my-agent``
+      and the dispatcher pulls ``command_name="talk-to"``,
+      ``args=["my-agent"]``. The other five v1 commands have no
+      underscore so the replacement is a no-op for them.
     - ``peer_id`` / ``peer_name`` from ``interaction.user``.
     - ``channel_id`` from ``interaction.channel_id`` (the channel /
       thread / DM channel the interaction was invoked in). When the
@@ -210,8 +219,17 @@ def _build_slash_envelope(
     # ``/help`` with no argument becomes ``/help`` (not ``/help ``); the
     # dispatcher's parser tolerates trailing whitespace either way but
     # the canonical form avoids audit-log noise.
+    #
+    # Hyphenate the command name: Discord slash-command names cannot contain
+    # hyphens so ``talk_to`` is the registered Discord name, but
+    # ``_parse_command`` rejects underscore (``_NAME_TAIL_CHARS`` is
+    # ``[a-z0-9-]`` only) and returns None — routing falls through to
+    # agent.step instead of the built-in handler.  Replacing ``_`` with
+    # ``-`` bridges the Discord vocab to the F7 parser vocab.  The other
+    # five v1 commands have no underscore so the replacement is a no-op.
+    cmd_text = command_name.replace("_", "-")
     args_str = (args or "").strip()
-    text = f"/{command_name}" if not args_str else f"/{command_name} {args_str}"
+    text = f"/{cmd_text}" if not args_str else f"/{cmd_text} {args_str}"
 
     return InboundEnvelope(
         platform="discord",
@@ -266,8 +284,17 @@ async def _sync_slash_commands(
         return
 
     for guild_id in guild_ids_raw:
+        # Commands are registered globally via ``tree.command(...)`` with no
+        # ``guild=`` argument (see :1064-1067).  ``tree.sync(guild=g)`` PUTs
+        # only the *per-guild* bucket for ``g``, which starts empty.
+        # ``tree.copy_global_to(guild=g)`` copies the global registry into
+        # ``g``'s bucket so the subsequent per-guild sync includes all six
+        # commands.  Must be called per-iteration because each guild has its
+        # own bucket.
+        guild_obj = discord.Object(id=int(guild_id))
         try:
-            await tree.sync(guild=discord.Object(id=int(guild_id)))
+            tree.copy_global_to(guild=guild_obj)
+            await tree.sync(guild=guild_obj)
         except Exception as exc:
             # Forbidden (missing applications.commands scope), HTTP
             # errors, guild not found — none of these should crash the

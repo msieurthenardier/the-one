@@ -298,6 +298,12 @@ class _StubCommandTree:
         self.commands: list[dict[str, Any]] = []
         # Each entry: ``discord.Object`` wrapper instance.
         self.sync_calls: list[Any] = []
+        # Ordered log of ALL calls (copy_global_to + sync) for ordering
+        # assertions.  Each entry is a tuple: ("copy", guild_obj) or
+        # ("sync", guild_obj).
+        self.call_log: list[tuple[str, Any]] = []
+        # Per-guild buckets populated by copy_global_to; keyed by guild id.
+        self.guild_buckets: dict[int, list[dict[str, Any]]] = {}
         type(self).instances.append(self)
 
     def command(self, *, name: str, description: str) -> Any:
@@ -309,9 +315,20 @@ class _StubCommandTree:
             return coro
         return _decorator
 
+    def copy_global_to(self, *, guild: Any) -> None:
+        """Copy the global command list into the per-guild bucket.
+
+        Mirrors ``discord.app_commands.CommandTree.copy_global_to`` — copies
+        the current global commands into the guild-scoped registry so that a
+        subsequent ``tree.sync(guild=guild)`` includes them.
+        """
+        self.call_log.append(("copy", guild))
+        self.guild_buckets[guild.id] = list(self.commands)
+
     async def sync(self, *, guild: Any = None) -> list[Any]:
         cls = type(self)
         self.sync_calls.append(guild)
+        self.call_log.append(("sync", guild))
         if cls.sync_should_raise:
             raise cls.sync_should_raise.pop(0)
         return []
@@ -2992,6 +3009,94 @@ async def test_connect_int_coerces_string_guild_id_for_sync(
         await plugin.disconnect(client)
 
 
+async def test_sync_copies_global_commands_into_each_guild_before_sync(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression for Bug F (M11 F14 L11): ``tree.copy_global_to(guild=g)``
+    must be called before ``tree.sync(guild=g)`` for every configured guild.
+
+    Root cause: commands are registered globally via ``tree.command(...)``
+    (no ``guild=``).  ``tree.sync(guild=g)`` PUTs only the per-guild bucket
+    for ``g``, which starts empty — so without the copy, Discord receives 0
+    commands ("This application has no commands").
+
+    This test would FAIL against the pre-fix code:
+    - Pre-fix: ``copy_global_to`` is never called → guild buckets remain empty
+      → assertion on ``guild_buckets[id]`` fails (KeyError) or contains [].
+    - Post-fix: ``copy_global_to`` populates each bucket with the 6 global
+      commands before ``tree.sync`` is called → assertion passes.
+
+    Also asserts call ORDER: copy must precede sync per guild.
+    """
+    _patch_discord(monkeypatch)
+
+    encryptor = _make_encryptor()
+    plugin = DiscordPlugin()
+    guild_ids = ["111000111", "222000222"]
+    account = Connector(
+        id="acct-l11-bug-f",
+        name="Discord L11 Bug F",
+        type="discord",
+        config={
+            "allowlist": {
+                "guilds": guild_ids,
+                "peers": [],
+                "channels": [],
+            }
+        },
+        secrets={"BOT_TOKEN": "token"},
+    )
+
+    client = await plugin.connect(account, encryptor)
+    try:
+        tree = _StubCommandTree.instances[0]
+
+        # 6 global commands were registered (mirrors :1064-1067).
+        assert len(tree.commands) == 6, (
+            f"expected 6 globally registered commands, got {len(tree.commands)}"
+        )
+
+        # Every configured guild must have had its bucket populated BEFORE sync.
+        for gid_str in guild_ids:
+            gid = int(gid_str)
+            assert gid in tree.guild_buckets, (
+                f"guild {gid}: copy_global_to was never called "
+                "(guild bucket missing — pre-fix behaviour)"
+            )
+            assert len(tree.guild_buckets[gid]) == 6, (
+                f"guild {gid}: expected 6 commands in guild bucket after "
+                f"copy_global_to, got {len(tree.guild_buckets[gid])}"
+            )
+
+        # Call ordering: for each guild, copy must appear before sync in the
+        # call_log.  Both must appear exactly once per guild.
+        for gid_str in guild_ids:
+            gid = int(gid_str)
+            copy_indices = [
+                i for i, (op, g) in enumerate(tree.call_log)
+                if op == "copy" and g.id == gid
+            ]
+            sync_indices = [
+                i for i, (op, g) in enumerate(tree.call_log)
+                if op == "sync" and g.id == gid
+            ]
+            assert len(copy_indices) == 1, (
+                f"guild {gid}: expected exactly 1 copy_global_to call, "
+                f"got {len(copy_indices)}"
+            )
+            assert len(sync_indices) == 1, (
+                f"guild {gid}: expected exactly 1 sync call, "
+                f"got {len(sync_indices)}"
+            )
+            assert copy_indices[0] < sync_indices[0], (
+                f"guild {gid}: copy_global_to must be called BEFORE sync "
+                f"(copy at log index {copy_indices[0]}, "
+                f"sync at log index {sync_indices[0]})"
+            )
+    finally:
+        await plugin.disconnect(client)
+
+
 async def test_slash_command_body_dispatches_envelope(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -3068,7 +3173,10 @@ async def test_slash_command_body_dispatches_envelope(
         assert envelope.peer_name == "Alice"
         # Synthesized F7 text-prefix form — args appended after a single
         # space; the dispatcher's ``_parse_command`` whitespace-splits.
-        assert envelope.text == "/talk_to my-agent"
+        # Bug H fix: the envelope text uses the HYPHENATED form (``/talk-to``,
+        # not ``/talk_to``) so ``_parse_command`` can parse it — underscore
+        # is outside ``_NAME_TAIL_CHARS`` and would cause parse → None.
+        assert envelope.text == "/talk-to my-agent"
         # raw carries the F8 L6 + L8 keys.
         assert envelope.raw["is_dm"] is False
         assert envelope.raw["guild_id"] == "4242"
@@ -3078,6 +3186,84 @@ async def test_slash_command_body_dispatches_envelope(
         assert envelope.raw["interaction_followup_token"] == "tok-talk-to"
     finally:
         await plugin.disconnect(client)
+
+
+def test_build_slash_envelope_talk_to_hyphenates_command_name() -> None:
+    """``_build_slash_envelope`` with ``command_name="talk_to"`` produces
+    envelope text ``/talk-to ...`` (hyphen, not underscore).
+
+    Bug H root cause: ``_parse_command`` accepts only ``[a-z0-9-]`` in the
+    command name tail — underscore is outside that set and causes
+    ``_parse_command`` to return ``None``, so the envelope never reaches the
+    built-in handler.  The fix is in ``_build_slash_envelope``: hyphenate the
+    ``command_name`` before synthesising the text.
+
+    This test exercises the REAL parse path (G.1's blind spot): it calls
+    ``_build_slash_envelope`` and then feeds the resulting text through
+    ``_parse_command``, asserting the round-trip succeeds.
+
+    Would FAIL pre-fix (text ``/talk_to Sonos Agent`` → _parse_command → None).
+    PASSes post-fix (text ``/talk-to Sonos Agent`` → _parse_command → ok).
+    """
+    from the_one.connectors._commands import _parse_command
+    from the_one.connectors._discord import _build_slash_envelope
+
+    interaction = _make_interaction(
+        user_id=999,
+        display_name="Tester",
+        channel_id=1234,
+        guild_id=5678,
+        token="tok-regression",
+    )
+
+    envelope = _build_slash_envelope(
+        interaction=interaction,
+        account_id="acct-regression",
+        command_name="talk_to",
+        args="Sonos Agent",
+    )
+
+    # 1. The envelope text must be hyphenated so _parse_command can parse it.
+    assert envelope.text == "/talk-to Sonos Agent", (
+        f"Expected '/talk-to Sonos Agent' but got {envelope.text!r}; "
+        "Bug H: underscore in command_name breaks _parse_command"
+    )
+
+    # 2. Feed the text through _parse_command — must parse cleanly (not None).
+    parsed = _parse_command(envelope.text)
+    assert parsed is not None, (
+        f"_parse_command({envelope.text!r}) returned None; "
+        "the envelope text must survive the parse layer to reach the handler"
+    )
+    cmd_name, cmd_args = parsed
+    assert cmd_name == "talk-to"
+    assert cmd_args == ["Sonos", "Agent"]
+
+
+def test_build_slash_envelope_non_underscore_commands_unchanged() -> None:
+    """Commands without underscores (``agents``, ``whoami``, etc.) are
+    unaffected by the Bug H hyphenation — ``replace("_", "-")`` is a no-op
+    when there are no underscores.
+    """
+    from the_one.connectors._commands import _parse_command
+    from the_one.connectors._discord import _build_slash_envelope
+
+    for cmd in ("agents", "whoami", "new", "reset", "help"):
+        interaction = _make_interaction()
+        envelope = _build_slash_envelope(
+            interaction=interaction,
+            account_id="acct-test",
+            command_name=cmd,
+            args="",
+        )
+        # text must be ``/agents``, ``/whoami``, etc. — no transformation.
+        assert envelope.text == f"/{cmd}", (
+            f"Expected '/{cmd}' but got {envelope.text!r}"
+        )
+        # And it must still parse cleanly.
+        parsed = _parse_command(envelope.text)
+        assert parsed is not None
+        assert parsed[0] == cmd
 
 
 async def test_slash_command_body_handles_empty_args(

@@ -374,4 +374,88 @@ Spec-only leg — authored ONE behavior-test spec; no production code, no driver
 
 ## Session Notes
 
-(empty — populated during execution)
+### L10 HAT outcome (2026-06-01) — criterion #10 NOT closed; flight does NOT land
+- **Execution-mode note**: this session lost agent-continuation (`SendMessage`) — verified by registry search + a probe agent that ran to completion rather than awaiting continuation. Behavior tests ran in one-shot-Executor + one-shot-Validator mode (Witnessed separation preserved; no per-step intervention). Operator-approved.
+- **Test 1 `connector-inference-provider-config-roundtrip`: PASS 8/8** (run log `runs/2026-06-01-16-55-14.md`). Regression gate green — F14's `_commands`/`_inbound`/`_acl`/`base` changes did not regress the F13 inference-config round-trip. Cosmetic side-finding: provider display name "Antrhopic" is a typo of "Anthropic".
+- **Test 2 `audit-log-inspector-renders-routing-entries`: DEFERRED (not run).** Seeding a stable session blocked by the live environment: real sessions drift under live bot traffic (a `stepped` entry appended mid-seed), and a freshly-created message-less session did not persist `session_metadata` via PUT (an F13-L5/repo quirk: `repo.update` left `session_metadata=None` despite a 200). Neither is an F14 regression. Given test 1 already confirmed the substrate and the panel-render code is untouched by F14, deferred to a fast-follow.
+- **Test 3 `discord-slash-end-to-end`: FAIL 0/7** (run log `runs/2026-06-01-17-08-00.md`). **Root cause: the bot's slash commands are NOT registered as Discord application commands** — `/` autocomplete shows none of the six; all invocations fell through to the text-prefix `on_message` path (channel-visible, never ephemeral). Most likely the bot lacks the `applications.commands` OAuth scope → `tree.sync` Forbidden (consistent with F13 L6 also only ever seeing channel-visible text-prefix replies; app logs not in `docker logs` so unconfirmed directly). L2's read is correct (`allowlist.guilds` = the test guild) — the blocker is downstream of L2.
+  - **CONFIRMED working**: L1 Bug D fix — `/agents` lists "Sonos Agent" with channel-history before/after evidence (May 31 "No agents available" → Jun 1 lists the agent). The flight's headline cluster fix is verified against real Discord.
+  - **NEW bugs surfaced (text-prefix path, pre-existing)**: (1) `/talk_to` underscore unrecognized (only `/talk-to` hyphen parsed); (2) `/talk-to <multi-word agent>` parses only the first token ("Sonos Agent" → "Sonos"). Likely moot under real slash invocation (single named arg) but live while slash registration is broken. (The L7 design review pre-flagged the talk_to/talk-to spelling split.)
+- **Disposition (initial)**: criterion #10 stays OPEN; flight stays `in-flight`; PR #83 stays draft.
+
+### L10 slash HAT RE-RUN (2026-06-01-17-42-40) after operator re-invited bot with `applications.commands` + restarted — STILL FAIL 0/7
+- Slash commands STILL absent from Discord autocomplete after the re-invite + container restart. So the missing-scope hypothesis did NOT pan out (or the scope still isn't effectively granted). `/agents` again lists "Sonos Agent" (L1 fix still confirmed); `/talk_to` underscore still no-reply; everything still text-prefix + channel-visible.
+- **Code read (FD)**: the connect path DOES add all 6 commands to the `CommandTree` (`_discord.py:1064-1067`) and DOES call `_sync_slash_commands(tree, account)` after READY (`:1147`); post-L2 it reads `account.config.allowlist.guilds`. So the registration logic is present and correct on its face.
+- **Observability gap blocking diagnosis**: `docker logs the-one` captures ONLY uvicorn lines + WS open/close — NONE of the connector's `logger.info/warning` output (no gateway/READY/slash-sync/Forbidden lines at all). So I cannot see whether `_sync_slash_commands` read an empty guild list at connect time vs `tree.sync` raised Forbidden vs the connector connected with a stale account config. App-level logging is not reaching stdout/stderr that docker captures — itself a gap that hampers any slash-sync diagnosis.
+- **Hypotheses still open** (need instrumentation to distinguish): (a) bot still lacks effective `applications.commands` authorization (re-invite didn't take); (b) `_sync_slash_commands` reads empty guilds at connect because the `account` object the connect path uses differs from the API-visible config (stale/cached account, or connect happens before the config is in the expected shape); (c) `tree.sync` raises silently. The operator is checking Discord → Server Settings → Integrations → GleepGlorp → Commands to narrow registered-but-hidden vs not-registered.
+- **Assessment**: this is a genuine defect investigation in the connect→slash-sync path (or bot authorization), NOT a quick fix, and is hampered by the app-log-capture gap. Criterion #10 cannot close tonight. The flight's committed code (L1–L9) remains correct + suites green + L1 verified live. Recommending criterion #10 (slash HAT) be carried to a focused follow-up: (1) fix app-log capture so the connector's connect/sync logs are visible; (2) instrument/diagnose why slash-sync registers nothing; (3) fold in the 2 `/talk_to` text-prefix bugs. Flight stays `in-flight`; PR #83 stays draft pending operator direction.
+
+### L11 Bug F leg progress (2026-06-01) — `copy_global_to` fix landed
+
+**Root cause (diagnosed + confirmed live at L10 HAT):** commands are registered globally via `tree.command(name=..., description=...)` (no `guild=`), so they live in discord.py's global registry. But `_sync_slash_commands` called `tree.sync(guild=discord.Object(id=...))` without first copying the global commands into the per-guild bucket. `tree.sync(guild=g)` PUTs only the per-guild bucket for `g`, which starts empty — so Discord received 0 commands ("This application has no commands"). The standalone in-container diagnostic confirmed: `tree.sync(guild=...)` on a global-only tree returns 0 commands; adding `tree.copy_global_to(guild=...)` first → all 6 registered.
+
+**Fix applied (`_discord.py`):** in `_sync_slash_commands`'s per-guild loop, build `guild_obj = discord.Object(id=int(guild_id))` once per iteration, then call `tree.copy_global_to(guild=guild_obj)` BEFORE `await tree.sync(guild=guild_obj)`. Both calls are wrapped by the existing per-guild `try/except` (Forbidden/HTTPException → WARNING + continue). Docstring updated to explain the global→guild copy requirement.
+
+**Regression test added (`tests/test_connectors_discord.py`):** `test_sync_copies_global_commands_into_each_guild_before_sync` — drives a full `plugin.connect()` with two configured guilds and asserts: (a) each guild's bucket in `_StubCommandTree.guild_buckets` is populated with all 6 commands (would KeyError pre-fix); (b) `call_log` ordering confirms `copy_global_to` precedes `sync` per guild. `_StubCommandTree` extended with `copy_global_to` (populates `guild_buckets`) and a `call_log` list recording all `("copy"|"sync", guild_obj)` tuples in order. Existing tests unchanged (stub is backward-compatible; `sync` still records `sync_calls` and `call_log`).
+
+**Test counts:** discord module: 91 passed (was 90, +1). Full backend: 2812 passed, 4 skipped (was 2811, +1). 0 errors, 0 orphans.
+
+**Pending (at re-HAT, not this leg):** container restart + Discord autocomplete verification — 6 commands appear in `/` + Server Settings → Integrations lists them. L11 status: `landed`.
+
+### L12 Bug G leg progress (2026-06-01) — `/talk_to` handler-miss + multi-word agent name (landed)
+
+Two `/talk_to`-specific defects, both confirmed live at L10 and pre-flagged at the L7 design review, are fixed. Files touched: `the_one/connectors/_commands.py` and `tests/test_connectors_commands.py` only.
+
+**Fix 1 — handler-key mismatch (Bug G.1, "stuck thinking" cause):** `_dispatch_builtin_command` previously did `handler = _HANDLERS.get(command_name)`. Discord slash names cannot contain hyphens so the slash form is `talk_to` (underscore), but `_HANDLERS` keys on `"talk-to"` (hyphen) — the lookup returned `None` and fell through to `agent.step`, causing the "thinking…" ack to never resolve. Fixed: `handler = _HANDLERS.get(command_name) or _HANDLERS.get(command_name.replace("_", "-"))` — tries the exact key first (no-op for the other 5 commands which have no underscore/hyphen mismatch), then normalises underscore→hyphen. A comment at the lookup site explains the Discord-names-use-underscore / v1-vocab-uses-hyphen split. Unknown commands with an underscore (e.g. `foo_bar`) still return `None` (both lookups miss). The other 5 commands are unaffected.
+
+**Fix 2 — multi-word agent name truncation (Bug G.2):** `_handle_talk_to` previously set `target = args[0]`, so "Sonos Agent" (two tokens after parsing) became "Sonos" → "No such agent or you don't have permission: Sonos". Fixed: `target = " ".join(args)` (the agent slug is the rest of the command line). The empty-args Usage guard (`if not args: return CommandResponse(text="Usage: /talk-to <agent-slug>")`) is kept BEFORE the join. Docstring updated to document the full-join contract and the slash-body re-parse reason for multi-word tokenisation. Single-word names are unaffected (`" ".join(["alice"]) == "alice"`).
+
+**Existing test updated:** `TestHandleTalkTo::test_multiple_args_only_first_consumed` encoded the OLD `args[0]` behavior and would have passed pre-fix / failed post-fix (inverted sense). Updated to `test_multiple_args_joined_as_agent_name`: registers a two-word agent `"alice extra"` and asserts that args `["alice", "extra"]` routes to it (confirming the full-join), keeping the same functional structure.
+
+**Regression tests added:**
+- `TestBugGHandlerKeyMismatch` (3 tests): (a) `_dispatch_builtin_command("talk_to", ["alpha"], ctx)` returns a non-None `CommandResponse` and routes correctly — pre-fix: returns `None`; (b) hyphen form `"talk-to"` still resolves (exact-match path unaffected); (c) unknown underscore command `"foo_bar"` still falls through to `None`.
+- `TestBugGMultiWordAgentFix` (3 tests): (a) `_handle_talk_to` with `args=["Sonos","Agent"]` and a permitted agent `"Sonos Agent"` returns "Now routing your messages to Sonos Agent." and writes `routing_override="Sonos Agent"` — pre-fix: "No such agent … Sonos"; (b) single-word name still works; (c) a single-token `"Sonos"` is correctly DENIED when only `"Sonos Agent"` is permitted (confirms the pre-fix failure mode is eliminated).
+
+**Test counts:**
+- Targeted `tests/test_connectors_commands.py`: **62 passed** (was 50 — +6 new regression tests + the 1 renamed/rewritten existing test; net +6 new functions, the 1 renamed counts as edit-in-place).
+- Full backend (`-m 'not browser and not live and not pixel' -q`): **2818 passed, 4 skipped, 0 errors** (522 deselected). Prior: 2812 (L11). Delta: +6. No orphans.
+- Pre-existing benign `aiosqlite` "Event loop is closed" warning (`TestSchemaV17`) still present at baseline; not introduced by this leg.
+
+**Grep gate:** `git grep -nE 'replace\("_", "-"\)|" ".join\(args\)' the_one/connectors/_commands.py` → both fixes present at `_commands.py:171` and `_commands.py:300`.
+
+**Pending (at re-HAT, not this leg):** container restart + Discord real-slash verification — `/talk_to Sonos Agent` → channel-visible "Now routing your messages to Sonos Agent." L12 status: `landed`.
+
+### L13 Bug H leg progress (2026-06-01) — `/talk_to` envelope text hyphenation (landed)
+
+**Root cause (Validator source-analysis, confirmed):** Bug G.1's normalization in `_dispatch_builtin_command` was unreachable. `_parse_command` (`_commands.py`) defines `_NAME_TAIL_CHARS = frozenset('abcdefghijklmnopqrstuvwxyz0123456789-')` — underscore is excluded. When `_build_slash_envelope` synthesized `/talk_to Sonos Agent`, `_parse_command` hit the `_` and returned `None` immediately; the dispatcher fell through to `agent.step` (stuck "thinking…") before ever reaching `_dispatch_builtin_command`. The G.1 unit test passed only because it called `_dispatch_builtin_command("talk_to", ...)` directly, bypassing `_parse_command`.
+
+**Primary fix (`the_one/connectors/_discord.py`, `_build_slash_envelope`):** Before synthesizing the envelope `text`, hyphenate the command name: `cmd_text = command_name.replace("_", "-")`. For `talk_to` with `args="Sonos Agent"` the text becomes `/talk-to Sonos Agent` — `_parse_command` yields `("talk-to", ["Sonos", "Agent"])` — `_HANDLERS["talk-to"]` → `_handle_talk_to` runs. The other five v1 commands (`agents`, `whoami`, `new`, `reset`, `help`) have no underscore; the replacement is a no-op for them.
+
+Updated `_build_slash_envelope`'s docstring (previously claimed `/talk_to my-agent` reached the dispatcher unchanged — that was the bug) and the `_SLASH_COMMAND_VOCAB` module-level comment to describe the hyphenation bridge.
+
+**G.1 normalization retained as belt-and-suspenders:** The `_dispatch_builtin_command` normalization (`_HANDLERS.get(command_name.replace("_", "-"))`) is kept but now carries a multi-line comment labeling it as a backstop for hypothetical direct callers. The PRIMARY fix is in `_build_slash_envelope`.
+
+**Regression tests added (`tests/test_connectors_discord.py`):**
+- `test_build_slash_envelope_talk_to_hyphenates_command_name`: calls `_build_slash_envelope(command_name="talk_to", args="Sonos Agent", ...)` and asserts (a) `envelope.text == "/talk-to Sonos Agent"` (hyphen) AND (b) `_parse_command(envelope.text)` returns `("talk-to", ["Sonos", "Agent"])` — exercises the real parse path, the G.1 blind spot. Would FAIL pre-fix.
+- `test_build_slash_envelope_non_underscore_commands_unchanged`: verifies the other 5 commands still produce correct unhyphenated text and parse cleanly.
+
+**Existing test corrected (`tests/test_connectors_discord.py`):** `test_slash_command_body_dispatches_envelope` previously asserted `envelope.text == "/talk_to my-agent"` — it was encoding the bug. Updated to `"/talk-to my-agent"` with a Bug H comment.
+
+**G.1 test docstrings updated (`tests/test_connectors_commands.py`):** `TestBugGHandlerKeyMismatch` class and `test_talk_to_underscore_routes_to_handler` docstrings updated with a Bug H note clarifying the normalization is now a belt-and-suspenders backstop, not the primary fix, and that coverage must NOT be removed.
+
+**Test counts:**
+- Targeted (`tests/test_connectors_discord.py tests/test_connectors_commands.py -x --timeout 30 -q`): **155 passed** (was 153, +2 new).
+- Full backend (`-m 'not browser and not live and not pixel' -q`): **2820 passed, 4 skipped, 0 errors** (522 deselected). Prior: 2818 (L12). Delta: +2. No orphans.
+- Pre-existing benign `aiosqlite` "Event loop is closed" warning still present at baseline; not introduced by this leg.
+
+**Pending (at re-HAT, not this leg):** container restart + Discord real-slash verification — `/talk_to Sonos Agent` → channel-visible "Now routing your messages to Sonos Agent." L13 status: `landed`.
+
+---
+
+### L10 HAT RESOLVED → criterion #10 CLOSED → flight LANDED (2026-06-01)
+- After L11 (Bug F) + L12 (Bug G) + L13 (Bug H) + restarts, the focused `/talk_to` re-verify (run `2026-06-01-19-08-36`) confirmed "Now routing your messages to Sonos Agent." (channel-visible, full multi-word name). **All 6 slash commands pass end-to-end** — `discord-slash-end-to-end` PASS 7/7 (run log `runs/2026-06-01-18-39-11.md`): `/whoami`+`/agents`+`/help` ephemeral; `/talk_to`+`/new`+`/reset` channel-visible; `/agents` lists the agent (L1 Bug D fix, live before/after evidence). Ephemeral-where-appropriate (L7) verified against the real client.
+- **HAT value**: caught THREE pre-existing, real-traffic-only slash-registration bugs (F/G/H) that all prior HATs (incl. F13 L6) missed (they used text-prefix). Diagnosed without app-log visibility (a standalone in-container `tree.sync` isolated Bug F + proved the scope works; a Validator source-analysis isolated Bug H's `_parse_command` underscore rejection — which made the L12 G.1 normalization unreachable), fixed, unit-tested, re-verified live.
+- **Behavior-test tally**: `connector-inference-provider-config-roundtrip` 8/8 (regression, `2026-06-01-16-55-14`); `discord-slash-end-to-end` 7/7 (new, status `active`); `audit-log-inspector-renders-routing-entries` DEFERRED (live-traffic seeding friction + a freshly-created-session `session_metadata`-not-persisting quirk — both environment, not F14; panel-render code untouched by F14; carried to a fast-follow).
+- **Final suites**: backend **2820 passed / 4 skipped / 0 errors**; browser **460 passed / 35 skipped / 0 failures**.
+- **Carried to follow-up (F15+/Known Issues)**: (1) `audit-log-inspector` behavior-test re-run after the seeding friction is resolved; (2) app-level connector logging not captured by `docker logs` (observability gap that slowed slash diagnosis) — wire app loggers to stdout; (3) `/help` text shows `/talk-to` (hyphen) vs the `/talk_to` slash name (cosmetic copy); (4) provider display name "Antrhopic" typo (cosmetic); (5) the original F14 "live-traffic multi-user + rate-limiting HAT" framing (superseded by slash-HAT-closure) still owed.
+- Criterion #10 `[x]`; criterion #11 `[~]` (slash portion shipped as the re-runnable Chrome-MCP spec). Flight 14 checked off in mission.md. Flight status → `landed`. L11/L12/L13 are post-Phase-2d code changes → committed at flight-land (no amend; new commit).

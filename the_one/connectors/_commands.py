@@ -158,11 +158,17 @@ async def _handle_talk_to(context: dict[str, Any]) -> CommandResponse:
     ``"routing_override" = <slug>`` (last-writer-wins concurrency
     posture); returns a confirmation text. The L4 routing engine reads
     the override on the NEXT inbound (step 1 of its 5-step algorithm).
+
+    The agent slug is the FULL remainder of the command line (all
+    tokens joined with spaces).  When the slash body is re-parsed after
+    Discord's underscore→hyphen normalisation, a multi-word agent name
+    (e.g. "Sonos Agent") arrives as separate tokens in ``args``; joining
+    them reconstructs the original name.
     """
     args: list[str] = context["args"]
     if not args:
         return CommandResponse(text="Usage: /talk-to <agent-slug>")
-    target = args[0]
+    target = " ".join(args)
     permitted = _permitted_agents(context)
     if target not in permitted:
         return CommandResponse(
@@ -285,7 +291,21 @@ async def _dispatch_builtin_command(
     falling through. See :class:`CommandResponse` in
     ``connectors/base.py``.
     """
-    handler = _HANDLERS.get(command_name)
+    # Discord slash-command names use underscores (hyphens are rejected by
+    # the API), while the F7 v1 vocabulary uses hyphens.  Try the exact
+    # name first (covers every non-hyphenated command); if that misses,
+    # normalise underscores → hyphens as a belt-and-suspenders backstop.
+    # PRIMARY FIX: ``_build_slash_envelope`` in _discord.py now hyphenates
+    # the command name before synthesizing the envelope text, so
+    # ``_parse_command`` always yields ``"talk-to"`` (not ``"talk_to"``) —
+    # the underscore form never reaches this dispatcher via the real path.
+    # This normalisation remains as a defensive depth layer against any
+    # future caller that skips the envelope layer and invokes dispatch
+    # directly with an underscore-form name.
+    # Unknown commands still return None (fall through to agent.step).
+    handler = _HANDLERS.get(command_name) or _HANDLERS.get(
+        command_name.replace("_", "-")
+    )
     if handler is None:
         return None
     context["args"] = args

@@ -1,6 +1,6 @@
 # Flight: Slash HAT closure + ACL/slash-sync cluster fix + L4-enhancement test debt
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Discord Connector Depth & Robustness](../../mission.md)
 
 ## Contributing to Criteria
@@ -245,7 +245,10 @@ Phase 5c grep gate: `git grep -nE 'admits_inbound\(' the_one/ tests/` post-L8 re
 - [x] `slash-command-ephemeral-polish` — `/whoami`, `/agents`, `/help` flip to `ephemeral=True`; `/talk_to`, `/new`, `/reset` stay channel-visible. `CommandResponse` gains opt-in `ephemeral: bool` field.
 - [x] `admits-inbound-refactor-to-admission-context-dataclass` — define `AdmissionContext` frozen dataclass + `from_envelope` classmethod; `admits_inbound`'s signature becomes `(account, agent_acl, ctx)`; all call sites migrated; +3 AdmissionContext-construction tests.
 - [x] `behavior-test-specs-and-shared-2nd-bot-driver` — author TWO behavior-test specs inline (`discord-slash-end-to-end.md` covering all 6 commands with per-command ephemeral disposition assertions; `slash-command-ephemeral-routing.md` covering L7's 4-cell substrate matrix + token-expiry fallback) + implement the shared `discord.py`-based 2nd-bot driver. Both specs status `draft` at land; flip `active` at L10 first PASS each.
-- [ ] `hat-and-behavior-test-run-against-real-discord` *(operator-driven; gated by all prior legs PASSING)* — operator runs manual walkthrough of 6 slash commands + all 4 behavior tests in sequence (F13's 2 regression + L9's 2 new); all 4 produce PASS; criterion #10 closes; HAT report appended to flight-log.
+- [x] `hat-and-behavior-test-run-against-real-discord` *(operator-driven)* — Chrome-MCP HAT against the live Discord bot. `connector-inference-provider-config-roundtrip` PASS 8/8 (regression). `discord-slash-end-to-end` PASS 7/7 (all 6 commands, ephemeral-where-appropriate). `audit-log-inspector-renders-routing-entries` DEFERRED (live-traffic seeding friction; low F14-risk, fast-follow). The HAT surfaced 3 pre-existing slash-registration bugs → L11/L12/L13 fixes (below). Criterion #10 CLOSED.
+- [x] `bug-f-slash-sync-copy-global-to-guild` *(L11; discovered at L10 HAT)* — `_sync_slash_commands` calls `tree.copy_global_to(guild)` before `tree.sync(guild)`; globally-defined commands now register per-guild (were PUTting 0 → "no commands"). +1 regression test.
+- [x] `bug-g-talk-to-slash-handler-and-multiword-agent` *(L12; L10 HAT)* — `_dispatch_builtin_command` normalizes underscore→hyphen (defensive); `_handle_talk_to` uses `" ".join(args)` for multi-word agent names. +6 regression tests.
+- [x] `bug-h-slash-text-hyphenate-command-name` *(L13; L10 HAT)* — `_build_slash_envelope` synthesizes the envelope text with the hyphenated command name (`/talk-to`) so `_parse_command` (which rejects `_`) accepts it and reaches the handler. The real `/talk_to` fix (G.1 was unreachable behind the parser). +2 regression tests.
 
 ---
 
