@@ -457,8 +457,14 @@ Operator invoked `/agents` in Discord. Got "No agents available for this convers
 **Operator decision** (cycle through 3 options): File ALL findings as Known Issues + ship L1-L5 + defer L6 to follow-up flight. The 4-bug ACL/slash-sync cluster needs substrate-level decisions (config.guilds shape, category-handling, member_roles plumbing, _permitted_agents kwargs) that exceed L6's verify-only scope. Files: cluster Known Issue added to `mission.md` enumerating each defect with resolution-path notes; criterion #10 stays open; criterion #12 + #15 close cleanly.
 
 **HAT report per AC**:
-- AC-1 `/agents` — **BLOCKED** (response "No agents available" — diagnostic evidence above)
-- AC-2..AC-6 — **NOT EXERCISED** (would fail on the same defect; no point cycling per-command)
+- AC-1 `/agents` — **BLOCKED on Bug D** (response "No agents available" — diagnostic evidence above; `_handle_agents` calls `_permitted_agents` at `_commands.py:124`)
+- AC-2 `/talk_to` — **NOT EXERCISED but would BLOCK on Bug D** (`_handle_talk_to` at `:147` also calls `_permitted_agents`)
+- AC-3 `/whoami` — **PASS** (operator post-HAT: "Currently responding: Sonos Agent" visible in channel). `_handle_whoami` does NOT call `_permitted_agents` — reads current routing + falls back to default agent — Bug D doesn't affect it. Bot online + dispatcher + command-handler-base path verified healthy.
+- AC-4 `/new` — **NOT EXERCISED but expected to PASS** (`_handle_new` doesn't use `_permitted_agents`)
+- AC-5 `/reset` — **NOT EXERCISED but expected to PASS** (alias for `_handle_new`)
+- AC-6 `/help` — **NOT EXERCISED; expected PARTIAL** (`_handle_help:213` conditionally includes the `/talk_to` line only when `_permitted_agents` returns non-empty; under Bug D the help text would render WITHOUT the `/talk_to` line. No error, just incomplete output.)
+
+**Refined scope of Bug D**: affects ONLY `/agents` and `/talk_to` outright; affects `/help` content but not its execution. `/whoami`, `/new`, `/reset` work correctly. So 3 of 6 commands are functional today (`/whoami` confirmed; `/new` + `/reset` expected); the criterion #10 close requires 2 substrate-level repairs (Bug D for `/agents` + `/talk_to`; Bugs A+B+C for any Discord-native slash registration / channel allowlist UX).
 
 **Operator-side connector edits** (made for diagnostic purposes; operator may revert at discretion):
 - `config.guilds = ["1447766672441348150"]` (added at top level — was None)

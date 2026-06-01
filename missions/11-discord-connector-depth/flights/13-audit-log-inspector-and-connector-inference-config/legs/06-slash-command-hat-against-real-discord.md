@@ -35,12 +35,12 @@ After this leg completes:
 
 Each of the 6 commands is invoked from the operator's real Discord client and produces the documented behavior. Per command:
 
-- [~] **AC-1 — `/agents`**: returns the list of agents currently attached to the connector (or the per-(channel, peer) eligible subset post-F7 routing-engine filtering). Visible in the channel (current F8 L9 behavior — not ephemeral). **STATUS: BLOCKED.** Bot processes the command and the dispatcher routes successfully (routing-audit panel logged `disposition: command-intercepted`, `agent: Sonos Agent`), but the command handler's `_permitted_agents` admission re-check fails because of pre-existing `_commands.py` defect (missing kwargs to `admits_inbound`); response is "No agents available for this conversation" for any peer/channel combo. Filed as Known Issue d (the 4-bug ACL/slash-sync cluster).
-- [ ] **AC-2 — `/talk_to <agent_name>`**: BLOCKED on same cluster (no agents to select). Not exercised.
-- [ ] **AC-3 — `/whoami`**: BLOCKED — not exercised.
-- [ ] **AC-4 — `/new`**: BLOCKED — not exercised.
-- [ ] **AC-5 — `/reset`**: BLOCKED — not exercised.
-- [ ] **AC-6 — `/help`**: BLOCKED — not exercised.
+- [~] **AC-1 — `/agents`**: returns the list of agents currently attached to the connector (or the per-(channel, peer) eligible subset post-F7 routing-engine filtering). Visible in the channel (current F8 L9 behavior — not ephemeral). **STATUS: BLOCKED on Bug D.** Bot processes the command and the dispatcher routes successfully (routing-audit panel logged `disposition: command-intercepted`, `agent: Sonos Agent`), but the command handler's `_permitted_agents` admission re-check fails because of pre-existing `_commands.py` defect (missing kwargs to `admits_inbound`); response is "No agents available for this conversation". Filed as Known Issue d (the 4-bug ACL/slash-sync cluster).
+- [ ] **AC-2 — `/talk_to <agent_name>`**: NOT EXERCISED but would BLOCK on Bug D — `_handle_talk_to` at `_commands.py:147` also calls `_permitted_agents`, same defect.
+- [x] **AC-3 — `/whoami`**: **PASS.** Operator invoked `/whoami` in Discord; bot responded "Currently responding: Sonos Agent" (visible in the channel). `_handle_whoami` does NOT call `_permitted_agents` — it reads the current routing override + falls back to the default agent — so Bug D doesn't affect it. Confirms the bot is online + dispatcher + command-handler-base path are healthy.
+- [ ] **AC-4 — `/new`**: NOT EXERCISED but `_handle_new` does NOT use `_permitted_agents` either — should work (similar shape to `/whoami`).
+- [ ] **AC-5 — `/reset`**: NOT EXERCISED but `_handle_reset` is an alias for `_handle_new` — should work.
+- [ ] **AC-6 — `/help`**: NOT EXERCISED. `_handle_help` consults `_permitted_agents` at `:213` to conditionally include the `/talk_to` line — so the rendered help text would be MISSING the `/talk_to` line (because `_permitted_agents` returns empty due to Bug D), but the command itself would still respond. PARTIAL behavior — list is incomplete but no error.
 
 ## Verification Steps
 
