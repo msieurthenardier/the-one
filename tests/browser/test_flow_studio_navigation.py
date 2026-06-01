@@ -250,14 +250,14 @@ def test_studio_mcp_sources_section_persists_on_refresh(app_clean: str, page: Pa
 
 
 @pytest.mark.browser
-def test_studio_section_round_trip_preserves_agent_selection(
+def test_studio_section_round_trip_returns_to_agent_listing(
     app_with_agent: SeededApp, page: Page
 ) -> None:
-    """Switching Agents → Knowledge → Agents preserves the selected agent.
+    """Switching Agents → Knowledge → Agents lands on the agent listing.
 
-    The editor pane stays mounted (just hidden) so a return to Agents doesn't
-    lose state. This is the load-bearing contract for the leg 04 dirty-state
-    confirm dialog (you don't lose unsaved edits on a Knowledge round-trip).
+    M10 F6 L7 HAT (commit 93c4120) inverted the navigation contract: leaving
+    the Agents section clears the selected agent, so a return to Agents shows
+    the tile grid with the editor hidden — not the previously-edited agent.
     """
     base_url = app_with_agent.base_url
     agent_name = app_with_agent.agent_name
@@ -273,12 +273,11 @@ def test_studio_section_round_trip_preserves_agent_selection(
     page.locator('.section-nav-item[data-section="knowledge"]').click()
     expect(page.locator('[data-testid="studio-knowledge-stub"]')).to_be_visible(timeout=2000)
 
-    # Switch back to Agents — agent still selected, editor visible.
-    # The tile grid is hidden while the editor owns the main panel.
+    # Switch back to Agents — selection was cleared on leaving, so the editor
+    # is hidden and the tile grid (section-content) owns the main panel.
     page.locator('.section-nav-item[data-section="agents"]').click()
-    expect(page.locator(".editor-title")).to_have_text(agent_name, timeout=5000)
-    expect(page.locator(".studio-editor")).not_to_have_class("studio-editor is-hidden")
-    expect(page.locator(".studio-section-content")).to_have_class(
+    expect(page.locator(".studio-editor")).to_have_class("studio-editor is-hidden")
+    expect(page.locator(".studio-section-content")).not_to_have_class(
         "studio-section-content is-hidden"
     )
 

@@ -65,11 +65,12 @@ def _wait_editor_ready(page: Page, expected_tab: str = "general") -> None:
 
 
 @pytest.mark.browser
-def test_tablist_renders_with_three_tabs(app_with_agent: SeededApp, page: Page) -> None:
+def test_tablist_renders_with_five_tabs(app_with_agent: SeededApp, page: Page) -> None:
     """The agent editor renders a tablist with tabs and correct ARIA.
 
-    Leg 02 added the MCPs tab (General / Knowledge / MCPs / Built-in Tools),
-    so the count is now 4. Test updated accordingly.
+    The Connectors tab (M10 F6 L5, commit 93c4120) sits between MCPs and
+    Built-in Tools, so the tablist now renders 5 tabs in order:
+    General / Knowledge / MCPs / Connectors / Built-in Tools.
     """
     base_url = app_with_agent.base_url
     page.goto(f"{base_url}#studio")
@@ -79,13 +80,16 @@ def test_tablist_renders_with_three_tabs(app_with_agent: SeededApp, page: Page) 
     expect(tablist).to_be_visible()
 
     tabs = page.locator('[role="tab"]')
-    expect(tabs).to_have_count(4)  # General + Knowledge + MCPs + Built-in Tools (Leg 02)
+    expect(tabs).to_have_count(5)  # General + Knowledge + MCPs + Connectors + Built-in Tools
 
     expect(page.locator('[data-testid="tab-general"]')).to_have_attribute("aria-selected", "true")
     expect(page.locator('[data-testid="tab-knowledge"]')).to_have_attribute(
         "aria-selected", "false"
     )
     expect(page.locator('[data-testid="tab-mcps"]')).to_have_attribute("aria-selected", "false")
+    expect(page.locator('[data-testid="tab-connectors"]')).to_have_attribute(
+        "aria-selected", "false"
+    )
     expect(page.locator('[data-testid="tab-tools"]')).to_have_attribute("aria-selected", "false")
 
 

@@ -109,21 +109,21 @@ brand-assets: ## Derive favicon + topbar icon PNGs from source mascot via Pillow
 
 .PHONY: test
 test: ## Run all default tests (unit + browser; excludes -m live and -m pixel)
-	docker exec the-one pytest tests/ -v --tb=short
+	docker exec the-one bash /app/scripts/run-tests.sh tests/ -v --tb=short
 
 .PHONY: test-unit
 test-unit: ## Run unit tests only (excludes browser, live, pixel)
-	docker exec the-one pytest tests/ -m 'not browser and not live and not pixel' -v --tb=short
+	docker exec the-one bash /app/scripts/run-tests.sh tests/ -m 'not browser and not live and not pixel' -v --tb=short
 
 .PHONY: test-browser
 test-browser: ## Run browser tests (requires THE_ONE_DEV_MODE=true; uses Playwright; installs playwright if missing)
 	@$(MAKE) --no-print-directory _ensure-playwright
-	docker exec the-one pytest -m browser tests/browser/ -v --tb=short
+	docker exec the-one bash /app/scripts/run-tests.sh -m browser tests/browser/ -v --tb=short
 
 .PHONY: test-pixel
 test-pixel: ## Run visual snapshot tests (baselines are gitignored — local regen only; installs playwright if missing)
 	@$(MAKE) --no-print-directory _ensure-playwright
-	docker exec the-one pytest -m pixel tests/browser/ -v --tb=short
+	docker exec the-one bash /app/scripts/run-tests.sh -m pixel tests/browser/ -v --tb=short
 
 .PHONY: test-live
 test-live: ## Run live-LLM tests (AIAT — requires running provider)

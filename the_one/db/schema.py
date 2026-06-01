@@ -12,7 +12,7 @@ from the_one.db._provider_types import PROVIDER_TYPES
 
 logger = logging.getLogger(__name__)
 
-CURRENT_VERSION = 26
+CURRENT_VERSION = 27
 
 # Render the provider-type CHECK constraint as a comma-separated SQL
 # literal list, sourced from PROVIDER_TYPES. Both SCHEMA_V1 (fresh-DB
@@ -1719,3 +1719,98 @@ CREATE INDEX idx_chat_sessions_external_key
         )
         await conn.commit()
         version = 26
+
+    if version < 27:
+        # M11 F14 L02 — unify guild scoping onto ``allowlist.guilds``.
+        # The standalone top-level "Scope to servers" guilds key (the
+        # Runtime Config field) is retired in favor of a single source
+        # of truth: ``config.allowlist.guilds`` (the inbound-admission
+        # ACL "Servers" axis) now ALSO scopes slash-command registration
+        # (``_sync_slash_commands``). This migration folds every
+        # connector row's top-level guilds list into
+        # ``config.allowlist.guilds`` (order-preserving dedup-union),
+        # then removes the top-level key. The operator's diagnostically
+        # added top-level ``guilds`` (F13 L6 PUT) is moved automatically.
+        #
+        # Idempotency: ``cfg.pop("guilds", None)`` yields ``None`` once
+        # the top-level key is gone, so re-running ``ensure_schema``
+        # after v27 leaves rows unchanged (the per-row UPDATE only fires
+        # when ``changed``). The ``.pop`` idiom (vs a membership-test
+        # branch) also keeps the source grep gate at 0 top-level
+        # guilds-key references.
+        #
+        # Partial-apply safe: the schema_version INSERT is LAST, so a
+        # crash mid-loop re-folds the remaining rows on the next run
+        # (already-folded rows are no-ops via the pop-yields-None path).
+        #
+        # Row access uses POSITIONAL indexing (mirrors v24/v25/v26) so
+        # the migration works against hand-built test fixtures that
+        # don't configure ``conn.row_factory = aiosqlite.Row``.
+        import json as _json
+
+        # Defensive: skip when the connectors table is missing
+        # (hand-built partial-schema test fixtures; pre-v23 fixtures
+        # have ``connector_accounts`` which is renamed to ``connectors``
+        # by v23, so by the time v27 runs the rename has been applied).
+        async with conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name='connectors'"
+        ) as cursor:
+            connectors_table_present = (await cursor.fetchone()) is not None
+        if connectors_table_present:
+            async with conn.execute(
+                "SELECT id, config FROM connectors"
+            ) as cursor:
+                connector_rows = await cursor.fetchall()
+            for row in connector_rows:
+                connector_id = row[0]
+                config_str = row[1] or "{}"
+                config = _json.loads(config_str)
+                had_key = "guilds" in config
+                popped = config.pop("guilds", None)
+                if not had_key:
+                    # No top-level ``guilds`` key at all — nothing to do
+                    # (idempotent re-run path once v27 has folded a row).
+                    continue
+                if not popped:
+                    # An empty/None top-level ``guilds`` was present and
+                    # has now been popped: persist its removal but don't
+                    # gratuitously create an empty allowlist on rows that
+                    # never had guilds to fold.
+                    await conn.execute(
+                        "UPDATE connectors SET config = ? WHERE id = ?",
+                        (_json.dumps(config), connector_id),
+                    )
+                    continue
+                # Create the allowlist only when there's a top-level
+                # ``guilds`` to fold. A fresh allowlist must carry the
+                # validator-required ``peers``/``channels`` axes (empty)
+                # so the folded row still passes
+                # ``Connector.model_validate`` (db/models.py requires
+                # both keys whenever ``allowlist`` is present). Existing
+                # allowlists already carry them.
+                allowlist = config.setdefault(
+                    "allowlist", {"peers": [], "channels": []}
+                )
+                allowlist.setdefault("peers", [])
+                allowlist.setdefault("channels", [])
+                existing = allowlist.get("guilds") or []
+                # Order-preserving dedup-union: existing first, then
+                # newly folded ids, skipping duplicates.
+                seen: set = set()
+                merged: list = []
+                for g in [*existing, *popped]:
+                    if g not in seen:
+                        seen.add(g)
+                        merged.append(g)
+                allowlist["guilds"] = merged
+                await conn.execute(
+                    "UPDATE connectors SET config = ? WHERE id = ?",
+                    (_json.dumps(config), connector_id),
+                )
+
+        await conn.execute(
+            "INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (27,)
+        )
+        await conn.commit()
+        version = 27

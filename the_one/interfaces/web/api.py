@@ -1085,35 +1085,14 @@ def _validate_connector_config(account: Connector) -> None:
                         ),
                     )
 
-        # ── guilds ───────────────────────────────────────────────
-        if "guilds" in cfg:
-            guilds = cfg["guilds"]
-            if not isinstance(guilds, list):
-                raise HTTPException(
-                    status_code=422,
-                    detail=(
-                        "Discord connector config.guilds must be a list of "
-                        "digit-only strings if present."
-                    ),
-                )
-            for entry in guilds:
-                if not isinstance(entry, str):
-                    raise HTTPException(
-                        status_code=422,
-                        detail=(
-                            f"Discord connector config.guilds entries must "
-                            f"be strings; got {type(entry).__name__}."
-                        ),
-                    )
-                if len(entry) == 0 or not entry.isdigit():
-                    raise HTTPException(
-                        status_code=422,
-                        detail=(
-                            f"Discord connector config.guilds entries must "
-                            f"be non-empty decimal-digit strings; "
-                            f"got {entry!r}."
-                        ),
-                    )
+        # ── guilds: retired (M11 F14 L02) ────────────────────────
+        # The top-level "Scope to servers" guilds field was
+        # unified onto ``config.allowlist.guilds`` (single source of
+        # truth for both inbound-admission ACL and slash-command
+        # registration). The unified guild list is validated by the
+        # ``allowlist.guilds`` guard in ``db/models.py`` (list[str]); the
+        # v27 migration folds + removes any legacy top-level ``guilds``.
+        # No top-level validator remains.
 
         # ── presence ─────────────────────────────────────────────
         if "presence" in cfg:

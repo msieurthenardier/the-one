@@ -654,6 +654,12 @@ async def dispatch_inbound(
             "routed_agent_name": decision.agent,
             "session_id": session_row.id,
             "chat_repo": chat_repo,
+            # F14 L1 (Bug D): the command-handler secondary admission
+            # (_permitted_agents) needs the resolved plugin to derive
+            # is_dm via the shared envelope_is_dm helper, matching the
+            # routing path's primary admission. The dispatcher always
+            # resolves ``plugin`` upstream.
+            "plugin": plugin,
         }
         # F8 L1: optional plugin command-handler consult via the
         # ``optional-plugin-hook-via-getattr-sentinel`` convention. A
@@ -696,6 +702,15 @@ async def dispatch_inbound(
                         OutboundTarget(
                             channel_id=working_envelope.channel_id,
                             thread_id=working_envelope.thread_id,
+                            # Thread the handler-set ephemeral intent + the
+                            # interaction-followup token (a string, present
+                            # only for slash inbounds — absent for text-prefix
+                            # commands → channel send) so the Discord adapter
+                            # can deliver an ephemeral interaction followup.
+                            ephemeral=response.ephemeral,
+                            interaction_followup_token=working_envelope.raw.get(
+                                "interaction_followup_token"
+                            ),
                         ),
                         response.text,
                     )
@@ -724,6 +739,13 @@ async def dispatch_inbound(
                     OutboundTarget(
                         channel_id=working_envelope.channel_id,
                         thread_id=working_envelope.thread_id,
+                        # See the plugin site above: thread the handler-set
+                        # ephemeral intent + the interaction-followup token
+                        # (string; absent for text-prefix → channel send).
+                        ephemeral=response.ephemeral,
+                        interaction_followup_token=working_envelope.raw.get(
+                            "interaction_followup_token"
+                        ),
                     ),
                     response.text,
                 )

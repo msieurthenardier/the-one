@@ -2612,6 +2612,69 @@ class TestF7RoutingIntegration:
         assert routing[0]["disposition"] == "command-intercepted"
         assert routing[0]["agent"] == "alpha"
 
+    # ── Ephemeral flag + followup-token pass-through (M11 F14 L7) ─────
+
+    async def test_dispatch_inbound_command_outbound_threads_ephemeral_and_token(
+        self, isolated_db
+    ) -> None:
+        """M11 F14 L7: the command-outbound site builds the
+        ``OutboundTarget`` with ``ephemeral=response.ephemeral`` and
+        ``interaction_followup_token=envelope.raw.get(...)``.
+
+        ``/whoami`` is a self-only handler (``ephemeral=True``); the
+        envelope carries a slash interaction-followup token in ``raw``.
+        The captured OutboundTarget must carry BOTH through so the Discord
+        adapter can route an ephemeral followup. (DiscordClient.send's
+        4-cell routing on these flags is pinned in
+        ``test_connectors_discord.py``; this is the thin dispatcher-level
+        pass-through assertion.)
+        """
+        await _seed_provider_and_agent(
+            agent_name="alpha", connector_ids=["acct-test"]
+        )
+        await _seed_stub_account()
+        register_for_test("stub", StubPlugin)
+
+        inner = await _make_factory()
+        factory = self._RecordingFactory(inner)
+        envelope = _envelope(
+            text="/whoami",
+            raw={"interaction_followup_token": "tok-xyz"},
+        )
+        await dispatch_inbound("acct-test", envelope, factory=factory)
+
+        assert len(StubPlugin.outbound_records) == 1
+        target, _content = StubPlugin.outbound_records[0]
+        # Handler-set ephemeral intent threaded through.
+        assert target.ephemeral is True
+        # Followup token copied off envelope.raw.
+        assert target.interaction_followup_token == "tok-xyz"
+
+    async def test_dispatch_inbound_channel_command_keeps_ephemeral_false(
+        self, isolated_db
+    ) -> None:
+        """A channel-affecting command (``/new``) keeps the default
+        ``ephemeral=False``; the token is still threaded (present when the
+        invocation was a slash) but the adapter routes to the channel."""
+        await _seed_provider_and_agent(
+            agent_name="alpha", connector_ids=["acct-test"]
+        )
+        await _seed_stub_account()
+        register_for_test("stub", StubPlugin)
+
+        inner = await _make_factory()
+        factory = self._RecordingFactory(inner)
+        envelope = _envelope(
+            text="/new",
+            raw={"interaction_followup_token": "tok-xyz"},
+        )
+        await dispatch_inbound("acct-test", envelope, factory=factory)
+
+        assert len(StubPlugin.outbound_records) == 1
+        target, _content = StubPlugin.outbound_records[0]
+        assert target.ephemeral is False
+        assert target.interaction_followup_token == "tok-xyz"
+
     # ── Pool-failure-overload (routed agent, post-routing) ───────────
 
     async def test_dispatch_inbound_pool_failure_at_step_10_logs_no_eligible_disposition(

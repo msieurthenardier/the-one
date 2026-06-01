@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from typing import Any, Awaitable, Callable
 
-from the_one.connectors._acl import admits_inbound
+from the_one.connectors._acl import AdmissionContext, admits_inbound
 from the_one.connectors.base import CommandResponse, InboundEnvelope
 from the_one.db.models import Connector, now_iso
 
@@ -89,10 +89,22 @@ def _permitted_agents(context: dict[str, Any]) -> list[str]:
     peer is permitted to invoke on the account (filtered by per-agent
     ACL via :func:`admits_inbound`).
 
-    Consumes ``context["account"]``, ``context["envelope"]``, and
-    ``context["eligible_attached_agents"]``. The dispatcher hands us
-    the alphabetically-ordered ``list[AgentConfig]`` of attached
-    agents; this helper applies the per-agent ACL filter on top.
+    Consumes ``context["account"]``, ``context["envelope"]``,
+    ``context["eligible_attached_agents"]``, and ``context["plugin"]``
+    (the resolved :class:`ConnectorPlugin`; the dispatcher always
+    supplies it — see :func:`dispatch_inbound`'s command-context
+    builder). The dispatcher hands us the alphabetically-ordered
+    ``list[AgentConfig]`` of attached agents; this helper applies the
+    per-agent ACL filter on top.
+
+    F14 L1 (Bug D): this secondary admission now threads the full
+    envelope context (``is_dm`` via the shared
+    :func:`the_one.connectors._acl.envelope_is_dm` helper, plus
+    ``guild_id`` / ``member_roles`` read from ``envelope.raw``) into
+    :func:`admits_inbound` — byte-for-byte aligned with the routing
+    path's primary admission at :func:`_routing._agent_admits`. Without
+    these kwargs the post-F12 structured-tuple channel allowlist wrongly
+    denies every slash command under a real Discord guild.
 
     Pure-with-context — no I/O. Mirrors :func:`admits_inbound`'s
     short-circuit shape.
@@ -100,14 +112,19 @@ def _permitted_agents(context: dict[str, Any]) -> list[str]:
     account: Connector = context["account"]
     envelope: InboundEnvelope = context["envelope"]
     eligible = context["eligible_attached_agents"]
+    plugin = context["plugin"]
+    # M11 F14 L8 — the admission context is agent-independent (it derives
+    # only from the envelope + plugin), so build it ONCE outside the
+    # eligible-agents loop and reuse it for every agent's per-agent ACL
+    # check. from_envelope owns the is_dm / guild_id / member_roles
+    # derivation formerly inlined here.
+    ctx = AdmissionContext.from_envelope(envelope, plugin)
     permitted: list[str] = []
     for agent_config in eligible:
         agent_acl: dict[str, list[str] | None] | None = None
         if agent_config.connector_acls is not None:
             agent_acl = agent_config.connector_acls.get(account.id)
-        admits, _reason = admits_inbound(
-            account, agent_acl, envelope.peer_id, envelope.channel_id
-        )
+        admits, _reason = admits_inbound(account, agent_acl, ctx)
         if admits:
             permitted.append(agent_config.name)
     return permitted
@@ -123,10 +140,12 @@ async def _handle_agents(context: dict[str, Any]) -> CommandResponse:
     """
     names = _permitted_agents(context)
     if not names:
-        return CommandResponse(text="No agents available for this conversation.")
+        return CommandResponse(
+            text="No agents available for this conversation.", ephemeral=True
+        )
     lines = ["Agents available to you on this account:"]
     lines.extend(f"- {name}" for name in names)
-    return CommandResponse(text="\n".join(lines))
+    return CommandResponse(text="\n".join(lines), ephemeral=True)
 
 
 async def _handle_talk_to(context: dict[str, Any]) -> CommandResponse:
@@ -167,7 +186,7 @@ async def _handle_whoami(context: dict[str, Any]) -> CommandResponse:
     handler reports the agent that is currently handling THIS message.
     """
     routed = context["routed_agent_name"]
-    return CommandResponse(text=f"Currently responding: {routed}.")
+    return CommandResponse(text=f"Currently responding: {routed}.", ephemeral=True)
 
 
 async def _handle_new(context: dict[str, Any]) -> CommandResponse:
@@ -217,7 +236,7 @@ async def _handle_help(context: dict[str, Any]) -> CommandResponse:
     lines.append("- /new — start a fresh conversation")
     lines.append("- /reset — alias for /new")
     lines.append("- /help — show this list")
-    return CommandResponse(text="\n".join(lines))
+    return CommandResponse(text="\n".join(lines), ephemeral=True)
 
 
 _HANDLERS: dict[str, Callable[[dict[str, Any]], Awaitable[CommandResponse]]] = {

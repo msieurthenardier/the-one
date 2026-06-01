@@ -258,10 +258,14 @@ class TestSchemaV8:
         # every connector.config and strips per-agent peers[*].dm_allowed
         # (M11 F13 L02 — per-connector inference LLM + F12 footgun
         # retirement).
-        assert CURRENT_VERSION == 26, (
-            "CURRENT_VERSION must be 26 after the M11 F13 L02 — "
-            "per-connector inference LLM + per-agent dm_allowed retirement "
-            f"v26 migration (got {CURRENT_VERSION})"
+        # v27 unifies guild scoping onto config.allowlist.guilds: folds
+        # any top-level config.guilds ("Scope to servers") into
+        # config.allowlist.guilds and removes the top-level key
+        # (M11 F14 L02 — slash-sync reads allowlist.guilds).
+        assert CURRENT_VERSION == 27, (
+            "CURRENT_VERSION must be 27 after the M11 F14 L02 — "
+            "guild-scoping unification onto config.allowlist.guilds "
+            f"v27 migration (got {CURRENT_VERSION})"
         )
 
         # tool_configs table must exist.
@@ -4782,5 +4786,233 @@ class TestSchemaV26:
         assert "Loud Bot" in msg, msg
         assert "acct-quiet" not in msg, msg
         assert "Quiet Bot" not in msg, msg
+
+        await conn.close()
+
+    # ── v27: unify guild scoping onto config.allowlist.guilds ───────
+    # M11 F14 L02 — the standalone top-level config.guilds ("Scope to
+    # servers") is folded into config.allowlist.guilds (order-preserving
+    # dedup-union) and the top-level key removed. The allowlist "Servers"
+    # axis is now the single source of truth for both inbound-admission
+    # ACL and slash-command registration.
+
+    async def test_v27_fresh_db_shape(self, tmp_path) -> None:
+        """Fresh DB → ensure_schema → v27 final shape:
+
+        - Head pointer at CURRENT_VERSION (== max(versions), >= 27).
+        - A connector with config.allowlist.guilds round-trips via
+          Pydantic and carries no top-level ``guilds`` key.
+        """
+        db_path = tmp_path / "v27-fresh.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+        await ensure_schema(conn)
+
+        async with conn.execute(
+            "SELECT version FROM schema_version ORDER BY version"
+        ) as cur:
+            versions = [r[0] for r in await cur.fetchall()]
+        assert max(versions) == CURRENT_VERSION, versions
+        assert CURRENT_VERSION >= 27, CURRENT_VERSION
+
+        from the_one.db.models import Connector
+
+        connector = Connector.model_validate({
+            "id": "acct-v27",
+            "name": "v27",
+            "type": "stub",
+            "config": {
+                "allowlist": {
+                    "guilds": ["G1", "G2"],
+                    "peers": [],
+                    "channels": [],
+                }
+            },
+        })
+        assert connector.config["allowlist"]["guilds"] == ["G1", "G2"]
+        assert "guilds" not in connector.config
+
+        await conn.close()
+
+    async def test_v27_idempotent_on_rerun(self, tmp_path) -> None:
+        """Calling ``ensure_schema`` twice leaves v27 in
+        ``schema_version`` exactly once (the pop-yields-None path
+        short-circuits the second pass once top-level ``guilds`` is
+        gone)."""
+        db_path = tmp_path / "v27-rerun.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await ensure_schema(conn)
+        await ensure_schema(conn)
+
+        async with conn.execute(
+            "SELECT version FROM schema_version ORDER BY version"
+        ) as cur:
+            versions = [r[0] for r in await cur.fetchall()]
+        assert versions.count(27) == 1, (
+            f"v27 row should appear exactly once: {versions}"
+        )
+
+        await conn.close()
+
+    async def test_v27_folds_top_level_guilds_into_allowlist(
+        self, tmp_path
+    ) -> None:
+        """Hand-build a v26-shape DB with connector rows carrying a
+        top-level ``config.guilds``; run ``ensure_schema``; assert each
+        row's top-level ``guilds`` is gone and the ids landed in
+        ``config.allowlist.guilds`` as an order-preserving dedup-union.
+
+        Covered rows:
+        - ``acct-union``: both top-level guilds AND a populated
+          allowlist.guilds with an overlapping id → union, dedup,
+          order preserved.
+        - ``acct-only-top``: top-level guilds, no allowlist → allowlist
+          created with the folded ids.
+        - ``acct-empty-top``: top-level ``guilds=[]`` → key dropped, no
+          allowlist created.
+        - ``acct-none``: no top-level guilds at all → row untouched.
+
+        Round-trips every post-migration config through
+        ``Connector.model_validate`` to prove no top-level ``guilds``
+        survives the fold and the allowlist.guilds list[str] guard
+        accepts the result.
+        """
+        db_path = tmp_path / "v27-fold.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await conn.execute(
+            "CREATE TABLE schema_version ("
+            "    version INTEGER PRIMARY KEY,"
+            "    applied_at TEXT NOT NULL DEFAULT (datetime('now'))"
+            ")"
+        )
+        for v in range(1, 27):
+            await conn.execute(
+                "INSERT INTO schema_version (version) VALUES (?)", (v,)
+            )
+        await conn.execute(
+            "CREATE TABLE connectors ("
+            "    id TEXT PRIMARY KEY,"
+            "    type TEXT NOT NULL CHECK (type IN ('discord', 'stub')),"
+            "    config TEXT DEFAULT '{}',"
+            "    secrets TEXT DEFAULT '{}',"
+            "    created_at TEXT NOT NULL DEFAULT (datetime('now')),"
+            "    updated_at TEXT NOT NULL DEFAULT (datetime('now')),"
+            "    name TEXT NOT NULL DEFAULT '',"
+            "    idle_timeout_seconds INTEGER NULL,"
+            "    session_continuation_seconds INTEGER NULL"
+            ")"
+        )
+        await conn.execute(
+            "INSERT INTO connectors (id, name, type, config) "
+            "VALUES (?, ?, ?, ?)",
+            (
+                "acct-union",
+                "Union Bot",
+                "stub",
+                json.dumps({
+                    "guilds": ["111", "222"],
+                    "allowlist": {
+                        "guilds": ["222", "333"],
+                        "peers": [],
+                        "channels": [],
+                    },
+                }),
+            ),
+        )
+        await conn.execute(
+            "INSERT INTO connectors (id, name, type, config) "
+            "VALUES (?, ?, ?, ?)",
+            (
+                "acct-only-top",
+                "Only Top Bot",
+                "stub",
+                json.dumps({"guilds": ["444", "555"]}),
+            ),
+        )
+        await conn.execute(
+            "INSERT INTO connectors (id, name, type, config) "
+            "VALUES (?, ?, ?, ?)",
+            (
+                "acct-empty-top",
+                "Empty Top Bot",
+                "stub",
+                json.dumps({"guilds": [], "intent": "guild_messages"}),
+            ),
+        )
+        await conn.execute(
+            "INSERT INTO connectors (id, name, type, config) "
+            "VALUES (?, ?, ?, ?)",
+            (
+                "acct-none",
+                "No Guilds Bot",
+                "stub",
+                json.dumps({"intent": "guild_messages"}),
+            ),
+        )
+        await conn.commit()
+
+        await ensure_schema(conn)
+
+        async with conn.execute(
+            "SELECT id, config FROM connectors ORDER BY id"
+        ) as cur:
+            rows = {
+                r["id"]: json.loads(r["config"])
+                for r in await cur.fetchall()
+            }
+
+        # Union: existing-first order preserved, folded ids appended,
+        # duplicate "222" not repeated.
+        assert "guilds" not in rows["acct-union"], rows["acct-union"]
+        assert rows["acct-union"]["allowlist"]["guilds"] == [
+            "222", "333", "111"
+        ], rows["acct-union"]
+
+        # Only top-level: allowlist created with the folded ids and the
+        # validator-required (empty) peers/channels axes.
+        assert "guilds" not in rows["acct-only-top"], rows["acct-only-top"]
+        assert rows["acct-only-top"]["allowlist"]["guilds"] == [
+            "444", "555"
+        ], rows["acct-only-top"]
+        assert rows["acct-only-top"]["allowlist"]["peers"] == [], (
+            rows["acct-only-top"]
+        )
+        assert rows["acct-only-top"]["allowlist"]["channels"] == [], (
+            rows["acct-only-top"]
+        )
+
+        # Empty top-level: key dropped, no allowlist gratuitously created.
+        assert "guilds" not in rows["acct-empty-top"], rows["acct-empty-top"]
+        assert "allowlist" not in rows["acct-empty-top"], (
+            rows["acct-empty-top"]
+        )
+        assert rows["acct-empty-top"]["intent"] == "guild_messages"
+
+        # No guilds at all: row untouched.
+        assert "guilds" not in rows["acct-none"], rows["acct-none"]
+        assert "allowlist" not in rows["acct-none"], rows["acct-none"]
+        assert rows["acct-none"]["intent"] == "guild_messages"
+
+        # Every post-migration config round-trips via Pydantic with no
+        # top-level ``guilds`` surviving the fold.
+        from the_one.db.models import Connector
+
+        for connector_id, config in rows.items():
+            validated = Connector.model_validate({
+                "id": connector_id,
+                "name": connector_id,
+                "type": "stub",
+                "config": config,
+            })
+            assert "guilds" not in validated.config, (
+                connector_id, validated.config
+            )
 
         await conn.close()
