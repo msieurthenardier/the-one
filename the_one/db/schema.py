@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import json
+import logging
 
 import aiosqlite
 
 from the_one.db._connector_types import CONNECTOR_TYPES
 from the_one.db._provider_types import PROVIDER_TYPES
 
-CURRENT_VERSION = 25
+logger = logging.getLogger(__name__)
+
+CURRENT_VERSION = 26
 
 # Render the provider-type CHECK constraint as a comma-separated SQL
 # literal list, sourced from PROVIDER_TYPES. Both SCHEMA_V1 (fresh-DB
@@ -1563,3 +1566,156 @@ CREATE INDEX idx_chat_sessions_external_key
         )
         await conn.commit()
         version = 25
+
+    if version < 26:
+        # Mission 11 Flight 13 Leg 2 — connector-scope inference LLM
+        # configuration substrate + per-agent ``peers[*].dm_allowed``
+        # retirement (F12 footgun). Bundled into a single migration
+        # since both touch the same JSON columns (connectors.config and
+        # agents.connector_acls respectively).
+        #
+        # Pass A: connectors.config row-rewrites
+        #   - Add ``inference_provider_config_id: None`` and
+        #     ``inference_model: None`` to each row's config if absent.
+        #     Operator edits per-connector via the Studio connector
+        #     editor post-migration (F13 L4); the ``None`` defaults
+        #     fall through to the routed agent's LLM at the dispatcher
+        #     policy gate (F13 L3).
+        #   - For each connector with ``config.get("always_listen") is
+        #     True``, emit a ``logger.info`` line naming the connector
+        #     ID + label so the operator sees the runtime-behavior
+        #     shift at startup post-migration. Connectors with
+        #     ``always_listen=false`` or absent are NOT logged (they
+        #     don't run the inference gate).
+        #
+        # Pass B: agents.connector_acls row-rewrites
+        #   - Iterate each per-account payload's ``peers`` list and
+        #     ``entry.pop("dm_allowed", None)`` per entry. Idempotent
+        #     (``dict.pop(key, None)`` is safe on re-run). The F12
+        #     "structurally uniform but not consulted by ACL" footgun
+        #     is retired: per-agent peers entries are now bare
+        #     ``{id: str}`` dicts. Account-scope ``dm_allowed`` stays
+        #     (DM admission is account-scope per the F12 L3 DM
+        #     Composition Truth Table; the F13 L2 Pydantic validator
+        #     enforces the per-agent rejection going forward).
+        #
+        # Note on intra-pipeline interaction with v24: the v24 block
+        # at schema.py:~1370 still WRITES ``dm_allowed: True`` to
+        # per-agent peer entries when rewriting pre-v24 rows. Under a
+        # single ``ensure_schema`` pipeline running through v26, v24
+        # writes the field then v26 strips it. The v24 block is
+        # intentionally NOT modified (immutable post-land per Flight
+        # Control discipline); the same-pipeline write-then-strip is
+        # cheap and the alternative is editing landed migrations.
+        #
+        # Idempotency: per-row UPDATE only fires when ``changed``
+        # (mirrors the v25 UPDATE-only-when-changed pattern at
+        # schema.py:1463-1474). Re-running ``ensure_schema`` after
+        # v26 is a no-op without needing a separate segment marker.
+        #
+        # Row access uses POSITIONAL indexing (mirrors v24 + v25) so
+        # the migration works against hand-built test fixtures that
+        # don't configure ``conn.row_factory = aiosqlite.Row``.
+        import json as _json
+
+        # ---- Pass A: connectors.config row-rewrites ----
+        # Defensive: skip when the connectors table is missing
+        # (hand-built partial-schema test fixtures — pre-v9 fixtures
+        # may not have this table; pre-v23 fixtures have
+        # ``connector_accounts`` which is renamed to ``connectors`` by
+        # v23, so by the time v26 runs the rename has been applied).
+        async with conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name='connectors'"
+        ) as cursor:
+            connectors_table_present = (await cursor.fetchone()) is not None
+        if connectors_table_present:
+            # Determine whether the ``name`` column exists (added at
+            # v17 per recon; absent in pre-v17 hand-built fixtures).
+            async with conn.execute(
+                "PRAGMA table_info(connectors)"
+            ) as cursor:
+                connector_cols = {r[1] for r in await cursor.fetchall()}
+            has_name = "name" in connector_cols
+            select_sql = (
+                "SELECT id, config, name FROM connectors"
+                if has_name
+                else "SELECT id, config FROM connectors"
+            )
+            async with conn.execute(select_sql) as cursor:
+                connector_rows = await cursor.fetchall()
+            for row in connector_rows:
+                connector_id = row[0]
+                config_str = row[1] or "{}"
+                connector_label = row[2] if has_name else connector_id
+                config = _json.loads(config_str)
+                changed = False
+                if "inference_provider_config_id" not in config:
+                    config["inference_provider_config_id"] = None
+                    changed = True
+                if "inference_model" not in config:
+                    config["inference_model"] = None
+                    changed = True
+                if changed and config.get("always_listen") is True:
+                    logger.info(
+                        "v26: connector %s (%s) inherits None inference "
+                        "defaults; edit per-connector via Studio "
+                        "connector editor",
+                        connector_id,
+                        connector_label,
+                    )
+                if changed:
+                    await conn.execute(
+                        "UPDATE connectors SET config = ? WHERE id = ?",
+                        (_json.dumps(config), connector_id),
+                    )
+
+        # ---- Pass B: agents.connector_acls row-rewrites ----
+        async with conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name='agents'"
+        ) as cursor:
+            agents_table_present = (await cursor.fetchone()) is not None
+        if agents_table_present:
+            async with conn.execute(
+                "PRAGMA table_info(agents)"
+            ) as cursor:
+                agents_cols = {r[1] for r in await cursor.fetchall()}
+        else:
+            agents_cols = set()
+        if agents_table_present and "connector_acls" in agents_cols:
+            async with conn.execute(
+                "SELECT name, connector_acls FROM agents"
+            ) as cursor:
+                agent_rows = await cursor.fetchall()
+            for row in agent_rows:
+                agent_name = row[0]
+                acls_str = row[1]
+                if not acls_str:
+                    continue
+                acls = _json.loads(acls_str)
+                if not isinstance(acls, dict):
+                    continue
+                changed = False
+                for _acct_id, payload in acls.items():
+                    if not isinstance(payload, dict):
+                        continue
+                    peers = payload.get("peers")
+                    if not isinstance(peers, list):
+                        continue
+                    for entry in peers:
+                        if isinstance(entry, dict) and "dm_allowed" in entry:
+                            entry.pop("dm_allowed", None)
+                            changed = True
+                if changed:
+                    await conn.execute(
+                        "UPDATE agents SET connector_acls = ? "
+                        "WHERE name = ?",
+                        (_json.dumps(acls), agent_name),
+                    )
+
+        await conn.execute(
+            "INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (26,)
+        )
+        await conn.commit()
+        version = 26

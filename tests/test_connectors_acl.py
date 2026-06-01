@@ -27,13 +27,11 @@ from the_one.connectors._acl import admits_inbound as _admits_inbound_real
 from the_one.connectors._acl import admits_outbound as _admits_outbound_real
 from the_one.connectors.base import InboundEnvelope
 from the_one.db.models import Connector
-
-# M11 F12 L5 — every channel/role entry must have a non-null guild_id
-# (the v24 ``str | None`` permissive semantic is removed). The flat-
-# string fixture convention falls back to this default; inbound-context
-# tests that exercise guild_id matching pass the same constant in their
-# envelope kwargs so the entry's guild_id matches.
-DEFAULT_TEST_GUILD_ID = "g-test"
+from tests._acl_shape_helpers import (
+    DEFAULT_TEST_GUILD_ID,
+    _to_v24_agent_acl,
+    _to_v24_shape,
+)
 
 
 def admits_inbound(account, agent_acl, peer_id, channel_id, **kwargs):
@@ -65,136 +63,6 @@ def admits_outbound(account, agent_acl, channel_id, **kwargs):
     return _admits_outbound_real(
         account, _to_v24_agent_acl(agent_acl), channel_id, **kwargs
     )
-
-
-def _to_v24_shape(allowlist: dict) -> dict:
-    """Translate a flat-shape allowlist (pre-v24 author convenience) to
-    the structured-tuple shape required post-v24 (and post-v25).
-
-    Test authors continue writing fixtures in the flat shape
-    (``peers: list[str]``, ``channels: list[str]``, ``roles: list[str]``)
-    for readability; this helper does the mechanical translation to the
-    post-v24 structured-tuple shape (``peers: list[{id, dm_allowed}]``,
-    ``channels: list[{guild_id, channel_id}]``, ``roles: list[{guild_id,
-    role_id}]``) at fixture-build time.
-
-    For the per-peer ``dm_allowed`` default: tests can pass ``dm_allowed``
-    as an integer override after the peer id (M11 F12 L3 — DM
-    composition matrix tests need this); otherwise defaults to ``True``
-    (matches the historical "allowlisted-peers-only had implicit DM
-    permission" semantic that pre-F12 fixtures rely on).
-
-    M11 F12 L5 — flat-string channel/role entries get
-    ``guild_id=DEFAULT_TEST_GUILD_ID`` (was ``None`` in L3); inbound
-    tests that exercise guild_id matching pass the same constant in
-    their envelope kwargs.
-
-    Tuple form for fine control:
-      - ``"P1"`` → ``{"id": "P1", "dm_allowed": True}``
-      - ``("P1", True)`` → ``{"id": "P1", "dm_allowed": True}``
-      - ``("P1", False)`` → ``{"id": "P1", "dm_allowed": False}``
-      - Already-dict shape: pass through.
-    """
-    result = dict(allowlist)
-    if "peers" in result and isinstance(result["peers"], list):
-        peers_new = []
-        for entry in result["peers"]:
-            if isinstance(entry, dict):
-                peers_new.append(entry)
-            elif isinstance(entry, tuple):
-                peers_new.append({"id": entry[0], "dm_allowed": entry[1]})
-            else:
-                peers_new.append({"id": entry, "dm_allowed": True})
-        result["peers"] = peers_new
-    if "channels" in result and isinstance(result["channels"], list):
-        channels_new = []
-        for entry in result["channels"]:
-            if isinstance(entry, dict):
-                channels_new.append(entry)
-            elif isinstance(entry, tuple):
-                channels_new.append(
-                    {"guild_id": entry[0], "channel_id": entry[1]}
-                )
-            else:
-                channels_new.append(
-                    {
-                        "guild_id": DEFAULT_TEST_GUILD_ID,
-                        "channel_id": entry,
-                    }
-                )
-        result["channels"] = channels_new
-    if "roles" in result and isinstance(result["roles"], list):
-        roles_new = []
-        for entry in result["roles"]:
-            if isinstance(entry, dict):
-                roles_new.append(entry)
-            elif isinstance(entry, tuple):
-                roles_new.append(
-                    {"guild_id": entry[0], "role_id": entry[1]}
-                )
-            else:
-                roles_new.append(
-                    {"guild_id": DEFAULT_TEST_GUILD_ID, "role_id": entry}
-                )
-        result["roles"] = roles_new
-    # M11 F12 L3 — dm_admission Literal-value rename.
-    if result.get("dm_admission") == "allowlisted-peers-only":
-        result["dm_admission"] = "admin-approved"
-    return result
-
-
-def _to_v24_agent_acl(agent_acl: dict | None) -> dict | None:
-    """Same translator for the per-agent ACL inner dict.
-
-    The per-agent shape mirrors account-scope for peers/channels/roles
-    (structural uniformity per M11 F12 L3); ``admit_dms`` is passed
-    through unchanged. ``None`` short-circuits.
-    """
-    if agent_acl is None:
-        return None
-    result = dict(agent_acl)
-    if isinstance(result.get("peers"), list):
-        peers_new = []
-        for entry in result["peers"]:
-            if isinstance(entry, dict):
-                peers_new.append(entry)
-            elif isinstance(entry, tuple):
-                peers_new.append({"id": entry[0], "dm_allowed": entry[1]})
-            else:
-                peers_new.append({"id": entry, "dm_allowed": True})
-        result["peers"] = peers_new
-    if isinstance(result.get("channels"), list):
-        channels_new = []
-        for entry in result["channels"]:
-            if isinstance(entry, dict):
-                channels_new.append(entry)
-            elif isinstance(entry, tuple):
-                channels_new.append(
-                    {"guild_id": entry[0], "channel_id": entry[1]}
-                )
-            else:
-                channels_new.append(
-                    {
-                        "guild_id": DEFAULT_TEST_GUILD_ID,
-                        "channel_id": entry,
-                    }
-                )
-        result["channels"] = channels_new
-    if isinstance(result.get("roles"), list):
-        roles_new = []
-        for entry in result["roles"]:
-            if isinstance(entry, dict):
-                roles_new.append(entry)
-            elif isinstance(entry, tuple):
-                roles_new.append(
-                    {"guild_id": entry[0], "role_id": entry[1]}
-                )
-            else:
-                roles_new.append(
-                    {"guild_id": DEFAULT_TEST_GUILD_ID, "role_id": entry}
-                )
-        result["roles"] = roles_new
-    return result
 
 
 def _account(allowlist: dict | None = None) -> Connector:

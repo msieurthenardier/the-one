@@ -434,6 +434,24 @@ Studio-area cross-module communication uses the shared `App.studio.eventBus` (de
 
 Source: M11 F9 L6 — extracted the bus when L5 added the 4th emit site (`connector-agent-detached`), past the F7 Rec #3(c) n=3 trigger. Reference: 4 emit sites in `connector-account-editor.js` + 5 listener sites across `studio.js`, `connectors-tab.js`, `discoverable-dropdown.js`, `connector-account-editor.js`.
 
+### `column-aware-index-create-for-rewind-paths`
+
+When a migration block must DROP+CREATE an index whose underlying columns have evolved across prior migrations, do NOT use `executescript("CREATE TABLE ...; CREATE INDEX ...")` — the `CREATE INDEX` half references the column names as they exist in the connection's current schema, and a v7-style strip-and-rewind path may execute that block against a schema where the column has since been renamed. The safe shape is: split the block into a `CREATE TABLE` half (executescript-safe) plus a Python-guarded `CREATE INDEX` step that consults `PRAGMA table_info(<table>)` at runtime to choose the correct column name branch (old-name vs new-name).
+
+Citation: F12 L3 introduced the pattern at `the_one/db/schema.py`'s v21 block, where v24 had dropped the old-named `idx_pending_approvals_account_peer_status` index whose v21-block CREATE referenced the post-v23-renamed column. The `test_v7_strips_removed_tool_names` rewind+rerun fixture path surfaced the failure mode (operators don't exercise the rewind path; pytest does).
+
+Source: F12 debrief Recommendation #5; codified at F13 L1.
+
+### `test-translator-helpers-for-shape-evolution`
+
+When a substrate's storage shape evolves and existing test fixtures should stay readable in the prior (flatter) author-convenience shape, add a **translator helper at test-module top** (or in a shared `tests/_*_helpers.py` module if the same translator surfaces in 3+ test files) that mechanical-translates flat fixtures to the post-evolution structured shape at fixture-build time. Existing test bodies stay readable; future shape evolutions extend the translator rather than sweeping every fixture site.
+
+Promote a per-file translator to a shared `tests/_*_helpers.py` module when the same helper appears in 3+ test files — F12 hit this threshold (4 sites) with `_to_v24_shape` / `_to_v24_agent_acl` / `_to_v24_allowlist` / `DEFAULT_TEST_GUILD_ID` across `tests/test_connectors_acl.py`, `tests/test_connectors_routing.py`, `tests/test_connectors_commands.py`, `tests/browser/seeders.py`, and F13 L1 extracted them to `tests/_acl_shape_helpers.py`.
+
+Citation: F12 L3 introduced the per-file pattern with `_to_v24_shape` / `_to_v24_agent_acl` at `tests/test_connectors_acl.py` (and parallel `_to_v24_allowlist` in `tests/browser/seeders.py`); F13 L1 promoted to the shared module `tests/_acl_shape_helpers.py`.
+
+Source: F12 debrief Recommendation #3 (extract shared module) + Recommendation #5 (codify the pattern); codified at F13 L1.
+
 ---
 
 ## Subsystem contracts

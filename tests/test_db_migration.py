@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from unittest.mock import patch
 
@@ -253,10 +254,14 @@ class TestSchemaV8:
         # and tightens the Pydantic validator to reject null guild_id
         # going forward (M11 F12 L05 — hierarchical Server-as-parent
         # UI alignment).
-        assert CURRENT_VERSION == 25, (
-            "CURRENT_VERSION must be 25 after the M11 F12 L05 — "
-            "hierarchical Server-as-parent UI v25 migration "
-            f"(got {CURRENT_VERSION})"
+        # v26 adds inference_provider_config_id + inference_model keys to
+        # every connector.config and strips per-agent peers[*].dm_allowed
+        # (M11 F13 L02 — per-connector inference LLM + F12 footgun
+        # retirement).
+        assert CURRENT_VERSION == 26, (
+            "CURRENT_VERSION must be 26 after the M11 F13 L02 — "
+            "per-connector inference LLM + per-agent dm_allowed retirement "
+            f"v26 migration (got {CURRENT_VERSION})"
         )
 
         # tool_configs table must exist.
@@ -3013,9 +3018,19 @@ class TestSchemaV22:
         ) as cur:
             row = await cur.fetchone()
         cfg = json.loads(row["config"])
-        # No allowlist key was added (untouched legacy row).
+        # No allowlist key was added (untouched legacy row — the v22
+        # row-rewrite only mutates rows that HAVE an allowlist).
         assert "allowlist" not in cfg
-        assert cfg == {"intent": "guild_messages"}
+        # The legacy ``intent`` key is preserved verbatim. Post-v26
+        # (M11 F13 L02), every connector also carries
+        # ``inference_provider_config_id`` + ``inference_model`` keys
+        # (defaulted to None at v26 backfill); the v22-untouched
+        # assertion shifts from strict equality to "intent preserved
+        # AND no allowlist added" — the v26 keys are additive to
+        # EVERY config regardless of allowlist presence.
+        assert cfg["intent"] == "guild_messages"
+        assert cfg.get("inference_provider_config_id") is None
+        assert cfg.get("inference_model") is None
 
         await conn.close()
 
@@ -3945,16 +3960,23 @@ class TestSchemaV24:
         ) as cur:
             row = await cur.fetchone()
         acls = json.loads(row["connector_acls"])
-        # acct-1 — populated axes get structured shape; per-agent
-        # peers carry dm_allowed=True default; admit_dms stays False.
-        # M11 F12 L5: the v25 cleanup that runs IN THE SAME
+        # acct-1 — populated axes get structured shape; admit_dms stays
+        # False. M11 F12 L5: the v25 cleanup that runs IN THE SAME
         # ``ensure_schema`` call deletes the orphan-null-guild_id
         # channel/role entries emitted by v24's legacy-permissive
         # backfill. Post-pipeline these per-agent-acl lists are empty
         # for v23-shape seeded rows.
+        #
+        # M11 F13 L2: v24 writes per-agent peers with
+        # ``dm_allowed=True`` default (structural uniformity); the v26
+        # block running in the SAME ``ensure_schema`` pipeline then
+        # strips the field from per-agent peers (F12 footgun
+        # retirement). Post-pipeline assertion reflects the stripped
+        # shape — per-agent peers entries are bare ``{"id": ...}``
+        # dicts.
         assert acls["acct-1"]["peers"] == [
-            {"id": "U1", "dm_allowed": True},
-            {"id": "U2", "dm_allowed": True},
+            {"id": "U1"},
+            {"id": "U2"},
         ]
         assert acls["acct-1"]["channels"] == []
         assert acls["acct-1"]["roles"] == []
@@ -4309,8 +4331,13 @@ class TestSchemaV25:
         assert acls["acct-A"]["roles"] == [
             {"guild_id": "G1", "role_id": "*"},
         ]
+        # M11 F13 L2 — per-agent peers entries are stripped of
+        # ``dm_allowed`` by the v26 migration running in the SAME
+        # ``ensure_schema`` pipeline (F12 footgun retirement). The
+        # seed above carries the field (legitimate post-v25 stored
+        # data); post-pipeline assertion reflects the v26 strip.
         assert acls["acct-A"]["peers"] == [
-            {"id": "U1", "dm_allowed": True}
+            {"id": "U1"}
         ]
 
         # acct-B: untouched (already clean).
@@ -4392,3 +4419,368 @@ class TestSchemaV25:
         assert accepted.config["allowlist"]["roles"] == [
             {"guild_id": "G1", "role_id": "*"}
         ]
+
+
+class TestSchemaV26:
+    """Tests for the v26 migration that (a) adds the connector-scope
+    inference LLM keys to ``connectors.config`` with ``None`` defaults
+    and logs always_listen=true connectors at migration time, and
+    (b) strips ``dm_allowed`` from per-agent ``connector_acls[*].
+    peers[*]`` entries (F12 footgun retirement).
+
+    Mission 11 Flight 13 Leg 2.
+    """
+
+    async def test_v26_fresh_db_shape(self, tmp_path) -> None:
+        """Fresh DB → ensure_schema → v26 final shape:
+
+        - Head pointer at CURRENT_VERSION (>= 26).
+        - A connector with the two new keys round-trips via Pydantic.
+        - A per-agent peers entry WITHOUT ``dm_allowed`` validates.
+        - A per-agent peers entry WITH ``dm_allowed`` is REJECTED.
+        """
+        db_path = tmp_path / "v26-fresh.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+        await ensure_schema(conn)
+
+        async with conn.execute(
+            "SELECT version FROM schema_version ORDER BY version"
+        ) as cur:
+            versions = [r[0] for r in await cur.fetchall()]
+        assert max(versions) == CURRENT_VERSION, versions
+        assert CURRENT_VERSION >= 26, CURRENT_VERSION
+
+        from the_one.db.models import Connector
+
+        connector = Connector.model_validate({
+            "id": "acct-v26",
+            "name": "v26",
+            "type": "stub",
+            "config": {
+                "inference_provider_config_id": "p1",
+                "inference_model": "m1",
+            },
+        })
+        assert connector.config["inference_provider_config_id"] == "p1"
+        assert connector.config["inference_model"] == "m1"
+
+        cfg_ok = AgentConfig(
+            name="agent-ok",
+            connector_acls={
+                "acct-a": {"peers": [{"id": "u1"}], "channels": []},
+            },
+        )
+        assert cfg_ok.connector_acls == {
+            "acct-a": {"peers": [{"id": "u1"}], "channels": []},
+        }
+
+        with pytest.raises(Exception):  # pydantic ValidationError
+            AgentConfig(
+                name="agent-bad",
+                connector_acls={
+                    "acct-a": {
+                        "peers": [{"id": "u1", "dm_allowed": True}],
+                        "channels": [],
+                    },
+                },
+            )
+
+        await conn.close()
+
+    async def test_v26_idempotent_on_rerun(self, tmp_path) -> None:
+        """Calling ``ensure_schema`` twice leaves v26 in
+        ``schema_version`` exactly once (UPDATE-only-when-changed
+        short-circuits the second pass)."""
+        db_path = tmp_path / "v26-rerun.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await ensure_schema(conn)
+        await ensure_schema(conn)
+
+        async with conn.execute(
+            "SELECT version FROM schema_version ORDER BY version"
+        ) as cur:
+            versions = [r[0] for r in await cur.fetchall()]
+        assert versions.count(26) == 1, (
+            f"v26 row should appear exactly once: {versions}"
+        )
+
+        await conn.close()
+
+    async def test_v26_legacy_v25_row_migration_strips_dm_allowed(
+        self, tmp_path
+    ) -> None:
+        """Hand-build a v25-shape DB with ``agents.connector_acls``
+        payloads carrying per-agent peer entries with ``dm_allowed``
+        keys (True and False); run ``ensure_schema``; assert each
+        per-agent peer entry post-pipeline has NO ``dm_allowed`` key.
+        """
+        db_path = tmp_path / "v26-strip-dm-allowed.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await conn.execute(
+            "CREATE TABLE schema_version ("
+            "    version INTEGER PRIMARY KEY,"
+            "    applied_at TEXT NOT NULL DEFAULT (datetime('now'))"
+            ")"
+        )
+        for v in range(1, 26):
+            await conn.execute(
+                "INSERT INTO schema_version (version) VALUES (?)", (v,)
+            )
+        await conn.execute(
+            "CREATE TABLE connectors ("
+            "    id TEXT PRIMARY KEY,"
+            "    type TEXT NOT NULL CHECK (type IN ('discord', 'stub')),"
+            "    config TEXT DEFAULT '{}',"
+            "    secrets TEXT DEFAULT '{}',"
+            "    created_at TEXT NOT NULL DEFAULT (datetime('now')),"
+            "    updated_at TEXT NOT NULL DEFAULT (datetime('now')),"
+            "    name TEXT NOT NULL DEFAULT '',"
+            "    idle_timeout_seconds INTEGER NULL,"
+            "    session_continuation_seconds INTEGER NULL"
+            ")"
+        )
+        await conn.execute(
+            "CREATE TABLE pending_approvals ("
+            "    id TEXT PRIMARY KEY,"
+            "    connector_id TEXT NOT NULL"
+            "        REFERENCES connectors(id) ON DELETE CASCADE,"
+            "    peer_id TEXT NOT NULL,"
+            "    peer_name TEXT NOT NULL,"
+            "    preview TEXT NOT NULL,"
+            "    received_at TEXT NOT NULL,"
+            "    status TEXT NOT NULL"
+            "        CHECK (status IN ('pending', 'approved', 'dismissed')),"
+            "    resolved_at TEXT"
+            ")"
+        )
+        await conn.execute(
+            "CREATE INDEX idx_pending_approvals_connector_peer_status "
+            "ON pending_approvals (connector_id, peer_id, status)"
+        )
+        await conn.execute(
+            "CREATE TABLE agents ("
+            "    name TEXT PRIMARY KEY,"
+            "    description TEXT DEFAULT '',"
+            "    provider_config_id TEXT,"
+            "    llm_model TEXT DEFAULT '',"
+            "    system_prompt TEXT DEFAULT '',"
+            "    enabled_tools TEXT,"
+            "    disabled_tools TEXT DEFAULT '[]',"
+            "    max_iterations INTEGER DEFAULT 20,"
+            "    kb_ids TEXT DEFAULT '[]',"
+            "    mcp_source_ids TEXT DEFAULT '[]',"
+            "    tool_overrides TEXT,"
+            "    mcp_overrides TEXT,"
+            "    connector_ids TEXT,"
+            "    connector_acls TEXT,"
+            "    connector_always_listen TEXT,"
+            "    created_at TEXT NOT NULL DEFAULT (datetime('now')),"
+            "    updated_at TEXT NOT NULL DEFAULT (datetime('now'))"
+            ")"
+        )
+        await conn.execute(
+            "INSERT INTO agents (name, connector_acls) VALUES (?, ?)",
+            (
+                "agent-strip",
+                json.dumps({
+                    "acct-A": {
+                        "peers": [
+                            {"id": "U1", "dm_allowed": True},
+                            {"id": "U2", "dm_allowed": False},
+                        ],
+                        "channels": [],
+                    },
+                    "acct-B": {
+                        # Already clean (no dm_allowed) — no UPDATE
+                        # should fire for this payload but the agent
+                        # row's other payload triggers the UPDATE
+                        # anyway; the assertion confirms acct-B is
+                        # untouched.
+                        "peers": [{"id": "U3"}],
+                        "channels": [],
+                    },
+                }),
+            ),
+        )
+        await conn.commit()
+
+        await ensure_schema(conn)
+
+        async with conn.execute(
+            "SELECT connector_acls FROM agents WHERE name = 'agent-strip'"
+        ) as cur:
+            row = await cur.fetchone()
+        acls = json.loads(row["connector_acls"])
+        assert acls["acct-A"]["peers"] == [
+            {"id": "U1"},
+            {"id": "U2"},
+        ], acls
+        assert acls["acct-B"]["peers"] == [{"id": "U3"}], acls
+
+        await conn.close()
+
+    async def test_v26_connector_config_inference_fields_added(
+        self, tmp_path
+    ) -> None:
+        """Hand-build a v25-shape DB with ``connectors.config`` rows
+        lacking the inference keys; run ``ensure_schema``; assert each
+        connector's config has the two new keys with None defaults.
+        """
+        db_path = tmp_path / "v26-inference-keys.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await conn.execute(
+            "CREATE TABLE schema_version ("
+            "    version INTEGER PRIMARY KEY,"
+            "    applied_at TEXT NOT NULL DEFAULT (datetime('now'))"
+            ")"
+        )
+        for v in range(1, 26):
+            await conn.execute(
+                "INSERT INTO schema_version (version) VALUES (?)", (v,)
+            )
+        await conn.execute(
+            "CREATE TABLE connectors ("
+            "    id TEXT PRIMARY KEY,"
+            "    type TEXT NOT NULL CHECK (type IN ('discord', 'stub')),"
+            "    config TEXT DEFAULT '{}',"
+            "    secrets TEXT DEFAULT '{}',"
+            "    created_at TEXT NOT NULL DEFAULT (datetime('now')),"
+            "    updated_at TEXT NOT NULL DEFAULT (datetime('now')),"
+            "    name TEXT NOT NULL DEFAULT '',"
+            "    idle_timeout_seconds INTEGER NULL,"
+            "    session_continuation_seconds INTEGER NULL"
+            ")"
+        )
+        await conn.execute(
+            "INSERT INTO connectors (id, name, type, config) "
+            "VALUES (?, ?, ?, ?)",
+            ("acct-1", "Account 1", "stub", json.dumps({})),
+        )
+        await conn.execute(
+            "INSERT INTO connectors (id, name, type, config) "
+            "VALUES (?, ?, ?, ?)",
+            (
+                "acct-2",
+                "Account 2",
+                "stub",
+                json.dumps({"intent": "guild_messages"}),
+            ),
+        )
+        await conn.commit()
+
+        await ensure_schema(conn)
+
+        async with conn.execute(
+            "SELECT id, config FROM connectors ORDER BY id"
+        ) as cur:
+            rows = [
+                (r["id"], json.loads(r["config"]))
+                for r in await cur.fetchall()
+            ]
+        for connector_id, config in rows:
+            assert "inference_provider_config_id" in config, (
+                connector_id, config
+            )
+            assert config["inference_provider_config_id"] is None, (
+                connector_id, config
+            )
+            assert "inference_model" in config, (connector_id, config)
+            assert config["inference_model"] is None, (
+                connector_id, config
+            )
+
+        # The non-inference key on acct-2 is preserved.
+        cfg_2 = dict(rows)["acct-2"]
+        assert cfg_2["intent"] == "guild_messages"
+
+        await conn.close()
+
+    async def test_v26_logs_affected_always_listen_connectors(
+        self, tmp_path, caplog
+    ) -> None:
+        """Seed a v25-shape DB with two connectors: one with
+        ``always_listen=true``, one with ``always_listen=false``. Run
+        ``ensure_schema`` under
+        ``caplog.at_level(logging.INFO, logger="the_one.db.schema")``;
+        assert EXACTLY one ``logger.info`` line fired and that it
+        mentions the always_listen=true connector's ID and label.
+        """
+        db_path = tmp_path / "v26-always-listen-log.db"
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys=ON")
+
+        await conn.execute(
+            "CREATE TABLE schema_version ("
+            "    version INTEGER PRIMARY KEY,"
+            "    applied_at TEXT NOT NULL DEFAULT (datetime('now'))"
+            ")"
+        )
+        for v in range(1, 26):
+            await conn.execute(
+                "INSERT INTO schema_version (version) VALUES (?)", (v,)
+            )
+        await conn.execute(
+            "CREATE TABLE connectors ("
+            "    id TEXT PRIMARY KEY,"
+            "    type TEXT NOT NULL CHECK (type IN ('discord', 'stub')),"
+            "    config TEXT DEFAULT '{}',"
+            "    secrets TEXT DEFAULT '{}',"
+            "    created_at TEXT NOT NULL DEFAULT (datetime('now')),"
+            "    updated_at TEXT NOT NULL DEFAULT (datetime('now')),"
+            "    name TEXT NOT NULL DEFAULT '',"
+            "    idle_timeout_seconds INTEGER NULL,"
+            "    session_continuation_seconds INTEGER NULL"
+            ")"
+        )
+        await conn.execute(
+            "INSERT INTO connectors (id, name, type, config) "
+            "VALUES (?, ?, ?, ?)",
+            (
+                "acct-loud",
+                "Loud Bot",
+                "stub",
+                json.dumps({"always_listen": True}),
+            ),
+        )
+        await conn.execute(
+            "INSERT INTO connectors (id, name, type, config) "
+            "VALUES (?, ?, ?, ?)",
+            (
+                "acct-quiet",
+                "Quiet Bot",
+                "stub",
+                json.dumps({"always_listen": False}),
+            ),
+        )
+        await conn.commit()
+
+        with caplog.at_level(logging.INFO, logger="the_one.db.schema"):
+            await ensure_schema(conn)
+
+        v26_records = [
+            r for r in caplog.records
+            if r.name == "the_one.db.schema"
+            and "v26: connector" in r.getMessage()
+        ]
+        assert len(v26_records) == 1, [
+            (r.name, r.getMessage()) for r in v26_records
+        ]
+        msg = v26_records[0].getMessage()
+        assert "acct-loud" in msg, msg
+        assert "Loud Bot" in msg, msg
+        assert "acct-quiet" not in msg, msg
+        assert "Quiet Bot" not in msg, msg
+
+        await conn.close()

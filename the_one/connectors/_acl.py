@@ -8,7 +8,9 @@ consumes after picking an agent.
 M11 F12 L3: structured-tuple storage for peers / channels / roles
 landed (v24 migration). All helpers consume structured dicts:
 
-  - ``peers``: ``list[{id: str, dm_allowed: bool}]``
+  - ``peers`` (account-scope): ``list[{id: str, dm_allowed: bool}]``
+  - ``peers`` (per-agent, post-F13 L2): ``list[{id: str}]`` —
+    ``dm_allowed`` is REJECTED at this scope (F12 footgun retirement)
   - ``channels``: ``list[{guild_id: str | None, channel_id: str}]``
   - ``roles``: ``list[{guild_id: str | None, role_id: str}]``
 
@@ -235,10 +237,12 @@ def admits_dm_peer(
     introduces it for the ``fetch_dm_history`` built-in tool, which gates
     on the per-(account, agent, peer) axis rather than the channel axis.
 
-    M11 F12 L3 — peers entries are structured ``{id, dm_allowed}`` dicts;
-    this helper consults only the ``id`` field (DM-history reads are not
-    gated by the per-peer ``dm_allowed`` toggle — that toggle gates
-    inbound DM admission, not outbound history reads).
+    M11 F12 L3 — peers entries are structured dicts (account-scope:
+    ``{id, dm_allowed}``; per-agent post-F13 L2: ``{id}`` only — the
+    F12 footgun was retired); this helper consults only the ``id``
+    field at both scopes (DM-history reads are not gated by the
+    per-peer ``dm_allowed`` toggle — that toggle gates inbound DM
+    admission at account scope only, not outbound history reads).
 
     Per-axis tri-state per the module docstring, applied to the peers
     axis at both scopes:
@@ -419,13 +423,14 @@ def _admits_inbound_dm(
         ``"admin-approved"`` policy mode. Under ``"all"`` it is
         ignored; under ``"none"`` admission is denied regardless.
 
-    **Per-agent peers entries' ``dm_allowed`` field is NOT consulted
-    by this Truth Table** (F12 L3 cycle-1 callout). Per-agent ``peers``
-    carries the field for structural-uniformity with the account-scope
-    shape (same v24 storage tuple), but DM admission is decided at the
-    account-scope per-peer ``dm_allowed`` only. If a future flight
-    wants per-agent DM granularity (e.g. "this peer can DM agent A
-    but not agent B"), that requires a substrate change.
+    **Per-agent peers entries DO NOT carry a ``dm_allowed`` field**
+    (F13 L2 — F12 footgun retirement; the v26 migration strips the
+    field from stored data and the Pydantic validator at
+    ``the_one/agent/config.py:_validate_connector_acls`` REJECTS it
+    post-v26). DM admission is decided at the account-scope per-peer
+    ``dm_allowed`` only. If a future flight wants per-agent DM
+    granularity (e.g. "this peer can DM agent A but not agent B"),
+    that requires a substrate change.
 
     Private helper — callers outside ``_acl.py`` should consult
     :func:`admits_inbound` (the public dispatcher) directly.
@@ -543,10 +548,13 @@ def _admits_inbound_guild(
     roles) per M10 F8 L8 at both account-scope and per-agent scope.
 
     **M11 F12 L3 — structured-tuple consumption**. The peers axis
-    uses structured ``{id, dm_allowed}`` dicts (the ``dm_allowed``
-    field is consulted only by :func:`_admits_inbound_dm`; the guild
-    path ignores it). The channels axis uses structured ``{guild_id,
-    channel_id}`` dicts — a channel admits when its ``guild_id``
+    uses structured ``{id, dm_allowed}`` dicts at account-scope and
+    bare ``{id}`` dicts at per-agent scope (post-F13 L2; per-agent
+    peers no longer carry ``dm_allowed`` — that field lives only at
+    account-scope per the F12 L3 DM Composition Truth Table, and the
+    guild path doesn't consume ``dm_allowed`` at any scope). The
+    channels axis uses structured ``{guild_id, channel_id}`` dicts —
+    a channel admits when its ``guild_id``
     matches the envelope ``guild_id`` AND (``channel_id`` matches OR
     ``channel_id == "*"``; see wildcard semantic below). Roles follow
     the same guild-scoped rule.

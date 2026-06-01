@@ -483,6 +483,101 @@
     lifecycleHtml += '</label>';
     lifecycleHtml += '</div>';
 
+    // M11 F13 L4: Inference provider + model rows (conditional on
+    // always_listen=true). The connector's policy-gate inference call
+    // uses these to pick the LLM that decides engage-or-silent on
+    // non-mentioned channel messages. Empty / unset values fall through
+    // to the routed agent's LLM per the L3 dispatcher contract. Use the
+    // ``hidden`` attribute on a wrapper div (NOT remove-from-DOM) so
+    // typed-but-unsaved values survive an OFF→ON master-toggle flip.
+    var inferenceProviderConfigValue = (!isCreate && account.config &&
+            Object.prototype.hasOwnProperty.call(account.config, 'inference_provider_config_id'))
+        ? account.config.inference_provider_config_id
+        : null;
+    var inferenceModelConfigValue = (!isCreate && account.config &&
+            Object.prototype.hasOwnProperty.call(account.config, 'inference_model'))
+        ? account.config.inference_model
+        : null;
+    var inferenceRowsHidden = !alwaysListenConfigValue;
+
+    var inferenceProviderTipText = 'The LLM provider used by the policy-gate ' +
+            'inference call when Always Listen is on. Leave empty to use the ' +
+            'routed agent’s own LLM.';
+    var inferenceModelTipText = 'The model identifier the inference call uses ' +
+            'on the selected provider. Provider-type determines whether the model ' +
+            'list is queryable (Ollama yes; OpenAI / Anthropic no).';
+
+    lifecycleHtml += '<div class="cf-inference-rows" data-testid="connector-inference-rows-container"' +
+            (inferenceRowsHidden ? ' hidden' : '') + '>';
+
+    // Provider dropdown.
+    lifecycleHtml += '<div class="field-row admin-pf-row cf-inference-provider-row">';
+    lifecycleHtml += '<label for="cf-inference-provider">Inference provider</label>';
+    lifecycleHtml += '<button type="button" class="field-info-icon" ' +
+            'title="' + escAttr(inferenceProviderTipText) + '" ' +
+            'aria-describedby="connector-inference-provider-help-text" ' +
+            'data-testid="connector-config-inference-provider-hint">' + infoIcon + '</button>';
+    lifecycleHtml += '<span id="connector-inference-provider-help-text" class="visually-hidden">' +
+            escHtml(inferenceProviderTipText) + '</span>';
+    lifecycleHtml += '<select class="field-input field-select admin-pf-input admin-pf-select" ' +
+            'id="cf-inference-provider" data-field="inference_provider_config_id" ' +
+            'data-testid="connector-config-inference-provider-select">';
+    // Initial placeholder option only; full population happens async in
+    // populateInferenceProviderDropdown after mount (mirrors
+    // populateRoutingAgentDropdowns). If the persisted value exists, we
+    // pre-emit it as a selected option so the dirty-tracker's mount-time
+    // snapshot reflects the persisted state (otherwise the populate-step
+    // would flip the value and read as a dirty edit).
+    lifecycleHtml += '<option value=""' +
+            (inferenceProviderConfigValue == null ? ' selected' : '') +
+            '>— Use routed agent’s LLM —</option>';
+    if (inferenceProviderConfigValue) {
+      lifecycleHtml += '<option value="' + escAttr(inferenceProviderConfigValue) + '" selected>' +
+              escHtml(inferenceProviderConfigValue) + '</option>';
+    }
+    lifecycleHtml += '</select>';
+    lifecycleHtml += '</div>';
+
+    // Model dropdown. Populated async by populateInferenceModelDropdown
+    // when a provider is selected (mirrors studio.js fetchModelsForProvider:
+    // /api/providers/{id}/models → options; values not in the fetched list
+    // surface as "{value} (custom)" so the operator's typed model survives
+    // a provider that doesn't enumerate it via API — same pattern chat uses).
+    // Pre-emit the persisted value as a selected option so the dirty-tracker's
+    // mount snapshot reflects the persisted state pre-populate.
+    lifecycleHtml += '<div class="field-row admin-pf-row cf-inference-model-row">';
+    lifecycleHtml += '<label for="cf-inference-model">Inference model</label>';
+    lifecycleHtml += '<button type="button" class="field-info-icon" ' +
+            'title="' + escAttr(inferenceModelTipText) + '" ' +
+            'aria-describedby="connector-inference-model-help-text" ' +
+            'data-testid="connector-config-inference-model-hint">' + infoIcon + '</button>';
+    lifecycleHtml += '<span id="connector-inference-model-help-text" class="visually-hidden">' +
+            escHtml(inferenceModelTipText) + '</span>';
+    lifecycleHtml += '<select class="field-input field-select admin-pf-input admin-pf-select" ' +
+            'id="cf-inference-model" data-field="inference_model" ' +
+            'data-testid="connector-config-inference-model-select">';
+    // Initial placeholder options. If no provider selected → "Select a
+    // provider first" (matches studio.js behavior). If provider selected
+    // AND a model value is persisted → pre-emit selected option so the
+    // dirty-tracker's mount snapshot reflects the persisted state.
+    if (!inferenceProviderConfigValue) {
+      lifecycleHtml += '<option value="" disabled' +
+              (inferenceModelConfigValue ? '' : ' selected') +
+              '>Select a provider first</option>';
+    } else {
+      lifecycleHtml += '<option value=""' +
+              (inferenceModelConfigValue ? '' : ' selected') +
+              '>— No model —</option>';
+    }
+    if (inferenceModelConfigValue) {
+      lifecycleHtml += '<option value="' + escAttr(inferenceModelConfigValue) + '" selected>' +
+              escHtml(inferenceModelConfigValue) + '</option>';
+    }
+    lifecycleHtml += '</select>';
+    lifecycleHtml += '</div>';
+
+    lifecycleHtml += '</div>'; // .cf-inference-rows
+
     lifecycleHtml += '</div>';
 
     // Pairing section (edit mode only).
@@ -779,11 +874,18 @@
   // ``config.always_listen``. Without this entry the kv-table also renders
   // ``always_listen`` and the operator sees two conflicting controls. Caught
   // at L12 Phase 1 walk.
+  // M11 F13 L4: ``inference_provider_config_id`` + ``inference_model``
+  // join the reserved set — the new Session-section rows are the only
+  // writers for these flat keys. Without these entries the kv-table
+  // also renders them post-v26 migration and the operator sees
+  // duplicate controls (same hazard as F7 L12's always_listen hotfix).
   var RESERVED_CONFIG_KEYS = {
     pairing: true,
     allowlist: true,
     routing: true,
     always_listen: true,
+    inference_provider_config_id: true,
+    inference_model: true,
   };
 
   function collectConfigRows(account) {
@@ -987,6 +1089,22 @@
       snapshotObj.always_listen = !!alwaysListenSnap.checked;
     }
 
+    // M11 F13 L4: capture the two inference-config fields on the snapshot
+    // object so the dirty-tracker fires for edits. Mirrors the always_listen
+    // pattern — read the live DOM value; OMIT the key when the input is
+    // absent so unrelated render paths keep stable snapshot bytes. Serialize
+    // empty string as null so the mount-time snapshot matches the
+    // collectFormData null-write semantic (otherwise the populate-step's
+    // recapture is the only thing keeping the form from reading as dirty).
+    var inferenceProviderSnap = container.querySelector('[data-field="inference_provider_config_id"]');
+    if (inferenceProviderSnap) {
+      snapshotObj.inference_provider_config_id = inferenceProviderSnap.value || null;
+    }
+    var inferenceModelSnap = container.querySelector('[data-field="inference_model"]');
+    if (inferenceModelSnap) {
+      snapshotObj.inference_model = inferenceModelSnap.value || null;
+    }
+
     // M11 F1 L4: per-type registry consult for typed-field snapshot.
     // The entry's optional ``snapshot(container)`` returns a
     // JSON-serializable view of the typed inputs (intent checkboxes,
@@ -1093,6 +1211,18 @@
           accountId: account.id,
           enabled: !!alwaysListenEl.checked,
         });
+        // M11 F13 L4: toggle the inference-rows visibility in lockstep
+        // with the always-listen master toggle. Use the ``hidden``
+        // attribute on the wrapping container (not remove-from-DOM) so
+        // typed-but-unsaved values survive an OFF→ON flip.
+        var inferenceWrap = container.querySelector('[data-testid="connector-inference-rows-container"]');
+        if (inferenceWrap) {
+          if (alwaysListenEl.checked) {
+            inferenceWrap.removeAttribute('hidden');
+          } else {
+            inferenceWrap.setAttribute('hidden', '');
+          }
+        }
       });
     }
 
@@ -1353,6 +1483,18 @@
       // ``.then`` populates the routing-section agent dropdowns and
       // re-snapshots (see fetchAttachedAgents).
       fetchAttachedAgents(container, account, checkDirty, recaptureSnapshot);
+
+      // M11 F13 L4: populate the inference-provider dropdown asynchronously.
+      // Fires regardless of always-listen state so the dropdown is ready
+      // when the operator flips the master toggle ON.
+      populateInferenceProviderDropdown(container, account, checkDirty, recaptureSnapshot);
+
+      // M11 F13 L4 (model-dropdown enhancement): wire the provider-select
+      // change handler to repopulate the model dropdown from
+      // /api/providers/{id}/models. Also populate immediately for the
+      // persisted provider (if any) so the operator sees the model list on
+      // initial load.
+      wireInferenceModelRepopulate(container, account, checkDirty, recaptureSnapshot);
     }
   }
 
@@ -1639,6 +1781,22 @@
     var alwaysListenInputCFD = container.querySelector('[data-field="always_listen"]');
     if (alwaysListenInputCFD) {
       config.always_listen = !!alwaysListenInputCFD.checked;
+    }
+
+    // M11 F13 L4: write the connector-scope inference fields into
+    // ``config``. Empty values serialize as null (NOT empty string) so
+    // the Pydantic validator's ``str | None`` shape accepts them and the
+    // L3 dispatcher's "None falls through to routed-agent LLM" path
+    // fires. Write the keys unconditionally when the inputs exist so
+    // toggling non-null → null actually clears the persisted state; the
+    // ``if (input)`` guards handle render paths that drop the fields.
+    var inferenceProviderInput = container.querySelector('[data-field="inference_provider_config_id"]');
+    if (inferenceProviderInput) {
+      config.inference_provider_config_id = inferenceProviderInput.value || null;
+    }
+    var inferenceModelInput = container.querySelector('[data-field="inference_model"]');
+    if (inferenceModelInput) {
+      config.inference_model = (inferenceModelInput.value || '').trim() || null;
     }
 
     return {
@@ -3107,6 +3265,185 @@
                              window.App.escapeHtml(err && err.message ? err.message : String(err)) +
                              '</em>';
         }
+      });
+  }
+
+  // M11 F13 L4: populate the inference-provider dropdown from
+  // /api/providers. Mirrors the routing-default-agent dropdown pattern —
+  // render-with-placeholder, fetch, populate, preserve-stale-as-disabled.
+  // Re-snapshot after population so the populated form is the dirty
+  // baseline (otherwise the operator's first edit would compare against
+  // a placeholder-only baseline that no longer exists in the DOM).
+  function populateInferenceProviderDropdown(container, account, checkDirty, recaptureSnapshot) {
+    var escapeAttr = window.App.escapeAttr;
+    var escapeHtml = window.App.escapeHtml;
+    var sel = container.querySelector('[data-testid="connector-config-inference-provider-select"]');
+    if (!sel) return;  // rows hidden under always_listen=false on render, OR not in this render path
+    var currentValue = (account && account.config && account.config.inference_provider_config_id) || '';
+    fetch('/api/providers')
+      .then(function (resp) { return resp.ok ? resp.json() : []; })
+      .then(function (providers) {
+        if (!Array.isArray(providers)) providers = [];
+        // Stable display order — name asc.
+        providers.sort(function (a, b) {
+          return String(a.name || '').localeCompare(String(b.name || ''));
+        });
+        var html = '';
+        html += '<option value=""' + (currentValue === '' ? ' selected' : '') +
+                '>— Use routed agent’s LLM —</option>';
+        var matchedPersisted = false;
+        for (var i = 0; i < providers.length; i++) {
+          var p = providers[i];
+          var pid = String(p.id || '');
+          var pname = String(p.name || pid);
+          if (pid === currentValue) matchedPersisted = true;
+          html += '<option value="' + escapeAttr(pid) + '"' +
+                  (pid === currentValue ? ' selected' : '') + '>' +
+                  escapeHtml(pname) + '</option>';
+        }
+        // Stale-id preservation — keep the persisted value visible (and
+        // selected) as a disabled option so the operator sees their
+        // original choice and that it's no longer valid. Mirrors
+        // populateRoutingAgentDropdowns's stale-selection snippet.
+        if (currentValue && !matchedPersisted) {
+          html += '<option value="' + escapeAttr(currentValue) + '" selected disabled>' +
+                  escapeHtml(currentValue) + ' (provider deleted)</option>';
+        }
+        sel.innerHTML = html;
+        if (typeof recaptureSnapshot === 'function') recaptureSnapshot();
+        if (typeof checkDirty === 'function') checkDirty();
+      })
+      .catch(function () {
+        // Network / 5xx — leave the placeholder-only options in place.
+        // The operator sees the empty-state placeholder; they can save
+        // (which writes null + falls through to routed-agent's LLM).
+      });
+  }
+
+  // M11 F13 L4 (model-dropdown enhancement): wire the inference-provider
+  // select's change handler to repopulate the inference-model select from
+  // /api/providers/{providerId}/models. Also populates immediately for the
+  // persisted provider (if any) so the model list appears on initial load.
+  // Mirrors studio.js fetchModelsForProvider — handles the case where the
+  // operator's previously-typed model is no longer enumerable by surfacing
+  // it as "{value} (custom)" so the value survives.
+  var _connectorModelsFetchController = null;
+  var _connectorModelsActiveProviderId = null;
+  function wireInferenceModelRepopulate(container, account, checkDirty, recaptureSnapshot) {
+    var providerSel = container.querySelector('[data-testid="connector-config-inference-provider-select"]');
+    if (!providerSel) return;
+    providerSel.addEventListener('change', function () {
+      populateInferenceModelDropdown(container, providerSel.value, null, checkDirty, recaptureSnapshot);
+    });
+    // Initial populate for the persisted provider so the model list is
+    // visible on mount (otherwise the operator sees "Select a provider
+    // first" until they change the provider, which is confusing when one
+    // is already set).
+    var persistedProviderId = (account && account.config && account.config.inference_provider_config_id) || '';
+    var persistedModel = (account && account.config && account.config.inference_model) || '';
+    if (persistedProviderId) {
+      populateInferenceModelDropdown(container, persistedProviderId, persistedModel, checkDirty, recaptureSnapshot);
+    }
+  }
+
+  function populateInferenceModelDropdown(container, providerId, persistedModel, checkDirty, recaptureSnapshot) {
+    var escapeAttr = window.App.escapeAttr;
+    var escapeHtml = window.App.escapeHtml;
+    var sel = container.querySelector('[data-testid="connector-config-inference-model-select"]');
+    if (!sel) return;
+    // Carry-forward the currently-selected model so we can re-surface it
+    // (a) if the persisted value isn't in the fetched list (as "(custom)"),
+    // or (b) if the operator typed it before the provider switched.
+    var currentVal = persistedModel != null ? persistedModel : sel.value;
+
+    // Cancel any in-flight fetch from a prior provider selection (mirrors
+    // studio.js race-guard so a slow earlier response doesn't clobber a
+    // fresh later one).
+    if (_connectorModelsFetchController) {
+      try { _connectorModelsFetchController.abort(); } catch (_) { /* noop */ }
+    }
+    _connectorModelsFetchController = (typeof AbortController !== 'undefined')
+      ? new AbortController()
+      : null;
+    _connectorModelsActiveProviderId = providerId;
+    var fetchProviderId = providerId;
+    var fetchSignal = _connectorModelsFetchController ? _connectorModelsFetchController.signal : undefined;
+
+    if (!providerId) {
+      // Provider cleared back to "— Use routed agent's LLM —" → model is
+      // moot. Replace with "Select a provider first" disabled placeholder.
+      // Do NOT recapture the snapshot — the populate here is a side effect
+      // of the operator's provider-clear edit, and the dirty-tracker must
+      // still see the change vs the persisted baseline so Save stays enabled.
+      // Clear the value to null so the snapshot serializes as null (matches
+      // the collectFormData null-write rule).
+      sel.innerHTML = '<option value="" disabled selected>Select a provider first</option>';
+      sel.value = '';
+      // Dispatch a synthetic change so the general change listener fires
+      // checkDirty against the persisted baseline (we don't call checkDirty
+      // ourselves to avoid races with concurrent async populates on mount).
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+      return;
+    }
+
+    // Loading state.
+    sel.innerHTML = '<option value="" disabled selected>Loading models…</option>';
+
+    fetch('/api/providers/' + encodeURIComponent(providerId) + '/models', {
+      signal: fetchSignal,
+    })
+      .then(function (r) {
+        if (!r.ok) throw new Error('Failed');
+        return r.json();
+      })
+      .then(function (models) {
+        // Drop the response if the user switched providers mid-flight.
+        if (_connectorModelsActiveProviderId !== fetchProviderId) return;
+        if (!Array.isArray(models)) models = [];
+        var html = '';
+        html += '<option value=""' + (currentVal ? '' : ' selected') + '>— No model —</option>';
+        var matched = false;
+        for (var i = 0; i < models.length; i++) {
+          var modelId = models[i].id || models[i].name;
+          if (modelId == null) continue;
+          var sid = String(modelId);
+          if (sid === currentVal) matched = true;
+          html += '<option value="' + escapeAttr(sid) + '"' +
+                  (sid === currentVal ? ' selected' : '') + '>' +
+                  escapeHtml(sid) + '</option>';
+        }
+        // Preserve a typed-but-not-enumerated value as "(custom)" — same
+        // pattern as studio.js for chat. Operator's saved string is never
+        // silently wiped just because the provider can't list it (e.g.,
+        // OpenAI/Anthropic don't enumerate, or an Ollama model isn't
+        // pulled locally yet — operator may pull it later).
+        if (currentVal && !matched) {
+          html += '<option value="' + escapeAttr(currentVal) + '" selected>' +
+                  escapeHtml(currentVal) + ' (custom)</option>';
+        }
+        sel.innerHTML = html;
+        // Do NOT call checkDirty or recapture — the populate is a DOM-only
+        // side effect (no user edit). On user-driven provider change, the
+        // general change listener (wired in wireEditorEvents) already fires
+        // checkDirty against the persisted baseline. On initial mount,
+        // there's no edit to track. Calling checkDirty here introduces a
+        // race against concurrent async populates (provider + fetchAttachedAgents).
+      })
+      .catch(function (err) {
+        if (err && err.name === 'AbortError') return;
+        if (_connectorModelsActiveProviderId !== fetchProviderId) return;
+        // Network / 5xx — surface a clear failure state but preserve the
+        // persisted value as a disabled-selected option so the operator's
+        // saved choice is still visible. They can still pick "— No model —"
+        // to clear it.
+        var failHtml = '<option value="" disabled>Failed to load models</option>';
+        if (currentVal) {
+          failHtml += '<option value="' + escapeAttr(currentVal) + '" selected>' +
+                      escapeHtml(currentVal) + ' (saved)</option>';
+        } else {
+          failHtml = '<option value="" disabled selected>Failed to load models</option>';
+        }
+        sel.innerHTML = failHtml;
       });
   }
 

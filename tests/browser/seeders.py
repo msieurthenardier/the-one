@@ -15,6 +15,8 @@ from dataclasses import dataclass
 
 import httpx
 
+from tests._acl_shape_helpers import _to_v24_agent_acl, _to_v24_allowlist
+
 
 @dataclass
 class SeededApp:
@@ -81,129 +83,6 @@ def seed_mock_agent(
     r = httpx.post(f"{base_url}/api/agents", json=payload, timeout=5.0)
     assert r.status_code == 201, f"seed_mock_agent failed: {r.status_code} {r.text}"
     return r.json()["name"]
-
-
-# M11 F12 L5 — flat-string fixture entries get this default guild_id
-# (was ``None`` in L4); post-v25 the Pydantic validator rejects null
-# guild_id. Browser tests that exercise guild_id matching pass the
-# same constant in their envelope payloads so the entry's guild_id
-# matches.
-_DEFAULT_FIXTURE_GUILD_ID = "guild-fixture-default"
-
-
-def _to_v24_allowlist(allowlist: dict) -> dict:
-    """Translate a flat-shape allowlist (test-author convenience) to the
-    structured-tuple shape required post-v24.
-
-    M11 F12 L4 — browser-test fixtures continue using the flat shape
-    (``peers: list[str]``, ``channels: list[str]``, ``roles: list[str]``)
-    for readability; this helper does the mechanical translation at
-    fixture-build time. Mirrors ``tests/test_connectors_acl.py``'s
-    ``_to_v24_shape`` (backend-test sibling) so cross-suite drift is
-    obvious.
-
-    The translator is a no-op when the input is already structured.
-
-    Renamings:
-      - peers entry ``"alice"`` → ``{"id": "alice", "dm_allowed": True}``
-      - channels entry ``"111"`` →
-        ``{"guild_id": _DEFAULT_FIXTURE_GUILD_ID, "channel_id": "111"}``
-      - roles entry ``"admin"`` →
-        ``{"guild_id": _DEFAULT_FIXTURE_GUILD_ID, "role_id": "admin"}``
-      - dm_admission ``"allowlisted-peers-only"`` → ``"admin-approved"``
-
-    M11 F12 L5 — flat-string channel/role entries get a default
-    guild_id (was ``None`` in L4); post-v25 the Pydantic validator
-    rejects null guild_id. Browser tests that exercise guild_id
-    matching pass the same constant in their envelope payloads.
-    """
-    result = dict(allowlist)
-    if "peers" in result and isinstance(result["peers"], list):
-        peers_new = []
-        for entry in result["peers"]:
-            if isinstance(entry, dict):
-                peers_new.append(entry)
-            else:
-                peers_new.append({"id": str(entry), "dm_allowed": True})
-        result["peers"] = peers_new
-    if "channels" in result and isinstance(result["channels"], list):
-        channels_new = []
-        for entry in result["channels"]:
-            if isinstance(entry, dict):
-                channels_new.append(entry)
-            else:
-                channels_new.append(
-                    {
-                        "guild_id": _DEFAULT_FIXTURE_GUILD_ID,
-                        "channel_id": str(entry),
-                    }
-                )
-        result["channels"] = channels_new
-    if "roles" in result and isinstance(result["roles"], list):
-        roles_new = []
-        for entry in result["roles"]:
-            if isinstance(entry, dict):
-                roles_new.append(entry)
-            else:
-                roles_new.append(
-                    {
-                        "guild_id": _DEFAULT_FIXTURE_GUILD_ID,
-                        "role_id": str(entry),
-                    }
-                )
-        result["roles"] = roles_new
-    if result.get("dm_admission") == "allowlisted-peers-only":
-        result["dm_admission"] = "admin-approved"
-    return result
-
-
-def _to_v24_agent_acl(agent_acl: dict | None) -> dict | None:
-    """Same translator for the per-agent connector_acls inner dict.
-
-    M11 F12 L4 — per-agent peers/channels/roles mirror the account-scope
-    structured-tuple shape; ``admit_dms`` is passed through unchanged.
-    ``None`` short-circuits.
-
-    M11 F12 L5 — channels/roles entries from flat strings get
-    ``_DEFAULT_FIXTURE_GUILD_ID`` (was ``None`` in L4)."""
-    if agent_acl is None:
-        return None
-    result = dict(agent_acl)
-    if isinstance(result.get("peers"), list):
-        peers_new = []
-        for entry in result["peers"]:
-            if isinstance(entry, dict):
-                peers_new.append(entry)
-            else:
-                peers_new.append({"id": str(entry), "dm_allowed": True})
-        result["peers"] = peers_new
-    if isinstance(result.get("channels"), list):
-        channels_new = []
-        for entry in result["channels"]:
-            if isinstance(entry, dict):
-                channels_new.append(entry)
-            else:
-                channels_new.append(
-                    {
-                        "guild_id": _DEFAULT_FIXTURE_GUILD_ID,
-                        "channel_id": str(entry),
-                    }
-                )
-        result["channels"] = channels_new
-    if isinstance(result.get("roles"), list):
-        roles_new = []
-        for entry in result["roles"]:
-            if isinstance(entry, dict):
-                roles_new.append(entry)
-            else:
-                roles_new.append(
-                    {
-                        "guild_id": _DEFAULT_FIXTURE_GUILD_ID,
-                        "role_id": str(entry),
-                    }
-                )
-        result["roles"] = roles_new
-    return result
 
 
 def seed_connector(

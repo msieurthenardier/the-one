@@ -3195,6 +3195,13 @@ async def get_chat_session(session_id: str) -> dict[str, Any]:
     return {
         **_session_summary(session),
         "messages": json.loads(session.messages),
+        # M11 F13 L5: routing-audit inspector. Surfaces session_metadata
+        # ONLY on the detail endpoint composition — the shared
+        # _session_summary() helper at :3246 stays untouched, so list /
+        # create / update endpoints keep their summary-only response
+        # shape and the per-session routing payload does not bloat list
+        # responses.
+        "session_metadata": session.session_metadata,
     }
 
 

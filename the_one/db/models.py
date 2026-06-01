@@ -251,6 +251,14 @@ class Connector(BaseModel):
         — the operator effectively un-pairs the account. Same for
         ``config["allowlist"] = None`` and ``config["routing"] = None``.
 
+        M11 F13 L2 — two new optional reserved flat keys:
+        ``inference_provider_config_id`` and ``inference_model``. Each
+        is ``str | None``; non-string non-None values are rejected.
+        The v26 migration backfills both as ``None`` on existing
+        connector rows; operators set them per-connector via the
+        Studio connector editor (F13 L4). ``None`` at the dispatcher
+        policy gate (F13 L3) falls through to the routed agent's LLM.
+
         Pydantic v2 ``@field_validator`` runs on both
         ``Connector(**kwargs)`` direct construction AND
         ``Connector.model_validate(dict)``, so this fires on the
@@ -608,6 +616,30 @@ class Connector(BaseModel):
                     "config['always_listen'] must be a bool "
                     "(True or False) when present; absent is treated as "
                     "default-False at consume time"
+                )
+
+        # M11 F13 L2 — connector-scope inference LLM configuration.
+        # Two optional flat keys on ``config`` (sibling to
+        # ``always_listen``): the LLM provider + model the policy-gate
+        # inference call uses for this connector. Both default to
+        # None at the v26 backfill (operator edits per-connector via
+        # the Studio connector editor at F13 L4); ``None`` falls
+        # through to the routed agent's LLM at the dispatcher
+        # (F13 L3).
+        if "inference_provider_config_id" in value:
+            ipci = value["inference_provider_config_id"]
+            if ipci is not None and not isinstance(ipci, str):
+                raise ValueError(
+                    "config['inference_provider_config_id'] must be "
+                    "a string or None; got "
+                    f"{type(ipci).__name__}"
+                )
+        if "inference_model" in value:
+            im = value["inference_model"]
+            if im is not None and not isinstance(im, str):
+                raise ValueError(
+                    "config['inference_model'] must be a string or "
+                    f"None; got {type(im).__name__}"
                 )
 
         # M11 F7 L5 — strip the legacy ``auto_relay_platform_replies``

@@ -176,7 +176,6 @@ async def _policy_gate_decision(
     session_messages: list[Message],
     conn: Any,
     encryptor: Any,
-    settings: Any,
 ) -> tuple[bool, dict[str, Any]]:
     """Evaluate the F7 policy gate (Flight DD §1 five-path decision tree).
 
@@ -255,8 +254,9 @@ async def _policy_gate_decision(
         account=account,
         envelope=envelope,
         session_messages=session_messages,
-        settings=settings,
         provider_repo=provider_repo,
+        connector_inference_provider_config_id=account.config.get("inference_provider_config_id"),
+        connector_inference_model=account.config.get("inference_model"),
         fallback_provider_config_id=agent_config.provider_config_id,
         fallback_llm_model=agent_config.llm_model,
     )
@@ -266,11 +266,11 @@ async def _policy_gate_decision(
         "account_always_listen": True,
         "agent_always_listen": True,
         "inference_provider_id": (
-            settings.inference_provider_config_id
+            account.config.get("inference_provider_config_id")
             or agent_config.provider_config_id
         ),
         "inference_model": (
-            settings.inference_model
+            account.config.get("inference_model")
             or agent_config.llm_model
         ),
     }
@@ -771,7 +771,6 @@ async def dispatch_inbound(
         session_messages=session_messages,
         conn=conn,
         encryptor=encryptor,
-        settings=settings,
     )
     if not should_engage:
         # Silent terminal-return per DD §13.
