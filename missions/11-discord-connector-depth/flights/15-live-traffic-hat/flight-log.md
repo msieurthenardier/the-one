@@ -4,7 +4,9 @@
 
 ## Summary
 
-Planning in progress. Flight scoped to the live-traffic HAT capability (mission criteria #5/#6/#7/#9/#11/#13) plus four carry-forward fold-ins. Rate-limiting (#17) deferred to the daily-driver flight (F16) per operator decision (discord.py pre-empts per-route limits; no cascade observed). Apparatus resolved to **hybrid** (committed discord.py multi-bot driver + operator Chrome-MCP pass), de-risked by a planning-time premise audit.
+**LANDED 2026-06-02.** Flight delivered the live-traffic HAT capability: a committed `discord.py` multi-bot driver (`tests/live/discord_hat/`, hybrid + operator Chrome-MCP pass) that drove the real test guild end-to-end. **Mission #5/#6/#7/#9/#13 CLOSED** (live); **#11** `[~]` (autonomous driver covers multi-user/channel/agent + mentions-aware; pairing/DM-isolation inherently human — bot-can't-DM-bot). #8/#12 re-verified live. Rate-limiting #17 → F16. 7 legs (L1–L7), all committed (`ad43daf` L1–L6, `f3c9f09` L7, `4390fae` note). 2 follow-ups filed as mission Known Issues: pairing→peers-narrowing lock-out (defect), content-aware agent routing (enhancement). L8 (optional UAT) skipped — every surface verified live across L3–L7. `/flight-debrief` next.
+
+Original scope (planning): live-traffic HAT capability (mission criteria #5/#6/#7/#9/#11/#13) plus four carry-forward fold-ins; apparatus = **hybrid** (committed discord.py multi-bot driver + operator Chrome-MCP pass), de-risked by a planning-time premise audit.
 
 ---
 

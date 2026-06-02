@@ -1,7 +1,9 @@
 # Flight: Live-Traffic HAT Capability
 
-**Status**: in-flight
+**Status**: landed
 **Mission**: [Discord Connector Depth & Robustness](../../mission.md)
+
+> **Landed 2026-06-02.** L1–L7 complete & committed (`ad43daf` L1–L6, `f3c9f09` L7). Mission criteria **#5, #6, #7, #9, #13 CLOSED** (live); **#11** `[~]` (committed autonomous driver covers multi-user/channel/agent + mentions-aware; pairing/DM are inherently human). #8/#12 re-verified live. **L8 (optional UAT) skipped** — every surface was verified live across L3–L7. Two follow-up items filed as mission Known Issues: the pairing→peers-narrowing lock-out (defect) and content-aware agent routing (enhancement). `/flight-debrief` is the next step.
 
 ## Contributing to Criteria
 
