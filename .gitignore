@@ -5,6 +5,12 @@ dist/
 build/
 .venv/
 .env
+# Live-traffic HAT secrets (M11 F15 L3): real bot tokens live in a local
+# .env.hat, never committed. The `.env` rule above does NOT match `.env.hat`
+# (different suffix), so these explicit patterns are required. The committed
+# `.env.hat.example` (placeholders only) documents the variable names.
+tests/live/discord_hat/.env.hat
+*.env.hat
 *.db
 *.sqlite3
 .ruff_cache/

@@ -3229,6 +3229,85 @@ async def purge_chat_messages(session_id: str) -> dict[str, str]:
     return {"status": "ok"}
 
 
+@router.post("/_test/chat/sessions/{session_id}/routing-audit")
+async def seed_routing_audit(session_id: str, request: Request) -> dict[str, int]:
+    """M11 F15 L2 — dev-mode-gated test seam.
+
+    Seeds ``session_metadata["routing"]`` over HTTP so the
+    ``audit-log-inspector-renders-routing-entries`` behavior test (which
+    runs against the LIVE container via Chrome MCP + out-of-band curl, not
+    pytest) has a single-curl seed path. Replaces the broken precondition
+    that tried to seed via ``PUT /chat/sessions/{id}`` — ``update`` drops
+    ``session_metadata`` by design (repositories.py:936 docstring), so this
+    routes through ``set_session_metadata_key`` instead (overwrite
+    semantic, round-trips session_metadata).
+
+    Test-seam precedent: ``THE_ONE_REGISTER_STUB_CONNECTOR`` + ``dev_mode``
+    gate (app.py:118) and the mock-provider dev-mode gate (api.py:3378).
+    Unlike that field-level 400, this is a whole-endpoint disablement → 403.
+    """
+    # Gate FIRST — this endpoint writes arbitrary routing JSON and is never
+    # a production surface.
+    if not settings.dev_mode:
+        raise HTTPException(
+            status_code=403,
+            detail="test-seam endpoint requires THE_ONE_DEV_MODE=true",
+        )
+    data = await request.json()
+    routing = data.get("routing")
+    if not isinstance(routing, list):
+        raise HTTPException(
+            status_code=400,
+            detail="body must contain a 'routing' list",
+        )
+    repo = await _chat_repo()
+    try:
+        await repo.set_session_metadata_key(session_id, "routing", routing)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Chat session not found: {session_id}")
+    return {"count": len(routing)}
+
+
+@router.get("/_test/chat/sessions/lookup")
+async def lookup_chat_session(
+    connector_id: str,
+    channel_id: str,
+    thread_id: str | None = None,
+) -> dict[str, str | None]:
+    """M11 F15 L3 — dev-mode-gated test seam.
+
+    Resolves the connector-attached session for an external
+    ``(connector_id, channel_id[, thread_id])`` location to its session id,
+    closing the observability gap that ``_session_summary`` (and the detail
+    endpoint) leave open: neither carries the connector-keying fields, so
+    the live-traffic HAT driver cannot otherwise locate the session that a
+    bot's message created. Wraps
+    :meth:`ChatSessionRepository.find_most_recent_by_external_key`
+    (``platform="discord"``).
+
+    Isolated/test-only: no production API shape change. Returns
+    ``{"session_id": <id or None>}`` — null (not 404) when no session
+    matches, so the driver can poll a stable shape until traffic lands.
+
+    Gating mirrors the L2 seed sibling: 403 unless dev-mode.
+    """
+    # Gate FIRST — this endpoint exposes connector-keyed session resolution
+    # and is never a production surface.
+    if not settings.dev_mode:
+        raise HTTPException(
+            status_code=403,
+            detail="test-seam endpoint requires THE_ONE_DEV_MODE=true",
+        )
+    repo = await _chat_repo()
+    session = await repo.find_most_recent_by_external_key(
+        platform="discord",
+        connector_id=connector_id,
+        channel_id=channel_id,
+        thread_id=thread_id,
+    )
+    return {"session_id": session.id if session else None}
+
+
 def _session_summary(session: ChatSession) -> dict[str, Any]:
     return {
         "id": session.id,

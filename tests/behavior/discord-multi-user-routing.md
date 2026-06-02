@@ -1,0 +1,61 @@
+# Behavior Test: Discord Multi-User Routing + Peer-Name Attribution (F15)
+
+**Slug**: `discord-multi-user-routing`
+**Status**: draft
+**Created**: 2026-06-01
+**Last Run**: never
+
+## Intent
+
+Verify that when ≥3 distinct Discord senders post into one channel served by the-one's bot, they all resolve to ONE shared channel-scoped session (sessions key on the `(platform, connector_id, channel_id, thread_id)` 4-tuple — `peer_id` is excluded — so a shared channel is one conversation), the F6 per-user ACL overlays admit/deny correctly under real traffic, each reply routes to the right agent, and the Chat UI renders each message attributed to the right `discord-username` rather than an anonymous "peer message" (mission criteria #5 and #13). A DM from a sender, by contrast, resolves to its OWN session — a "channel of 1" (`channel_id = message.channel.id`, unique per user-pair). This needs a behavior test, not a unit test, because it exercises the live multi-sender path end-to-end: real gateway events from distinct authors, the dispatcher resolving the shared session, the ACL resolver intersecting account-scope and per-agent overlays against real peer ids, and the operator-console attribution rendering — no unit can stand in for concurrent real senders plus the human-perceivable attribution surface. The "who said what" attribution within the shared session is itself the observable.
+
+The three senders are driven by the committed `tests/live/discord_hat/` multi-bot driver (three burner bot tokens; the target connector runs with `ingest_bots=true`; distinct burner author ids → distinct peers). The operator-console attribution is observed via Chrome MCP. A `[mixed-frame]` session-detail probe distinguishes correct routing from coincidentally-correct replies where the channel surface alone can't.
+
+## Preconditions
+
+- The the-one container is running; the connector worker is up; L1's stdout connector logging is active (so a failed routing step is diagnosable from `docker logs`).
+- A dedicated test connector is configured with `ingest_bots=true`, the test guild on `allowlist.guilds`, and the test channel allowlisted. `always_listen=true` (account + per-agent) is set as a fallback, but the driver engages the bot via `@mention` (see below) so the engagement-inference is NOT in the path — routing, not the policy gate, is the variable under test.
+- **Engagement mechanism:** every routing-scenario message from a burner bot `@mentions` the-one's bot. The mention path engages the agent deterministically (outcome=`mention`) with NO inference call — `is_mention` checks the bot's id in `message.mentions` independent of author, so a burner-bot mention registers. This avoids the engagement-inference (strongly biased to silence) confounding a routing test. If the L3 smoke shows bot-authored mentions don't register, fall back to `always_listen=true` + substantive direct messages crafted to clear the inference "yes" bar.
+- Three burner Discord bot applications are provisioned, their tokens available to the driver via env, all three invited to the test guild with the **Message Content privileged intent** (without it their posts arrive empty-text). The burner bots are posting-only and never auto-reply (prevents an `ingest_bots` feedback loop).
+- At least two agents are attached to the test connector (the L4 fixture: **Connector Agent 1** and **Connector Agent 2**, alphabetical order = first-eligible order). The test SETS the per-agent ACL overlays it needs at run time (narrowing `peers` with `channels: None`) and RESTORES both agents' `connector_acls` to their captured pre-test value in a `finally` — so it does not depend on a pre-configured admit/deny matrix and leaves the operator's agents unchanged.
+- A local Ollama inference provider is configured (so any inference path runs without external rate limits).
+- The operator is logged into the-one's Chat UI in the Chrome MCP browser session, viewing the connector-attached session(s).
+- The bot-peer-equivalence premise (L3) has been confirmed — burner bots resolve to peers identically to human senders.
+
+## Observables Required
+
+- browser (the-one Chat UI rendered state — attribution in the unified history; measured via chrome-devtools MCP)
+- filesystem / API (`[mixed-frame]` — the-one session detail via `GET /api/chat/sessions/{id}` including `session_metadata["routing"]`, or the routing-audit panel; used where the channel/UI surface alone can't distinguish which peer routed to which session)
+
+## Steps
+
+| # | Actions | Expected Results |
+|---|---------|------------------|
+| 1 | Run the driver's `smoke` scenario: burner bot A posts a message that `@mentions` the-one's bot in the test channel; await the agent step. | A `[mixed-frame]` session-detail query shows exactly one session anchored to the test channel with a `routing` entry whose `disposition` is `stepped` (the engaged path — the bot-authored mention registered, no inference). NOTE: a `stepped` entry carries NO `policy.outcome` field — `policy` is populated only on the silent path; do not assert `outcome: mention` on a stepped entry. Confirms a single bot-peer round-trips (and the topology + mention baseline) before multi-user load is applied. |
+| 2 | Run the `three-users-one-channel` scenario: bots A, B, and C each post a distinguishable `@mention` message into the same channel, in sequence (each engaged post drives one `agent.step` under a per-session lock, so they serialize). | `[mixed-frame]` Exactly ONE session exists for the channel (shared by A, B, C — NOT three sessions; session keys on the `(platform, connector_id, channel_id, thread_id)` 4-tuple, `peer_id` EXCLUDED). The lookup seam returns the SAME session id across all three posts. The session's `routing` entries each show `disposition: stepped`. ⚠️ Routing entries carry NO `peer_id` (an entry is `{ts, agent, rule_index, scope, match, reason, disposition}`), so a bulk post proves only "agents stepped," not which bot routed where — see step 6 for the isolated-posting correlation technique. |
+| 3 | In the Chat UI (Chrome MCP), open the connector-attached shared session history and take a screenshot. | Each inbound message in the shared session renders attributed to its sender's `discord-username` (A, B, C shown distinctly) in the form `username: message` — NOT anonymous "peer message" entries. This is the user-perceivable proof of criterion #13 under multi-peer traffic in one session. The committed counterpart asserts the machine-readable surface: `inbound_peer_names(detail)` (the F6 `peer_name` on each `role==user` message) contains all three bots' distinct display names. |
+| 4 | Confirm the engaged path produced a reply (driver: `docker logs` "Auto-relayed agent … reply" and/or an assistant message in the session). | The engaged (stepped) path produced a reply. Reply CONTENT is NOT asserted (LLM-nondeterministic) — only that the round-trip completed. |
+| 5 | Run the `dm-isolation` scenario (DEFERRED to the human pass): a real human sends a DM to the-one's bot. | `[mixed-frame]` A NEW, separate session exists, distinct from the channel session — its `channel_id` is the DM channel id (unique per user-pair). Confirms the DM "channel of 1" isolates per-peer automatically while the shared channel does not. (A burner *bot* cannot DM another bot — Discord REST 50007 — so the committed test omits this; it is verified in the human pairing/mentions pass.) |
+| 6 | Run the `acl-routing-differentiation` scenario: set a per-agent ACL overlay on **Connector Agent 1** narrowing `peers` to bots A+B (`channels: None` to inherit — NEVER `[]`, the DMs-only trap that denies guild messages), with both Connector Agent 1 and Connector Agent 2 attached. Then post **one bot at a time** and read the single NEW routing entry. | Because routing entries carry no `peer_id`, isolated one-at-a-time posting is the correlation technique. Bot A (admitted by Agent 1) → new `disposition: stepped` entry with `agent == "Connector Agent 1"`. Bot C (denied by Agent 1) falls through first-eligible-alphabetical → new `disposition: stepped` entry with `agent == "Connector Agent 2"`. The SAME-channel peers route to DIFFERENT agents purely via the F6 per-(agent, peer) overlay — the M10-structural overlay proven under real traffic. The overlay mutates live agents, so capture and RESTORE both agents' `connector_acls` in a `finally`. |
+| 7 | Run the `acl-hard-deny` counterpart: narrow BOTH agents' overlays to exclude bot C, then post bot C (still `@mention`). | The session's new `routing` entry shows `disposition: no-eligible` — every eligible agent denied the peer, so the routing layer (which runs BEFORE the policy gate) collapses to no-eligible. Confirms the F6 per-user overlay denies under real traffic. (This is the fast path — no LLM step.) |
+| 8 | Re-open the Chat UI history after steps 6–7 and screenshot; then have the driver emit its per-criterion report rows for #5 and #13. | Attribution remains correct across the admit/deny mix; denied-peer messages that produced no reply still render attributed to the correct sender (silence is not anonymity). The report records PASS/FAIL for multi-user routing (#5: shared-session topology + routing + ACL differentiation + hard-deny) and attribution (#13) with the session id + peer names as evidence; reproducible on re-run (the `finally` restores both agents' overlays so a second run passes without manual cleanup). |
+
+Sequencing note: the smoke round-trip (step 1) gates the multi-user load (step 2) so a single-peer failure isn't misread as a routing-fan-out bug. DM isolation (step 5) is the human-pass topology contrast. The ACL routing-differentiation (step 6) and hard-deny (step 7) run last so an overlay effect is unambiguously the overlay, not a baseline routing failure.
+
+> **Committed counterpart:** `tests/live/discord_hat/test_multi_user.py` (the `discord_hat`-marked test) is the machine-checked counterpart of steps 1–2 and 4–8: it drives the three bots through Phase A (topology + F6 attribution), Phase B (per-user ACL differentiation via isolated posting — Agent 1 overlay → bot C routes to Agent 2), and Phase C (hard-deny → no-eligible), restoring both agents' `connector_acls` in a `finally`. The Chrome-MCP attribution rows (3, 8) and DM isolation (5) remain the human pass.
+
+> **Disposition-vocabulary note (proven at L4 run time):** the dispositions are `stepped` | `command-intercepted` | `no-eligible` | `policy-silent`. Engaged routes are `stepped` (and carry NO `policy` sub-dict — `policy.outcome` is populated only on the `policy-silent` path); ACL-denied routes are `no-eligible`; an engagement-silence is `policy-silent`. This spec engages via `@mention` precisely so the inference (`policy-silent`) path is OUT of the routing tests — therefore a `policy-silent` in steps 1/2/4/6 indicates an engagement/mention MISS (the mention didn't register), NOT a routing fault, and is distinct from the *intended* `no-eligible` in step 7. A routing entry is `{ts, agent, rule_index, scope, match, reason, disposition}` — no `peer_id` — which is why peer→agent correlation requires isolated one-at-a-time posting.
+
+## Out of Scope
+
+- Multi-channel routing (#6) and multi-agent `/talk_to` override (#7) — covered by `discord-multi-channel-routing` and `discord-multi-agent-routing`.
+- Pairing approval and detach (#9) — covered by `discord-detach-and-pairing` (human-sender Chrome-MCP pass).
+- Mentions-aware engagement decision — covered by `discord-engagement`; this spec keeps all three peers ACL-admitted-and-engaging so routing, not the policy gate, is the variable under test.
+- Wire-level gateway mechanics (intents, reconnect) — substrate-tested, not re-verified here.
+- Whether a burner *bot* is a perfect human stand-in — the apparatus DD accepts the bot-peer path as identical post-`ingest_bots`-gate; the genuinely human-only attribution-as-a-human-reads-it is covered by the Chrome MCP screenshot rows (3, 7).
+
+## Variants (optional)
+
+- `n_users` — number of distinct burner bots (default 3). Raise to stress session fan-out.
+- `channel` — the test channel id.
+- `deny_pair` — the (agent, peer) pair the overlay denies in step 5, parameterized for re-run against a different overlay configuration.

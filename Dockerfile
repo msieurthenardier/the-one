@@ -11,6 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         nodejs \
         npm \
         procps \
+        tini \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -34,5 +35,5 @@ EXPOSE 8484
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:8484/api/info || exit 1
 
-ENTRYPOINT ["/entrypoint.sh"]
+ENTRYPOINT ["/usr/bin/tini", "--", "/entrypoint.sh"]
 CMD ["the-one", "serve"]

@@ -129,6 +129,10 @@ test-pixel: ## Run visual snapshot tests (baselines are gitignored — local reg
 test-live: ## Run live-LLM tests (AIAT — requires running provider)
 	docker exec the-one pytest -m live tests/test_aiat.py -v --tb=short
 
+.PHONY: test-discord-hat
+test-discord-hat: ## Run live multi-bot Discord HAT (needs bot tokens + a test guild; SKIPs without env)
+	docker exec the-one pytest -m discord_hat tests/live/discord_hat/ -v --tb=short
+
 # ── Smoke (F9 L2 D2 generic-runtime) ──────────────────────────────────
 
 .PHONY: smoke-runtimes
