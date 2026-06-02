@@ -1,6 +1,6 @@
 # Flight: Pairing peers-axis decoupling (account-scope peers → DM-only)
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Discord Connector Depth & Robustness](../../mission.md)
 
 ## Contributing to Criteria
