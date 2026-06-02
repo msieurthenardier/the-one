@@ -48,16 +48,6 @@ from .driver import (
 )
 from .report import HatReport
 
-# The burner bots' Discord user ids. Index matches ``bots._clients`` / the
-# ``tokens`` order. bot0 is the "approved" peer written into the narrowed
-# account-scope peers axis; bot1 is the DIFFERENT, un-approved peer whose
-# channel mention must still be admitted post-fix.
-_BOT_IDS = (
-    "1511192509483843604",  # HAT Test Bot 1 (idx 0) — the "approved" peer
-    "1511192652140249168",  # HAT Test Bot 2 (idx 1) — the DIFFERENT peer
-    "1511192722252234812",  # HAT Test Bot 3 (idx 2)
-)
-
 # Sentinel distinguishing "allowlist not yet captured" from a legitimately-None
 # prior, so the restore-finally skips a mutation that never happened.
 _UNSET = object()
@@ -66,6 +56,11 @@ _UNSET = object()
 @pytest.mark.discord_hat
 async def test_pairing_peers_decoupling_live() -> None:
     cfg = skip_if_unconfigured()
+    if not cfg.bot_user_ids:
+        pytest.skip(
+            "THE_ONE_HAT_BOT_USER_IDS not set — required for the allowlist peers axis "
+            "(add comma-separated burner-bot user ids to .env.hat)"
+        )
     report = HatReport()
     nonce = uuid.uuid4().hex[:8]
     channel_id = cfg.channel_ids[0]
@@ -87,7 +82,7 @@ async def test_pairing_peers_decoupling_live() -> None:
             prior_allowlist = await set_connector_allowlist(
                 base,
                 connector_id,
-                _post_approval_allowlist(_BOT_IDS[0]),
+                _post_approval_allowlist(cfg.bot_user_ids[0]),
             )
 
             # ── A DIFFERENT bot's channel @mention must still be admitted ──

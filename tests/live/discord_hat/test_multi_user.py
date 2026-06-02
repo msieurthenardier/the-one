@@ -48,14 +48,6 @@ from .report import HatReport
 _AGENT_1 = "Connector Agent 1"
 _AGENT_2 = "Connector Agent 2"
 
-# The three burner bots' Discord user ids (the per-agent ACL ``peers`` axis is
-# keyed by id). Index matches ``bots._clients`` / the ``tokens`` order.
-_BOT_IDS = (
-    "1511192509483843604",  # HAT Test Bot 1 (idx 0)
-    "1511192652140249168",  # HAT Test Bot 2 (idx 1)
-    "1511192722252234812",  # HAT Test Bot 3 (idx 2)
-)
-
 # Sentinel distinguishing "overlay not yet captured" from a legitimately-None
 # prior, so the restore-finally skips an agent we never mutated.
 _UNSET = object()
@@ -64,6 +56,11 @@ _UNSET = object()
 @pytest.mark.discord_hat
 async def test_multi_user_routing_live() -> None:
     cfg = skip_if_unconfigured()
+    if not cfg.bot_user_ids:
+        pytest.skip(
+            "THE_ONE_HAT_BOT_USER_IDS not set — required for the ACL peers axis "
+            "(add comma-separated burner-bot user ids to .env.hat)"
+        )
     report = HatReport()
     # Unique per-run nonce so re-runs don't read a prior run's attribution.
     nonce = uuid.uuid4().hex[:8]
@@ -126,7 +123,10 @@ async def test_multi_user_routing_live() -> None:
                 base,
                 _AGENT_1,
                 account_id,
-                {"peers": [{"id": _BOT_IDS[0]}, {"id": _BOT_IDS[1]}], "channels": None},
+                {
+                    "peers": [{"id": cfg.bot_user_ids[0]}, {"id": cfg.bot_user_ids[1]}],
+                    "channels": None,
+                },
             )
             # Agent 2 stays untouched in Phase B (bot2 must fall through to it
             # un-narrowed). Its prior is captured when Phase C narrows it (the
@@ -188,7 +188,10 @@ async def test_multi_user_routing_live() -> None:
                 base,
                 _AGENT_2,
                 account_id,
-                {"peers": [{"id": _BOT_IDS[0]}, {"id": _BOT_IDS[1]}], "channels": None},
+                {
+                    "peers": [{"id": cfg.bot_user_ids[0]}, {"id": cfg.bot_user_ids[1]}],
+                    "channels": None,
+                },
             )
             entry_c = await post_and_wait_new_routing(
                 base,

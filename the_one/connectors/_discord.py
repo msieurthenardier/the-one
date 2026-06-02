@@ -52,12 +52,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from datetime import UTC, datetime
 from typing import Any, cast
 
 import aiohttp
 import discord
 
+from the_one.connectors._observability import log_disposition
 from the_one.connectors.base import (
     CommandResponse,
     ConnectorClient,
@@ -486,11 +488,20 @@ class DiscordClient:
                 )
             else:
                 try:
-                    return await self._send_ephemeral_followup(
+                    _ephemeral_result = await self._send_ephemeral_followup(
                         application_id=int(application_id),
                         token=target.interaction_followup_token,
                         content=content,
                     )
+                    log_disposition(
+                        account_id=self._account_id,
+                        channel_id=target.channel_id,
+                        peer_id=None,
+                        kind="outbound",
+                        disposition="ok",
+                        reason="ephemeral_followup",
+                    )
+                    return _ephemeral_result
                 except (
                     discord.errors.NotFound,
                     discord.errors.HTTPException,
@@ -515,18 +526,45 @@ class DiscordClient:
                         # A non-401 HTTPException is a real send failure, not
                         # a token-expiry — surface it via the channel ladder's
                         # mapping rather than silently masking it.
+                        log_disposition(
+                            account_id=self._account_id,
+                            channel_id=target.channel_id,
+                            peer_id=None,
+                            kind="outbound",
+                            disposition="error",
+                            error_type=type(exc).__name__,
+                            reason="ephemeral_followup",
+                        )
                         raise
 
         destination = await self._resolve_destination(target)
 
+        # M11 F17 L1: start latency timer just before the send attempt.
+        _send_t0 = time.monotonic()
         try:
             sent_message = await destination.send(content)
         except discord.errors.Forbidden as exc:
+            log_disposition(
+                account_id=self._account_id,
+                channel_id=target.channel_id,
+                peer_id=None,
+                kind="outbound",
+                disposition="error",
+                error_type="Forbidden",
+            )
             raise ConnectorConfigError(
                 self._account_id,
                 f"Discord bot lacks send permission in channel {target.channel_id}",
             ) from exc
         except discord.errors.NotFound as exc:
+            log_disposition(
+                account_id=self._account_id,
+                channel_id=target.channel_id,
+                peer_id=None,
+                kind="outbound",
+                disposition="error",
+                error_type="NotFound",
+            )
             raise ConnectorConnectionError(
                 f"Discord channel {target.channel_id} not found"
             ) from exc
@@ -545,10 +583,26 @@ class DiscordClient:
                         retry_after_seconds = float(retry_after_raw)
                     except (TypeError, ValueError):
                         retry_after_seconds = None
+                log_disposition(
+                    account_id=self._account_id,
+                    channel_id=target.channel_id,
+                    peer_id=None,
+                    kind="outbound",
+                    disposition="rate_limited",
+                    retry_after=retry_after_seconds,
+                )
                 raise ConnectorRateLimitError(
                     self._account_id,
                     retry_after_seconds=retry_after_seconds,
                 ) from exc
+            log_disposition(
+                account_id=self._account_id,
+                channel_id=target.channel_id,
+                peer_id=None,
+                kind="outbound",
+                disposition="error",
+                error_type=type(exc).__name__,
+            )
             raise ConnectorConnectionError(
                 f"Discord send failed: {exc}"
             ) from exc
@@ -560,6 +614,15 @@ class DiscordClient:
         if sent_message is None:
             raise ConnectorConnectionError("Discord send returned None")
 
+        _send_latency_ms = (time.monotonic() - _send_t0) * 1000.0
+        log_disposition(
+            account_id=self._account_id,
+            channel_id=target.channel_id,
+            peer_id=None,
+            kind="outbound",
+            disposition="ok",
+            latency_ms=_send_latency_ms,
+        )
         return SendResult(
             platform_message_id=str(sent_message.id),
             details={
@@ -934,6 +997,15 @@ class DiscordPlugin:
                 if getattr(author, "bot", False) and not account.config.get(
                     "ingest_bots", False
                 ):
+                    # M11 F17 L1: debug-level dropped line for bot-author filter.
+                    log_disposition(
+                        account_id=account.id,
+                        channel_id=str(getattr(message.channel, "id", "unknown")),
+                        peer_id=str(getattr(author, "id", "unknown")),
+                        kind="inbound",
+                        disposition="dropped",
+                        reason="bot-author",
+                    )
                     return
 
                 # Defensive self-filter: even with ``ingest_bots=True``,
@@ -946,6 +1018,15 @@ class DiscordPlugin:
                     client.user is not None
                     and getattr(author, "id", None) == client.user.id
                 ):
+                    # M11 F17 L1: debug-level dropped line for self-filter.
+                    log_disposition(
+                        account_id=account.id,
+                        channel_id=str(getattr(message.channel, "id", "unknown")),
+                        peer_id=str(getattr(author, "id", "unknown")),
+                        kind="inbound",
+                        disposition="dropped",
+                        reason="self",
+                    )
                     return
 
                 # Factory access — module-level accessor (M10 F8 L4
@@ -960,6 +1041,15 @@ class DiscordPlugin:
                         "(lifespan startup may not have run); dropping "
                         "inbound for account %s",
                         account.id,
+                    )
+                    # M11 F17 L1: debug-level dropped line for factory-unavailable.
+                    log_disposition(
+                        account_id=account.id,
+                        channel_id=str(getattr(message.channel, "id", "unknown")),
+                        peer_id=str(getattr(author, "id", "unknown")),
+                        kind="inbound",
+                        disposition="dropped",
+                        reason="factory-unavailable",
                     )
                     return
 

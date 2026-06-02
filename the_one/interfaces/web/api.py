@@ -3154,6 +3154,81 @@ async def refresh_discoverable_entities(
     return _build_discoverable_response(snapshot)
 
 
+# ── Connector disposition counters ────────────────────────────────────────
+
+
+class _ConnectorDispositionCountersResponse(BaseModel):
+    """Response shape for :func:`get_connector_disposition_counters`.
+
+    ``inbound`` and ``outbound`` are dicts keyed by disposition string
+    (e.g. ``"stepped"``, ``"ok"``) with integer counts. Both dicts are
+    empty when no dispositions have been recorded since the pool entry
+    warmed.
+
+    ``warm`` is ``True`` when a pool entry exists for the account. When
+    ``False``, the counts are always empty (the pool entry has been
+    evicted or has never warmed for this account).
+
+    M11 F17 L1.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    warm: bool
+    inbound: dict[str, int]
+    outbound: dict[str, int]
+
+
+@router.get(
+    "/connectors/{account_id}/disposition-counters",
+    response_model=_ConnectorDispositionCountersResponse,
+)
+async def get_connector_disposition_counters(
+    account_id: str,
+) -> _ConnectorDispositionCountersResponse:
+    """Return the per-account inbound/outbound disposition counters.
+
+    Contracts:
+      - 404 (Connector not found): the repo lookup raises ``KeyError``
+        (no such account in the DB).
+      - 200 (warm entry): ``warm=True`` with the current counters.
+      - 200 (cold / no warm entry): ``warm=False`` with empty dicts.
+        Degrades cleanly when no pool entry is warm — the operator must
+        run Test Connection or trigger a dispatch first.
+
+    Counters reset on pool-entry eviction (accepted limitation — they
+    measure "since the current pool entry warmed"). The operator reads
+    them during a soak to confirm steady-state disposition distribution.
+
+    M11 F17 L1. Mirrors :func:`get_discoverable_entities` structure;
+    does NOT touch the doctor probe.
+    """
+    from the_one.connectors._pool import _get_account_counters_snapshot
+
+    repo = await _connector_repo()
+    try:
+        await repo.get(account_id)
+    except KeyError:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Connector not found: {account_id}",
+        )
+
+    snapshot = await _get_account_counters_snapshot(account_id)
+    if snapshot is None:
+        return _ConnectorDispositionCountersResponse(
+            warm=False,
+            inbound={},
+            outbound={},
+        )
+
+    return _ConnectorDispositionCountersResponse(
+        warm=True,
+        inbound=snapshot.inbound,
+        outbound=snapshot.outbound,
+    )
+
+
 # ── Chat Sessions ─────────────────────────────────────────────────────────
 
 

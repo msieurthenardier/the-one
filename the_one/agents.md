@@ -522,6 +522,27 @@ Citation: F13 L5's `session_metadata["routing"]` inspector panel earned its keep
 
 Source: M11 F13 L5 + F13 L6 HAT operational validation; codified at F13 debrief.
 
+### `connector-disposition-observability`
+
+The Discord connector (and any future connector) emits one structured stdout log line per inbound decision and per outbound send via a **single shared helper** (`the_one/connectors/_observability.py:log_disposition`). The helper owns the disposition vocabulary so it cannot drift between call sites.
+
+**Inbound vocabulary** (aligns to DB `session_metadata["audit"]`/`["routing"]` values for grep-correlation):
+`stepped | command-intercepted | no-eligible | policy-silent | denied | dropped`
+
+**Outbound vocabulary**: `ok | rate_limited | error`
+
+**Grep target for soak evidence**:
+```
+docker logs the-one | grep -E 'connector\.(inbound|outbound)'
+```
+Every inbound message accounts for exactly one `connector.inbound … disposition=…` line; outbound sends for `connector.outbound … disposition=…`. `disposition=dropped` is DEBUG-level (raise log verbosity to see bot-author/self/factory-unavailable noise filters).
+
+**Per-account counters**: `_RegistryEntry.inbound_counters` / `outbound_counters` (`dict[str,int]`) increment best-effort via `record_disposition(account_id, kind, disposition)` in `_pool.py`. Counters reset on pool eviction (accepted — they measure "since the current entry warmed"). Read via `GET /api/connectors/{id}/disposition-counters` → `{warm, inbound, outbound}`.
+
+**Content/token invariant**: `log_disposition` has no `content` or `token` parameter — callers pass ids, dispositions, reasons, and numeric values ONLY. Enforced structurally.
+
+Source: M11 F17 L1.
+
 ### `consumer-callsite-audit-on-public-api-signature-widening`
 
 When a flight widens a public-API function's signature (new required kwargs, new positional args, new structured-tuple shape expectation), the **architect-cycle review must grep every call site** of that function and either (a) update each call site in lockstep, or (b) add a regression test that exercises each consumer against the new shape. Without one of these, latent bugs accumulate at the un-migrated call sites: the substrate looks correct, the substrate's own tests pass, but a consumer that wasn't audited at widening time silently breaks against the new shape.

@@ -66,7 +66,12 @@ import time
 from dataclasses import dataclass, field
 
 from the_one.config import settings
-from the_one.connectors.base import ConnectorClient, ConnectorPlugin, DiscoverableEntities, DiscoverableEntity
+from the_one.connectors.base import (
+    ConnectorClient,
+    ConnectorPlugin,
+    DiscoverableEntities,
+    DiscoverableEntity,
+)
 from the_one.connectors.registry import resolve as _resolve_plugin
 from the_one.db.models import Connector
 from the_one.encryption import Encryptor, get_encryptor
@@ -179,6 +184,27 @@ class _RegistryEntry:
     # ``stale_seconds`` in the response. ``None`` until the first
     # refresh lands.
     discoverable_entities_fetched_at_monotonic: float | None = None
+    # M11 F17 L1: per-account inbound/outbound disposition counters.
+    # Keyed by disposition string (e.g. "stepped", "ok"). Incremented
+    # best-effort by :func:`record_disposition` under ``_lock``. Resets
+    # on pool eviction (accepted limitation — counters measure "since the
+    # current pool entry warmed").
+    inbound_counters: dict[str, int] = field(default_factory=dict)
+    outbound_counters: dict[str, int] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class _CountersSnapshot:
+    """Immutable pair of counter dicts for the API handler.
+
+    Captured under ``_lock`` by :func:`_get_account_counters_snapshot`;
+    readable outside the lock with no consistency risk because the
+    dataclass is frozen and the underlying dicts are copied at snapshot
+    time (M11 F17 L1, mirrors :class:`_DiscoverableCacheSnapshot`).
+    """
+
+    inbound: dict[str, int]
+    outbound: dict[str, int]
 
 
 @dataclass(frozen=True, slots=True)
@@ -706,6 +732,65 @@ async def _get_account_cache_snapshot(
             stale_carry=entry.discoverable_entities_stale_carry,
             fetched_at_monotonic=entry.discoverable_entities_fetched_at_monotonic,
             account_type=entry.account_type,
+        )
+
+
+def record_disposition(account_id: str, kind: str, disposition: str) -> None:
+    """Increment the per-account disposition counter best-effort (synchronous).
+
+    M11 F17 L1. Called from :func:`the_one.connectors._observability.log_disposition`
+    (not a method — mirrors the module-level :func:`account_acquire` import
+    pattern in :mod:`_inbound`).
+
+    WITHOUT acquiring ``_lock``, locate the warm account entry at
+    ``(_ACCOUNT_POOL_AGENT_SLOT, account_id)`` and increment the matching
+    ``inbound_counters`` / ``outbound_counters`` dict, or no-op if no warm
+    entry exists.
+
+    **Concurrency**: asyncio is single-threaded. This function is always
+    called from within the event loop (the inbound dispatcher and the Discord
+    send path are both async contexts). The pool lock is an asyncio.Lock —
+    it cannot be acquired synchronously without blocking the event loop. To
+    avoid a synchronous lock acquisition, we read under a NON-LOCKING fast
+    path: reading and incrementing a dict entry is an atomic operation in
+    CPython's GIL model, and the asyncio single-threaded model guarantees no
+    concurrent mutation between two ``await`` points. No lock needed here.
+
+    Resets on pool eviction — counters measure "since the current pool entry
+    warmed." This accepted limitation is documented in the flight spec.
+    """
+    key = (_ACCOUNT_POOL_AGENT_SLOT, account_id)
+    entry = _pool.get(key)
+    if entry is None or entry.client is None:
+        # No warm entry — best-effort no-op.
+        return
+    if kind == "inbound":
+        counters = entry.inbound_counters
+    else:
+        counters = entry.outbound_counters
+    counters[disposition] = counters.get(disposition, 0) + 1
+
+
+async def _get_account_counters_snapshot(
+    account_id: str,
+) -> _CountersSnapshot | None:
+    """Return an immutable frozen-pair snapshot of the warm pool entry's
+    disposition counters, captured atomically under ``_lock``. Readable
+    outside the lock with no consistency risk — the snapshot is by-value.
+
+    Returns ``None`` if no warm entry exists for ``account_id``.
+    Mirrors :func:`_get_account_cache_snapshot`.
+
+    M11 F17 L1.
+    """
+    key = (_ACCOUNT_POOL_AGENT_SLOT, account_id)
+    async with _lock:
+        entry = _pool.get(key)
+        if entry is None or entry.client is None:
+            return None
+        return _CountersSnapshot(
+            inbound=dict(entry.inbound_counters),
+            outbound=dict(entry.outbound_counters),
         )
 
 

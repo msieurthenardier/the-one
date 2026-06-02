@@ -15,7 +15,7 @@ is unaffected.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import pytest
 
@@ -30,6 +30,13 @@ class HatConfig:
     ``tokens`` drives N sender bots; ``bot_user_id`` is the-one's OWN
     Discord bot user id (gateway-assigned, not persisted to the API), used
     to build ``@mention`` strings and to address DMs to the-one.
+
+    ``bot_user_ids`` is OPTIONAL (defaults to ``[]`` when
+    ``THE_ONE_HAT_BOT_USER_IDS`` is absent). Only the tests that key on
+    specific burner-bot user ids (ACL peers axis) read this field and
+    locally ``pytest.skip`` when it is empty — so the three scenarios that
+    don't use bot ids (``test_smoke``, ``test_multi_channel``,
+    ``test_multi_agent``) are NOT made to skip by this var's absence.
     """
 
     tokens: list[str]
@@ -38,6 +45,7 @@ class HatConfig:
     connector_id: str
     bot_user_id: str
     base_url: str
+    bot_user_ids: list[str] = field(default_factory=list)
 
 
 def _read_tokens() -> list[str]:
@@ -56,6 +64,19 @@ def _read_tokens() -> list[str]:
         if val:
             numbered.append(val)
     return numbered
+
+
+def _read_bot_user_ids() -> list[str]:
+    """Read burner-bot user ids from ``THE_ONE_HAT_BOT_USER_IDS``.
+
+    Comma-separated, mirroring ``_read_tokens`` / ``_read_channel_ids``.
+    Returns an empty list when the var is absent — this is an OPTIONAL field;
+    absence must not affect tests that don't use the ids.
+    """
+    raw = os.environ.get("THE_ONE_HAT_BOT_USER_IDS", "").strip()
+    if not raw:
+        return []
+    return [uid.strip() for uid in raw.split(",") if uid.strip()]
 
 
 def _read_channel_ids() -> list[str]:
@@ -87,6 +108,7 @@ def load() -> HatConfig | None:
         connector_id=connector_id,
         bot_user_id=bot_user_id,
         base_url=base_url or _DEFAULT_BASE_URL,
+        bot_user_ids=_read_bot_user_ids(),
     )
 
 

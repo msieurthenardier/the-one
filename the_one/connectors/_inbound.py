@@ -139,6 +139,7 @@ from the_one.agent.factory import AgentFactory
 from the_one.connectors import registry
 from the_one.connectors._acl import _default_no_mention
 from the_one.connectors._inference import run_engagement_inference
+from the_one.connectors._observability import log_disposition
 from the_one.connectors._pairing import _PAIR_PREFIX, _validate_pairing_prefix
 from the_one.connectors._pool import _get_account_cache_snapshot, account_acquire
 from the_one.connectors._routing import RoutingDecision, resolve_routing
@@ -406,6 +407,14 @@ async def dispatch_inbound(
                 "reason": outcome.reason,
             },
         )
+        log_disposition(
+            account_id=account_id,
+            channel_id=envelope.channel_id,
+            peer_id=envelope.peer_id,
+            kind="inbound",
+            disposition="denied",
+            reason=outcome.reason,
+        )
         return
 
     working_envelope = envelope
@@ -427,6 +436,14 @@ async def dispatch_inbound(
                         "ts": ts,
                         "reason": outcome.reason or "invalid_pairing",
                     },
+                )
+                log_disposition(
+                    account_id=account_id,
+                    channel_id=envelope.channel_id,
+                    peer_id=envelope.peer_id,
+                    kind="inbound",
+                    disposition="denied",
+                    reason=outcome.reason or "invalid_pairing",
                 )
                 return
             # No PAIR prefix — Discord-native approval candidate (F9 L2).
@@ -461,6 +478,14 @@ async def dispatch_inbound(
                     "ts": ts,
                     "reason": "pending_approval",
                 },
+            )
+            log_disposition(
+                account_id=account_id,
+                channel_id=envelope.channel_id,
+                peer_id=envelope.peer_id,
+                kind="inbound",
+                disposition="denied",
+                reason="pending_approval",
             )
             return
         # Success: persist the paired peer + clean the envelope.
@@ -551,6 +576,13 @@ async def dispatch_inbound(
             "routing",
             audit_entry,
         )
+        log_disposition(
+            account_id=account_id,
+            channel_id=working_envelope.channel_id,
+            peer_id=working_envelope.peer_id,
+            kind="inbound",
+            disposition="no-eligible",
+        )
         try:
             # M10 F8 L11 HAT Fix #6: account-shared pool entry — one
             # gateway connection per account regardless of which
@@ -607,6 +639,14 @@ async def dispatch_inbound(
             "routing",
             audit_entry,
         )
+        log_disposition(
+            account_id=account_id,
+            channel_id=working_envelope.channel_id,
+            peer_id=working_envelope.peer_id,
+            kind="inbound",
+            disposition="no-eligible",
+            reason="pool-acquire-failure",
+        )
         return
     except Exception:
         # Any other pool failure (connect raise, plugin connect timeout, etc.)
@@ -621,6 +661,14 @@ async def dispatch_inbound(
             session_row.id,
             "routing",
             audit_entry,
+        )
+        log_disposition(
+            account_id=account_id,
+            channel_id=working_envelope.channel_id,
+            peer_id=working_envelope.peer_id,
+            kind="inbound",
+            disposition="no-eligible",
+            reason="pool-acquire-failure",
         )
         return
 
@@ -697,6 +745,14 @@ async def dispatch_inbound(
                     "routing",
                     audit_entry,
                 )
+                log_disposition(
+                    account_id=account_id,
+                    channel_id=working_envelope.channel_id,
+                    peer_id=working_envelope.peer_id,
+                    kind="inbound",
+                    disposition="command-intercepted",
+                    reason="plugin",
+                )
                 try:
                     await client.send(
                         OutboundTarget(
@@ -733,6 +789,14 @@ async def dispatch_inbound(
                 session_row.id,
                 "routing",
                 audit_entry,
+            )
+            log_disposition(
+                account_id=account_id,
+                channel_id=working_envelope.channel_id,
+                peer_id=working_envelope.peer_id,
+                kind="inbound",
+                disposition="command-intercepted",
+                reason="builtin",
             )
             try:
                 await client.send(
@@ -812,6 +876,13 @@ async def dispatch_inbound(
             working_envelope.peer_id,
             policy_audit.get("outcome"),
         )
+        log_disposition(
+            account_id=account_id,
+            channel_id=working_envelope.channel_id,
+            peer_id=working_envelope.peer_id,
+            kind="inbound",
+            disposition="policy-silent",
+        )
         return
     # Engaged → flow through to step 12 (lock + agent.step). ``audit_entry``
     # is NOT appended here; step 12 sets disposition="stepped" and appends.
@@ -824,6 +895,13 @@ async def dispatch_inbound(
         session_row.id,
         "routing",
         audit_entry,
+    )
+    log_disposition(
+        account_id=account_id,
+        channel_id=working_envelope.channel_id,
+        peer_id=working_envelope.peer_id,
+        kind="inbound",
+        disposition="stepped",
     )
     async with session_locks[session_row.id]:
         # Update last_inbound_at (and updated_at — the resolver's
