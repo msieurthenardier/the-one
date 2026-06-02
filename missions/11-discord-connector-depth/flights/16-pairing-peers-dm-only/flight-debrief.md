@@ -80,7 +80,7 @@ All flight checkpoints (L1 + L2) were met. The binding gate — the `tests/test_
 
 ## Action Items
 
-- [ ] **Codify `acl-removal-recon-greps-reason-strings` in `the_one/agents.md`** (next ACL-flight recon or a small doc commit — debrief does not edit conventions on a landed branch). Proposed entry:
+- [x] **Codify `acl-removal-recon-greps-reason-strings` in `the_one/agents.md`** — done in the post-debrief doc commit (added after `two-symmetric-paths-in-acl`). Proposed entry (as landed):
   > **`acl-removal-recon-greps-reason-strings`** — When recon plans removing or weakening an ACL admission condition in `the_one/connectors/_acl.py`, grep the ENTIRE test corpus for the *reason string* that condition emits (e.g. `"is not admitted on account"`), not just for reads of the condition's variables. Behavioral tests in non-ACL files (`tests/test_connectors_commands.py`, `_routing`, `_inbound`) can depend on an admission deny — asserting `_permitted_agents(ctx) == []` or a dispatcher outcome — without importing `_acl` or asserting the reason text, so a variable-read grep misses them. Citation: F16 L1 recon scoped "Architect-verified none" to `test_connectors_routing.py`/`test_connectors_inbound.py` and missed `test_connectors_commands.py::test_account_allowlist_denies_peer` (a guild-context account-peers-deny test); design review caught it before implementation, but a reason-string grep at recon would have found it mechanically.
 - [ ] **Author `tests/live/discord_hat/README.md`** before the F17 daily-driver run (carried from F15 debrief).
 - [ ] *(Deferred — park)* Re-evaluate the pairing-approval two-step DM-grant UX gap after F17 surfaces daily-driver evidence; scope a follow-on only if confusion is observed.
