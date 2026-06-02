@@ -8,9 +8,13 @@ consumes after picking an agent.
 M11 F12 L3: structured-tuple storage for peers / channels / roles
 landed (v24 migration). All helpers consume structured dicts:
 
-  - ``peers`` (account-scope): ``list[{id: str, dm_allowed: bool}]``
+  - ``peers`` (account-scope): ``list[{id: str, dm_allowed: bool}]`` —
+    the **DM-admission** axis (M11 F16 L1: consulted only in the
+    DM-context path; it does NOT gate guild-channel admission)
   - ``peers`` (per-agent, post-F13 L2): ``list[{id: str}]`` —
-    ``dm_allowed`` is REJECTED at this scope (F12 footgun retirement)
+    ``dm_allowed`` is REJECTED at this scope (F12 footgun retirement);
+    a guild-routing narrowing modifier (F15 L4), distinct from the
+    account-scope DM axis above
   - ``channels``: ``list[{guild_id: str | None, channel_id: str}]``
   - ``roles``: ``list[{guild_id: str | None, role_id: str}]``
 
@@ -35,7 +39,10 @@ peers axis):
 - **Account-scope axes are DEFAULTING anchors.** ``allowlist`` absent
   → unrestricted; ``allowlist.{peers,channels} = []`` → unrestricted
   (HAT-redesigned: empty list at this scope means "no explicit list",
-  not "explicitly nobody"); non-empty list → subset.
+  not "explicitly nobody"); non-empty list → subset. **M11 F16 L1 —
+  the account-scope ``peers`` axis applies to DM admission ONLY (the
+  DM-context path); the guild-context path consults only the
+  channels / guilds / roles account-scope axes.**
 - **Per-agent axes are NARROWING modifiers.** ``None`` → inherit
   account-scope (no narrowing); non-empty list → narrows to listed
   items (intersected with account-scope); ``[]`` → the strongest
@@ -399,13 +406,18 @@ def admits_inbound(
         and the per-agent **``admit_dms``** axis (``bool | None``,
         opt-out sentinel — ``False`` denies; ``True``/``None`` defer
         to the account-scope ``dm_admission`` + per-peer composition).
-      - ``is_dm=False`` consults the **peers / channels / guilds /
-        roles** axes per the established 4-axis ACL semantics.
+      - ``is_dm=False`` consults the **channels / guilds / roles**
+        account-scope axes (plus the per-agent overlay, which adds a
+        peers narrowing axis at per-agent scope). **M11 F16 L1 — the
+        account-scope peers axis is DM-only; it does NOT gate
+        guild-channel admission.**
 
     This inverts the F8 L8 documented "DMs out-of-scope under guild
     restriction" posture (which conflated guild-channel restriction
     with DM-admission scope); F10 L1 splits them per the F9 L8 HAT
-    findings.
+    findings. **M11 F16 L1 — the account-scope peers axis is the
+    DM-admission axis, never a guild-channel gate; the guild path's
+    account-scope gating is the channels / guilds / roles axes only.**
 
     Used by F7 L5 dispatcher AFTER the routing engine (F7 L4) picks an
     agent, to verify the picked agent's per-agent ACL admits this
@@ -628,15 +640,19 @@ def _admits_inbound_guild(
 ) -> tuple[bool, str]:
     """Handles the guild-context branches of :func:`admits_inbound` (``is_dm=False``).
 
-    Consults the 4-axis ACL semantics (peers / channels / guilds /
-    roles) per M10 F8 L8 at both account-scope and per-agent scope.
+    Consults the 3-axis ACL semantics (channels / guilds / roles) per
+    M10 F8 L8 at account-scope, plus the per-agent overlay (which adds
+    a peers narrowing axis at per-agent scope only). **M11 F16 L1 — the
+    account-scope peers axis is DM-only and is consulted exclusively in
+    :func:`_admits_inbound_dm`; it does NOT gate guild-channel
+    admission.** The per-agent peers axis below is a separate
+    guild-routing narrowing modifier (F15 L4) and is unaffected.
 
-    **M11 F12 L3 — structured-tuple consumption**. The peers axis
-    uses structured ``{id, dm_allowed}`` dicts at account-scope and
-    bare ``{id}`` dicts at per-agent scope (post-F13 L2; per-agent
-    peers no longer carry ``dm_allowed`` — that field lives only at
-    account-scope per the F12 L3 DM Composition Truth Table, and the
-    guild path doesn't consume ``dm_allowed`` at any scope). The
+    **M11 F12 L3 — structured-tuple consumption**. The per-agent peers
+    axis uses bare ``{id}`` dicts (post-F13 L2; per-agent peers do not
+    carry ``dm_allowed`` — that field lives only at account-scope per
+    the F12 L3 DM Composition Truth Table, and the guild path doesn't
+    consume ``dm_allowed`` at any scope). The
     channels axis uses structured ``{guild_id, channel_id}`` dicts —
     a channel admits when its ``guild_id``
     matches the envelope ``guild_id`` AND (``channel_id`` matches OR
@@ -664,18 +680,11 @@ def _admits_inbound_guild(
     # Account-scope.
     allowlist = account.config.get("allowlist")
     if allowlist is not None:
-        # 1. Peers axis (M11 F12 L3 — structured-dict id match).
-        allowed_peers = allowlist.get("peers", [])
-        if allowed_peers and not any(
-            p["id"] == peer_id for p in allowed_peers
-        ):
-            return (
-                False,
-                f"peer_id {peer_id!r} is not admitted on account "
-                f"{account_id!r}",
-            )
-
-        # 2. Channels axis (M11 F12 L3 — structured tuples; M11 F12 L5
+        # M11 F16 L1 — the account-scope peers axis is DM-only and is
+        # consulted in :func:`_admits_inbound_dm`. It does NOT gate
+        # guild-channel admission; the guild path consults only the
+        # channels / guilds / roles axes (plus the per-agent overlay).
+        # Channels axis (M11 F12 L3 — structured tuples; M11 F12 L5
         # — wildcard ``channel_id == "*"`` admits any channel matching
         # the entry's ``guild_id`` against the envelope ``guild_id``).
         allowed_channels = allowlist.get("channels", [])

@@ -387,6 +387,74 @@ async def restore_connector_routing(
         put.raise_for_status()
 
 
+# ── connector allowlist helpers ──────────────────────────────────────────
+#
+# Same ``PUT /api/connectors/{account_id}`` shallow-merge-config + preserve-
+# secrets pattern as the routing helpers above: GET the full connector, rewrite
+# only ``config["allowlist"]``, PUT ``{"config": config}`` with NO ``secrets``
+# key (the bot token is preserved by ``update_connector``). The allowlist dict
+# shape is validated by ``the_one/db/models.py`` (~:354-390): ``peers`` and
+# ``channels`` are REQUIRED keys; account-scope ``peers`` entries are structured
+# ``{id: str, dm_allowed: bool}`` dicts (bare strings AND extra keys rejected),
+# ``channels`` are ``{guild_id, channel_id}`` tuples; ``guilds`` / ``roles`` /
+# ``dm_admission`` are optional.
+
+
+async def set_connector_allowlist(
+    base_url: str,
+    connector_id: str,
+    allowlist: dict,
+) -> dict | None:
+    """Set the connector's ``config["allowlist"]`` to ``allowlist``.
+
+    GETs the full connector body, takes its ``config``, records the PRIOR
+    ``config.get("allowlist")`` (``None`` when none configured), sets
+    ``config["allowlist"] = allowlist``, and PUTs ``{"config": config}`` WITHOUT
+    a ``secrets`` key (so the bot token is preserved). ``allowlist`` must carry
+    both the REQUIRED ``"peers"`` and ``"channels"`` keys, and account-scope
+    ``peers`` entries must be ``{id, dm_allowed}`` structured dicts (the v24
+    shape the Pydantic validator at ``models.py:~354-390`` enforces — bare
+    strings AND extra keys are rejected).
+
+    Returns the PRIOR allowlist value (the dict, or ``None``) so the caller can
+    restore it exactly via :func:`restore_connector_allowlist`.
+    """
+    path = f"/api/connectors/{connector_id}"
+    async with httpx.AsyncClient(base_url=base_url, timeout=10.0) as http:
+        resp = await http.get(path)
+        resp.raise_for_status()
+        body = resp.json()
+        config = body["config"]
+        prior = config.get("allowlist")
+        config["allowlist"] = allowlist
+        # PUT only `config` (no `secrets`) → the token is preserved.
+        put = await http.put(path, json={"config": config})
+        put.raise_for_status()
+    return prior
+
+
+async def restore_connector_allowlist(
+    base_url: str,
+    connector_id: str,
+    prior: dict | None,
+) -> None:
+    """Restore the connector's ``config["allowlist"]`` to ``prior`` exactly.
+
+    GETs the full connector body, sets ``config["allowlist"] = prior`` (``None``
+    is a legitimate prior — "no allowlist configured", NOT a no-op), and PUTs
+    ``{"config": config}`` WITHOUT a ``secrets`` key (token preserved).
+    """
+    path = f"/api/connectors/{connector_id}"
+    async with httpx.AsyncClient(base_url=base_url, timeout=10.0) as http:
+        resp = await http.get(path)
+        resp.raise_for_status()
+        body = resp.json()
+        config = body["config"]
+        config["allowlist"] = prior
+        put = await http.put(path, json={"config": config})
+        put.raise_for_status()
+
+
 async def post_and_wait_new_routing(
     base_url: str,
     connector_id: str,

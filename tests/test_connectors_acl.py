@@ -291,14 +291,54 @@ class TestAdmitsInbound:
         assert reason == ""
 
     def test_account_peers_subset_admits_member(self) -> None:
+        """M11 F16 L1 — admission in the guild path no longer depends on
+        the account-scope peers axis (it is DM-only now). P1 admits
+        because the channels axis is unrestricted (``[]``), not because
+        P1 is in the peers list."""
         acc = _account(allowlist={"peers": ["P1"], "channels": []})
         admits, reason = admits_inbound(acc, None, "P1", "C1")
         assert admits is True
         assert reason == ""
 
     def test_account_peers_subset_denies_non_member(self) -> None:
+        """M11 F16 L1 — INVERTED. The account-scope peers axis is now
+        DM-only; in the guild path a non-listed peer (P2) is ADMITTED
+        when the channels axis permits (here ``[]`` = unrestricted).
+        This is the primary RED-before / GREEN-after pin for the
+        peers-DM-only fix."""
         acc = _account(allowlist={"peers": ["P1"], "channels": []})
         admits, reason = admits_inbound(acc, None, "P2", "C1")
+        assert admits is True
+        assert reason == ""
+
+    def test_account_peers_dm_only_guild_admits_but_channels_still_gate(
+        self,
+    ) -> None:
+        """M11 F16 L1 — trade-off boundary. With a populated account
+        peers axis AND a populated channels axis, a non-listed peer is
+        ADMITTED in the guild path on a listed channel (peers no longer
+        gates guild) — but a non-listed channel for that same peer is
+        still DENIED (the channels axis still gates). Guards that
+        removing the peers gate did not weaken the channels gate."""
+        acc = _account(allowlist={"peers": ["P1"], "channels": ["C1"]})
+        # Non-listed peer P2 on listed channel C1 → admitted.
+        admits, reason = admits_inbound(acc, None, "P2", "C1")
+        assert admits is True
+        assert reason == ""
+        # Same non-listed peer P2 on non-listed channel C2 → still denied
+        # by the channels axis.
+        admits, reason = admits_inbound(acc, None, "P2", "C2")
+        assert admits is False
+        assert reason == "channel_id 'C2' is not admitted on account 'acc-1'"
+
+    def test_account_peers_dm_context_still_denies_non_member(self) -> None:
+        """M11 F16 L1 — DM admission is the account-scope peers axis's
+        sole remaining job. A DM from a non-listed peer under a populated
+        peers list is still DENIED (peers-DM-only)."""
+        acc = _account(allowlist={"peers": ["P1"], "channels": []})
+        admits, reason = admits_inbound(
+            acc, None, "P2", "C1", is_dm=True
+        )
         assert admits is False
         assert reason == "peer_id 'P2' is not admitted on account 'acc-1'"
 
@@ -461,6 +501,35 @@ class TestAdmitsInbound:
             "'acc-1' (per-agent peers axis is explicitly empty)"
         )
 
+    def test_account_peers_inert_in_guild_but_per_agent_peers_narrows(
+        self,
+    ) -> None:
+        """M11 F16 L1 — the account-vs-per-agent peers asymmetry. The
+        account allowlist carries a populated ``peers`` key (and an empty
+        ``channels`` axis → vacuously admits; guilds/roles absent →
+        likewise unrestricted) and the per-agent overlay narrows peers to
+        P2. A guild message from P3 is DENIED by the PER-AGENT axis, NOT
+        by the account axis: the account peers axis is inert in the guild
+        path even when populated, while the per-agent overlay still
+        narrows guild routing. The reason-substring assertions pin that
+        the deny comes from the per-agent axis (and explicitly NOT the
+        bare account axis), so the test cannot pass on the wrong reason.
+
+        (The Connector validator requires both ``peers`` and ``channels``
+        keys on any present allowlist, so ``channels: []`` expresses the
+        "channels axis vacuously admits" intent — empty list at account
+        scope = unrestricted per the HAT-redesign.)"""
+        acc = _account(allowlist={"peers": ["P1"], "channels": []})
+        admits, reason = admits_inbound(
+            acc, {"peers": ["P2"], "channels": None}, "P3", "C1"
+        )
+        assert admits is False
+        # Deny attributed to the per-agent axis…
+        assert "is not admitted for this agent" in reason
+        # …and NOT to the bare account axis (self-documenting negative —
+        # guards against the account-axis or channels-axis reason).
+        assert "is not admitted on account" not in reason
+
     # ── agent_acl = {} equivalence pin ────────────────────────────
 
     def test_agent_acl_empty_dict_equivalent_to_none(self) -> None:
@@ -472,10 +541,18 @@ class TestAdmitsInbound:
         assert admits_inbound(acc, {}, "P1", "C1") == admits_inbound(
             acc, None, "P1", "C1"
         )
-        # Non-member of peers → deny on both paths with same reason.
+        # M11 F16 L1 — guild path no longer consults account-scope peers,
+        # so a non-member of peers now ADMITS in the guild path (channels
+        # axis permits C1). Equivalence still holds (both admit).
         assert admits_inbound(acc, {}, "P2", "C1") == admits_inbound(
             acc, None, "P2", "C1"
         )
+        # M11 F16 L1 — the genuine peers-deny equivalence case moves to
+        # DM context, where the account-scope peers axis still gates: a
+        # non-member of peers denies on both paths with the same reason.
+        assert admits_inbound(
+            acc, {}, "P2", "C1", is_dm=True
+        ) == admits_inbound(acc, None, "P2", "C1", is_dm=True)
         # Non-member of channels → deny on both paths with same reason.
         assert admits_inbound(acc, {}, "P1", "C2") == admits_inbound(
             acc, None, "P1", "C2"
