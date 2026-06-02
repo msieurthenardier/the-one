@@ -39,7 +39,7 @@ Source artifacts: M11 mission.md success criteria + Known Issues; F14 debrief Ac
 - Phase file loaded: `.flightops/agent-crews/leg-execution.md` (valid: Crew / Interaction Protocol / Prompts present).
 - Flight status `ready` → `in-flight`. Branch `flight/15-live-traffic-hat` created off `main`.
 - Planning artifacts committed (`536a5fe`), source untouched.
-- **Pre-existing uncommitted change flagged & excluded from F15:** `docker-compose.yml` adds `THE_ONE_INFERENCE_PROVIDER_CONFIG_ID` + `THE_ONE_INFERENCE_MODEL` env vars (commented "M11 F7 L12 HAT"). F13 L3 removed `Settings.inference_*` in favor of per-connector storage, so this env config is likely vestigial. Left uncommitted in the working tree; NOT part of any F15 commit. Operator to discard or confirm.
+- **Pre-existing uncommitted change flagged & excluded from F15:** `docker-compose.yml` adds `THE_ONE_INFERENCE_PROVIDER_CONFIG_ID` + `THE_ONE_INFERENCE_MODEL` env vars (commented "M11 F7 L12 HAT"). F13 L3 removed `Settings.inference_*` in favor of per-connector storage, so this env config is vestigial (the container WARNs at boot that the vars are ignored; the same values live on connector `58f1fe5a833f`'s config row). **RESOLVED 2026-06-02: operator confirmed discard — `git checkout -- docker-compose.yml` reverted it; working tree clean. Never part of any F15 commit.**
 - Execution order: deferred-commit model — L1–L6 autonomous (single review + commit at Phase 2d); L7 (pairing/mentions/detach) + L8 (UAT) are interactive HAT legs the FD guides directly. Behavior-test legs run via `/behavior-test` and commit per-run.
 
 ### 2026-06-02 — Apparatus confirmed: bot-token driver (FD decision)
@@ -307,6 +307,17 @@ Confirms the live round-trip: POST seeds, detail endpoint surfaces it. (POST ret
 **Cleanup verified:** connector `config.routing` restored to `None` post-run; the `post_and_wait_new_routing` generalization (optional `until_entry`) left L4/L5 byte-unchanged (re-run no-env SKIP confirmed 4 tests collect+skip).
 
 **L4 + L6 together CLOSE mission criterion #7** (L4: multi-agent + multi-peer + per-(agent,peer) ACL; L6: the peer-issued `/talk-to` override). L6 status → completed.
+
+### L7 — pairing-mentions-detach-hat (interactive, FD-guided + operator) — 2026-06-02 — **PASS**
+Interactive HAT pass (Chrome MCP on the-one UI + a real human Discord account for the DM halves; bots can't DM bots).
+- **#9 Detach — PASS:** Studio connector-detail "Detach" on Connector Agent 2 → removed in place (no reload), grid badge 2→1, agent `connector_ids` cleared, persisted across a container restart. Re-attached to restore.
+- **DM-isolation (#5 deferred half) — PASS:** human DM (thenardier) → its own session (`5d8e350c…`, DM channel `1511367089691033723`) distinct from the guild test-channel-1 session (`57df1bd3…`).
+- **Pairing UX — PASS:** unknown DM → Chat-UI pending-approval banner → one-click Approve → APPROVED badge in place; `pending_approvals` → approved; peer allowlisted.
+- **Mentions-aware re-verify (#12 live, UI-selected model) — PASS:** `always_listen=true` + per-connector `qwen2.5:7b` (F13 L4 dropdown) → substantive non-mention `stepped` (inference-yes); trivial "lol" `policy-silent`/`inference-no`. First live exercise of the UI-selected-model path post-F13-L4.
+- **FINDING (filed as mission Known Issue):** approving thenardier appended to `allowlist.peers`, flipping the axis empty→`[thenardier]` = "only thenardier" → denied the burner bots (no-eligible) and would deny all other users incl. channels; plus `dm_allowed=False` keeps the approved peer's own DMs gated (F12 L3). Removed thenardier (operator-confirmed) → `peers=[]` open.
+- **Connector end state (operator: leave-as-is, minus thenardier):** `ingest_bots=true`, `always_listen=false`, `dm_admission=admin-approved`, `peers=[]`, `routing=null`, both agents attached.
+
+**L7 closes mission #9 + the deferred DM-isolation half of #5.** Status → completed. (Interactive-HAT artifacts commit at leg end per the workflow.)
 
 ---
 
