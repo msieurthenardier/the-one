@@ -82,6 +82,10 @@ STATIC_DIR = Path(__file__).parent / "static"
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialize DB on startup, close on shutdown."""
+    from the_one.logging_config import configure_logging
+
+    configure_logging()
+    logger.info("the-one starting; log_level=%s", settings.log_level)
     await init_db()
     conn = await get_connection()
     store = SQLiteAgentStore(conn)

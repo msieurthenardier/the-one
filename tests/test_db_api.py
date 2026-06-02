@@ -2718,3 +2718,200 @@ class TestChatSessionAPI:
             assert "session_metadata" not in item, (
                 f"list endpoint must not expose session_metadata; got {sorted(item.keys())}"
             )
+
+
+class TestRoutingAuditSeedEndpoint:
+    """M11 F15 L2 — dev-mode-gated test-seam endpoint
+    ``POST /api/_test/chat/sessions/{id}/routing-audit`` that seeds
+    ``session_metadata["routing"]`` for the audit-log-inspector behavior
+    test. Dev-mode is flipped via the same patch-the-settings-module
+    pattern the mock-provider gating tests use (test_provider_api.py:1998+;
+    those assert 400, here the whole endpoint is gated → 403)."""
+
+    @staticmethod
+    def _entries(n: int) -> list[dict]:
+        return [
+            {
+                "ts": "2026-06-02T00:00:00Z",
+                "agent": f"agent-{i}",
+                "rule_index": i,
+                "scope": "channel",
+                "match": None,
+                "reason": "matched",
+                "disposition": "stepped",
+            }
+            for i in range(n)
+        ]
+
+    async def test_dev_mode_happy_path_sets_routing(self, client: AsyncClient) -> None:
+        await client.post("/api/agents", json={"name": "agent-seed"})
+        resp = await client.post(
+            "/api/chat/sessions", json={"agent_name": "agent-seed", "title": "Seed"}
+        )
+        assert resp.status_code == 201
+        session_id = resp.json()["id"]
+
+        entries = self._entries(4)
+        with patch("the_one.interfaces.web.api.settings") as mock_settings:
+            mock_settings.dev_mode = True
+            resp = await client.post(
+                f"/api/_test/chat/sessions/{session_id}/routing-audit",
+                json={"routing": entries},
+            )
+        assert resp.status_code == 200
+        assert resp.json() == {"count": 4}
+
+    async def test_seeded_routing_visible_via_detail_endpoint(self, client: AsyncClient) -> None:
+        """Round-trip: the seeded routing is observable via
+        GET /api/chat/sessions/{id} session_metadata.routing."""
+        await client.post("/api/agents", json={"name": "agent-rt"})
+        resp = await client.post(
+            "/api/chat/sessions", json={"agent_name": "agent-rt", "title": "RT"}
+        )
+        session_id = resp.json()["id"]
+
+        entries = self._entries(3)
+        with patch("the_one.interfaces.web.api.settings") as mock_settings:
+            mock_settings.dev_mode = True
+            seed_resp = await client.post(
+                f"/api/_test/chat/sessions/{session_id}/routing-audit",
+                json={"routing": entries},
+            )
+        assert seed_resp.status_code == 200
+
+        resp = await client.get(f"/api/chat/sessions/{session_id}")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["session_metadata"] is not None
+        assert len(body["session_metadata"]["routing"]) == 3
+
+    async def test_overwrite_semantic_replaces_whole_list(self, client: AsyncClient) -> None:
+        """Re-POST replaces the whole routing list (Step 6's overwrite
+        seed: post the full 5-entry array, not a delta)."""
+        await client.post("/api/agents", json={"name": "agent-ow"})
+        resp = await client.post(
+            "/api/chat/sessions", json={"agent_name": "agent-ow", "title": "OW"}
+        )
+        session_id = resp.json()["id"]
+
+        with patch("the_one.interfaces.web.api.settings") as mock_settings:
+            mock_settings.dev_mode = True
+            await client.post(
+                f"/api/_test/chat/sessions/{session_id}/routing-audit",
+                json={"routing": self._entries(4)},
+            )
+            resp = await client.post(
+                f"/api/_test/chat/sessions/{session_id}/routing-audit",
+                json={"routing": self._entries(5)},
+            )
+        assert resp.json() == {"count": 5}
+
+        resp = await client.get(f"/api/chat/sessions/{session_id}")
+        assert len(resp.json()["session_metadata"]["routing"]) == 5
+
+    async def test_rejected_403_when_not_dev_mode(self, client: AsyncClient) -> None:
+        await client.post("/api/agents", json={"name": "agent-nodev"})
+        resp = await client.post(
+            "/api/chat/sessions", json={"agent_name": "agent-nodev", "title": "NoDev"}
+        )
+        session_id = resp.json()["id"]
+
+        with patch("the_one.interfaces.web.api.settings") as mock_settings:
+            mock_settings.dev_mode = False
+            resp = await client.post(
+                f"/api/_test/chat/sessions/{session_id}/routing-audit",
+                json={"routing": self._entries(1)},
+            )
+        assert resp.status_code == 403
+        assert "DEV_MODE" in resp.json()["detail"]
+
+    async def test_missing_session_returns_404(self, client: AsyncClient) -> None:
+        with patch("the_one.interfaces.web.api.settings") as mock_settings:
+            mock_settings.dev_mode = True
+            resp = await client.post(
+                "/api/_test/chat/sessions/does-not-exist/routing-audit",
+                json={"routing": self._entries(1)},
+            )
+        assert resp.status_code == 404
+
+    async def test_non_list_body_returns_400(self, client: AsyncClient) -> None:
+        await client.post("/api/agents", json={"name": "agent-badbody"})
+        resp = await client.post(
+            "/api/chat/sessions", json={"agent_name": "agent-badbody", "title": "Bad"}
+        )
+        session_id = resp.json()["id"]
+
+        with patch("the_one.interfaces.web.api.settings") as mock_settings:
+            mock_settings.dev_mode = True
+            resp = await client.post(
+                f"/api/_test/chat/sessions/{session_id}/routing-audit",
+                json={"routing": "not-a-list"},
+            )
+        assert resp.status_code == 400
+
+
+class TestSessionLookupSeamEndpoint:
+    """M11 F15 L3 — dev-mode-gated test-seam endpoint
+    ``GET /api/_test/chat/sessions/lookup?connector_id=&channel_id=&thread_id=``
+    that resolves a connector-attached session to its id via
+    ``find_most_recent_by_external_key``. Sibling to L2's seed endpoint;
+    same patch-the-settings-module dev-mode gate (→ 403)."""
+
+    @staticmethod
+    async def _seed_connector_session(
+        client: AsyncClient,
+        *,
+        connector_id: str,
+        channel_id: str,
+        thread_id: str | None = None,
+    ) -> str:
+        """Create a connector-keyed session (platform=discord) and return
+        its id. The create endpoint runs ChatSession.model_validate, so
+        the connector-keying fields pass straight through."""
+        await client.post("/api/agents", json={"name": "agent-lookup"})
+        resp = await client.post(
+            "/api/chat/sessions",
+            json={
+                "agent_name": "agent-lookup",
+                "title": "Lookup",
+                "platform": "discord",
+                "connector_id": connector_id,
+                "channel_id": channel_id,
+                "thread_id": thread_id,
+            },
+        )
+        assert resp.status_code == 201
+        return resp.json()["id"]
+
+    async def test_dev_mode_match_found_returns_session_id(self, client: AsyncClient) -> None:
+        session_id = await self._seed_connector_session(
+            client, connector_id="conn-1", channel_id="chan-1"
+        )
+        with patch("the_one.interfaces.web.api.settings") as mock_settings:
+            mock_settings.dev_mode = True
+            resp = await client.get(
+                "/api/_test/chat/sessions/lookup",
+                params={"connector_id": "conn-1", "channel_id": "chan-1"},
+            )
+        assert resp.status_code == 200
+        assert resp.json() == {"session_id": session_id}
+
+    async def test_dev_mode_no_match_returns_null(self, client: AsyncClient) -> None:
+        with patch("the_one.interfaces.web.api.settings") as mock_settings:
+            mock_settings.dev_mode = True
+            resp = await client.get(
+                "/api/_test/chat/sessions/lookup",
+                params={"connector_id": "bogus-conn", "channel_id": "bogus-chan"},
+            )
+        assert resp.status_code == 200
+        assert resp.json() == {"session_id": None}
+
+    async def test_rejected_403_when_not_dev_mode(self, client: AsyncClient) -> None:
+        with patch("the_one.interfaces.web.api.settings") as mock_settings:
+            mock_settings.dev_mode = False
+            resp = await client.get(
+                "/api/_test/chat/sessions/lookup",
+                params={"connector_id": "conn-1", "channel_id": "chan-1"},
+            )
+        assert resp.status_code == 403
+        assert "DEV_MODE" in resp.json()["detail"]
