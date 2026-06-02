@@ -357,13 +357,33 @@ class TestPermittedAgents:
         assert _permitted_agents(ctx) == ["alpha", "bravo"]
 
     def test_account_allowlist_denies_peer(self) -> None:
-        """Account allowlist with peers=[allowed-peer] denies peer-1."""
+        """Account allowlist with peers=[allowed-peer] denies peer-1.
+
+        M11 F16 L1 — the account-scope peers axis is now DM-only, so
+        this deny only holds in a DM context. The envelope carries
+        ``raw={"is_dm": True}`` and the context a plugin implementing
+        the ``is_dm`` hook, so ``admits_inbound`` takes the DM path
+        where the account peers axis still gates and ``_permitted_agents``
+        returns ``[]``.
+        """
         account = _account(
             allowlist={"peers": ["allowed-peer"], "channels": []},
         )
+        dm_envelope = InboundEnvelope(
+            platform="stub",
+            account_id="acct-test",
+            channel_id="ch-1",
+            thread_id=None,
+            peer_id="peer-1",
+            peer_name="Alice",
+            text="/help",
+            raw={"is_dm": True},
+        )
         ctx = _build_context(
             account=account,
+            envelope=dm_envelope,
             eligible=[_agent("alpha"), _agent("bravo")],
+            plugin=_StubPluginWithIsDm(),
         )
         assert _permitted_agents(ctx) == []
 
