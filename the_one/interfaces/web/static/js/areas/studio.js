@@ -755,7 +755,33 @@ App.registerArea({
         // first user input.
         dirty = false;
         var ready = connectorTypesReady || fetchConnectorTypes();
-        ready.then(function () {
+        // F4 follow-up: re-fetch the connector on editor entry so the editor
+        // always reflects current backend state (peers, dm_admission, etc.)
+        // rather than the cached list entry. Covers the case where a peer was
+        // approved while the editor was open or the user navigates back to the
+        // same connector after an out-of-band change. Falls back to the cached
+        // editingConnector on any fetch error so the UX degrades gracefully.
+        var freshConnectorReady = (connectorFormMode === 'edit' && editingConnector && editingConnector.id)
+          ? fetch('/api/connectors/' + encodeURIComponent(editingConnector.id))
+              .then(function (r) { return r.ok ? r.json() : null; })
+              .then(function (fresh) {
+                if (fresh && fresh.id) {
+                  editingConnector = fresh;
+                  // Patch the list cache so the grid tile reflects the
+                  // refreshed state if the operator clicks Back.
+                  if (connectors) {
+                    for (var _ci = 0; _ci < connectors.length; _ci++) {
+                      if (connectors[_ci].id === fresh.id) {
+                        connectors[_ci] = fresh;
+                        break;
+                      }
+                    }
+                  }
+                }
+              })
+              .catch(function () { /* network error — use cached editingConnector */ })
+          : Promise.resolve();
+        Promise.all([ready, freshConnectorReady]).then(function () {
           // Re-check formMode at resolution time — operator may have
           // navigated away mid-fetch.
           if (connectorFormMode == null || self._activeSection !== 'connectors') return;

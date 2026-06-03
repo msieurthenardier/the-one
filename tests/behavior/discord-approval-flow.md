@@ -1,9 +1,9 @@
 # Behavior Test: Discord unknown-DM → approve → respond flow
 
 **Slug**: `discord-approval-flow`
-**Status**: draft
+**Status**: active
 **Created**: 2026-06-03
-**Last Run**: never
+**Last Run**: 2026-06-03-16-03-44 (pass — flow validated end-to-end; step 7 inconclusive on a UI-freshness gap (F4), fixed + re-run pass)
 
 ## Intent
 
