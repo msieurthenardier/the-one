@@ -1,6 +1,6 @@
 # Flight: Daily-driver validation gate (full-working-day run + connector observability)
 
-**Status**: landed
+**Status**: completed
 **Mission**: [Discord Connector Depth & Robustness](../../mission.md)
 
 ## Contributing to Criteria
