@@ -4,7 +4,7 @@
 
 ## Summary
 
-Flight **`in-flight`** (2026-06-02). Autonomous legs **L1 (`connector-observability`) + L2 (`hat-driver-hardening`) are COMPLETED**, batch-reviewed (Sonnet, confirmed), and committed on a draft PR. **L3 (`full-working-day-run`) and any injected `ui-fix-*` legs are HELD for the operator** (interactive / wall-clock) — the flight stays `in-flight` until the operator runs the soak. Branch: `flight/17-daily-driver-gate`. Final suite at batch end: 2884 passed / 4 skipped / 529 deselected.
+Flight **`in-flight`** (2026-06-02). Autonomous legs **L1 (`connector-observability`) + L2 (`hat-driver-hardening`) are COMPLETED**, batch-reviewed (Sonnet, confirmed), and committed on a draft PR. **L3 (`full-working-day-run`) triggered injected leg L4 (`fix-gateway-idle-reap`)** which landed including a post-review hardening pass (two non-blocking findings: no-traffic-connector rewarm gate + no-`is_alive`-exempt fix). **Soak resumes pending commit of L4 review fixes.** Branch: `flight/17-daily-driver-gate`. Latest suite: 2890 passed / 4 skipped / 529 deselected.
 
 ---
 
@@ -17,6 +17,22 @@ Flight **`in-flight`** (2026-06-02). Autonomous legs **L1 (`connector-observabil
 ---
 
 ## Leg Progress
+
+### L3 — full-working-day-run (interactive, in progress)
+**Status**: in-flight (2026-06-02)
+
+#### Findings (UI once-over + soak)
+
+- **F1 (observability/robustness) — no operator-facing connector-connection signal.** At soak start, the operator DM'd the bot (from "Chuck R") and got no response. L1's disposition stream localized it instantly: **zero `connector.inbound` lines** (INFO-level, would show) + **zero Discord gateway activity** in the logs + connector `warm:false` + `GET …/discoverable-entities` 404ing on repeat → the **Discord gateway was disconnected** (bot "up" on HTTP but not connected to Discord; DM never reached `on_message`). Likely trigger: the L1/L2 source edits drove `uvicorn --reload`, dropping the live gateway connection, and nothing re-warmed it. **The product gap:** every UI surface still showed the connector as present/healthy (connectors list 200, no error badge) — the operator could only discover the bot was offline by messaging it. A daily driver needs a visible connection-status indicator ("connected / disconnected — Test Connection"). *Triage: candidate `ui-fix-*` (status surface) + a robustness question (does the connector auto-reconnect / auto-warm on boot, or only via manual Test Connection?). Disambiguate after re-warm.* **(L1's first real win — the instrumentation turned a silent "bot ignored me" into a precise "gateway disconnected" in one grep.)**
+
+- **F2 (robustness, #19 BLOCKER — root cause of the "constant Test Connection") — the idle reaper disconnects the inbound gateway.** Confirmed in code: `_reap_once` (`_pool.py:448-478`) evicts ANY entry idle past `ttl_seconds` (default `_DEFAULT_TTL_SECONDS=1800`/30 min); eviction runs `plugin.disconnect(client)` (`:357`), closing the Discord Gateway WebSocket. `last_activity` is bumped only on `account_acquire` (inbound/outbound), and the pool treats eviction "uniformly" across gateway entries (`:26-28`) — **no exemption for the inbound listener**. So after ~30 min of quiet the gateway is reaped as "idle", the bot silently goes offline, and the next DM can't arrive (disconnected) until a manual Test Connection re-warms it. The acquire→idle→reap model fits per-agent *outbound* MCP clients; it is wrong for the account-keyed *inbound* gateway listener. **F1 is the symptom-hider (no status signal); F2 is the defect.** *Operator decision: click Test Connection to get through now; **create an injected fix leg** — requirements (verbatim): "this should not get reaped at all, and should fire itself up on restart."* → **Leg 04 `fix-gateway-idle-reap`** (substrate fix): (A) never idle-reap the inbound gateway listener (per-agent outbound entries still reap); (B) auto-warm listening connectors on lifespan startup; preserve dead-listener recovery. F1 (connection-status UI signal) tracked separately. This is the flight's adaptation-criteria "bot requires manual intervention → capture + fix + re-run" path; the soak resumes on a bot that stays up after this lands.
+
+#### Leg 04 `fix-gateway-idle-reap` — design (Sonnet review, approve-with-changes)
+- **Resolved:** (A) exempt ALL `_ACCOUNT_POOL_AGENT_SLOT` entries from idle-reap (every account entry IS the one gateway-listener entry per account — inbound + F4 send + F8 auto-relay share it; no pure-outbound account entry), gated on `is_alive()`. (B) boot warm-up ALREADY exists (`app.py:148-172`, ≥1-attached-agent gate) and fires on restart/reload — the operator's connector was cold purely because the F15 test agents were deleted; no flag/migration. **Dead-listener self-heal (HIGH):** removing idle-reap would strand a terminally-dead listener, so a liveness sweep must evict+immediately-rewarm dead account entries (~30s self-heal). Predicate at `_pool.py:469-474`; use the `_ACCOUNT_POOL_AGENT_SLOT` constant (`:255`). No `_discord.py` change. Proceeding to implementation (one design cycle — the review was prescriptive with code evidence).
+
+#### Kickoff decisions (operator-confirmed)
+- **Entry gate:** the `.env.hat` HAT connector IS the operator's daily driver (`58f1fe5a833f` "Discord Constellation"), so the formal HAT reconfig would disrupt the very thing being soak-tested. Decision: **skip the HAT reconfig; soak on the real daily-driver config.** F15 already proved the HAT green live. Substitute confirmation: verify L1's disposition stream is flowing on REAL traffic before the soak counts. Deploy model confirmed: dev bind-mounts + `uvicorn --reload --reload-dir /app/the_one` → L1's code is live (the `GET /api/connectors/{id}/disposition-counters` endpoint already serves the new shape).
+- **UI once-over:** **co-walk** — operator clicks through each surface; FD watches the disposition logs + reasons about findings; each defect triaged live into an injected `ui-fix-*` leg or filed out-of-scope.
 
 ### L1 — connector-observability
 **Status**: landed
@@ -43,6 +59,60 @@ Flight **`in-flight`** (2026-06-02). Autonomous legs **L1 (`connector-observabil
 **Deviation — `record_disposition` not imported in `_inbound.py`**: the spec suggested importing it there "the same way `account_acquire` is imported". The helper is called from `_observability.py` (which handles the pool counter increment internally via a deferred import). Importing it directly in `_inbound.py` would be unused. Not imported — the spec's intent (counter increments on every disposition call) is fully satisfied.
 
 **Metrics:** Full backend suite: **2861 passed / 4 skipped / 529 deselected** in 4:19 (wall). Prior baseline F16: 2835/4/528-529. Delta of +26 is the new test_connectors_observability.py.
+
+#### Implementation (2026-06-02)
+
+**Files changed:**
+- `the_one/connectors/_pool.py` — rewrote `_reap_once` to split into two sub-sweeps: (A) idle-eviction sweep now exempts account-keyed (`_ACCOUNT_POOL_AGENT_SLOT`) entries whose `is_alive()` returns True (live gateway never reaped); (B) dead-listener sweep collects account-keyed entries where `is_alive()` is False or absent into `dead_evicted`, evicts them, and returns them separately. Added `_rewarm_dead_listeners(keys)` helper. Updated `_reap_loop` to call `_rewarm_dead_listeners(dead_listeners)` after each sweep, enabling self-heal within one reaper interval (~30s). Updated `_refresh_discoverable_entities_for_account` docstring comment to note that `last_activity` avoidance now matters only for per-agent entries (account entries are slot-exempt for idle eviction). Return type changed to `tuple[list[tuple[str,str]], list[tuple[str,str]]]` — `(idle_evicted, dead_evicted)`.
+- `tests/test_connectors_pool.py` — updated three existing `_reap_once` call sites to unpack the new 2-tuple return (`idle_evicted, dead_evicted`); added three new tests: `test_alive_account_entry_survives_idle_past_ttl` (A — live gateway exempt), `test_dead_account_entry_is_evicted_and_rewarmed` (B — dead gateway evict+rewarm), `test_agent_acquire_entry_still_reaps_on_ttl` (C — no regression for per-agent entries).
+- `tests/test_lifespan.py` — added `test_lifespan_warms_connector_with_attached_agent` (D — B-boot criterion: connector with ≥1 attached agent is warm-acquired at lifespan startup).
+- `tests/test_connectors_e2e.py` — updated `_reap_once` call to unpack 2-tuple (no behavior change).
+
+**Approach:**
+- **(A) Idle-exemption:** In the new `_reap_once`, account-keyed entries check `getattr(entry.client, "is_alive", None)` — if the function exists and returns True, the entry is skipped entirely from both sweeps. Non-Discord plugins without `is_alive()` fall into the dead-listener path (safe: they get evicted+rewarmed rather than pinned).
+- **(B) Dead-listener self-heal:** Account-keyed entries where `is_alive()` is False (or `is_alive` attr absent) are collected in `dead_evicted`, evicted via the same `asyncio.gather` pass as idle evictions, and then re-acquired via `_rewarm_dead_listeners` in `_reap_loop`. Self-heal window: one `_REAPER_INTERVAL_SECONDS` (30s default).
+- **(B-boot) Confirmed:** `app.py:148-172` already warm-acquires every connector with ≥1 attached agent at boot. No changes needed; confirmed + tested by both the existing `test_lifespan_warm_acquires_connectors_per_account` and the new `test_lifespan_warms_connector_with_attached_agent`.
+
+**Test names:**
+- `test_alive_account_entry_survives_idle_past_ttl` — (A) alive account entry exempt from idle
+- `test_dead_account_entry_is_evicted_and_rewarmed` — (B) dead account entry evict+rewarm
+- `test_agent_acquire_entry_still_reaps_on_ttl` — (C) per-agent entries still reap on TTL (no regression)
+- `test_lifespan_warms_connector_with_attached_agent` — (D / B-boot) boot warm-up confirmed
+
+**Metrics:** Full backend suite: **2888 passed / 4 skipped / 529 deselected** in 4:15 (wall). Prior L2 baseline: 2884/4/529. Delta of +4: the four new tests from this leg.
+
+**Deviations:**
+- Return type of `_reap_once` changed from `list[tuple[str,str]]` to `tuple[list, list]`. The caller `_reap_loop` already discarded the return; three internal call sites in tests + one in `test_connectors_e2e.py` updated to unpack the 2-tuple. Kept the return value (rather than hiding it) for test purchase.
+- Non-Discord plugins without `is_alive()` fall into the dead-listener path rather than being idle-exempt. This is the safer behavior: they get evicted and re-warmed rather than potentially being pinned alive with a broken client. The `getattr` guard is consistent with the leg spec.
+
+#### Post-review hardening (2026-06-02)
+
+Two non-blocking review findings addressed in a follow-up `fix-review-issues` pass:
+
+**Finding 1 — `_rewarm_dead_listeners` must not resurrect a no-traffic connector.**
+Previously `_rewarm_dead_listeners` called `account_acquire(account_id)` unconditionally for every dead entry. If all agents were detached from a connector after boot, the reaper would re-establish a gateway WebSocket on every 30s sweep even though no traffic would route through it. Fix: added an attached-agents gate (mirroring `app.py:148-172`'s lifespan warmup) using function-local `get_connection()` + `SQLiteAgentStore(conn).list_by_connector(account_id)`. If zero agents are attached, the entry is left cold with an INFO log; if ≥1 agent is attached, the rewarm proceeds as before. The store lookup runs outside `_lock` (in `_rewarm_dead_listeners`, which is called from `_reap_loop` after `_reap_once` releases the lock) — no deadlock risk.
+
+**Finding 2 — a plugin without `is_alive()` must be EXEMPT, not churned.**
+Previously the `_reap_once` comment said "non-Discord plugins without `is_alive()` are safe" but the logic treated them as dead (evicted + rewarmed every ~30s). Fixed: `is_alive_fn is None` now triggers an early `continue` (exempt path), just like `is_alive_fn()` returning True. Only an account entry that HAS `is_alive` and it returns False is treated as dead. Comment updated to state such plugins are exempt.
+
+**Files changed (review fix):**
+- `the_one/connectors/_pool.py` — `_reap_once`: split `is_alive_fn is None` into its own exempt `continue` branch before the `is_alive_fn()` live-check; updated comment. `_rewarm_dead_listeners`: added function-local `get_connection` + `SQLiteAgentStore` import; added `list_by_connector` check before `account_acquire`; logs INFO when leaving cold; logs INFO with agent count on successful rewarm.
+- `tests/test_connectors_pool.py` — updated `test_dead_account_entry_is_evicted_and_rewarmed` to patch the DB layer (monkeypatch `get_connection` + `SQLiteAgentStore` in their source modules so the function-local import resolves the stub) and pass one attached agent; added `_patch_agent_store_for_rewarm` helper shared by rewarm tests; added `test_dead_account_entry_no_attached_agents_left_cold` (zero attached agents → evicted, NOT rewarmed); added `test_account_entry_without_is_alive_is_exempt` (no `is_alive` method → exempt, survives `_reap_once`).
+
+**New test names:**
+- `test_dead_account_entry_no_attached_agents_left_cold` — dead entry with zero attached agents stays cold
+- `test_account_entry_without_is_alive_is_exempt` — liveness-less account entry survives both sweeps
+
+**Metrics:** Full backend suite: **2890 passed / 4 skipped / 529 deselected** (prior: 2888/4/529; delta +2 from the two new tests). All pool + lifespan tests green (51 passed / 1 warning in 1.49s).
+
+---
+
+### L4 — fix-gateway-idle-reap (review hardening)
+**Status**: landed (2026-06-02)
+
+*(See the Leg 04 design + initial implementation embedded in the L3 section above. This entry captures the post-review hardening pass.)*
+
+Two non-blocking review findings from the L4 batch review were addressed: (1) `_rewarm_dead_listeners` now gates on ≥1 attached agent before re-establishing a dead gateway (mirrors lifespan warmup; leaves zero-agent connectors cold); (2) account-keyed entries without an `is_alive` method are now EXEMPT from both sweeps (not churned into the dead-listener path every 30s). Two new tests added; existing rewarm test updated to patch the DB layer. Final suite: 2890/4/529.
 
 ---
 
