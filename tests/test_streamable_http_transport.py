@@ -79,3 +79,24 @@ def test_build_request_headers_preserves_operator_supplied_headers() -> None:
     headers = build_request_headers(source)
     assert headers.get("X-Plain") == "p"
     assert headers.get("X-Custom-Token") == "operator-supplied"
+
+
+def test_build_request_headers_strips_surrounding_whitespace() -> None:
+    """A trailing/leading space on a header value (a common paste typo) is
+    stripped — otherwise h11 rejects the outgoing header and crashes the
+    request before it reaches the server, which the probe miscategorises as a
+    connection error.
+    """
+    source = MCPSource(
+        id="src-3",
+        name="t",
+        type="streamable-http",
+        config={
+            "url": "https://example.com/mcp",
+            "headers": {"Authorization": "Bearer tok123 "},  # trailing space
+        },
+        secrets={"  X-Trace  ": "  v  "},  # whitespace on key and value
+    )
+    headers = build_request_headers(source)
+    assert headers["Authorization"] == "Bearer tok123"
+    assert headers["X-Trace"] == "v"

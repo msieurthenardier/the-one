@@ -377,7 +377,7 @@ async def test_phase_0_no_auth_path_returns_tools(client_and_repo) -> None:
         def negotiated_protocol_version(self):
             return "2025-06-18"
 
-    async def _stub_probe(server_url, *, timeout=5.0):
+    async def _stub_probe(server_url, *, request_headers=None, timeout=5.0):
         return "no_auth"
 
     with (
@@ -441,7 +441,7 @@ async def test_phase_0_oauth_fall_through_preserves_phase_b(client_and_repo) -> 
 
             return _Resp()
 
-    async def _stub_probe(server_url, *, timeout=5.0):
+    async def _stub_probe(server_url, *, request_headers=None, timeout=5.0):
         return "oauth"
 
     with (
@@ -515,7 +515,7 @@ async def test_phase_0_cached_hint_skips_probe(client_and_repo) -> None:
 
     probe_calls = {"n": 0}
 
-    async def _counting_probe(server_url, *, timeout=5.0):
+    async def _counting_probe(server_url, *, request_headers=None, timeout=5.0):
         probe_calls["n"] += 1
         return "no_auth"
 
@@ -587,7 +587,7 @@ async def test_phase_0_disconnect_warning_quiet_on_no_auth_path(client_and_repo,
         def negotiated_protocol_version(self):
             return "2025-06-18"
 
-    async def _stub_probe(server_url, *, timeout=5.0):
+    async def _stub_probe(server_url, *, request_headers=None, timeout=5.0):
         return "no_auth"
 
     with (

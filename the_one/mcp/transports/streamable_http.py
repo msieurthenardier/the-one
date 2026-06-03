@@ -78,26 +78,51 @@ def build_request_headers(source: MCPSource) -> dict[str, str]:
 
     Trusts F1's API validator to have gated the operator-supplied shape —
     does not re-validate.
+
+    Surrounding whitespace on string keys/values is stripped: an operator who
+    pastes ``Bearer xxx `` with a trailing space (a common kv-table typo) would
+    otherwise produce a header value that h11 rejects, crashing the outgoing
+    httpx request with a LocalProtocolError BEFORE it reaches the server — which
+    the auth-posture probe then miscategorises as a connection error. HTTP OWS
+    semantics treat surrounding whitespace as insignificant anyway, so stripping
+    is lossless. Non-string values (defensive) pass through untouched.
     """
     config_headers: dict[str, str] = source.config.get("headers", {}) or {}
     operator_secrets = {
         k: v for k, v in source.secrets.items() if k not in OAUTH_MANAGED_SECRET_KEYS
     }
-    return {**config_headers, **operator_secrets}
+    merged = {**config_headers, **operator_secrets}
+    return {
+        (k.strip() if isinstance(k, str) else k): (
+            v.strip() if isinstance(v, str) else v
+        )
+        for k, v in merged.items()
+    }
 
 
 async def _probe_auth_posture(
-    server_url: str, *, timeout: float = 5.0
+    server_url: str,
+    *,
+    request_headers: dict[str, str] | None = None,
+    timeout: float = 5.0,
 ) -> Literal["no_auth", "oauth", "error"]:
     """HTTP-level auth-posture probe — bypasses the MCP SDK entirely.
 
-    Issues a single bare ``initialize`` JSON-RPC POST with no auth, then
-    inspects the status code:
+    Issues a single ``initialize`` JSON-RPC POST carrying the operator's
+    configured request headers (``request_headers`` — typically
+    ``build_request_headers(source)``), then inspects the status code:
 
     * ``200`` → server processed the initialize handshake → ``"no_auth"``.
-    * ``401`` → server's auth middleware short-circuited (regardless of
-      whether ``WWW-Authenticate`` is present — broken servers without
-      RFC 9728 metadata are still treated as ``"oauth"``) → ``"oauth"``.
+      This INCLUDES static-bearer / custom-header auth: if the operator's
+      headers already satisfy the server, no OAuth flow is needed and the
+      SDK simply replays those headers on every request. Probing WITHOUT
+      the operator headers would 401 here and misclassify a header-auth
+      server as ``"oauth"``, triggering a doomed dynamic-client-registration
+      flow against a server that has no OAuth endpoints.
+    * ``401`` → the server still rejects the request even with the operator's
+      headers applied → genuine OAuth (regardless of whether
+      ``WWW-Authenticate`` is present — broken servers without RFC 9728
+      metadata are still treated as ``"oauth"``) → ``"oauth"``.
     * Anything else (5xx, transport errors, timeouts) → ``"error"``.
 
     Why a bare ``httpx.AsyncClient`` (and NOT the MCP SDK) is used here:
@@ -150,9 +175,15 @@ async def _probe_auth_posture(
             "capabilities": {},
         },
     }
+    # Spec'd negotiation headers first, then the operator's configured
+    # request headers (static bearer, etc.) layered on top so a header-auth
+    # server is recognised as no_auth rather than misread as oauth. Operator
+    # headers win on collision — but they would not collide with Accept /
+    # Content-Type in practice.
     headers = {
         "Accept": "application/json, text/event-stream",
         "Content-Type": "application/json",
+        **(request_headers or {}),
     }
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(timeout)) as client:

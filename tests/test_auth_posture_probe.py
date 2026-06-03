@@ -73,9 +73,60 @@ async def test_probe_returns_no_auth_on_200(patch_async_client) -> None:
     # (otherwise compliant no-auth servers respond 406 / 415).
     assert captured["accept"] == "application/json, text/event-stream"
     assert captured["content_type"] == "application/json"
-    # Probe MUST NOT carry an Authorization header — auth-required
-    # detection depends on the absence of auth.
+    # With no request_headers supplied, the probe carries no Authorization
+    # header — the legacy no-auth detection path is unchanged.
     assert captured["authorization"] is None
+
+
+async def test_probe_forwards_operator_headers_static_bearer(
+    patch_async_client,
+) -> None:
+    """A static-bearer server returns 401 unauthenticated but 200 with the
+    operator's Authorization header → probe must classify it as 'no_auth'.
+
+    Regression for the misclassification that made a header-auth MCP server
+    (no OAuth endpoints) get treated as 'oauth', triggering a doomed dynamic
+    client registration flow. The probe must replay the operator's configured
+    request headers so header-gated servers are recognised.
+    """
+    captured = {}
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        captured["authorization"] = request.headers.get("authorization")
+        captured["accept"] = request.headers.get("accept")
+        if request.headers.get("authorization") != "Bearer s3cret":
+            return httpx.Response(401, json={"error": "unauthorized"})
+        return httpx.Response(
+            200,
+            json={"jsonrpc": "2.0", "id": 1, "result": {"capabilities": {}}},
+        )
+
+    patch_async_client(_handler)
+    verdict = await transport_mod._probe_auth_posture(
+        "https://example.com/mcp",
+        request_headers={"Authorization": "Bearer s3cret"},
+    )
+    assert verdict == "no_auth"
+    # Operator header forwarded, spec headers still present.
+    assert captured["authorization"] == "Bearer s3cret"
+    assert captured["accept"] == "application/json, text/event-stream"
+
+
+async def test_probe_oauth_when_operator_headers_insufficient(
+    patch_async_client,
+) -> None:
+    """If even the operator's headers don't satisfy the server (still 401),
+    the verdict stays 'oauth' — genuine OAuth servers are unaffected."""
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"error": "unauthorized"})
+
+    patch_async_client(_handler)
+    verdict = await transport_mod._probe_auth_posture(
+        "https://example.com/mcp",
+        request_headers={"X-Api-Key": "wrong"},
+    )
+    assert verdict == "oauth"
 
 
 async def test_probe_returns_oauth_on_401_with_www_authenticate(
