@@ -563,10 +563,10 @@ class TestFetchDmHistory:
     ) -> None:
         # Account-scope allowlist.peers narrows to "user-1" only; the
         # tool asks for "user-9" → deny.
-        # M11 F12 L3 — peers use structured tuples.
+        # M11 F17 L8 (Leg D) — peers stored as bare ``{id}`` post-v28.
         await _seed_stub_account(
             config={"allowlist": {
-                "peers": [{"id": "user-1", "dm_allowed": True}],
+                "peers": [{"id": "user-1"}],
                 "channels": [],
             }}
         )

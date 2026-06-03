@@ -2225,8 +2225,10 @@
             'connector-allowlist-section--users">';
     // F5 L6 HAT R4: renamed "Account-scope allowlist" → "Access" with
     // a friendly description. L5 cycle 5: "Access" → "Users".
-    html += '<div class="section-title">Users</div>';
-    html += '<div class="section-description">Who can talk to the bot.</div>';
+    // M11 F17 L8 (Leg D): "Users" → "Direct Messages" (peers axis is
+    // DM-only post-F16; relabel matches the actual function).
+    html += '<div class="section-title">Direct Messages</div>';
+    html += '<div class="section-description">Who can DM the bot.</div>';
 
     // M11 F17 L5: discoverable-entities banner moved to the TOP of the
     // Access-and-Routing tab (rendered by renderDiscoverableEntitiesBanner
@@ -2251,9 +2253,11 @@
     // ``dm-admission-admin-approved`` state class that gates the
     // per-peer DM toggles; that wiring is order-agnostic (queries by
     // testid) so the swap is purely visual.
-    var dmAdmissionTipText = 'DMs (direct messages to the bot) are ' +
-        'admitted independently of channel restrictions. Approved ' +
-        'peers are those on the Users allowlist below.';
+    // M11 F17 L8 (Leg D): relabeled — section is now "Direct Messages";
+    // tooltip updated to match new 3-mode policy copy.
+    var dmAdmissionTipText = 'Controls who can send direct messages to ' +
+        'the bot. "Only these people" admits peers on the Direct ' +
+        'Messages list below.';
     // M11 F12 L4 — Literal value rename ``allowlisted-peers-only`` →
     // ``admin-approved`` (operator-vocabulary alignment per F12 L3).
     var currentDmAdmission = (account && account.config && account.config.allowlist &&
@@ -2271,13 +2275,15 @@
     html += '<select id="connector-allowlist-dm-admission-select" ' +
             'class="field-input admin-pf-input" ' +
             'data-testid="connector-allowlist-dm-admission-select">';
+    // M11 F17 L8 (Leg D): relabeled dm_admission options to plain-
+    // language copy. Values unchanged; only display text updated.
     html += '<option value="none"' +
-            (currentDmAdmission === 'none' ? ' selected' : '') + '>Deny all DMs</option>';
+            (currentDmAdmission === 'none' ? ' selected' : '') + '>No one</option>';
     html += '<option value="admin-approved"' +
             (currentDmAdmission === 'admin-approved' ? ' selected' : '') +
-            '>Admin-approved (per-peer)</option>';
+            '>Only these people</option>';
     html += '<option value="all"' +
-            (currentDmAdmission === 'all' ? ' selected' : '') + '>Admit all DMs</option>';
+            (currentDmAdmission === 'all' ? ' selected' : '') + '>Anyone</option>';
     html += '</select>';
     html += '</div>';
 
@@ -3624,7 +3630,8 @@
     // legacy indicator on the chip post-mount).
     var s = (id == null) ? '' : String(id);
     if (!s) return null;
-    if (storageAxis === 'peers') return { id: s, dm_allowed: false };
+    // M11 F17 L8 (Leg D): bare ``{id}`` — dm_allowed retired at v28.
+    if (storageAxis === 'peers') return { id: s };
     if (storageAxis === 'channels') return { guild_id: null, channel_id: s };
     if (storageAxis === 'roles') return { guild_id: null, role_id: s };
     return s;

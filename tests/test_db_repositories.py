@@ -1694,11 +1694,11 @@ class TestConnectorConfigValidator:
         assert account.config["pairing"] == pairing
 
     def test_valid_allowlist_round_trips(self) -> None:
-        # M11 F12 L3 — structured-tuple shape for peers/channels.
+        # M11 F17 L8 (Leg D) — bare ``{id}`` peers post-v28.
         allowlist = {
             "peers": [
-                {"id": "u1", "dm_allowed": True},
-                {"id": "u2", "dm_allowed": False},
+                {"id": "u1"},
+                {"id": "u2"},
             ],
             "channels": [{"guild_id": "g-test", "channel_id": "c1"}],
         }
@@ -1859,10 +1859,11 @@ class TestConnectorConfigValidator:
         M11 F12 L3 — peers/channels/roles use the structured-tuple
         shape; guilds stays as list[str].
         """
+        # M11 F17 L8 (Leg D) — bare ``{id}`` peers post-v28.
         allowlist = {
             "peers": [
-                {"id": "u1", "dm_allowed": True},
-                {"id": "u2", "dm_allowed": True},
+                {"id": "u1"},
+                {"id": "u2"},
             ],
             "channels": [{"guild_id": "g-test", "channel_id": "c1"}],
             "guilds": ["g1", "g2"],
@@ -1968,9 +1969,9 @@ class TestConnectorConfigValidator:
     async def test_allowlist_round_trips_through_repo(
         self, connector_repo: ConnectorRepository
     ) -> None:
-        # M11 F12 L3 — structured-tuple shape for peers/channels.
+        # M11 F17 L8 (Leg D) — bare ``{id}`` peers post-v28.
         allowlist = {
-            "peers": [{"id": "u1", "dm_allowed": True}],
+            "peers": [{"id": "u1"}],
             "channels": [{"guild_id": "g-test", "channel_id": "c1"}],
         }
         account = Connector(
@@ -1999,21 +2000,21 @@ class TestConnectorConfigValidator:
     async def test_v24_structured_shape_full_round_trip_through_sqlite(
         self, connector_repo: ConnectorRepository
     ) -> None:
-        """M11 F12 L3 cycle-1 finding #4 — SQLite JSON-column round-trip
-        of the full v24 structured-tuple shape (peers / channels / roles)
+        """M11 F12 L3 / M11 F17 L8 (Leg D) — SQLite JSON-column round-trip
+        of the post-v28 structured shape (peers / channels / roles)
         preserves every field verbatim.
 
         Pydantic validates shape at the Python boundary; SQLite stores
         arbitrary JSON. This test catches accidental shape mutations
         inside the repository serialize/deserialize path that the
-        validator would not otherwise notice (e.g. dict key reordering,
-        type coercion of dm_allowed bool to int).
+        validator would not otherwise notice (e.g. dict key reordering).
+        Peers are bare ``{id}`` post-v28 (dm_allowed retired).
         """
         allowlist = {
             "peers": [
-                {"id": "u1", "dm_allowed": True},
-                {"id": "u2", "dm_allowed": False},
-                {"id": "u3", "dm_allowed": True},
+                {"id": "u1"},
+                {"id": "u2"},
+                {"id": "u3"},
             ],
             "channels": [
                 {"guild_id": "g-test", "channel_id": "c-no-guild"},
@@ -2043,11 +2044,9 @@ class TestConnectorConfigValidator:
         assert loaded_allowlist["guilds"] == allowlist["guilds"]
         assert loaded_allowlist["roles"] == allowlist["roles"]
         assert loaded_allowlist["dm_admission"] == "admin-approved"
-        # Belt-and-braces: dm_allowed types are bool, not int (JSON
-        # round-trip can flip these silently if the writer/reader
-        # disagree on bool encoding).
+        # Belt-and-braces: bare peer entries have exactly one key.
         for peer_entry in loaded_allowlist["peers"]:
-            assert isinstance(peer_entry["dm_allowed"], bool), peer_entry
+            assert set(peer_entry.keys()) == {"id"}, peer_entry
 
     async def test_dm_admission_round_trips_through_repo(
         self, connector_repo: ConnectorRepository
@@ -2064,10 +2063,11 @@ class TestConnectorConfigValidator:
         use the structured-tuple shape.
         """
         # Create with dm_admission = "all".
+        # M11 F17 L8 (Leg D) — bare ``{id}`` peers post-v28.
         account = Connector(
             id="a1", name="n", type="stub",
             config={"allowlist": {
-                "peers": [{"id": "P1", "dm_allowed": True}],
+                "peers": [{"id": "P1"}],
                 "channels": [],
                 "dm_admission": "all",
             }},
@@ -3072,12 +3072,13 @@ class TestPendingApprovalRepository:
         pending_approval_repo: PendingApprovalRepository,
         _seed_connector,
     ) -> None:
-        appr = await pending_approval_repo.upsert_pending(
+        appr, created = await pending_approval_repo.upsert_pending(
             connector_id="acct-1",
             peer_id="peer-1",
             peer_name="Alice",
             preview="hello",
         )
+        assert created is True
         assert appr.connector_id == "acct-1"
         assert appr.peer_id == "peer-1"
         assert appr.peer_name == "Alice"
@@ -3098,21 +3099,23 @@ class TestPendingApprovalRepository:
         """Two upserts for (acct-1, peer-1) while status='pending' →
         ONE row, second call returns the SAME id with refreshed
         peer_name / preview / received_at."""
-        first = await pending_approval_repo.upsert_pending(
+        first, created_first = await pending_approval_repo.upsert_pending(
             connector_id="acct-1",
             peer_id="peer-1",
             peer_name="Alice",
             preview="hello",
         )
+        assert created_first is True
         import asyncio
 
         await asyncio.sleep(0.005)
-        second = await pending_approval_repo.upsert_pending(
+        second, created_second = await pending_approval_repo.upsert_pending(
             connector_id="acct-1",
             peer_id="peer-1",
             peer_name="Alice Renamed",
             preview="hi again",
         )
+        assert created_second is False
         assert second.id == first.id  # dedup → same row
         assert second.peer_name == "Alice Renamed"
         assert second.preview == "hi again"
@@ -3132,19 +3135,21 @@ class TestPendingApprovalRepository:
         """Upsert + mark_approved consumes the pending row; the next
         upsert with the same (account, peer) INSERTs a fresh row that
         coexists with the approved historical row."""
-        first = await pending_approval_repo.upsert_pending(
+        first, created_first = await pending_approval_repo.upsert_pending(
             connector_id="acct-1",
             peer_id="peer-1",
             peer_name="Alice",
             preview="hello",
         )
+        assert created_first is True
         await pending_approval_repo.mark_approved(first.id)
-        second = await pending_approval_repo.upsert_pending(
+        second, created_second = await pending_approval_repo.upsert_pending(
             connector_id="acct-1",
             peer_id="peer-1",
             peer_name="Alice",
             preview="hello again",
         )
+        assert created_second is True  # new pending row after the old one was approved
         assert second.id != first.id
         assert second.status == "pending"
         # Two rows now exist for this (account, peer).
@@ -3168,7 +3173,7 @@ class TestPendingApprovalRepository:
         pending_approval_repo: PendingApprovalRepository,
         _seed_connector,
     ) -> None:
-        appr = await pending_approval_repo.upsert_pending(
+        appr, _ = await pending_approval_repo.upsert_pending(
             connector_id="acct-1",
             peer_id="peer-1",
             peer_name="Alice",
@@ -3186,7 +3191,7 @@ class TestPendingApprovalRepository:
         pending_approval_repo: PendingApprovalRepository,
         _seed_connector,
     ) -> None:
-        appr = await pending_approval_repo.upsert_pending(
+        appr, _ = await pending_approval_repo.upsert_pending(
             connector_id="acct-1",
             peer_id="peer-1",
             peer_name="Alice",
@@ -3201,7 +3206,7 @@ class TestPendingApprovalRepository:
         pending_approval_repo: PendingApprovalRepository,
         _seed_connector,
     ) -> None:
-        appr = await pending_approval_repo.upsert_pending(
+        appr, _ = await pending_approval_repo.upsert_pending(
             connector_id="acct-1",
             peer_id="peer-1",
             peer_name="Alice",
@@ -3216,7 +3221,7 @@ class TestPendingApprovalRepository:
         pending_approval_repo: PendingApprovalRepository,
         _seed_connector,
     ) -> None:
-        appr = await pending_approval_repo.upsert_pending(
+        appr, _ = await pending_approval_repo.upsert_pending(
             connector_id="acct-1",
             peer_id="peer-1",
             peer_name="Alice",
@@ -3234,7 +3239,7 @@ class TestPendingApprovalRepository:
         # ValueError when trying to flip dismissed → approved is covered
         # by the dedicated test above. Cover the dismissed-on-approved
         # case here so dismiss is exercised symmetrically.
-        other = await pending_approval_repo.upsert_pending(
+        other, _ = await pending_approval_repo.upsert_pending(
             connector_id="acct-1",
             peer_id="peer-2",
             peer_name="Bob",
@@ -3251,7 +3256,7 @@ class TestPendingApprovalRepository:
     ) -> None:
         import asyncio
 
-        first = await pending_approval_repo.upsert_pending(
+        first, _ = await pending_approval_repo.upsert_pending(
             connector_id="acct-1",
             peer_id="peer-1",
             peer_name="Alice",
@@ -3259,7 +3264,7 @@ class TestPendingApprovalRepository:
         )
         await pending_approval_repo.mark_approved(first.id)
         await asyncio.sleep(0.005)
-        second = await pending_approval_repo.upsert_pending(
+        second, _ = await pending_approval_repo.upsert_pending(
             connector_id="acct-1",
             peer_id="peer-1",
             peer_name="Alice",
@@ -3277,13 +3282,13 @@ class TestPendingApprovalRepository:
         pending_approval_repo: PendingApprovalRepository,
         _seed_connector,
     ) -> None:
-        a1 = await pending_approval_repo.upsert_pending(
+        a1, _ = await pending_approval_repo.upsert_pending(
             connector_id="acct-1",
             peer_id="peer-1",
             peer_name="Alice",
             preview="hi",
         )
-        a2 = await pending_approval_repo.upsert_pending(
+        a2, _ = await pending_approval_repo.upsert_pending(
             connector_id="acct-1",
             peer_id="peer-2",
             peer_name="Bob",
@@ -3308,7 +3313,7 @@ class TestPendingApprovalRepository:
     ) -> None:
         """Deleting the parent connector removes the dependent
         pending_approvals rows via the v21 FK CASCADE."""
-        await pending_approval_repo.upsert_pending(
+        await pending_approval_repo.upsert_pending(  # noqa: F841 — side-effect only
             connector_id="acct-1",
             peer_id="peer-1",
             peer_name="Alice",

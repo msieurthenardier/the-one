@@ -2115,11 +2115,11 @@ App.registerArea({
 
         // M11 F12 L4 — per-agent peers/channels persist in the
         // structured-tuple shape mirroring account-scope storage:
-        //   peers    → ``[{id, dm_allowed: true}]`` (per-agent
-        //               dm_allowed is structurally uniform but NOT
-        //               consulted by ACL per the F12 L3 Truth Table;
-        //               defaults to ``true`` so it never spuriously
-        //               denies a DM the account-scope already admitted)
+        //   peers    → ``[{id}]`` bare dicts (post-v28 M11 F17 L8
+        //               Leg D; dm_allowed retired — per-agent peers
+        //               never carried it post-v26 either; the latent
+        //               bug here emitted it with value true which the
+        //               post-v26 Pydantic validator rejects).
         //   channels → ``[{guild_id, channel_id}]`` (guild_id sourced
         //               from the per-channel-id lookup map on the
         //               checkbox wrapper, ``data-channel-guild-id-map``
@@ -2130,7 +2130,7 @@ App.registerArea({
           var s = (id == null) ? '' : String(id);
           if (!s) return null;
           if (axisListKind === 'peers') {
-            return { id: s, dm_allowed: true };
+            return { id: s };
           }
           if (axisListKind === 'channels') {
             var g = null;

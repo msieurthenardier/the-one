@@ -15,9 +15,13 @@ emits ``dm_allowed`` on bare-string OR tuple-shape peer entries —
 per-agent peers entries are bare ``{id: str}`` dicts (paired with
 the v26 Pydantic validator that REJECTS ``dm_allowed`` at per-agent
 scope and the v26 migration that strips it from stored data; F12
-footgun retirement). The account-scope ``_to_v24_shape`` translator
-CONTINUES emitting the field — DM admission is consumed at account
-scope only per the F12 L3 DM Composition Truth Table.
+footgun retirement).
+
+Post-F17 L8 (Leg D / v28): the account-scope ``_to_v24_shape``
+translator also emits bare ``{id: str}`` peers — the per-peer
+``dm_allowed`` field has been retired at account scope too. The
+v28 migration strips it from stored data; the Pydantic validator
+(``models.py``) now REJECTS ``dm_allowed`` at account scope as well.
 """
 
 from __future__ import annotations
@@ -31,26 +35,28 @@ DEFAULT_TEST_GUILD_ID = "g-test"
 
 
 def _to_v24_shape(allowlist: dict) -> dict:
-    """Translate a flat-shape allowlist to the v24 structured-tuple
-    shape. Account-scope variant — KEEPS ``dm_allowed`` on peer
-    entries (account-scope is the path that consumes the field).
+    """Translate a flat-shape allowlist to the post-v28 structured shape.
+    Account-scope variant — peers are bare ``{id: str}`` dicts
+    (``dm_allowed`` retired by M11 F17 L8 Leg D / v28 migration).
 
-    Tuple form for fine control:
-      - ``"P1"`` → ``{"id": "P1", "dm_allowed": True}``
-      - ``("P1", True)`` → ``{"id": "P1", "dm_allowed": True}``
-      - ``("P1", False)`` → ``{"id": "P1", "dm_allowed": False}``
-      - Already-dict shape: pass through.
+    Tuple form for backward-compat with existing fixtures:
+      - ``"P1"`` → ``{"id": "P1"}``
+      - ``("P1", True)`` → ``{"id": "P1"}``  (dm_allowed silently dropped)
+      - ``("P1", False)`` → ``{"id": "P1"}`` (dm_allowed silently dropped)
+      - Already-dict ``{"id": ..., "dm_allowed": ...}``: dm_allowed stripped.
+      - Already-bare ``{"id": ...}`` dict: passed through.
     """
     result = dict(allowlist)
     if "peers" in result and isinstance(result["peers"], list):
         peers_new = []
         for entry in result["peers"]:
             if isinstance(entry, dict):
-                peers_new.append(entry)
+                # Strip dm_allowed if present (legacy / pre-v28 shape).
+                peers_new.append({"id": entry["id"]} if "id" in entry else entry)
             elif isinstance(entry, tuple):
-                peers_new.append({"id": entry[0], "dm_allowed": entry[1]})
+                peers_new.append({"id": entry[0]})
             else:
-                peers_new.append({"id": entry, "dm_allowed": True})
+                peers_new.append({"id": entry})
         result["peers"] = peers_new
     if "channels" in result and isinstance(result["channels"], list):
         channels_new = []
@@ -160,8 +166,6 @@ def _to_v24_agent_acl(agent_acl: dict | None) -> dict | None:
     return result
 
 
-# Alias preserved for browser-seeder import compatibility (the
-# account-scope translator and the account-scope-allowlist translator
-# are the same thing — the rename in seeders.py was for local
-# readability and we keep both names exported).
+# Alias preserved for browser-seeder import compatibility.
+# Post-v28: both names produce bare ``{id}`` peer entries.
 _to_v24_allowlist = _to_v24_shape

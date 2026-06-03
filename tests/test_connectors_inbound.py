@@ -1794,14 +1794,17 @@ class TestF6Gating:
         await dispatch_inbound("acct-test", envelope, factory=factory)
 
         # Account row reflects the persisted allowlist mutation.
-        # M11 F12 L3 — peers are stored as ``{id, dm_allowed}`` dicts;
-        # check membership by id.
+        # M11 F17 L8 (Leg D) — peers stored as bare ``{id}`` dicts
+        # post-v28; check membership by id.
         refreshed = await acc_repo.get("acct-test")
         allowlist = refreshed.config.get("allowlist")
         assert allowlist is not None
         assert any(
             p["id"] == "peer-1" for p in allowlist["peers"]
         ), allowlist["peers"]
+        # Bare shape: no dm_allowed key.
+        peer_entry = next(p for p in allowlist["peers"] if p["id"] == "peer-1")
+        assert set(peer_entry.keys()) == {"id"}, peer_entry
         assert allowlist["channels"] == []
 
         # The user message persisted is the CLEANED text (prefix stripped).
@@ -2083,6 +2086,94 @@ class TestF6Gating:
         assert pa_events[0]["approval_id"] == pa_events[1]["approval_id"]
         assert pa_events[0]["approval_id"] == rows[0].id
 
+    async def test_needs_pairing_no_prefix_sends_auto_reply_on_first_dm(
+        self, isolated_db, monkeypatch
+    ) -> None:
+        """M11 F17 L9 (Leg E): first unknown DM (created=True) → exactly
+        one Discord auto-reply sent to the DM channel via account_acquire
+        → client.send. The send-once path: only fires when the upsert
+        created a NEW row."""
+        await _seed_provider_and_agent()
+        conn = await get_connection()
+        encryptor = get_encryptor(settings.data_dir)
+        acc_repo = ConnectorRepository(conn, encryptor)
+        await acc_repo.create(
+            Connector(
+                id="acct-test",
+                name="Stub Pairing",
+                type="stub",
+                config={
+                    "pairing": {
+                        "code": "X",
+                        "issued_at": "2026-05-18T00:00:00+00:00",
+                    },
+                },
+            )
+        )
+        StubPluginWithResolver.resolve_outcome = NeedsPairing(reason="")
+        register_for_test("stub", StubPluginWithResolver)
+
+        async def _capture(session_id: str, event: dict, **kwargs) -> None:
+            pass
+
+        monkeypatch.setattr(inbound_mod, "broadcast_to_session", _capture)
+
+        factory = await _make_factory()
+        # First DM — new pending row → auto-reply fires.
+        StubPlugin.reset_for_test()
+        await dispatch_inbound("acct-test", _envelope(text="hello"), factory=factory)
+
+        assert len(StubPlugin.outbound_records) == 1, StubPlugin.outbound_records
+        target, content = StubPlugin.outbound_records[0]
+        assert target.channel_id == "ch-1"
+        assert "waiting" in content.lower() or "approve" in content.lower()
+
+    async def test_needs_pairing_no_prefix_no_auto_reply_on_repeat_dm(
+        self, isolated_db, monkeypatch
+    ) -> None:
+        """M11 F17 L9 (Leg E): second DM while still pending (created=False,
+        upsert dedup updates in place) → NO new auto-reply sent.
+        The send-once guard prevents repeat-DM spam."""
+        await _seed_provider_and_agent()
+        conn = await get_connection()
+        encryptor = get_encryptor(settings.data_dir)
+        acc_repo = ConnectorRepository(conn, encryptor)
+        await acc_repo.create(
+            Connector(
+                id="acct-test",
+                name="Stub Pairing",
+                type="stub",
+                config={
+                    "pairing": {
+                        "code": "X",
+                        "issued_at": "2026-05-18T00:00:00+00:00",
+                    },
+                },
+            )
+        )
+        StubPluginWithResolver.resolve_outcome = NeedsPairing(reason="")
+        register_for_test("stub", StubPluginWithResolver)
+
+        async def _capture(session_id: str, event: dict, **kwargs) -> None:
+            pass
+
+        monkeypatch.setattr(inbound_mod, "broadcast_to_session", _capture)
+
+        factory = await _make_factory()
+        # First DM — creates the row and fires the auto-reply.
+        await dispatch_inbound("acct-test", _envelope(text="hello"), factory=factory)
+        first_send_count = len(StubPlugin.outbound_records)
+        assert first_send_count == 1, StubPlugin.outbound_records
+
+        # Second DM from the SAME peer while still pending → upsert updates
+        # in place (created=False) → NO additional send.
+        await dispatch_inbound(
+            "acct-test", _envelope(text="hello again"), factory=factory
+        )
+        assert len(StubPlugin.outbound_records) == 1, (
+            "auto-reply must not re-fire on repeat DM while pending"
+        )
+
     async def test_deny_outcome_logs_and_returns(self, isolated_db) -> None:
         """``Deny`` outcome: audit logged with the deny reason; the
         dispatcher returns WITHOUT entering the per-session lock — so
@@ -2146,8 +2237,8 @@ class TestF6Gating:
 
         # Rebuild the repo from the existing connection — simulates a
         # fresh process boot reading the persisted row.
-        # M11 F12 L3 — peers are stored as ``{id, dm_allowed}`` dicts;
-        # check membership by id.
+        # M11 F17 L8 (Leg D) — peers stored as bare ``{id}`` dicts
+        # post-v28; check membership by id.
         fresh_repo = ConnectorRepository(conn, encryptor)
         refreshed = await fresh_repo.get("acct-test")
         allowlist = refreshed.config.get("allowlist")
@@ -2155,6 +2246,9 @@ class TestF6Gating:
         assert any(
             p["id"] == "peer-1" for p in allowlist["peers"]
         ), allowlist["peers"]
+        # Bare shape: no dm_allowed key.
+        peer_entry = next(p for p in allowlist["peers"] if p["id"] == "peer-1")
+        assert set(peer_entry.keys()) == {"id"}, peer_entry
 
     async def test_audit_entries_accrue_across_sequential_inbounds(
         self, isolated_db
@@ -2180,6 +2274,82 @@ class TestF6Gating:
             assert entry["outcome"] == "permit"
             assert entry["peer_id"] == "peer-1"
             assert entry["reason"] is None
+
+
+# ─────────────────────────────────────────────────────────────────
+# M11 F17 L10 (Leg F): v29 replay-context stored on upsert_pending
+# ─────────────────────────────────────────────────────────────────
+
+
+class TestPendingApprovalReplayContext:
+    """Verify that the dispatcher stores v29 replay-context fields
+    (original_message, channel_id, thread_id, is_dm) when upserting a
+    pending approval row.
+
+    M11 F17 L10 — Leg F: respond-on-approval.
+    """
+
+    async def test_unknown_dm_stores_full_original_message_and_channel_context(
+        self, isolated_db, monkeypatch
+    ) -> None:
+        """Leg F: when an unknown DM arrives and a pending row is created,
+        the full original text (not the truncated preview), channel_id,
+        thread_id, and is_dm=True are persisted.
+
+        Verifies the change in the inbound pending branch where upsert_pending
+        now receives the extra v29 kwargs (M11 F17 L10 — Leg F)."""
+        await _seed_provider_and_agent()
+        conn = await get_connection()
+        encryptor = get_encryptor(settings.data_dir)
+        acc_repo = ConnectorRepository(conn, encryptor)
+        await acc_repo.create(
+            Connector(
+                id="acct-test",
+                name="Stub Pairing",
+                type="stub",
+                config={
+                    "pairing": {
+                        "code": "X",
+                        "issued_at": "2026-05-18T00:00:00+00:00",
+                    },
+                },
+            )
+        )
+        StubPluginWithResolver.resolve_outcome = NeedsPairing(reason="")
+        register_for_test("stub", StubPluginWithResolver)
+
+        async def _noop_broadcast(session_id: str, event: dict, **kwargs) -> None:
+            pass
+
+        monkeypatch.setattr(inbound_mod, "broadcast_to_session", _noop_broadcast)
+
+        long_text = "What is the meaning of life? " * 20  # >200 chars — exceeds preview truncation
+        factory = await _make_factory()
+        envelope = _envelope(text=long_text, channel_id="ch-dm-123")
+        await dispatch_inbound("acct-test", envelope, factory=factory)
+
+        approval_repo = PendingApprovalRepository(conn)
+        rows = await approval_repo.list_for_account_peer("acct-test", "peer-1")
+        assert len(rows) == 1
+        row = rows[0]
+
+        # preview is still truncated (display only).
+        assert len(row.preview) <= 200, f"preview not truncated: {len(row.preview)}"
+        assert row.preview == long_text[:200]
+
+        # original_message is the FULL text.
+        assert row.original_message == long_text, (
+            f"expected full text, got: {row.original_message!r}"
+        )
+
+        # channel_id captured from the envelope.
+        assert row.channel_id == "ch-dm-123"
+
+        # thread_id: the default _envelope uses thread_id=None.
+        assert row.thread_id is None
+
+        # is_dm: always True for the pending-approval branch.
+        assert row.is_dm is True
 
 
 # ─────────────────────────────────────────────────────────────────

@@ -155,7 +155,8 @@
     var rawAcl = aclsMap[account.id];
     var accountAcl;
     // M11 F12 L4 — per-agent peers/channels now arrive in structured-
-    // tuple shape (``{id, dm_allowed}`` / ``{guild_id, channel_id}``)
+    // tuple shape (``{id}`` / ``{guild_id, channel_id}``; peers are
+    // bare post-v28 M11 F17 L8 Leg D)
     // matching the account-scope storage. Project to id-arrays so the
     // checkbox-list-mode initial-state matcher + the chip-mode initial-
     // chip render keep operating in id terms. The save path
@@ -203,8 +204,8 @@
     // checkbox-vs-chip mode decision per axis.
     //
     // M11 F12 L4 — account-scope ``peers``/``channels`` now carry the
-    // structured-tuple shape (``{id, dm_allowed}`` / ``{guild_id,
-    // channel_id}``). Project to id-arrays so the checkbox-list mode
+    // structured-tuple shape (``{id}`` bare / ``{guild_id,
+    // channel_id}``; peers are bare post-v28 M11 F17 L8 Leg D). Project to id-arrays so the checkbox-list mode
     // and the chip-mode initial selection both keep operating in id
     // terms. Per-agent ``peers``/``channels`` initial values follow
     // the same projection (see ``accountAcl`` projection below).
@@ -556,13 +557,10 @@
         // live ACL summary ("3 peers", "DMs only", etc.).
         //
         // M11 F12 L4 — per-axis structured-tuple shape (peers:
-        // ``{id, dm_allowed}``; channels: ``{guild_id, channel_id}``).
-        // The per-agent ``dm_allowed`` is NOT consulted by ACL (DM
-        // admission is account-scope only per the F12 L3 Truth Table),
-        // so the per-agent overlay OMITS the per-peer DM toggle and
-        // renders a one-line note near the peers section header instead
-        // — prevents operator confusion (the toggle exists only on the
-        // account-scope editor in connector-editor.js).
+        // bare ``{id}`` post-v28; channels: ``{guild_id, channel_id}``).
+        // The per-peer dm_allowed flag was retired by M11 F17 L8 Leg D
+        // (v28 migration); per-agent overlay renders peers without any
+        // DM toggle (DM admission is account-scope, not per-agent).
         var axisLabel = axis === 'peers' ? 'Peers' : 'Channels';
         var details = document.createElement('div');
         details.className = 'connector-acl-axis';
@@ -724,7 +722,8 @@
               if (typeof _val === 'object') {
                 initItems.push(_val);  // already structured (defensive)
               } else if (axisValueShape === 'peer') {
-                initItems.push({ id: String(_val), dm_allowed: true });
+                // M11 F17 L8 (Leg D): bare ``{id}`` — dm_allowed retired.
+                initItems.push({ id: String(_val) });
               } else if (axisValueShape === 'channel') {
                 // M11 F12 L5 — wrap flat-string back into the structured
                 // tuple using the scope-channel guild_id map. The L4

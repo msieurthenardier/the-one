@@ -1384,12 +1384,12 @@ def _resolve_test_account(
     if allowlist_missing:
         config: dict[str, Any] = {}
     else:
-        # M11 F12 L3 — peers stored as structured ``{id, dm_allowed}``
-        # dicts; the resolver hook reads only the ``id`` field.
+        # M11 F17 L8 (Leg D) — peers stored as bare ``{id}`` dicts
+        # post-v28; the resolver hook reads only the ``id`` field.
         config = {
             "allowlist": {
                 "peers": [
-                    {"id": peer_id, "dm_allowed": True}
+                    {"id": peer_id}
                     for peer_id in (allowlist_peers or [])
                 ],
                 "channels": [],

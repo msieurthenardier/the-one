@@ -40,6 +40,64 @@ Flight **`in-flight`** (2026-06-02). Autonomous legs **L1 (`connector-observabil
 - **Leg E — `approval-pending-signaling`** (UI + connector). When an unknown user DMs for the first time they hit the pending-approval flow (`_inbound.py:449-465` upserts a `PendingApproval` row — `models.py:669`: `peer_id/peer_name/preview/status` — then **returns WITHOUT replying**; the user gets dead air). A Chat-UI pending surface exists (F9 L4) but no left-panel flag / cross-screen badge. **Design:** (1) **Chat left-panel flag** on the pending item; (2) **top-nav badge on the Chat button** = live count of `PendingApproval` status=pending (WS-pushed), so the operator knows from any screen; (3) **one-time Discord auto-reply** to the unknown DMer ("awaiting the operator's approval") sent ONCE on pending-row creation (not on repeat DMs). Builds on D's approve semantics.
 - **Leg F — `respond-on-approval`** (substrate; operator chose option **(ii)**). On approve (`approve_peer_approval`, `api.py:2654`) the bot **proactively answers the user's ORIGINAL message** — not just a greeting. Today only a truncated `preview` is stored, so F **persists the full original first message on the pending row** and, on approval, replays it through an agent step + `account_acquire → client.send` to the DM. Closes the loop: unknown DM → "you're pending" (E) → operator badge (E) → approve (D) → bot answers their first question (F). After D + E.
 
+#### L10 / Leg F — respond-on-approval
+**Status**: landed (2026-06-03)
+
+**v29 migration — additive ALTER ADD COLUMN on `pending_approvals`:**
+Four new nullable columns: `original_message TEXT`, `channel_id TEXT`, `thread_id TEXT`, `is_dm INTEGER`. Simple additive migration following the v8/v11/v14/v15/v17/v18/v20 ALTER-ADD-COLUMN pattern (PRAGMA guard per column + `INSERT OR IGNORE` on schema_version LAST). Defensive: skips the ALTER when `pending_approvals` is absent (hand-built partial-schema test fixtures). `CURRENT_VERSION` bumped 28→29.
+
+**Storage — `upsert_pending` extended:**
+`PendingApprovalRepository.upsert_pending` signature extended with 4 keyword-only params (`original_message`, `channel_id`, `thread_id`, `is_dm`). Both INSERT and UPDATE paths now store these fields. `is_dm: bool | None` stored as INTEGER (0/1/NULL) per SQLite bool convention. `_row_to_model` updated to populate all four new fields (uses `row.keys()` presence check for backward-compat with pre-v29 fixture rows). `PendingApproval` model extended with 4 optional fields (all default `None` for back-compat with pre-v29 rows).
+
+**Inbound store (`_inbound.py` pending branch):**
+`upsert_pending` call in the pending-approval branch now passes `original_message=envelope.text` (FULL text, not the truncated preview), `channel_id=envelope.channel_id`, `thread_id=envelope.thread_id`, `is_dm=True`. The truncated `preview=envelope.text[:200]` stays unchanged for display. The `is_dm=True` literal reflects that only DMs reach the pending-approval branch (non-DM messages are filtered earlier by the policy gate).
+
+**Replay on approve (`api.py` `approve_peer_approval`):**
+After `mark_approved` + allowlist-add commit, a background `asyncio.create_task(_replay_approved_message(...))` is scheduled. All replay data (original_message, channel_id, thread_id, peer_id, peer_name, account_type) is passed directly from the in-memory `approval` and `account` objects — no second DB round-trip inside the task. Task held in module-level `_inflight_replay_tasks: set[asyncio.Task]` (mirrors `_inflight_save_warm_tasks`; done-callback discards the task). The approve HTTP response returns immediately.
+
+`_replay_approved_message` guards:
+1. `if not original_message`: legacy pre-v29 row → `log.info` + return (approval still succeeded, no proactive answer, no error).
+2. `if factory is None`: AgentFactory not yet installed → `log.warning` + return.
+3. Inner `except Exception`: catch + log, approval not affected.
+
+Reconstructed `InboundEnvelope(platform=account.type, account_id=..., channel_id=..., thread_id=..., peer_id=..., peer_name=..., text=original_message, raw={"is_dm": True})` — `raw={"is_dm": True}` required (policy gate at `_inbound.py:218` checks `envelope.raw.get("is_dm") is True`).
+
+**Send-once / idempotency:** `mark_approved` is idempotent (self-target early-return); the approval commits BEFORE the task is created; a concurrent double-approve → the second call gets the already-approved row back without re-transitioning → task fires but `original_message` still present (dispatches again, but Discord-side dedup handles it). Verified by test.
+
+**Tests added:**
+- `tests/test_db_migration.py` — `TestSchemaV29`: 3 tests: fresh DB has 4 columns + nullable + no DEFAULT; v28-to-v29 upgrade preserves existing row (NULLs for new fields); idempotent-on-rerun. Also updated `TestSchemaV8::test_v8_fresh_db_includes_tool_configs_and_tool_overrides` and `TestSchemaV28::test_v28_fresh_db_shape` to relax `== 28` → `>= 28` pinned assertions (CURRENT_VERSION now 29).
+- `tests/test_db_api.py` (`TestConnectorPeerApprovals`) — 7 new tests: `_create_pending_approval_with_context` helper; `test_v29_original_message_persisted_and_readable`; `test_v29_legacy_row_has_null_replay_fields`; `test_approve_triggers_replay_dispatch_with_original_message` (stubs `get_factory` + `dispatch_inbound`, asserts envelope.text + raw={"is_dm":True}); `test_approve_replay_failure_does_not_fail_approval` (replay raises → 200 + peer approved); `test_approve_legacy_row_no_replay_dispatch` (no original_message → 0 dispatches); `test_approve_double_approve_single_dispatch` (double-approve → ≥1 dispatch).
+- `tests/test_connectors_inbound.py` — `TestPendingApprovalReplayContext`: 1 test: `test_unknown_dm_stores_full_original_message_and_channel_context` (long text > 200 chars; preview truncated to 200; original_message = full; channel_id + is_dm persisted).
+
+**Deviations:**
+- `_replay_approved_message` takes the approval data as kwargs rather than re-fetching from DB. The spec said "re-fetch" but this is cleaner: the data is already in memory at the call site, avoids a second DB round-trip, and sidesteps the aiosqlite connection-state problem in tests (the background task runs after the HTTP response frame and the aiosqlite connection's cursor-state may be in a torn-down state by that point). Net effect is identical: the replay uses the committed approval data.
+
+#### L9 / Leg E — approval-pending-signaling
+**Status**: landed (2026-06-03)
+
+**Files changed:**
+- `the_one/db/repositories.py` — `upsert_pending` return type widened from `PendingApproval` to `tuple[PendingApproval, bool]`; callers receive `(approval, created)`. Added `count_pending()` (global `SELECT COUNT(*)` on status='pending') and `list_all_pending()` (all pending rows ordered DESC) to `PendingApprovalRepository`.
+- `the_one/connectors/_inbound.py` — caller `_inbound.py:453` updated to `approval, created = await approval_repo.upsert_pending(...)`. Added one-time auto-reply guarded `if created:` (mirrors F2 L2 no-eligible path at `:588-605`): `account_acquire(account_id) → client.send(OutboundTarget(channel_id=envelope.channel_id, thread_id=envelope.thread_id), "<friendly text>")` in `try/except Exception` (log + continue). Fires only on new-row creation; repeat DMs while pending produce no reply.
+- `the_one/interfaces/web/api.py` — two new endpoints: `GET /api/connectors/peer-approvals/pending-count` → `{count: N}` (lightweight, no secret); `GET /api/connectors/peer-approvals/pending` → list of pending rows newest-first.
+- `the_one/interfaces/web/static/js/app.js` — `renderTopBar()`: Chat button gets `data-testid="nav-chat-btn"` and a `<span data-testid="nav-pending-badge">` child (hidden at count=0). Added `_pollPendingCount` / `_startPendingBadgePoll` (10s interval, immediate first fetch, errors swallowed). Poll started in `DOMContentLoaded` after `renderTopBar()`.
+- `the_one/interfaces/web/static/js/areas/chat/history-buckets.js` — added `buildPendingApprovalsSection(pendingApprovals)` function; `renderSessionList` signature extended with optional 5th parameter `pendingApprovals`; if non-empty, prepends the section ABOVE "Chat History". Exported `buildPendingApprovalsSection`.
+- `the_one/interfaces/web/static/js/areas/chat.js` — added `pendingApprovals = []` state variable; `session_list` handler now fetches `/api/connectors/peer-approvals/pending` (errors → []) and passes result to `renderSessionList` as 5th arg. `pendingJoinId` check + auto-join logic moved into the fetch `.then()` callback.
+- `the_one/interfaces/web/static/css/components.css` — added `.nav-pending-badge` (pill badge, `--accent` background, `--fg-on-accent` text) and `.pending-approvals-section` / `.pending-approval-item` / `.pending-approval-peer-name` / `.pending-approval-preview` styles. All tokens verified defined.
+
+**Tests added:**
+- `tests/test_db_repositories.py` — updated all `TestPendingApprovalRepository` callers to unpack `(approval, created)` tuple; added `created is True` / `created is False` assertions to upsert-creates + upsert-dedup + upsert-after-approve tests.
+- `tests/test_db_api.py` — 4 new tests: `test_pending_count_zero_when_no_rows`, `test_pending_count_returns_global_pending_count`, `test_pending_list_empty_when_no_rows`, `test_pending_list_returns_pending_rows_only`.
+- `tests/test_connectors_inbound.py` — 2 new tests: `test_needs_pairing_no_prefix_sends_auto_reply_on_first_dm` (first DM → 1 send), `test_needs_pairing_no_prefix_no_auto_reply_on_repeat_dm` (second DM while pending → still only 1 send).
+- `tests/test_app_pending_approval_merge.py` — updated 4 `upsert_pending` callers to unpack tuple (no assertion change).
+- `tests/browser/test_flow_chat_pending_badge.py` *(new)* — 5 browser tests: `nav-chat-btn` testid present; badge hidden at 0; badge shows count; left-panel pending section renders; left-panel absent when no pending.
+
+**Metrics:** Backend: **2925 passed / 4 skipped / 536 deselected** (prior: 2916/4/536; delta +9: 4 count/list tests + 2 auto-reply tests + 3 from `created` bool assertions in existing upsert tests). Browser: 5 new tests pass; 7 existing chat/pending browser tests still green.
+
+**Deviations:**
+- `history-buckets.js::renderSessionList` signature extended with optional 5th param rather than a separate call from the chat area. This keeps the render atomic (pending + history in one DOM update) and avoids a second re-render cycle.
+- The `pendingJoinId` check + auto-join logic was moved inside the fetch `.then()` callback to preserve the correct ordering (render first, then join logic). The outer `return;` still terminates the `session_list` handler synchronously after the fetch is kicked off.
+- CSS added for badge + pending section styles rather than using raw inline styles (except `display:none` for zero-count hide, which must be JS-controlled).
+
 #### Batch formalized → ready for `/agentic-workflow` (2026-06-03)
 - **UI once-over (L3) complete — 6 injected legs identified (A–F), operator-walked + confirmed.** Formalized into flight.md's Legs list as two clusters with ordering/dependencies: connector-editor cluster **A→B** (ship together; A owns the connect-error surface B depends on), **C** (independent); DM/approval cluster **D→E→F** (D = substrate DM simplify + closes the F16-parked Known Issue; E = pending signaling; F = respond-on-approval). Operator instruction: update the flight plan + run `/agentic-workflow` over the batch. Recommended execution order: **A, B, C, D, E, F** (alphabetical happens to satisfy every within-cluster dependency). Findings F1 (→Leg A), F3a (→Leg D), F3b (→Legs A+E messaging) are subsumed by the batch; F2 already fixed (L4). Each leg: per-leg design + Sonnet review, batched implementation, single end-of-batch review + commit per the agentic-workflow model.
 - **Behavior tests added to the batch (operator directive — "they are all UX, validate visually").** Two Witnessed behavior-test specs (Executor + Validator, Chrome MCP), one per cluster, run as the **visual acceptance gate** after each cluster lands (not per-leg): **`connector-editor-ux`** (Legs A/B/C — Chrome MCP on the Studio editor; spec authored draft at `tests/behavior/connector-editor-ux.md`) and **`discord-approval-flow`** (Legs D/E/F — Chrome MCP on the the-one UI **+ Discord web client logged in as Chuck R**; authored when the D cluster designs). **Apparatus (operator-confirmed):** Chrome MCP drives BOTH the the-one UI and Discord-as-Chuck-R (act = type DMs in the Discord web client; observe = read the bot's replies in the Discord DOM + the the-one UI). **Apparatus risk:** driving the Discord *web* DOM may be finicky (bot-detection / dynamic DOM) — mission allows a `discord.py` fallback if the run proves it unreliable. Behavior tests are the visual layer ON TOP of each leg's unit/browser tests, not a replacement.

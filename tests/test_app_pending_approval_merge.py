@@ -171,7 +171,7 @@ class TestRestoreSessionMergesPendingApproval:
             peer_id="peer-1",
             messages=[],
         )
-        approval = await pending_approval_repo.upsert_pending(
+        approval, _ = await pending_approval_repo.upsert_pending(
             connector_id="acct-1",
             peer_id="peer-1",
             peer_name="Alice",
@@ -290,7 +290,7 @@ class TestRestoreSessionMergesPendingApproval:
                 Message.assistant("hi back"),
             ],
         )
-        appr = await pending_approval_repo.upsert_pending(
+        appr, _ = await pending_approval_repo.upsert_pending(
             connector_id="acct-1",
             peer_id="peer-1",
             peer_name="Alice",
@@ -340,7 +340,7 @@ class TestBuildSessionJoinedDegradedMergesPendingApproval:
         )
         # Re-fetch via repo to pick up DB-applied defaults.
         db_row = await chat_repo.get("s-degraded")
-        approval = await pending_approval_repo.upsert_pending(
+        approval, _ = await pending_approval_repo.upsert_pending(
             connector_id="acct-1",
             peer_id="peer-1",
             peer_name="Charlie",
@@ -375,7 +375,7 @@ class TestRestoreNoDuplicates:
             peer_id="peer-1",
             messages=[],
         )
-        await pending_approval_repo.upsert_pending(
+        await pending_approval_repo.upsert_pending(  # noqa: F841 — side-effect only
             connector_id="acct-1",
             peer_id="peer-1",
             peer_name="Alice",

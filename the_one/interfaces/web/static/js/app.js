@@ -11,6 +11,33 @@
     order.sort(function (a, b) { return a.order - b.order; });
   }
 
+  // Pending-approval badge poller — M11 F17 L9 (Leg E).
+  // Polls /api/connectors/peer-approvals/pending-count every 10s and
+  // updates the badge on the Chat nav button. Hidden at count=0.
+  // Robust: errors are swallowed; interval is stored so callers can clear it.
+  var _pendingBadgeInterval = null;
+
+  function _updatePendingBadge(count) {
+    var badge = document.querySelector('[data-testid="nav-pending-badge"]');
+    if (!badge) return;
+    badge.textContent = count > 0 ? String(count) : '';
+    badge.style.display = count > 0 ? '' : 'none';
+  }
+
+  function _pollPendingCount() {
+    fetch('/api/connectors/peer-approvals/pending-count')
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (data && typeof data.count === 'number') _updatePendingBadge(data.count);
+      })
+      .catch(function () { /* swallow — badge stays at last known value */ });
+  }
+
+  function _startPendingBadgePoll() {
+    _pollPendingCount(); // immediate first fetch
+    _pendingBadgeInterval = setInterval(_pollPendingCount, 10000);
+  }
+
   function renderTopBar() {
     var topbar = document.getElementById('app-topbar');
     // Build the area buttons by iterating registered areas in declared order.
@@ -19,10 +46,19 @@
     var buttonsHtml = '';
     for (var i = 0; i < order.length; i++) {
       var a = order[i];
+      // The Chat button gets a testid and a pending-approval badge child
+      // (M11 F17 L9 — Leg E). Badge is hidden via display:none when count=0.
+      var extraAttrs = a.id === 'chat'
+        ? ' data-testid="nav-chat-btn"'
+        : '';
+      var badgeHtml = a.id === 'chat'
+        ? '<span class="nav-pending-badge" data-testid="nav-pending-badge" style="display:none" aria-label="pending approvals"></span>'
+        : '';
       buttonsHtml +=
-        '<button class="app-picker-button" data-area="' + a.id + '" aria-label="Go to ' + a.label + '">' +
+        '<button class="app-picker-button" data-area="' + a.id + '" aria-label="Go to ' + a.label + '"' + extraAttrs + '>' +
           '<span class="app-picker-button-icon">' + (a.icon || '') + '</span>' +
           '<span class="app-picker-button-label">' + a.label + '</span>' +
+          badgeHtml +
         '</button>';
     }
     topbar.innerHTML =
@@ -183,6 +219,7 @@
 
   document.addEventListener('DOMContentLoaded', function () {
     renderTopBar();
+    _startPendingBadgePoll();
     // Boot-block on /api/config so window.App.config is populated before
     // any area.init() runs. Areas read App.config.dev_mode in their init
     // closures (e.g. admin's sidebar categories list).

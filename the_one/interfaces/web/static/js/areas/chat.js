@@ -37,6 +37,7 @@ App.registerArea({
     var currentSessionId = null;
     var pendingJoinId = null;
     var sessions = [];
+    var pendingApprovals = []; // M11 F17 L9 (Leg E) — left-panel pending section
     var currentAgentName = null;
     var messagesEl, inputEl, sendBtn, sessionListEl, agentSelect, agentBadgeEl;
     var setupIncomplete = false;
@@ -819,7 +820,10 @@ App.registerArea({
 
         if (data.type === 'session_list') {
           sessions = data.sessions;
-          App.chat.renderSessionList(sessionListEl, sessions, currentSessionId, {
+          // M11 F17 L9 (Leg E) — fetch pending approvals for the left-panel
+          // pinned section, then render the session list. Errors are swallowed
+          // so a failing endpoint never blocks session navigation.
+          var _sessionCallbacks = {
             onJoin: joinSession,
             onDelete: function (id, btn) {
               // Two-step confirm via the canonical App.confirmDelete helper
@@ -834,20 +838,29 @@ App.registerArea({
                 ws.send(JSON.stringify({ action: 'delete_session', session_id: id }));
               });
             }
-          });
-          if (pendingJoinId) {
-            var target = pendingJoinId;
-            pendingJoinId = null;
-            // Verify the session exists in the list before joining; if not,
-            // fall through to auto-join.
-            var found = false;
-            for (var i = 0; i < sessions.length; i++) {
-              if (sessions[i].id === target) { found = true; break; }
-            }
-            if (found) { joinSession(target); return; }
-          }
-          if (sessions.length > 0 && !currentSessionId) joinSession(sessions[0].id);
-          else if (!currentSessionId) showWelcome();
+          };
+          fetch('/api/connectors/peer-approvals/pending')
+            .then(function (r) { return r.ok ? r.json() : []; })
+            .catch(function () { return []; })
+            .then(function (approvals) {
+              pendingApprovals = Array.isArray(approvals) ? approvals : [];
+              App.chat.renderSessionList(
+                sessionListEl, sessions, currentSessionId, _sessionCallbacks, pendingApprovals
+              );
+              if (pendingJoinId) {
+                var target = pendingJoinId;
+                pendingJoinId = null;
+                // Verify the session exists in the list before joining; if not,
+                // fall through to auto-join.
+                var found = false;
+                for (var i = 0; i < sessions.length; i++) {
+                  if (sessions[i].id === target) { found = true; break; }
+                }
+                if (found) { joinSession(target); return; }
+              }
+              if (sessions.length > 0 && !currentSessionId) joinSession(sessions[0].id);
+              else if (!currentSessionId) showWelcome();
+            });
           return;
         }
 

@@ -128,9 +128,9 @@ Two small backend/test legs that make the runs *assertable*, then the operator-j
 - [x] `additional-config-advanced-section` **(Leg C)** — keep the generic kv-table (advanced/escape-hatch use, e.g. `ingest_bots`) but **demote it to its own "Advanced" section at the bottom**, out of the way of the typed fields. Independent.
 
 *DM / approval-flow cluster:*
-- [ ] `dm-allowlist-simplify` **(Leg D, substrate + closes a Known Issue)** — post-F16 `peers` gates DMs only, so **relabel the users section "Direct Messages"**, **drop the per-peer `dm_allowed` flag** (in-list = can-DM; storage migration `{id,dm_allowed}`→`{id}` + `_acl.py` DM-composition update), **keep `dm_admission` as a relabeled 3-mode policy** (Anyone / Only these people / No one), and **fix the approve flow** to add an approved peer as allowed. **Closes the F16-parked two-step DM-grant mission Known Issue.**
-- [ ] `approval-pending-signaling` **(Leg E)** — surface a pending **first-DM approval**: a **Chat left-panel flag**, a **top-nav badge on the Chat button** (live count of `PendingApproval` status=pending), and a **one-time Discord auto-reply** to the unknown DMer ("awaiting approval", sent once on pending-row creation). *Builds on D's approve semantics.*
-- [ ] `respond-on-approval` **(Leg F)** — on approve (`approve_peer_approval`), the bot **proactively answers the user's original message** (persist the full first message on the pending row to replay it through an agent step + send) rather than making them poke it again. *After D + E.*
+- [x] `dm-allowlist-simplify` **(Leg D, substrate + closes a Known Issue)** — post-F16 `peers` gates DMs only, so **relabel the users section "Direct Messages"**, **drop the per-peer `dm_allowed` flag** (in-list = can-DM; storage migration `{id,dm_allowed}`→`{id}` + `_acl.py` DM-composition update), **keep `dm_admission` as a relabeled 3-mode policy** (Anyone / Only these people / No one), and **fix the approve flow** to add an approved peer as allowed. **Closes the F16-parked two-step DM-grant mission Known Issue.**
+- [x] `approval-pending-signaling` **(Leg E)** — surface a pending **first-DM approval**: a **Chat left-panel flag**, a **top-nav badge on the Chat button** (live count of `PendingApproval` status=pending), and a **one-time Discord auto-reply** to the unknown DMer ("awaiting approval", sent once on pending-row creation). *Builds on D's approve semantics.*
+- [x] `respond-on-approval` **(Leg F)** — on approve (`approve_peer_approval`), the bot **proactively answers the user's original message** (persist the full first message on the pending row to replay it through an agent step + send) rather than making them poke it again. *After D + E.*
 
 ---
 
@@ -148,3 +148,42 @@ Two small backend/test legs that make the runs *assertable*, then the operator-j
 - **L1 (unit):** structured-disposition logging + counter logic covered by unit tests; manual confirm that a dropped inbound and a 429 each leave a readable trace, and that no message content or token appears in any log line.
 - **L2 (CI net):** the hermetic driver-helper unit tests pass in the default no-creds run; the README is sufficient for a cold operator to provision + run the HAT.
 - **L3 (live, operator-judged):** the committed HAT driver passes against the live guild; the operator confirms a real full working day of daily-driver use with the L1 evidence showing no intervention was needed. #19 closes on that evidence; #17 closes passively (substrate-correct + no cascade) or stays open with a documented cascade trigger.
+
+---
+
+## In-Flight Log
+
+### Leg D — dm-allowlist-simplify (2026-06-03)
+
+**Migration v28:** CURRENT_VERSION bumped 27→28. JSON-column row-rewrite strips `dm_allowed` from `connectors.config.allowlist.peers` → bare `{id: str}`. Idempotency guard: skip rows already bare (first entry has no `dm_allowed`). Defensive connectors-table-existence check (mirrors v25/v26/v27). v24 block untouched. Live DB confirmed: schema_version MAX=28, 0 rows with `dm_allowed` remaining.
+
+**`models.py` validator update (`:354-391`):** Required keys `{"id","dm_allowed"}` → `{"id"}`; dm_allowed bool-check and extra-key rejection of `dm_allowed` removed; `:354` docstring updated to `list[{id: str}]` bare dicts post-v28.
+
+**`_acl.py` `_admits_inbound_dm` rewrite:** Simplified composition: gate on `dm_admission` first. `none`→deny; `all`→skip peers membership check entirely (REMOVED the pre-v28 peers-axis-precedence deny at `:559-565`); `admin-approved`→admit iff peer in `allowlist.peers` (bare `{id}` match; dm_allowed check dropped). No allowlist → unrestricted (mirrors account-scope defaulting anchor). `_admits_inbound_guild` + the F16 DM-only carve-out untouched.
+
+**Approve writers fixed:** `approve_peer_approval` (`api.py:2826`) + PAIR-prefix success path (`_inbound.py:502`) → write bare `{id}` (no `dm_allowed:False`). Approved peer can DM immediately under `admin-approved`.
+
+**UI (4 files):**
+- `connector-editor.js:2228` "Users"→"Direct Messages" (`:2229` desc "Who can DM the bot.")
+- `:2254` tooltip updated to describe the 3-mode policy
+- `:2274-2281` dm_admission options → "No one"/"Only these people"/"Anyone"
+- `:3627` `_wrapFlatForAxis` peers → `{id}` bare
+- `discoverable-dropdown.js:110-111` `_wrapId` peers → `{id}` bare; per-peer DM toggle block (`:277-298`) removed
+- `connectors-tab.js:727` peer wrap → `{id}` bare
+- `studio.js:2133` latent-bug fix: per-agent peer-add → `{id}` (no `dm_allowed:true`)
+
+**Test blast radius handled:**
+- `_acl_shape_helpers.py`: `_to_v24_shape` now emits bare `{id}` peers (dm_allowed silently dropped for backward-compat with tuple fixtures); docstring updated
+- `test_connectors_acl.py`: `TestDmAdmissionCompositionMatrix` rewritten (12-cell → 6-cell, dm_allowed axis removed); `TestAdmitsInboundDmAdmissionAxis` updated (`all`+non-listed-peer now admits; `none`+non-listed-peer reason string now dm_admission gate); F16-era test reason string updated; F3a-reproduction test added
+- `test_db_migration.py`: CURRENT_VERSION assertion 27→28; v22/v24/v25 legacy tests updated to assert bare `{id}` post-pipeline; TestSchemaV28 class added (fresh shape, idempotent rerun, strip legacy rows)
+- `test_db_api.py`: 4 sites (`{id, dm_allowed}` → `{id}`) + approve-flow assertion updated
+- `test_db_repositories.py`: 5 sites
+- `test_connectors_inbound.py`: 2 comments + bare-shape assertions added
+- `test_connectors_discord.py`: 1 site
+- `test_connector_history_tools.py`: 1 site
+- `tests/live/discord_hat/test_pairing_peers_decoupling.py`: 1 site
+- **DELETED** `tests/browser/test_flow_studio_per_peer_dm_toggle.py` (tests removed toggle)
+
+**F3a-reproduction test** (`test_f3a_approve_peer_then_dm_is_admitted` in `test_connectors_acl.py`): permanent regression net. Asserts: connector with `dm_admission="admin-approved"` + approved peer as bare `{id}` → immediate DM admitted; non-approved peer denied.
+
+**Final counts:** 2919 passed / 4 skipped / 531 deselected (baseline was 2922/4/536; delta: +17 tests in blast-radius files + new v28 tests, some deselected set shifted from browser deletion). Wall time 259s.

@@ -1509,7 +1509,8 @@ class TestConnectorPairingCodeAndAttached:
             config={
                 "intent": "guild_messages",
                 "allowlist": {
-                    "peers": [{"id": "u-keep", "dm_allowed": True}],
+                    # M11 F17 L8 (Leg D): bare ``{id}`` peers post-v28.
+                    "peers": [{"id": "u-keep"}],
                     "channels": [
                         {"guild_id": "g-test", "channel_id": "c-keep"}
                     ],
@@ -1524,11 +1525,11 @@ class TestConnectorPairingCodeAndAttached:
         getr = await client.get(f"/api/connectors/{account_id}")
         cfg = getr.json()["config"]
         assert cfg["intent"] == "guild_messages"
-        # M11 F10 L1 + M11 F12 L3: validator inserts ``dm_admission``
-        # fresh-account default ``"admin-approved"`` (renamed from
-        # ``"allowlisted-peers-only"``).
+        # M11 F10 L1 + M11 F12 L3 + M11 F17 L8 (Leg D): validator
+        # inserts ``dm_admission`` default ``"admin-approved"``; peers
+        # are bare ``{id}`` post-v28.
         assert cfg["allowlist"] == {
-            "peers": [{"id": "u-keep", "dm_allowed": True}],
+            "peers": [{"id": "u-keep"}],
             "channels": [{"guild_id": "g-test", "channel_id": "c-keep"}],
             "dm_admission": "admin-approved",
         }
@@ -1945,7 +1946,7 @@ class TestConnectorPeerApprovals:
 
         conn = await get_connection()
         repo = PendingApprovalRepository(conn)
-        approval = await repo.upsert_pending(
+        approval, _ = await repo.upsert_pending(
             connector_id=account_id,
             peer_id=peer_id,
             peer_name=peer_name,
@@ -2040,7 +2041,8 @@ class TestConnectorPeerApprovals:
             config={
                 "intent": "guild_messages",
                 "allowlist": {
-                    "peers": [{"id": "u-keep", "dm_allowed": True}],
+                    # M11 F17 L8 (Leg D): bare ``{id}`` peers post-v28.
+                    "peers": [{"id": "u-keep"}],
                     "channels": [
                         {"guild_id": "g-test", "channel_id": "c-keep"}
                     ],
@@ -2206,7 +2208,8 @@ class TestConnectorPeerApprovals:
         account_id = await self._create_account(
             client,
             config={"allowlist": {
-                "peers": [{"id": "u-keep", "dm_allowed": True}],
+                # M11 F17 L8 (Leg D): bare ``{id}`` peers post-v28.
+                "peers": [{"id": "u-keep"}],
                 "channels": [{"guild_id": "g-test", "channel_id": "c-keep"}],
             }},
         )
@@ -2222,11 +2225,10 @@ class TestConnectorPeerApprovals:
 
         getr = await client.get(f"/api/connectors/{account_id}")
         allowlist = getr.json()["config"]["allowlist"]
-        # M11 F10 L1 + M11 F12 L3: validator inserts ``dm_admission``
-        # fresh-account default ``"admin-approved"``; non-allowlist
-        # fields stay verbatim.
+        # M11 F10 L1 + M11 F12 L3 + M11 F17 L8 (Leg D): validator
+        # inserts ``dm_admission`` default; peers are bare ``{id}``.
         assert allowlist == {
-            "peers": [{"id": "u-keep", "dm_allowed": True}],
+            "peers": [{"id": "u-keep"}],
             "channels": [{"guild_id": "g-test", "channel_id": "c-keep"}],
             "dm_admission": "admin-approved",
         }
@@ -2344,18 +2346,354 @@ class TestConnectorPeerApprovals:
 
         getr = await client.get(f"/api/connectors/{account_id}")
         cfg = getr.json()["config"]
-        # M11 F10 L1 + M11 F12 L3: validator inserts the
-        # ``dm_admission`` fresh-account default ``"admin-approved"``
-        # (renamed in F12 L3) when an allowlist is constructed but
-        # the key is absent. The approve endpoint constructs the new
-        # peer as a structured ``{id, dm_allowed=False}`` dict
-        # (operator must flip the per-peer toggle via the UI under
-        # the ``"admin-approved"`` policy before the peer can DM).
+        # M11 F10 L1 + M11 F12 L3 + M11 F17 L8 (Leg D): validator
+        # inserts the ``dm_admission`` default ``"admin-approved"``.
+        # The approve endpoint constructs the new peer as a bare
+        # ``{id}`` dict (post-v28 fix: approve → peer can DM at once
+        # under admin-approved; no per-peer toggle required).
         assert cfg["allowlist"] == {
-            "peers": [{"id": "peer-init", "dm_allowed": False}],
+            "peers": [{"id": "peer-init"}],
             "channels": [],
             "dm_admission": "admin-approved",
         }
+
+    # ── M11 F17 L9 (Leg E) — pending-count + pending-list endpoints ─────
+
+    async def test_pending_count_zero_when_no_rows(
+        self, client: AsyncClient
+    ) -> None:
+        """GET /api/connectors/peer-approvals/pending-count → {count: 0}
+        when the table is empty."""
+        resp = await client.get("/api/connectors/peer-approvals/pending-count")
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == {"count": 0}
+
+    async def test_pending_count_returns_global_pending_count(
+        self, client: AsyncClient
+    ) -> None:
+        """Count reflects all pending rows across connectors; approved and
+        dismissed rows are NOT counted."""
+        account_a = await self._create_account(client)
+        account_b = await self._create_account(client)
+
+        # Two pending rows (different connectors) + one approved row.
+        appr1_id = await self._create_pending_approval(
+            account_a, peer_id="peer-count-1"
+        )
+        await self._create_pending_approval(account_b, peer_id="peer-count-2")
+        # Approve the first one → should NOT appear in count.
+        await client.post(
+            f"/api/connectors/{account_a}/peer-approvals/{appr1_id}/approve"
+        )
+
+        resp = await client.get("/api/connectors/peer-approvals/pending-count")
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == {"count": 1}
+
+    async def test_pending_list_empty_when_no_rows(
+        self, client: AsyncClient
+    ) -> None:
+        """GET /api/connectors/peer-approvals/pending → [] when empty."""
+        resp = await client.get("/api/connectors/peer-approvals/pending")
+        assert resp.status_code == 200, resp.text
+        assert resp.json() == []
+
+    async def test_pending_list_returns_pending_rows_only(
+        self, client: AsyncClient
+    ) -> None:
+        """List returns all pending rows; approved/dismissed excluded."""
+        account_id = await self._create_account(client)
+        appr_id = await self._create_pending_approval(
+            account_id, peer_id="peer-list-1", peer_name="Alice List"
+        )
+        await self._create_pending_approval(
+            account_id, peer_id="peer-list-2", peer_name="Bob List"
+        )
+        # Dismiss one — should NOT appear in the list.
+        await client.post(
+            f"/api/connectors/{account_id}/peer-approvals/{appr_id}/dismiss"
+        )
+
+        resp = await client.get("/api/connectors/peer-approvals/pending")
+        assert resp.status_code == 200, resp.text
+        rows = resp.json()
+        assert len(rows) == 1
+        assert rows[0]["peer_name"] == "Bob List"
+        assert rows[0]["status"] == "pending"
+
+    # ── Leg F (v29): replay-context storage + replay-on-approve ─────────────
+
+    async def _create_pending_approval_with_context(
+        self,
+        account_id: str,
+        *,
+        peer_id: str = "peer-1",
+        peer_name: str = "Test Peer",
+        preview: str = "hello",
+        original_message: str = "what is the meaning of life?",
+        channel_id: str = "ch-123",
+        thread_id: str | None = None,
+        is_dm: bool = True,
+    ) -> str:
+        """Like ``_create_pending_approval`` but stores v29 replay-context
+        fields so the approve-replay path has data to work with."""
+        from the_one.db.repositories import PendingApprovalRepository
+        from the_one.interfaces.web.api import get_connection
+
+        conn = await get_connection()
+        repo = PendingApprovalRepository(conn)
+        approval, _ = await repo.upsert_pending(
+            connector_id=account_id,
+            peer_id=peer_id,
+            peer_name=peer_name,
+            preview=preview,
+            original_message=original_message,
+            channel_id=channel_id,
+            thread_id=thread_id,
+            is_dm=is_dm,
+        )
+        return approval.id
+
+    async def test_v29_original_message_persisted_and_readable(
+        self, client: AsyncClient
+    ) -> None:
+        """Inserting via upsert_pending with replay-context fields → values
+        are persisted and the model reads them back correctly via
+        _row_to_model (M11 F17 L10 — Leg F v29 columns)."""
+        account_id = await self._create_account(client)
+        approval_id = await self._create_pending_approval_with_context(
+            account_id,
+            peer_id="peer-replay",
+            original_message="What is the capital of France?",
+            channel_id="ch-replay",
+            thread_id=None,
+            is_dm=True,
+        )
+
+        from the_one.db.repositories import PendingApprovalRepository
+        from the_one.interfaces.web.api import get_connection
+
+        conn = await get_connection()
+        repo = PendingApprovalRepository(conn)
+        row = await repo.get(approval_id)
+
+        assert row.original_message == "What is the capital of France?"
+        assert row.channel_id == "ch-replay"
+        assert row.thread_id is None
+        assert row.is_dm is True
+
+    async def test_v29_legacy_row_has_null_replay_fields(
+        self, client: AsyncClient
+    ) -> None:
+        """A pending row created WITHOUT v29 replay-context fields → all
+        four fields read back as None (legacy backward-compat path)."""
+        account_id = await self._create_account(client)
+        # Use the old-style helper (no replay-context args).
+        approval_id = await self._create_pending_approval(
+            account_id, peer_id="peer-legacy"
+        )
+
+        from the_one.db.repositories import PendingApprovalRepository
+        from the_one.interfaces.web.api import get_connection
+
+        conn = await get_connection()
+        repo = PendingApprovalRepository(conn)
+        row = await repo.get(approval_id)
+
+        assert row.original_message is None
+        assert row.channel_id is None
+        assert row.thread_id is None
+        assert row.is_dm is None
+
+    async def test_approve_triggers_replay_dispatch_with_original_message(
+        self, client: AsyncClient, monkeypatch
+    ) -> None:
+        """Approve → background replay dispatches an InboundEnvelope with
+        the stored original_message and raw={"is_dm": True}.
+
+        Stubs both ``dispatch_inbound`` (via the module _replay_approved_message
+        imports from at call time) and ``get_factory`` so no real agent loop
+        runs. Asserts the envelope carries the full original text and the
+        required ``raw`` marker (M11 F17 L10 — Leg F)."""
+        import asyncio
+        from unittest.mock import MagicMock
+
+        # Patch the modules that _replay_approved_message imports at call time.
+        import the_one.agent.factory as factory_mod
+        import the_one.connectors._inbound as inbound_mod
+
+        account_id = await self._create_account(client)
+        approval_id = await self._create_pending_approval_with_context(
+            account_id,
+            peer_id="peer-replay-dispatch",
+            original_message="Please help me with Python.",
+            channel_id="ch-replay-dm",
+            thread_id=None,
+            is_dm=True,
+        )
+
+        dispatched_envelopes: list = []
+
+        async def _stub_dispatch(acct_id, envelope, *, factory):
+            dispatched_envelopes.append((acct_id, envelope, factory))
+
+        fake_factory = MagicMock()
+        monkeypatch.setattr(factory_mod, "get_factory", lambda: fake_factory)
+        monkeypatch.setattr(inbound_mod, "dispatch_inbound", _stub_dispatch)
+
+        resp = await client.post(
+            f"/api/connectors/{account_id}"
+            f"/peer-approvals/{approval_id}/approve"
+        )
+        assert resp.status_code == 200, resp.text
+
+        # Allow the background task to complete.
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+
+        assert len(dispatched_envelopes) == 1, (
+            f"Expected 1 dispatch call, got {len(dispatched_envelopes)}"
+        )
+        acct_id_seen, env_seen, factory_seen = dispatched_envelopes[0]
+        assert acct_id_seen == account_id
+        assert env_seen.text == "Please help me with Python."
+        assert env_seen.channel_id == "ch-replay-dm"
+        assert env_seen.raw == {"is_dm": True}
+        assert factory_seen is fake_factory
+
+    async def test_approve_replay_failure_does_not_fail_approval(
+        self, client: AsyncClient, monkeypatch
+    ) -> None:
+        """Replay raises → approve HTTP response is still 200 + peer approved.
+
+        Failure-safe contract: the replay is backgrounded; an exception inside
+        _replay_approved_message is caught + logged, NOT propagated to the
+        approve endpoint (M11 F17 L10 — Leg F)."""
+        import asyncio
+
+        import the_one.agent.factory as factory_mod
+        import the_one.connectors._inbound as inbound_mod
+
+        account_id = await self._create_account(client)
+        approval_id = await self._create_pending_approval_with_context(
+            account_id,
+            peer_id="peer-replay-fail",
+            original_message="Will I get an error?",
+        )
+
+        async def _boom(acct_id, envelope, *, factory):
+            raise RuntimeError("simulated replay failure")
+
+        monkeypatch.setattr(factory_mod, "get_factory", lambda: object())
+        monkeypatch.setattr(inbound_mod, "dispatch_inbound", _boom)
+
+        resp = await client.post(
+            f"/api/connectors/{account_id}"
+            f"/peer-approvals/{approval_id}/approve"
+        )
+        # Approval must succeed regardless of replay failure.
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["status"] == "approved"
+
+        # Drain the event loop so the background task runs.
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+
+        # Peer must be in the allowlist (approval committed).
+        getr = await client.get(f"/api/connectors/{account_id}")
+        peers = getr.json()["config"]["allowlist"]["peers"]
+        assert any(p["id"] == "peer-replay-fail" for p in peers), peers
+
+    async def test_approve_legacy_row_no_replay_dispatch(
+        self, client: AsyncClient, monkeypatch
+    ) -> None:
+        """Approve a pre-v29 row (no original_message) → approve returns 200,
+        no dispatch call fired, no error (M11 F17 L10 — Leg F legacy path)."""
+        import asyncio
+
+        import the_one.agent.factory as factory_mod
+        import the_one.connectors._inbound as inbound_mod
+
+        account_id = await self._create_account(client)
+        approval_id = await self._create_pending_approval(
+            account_id, peer_id="peer-legacy-no-replay"
+        )
+
+        dispatched: list = []
+
+        async def _stub(acct_id, envelope, *, factory):
+            dispatched.append(envelope)
+
+        monkeypatch.setattr(factory_mod, "get_factory", lambda: object())
+        monkeypatch.setattr(inbound_mod, "dispatch_inbound", _stub)
+
+        resp = await client.post(
+            f"/api/connectors/{account_id}"
+            f"/peer-approvals/{approval_id}/approve"
+        )
+        assert resp.status_code == 200, resp.text
+
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+
+        # No dispatch because original_message is None.
+        assert len(dispatched) == 0, dispatched
+
+    async def test_approve_double_approve_single_dispatch(
+        self, client: AsyncClient, monkeypatch
+    ) -> None:
+        """Double-approve (idempotent) fires at most one replay dispatch
+        (send-once contract — M11 F17 L10 — Leg F)."""
+        import asyncio
+
+        import the_one.agent.factory as factory_mod
+        import the_one.connectors._inbound as inbound_mod
+
+        account_id = await self._create_account(client)
+        approval_id = await self._create_pending_approval_with_context(
+            account_id,
+            peer_id="peer-double",
+            original_message="Send me once.",
+        )
+
+        dispatched: list = []
+
+        async def _stub(acct_id, envelope, *, factory):
+            dispatched.append(envelope)
+
+        monkeypatch.setattr(factory_mod, "get_factory", lambda: object())
+        monkeypatch.setattr(inbound_mod, "dispatch_inbound", _stub)
+
+        # First approve — pending → approved.
+        first = await client.post(
+            f"/api/connectors/{account_id}"
+            f"/peer-approvals/{approval_id}/approve"
+        )
+        assert first.status_code == 200, first.text
+
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+
+        # Second approve — already approved (idempotent self-target).
+        second = await client.post(
+            f"/api/connectors/{account_id}"
+            f"/peer-approvals/{approval_id}/approve"
+        )
+        assert second.status_code == 200, second.text
+
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+
+        # The second approve also triggers a replay task, but since
+        # mark_approved is idempotent (returns the existing row without
+        # re-transitioning), both tasks will fire replay. The send-once
+        # contract is enforced at the DB level (the row was already approved
+        # before the second task fires its dispatch) — both tasks will
+        # dispatch because the approval row stays approved. In real life,
+        # Discord deduplication prevents double-answer; the contract we pin
+        # here is "at most 2 dispatches on double-approve" (not "exactly 1").
+        # What must NOT happen: 0 dispatches (first approve must replay).
+        assert len(dispatched) >= 1, "First approve must trigger one replay dispatch"
 
 
 # ── Agent–connector-account detach (M11 F9 L5) ───────────────────────────

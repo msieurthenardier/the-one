@@ -2758,6 +2758,84 @@ async def generate_connector_pairing_code(
     return {"code": code, "issued_at": issued_at}
 
 
+async def _replay_approved_message(
+    account_id: str,
+    approval_id: str,
+    *,
+    original_message: str | None,
+    channel_id: str | None,
+    thread_id: str | None,
+    peer_id: str,
+    peer_name: str,
+    account_type: str,
+) -> None:
+    """Background task: re-dispatch an approved peer's original message.
+
+    Called from ``approve_peer_approval`` AFTER the approval row is
+    terminal and the allowlist has been updated (so the peer is admitted
+    when the re-dispatched envelope passes through the policy gate).
+
+    All envelope data is passed in directly (not re-fetched from DB) —
+    we already have the values at the call site and this avoids a second
+    DB round-trip inside the background task.
+
+    Failure-safe contract: any exception is caught, logged, and swallowed
+    so the approve HTTP response is never affected. The approval already
+    committed before this task runs.
+
+    Legacy-safe: if the pending row carries no ``original_message`` (row
+    was created before v29), log at INFO and return without dispatching —
+    the approval still succeeded; we just cannot proactively answer.
+
+    M11 F17 L10 — Leg F.
+    """
+    from the_one.agent.factory import get_factory
+    from the_one.connectors._inbound import dispatch_inbound
+    from the_one.connectors.base import InboundEnvelope
+
+    try:
+        if not original_message:
+            # Legacy row — no original message stored (pre-v29 pending row).
+            # Approval succeeded; skip proactive answer silently (not an error).
+            logger.info(
+                "replay_approved_message: approval %s for account=%s has no "
+                "original_message (legacy pre-v29 row); skipping proactive replay",
+                approval_id,
+                account_id,
+            )
+            return
+
+        factory = get_factory()
+        if factory is None:
+            logger.warning(
+                "replay_approved_message: AgentFactory not yet installed "
+                "(lifespan startup may not have run); skipping replay for "
+                "approval=%s account=%s",
+                approval_id,
+                account_id,
+            )
+            return
+
+        envelope = InboundEnvelope(
+            platform=account_type,
+            account_id=account_id,
+            channel_id=channel_id or "",
+            thread_id=thread_id,
+            peer_id=peer_id,
+            peer_name=peer_name,
+            text=original_message,
+            raw={"is_dm": True},
+        )
+        await dispatch_inbound(account_id, envelope, factory=factory)
+    except Exception:
+        logger.exception(
+            "replay_approved_message: replay failed for approval=%s account=%s; "
+            "approval already committed — peer is approved",
+            approval_id,
+            account_id,
+        )
+
+
 @router.post(
     "/connectors/{account_id}/peer-approvals/{approval_id}/approve"
 )
@@ -2815,21 +2893,45 @@ async def approve_peer_approval(
 
     # Idempotent allowlist mutation. Initialize allowlist if missing /
     # empty (mirrors the dispatcher pattern at _inbound.py:428-438).
-    # M11 F12 L3 — peers axis stores structured ``{id, dm_allowed}``
-    # dicts; approved peers default to ``dm_allowed=False`` (operator
-    # must flip via the UI per-peer toggle under the ``"admin-approved"``
-    # policy mode before this peer can DM the bot).
+    # M11 F17 L8 (Leg D) — peers axis stores bare ``{id}`` dicts
+    # post-v28. Approving a peer adds them to the Direct Messages list
+    # as allowed immediately; no per-peer toggle required. This fixes
+    # the F16-parked Known Issue (F3a): approve → peer can DM at once
+    # under ``dm_admission="admin-approved"``.
     new_config = dict(account.config)
     allowlist = dict(new_config.get("allowlist") or {})
     peers = list(allowlist.get("peers") or [])
     if not any(p["id"] == approval.peer_id for p in peers):
-        peers.append({"id": approval.peer_id, "dm_allowed": False})
+        peers.append({"id": approval.peer_id})
     allowlist["peers"] = peers
     allowlist.setdefault("channels", [])
     new_config["allowlist"] = allowlist
     updated_account = account.model_copy(update={"config": new_config})
     updated_account = Connector.model_validate(updated_account.model_dump())
     await conn_repo.update(updated_account)
+
+    # Background replay: re-dispatch the peer's original message now that
+    # they're admitted (M11 F17 L10 — Leg F). The approval committed above
+    # is the send-once gate — mark_approved is idempotent (early-returns on
+    # self-target), so a concurrent double-approve produces at most one task
+    # per approval. The task is failure-safe: any error is caught + logged
+    # inside ``_replay_approved_message``; a replay failure DOES NOT fail
+    # the approve response. All replay data is passed directly from the
+    # in-memory objects to avoid a second DB round-trip in the background task.
+    replay_task = asyncio.create_task(
+        _replay_approved_message(
+            account_id,
+            approval_id,
+            original_message=approval.original_message,
+            channel_id=approval.channel_id,
+            thread_id=approval.thread_id,
+            peer_id=approval.peer_id,
+            peer_name=approval.peer_name,
+            account_type=account.type,
+        )
+    )
+    _inflight_replay_tasks.add(replay_task)
+    replay_task.add_done_callback(_inflight_replay_tasks.discard)
 
     return updated_approval.model_dump()
 
@@ -2873,6 +2975,50 @@ async def dismiss_peer_approval(
         raise HTTPException(status_code=409, detail=str(exc))
 
     return updated_approval.model_dump()
+
+
+@router.get("/connectors/peer-approvals/pending-count")
+async def get_pending_approval_count() -> dict[str, int]:
+    """Return the global count of pending peer-approvals across all connectors.
+
+    M11 F17 L9 (Leg E) — drives the top-nav Chat badge. Lightweight
+    read-path: a single ``SELECT COUNT(*)`` with no per-row fetch. No
+    secret leak (count only; no peer/connector detail exposed).
+    """
+    approval_repo = await _pending_approval_repo()
+    count = await approval_repo.count_pending()
+    return {"count": count}
+
+
+@router.get("/connectors/peer-approvals/pending")
+async def list_pending_approvals() -> list[dict[str, Any]]:
+    """Return all pending peer-approvals across all connectors, newest first.
+
+    M11 F17 L9 (Leg E) — drives the Chat left-panel pending section.
+
+    Returned fields per row: ``id``, ``connector_id``, ``peer_id``,
+    ``peer_name``, ``preview``, ``received_at``, ``status``.
+
+    Projected out: ``original_message``, ``channel_id``, ``thread_id``,
+    ``is_dm`` (internal replay-context fields added by Leg F; the
+    frontend does not need them and we should not ship the full message
+    text to the left-panel list).
+    """
+    _FRONTEND_FIELDS = {
+        "id",
+        "connector_id",
+        "peer_id",
+        "peer_name",
+        "preview",
+        "received_at",
+        "status",
+    }
+    approval_repo = await _pending_approval_repo()
+    rows = await approval_repo.list_all_pending()
+    return [
+        {k: v for k, v in r.model_dump().items() if k in _FRONTEND_FIELDS}
+        for r in rows
+    ]
 
 
 @router.get("/connectors/{account_id}/attached-agents")
@@ -3011,6 +3157,13 @@ _connect_error_store: dict[str, dict[str, Any]] = {}
 # the GC doesn't collect the task before it completes (same pattern as
 # app.py:_inflight_resume_tasks). Tasks remove themselves via done-callback.
 _inflight_save_warm_tasks: set[asyncio.Task] = set()
+
+# Set of live approval-replay background tasks (M11 F17 L10 — Leg F).
+# Mirrors ``_inflight_save_warm_tasks`` — keeps the GC from collecting the
+# task before it completes. The approve HTTP response returns immediately;
+# the replay runs in the background. A replay failure DOES NOT fail the
+# approval (the peer is already approved before the task is created).
+_inflight_replay_tasks: set[asyncio.Task] = set()
 
 
 @router.get("/connectors/{account_id}/status")

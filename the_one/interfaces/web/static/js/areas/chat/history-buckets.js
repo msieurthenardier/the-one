@@ -108,8 +108,57 @@
     return li;
   }
 
-  function renderSessionList(sessionListEl, sessions, currentSessionId, callbacks) {
+  // Build the pinned "Pending approvals" section — M11 F17 L9 (Leg E).
+  // Renders above "Chat History" whenever there are pending rows.
+  // Each item shows peer_name + preview; not interactive (approve/dismiss
+  // happens in the message-area banner). Kept simple: no delete affordance,
+  // no routing — operator notices the flag and clicks into the session.
+  function buildPendingApprovalsSection(pendingApprovals) {
+    var section = document.createElement('div');
+    section.className = 'session-group pending-approvals-section';
+    section.setAttribute('data-testid', 'pending-approvals-section');
+
+    var headingEl = document.createElement('div');
+    headingEl.className = 'section-title pending-approvals-title';
+    headingEl.textContent = 'Pending approvals';
+    section.appendChild(headingEl);
+
+    var listEl = document.createElement('ul');
+    listEl.className = 'session-group-list';
+    listEl.setAttribute('aria-label', 'Pending approvals');
+
+    for (var i = 0; i < pendingApprovals.length; i++) {
+      var pa = pendingApprovals[i];
+      var li = document.createElement('li');
+      li.className = 'list-item pending-approval-item';
+      li.setAttribute('data-testid', 'pending-approval-item');
+
+      var nameSpan = document.createElement('span');
+      nameSpan.className = 'pending-approval-peer-name';
+      nameSpan.textContent = pa.peer_name || 'Unknown';
+
+      var previewSpan = document.createElement('span');
+      previewSpan.className = 'pending-approval-preview';
+      previewSpan.textContent = pa.preview || '';
+
+      li.appendChild(nameSpan);
+      li.appendChild(previewSpan);
+      listEl.appendChild(li);
+    }
+
+    section.appendChild(listEl);
+    return section;
+  }
+
+  function renderSessionList(sessionListEl, sessions, currentSessionId, callbacks, pendingApprovals) {
     sessionListEl.innerHTML = '';
+
+    // Pinned "Pending approvals" section — rendered ABOVE "Chat History"
+    // (M11 F17 L9 Leg E). Pending approvals are not sessions — they live
+    // in their own section so they don't pollute the recency buckets.
+    if (pendingApprovals && pendingApprovals.length > 0) {
+      sessionListEl.appendChild(buildPendingApprovalsSection(pendingApprovals));
+    }
 
     // Heading always renders so the empty + populated states share an anchor.
     // section-title gives the `// CHAT HISTORY` idiom shared with the
@@ -176,5 +225,6 @@
   window.App.chat.startOfDay = startOfDay;
   window.App.chat.bucketForSession = bucketForSession;
   window.App.chat.buildSessionItem = buildSessionItem;
+  window.App.chat.buildPendingApprovalsSection = buildPendingApprovalsSection;
   window.App.chat.renderSessionList = renderSessionList;
 })();

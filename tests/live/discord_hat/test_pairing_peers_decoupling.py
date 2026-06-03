@@ -138,7 +138,8 @@ def _post_approval_allowlist(approved_peer_id: str) -> dict:
     second REQUIRED allowlist key (left empty = unrestricted on the channels
     axis); ``guilds`` / ``roles`` / ``dm_admission`` are optional and omitted.
     """
+    # M11 F17 L8 (Leg D): bare ``{id}`` peers post-v28.
     return {
-        "peers": [{"id": approved_peer_id, "dm_allowed": False}],
+        "peers": [{"id": approved_peer_id}],
         "channels": [],
     }

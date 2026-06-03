@@ -1902,8 +1902,9 @@ class DiscordPlugin:
         if not is_dm:
             return Permit()
         allowlist = account.config.get("allowlist") or {}
-        # M11 F12 L3 — peers stored as structured ``{id, dm_allowed}``
-        # dicts; consume the ``id`` field for membership check.
+        # M11 F17 L4 (v28 migration) — peers stored as bare ``{id}``
+        # dicts (``dm_allowed`` dropped); consume the ``id`` field for
+        # membership check.
         peers = allowlist.get("peers") or []
         if any(p["id"] == envelope.peer_id for p in peers):
             return Permit()

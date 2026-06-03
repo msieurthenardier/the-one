@@ -656,13 +656,26 @@ class PendingApprovalRepository:
         peer_id: str,
         peer_name: str,
         preview: str,
-    ) -> PendingApproval:
+        original_message: str | None = None,
+        channel_id: str | None = None,
+        thread_id: str | None = None,
+        is_dm: bool | None = None,
+    ) -> tuple["PendingApproval", bool]:
         """Upsert a pending row keyed by (account, peer, status='pending').
 
         If a pending row already exists for (account, peer), UPDATE
         ``peer_name``, ``preview``, ``received_at`` in place and return
-        the updated row. Otherwise INSERT a fresh row with a new uuid
-        and ``status='pending'``.
+        ``(updated_row, False)``. Otherwise INSERT a fresh row with a new
+        uuid and ``status='pending'`` and return ``(new_row, True)``.
+
+        The ``created`` bool lets callers distinguish a first-time DM from a
+        repeat DM while still pending — used by the inbound dispatcher to fire
+        a one-time auto-reply only on creation (M11 F17 L9 — Leg E).
+
+        The v29 replay-context fields (``original_message``, ``channel_id``,
+        ``thread_id``, ``is_dm``) are stored on INSERT and on UPDATE so the
+        approval-replay path always has the latest message context available
+        (M11 F17 L10 — Leg F).
         """
         async with self.conn.execute(
             "SELECT id FROM pending_approvals "
@@ -672,6 +685,7 @@ class PendingApprovalRepository:
         ) as cur:
             existing = await cur.fetchone()
         ts = now_iso()
+        is_dm_int = int(is_dm) if is_dm is not None else None
         if existing is None:
             # 32-char full hex (matches connectors/_session.py:184 — same
             # world: dispatcher-created, web-API-referenced).
@@ -679,21 +693,43 @@ class PendingApprovalRepository:
             await self.conn.execute(
                 "INSERT INTO pending_approvals "
                 "(id, connector_id, peer_id, peer_name, preview, "
-                " received_at, status, resolved_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, 'pending', NULL)",
-                (new_id, connector_id, peer_id, peer_name, preview, ts),
+                " received_at, status, resolved_at, "
+                " original_message, channel_id, thread_id, is_dm) "
+                "VALUES (?, ?, ?, ?, ?, ?, 'pending', NULL, ?, ?, ?, ?)",
+                (
+                    new_id,
+                    connector_id,
+                    peer_id,
+                    peer_name,
+                    preview,
+                    ts,
+                    original_message,
+                    channel_id,
+                    thread_id,
+                    is_dm_int,
+                ),
             )
             await self.conn.commit()
-            return await self.get(new_id)
+            return await self.get(new_id), True
         approval_id = existing["id"]
         await self.conn.execute(
             "UPDATE pending_approvals "
-            "SET peer_name = ?, preview = ?, received_at = ? "
+            "SET peer_name = ?, preview = ?, received_at = ?, "
+            "    original_message = ?, channel_id = ?, thread_id = ?, is_dm = ? "
             "WHERE id = ?",
-            (peer_name, preview, ts, approval_id),
+            (
+                peer_name,
+                preview,
+                ts,
+                original_message,
+                channel_id,
+                thread_id,
+                is_dm_int,
+                approval_id,
+            ),
         )
         await self.conn.commit()
-        return await self.get(approval_id)
+        return await self.get(approval_id), False
 
     async def list_for_account_peer(
         self, account_id: str, peer_id: str
@@ -712,6 +748,30 @@ class PendingApprovalRepository:
             "WHERE connector_id = ? "
             "ORDER BY received_at ASC",
             (account_id,),
+        ) as cur:
+            return [self._row_to_model(r) for r in await cur.fetchall()]
+
+    async def count_pending(self) -> int:
+        """Return the global count of ``status='pending'`` rows across all connectors.
+
+        Used by ``GET /api/connectors/peer-approvals/pending-count``
+        (M11 F17 L9 — Leg E top-nav badge).
+        """
+        async with self.conn.execute(
+            "SELECT COUNT(*) FROM pending_approvals WHERE status = 'pending'"
+        ) as cur:
+            row = await cur.fetchone()
+        return row[0] if row else 0
+
+    async def list_all_pending(self) -> list["PendingApproval"]:
+        """Return all ``status='pending'`` rows across all connectors, newest first.
+
+        Used by ``GET /api/connectors/peer-approvals/pending`` for the Chat
+        left-panel pending section (M11 F17 L9 — Leg E).
+        """
+        async with self.conn.execute(
+            "SELECT * FROM pending_approvals WHERE status = 'pending' "
+            "ORDER BY received_at DESC"
         ) as cur:
             return [self._row_to_model(r) for r in await cur.fetchall()]
 
@@ -741,6 +801,13 @@ class PendingApprovalRepository:
         return await self.get(approval_id)
 
     def _row_to_model(self, row: aiosqlite.Row) -> PendingApproval:
+        # v29 replay-context fields are nullable (additive ALTER ADD COLUMN
+        # — pre-v29 rows carry NULL for all four). Read via dict-access +
+        # ``None`` fallback so the method works against both pre-v29 and
+        # post-v29 rows (and against hand-built test fixtures that may not
+        # include the new columns in the SELECT).
+        keys = row.keys() if hasattr(row, "keys") else []
+        is_dm_raw = row["is_dm"] if "is_dm" in keys else None
         return PendingApproval(
             id=row["id"],
             connector_id=row["connector_id"],
@@ -750,6 +817,10 @@ class PendingApprovalRepository:
             received_at=row["received_at"],
             status=row["status"],
             resolved_at=row["resolved_at"],
+            original_message=row["original_message"] if "original_message" in keys else None,
+            channel_id=row["channel_id"] if "channel_id" in keys else None,
+            thread_id=row["thread_id"] if "thread_id" in keys else None,
+            is_dm=bool(is_dm_raw) if is_dm_raw is not None else None,
         )
 
 

@@ -79,8 +79,9 @@
   // ── M11 F12 L4 — structured-tuple shape helpers ─────────────────────────
   //
   // ``valueShape`` decides per-entry shape: 'flat' (string ids), 'peer'
-  // (``{id, dm_allowed}``), 'channel' (``{guild_id, channel_id}``), or
-  // 'role' (``{guild_id, role_id}``). The dropdown menu and label lookup
+  // (bare ``{id}`` post-v28; dm_allowed retired by M11 F17 L8 Leg D),
+  // 'channel' (``{guild_id, channel_id}``), or 'role'
+  // (``{guild_id, role_id}``). The dropdown menu and label lookup
   // work in flat-id terms; structured shape is wrapped/unwrapped at the
   // chip + selection boundaries so existing menu logic stays unchanged.
 
@@ -107,8 +108,9 @@
     // ``entity`` is the menu item the operator clicked (or null when the
     // id is unknown to the cached entities — Discord's ``entity.group``
     // is the guild_id for channel/role axes).
+    // M11 F17 L8 (Leg D): bare ``{id}`` — dm_allowed retired at v28.
     if (valueShape === 'peer') {
-      return { id: String(id), dm_allowed: false };
+      return { id: String(id) };
     }
     if (valueShape === 'channel') {
       var gC = (entity && entity.group != null) ? String(entity.group) : null;
@@ -266,36 +268,9 @@
       labelSpan.textContent = label;
       chip.appendChild(labelSpan);
 
-      // M11 F12 L4 — per-peer DM toggle. Lives inside the peer chip
-      // when ``valueShape === 'peer'``. Visibility is controlled by the
-      // parent peers-section class (``.dm-admission-admin-approved``) so
-      // the toggle state survives operator-driven dm_admission flips —
-      // see ``connector-editor.js`` wiring at the dm_admission select
-      // change handler. The toggle mutates the chip's structured-tuple
-      // entry's ``dm_allowed`` field; persists with the rest of the
-      // allowlist on save.
-      if (state.valueShape === 'peer') {
-        var dmLabel = document.createElement('label');
-        dmLabel.className = 'connector-allowlist-peer-dm-toggle';
-        dmLabel.setAttribute('title', 'Allow this peer to DM the bot.');
-        var dmInput = document.createElement('input');
-        dmInput.type = 'checkbox';
-        dmInput.className = 'connector-allowlist-peer-dm-toggle-input';
-        dmInput.setAttribute(
-          'data-testid',
-          'connector-allowlist-peer-dm-toggle-' + id
-        );
-        dmInput.setAttribute('aria-label', 'Allow DMs from ' + label);
-        dmInput.checked = !!(entry && entry.dm_allowed === true);
-        dmInput.addEventListener('change', (function (boundEntry) {
-          return function (ev) {
-            boundEntry.dm_allowed = !!ev.target.checked;
-            _fireOnChange(state);
-          };
-        })(entry));
-        dmLabel.appendChild(dmInput);
-        chip.appendChild(dmLabel);
-      }
+      // M11 F17 L8 (Leg D): per-peer DM toggle removed. Post-v28
+      // in-list == can-DM; no per-peer flag. The toggle block
+      // (discoverable-dropdown.js:277-298 pre-Leg-D) is deleted here.
 
       var removeBtn = document.createElement('button');
       removeBtn.type = 'button';

@@ -448,14 +448,48 @@ async def dispatch_inbound(
                 return
             # No PAIR prefix — Discord-native approval candidate (F9 L2).
             # Order: upsert FIRST (storage must succeed; raises if broken);
-            # broadcast SECOND (in-process, programmer-error-if-raises);
-            # audit-log THIRD.
-            approval = await approval_repo.upsert_pending(
+            # auto-reply SECOND (one-time, on new-row only — M11 F17 L9);
+            # broadcast THIRD (in-process, programmer-error-if-raises);
+            # audit-log FOURTH.
+            approval, created = await approval_repo.upsert_pending(
                 connector_id=account.id,
                 peer_id=envelope.peer_id,
                 peer_name=envelope.peer_name,
                 preview=envelope.text[:200],
+                # v29 replay-context fields (M11 F17 L10 — Leg F).
+                # ``original_message`` is the FULL text (not the truncated
+                # preview) so the approval-replay path can faithfully
+                # re-dispatch the peer's first question. ``is_dm=True``
+                # because only DMs reach this branch (the policy gate filters
+                # non-DM inbound before the pending path).
+                original_message=envelope.text,
+                channel_id=envelope.channel_id,
+                thread_id=envelope.thread_id,
+                is_dm=True,
             )
+            if created:
+                # First-time DM from this unknown user — send a one-time
+                # acknowledgement so they don't get dead air. Mirrors the
+                # F2 L2 no-eligible peer-error shape (_inbound.py:588-605).
+                # Failure is logged + swallowed; the pending row still exists.
+                try:
+                    _pending_client = await account_acquire(account_id)
+                    await _pending_client.send(
+                        OutboundTarget(
+                            channel_id=envelope.channel_id,
+                            thread_id=envelope.thread_id,
+                        ),
+                        "Thanks for reaching out! Your message is waiting for"
+                        " the operator to approve you — you'll get a"
+                        " reply here once they do.",
+                    )
+                except Exception:
+                    logger.exception(
+                        "dispatch_inbound: pending-approval auto-reply failed"
+                        " for (account=%s, peer=%s)",
+                        account_id,
+                        envelope.peer_id,
+                    )
             await broadcast_to_session(
                 session_row.id,
                 {
@@ -489,17 +523,15 @@ async def dispatch_inbound(
             )
             return
         # Success: persist the paired peer + clean the envelope.
-        # M11 F12 L3 — peers axis stores structured ``{id, dm_allowed}``
-        # dicts; new peers default to ``dm_allowed=False`` (operator
-        # must flip via the UI under the ``"admin-approved"`` policy
-        # before this peer can DM the bot).
+        # M11 F17 L8 (Leg D) — peers axis stores bare ``{id}`` dicts
+        # post-v28; in-list == can-DM under ``admin-approved``.
         allowlist = account.config.get("allowlist") or {
             "peers": [],
             "channels": [],
         }
         peers = list(allowlist.get("peers", []))
         if not any(p["id"] == envelope.peer_id for p in peers):
-            peers.append({"id": envelope.peer_id, "dm_allowed": False})
+            peers.append({"id": envelope.peer_id})
         allowlist["peers"] = peers
         allowlist.setdefault("channels", [])
         account.config["allowlist"] = allowlist
