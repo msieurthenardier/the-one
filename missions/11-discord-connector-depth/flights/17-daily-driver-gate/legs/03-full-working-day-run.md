@@ -1,8 +1,10 @@
 # Leg: full-working-day-run
 
-**Status**: in-flight
+**Status**: completed
 **Flight**: [Daily-driver validation gate](../flight.md)
 **Type**: interactive / operator-judgment (no autonomous implementation)
+
+> **Closure (operator-judged, 2026-06-03):** the UI once-over portion completed in full — it surfaced findings F1–F4 and the entire injected A–F batch, all designed/reviewed/implemented/committed with two Witnessed behavior tests passing 7/7 against the real environment (incl. a live Discord round-trip). The daily-driver soak (#19) is accepted on the strength of this session's **real-traffic live use** rather than a separate stopwatch 8-hour run: the bot ran live throughout (incl. a clean restart that auto-reconnected — L4), L1's disposition stream + the new live connection status proved out as evidence surfaces, and every robustness issue the live use surfaced (silent-offline reaper F2→L4; the two-step DM-grant F3a→D) was root-caused and fixed in-flight. The formal HAT entry-gate was deliberately skipped at kickoff (soak on real config, not HAT-reconfig). #17 (rate-limiting) closes passively: the 429 substrate is code-correct and no cascade appeared under live use. *(The mission-debrief makes the final #19/#17 criteria call.)*
 
 ## Objective
 
