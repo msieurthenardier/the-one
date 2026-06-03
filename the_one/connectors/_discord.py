@@ -414,6 +414,22 @@ class DiscordClient:
             return False
         return self._ready_event.is_set()
 
+    @property
+    def application_id(self) -> int | None:
+        """Return the bot's OAuth2 application id (populated post-READY).
+
+        Delegates to the underlying SDK client's ``application_id`` attribute,
+        which the discord.py library populates when the READY event fires. ``None``
+        in the pre-READY window (e.g. immediately after connect, before the
+        gateway handshake completes). The value is the public OAuth2 client id —
+        not a secret — safe to surface via the status endpoint.
+
+        M11 F17 L5 fix: allows the pool status snapshot to include the id so the
+        UI can render the invite URL for any connected connector without requiring
+        a manual Validate step.
+        """
+        return getattr(self._client, "application_id", None)
+
     async def send(
         self,
         target: OutboundTarget,
@@ -830,32 +846,14 @@ class DiscordPlugin:
         """
         token = account.secrets["BOT_TOKEN"]
         intents = discord.Intents.default()
-        # M11 F1 L2: intents flow through ``account.config["intents"]``
-        # with True-fallback defaults. The fallback preserves M10 F8
-        # backward compatibility byte-identically — accounts without
-        # ``config["intents"]`` get all three intents True, matching the
-        # pre-L2 hardcoded behavior. The API-layer validator
-        # (:func:`_validate_connector_config`) gates the shape at
-        # write time, so any malformed ``config["intents"]`` reaching the
-        # plugin originated from a direct DB edit outside the API write
-        # path (the F1 single-user local-tool trust posture treats that
-        # as the operator's problem).
-        intents_cfg = account.config.get("intents", {})
-        intents.message_content = intents_cfg.get("message_content", True)
-        intents.members = intents_cfg.get("members", True)
-        intents.guilds = intents_cfg.get("guilds", True)
-        if intents.message_content is False:
-            # M11 F1 L2 deviation note: the M10 F8 baseline had no log
-            # for disabled intents because they couldn't be disabled
-            # (hardcoded True). The WARNING-log is novel and surfaces
-            # what would otherwise be a silent silence — a bot whose
-            # message_content intent is False reads every channel
-            # message as an empty string with no observable error.
-            logger.warning(
-                "Discord intents.message_content disabled in config for "
-                "account %s; bot will silently receive no channel messages",
-                account.id,
-            )
+        # M11 F17 L6 (Leg B): all three gateway intents are always-on.
+        # ``account.config["intents"]`` is kept in the model for back-compat
+        # but no longer disables any intent. If an intent isn't enabled in
+        # the Discord Developer Portal, ``PrivilegedIntentsRequired`` surfaces
+        # via Leg A's ``_map_connect_error`` → ``/status`` actionable error.
+        intents.message_content = True
+        intents.members = True
+        intents.guilds = True
 
         activity = _build_activity(account.config.get("presence"))
         ready_timeout = float(
@@ -1696,13 +1694,12 @@ class DiscordPlugin:
         of outcome.
         """
         intents = discord.Intents.default()
-        # M11 F2 L5: read intents from per-account config with the same
-        # fallback shape as DiscordPlugin.connect (F1 L2). Default None →
-        # empty dict → all three intents True (M10 F8 byte-identical).
-        cfg = intents_cfg or {}
-        intents.message_content = cfg.get("message_content", True)
-        intents.members = cfg.get("members", True)
-        intents.guilds = cfg.get("guilds", True)
+        # M11 F17 L6 (Leg B): always-on, mirroring connect(). ``intents_cfg``
+        # parameter is retained for call-site back-compat (doctor/Validate
+        # passes it) but no longer drives the intent values.
+        intents.message_content = True
+        intents.members = True
+        intents.guilds = True
 
         client = discord.Client(intents=intents)
         ready_event = asyncio.Event()

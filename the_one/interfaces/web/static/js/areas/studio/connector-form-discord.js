@@ -41,7 +41,7 @@
   // ``connector-editor.js`` (the Session-section codeblock
   // mounts the relevant default below the Auto-reply toggle).
 
-  // ── M11 F1 L5: Invite-URL section ──────────────────────────────────
+  // ── M11 F1 L5 / M11 F17 L5: Invite-URL section ─────────────────────
   //
   // The doctor probe at ``_discord.py`` populates
   // ``report.details.application_id`` on the ``application`` check
@@ -50,9 +50,11 @@
   // export at the bottom of this IIFE), which caches it per-account-id
   // and re-renders the Invite section's URL display.
   //
-  // The cache is intentionally ephemeral (module-scope, cleared on
-  // reload) — ``application_id`` is not persisted in ``account.config``
-  // or any DB column; the operator re-runs Test Connection to refresh.
+  // M11 F17 L5: ``application_id`` is now ALSO persisted in
+  // ``account.config["application_id"]`` by the Validate endpoint so
+  // the invite renders without a prior Validate on subsequent page
+  // loads. ``renderInviteSection`` seeds the cache from the
+  // ``account.config`` value when it hasn't been set by a Validate yet.
   var _lastApplicationIdByAccount = {};
 
   // Required permissions integer for the bot's OAuth2 invite URL.
@@ -86,18 +88,9 @@
   // ``type`` key. Keep this list in sync with the validator's frozenset.
   var PRESENCE_TYPES = ['playing', 'streaming', 'listening', 'watching', 'competing'];
 
-  // Intent axes, in render order. Labels are operator-facing; the keys are
-  // the L2 validator's required dict-key set.
-  //
-  // F5 L6 HAT round-2 #1+#3: copy revised to sentence-case + clarified
-  // "Server info" (the GUILDS intent carries guild metadata events; the
-  // unrelated Allowlist "Servers" axis is a separate concept gated by
-  // ``Scope to servers`` below — see HAT fix #2 for the disambiguation).
-  var INTENT_AXES = [
-    { key: 'message_content', label: 'Message content' },
-    { key: 'members', label: 'Server members' },
-    { key: 'guilds', label: 'Server info' }
-  ];
+  // M11 F17 L6 (Leg B): INTENT_AXES removed — all three gateway intents
+  // (message_content, members, guilds) are now always-on in the backend.
+  // The operator-facing intent checkboxes are gone; no in-JS axis list needed.
 
   function _escapeHtml(s) {
     return window.App.escapeHtml(s == null ? '' : String(s));
@@ -147,54 +140,15 @@
 
   function _renderRuntimeConfigBody(account) {
     var cfg = (account && account.config) || {};
-    var intentsCfg = (typeof cfg.intents === 'object' && cfg.intents) ? cfg.intents : {};
     var presenceCfg = (typeof cfg.presence === 'object' && cfg.presence) ? cfg.presence : {};
 
     var html = '';
     var infoIcon = (window.App && window.App.icon) ? window.App.icon('info') : 'ⓘ';
 
-    // ── Intents row (HAT round-2 fix #1) ────────────────────────────
-    // Pre-round-2: ``<fieldset><legend>Intents</legend>`` + free-floating
-    // info-icon + flat checkbox list. Operator HAT found the fieldset
-    // shape, the bare "Intents" label, and the per-axis copy
-    // ("Message Content" / "Server Members" / "Servers") all confusing.
-    //
-    // Round-2: canonical 2-column ``field-row admin-pf-row`` layout —
-    // label cell ("Receive messages from:") on the left, checkbox list
-    // on the right. Sentence-case copy + "Server info" for the GUILDS
-    // intent disambiguates from the Allowlist "Servers" axis. The
-    // ``discord-intents-fieldset`` testid migrates to the row container
-    // as ``discord-intents-row`` so the "intents block exists" signal
-    // survives for tests that asserted presence/absence by testid.
-    var intentsTipText = 'Discord event types the bot receives. All on is the safe default.';
-    html += '<div class="field-row admin-pf-row discord-intents-row" ' +
-            'data-testid="discord-intents-row">';
-    html += '<label>Receive messages from:</label>';
-    html += '<button type="button" class="field-info-icon" ' +
-            'title="' + _escapeAttr(intentsTipText) + '" ' +
-            'aria-describedby="discord-intents-help-text" ' +
-            'data-testid="discord-intents-hint">' +
-            infoIcon + '</button>';
-    html += '<span id="discord-intents-help-text" class="visually-hidden">' +
-            _escapeHtml(intentsTipText) + '</span>';
-    html += '<div class="discord-intents-checkbox-list">';
-    for (var i = 0; i < INTENT_AXES.length; i++) {
-      var axis = INTENT_AXES[i];
-      // Default-on when the operator has never set intents (M10 F8 hardcoded
-      // default mirror); per-axis ``account.config.intents`` override wins.
-      var checked = true;
-      if (Object.prototype.hasOwnProperty.call(intentsCfg, axis.key)) {
-        checked = !!intentsCfg[axis.key];
-      }
-      var checkedAttr = checked ? ' checked' : '';
-      html += '<label class="discord-intent-row">';
-      html += '<input type="checkbox" class="checkbox-primary" data-field="intent-' + axis.key +
-              '" data-testid="discord-intent-' + axis.key + '"' + checkedAttr + ' />';
-      html += '<span>' + _escapeHtml(axis.label) + '</span>';
-      html += '</label>';
-    }
-    html += '</div>';
-    html += '</div>';
+    // M11 F17 L6 (Leg B): Intent checkboxes removed. The three gateway
+    // intents (message_content, members, guilds) are always-on in the
+    // backend. PrivilegedIntentsRequired errors surface via Leg A's
+    // connect-error status path with an actionable portal link.
 
     // ── "Scope to servers" field retired (M11 F14 L02) ──────────────
     // The standalone top-level "Scope to servers" guilds text field was
@@ -250,16 +204,19 @@
     html += '</div>';
     html += '</div>';
 
-    // ── Additional Config row (HAT round-2 fix #3) ──────────────────
-    // Pre-round-2: ``<details><summary>Advanced (kv-table)</summary>``
-    // disclosure. Operator HAT found "kv-table" jargon-y and the
-    // disclosure-by-default-collapsed shape an unnecessary hop for
-    // operators who'd just typed BOT_TOKEN/intents/etc. and might want
-    // to add an ad-hoc config key. Round-2 inlines the kv-table under
-    // an "Additional Config" subheading in the same 2-column row
-    // layout. The ``discord-advanced-kv-disclosure`` testid migrates
-    // to the row container as ``discord-additional-config-row`` so the
-    // "additional-config block exists" signal survives.
+    // M11 F17 L7 (Leg C): Additional Config kv-table relocated to a
+    // bottom "Advanced" section and re-wrapped in a
+    // ``<details>``-based disclosure. Pre-L7 it sat inline among the
+    // everyday typed fields (HAT round-2 promoted it there; F17 design
+    // review demotes it back). The ``discord-additional-config-row``
+    // testid is preserved so ``connector-editor-ux`` step-5 and the
+    // create-mode-absence assertion in
+    // ``test_flow_studio_connector_create_and_test.py`` continue to
+    // resolve. The ``connector-advanced-section`` testid on the outer
+    // wrapper lets the new DOM-order assertion confirm placement.
+    html += '<details class="advanced-collapsible connector-advanced-section" ' +
+            'data-testid="connector-advanced-section">';
+    html += '<summary>Advanced</summary>';
     html += '<div class="field-row admin-pf-row discord-additional-config-row" ' +
             'data-testid="discord-additional-config-row">';
     html += '<div class="discord-additional-config-label">Additional Config</div>';
@@ -273,6 +230,7 @@
     }
     html += '</div>';
     html += '</div>';
+    html += '</details>';
 
     return html;
   }
@@ -354,11 +312,8 @@
 
   // ── Collect: read typed-input DOM → {config, secrets} payload ──────
 
-  function _readIntentChecked(container, axisKey) {
-    var el = container.querySelector('[data-field="intent-' + axisKey + '"]');
-    // Default-on when missing (mirrors the render default).
-    return el ? !!el.checked : true;
-  }
+  // M11 F17 L6 (Leg B): _readIntentChecked removed — intent checkboxes
+  // no longer exist in the DOM. Backend always forces all three intents on.
 
   function _readInputValue(container, fieldName) {
     var el = container.querySelector('[data-field="' + fieldName + '"]');
@@ -370,19 +325,10 @@
     var config = {};
     var secrets = {};
 
-    // ── Intents ──────────────────────────────────────────────────────
-    var intents = {
-      message_content: _readIntentChecked(container, 'message_content'),
-      members: _readIntentChecked(container, 'members'),
-      guilds: _readIntentChecked(container, 'guilds')
-    };
-    var allTrue = intents.message_content && intents.members && intents.guilds;
-    var hadIntentsBefore = Object.prototype.hasOwnProperty.call(existingCfg, 'intents');
-    // Emit only when at least one checkbox is NOT True OR the operator's
-    // prior choice carried an ``intents`` key (round-trip exactly).
-    if (!allTrue || hadIntentsBefore) {
-      config.intents = intents;
-    }
+    // M11 F17 L6 (Leg B): Intent collect block removed. The backend always
+    // forces all three intents on; config["intents"] is kept for back-compat
+    // but is no longer written by this form. Pre-existing intents keys are
+    // left in config by the backend (not stripped here — inert on connect).
 
     // ── Guilds: retired (M11 F14 L02) ────────────────────────────────
     // The standalone "Scope to servers" (top-level guilds) form
@@ -422,18 +368,57 @@
     // was REMOVED (operator-editable per-account directive surface
     // dropped; substrate defaults are used universally).
 
+    // M11 F17 L7 (Leg C): kv-table round-trip fix. The substrate's
+    // ``collectFormData`` takes the typed-registry branch (``cfdCollected``
+    // truthy) and skips the generic ``.connector-config-row`` DOM scan,
+    // so any ad-hoc keys added via the Advanced kv-table were silently
+    // lost on save. Fix: extend Discord's ``collect()`` to also scan
+    // the kv-table rows and merge non-reserved keys into ``config``.
+    //
+    // Effective reserved set mirrors the union that ``collectConfigRows``
+    // builds at runtime (substrate baseline + per-type list):
+    //   substrate: pairing, allowlist, routing, always_listen,
+    //              inference_provider_config_id, inference_model
+    //   Discord:   intents, presence
+    // Keys that ``collect()`` already writes (presence) are also in the
+    // reserved set so they cannot be double-written via the kv-table.
+    var _kvReserved = {
+      pairing: true,
+      allowlist: true,
+      routing: true,
+      always_listen: true,
+      inference_provider_config_id: true,
+      inference_model: true,
+      intents: true,
+      presence: true,
+      // M11 F17: application_id is persisted by the Validate endpoint
+      // (public OAuth2 client id, not a secret) and drives the invite
+      // URL. Exclude it from the Advanced kv-table so an operator
+      // cannot accidentally delete it and lose the invite link.
+      application_id: true
+    };
+    var kvRows = container.querySelectorAll(
+      '.connector-config-table tbody tr.connector-config-row'
+    );
+    for (var ki = 0; ki < kvRows.length; ki++) {
+      var kvRow = kvRows[ki];
+      var kkEl = kvRow.querySelector('.config-key-input');
+      var kvEl = kvRow.querySelector('.config-value-input');
+      if (!kkEl || !kvEl) continue;
+      var kk = (kkEl.value || '').trim();
+      if (!kk) continue;
+      if (_kvReserved[kk]) continue;
+      config[kk] = kvEl.value || '';
+    }
+
     return { config: config, secrets: secrets };
   }
 
   // ── Snapshot: typed-input state → JSON-serializable view ───────────
 
   function snapshot(container) {
+    // M11 F17 L6 (Leg B): intents removed from snapshot — checkboxes gone.
     return {
-      intents: {
-        message_content: _readIntentChecked(container, 'message_content'),
-        members: _readIntentChecked(container, 'members'),
-        guilds: _readIntentChecked(container, 'guilds')
-      },
       presenceName: _readInputValue(container, 'presence-name'),
       presenceType: _readInputValue(container, 'presence-type'),
       botTokenValue: _readInputValue(container, 'bot-token')
@@ -444,6 +429,13 @@
 
   function renderInviteSection(account) {
     var accountId = (account && account.id) || '';
+    // M11 F17 L5: seed the cache from account.config.application_id
+    // (persisted by the Validate endpoint) so the invite renders on
+    // initial load without a prior Validate this session.
+    var persistedAppId = (account && account.config && account.config.application_id) || '';
+    if (persistedAppId && !_lastApplicationIdByAccount[accountId]) {
+      _lastApplicationIdByAccount[accountId] = persistedAppId;
+    }
     var appId = _lastApplicationIdByAccount[accountId];
     var hintHidden = appId ? ' hidden' : '';
     var urlHidden = appId ? '' : ' hidden';
@@ -451,7 +443,8 @@
     var infoIcon = (window.App && window.App.icon) ? window.App.icon('info') : 'ⓘ';
     var copyIcon = (window.App && window.App.icon) ? window.App.icon('copy') : '⧉';
     var refreshIcon = (window.App && window.App.icon) ? window.App.icon('refresh-cw') : '↻';
-    var infoText = 'Open this URL on Discord to add the bot to a server.';
+    // M11 F17 L5: updated tooltip text to explain the invite's purpose.
+    var infoText = 'Open this to add the bot to a Discord server — needed once per server at setup.';
 
     var html = '';
     // F5 L6 HAT round-7: 3-column field-row pattern
@@ -471,7 +464,7 @@
     html += '<div class="connector-invite-field">';
     html += '<span class="connector-invite-hint" ' +
             'data-testid="connector-invite-hint"' + hintHidden + '>' +
-            'Refresh connection first to fetch your application ID.' +
+            'Run Validate to fetch your application ID.' +
             '</span>';
     html += '<div class="connector-invite-url-wrap" ' +
             'data-testid="connector-invite-url-wrap"' + urlHidden + '>';
@@ -533,20 +526,9 @@
     // recompute is a no-op (the URL display is pure-template; no harm).
     var inviteAccount = account || _resolveAccountFromContainer(container);
 
-    function _onIntentChange() {
-      if (typeof checkDirty === 'function') checkDirty();
-      if (inviteAccount) _updateInviteUrlDisplay(container, inviteAccount);
-    }
-
-    // Intent checkboxes — ``change`` (not ``input``) is the canonical
-    // event for ``<input type="checkbox">`` state flips across browsers.
-    // L5 extends each handler to ALSO recompute the invite-URL display
-    // (the display is stable because intents and permissions are
-    // orthogonal — but exercising the recompute path proves the
-    // permission integer stays pinned at 2147552256).
-    _wireListener(container, '[data-field="intent-message_content"]', 'change', _onIntentChange);
-    _wireListener(container, '[data-field="intent-members"]', 'change', _onIntentChange);
-    _wireListener(container, '[data-field="intent-guilds"]', 'change', _onIntentChange);
+    // M11 F17 L6 (Leg B): _onIntentChange + intent-checkbox listeners removed.
+    // Intent checkboxes are gone from the DOM; the invite URL is stable
+    // (recompute still triggered by the Recompute button below).
 
     // Presence name (text) — same per-keystroke pattern.
     _wireListener(container, '[data-field="presence-name"]', 'input', checkDirty);
@@ -681,7 +663,8 @@
     // field was unified onto ``config.allowlist.guilds`` and the v27
     // migration folds + drops any legacy top-level ``guilds``. No
     // dedicated form input remains, so it is no longer reserved.
-    reservedConfigKeys: ['intents', 'presence'],
+    // M11 F17: application_id added — see _kvReserved comment above.
+    reservedConfigKeys: ['intents', 'presence', 'application_id'],
     renderConnectionFields: renderConnectionFields,
     renderRuntimeConfigFields: renderRuntimeConfigFields,
     renderCredentialsFields: renderCredentialsFields,

@@ -1058,3 +1058,59 @@ Public surface: `mark`, `measure`, `captureHeap`, `dump`, `summary`, `reset`. Ev
 ### `make rebuild` wipes Playwright Chromium
 
 After `make rebuild`, `~/.cache/ms-playwright/` is gone — raw `docker exec the-one pytest -m browser` errors with hundreds of "Executable doesn't exist" failures. Recovery: `make _ensure-playwright` (idempotent re-install, ~30-60s). The `make test-browser` chain already chains this; only the raw invocation hits the foot-gun. See `container-test-entrypoints-reach-via-make` convention.
+
+### `connector-live-status-via-poll`
+
+When a UI element needs to reflect live backend state (connection status, task progress) and no server-push channel exists, implement a lightweight polling loop anchored to a DOM-connected guard. Start polling on editor mount; stop polling when the anchor element is removed (`element.isConnected` check at the top of each poll tick). Poll interval 2–5s for operator-visible state; immediately kick the first fetch on mount so the UI reads correct state without the first interval delay.
+
+Shape:
+```js
+function _wireLiveStatus(container, account) {
+  var textEl = container.querySelector('[data-testid="my-status"]');
+  if (!textEl) return;
+  function _poll() {
+    if (!textEl.isConnected) return;  // stop on unmount
+    fetch('/api/…').then(…).then(function (body) {
+      if (!textEl.isConnected) return;
+      _applyStatus(body);
+      setTimeout(_poll, 3000);
+    }).catch(function () {
+      if (!textEl.isConnected) return;
+      setTimeout(_poll, 3000);
+    });
+  }
+  _poll();
+}
+```
+
+Applies whenever a UI indicator must reflect live server-side state (connection health, pool state, background-task result) without a WS push path. Does NOT apply when an existing event-bus channel covers the updates (`connector-pool-warmed` for post-Validate pool state) or when the state is effectively static within a session.
+
+Citation (n=1): M11 F17 L5 `_wireLiveStatus` in `connector-editor.js` — polls `GET /api/connectors/{id}/status` every 3s to reflect the live gateway connection state (Connected/Connecting/Disconnected/Error) on the General tab. Mirrors the `isConnected` unmount guard already in use by the allowlist banner's `poolWarmedHandler`.
+
+Source: M11 F17 L5 design decision "Live update via a 2–5s poll that stops on editor unmount (mirror the discoverable banner's isConnected guard)."
+
+### `save-reconnects-the-gateway`
+
+When a connector's connection-relevant config changes (secrets, intents, presence — NOT the whole config dict) AND ≥1 agent is attached, the save handler must evict the warm pool entry and re-acquire in a background task so the PUT responds immediately and the live-status poll surfaces the reconnect result. A label-only or ACL-only edit must NOT bounce a healthy gateway.
+
+Implementation shape:
+```python
+if _connection_relevant_changed(existing, updated):
+    attached = await store.list_by_connector(account_id)
+    if attached:
+        task = asyncio.create_task(_save_warm_background(account_id))
+        _inflight_save_warm_tasks.add(task)
+        task.add_done_callback(_inflight_save_warm_tasks.discard)
+    else:
+        await _evict_all_for_account(account_id)  # cold by design
+```
+
+`_connection_relevant_changed` must compare fields that feed `plugin.connect()` only (secrets, `config.intents`, `config.presence`). Using the whole config dict would bounce the gateway on allowlist/routing changes that don't affect the connection.
+
+Deadlock-safe: the background task acquires `_lock` twice (once for evict, once for acquire); it does NOT hold `_lock` across either await, so no deadlock risk.
+
+Applies whenever a connector editor's PUT handler persists config that includes connection-relevant fields. Does NOT apply to create-new (no attached agents yet) or to read-only endpoints.
+
+Citation (n=1): M11 F17 L5 `update_connector` in `api.py` — triggers `_save_warm_background` when `_connection_relevant_changed(existing, updated)` is True AND ≥1 agent is attached. This closes the F1 finding that "Save only persists config; no reconnect happens."
+
+Source: M11 F17 L5 design decision "Save-warm (background, non-blocking): in `update_connector` … wrapped in `asyncio.create_task`."

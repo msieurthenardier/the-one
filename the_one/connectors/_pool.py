@@ -208,6 +208,32 @@ class _CountersSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
+class _StatusSnapshot:
+    """Immutable connection-state snapshot for the status endpoint.
+
+    Captured under ``_lock`` by :func:`_get_account_status_snapshot`
+    (M11 F17 L5). The ``state`` field is one of
+    ``connected | connecting | disconnected | error``.  ``alive`` is
+    the live ``is_alive()`` return value at snapshot time.
+    ``last_error`` / ``last_error_link`` carry the mapped connect-error
+    message and action URL when ``state == "error"``; both are ``None``
+    for non-error states.
+
+    ``application_id`` is the bot's public OAuth2 client id, read from
+    the warm client's ``application_id`` property (populated post-READY
+    by the discord.py SDK). ``None`` for cold/connecting/error states and
+    for plugin clients that don't expose the attribute. Not a secret —
+    the invite URL is constructed from this public id. M11 F17 L5 fix.
+    """
+
+    state: str  # "connected" | "connecting" | "disconnected" | "error"
+    alive: bool
+    last_error: str | None
+    last_error_link: str | None
+    application_id: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class _DiscoverableCacheSnapshot:
     """Immutable triple of cache state + account_type for the API handler.
 
@@ -887,6 +913,95 @@ async def _get_account_counters_snapshot(
             inbound=dict(entry.inbound_counters),
             outbound=dict(entry.outbound_counters),
         )
+
+
+async def _get_account_status_snapshot(
+    account_id: str,
+    last_error: str | None = None,
+    last_error_link: str | None = None,
+) -> _StatusSnapshot:
+    """Return a connection-state snapshot for the status endpoint.
+
+    Reads pool-entry state under ``_lock`` (atomic snapshot); the
+    ``is_alive()`` call happens OUTSIDE the lock on the client object
+    already captured — safe because :class:`ConnectorClient` implementors
+    (e.g. :class:`DiscordClient`) make ``is_alive`` a lock-free flag
+    read. Mirrors :func:`_get_account_counters_snapshot`.
+
+    State determination:
+      - No warm entry (or entry without a client) → ``disconnected``
+      - Entry present but ``client_ready`` not yet set → ``connecting``
+      - Entry present, ready, ``is_alive()`` True → ``connected``
+      - Entry present, ready, ``is_alive()`` False → ``disconnected``
+        (gateway dropped — reaper will evict on next sweep)
+      - Entry present, ``failure`` set → ``error``
+
+    ``last_error`` / ``last_error_link`` are passed by the caller (the
+    status endpoint reads them from a separate store keyed on account_id
+    that the save-warm background task writes on failure). This function
+    returns them as-is when state is ``error``; ignores them otherwise.
+
+    M11 F17 L5.
+    """
+    key = (_ACCOUNT_POOL_AGENT_SLOT, account_id)
+    async with _lock:
+        entry = _pool.get(key)
+        if entry is None:
+            # No pool entry. If the caller surfaced a connect-error (the
+            # save-warm background task wrote it after connect failed and
+            # the entry was popped), return "error" so the UI shows the
+            # PrivilegedIntentsRequired message rather than silently
+            # reporting "disconnected" and swallowing it.
+            if last_error:
+                return _StatusSnapshot(
+                    state="error", alive=False,
+                    last_error=last_error, last_error_link=last_error_link,
+                )
+            return _StatusSnapshot(
+                state="disconnected", alive=False,
+                last_error=None, last_error_link=None,
+            )
+        if entry.failure is not None:
+            return _StatusSnapshot(
+                state="error", alive=False,
+                last_error=last_error, last_error_link=last_error_link,
+            )
+        if entry.client_ready is None or not entry.client_ready.is_set():
+            return _StatusSnapshot(
+                state="connecting", alive=False,
+                last_error=None, last_error_link=None,
+            )
+        client = entry.client
+
+    # Check is_alive() and application_id OUTSIDE the lock — both are
+    # flag/attribute reads that don't need serialization.
+    if client is None:
+        return _StatusSnapshot(
+            state="disconnected", alive=False,
+            last_error=None, last_error_link=None,
+        )
+    # Read application_id from the client if exposed (DiscordClient exposes it
+    # post-READY via the .application_id property; other plugin clients that
+    # don't expose the attribute get None via getattr default). Safe outside
+    # the lock: it's a simple attribute read with no async involvement.
+    app_id: int | None = getattr(client, "application_id", None)
+    is_alive_fn = getattr(client, "is_alive", None)
+    if is_alive_fn is None:
+        # Plugin has no is_alive() — treat as connected (same exemption
+        # the reaper uses at _pool.py:~496-503).
+        return _StatusSnapshot(
+            state="connected", alive=True,
+            last_error=None, last_error_link=None,
+            application_id=app_id,
+        )
+    alive = bool(is_alive_fn())
+    return _StatusSnapshot(
+        state="connected" if alive else "disconnected",
+        alive=alive,
+        last_error=None,
+        last_error_link=None,
+        application_id=app_id if alive else None,
+    )
 
 
 async def shutdown_drain() -> None:

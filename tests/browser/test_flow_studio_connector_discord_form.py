@@ -2,15 +2,13 @@
 
 Covers the Discord registry entry's typed form fields end-to-end:
 
-- Edit-mode renders typed Intents / Guilds / Presence / BOT_TOKEN
-  inputs with persisted values mounted into the typed widgets (not the
-  generic kv-table).
-- Toggling an intent checkbox flips the dirty-tracker → Save enables.
+- Editor renders no intent checkboxes (M11 F17 L6 Leg B subtraction —
+  ``discord-intents-row`` and ``discord-intent-*`` testids absent).
 - Saving with no operator edits round-trips byte-identically — none of
   ``intents`` / ``guilds`` / ``presence`` keys are introduced if absent
   before (preserves M10 F8 baseline shape).
 - Pre-existing all-True intents round-trip with the key preserved
-  (operator's prior explicit choice is honored even at the default).
+  (field is back-compat inert; the key is not stripped on save).
 - Adding a guild ID → save → 201 round-trip.
 - Setting presence name + type → save → 201 round-trip.
 - Advanced kv-table disclosure hides ``intents`` / ``guilds`` /
@@ -78,14 +76,20 @@ def _seed_discord(base_url: str, **kwargs) -> str:
 
 
 @pytest.mark.browser
-def test_edit_mode_renders_typed_fields_with_persisted_intents(
+def test_editor_renders_no_intent_checkboxes(
     app_clean: str, page: Page
 ) -> None:
-    """Edit-mode mounts the typed Discord fields with values pulled from
-    the persisted ``config.intents`` dict (not the generic kv-table)."""
+    """The Access-and-Routing tab renders no intent-toggle checkboxes.
+
+    M11 F17 L6 (Leg B): the three ``discord-intent-*`` checkboxes and
+    the ``discord-intents-row`` container are removed from the form.
+    The backend always requests all three gateway intents; there is no
+    in-app toggle. Assert absence even when ``config.intents`` carries
+    a persisted value (back-compat field is inert, not rendered).
+    """
     account_id = _seed_discord(
         app_clean,
-        name="Discord Bot",
+        name="No-Intents Bot",
         config={
             "intents": {"message_content": False, "members": True, "guilds": True}
         },
@@ -95,41 +99,18 @@ def test_edit_mode_renders_typed_fields_with_persisted_intents(
         timeout=8000
     )
 
-    # F5 L3: runtime-config (intents, guilds, presence) moved to the
-    # Access-and-Routing tab.
     _activate_access_and_routing_tab(page)
 
-    # The three intent checkboxes mount with the persisted values.
-    msg = page.locator('[data-testid="discord-intent-message_content"]')
-    members = page.locator('[data-testid="discord-intent-members"]')
-    guilds = page.locator('[data-testid="discord-intent-guilds"]')
-    expect(msg).to_be_visible()
-    expect(msg).not_to_be_checked()
-    expect(members).to_be_checked()
-    expect(guilds).to_be_checked()
+    # No intent row or checkboxes in the DOM.
+    expect(page.locator('[data-testid="discord-intents-row"]')).to_have_count(0)
+    expect(page.locator('[data-testid="discord-intent-message_content"]')).to_have_count(0)
+    expect(page.locator('[data-testid="discord-intent-members"]')).to_have_count(0)
+    expect(page.locator('[data-testid="discord-intent-guilds"]')).to_have_count(0)
 
-    # Typed BOT_TOKEN input present with the masked value. The BOT_TOKEN
-    # input lives in the Credentials section on the General tab — switch
-    # back to verify it (then leave the tab where the test ended).
+    # BOT_TOKEN input still present with the masked value (General tab).
     page.locator('[data-testid="tab-general"]').click()
     expect(page.locator('[data-testid="discord-bot-token"]')).to_be_visible()
     expect(page.locator('[data-testid="discord-bot-token"]')).to_have_value("***...abcd")
-
-
-@pytest.mark.browser
-def test_intent_toggle_re_enables_save(app_clean: str, page: Page) -> None:
-    """Toggling an intent checkbox flips the dirty-tracker → Save enables."""
-    account_id = _seed_discord(app_clean, name="Toggle Bot")
-    page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    save_btn = page.locator('[data-testid="save-connector-btn"]')
-    expect(save_btn).to_be_visible(timeout=8000)
-    # Baseline: Save disabled on load.
-    expect(save_btn).to_be_disabled()
-
-    # F5 L3: intents moved to the Access-and-Routing tab.
-    _activate_access_and_routing_tab(page)
-    page.locator('[data-testid="discord-intent-message_content"]').click()
-    expect(save_btn).not_to_be_disabled()
 
 
 @pytest.mark.browser
@@ -167,12 +148,18 @@ def test_no_change_save_roundtrip_omits_intents_when_absent(
 
 
 @pytest.mark.browser
-def test_no_change_save_preserves_pre_existing_all_true_intents(
+def test_save_with_pre_existing_intents_key_does_not_crash(
     app_clean: str, page: Page
 ) -> None:
-    """Existing all-True intents round-trip with the key preserved
-    (the operator's prior explicit choice is honored even though the
-    shape equals the default)."""
+    """A Discord account whose config carries a pre-existing ``intents``
+    key can be saved without error.
+
+    M11 F17 L6 (Leg B): the form no longer emits ``config.intents`` in
+    the PUT payload (collect() dropped the intent-collect block). The
+    key is NOT round-tripped through the form. This test verifies that
+    saving an account with a stale ``intents`` key in config doesn't
+    produce a 422 / error flash — the name change saves cleanly.
+    """
     account_id = _seed_discord(
         app_clean,
         name="All-True Bot",
@@ -189,37 +176,17 @@ def test_no_change_save_preserves_pre_existing_all_true_intents(
     page.locator('[data-testid="save-connector-btn"]').click()
     expect(page.locator(".app-flash")).to_be_visible(timeout=8000)
 
+    # Verify the save succeeded (name updated) and no error is shown.
     after = _get_account(app_clean, account_id)
-    assert after["config"]["intents"] == {
-        "message_content": True,
-        "members": True,
-        "guilds": True,
-    }
+    assert after["name"] == "All-True Renamed"
+    # The intents key is not re-emitted by the form; the backend's config
+    # is whatever collect() last wrote. Assert no crash (not key preservation).
+    assert "name" in after
 
 
-@pytest.mark.browser
-def test_intent_toggle_save_emits_typed_payload(app_clean: str, page: Page) -> None:
-    """Toggling message_content off → save → backend stores the
-    three-key intents dict with the toggled axis False."""
-    account_id = _seed_discord(app_clean, name="Toggle-Save Bot", config={})
-    page.goto(f"{app_clean}#studio/connectors/{account_id}")
-    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
-        timeout=8000
-    )
-
-    # F5 L3: intents moved to the Access-and-Routing tab.
-    _activate_access_and_routing_tab(page)
-    page.locator('[data-testid="discord-intent-message_content"]').click()
-    page.locator('[data-testid="save-connector-btn"]').click()
-    expect(page.locator(".app-flash")).to_be_visible(timeout=8000)
-
-    after = _get_account(app_clean, account_id)
-    assert after["config"]["intents"] == {
-        "message_content": False,
-        "members": True,
-        "guilds": True,
-    }
-
+# M11 F17 L6 (Leg B): ``test_intent_toggle_save_emits_typed_payload`` removed.
+# Intent checkboxes gone from the form; the backend always forces all three
+# intents on regardless of config["intents"]. No form-driven intent payload.
 
 # M11 F14 L02: ``test_guilds_add_saves`` removed. The standalone
 # "Scope to servers" text field (``data-testid="discord-guilds-list"``)
@@ -286,6 +253,13 @@ def test_additional_config_hides_reserved_keys(app_clean: str, page: Page) -> No
     # F5 L3: Additional Config kv-table lives on the Access-and-Routing
     # tab (inside the Runtime Config section).
     _activate_access_and_routing_tab(page)
+
+    # M11 F17 L7 (Leg C): the Advanced section is a ``<details>``
+    # disclosure (collapsed by default). Open it before querying the
+    # kv-table rows so the inputs are reachable.
+    page.locator('[data-testid="connector-advanced-section"]').evaluate(
+        "el => el.setAttribute('open', '')"
+    )
 
     # The Additional Config row exists.
     expect(
@@ -401,3 +375,116 @@ def test_stub_snapshot_byte_identical_to_baseline(app_clean: str, page: Page) ->
     # Save stays disabled — dirty=false → snapshot equality holds → no
     # spurious ``typedFields`` key was injected for the unregistered type.
     expect(page.locator('[data-testid="save-connector-btn"]')).to_be_disabled()
+
+
+# ── M11 F17 L7 (Leg C) tests ────────────────────────────────────────────────
+
+
+@pytest.mark.browser
+def test_advanced_section_is_last_element_in_runtime_config(
+    app_clean: str, page: Page
+) -> None:
+    """The Advanced section (``connector-advanced-section``) is the LAST
+    child of the Runtime Config section body — below all typed fields.
+
+    M11 F17 L7 (Leg C): the Additional Config kv-table was relocated to a
+    bottom ``<details>``-based "Advanced" section. This DOM-order assertion
+    is a cheap guard that the relocation didn't drift back inline.
+    """
+    account_id = _seed_discord(app_clean, name="Advanced-Order Bot", config={})
+    page.goto(f"{app_clean}#studio/connectors/{account_id}")
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
+        timeout=8000
+    )
+
+    _activate_access_and_routing_tab(page)
+
+    # The Advanced section exists.
+    expect(
+        page.locator('[data-testid="connector-advanced-section"]')
+    ).to_be_attached()
+
+    # It must be the LAST child element inside the Runtime Config section
+    # body (the substrate wraps _renderRuntimeConfigBody's output inside
+    # ``.section-body`` or equivalent). Use JS evaluation to assert
+    # DOM order without depending on a specific parent selector.
+    is_last = page.evaluate(
+        """
+        () => {
+            const adv = document.querySelector(
+                '[data-testid="connector-advanced-section"]'
+            );
+            if (!adv) return false;
+            const parent = adv.parentElement;
+            if (!parent) return false;
+            const children = Array.from(parent.children);
+            return children[children.length - 1] === adv;
+        }
+        """
+    )
+    assert is_last, (
+        "connector-advanced-section is not the last child of its parent — "
+        "the Advanced kv-table has drifted above typed fields"
+    )
+
+
+@pytest.mark.browser
+def test_kv_table_key_round_trips_on_save(app_clean: str, page: Page) -> None:
+    """Adding a key via the Advanced kv-table → Save → key persists in
+    the backend config (round-trip fix for M11 F17 L7 Leg C).
+
+    Pre-Leg-C, the Discord typed-form branch in ``collectFormData``
+    skipped the ``.connector-config-row`` DOM scan, so ad-hoc kv-table
+    entries were silently dropped on every save. This test catches a
+    regression to that bug.
+
+    Also verifies ``ingest_bots`` (the canonical advanced seam) round-trips.
+    """
+    account_id = _seed_discord(app_clean, name="KV-Round-Trip Bot", config={})
+    page.goto(f"{app_clean}#studio/connectors/{account_id}")
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
+        timeout=8000
+    )
+
+    # Open the Access-and-Routing tab, then open the Advanced disclosure.
+    _activate_access_and_routing_tab(page)
+    page.locator('[data-testid="connector-advanced-section"]').evaluate(
+        "el => el.setAttribute('open', '')"
+    )
+    expect(
+        page.locator('[data-testid="discord-additional-config-row"]')
+    ).to_be_visible(timeout=4000)
+
+    # Click "+ Add row" to add a new kv-table row.
+    page.locator('[data-testid="connector-config-add-row-btn"]').click()
+
+    # Fill the new row with a custom key + value.
+    key_inputs = page.locator('.connector-config-row .config-key-input')
+    val_inputs = page.locator('.connector-config-row .config-value-input')
+    # The new row is the last one.
+    last_idx = key_inputs.count() - 1
+    key_inputs.nth(last_idx).fill("ingest_bots")
+    val_inputs.nth(last_idx).fill("true")
+
+    # Save.
+    page.locator('[data-testid="save-connector-btn"]').click()
+    expect(page.locator(".app-flash")).to_be_visible(timeout=8000)
+
+    # Verify key persisted in the backend config.
+    after = _get_account(app_clean, account_id)
+    assert "ingest_bots" in after["config"], (
+        f"ingest_bots key not found in config after save; config={after['config']!r}"
+    )
+    assert after["config"]["ingest_bots"] == "true", (
+        f"unexpected ingest_bots value: {after['config']['ingest_bots']!r}"
+    )
+
+    # Reload and verify the key is still there (reload round-trip).
+    page.reload()
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(
+        timeout=8000
+    )
+    reloaded = _get_account(app_clean, account_id)
+    assert reloaded["config"].get("ingest_bots") == "true", (
+        f"ingest_bots lost after reload; config={reloaded['config']!r}"
+    )

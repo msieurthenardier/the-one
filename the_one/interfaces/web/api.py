@@ -1714,7 +1714,10 @@ async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any
     #
     # Skip the probe when live tokens are present — Phase A is the right
     # path for token-bearing OAuth sources (no extra round trip).
-    from the_one.mcp.transports.streamable_http import _probe_auth_posture
+    from the_one.mcp.transports.streamable_http import (
+        _probe_auth_posture,
+        build_request_headers,
+    )
 
     cached_posture = (source.config.get("_cache") or {}).get("auth_posture")
     has_live_tokens = bool(
@@ -1724,9 +1727,23 @@ async def test_mcp_connection(source_id: str, request: Request) -> dict[str, Any
     if cached_posture == "no_auth" and not has_live_tokens:
         return await _build_and_test_no_auth_mcp(source, source_id, repo)
 
-    if cached_posture is None and not has_live_tokens:
+    # Re-probe both on a cold cache (None) AND on a cached "oauth" hint when
+    # there are no live OAuth tokens. The latter re-validation matters because
+    # an operator may have ADDED static-bearer / custom-header auth after an
+    # earlier probe cached "oauth" (e.g. a header-auth server first misread as
+    # oauth). Re-probing with the operator's headers lets such a source flip to
+    # no_auth instead of being permanently pinned to a doomed OAuth flow by the
+    # stale cache. A genuine OAuth server simply re-probes to "oauth" again
+    # (one cheap round trip on this operator-initiated test path) and falls
+    # through to Phase B exactly as before.
+    if cached_posture in (None, "oauth") and not has_live_tokens:
         server_url = source.config.get("url", "")
-        posture = await _probe_auth_posture(server_url)
+        # Pass the operator's configured headers (static bearer, custom
+        # key/value rows) so a header-auth server probes as no_auth instead
+        # of being misclassified as oauth and kicking a doomed DCR flow.
+        posture = await _probe_auth_posture(
+            server_url, request_headers=build_request_headers(source)
+        )
         if posture == "no_auth":
             return await _build_and_test_no_auth_mcp(source, source_id, repo)
         if posture == "error":
@@ -2388,6 +2405,71 @@ async def oauth_start(request: Request) -> dict[str, Any]:
 # ── Connector Accounts ────────────────────────────────────────────────────
 
 
+def _connection_relevant_changed(existing: Connector, updated: Connector) -> bool:
+    """Return True when the updated config differs in a connection-relevant way.
+
+    Compares: ``secrets`` (token change), ``config.intents`` (gateway intent
+    subscription), ``config.presence`` (presence update). These are the
+    fields that feed into ``plugin.connect()`` or change gateway behaviour
+    on reconnect.  Label-only changes (``name``), ACL changes
+    (``config.allowlist``), and lifecycle changes (``idle_timeout_seconds``)
+    do NOT force a reconnect — they are applied via other mechanisms or
+    take effect on the next reconnect anyway.
+
+    Using dict equality because ``config.intents`` / ``config.presence`` are
+    plain JSON-serialisable dicts with no hidden ordering sensitivity.
+    ``secrets`` comparison uses the plaintext dicts (already decrypted at
+    this layer).
+
+    M11 F17 L5.
+    """
+    if existing.secrets != updated.secrets:
+        return True
+    old_cfg = existing.config or {}
+    new_cfg = updated.config or {}
+    if old_cfg.get("intents") != new_cfg.get("intents"):
+        return True
+    if old_cfg.get("presence") != new_cfg.get("presence"):
+        return True
+    return False
+
+
+async def _save_warm_background(account_id: str) -> None:
+    """Background task: evict the warm entry and re-acquire to reconnect.
+
+    Wrapped in ``asyncio.create_task`` by the save handler so the PUT
+    responds immediately; the live-status poll surfaces the transition
+    ``connecting → connected | error``.
+
+    Deadlock-safe: ``_evict_all_for_account`` acquires ``_lock`` internally;
+    ``account_acquire`` acquires ``_lock`` internally for the cold-entry
+    creation path. Both complete before the next lock acquisition — no
+    ``_lock`` is held across the two calls here.
+
+    Writes to ``_connect_error_store`` on failure so the status endpoint
+    can surface the error without re-running the failing connect. Clears
+    the store entry on success.
+
+    M11 F17 L5.
+    """
+    from the_one.connectors._pool import _evict_all_for_account, account_acquire
+    from the_one.connectors.errors import ConnectorClientError
+
+    try:
+        await _evict_all_for_account(account_id)
+        await account_acquire(account_id)
+        # Clear any stale error from a previous failed warm.
+        _connect_error_store.pop(account_id, None)
+    except (ConnectorClientError, Exception) as exc:  # noqa: BLE001
+        mapped = _map_connect_error(exc)
+        _connect_error_store[account_id] = mapped
+        logger.warning(
+            "save-warm background reconnect failed for account=%r: %s",
+            account_id,
+            mapped["message"],
+        )
+
+
 def _connector_response(account: Connector) -> dict[str, Any]:
     """Render a Connector into the masked HTTP response shape.
 
@@ -2483,6 +2565,16 @@ async def create_connector(request: Request) -> dict[str, Any]:
     _validate_connector_config(account)
     repo = await _connector_repo()
     await repo.create(account)
+    # M11 F17 L5 save-warm: trigger background warm on create if ≥1 agent
+    # is already attached (unusual but structurally possible). In practice
+    # create always returns cold (no agents attached yet); the gate is here
+    # for symmetry with update_connector.
+    store = await _agent_store()
+    attached = await store.list_by_connector(account.id)
+    if attached:
+        task = asyncio.create_task(_save_warm_background(account.id))
+        _inflight_save_warm_tasks.add(task)
+        task.add_done_callback(_inflight_save_warm_tasks.discard)
     return _connector_response(account)
 
 
@@ -2541,19 +2633,37 @@ async def update_connector(account_id: str, request: Request) -> dict[str, Any]:
     _validate_connector_config(updated)
     await repo.update(updated)
 
-    if existing.secrets != resolved_secrets:
-        # Warm pool entries cache plaintext credentials inside their
-        # ConnectorClient. On any actual secrets change (including the
-        # operator dropping a key via REST replace), the entry must be
-        # evicted so the next acquire reloads with the new credentials.
-        # No-op PUT (all-masked round-trip) skips eviction because
-        # ``resolved_secrets`` is byte-identical to ``existing.secrets``.
-        #
-        # Function-local import per the ``function-local-import-to-break-load-cycle``
-        # convention codified in F2 L1: ``interfaces/web/api.py`` is a
-        # high-level module and ``the_one.connectors._pool`` reaches back
-        # into the DB layer via ``_load_account``; importing at module
-        # top would extend the import surface unnecessarily.
+    # M11 F17 L5 save-warm: when any connection-relevant field changed AND
+    # ≥1 agent is attached, evict the warm entry and re-acquire in the
+    # background so the live-status poll surfaces the reconnect without
+    # blocking the PUT response.
+    #
+    # This supersedes the old secrets-only eviction branch: secrets are a
+    # subset of connection-relevant fields, so we handle them here
+    # uniformly. A label-only or ACL-only edit skips the reconnect.
+    #
+    # Deadlock-safe: ``_save_warm_background`` runs on a new task; no lock
+    # is held across the two internal lock acquisitions
+    # (``_evict_all_for_account`` + ``account_acquire``).
+    if _connection_relevant_changed(existing, updated):
+        store = await _agent_store()
+        attached = await store.list_by_connector(account_id)
+        if attached:
+            # Background: respond immediately; poll surfaces the result.
+            task = asyncio.create_task(_save_warm_background(account_id))
+            _inflight_save_warm_tasks.add(task)
+            task.add_done_callback(_inflight_save_warm_tasks.discard)
+        else:
+            # No attached agents — cold by design. Still evict so the
+            # old (now-stale) credentials don't linger in the pool.
+            from the_one.connectors._pool import _evict_all_for_account
+
+            await _evict_all_for_account(account_id)
+    elif existing.secrets != resolved_secrets:
+        # Secrets changed but not via _connection_relevant_changed
+        # (shouldn't happen given secrets is checked there, but kept as
+        # a belt-and-suspenders guard for future _connection_relevant_changed
+        # narrowing). Evict synchronously — the old credentials are stale.
         from the_one.connectors._pool import _evict_all_for_account
 
         await _evict_all_for_account(account_id)
@@ -2829,6 +2939,129 @@ async def list_attached_agents_for_connector(
     return result
 
 
+def _map_connect_error(exc: BaseException) -> dict[str, Any]:
+    """Map a connector connect exception to an operator-facing message.
+
+    Walks ``exc.__cause__`` to unwrap the original discord exception from
+    the :class:`~the_one.connectors.errors.ConnectorConnectionError`
+    wrapper (the pool worker catches the raw discord exception and re-raises
+    it as ``ConnectorConnectionError``; the raw exception is chained as
+    ``__cause__``). Returns a dict with ``message`` (human-readable copy)
+    and ``action_link`` (URL or None).
+
+    Three known cases:
+      - ``discord.errors.PrivilegedIntentsRequired`` — message + link to
+        the Discord Developer Portal "Privileged Gateway Intents" page.
+      - ``discord.errors.LoginFailure`` — bad-token copy, no link.
+      - Any other / unknown — generic one-liner, no link.
+
+    Leg B reuses this function verbatim for the always-request-3 portal
+    error surface. Keep it module-level and import-safe (function-local
+    discord import so the module stays importable without the discord SDK).
+
+    M11 F17 L5.
+    """
+    # Walk the cause chain to find the innermost meaningful exception.
+    cause: BaseException | None = exc
+    inner = exc
+    while cause is not None:
+        inner = cause
+        cause = getattr(cause, "__cause__", None)
+
+    try:
+        import discord.errors as _de  # function-local per the convention
+    except ImportError:
+        _de = None  # type: ignore[assignment]
+
+    if _de is not None and isinstance(inner, _de.PrivilegedIntentsRequired):
+        return {
+            "message": (
+                "This bot is missing a required privileged intent "
+                "(PrivilegedIntentsRequired). Enable Message Content and "
+                "Guild Members intents in the Discord Developer Portal for "
+                "this application, then save again."
+            ),
+            "action_link": "https://discord.com/developers/applications",
+        }
+    if _de is not None and isinstance(inner, _de.LoginFailure):
+        return {
+            "message": (
+                "The bot token was rejected by Discord. "
+                "Rotate the token in the Discord Developer Portal and "
+                "update the BOT_TOKEN credential, then save again."
+            ),
+            "action_link": None,
+        }
+    return {
+        "message": f"Connection failed: {type(inner).__name__}: {inner}",
+        "action_link": None,
+    }
+
+
+# Module-level dict to persist the most recent connect-error per account so
+# the status endpoint can surface it without re-running the failing connect.
+# Keyed by account_id; values are ``{"message": str, "action_link": str|None}``.
+# Write: save-warm background task (api.py:_save_warm_background).
+# Read: GET /api/connectors/{id}/status.
+# Reset: cleared on the next successful warm (save-warm or Validate warmup).
+# Single-User-Local posture — no eviction / TTL needed.
+_connect_error_store: dict[str, dict[str, Any]] = {}
+
+# Set of live save-warm background tasks. Held in a module-level set so
+# the GC doesn't collect the task before it completes (same pattern as
+# app.py:_inflight_resume_tasks). Tasks remove themselves via done-callback.
+_inflight_save_warm_tasks: set[asyncio.Task] = set()
+
+
+@router.get("/connectors/{account_id}/status")
+async def get_connector_status(account_id: str) -> dict[str, Any]:
+    """Return the live connection state for a connector account.
+
+    Response shape: ``{state, alive, last_error, last_error_link}`` where
+    ``state`` ∈ ``{connected, connecting, disconnected, error}``.
+
+    ``alive`` is the warm pool entry's ``is_alive()`` result at read time.
+    ``last_error`` and ``last_error_link`` are non-null only when
+    ``state == "error"`` (populated by the save-warm background task).
+
+    Degrades gracefully: returns ``{state: "disconnected", alive: false}``
+    when no warm entry exists (cold pool or unknown account). Returns 404
+    only when the account row itself doesn't exist.
+
+    M11 F17 L5.
+    """
+    repo = await _connector_repo()
+    try:
+        await repo.get(account_id)
+    except KeyError:
+        raise HTTPException(
+            status_code=404, detail=f"Connector not found: {account_id}"
+        )
+
+    from the_one.connectors._pool import _get_account_status_snapshot
+
+    err_entry = _connect_error_store.get(account_id)
+    last_error = err_entry.get("message") if err_entry else None
+    last_error_link = err_entry.get("action_link") if err_entry else None
+
+    snapshot = await _get_account_status_snapshot(
+        account_id,
+        last_error=last_error,
+        last_error_link=last_error_link,
+    )
+    # Convert application_id int → str for JSON (OAuth2 client ids are
+    # large ints that may exceed JS's safe-integer range; string is safer).
+    # None stays None — the frontend treats null as "not yet available".
+    app_id_str = str(snapshot.application_id) if snapshot.application_id is not None else None
+    return {
+        "state": snapshot.state,
+        "alive": snapshot.alive,
+        "last_error": snapshot.last_error,
+        "last_error_link": snapshot.last_error_link,
+        "application_id": app_id_str,
+    }
+
+
 @router.post("/connectors/{account_id}/test/connect")
 async def test_connector_connection(account_id: str) -> dict[str, Any]:
     """Run the connector plugin's doctor probe against the account.
@@ -2902,6 +3135,22 @@ async def test_connector_connection(account_id: str) -> dict[str, Any]:
             pool_warm_error = str(exc)
         else:
             pool_warmed = True
+        # M11 F17 L5: persist application_id so the invite section renders
+        # without a prior Validate on the next page load. Write to
+        # ``account.config["application_id"]`` if the doctor supplied one.
+        # Best-effort — a persistence failure here is not surfaced to the
+        # operator because the doctor result already succeeded and the
+        # in-session invite already works via the JS module cache.
+        app_id = details.get("application_id")
+        if app_id:
+            try:
+                fresh = await repo.get(account_id)
+                fresh_cfg = dict(fresh.config or {})
+                fresh_cfg["application_id"] = app_id
+                updated_account = fresh.model_copy(update={"config": fresh_cfg})
+                await repo.update(updated_account)
+            except Exception:  # noqa: BLE001
+                pass  # best-effort; ignore persistence errors
 
     details["pool_warmed"] = pool_warmed
     details["pool_warm_error"] = pool_warm_error
