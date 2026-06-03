@@ -52,12 +52,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from datetime import UTC, datetime
 from typing import Any, cast
 
 import aiohttp
 import discord
 
+from the_one.connectors._observability import log_disposition
 from the_one.connectors.base import (
     CommandResponse,
     ConnectorClient,
@@ -412,6 +414,22 @@ class DiscordClient:
             return False
         return self._ready_event.is_set()
 
+    @property
+    def application_id(self) -> int | None:
+        """Return the bot's OAuth2 application id (populated post-READY).
+
+        Delegates to the underlying SDK client's ``application_id`` attribute,
+        which the discord.py library populates when the READY event fires. ``None``
+        in the pre-READY window (e.g. immediately after connect, before the
+        gateway handshake completes). The value is the public OAuth2 client id —
+        not a secret — safe to surface via the status endpoint.
+
+        M11 F17 L5 fix: allows the pool status snapshot to include the id so the
+        UI can render the invite URL for any connected connector without requiring
+        a manual Validate step.
+        """
+        return getattr(self._client, "application_id", None)
+
     async def send(
         self,
         target: OutboundTarget,
@@ -486,11 +504,20 @@ class DiscordClient:
                 )
             else:
                 try:
-                    return await self._send_ephemeral_followup(
+                    _ephemeral_result = await self._send_ephemeral_followup(
                         application_id=int(application_id),
                         token=target.interaction_followup_token,
                         content=content,
                     )
+                    log_disposition(
+                        account_id=self._account_id,
+                        channel_id=target.channel_id,
+                        peer_id=None,
+                        kind="outbound",
+                        disposition="ok",
+                        reason="ephemeral_followup",
+                    )
+                    return _ephemeral_result
                 except (
                     discord.errors.NotFound,
                     discord.errors.HTTPException,
@@ -515,18 +542,45 @@ class DiscordClient:
                         # A non-401 HTTPException is a real send failure, not
                         # a token-expiry — surface it via the channel ladder's
                         # mapping rather than silently masking it.
+                        log_disposition(
+                            account_id=self._account_id,
+                            channel_id=target.channel_id,
+                            peer_id=None,
+                            kind="outbound",
+                            disposition="error",
+                            error_type=type(exc).__name__,
+                            reason="ephemeral_followup",
+                        )
                         raise
 
         destination = await self._resolve_destination(target)
 
+        # M11 F17 L1: start latency timer just before the send attempt.
+        _send_t0 = time.monotonic()
         try:
             sent_message = await destination.send(content)
         except discord.errors.Forbidden as exc:
+            log_disposition(
+                account_id=self._account_id,
+                channel_id=target.channel_id,
+                peer_id=None,
+                kind="outbound",
+                disposition="error",
+                error_type="Forbidden",
+            )
             raise ConnectorConfigError(
                 self._account_id,
                 f"Discord bot lacks send permission in channel {target.channel_id}",
             ) from exc
         except discord.errors.NotFound as exc:
+            log_disposition(
+                account_id=self._account_id,
+                channel_id=target.channel_id,
+                peer_id=None,
+                kind="outbound",
+                disposition="error",
+                error_type="NotFound",
+            )
             raise ConnectorConnectionError(
                 f"Discord channel {target.channel_id} not found"
             ) from exc
@@ -545,10 +599,26 @@ class DiscordClient:
                         retry_after_seconds = float(retry_after_raw)
                     except (TypeError, ValueError):
                         retry_after_seconds = None
+                log_disposition(
+                    account_id=self._account_id,
+                    channel_id=target.channel_id,
+                    peer_id=None,
+                    kind="outbound",
+                    disposition="rate_limited",
+                    retry_after=retry_after_seconds,
+                )
                 raise ConnectorRateLimitError(
                     self._account_id,
                     retry_after_seconds=retry_after_seconds,
                 ) from exc
+            log_disposition(
+                account_id=self._account_id,
+                channel_id=target.channel_id,
+                peer_id=None,
+                kind="outbound",
+                disposition="error",
+                error_type=type(exc).__name__,
+            )
             raise ConnectorConnectionError(
                 f"Discord send failed: {exc}"
             ) from exc
@@ -560,6 +630,15 @@ class DiscordClient:
         if sent_message is None:
             raise ConnectorConnectionError("Discord send returned None")
 
+        _send_latency_ms = (time.monotonic() - _send_t0) * 1000.0
+        log_disposition(
+            account_id=self._account_id,
+            channel_id=target.channel_id,
+            peer_id=None,
+            kind="outbound",
+            disposition="ok",
+            latency_ms=_send_latency_ms,
+        )
         return SendResult(
             platform_message_id=str(sent_message.id),
             details={
@@ -767,32 +846,14 @@ class DiscordPlugin:
         """
         token = account.secrets["BOT_TOKEN"]
         intents = discord.Intents.default()
-        # M11 F1 L2: intents flow through ``account.config["intents"]``
-        # with True-fallback defaults. The fallback preserves M10 F8
-        # backward compatibility byte-identically — accounts without
-        # ``config["intents"]`` get all three intents True, matching the
-        # pre-L2 hardcoded behavior. The API-layer validator
-        # (:func:`_validate_connector_config`) gates the shape at
-        # write time, so any malformed ``config["intents"]`` reaching the
-        # plugin originated from a direct DB edit outside the API write
-        # path (the F1 single-user local-tool trust posture treats that
-        # as the operator's problem).
-        intents_cfg = account.config.get("intents", {})
-        intents.message_content = intents_cfg.get("message_content", True)
-        intents.members = intents_cfg.get("members", True)
-        intents.guilds = intents_cfg.get("guilds", True)
-        if intents.message_content is False:
-            # M11 F1 L2 deviation note: the M10 F8 baseline had no log
-            # for disabled intents because they couldn't be disabled
-            # (hardcoded True). The WARNING-log is novel and surfaces
-            # what would otherwise be a silent silence — a bot whose
-            # message_content intent is False reads every channel
-            # message as an empty string with no observable error.
-            logger.warning(
-                "Discord intents.message_content disabled in config for "
-                "account %s; bot will silently receive no channel messages",
-                account.id,
-            )
+        # M11 F17 L6 (Leg B): all three gateway intents are always-on.
+        # ``account.config["intents"]`` is kept in the model for back-compat
+        # but no longer disables any intent. If an intent isn't enabled in
+        # the Discord Developer Portal, ``PrivilegedIntentsRequired`` surfaces
+        # via Leg A's ``_map_connect_error`` → ``/status`` actionable error.
+        intents.message_content = True
+        intents.members = True
+        intents.guilds = True
 
         activity = _build_activity(account.config.get("presence"))
         ready_timeout = float(
@@ -934,6 +995,15 @@ class DiscordPlugin:
                 if getattr(author, "bot", False) and not account.config.get(
                     "ingest_bots", False
                 ):
+                    # M11 F17 L1: debug-level dropped line for bot-author filter.
+                    log_disposition(
+                        account_id=account.id,
+                        channel_id=str(getattr(message.channel, "id", "unknown")),
+                        peer_id=str(getattr(author, "id", "unknown")),
+                        kind="inbound",
+                        disposition="dropped",
+                        reason="bot-author",
+                    )
                     return
 
                 # Defensive self-filter: even with ``ingest_bots=True``,
@@ -946,6 +1016,15 @@ class DiscordPlugin:
                     client.user is not None
                     and getattr(author, "id", None) == client.user.id
                 ):
+                    # M11 F17 L1: debug-level dropped line for self-filter.
+                    log_disposition(
+                        account_id=account.id,
+                        channel_id=str(getattr(message.channel, "id", "unknown")),
+                        peer_id=str(getattr(author, "id", "unknown")),
+                        kind="inbound",
+                        disposition="dropped",
+                        reason="self",
+                    )
                     return
 
                 # Factory access — module-level accessor (M10 F8 L4
@@ -960,6 +1039,15 @@ class DiscordPlugin:
                         "(lifespan startup may not have run); dropping "
                         "inbound for account %s",
                         account.id,
+                    )
+                    # M11 F17 L1: debug-level dropped line for factory-unavailable.
+                    log_disposition(
+                        account_id=account.id,
+                        channel_id=str(getattr(message.channel, "id", "unknown")),
+                        peer_id=str(getattr(author, "id", "unknown")),
+                        kind="inbound",
+                        disposition="dropped",
+                        reason="factory-unavailable",
                     )
                     return
 
@@ -1606,13 +1694,12 @@ class DiscordPlugin:
         of outcome.
         """
         intents = discord.Intents.default()
-        # M11 F2 L5: read intents from per-account config with the same
-        # fallback shape as DiscordPlugin.connect (F1 L2). Default None →
-        # empty dict → all three intents True (M10 F8 byte-identical).
-        cfg = intents_cfg or {}
-        intents.message_content = cfg.get("message_content", True)
-        intents.members = cfg.get("members", True)
-        intents.guilds = cfg.get("guilds", True)
+        # M11 F17 L6 (Leg B): always-on, mirroring connect(). ``intents_cfg``
+        # parameter is retained for call-site back-compat (doctor/Validate
+        # passes it) but no longer drives the intent values.
+        intents.message_content = True
+        intents.members = True
+        intents.guilds = True
 
         client = discord.Client(intents=intents)
         ready_event = asyncio.Event()
@@ -1815,8 +1902,9 @@ class DiscordPlugin:
         if not is_dm:
             return Permit()
         allowlist = account.config.get("allowlist") or {}
-        # M11 F12 L3 — peers stored as structured ``{id, dm_allowed}``
-        # dicts; consume the ``id`` field for membership check.
+        # M11 F17 L4 (v28 migration) — peers stored as bare ``{id}``
+        # dicts (``dm_allowed`` dropped); consume the ``id`` field for
+        # membership check.
         peers = allowlist.get("peers") or []
         if any(p["id"] == envelope.peer_id for p in peers):
             return Permit()

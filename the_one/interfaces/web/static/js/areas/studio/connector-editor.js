@@ -365,6 +365,8 @@
     connectionHtml += '<div class="section-title">Connection</div>';
     connectionHtml += renderConnectionFields(account, types, isCreate);
     if (!isCreate) {
+      // M11 F17 L5: live status indicator row (replaces "Not tested").
+      connectionHtml += renderLiveStatusRow();
       connectionHtml += renderTestConnectionRow();
       // Invite block — registry-mediated (Discord today). Returns
       // wrapper-less content per F5 L2's renderInviteSection contract
@@ -711,6 +713,9 @@
       // section titles (and now this emission order) changed.
       html += '<div role="tabpanel" class="tabpanel" id="' + PANEL_IDS.accessAndRouting +
               '" data-tab-id="access-and-routing" aria-labelledby="connector-tab-access-and-routing" hidden>';
+      // M11 F17 L5: discoverable-entities banner at the TOP of the tab,
+      // relabeled as "Entries last refreshed" (data freshness, not connection).
+      html += renderDiscoverableEntitiesBanner();
       html += runtimeConfigHtml;  // "Discord"
       html += allowlistHtml;       // "Access"
       html += routingHtml;         // "Routing"
@@ -1495,6 +1500,9 @@
       // persisted provider (if any) so the operator sees the model list on
       // initial load.
       wireInferenceModelRepopulate(container, account, checkDirty, recaptureSnapshot);
+
+      // M11 F17 L5: start the live-status poll on editor mount.
+      _wireLiveStatus(container, account);
     }
   }
 
@@ -1997,25 +2005,83 @@
     return html;
   }
 
-  // ── Test Connection footer-row (F5 L2 — MCP-parity placement) ─────
+  // ── Discoverable-entities banner (M11 F17 L5 relocation) ────────────
   //
-  // Returns the Test Connection actions field-row + status banner +
-  // details-wrap as WRAPPER-LESS content (no <div class="editor-section">,
-  // no <div class="section-title">) so the caller can embed it INSIDE
-  // the Connection section. Mirrors mcp-server-editor.js:472-501's
-  // ``<div class="field-row admin-pf-row mcp-test-row">`` placement
-  // inside the MCP Connection section.
+  // Formerly rendered inside the Users allowlist section. Moved to the
+  // TOP of the Access-and-Routing tab so it is clearly a data-freshness
+  // indicator rather than a connection-status indicator. Relabeled from
+  // "Discoverable entities" → "entries last refreshed" per the leg spec.
+  // Testid ``connector-allowlist-banner`` is PRESERVED so ``_wireAllowlistBanner``
+  // and existing browser tests resolve without changes.
+
+  function renderDiscoverableEntitiesBanner() {
+    var html = '';
+    html += '<div class="editor-section connector-discoverable-banner-section">';
+    html += '<div class="field-row admin-pf-row connector-allowlist-banner" ' +
+            'data-testid="connector-allowlist-banner" data-state="pre-probe">';
+    html += '<label>Entries last refreshed</label>';
+    html += '<span class="indicator-led indicator-led--idle ' +
+            'connector-allowlist-banner-led" ' +
+            'data-testid="connector-allowlist-banner-led" ' +
+            'aria-label="Discoverable entities status"></span>';
+    html += '<span class="connector-allowlist-banner-status" ' +
+            'data-testid="connector-allowlist-banner-status" aria-live="polite">' +
+            'Connect to populate the discoverable lists.</span>';
+    html += '<button type="button" class="btn-outlined-primary ' +
+            'connector-allowlist-banner-refresh" ' +
+            'data-testid="connector-allowlist-banner-refresh">Refresh</button>';
+    html += '</div>';
+    html += '</div>';
+    return html;
+  }
+
+  // ── Live connection-status indicator (M11 F17 L5) ───────────────────
   //
-  // The status banner + details-wrap live as SIBLINGS to the field-row
-  // (not nested inside it) because they're full-width conditional
-  // panels that don't fit the 2-column field-row shape. The Connection
-  // section's <div class="editor-section"> is their visual container.
+  // Replaces the old hardcoded "Not tested" indicator. Returns a
+  // field-row that renders the live status driven by polling
+  // ``GET /api/connectors/{id}/status`` every 2–5s. The poll starts on
+  // editor mount (``_wireLiveStatus``) and stops when the element is
+  // removed from the DOM (``isConnected`` guard, mirroring the
+  // allowlist-banner's pool-warm-handler pattern).
   //
-  // All data-testids preserved byte-identical from the pre-L2
-  // standalone-section shape — the click-handler at
-  // connector-editor.js:~1177-1182 looks up
-  // ``[data-testid="connector-test-connection-btn"]`` and resolves it
-  // regardless of DOM position.
+  // States: connected | connecting | disconnected | error
+  // Non-alarming copy for the intended-cold "no attached agent" case
+  // (state=disconnected, no error) — shown as "Disconnected".
+  // Error state surfaces ``last_error`` + optional ``last_error_link``.
+  //
+  // data-testids added (referenced by behavior test connector-editor-ux.md):
+  //   connector-live-status       — the status text span (steps 1/2/8)
+  //   connector-live-status-error — the error message span (step 8)
+  //   connector-live-status-error-link — the error action link (step 8)
+
+  function renderLiveStatusRow() {
+    var html = '';
+    html += '<div class="field-row admin-pf-row connector-live-status-row">';
+    html += '<label>Connection</label>';
+    html += '<div class="connector-live-status-wrap">';
+    html += '<span class="indicator-led indicator-led--idle connector-live-status-led" ' +
+            'aria-label="Status unknown" data-state="unknown"></span>';
+    html += '<span class="connector-live-status-text" ' +
+            'data-testid="connector-live-status">Checking…</span>';
+    html += '</div>';
+    html += '</div>';
+    html += '<div class="connector-live-status-error-wrap" ' +
+            'data-testid="connector-live-status-error-wrap" hidden>';
+    html += '<span class="connector-live-status-error" ' +
+            'data-testid="connector-live-status-error"></span>';
+    html += '<a class="connector-live-status-error-link" ' +
+            'data-testid="connector-live-status-error-link" ' +
+            'target="_blank" rel="noopener noreferrer" hidden></a>';
+    html += '</div>';
+    return html;
+  }
+
+  // ── Validate (doctor probe) footer-row (formerly "Test Connection") ──
+  //
+  // Relabeled to "Validate" per M11 F17 L5 design decision. The button
+  // testid ``connector-test-connection-btn`` is PRESERVED byte-for-byte
+  // so existing browser tests continue to resolve. Only the visible
+  // button label text changes.
 
   function renderTestConnectionRow() {
     var html = '';
@@ -2023,9 +2089,9 @@
     html += '<label></label>';
     html += '<div class="connector-test-actions">';
     html += '<button type="button" class="btn-outlined-primary connector-test-connection-btn" data-testid="connector-test-connection-btn">' +
-            window.App.icon('refresh-cw') + ' Test connection</button>';
+            window.App.icon('refresh-cw') + ' Validate</button>';
     html += '<span class="indicator-led indicator-led--idle connector-test-led" data-testid="connector-test-led" data-state="idle" aria-label="Not tested"></span>';
-    html += '<span class="connector-test-message" data-testid="connector-test-message">Not tested</span>';
+    html += '<span class="connector-test-message" data-testid="connector-test-message"></span>';
     html += '</div>';
     html += '</div>';
     html += '<div class="connector-test-details-wrap" data-testid="connector-test-details-wrap" hidden>' +
@@ -2159,46 +2225,17 @@
             'connector-allowlist-section--users">';
     // F5 L6 HAT R4: renamed "Account-scope allowlist" → "Access" with
     // a friendly description. L5 cycle 5: "Access" → "Users".
-    html += '<div class="section-title">Users</div>';
-    html += '<div class="section-description">Who can talk to the bot.</div>';
+    // M11 F17 L8 (Leg D): "Users" → "Direct Messages" (peers axis is
+    // DM-only post-F16; relabel matches the actual function).
+    html += '<div class="section-title">Direct Messages</div>';
+    html += '<div class="section-description">Who can DM the bot.</div>';
 
-    // F5 L6 HAT R5: section-level discoverable-entities banner.
-    // Per-axis Refresh buttons + per-axis pre-probe hints removed from
-    // ``discoverable-dropdown.js`` in the same round; this banner is
-    // the single surface that communicates pool-warm status AND
-    // exposes the manual Refresh affordance. Two states:
-    //   pre-probe (no cached entities yet): muted hint text + Refresh
-    //     button hidden until the pool warms.
-    //   populated (cached entities present): "Last refreshed: {when}"
-    //     + visible Refresh button.
-    // The Refresh button dispatches the
-    // ``connector-discoverable-refresh-requested`` event on
-    // document with {accountId} detail; all 4 mounted dropdowns listen
-    // and re-fetch on a matching event. Initial state is the
-    // pessimistic "pre-probe" pose — ``wireAllowlistBanner`` then
-    // pings the L4 GET endpoint once on mount to flip to the
-    // populated state if the pool was warmed by lifespan startup /
-    // a prior Test Connection.
-    //
-    // L5 cycle 5 placement: the banner stays in the USERS section
-    // because pool-warm status feeds BOTH axes (users + servers) and
-    // duplicating it would dilute the operator's mental model. The
-    // cheapest move is to leave it at the top of the first allowlist
-    // section.
-    html += '<div class="field-row admin-pf-row connector-allowlist-banner" ' +
-            'data-testid="connector-allowlist-banner" data-state="pre-probe">';
-    html += '<label>Discoverable entities</label>';
-    html += '<span class="indicator-led indicator-led--idle ' +
-            'connector-allowlist-banner-led" ' +
-            'data-testid="connector-allowlist-banner-led" ' +
-            'aria-label="Pool status"></span>';
-    html += '<span class="connector-allowlist-banner-status" ' +
-            'data-testid="connector-allowlist-banner-status" aria-live="polite">' +
-            'Refresh connection to populate the discoverable lists.</span>';
-    html += '<button type="button" class="btn-outlined-primary ' +
-            'connector-allowlist-banner-refresh" ' +
-            'data-testid="connector-allowlist-banner-refresh">Refresh</button>';
-    html += '</div>';
+    // M11 F17 L5: discoverable-entities banner moved to the TOP of the
+    // Access-and-Routing tab (rendered by renderDiscoverableEntitiesBanner
+    // and prepended to the tab panel by renderConnectorEditor). Removed
+    // from this section to avoid duplication. The ``connector-allowlist-banner``
+    // testid and wiring are unchanged; _wireAllowlistBanner resolves by
+    // testid so it works from the new location.
 
     html += '<div class="connector-allowlist-lists" ' +
             'data-testid="connector-allowlist-lists">';
@@ -2216,9 +2253,11 @@
     // ``dm-admission-admin-approved`` state class that gates the
     // per-peer DM toggles; that wiring is order-agnostic (queries by
     // testid) so the swap is purely visual.
-    var dmAdmissionTipText = 'DMs (direct messages to the bot) are ' +
-        'admitted independently of channel restrictions. Approved ' +
-        'peers are those on the Users allowlist below.';
+    // M11 F17 L8 (Leg D): relabeled — section is now "Direct Messages";
+    // tooltip updated to match new 3-mode policy copy.
+    var dmAdmissionTipText = 'Controls who can send direct messages to ' +
+        'the bot. "Only these people" admits peers on the Direct ' +
+        'Messages list below.';
     // M11 F12 L4 — Literal value rename ``allowlisted-peers-only`` →
     // ``admin-approved`` (operator-vocabulary alignment per F12 L3).
     var currentDmAdmission = (account && account.config && account.config.allowlist &&
@@ -2236,13 +2275,15 @@
     html += '<select id="connector-allowlist-dm-admission-select" ' +
             'class="field-input admin-pf-input" ' +
             'data-testid="connector-allowlist-dm-admission-select">';
+    // M11 F17 L8 (Leg D): relabeled dm_admission options to plain-
+    // language copy. Values unchanged; only display text updated.
     html += '<option value="none"' +
-            (currentDmAdmission === 'none' ? ' selected' : '') + '>Deny all DMs</option>';
+            (currentDmAdmission === 'none' ? ' selected' : '') + '>No one</option>';
     html += '<option value="admin-approved"' +
             (currentDmAdmission === 'admin-approved' ? ' selected' : '') +
-            '>Admin-approved (per-peer)</option>';
+            '>Only these people</option>';
     html += '<option value="all"' +
-            (currentDmAdmission === 'all' ? ' selected' : '') + '>Admit all DMs</option>';
+            (currentDmAdmission === 'all' ? ' selected' : '') + '>Anyone</option>';
     html += '</select>';
     html += '</div>';
 
@@ -3589,7 +3630,8 @@
     // legacy indicator on the chip post-mount).
     var s = (id == null) ? '' : String(id);
     if (!s) return null;
-    if (storageAxis === 'peers') return { id: s, dm_allowed: false };
+    // M11 F17 L8 (Leg D): bare ``{id}`` — dm_allowed retired at v28.
+    if (storageAxis === 'peers') return { id: s };
     if (storageAxis === 'channels') return { guild_id: null, channel_id: s };
     if (storageAxis === 'roles') return { guild_id: null, role_id: s };
     return s;
@@ -4400,6 +4442,126 @@
   // (with a small delay) to refresh the banner's "Last refreshed"
   // timestamp; the dropdowns' own POST to /refresh updates the cache
   // and the subsequent GET reads the new timestamp.
+
+  // M11 F17 L5: live status poll wiring.
+  //
+  // Polls ``GET /api/connectors/{id}/status`` every 3s (between 2–5s
+  // per the design decision). Stops when the status indicator element
+  // is removed from the DOM (``isConnected`` guard, mirroring the
+  // allowlist banner's poolWarmedHandler pattern).
+  //
+  // State → LED class / label mapping:
+  //   connected    → indicator-led--success / "Connected"
+  //   connecting   → indicator-led--idle    / "Connecting…"
+  //   disconnected → indicator-led--idle    / "Disconnected"
+  //   error        → indicator-led--danger  / "Error"
+  //
+  // On error, the ``connector-live-status-error`` span receives the
+  // ``last_error`` message and ``connector-live-status-error-link``
+  // renders a clickable portal link (hidden when ``last_error_link``
+  // is null).
+  function _wireLiveStatus(container, account) {
+    if (!container || !account || !account.id) return;
+    var led = container.querySelector('.connector-live-status-led');
+    var textEl = container.querySelector('[data-testid="connector-live-status"]');
+    var errorWrap = container.querySelector('[data-testid="connector-live-status-error-wrap"]');
+    var errorEl = container.querySelector('[data-testid="connector-live-status-error"]');
+    var errorLink = container.querySelector('[data-testid="connector-live-status-error-link"]');
+    if (!textEl) return;
+
+    var _POLL_INTERVAL_MS = 3000;
+    var _pollTimer = null;
+
+    function _updateLed(state) {
+      if (!led) return;
+      led.classList.remove(
+        'indicator-led--success',
+        'indicator-led--warning',
+        'indicator-led--danger',
+        'indicator-led--idle'
+      );
+      if (state === 'connected') {
+        led.classList.add('indicator-led--success');
+      } else if (state === 'error') {
+        led.classList.add('indicator-led--danger');
+      } else {
+        led.classList.add('indicator-led--idle');
+      }
+      led.setAttribute('data-state', state);
+      led.setAttribute('aria-label', _stateLabel(state));
+    }
+
+    function _stateLabel(state) {
+      if (state === 'connected') return 'Connected';
+      if (state === 'connecting') return 'Connecting';
+      if (state === 'error') return 'Error';
+      return 'Disconnected';
+    }
+
+    function _stateText(state) {
+      if (state === 'connected') return 'Connected';
+      if (state === 'connecting') return 'Connecting…';
+      if (state === 'error') return 'Error';
+      return 'Disconnected';
+    }
+
+    function _applyStatus(body) {
+      var state = (body && body.state) || 'disconnected';
+      _updateLed(state);
+      textEl.textContent = _stateText(state);
+      if (state === 'error' && body.last_error) {
+        if (errorEl) errorEl.textContent = body.last_error;
+        if (errorLink) {
+          if (body.last_error_link) {
+            errorLink.href = body.last_error_link;
+            errorLink.textContent = 'Fix in Developer Portal';
+            errorLink.removeAttribute('hidden');
+          } else {
+            errorLink.setAttribute('hidden', '');
+          }
+        }
+        if (errorWrap) errorWrap.removeAttribute('hidden');
+      } else {
+        if (errorWrap) errorWrap.setAttribute('hidden', '');
+      }
+      // M11 F17 L5 fix: when the status poll returns an application_id for a
+      // connected connector, seed the Discord invite-section cache so the invite
+      // URL renders without a manual Validate step. No-op when the Discord
+      // namespace is absent (non-Discord connectors, early-load race) or when
+      // application_id is null (disconnected / connecting / non-Discord client).
+      var appId = body && body.application_id;
+      if (appId && account && account.id &&
+          window.App && window.App.studio && window.App.studio.connectorFormDiscord &&
+          typeof window.App.studio.connectorFormDiscord.setApplicationId === 'function') {
+        window.App.studio.connectorFormDiscord.setApplicationId(account.id, appId);
+      }
+    }
+
+    function _poll() {
+      if (!textEl.isConnected) {
+        // Element removed — editor unmounted. Stop polling.
+        if (_pollTimer) clearTimeout(_pollTimer);
+        return;
+      }
+      var url = '/api/connectors/' + encodeURIComponent(account.id) + '/status';
+      fetch(url).then(function (resp) {
+        if (!resp.ok) return null;
+        return resp.json();
+      }).then(function (body) {
+        if (!textEl.isConnected) return;
+        if (body) _applyStatus(body);
+        _pollTimer = setTimeout(_poll, _POLL_INTERVAL_MS);
+      }).catch(function () {
+        if (!textEl.isConnected) return;
+        // On network error keep the last state and retry.
+        _pollTimer = setTimeout(_poll, _POLL_INTERVAL_MS);
+      });
+    }
+
+    // Initial fetch immediately on mount.
+    _poll();
+  }
+
   function _wireAllowlistBanner(container, account) {
     if (!container || !account || !account.id) return;
     var banner = container.querySelector('[data-testid="connector-allowlist-banner"]');

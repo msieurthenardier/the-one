@@ -755,7 +755,33 @@ App.registerArea({
         // first user input.
         dirty = false;
         var ready = connectorTypesReady || fetchConnectorTypes();
-        ready.then(function () {
+        // F4 follow-up: re-fetch the connector on editor entry so the editor
+        // always reflects current backend state (peers, dm_admission, etc.)
+        // rather than the cached list entry. Covers the case where a peer was
+        // approved while the editor was open or the user navigates back to the
+        // same connector after an out-of-band change. Falls back to the cached
+        // editingConnector on any fetch error so the UX degrades gracefully.
+        var freshConnectorReady = (connectorFormMode === 'edit' && editingConnector && editingConnector.id)
+          ? fetch('/api/connectors/' + encodeURIComponent(editingConnector.id))
+              .then(function (r) { return r.ok ? r.json() : null; })
+              .then(function (fresh) {
+                if (fresh && fresh.id) {
+                  editingConnector = fresh;
+                  // Patch the list cache so the grid tile reflects the
+                  // refreshed state if the operator clicks Back.
+                  if (connectors) {
+                    for (var _ci = 0; _ci < connectors.length; _ci++) {
+                      if (connectors[_ci].id === fresh.id) {
+                        connectors[_ci] = fresh;
+                        break;
+                      }
+                    }
+                  }
+                }
+              })
+              .catch(function () { /* network error — use cached editingConnector */ })
+          : Promise.resolve();
+        Promise.all([ready, freshConnectorReady]).then(function () {
           // Re-check formMode at resolution time — operator may have
           // navigated away mid-fetch.
           if (connectorFormMode == null || self._activeSection !== 'connectors') return;
@@ -2115,11 +2141,11 @@ App.registerArea({
 
         // M11 F12 L4 — per-agent peers/channels persist in the
         // structured-tuple shape mirroring account-scope storage:
-        //   peers    → ``[{id, dm_allowed: true}]`` (per-agent
-        //               dm_allowed is structurally uniform but NOT
-        //               consulted by ACL per the F12 L3 Truth Table;
-        //               defaults to ``true`` so it never spuriously
-        //               denies a DM the account-scope already admitted)
+        //   peers    → ``[{id}]`` bare dicts (post-v28 M11 F17 L8
+        //               Leg D; dm_allowed retired — per-agent peers
+        //               never carried it post-v26 either; the latent
+        //               bug here emitted it with value true which the
+        //               post-v26 Pydantic validator rejects).
         //   channels → ``[{guild_id, channel_id}]`` (guild_id sourced
         //               from the per-channel-id lookup map on the
         //               checkbox wrapper, ``data-channel-guild-id-map``
@@ -2130,7 +2156,7 @@ App.registerArea({
           var s = (id == null) ? '' : String(id);
           if (!s) return null;
           if (axisListKind === 'peers') {
-            return { id: s, dm_allowed: true };
+            return { id: s };
           }
           if (axisListKind === 'channels') {
             var g = null;

@@ -243,6 +243,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await _connector_pool_shutdown_drain()
     except Exception:
         logger.exception("connector pool shutdown failed")
+    # M11 F17: drain in-flight save-warm background tasks after the
+    # connector pool is drained. Mirrors the _inflight_resume_tasks drain
+    # above. Save-warm tasks write to _connect_error_store and then
+    # exit; letting them finish (or cancelling them if they stall) avoids
+    # orphaned tasks at process shutdown.
+    from the_one.interfaces.web.api import _inflight_save_warm_tasks
+
+    for task in list(_inflight_save_warm_tasks):
+        task.cancel()
+    if _inflight_save_warm_tasks:
+        with contextlib.suppress(Exception):
+            await asyncio.gather(*list(_inflight_save_warm_tasks), return_exceptions=True)
     # F5 L2: stop the OAuth pending-flow TTL sweep task. Runs AFTER the
     # MCP pool drain so any in-flight OAuth refreshes triggered by
     # pool teardown can complete first.

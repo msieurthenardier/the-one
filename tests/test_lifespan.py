@@ -384,3 +384,87 @@ async def test_lifespan_does_not_warn_when_inference_env_vars_unset(
         "env vars are unset; saw "
         f"{[r.getMessage() for r in matching]}"
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# M11 F17 L4 — (B-boot) boot warm-up: connector WITH attached agent is acquired
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+async def test_lifespan_warms_connector_with_attached_agent(
+    _isolated_data_dir,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """M11 F17 L4 (B-boot): a connector account WITH ≥1 attached agent
+    is warm-acquired via ``account_acquire`` at lifespan startup — the
+    gateway connects automatically, no manual Test Connection required.
+
+    Focuses specifically on the ≥1-attached-agent criterion that drives
+    the lifespan warmup policy (``app.py:152-158``): the acquire fires
+    for this connector because an agent is attached.
+    """
+    from the_one.agent.config import AgentConfig
+    from the_one.connectors import _pool as pool_mod
+    from the_one.connectors._stub import StubPlugin
+    from the_one.connectors.registry import register_for_test
+    from the_one.db.connection import get_connection
+    from the_one.db.models import Connector, LLMProviderConfig
+    from the_one.db.repositories import (
+        ConnectorRepository,
+        LLMProviderRepository,
+        SQLiteAgentStore,
+    )
+    from the_one.db.schema import ensure_schema
+    from the_one.encryption import get_encryptor
+    from the_one.config import settings as _settings
+
+    register_for_test("stub", StubPlugin)
+    StubPlugin.reset_for_test()
+
+    conn = await get_connection()
+    await ensure_schema(conn)
+    encryptor = get_encryptor(_settings.data_dir)
+
+    # Seed one connector account.
+    acc_repo = ConnectorRepository(conn, encryptor)
+    await acc_repo.create(
+        Connector(
+            id="acct-boot",
+            name="Boot Account",
+            type="stub",
+            config={},
+            secrets={},
+        )
+    )
+    # Seed provider + one attached agent.
+    provider_repo = LLMProviderRepository(conn, encryptor)
+    await provider_repo.create(
+        LLMProviderConfig(
+            id="mock-boot-provider",
+            name="Mock Boot Provider",
+            type="mock",
+            base_url="",
+            config={"response": {"content": "ok"}},
+        )
+    )
+    agent_store = SQLiteAgentStore(conn)
+    await agent_store.save(
+        AgentConfig(
+            name="boot-agent",
+            provider_config_id="mock-boot-provider",
+            llm_model="mock-default",
+            connector_ids=["acct-boot"],
+        )
+    )
+
+    from the_one.interfaces.web.app import app, lifespan
+
+    async with lifespan(app):
+        # The account-keyed sentinel entry must be warm after startup.
+        account_key = (pool_mod._ACCOUNT_POOL_AGENT_SLOT, "acct-boot")
+        assert account_key in pool_mod._pool, (
+            "Expected warm pool entry for connector with attached agent; "
+            f"pool keys = {list(pool_mod._pool.keys())}"
+        )
+        entry = pool_mod._pool[account_key]
+        assert entry.client is not None, "Entry client must be populated (gateway connected)"

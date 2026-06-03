@@ -351,28 +351,35 @@ class Connector(BaseModel):
                     f"config['allowlist'] is missing required keys: {sorted(missing)}"
                 )
 
-            # M11 F12 L3 — peers axis: list[{id: str, dm_allowed: bool}].
+            # M11 F17 L8 (Leg D) — peers axis: list[{id: str}] bare dicts.
+            # Post-v28 the per-peer ``dm_allowed`` flag is dropped;
+            # in-list == can-DM under ``dm_admission="admin-approved"``.
+            # The required key set is now just ``{"id"}``; extra keys
+            # are still rejected so callers get clear errors on
+            # stale-shape data. (``dm_allowed`` entries still in storage
+            # pre-v28 are stripped by the v28 migration; the read path
+            # here is strict post-migration.)
             peers_entries = allowlist["peers"]
             if not isinstance(peers_entries, list):
                 raise ValueError(
                     "config['allowlist']['peers'] must be a list of "
-                    "{id, dm_allowed} dicts"
+                    "{id} dicts"
                 )
             for i, item in enumerate(peers_entries):
                 if not isinstance(item, dict):
                     raise ValueError(
                         f"config['allowlist']['peers'][{i}] must be a "
-                        f"dict with keys {{'id', 'dm_allowed'}}; got "
+                        f"dict with key 'id'; got "
                         f"{type(item).__name__}"
                     )
                 item_keys = set(item.keys())
-                extra_keys = item_keys - {"id", "dm_allowed"}
+                extra_keys = item_keys - {"id"}
                 if extra_keys:
                     raise ValueError(
                         f"config['allowlist']['peers'][{i}] has "
                         f"unexpected keys: {sorted(extra_keys)}"
                     )
-                missing_keys = {"id", "dm_allowed"} - item_keys
+                missing_keys = {"id"} - item_keys
                 if missing_keys:
                     raise ValueError(
                         f"config['allowlist']['peers'][{i}] is missing "
@@ -382,12 +389,6 @@ class Connector(BaseModel):
                     raise ValueError(
                         f"config['allowlist']['peers'][{i}]['id'] must "
                         f"be a string; got {type(item['id']).__name__}"
-                    )
-                if not isinstance(item["dm_allowed"], bool):
-                    raise ValueError(
-                        f"config['allowlist']['peers'][{i}]"
-                        f"['dm_allowed'] must be a bool; got "
-                        f"{type(item['dm_allowed']).__name__}"
                     )
 
             # M11 F12 L5 — channels axis:
@@ -691,6 +692,18 @@ class PendingApproval(BaseModel):
     received_at: str = Field(default_factory=now_iso)
     status: Literal["pending", "approved", "dismissed"] = "pending"
     resolved_at: str | None = None
+    # v29 replay-context fields (M11 F17 L10 — Leg F).
+    # All nullable for back-compat with pre-v29 rows (legacy path).
+    original_message: str | None = None
+    """The full inbound text (NOT the truncated ``preview``). Used to
+    reconstruct the ``InboundEnvelope`` at approval-replay time."""
+    channel_id: str | None = None
+    """The DM channel id from the original inbound envelope."""
+    thread_id: str | None = None
+    """The thread id from the original inbound envelope (None for top-level
+    DM messages)."""
+    is_dm: bool | None = None
+    """True when the original message was a direct message."""
 
 
 class ToolConfig(BaseModel):

@@ -481,12 +481,13 @@ async def test_intent_construction(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 async def test_intents_from_config_honored(monkeypatch: pytest.MonkeyPatch) -> None:
-    """``account.config['intents']`` drives the three intent flags.
+    """All three gateway intents are always-on regardless of config["intents"].
 
-    M11 F1 L2: with the hardcoded ``= True`` literals replaced by
-    config-driven reads, an explicit ``config['intents']`` block flows
-    through unchanged. Here ``message_content`` is explicitly disabled —
-    the plugin must surface that as ``False`` on the client.
+    M11 F17 L6 (Leg B): the config-driven intent knob is removed. Even with
+    ``config["intents"]`` disabling message_content, the constructed
+    ``discord.Client`` must have all three intents True — the backend always
+    requests the full privileged-intent set; PrivilegedIntentsRequired from
+    the portal surfaces via Leg A's connect-error path.
     """
     _patch_discord(monkeypatch)
     encryptor = _make_encryptor()
@@ -499,7 +500,8 @@ async def test_intents_from_config_honored(monkeypatch: pytest.MonkeyPatch) -> N
     client = await plugin.connect(account, encryptor)
     try:
         intents = client._intents
-        assert intents.message_content is False
+        # All three must be True regardless of the config["intents"] value.
+        assert intents.message_content is True
         assert intents.members is True
         assert intents.guilds is True
     finally:
@@ -510,13 +512,12 @@ async def test_intents_from_config_honored(monkeypatch: pytest.MonkeyPatch) -> N
 async def test_probe_gateway_intents_from_config_honored(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """M11 F2 L5: probe reads intents from ``intents_cfg`` with fallback.
+    """Probe always requests all three intents regardless of intents_cfg.
 
-    Mirrors :func:`test_intents_from_config_honored` (F1 L2) but on the
-    doctor's gateway-connect smoke-test path. With ``message_content``
-    explicitly disabled, the probe's underlying ``discord.Client`` must
-    surface that as ``False`` — closing the F1 L2 known gap where the
-    probe used hardcoded all-True intents.
+    M11 F17 L6 (Leg B): mirrors :func:`test_intents_from_config_honored` on
+    the doctor/Validate gateway-probe path. Even with ``message_content``
+    explicitly disabled in ``intents_cfg``, the probe's underlying
+    ``discord.Client`` must have all three True.
     """
     _patch_discord(monkeypatch)
     intents_cfg = {"message_content": False, "members": True, "guilds": True}
@@ -525,7 +526,8 @@ async def test_probe_gateway_intents_from_config_honored(
     )
     # Most recently constructed stub client carries the intents.
     last_intents = _StubDiscordClient.instances[-1].intents
-    assert last_intents.message_content is False
+    # All three must be True regardless of the intents_cfg value.
+    assert last_intents.message_content is True
     assert last_intents.members is True
     assert last_intents.guilds is True
 
@@ -1382,12 +1384,12 @@ def _resolve_test_account(
     if allowlist_missing:
         config: dict[str, Any] = {}
     else:
-        # M11 F12 L3 — peers stored as structured ``{id, dm_allowed}``
-        # dicts; the resolver hook reads only the ``id`` field.
+        # M11 F17 L8 (Leg D) — peers stored as bare ``{id}`` dicts
+        # post-v28; the resolver hook reads only the ``id`` field.
         config = {
             "allowlist": {
                 "peers": [
-                    {"id": peer_id, "dm_allowed": True}
+                    {"id": peer_id}
                     for peer_id in (allowlist_peers or [])
                 ],
                 "channels": [],

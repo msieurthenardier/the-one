@@ -414,9 +414,9 @@ Citation: F10 L1 introduced the inversion at `the_one/connectors/_acl.py:admits_
 
 The account-scope `config["allowlist"]["peers"]` axis gates **DM admission ONLY**. It is consulted exclusively in `_admits_inbound_dm` (the `is_dm=True` branch of `admits_inbound`) and **NEVER** in `_admits_inbound_guild` — it does NOT gate guild-channel admission. The guild-context path's account-scope gating is the `channels` / `guilds` / `roles` axes only. This asymmetry is **permanent and intended**: the same-named per-agent `connector_acls[account_id]["peers"]` axis is a *different thing* — a **guild-channel routing-narrowing** modifier (the F15 L4 feature), unchanged by this flight and still consulted in both the DM and guild branches at per-agent scope. Do NOT collapse the two same-named axes back together; do NOT reintroduce an account-scope `peers` check into the guild path.
 
-Rationale / lineage: the account-scope `peers` axis began (F6) as a generic peer allowlist that gated both DM and guild admission. F9/F10 split DM admission out (the `dm_admission` axis + per-peer `dm_allowed`), and F12 gave `peers` its structured `{id, dm_allowed}` account-scope shape — at which point the per-peer `dm_allowed` toggle made the axis intrinsically DM-flavored. The F15 L7 HAT finding ("Pairing-approval collapses the open peers axis → connector locked to one peer") exposed the leak: pairing-approval would write the approved peer into account-scope `peers`, and because the guild path still consulted that axis, the connector silently locked to one peer for guild messages too. F16 L1 removed the account-scope `peers` consult from `_admits_inbound_guild`, making the axis DM-only.
+Rationale / lineage: the account-scope `peers` axis began (F6) as a generic peer allowlist that gated both DM and guild admission. F9/F10 split DM admission out (the `dm_admission` axis + per-peer `dm_allowed`), and F12 gave `peers` its structured `{id, dm_allowed}` account-scope shape — at which point the per-peer `dm_allowed` toggle made the axis intrinsically DM-flavored. The F15 L7 HAT finding ("Pairing-approval collapses the open peers axis → connector locked to one peer") exposed the leak: pairing-approval would write the approved peer into account-scope `peers`, and because the guild path still consulted that axis, the connector silently locked to one peer for guild messages too. F16 L1 removed the account-scope `peers` consult from `_admits_inbound_guild`, making the axis DM-only. F17 L8 (Leg D) retired the per-peer `dm_allowed` flag entirely: v28 migration rewrites `{id, dm_allowed}` → bare `{id}` (in-list == can-DM); `_admits_inbound_dm` gates on `dm_admission` first with `"all"` skipping the peers-axis check entirely; approved peers are now immediately DM-admitted under `admin-approved`. The account-scope peers shape is now **`list[{id: str}]` bare dicts** (parallel to the post-v26 per-agent shape).
 
-Citation: `the_one/connectors/_acl.py` — `_admits_inbound_dm` consults account-scope `peers`; `_admits_inbound_guild` does NOT (the M11 F16 L1 carve-out, with the load-bearing comment at its account-scope block). Pinned by `tests/test_connectors_acl.py` (the F16 L1 inverted/new assertions that a non-allowlisted peer is admitted on the guild path while still denied on the DM path). Lineage: F9/F10 (DM-admission split) → F12 (structured `{id, dm_allowed}` shape) → F15 L4 (per-agent peers routing-narrowing, the axis that stays) / L7 (the lock-out finding) → F16 (this carve-out).
+Citation: `the_one/connectors/_acl.py` — `_admits_inbound_dm` consults account-scope `peers` (bare `{id}` post-v28); `_admits_inbound_guild` does NOT (the M11 F16 L1 carve-out). Pinned by `tests/test_connectors_acl.py` (F16 L1 inverted assertions + F17 L8 simplified 6-cell matrix + `test_f3a_approve_peer_then_dm_is_admitted` regression net). Lineage: F9/F10 (DM-admission split) → F12 (`{id, dm_allowed}` shape) → F15 L4 (per-agent peers routing-narrowing) / L7 (lock-out finding) → F16 (DM-only carve-out) → F17 L8 (dm_allowed retired; in-list == can-DM; approve-flow fix).
 
 ### `backend-merged-replay`
 
@@ -521,6 +521,27 @@ The discipline is operational, not aesthetic: the next time the operator asks "w
 Citation: F13 L5's `session_metadata["routing"]` inspector panel earned its keep at F13 L6 HAT within hours of landing — when `/agents` returned "No agents available", the routing-audit panel's `disposition: command-intercepted` + `agent: Sonos Agent` entry told the operator in one look that the dispatcher path was healthy and the bug was in the command handler's secondary admission re-check. Without the panel, isolating Bug D to `_commands.py:_permitted_agents` would have required DB introspection or log digging. The L5 leg was scoped specifically for this use case, and it delivered on its first real bug.
 
 Source: M11 F13 L5 + F13 L6 HAT operational validation; codified at F13 debrief.
+
+### `connector-disposition-observability`
+
+The Discord connector (and any future connector) emits one structured stdout log line per inbound decision and per outbound send via a **single shared helper** (`the_one/connectors/_observability.py:log_disposition`). The helper owns the disposition vocabulary so it cannot drift between call sites.
+
+**Inbound vocabulary** (aligns to DB `session_metadata["audit"]`/`["routing"]` values for grep-correlation):
+`stepped | command-intercepted | no-eligible | policy-silent | denied | dropped`
+
+**Outbound vocabulary**: `ok | rate_limited | error`
+
+**Grep target for soak evidence**:
+```
+docker logs the-one | grep -E 'connector\.(inbound|outbound)'
+```
+Every inbound message accounts for exactly one `connector.inbound … disposition=…` line; outbound sends for `connector.outbound … disposition=…`. `disposition=dropped` is DEBUG-level (raise log verbosity to see bot-author/self/factory-unavailable noise filters).
+
+**Per-account counters**: `_RegistryEntry.inbound_counters` / `outbound_counters` (`dict[str,int]`) increment best-effort via `record_disposition(account_id, kind, disposition)` in `_pool.py`. Counters reset on pool eviction (accepted — they measure "since the current entry warmed"). Read via `GET /api/connectors/{id}/disposition-counters` → `{warm, inbound, outbound}`.
+
+**Content/token invariant**: `log_disposition` has no `content` or `token` parameter — callers pass ids, dispositions, reasons, and numeric values ONLY. Enforced structurally.
+
+Source: M11 F17 L1.
 
 ### `consumer-callsite-audit-on-public-api-signature-widening`
 
@@ -824,7 +845,9 @@ Carry-forward items future flights must respect or close:
 
 - **Deferred shared-pool extraction**. `connectors/_pool.py` duplicates ~300 LoC of structural lifecycle machinery from `mcp/_pool.py`. M07's `_shutting_down` test-isolation debt remains in MCP; the connector pool ships with the fix from day one. Extraction trigger: a third **network-keyed** pool (see "Parallel-pool-not-shared decision" above for the PTY-exclusion rationale — process-lifecycle-keyed pools do not count). When a third network-keyed peer emerges, extracting `AsyncConnectionPool[T, K]` and retrofitting both pools becomes mandatory rather than optional.
 
-- **Flight 3 ratified `last_activity` tracking via acquire-per-inbound** (M10 F03 L04). `connectors/_pool.py:_RegistryEntry.last_activity` is updated by `acquire()` on every call (warm and cold paths converge — see `_pool.py:479`). The reaper consumes this value to decide eviction. The dispatcher at `connectors/_inbound.py:dispatch_inbound` calls `acquire(agent_name, account_id)` per inbound envelope — `last_activity` is touched per inbound, NOT per session-key resolution or per agent.step iteration. This is the contract: any future code path that bypasses the pool (e.g. caches a `ConnectorClient` reference outside the pool) is responsible for re-touching `last_activity` itself OR for accepting that the reaper may evict actively-used gateway connections.
+- **Flight 3 ratified `last_activity` tracking via acquire-per-inbound** (M10 F03 L04). `connectors/_pool.py:_RegistryEntry.last_activity` is updated by `acquire()` on every call (warm and cold paths converge — see `_pool.py`). The reaper consumes this value to decide eviction. The dispatcher at `connectors/_inbound.py:dispatch_inbound` calls `acquire(agent_name, account_id)` per inbound envelope — `last_activity` is touched per inbound, NOT per session-key resolution or per agent.step iteration. This is the contract: any future code path that bypasses the pool (e.g. caches a `ConnectorClient` reference outside the pool) is responsible for re-touching `last_activity` itself OR for accepting that the reaper may evict actively-used gateway connections.
+
+- **Gateway-listener entries are idle-reap-exempt by slot kind** (M11 F17 L4). Account-keyed pool entries (`key[0] == _ACCOUNT_POOL_AGENT_SLOT`) whose client `is_alive()` are **never evicted by the idle-TTL sweep** in `_reap_once`. The idle-TTL / `last_activity` mechanism applies only to per-agent `agent_acquire` entries (outbound MCP-style clients). The rationale: a gateway listener is a persistent subscription, not an idle resource — evicting it after 30 min of silence is the wrong model. A dead-listener sweep (second pass in `_reap_once`) evicts account-keyed entries whose `is_alive()` is False and schedules them for immediate `account_acquire` rewarm via `_rewarm_dead_listeners` in `_reap_loop`, so the bot self-heals within one reaper interval (~30s) with no operator action. Non-Discord plugins without `is_alive()` fall into the dead-listener path (evict+rewarm rather than pinned).
 
 ---
 
@@ -1035,3 +1058,59 @@ Public surface: `mark`, `measure`, `captureHeap`, `dump`, `summary`, `reset`. Ev
 ### `make rebuild` wipes Playwright Chromium
 
 After `make rebuild`, `~/.cache/ms-playwright/` is gone — raw `docker exec the-one pytest -m browser` errors with hundreds of "Executable doesn't exist" failures. Recovery: `make _ensure-playwright` (idempotent re-install, ~30-60s). The `make test-browser` chain already chains this; only the raw invocation hits the foot-gun. See `container-test-entrypoints-reach-via-make` convention.
+
+### `connector-live-status-via-poll`
+
+When a UI element needs to reflect live backend state (connection status, task progress) and no server-push channel exists, implement a lightweight polling loop anchored to a DOM-connected guard. Start polling on editor mount; stop polling when the anchor element is removed (`element.isConnected` check at the top of each poll tick). Poll interval 2–5s for operator-visible state; immediately kick the first fetch on mount so the UI reads correct state without the first interval delay.
+
+Shape:
+```js
+function _wireLiveStatus(container, account) {
+  var textEl = container.querySelector('[data-testid="my-status"]');
+  if (!textEl) return;
+  function _poll() {
+    if (!textEl.isConnected) return;  // stop on unmount
+    fetch('/api/…').then(…).then(function (body) {
+      if (!textEl.isConnected) return;
+      _applyStatus(body);
+      setTimeout(_poll, 3000);
+    }).catch(function () {
+      if (!textEl.isConnected) return;
+      setTimeout(_poll, 3000);
+    });
+  }
+  _poll();
+}
+```
+
+Applies whenever a UI indicator must reflect live server-side state (connection health, pool state, background-task result) without a WS push path. Does NOT apply when an existing event-bus channel covers the updates (`connector-pool-warmed` for post-Validate pool state) or when the state is effectively static within a session.
+
+Citation (n=1): M11 F17 L5 `_wireLiveStatus` in `connector-editor.js` — polls `GET /api/connectors/{id}/status` every 3s to reflect the live gateway connection state (Connected/Connecting/Disconnected/Error) on the General tab. Mirrors the `isConnected` unmount guard already in use by the allowlist banner's `poolWarmedHandler`.
+
+Source: M11 F17 L5 design decision "Live update via a 2–5s poll that stops on editor unmount (mirror the discoverable banner's isConnected guard)."
+
+### `save-reconnects-the-gateway`
+
+When a connector's connection-relevant config changes (secrets, intents, presence — NOT the whole config dict) AND ≥1 agent is attached, the save handler must evict the warm pool entry and re-acquire in a background task so the PUT responds immediately and the live-status poll surfaces the reconnect result. A label-only or ACL-only edit must NOT bounce a healthy gateway.
+
+Implementation shape:
+```python
+if _connection_relevant_changed(existing, updated):
+    attached = await store.list_by_connector(account_id)
+    if attached:
+        task = asyncio.create_task(_save_warm_background(account_id))
+        _inflight_save_warm_tasks.add(task)
+        task.add_done_callback(_inflight_save_warm_tasks.discard)
+    else:
+        await _evict_all_for_account(account_id)  # cold by design
+```
+
+`_connection_relevant_changed` must compare fields that feed `plugin.connect()` only (secrets, `config.intents`, `config.presence`). Using the whole config dict would bounce the gateway on allowlist/routing changes that don't affect the connection.
+
+Deadlock-safe: the background task acquires `_lock` twice (once for evict, once for acquire); it does NOT hold `_lock` across either await, so no deadlock risk.
+
+Applies whenever a connector editor's PUT handler persists config that includes connection-relevant fields. Does NOT apply to create-new (no attached agents yet) or to read-only endpoints.
+
+Citation (n=1): M11 F17 L5 `update_connector` in `api.py` — triggers `_save_warm_background` when `_connection_relevant_changed(existing, updated)` is True AND ≥1 agent is attached. This closes the F1 finding that "Save only persists config; no reconnect happens."
+
+Source: M11 F17 L5 design decision "Save-warm (background, non-blocking): in `update_connector` … wrapped in `asyncio.create_task`."

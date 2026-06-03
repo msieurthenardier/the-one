@@ -66,7 +66,12 @@ import time
 from dataclasses import dataclass, field
 
 from the_one.config import settings
-from the_one.connectors.base import ConnectorClient, ConnectorPlugin, DiscoverableEntities, DiscoverableEntity
+from the_one.connectors.base import (
+    ConnectorClient,
+    ConnectorPlugin,
+    DiscoverableEntities,
+    DiscoverableEntity,
+)
 from the_one.connectors.registry import resolve as _resolve_plugin
 from the_one.db.models import Connector
 from the_one.encryption import Encryptor, get_encryptor
@@ -179,6 +184,53 @@ class _RegistryEntry:
     # ``stale_seconds`` in the response. ``None`` until the first
     # refresh lands.
     discoverable_entities_fetched_at_monotonic: float | None = None
+    # M11 F17 L1: per-account inbound/outbound disposition counters.
+    # Keyed by disposition string (e.g. "stepped", "ok"). Incremented
+    # best-effort by :func:`record_disposition` under ``_lock``. Resets
+    # on pool eviction (accepted limitation — counters measure "since the
+    # current pool entry warmed").
+    inbound_counters: dict[str, int] = field(default_factory=dict)
+    outbound_counters: dict[str, int] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class _CountersSnapshot:
+    """Immutable pair of counter dicts for the API handler.
+
+    Captured under ``_lock`` by :func:`_get_account_counters_snapshot`;
+    readable outside the lock with no consistency risk because the
+    dataclass is frozen and the underlying dicts are copied at snapshot
+    time (M11 F17 L1, mirrors :class:`_DiscoverableCacheSnapshot`).
+    """
+
+    inbound: dict[str, int]
+    outbound: dict[str, int]
+
+
+@dataclass(frozen=True, slots=True)
+class _StatusSnapshot:
+    """Immutable connection-state snapshot for the status endpoint.
+
+    Captured under ``_lock`` by :func:`_get_account_status_snapshot`
+    (M11 F17 L5). The ``state`` field is one of
+    ``connected | connecting | disconnected | error``.  ``alive`` is
+    the live ``is_alive()`` return value at snapshot time.
+    ``last_error`` / ``last_error_link`` carry the mapped connect-error
+    message and action URL when ``state == "error"``; both are ``None``
+    for non-error states.
+
+    ``application_id`` is the bot's public OAuth2 client id, read from
+    the warm client's ``application_id`` property (populated post-READY
+    by the discord.py SDK). ``None`` for cold/connecting/error states and
+    for plugin clients that don't expose the attribute. Not a secret —
+    the invite URL is constructed from this public id. M11 F17 L5 fix.
+    """
+
+    state: str  # "connected" | "connecting" | "disconnected" | "error"
+    alive: bool
+    last_error: str | None
+    last_error_link: str | None
+    application_id: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -419,17 +471,36 @@ async def _ensure_reaper_running_locked() -> None:
         _reaper_task = asyncio.create_task(_reap_loop())
 
 
-async def _reap_once() -> list[tuple[str, str]]:
-    """Run a single reap pass: evict every entry whose
-    ``last_activity`` is older than its ``ttl_seconds``.
+async def _reap_once() -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
+    """Run a single reap pass with two sub-sweeps.
 
-    Returns the list of evicted keys (test purchase). Per-entry
-    eviction goes through :func:`_evict`, which has its own 10s timeout.
+    **Idle-eviction sweep** — evicts every per-agent entry
+    (``key[0] != _ACCOUNT_POOL_AGENT_SLOT``) whose ``last_activity`` is
+    older than its ``ttl_seconds``.  Account-keyed entries
+    (``key[0] == _ACCOUNT_POOL_AGENT_SLOT``) whose gateway ``is_alive()``
+    returns ``True`` are **exempt** — the Discord gateway WebSocket must
+    stay connected through an arbitrarily long traffic lull.
 
-    Eviction parallelism: per-key ``_evict`` calls run CONCURRENTLY via
-    ``asyncio.gather(..., return_exceptions=True)``. Bounds the worst-
-    case reap-pass duration at ~10s regardless of pool size. Mirrors
-    MCP — see :func:`the_one.mcp._pool._reap_once` for the rationale.
+    **Dead-listener sweep** — account-keyed entries whose client is
+    present but ``is_alive()`` returns ``False`` (gateway has died) are
+    evicted so the worker teardown runs.  The caller
+    (:func:`_reap_loop`) re-warms them via
+    :func:`_rewarm_dead_listeners` so the bot self-heals within one
+    reaper interval.
+
+    Returns a 2-tuple ``(idle_evicted, dead_evicted)``:
+
+    - ``idle_evicted`` — keys evicted by the idle-TTL sweep (test
+      purchase; callers that only care about the idle pass use index 0).
+    - ``dead_evicted`` — account-keyed keys evicted by the liveness
+      sweep; the loop re-acquires these.
+
+    Per-entry eviction goes through :func:`_evict`, which has its own
+    10s timeout.  Eviction parallelism: per-key ``_evict`` calls run
+    CONCURRENTLY via ``asyncio.gather(..., return_exceptions=True)``.
+    Bounds the worst-case reap-pass duration at ~10s regardless of pool
+    size.  Mirrors MCP — see :func:`the_one.mcp._pool._reap_once` for
+    the rationale.
 
     Guards ``entry.client is not None`` — entries mid-connect have not
     yet had their ``client`` populated and are NOT reaped this pass.
@@ -440,18 +511,40 @@ async def _reap_once() -> list[tuple[str, str]]:
     """
     now = time.monotonic()
     async with _lock:
-        expired = [
-            key
-            for key, entry in _pool.items()
-            if entry.client is not None
-            and (now - entry.last_activity) > entry.ttl_seconds
-        ]
-    if expired:
+        idle_evicted: list[tuple[str, str]] = []
+        dead_evicted: list[tuple[str, str]] = []
+        for key, entry in _pool.items():
+            if entry.client is None:
+                # Mid-connect — skip both sweeps.
+                continue
+            if key[0] == _ACCOUNT_POOL_AGENT_SLOT:
+                # Account-keyed gateway-listener entry.
+                is_alive_fn = getattr(entry.client, "is_alive", None)
+                if is_alive_fn is None:
+                    # Plugin has no is_alive() method — exempt from both idle
+                    # and liveness sweeps.  Churning a Protocol-non-compliant
+                    # entry every ~30s would be disruptive; treat it the same
+                    # as a live gateway entry and leave it in the pool.
+                    continue
+                if is_alive_fn():
+                    # Gateway is alive — exempt from idle eviction regardless
+                    # of last_activity age.  (M11 F17 L4 exemption)
+                    continue
+                # Gateway is dead (is_alive returns False): collect for the
+                # liveness sweep so the bot can self-heal.
+                dead_evicted.append(key)
+            else:
+                # Per-agent entry — standard idle-TTL eviction.
+                if (now - entry.last_activity) > entry.ttl_seconds:
+                    idle_evicted.append(key)
+
+    all_to_evict = idle_evicted + dead_evicted
+    if all_to_evict:
         results = await asyncio.gather(
-            *(_evict(key) for key in expired),
+            *(_evict(key) for key in all_to_evict),
             return_exceptions=True,
         )
-        for key, result in zip(expired, results):
+        for key, result in zip(all_to_evict, results):
             if isinstance(result, BaseException) and not isinstance(
                 result, asyncio.CancelledError
             ):
@@ -460,7 +553,55 @@ async def _reap_once() -> list[tuple[str, str]]:
                     key,
                     result,
                 )
-    return expired
+    return idle_evicted, dead_evicted
+
+
+async def _rewarm_dead_listeners(keys: list[tuple[str, str]]) -> None:
+    """Re-acquire each dead account-keyed gateway listener — only when the
+    connector still has ≥1 attached agent.
+
+    Called by :func:`_reap_loop` after :func:`_reap_once` evicts
+    terminally-dead account-keyed entries.  Before rewarming, checks the
+    agent store for attached agents (mirrors the lifespan warmup gate in
+    ``interfaces/web/app.py``).  If the connector has no attached agents
+    (e.g. all agents were detached after boot), the entry is left cold and
+    logged at INFO — no gateway is re-established for a connector that
+    serves no traffic.  If agents are still attached, ``account_acquire``
+    re-establishes the gateway WebSocket so the bot self-heals within one
+    reaper interval (~30s) with no operator action.
+
+    Errors are logged but do NOT kill the reaper — a single reconnect
+    failure is retried on the next sweep.
+    """
+    from the_one.db.connection import get_connection
+    from the_one.db.repositories import SQLiteAgentStore
+
+    for key in keys:
+        account_id = key[1]
+        try:
+            conn = await get_connection()
+            agent_store = SQLiteAgentStore(conn)
+            attached = await agent_store.list_by_connector(account_id)
+            if not attached:
+                logger.info(
+                    "Connector pool: dead gateway listener for account_id=%r "
+                    "has no attached agents; leaving cold (not rewarming)",
+                    account_id,
+                )
+                continue
+            await account_acquire(account_id)
+            logger.info(
+                "Connector pool: re-warmed dead gateway listener for account_id=%r "
+                "(%d attached agent(s))",
+                account_id,
+                len(attached),
+            )
+        except Exception:
+            logger.exception(
+                "Connector pool: failed to re-warm dead gateway listener "
+                "for account_id=%r; will retry on next reaper sweep",
+                account_id,
+            )
 
 
 async def _reap_loop() -> None:
@@ -474,7 +615,9 @@ async def _reap_loop() -> None:
         while True:
             await asyncio.sleep(_REAPER_INTERVAL_SECONDS)
             try:
-                await _reap_once()
+                _idle_evicted, dead_listeners = await _reap_once()
+                if dead_listeners:
+                    await _rewarm_dead_listeners(dead_listeners)
             except Exception:
                 logger.exception("Connector pool reap pass raised; continuing")
     except asyncio.CancelledError:
@@ -525,7 +668,11 @@ async def _refresh_discoverable_entities_for_account(account_id: str) -> bool:
         most recent prior write regardless of any concurrent refresh.
       - Write the three cache fields. Do NOT touch ``last_activity`` —
         the 5-minute refresh would otherwise reset the 30-minute idle
-        TTL and warm entries would never reap.
+        TTL and per-agent entries would never reap.  (Note: account-keyed
+        entries are now exempt from idle eviction by slot kind — M11 F17
+        L4 — so the TTL concern no longer applies to them; the
+        ``last_activity`` contract here matters only for per-agent
+        ``agent_acquire`` entries.)
     """
     from the_one.connectors.errors import ConnectorRegistrationError
 
@@ -707,6 +854,154 @@ async def _get_account_cache_snapshot(
             fetched_at_monotonic=entry.discoverable_entities_fetched_at_monotonic,
             account_type=entry.account_type,
         )
+
+
+def record_disposition(account_id: str, kind: str, disposition: str) -> None:
+    """Increment the per-account disposition counter best-effort (synchronous).
+
+    M11 F17 L1. Called from :func:`the_one.connectors._observability.log_disposition`
+    (not a method — mirrors the module-level :func:`account_acquire` import
+    pattern in :mod:`_inbound`).
+
+    WITHOUT acquiring ``_lock``, locate the warm account entry at
+    ``(_ACCOUNT_POOL_AGENT_SLOT, account_id)`` and increment the matching
+    ``inbound_counters`` / ``outbound_counters`` dict, or no-op if no warm
+    entry exists.
+
+    **Concurrency**: asyncio is single-threaded. This function is always
+    called from within the event loop (the inbound dispatcher and the Discord
+    send path are both async contexts). The pool lock is an asyncio.Lock —
+    it cannot be acquired synchronously without blocking the event loop. To
+    avoid a synchronous lock acquisition, we read under a NON-LOCKING fast
+    path: reading and incrementing a dict entry is an atomic operation in
+    CPython's GIL model, and the asyncio single-threaded model guarantees no
+    concurrent mutation between two ``await`` points. No lock needed here.
+
+    Resets on pool eviction — counters measure "since the current pool entry
+    warmed." This accepted limitation is documented in the flight spec.
+    """
+    key = (_ACCOUNT_POOL_AGENT_SLOT, account_id)
+    entry = _pool.get(key)
+    if entry is None or entry.client is None:
+        # No warm entry — best-effort no-op.
+        return
+    if kind == "inbound":
+        counters = entry.inbound_counters
+    else:
+        counters = entry.outbound_counters
+    counters[disposition] = counters.get(disposition, 0) + 1
+
+
+async def _get_account_counters_snapshot(
+    account_id: str,
+) -> _CountersSnapshot | None:
+    """Return an immutable frozen-pair snapshot of the warm pool entry's
+    disposition counters, captured atomically under ``_lock``. Readable
+    outside the lock with no consistency risk — the snapshot is by-value.
+
+    Returns ``None`` if no warm entry exists for ``account_id``.
+    Mirrors :func:`_get_account_cache_snapshot`.
+
+    M11 F17 L1.
+    """
+    key = (_ACCOUNT_POOL_AGENT_SLOT, account_id)
+    async with _lock:
+        entry = _pool.get(key)
+        if entry is None or entry.client is None:
+            return None
+        return _CountersSnapshot(
+            inbound=dict(entry.inbound_counters),
+            outbound=dict(entry.outbound_counters),
+        )
+
+
+async def _get_account_status_snapshot(
+    account_id: str,
+    last_error: str | None = None,
+    last_error_link: str | None = None,
+) -> _StatusSnapshot:
+    """Return a connection-state snapshot for the status endpoint.
+
+    Reads pool-entry state under ``_lock`` (atomic snapshot); the
+    ``is_alive()`` call happens OUTSIDE the lock on the client object
+    already captured — safe because :class:`ConnectorClient` implementors
+    (e.g. :class:`DiscordClient`) make ``is_alive`` a lock-free flag
+    read. Mirrors :func:`_get_account_counters_snapshot`.
+
+    State determination:
+      - No warm entry (or entry without a client) → ``disconnected``
+      - Entry present but ``client_ready`` not yet set → ``connecting``
+      - Entry present, ready, ``is_alive()`` True → ``connected``
+      - Entry present, ready, ``is_alive()`` False → ``disconnected``
+        (gateway dropped — reaper will evict on next sweep)
+      - Entry present, ``failure`` set → ``error``
+
+    ``last_error`` / ``last_error_link`` are passed by the caller (the
+    status endpoint reads them from a separate store keyed on account_id
+    that the save-warm background task writes on failure). This function
+    returns them as-is when state is ``error``; ignores them otherwise.
+
+    M11 F17 L5.
+    """
+    key = (_ACCOUNT_POOL_AGENT_SLOT, account_id)
+    async with _lock:
+        entry = _pool.get(key)
+        if entry is None:
+            # No pool entry. If the caller surfaced a connect-error (the
+            # save-warm background task wrote it after connect failed and
+            # the entry was popped), return "error" so the UI shows the
+            # PrivilegedIntentsRequired message rather than silently
+            # reporting "disconnected" and swallowing it.
+            if last_error:
+                return _StatusSnapshot(
+                    state="error", alive=False,
+                    last_error=last_error, last_error_link=last_error_link,
+                )
+            return _StatusSnapshot(
+                state="disconnected", alive=False,
+                last_error=None, last_error_link=None,
+            )
+        if entry.failure is not None:
+            return _StatusSnapshot(
+                state="error", alive=False,
+                last_error=last_error, last_error_link=last_error_link,
+            )
+        if entry.client_ready is None or not entry.client_ready.is_set():
+            return _StatusSnapshot(
+                state="connecting", alive=False,
+                last_error=None, last_error_link=None,
+            )
+        client = entry.client
+
+    # Check is_alive() and application_id OUTSIDE the lock — both are
+    # flag/attribute reads that don't need serialization.
+    if client is None:
+        return _StatusSnapshot(
+            state="disconnected", alive=False,
+            last_error=None, last_error_link=None,
+        )
+    # Read application_id from the client if exposed (DiscordClient exposes it
+    # post-READY via the .application_id property; other plugin clients that
+    # don't expose the attribute get None via getattr default). Safe outside
+    # the lock: it's a simple attribute read with no async involvement.
+    app_id: int | None = getattr(client, "application_id", None)
+    is_alive_fn = getattr(client, "is_alive", None)
+    if is_alive_fn is None:
+        # Plugin has no is_alive() — treat as connected (same exemption
+        # the reaper uses at _pool.py:~496-503).
+        return _StatusSnapshot(
+            state="connected", alive=True,
+            last_error=None, last_error_link=None,
+            application_id=app_id,
+        )
+    alive = bool(is_alive_fn())
+    return _StatusSnapshot(
+        state="connected" if alive else "disconnected",
+        alive=alive,
+        last_error=None,
+        last_error_link=None,
+        application_id=app_id if alive else None,
+    )
 
 
 async def shutdown_drain() -> None:

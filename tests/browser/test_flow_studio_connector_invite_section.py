@@ -9,11 +9,10 @@ substrate's invite-section mount between Test Connection and Danger Zone:
   is set triggers ``setApplicationId`` → the URL display becomes
   visible with a ``permissions=2147552256`` substring and the constant
   ``client_id={appId}`` substring.
-- Intent-toggle stability: toggling an intent checkbox after the URL
-  is rendered does NOT change the URL string (intents and permissions
-  are orthogonal per F1 Design Decisions) AND the literal
-  ``permissions=2147552256`` substring is preserved (catches both
-  "URL got rewritten" and "future bug swapped the constant").
+- URL stability + no intent toggles (M11 F17 L6): the ``permissions``
+  integer is stable at 2147552256 post-probe; no ``discord-intents-row``
+  or ``discord-intent-*`` checkboxes appear (Leg B subtraction). Intent
+  toggles were removed — the backend always-on path makes them a trap.
 - Stub-type account: no invite-section in the DOM (Stub entry does not
   provide ``renderInviteSection``; the substrate falls through to no
   HTML for that type — the section node is absent entirely).
@@ -164,12 +163,18 @@ def test_post_probe_url_visible_with_permissions_constant(
 
 
 @pytest.mark.browser
-def test_intent_toggle_preserves_url_and_permissions_constant(
+def test_permissions_constant_stable_and_no_intent_checkboxes(
     app_clean: str, page: Page
 ) -> None:
-    """Toggling an intent checkbox after the URL is rendered must NOT
-    change the URL string (intents and permissions are orthogonal) AND
-    the literal ``permissions=2147552256`` substring is preserved."""
+    """Post-probe invite URL has the stable ``permissions=2147552256``
+    constant AND the editor renders no intent-toggle checkboxes.
+
+    M11 F17 L6 (Leg B): intent checkboxes removed — the URL is no
+    longer driven by a toggle. The permissions integer is pinned at
+    2147552256 unconditionally; the absence of ``discord-intents-row``
+    and ``discord-intent-*`` elements is also asserted here as a
+    browser-level confirmation of the Leg B subtraction.
+    """
     account_id = _seed_discord(app_clean, name="Stability Bot")
     _fulfill_probe(page, account_id, application_id="42424242424242")
     page.goto(f"{app_clean}#studio/connectors/{account_id}")
@@ -183,25 +188,18 @@ def test_intent_toggle_preserves_url_and_permissions_constant(
     )
 
     url_code = page.locator('[data-testid="connector-invite-url"]')
-    url_before = url_code.text_content() or ""
+    url_text = url_code.text_content() or ""
     assert (
-        f"permissions={_DISCORD_PERMISSIONS_CONSTANT}" in url_before
-    ), f"baseline URL missing permissions constant: {url_before!r}"
+        f"permissions={_DISCORD_PERMISSIONS_CONSTANT}" in url_text
+    ), f"permissions constant missing from invite URL: {url_text!r}"
 
-    # Toggle message_content intent and let the change-handler tick.
-    # F5 L3 moved the Intent checkboxes from the General tab to the
-    # Access-and-Routing tab; activate that tab before interacting.
+    # Navigate to the Access-and-Routing tab and assert no intent
+    # checkboxes or intent row are rendered (Leg B subtraction).
     _activate_access_and_routing_tab(page)
-    page.locator('[data-testid="discord-intent-message_content"]').click()
-    page.wait_for_timeout(50)
-
-    url_after = url_code.text_content() or ""
-    assert url_after == url_before, (
-        f"URL drift after intent toggle:\n  before={url_before!r}\n  after ={url_after!r}"
-    )
-    assert (
-        f"permissions={_DISCORD_PERMISSIONS_CONSTANT}" in url_after
-    ), f"permissions constant lost after toggle: {url_after!r}"
+    expect(page.locator('[data-testid="discord-intents-row"]')).to_have_count(0)
+    expect(page.locator('[data-testid="discord-intent-message_content"]')).to_have_count(0)
+    expect(page.locator('[data-testid="discord-intent-members"]')).to_have_count(0)
+    expect(page.locator('[data-testid="discord-intent-guilds"]')).to_have_count(0)
 
 
 @pytest.mark.browser

@@ -332,15 +332,21 @@ class TestAdmitsInbound:
         assert reason == "channel_id 'C2' is not admitted on account 'acc-1'"
 
     def test_account_peers_dm_context_still_denies_non_member(self) -> None:
-        """M11 F16 L1 — DM admission is the account-scope peers axis's
-        sole remaining job. A DM from a non-listed peer under a populated
-        peers list is still DENIED (peers-DM-only)."""
+        """M11 F16 L1 / M11 F17 L8 (Leg D) — DM admission is the
+        account-scope peers axis's sole remaining job. A DM from a
+        non-listed peer under a populated peers list is still DENIED
+        under the default ``admin-approved`` policy. Reason string
+        updated post-v28: dm_admission gate fires first (not peers
+        membership guard)."""
         acc = _account(allowlist={"peers": ["P1"], "channels": []})
         admits, reason = admits_inbound(
             acc, None, "P2", "C1", is_dm=True
         )
         assert admits is False
-        assert reason == "peer_id 'P2' is not admitted on account 'acc-1'"
+        assert reason == (
+            "DM denied: account 'acc-1' dm_admission is "
+            "'admin-approved' and peer not in allowlist"
+        )
 
     # ── Account-scope channels axis ───────────────────────────────
 
@@ -858,28 +864,26 @@ class TestAdmitsInboundRolesAxis:
 
 
 class TestAdmitsInboundDmAdmissionAxis:
-    """M11 F10 L1 — DM-admission axis tests.
+    """M11 F10 L1 / M11 F17 L8 (Leg D) — DM-admission axis tests.
 
-    The axis is orthogonal to the channels/guilds/roles axes: when
-    ``is_dm=True``, ``admits_inbound`` consults only the peers axis +
-    the new account-scope ``dm_admission`` axis + the new per-agent
-    ``admit_dms`` axis. The 9-cell matrix below covers the cartesian
-    product of:
+    Post-v28 simplified model: gate on ``dm_admission`` FIRST (no
+    per-peer ``dm_allowed`` flag; no pre-admission peers membership
+    check under ``"all"``).
 
-      - ``dm_admission`` ∈ {``"none"``, ``"allowlisted-peers-only"``,
-        ``"all"``}
-      - ``allowed_peers`` state ∈ {peer-on-allowlist, peer-not-on-
-        allowlist, peers-list-empty}
+      - ``dm_admission="none"`` → deny all DMs regardless of list
+      - ``dm_admission="all"`` → admit any DM (list irrelevant)
+      - ``dm_admission="admin-approved"`` → admit iff peer in list
 
-    Each cell pins a specific deny / admit outcome and the reason
-    string when denying.
+    The 9-cell matrix covers:
+      - ``dm_admission`` ∈ {``"none"``, ``"admin-approved"``, ``"all"``}
+      - ``allowed_peers`` state ∈ {peer-on-list, peer-not-on-list, empty}
     """
 
     # ── dm_admission = "none" ────────────────────────────────────
 
     def test_dm_admission_none_peer_on_allowlist_denies(self) -> None:
-        """``dm_admission="none"`` + peer on allowlist → deny via the
-        dm_admission gate (peers axis passed first).
+        """``dm_admission="none"`` + peer on list → deny via the
+        dm_admission gate (checked before peers membership).
         """
         acc = _account(allowlist={
             "peers": ["P1"], "channels": [], "dm_admission": "none",
@@ -894,9 +898,9 @@ class TestAdmitsInboundDmAdmissionAxis:
         )
 
     def test_dm_admission_none_peer_not_on_allowlist_denies(self) -> None:
-        """``dm_admission="none"`` + peer not on allowlist → deny via
-        the peers axis (the dm_admission gate would also deny; peers
-        fires first).
+        """``dm_admission="none"`` + peer not on list → deny via the
+        dm_admission gate (dm_admission checked before list membership
+        post-v28; reason is now the dm_admission deny, not a peers-axis deny).
         """
         acc = _account(allowlist={
             "peers": ["P1"], "channels": [], "dm_admission": "none",
@@ -906,11 +910,13 @@ class TestAdmitsInboundDmAdmissionAxis:
             guild_id=None, member_roles=None,
         )
         assert admits is False
-        assert reason == "peer_id 'P2' is not admitted on account 'acc-1'"
+        assert reason == (
+            "DM denied: account 'acc-1' dm_admission is 'none'"
+        )
 
     def test_dm_admission_none_peers_empty_denies(self) -> None:
         """``dm_admission="none"`` + empty peers list → deny via the
-        dm_admission gate (empty peers doesn't restrict).
+        dm_admission gate.
         """
         acc = _account(allowlist={
             "peers": [], "channels": [], "dm_admission": "none",
@@ -924,17 +930,17 @@ class TestAdmitsInboundDmAdmissionAxis:
             "DM denied: account 'acc-1' dm_admission is 'none'"
         )
 
-    # ── dm_admission = "allowlisted-peers-only" ──────────────────
+    # ── dm_admission = "admin-approved" (post-v28: in-list == can-DM)
 
-    def test_dm_admission_allowlisted_peers_only_peer_on_allowlist_admits(
+    def test_dm_admission_admin_approved_peer_on_allowlist_admits(
         self,
     ) -> None:
-        """``dm_admission="allowlisted-peers-only"`` + peer on
-        allowlist → admit (peers passes; dm_admission rule satisfied).
+        """``dm_admission="admin-approved"`` + peer on list → admit
+        (in-list == can-DM; no per-peer toggle needed post-v28).
         """
         acc = _account(allowlist={
             "peers": ["P1"], "channels": [],
-            "dm_admission": "allowlisted-peers-only",
+            "dm_admission": "admin-approved",
         })
         admits, reason = admits_inbound(
             acc, None, "P1", "dm-channel", is_dm=True,
@@ -943,44 +949,39 @@ class TestAdmitsInboundDmAdmissionAxis:
         assert admits is True
         assert reason == ""
 
-    def test_dm_admission_allowlisted_peers_only_peer_not_on_allowlist_denies(
+    def test_dm_admission_admin_approved_peer_not_on_allowlist_denies(
         self,
     ) -> None:
-        """``dm_admission="allowlisted-peers-only"`` + peer not on
-        allowlist → deny via the peers axis (peers axis fires first).
-        """
+        """``dm_admission="admin-approved"`` + peer not on list → deny."""
         acc = _account(allowlist={
             "peers": ["P1"], "channels": [],
-            "dm_admission": "allowlisted-peers-only",
+            "dm_admission": "admin-approved",
         })
         admits, reason = admits_inbound(
             acc, None, "P2", "dm-channel", is_dm=True,
             guild_id=None, member_roles=None,
         )
         assert admits is False
-        assert reason == "peer_id 'P2' is not admitted on account 'acc-1'"
+        assert reason == (
+            "DM denied: account 'acc-1' dm_admission is "
+            "'admin-approved' and peer not in allowlist"
+        )
 
-    def test_dm_admission_allowlisted_peers_only_peers_empty_denies(
+    def test_dm_admission_admin_approved_peers_empty_denies(
         self,
     ) -> None:
-        """``dm_admission="allowlisted-peers-only"`` + empty peers
-        list → deny via the dm_admission gate (no peer approved yet).
+        """``dm_admission="admin-approved"`` + empty list → deny
+        (no peer approved yet).
         """
         acc = _account(allowlist={
             "peers": [], "channels": [],
-            "dm_admission": "allowlisted-peers-only",
+            "dm_admission": "admin-approved",
         })
         admits, reason = admits_inbound(
             acc, None, "P1", "dm-channel", is_dm=True,
             guild_id=None, member_roles=None,
         )
         assert admits is False
-        # M11 F12 L3 — Literal value rename "allowlisted-peers-only"
-        # → "admin-approved" (and the reason string was rephrased per
-        # the F12 L3 helper rewrite — empty peers list under
-        # admin-approved now reads "peer not in allowlist" because the
-        # composition rule treats the missing peer-entry identically
-        # to a peer not in a non-empty peers list).
         assert reason == (
             "DM denied: account 'acc-1' dm_admission is "
             "'admin-approved' and peer not in allowlist"
@@ -989,7 +990,7 @@ class TestAdmitsInboundDmAdmissionAxis:
     # ── dm_admission = "all" ─────────────────────────────────────
 
     def test_dm_admission_all_peer_on_allowlist_admits(self) -> None:
-        """``dm_admission="all"`` + peer on allowlist → admit."""
+        """``dm_admission="all"`` + peer on list → admit."""
         acc = _account(allowlist={
             "peers": ["P1"], "channels": [], "dm_admission": "all",
         })
@@ -1000,11 +1001,13 @@ class TestAdmitsInboundDmAdmissionAxis:
         assert admits is True
         assert reason == ""
 
-    def test_dm_admission_all_peer_not_on_allowlist_denies(self) -> None:
-        """``dm_admission="all"`` + peer not on allowlist → deny via
-        the peers axis (non-empty peers restricts even when
-        dm_admission is "all"). Pins the peers-as-universal-gate
-        invariant.
+    def test_dm_admission_all_peer_not_on_allowlist_admits(self) -> None:
+        """``dm_admission="all"`` + peer NOT on list → admit.
+
+        Post-v28: ``"all"`` skips the peers membership check entirely.
+        A non-listed peer is still admitted under ``"all"``
+        (changed from pre-v28 where the peers-axis-precedence denied
+        non-listed peers even under ``"all"``).
         """
         acc = _account(allowlist={
             "peers": ["P1"], "channels": [], "dm_admission": "all",
@@ -1013,13 +1016,11 @@ class TestAdmitsInboundDmAdmissionAxis:
             acc, None, "P2", "dm-channel", is_dm=True,
             guild_id=None, member_roles=None,
         )
-        assert admits is False
-        assert reason == "peer_id 'P2' is not admitted on account 'acc-1'"
+        assert admits is True
+        assert reason == ""
 
     def test_dm_admission_all_peers_empty_admits(self) -> None:
-        """``dm_admission="all"`` + empty peers list → admit (peers
-        empty doesn't restrict; dm_admission permits).
-        """
+        """``dm_admission="all"`` + empty list → admit."""
         acc = _account(allowlist={
             "peers": [], "channels": [], "dm_admission": "all",
         })
@@ -1181,79 +1182,49 @@ def test_default_no_mention_returns_false() -> None:
 
 
 class TestDmAdmissionCompositionMatrix:
-    """12-cell cross-product matrix pinning the DM Composition Truth
-    Table at ``_admits_inbound_dm`` per M11 F12 L3.
+    """6-cell cross-product matrix pinning the simplified DM Composition
+    at ``_admits_inbound_dm`` per M11 F17 L8 (Leg D).
 
-    Axes:
+    Post-v28 model: ``dm_allowed`` per-peer flag retired. Axes:
       - ``admit_dms`` ∈ {None, False, True} — per-agent opt-out
       - ``dm_admission`` ∈ {"all", "none", "admin-approved"} —
         account-scope policy
-      - ``dm_allowed`` ∈ {True, False} — per-peer toggle
-        (account-scope; only consulted under "admin-approved")
       - ``in_allowlist`` ∈ {True, False} — whether the inbound peer is
         in the account-scope peers list
 
-    The operator-confirmed composition (F12 L3 leg spec, option (b) —
-    preserve current semantics):
-
+    Simplified composition:
       ``admit_dm = (admit_dms is not False)
-                AND (peer in allowlist)
-                AND (dm_admission == "all" OR
-                     (dm_admission == "admin-approved"
-                      AND peer.dm_allowed == True))``
+                AND (dm_admission == "all"
+                     OR (dm_admission == "admin-approved" AND peer in list))``
 
-    Cell #3's "in_allowlist=false" means the peer is NOT in a NON-EMPTY
-    peers list. Under ``dm_admission="all"`` the peers-axis check
-    precedence per the F12 L3 leg spec is: PEERS axis denies FIRST when
-    peers is non-empty + peer not in it (BEFORE the dm_admission gate
-    is consulted). So cell #3's expected is DENY (per the cycle-1
-    cell-#3 revision documented in the leg spec).
+    Under ``"all"`` the peers membership check is SKIPPED — a non-listed
+    peer is admitted. Under ``"admin-approved"`` in-list == can-DM.
     """
 
-    # Cells per the F12 L3 leg spec's 12-cell table:
-    # (admit_dms, dm_admission, dm_allowed, in_allowlist, expected,
-    #  test_id, rationale)
+    # Cells: (admit_dms, dm_admission, in_allowlist, expected, test_id, rationale)
     _MATRIX_CELLS = [
-        (None, "all", True, True, True,
-         "cell_01_None_all_True_in", "baseline: everyone DMs"),
-        (None, "all", False, True, True,
-         "cell_02_None_all_False_in",
-         "dm_admission=all ignores per-peer toggle"),
-        (None, "all", True, False, False,
-         "cell_03_None_all_True_out",
-         "all + not in allowlist → peers-axis denies FIRST"),
-        (None, "none", True, True, False,
-         "cell_04_None_none_True_in", "dm_admission=none always denies"),
-        (None, "none", False, True, False,
-         "cell_05_None_none_False_in", "(same)"),
-        (None, "admin-approved", True, True, True,
-         "cell_06_None_apv_True_in",
-         "happy path: explicit approval"),
-        (None, "admin-approved", False, True, False,
-         "cell_07_None_apv_False_in",
-         "per-peer toggle off → deny"),
-        (None, "admin-approved", True, False, False,
-         "cell_08_None_apv_True_out",
-         "not in allowlist → deny under admin-approved"),
-        (False, "all", True, True, False,
-         "cell_09_False_all_True_in",
-         "admit_dms=False short-circuits"),
-        (False, "admin-approved", True, True, False,
-         "cell_10_False_apv_True_in",
-         "(same — overrides admit)"),
-        (True, "all", True, True, True,
-         "cell_11_True_all_True_in",
-         "admit_dms=True behaves as None (no elevation)"),
-        (True, "admin-approved", False, True, False,
-         "cell_12_True_apv_False_in",
-         "admit_dms=True does NOT override per-peer toggle"),
+        (None, "all", True, True,
+         "cell_01_None_all_in", "all + in list → admit"),
+        (None, "all", False, True,
+         "cell_02_None_all_out",
+         "all + NOT in list → admit (peers list irrelevant under all)"),
+        (None, "none", True, False,
+         "cell_03_None_none_in", "none always denies"),
+        (None, "admin-approved", True, True,
+         "cell_04_None_apv_in",
+         "happy path: in list + admin-approved → admit"),
+        (None, "admin-approved", False, False,
+         "cell_05_None_apv_out",
+         "not in list + admin-approved → deny"),
+        (False, "all", True, False,
+         "cell_06_False_all_in",
+         "admit_dms=False short-circuits regardless of policy"),
     ]
 
     @pytest.mark.parametrize(
-        ("admit_dms", "dm_admission", "dm_allowed", "in_allowlist",
-         "expected"),
+        ("admit_dms", "dm_admission", "in_allowlist", "expected"),
         [
-            pytest.param(*cell[:5], id=cell[5])
+            pytest.param(*cell[:4], id=cell[4])
             for cell in _MATRIX_CELLS
         ],
     )
@@ -1261,20 +1232,17 @@ class TestDmAdmissionCompositionMatrix:
         self,
         admit_dms: bool | None,
         dm_admission: str,
-        dm_allowed: bool,
         in_allowlist: bool,
         expected: bool,
     ) -> None:
-        """One cell of the 12-cell cross-product matrix.
+        """One cell of the simplified 6-cell cross-product matrix.
 
-        Constructs an account with a single peer ``P1`` whose
-        ``dm_allowed`` is per the cell. If ``in_allowlist=True`` the
-        inbound peer is ``P1``; otherwise it's ``P-other`` (peers list
-        non-empty but inbound peer not in it).
+        Constructs an account with a single bare ``{"id": "P1"}`` peer.
+        If ``in_allowlist=True`` the inbound peer is ``P1``; otherwise
+        ``P-other`` (list non-empty but peer not in it).
         """
-        peer_entry = ("P1", dm_allowed)
         allowlist = {
-            "peers": [peer_entry],
+            "peers": ["P1"],
             "channels": [],
             "dm_admission": dm_admission,
         }
@@ -1294,7 +1262,7 @@ class TestDmAdmissionCompositionMatrix:
         )
         assert admits is expected, (
             f"cell admit_dms={admit_dms} dm_admission={dm_admission!r} "
-            f"dm_allowed={dm_allowed} in_allowlist={in_allowlist}: "
+            f"in_allowlist={in_allowlist}: "
             f"expected={expected} got={admits}"
         )
 
@@ -1447,6 +1415,51 @@ class TestHierarchicalAxisWildcardMatrix:
             guild_id="A",
         )
         assert admits is True
+
+
+# ─────────────────────────────────────────────────────────────────
+# M11 F17 L8 (Leg D) — F3a regression net
+# ─────────────────────────────────────────────────────────────────
+
+
+def test_f3a_approve_peer_then_dm_is_admitted() -> None:
+    """Permanent regression net for the F16-parked Known Issue (F3a).
+
+    The bug: ``dm_admission="admin-approved"`` + a peer approved via the
+    UI (added as ``{id, dm_allowed:False}``) → DM gated at admission →
+    ``no-eligible`` → "no agents available". The two-step (approve adds
+    ``{id, dm_allowed:False}``, operator must flip a toggle) was confusing
+    and blocked real-world use.
+
+    Post-v28 fix: approve adds the peer as bare ``{id}`` (in-list ==
+    can-DM). This test simulates the post-approve state: a connector with
+    ``dm_admission="admin-approved"`` and ``peers=[{"id": "peer-1"}]``
+    (bare, as the fixed approve handler now writes) → an inbound DM from
+    ``"peer-1"`` is admitted.
+    """
+    # Post-fix allowlist: approved peer is bare {id} — this is what
+    # ``approve_peer_approval`` in api.py now writes post-v28.
+    account = _account(allowlist={
+        "peers": ["peer-1"],     # _to_v24_shape translates to {"id": "peer-1"}
+        "channels": [],
+        "dm_admission": "admin-approved",
+    })
+
+    # Immediate DM from the approved peer — should be ADMITTED.
+    admits, reason = admits_inbound(
+        account, None, "peer-1", "dm-ch", is_dm=True
+    )
+    assert admits is True, (
+        f"F3a regression: approved peer should be admitted immediately "
+        f"under admin-approved; got denied with reason={reason!r}"
+    )
+
+    # A non-approved peer under admin-approved → still denied.
+    admits2, reason2 = admits_inbound(
+        account, None, "peer-other", "dm-ch", is_dm=True
+    )
+    assert admits2 is False
+    assert "admin-approved" in reason2
 
 
 # ─────────────────────────────────────────────────────────────────

@@ -446,26 +446,34 @@ async def test_acquire_spawns_reaper(patch_plugin) -> None:
 
 async def test_reap_once_evicts_idle_entries(patch_plugin) -> None:
     """Age an entry by stamping ``last_activity`` to a very old value;
-    ``_reap_once`` returns the key and evicts the entry."""
+    ``_reap_once`` returns the key in the idle-evicted list and evicts
+    the entry.
+
+    M11 F17 L4: ``_reap_once`` now returns a 2-tuple
+    ``(idle_evicted, dead_evicted)``; the first element is the idle-TTL
+    eviction list (test purchase for per-agent entries).
+    """
     from the_one.connectors._pool import _reap_once
 
     await agent_acquire("agent-a", "acct-1")
     entry = pool_mod._pool[("agent-a", "acct-1")]
     entry.last_activity = 0.0  # very old — definitely past any TTL
 
-    expired = await _reap_once()
-    assert expired == [("agent-a", "acct-1")]
+    idle_evicted, dead_evicted = await _reap_once()
+    assert idle_evicted == [("agent-a", "acct-1")]
+    assert dead_evicted == []
     assert pool_mod._pool == {}
 
 
 async def test_reap_once_does_not_evict_fresh_entries(patch_plugin) -> None:
     """A freshly-acquired entry has ``last_activity`` set to ``now``;
-    ``_reap_once`` returns the empty list and the pool is unchanged."""
+    ``_reap_once`` returns empty lists and the pool is unchanged."""
     from the_one.connectors._pool import _reap_once
 
     await agent_acquire("agent-a", "acct-1")
-    expired = await _reap_once()
-    assert expired == []
+    idle_evicted, dead_evicted = await _reap_once()
+    assert idle_evicted == []
+    assert dead_evicted == []
     assert ("agent-a", "acct-1") in pool_mod._pool
 
 
@@ -486,8 +494,9 @@ async def test_reap_once_skips_entries_mid_connect(patch_plugin) -> None:
     async with pool_mod._lock:
         pool_mod._pool[key] = entry
 
-    expired = await _reap_once()
-    assert expired == []
+    idle_evicted, dead_evicted = await _reap_once()
+    assert idle_evicted == []
+    assert dead_evicted == []
     assert key in pool_mod._pool
 
     # Clean up the half-constructed entry so the autouse cleanup
@@ -898,3 +907,210 @@ async def test_release_agent_on_account_does_not_touch_account_slot(
     assert set(_keys_for_test()) == {
         (_ACCOUNT_POOL_AGENT_SLOT, "acct-1"),
     }
+
+
+# ─────────────────────────────────────────────────────────────────
+# M11 F17 L4: gateway idle-reap exemption + dead-listener self-heal
+# ─────────────────────────────────────────────────────────────────
+
+
+async def test_alive_account_entry_survives_idle_past_ttl(patch_plugin) -> None:
+    """(A) An account-keyed gateway-listener entry whose client is alive
+    is NEVER idle-evicted by ``_reap_once``, even when its
+    ``last_activity`` is far past its TTL.
+
+    Per-agent entries in the same pool ARE still evicted on TTL — the
+    exemption applies only to the ``_ACCOUNT_POOL_AGENT_SLOT`` sentinel
+    key.
+    """
+    from the_one.connectors._pool import _reap_once
+
+    # Warm a per-agent entry AND an account-keyed entry.
+    await agent_acquire("agent-a", "acct-1")
+    await account_acquire("acct-1")
+
+    agent_key = ("agent-a", "acct-1")
+    account_key = (_ACCOUNT_POOL_AGENT_SLOT, "acct-1")
+
+    # Age both past TTL.
+    pool_mod._pool[agent_key].last_activity = 0.0
+    pool_mod._pool[account_key].last_activity = 0.0
+
+    # The account-keyed client is alive (default _StubClient behaviour).
+    assert pool_mod._pool[account_key].client.is_alive()
+
+    idle_evicted, dead_evicted = await _reap_once()
+
+    # Per-agent entry was idle-reaped; account-keyed entry survived.
+    assert agent_key in idle_evicted
+    assert account_key not in idle_evicted
+    assert account_key not in dead_evicted
+    assert account_key in pool_mod._pool
+    assert agent_key not in pool_mod._pool
+
+
+def _patch_agent_store_for_rewarm(monkeypatch, account_id: str, attached_agents: list) -> None:
+    """Patch the DB layer used by ``_rewarm_dead_listeners``.
+
+    ``_rewarm_dead_listeners`` imports ``get_connection`` and
+    ``SQLiteAgentStore`` function-locally (to break import cycles).  At
+    call time Python resolves these from ``sys.modules``, so patching the
+    module-level attributes is sufficient.
+
+    ``attached_agents`` is the list returned by ``list_by_connector``
+    for ``account_id``.  Pass an empty list to simulate zero attached
+    agents (the "leave cold" path); pass a non-empty list to simulate
+    the self-heal rewarm path.
+    """
+    import the_one.db.connection as _db_conn_mod
+    import the_one.db.repositories as _db_repo_mod
+
+    class _StubAgentStore:
+        def __init__(self, _conn):
+            pass
+
+        async def list_by_connector(self, _account_id: str) -> list:
+            return attached_agents
+
+    async def _stub_get_connection():
+        return object()  # sentinel — StubAgentStore ignores the conn arg
+
+    monkeypatch.setattr(_db_conn_mod, "get_connection", _stub_get_connection)
+    monkeypatch.setattr(_db_repo_mod, "SQLiteAgentStore", _StubAgentStore)
+
+
+async def test_dead_account_entry_is_evicted_and_rewarmed(
+    patch_plugin, monkeypatch
+) -> None:
+    """(B) Dead-listener self-heal: an account-keyed entry whose
+    ``is_alive()`` returns False is collected in ``dead_evicted`` by
+    ``_reap_once`` and re-acquired by ``_rewarm_dead_listeners``, so the
+    bot self-heals within one reaper interval.
+
+    The stub plugin's ``disconnect`` sets ``client._alive = False``; we
+    force liveness to False directly to simulate a terminal gateway death
+    without evicting through the normal path.
+
+    M11 F17 L4 Fix 1: the rewarm is gated on ≥1 attached agent.  This
+    test stubs the agent store to return one agent so the rewarm fires.
+    """
+    from the_one.agent.config import AgentConfig
+    from the_one.connectors._pool import _reap_once, _rewarm_dead_listeners
+
+    stub_agent = AgentConfig(name="agent-a", connector_ids=["acct-1"])
+    _patch_agent_store_for_rewarm(monkeypatch, "acct-1", [stub_agent])
+
+    await account_acquire("acct-1")
+    account_key = (_ACCOUNT_POOL_AGENT_SLOT, "acct-1")
+    entry = pool_mod._pool[account_key]
+
+    # Force the gateway to appear dead without going through _evict.
+    entry.client._alive = False
+    assert not entry.client.is_alive()
+
+    idle_evicted, dead_evicted = await _reap_once()
+
+    # Account-keyed dead entry was collected in dead_evicted, not idle.
+    assert account_key in dead_evicted
+    assert account_key not in idle_evicted
+    # Entry was evicted from the pool.
+    assert account_key not in pool_mod._pool
+
+    # Re-warm: _rewarm_dead_listeners re-acquires the account (connector
+    # still has an attached agent so the rewarm proceeds).
+    connect_count_before = _StubPlugin.connect_count
+    await _rewarm_dead_listeners(dead_evicted)
+
+    # The pool now has a fresh entry for the account.
+    assert account_key in pool_mod._pool
+    assert pool_mod._pool[account_key].client.is_alive()
+    # A new connect was performed for the rewarm.
+    assert _StubPlugin.connect_count == connect_count_before + 1
+
+
+async def test_dead_account_entry_no_attached_agents_left_cold(
+    patch_plugin, monkeypatch
+) -> None:
+    """(B2) Dead listener whose connector has ZERO attached agents is
+    evicted by ``_reap_once`` but NOT rewarmed by
+    ``_rewarm_dead_listeners`` — it is left cold.
+
+    This mirrors the lifespan warmup gate: a gateway that serves no
+    traffic should not be re-established.  The pool entry stays absent
+    after the rewarm call and no additional connect is triggered.
+    """
+    from the_one.connectors._pool import _reap_once, _rewarm_dead_listeners
+
+    # Stub the agent store to report zero attached agents.
+    _patch_agent_store_for_rewarm(monkeypatch, "acct-1", [])
+
+    await account_acquire("acct-1")
+    account_key = (_ACCOUNT_POOL_AGENT_SLOT, "acct-1")
+    entry = pool_mod._pool[account_key]
+
+    # Force the gateway dead.
+    entry.client._alive = False
+    assert not entry.client.is_alive()
+
+    idle_evicted, dead_evicted = await _reap_once()
+
+    # The dead entry was collected for eviction.
+    assert account_key in dead_evicted
+    assert account_key not in pool_mod._pool
+
+    connect_count_before = _StubPlugin.connect_count
+    await _rewarm_dead_listeners(dead_evicted)
+
+    # With zero attached agents the entry must stay cold — no rewarm.
+    assert account_key not in pool_mod._pool
+    assert _StubPlugin.connect_count == connect_count_before
+
+
+async def test_account_entry_without_is_alive_is_exempt(patch_plugin) -> None:
+    """(D) An account-keyed entry whose client has NO ``is_alive`` method
+    is treated as EXEMPT by ``_reap_once`` — left in the pool, not
+    collected in ``dead_evicted``.
+
+    A Protocol-non-compliant or liveness-less plugin must not be churned
+    every ~30s reaper interval.  Only an account entry that HAS
+    ``is_alive`` and returns ``False`` is treated as dead.
+    """
+    from the_one.connectors._pool import _reap_once
+
+    class _NoLivenessClient:
+        """Stub client without an ``is_alive`` method."""
+
+    await account_acquire("acct-1")
+    account_key = (_ACCOUNT_POOL_AGENT_SLOT, "acct-1")
+
+    # Replace the entry's client with one that has no is_alive method to
+    # simulate a liveness-less plugin.
+    entry = pool_mod._pool[account_key]
+    entry.client = _NoLivenessClient()
+    assert getattr(entry.client, "is_alive", None) is None
+
+    idle_evicted, dead_evicted = await _reap_once()
+
+    # No-is_alive entry must survive both sweeps.
+    assert account_key not in dead_evicted
+    assert account_key not in idle_evicted
+    assert account_key in pool_mod._pool
+
+
+async def test_agent_acquire_entry_still_reaps_on_ttl(patch_plugin) -> None:
+    """(C) No regression: a per-agent ``agent_acquire`` entry is still
+    evicted by the idle-TTL sweep when its ``last_activity`` exceeds its
+    TTL.  The gateway-listener exemption must NOT bleed into per-agent
+    entries.
+    """
+    from the_one.connectors._pool import _reap_once
+
+    await agent_acquire("agent-a", "acct-1")
+    agent_key = ("agent-a", "acct-1")
+    pool_mod._pool[agent_key].last_activity = 0.0  # age past TTL
+
+    idle_evicted, dead_evicted = await _reap_once()
+
+    assert agent_key in idle_evicted
+    assert dead_evicted == []
+    assert pool_mod._pool == {}

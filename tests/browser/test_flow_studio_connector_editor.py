@@ -690,3 +690,127 @@ def test_routing_rules_baseline_not_dirty(app_clean: str, page: Page) -> None:
     cancel_btn = page.locator('[data-testid="cancel-connector-btn"]')
     expect(save_btn).to_be_disabled()
     expect(cancel_btn).to_be_disabled()
+
+
+# ── F17 follow-up F4: editor re-fetch on entry (peers chip-list refresh) ──
+#
+# Finding F4 (from the discord-approval-flow behavior test, step 7):
+# the connector editor's Direct Messages / peers chip-list does NOT
+# reflect a peer that was approved while the editor is open (or was
+# added between the list fetch and the editor mount). Root cause:
+# studio.js's renderConnectorsSection used the cached connector object
+# from the _last_ fetchConnectors_ list call, not the current backend
+# state.
+#
+# Fix: renderConnectorsSection now re-fetches GET /api/connectors/{id}
+# before mounting the editor in edit mode. These two tests pin that
+# contract.
+#
+# Test 1 (seed-with-peer): connector seeded with a peer → open editor
+# directly → Access and Routing tab → peers chip is visible.
+#
+# Test 2 (re-entry after mutation): connector seeded without peers →
+# open editor from grid → add peer via API → back to grid → click card
+# again → peers chip appears. This is the exact regression from F4 step 7.
+
+
+def _add_peer_via_api(base_url: str, account_id: str, peer_id: str) -> None:
+    """Add a peer to the account's allowlist via PUT /api/connectors/{id}.
+
+    GET the current state, splice the peer in, and PUT the whole object
+    back (REPLACE semantics). Uses the structured-tuple shape required
+    by the post-v28 validator.
+    """
+    cur = httpx.get(f"{base_url}/api/connectors/{account_id}", timeout=5.0)
+    assert cur.status_code == 200, f"GET connector failed: {cur.status_code} {cur.text}"
+    account = cur.json()
+    config = dict(account.get("config") or {})
+    allowlist = dict(config.get("allowlist") or {})
+    # Ensure required keys are present.
+    allowlist.setdefault("peers", [])
+    allowlist.setdefault("channels", [])
+    # Append the peer in the post-v28 bare-{id} tuple shape.
+    existing_ids = {str(p.get("id", p)) for p in allowlist["peers"] if p}
+    if peer_id not in existing_ids:
+        allowlist["peers"] = list(allowlist["peers"]) + [{"id": peer_id}]
+    config["allowlist"] = allowlist
+    account["config"] = config
+    r = httpx.put(f"{base_url}/api/connectors/{account_id}", json=account, timeout=5.0)
+    assert r.status_code == 200, f"PUT connector failed: {r.status_code} {r.text}"
+
+
+@pytest.mark.browser
+def test_editor_entry_shows_seeded_peer_chip(app_clean: str, page: Page) -> None:
+    """Connector seeded with a peer → open editor → chip is visible.
+
+    Baseline test: a peer already in the allowlist at seed time must be
+    reflected in the editor's peers chip-list when the editor opens.
+    Verifies that the re-fetch on editor entry returns the seeded state.
+    """
+    peer_id = "user-abc-123"
+    account_id = seed_connector(
+        app_clean,
+        name="Peer Bot",
+        config={
+            "allowlist": {
+                "peers": [peer_id],
+                "channels": [],
+                "dm_admission": "admin-approved",
+            }
+        },
+    )
+    page.goto(f"{app_clean}#studio/connectors/{account_id}")
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
+
+    _activate_access_and_routing_tab(page)
+
+    # The peers chip-list (stub type → flat chip-list mode) must contain
+    # the seeded peer.
+    peers_chiplist = page.locator('[data-testid="connector-allowlist-peers-chiplist"]')
+    expect(peers_chiplist).to_be_attached()
+    peer_chip = peers_chiplist.locator('.chip', has_text=peer_id)
+    expect(peer_chip).to_be_visible(timeout=5000)
+
+
+@pytest.mark.browser
+def test_editor_reentry_reflects_peer_added_between_visits(
+    app_clean: str, page: Page
+) -> None:
+    """Re-entering the editor after a backend peer mutation shows the new chip.
+
+    Step 1: seed a connector with NO peers; open the editor from the grid.
+    Step 2: while the editor is "open" (modal-less editing), add a peer to
+            the connector via the API (simulates a peer approval completing
+            out-of-band — the F4 regression scenario).
+    Step 3: click Back, then click the connector card to re-enter the editor.
+    Step 4: assert the newly-added peer chip is visible in the Access and
+            Routing tab's peers section.
+
+    Without the re-fetch-on-entry fix in studio.js, the editor would mount
+    with the cached (stale) object and the chip would not appear.
+    """
+    account_id = seed_connector(app_clean, name="DM Bot")
+
+    # Step 1: navigate to the connectors grid, wait for the card, click it.
+    page.goto(f"{app_clean}#studio/connectors")
+    card = page.locator('[data-testid="connector-card"]', has_text="DM Bot")
+    expect(card).to_be_visible(timeout=8000)
+    card.click()
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
+
+    # Step 2: add a peer via the API while the editor is "open".
+    new_peer_id = "approved-peer-xyz"
+    _add_peer_via_api(app_clean, account_id, new_peer_id)
+
+    # Step 3: go back to the grid and re-open the same connector.
+    page.locator('[data-testid="back-connector-btn"]').click()
+    expect(card).to_be_visible(timeout=5000)
+    card.click()
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
+
+    # Step 4: the re-fetched editor must show the newly-added peer chip.
+    _activate_access_and_routing_tab(page)
+    peers_chiplist = page.locator('[data-testid="connector-allowlist-peers-chiplist"]')
+    expect(peers_chiplist).to_be_attached()
+    peer_chip = peers_chiplist.locator('.chip', has_text=new_peer_id)
+    expect(peer_chip).to_be_visible(timeout=5000)

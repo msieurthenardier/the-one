@@ -12,7 +12,7 @@ from the_one.db._provider_types import PROVIDER_TYPES
 
 logger = logging.getLogger(__name__)
 
-CURRENT_VERSION = 27
+CURRENT_VERSION = 29
 
 # Render the provider-type CHECK constraint as a comma-separated SQL
 # literal list, sourced from PROVIDER_TYPES. Both SCHEMA_V1 (fresh-DB
@@ -1814,3 +1814,143 @@ CREATE INDEX idx_chat_sessions_external_key
         )
         await conn.commit()
         version = 27
+
+    if version < 28:
+        # M11 F17 L8 (Leg D) — drop ``dm_allowed`` from account-scope
+        # ``connectors.config.allowlist.peers`` entries.
+        #
+        # Post-F16 the account-scope ``peers`` axis gates DMs only, so
+        # membership in the list already means "this person may DM."
+        # The per-peer ``dm_allowed`` flag (introduced by F12 L3 v24)
+        # is a redundant two-step that confuses operators: approve adds
+        # ``{id, dm_allowed:False}`` then the operator must flip a
+        # toggle before the peer can actually DM. This migration strips
+        # ``dm_allowed`` → bare ``{id: str}`` so in-list == can-DM.
+        #
+        # Semantic effect: any peer that was previously approved but had
+        # ``dm_allowed=False`` (stuck in limbo) is now admitted under
+        # ``dm_admission="admin-approved"`` after the migration. This is
+        # the intended fix for the F3a / F16-parked Known Issue.
+        #
+        # Target shape: ``{id: str}`` bare dicts — parallel to the
+        # post-v26 per-agent peers shape; NOT plain strings — avoids a
+        # future migration + matches precedent.
+        #
+        # Idempotency: skip a row if ``peers`` is empty OR the first
+        # entry has no ``"dm_allowed"`` key (already in the bare
+        # ``{id}`` shape). Mirror v24's guard at schema.py:1252.
+        #
+        # Defensive: skip when the ``connectors`` table is missing
+        # (hand-built partial-schema test fixtures) — mirrors
+        # v25/v26/v27 defensive pattern.
+        #
+        # Note: per-agent ``connector_acls.peers`` was already stripped
+        # of ``dm_allowed`` by v26; only ``connectors.config`` needs
+        # touching here.
+        #
+        # Row access uses POSITIONAL indexing (mirrors v24/v25/v26/v27)
+        # so the migration works against hand-built test fixtures that
+        # don't configure ``conn.row_factory = aiosqlite.Row``.
+        import json as _json
+
+        async with conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name='connectors'"
+        ) as cursor:
+            connectors_table_present = (await cursor.fetchone()) is not None
+        if connectors_table_present:
+            async with conn.execute(
+                "SELECT id, config FROM connectors"
+            ) as cursor:
+                connector_rows = await cursor.fetchall()
+            for row in connector_rows:
+                connector_id = row[0]
+                config_str = row[1] or "{}"
+                config = _json.loads(config_str)
+                allowlist = config.get("allowlist")
+                if allowlist is None:
+                    continue
+                peers = allowlist.get("peers", [])
+                # Idempotency guard: skip if already in bare ``{id}``
+                # shape (no ``dm_allowed`` key on first entry).
+                if not peers or "dm_allowed" not in peers[0]:
+                    continue
+                # Strip ``dm_allowed`` from every entry; retain ``id``
+                # and any other future keys.
+                allowlist["peers"] = [
+                    {k: v for k, v in entry.items() if k != "dm_allowed"}
+                    for entry in peers
+                    if isinstance(entry, dict)
+                ]
+                config["allowlist"] = allowlist
+                await conn.execute(
+                    "UPDATE connectors SET config = ? WHERE id = ?",
+                    (_json.dumps(config), connector_id),
+                )
+
+        await conn.execute(
+            "INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (28,)
+        )
+        await conn.commit()
+        version = 28
+
+    if version < 29:
+        # M11 F17 L10 (Leg F) — respond-on-approval: persist the full
+        # original message and enough envelope context to re-dispatch it
+        # when the operator approves the peer.
+        #
+        # Four additive nullable columns on ``pending_approvals``:
+        #   - ``original_message TEXT``  — the full ``envelope.text``
+        #     (NOT the truncated ``preview``), used to reconstruct the
+        #     inbound replay after approval.
+        #   - ``channel_id TEXT``        — the DM channel id from the
+        #     original inbound envelope; needed to reconstruct the
+        #     ``InboundEnvelope`` at replay time.
+        #   - ``thread_id TEXT``         — the thread id (NULL for top-
+        #     level DM messages, which is the normal DM case).
+        #   - ``is_dm INTEGER``          — 1 if the original message was
+        #     a direct message (used in the replay envelope's ``raw``
+        #     dict); stored as INTEGER per SQLite bool convention.
+        #
+        # Simple additive ALTER ADD COLUMN — no row-rewrite ceremony
+        # needed. Follows the v8/v9/v11/v14/v15/v17/v18/v20 ALTER ADD
+        # COLUMN pattern (PRAGMA guard per column + INSERT OR IGNORE on
+        # schema_version LAST). Nullable = no DEFAULT clause required
+        # (SQLite columns are nullable by default; an explicit DEFAULT
+        # NULL would appear as the literal string "NULL" in PRAGMA
+        # table_info — see v8 comment block).
+        #
+        # Defensive: skip when ``pending_approvals`` is missing (hand-
+        # built partial-schema test fixtures that don't run through v21).
+        async with conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name='pending_approvals'"
+        ) as cursor:
+            pa_table_present = (await cursor.fetchone()) is not None
+        if pa_table_present:
+            async with conn.execute(
+                "PRAGMA table_info(pending_approvals)"
+            ) as cursor:
+                pa_cols = {row[1] for row in await cursor.fetchall()}
+            if "original_message" not in pa_cols:
+                await conn.execute(
+                    "ALTER TABLE pending_approvals ADD COLUMN original_message TEXT"
+                )
+            if "channel_id" not in pa_cols:
+                await conn.execute(
+                    "ALTER TABLE pending_approvals ADD COLUMN channel_id TEXT"
+                )
+            if "thread_id" not in pa_cols:
+                await conn.execute(
+                    "ALTER TABLE pending_approvals ADD COLUMN thread_id TEXT"
+                )
+            if "is_dm" not in pa_cols:
+                await conn.execute(
+                    "ALTER TABLE pending_approvals ADD COLUMN is_dm INTEGER"
+                )
+
+        await conn.execute(
+            "INSERT OR IGNORE INTO schema_version (version) VALUES (?)", (29,)
+        )
+        await conn.commit()
+        version = 29

@@ -8,9 +8,10 @@ consumes after picking an agent.
 M11 F12 L3: structured-tuple storage for peers / channels / roles
 landed (v24 migration). All helpers consume structured dicts:
 
-  - ``peers`` (account-scope): ``list[{id: str, dm_allowed: bool}]`` —
-    the **DM-admission** axis (M11 F16 L1: consulted only in the
-    DM-context path; it does NOT gate guild-channel admission)
+  - ``peers`` (account-scope): ``list[{id: str}]`` bare dicts —
+    the **DM-admission** axis (M11 F17 L8: consulted only in the
+    DM-context path; it does NOT gate guild-channel admission;
+    in-list == can-DM post-v28, per-peer ``dm_allowed`` flag retired)
   - ``peers`` (per-agent, post-F13 L2): ``list[{id: str}]`` —
     ``dm_allowed`` is REJECTED at this scope (F12 footgun retirement);
     a guild-routing narrowing modifier (F15 L4), distinct from the
@@ -497,36 +498,33 @@ def _admits_inbound_dm(
     per-agent ``admit_dms`` axis. Channels / guilds / roles axes are
     intentionally skipped.
 
-    **M11 F12 L3 — DM Composition Truth Table (operator-confirmed)**:
+    **M11 F17 L8 (Leg D) — simplified DM Composition (operator-confirmed)**:
 
     ``admit_dm = (admit_dms is not False)
-              AND (peer in allowlist)
-              AND (dm_admission == "all" OR
-                   (dm_admission == "admin-approved" AND
-                    peer.dm_allowed == true))``
+              AND (dm_admission == "all"
+                   OR (dm_admission == "admin-approved" AND peer in allowlist)
+                   OR dm_admission == "none" → deny)``
 
     Where:
 
       - ``admit_dms`` is the per-agent opt-out (``bool | None``;
         ``False`` short-circuits to deny; ``True`` / ``None`` defer
         to the account-scope composition).
-      - ``peer in allowlist`` is the peers-axis membership check
-        (account-scope; structured-dict id match per F12 L3).
       - ``dm_admission`` is the account-scope DM-admission policy
         Literal (``"none"`` / ``"admin-approved"`` / ``"all"``).
-      - ``peer.dm_allowed`` is the per-peer (account-scope) DM
-        toggle introduced by F12 L3; ONLY consulted under the
-        ``"admin-approved"`` policy mode. Under ``"all"`` it is
-        ignored; under ``"none"`` admission is denied regardless.
+      - ``peer in allowlist`` is the peers-axis membership check
+        (account-scope; bare ``{id: str}`` dicts post-v28).
 
-    **Per-agent peers entries DO NOT carry a ``dm_allowed`` field**
-    (F13 L2 — F12 footgun retirement; the v26 migration strips the
-    field from stored data and the Pydantic validator at
-    ``the_one/agent/config.py:_validate_connector_acls`` REJECTS it
-    post-v26). DM admission is decided at the account-scope per-peer
-    ``dm_allowed`` only. If a future flight wants per-agent DM
-    granularity (e.g. "this peer can DM agent A but not agent B"),
-    that requires a substrate change.
+    Policy semantics:
+      - ``"none"`` → deny all DMs regardless of the peers list.
+      - ``"all"`` → admit any DM (the peers list is irrelevant —
+        a non-listed peer is still admitted under ``"all"``).
+      - ``"admin-approved"`` → admit iff peer is in
+        ``allowlist.peers``. In-list == can-DM (no per-peer toggle).
+
+    The pre-v28 ``dm_allowed`` per-peer flag has been retired (v28
+    migration strips it). Per-agent peers entries never carried
+    ``dm_allowed`` (F13 L2 / v26 migration).
 
     Private helper — callers outside ``_acl.py`` should consult
     :func:`admits_inbound` (the public dispatcher) directly.
@@ -534,8 +532,7 @@ def _admits_inbound_dm(
     del channel_id  # DM path does not consult the channels axis.
     account_id = account.id
 
-    # Per-agent admit_dms — deny short-circuit (composition rule
-    # factor 1: admit_dms is not False).
+    # Per-agent admit_dms — deny short-circuit (factor 1).
     if agent_acl is not None:
         admit_dms = agent_acl.get("admit_dms")
         if admit_dms is False:
@@ -545,65 +542,38 @@ def _admits_inbound_dm(
                 f"{account_id!r}",
             )
 
-    # Account-scope.
+    # Account-scope dm_admission gate (factor 2).
+    # When no allowlist is set the account is unrestricted —
+    # skip the dm_admission + peers-axis checks entirely (mirrors the
+    # F6 HAT-redesigned "empty list = unrestricted" defaulting anchor
+    # at account scope; ``allowlist`` absent == no explicit restriction).
     allowlist = account.config.get("allowlist")
-    peer_entry: dict[str, Any] | None = None
     if allowlist is not None:
-        allowed_peers = allowlist.get("peers", [])
-        # Locate the structured peer entry (composition rule factor 2:
-        # peer in allowlist; structured-dict id match per F12 L3).
-        peer_entry = next(
-            (p for p in allowed_peers if p["id"] == peer_id), None
-        )
-        # Peers-axis membership: if peers is non-empty AND the peer is
-        # not in it, deny BEFORE consulting dm_admission (precedence
-        # per F12 L3 cycle-1 cell-#3 clarification).
-        if allowed_peers and peer_entry is None:
-            return (
-                False,
-                f"peer_id {peer_id!r} is not admitted on account "
-                f"{account_id!r}",
-            )
-
-        # M11 F10 L1 + M11 F12 L3 — DM-context branch.
-        # ``dm_admission`` gates DM admission orthogonally to
-        # channels/guilds/roles (which restrict guild-context messages).
         dm_admission = allowlist.get("dm_admission", "admin-approved")
+
         if dm_admission == "none":
-            # Composition rule factor 3a: dm_admission == "all" OR
-            # "admin-approved" — "none" fails this regardless.
             return (
                 False,
                 f"DM denied: account {account_id!r} dm_admission is "
                 f"'none'",
             )
-        if dm_admission == "admin-approved":
-            # Composition rule factor 3b: admin-approved requires
-            # peer in allowlist AND peer.dm_allowed == true.
-            if peer_entry is None:
-                # admin-approved + no peers (or peer not in non-empty
-                # peers — but that branch already returned above) →
-                # deny (no one approved yet under this policy).
+
+        if dm_admission != "all":
+            # dm_admission == "admin-approved": admit iff peer is in the
+            # Direct Messages list. In-list == can-DM (no per-peer
+            # toggle post-v28). Under "all" skip the membership check.
+            allowed_peers = allowlist.get("peers", [])
+            peer_in_list = any(p["id"] == peer_id for p in allowed_peers)
+            if not peer_in_list:
                 return (
                     False,
                     f"DM denied: account {account_id!r} dm_admission "
                     f"is 'admin-approved' and peer not in allowlist",
                 )
-            if not peer_entry.get("dm_allowed", False):
-                return (
-                    False,
-                    f"DM denied: peer {peer_id!r} has dm_allowed=false "
-                    f"under admin-approved policy on account "
-                    f"{account_id!r}",
-                )
-        # dm_admission == "all": ignore per-peer dm_allowed; admit
-        # (peers-axis check above already enforced the allowlist
-        # membership when peers is non-empty).
+        # dm_admission == "all": fall through — any peer admitted.
 
-    # Per-agent.
+    # Per-agent peers axis (tri-state narrowing).
     if agent_acl is not None:
-        # Peers axis (always consulted — tri-state semantic preserved).
-        # Structured-dict id match per F12 L3.
         agent_peers = agent_acl.get("peers")
         if agent_peers is None:
             pass  # inherit account-scope
@@ -620,12 +590,10 @@ def _admits_inbound_dm(
                 f"peer_id {peer_id!r} is not admitted for this agent on "
                 f"account {account_id!r}",
             )
-        # admit_dms already deny-short-circuited above. admit_dms is
-        # None (inherit) or True (explicit-affirm — same effect as
-        # inherit when account-scope permits): fall through. The
-        # account-scope ``dm_admission`` gate above already validated
-        # DM admissibility; per-agent channels/guilds/roles axes are
-        # intentionally skipped for DMs under the orthogonal posture.
+        # admit_dms already deny-short-circuited above. The
+        # account-scope dm_admission gate validated DM admissibility;
+        # per-agent channels/guilds/roles axes are intentionally skipped
+        # for DMs under the orthogonal posture.
     return True, ""
 
 

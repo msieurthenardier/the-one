@@ -235,6 +235,18 @@ async def wait_for_session(
         )
 
 
+def routing_len(detail: dict) -> int:
+    """Return the number of ``session_metadata.routing`` entries.
+
+    Extracted from the inline ``_routing_len`` closure in
+    :func:`post_and_wait_new_routing` so the before/after count logic is
+    testable hermetically (no creds, no network) — the same function the
+    live test relies on.
+    """
+    meta = detail.get("session_metadata") or {}
+    return len(meta.get("routing") or [])
+
+
 def latest_routing_entry(detail: dict) -> dict | None:
     """Return the most-recent ``session_metadata.routing`` entry, or None."""
     meta = detail.get("session_metadata") or {}
@@ -497,14 +509,10 @@ async def post_and_wait_new_routing(
         def until_entry(entry: dict) -> bool:
             return entry.get("disposition") in {"stepped", "no-eligible"}
 
-    def _routing_len(detail: dict) -> int:
-        meta = detail.get("session_metadata") or {}
-        return len(meta.get("routing") or [])
-
     # Snapshot the routing length before posting so we can detect a NEW entry
     # (not a re-read of a historical one from an earlier phase).
     before_detail = await wait_for_session(base_url, connector_id, channel_id)
-    before = _routing_len(before_detail)
+    before = routing_len(before_detail)
 
     await bots.post(sender_idx, channel_id, content)
 
@@ -512,7 +520,7 @@ async def post_and_wait_new_routing(
         base_url,
         connector_id,
         channel_id,
-        until=lambda d: _routing_len(d) > before
+        until=lambda d: routing_len(d) > before
         and until_entry(latest_routing_entry(d) or {}),
         timeout=timeout,
         poll_interval=poll_interval,
