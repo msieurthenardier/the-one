@@ -149,6 +149,10 @@ lint: ## Ruff check (read-only)
 format: ## Ruff format (writes changes)
 	docker exec the-one ruff format the_one/ tests/
 
+.PHONY: format-check
+format-check: ## Ruff format check (read-only)
+	docker exec the-one ruff format --check the_one/ tests/
+
 # ── Drift detection (host-side) ────────────────────────────────────────
 
 .PHONY: doctor

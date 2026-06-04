@@ -1,0 +1,11 @@
+# Lint/format enforcement gate. Ruff runs in pre-commit's own isolated env
+# keyed by `rev`, so the hook is unaffected by the host venv's ruff version.
+# The hooks honor pyproject.toml's [tool.ruff] config (no custom file args).
+# Activate once with `pre-commit install` (see CLAUDE.md ## Commands).
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.15
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
