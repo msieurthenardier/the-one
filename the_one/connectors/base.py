@@ -372,9 +372,7 @@ class ConnectorPlugin(Protocol):
 
         Raises :class:`ConnectorConfigError` if the account's config or
         secrets are invalid for this plugin; :class:`ConnectorConnectionError`
-        if the platform is unreachable; :class:`ConnectorAuthRequired` if
-        the platform reports that the operator needs to re-authenticate
-        before connection can proceed.
+        if the platform is unreachable.
         """
         ...
 

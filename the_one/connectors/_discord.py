@@ -537,8 +537,9 @@ class DiscordClient:
                         content = "[ephemeral fallback] " + content
                     else:
                         # A non-401 HTTPException is a real send failure, not
-                        # a token-expiry — surface it via the channel ladder's
-                        # mapping rather than silently masking it.
+                        # a token-expiry — raise a typed ConnectorConnectionError
+                        # (matching the channel-ladder generic-HTTPException mapping)
+                        # so every Discord send path honors the typed-error contract.
                         log_disposition(
                             account_id=self._account_id,
                             channel_id=target.channel_id,
@@ -548,7 +549,7 @@ class DiscordClient:
                             error_type=type(exc).__name__,
                             reason="ephemeral_followup",
                         )
-                        raise
+                        raise ConnectorConnectionError(f"Discord send failed: {exc}") from exc
 
         destination = await self._resolve_destination(target)
 

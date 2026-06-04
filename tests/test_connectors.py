@@ -9,7 +9,6 @@ import pytest
 from the_one.connectors import (
     OPERATOR_VISIBILITY,
     PLATFORM_SEND_OK_PREFIX,
-    ConnectorAuthRequired,
     ConnectorClient,
     ConnectorClientError,
     ConnectorConfigError,
@@ -51,14 +50,13 @@ def clean_registry():
 
 
 class TestConnectorExceptions:
-    """The 6-type exception hierarchy."""
+    """The 5-type exception hierarchy."""
 
     def test_subclassing_chain(self) -> None:
         """Every leaf inherits from ConnectorClientError, which inherits from Exception."""
         for cls in (
             ConnectorConfigError,
             ConnectorConnectionError,
-            ConnectorAuthRequired,
             ConnectorRegistrationError,
             ConnectorRateLimitError,
         ):
@@ -75,16 +73,6 @@ class TestConnectorExceptions:
     def test_connection_error_constructible_plain(self) -> None:
         exc = ConnectorConnectionError("gateway timeout")
         assert "gateway timeout" in str(exc)
-
-    def test_auth_required_carries_account_id(self) -> None:
-        exc = ConnectorAuthRequired(account_id="a1", account_name="My Bot")
-        assert exc.account_id == "a1"
-        assert exc.account_name == "My Bot"
-        assert "a1" in str(exc)
-
-    def test_auth_required_account_name_optional(self) -> None:
-        exc = ConnectorAuthRequired(account_id="a1")
-        assert exc.account_name is None
 
     def test_registration_error(self) -> None:
         exc = ConnectorRegistrationError(type_name="discord", reason="already registered")

@@ -31,25 +31,6 @@ class ConnectorConnectionError(ConnectorClientError):
     """Transport / network / handshake failure connecting to the platform."""
 
 
-class ConnectorAuthRequired(ConnectorClientError):  # noqa: N818  (control-flow signal, not "Error" semantically; subclass of ConnectorClientError)
-    """Raised when a connector operation requires user re-authentication.
-
-    Control-flow signal — mirrors :class:`the_one.mcp.errors.MCPAuthRequired`.
-    Carries ``account_id`` (always) and optional ``account_name`` for
-    operator-facing surfaces.
-    """
-
-    def __init__(
-        self,
-        account_id: str,
-        *,
-        account_name: str | None = None,
-    ) -> None:
-        super().__init__(f"Authorization required for connector account {account_id}")
-        self.account_id = account_id
-        self.account_name = account_name
-
-
 class ConnectorRegistrationError(ConnectorClientError):
     """Raised when a connector type cannot register cleanly.
 

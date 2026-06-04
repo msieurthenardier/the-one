@@ -1,6 +1,6 @@
 # Flight: Connector Error-Handling Correctness
 
-**Status**: ready
+**Status**: landed
 **Mission**: [Maintenance (Post-M11)](../../mission.md)
 
 ## Contributing to Criteria
@@ -16,7 +16,7 @@
 Wire the connector error taxonomy through completely: stop the collapsed broad-except from swallowing programming errors as "connection errors" (T2), map the one send path that leaks a raw SDK exception (T1), and resolve the dead `ConnectorAuthRequired` type (Q2). All three are facets of "the error taxonomy exists but isn't fully wired."
 
 ### Open Questions
-- [ ] Q2 disposition — wire `ConnectorAuthRequired` into the Discord auth-failure path, or delete it? See Design Decisions for the recommended call; confirm at flight start.
+- [x] Q2 disposition — **RESOLVED at flight start: DELETE.** Investigation found no caller branches on connector error subtype and no operator surface consumes a "needs re-auth" distinction (the `app.py` `auth_required` machinery is the unrelated MCP tool-call OAuth pause). Wiring would leave the type dead-in-practice; deletion resolves the dead signal honestly (YAGNI for maintenance). Operator confirmed. This also moots the Flight 02 N818 concern (symbol + its noqa removed).
 
 ### Design Decisions
 
@@ -47,9 +47,9 @@ Wire the connector error taxonomy through completely: stop the collapsed broad-e
 Three small, independent fixes, each with a regression test. T2: narrow the except + remove noqa. T1: wrap the non-401 raise in the typed error. Q2: wire (or delete) `ConnectorAuthRequired`. Each leg adds a targeted test so the taxonomy contract is pinned going forward.
 
 ### Checkpoints
-- [ ] T2 fixed + test asserting a non-connector exception propagates
-- [ ] T1 fixed + test asserting a typed error from the ephemeral path
-- [ ] Q2 resolved + test (raise-path test, or absence-confirming after deletion)
+- [x] T2 fixed + test asserting a non-connector exception propagates (and isn't recorded)
+- [x] T1 fixed + test asserting a typed error from the ephemeral path
+- [x] Q2 resolved (deleted) + grep-zero confirmation; suite green after removal
 
 ### Adaptation Criteria
 
@@ -60,19 +60,19 @@ Three small, independent fixes, each with a regression test. T2: narrow the exce
 - The exact connector error types caught in T2, based on what the save-warm path can actually raise.
 
 ### Legs
-- [ ] `01-narrow-broad-except` - Fix the collapsed `except (ConnectorClientError, Exception)` (T2)
-- [ ] `02-map-ephemeral-followup-error` - Map the non-401 `HTTPException` to a typed error (T1)
-- [ ] `03-resolve-connector-auth-required` - Wire or delete `ConnectorAuthRequired` (Q2)
+- [x] `01-narrow-broad-except` - Fix the collapsed `except (ConnectorClientError, Exception)` (T2)
+- [x] `02-map-ephemeral-followup-error` - Map the non-401 `HTTPException` to a typed error (T1)
+- [x] `03-resolve-connector-auth-required` - Delete dead `ConnectorAuthRequired` (Q2)
 
 ---
 
 ## Post-Flight
 
 ### Completion Checklist
-- [ ] All legs completed
+- [x] All legs completed
 - [ ] Code merged
-- [ ] Tests passing
-- [ ] Documentation updated (`base.py` docstring / agents.md error-taxonomy note if Q2 changes the contract)
+- [x] Tests passing
+- [x] Documentation updated (`base.py` docstring clause removed; `agents.md` error-taxonomy count 6→5)
 
 ### Verification
 `docker exec the-one pytest tests/test_connectors_discord.py tests/test_connector_send_tool.py -q` green; the new regression tests assert: a programming error propagates past the save-warm handler (T2); the ephemeral-followup non-401 path raises a `ConnectorClientError` subtype (T1); `ConnectorAuthRequired` is either raised on auth failure or absent from the codebase (Q2).
