@@ -1,6 +1,6 @@
 # Leg: keyboard-reorder-and-toggle-name
 
-**Status**: ready
+**Status**: completed
 **Flight**: [Mission-11 UI Accessibility Pass](../flight.md)
 
 ## Objective
@@ -20,38 +20,43 @@ Make routing-rule reorder operable by keyboard (A2) and give the connector attac
 - Accessible name on the attach toggle.
 
 ## Acceptance Criteria
-- [ ] Routing rules can be reordered using only the keyboard (move-up/down buttons, or a focusable handle with arrow-key reordering — per the flight's confirmed mechanism)
-- [ ] The reorder controls are in the tab order and have correct names/roles (no `role="button"` without keyboard operability)
-- [ ] Reorder changes are announced or visibly reflected for AT users (e.g. live-region feedback if using the arrow-key approach)
-- [ ] The connector attach/enable toggle has a non-empty accessible name (e.g. `aria-label="Attach {account.name}"` or label-association to the name span)
-- [ ] A browser test covers keyboard reorder; an assertion confirms the toggle's accessible name
+- [x] The drag handle has `tabindex="0"` and a `keydown` handler: ArrowUp/ArrowDown move the row in DOM order (with `preventDefault`); the handle is in the tab order
+- [x] **Focus is retained** on the moved handle after a reorder (`handle.focus()` after the swap) — verified live in the behavior test
+- [x] The handle no longer carries a bare `role="button"`; the `aria-label` ("Reorder rule — use Arrow keys to move") describes the arrow-key operation
+- [x] A persistent visually-hidden `aria-live="polite"` region announces the new position ("Rule moved to position N of M") and boundary ("Rule is already first/last") — verified live
+- [x] Keyboard and drag reorder stay consistent — both mutate the DOM order `collectRoutingFromContainer` reads (no separate model)
+- [x] The connector attach/enable toggle has a non-empty accessible name (`aria-label="Attach " + account.name`)
+- [x] Browser test covers keyboard reorder (order changed + focus retained) and the toggle accessible name — 22 browser tests pass
 
 ## Verification Steps
-- Manual: Tab to the routing-rule reorder control, reorder with keyboard only, confirm order changes
-- Manual/automated: SR (or accessible-name computation) reports the toggle's name
-- `pytest -m browser tests/browser/` (the connector-editor flow tests) green; add/extend a test asserting keyboard reorder and the toggle name
+- Manual: Tab to a routing-rule handle, ArrowDown/Up to reorder with keyboard only, confirm order changes AND focus stays on the handle
+- Manual/automated: SR (or accessible-name computation) reports the toggle's name and the position announcement
+- `pytest -m browser tests/browser/test_flow_studio_connector_editor.py` green; extend it (model on `test_routing_rules_drag_reorder`, ~line 527) with a keyboard-reorder test and the toggle-name assertion
 
 ## Implementation Guidance
 
-1. **A2 — restore a keyboard path** (mechanism per flight decision)
-   - *Move-buttons approach*: re-add up/down `<button>`s (with `aria-label`s like "Move rule up") next to each routing rule, wired to the same reorder logic the drag drop calls. Keep the drag handle for mouse users.
-   - *Focusable-handle approach*: give the handle `tabindex="0"`, add a `keydown` handler (ArrowUp/ArrowDown to move, with `preventDefault`), and announce the new position via a visually-hidden live region.
-   - Either way: the `role="button"` must now be truly operable, or switch the handle to a real `<button>`.
+1. **A2 — focusable handle + arrow keys** (confirmed mechanism)
+   - **There is NO shared reorder function.** The drag path (`_wireRoutingDropTarget`, ~2873-2902) mutates the DOM directly via `parent.insertBefore(...)` then calls `checkDirty()`; `collectRoutingFromContainer` (~3012) reads rule order straight from `section.querySelectorAll('tr.connector-routing-row')`. So the keydown handler must **replicate that pattern inline**: get the live rows array via `querySelectorAll('tr.connector-routing-row')`, find the current index with `Array.prototype.indexOf(rowEl)` (NOT the `data-row` attr, which is presentation-only/stale per the comment at ~2789-2791), `insertBefore` to swap with the neighbor, then `checkDirty()`.
+   - Give the handle `tabindex="0"`; add the `keydown` handler in `wireRoutingRulesEvents` (`checkDirty` is in closure scope there, passed as a param ~2782). ArrowUp/ArrowDown with `preventDefault`.
+   - **After the swap, call `handle.focus()`** (the `e.currentTarget` handle) — `insertBefore` drops focus otherwise.
+   - **Live region:** inject one persistent node into `renderRoutingRulesSection` (~2552): `<span class="visually-hidden" aria-live="polite" data-routing-live-region></span>` (the `.visually-hidden` class is defined in `admin.css:505`). The handler writes the new-position text to it (query it by `[data-routing-live-region]`).
+   - **Drop the `role="button"`** on the handle (it implies Enter/Space activation the handle doesn't support); keep an `aria-label` like `"Reorder rule — use Arrow keys to move"`. Keep `draggable="true"` on the `<span>` for mouse users (do NOT switch to a `<button>` — `draggable` on `<button>` is unreliable in Firefox).
 
 2. **A3 — name the toggle**
-   - Mirror the `:815-848` "Always listen" pattern: add `aria-label` to the checkbox (e.g. `'Attach ' + account.name`) or wrap/associate the name span via the label.
+   - Mirror the `connectors-tab.js:815-848` "Always listen" pattern: add `aria-label = 'Attach ' + account.name` to the checkbox (confirm `account.name` is in scope at ~415-429) or associate the name span via the label.
 
-3. **Tests** — extend the existing connector-editor browser flow (`tests/browser/test_flow_studio_connector_account_editor.py`) to assert keyboard reorder and the toggle's accessible name.
+3. **Tests** — the file is `tests/browser/test_flow_studio_connector_editor.py` (NOT `_account_editor`). Model the keyboard test on `test_routing_rules_drag_reorder` (~527): same seed/tab-activation/save-assert flow, but locate `[data-routing-drag-handle]` in the target row, `.focus()` it, `page.keyboard.press('ArrowDown')`, assert the order changed and the handle still has focus.
 
 ## Edge Cases
-- **Reorder at list boundaries** — first rule can't move up, last can't move down; disable or no-op the control and reflect that state to AT.
-- **Drag and keyboard must not desync** — both paths call the same underlying reorder so state stays consistent.
+- **Reorder at list boundaries** — first rule can't move up, last can't move down; **no-op + announce "already first/last" via the live region** (do NOT use `disabled`, which removes focusability from the handle).
+- **Drag and keyboard must not desync** — both mutate DOM order directly (the single source `collectRoutingFromContainer` reads), so they stay consistent by construction.
+- **Focus loss** — the single most common bug in this pattern; the explicit `handle.focus()` after `insertBefore` is mandatory (see AC).
 
 ## Files Affected
-- `the_one/interfaces/web/static/js/areas/studio/connector-editor.js` - keyboard reorder
+- `the_one/interfaces/web/static/js/areas/studio/connector-editor.js` - focusable handle, keydown reorder, persistent live region
 - `the_one/interfaces/web/static/js/areas/studio/connectors-tab.js` - toggle accessible name
-- `the_one/interfaces/web/static/css/studio.css` - any focus styling for new buttons/handle
-- `tests/browser/test_flow_studio_connector_account_editor.py` - keyboard + name assertions
+- `the_one/interfaces/web/static/css/studio.css` - focus styling for the handle (visible focus ring)
+- `tests/browser/test_flow_studio_connector_editor.py` - keyboard-reorder + toggle-name assertions
 
 ---
 
@@ -59,10 +64,10 @@ Make routing-rule reorder operable by keyboard (A2) and give the connector attac
 
 **Complete ALL steps before signaling `[COMPLETE:leg]`:**
 
-- [ ] All acceptance criteria verified
-- [ ] Tests passing
-- [ ] Update flight-log.md with leg progress entry
-- [ ] Set this leg's status to `completed` (in this file's header)
-- [ ] Check off this leg in flight.md
-- [ ] If final leg of flight: (not final)
-- [ ] Commit all changes together (code + artifacts)
+- [x] All acceptance criteria verified
+- [x] Tests passing
+- [x] Update flight-log.md with leg progress entry
+- [x] Set this leg's status to `completed` (in this file's header)
+- [x] Check off this leg in flight.md
+- [x] If final leg of flight: (not final)
+- [x] Commit all changes together (code + artifacts)

@@ -794,3 +794,150 @@ def test_editor_reentry_reflects_peer_added_between_visits(app_clean: str, page:
     expect(peers_chiplist).to_be_attached()
     peer_chip = peers_chiplist.locator(".chip", has_text=new_peer_id)
     expect(peer_chip).to_be_visible(timeout=5000)
+
+
+# ── M12 F4 L1: A2 keyboard reorder + A3 attach-toggle accessible name ───────
+
+
+@pytest.mark.browser
+def test_routing_rules_keyboard_reorder(app_clean: str, page: Page) -> None:
+    """Focus handle → ArrowDown → order changes + focus retained on handle.
+
+    M12 F4 L1 A2: keyboard operability for routing-rule reorder. The
+    drag handle is now focusable (tabindex=0) with a keydown handler;
+    ArrowDown moves the focused row down one position in DOM order.
+    After the DOM swap the handle must retain focus (insertBefore drops
+    focus to <body> without the explicit handle.focus() call).
+
+    Models on test_routing_rules_drag_reorder (~527): same seed/tab-
+    activation/save-assert pattern, but drives keyboard instead of
+    mouse drag.
+    """
+    seeded_rules = [
+        {"scope": "channel", "match": ["kb-a"], "agent": "router-kb"},
+        {"scope": "channel", "match": ["kb-b"], "agent": "router-kb"},
+        {"scope": "channel", "match": ["kb-c"], "agent": "router-kb"},
+    ]
+    account_id, _agent = _seed_account_with_agent(
+        app_clean,
+        account_name="Keyboard Reorder Bot",
+        agent_name="router-kb",
+        config={"routing": {"rules": seeded_rules, "default": None}},
+    )
+    page.goto(f"{app_clean}#studio/connectors/{account_id}")
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
+    _activate_access_and_routing_tab(page)
+    _wait_for_routing_agent_dropdown_populated(page, "router-kb")
+
+    # Sanity: three rows in seeded order.
+    rows = page.locator("tr.connector-routing-row")
+    expect(rows).to_have_count(3)
+    expect(rows.nth(0).locator("[data-routing-match] .chip")).to_contain_text("kb-a")
+    expect(rows.nth(1).locator("[data-routing-match] .chip")).to_contain_text("kb-b")
+    expect(rows.nth(2).locator("[data-routing-match] .chip")).to_contain_text("kb-c")
+
+    # Focus the drag handle on row-0 and press ArrowDown.
+    # Expected: row-0 (kb-a) moves to position 1 → order becomes [kb-b, kb-a, kb-c].
+    handle = rows.nth(0).locator("[data-routing-drag-handle]")
+    handle.scroll_into_view_if_needed()
+    handle.focus()
+    expect(handle).to_be_focused()
+    page.keyboard.press("ArrowDown")
+
+    # Assert DOM order changed.
+    expect(rows.nth(0).locator("[data-routing-match] .chip")).to_contain_text("kb-b")
+    expect(rows.nth(1).locator("[data-routing-match] .chip")).to_contain_text("kb-a")
+    expect(rows.nth(2).locator("[data-routing-match] .chip")).to_contain_text("kb-c")
+
+    # Assert focus is retained on the moved handle (row index 1 after the swap).
+    moved_handle = rows.nth(1).locator("[data-routing-drag-handle]")
+    expect(moved_handle).to_be_focused()
+
+    # Save and verify persistence.
+    save_btn = page.locator('[data-testid="save-connector-btn"]')
+    expect(save_btn).not_to_be_disabled(timeout=4000)
+    save_btn.click()
+    expect(page.locator(".app-flash")).to_be_visible(timeout=8000)
+
+    page.reload()
+    page.wait_for_load_state("networkidle")
+    after = _get_account(app_clean, account_id)
+    routing = (after.get("config") or {}).get("routing")
+    assert routing is not None, f"routing config missing post-save: {after}"
+    persisted_matches = [r["match"] for r in routing["rules"]]
+    assert persisted_matches == [["kb-b"], ["kb-a"], ["kb-c"]], (
+        f"expected keyboard-reorder to produce [kb-b, kb-a, kb-c]; got {persisted_matches}"
+    )
+
+
+@pytest.mark.browser
+def test_attach_toggle_accessible_name(app_clean: str, page: Page) -> None:
+    """Attach toggle carries a non-empty aria-label including the connector name.
+
+    M12 F4 L1 A3: the per-connector attach/enable toggle in the Studio
+    connectors panel must have an accessible name so screen readers
+    announce something meaningful (not just "checkbox"). The aria-label
+    is set to "Attach <account.name>" at render time.
+
+    The toggle lives in the agent editor's Connectors tab (not the
+    standalone connectors grid). To see it: open an agent, click the
+    Connectors tab — the tile renders there with the toggle.
+    """
+    connector_name = "A11y Toggle Bot"
+    provider_id = seed_mock_provider(app_clean, name="mock-for-a11y-toggle")
+    agent_name = seed_mock_agent(app_clean, provider_id, name="a11y-toggle-agent")
+    account_id = seed_connector(app_clean, name=connector_name)
+    # Attach the connector to the agent so it appears on the Connectors tab.
+    _attach_agent_to_account(app_clean, agent_name, account_id)
+
+    # Open the agent editor → Connectors tab (where the tile renders).
+    page.goto(f"{app_clean}#studio/agents/{agent_name}")
+    expect(page.locator('[data-testid="tab-connectors"]')).to_be_visible(timeout=8000)
+    page.locator('[data-testid="tab-connectors"]').click()
+
+    # The connector tile must be visible.
+    tile = page.locator(f'[data-testid="connector-row-{account_id}"]')
+    expect(tile).to_be_visible(timeout=8000)
+
+    # The toggle checkbox must carry aria-label="Attach <name>".
+    toggle = tile.locator(f'[data-testid="connector-toggle-{account_id}"]')
+    expect(toggle).to_have_attribute("aria-label", f"Attach {connector_name}")
+
+
+# ── M12 F4 L3 A5: connector-editor section titles are <h2> ───────────────────
+
+
+@pytest.mark.browser
+def test_connector_editor_section_titles_are_h2(app_clean: str, page: Page) -> None:
+    """Connector-editor section titles render as <h2> elements, not <div>.
+
+    M12 F4 L3 A5: the editor's section titles (Connection, Credentials,
+    Session, Danger Zone) must be programmatic headings so screen-reader
+    users can navigate the long form by heading structure. The single
+    <h1> editor title must still exist; all section titles must be <h2>
+    under it (no skipped heading levels).
+
+    Uses edit mode so all sections — including the Danger Zone — are
+    present in the DOM at once.
+    """
+    account_id = seed_connector(app_clean, name="Heading Bot")
+    page.goto(f"{app_clean}#studio/connectors/{account_id}")
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
+
+    editor = page.locator(".connector-editor")
+
+    # There must be exactly one <h1> in the editor.
+    expect(editor.locator("h1")).to_have_count(1)
+
+    # Core section titles must be <h2>, not <div>.
+    for title_text in ("Connection", "Credentials", "Session"):
+        h2 = editor.locator("h2.section-title", has_text=title_text)
+        expect(h2).to_be_attached()
+
+    # Danger Zone title is edit-mode-only — must also be <h2>.
+    danger_h2 = editor.locator("h2.section-title.danger-zone-title")
+    expect(danger_h2).to_be_attached()
+    expect(danger_h2).to_contain_text("Danger Zone")
+
+    # No section-title <div>s should remain in the connector editor.
+    expect(editor.locator("div.section-title")).to_have_count(0)

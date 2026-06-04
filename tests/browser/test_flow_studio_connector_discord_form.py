@@ -448,3 +448,101 @@ def test_kv_table_key_round_trips_on_save(app_clean: str, page: Page) -> None:
     assert reloaded["config"].get("ingest_bots") == "true", (
         f"ingest_bots lost after reload; config={reloaded['config']!r}"
     )
+
+
+# ── M11 F4 L2 (Leg 2) tests — live-region and presence-label accessibility ──
+
+
+@pytest.mark.browser
+def test_presence_controls_have_accessible_names(app_clean: str, page: Page) -> None:
+    """Presence-type select and presence-name input each have an
+    accessible name via associated ``<label for>`` elements (A4, WCAG
+    1.3.1 / 4.1.2, Level A).
+
+    M11 F4 L2: ``id="cf-discord-presence-type"`` and
+    ``id="cf-discord-presence-name"`` added to the controls; visually-
+    hidden labels with matching ``for`` attributes provide accessible
+    names to screen readers.
+    """
+    account_id = _seed_discord(app_clean, name="Label-Check Bot", config={})
+    page.goto(f"{app_clean}#studio/connectors/{account_id}")
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
+
+    _activate_access_and_routing_tab(page)
+
+    # Presence-type select must have id and an associated label.
+    attrs = page.evaluate(
+        """
+        () => {
+            const sel = document.querySelector('#cf-discord-presence-type');
+            if (!sel) return {found: false};
+            const lbl = document.querySelector('label[for="cf-discord-presence-type"]');
+            return {
+                found: true,
+                hasId: sel.id === 'cf-discord-presence-type',
+                labelText: lbl ? lbl.textContent.trim() : null,
+            };
+        }
+        """
+    )
+    assert attrs["found"], "presence-type select with id='cf-discord-presence-type' not found"
+    assert attrs["hasId"], "presence-type select id mismatch"
+    assert attrs["labelText"], "no <label for='cf-discord-presence-type'> found"
+
+    # Presence-name input must have id and an associated label.
+    name_attrs = page.evaluate(
+        """
+        () => {
+            const inp = document.querySelector('#cf-discord-presence-name');
+            if (!inp) return {found: false};
+            const lbl = document.querySelector('label[for="cf-discord-presence-name"]');
+            return {
+                found: true,
+                hasId: inp.id === 'cf-discord-presence-name',
+                labelText: lbl ? lbl.textContent.trim() : null,
+            };
+        }
+        """
+    )
+    assert name_attrs["found"], "presence-name input with id='cf-discord-presence-name' not found"
+    assert name_attrs["hasId"], "presence-name input id mismatch"
+    assert name_attrs["labelText"], "no <label for='cf-discord-presence-name'> found"
+
+
+@pytest.mark.browser
+def test_live_status_region_aria_attributes(app_clean: str, page: Page) -> None:
+    """The connector live-status text span carries ``aria-live="polite"``
+    and the error wrap carries ``role="alert"`` (A1, WCAG 4.1.3, AA).
+
+    M11 F4 L2: attributes added to the static render in
+    ``renderLiveStatusRow`` — nodes persist across polls (rendered once,
+    mutated in place by ``_applyStatus``).
+    """
+    account_id = _seed_discord(app_clean, name="LiveStatus A11y Bot", config={})
+    page.goto(f"{app_clean}#studio/connectors/{account_id}")
+    expect(page.locator('[data-testid="save-connector-btn"]')).to_be_visible(timeout=8000)
+
+    aria_attrs = page.evaluate(
+        """
+        () => {
+            const statusText = document.querySelector(
+                '[data-testid="connector-live-status"]'
+            );
+            const errorWrap = document.querySelector(
+                '[data-testid="connector-live-status-error-wrap"]'
+            );
+            return {
+                statusTextAriaLive: statusText ? statusText.getAttribute('aria-live') : null,
+                errorWrapRole: errorWrap ? errorWrap.getAttribute('role') : null,
+            };
+        }
+        """
+    )
+    assert aria_attrs["statusTextAriaLive"] == "polite", (
+        f"expected aria-live='polite' on connector-live-status span; "
+        f"got {aria_attrs['statusTextAriaLive']!r}"
+    )
+    assert aria_attrs["errorWrapRole"] == "alert", (
+        f"expected role='alert' on connector-live-status-error-wrap; "
+        f"got {aria_attrs['errorWrapRole']!r}"
+    )
